@@ -44,6 +44,10 @@ const HTML = fs.readFileSync(nodePath.join(ROOT, 'web', 'index.html'));
 const WIN_HTML = HTML.toString()
   .replace('<meta name="kosmos-version" content="__KOSMOS_VERSION__">', '<meta name="kosmos-version" content="0.7.09">')
   .replace('<meta name="kosmos-platform" content="__KOSMOS_PLATFORM__">', '<meta name="kosmos-platform" content="win32">');
+// #5862: the same page as a Linux server serves it (no window, no Applications folder).
+const LINUX_HTML = HTML.toString()
+  .replace('<meta name="kosmos-version" content="__KOSMOS_VERSION__">', '<meta name="kosmos-version" content="0.7.09">')
+  .replace('<meta name="kosmos-platform" content="__KOSMOS_PLATFORM__">', '<meta name="kosmos-platform" content="linux">');
 const FILE_PAGE = 'file://' + nodePath.join(ROOT, 'web', 'index.html');
 
 const problems = [];
@@ -79,6 +83,11 @@ const server = http.createServer((req, res) => {
       return;
     }
     res.writeHead(404, { 'content-type': 'application/json' }); res.end('{}');
+    return;
+  }
+  if (req.url === '/linux') {   // #5862
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(LINUX_HTML);
     return;
   }
   if (req.url === '/win') {
@@ -292,6 +301,33 @@ const nextPolls = (page) => page.waitForTimeout(6500);
         small: logs.find((l) => /^Kosmos requires a full restart: /.test(l)) || '' };
       ok('[win] it gives the Windows remedy, not Command-Q', w.how === 'Close the Kosmos window, then open Kosmos again from the Start menu.', JSON.stringify(w.how));
       ok('[win] the logged details lead with the baked version', /^Kosmos requires a full restart: Version 0\.7\.09, nothing answered at 127\.0\.0\.1:\d+\.$/.test(w.small), JSON.stringify(w.small));
+    }
+    await page.close();
+  }
+
+  // ── #5862: a Linux server's page: the offline note and the screen name kosmos restart, never a folder or a window. ──
+  {
+    MODE = 'down';
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    page.on('pageerror', (e) => problems.push('[linux] pageerror: ' + e.message));
+    await page.goto('http://127.0.0.1:' + port + '/linux');
+    const stamped = await page.evaluate(() => ({ linux: onLinux(), win: onWindows() }));
+    ok('[linux] CONTROL: the served page really is a Linux page', stamped.linux === true && stamped.win === false, JSON.stringify(stamped));
+    const note = await page.waitForFunction(() => {
+      const t = document.getElementById('uoffline-slot').textContent || '';
+      return /not answering/.test(t) ? t : null;
+    }, null, { timeout: 12000 }).then((h) => h.jsonValue(), () => '');
+    const step = 'On the computer running Kosmos, run kosmos restart in a terminal (over SSH on a headless server)';
+    ok('[linux] the offline note names kosmos restart', note.includes(step + ' and it will start again.'), JSON.stringify(note));
+    ok('[linux] the offline note names no Applications folder', !/Applications folder|Kosmos\.exe/.test(note), JSON.stringify(note));
+    await ageIt(page);
+    const drawn = await page.waitForSelector('.restart-back', { timeout: 8000 }).then(() => true, () => false);
+    ok('[linux] the screen is drawn on Linux too', drawn);
+    if (drawn) {
+      const how = await page.evaluate(() => document.querySelector('.restart-back p').textContent);
+      ok('[linux] the screen names kosmos restart, not Command-Q or a folder', how === step + '.', JSON.stringify(how));
+      const bold = await page.evaluate(() => (document.querySelector('.restart-back p b') || {}).textContent || '');
+      ok('[linux] the command is set in bold, as markup and not as literal tags', bold === 'kosmos restart', JSON.stringify(bold));
     }
     await page.close();
   }

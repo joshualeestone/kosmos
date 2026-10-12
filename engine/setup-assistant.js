@@ -720,6 +720,46 @@ function accountConfigHomes(home) {
   return out;
 }
 
+/* #5774 route 5: the config homes OTHER Kosmos agents run with (a job's CLAUDE_CONFIG_DIR), from each job file named
+   after an agent in the agents' folder. Read from the files (create.readJobVerdict), never by asking launchd: the guard runs at
+   every refresh. Claude agents only (another runner's account folder is not a Claude config home). (The guard does not
+   run on Windows, so no Task Scheduler read happens here; review 11 corrected a note that said it did.) */
+function agentJobConfigDirs(workersRoot, platform) {   // platform: the guard's (tests drive the Linux reader)
+  const out = [];
+  let names = [];
+  // Review 1: an agents' folder that cannot be read is named by the caller (never a silent loss).
+  // Review 4: a linked agent folder too (a dirent of a link is not a directory).
+  // Review 12: sorted, so the 50-home cap picks the same homes at every refresh.
+  try { names = fs.readdirSync(workersRoot, { withFileTypes: true }).filter((d) => d.isDirectory() || (d.isSymbolicLink() && (() => { try { return fs.statSync(path.join(workersRoot, d.name)).isDirectory(); } catch { return false; } })())).map((d) => d.name).sort(); } catch (e) { if (e && e.code === 'ENOENT') return out; out.unreadable = (e && e.code) || String(e); return out; }
+  for (const name of names) {
+    /* Review 10: readJobVerdict tells a job that is absent (fine) from one that could not be read (an unreadable unit, a
+       failed task read): the latter is named, never a silent loss of that agent's config home. */
+    let v = null;
+    try { v = create.readJobVerdict(name, undefined, platform); } catch (e) { v = { job: null, because: (e && e.message) || String(e) }; }
+    const job = v && v.job;
+    // Review 11: a MASKED unit (Linux, #5445) is the person's on purpose: it cannot start, so it is no job, not a failure.
+    /* Reviews 18 and 19: a job file that is there but does not parse as a job (an old or hand-edited layout; on macOS the
+       reader says only job-or-null, on Linux it says why) is read for its config home directly, by the reader's own
+       pattern: covered, not named, so one odd file does not stop every creation. One without the key carries no config
+       home of its own. Only a file that cannot be read at all is named. */
+    if (!job && v && !v.absent && !v.masked && !v.win32) {
+      const linux = (platform || process.platform) === 'linux';
+      let text = null;
+      try { text = fs.readFileSync(linux ? require('./linuxjob').unitPath(name) : create.plistPath(name), 'utf8'); } catch (e) {
+        if (!(e && e.code === 'ENOENT') || v.because) (out.failed = out.failed || []).push(`${name} (${v.because || `its job file is there but could not be read: ${(e && e.code) || e}`})`);
+      }
+      if (text !== null) {
+        const m = linux ? /^Environment="?CLAUDE_CONFIG_DIR=([^"\n]*)"?$/m.exec(text) : /<key>CLAUDE_CONFIG_DIR<\/key>\s*<string>([\s\S]*?)<\/string>/.exec(text);
+        // Review 19: the plist's XML escapes decoded, as the reader does (&amp; last).
+        // Review 21: no runner filter here, as the parsed path has: only CLAUDE_CONFIG_DIR is read, which only a Claude job
+        // carries (codex, gemini and grok jobs carry their own keys). Widen the key and this must filter by runner.
+        if (m) out.push(linux ? m[1] : m[1].split('&lt;').join('<').split('&gt;').join('>').split('&apos;').join("'").split('&quot;').join('"').split('&amp;').join('&'));
+      }
+    }
+    if (job && job.configDir && (job.runner || 'claude') === 'claude') out.push(job.configDir);
+  }
+  return out;
+}
 /* #4491 reviews 14 and 15: true when a rule's PATH has a character the rule syntax reads as a pattern (the guide's #4752
    RULE_SYNTAX). The separator is made '/' first, as the guide does, so a Windows path's backslashes are not read as
    pattern characters (review 15: without that every Windows rule was dropped); the globs this file adds itself are
@@ -819,7 +859,7 @@ function launchPathDirs(agentDir, deps = {}) {
      Kosmos data root). A program or link that leads straight into one makes the guard NOT whole, said, instead of
      silently denying the agent its temp folder or Downloads. Only these exact folders, not what is inside them. */
   // The temp roots are also where the agent's sandboxed shell can write, which matters for a link on the way (review 16).
-  const temps = deps.launchTemps || [require('os').tmpdir(), '/tmp', '/private/tmp', '/var/tmp', '/private/var/tmp'];
+  const temps = deps.launchTemps || [require('os').tmpdir(), ...TEMP_ROOTS];
   const shared = deps.launchShared || [...temps, home,
     ...['Desktop', 'Documents', 'Downloads'].map((d) => path.join(home, d)), deps.dataRoot || store.ROOT];
   const plat = deps.platform || process.platform;
@@ -1256,7 +1296,7 @@ function foldersOf(value, home, xdgs, zdotNow = [], datas = []) {
 }
 /* The assignments `[export] NAME=value` in a startup file, each value as written (one quoted string unquoted), or
    null for a value with a quote in the middle (review 2: ZDOTDIR="$HOME"/.zsh must not read as "$HOME"). */
-function assignmentsIn(text, name) {
+function assignmentsIn(text, name, { quotedTildeOk = false } = {}) {   // #5774 route 5: a reader that expands ~ itself (Claude Code's plugin variables)
   const out = [];
   /* Review 14: anywhere on a TOP-LEVEL line (not indented, not a comment): `export A=1 ZDOTDIR=x`,
      `[[ -z $ZDOTDIR ]] && export ZDOTDIR=x`, `typeset -x ZDOTDIR=x`, and `: ${ZDOTDIR:=x}`. A conditional means "this
@@ -1288,7 +1328,7 @@ function assignmentsIn(text, name) {
         /* Review 11: a value of joined quoted and bare parts with no space ("$HOME"/.zsh) is unquoted part by part. A
            quoted ~ stays literal and a single-quoted $ is not expanded, so either is named; a quoted space is read. */
         const parts = [...m[1].matchAll(/"([^"]*)"|'([^']*)'|([^"']+)/g)];
-        if (parts.length && (parts[0][1] !== undefined || parts[0][2] !== undefined) && /^~/.test(parts[0][1] ?? parts[0][2])) { out.push(null); continue; }
+        if (!quotedTildeOk && parts.length && (parts[0][1] !== undefined || parts[0][2] !== undefined) && /^~/.test(parts[0][1] ?? parts[0][2])) { out.push(null); continue; }
         if (parts.some((q) => q[2] !== undefined && q[2].includes('$'))) { out.push(null); continue; }
         out.push(parts.map((q) => q[1] ?? q[2] ?? q[3]).join(''));
       }
@@ -1354,6 +1394,8 @@ const HOMEBREW_PREFIXES = ['/opt/homebrew', '/usr/local'];
    root is the user's own and writable, so a target directly in it is not read-only; it gets ONE stable rule for the
    store instead of its hashed name, as a Cellar does. */
 const STORE_ROOTS = ['/nix/store'];
+// The fixed per-run temp roots, beside the user's own temp folder (os.tmpdir()): the launch scan and #5774 route 5 read the one list.
+const TEMP_ROOTS = ['/tmp', '/private/tmp', '/var/tmp', '/private/var/tmp'];
 const storeIn = (roots, t) => roots.find((r) => t.startsWith(r + path.sep)) || null;
 /* Review 21: the folder a versioned or hashed path lives in, which gets one stable rule: a Homebrew Cellar or Caskroom
    (<...>/Cellar/<name>/<version>/...), or a store. Null for anything else. */
@@ -1671,13 +1713,99 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const concreteHomes = accountConfigHomes(home);
   /* Review 9: the agent's OWN config home, wherever it is (creation passes it; a launch or board start reads it from the
      job), so a CLAUDE_CONFIG_DIR outside ~/.claude* is covered for the agent's own account. Other agents' homes there
-     stay a stated gap. Review 11: one whose path the rules cannot carry is named in configUnsafe and left out, so the
-     rest of the guard is still written (the rule review 7 set for a link target), and the guard says it is not whole. */
+     are covered too since #5774 route 5 (from their jobs). Review 11: one whose path the rules cannot carry is named in
+     configUnsafe and left out, so the rest of the guard is still written (the rule review 7 set for a link target), and
+     the guard says it is not whole. */
   const ownHome = deps.accountConfigDir ? path.resolve(deps.accountConfigDir) : null;
+  /* Review 15 (#5774 route 5): the per-tick check in agentevents (guarded) passes no accountConfigDir, so there the
+     agent's own job home reads as another account's. That path compares the token rules only, which do not change with
+     it; its configUnsafe is not the writer's and must not be trusted. Pass the job's configDir before relying on it. */
   const configUnsafe = [];   // reviews 5, 6, 8 and 11: a link target, an ancestor, the agents' folder or the own home the rule syntax cannot carry, named
   if (ownHome && !concreteHomes.includes(ownHome)) {
     if (ruleHasPatternChar(`Edit(${ruleAbs(ownHome)}/**)`)) configUnsafe.push(`${ownHome} (the agent's own config home, whose path the permission rules cannot carry)`);
     else concreteHomes.push(ownHome);
+  }
+  /* #5774 route 5: another agent's config home outside ~/.claude* (its job's CLAUDE_CONFIG_DIR) is a config home like
+     these: its settings, code and instruction members are what that agent starts with. One the rules cannot carry is
+     named. Tests pass deps.agentConfigDirs. */
+  /* Review 2: read once per refresh pass (the pass's launchCache, which both the board-start refresh and the per-tick
+     check pass), not once per agent: N agents would otherwise read N job files each. A failure is named (never a silent
+     loss), and past 50 homes the rest are named, not listed (each home adds its members to the profile). */
+  let jobHomes = [];
+  /* Review 8: the job files are read only where they belong to THIS home (the launch folder inside it), or an explicit
+     sandbox names their folder: a caller that passes another home (a test) without one never reads the machine's real
+     jobs, and so never adds real config homes to its rules. Production's launch folder is inside the home. */
+  // (create.AGENTS_DIR is macOS's launch folder; on Linux and Windows the jobs live elsewhere, and this asks only whether the
+  // caller's home is the machine's, which that folder's place answers on every platform Kosmos runs on.)
+  const jobsHere = () => {
+    // Review 11: the platform's OWN job place: the systemd unit folder on Linux (AGENT_WORKFORCE_SYSTEMD_DIR), the launch
+    // folder on macOS (AGENT_WORKFORCE_LAUNCH). The guard does not run on Windows.
+    const linux = (deps.platform || process.platform) === 'linux';
+    // Review 21: on Linux the unit folder also follows AGENT_WORKFORCE_LAUNCH (linuxjob.unitDir), so either marks a sandbox there.
+    if (linux ? (process.env.AGENT_WORKFORCE_SYSTEMD_DIR || process.env.AGENT_WORKFORCE_LAUNCH) : process.env.AGENT_WORKFORCE_LAUNCH) return true;
+    try {
+      const place = linux ? path.dirname(require('./linuxjob').unitPath('x')) : create.AGENTS_DIR;
+      const a = realOrLeaf(place), hh = realOrLeaf(home);
+      return a === hh || a.startsWith(hh + path.sep);
+    } catch { return false; }
+  };
+  try {
+    if (deps.agentConfigDirs !== undefined) jobHomes = deps.agentConfigDirs;
+    else if (jobsHere()) {
+      const root = path.resolve(deps.workersRoot !== undefined ? deps.workersRoot : create.workersDir());
+      const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
+      const key = `#5774 route 5 job homes ${root}\0${deps.platform || process.platform}\0${home}`;   // reviews 13 and 16: the reader depends on the platform, jobsHere on the home
+      if (cache && cache.has(key)) jobHomes = cache.get(key);
+      else { jobHomes = agentJobConfigDirs(root, deps.platform); if (cache) cache.set(key, jobHomes); }
+    }
+  } catch (e) { jobHomes = []; configUnsafe.push(`other agents' config homes (they could not be read: ${(e && e.message) || e})`); }
+  if (jobHomes.unreadable) configUnsafe.push(`the agents' folder (it could not be read: ${jobHomes.unreadable}), so other agents' config homes are not found`);
+  for (const x of jobHomes.failed || []) configUnsafe.push(`the job of the agent ${x}, which could not be read, so its config home is not known`);
+  const JOB_HOMES_MAX = 50;
+  let jobHomesTaken = 0;
+  // Review 6: each real path once (this agent's folder, the homes listed so far), not per job home.
+  const dirRealJ = realOrLeaf(dir);
+  const homeRealJ = realOrLeaf(home);
+  const listedReal = new Set(concreteHomes.map((c) => realOrLeaf(c)));
+  for (const h0 of jobHomes) {
+    // Review 2: a relative configDir names no folder Kosmos can place; review 10: named, never dropped silently.
+    if (typeof h0 !== 'string' || !path.isAbsolute(h0)) { configUnsafe.push(`${String(h0)} (a config home an agent's job names, not a full path, which Kosmos cannot place)`); continue; }
+    const h = path.resolve(h0);
+    // Review 4: a job home that is the root or the home itself is no config home Kosmos can place: named.
+    const hr = realOrLeaf(h);
+    // Review 7: a home already listed (the agent's own, by any spelling) is skipped BEFORE the refusals, which it never
+    // went through when it was listed.
+    if (concreteHomes.includes(h) || listedReal.has(hr)) continue;
+    if (h === path.parse(h).root || hr === homeRealJ) { configUnsafe.push(`${h} (a config home an agent's job names, which is the root or the home folder itself)`); continue; }
+    /* Review 5, narrowed by review 8: named only when a member it denies WHOLE (its code and memory folders) would hold
+       this agent's folder or sit inside it, which would take the agent's own work away; a home that merely contains the
+       agent's folder elsewhere is covered as any home (otherwise one odd job file stopped every agent's creation). */
+    const holdsJ = (a, b) => a === b || b.startsWith(a + path.sep);
+    if ([...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS].some((m) => { const mr = path.join(hr, m); return holdsJ(mr, dirRealJ) || holdsJ(dirRealJ, mr); })) { configUnsafe.push(`${h} (a config home an agent's job names, whose code folders would cover this agent's own folder)`); continue; }
+    if (ruleHasPatternChar(`Edit(${ruleAbs(h)}/**)`)) { configUnsafe.push(`${h} (a config home an agent's job names, whose path the permission rules cannot carry)`); continue; }
+    // Review 13: counted after every refusal, so a refused home spends none of the budget.
+    if (++jobHomesTaken > JOB_HOMES_MAX) { configUnsafe.push(`other agents' config homes (more than ${JOB_HOMES_MAX} outside ~/.claude*), so some are not covered`); break; }
+    listedReal.add(hr);
+    concreteHomes.push(h);
+  }
+  /* Review 13: a config home that is a link to something absent (an unmounted volume, a removed target) has no real
+     path, and its members resolve back to the link's own name, so the place it points to went unnamed and the agent
+     could create that home's settings there by its own path. Every home (this agent's, ~/.claude*, the job homes) has
+     the link's target listed beside it. A live link needs nothing: its members resolve through it. */
+  for (const c of [...concreteHomes]) {
+    let live = true;
+    try { fs.realpathSync.native(c); } catch { live = false; }
+    if (live) continue;
+    let linked = false;
+    try { linked = fs.lstatSync(c).isSymbolicLink(); } catch { linked = false; }
+    if (!linked) continue;
+    const t = danglingTarget(c);
+    if (t === path.resolve(c) || concreteHomes.includes(t)) continue;
+    // Review 15: a target inside the agent's own folder would have its code folders denied there: named, as a job home is.
+    const dr = realOrLeaf(dir), tr = realOrLeaf(t);
+    if (tr === dr || tr.startsWith(dr + path.sep) || dr.startsWith(tr + path.sep)) { configUnsafe.push(`${t} (where the config home ${c}, a link to something absent, points: it holds or sits inside this agent's own folder)`); continue; }
+    if (ruleHasPatternChar(`Edit(${ruleAbs(t)}/**)`)) { configUnsafe.push(`${t} (where the config home ${c}, a link to something absent, points, whose path the permission rules cannot carry)`); continue; }
+    concreteHomes.push(t);
   }
   const settingsFileDirs = [settingsDir, ...concreteHomes];
   const settingsFiles = settingsFileDirs.flatMap((d) => [path.join(d, 'settings.json'), path.join(d, 'settings.local.json')]);
@@ -1748,20 +1876,156 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     const real = realOrLeaf(p);
     return wholeDenied.some((d) => [d, realOrLeaf(d)].some((x) => real === x || real.startsWith(x + path.sep)));
   };
+  // #5774 route 5 review 2: computed before the start-command scan, which reads the plugin variables from these files.
+  const shellStart = shellStartPaths(home, deps.env || process.env, { userShellDirs: deps.userShellDirs, homebrewPrefixes: deps.homebrewPrefixes, agentDir: dir, readOnlyTarget: deps.readOnlyTarget, storeRoots: deps.storeRoots });
+  configUnsafe.push(...shellStart.unsafe);
+  /* #5774 route 5: the values of the three plugin variables that reach THIS agent's Claude Code outside its settings:
+     its environment, and (review 1) the shell startup files part 2 found (the home's and each ZDOTDIR's zsh and bash
+     files), since the agent inherits the tmux server's environment, which carries the person's shell exports. Each
+     delimiter-separated part may start with $HOME (review 2); a value with any other variable in it is named. The
+     settings tiers' values are read in the start-command scan, which parses them all (startcommands.pluginVarDirs) and
+     counts those folders as covered for a folder runner inside one (review 2). */
+  const PLUGIN_VARS = startcommands.PLUGIN_VARS;
+  const STARTUP_FILE_MAX_BYTES = 4194304;   // review 15: a reading budget for shell files (the shell has none); a larger one is named
+  const envNow = deps.env || process.env;
+  const pluginVars = {};
+  for (const k of PLUGIN_VARS) if (typeof envNow[k] === 'string' && envNow[k]) (pluginVars[k] = pluginVars[k] || []).push(envNow[k]);
+  // Review 4: the startup files are the same for every agent on this home, so they are read once per pass (the pass's
+  // launchCache, as the job homes are).
+  const fileCache = deps.launchCache instanceof Map ? deps.launchCache : null;
+  // Review 8: keyed by the very files read (they follow ZDOTDIR and the agent), not the home alone.
+  const fileKey = `#5774 route 5 plugin variables in startup files ${home}\0${shellStart.files.join('\0')}`;
+  let fromFiles = fileCache && fileCache.get(fileKey);
+  if (!fromFiles) {
+    fromFiles = { vals: {}, unsafe: [] };
+    for (const f of shellStart.files.filter((x) => /(?:^|[\\/])\.(?:zshenv|zprofile|zshrc|zlogin|profile|bash_profile|bash_login|bashrc)$/.test(x))) {
+      let text = '';
+      // Review 14: a startup file that is there but cannot be read, or is past the size limit, is named, not read as
+      // holding no plugin variable. An absent one (and one that is no file) says nothing.
+      let st = null;
+      try { st = fs.statSync(f); } catch { st = null; }
+      if (st && st.isFile()) {
+        if (st.size > STARTUP_FILE_MAX_BYTES) fromFiles.unsafe.push(`${f} (a shell startup file larger than Kosmos reads, so the plugin folders it may name are not known)`);
+        else { try { text = fs.readFileSync(f, 'utf8'); } catch (e) { fromFiles.unsafe.push(`${f} (a shell startup file that could not be read: ${(e && e.code) || e}, so the plugin folders it may name are not known)`); } }
+      }
+      for (const k of PLUGIN_VARS) {
+        if (!text.includes(k)) continue;   // review 2: most files name none of them
+        /* Review 13, changed by review 17: an INDENTED assignment (an if-block, a function) is read too, its indent
+           stripped, and denied like a top-level one: a conditional plugin-dev export is the likeliest way a person writes
+           one, and naming it made every token-only creation fail over a harmless line. At worst this denies a folder the
+           condition would not have set. A value it cannot work out is named as any is. A `source`d file stays a stated
+           gap (the plan). */
+        /* Review 19: an assignment that never enters the shell's environment cannot reach the agent: a prefix assignment
+           (`K=$1 claude`, a wrapper function) and a `local K=`. Those lines are left out. A line where export, typeset,
+           declare or readonly comes before the K= is always read. */
+        const quotedVal = '(?:"[^"]*"|\'[^\']*\'|[^\\s"\';&|])+';
+        const prefixRe = new RegExp(`(?:^|[\\s;&|(])${k}=${quotedVal}[ \\t]+[^\\s;&|#)]`);
+        const localRe = new RegExp(`\\blocal\\s+(?:[^;&|]*\\s)?${k}=`);
+        const declaredRe = new RegExp(`\\b(?:export|typeset|declare|readonly)\\b[^;&|]*\\b${k}=`);
+        const environmental = (raw) => declaredRe.test(raw) || !(prefixRe.test(raw) || localRe.test(raw));
+        const kept = text.split('\n').filter(environmental);
+        const topText = kept.join('\n');
+        const deindented = kept.filter((raw) => /^\s+[^\s#]/.test(raw)).map((raw) => raw.replace(/^\s+/, '')).join('\n');
+        // Review 4: a quoted ~ is kept literal by the shell and expanded by Claude Code, so it is read here.
+        for (let v of [...assignmentsIn(topText, k, { quotedTildeOk: true }), ...assignmentsIn(deindented, k, { quotedTildeOk: true })]) {   // let: a default-if-unset wrapper is unwrapped below
+        /* Review 3: the append idiom refers back to the variable itself (`$K:$HOME/x`, `${K:+$K:}...`): every earlier
+           value is already gathered and covered, so those parts are dropped. $HOME (balanced braces) is replaced at the
+           start of each part. A backtick or any other variable is a value Kosmos cannot work out: named. */
+        // Review 5: the prepend form too, `${K:+:$K}` (as PATH is usually extended).
+        // Review 11: the default-if-unset idioms, `${K:-x}` and `${K:=x}` (with or without the colon), reduce to x: K's
+        // earlier values are already gathered, so only the default is new.
+        const dflt = v === null ? null : new RegExp(`^\\$\\{${k}:?[-=]([^}]*)\\}$`).exec(v);
+        if (dflt) v = dflt[1];
+        const selfRef = new RegExp(`\\$\\{${k}:\\+(?:\\$\\{?${k}\\}?${path.delimiter}|${path.delimiter}\\$\\{?${k}\\}?)\\}`, 'g');
+        const plain = v === null ? null : v.replace(selfRef, '').split(path.delimiter)
+          .filter((part) => part !== `$${k}` && part !== `\${${k}}`)
+          .map((part) => part.replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, () => home)).join(path.delimiter);   // review 21: a function, so a $ in the home is literal
+          // Review 9: an unquoted ~user is the shell's to expand, before Claude Code sees it: a folder Kosmos cannot place.
+        const tildeUser = plain !== null && plain.split(path.delimiter).some((part) => /^~[^/]/.test(part));
+        if (plain === null || plain.includes('$') || plain.includes('`') || tildeUser) { fromFiles.unsafe.push(`${k} (${v === null ? 'a quoted value' : v}, set in ${f}), a plugin folder Kosmos cannot work out`); continue; }
+          (fromFiles.vals[k] = fromFiles.vals[k] || []).push(plain);
+        }
+      }
+    }
+    if (fileCache) fileCache.set(fileKey, fromFiles);
+  }
+  configUnsafe.push(...fromFiles.unsafe);
+  for (const k of PLUGIN_VARS) if (fromFiles.vals[k]) (pluginVars[k] = pluginVars[k] || []).push(...fromFiles.vals[k]);
   // Review 11's rule for the launch scan: whatever happens in the scan, the rest of the guard is still written, and the
   // guard says it is not whole.
   let startCmds;
-  try { startCmds = startcommands.startCommandScripts(dir, { homes: concreteHomes, home, ownHome, platform: deps.platform, managedDir: deps.managedDir, managedPrefsDir: deps.managedPrefsDir, covered: wholeDenied }); } catch (e) { startCmds = { files: [], pluginDirs: [], unsafe: [`(the commands Claude Code runs at start could not be read: ${(e && e.message) || e})`] }; }
+  try { startCmds = startcommands.startCommandScripts(dir, { homes: concreteHomes, home, ownHome, platform: deps.platform, managedDir: deps.managedDir, managedPrefsDir: deps.managedPrefsDir, covered: wholeDenied, pluginVars }); } catch (e) { startCmds = { files: [], pluginDirs: [], envPluginDirs: [], unsafe: [`(the commands Claude Code runs at start could not be read: ${(e && e.message) || e})`] }; }
   configUnsafe.push(...startCmds.unsafe);
+
+  /* #5774 route 5: each plugin folder the three variables name (parsed in the scan), denied whole in both layers, as an
+     installed plugin's folder is. One too wide to deny (the root, or one holding the home, the agent's folder, the temp
+     folder, Kosmos's data or a config home Claude Code writes) or one the rules cannot carry is named. */
+  const homeRealP = realOrLeaf(home), dirRealP = realOrLeaf(dir);
+  const tmpRealP = realOrLeaf(deps.tmpDir || require('os').tmpdir());   // tests pass deps.tmpDir
+  // Review 17: the fixed temp roots are per-run places too (a scratch plugin under /tmp), as the launch scan treats them.
+  const tmpRootsP = [tmpRealP, ...(deps.tempRoots || TEMP_ROOTS).map((t) => realOrLeaf(t))];
+  const dataRealP = realOrLeaf(dataRoot);   // review 5: the resolved one (production passes no deps.dataRoot)
+  /* Review 15: the projects folder too. A plugin folder holding it would take every project's work away, silently; one
+     inside it (a plugin developed in a project) is named, as one inside the agent's own folder is. A project kept in a
+     folder of the person's own outside it is not known here (a stated gap). Tests pass deps.projectsRoot. */
+  let projRealP = null;
+  try { projRealP = realOrLeaf(deps.projectsRoot || require('./projects').projectsRoot()); } catch { projRealP = null; }
+  const homesRealP = concreteHomes.map((h) => realOrLeaf(h));
+  const holdsP = (r, x) => x === r || x.startsWith(r + path.sep);
+  // Review 4: bounded like the job homes; past 50 the rest are named (each is a whole-folder rule, never pruned).
+  const ENV_PLUGIN_MAX = 50;
+  let envPluginTaken = 0;
+  /* Review 13: a folder refused as a per-run place (temp) or past the cap: the installed plugins inside it are not
+     listed by their versioned names either, which would bring back the pile-up the refusal exists to stop. The guard
+     already says it is not whole. A folder refused as too wide is not here: what it holds is still denied by name. */
+  const refusedEnv = [];
+  /* Review 16: a folder whose real place is read-only (a Nix or home-manager store path, hashed and new at every switch)
+     cannot be written by the agent, so it gets no rule by name, which would pile up. A link to one keeps a file-tool rule
+     on the link itself (the link sits where a tool could replace it), added to the link-only folders below. */
+  const envReadOnly = deps.readOnlyTarget || isReadOnlyTarget;
+  const envEditOnlyLinks = [];
+  for (const d of new Set(startCmds.envPluginDirs || [])) {
+    if (coveredWhole(d)) continue;   // review 5: before the count, so covered folders do not spend the budget
+    if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, whose path the permission rules cannot carry)`); continue; }
+    const r = realOrLeaf(d);
+    // Review 7: one INSIDE the agent's own folder (a plugin it is developing) is named, not denied whole, as an installed
+    // plugin there is: denying it would take the agent's own work away.
+    // Review 12: a "$" in it means a variable Claude Code did not expand (a settings env value is taken literally).
+    if (projRealP && r.startsWith(projRealP + path.sep)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the projects folder, so Kosmos does not deny it whole: it would take a project's work away)`); continue; }
+    if (r.startsWith(dirRealP + path.sep)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the agent's own folder, so Kosmos does not deny it whole${d.includes('$') ? '; it has a $ in it: Claude Code does not expand variables in a settings env value, so it reads as a folder under the agent\'s own' : ''})`); continue; }
+    // Review 8: one inside the temp folder is a per-run place: its rule would pile up at every refresh (never pruned).
+    if (tmpRootsP.some((t) => r.startsWith(t + path.sep))) { refusedEnv.push(d, r); configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the temp folder: a per-run place Kosmos does not deny by name)`); continue; }
+    if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP) || tmpRootsP.some((t) => holdsP(r, t)) || holdsP(r, dataRealP) || (projRealP && holdsP(r, projRealP)) || homesRealP.some((h) => holdsP(r, h))) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home, the agent's own folder, the temp folder, Kosmos's data, the projects folder or a config home)`); continue; }
+    // Review 9: counted after the refusals, as the job homes are, so a refused folder spends none of the budget.
+    if (envReadOnly(r)) { refusedEnv.push(d, r); if (r !== path.resolve(d)) envEditOnlyLinks.push(d); continue; }
+    /* Review 19: one whose real place is in a Homebrew Cellar or Caskroom, or a store (versioned: new at every upgrade), is
+       covered by that folder's ONE stable rule, as part 2 does for a startup link; the link itself keeps a file-tool
+       rule. A stable folder holding the home or the agent's own folder is named instead. */
+    const stP = stableRootOf(deps.storeRoots || STORE_ROOTS, r);
+    if (stP) {
+      if (stP === path.parse(stP).root || holdsP(stP, homeRealP) || holdsP(stP, dirRealP)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, in ${stP}, a folder too wide to deny: it holds the home or the agent's own folder)`); continue; }
+      if (r !== path.resolve(d)) envEditOnlyLinks.push(d);
+      if (!pluginDirs.includes(stP)) { pluginDirs.push(stP); wholeDenied.push(stP); }
+      continue;
+    }
+    // Review 13: past the cap the loop goes on (each refused folder is recorded), and the cap is named once.
+    if (++envPluginTaken > ENV_PLUGIN_MAX) { refusedEnv.push(d, r); if (envPluginTaken === ENV_PLUGIN_MAX + 1) configUnsafe.push(`plugin folders Claude Code variables name (more than ${ENV_PLUGIN_MAX}), so some are not denied`); continue; }
+    const both = withTarget(d, configUnsafe);
+    pluginDirs.push(...both);
+    wholeDenied.push(...both);
+  }
+  // Route 5 review 9: the installed plugins AFTER the folders the variables name, so one inside a folder now denied whole
+  // (a cache's <cache>/<marketplace>/<plugin>/<version>) is covered by it, not listed by its versioned name, which would
+  // pile up at every update. A refused folder (too wide, temp, inside the agent, past the cap) covers nothing.
   for (const d of startCmds.pluginDirs) {
     if (coveredWhole(d)) continue;
+    const dr = realOrLeaf(d);
+    if (refusedEnv.some((x) => d === x || dr === x || d.startsWith(x + path.sep) || dr.startsWith(x + path.sep))) continue;   // reviews 13 and 19 (the folder itself too)
     if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (an installed plugin's folder, whose path the permission rules cannot carry)`); continue; }
     const both = withTarget(d, configUnsafe);
     pluginDirs.push(...both);
     wholeDenied.push(...both);   // review 9: a script inside it needs no rule of its own
   }
-  const shellStart = shellStartPaths(home, deps.env || process.env, { userShellDirs: deps.userShellDirs, homebrewPrefixes: deps.homebrewPrefixes, agentDir: dir, readOnlyTarget: deps.readOnlyTarget, storeRoots: deps.storeRoots });
-  configUnsafe.push(...shellStart.unsafe);
   /* Review 9: a target the user cannot write (a read-only store such as /nix/store, whose hashed names change at every
      home-manager switch, or a root-owned file) protects nothing and would only pile up in lists that never shrink. A
      path that is not there yet is kept: the agent could create it. */
@@ -1778,7 +2042,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      where the path really resolves, not by the leaf alone; and the path itself is always kept (a read-only ~/.bashrc
      still sits in a folder the user can write). Only a resolved TARGET is judged for writability. */
   const editOnlyLinks = [];
-  const editOnlyLinkDirs = [];
+  const editOnlyLinkDirs = [...envEditOnlyLinks];   // review 16: links to read-only plugin folders the variables name
   const storeHits = new Set();
   /* Review 22: a Cellar- or store-shaped folder that holds the home or the agent's own folder (a person's own folder named
      Cellar) is named, never denied whole, as the folder scan's tooBroad does. */

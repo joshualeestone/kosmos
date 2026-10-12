@@ -1,0 +1,202 @@
+'use strict';
+/* kosmos#5842: after a task message is sent, the task page says which assignees it did NOT reach (not told, kept for
+ * later, or not confirmed), from the route's `delivered` list. A send that reached everyone adds nothing. Runs the
+ * page's own tkSayPost against a stub DOM and fetch, as web.task-composer-768.test.js does.
+ *   node --test web.task-say-outcome-5842.test.js */
+require('./test-support/tmpscope');   // #4273: first, so the sandbox folders below are removed when this file exits
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+
+/* Sandbox every root BEFORE requiring fleet/projects (they resolve roots at require time). The member row the page
+   names agents through comes from the real producer (fleet + projects.describe), never a hand-built literal
+   (fixture-discipline.test.js), as web.task-activity-768.test.js does. */
+for (const [k, n] of [['AGENT_WORKFORCE_PROJECTS', 'projects'], ['AGENT_WORKFORCE_DATA', 'data'], ['AGENT_WORKFORCE_HOME', 'home'], ['AGENT_WORKFORCE_WORKERS', 'workers']]) {
+  process.env[k] = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-tksay-5842-' + n + '-'));
+}
+const fleet = require('./test-support/fleet');
+const projects = require('./engine/projects');
+
+/* A project with one real member: session casey-bot, card name Casey Rivera. */
+let NAMED = null;
+test.before(() => {
+  const board = fleet.install([fleet.agent('casey-bot', { state: 'idle', displayName: 'Casey Rivera' })]);
+  try {
+    const made = projects.create({ name: 'Launch' });
+    projects.addAgent(made.id, 'casey-bot');
+    NAMED = projects.describe(projects.readAll().find((x) => x.id === made.id), board.agents);
+    assert.ok(NAMED.agents.length === 1 && NAMED.agents[0].sessionName === 'casey-bot' && NAMED.agents[0].name === 'Casey Rivera',
+      'the premise: a real member row for casey-bot / Casey Rivera');
+  } finally { board.restore(); }
+});
+
+const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
+
+function fnSource(name) {
+  let start = SCRIPT.indexOf('function ' + name + '(');
+  assert.ok(start > -1, name + ' vanished from the page');
+  if (SCRIPT.slice(start - 6, start) === 'async ') start -= 6;
+  let depth = 0; let end = -1;
+  for (let k = SCRIPT.indexOf('{', start); k < SCRIPT.length; k += 1) {
+    if (SCRIPT[k] === '{') depth += 1;
+    else if (SCRIPT[k] === '}') { depth -= 1; if (depth === 0) { end = k + 1; break; } }
+  }
+  assert.ok(end > -1, 'could not find the end of ' + name);
+  return SCRIPT.slice(start, end);
+}
+
+/* Send one message whose answer carries `delivered`; return what the line under the box says. */
+async function send(delivered, { ok = true, project = { id: 'p1', agents: [] } } = {}) {
+  const input = { value: 'the price moved' };
+  const msg = { textContent: 'left over from before' };
+  const go = { disabled: false };
+  const els = { 'tk-say': input, 'tk-say-msg': msg, 'tk-say-go': go };
+  let painted = 0;
+  globalThis.TK_OPEN = 7;
+  const body = ok ? { ok: true, delivered, summary: 'for agents' } : { error: 'refused' };
+  const tkSayPost = new Function(
+    'document', 'pjById', 'PJ_CURRENT', 'fetch', 'paintTaskActivity', 'encodeURIComponent',
+    fnSource('tkMemberName') + '\n' + fnSource('quotaResetWords') + '\n' + fnSource('tkSayPost') + '\n; return tkSayPost;',
+  )({ getElementById: (id) => els[id] || null }, () => project, project.id,
+    async () => ({ ok, json: async () => body }), () => { painted += 1; }, encodeURIComponent);
+  await tkSayPost();
+  return { said: msg.textContent, input, go, painted };
+}
+
+test('#5842: a message every assignee was told says nothing more (the activity shows it)', async () => {
+  const r = await send([{ agent: 'mara', state: 'placed' }, { agent: 'casey', state: 'placed' }]);
+  assert.equal(r.said, '', 'a fully told send left a line, or kept the old one');
+  assert.equal(r.input.value, '', 'CONTROL: the send succeeded (the box cleared)');
+  assert.equal(r.painted, 1);
+});
+
+test('#5842: an assignee switched off in the project is named, with how to switch it on', async () => {
+  const r = await send([
+    { agent: 'mara', state: 'placed' },
+    { agent: 'casey', state: 'could_not', because: 'casey is switched off in this project. Switch it on in the project\'s members to send it work here.' },
+  ]);
+  assert.equal(r.said, 'casey is switched off in this project, so it was not told. Switch it on in the project\'s members to send it work here. Your message stays on the task.');
+  assert.doesNotMatch(r.said, /mara/, 'an agent that was told is listed');
+});
+
+test('#5842: an assignee no longer on the project is named', async () => {
+  const r = await send([{ agent: 'casey', state: 'could_not', because: 'casey is not on this project any more, so it was not told' }]);
+  assert.equal(r.said, 'casey is not on this project any more, so it was not told. Your message stays on the task.');
+});
+
+test('#5842: a message Kosmos could not keep says so and claims no cause (full, unreadable, or kept behind)', async () => {
+  // limittask-5805's keepTaskLine reasons: two caps, a store failure, the catch path, and the backlog variant.
+  for (const because of [
+    'casey is out of usage, and Kosmos could not keep this one for it (5 messages are kept for it already), so it was not told',
+    'casey is out of usage, and Kosmos could not keep this one for it (5 messages from this sender are kept for it already), so it was not told',
+    'casey is out of usage, and Kosmos could not keep this one for it (its queue could not be read or written), so it was not told',
+    'casey is out of usage, and Kosmos could not keep this one for it, so it was not told',
+    'casey still has messages kept from while it was out of usage, and Kosmos could not keep this one for it, so it was not told',
+  ]) {
+    const r = await send([{ agent: 'casey', state: 'could_not', because }]);
+    assert.equal(r.said, 'Kosmos could not keep your message for casey, so it was not told. Your message stays on the task.', 'for: ' + because);
+  }
+});
+
+test('#5842: any other failure gets the page\'s own words: no resend advice, no terminal words, no doubled name', async () => {
+  const reasons = [
+    'its question is being handled right now, so this was not typed; send it again in a moment',
+    'Answer that question in its terminal with the arrow keys first, then send this',
+    'its window is scrolled back right now, so anything we typed would go to the scrollback instead of to the agent',
+    'Casey Rivera paused itself at today\'s token limit. It starts again tomorrow, or set it to Active in Swarm Settings to send it work now.',
+    undefined,
+  ];
+  for (const because of reasons) {
+    const r = await send([{ agent: 'casey-bot', state: 'could_not', because }], { project: NAMED });
+    assert.equal(r.said, 'Kosmos could not reach Casey Rivera, so it was not told. Your message stays on the task.', 'for: ' + because);
+  }
+});
+
+test('#5842: a message kept for an agent out of usage says when, in local time, never the board\'s UTC stamp', async () => {
+  // The route's real shape on limittask-5805: state 'held', heldUntil an ISO time, because carrying that same raw time.
+  const until = new Date(Date.now() + 3 * 3600 * 1000).toISOString();
+  const r = await send([{ agent: 'casey', state: 'held', heldUntil: until, because: 'held: casey is out of usage until ' + until + '; Kosmos types it after the reset' }]);
+  assert.match(r.said, /^casey is out of usage until .+\. Kosmos will try to send your message to casey after that\.$/);
+  assert.ok(!r.said.includes(until) && !/\dT\d/.test(r.said), 'the raw UTC time reached the screen: ' + r.said);
+  const behind = await send([{ agent: 'casey', state: 'held', heldUntil: null, because: 'held: casey still has messages kept from while it was out of usage; Kosmos types this one after them' }]);
+  assert.equal(behind.said, 'Kosmos will try to send your message to casey after the ones already waiting for it.');
+  // No time known, or a reworded reason: nothing more is claimed.
+  for (const because of ['held: casey is out of usage; Kosmos types it after the reset', 'held: casey has earlier lines queued']) {
+    const r2 = await send([{ agent: 'casey', state: 'held', heldUntil: null, because }]);
+    assert.equal(r2.said, 'Kosmos is keeping your message and will try to send it to casey later.', 'for: ' + because);
+  }
+  const past = await send([{ agent: 'casey', state: 'held', heldUntil: new Date(Date.now() - 60000).toISOString(), because: 'held: casey is out of usage' }]);
+  assert.equal(past.said, 'Kosmos is keeping your message and will try to send it to casey later.', 'a reset already past was given as a time');
+  assert.doesNotMatch(r.said + behind.said, /not told|Do not send/, 'a kept message reads as a failure or carries the agents\' instruction');
+});
+
+test('#5842: the board still words a line kept behind earlier ones as the page reads it', () => {
+  /* The page tells "kept behind earlier lines" from the board's wording, since the task route does not forward
+     `behind`. A reworded reason falls to a sentence that stays true, but this keeps the two in step. heldReceipt is on
+     main (#5822) and the task route's keepTaskLine builds its kept lines with it (#5848), so its absence is a failure. */
+  const src = fs.readFileSync(nodePath.join(__dirname, 'engine', 'messages.js'), 'utf8');
+  const start = src.indexOf('function heldReceipt(');
+  assert.ok(start > -1, 'heldReceipt is gone from engine/messages.js; point this check at whatever words a kept-behind line');
+  // Only heldReceipt's own body: the same phrase also sits in keepTaskLine's could_not reasons.
+  let depth = 0; let end = -1;
+  for (let k = src.indexOf('{', start); k < src.length; k += 1) {
+    if (src[k] === '{') depth += 1;
+    else if (src[k] === '}') { depth -= 1; if (depth === 0) { end = k + 1; break; } }
+  }
+  assert.ok(end > start, 'could not find the end of heldReceipt');
+  assert.match(src.slice(start, end), /still has messages kept/, 'heldReceipt reworded the kept-behind reason; update tkSayPost\'s match');
+});
+
+test('#5842: the board still words the reasons the page recognises as the page reads them', () => {
+  /* The page picks out three could_not reasons by the board's wording. A reworded one falls to a sentence that stays
+     true, but the person would lose e.g. "Switch it on in the project's members". These keep the two in step. */
+  const read = (f) => fs.readFileSync(nodePath.join(__dirname, ...f.split('/')), 'utf8');
+  assert.match(read('engine/projects.js'), /SWARM_OFF_SENTENCE = \(who\) => `\$\{who\} is switched off in this project\./, 'SWARM_OFF_SENTENCE reworded; update tkSayPost');
+  assert.match(read('server.js'), /' is not on this project any more, so it was not told'/, 'the task route reworded a departed member; update tkSayPost');
+  // A failed keep: always somewhere in messages.js (kosmos msg's keep says it today), and, once the task route calls
+  // keepTaskLine (limittask-5805), inside that function's own body. The route's call is what arms the second check.
+  const msgs = read('engine/messages.js');
+  assert.match(msgs, /could not keep this one/, 'the board no longer words a failed keep as the page reads it; update tkSayPost');
+  if (!/keepTaskLine\(/.test(read('server.js'))) return;
+  const at = msgs.indexOf('function keepTaskLine(');
+  assert.ok(at > -1, 'the task route calls keepTaskLine but engine/messages.js does not define it; point this check at the keep');
+  let depth = 0; let end = -1;
+  for (let k = msgs.indexOf('{', at); k < msgs.length; k += 1) {
+    if (msgs[k] === '{') depth += 1;
+    else if (msgs[k] === '}') { depth -= 1; if (depth === 0) { end = k + 1; break; } }
+  }
+  assert.match(msgs.slice(at, end), /could not keep this one/, 'keepTaskLine reworded a failed keep; update tkSayPost');
+});
+
+test('#5842: a delivery Kosmos could not confirm is never claimed either way', async () => {
+  // dana carries no state, which the route never sends: a malformed row is read as not confirmed, never as told.
+  const r = await send([{ agent: 'casey', state: 'unconfirmed', because: 'part of it reached its window before the send failed, so it may be sitting there half-typed' }, { agent: 'dana' }]);
+  assert.equal(r.said, 'Kosmos could not confirm that casey got it. Kosmos could not confirm that dana got it.');
+});
+
+test('#5842: an agent listed twice gets one line, the worst outcome, by its card name', async () => {
+  const r = await send([{ agent: 'casey-bot', state: 'placed' }, { agent: 'casey-bot', state: 'could_not', because: 'casey-bot is not on this project any more, so it was not told' }], { project: NAMED });
+  assert.equal(r.said, 'Casey Rivera is not on this project any more, so it was not told. Your message stays on the task.');
+});
+
+test('#5842: a task with no agent on it says nobody was told', async () => {
+  const r = await send([]);
+  assert.equal(r.said, 'No agent is assigned to this task, so nobody was told.');
+});
+
+test('#5842: CONTROL: no delivered list (an older board) and a refused send behave as before', async () => {
+  const old = await send(undefined);
+  assert.equal(old.said, '', 'an answer with no delivered list left a line');
+  const refused = await send([{ agent: 'casey', state: 'could_not' }], { ok: false });
+  assert.equal(refused.said, 'refused', 'a refusal no longer shows its error');
+  const nameless = await send([{ state: 'could_not', because: 'x' }]);
+  const lower = await send([{ agent: 'casey', state: 'unconfirmed' }, { agent: 'casey2', state: 'could_not', because: 'casey2 is not on this project any more' }]);
+  assert.equal(lower.said, 'Kosmos could not confirm that casey got it. casey2 is not on this project any more, so it was not told. Your message stays on the task.', 'a real name was re-cased');
+  assert.equal(nameless.said, 'Kosmos could not reach an agent, so it was not told. Your message stays on the task.');
+  const leading = await send([{ state: 'could_not', because: 'an agent is not on this project any more, so it was not told' }]);
+  assert.equal(leading.said, 'An agent is not on this project any more, so it was not told. Your message stays on the task.', 'a line opening with the fallback name is not capitalised');
+  assert.equal(refused.input.value, 'the price moved', 'a refusal cleared the draft');
+});

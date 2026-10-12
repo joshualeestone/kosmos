@@ -14926,6 +14926,13 @@ window.kosmosMeasureScrollbarWidth();
                      not confirm" rather than forcing credential entry (the painter
                      comment states the guarantee precisely). -->
                 <p>Your agents run on your own subscription, on this computer.</p>
+                <!-- #5856 (Josh set the Play audience to 13+, 2026-10-11): Claude's consumer terms are 18+, so a teen who
+                     picks it hits a wall that is not ours to lift. Say so here, and name who a teen can pick. No age
+                     question (ruled on the card). The list names Meta Muse only where Muse is live (frPaintMeta).
+                     Two claims rest on weaker sources than terms text, so re-check them if a provider changes its rules:
+                     Gemini's Antigravity route being 18+ (Google staff on its developer forum), and Grok's subscription
+                     sign-in falling under xAI's consumer terms. Sources per provider: the card's comments. -->
+                <p class="fr-age" id="fr-age">Claude and Gemini need you to be 18 or over, and so do API keys. If you are under 18, choose <span id="fr-age-list">OpenAI or Grok</span> and sign in with your own account, with a parent's permission. Age rules vary by country.</p>
                 <!-- ⭐ ALL SIX SHOWN, ALWAYS — Josh, 2026-08-25 21:08 CDT: "I want to
                      show all of the models. That's more important to me than having
                      the button above the fold. It's not like it's unreasonable to
@@ -22389,16 +22396,28 @@ function paintUpdateAbort(ab) {
   // only reason; an unreadable same arrives as 0 and claims nothing).
   // The advice follows the latest stop too. #2055's reopen remedy was measured for a busy Kosmos and is kept for it.
   // For the other stops nobody has measured what clears them, so the sentence says so and offers what is worth a
-  // try: a failed check is not something reopening can fix, a held port may be. No sentence asks for a typed command.
+  // try: a failed check is not something reopening can fix, a held port may be. No sentence asks for a typed command,
+  // except on a Linux server (#5860): it has no Kosmos window to quit, so its one step is `kosmos restart` in a
+  // terminal there. That command restarts the board (through systemctl --user when the board runs under its unit,
+  // #4918), and the board unit's KillMode=process leaves the agents running (engine/linuxboard.js). #6 (Josh) scrapped
+  // the "run kosmos restart" instruction for a gentle GUI action, which needs a screen a headless server does not have.
   // "replaced nothing" is about files: by these stops the installer has stopped the board, and its exit puts it back.
   // The tables stay inside the function so a test can lift the function whole.
   const reason = typeof ab.reason === 'string' ? ab.reason : '';
-  const AGENTS_FINE = 'Your agents keep working, they do not live in this window.';
-  const REOPEN = 'Quit and reopen Kosmos: reopening usually clears whatever was holding the update, so the next one '
-    + 'can finish. ' + AGENTS_FINE;
+  const linux = onLinux();
+  const RESTART_CMD = 'run <b>kosmos restart</b> in a terminal on the computer running Kosmos (over SSH on a headless '
+    + 'server)';
+  const AGENTS_FINE = linux ? 'Your agents keep working.' : 'Your agents keep working, they do not live in this window.';
+  const REOPEN = linux
+    ? 'To clear it, ' + RESTART_CMD + ': restarting usually clears whatever was holding the update, so the next one '
+      + 'can finish. Your agents keep working through the restart.'
+    : 'Quit and reopen Kosmos: reopening usually clears whatever was holding the update, so the next one '
+      + 'can finish. ' + AGENTS_FINE;
   const TRY_RESTART = ' We do not yet know what clears this one; restarting this computer is worth a try.';
-  const TRY_BOTH = ' We do not yet know what clears this one; quitting and reopening Kosmos is worth a try, then '
-    + 'restarting this computer.';
+  const TRY_BOTH = linux
+    ? ' We do not yet know what clears this one; it is worth a try to ' + RESTART_CMD + ', then to restart that computer.'
+    : ' We do not yet know what clears this one; quitting and reopening Kosmos is worth a try, then '
+      + 'restarting this computer.';
   const PORT_HELD = 'something was still using the connection Kosmos runs on, so the update replaced nothing. '
     + AGENTS_FINE + TRY_BOTH;
   const UPDATE_ABORT_LAST = {
@@ -23709,7 +23728,11 @@ function paintOfflineNote(down, deviceIsOffline) {
   /* The one thing to do, which helps whatever the cause: opening Kosmos
      from the Applications folder starts it if it is not going and simply
      opens it if it is. Names no cause (the test above holds that line). */
-  detail.push(platformCopy('offlineRemedy', 'Open Kosmos from your Applications folder and it will start again if it needs to.'));
+  /* #5862: a Linux server has no Applications folder. `kosmos restart` is a stop that tolerates "not running" and then
+     a start (install/kosmos cmd_restart), so it brings back a board that stopped and one that hung alike. */
+  detail.push(onLinux()
+    ? 'On the computer running Kosmos, run <b>kosmos restart</b> in a terminal (over SSH on a headless server) and it will start again.'
+    : platformCopy('offlineRemedy', 'Open Kosmos from your Applications folder and it will start again if it needs to.'));
   slot.innerHTML = '<div class="utoast stale" role="status">'
     + '<span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt"><b>Kosmos is not answering on this computer</b>'
@@ -23764,6 +23787,14 @@ function restartHowMac() {
   try { app = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosBadge); } catch { /* not the app */ }
   return app ? 'Quit Kosmos with Command-Q, then open it again from your Applications folder.'
     : 'Open Kosmos again from your Applications folder.';
+}
+/* The restart screen's one step, per platform. #5862: a Linux server has no Applications folder and no window;
+   `kosmos restart` (a stop that tolerates "not running", then a start) brings back a board that hung and one that
+   stopped alike. */
+function restartHowText() {
+  return onLinux()
+    ? 'On the computer running Kosmos, run <b>kosmos restart</b> in a terminal (over SSH on a headless server).'
+    : platformCopy('restartHow', restartHowMac());
 }
 /* While the restart screen is up, no key reaches the page behind it. Every dialog's Escape and Tab
    handler (first run, updates, the notices, the modals, the pickers) listens on document, and a
@@ -23826,7 +23857,7 @@ function paintRestartScreen(down, deviceIsOffline) {
     + '<div class="restart-msg" role="alertdialog" aria-modal="true" aria-labelledby="restart-h" aria-describedby="restart-how" tabindex="-1">'
     + '<canvas class="restart-k" width="176" height="206" aria-hidden="true"></canvas>'
     + '<h1 id="restart-h">Kosmos requires a full restart</h1>'
-    + '<p id="restart-how">' + platformCopy('restartHow', restartHowMac()) + '</p>'
+    + '<p id="restart-how">' + restartHowText() + '</p>'
     + '</div></div>';
   const back = holder.firstElementChild;
   /* Josh (via Splinter, 10:39): nothing else on the screen, so the version and the address that did
@@ -28921,6 +28952,13 @@ async function worldswSwitch(id, name, agents) {
        restart" CLI instruction; give the gentle GUI action instead, no command. */
     say(onWindows()
       ? windowsCopy('worldSwitchRestart').replace('%NAME%', () => switchedName)
+      /* #5862: a Linux server has no window to quit and reopen. And this line is reached on Linux ONLY by a board that
+         is not an installed one, or one whose systemd check could not load (engine/boardrestart.js linuxCanRestart: an installed board restarts itself,
+         through its systemd unit or the installed `kosmos restart`), so naming `kosmos restart` here would restart a
+         DIFFERENT board, or a command that is not there. The true step is the person's own way of starting it. */
+      : onLinux()
+      ? 'Kosmos could not restart itself. To finish switching to ' + switchedName + ', stop Kosmos and start it again the '
+        + 'way you started it.'
       : 'Kosmos could not restart itself. Quit and reopen Kosmos to finish switching to ' + switchedName + '.');
     worldswFocusTrigger();
   } finally {
@@ -28944,6 +28982,14 @@ async function worldswSwitch(id, name, agents) {
    WORLDSW_RECONNECT_SLOW_MS with no flip, update the banner ONCE to offer the manual
    restart as an escape hatch while still polling (mirrors the #553 update flow's "slow"
    verdict). The reload-on-flip behaviour is unchanged. */
+/* What to do when a world switch's self-restart does not come back. #5862: a Linux server has no window, and this is
+   reached only after the board began restarting itself, which on Linux means an installed board, so the installed
+   `kosmos restart` is the true step there. Elsewhere it stays the Mac's words, as it was. */
+function worldswStuckStep() {
+  return onLinux()
+    ? 'run kosmos restart in a terminal on the computer running Kosmos (over SSH on a headless server).'
+    : 'quit and reopen Kosmos.';
+}
 async function worldswReconnect(switchedId, switchedName, say, switchStart) {
   // WORLDSW_RECONNECTING keeps the switcher menu (and this banner, which lives inside it)
   // open across the poll -- see worldswClose. Cleared in finally so a menu close, or a
@@ -28989,10 +29035,11 @@ async function worldswReconnect(switchedId, switchedName, say, switchStart) {
       }
       if (!slowShown && Date.now() - start >= WORLDSW_RECONNECT_SLOW_MS) {
         slowShown = true;
-        say('Still switching to ' + switchedName + '… this is taking longer than usual. If it does not come back on its own, quit and reopen Kosmos.');
+        say('Still switching to ' + switchedName + '… this is taking longer than usual. If it does not come back on its own, '
+          + worldswStuckStep());
       }
     }
-    say('Switched to ' + switchedName + ', but Kosmos is taking a while to restart. If it does not reload shortly, quit and reopen Kosmos.');
+    say('Switched to ' + switchedName + ', but Kosmos is taking a while to restart. If it does not reload shortly, ' + worldswStuckStep());
     worldswFocusTrigger();
   } finally {
     WORLDSW_RECONNECTING = false;
@@ -31158,6 +31205,8 @@ async function frPaintMeta(opts) {
   /* #4569 (Josh: the Meta label everywhere): switched on, the row names what the person connects, Muse (from Meta),
      as Gemini / Google and Grok / xAI do; off, it keeps today's coming-soon Llama. */
   const nm = row.querySelector('.llm-w b'); if (nm) nm.textContent = live ? 'Muse' : 'Llama';
+  /* #5856: the under-18 sentence names Meta Muse only when a person can actually pick it. */
+  const ages = document.getElementById('fr-age-list'); if (ages) ages.textContent = live ? 'OpenAI, Grok or Meta Muse' : 'OpenAI or Grok';
   const msg = document.getElementById('fr-muse-msg');
   if (!live) {
     frMuseCollapse();
@@ -62908,9 +62957,10 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
 /* #768: send a message to the open task's conversation. The server records it and
    delivers it to the agents assigned to the task; this handler then refreshes the
    activity so the message appears the same tick. Empty input is a no-op (no request,
-   no error band). Clears the input on success; reports a refusal in tk-say-msg. Not
-   on the poll -- a message is a deliberate act, read on send like the other in-app
-   changes. (The board is the operator, so it is exempt from the process rate valve.) */
+   no error band). Clears the input on success; reports a refusal in tk-say-msg, and
+   (#5842) after a success, any assignee the message did not reach. Not on the poll --
+   a message is a deliberate act, read on send like the other in-app changes. (The
+   board is the operator, so it is exempt from the process rate valve.) */
 async function tkSayPost() {
   const p = pjById(PJ_CURRENT);
   if (!p || TK_OPEN === null) return;
@@ -62944,6 +62994,56 @@ async function tkSayPost() {
     if (n !== TK_OPEN) return;   // the person left this task mid-flight: touch nothing here
     if (!res.ok) { if (msg) msg.textContent = (out && out.error) || 'we could not record that message'; return; }
     if (input) input.value = '';
+    /* #5842: say who the message did NOT reach. The activity above shows the message itself, so a send that reached
+       every assignee adds nothing here. One line per agent, keeping its worst outcome when it is listed twice. Built
+       inside tkSayPost so a test that lifts it alone still runs it. */
+    if (msg) {
+      const list = out && Array.isArray(out.delivered) ? out.delivered : [];
+      const rank = (st) => (st === 'could_not' ? 3 : st === 'placed' ? 0 : st === 'held' ? 1 : 2);
+      const byName = new Map();
+      for (const d of list) {
+        if (!d || typeof d !== 'object') continue;
+        const sn = String(d.agent == null ? '' : d.agent).trim();
+        const had = byName.get(sn);
+        if (!had || rank(d.state) > rank(had.state)) byName.set(sn, d);
+      }
+      // The page sends as the person, so the route lists every assignee: an empty list means none is on the task.
+      if (out && Array.isArray(out.delivered) && !list.length) {
+        msg.textContent = 'No agent is assigned to this task, so nobody was told.';
+      } else {
+        /* The page's own sentences, never the board's reasons word for word: those were written for direct messages
+           and agents, so some say "send it again" (on a task that records it twice and re-tells everyone already told)
+           and some use terminal words. Three reasons the task route writes itself are recognised; a reworded one falls
+           to the plain sentence, which stays true. Agents and the CLI still get the board's full reason. */
+        const lines = [];
+        for (const [sn, d] of byName) {
+          if (d.state === 'placed') continue;
+          // The page's name for the agent (its card name), as the activity above uses; the board speaks in session names.
+          const who = !sn ? 'an agent' : typeof tkMemberName === 'function' && p ? tkMemberName(p, sn) : sn;
+          const lead = sn ? who : 'An agent';   // a sentence opening with the name; a real name is never re-cased
+          const why = String(d.because == null ? '' : d.because);
+          if (d.state === 'could_not') {
+            lines.push(/switched off in this project/.test(why)
+              ? lead + ' is switched off in this project, so it was not told. Switch it on in the project\'s members to send it work here.'
+              : /not on this project any more/.test(why) ? lead + ' is not on this project any more, so it was not told.'
+              : /could not keep this one/.test(why) ? 'Kosmos could not keep your message for ' + who + ', so it was not told.'
+              : 'Kosmos could not reach ' + who + ', so it was not told.');
+            // Said every time: the message IS on the task, and a person who thinks it was lost sends it again,
+            // which records it twice and re-tells everyone already told.
+            lines[lines.length - 1] += ' Your message stays on the task.';
+          } else if (d.state === 'held') {
+            // Built from heldUntil, never from the reason: the board's reason carries the reset as a raw UTC time.
+            const at = Date.parse(d.heldUntil || '');
+            const until = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
+            // "will try": a kept line can still be dropped a day after the reset (recording that is #5842's second slice).
+            lines.push(until ? lead + ' is out of usage until ' + until + '. Kosmos will try to send your message to ' + who + ' after that.'
+              : /still has messages kept/.test(why) ? 'Kosmos will try to send your message to ' + who + ' after the ones already waiting for it.'
+              : 'Kosmos is keeping your message and will try to send it to ' + who + ' later.');   // no time known: claim nothing more
+          } else lines.push('Kosmos could not confirm that ' + who + ' got it.');
+        }
+        msg.textContent = lines.join(' ');
+      }
+    }
     paintTaskActivity(n);
   } catch {
     if (n === TK_OPEN && msg) msg.textContent = 'we could not reach Kosmos to record that message';
