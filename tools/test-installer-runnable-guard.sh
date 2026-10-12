@@ -45,7 +45,9 @@ rm -rf "$_td"
 #    The listed line is trusted to gate its own -x with [ -d P ]: read it before listing it.
 #    To add one, append three lines to FOLDER_SEARCH_TESTS: the file (as in FILES), the code line before the
 #    test, and the test line itself, both trimmed of leading and trailing space. "The code line before" skips
-#    blank and comment-only lines; a trailing comment is part of a line, so editing one reds this guard too.
+#    blank and comment-only lines; a trailing comment is part of a line, so editing either line, its comment
+#    included, reds this guard too. A line holding ' needs it written '\'' here. Only [ -x P ] can be listed:
+#    a negated [ ! -x P ] is never excused. A test with no code line before it in its file cannot be listed.
 FOLDER_SEARCH_TESTS="$(printf '%s\n' \
   'install/setup.sh' \
   'while [ ! -e "$a" ] && [ ! -L "$a" ] && [ "$a" != / ]; do a="$(/usr/bin/dirname "$a")"; done' \
@@ -89,7 +91,10 @@ END {
     split(key, k, "\n"); printf "%s: listed folder test found %d times, not once: %s\n", k[1], seen[key], k[3]
   }
 }'
-bare="$(cd "$HERE" && awk -v whole=1 "$_scan" $FILES 2>/dev/null)"
+# An installer file that is missing would make awk stop with an error (hidden below) and the scan read as clean.
+for _f in $FILES; do [ -f "$HERE/$_f" ] || fail "installer file $_f is missing, so the scan below cannot be trusted"; done
+bare="$(cd "$HERE" && awk -v whole=1 "$_scan" $FILES 2>/dev/null)"; _awk_rc=$?
+[ "$_awk_rc" -eq 0 ] || fail "the installer scan's awk exited $_awk_rc, so an empty result means nothing"
 if [ -z "$bare" ]; then
     pass "no unguarded executable test in the installer (positive or negated, quoted or unquoted), and each listed folder test found once"
 else
@@ -131,31 +136,36 @@ _out="$(cd "$_cdir" && awk -v whole=1 "$_scan" $(printf '%s\n' "$FOLDER_SEARCH_T
 if [ "$(printf '%s\n' "$_out" | grep -c 'found 2 times')" -eq "$((_nl / 3))" ]; then pass "a listed folder test copied a second time (in a heredoc) is reported, for every entry"
 else fail "a copied listed folder test was not reported: $_out"; fi
 rm -rf "$_cdir"
-# Every listed test after any other line, alone, or in another file, and every unlisted folder test, is flagged.
-_ctl="$(mktemp)"
-set --
+# Every listed test after any other line, or alone, IN ITS OWN LISTED FILE (so only the line before differs), with its
+# own line but in another file, and every unlisted folder test, is flagged. flagged <file> <text>: scan <text> as <file>.
+_cdir="$(mktemp -d)"; mkdir -p "$_cdir/install"
+_n=0; _total=0
+flagged() {
+  _total=$((_total + 1)); printf '%s\n' "$2" > "$_cdir/$1"
+  if [ "$(cd "$_cdir" && awk "$_scan" "$1" 2>/dev/null | grep -c .)" -ge 1 ]; then _n=$((_n + 1))
+  else fail "this was not flagged as $1: $(printf '%s' "$2" | tr '\n' '/')"; fi
+}
 for _e in $(seq 1 $((_nl / 3))); do
-  set -- "$@" "  true ||
-  $(rel "$_e" 3)" "  cat >f <<X ||
+  _f="$(rel "$_e" 1)"; _t="$(rel "$_e" 3)"
+  flagged "$_f" "  true ||
+  $_t"
+  flagged "$_f" "  cat >f <<X ||
 body
 X
-  $(rel "$_e" 3)" "  [ -n \"\$F\" ] ||#c
-  $(rel "$_e" 3)" "  $(rel "$_e" 3)" "  $(rel "$_e" 2)
-  $(rel "$_e" 3)"
+  $_t"
+  flagged "$_f" "  [ -n \"\$F\" ] ||#c
+  $_t"
+  flagged "$_f" "  $_t"
+  flagged install/not-listed.sh "  $(rel "$_e" 2)
+  $_t"
 done
-set -- "$@" \
-  '  [ -d $P ] && [ -x $P ] || return 0' \
-  '  [ -d "$P" ] && [ -x "$P" ] || return 0' \
-  '  [ -d "$P" ] || [ -x "$P" ] && run "$P"' \
-  '  ! [ -d "$P" ] && [ -x "$P" ] && run "$P"'
-_n=0
-for _l in "$@"; do
-  printf '%s\n' "$_l" > "$_ctl"
-  if [ "$(awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -ge 1 ]; then _n=$((_n + 1))
-  else fail "this was not flagged: $(printf '%s' "$_l" | tr '\n' '/')"; fi
-done
-[ "$_n" -eq "$#" ] && pass "every listed test after another line (a || list, a heredoc on ||, ||#), alone, or with its own line but in another file, and every unlisted folder test, is flagged ($# controls)"
-rm -f "$_ctl"
+_f="$(rel 1 1)"
+flagged "$_f" '  [ -d $P ] && [ -x $P ] || return 0'
+flagged "$_f" '  [ -d "$P" ] && [ -x "$P" ] || return 0'
+flagged "$_f" '  [ -d "$P" ] || [ -x "$P" ] && run "$P"'
+flagged "$_f" '  ! [ -d "$P" ] && [ -x "$P" ] && run "$P"'
+[ "$_n" -eq "$_total" ] && pass "in its own file, a listed test after another line (a || list, a heredoc on ||, ||#) or alone is flagged; so is it in another file, and every unlisted folder test ($_total controls)"
+rm -rf "$_cdir"
 
 echo "installer runnable-guard: $fails failures"
 [ "$fails" -eq 0 ]
