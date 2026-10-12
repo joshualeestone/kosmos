@@ -20896,6 +20896,13 @@ function waitingLine(w) {
   if (yours === n) return base + (n === 1 ? ', it\'s yours' : ', all yours');
   return base + ', yours ' + (yours === 1 ? 'is' : 'are') + ' next';
 }
+/* #5957 slice 2: the one sentence for an agent whose working rules are far behind (a.rulesBehind, from
+   engine/doctrine.js: a whole number only when its own page offers the update), or ''. Said by stateReason on a
+   running card and by the offline card and list row, which draw no task line of their own. */
+function rulesBehindLine(a) {
+  return a && Number.isSafeInteger(a.rulesBehind) && a.rulesBehind > 0
+    ? 'Its working rules are ' + a.rulesBehind + ' versions behind. Open it to update them.' : '';
+}
 function stateReason(a, opts) {
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
@@ -21003,9 +21010,8 @@ function stateReason(a, opts) {
      it, so a working agent is not pointed at it mid-task, and it is never in the slot a person reads
      as what a needs-you, question or blocked agent is stuck on (#986/#2833), and never over a sign-in, connection or
      usage problem. Last of the general reasons; plain words; the card's look is unchanged. */
-  if (a && opts && opts.card === true && (a.state === 'idle' || a.state === 'stopped')
-      && Number.isSafeInteger(a.rulesBehind) && a.rulesBehind > 0) {
-    return 'Its working rules are ' + a.rulesBehind + ' versions behind. Open it to update them.';
+  if (a && opts && opts.card === true && (a.state === 'idle' || a.state === 'stopped') && rulesBehindLine(a)) {
+    return rulesBehindLine(a);
   }
   if (!a || a.state !== 'rate_limited') return '';
   /* #4588: an Antigravity agent paused on its account's shared Google quota carries the reset, so the card says
@@ -21975,6 +21981,7 @@ function card(a) {
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate ${split ? 'st-unknown' : 'st-stopped'}">${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b></div>
+    ${rulesBehindLine(a) ? `<div class="atask">${esc(rulesBehindLine(a))}</div>` : ''}
     ${comm ? `<div class="acommunity">${esc(comm)}</div>` : ''}
   </div>`;
   }
@@ -22177,7 +22184,7 @@ function lrow(a) {
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
-      <div class="ltask"></div>
+      <div class="ltask">${esc(rulesBehindLine(a))}</div>
       <div class="lmodel"></div>
       <div class="lmem"></div>
     </div>`;
