@@ -33,3 +33,6 @@ pair, including a frozen UNREADABLE copied twice; lostEpoch ignored with no/othe
 with a scoped control that moves to epoch 2).
 
 ## Mutants (each must go red)
+Measured 19:4x CDT, each applied to the committed tree, node --check first, then reverted (pass 37 fail 1 each):
+- M1 scoped always true: red. M2 member not compared: red. M3 no pair on the answer: red.
+- M4 pair recorded from the raw answer before companyOf checks it: red. M5 org not compared: red.
