@@ -1005,8 +1005,6 @@ const teamseed = require('./engine/teamseed'); // #4557: a seeded team's members
 const orgchartfile = require('./engine/orgchartfile'); // #4559: an org chart FILE into the New Agent preview
 const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
-// #5959: a waiting self-report (needs_you / blocked) standing longer than this is pointed out to the agent (kosmos report show).
-const REPORT_STALE_MS = 24 * 3600 * 1000;
 const cardlabel = require('./engine/cardlabel');   // #5959: the card's word, as the page shows it
 /* ⚠️ For the not-running rows only. `engine/status.js` reads the same store for
    the agents it can see; this is the same question asked about an agent with no
@@ -15113,7 +15111,7 @@ const server = http.createServer(async (req, res) => {
       const atMs = rep && rep.found === true ? Date.parse(rep.at || '') : NaN;
       const ageMs = Number.isFinite(atMs) ? Date.now() - atMs : null;
       const stale = !!(rep && rep.found === true && selfreport.WAITING_ON_A_PERSON.includes(rep.state)
-        && ageMs !== null && ageMs > REPORT_STALE_MS);
+        && ageMs !== null && ageMs > selfreport.STALE_WAIT_MS);
       /* A no-report agent is a SUCCESSFUL read of "you have no state yet" -- 200,
          found:false -- never a refusal, so the CLI exits 0 on it. Only auth /
          server-fault paths above are non-2xx. */
@@ -15141,8 +15139,13 @@ const server = http.createServer(async (req, res) => {
           if (selfreport.WAITING_ON_A_PERSON.includes(rep.state) && stale) {
             // #5959: a waiting state standing over a day says so in the same sentence, not a second one.
             const days = Math.floor(ageMs / (24 * 3600 * 1000));
-            line += ' Your own `' + rep.state + '` report has been standing for ' + (days >= 2 ? days + ' days' : 'over a day')
-              + '. If nobody needs to answer it any more, clear it with a fresh report (e.g. `kosmos report working ...`).';
+            const age = (days >= 2 ? days + ' days' : 'over a day');
+            line += rep.by === 'agent'
+              ? ' Your own `' + rep.state + '` report has been standing for ' + age
+                + '. If nobody needs to answer it any more, clear it with `kosmos report clear`.'
+              // Written for the agent (a permission prompt, a provider error): not "your own", and only if it has passed.
+              : ' A `' + rep.state + '` report Kosmos wrote for you has been standing for ' + age
+                + '. If what it was about has passed, clear it with `kosmos report clear`.';
           } else if (selfreport.WAITING_ON_A_PERSON.includes(rep.state)) {
             line += ' This is a waiting-on-a-person state; clear it with a fresh report (e.g. `kosmos report working ...`) once you have been answered.';
           }

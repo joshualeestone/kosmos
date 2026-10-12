@@ -41,6 +41,9 @@ const STATES = Object.freeze(['started', 'working', 'idle', 'needs_you', 'blocke
    `status.reconcileReport` already declines to decay, and they are the only
    ones an automatic writer may not erase. */
 const WAITING_ON_A_PERSON = Object.freeze(['blocked', 'needs_you']);
+/* #5959: a waiting report older than this is pointed out to the agent (kosmos report show). Its age is that of the
+   LATEST line, so re-reporting the same state starts it again: "standing for N days" can only be an underestimate. */
+const STALE_WAIT_MS = 24 * 3600 * 1000;
 
 const DIR = path.join(store.ROOT, 'selfreports');
 
@@ -559,5 +562,5 @@ function blockedOwnerNote(state, owner, opts) {
   return isPerson ? BLOCKED_PERSON_NOTE : '';
 }
 
-module.exports = { STATES, WAITING_ON_A_PERSON, DIR, NO_READING, TAIL_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean,
+module.exports = { STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, DIR, NO_READING, TAIL_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean,
   blockedOwnerNote, BLOCKED_PERSON_NOTE, NEEDS_YOU_ASK_NOTE };

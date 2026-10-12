@@ -23,3 +23,7 @@ directly, and a self-reported "blocked" from 09-26 sat on a card until 10-12 wit
 That the roster card the route reads carries every field the page's label uses (stateReportedBy, crashLoop,
 reconnect, disruption, modelName). safeRoster adds crashLoop and reconnect as /api/status does, and a pane card
 carries modelName (status.js); a paneless card has none, so its model-switch restart reads "Switching model".
+
+**The age is the latest line's (review 3).** Re-reporting the same waiting state, or a line rewritten over it, starts the
+clock again, so "standing for N days" can only underestimate. A report Kosmos wrote for the agent (`by` auto: a
+permission prompt, a provider error) is not called "your own", and is cleared only "if what it was about has passed".
