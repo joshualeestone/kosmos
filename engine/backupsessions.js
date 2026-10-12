@@ -168,25 +168,39 @@ function codexRoot(agentDir, codexHome, id, belongs, tag = '') {
   return only.length ? { name: `sessions/${id}/codex${tag}`, path: real, optional: true, only } : null;
 }
 
-/* kosmos#5883 slice 2: Grok keeps each working folder's conversations in <grok home>/sessions/<the folder,
-   encodeURIComponent>/<session id>/ (measured 2026-10-11 on this Mac, grok from /opt/homebrew: e.g.
-   sessions/%2FUsers%2F...%2Fworkers%2F<name>/<id>/chat_history.jsonl). The folder name IS the working folder, so it
-   belongs to this agent by construction; both spellings of the folder are tried (as given, and its real path, as
-   /private/tmp shows for a tmp folder). Only the conversation record is named: chat_history, events and updates
-   (.jsonl) and summary.json. NOT system_prompt.txt or prompt_context.json (instructions and context, not the
-   conversation), and never the locks. */
-const GROK_KEEP = new Set(['chat_history.jsonl', 'events.jsonl', 'updates.jsonl', 'summary.json']);
+/* kosmos#5883 slice 2: Grok keeps each conversation in <grok home>/sessions/<encoded cwd>/<session id>/. The folder
+   name is NOT matched (review 1): Grok encodes it with Rust's urlencoding (not encodeURIComponent: ! ' ( ) * differ)
+   and slugs plus hashes a name past the folder-name byte cap. Matched instead, as the board's reader does
+   (engine/groksession.js forWorkdir), on each session's summary.json info.cwd, canonicalized on both sides, by that
+   reader's own summaries() and summaryOf(). So every spelling the agent was launched under is found, in one root over
+   the sessions folder whose `only` lists each matched session's files.
+   Only the conversation record is named: chat_history, events and updates (.jsonl) and summary.json; NOT
+   system_prompt.txt or prompt_context.json (instructions and context), never the locks, never a link. Sessions of a
+   Grok WORKTREE (a different launch folder) are not this agent's by cwd and are not taken (#5883). */
+const GROK_KEEP = ['chat_history.jsonl', 'events.jsonl', 'updates.jsonl', 'summary.json'];
 function grokRoot(agentDir, grokHome, id, tag = '') {
   if (typeof grokHome !== 'string' || !path.isAbsolute(grokHome)) return null;
-  const spellings = [...new Set([path.resolve(agentDir), trust.canonicalOnDisk(path.resolve(agentDir))])];
-  for (const sp of spellings) {
-    const c = folderCheck(grokHome, 'sessions', encodeURIComponent(sp));
-    if (c.link) return { name: `sessions/${id}/grok${tag}`, refused: 'a session folder that is a link (not followed)', optional: true };
-    if (!c.real) continue;
-    const only = filesUnder(c.real, (n) => GROK_KEEP.has(n), 1).filter((rel) => rel.split('/').length === 2);
-    if (only.length) return { name: `sessions/${id}/grok${tag}`, path: c.real, optional: true, only };
+  const c = folderCheck(grokHome, 'sessions');
+  if (c.link) return { name: `sessions/${id}/grok${tag}`, refused: 'a session folder that is a link (not followed)', optional: true };
+  if (!c.real) return null;
+  const gs = require('./groksession');
+  const want = trust.canonicalOnDisk(path.resolve(agentDir));
+  const only = [];
+  for (const file of gs.summaries(grokHome)) {
+    const sm = gs.summaryOf(file);
+    const cwd = sm && sm.info && typeof sm.info.cwd === 'string' ? sm.info.cwd : null;
+    if (!cwd || trust.canonicalOnDisk(cwd) !== want) continue;
+    const sessionDir = path.dirname(file);
+    let rel;
+    try { rel = path.relative(c.real, fs.realpathSync(sessionDir)); } catch { continue; }   // gone meanwhile
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel) || rel.split(path.sep).length !== 2) continue;
+    for (const f of GROK_KEEP) {
+      let st;
+      try { st = fs.lstatSync(path.join(sessionDir, f)); } catch { continue; }
+      if (st.isFile()) only.push(rel.split(path.sep).concat(f).join('/'));
+    }
   }
-  return null;
+  return only.length ? { name: `sessions/${id}/grok${tag}`, path: c.real, optional: true, only: only.sort() } : null;
 }
 
 function sessionsFor(agentDir, opts) {
