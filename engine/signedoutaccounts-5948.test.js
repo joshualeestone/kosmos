@@ -175,13 +175,14 @@ test('#5948 review 9: a gemini/grok folder whose own key is gone, with a shared 
   // review 13: an unread door is not said to hold a key.
   assert.match(u.connection.because, /could not read this computer's shared Grok key to tell whether one stands in/);
   assert.doesNotMatch(u.connection.because, /can stand in for it/);
-  // CONTROLS: no shared key reads signed out; codex is asked for OPENAI_API_KEY (review 16: the door loop reaches it).
+  // CONTROLS: no shared key reads signed out; codex has no shared door (the supervisor's allowlist does not carry
+  // OPENAI_API_KEY, review 17), so it is never asked even by a reader that would say yes.
   const [g] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => null, () => false);
   assert.equal(g.connection.badge, 'signed_out');
   const cx = { cxn: { configDir: '/h/.codex-team', runner: 'codex' } };
   const seen = [];
   const [c] = signedOutRows([card('cx', 'codex')], { openai: [] }, (n) => cx[n === 'cx' ? 'cxn' : n], readName, () => false, () => null, (v) => { seen.push(v); return true; });
-  assert.deepEqual([c.connection.badge, seen], ['unlisted', ['OPENAI_API_KEY']]);
+  assert.deepEqual([c.connection.badge, seen], ['signed_out', []]);
 });
 
 test('#5948 review 10: on a real disk, an EMPTY credential file holds no credential and reads signed out; a non-empty one reads unlisted', () => {
@@ -231,4 +232,15 @@ test('#5948 review 16: when the provider\'s default folder cannot be asked, a jo
   // CONTROL: a default that answers (and is another folder) leaves it signed out.
   const [g] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => '/h/.grok');
   assert.equal(g.connection.badge, 'signed_out');
+});
+
+test('#5948 review 17: every provider\'s shared key is a name the supervisor actually hands a pane (its door allowlist)', () => {
+  const { PROVIDER_OF_RUNNER } = require('./signedoutaccounts');
+  const sup = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
+  const line = sup.split('\n').find((l) => /process\.stdout\.write\(\[\.\.\.new Set\(names\)/.test(l));
+  assert.ok(line, 'CONTROL: the supervisor\'s allowlist line was not found, so this test checks nothing');
+  for (const [runner, p] of Object.entries(PROVIDER_OF_RUNNER)) {
+    if (p.sharedKey) assert.ok(line.includes('"' + p.sharedKey + '"'), runner + ': ' + p.sharedKey + ' is not on the supervisor\'s door allowlist');
+  }
+  assert.ok(!line.includes('"OPENAI_API_KEY"'), 'the allowlist now carries OPENAI_API_KEY: give codex its sharedKey');
 });

@@ -9,7 +9,7 @@
  * row of that provider names. The provider's DEFAULT folder is not looked at, whether a job names it or names none: a
  * default account can run on this computer's own key from the environment, so a missing file there proves nothing.
  *
- * Pure: the cards, the listed rows, and the two readers are passed in.
+ * The readers are injectable; the defaults read the disk.
  */
 
 const fs = require('node:fs');
@@ -19,8 +19,9 @@ const path = require('node:path');
    list left the folder out because it could not read or recognise it, not because the credential is gone. */
 const PROVIDER_OF_RUNNER = Object.freeze({
   // `sharedKey`: the variable a launch falls back to when the folder's own key is missing (the secrets/env door).
-  // codex: the supervisor's generic door loop puts every secrets/env file into the pane, and codex reads OPENAI_API_KEY.
-  codex: { provider: 'openai', providerName: 'OpenAI', prefix: '.codex-', files: ['auth.json'], sharedKey: 'OPENAI_API_KEY' },
+  // codex: none. The supervisor hands a pane only the door names on its allowlist (the token doors, GEMINI_API_KEY and
+  // XAI_API_KEY), and OPENAI_API_KEY is not one of them.
+  codex: { provider: 'openai', providerName: 'OpenAI', prefix: '.codex-', files: ['auth.json'], sharedKey: null },
   gemini: { provider: 'google', providerName: 'Gemini', prefix: '.gemini-', files: ['.kosmos-gemini-apikey'], sharedKey: 'GEMINI_API_KEY' },
   grok: { provider: 'xai', providerName: 'Grok', prefix: '.grok-', files: ['.kosmos-grok-apikey', 'auth.json'], sharedKey: 'XAI_API_KEY' },
 });
