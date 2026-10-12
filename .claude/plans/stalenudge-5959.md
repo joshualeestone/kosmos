@@ -7,11 +7,12 @@ runs `kosmos report show`; this says it without being asked. Stacked on slice 1 
 
 ## The call
 - `engine/stalereport-nudge.js`, the shape of `firstreply-nudge.js`: a pure `plan`, an injected `sweepOnce`, a gated
-  `makeTick`. Told: a card of ours reading `blocked` that shows the agent's report (`stateReported`), whose latest report
+  `makeTick`. Told: a Claude card of ours reading `blocked` that shows the agent's report (`stateReported`), whose latest report
   (`selfreport.read`) is `blocked`, not written by Kosmos (`by` is not `auto`), over `selfreport.STALE_WAIT_MS` (a day)
   old with the comparison report show uses, and whose swarm is not switched off.
-- Once per report line, kept on disk: `stalereport-reminded.json` under the data root (session -> the report's `at`),
-  so a board restart or an update does not repeat it. A fresh report starts a new day. A delivery that reached nothing
+- Once per report line, kept on disk: `stalereport-reminded.json` under the data root (session -> the report's `at`,
+  pruned to the sessions on the board at each write), so a board restart or an update does not repeat it; a write that
+  fails is logged, since a restart may then repeat it. A fresh report starts a new day. A delivery that reached nothing
   is retried up to MAX_TRIES (3, in memory), and the give-up is logged; an unconfirmed delivery counts as reached.
 - A held delivery (deliverAutomatic's holds: an answer awaited on screen, a usage limit, a quota, the Gemini cap)
   spends no try and is logged once per report with what held it.
@@ -27,6 +28,8 @@ runs `kosmos report show`; this says it without being asked. Stacked on slice 1 
   agent reports needs_you from a live ask_question). Review 3.
 - **Reports Kosmos wrote (by: auto).** The turn the reminder starts can clear them (the report hook's automatic
   `working`), so "if it still holds, leave it" could not be true. Review 3.
+- **Runners other than Claude.** deliverAutomatic's menu hold is Claude-only, and an agent on another runner can report
+  blocked while an ask is open on its screen. Review 4. `kosmos report show` still names a stale report for them.
 - **Inside agentnudge (the Prompter's stall nudge).** It deliberately leaves out blocked agents and is keyed on idle
   stall episodes; a stale report is a different trigger.
 - **Repeating it daily.** Once per report is what the card asks; a repeat would nag an agent that is rightly waiting.
