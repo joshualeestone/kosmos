@@ -34,3 +34,46 @@ bc_surface_token_hits() {
   esc="$(printf '%s' "$1" | sed 's/[][\\.^$*+?(){}|]/\\&/g')"
   printf '%s\n' "$2" | grep -qE "(^|[^A-Za-z0-9_-])${esc}([^A-Za-z0-9_-]|\$)" 2>/dev/null
 }
+
+# #5907: every annotated check in ONE pass, for a consumer that would otherwise call bc_surface_tokens_of and
+# bc_surface_token_hits per check and per token (about 4,000 processes on the real tree; the gate took ~17 s a call).
+# Prints, in find's order, one line per check whose annotation is non-empty:
+#     <path> TAB <verdict> TAB <token>
+# HIT: the first token (in the check's order) that is PLAIN ([A-Za-z0-9_-]+) and occurs whole in $2; it is that token.
+# MISS: every token is plain and none occurs whole in $2 (also an annotation of only whitespace).
+# SLOW: a non-plain token comes before any plain hit; the consumer must decide it with bc_surface_token_hits, as before.
+# A plain token is whole in $2 exactly when it is one of $2's maximal runs of [A-Za-z0-9_-], which is
+# bc_surface_token_hits's boundary. Paths go through a file and awk's getline, never shell word-splitting (this lib is
+# sourced into zsh too). Returns non-zero, printing nothing, when it cannot run; the consumer then takes the slow path.
+#   $1 = checks dir   $2 = changed text
+bc_surface_scan_checks() {
+  local _list _chg _rc
+  _list="$(mktemp "${TMPDIR:-/tmp}/bcsg-list.XXXXXX")" || return 2
+  _chg="$(mktemp "${TMPDIR:-/tmp}/bcsg-chg.XXXXXX")" || { rm -f "$_list"; return 2; }
+  find "$1" -maxdepth 1 -type f -name '*.js' 2>/dev/null > "$_list"
+  printf '%s\n' "$2" > "$_chg"
+  LC_ALL=C command awk '
+    FILENAME == ARGV[1] { n = split($0, w, /[^A-Za-z0-9_-]+/); for (k = 1; k <= n; k++) if (w[k] != "") word[w[k]] = 1; next }
+    $0 != "" {
+      f = $0; found = 0
+      while ((r = (getline line < f)) > 0) {
+        if (match(line, /^[[:space:]]*\/\/[[:space:]]*[Bb][Rr][Oo][Ww][Ss][Ee][Rr]-[Cc][Hh][Ee][Cc][Kk]-[Ss][Uu][Rr][Ff][Aa][Cc][Ee]:[[:space:]]*/)) { found = 1; break }
+      }
+      close(f)
+      if (r < 0) { bad = 1; exit 3 }
+      if (!found) next
+      rest = substr(line, RSTART + RLENGTH)
+      if (rest == "") next
+      m = split(rest, t, /[ \t]+/); v = "MISS"; hit = ""
+      for (k = 1; k <= m; k++) {
+        if (t[k] == "") continue
+        if (t[k] ~ /^[A-Za-z0-9_-]+$/) { if (t[k] in word) { v = "HIT"; hit = t[k]; break } }
+        else { v = "SLOW"; break }
+      }
+      printf "%s\t%s\t%s\n", f, v, hit
+    }' "$_chg" "$_list" > "$_chg.out"
+  _rc=$?
+  [ "$_rc" -eq 0 ] && cat "$_chg.out"
+  rm -f "$_list" "$_chg" "$_chg.out"
+  return "$_rc"
+}
