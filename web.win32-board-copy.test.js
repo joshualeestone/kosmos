@@ -514,6 +514,8 @@ test('#5862: on a Linux server the offline note, the restart screen and the worl
   // #5865: Windows has its own step now (its restartKosmos sentence); the Mac keeps "quit and reopen".
   assert.equal(stuck('darwin'), 'quit and reopen Kosmos.', 'darwin: the reconnect step changed off Linux');
   assert.equal(stuck('win32'), table.worldswStuck, 'win32: the reconnect step is not the Windows one');
+  // It is restartHow's step, as the middle of a sentence, so the two cannot drift apart.
+  assert.equal(table.worldswStuck, table.restartHow.charAt(0).toLowerCase() + table.restartHow.slice(1));
   for (const platform of ['darwin', 'win32']) {
     assert.doesNotMatch(offlineNote(platform), /kosmos restart/, platform);
     assert.doesNotMatch(runPage(platform, ['restartHowMac', 'restartHowText'], 'restartHowText()', { window: {} }), /kosmos restart/, platform);
@@ -812,6 +814,26 @@ test('#5865: after a folder move on Linux the keyboard lands on the sentence, no
   };
   assert.deepEqual(run('linux'), { focused: 'said', tab: -1 });
   assert.deepEqual(run('darwin'), { focused: 'reveal', tab: 0 }, 'CONTROL: a Mac sends the keyboard to Show me where it is');
+});
+
+test('#5865: the Files overflow line names the button in its platform\'s words', () => {
+  const line = page.lift(SCRIPT, 'paintAgentFilesAll');
+  const at = line.indexOf("more.textContent = 'And '");
+  assert.ok(at > -1, 'premise: the overflow line was found');
+  const expr = line.slice(line.indexOf('=', at) + 1, line.indexOf(';', at));
+  const say = (platform) => runPage(platform, ['kplusRemote'], expr, { rest: 3, location: { hostname: '127.0.0.1' } });
+  assert.equal(say('win32'), 'And 3 more in the folder. ' + table.docsOpenFolder + ' shows them all.');
+  assert.equal(say('linux'), 'And 3 more in the folder.');
+  assert.equal(say('darwin'), 'And 3 more in the folder. Open in Finder shows them all.', 'CONTROL: the Mac line changed');
+});
+
+test('#5865: a remote Linux board\'s failed read says what did not answer in its own words', () => {
+  const words = (platform, host) => runPage(platform, ['kplusRemote'], "(!onWindows() && kplusRemote() ? hostMachine() : 'this computer')",
+    { location: { hostname: host } });
+  assert.equal(words('linux', 'box.kosmosplus.com'), 'the computer running Kosmos');
+  assert.equal(words('darwin', 'box.kosmosplus.com'), 'your Mac', 'CONTROL');
+  assert.equal(words('linux', '127.0.0.1'), 'this computer', 'CONTROL: at the computer it is this computer');
+  assert.ok(page.lift(SCRIPT, 'boardEmpty').includes("(!onWindows() && kplusRemote() ? hostMachine() : 'this computer')"), 'boardEmpty no longer says it this way');
 });
 
 test('#5865: an unreadable daily-report setting on Linux does not send the person to an app icon', () => {
