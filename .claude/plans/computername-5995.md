@@ -252,3 +252,13 @@ Not taken (third time): the plan's file name and the commit subjects (reasons in
   (never run), the full suite.
 - NITs not taken: a "use this computer's name" control (a feature; typing the name back does it); why the page
   says "may" (the comment beside it says a disk failing between two writes).
+
+## Review 12 (sonnet): converged
+1 WARNING, 4 NIT, nothing new.
+- WARNING, a duplicate of Review 8's NIT, and already pinned: "if `DEVICE_NAME` is ever tightened, a typed name
+  could be swapped for the plain one". The reviewer could find no input that reaches it today. Review 8 added the
+  test that fails the day that changes ("a typed name always passes the tunnel's rule for a name").
+- NITs: three ask for tests that exist (a cut landing on a typed ending; `computer_name` over `device_name`); one
+  notes that `setComputerName` and `canKeepComputerName` are wrappers the tests use (true: each is one line over
+  the function the server calls).
+The loop ends here: eight rounds on the name-rides-the-start design (5 to 12), models alternating.
