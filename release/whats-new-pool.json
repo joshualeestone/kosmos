@@ -287,15 +287,15 @@
     },
     {
       "title": "Removing an account works mid sign-in",
-      "line": "If you left a Sign in again unfinished on a ChatGPT account, removing or disconnecting that account now works straight away.",
+      "line": "If you left a Sign in again unfinished on a ChatGPT account, you can now remove that account instead of waiting for it to time out.",
       "icon": "shield",
       "rank": 6,
       "since": "0.7.44",
-      "status": "pending"
+      "status": "held"
     },
     {
-      "title": "A late recurring run keeps the next one",
-      "line": "When a recurring task runs late, its next scheduled run still happens, and the task says how many runs it missed before.",
+      "title": "A long retry no longer skips the next run",
+      "line": "When a recurring task's run is retried for a long time, the next scheduled run is no longer swallowed by it.",
       "icon": "tasks",
       "rank": 7,
       "since": "0.7.44",

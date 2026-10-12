@@ -28,9 +28,9 @@
       "line": "New task asks \"How will you know it is done?\" before it creates a task, and a parent task says when all its subtasks are built."
     },
     {
-      "icon": "shield",
-      "title": "Removing an account works mid sign-in",
-      "line": "If you left a Sign in again unfinished on a ChatGPT account, removing or disconnecting that account now works straight away."
+      "icon": "tasks",
+      "title": "A long retry no longer skips the next run",
+      "line": "When a recurring task's run is retried for a long time, the next scheduled run is no longer swallowed by it."
     }
   ]
 }
