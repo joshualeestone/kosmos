@@ -54,6 +54,8 @@ function chk(ok, label, extra) {
   tasks.create(launch.id, { sentence: 'Order proofs', who: 'ada' });      // 2: the control, never on hold
   tasks.create(launch.id, { sentence: 'Old checklist' });                 // 3: closed, so nothing to hold
   tasks.close(launch.id, 3);
+  tasks.create(launch.id, { sentence: 'Proof the index', who: 'ada' });   // 4: #5864 control, built in a running project
+  tasks.setBuilt(launch.id, 4, { by: 'ada' });
   const winter = projects.create({ name: 'Winter catalog' });
   tasks.create(winter.id, { sentence: 'Draft the plan' });                // 1: held by pausing its project
   projects.addAgent(winter.id, 'ada', null);                            // #5864: ada builds task 2 here
@@ -176,6 +178,9 @@ function chk(ok, label, extra) {
         .map((r) => [(r.querySelector('.tl') || {}).textContent, !!r.querySelector('.tsk-paused')]));
       chk(pausedNote.some(([s, has]) => s === 'Finish the cover' && has), `${tag} its row says the project is paused`, JSON.stringify(pausedNote));
       chk(pausedNote.some(([s, has]) => s === 'Order proofs' && !has), `${tag} a task in a project that is not paused carries no paused note (control)`, JSON.stringify(pausedNote));
+      // One control per half of the row's condition: built, AND in a paused project.
+      chk(pausedNote.some(([s, has]) => s === 'Draft the plan' && !has), `${tag} an unbuilt task in a paused project carries no paused note (its On hold group says it)`, JSON.stringify(pausedNote));
+      chk(pausedNote.some(([s, has]) => s === 'Proof the index' && !has), `${tag} a built task in a project that is not paused carries no paused note`, JSON.stringify(pausedNote));
       await openTask(page, winter.id, 1);
       chk(/This project is paused/.test(await text(page, '#tk-hold-hint') || ''), `${tag} a paused project's task says its project is paused`, await text(page, '#tk-hold-hint'));
 
