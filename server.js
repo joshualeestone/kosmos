@@ -11020,13 +11020,13 @@ const server = http.createServer(async (req, res) => {
             // A job that could not be READ (not one that is absent) leaves the walk incomplete, as enumerateAgentsOnAccount
             // counts it: a lapsed account behind it must not turn into "none set up".
             (n) => {
-              // Only a card that could hold a keyed account counts: the board knows a Claude/Antigravity/Muse card is not one.
+              // The job is always read (it is the authority: an untagged gemini pane's card says claude). Only the walk's
+              // completeness is scoped: a card whose roster runner is not keyed does not mark it incomplete.
               const cardRunner = runnerOf.get(n);
               const counts = !cardRunner || Object.prototype.hasOwnProperty.call(soa.PROVIDER_OF_RUNNER, cardRunner);
-              if (!counts) return null;   // a card the board knows is not keyed: its job is not read at all
               let j;
-              try { j = create.readJob(n); } catch (e) { unlistedComplete = false; throw e; }
-              if (!j) { let absent = false; try { absent = create.jobMissing(n); } catch { absent = false; } if (!absent) unlistedComplete = false; }
+              try { j = create.readJob(n); } catch (e) { if (counts) unlistedComplete = false; throw e; }
+              if (!j && counts) { let absent = false; try { absent = create.jobMissing(n); } catch { absent = false; } if (!absent) unlistedComplete = false; }
               return j;
             },
             (p, d) => readers[p].readName(d),

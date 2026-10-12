@@ -119,19 +119,25 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
     const fix = ' To fix it, add the key or sign in again in Settings > AI Models.';
     return {
       ...r,
-      connection: r.defaultUnsure && !r.unreadable && !r.sharedKey
-        ? { state: 'unknown', badge: 'unlisted', because: 'its sign-in or key is not in its folder, Kosmos could not tell whether that folder is the default account\'s (which can run on this computer\'s own key), and ' + who + '.' }
-        : r.folderUnsure
-        ? { state: 'unknown', badge: 'unlisted', because: 'Kosmos could not look in its folder, and ' + who + '.' }
-        : r.unreadable
-          ? { state: 'unknown', badge: 'unlisted', because: 'a sign-in or key file is in its folder, but Kosmos could not read it or does not look in that folder, and ' + who + '.' }
-          : r.sharedKeyUnsure
-            ? { state: 'unknown', badge: 'unlisted', because: 'its own sign-in or key is gone from its folder, Kosmos could not read this computer\'s shared ' + r.providerName + ' key to tell whether one stands in, and ' + who + '.' }
-            : r.sharedKey
-              ? { state: 'unknown', badge: 'unlisted', because: 'its own sign-in or key is gone from its folder, but this computer\'s shared ' + r.providerName + ' key can stand in for it, and ' + who + '.' }
-              : { state: 'none', badge: 'signed_out', because: 'its sign-in or key is no longer on this computer, and ' + who + '.' + fix },
+      connection: connectionOf(r, who, fix),
     };
   });
+}
+
+/* What a row says, in order of what Kosmos could not tell. The ORDER matters: an unsure look is never reported as
+   something seen, and only a row with nothing uncertain left reads signed out. */
+function connectionOf(r, who, fix) {
+  const unlisted = (because) => ({ state: 'unknown', badge: 'unlisted', because: because + ', and ' + who + '.' });
+  if (r.defaultUnsure && !r.unreadable && !r.sharedKey) {
+    return unlisted('its sign-in or key is not in its folder, Kosmos could not tell whether that folder is the default account\'s (which can run on this computer\'s own key)');
+  }
+  if (r.folderUnsure) return unlisted('Kosmos could not look in its folder');
+  if (r.unreadable) return unlisted('a sign-in or key file is in its folder, but Kosmos could not read it or does not look in that folder');
+  if (r.sharedKeyUnsure) {
+    return unlisted('its own sign-in or key is gone from its folder, Kosmos could not read this computer\'s shared ' + r.providerName + ' key to tell whether one stands in');
+  }
+  if (r.sharedKey) return unlisted('its own sign-in or key is gone from its folder, but this computer\'s shared ' + r.providerName + ' key can stand in for it');
+  return { state: 'none', badge: 'signed_out', because: 'its sign-in or key is no longer on this computer, and ' + who + '.' + fix };
 }
 
 module.exports = { signedOutRows, PROVIDER_OF_RUNNER, fileThere };
