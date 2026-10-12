@@ -12895,7 +12895,7 @@ window.kosmosMeasureScrollbarWidth();
           <option value="antigravity" disabled data-off="Checking Antigravity">Google Gemini (Google subscription)</option>
           <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
           <option value="meta" disabled>Meta Muse &middot; coming soon</option>
-          <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
+          <option value="alibaba" disabled data-off="Checking your accounts">Alibaba Qwen</option>
           <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
           <option value="mistral" disabled>Mistral &middot; coming soon</option>
         </select>
@@ -13949,7 +13949,7 @@ window.kosmosMeasureScrollbarWidth();
         <option value="google">Google Gemini</option>
         <option value="xai">xAI Grok</option>
         <option value="meta" disabled>Meta Muse &middot; coming soon</option>
-        <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
+        <option value="alibaba">Alibaba Qwen</option>
         <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
         <option value="mistral" disabled>Mistral &middot; coming soon</option>
       </select>
@@ -14094,6 +14094,29 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <p class="dhint" id="acct-apikey-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
     </div>
+    <!-- #5977: Qwen, through Ollama on this computer or any OpenAI-compatible server. Kosmos checks the address
+         before it saves anything; a key is only for a server that asks for one. -->
+    <div id="acct-qwen-flow" hidden style="margin-top: var(--space-5);">
+      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Qwen runs on this computer through Ollama, or on a server you name.</b> Kosmos checks the address before it saves it.</p>
+      <div class="frow">
+        <input type="text" id="acct-qwen-url" autocomplete="off" spellcheck="false" aria-label="Address" placeholder="http://localhost:11434/v1" value="http://localhost:11434/v1">
+      </div>
+      <div class="frow" style="margin-top:8px;">
+        <input type="text" id="acct-qwen-model" autocomplete="off" spellcheck="false" aria-label="Model" placeholder="kosmos-qwen2.5-7b-16k:latest" value="kosmos-qwen2.5-7b-16k:latest">
+      </div>
+      <div class="frow" style="margin-top:8px;">
+        <input type="password" id="acct-qwen-key" autocomplete="new-password" spellcheck="false" aria-label="Key (only if the server asks for one)" placeholder="Key, only if the server asks for one">
+      </div>
+      <div class="frow" style="margin-top:8px;">
+        <input type="text" id="acct-qwen-name" autocomplete="off" maxlength="40" aria-label="A name for this account (optional)" placeholder="A name, if you want one">
+      </div>
+      <p class="dhint" style="margin:6px 0 0;">For Qwen on this computer, keep the address and model as they are. Qwen answers questions and runs commands well; check the files it edits.</p>
+      <div class="frow" style="margin-top:12px;">
+        <button class="btn uprime" id="acct-qwen-go" type="button">Add</button>
+      </div>
+      <p class="dhint" id="acct-qwen-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+    </div>
+
     <div id="acct-claude-flow" hidden style="margin-top: var(--space-5);">
       <!-- #2433 (#2420 UI slice; Josh's #2338 "follow suit on Claude too"): two ways
            to connect Claude, and they are DISTINCT connection types, not two
@@ -16040,7 +16063,7 @@ window.kosmosMeasureScrollbarWidth();
             <option value="antigravity" disabled data-off="Checking Antigravity">Google Gemini (Google subscription)</option>
             <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
             <option value="meta" disabled>Meta Muse &middot; coming soon</option>
-            <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
+            <option value="alibaba" disabled data-off="Checking your accounts">Alibaba Qwen</option>
             <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
             <option value="mistral" disabled>Mistral &middot; coming soon</option>
           </select>
@@ -28432,6 +28455,8 @@ function acctPick(which, opts) {
      thing now shows only once the software is known to be here, so acctKeyedReveal places it. */
   ACCT_KEYED_FOCUS = !(opts && opts.focus === false);
   acctApikeyShow(ACCT_APIKEY_PROVIDERS[which] ? which : null);
+  acctQwenShow(which === 'alibaba');   // #5977
+  if (which === 'alibaba') { acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null; if (!(opts && opts.focus === false)) document.getElementById('acct-qwen-url').focus(); return; }
   if (which !== 'openai') {
     acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null;
     if (which === 'meta') { if (!(opts && opts.focus === false)) document.getElementById('acct-muse-go').focus(); return; }
@@ -28507,12 +28532,13 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
   }
   if (which === 'meta' && museOffered()) { acctPick('meta'); return; }
   acctMuseShow(false);
-  if (which === 'claude' || which === 'openai' || ACCT_APIKEY_PROVIDERS[which]) { acctPick(which); return; }
+  if (which === 'claude' || which === 'openai' || which === 'alibaba' || ACCT_APIKEY_PROVIDERS[which]) { acctPick(which); return; }   // #5977: alibaba
   // Cleared, or (defensively) a disabled "coming" option somehow reached
   // change: no flow is a live provider, so none shows.
   document.getElementById('acct-claude-flow').hidden = true;
   document.getElementById('acct-openai-flow').hidden = true;
   acctApikeyShow(null);
+  acctQwenShow(false);   // #5977
   acctAddPickSay('');   // #3939 slice 3c-2 (round 5): going back to "Choose a provider" is a choice too
 });
 /* #770: the door opens the dialog; the dialog remembers nothing between
@@ -30760,6 +30786,63 @@ document.getElementById('acct-apikey-show').addEventListener('click', () => {
   show.setAttribute('aria-pressed', String(on));
   key.focus();
 });
+/* #5977: the Qwen step of Add a provider. Its own flow, not ACCT_APIKEY_PROVIDERS: that path downloads a provider's
+   own runner, and Qwen runs on codex. Bumped on every show, so an answer that returns after the step was left is
+   ignored (the same rule as ACCT_APIKEY_GEN). */
+let ACCT_QWEN_GEN = 0;
+function acctQwenShow(on) {
+  ACCT_QWEN_GEN += 1;
+  const flow = document.getElementById('acct-qwen-flow');
+  if (!flow) return;
+  flow.hidden = !on;
+  const go = document.getElementById('acct-qwen-go'); if (go) go.disabled = false;
+  const m = document.getElementById('acct-qwen-msg'); if (m) m.textContent = '';
+}
+document.getElementById('acct-qwen-go').addEventListener('click', async () => {
+  const urlField = document.getElementById('acct-qwen-url');
+  const modelField = document.getElementById('acct-qwen-model');
+  const keyField = document.getElementById('acct-qwen-key');
+  const nameField = document.getElementById('acct-qwen-name');
+  const go = document.getElementById('acct-qwen-go');
+  const msg = document.getElementById('acct-qwen-msg');
+  const baseUrl = urlField.value.trim();
+  const model = modelField.value.trim();
+  if (!baseUrl) { msg.textContent = 'Give the address first.'; urlField.focus(); return; }
+  if (!model) { msg.textContent = 'Give the model name first.'; modelField.focus(); return; }
+  const entered = nameField.value.trim();
+  const key = keyField.value.trim();
+  const mine = ACCT_QWEN_GEN;
+  const stillHere = () => ACCT_QWEN_GEN === mine && !document.getElementById('acct-qwen-flow').hidden;
+  go.disabled = true;
+  msg.textContent = 'Checking the address…';
+  try {
+    const res = await fetch('/api/accounts/qwen', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ baseUrl, model, key: key || undefined, name: entered || undefined }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!stillHere()) { if (res.ok) paintAccounts(); return; }
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'We could not add that account.');
+    keyField.value = '';
+    nameField.value = '';
+    const unknown = !!(out && out.account && out.account.connection && out.account.connection.state === 'unknown');
+    const goldBox = frCheckRow({ state: unknown ? 'unknown' : 'ok', title: unknown ? 'Qwen account saved' : 'Qwen is connected',
+      detail: unknown
+        ? 'It is saved, but the address did not answer just now (for Qwen on this computer, open Ollama). It is checked again when an agent uses it.'
+        : 'The address answered and has the model.' });
+    msg.textContent = 'Checking the connection…';
+    await paintAccounts();
+    if (!stillHere()) return;
+    msg.textContent = '';
+    acctShowSuccess(entered || 'your Qwen account', goldBox);
+  } catch (err) {
+    if (stillHere()) msg.textContent = String((err && err.message) || 'We could not add that account.');
+  } finally {
+    if (ACCT_QWEN_GEN === mine) go.disabled = false;
+  }
+});
+
 document.getElementById('acct-apikey-go').addEventListener('click', async () => {
   const which = ACCT_APIKEY_WHICH;
   const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
