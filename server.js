@@ -21881,7 +21881,8 @@ function agentEventsTick() {
 }
 /**
  * kosmos#5957: every agent's handle and display name, for engine/agentnames.js (wired in start()).
- * Every agent the board shows (the roster's own agents, by display name), plus the agents Kosmos made that are not
+ * Every agent of ours the board shows (roster rows that are isNamedOurs, by display name; a pane that is not an agent
+ * never holds a name), plus the agents Kosmos made that are not
  * running: on a Mac or Linux the created list (status.createdKeysStrict), and on Windows the session record
  * (engine/win32sessions.js), since the Windows roster lists only live sessions. Removed agents are left out (the
  * created list keeps them for Restore, and a person cannot rename an agent the board does not show); create's
