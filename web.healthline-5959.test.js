@@ -44,7 +44,8 @@ test('#5959 slice 2: the health line says sign-in, usage and when Kosmos last sa
   assert.equal(healthLine({ state: 'idle', lastWorked: never }, NOW), 'Last seen working: not seen since Kosmos started');
   assert.equal(healthLine({ state: 'working', lastWorked: { at: null, why: 'no_source' } }, NOW),
     'Last seen working: Kosmos cannot see this agent\'s turns');
-  // Stopped, restarting or unreadable: Kosmos sees nothing of its sign-in or usage, so only the time is said. Blocked
+  // A pane that reads stopped, restarting or unreadable: Kosmos sees nothing of its sign-in or usage, so only the time
+  // is said (an agent with no pane at all has an offline card with no lastWorked, so no line). Blocked
   // too: a Claude card stays blocked on Claude Code's own report of a refused sign-in or a usage cap.
   for (const state of ['stopped', 'restarting', 'unknown', 'blocked', 'connection_lost']) {
     assert.equal(healthLine({ state, lastWorked: { at: new Date(at5).toISOString(), why: null } }, NOW), 'Last seen working: ' + clock(at5), state);
@@ -60,6 +61,8 @@ test('#5959 slice 2: the health line says sign-in, usage and when Kosmos last sa
     assert.match(healthLine({ state: 'auth_failed', runner, stateConfidence: 'structured', lastWorked: seen }, NOW), /^Sign-in: isn't working · /, runner + ': a problem is still said');
   }
   assert.match(healthLine({ state: 'idle', runner: 'claude', lastWorked: seen }, NOW), /^Sign-in: no problem showing · /, 'CONTROL: a Claude card');
+  // A Claude agent asking a question may be at a browser sign-in (it reads needs_you), so sign-in is not called fine.
+  assert.equal(healthLine({ state: 'needs_you', runner: 'claude', lastWorked: seen }, NOW), 'Usage: no limit showing · Last seen working: ' + clock(at5));
   // No runner field (an older card): neither is said, since neither can be tied to a runner whose state shows it.
   assert.equal(healthLine({ state: 'idle', lastWorked: seen }, NOW), 'Last seen working: ' + clock(at5));
   // Seen working over an hour ago: a sign-in may have lapsed since, so "no problem" is not said; a problem still is.

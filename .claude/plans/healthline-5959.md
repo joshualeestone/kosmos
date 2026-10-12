@@ -19,7 +19,7 @@ the pane working (a short turn between sweeps is not seen); for Codex, Gemini an
   what the card's state shows ("no problem showing" / "no limit showing" otherwise), hedged with "looks like" for a
   screen reading as the state sentence is (#215). A problem the state shows is always said; "no problem" only for an
   agent Kosmos has seen work within the last hour, in a state it reads, and for sign-in only on Claude (`runner ===
-  'claude'`): a Codex 401 loop reads as working
+  'claude'`) and not on needs_you (a browser sign-in reads needs_you): a Codex 401 loop reads as working
   and the other runners' sign-in report is written by the Windows supervisor alone; usage "no limit" only for Claude,
   Codex and Gemini, whose limits the board reads (nothing reads a Grok limit yet), and not beside a refused sign-in. A clock time, not "N minutes ago",
   which would age between polls.
@@ -43,8 +43,9 @@ the pane working (a short turn between sweeps is not seen); for Codex, Gemini an
   records no OK. A network retry does not: Claude Code draws working chrome while it retries (status.js STATE
   comment), so the pane reads working and records OKs until the retries run out and it reads connection_lost. In that
   window the line says it was seen working; sign-in and usage are not what is failing there.
-- Stopped, restarting, unknown, blocked or connection-lost agents show only the time (connection lost: "no problem
-  showing" beside it would read as a clean bill of health). Blocked because a Claude card stays blocked on
+- A pane that reads stopped, restarting, unknown, blocked or connection lost shows only the time. An agent with no
+  pane (its offline card) carries no lastWorked and shows no line; carrying the time onto that card is a follow-up.
+  Connection lost: "no problem showing" beside it would read as a clean bill of health. Blocked because a Claude card stays blocked on
   Claude Code's own report of a refused sign-in or a usage cap, where "no problem showing" would be false.
 - Windows: a Codex agent there is read through its rollout like any Codex agent. Whether the rollout is found on
   Windows is reasoned from source, not measured; if it is not, the line says "not seen since Kosmos started" where
