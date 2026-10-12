@@ -2076,6 +2076,86 @@ KOSMOS_SWEEP_LIST
     if [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ] \
        || { [ -f "$KOSMOS_HOME/VERSION" ] && { [ -d "$KOSMOS_HOME/app" ] || [ -d "$KOSMOS_HOME/tmux" ]; }; }; then
       info "deleting $KOSMOS_HOME"
+      # #5998: TAKE KOSMOS'S HOOKS AND STATUS LINE BACK OUT OF CLAUDE CODE'S SETTINGS while the bundled node that
+      # can edit JSON still exists (the rm below deletes it). Left in, every hook points at a script this uninstall
+      # removes, and Claude Code reports a hook error on every tool call from then on, with nothing saying why.
+      # Self-contained on purpose: `sh -s -- --uninstall` runs THIS file against whatever engine is installed, which
+      # may predate any unwire function, so nothing here loads the app's code. Only items that are ours AND point
+      # inside THIS install's home are removed (another Kosmos install on this Mac shares these files), anything
+      # else in the file is kept, and a file that cannot be read or saved is named below, never rewritten wrong.
+      _unwire_left=""
+      _unwire_out="$(mktemp "${TMPDIR:-/tmp}/kosmos-unwire.XXXXXX" 2>/dev/null)" || _unwire_out=""
+      if [ -n "$_unwire_out" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ]; then
+        "$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" "${AGENT_WORKFORCE_HOME:-$HOME}" <<'UNWIREEOF' >"$_unwire_out" 2>/dev/null || true
+const fs = require('fs');
+const path = require('path');
+const [kosmosHome, home] = process.argv.slice(2);
+const roots = [kosmosHome];
+try { roots.push(fs.realpathSync(kosmosHome)); } catch { /* the given path is enough */ }
+const inside = (s) => typeof s === 'string' && roots.some((r) => s.includes(r.replace(/\/+$/, '') + '/'));
+const hookIsOurs = (h) => !!h && (
+  (typeof h.command === 'string' && h.command.includes('kosmos-report-hook') && inside(h.command))
+  || (Array.isArray(h.args) && h.args.some((a) => typeof a === 'string' && a.includes('kosmos-report-hook') && inside(a))));
+const files = [path.join(home, '.claude', 'settings.json')];
+try {
+  for (const d of fs.readdirSync(home)) if (d.startsWith('.claude-')) files.push(path.join(home, d, 'settings.json'));
+} catch { /* no home listing: the default file alone */ }
+const left = [];
+for (const file of files) {
+  let target;
+  try { target = fs.realpathSync(file); } catch { continue; }   // absent, or a link to nothing: nothing of ours
+  let data;
+  let mode;
+  try {
+    const st = fs.statSync(target);
+    mode = st.mode & 0o7777;
+    data = JSON.parse(fs.readFileSync(target, 'utf8'));
+  } catch {
+    try { if (/kosmos-(report-hook|statusline)/.test(fs.readFileSync(target, 'utf8'))) left.push(file); } catch { /* unreadable */ }
+    continue;
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+  let changed = false;
+  if (data.hooks && typeof data.hooks === 'object' && !Array.isArray(data.hooks)) {
+    for (const event of Object.keys(data.hooks)) {
+      const list = data.hooks[event];
+      if (!Array.isArray(list)) continue;
+      const kept = [];
+      for (const entry of list) {
+        if (!entry || !Array.isArray(entry.hooks) || !entry.hooks.some(hookIsOurs)) { kept.push(entry); continue; }
+        changed = true;
+        const rest = entry.hooks.filter((h) => !hookIsOurs(h));
+        if (rest.length) kept.push({ ...entry, hooks: rest });   // somebody else's hook shared our entry: theirs stays
+      }
+      if (kept.length) data.hooks[event] = kept; else delete data.hooks[event];
+    }
+    if (changed && Object.keys(data.hooks).length === 0) delete data.hooks;
+  }
+  const sl = data.statusLine;
+  if (sl && typeof sl === 'object' && typeof sl.command === 'string' && sl.command.includes('kosmos-statusline.js') && inside(sl.command)) {
+    delete data.statusLine;
+    changed = true;
+  }
+  if (!changed) continue;
+  try {
+    const tmp = target + '.kosmos-unwire.' + process.pid;
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { mode });
+    fs.chmodSync(tmp, mode);
+    fs.renameSync(tmp, target);
+  } catch {
+    left.push(file);
+  }
+}
+process.stdout.write(left.join('\n'));
+UNWIREEOF
+        _unwire_left="$(cat "$_unwire_out" 2>/dev/null)" || _unwire_left=""
+      fi
+      [ -z "$_unwire_out" ] || rm -f "$_unwire_out"
+      if [ -n "$_unwire_left" ]; then
+        info "note: Kosmos's agent hooks could not be taken out of these Claude settings files; delete the"
+        info "entries naming kosmos-report-hook and kosmos-statusline.js there:"
+        printf '%s\n' "$_unwire_left" | while IFS= read -r _uf; do info "  $_uf"; done
+      fi
       # 🔑 RETIRE THIS MAC AT THE COORDINATOR WHILE IT CAN STILL SPEAK (#793).
       # The Mac's key lives in the support folder's remote/ dir and the
       # connector in the app tree about to go; after either is gone only a
@@ -2540,9 +2620,9 @@ KOSMOS_SWEEP_LIST
     printf '  (Claude switches to another model when Opus safeguards flag a message).\n'
     printf '  Set it to false there if you want to be asked instead.\n\n'
   fi
-  # #3946: the status line Kosmos adds to record weekly usage is ours by its marker,
-  # but the bundled Node that could edit the JSON is gone by now, so it is NAMED, as
-  # the header's rule asks. Left in place it points at files this uninstall removed,
+  # #3946: the status line Kosmos adds to record weekly usage is ours by its marker. #5998 removes this install's
+  # own before the home goes; one still here belongs to another install, or sat in a file that could not be
+  # saved, and the bundled Node that could edit the JSON is gone by now, so it is NAMED, as the header's rule asks. Left in place it points at files this uninstall removed,
   # so it records nothing any more, and it keeps the one status-line slot.
   # Every account Kosmos wires, not only the default: account folders are kept by this
   # uninstall, so their entries would otherwise be left unnamed.
