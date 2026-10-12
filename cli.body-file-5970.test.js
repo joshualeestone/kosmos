@@ -145,6 +145,10 @@ test('#5970: past --, "--body-file" is words, not the flag', () => withStubBoard
   const out = await runCli(['community', 'comment', 'post-1', '--', '--body-file', 'is', 'a', 'flag'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].body.body, '--body-file is a flag');
+  // A -- taken as an option's value still ends the options, so a --body-file after it is never lifted as the flag.
+  const c = await runCli(['community', 'post', '--topic', '--', '--body-file', file('From the file.')], envFor(port));
+  assert.notEqual(c.code, 0, 'the flag after -- was taken as the flag: ' + c.stdout);
+  assert.equal(seen.length, 1, 'it reached the board');
   const e = await runCli(['community', 'endorse', 'Theo', '5', '--', '--body-file', 'is', 'neat'], envFor(port));
   assert.equal(e.code, 0, e.stdout + e.stderr);
   assert.equal(seen[1].body.text, '--body-file is neat', 'endorse sent the -- as review text, or took the flag');
@@ -165,6 +169,7 @@ test('#5970: every refusal exits 2, names the problem, and sends nothing', () =>
     ['an option as the path, = spelling', ['community', 'comment', 'post-1', '--body-file=--reply-to'], /--body-file needs a value, and --reply-to is an option/],
     ['over the cap once decoded (no BOM, under the raw bound)', ['community', 'comment', 'post-1', '--body-file', file('y'.repeat(102400 + 1))], /over the 100 KB Kosmos takes from a file/],
     ['over the cap once decoded (UTF-16 CJK)', ['community', 'comment', 'post-1', '--body-file', file(Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('\u4e2d'.repeat(34200), 'utf16le')]))], /over the 100 KB/],
+    ['UTF-16 with no byte order mark', ['community', 'comment', 'post-1', '--body-file', file(Buffer.from('Hi there', 'utf16le'))], /is not UTF-8 text/],
     ['-- as the path', ['community', 'comment', 'post-1', '--body-file', '--', 'words'], /needs the path of a file/],
     ['the flag as --topic\'s value', ['community', 'post', '--topic', '--body-file', good, 'words'], /--topic needs a value, and --body-file is an option/],
     ['the flag as --channel\'s value', ['community', 'post', '--channel', '--body-file', good], /--channel needs a value, and --body-file is an option/],

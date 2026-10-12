@@ -368,7 +368,7 @@ _take_body_file() {
   while [ $# -gt 0 ]; do
     case "$_prev" in
       # Right after an option that takes a value, it stays put, so that option's own _opt_value refuses it (#4889).
-      --topic|--channel|--reply-to) KOSMOS_BF_ARGS+=("$1"); _prev="$1"; shift; continue ;;
+      --topic|--channel|--reply-to) [ "$1" != "--" ] || _past=1; KOSMOS_BF_ARGS+=("$1"); _prev="$1"; shift; continue ;;
     esac
     _prev="$1"
     if [ "$_past" = 0 ]; then
@@ -397,10 +397,10 @@ _take_body_file() {
 # over BODY_FILE_MAX_BYTES (as UTF-8, after decoding), not text in one of those encodings or holding a NUL (bash cannot
 # carry one), and blank. CRLF becomes LF and the trailing line breaks go, as `$(cat)` does for a piped body.
 # $1 = posted|sent|changed|written, for "Nothing was <it>".
-# Below Linux's 128 KB limit on one environment string, not the board's 6 MB: the verbs pass the text on as
-# KC_TEXT / KOSMOS_FEEDBACK_BODY.
-BODY_FILE_MAX_BYTES=102400
 KOSMOS_BODY_TEXT=""
+# The cap on the text as sent. Below Linux's 128 KB limit on one environment string, not the board's 6 MB: the
+# verbs pass the text on as KC_TEXT / KOSMOS_FEEDBACK_BODY.
+BODY_FILE_MAX_BYTES=102400
 _read_body_file() {
   local _verb="$1" _f="$KOSMOS_BODY_FILE" _node _rc=0
   _node="$(kosmos_engine_node)" || { say "Nothing was $_verb: Kosmos cannot find its own runtime, so it cannot read $_f."; exit 1; }
@@ -410,7 +410,11 @@ _read_body_file() {
     const rawMax = 2 * max + 4;   // UTF-16 with a BOM is at most twice its UTF-8; past this it cannot fit
     try { const st = fs.statSync(p); if (!st.isFile()) process.exit(10); if (st.size > rawMax) process.exit(11); b = fs.readFileSync(p); } catch { process.exit(10); }
     if (b.length > rawMax) process.exit(11);
-    const dec = (enc, from) => new TextDecoder(enc, { fatal: true, ignoreBOM: true }).decode(b.subarray(from));
+    const dec = (enc, from) => {
+      let d;
+      try { d = new TextDecoder(enc, { fatal: true, ignoreBOM: true }); } catch { process.exit(14); }   // a runtime without it
+      return d.decode(b.subarray(from));
+    };
     let s;
     try {
       if (b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf) s = dec("utf-8", 3);

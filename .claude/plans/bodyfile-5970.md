@@ -34,7 +34,7 @@ Card: #5970. Windows half: #5946 (Homer), not on origin when this was built.
 `cli.body-file-5970.test.js`: all five verbs, both spellings, flag before/after ids, BOM decoding (UTF-8 BOM,
 UTF-16 LE, UTF-16 BE, CRLF), file over stdin, `--` makes it words, every refusal sends nothing (with a
 control that the stub does see a good request), feedback write round-trip and a refused write saves nothing.
-Negative control: 6 of 7 fail against origin/main's CLI (the `--` test is a regression guard and passes on both).
+Negative control: run against origin/main's CLI, every test fails except the `--` one, which is a regression guard.
 
 ## Validation
 Focused per iteration: cli.body-file-5970, cli.community-*, cli.feedback-*, cli.unknown-flag-4889,
