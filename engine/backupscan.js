@@ -44,7 +44,8 @@ const TEMPLATE = /\.(example|sample|template|dist)$/i;
 // #5686 (measured on a real data root): Kosmos's own credential stores outside its secrets folder. The data root is
 // inside a named world, so a world snapshot walks past these: per-agent board tokens (engine/sendertoken.js), the
 // supervisor's launch secrets (bin/agent-supervisor.sh), each agent's Kosmos+ community key (engine/communitysend.js
-// keysFile), this board's sealing key and room keys (engine/fedseal.js), the Mac's tunnel signing keys (mac_key,
+// keysFile), this board's sealing key and room keys (engine/fedseal.js), the Mac's tunnel signing keys (mac_key, and
+// mac_identity, which holds mac_key beside mac_id: kosmos-relay crates/tunnel/src/setup.rs IDENTITY_FILE, #5871;
 // engine/remote.js; install_key, the connector: kosmos-relay crates/tunnel/src/assistant.rs), the phone notify-only
 // token (engine/phonenotify.js) and a provider account's API key file (claudeaccounts, geminiaccounts, grokaccounts).
 // 🔑 The content scan stores several of these as they are (measured: mac_key, phone-notify.json), so the NAME is the
@@ -77,7 +78,7 @@ const KOSMOS_STORES = [
   [{ test: (p) => COMMUNITY_DIR.test(p) && KEYS_FILE.test(p) }, 'Kosmos+ community agent keys'],
   [STORE_NAME('fed-seal-(key|rooms)'), 'Kosmos room sealing keys'],
   [STORE_NAME('board\\.token'), 'Kosmos board token'],
-  [STORE_NAME('(mac_key|install_key)'), 'Kosmos Mac signing key'],
+  [STORE_NAME('(mac_key|mac_identity|install_key)'), 'Kosmos Mac signing key'],   // #5871: mac_identity holds mac_key too
   [STORE_NAME('phone-notify'), 'Kosmos phone notify token'],
   [STORE_NAME('\\.?kosmos-[a-z0-9]+-apikey'), 'provider API key'],
   // engine/undo.js keeps a copy of every file an agent edits, under a hash (undo/blobs/<sha256>) or behind a hash prefix

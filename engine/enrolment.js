@@ -26,4 +26,34 @@ function enrolledBy(exists) {
   return missingFor(exists).length === 0;
 }
 
-module.exports = { ENROL_FILES, CERT_FILES, HELD_FILE, missingFor, enrolledBy };
+/* kosmos#5871: which id names this computer NOW, given `read(name)` (the file's text, or null) and `mtimeOf(name)`
+   (its modification time in ms, or null). The tunnel writes `mac_identity` (the id, then the key, one per line) FIRST
+   at every registration, in one step, and the old `mac_id` / `mac_key` pair after it for older readers. So: the id
+   in `mac_identity` names it, unless the `mac_id` file names a DIFFERENT id and is NEWER (an older tunnel, which
+   writes only the pair, registered since). No `mac_identity` (registered before it existed): the `mac_id` file.
+   This rests on every registration getting a NEW id (the coordinator's register_mac mints one, util::new_id, into a
+   primary key): a re-registration under the same id with a new key would keep mac_identity's old key here.
+   ⚠️ COUPLING, across a repo: this is the rule of kosmos-relay crates/tunnel/src/coordinator.rs
+   MacState::identity_record, so the app and the tunnel always name the same computer. Change them together.
+   A mac_identity without BOTH an id and a key, or one that cannot be read (read throws), is no id (null), never
+   the other file's: the tunnel refuses those too. No mac_id file at all is no id either: the tunnel's every entry
+   point (MacState::open) refuses a folder without one, so a FIRST registration cut after its mac_identity write
+   is not a computer yet, here as there. An empty mac_id counts as no mac_id. A tie in mtime keeps mac_identity. engine/enrolment-macid-5871.test.js and the tunnel's identity_rule_table hold the same cases. */
+const IDENTITY_FILE = 'mac_identity';
+function currentMacIdBy(read, mtimeOf) {
+  let pairRaw; let text;
+  try { pairRaw = read('mac_id'); text = read(IDENTITY_FILE); } catch { return null; }
+  const pairId = ((pairRaw || '').trim()) || null;
+  if (text === null || text === undefined) return pairId;
+  if (pairRaw === null || pairRaw === undefined) return null;   // no mac_id file: the tunnel will not open the folder
+  const lines = String(text).split('\n').map((l) => l.trim());
+  const id = lines[0] || null;
+  if (!id || !lines[1]) return null;
+  if (pairId && pairId !== id) {
+    const pairAt = mtimeOf('mac_id'); const fileAt = mtimeOf(IDENTITY_FILE);
+    if (pairAt !== null && fileAt !== null && pairAt > fileAt) return pairId;
+  }
+  return id;
+}
+
+module.exports = { ENROL_FILES, CERT_FILES, HELD_FILE, IDENTITY_FILE, missingFor, enrolledBy, currentMacIdBy };
