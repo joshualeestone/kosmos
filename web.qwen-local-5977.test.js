@@ -64,6 +64,7 @@ function harness(answers, opts) {
     slice('let ACCT_QWEN_LOCAL_SEQ =', ';'),
     slice('let ACCT_QWEN_LOCAL_RUNNING =', ';'),
     slice('let ACCT_QWEN_LOCAL_LOCKED =', ';'),
+    slice('let ACCT_QWEN_LOCAL_LOCK_TIMER =', ';'),
     slice('function acctQwenIsLocalSetup()', '\n}'),
     slice('function acctQwenGb(n)', '}'),
     slice('function acctQwenLocalHideRow(row, t)', '\n}'),

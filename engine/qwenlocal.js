@@ -158,6 +158,7 @@ function startDownload() {
   return { started: true };
 }
 
-function resetForTest() { pull = null; transport = null; }
+function resetForTest() { pull = null; transport = null; module.exports.platformForTest = null; }
 
-module.exports = { STATE, MODEL, BASE, OLLAMA, status, makeModel, startDownload, pullProgress, setTransport, resetForTest };
+/* platformForTest: the server's win32 refusal reads it before process.platform, so a Mac can test that arm. */
+module.exports = { STATE, MODEL, BASE, OLLAMA, status, makeModel, startDownload, pullProgress, setTransport, resetForTest, platformForTest: null };

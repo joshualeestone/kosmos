@@ -14098,10 +14098,12 @@ window.kosmosMeasureScrollbarWidth();
          before it saves anything; a key is only for a server that asks for one. -->
     <div id="acct-qwen-flow" hidden style="margin-top: var(--space-5);">
       <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Qwen runs on this computer through Ollama, or on a server you name.</b> Kosmos checks the address before it saves it.</p>
+      <label class="flabel" for="acct-qwen-url">Address</label>
       <div class="frow">
         <input type="text" id="acct-qwen-url" autocomplete="off" spellcheck="false" aria-label="Address" placeholder="http://localhost:11434/v1" value="http://localhost:11434/v1">
       </div>
-      <div class="frow" style="margin-top:8px;">
+      <label class="flabel" for="acct-qwen-model" style="margin-top:8px;">Model</label>
+      <div class="frow">
         <input type="text" id="acct-qwen-model" autocomplete="off" spellcheck="false" aria-label="Model" placeholder="kosmos-qwen2.5-7b-16k:latest" value="kosmos-qwen2.5-7b-16k:latest">
       </div>
       <div class="frow" style="margin-top:8px;">
@@ -30527,7 +30529,7 @@ function openAcctAdd(ev) {
      does not say it works today (nobody downloads 4.7 GB for an agent that will be refused). */
   if (typeof onWindows === 'function' && onWindows()) {
     const q = sel && sel.querySelector ? sel.querySelector('option[value="alibaba"]') : null;
-    if (q) { q.disabled = true; q.textContent = 'Alibaba Qwen · coming to Windows'; }
+    if (q) { q.disabled = true; q.textContent = 'Alibaba Qwen · coming to Windows'; q.dataset.off = 'Coming to Windows'; }
     const intro = document.getElementById('acct-add-in');
     if (intro && (intro.textContent === ACCT_ADD_INTRO || intro.textContent === ACCT_ADD_INTRO_MUSE)) intro.textContent = acctAddIntroWin(intro.textContent);
   }
@@ -30847,8 +30849,9 @@ let ACCT_QWEN_LOCAL_ASK = '';
    field change, Not now and a finished POST cannot start parallel chains or let an older answer win. */
 let ACCT_QWEN_LOCAL_TIMER = null;
 let ACCT_QWEN_LOCAL_SEQ = 0;
-let ACCT_QWEN_LOCAL_RUNNING = false;
-let ACCT_QWEN_LOCAL_LOCKED = false;   // the 700 ms after the confirm appears, when a press is ignored   // a download was running at the last answer: a failed read is retried, not final
+let ACCT_QWEN_LOCAL_RUNNING = false;   // a download was running at the last answer: a failed read is retried, not final
+let ACCT_QWEN_LOCAL_LOCKED = false;   // the 700 ms after the confirm appears, when a press is ignored
+let ACCT_QWEN_LOCAL_LOCK_TIMER = null;
 function acctQwenIsLocalSetup() {
   const u = (document.getElementById('acct-qwen-url') || {}).value || '';
   const m = ((document.getElementById('acct-qwen-model') || {}).value || '').trim();
@@ -30935,7 +30938,8 @@ document.getElementById('acct-qwen-local-go').addEventListener('click', async ()
        keyboard user's focus to the page. */
     ACCT_QWEN_LOCAL_LOCKED = true;
     btn.setAttribute('aria-disabled', 'true');
-    setTimeout(() => { ACCT_QWEN_LOCAL_LOCKED = false; btn.removeAttribute('aria-disabled'); }, 700);
+    if (ACCT_QWEN_LOCAL_LOCK_TIMER) clearTimeout(ACCT_QWEN_LOCAL_LOCK_TIMER);   // review 4: a re-armed confirm gets its own full moment
+    ACCT_QWEN_LOCAL_LOCK_TIMER = setTimeout(() => { ACCT_QWEN_LOCAL_LOCK_TIMER = null; ACCT_QWEN_LOCAL_LOCKED = false; btn.removeAttribute('aria-disabled'); }, 700);
     return;
   }
   if (ACCT_QWEN_LOCAL_LOCKED) return;
@@ -79962,7 +79966,9 @@ function asbFallbackWords(f) {
   /* #4588: an Antigravity guide is rate_limited only on its Google account's shared quota (its screen is never read),
      a subscription allowance that refills by itself: no "add credits" (review 4). */
   /* #5977 UI review 2: a Qwen guide has no credits to add and no sign-in to renew; what fails is reaching its address. */
-  const fix = p === 'Qwen' ? ' Qwen is not answering at its address; for Qwen on this computer, open Ollama. It picks up again by itself once it answers.'
+  const fix = p === 'Qwen' ? (f.problem === 'auth_failed'
+      ? ' Its Qwen endpoint is refusing it (check the key or the model on the Qwen account; for Qwen on this computer, open Ollama).'
+      : ' Qwen is not answering at its address (for Qwen on this computer, open Ollama). It picks up again by itself once it answers.')
     : f.problem === 'rate_limited' && f.runner === 'antigravity' ? ' The Google quota refills by itself.'
     : f.problem === 'rate_limited' ? ` Add credits with ${p}, or wait until the limit resets.`
     : f.problem === 'auth_failed' ? ` Its ${p} sign-in has stopped working: open the guide's page and choose Sign in again.`

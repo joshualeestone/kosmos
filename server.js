@@ -11520,6 +11520,13 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 200, { state: qwenLocal.STATE.UNKNOWN, because: 'we could not check Ollama just now', download: qwenLocal.pullProgress() }));
     return;
   }
+  /* UI review 4: Kosmos cannot start a Qwen agent on Windows yet, so nothing is set up or downloaded there, even on a
+     direct request the page never makes. */
+  if ((pathname === '/api/accounts/qwen/local/model' || pathname === '/api/accounts/qwen/local/download') && req.method === 'POST'
+    && (qwenLocal.platformForTest || process.platform) === 'win32') {
+    sendJson(res, 409, { ok: false, started: false, because: 'Kosmos cannot start a Qwen agent on Windows yet, so it does not set Qwen up here' });
+    return;
+  }
   if (pathname === '/api/accounts/qwen/local/model' && req.method === 'POST') {
     (async () => {
       const s = await qwenLocal.status();

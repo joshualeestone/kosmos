@@ -110,3 +110,15 @@ test('UI review 2: a Qwen agent whose account row is gone (disconnected) is stil
   assert.equal((accountForAgent('ui2-qwen', []) || {}).provider, 'alibaba');
   assert.equal((accountForAgent('ui2-openai', []) || {}).provider, undefined, 'CONTROL');
 });
+
+test('UI review 4: on Windows the routes set nothing up and download nothing, even asked directly', async () => {
+  const calls = ollama([]);
+  local.platformForTest = 'win32';
+  try {
+    const d = await post('/api/accounts/qwen/local/download', { confirm: true });
+    assert.equal(d.status, 409);
+    const m = await post('/api/accounts/qwen/local/model', {});
+    assert.equal(m.status, 409);
+    assert.equal(calls.some((c) => c.method === 'POST'), false, 'Ollama was asked to pull or create on Windows');
+  } finally { local.platformForTest = null; }
+});
