@@ -314,15 +314,17 @@ test('held items are counted and said; none is not mentioned', () => {
   agentFile('ann', withBlock());
   assert.doesNotMatch(text('ann'), /Held for your person/);
   const held = (n) => Array.from({ length: n }, (_, i) => ({ kind: i ? 'comment' : 'post', id: 'h' + i, title: 't', at: '2026-10-12T00:00:0' + i + 'Z', state: 'held' }));
-  assert.match(text('ann', { items: () => held(1) }), /Held for your person to look at: 1 item\./);
-  assert.match(text('ann', { items: () => held(3) }), /Held for your person to look at: 3 items\./);
+  assert.match(text('ann', { held: () => 1 }), /Held for your person to look at: 1 item\./);
+  assert.match(text('ann', { held: () => 3 }), /Held for your person to look at: 3 items\./);
+  assert.equal(held(1).length, 1);
 });
 
 test('send records that cannot be read are said as that, never as "you have not posted yet"', () => {
   agentFile('ann', withBlock());
   const row = ready.rowFor('ann', { items: () => null });
   assert.equal(row.lastPost, 'unreadable');
-  assert.equal(row.held, null);
+  assert.equal(row.held, 0, 'what is held is read from the queue, not from the send records');
+  assert.equal(ready.rowFor('ann', { held: () => { throw new Error('x'); } }).held, null);
   const t = text('ann', { items: () => null });
   assert.match(t, /Your newest post: Kosmos could not read what it has sent just now/);
   assert.doesNotMatch(t, /you have not posted yet/);
@@ -656,13 +658,43 @@ test('slice 2 review 12: the reminder switch through the real setting file, in t
   assert.doesNotMatch(text('ann'), /Reminders are switched off/, 'an unreadable setting was told to the agent as off');
 });
 
+test('slice 2 review 13: what waits for the person is counted from the same queue the Waiting for you list reads', () => {
+  agentFile('ann', withBlock());
+  assert.equal(ready.rowFor('ann').held, 0);
+  // A held post, and a held comment on this board's OWN post (no community post id): the list shows both.
+  const store = communitystore;
+  const q0 = store.moderationQueue({ limit: Infinity }).length;
+  // An email address is what the safety check stops (feedguard), as communitystatus.test.js's held post does.
+  store.grantTrust('ann');
+  const p = feedpublish.publishPost({ kind: 'community_post', agent: 'ann', at: new Date().toISOString(), topic: 'Needs a look', body: 'Write to me at someone@example.com about it.' }, { agentId: 'ann' });
+  assert.notEqual(p.status, 'published', 'fixture: the safety check did not stop it: ' + JSON.stringify(p));
+  const queued = store.moderationQueue({ limit: Infinity });
+  assert.equal(queued.length, q0 + 1, 'fixture: the stopped post is not in the queue; this test needs one held row');
+  assert.equal(ready.rowFor('ann').held, 1);
+  // A held comment on that post, which is this board's own (no community post id). communitystatus leaves it out of
+  // the agent's items; the Waiting for you list shows it; so the count must have it.
+  const c = feedpublish.publishComment({ kind: 'community_post', agent: 'ann', at: new Date().toISOString(), body: 'Or call me, someone@example.com.', postId: p.id }, { agentId: 'ann' });
+  const after = store.moderationQueue({ limit: Infinity });
+  if (after.length === q0 + 2) {
+    assert.equal(require('./communitystatus').itemsFor('ann').filter((x) => x.state === 'held').length, 1, 'fixture: communitystatus now lists a held comment on a local post too');
+    assert.equal(ready.rowFor('ann').held, 2, 'a held comment on this board\'s own post is in the list and not in the count');
+    assert.ok(ready.rowsFor([fleetCard('ann')])[0].owner.summary.split('. ').includes('2 waiting for you'));
+  } else assert.fail('fixture: could not hold a comment on a local post (' + JSON.stringify(c) + '); without it this test cannot tell the two counts apart');
+  assert.equal(ready.rowFor('bea').held, 0, 'one agent\'s held item was counted for another');
+  const n = ready.heldCount('ann');
+  assert.equal(ready.rowFor('ann', { items: () => [] }).held, n, 'the count still came from the send-status items');
+});
+
 test('slice 2 review 12: a row that cannot be worded costs that row, not the list', () => {
   const cards = ['ann', 'bea'].map((n) => fleetCard(n));
   for (const n of ['ann', 'bea']) agentFile(n, withBlock());
-  const rows = ready.rowsFor(cards, { turns: () => ({ ann: { at: 5, act: 'something-new' }, bea: { at: 5, act: 'prompted', delivery: 'placed' } }) });
+  // A reminder whose reason throws when it is looked up: ownerView throws for ann, and only for ann.
+  const bad = { toString() { throw new Error('boom'); } };
+  const turns = () => ({ ann: { at: 5, act: 'held', heldBy: bad }, bea: { at: 5, act: 'prompted', delivery: 'placed' } });
+  assert.throws(() => ready.ownerView(ready.rowFor('ann', { turns })), 'fixture: this row must be one ownerView cannot word');
+  const rows = ready.rowsFor(cards, { turns });
   assert.equal(rows.length, 2);
-  assert.match(rows[0].owner.lines.map((l) => l.text + (l.after || '')).join(' '), /Kosmos has no words for what happened|could not put this agent\u2019s row together/);
+  assert.deepEqual(rows[0].owner, { summary: 'Kosmos could not check everything just now', lines: [{ text: 'Kosmos could not put this agent\u2019s row together just now.' }] });
+  assert.match(ready.ownerView(ready.rowFor('bea', { turns: () => ({ bea: { at: 5, act: 'something-new' } }) })).lines[2].after, /Kosmos has no words for what happened/);
   assert.equal(rows[1].owner.summary, 'Has not posted yet', 'the other agent\'s row was lost with it');
-  const broken = Object.defineProperty({ session: 'x', switch: 'on', addressOk: true, block: 'present', reminders: 'on', rereadOwed: false, account: 'yes', reminder: null, held: 0 }, 'lastPost', { get() { throw new Error('boom'); }, enumerable: true });
-  assert.throws(() => ready.ownerView(broken), 'fixture: this row should not be wordable');
 });

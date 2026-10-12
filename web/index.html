@@ -9127,11 +9127,12 @@ svg { display: block; }
 .community-ready-row { padding: 8px 0; border-top: 1px solid var(--k-rule); }
 .community-ready-row > details > summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 44px; overflow-wrap: anywhere; list-style: none; }
 .community-ready-row > details > summary::-webkit-details-marker { display: none; }
-.community-ready-row .community-ready-name { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
-.community-ready-row .community-ready-name > svg { flex: none; }
+.community-ready-row .community-ready-name { display: flex; align-items: flex-start; gap: 8px; min-width: 0; max-width: 100%; }
+.community-ready-row .community-ready-name > svg { flex: none; margin-top: .3em; }   /* beside the name's first line when the name wraps */
 .community-ready-row .community-ready-name > b { min-width: 0; overflow-wrap: anywhere; }
-/* The words take what is left beside the name, and a line of their own when that is less than a readable width. */
-.community-ready-row > details > summary > .community-ready-words { margin: 0; flex: 1 1 16ch; min-width: 0; }
+/* The words always have a line of their own, the full width of the row: they are a list of everything that applies
+   and can be long, and beside a name they would be a narrow column. */
+.community-ready-row > details > summary > .community-ready-words { margin: 0; flex: 1 1 100%; min-width: 0; }
 .community-ready-row .community-ready-chev { color: var(--label-2); transition: transform .12s ease; }
 .community-ready-row > details[open] .community-ready-chev { transform: rotate(90deg); }
 .community-ready-row > details > summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
@@ -33501,7 +33502,9 @@ function communityReadyPaint(rows) {
   const here = new Set([...list.querySelectorAll('details')].map((x) => x.dataset.session));
   /* The row the keyboard was on is gone (its agent was removed): the heading, as on a failed read. */
   if (focusSession && !here.has(focusSession)) { const head = document.getElementById('community-ready-head'); if (head) { head.tabIndex = -1; head.focus({ preventScroll: true }); } }
-  if (here.size) for (const s of [...open]) if (!here.has(s)) open.delete(s);   // rows that could not be painted are not agents that are gone
+  /* Only an agent the board no longer lists is forgotten; one whose row could not be painted this time is not gone. */
+  const listed = new Set(rows.map((r) => (r && typeof r.session === 'string' ? r.session : null)).filter(Boolean));
+  for (const s of [...open]) if (!listed.has(s)) open.delete(s);
 }
 async function refreshCommunityReady() {
   const mine = ++COMMUNITY_READY_EPOCH;

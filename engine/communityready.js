@@ -128,13 +128,29 @@ function rereadReader() {
   return (sessionName) => {
     if (owed === null) return null;
     const mine = own(owed, sessionName) ? owed[sessionName] : null;
-    return Boolean(mine && Array.isArray(mine.sections) && mine.sections.includes('community'));
+    if (mine && !Array.isArray(mine.sections)) return null;   // a record this cannot read is "cannot tell", not "nothing owed"
+    return Boolean(mine && mine.sections.includes('community'));
   };
 }
 
 /* 'yes' | 'being_made' | 'name_held' | 'refused' | 'none' | 'unreadable': this agent's account at the community address
    this board sends to, from that address's keys (the record communitystatus reads). Not communitysend.hasAccount: that
    one answers a delete's confirmation, and counts an unreadable file, another address and a refused account as yes. */
+/* How many of this agent's posts and comments are held for the person, counted from the queue the page's "Waiting
+   for you" list reads (communitystore.moderationQueue, held and quarantined). Not communitystatus's held items: those
+   leave out a held comment on this board's own posts, which the list shows. */
+function heldCount(sessionName) { return heldReader()(sessionName); }
+/* One read of the queue, asked per agent. Null when it cannot be read. */
+function heldReader() {
+  let queue;
+  try { queue = require('./communitystore').moderationQueue({ limit: Infinity }); } catch { queue = null; }
+  /* A post's row names its agent's session (`agent`). A comment on this board's own post carries only its author's
+     shown name, so it is this agent's when that name is the session name; under another shown name it cannot be told
+     whose it is, and is not counted (the list still shows it). */
+  const mine = (r, sessionName) => Boolean(r && r.author && r.author.type === 'agent' && (r.agent === sessionName || (r.agent == null && r.author.name === sessionName)));
+  return (sessionName) => (Array.isArray(queue) ? queue.filter((r) => mine(r, sessionName)).length : null);
+}
+
 function accountState(sessionName) { return accountReader()(sessionName); }
 /* One read of the keys, asked per agent (rowsFor reads it once for every row). */
 function accountReader() {
@@ -167,7 +183,7 @@ function isConnected(sessionName) {
 
 /**
  * One agent's row. `deps` replaces a read for a test: { block, reread, account, connected, switchState, addressOk,
- * items, turns, reminders }.
+ * items, turns, reminders, held }.
  *   { session, switch: 'on'|'off'|'unreadable', addressOk, block, connected, reminders: 'on'|'off'|'unreadable',
  *     rereadOwed, account (accountState),
  *     reminder: { at, act, delivery?, heldBy?, heldFor? } | null | 'unreadable',
@@ -192,7 +208,7 @@ function rowFor(sessionName, deps = {}) {
     account: safe(() => pick('account', accountState)(session), 'unreadable'),
     reminder: turns === null ? 'unreadable' : (own(turns, session) ? turns[session] : null),
     lastPost: posts === null ? 'unreadable' : (posts.length ? { title: posts[0].title, at: posts[0].at, state: posts[0].state } : null),
-    held: Array.isArray(items) ? items.filter((x) => x && x.state === 'held').length : null,
+    held: safe(() => pick('held', heldCount)(session), null),
   };
 }
 
@@ -275,8 +291,8 @@ function ownerTroubles(row) {
 }
 /* What is true of EVERY agent on this computer, said on each row because a row is read on its own: each a
    { summary, line }, in this order, none or several. Each states one thing Kosmos read. None says what follows from it,
-   why it is so, or what to do about it: those sentences were wrong beside some other line of the same row four times
-   in review (the note above the list on the page says, once, what the two switches do). */
+   why it is so, or what to do about it: a row carries several of these at once, and a line that reasons from one fact
+   can be false beside another. The note above the list on the page says, once, what the two switches do. */
 function ownerBoardFacts(row) {
   const out = [];
   if (row.switch === 'off') out.push({ summary: 'The community is off', line: 'The community is off on this computer.' });
@@ -338,7 +354,7 @@ function ownerView(row) {
   if (row.reminder === 'unreadable') lines.push({ text: 'Kosmos cannot read its record of reminders just now.' });
   else if (row.reminder === null) lines.push({ text: 'Kosmos has no record of going to remind it.' });
   else {
-    lines.push({ text: 'Kosmos last went to remind it on ', at: row.reminder.at, after: '. ' + sentence(reminderWords(row.reminder, true)) });
+    lines.push({ text: 'Kosmos last went to remind it on ', at: row.reminder.at, after: '. ' + sentence(reminderWords(row.reminder, true)).replace(/'/g, '’') });
     if (row.reminder.act !== 'prompted' && validTime(row.reminder.reachedAt)) lines.push({ text: 'The last reminder that reached it was on ', at: row.reminder.reachedAt, after: '.' });
   }
   const posted = postFact(row.lastPost);
@@ -353,8 +369,8 @@ function ownerView(row) {
     || !own(OWNER_BLOCK, row.block) && row.block !== 'absent' || !own(OWNER_ACCOUNT, row.account);
   /* The closed row names EVERYTHING that applies, in one fixed order, and picks no cause among them: the computer's
      own facts, the agent's own trouble, where its newest post is, that something was not read, what waits for the
-     person. It never says that nothing is wrong: that was a claim about everything this row does not read, and it was
-     false beside some line of the row in three reviews. Where the newest post is, is always there to say. */
+     person. It never says that nothing is wrong: that would be a claim about everything this row does not read.
+     Where the newest post is, is always there to say. */
   const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
   const parts = [...board.map((b) => b.summary), ...ownerTroubles(row), POST_SUMMARY[posted === null ? (row.lastPost === null ? 'none' : 'unread') : posted],
     unread ? 'Kosmos could not check everything just now' : null, row.held > 0 ? cap(row.held + ' waiting for you') : null].filter(Boolean);
@@ -379,6 +395,7 @@ function rowsFor(roster, deps) {
     items: once('items', () => { let read; try { read = require('./communitystatus').itemsReader(); } catch { read = null; } return (s) => (read === null ? null : read(s)); }),
     turns: once('turns', () => { const t = readTurns(); return () => t; }),
     account: once('account', () => accountReader()),
+    held: once('held', () => heldReader()),
     reread: once('reread', () => rereadReader()),
     switchState: once('switchState', () => { const v = communitysend.switchState(); return () => v; }),
     addressOk: once('addressOk', () => { const v = communitysend.endpointAllowed(); return () => v; }),
@@ -397,4 +414,4 @@ function rowsFor(roster, deps) {
   return out;
 }
 
-module.exports = { TURN_WORDS, HELD_WORDS, SIGNED_OUT_WORDS, UNCONFIRMED_WORDS, ACCOUNT_WORDS, REMINDER_NOTE, turnsFile, readTurns, noteTurn, blockState, rereadOwed, accountState, rowFor, linesFor, readyText, rowsFor, ownerView, OWNER_CAP_WORDS, OWNER_LIMIT_WORDS, POST_FACTS, POST_FACT_WORDS, POST_SUMMARY };
+module.exports = { TURN_WORDS, HELD_WORDS, SIGNED_OUT_WORDS, UNCONFIRMED_WORDS, ACCOUNT_WORDS, REMINDER_NOTE, turnsFile, readTurns, noteTurn, blockState, rereadOwed, accountState, rowFor, linesFor, readyText, rowsFor, ownerView, heldCount, OWNER_CAP_WORDS, OWNER_LIMIT_WORDS, POST_FACTS, POST_FACT_WORDS, POST_SUMMARY };

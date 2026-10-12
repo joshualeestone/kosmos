@@ -23,9 +23,14 @@ sentence and the next round found the next. So:
 - **What the two switches do is said once**, in the sentence above the list, not on every row.
 A test walks every combination of switch, address, reminder setting, section, account and folder and refuses any
 line that carries a consequence, a cause or a remedy, with the two sentences reviews caught as its controls.
-Three sentences still say what Kosmos itself does with a fact (a doubled section is left alone; a refused agent's
-writing is not sent; when a missing section is added). They are Kosmos's own behaviour for that one fact and no other
-line can contradict them.
+Some lines still say what Kosmos itself does with the one fact they state (it leaves a doubled section alone; it
+will not create an instructions file; it does not add the section in the person's own folder, and when it does add
+it elsewhere; a refused agent's writing is not sent; an account waits on an earlier try; when an account is made).
+Each is Kosmos's own behaviour for that fact alone, so no other line of the row bears on it.
+
+**What a row reads:** the community switch, the address, the "Check on your agents" switch, the section in the
+agent's instructions (and whether a re-read is owed, and whose folder it is), its account, the last reminder, its
+newest post, and what is held for the person.
 
 ## Calls
 - **The words come from the board, not the page.** `communityready.ownerView(row)` builds each row's summary and
@@ -40,7 +45,7 @@ line can contradict them.
   is not in the community is named in the closed row. (Until review 9 the row named the post and said nothing of
   whether it went out, so a post that never left read as "Nothing found in its way".)
 - **The closed row makes no claim that an agent is ready or that nothing is in its way.** What a row reads is listed
-  under Review 3. What it does NOT read: whether the community service answers; whether this computer is allowed to
+  under the rule above. What it does NOT read: whether the community service answers; whether this computer is allowed to
   run agents at all right now; the reminder pass's own limits. When something a row does read could not be read, the
   summary says so and a line says which.
 - **Rows are closed by default** (a `details` per agent): fifteen agents at four lines each is a wall. A row the
@@ -248,3 +253,21 @@ replaced by tests of the new one. That is a change of behaviour, not a tidy-up: 
   escape, not as the character.
 - **NITs, not taken:** the refused-account line's "so nothing it writes is sent" (the exception listed under the
   rule); no live region and `list-style: none`, as the neighbouring lists.
+
+## Review 13 (2026-10-12, default model, the plain brief plus the layout line)
+- **WARNING, taken:** the count of what waits for the person came from the agent's send-status items, which leave out
+  a held comment on this board's own posts; the Waiting for you list shows those. The count is made from the queue
+  that list reads. Limit, in the code: such a comment's row carries only its author's shown name, so under a shown
+  name that is not the agent's session name it cannot be told whose it is and is not counted.
+- **WARNING, taken, NOT SEEN IN A BROWSER:** now that the summary lists everything that applies, it can be 250
+  characters, and beside a middling name it would have been a 16-character column. The words always have a line of
+  their own, the row's width. The check sends the longest summary the board can produce and measures it.
+- **WARNING, a duplicate:** nothing here has run in a browser.
+- **NITs, taken:** the route test holds the row's `owner` shape the page paints from; the check's fixtures say what
+  the board says now; the per-row fallback is reached by a real throwing row (the old test never reached it); an
+  agent whose row could not be painted is not dropped from the open rows while others paint; a typographic
+  apostrophe in the person's reminder words; an unreadable debt record is "cannot tell"; the chevron sits by the
+  name's first line.
+- **CONVENTION, taken:** two code comments told the review history; they give the reason. This file's count of
+  "three sentences" was wrong and it now lists them; what a row reads is listed under the rule, not in a review note.
+- Not changed: test names keep their "review N" labels, as the repo's other test files do.

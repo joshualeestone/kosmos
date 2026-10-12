@@ -29,8 +29,9 @@
  *             also name.
  *             Deleting a post, and finishing a release or a discard, read it again too: the rows name the newest
  *             post and what waits.
- *   PHONE     at 390 px wide, nothing in the list is wider than the screen, the words beside a short, a middling and a
- *             very long name keep a readable width, the mark stays with the name, and each summary is at least 44 px tall
+ *   PHONE     at 390 px wide, nothing in the list is wider than the screen, the words under a short, a middling and a
+ *             very long name have a line of their own as wide as the row (the longest summary the board can send
+ *             included), the mark stays with the name, and each summary is at least 44 px tall
  *             (the page's tap-target size; the arm reads the size, so the number is here and in the style sheet).
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
@@ -80,8 +81,9 @@ function readList(pg) {
         read: sum ? sum.textContent : null,
         summary: sum && sum.querySelector('.community-ready-words') ? sum.querySelector('.community-ready-words').textContent : null,
         wordsWidth: sum && sum.querySelector('.community-ready-words') ? Math.round(sum.querySelector('.community-ready-words').getBoundingClientRect().width) : 0,
-        /* The width the style sheet asks for the words (16ch), measured in their own font, so the arm follows the font. */
-        wordsBasis: (() => { const w = sum && sum.querySelector('.community-ready-words'); if (!w) return 0; const probe = document.createElement('span'); probe.style.cssText = 'position:absolute;visibility:hidden;width:16ch;font:inherit'; w.append(probe); const px = probe.getBoundingClientRect().width; probe.remove(); return Math.round(px); })(),
+        sumWidth: sb ? Math.round(sb.width) : 0,
+        wordsBelowName: (() => { const w = sum && sum.querySelector('.community-ready-words'); const b = sum && sum.querySelector('b'); if (!w || !b) return null; return w.getBoundingClientRect().top >= b.getBoundingClientRect().bottom - 1; })(),
+        wordsLines: (() => { const w = sum && sum.querySelector('.community-ready-words'); if (!w) return 0; const lh = parseFloat(getComputedStyle(w).lineHeight) || (parseFloat(getComputedStyle(w).fontSize) * 1.4); return Math.round(w.getBoundingClientRect().height / lh); })(),
         markBesideName: (() => { const m = sum && sum.querySelector('svg'); const b = sum && sum.querySelector('b'); if (!m || !b) return null; const mb = m.getBoundingClientRect(); const bb = b.getBoundingClientRect(); return mb.bottom > bb.top && mb.top < bb.bottom; })(),
         lines: d ? [...d.querySelectorAll(':scope > p')].map((p) => p.textContent) : [],
         times: d ? [...d.querySelectorAll('time')].map((t) => ({ dt: t.getAttribute('datetime'), text: t.textContent })) : [],
@@ -128,16 +130,16 @@ const AVA = agent('ava', 'Ava', { summary: 'Newest post is in the community', li
   { text: 'Kosmos last went to remind it on ', at: T1, after: '. Delivered.' },
   { text: 'Its newest post, “Weekly ops”, is in the community.' },
 ] });
-const BO = agent('bo', 'Bo', { summary: 'No community section in its instructions', lines: [
+const BO = agent('bo', 'Bo', { summary: 'No community section in its instructions. Has not posted yet', lines: [
   { text: 'No community section in its instructions. It works in a folder of your own, and Kosmos does not add the section to instructions there.' },
-  { text: 'No community account yet. Kosmos makes one the first time something of its goes to the community.' },
+  { text: 'No community account yet. Kosmos makes one the first time something it wrote goes to the community.' },
   { text: 'Kosmos has no record of going to remind it.' },
   { text: 'It has not posted yet.' },
 ] });
-const CY = agent('cy', 'Cy', { summary: '2 waiting for you', lines: [
+const CY = agent('cy', 'Cy', { summary: 'Has not posted yet. 2 waiting for you', lines: [
   { text: 'The community section is in its instructions.' },
   { text: 'It has a community account.' },
-  { text: 'Kosmos last went to remind it on ', at: T1, after: '. Not sent: this board had reached its hourly limit for messages to agents.' },
+  { text: 'Kosmos last went to remind it on ', at: T1, after: '. Not sent: this computer had reached its hourly limit for messages to agents.' },
   { text: 'The last reminder that reached it was on ', at: T0, after: '.' },
   { text: 'It has not posted yet.' },
   { text: '2 items it wrote are under Waiting for you.' },
@@ -157,7 +159,7 @@ async function run() {
     check('ROWS: the list exists and its heading shows under Automation', r.found && r.headShown, JSON.stringify({ found: r.found, headShown: r.headShown }));
     check('ROWS: the heading sits below the posts-and-comments heading', r.belowMine, JSON.stringify(r.belowMine));
     check('ROWS: three rows, each with its name and summary, all closed', r.listHidden === false && r.emptyHidden === true && r.rows.length === 3
-      && JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])) === JSON.stringify([['ava', 'Ava', 'Newest post is in the community', false], ['bo', 'Bo', 'No community section in its instructions', false], ['cy', 'Cy', '2 waiting for you', false]]), JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])));
+      && JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])) === JSON.stringify([['ava', 'Ava', 'Newest post is in the community', false], ['bo', 'Bo', 'No community section in its instructions. Has not posted yet', false], ['cy', 'Cy', 'Has not posted yet. 2 waiting for you', false]]), JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])));
     check('ROWS: the row\'s text has a space between the name and its words', r.rows[0].read === 'Ava Newest post is in the community', JSON.stringify(r.rows[0].read));
     check('ROWS: the note says a reminder only asks and the agent decides', /^Kosmos may remind an agent that has gone quiet to post, and only while the community and .Check on your agents. are both on\./.test(r.note) && /A reminder only asks: whether to post, and what to say, is the agent[’']s own decision\./.test(r.note), r.note);
 
@@ -174,7 +176,7 @@ async function run() {
     const local = await p1.evaluate((ms) => new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }), T1);
     // 15:04 UTC on the 12th is 00:04 on the 13th in Tokyo: the page's zone, not UTC and not this runner's.
     check('TIME CONTROL: the page is in a zone that is not UTC', /Jun 13/.test(local) && /12:04\s?AM/.test(local), local);
-    check('TIME: it is written in the page\'s own zone, between the board\'s words', tm[0].text === local && o.rows[2].lines[2] === 'Kosmos last went to remind it on ' + local + '. Not sent: this board had reached its hourly limit for messages to agents.', JSON.stringify([tm[0].text, local, o.rows[2].lines[2]]));
+    check('TIME: it is written in the page\'s own zone, between the board\'s words', tm[0].text === local && o.rows[2].lines[2] === 'Kosmos last went to remind it on ' + local + '. Not sent: this computer had reached its hourly limit for messages to agents.', JSON.stringify([tm[0].text, local, o.rows[2].lines[2]]));
 
     // MARK
     check('MARK: every row shows a mark that it opens, hidden from a screen reader', o.rows.every((x) => x.mark && x.mark.shown && x.mark.w >= 8 && x.mark.h >= 8 && x.mark.hidden === 'true'), JSON.stringify(o.rows.map((x) => x.mark)));
@@ -377,14 +379,17 @@ async function run() {
       { text: 'An earlier try made a community account under its name and Kosmos never received the key, so it waits rather than make a second.' },
       { text: 'Its newest post, “' + 'averyveryverylongunbrokenwordthatcannotwrapanywhereonitsown'.repeat(3) + '”, is not in the community.' },
     ] });
-    const MID = agent('mid', 'Quartermaster of the northern depot', { summary: 'No community section in its instructions', lines: [{ text: 'No community section in its instructions.' }] });
+    /* The longest summary the board can send: every part at once. Beside a name it would be a narrow column. */
+    const ALL = 'The community is off. This computer’s community address is not one Kosmos sends to. “Check on your agents” is off. No community section in its instructions. The community has refused this agent. Newest post has not gone to the community. Kosmos could not check everything just now. 2 waiting for you';
+    const MID = agent('mid', 'Quartermaster of the northern depot', { summary: ALL, lines: [{ text: 'No community section in its instructions.' }] });
     await p8.route(READY, answer({ agents: [LONG, CY, MID] }));
     await openAutomation(p8);
     await p8.evaluate(() => document.querySelectorAll('#community-ready-list details').forEach((d) => { d.open = true; }));
     await p8.evaluate(() => document.getElementById('community-ready-head').scrollIntoView());
     const ph = await readList(p8);
     check('PHONE CONTROL: the rows are painted at 390 px', ph.viewport === 390 && ph.rows.length === 3 && ph.rows[0].lines.length === 2, JSON.stringify([ph.viewport, ph.rows.length]));
-    check('PHONE: beside a name of any length the words keep a readable width (a line of their own when the name leaves too little)', ph.rows.every((x) => x.wordsBasis > 40 && x.wordsWidth >= x.wordsBasis - 2), JSON.stringify(ph.rows.map((x) => [x.name.length, x.wordsWidth, x.wordsBasis])));
+    check('PHONE: under a name of any length the words have a line of their own, as wide as the row', ph.rows.every((x) => x.wordsBelowName === true && x.sumWidth > 200 && x.wordsWidth >= x.sumWidth - 2), JSON.stringify(ph.rows.map((x) => [x.name.length, x.wordsBelowName, x.wordsWidth, x.sumWidth])));
+    check('PHONE: the longest summary the board can send wraps into a few full lines, not a column', ph.rows[2].summary.length > 250 && ph.rows[2].wordsLines >= 2 && ph.rows[2].wordsLines <= 12, JSON.stringify([ph.rows[2].summary.length, ph.rows[2].wordsLines]));
     check('PHONE: the mark stays on the name\'s line, never alone above it', ph.rows.every((x) => x.markBesideName === true), JSON.stringify(ph.rows.map((x) => x.markBesideName)));
     check('PHONE: no row is wider than the screen or scrolls sideways', ph.rows.every((x) => x.right <= ph.viewport && !x.scrollWide) && !ph.pageWide, JSON.stringify(ph.rows.map((x) => [x.right, x.scrollWide]).concat([ph.pageWide])));
     check('PHONE: each summary is at least 44 px tall', ph.rows.every((x) => x.sumHeight >= 44), JSON.stringify(ph.rows.map((x) => x.sumHeight)));
