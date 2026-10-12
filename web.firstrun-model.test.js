@@ -188,8 +188,12 @@ test('no disclosure survives: all eleven providers render in the open', () => {
     'expected exactly the seven not-yet-available providers at .llm off weight');
   assert.equal((STEP.match(/class="llm on"/g) || []).length, 4,
     'expected Claude, GPT, Gemini and Grok as connectable rows');
-  assert.equal((STEP.match(/class="soon"[^>]*>Coming soon</g) || []).length, 7,
-    'expected a "Coming soon" pill on each of the seven still-unavailable providers');
+  /* #5977: Qwen is connectable in Settings but not on this step (it needs Ollama), so its pill says where,
+     and the other six still say "Coming soon". */
+  assert.equal((STEP.match(/class="soon"[^>]*>Coming soon</g) || []).length, 6,
+    'expected a "Coming soon" pill on each of the six still-unavailable providers');
+  assert.match(STEP, /data-pmark="qwen"(?:(?!class="llm )[\s\S])*class="soon"[^>]*>In Settings</,
+    'the Qwen row should say it is added in Settings (#5977)');
   assert.equal((STEP.match(/After setup/g) || []).length, 0,
     'an "After setup" pill came back; Gemini and Grok connect on this step (#3658)');
 });

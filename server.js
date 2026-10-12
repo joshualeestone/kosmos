@@ -2292,6 +2292,9 @@ function accountForAgent(name, known) {
   if (found) {
     return {
       dir: found.dir, email: found.email, label: found.label,
+      /* #5977: a Qwen agent runs on codex, so its runner says OpenAI; its account is the only thing that says Qwen.
+         Only a Qwen row carries it: every other runner already names its provider, and their shape stays as it was. */
+      ...(found.provider === 'alibaba' ? { provider: 'alibaba' } : {}),
       keyTail: found.keyTail || null,   // #4603: an xAI/Google key account names itself by its last four
       /* #2225: the human-chosen account name (`.kosmos-name` sidecar), the same
          value the pickers/Settings row have shown since #2095. Read here off the

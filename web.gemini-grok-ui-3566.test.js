@@ -72,8 +72,8 @@ test('#3566: acctProvider maps every provider id, and unknown ids are Claude', (
   assert.equal(api.acctProvider({ provider: 'anthropic' }), 'anthropic');
   assert.equal(api.acctProvider({}), 'anthropic');
   assert.equal(api.acctProvider(null), 'anthropic');
-  assert.deepEqual(api.ACCT_KEYED_ROUTE, { openai: 'openai', google: 'gemini', xai: 'grok' },
-    'the route words must match the engine routes /api/accounts/{openai,gemini,grok}');
+  assert.deepEqual(api.ACCT_KEYED_ROUTE, { openai: 'openai', google: 'gemini', xai: 'grok', alibaba: 'qwen' },   // #5977
+    'the route words must match the engine routes /api/accounts/{openai,gemini,grok,qwen}');
 });
 
 test('#3566: with the list read and no Gemini/Grok account, both are OFF and say where to connect', () => {
@@ -250,7 +250,7 @@ test('#3566: every inline copy of the keyed-provider set agrees with ACCT_KEYED_
   const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
   const keyed = Object.keys(api.ACCT_KEYED_ROUTE).sort();
   // The self-contained helpers that restate the set, and the server's copies of it.
-  const regexCopies = PAGE.match(/\/\^\((openai\|google\|xai)\)\$\/i/g) || [];
+  const regexCopies = PAGE.match(/\/\^\((openai\|google\|xai\|alibaba)\)\$\/i/g) || [];
   assert.ok(regexCopies.length >= 2, 'CONTROL: the inline regex copies were not found; re-anchor');
   for (const r of regexCopies) assert.deepEqual(r.slice(3, -4).split('|').sort(), keyed, 'a regex copy drifted: ' + r);
   const maps = [

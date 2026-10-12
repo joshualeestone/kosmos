@@ -159,8 +159,8 @@ test('the account route tells a codex move the truth: files/projects travel, Cod
   const body = SERVER.slice(i, i + 3200);
   // #3566: the per-home test now covers Gemini and Grok as well as Codex; it is keyed on
   // a provider -> chat-word map, and a Claude account (no entry) keeps the Claude sentence.
-  assert.match(body, /\(\{ openai: 'Codex', google: 'Gemini', xai: 'Grok' \}\)\[String\(wrote\.account\.provider \|\| ''\)\.toLowerCase\(\)\]/,
-    'the route no longer distinguishes a per-home (Codex/Gemini/Grok) account move from a Claude one');
+  assert.match(body, /\(\{ openai: 'Codex', google: 'Gemini', xai: 'Grok', alibaba: 'Qwen' \}\)\[String\(wrote\.account\.provider \|\| ''\)\.toLowerCase\(\)\]/,
+    'the route no longer distinguishes a per-home (Codex/Gemini/Grok/Qwen) account move from a Claude one');
   assert.match(body, /const isPerHomeMove = !!moveChatWord;/,
     'the per-home sentence is no longer chosen by the chat-word map');
   // Codex: history does NOT come with it (per-CODEX_HOME, no cross-home symlink),

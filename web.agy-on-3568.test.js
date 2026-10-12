@@ -346,8 +346,8 @@ test('#3568: one predicate says which providers pick their own model (review rou
   // eslint-disable-next-line no-new-func
   const f = new Function(PAGE.slice(r, PAGE.indexOf('\n', r)) + '\n' + grab('function keyOnlyProvider(') + '\n'
     + grab('function vendorPicksModel(') + '\nreturn vendorPicksModel;')();
-  for (const p of ['google', 'xai', 'antigravity', 'meta']) assert.equal(f(p), true, p);   // meta: #3939 3c-3b
-  for (const p of ['anthropic', 'openai', 'alibaba', '']) assert.equal(f(p), false, 'CONTROL ' + p);
+  for (const p of ['google', 'xai', 'antigravity', 'meta', 'alibaba']) assert.equal(f(p), true, p);   // meta: #3939 3c-3b; alibaba: #5977, the Qwen account names the model
+  for (const p of ['anthropic', 'openai', '']) assert.equal(f(p), false, 'CONTROL ' + p);
   // No site still spells the pair by hand: the only copy is the helper's own body.
   assert.equal((PAGE.match(/keyOnlyProvider\([^)]*\) \|\| [a-zA-Z.]+ === 'antigravity'/g) || []).length, 1);
   // The saved create pick restores for Gemini by subscription while it is offered and installed.
