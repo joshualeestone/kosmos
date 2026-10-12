@@ -4724,7 +4724,8 @@ test('kosmos#5889: the company sign-in opener passes only the desktop allowlist;
   // The board's REAL environment carries the secrets (review 1): a child spawned with process.env would see them.
   process.env.KOSMOS_5889_SECRET = 'secret-board-token'; process.env.GITHUB_TOKEN_5889 = 'ghp_secret';
   const src = Object.assign({}, process.env, { HOME: '/home/ann', LANG: 'en_US.UTF-8', DISPLAY: ':0', XAUTHORITY: '/home/ann/.Xauthority',
-    BROWSER: 'firefox', XDG_DATA_HOME: '/home/ann/.local/share', LC_TIME: 'en_GB.UTF-8', https_proxy: 'http://proxy.acme.test:3128' });
+    BROWSER: 'firefox', XDG_DATA_HOME: '/home/ann/.local/share', LC_TIME: 'en_GB.UTF-8', https_proxy: 'http://proxy.acme.test:3128',
+    XMODIFIERS: '@im=ibus', GDK_SCALE: '2', LC_SMUGGLED_5889: 'ghp_smuggled' });
   try {
   for (const platform of ['darwin', 'linux']) {
     remote.resetForTests();
@@ -4733,14 +4734,16 @@ test('kosmos#5889: the company sign-in opener passes only the desktop allowlist;
     remote.setCompanyOpenCommandForTests(writer);
     assert.deepEqual(await remote.companyOpen(), { ok: true, because: null }, platform);
     const got = JSON.parse(fs.readFileSync(out, 'utf8'));
-    for (const k of ['HOME', 'PATH', 'LANG', 'DISPLAY', 'XAUTHORITY', 'BROWSER', 'XDG_DATA_HOME', 'LC_TIME', 'https_proxy']) assert.equal(got[k], src[k], `${platform}: ${k} did not reach the opener`);
+    for (const k of ['HOME', 'PATH', 'LANG', 'DISPLAY', 'XAUTHORITY', 'BROWSER', 'XDG_DATA_HOME', 'LC_TIME', 'https_proxy', 'XMODIFIERS', 'GDK_SCALE']) assert.equal(got[k], src[k], `${platform}: ${k} did not reach the opener`);
+    assert.equal(got.LC_SMUGGLED_5889, undefined, `${platform}: a non-standard LC_ variable reached the opener`);
     assert.equal(got.KOSMOS_5889_SECRET, undefined, `${platform}: a board secret reached the opener`);
     assert.equal(got.GITHUB_TOKEN_5889, undefined, `${platform}: a token reached the opener`);
     fs.rmSync(out, { force: true });
   }
   } finally { delete process.env.KOSMOS_5889_SECRET; delete process.env.GITHUB_TOKEN_5889; }
-  // Linux with no display but a browser the person named, or WSL: the opener is still started.
-  for (const extra of [{ BROWSER: 'firefox' }, { WSL_DISTRO_NAME: 'Ubuntu' }]) {
+  // Linux: each thing that can show a page, ALONE, starts the opener (an X display, a Wayland display, WSL, VS Code Remote).
+  for (const extra of [{ DISPLAY: ':0' }, { WAYLAND_DISPLAY: 'wayland-0' }, { WSL_DISTRO_NAME: 'Ubuntu' },
+    { BROWSER: '/home/ann/.vscode-server/bin/x/helpers/browser.sh', VSCODE_IPC_HOOK_CLI: '/run/user/1000/vscode-ipc-1.sock' }]) {
     remote.resetForTests();
     assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
     remote.setCompanyOpenSourceForTests({ platform: 'linux', env: Object.assign({ PATH: process.env.PATH, HOME: '/home/ann' }, extra) });
@@ -4749,13 +4752,16 @@ test('kosmos#5889: the company sign-in opener passes only the desktop allowlist;
     assert.equal(fs.existsSync(out), true, `${Object.keys(extra)[0]}: no opener was started`);
     fs.rmSync(out, { force: true });
   }
-  // Linux with no display: nothing is started, and the answer is "use the link" at once.
-  remote.resetForTests();
-  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
-  remote.setCompanyOpenSourceForTests({ platform: 'linux', env: { PATH: process.env.PATH, HOME: '/home/ann' } });
-  remote.setCompanyOpenCommandForTests(writer);
-  assert.match((await remote.companyOpen()).because, /could not open your browser/);
-  assert.equal(fs.existsSync(out), false, 'an opener was started on a Linux board with no display');
+  // Linux with nothing that can show a page (BROWSER alone is often a terminal browser on a server): nothing is started,
+  // and the answer is "use the link" at once.
+  for (const extra of [{}, { BROWSER: 'w3m' }]) {
+    remote.resetForTests();
+    assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+    remote.setCompanyOpenSourceForTests({ platform: 'linux', env: Object.assign({ PATH: process.env.PATH, HOME: '/home/ann' }, extra) });
+    remote.setCompanyOpenCommandForTests(writer);
+    assert.match((await remote.companyOpen()).because, /could not open your browser/);
+    assert.equal(fs.existsSync(out), false, `an opener was started on a Linux board with no display (${JSON.stringify(extra)})`);
+  }
   // Windows keeps the environment (rundll32 needs Windows' own variables; see remote.js): the board's own reaches it.
   remote.resetForTests();
   assert.equal((await remote.companyStart('ann@acme.test')).ok, true);

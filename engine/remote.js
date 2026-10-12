@@ -1451,7 +1451,7 @@ function runCompanyOpener(url) {
      whole environment (its tokens among it), since the child can be a browser that runs for a long time. On Linux with
      nothing that can show a page (engine/childenv.js hasDesktop) it is not started (the answer is "use the link" at once). Windows keeps the
      environment as it was: rundll32 needs Windows' own variables (SystemRoot and others), and a list for it is not
-     checked on a Windows machine here (said on #5889). */
+     checked on a Windows machine here; the Windows list is kosmos#5895. */
   const src = companyOpenSourceForTests || { platform: process.platform, env: process.env };
   if (src.platform === 'linux' && !childenv.hasDesktop(src.env)) return Promise.resolve(false);
   const env = src.platform === 'win32' ? undefined : childenv.openerEnv(src.env);

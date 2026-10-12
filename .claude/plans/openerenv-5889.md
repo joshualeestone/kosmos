@@ -45,3 +45,21 @@ File restored by a trap and compared with cmp after each run.
 - Windows: unchanged, as decided above.
 - Mutants after the fixes (control 215/215), each red with 214 pass 1 fail: env omitted; display check removed; filter
   passes everything; hasDesktop display only; LC_ prefix dropped.
+
+## Review 2 (opus, blind, on c33bbda5c): NOT CONVERGED
+- FIXED (WARNING): the Windows decision cited "said on #5889" and nothing had been said there (my error). Filed #5895
+  (a Windows list, measured on the Windows box first); posted the decisions on #5889; the comment now cites #5895.
+- FIXED (WARNING): no test failed with the display arms removed (the reviewer measured 7/7 with hasDesktop reduced to
+  BROWSER or WSL). Each thing that can show a page now has its own Linux case, alone: DISPLAY, WAYLAND_DISPLAY, WSL,
+  VS Code Remote.
+- FIXED (WARNING): input method (XMODIFIERS, GTK_IM_MODULE, QT_IM_MODULE) and HiDPI scaling (GDK_SCALE, GDK_DPI_SCALE,
+  QT_SCALE_FACTOR, QT_AUTO_SCREEN_SCALE_FACTOR, XCURSOR_SIZE, XCURSOR_THEME) added; a browser the opener starts keeps
+  them for its life. My review-1 note called these theme variables; they are not.
+- FIXED (WARNING): BROWSER alone no longer counts as a desktop (a terminal browser on a server shows nothing and would
+  read as "opened" after 5 s). It counts with VSCODE_IPC_HOOK_CLI (VS Code Remote), which is now on the list so its
+  helper works. Test: BROWSER=w3m alone starts nothing.
+- FIXED (NIT): LC_ by the 13 standard names, not by prefix (ssh LC_ forwarding can smuggle values). Test: a
+  non-standard LC_ variable does not reach the opener. FIXED (NIT): KRB5CCNAME (company sign-on) and
+  MATE_DESKTOP_SESSION_ID added. Left (NIT): hasDesktop is checked on linux only; other Unix is unsupported.
+- Mutants (control 215/215), each red with 214 pass 1 fail: env omitted; display check removed; filter passes
+  everything; DISPLAY arm dropped; WAYLAND arm dropped; BROWSER alone counts; XMODIFIERS dropped; LC_ prefix back.
