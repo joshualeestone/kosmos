@@ -9923,7 +9923,8 @@ const server = http.createServer(async (req, res) => {
            computer two ways at once has no right answer, and the next sign-in shows which name stayed.
            Whether the name CAN be kept is asked before the start, so no code is emailed for a name that cannot
            be (a settings file that cannot be read at all would otherwise send one on every try).
-           Absent (an older page, a script): nothing changes, and `device_name` keeps its meaning.
+           Absent (an older page, a script): nothing changes, and `device_name` keeps its meaning. A request
+           with both is naming THIS computer: computer_name takes device_name's place.
            The one gap, stated: the start went out and the save then fails all the same (a disk that fails
            between the two). The answer says a code was sent and the name was not kept. */
         let choice = null;

@@ -1211,6 +1211,10 @@ async function forgetNow() {
   // Off before the retire wait, not after: nothing may bring this Mac online on
   // the key being retired (the ensure tick, a stale page).
   write({ on: false, vouched: {} }, { repair: true });   // kosmos#5786 (b): a forgotten computer keeps no notes
+  /* kosmos#5995: computer_name is NOT cleared here, on purpose. It is the person's own choice of what to call this
+     computer, not a note about a sign-in; the next sign-in shows it in the box before anything is sent, and the
+     quiet approval only ever follows a sign-in that showed it. (On a damaged file this write starts from the
+     defaults, so the choice is lost with everything else.) Pinned in remote.test.js. */
   flipPending = false;   // kosmos#4743: a flip not yet told belonged to the identity being forgotten
   let retired = false;
   let because = null;
@@ -2564,14 +2568,6 @@ function computerNameChoice(raw) {
   const next = kept === own ? null : kept;
   return { ok: true, next, label: next === null ? ownComputerDeviceName() : deviceNameFrom(next), box: next === null ? own : next };
 }
-/** Keep what the person left in that field (computerNameChoice says what that is).
-    Nothing is written when nothing changes: an untouched field on a computer with no remote.json creates none, and
-    on a damaged remote.json it is not refused (the sign-in start never was).
-    A real choice on a remote.json that HOLDS UNREADABLE TEXT repairs it, as the sign-in's other writes do (#4308).
-    One that could not be read AT ALL just now (the disk, a permission, too many open files) is refused: the file
-    may be whole, and a repair would rewrite it from nothing for the sake of a name.
-    The server calls this only AFTER a sign-in start carried the name, so a name is never kept for a start that did
-    not go out, and there is nothing to put back. It asks canKeepComputerName() BEFORE that start. */
 /** Whether setComputerName(raw) could keep this choice right now, without writing anything: yes when there is
     nothing to write, or when remote.json can be read or repaired; no for something that is not a name, and for a
     file that cannot be read at all. Asked before the start, so a code is not emailed for a name that cannot be kept. */
@@ -2583,6 +2579,14 @@ function canKeepComputerName(raw) {
   try { fs.readFileSync(FILE, 'utf8'); return { ok: true }; }
   catch (err) { return err && err.code === 'ENOENT' ? { ok: true } : { ok: false, because: 'we could not keep that name just now' }; }
 }
+/** Keep what the person left in that field (computerNameChoice says what that is).
+    Nothing is written when nothing changes: an untouched field on a computer with no remote.json creates none, and
+    on a damaged remote.json it is not refused (the sign-in start never was).
+    A real choice on a remote.json that HOLDS UNREADABLE TEXT repairs it, as the sign-in's other writes do (#4308).
+    One that could not be read AT ALL just now (the disk, a permission, too many open files) is refused: the file
+    may be whole, and a repair would rewrite it from nothing for the sake of a name.
+    The server calls this only AFTER a sign-in start carried the name, so a name is never kept for a start that did
+    not go out, and there is nothing to put back. It asks canKeepComputerName() BEFORE that start. */
 function setComputerName(raw) {
   const choice = computerNameChoice(raw);
   if (!choice.ok) return choice;

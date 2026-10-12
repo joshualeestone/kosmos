@@ -157,3 +157,15 @@ Taken:
   name: it is shown as an empty box now, in the engine, the server test and the browser check.
 - the ending is looked for again after the cut; the fast-Enter comment says what is true of it.
 Not taken (third time): the plan's file name and the commit subjects (reasons in Review 1 and 3).
+
+## Review 6 (sonnet)
+2 WARNING, 1 CONVENTION, 3 NIT.
+- WARNING, already decided, now also said in the code: Forget keeps the chosen name (Decided, above; pinned by a
+  test since review 1). A comment beside Forget's write says why.
+- WARNING taken as a test: the one stated gap (the start went out, the save then failed) is now driven for real (the
+  stand-in tunnel makes the settings file unreadable while the start runs): the answer says a code was sent and the
+  name was not kept, carries no kept name, and the stored name is unchanged.
+- CONVENTION taken: `setComputerName`'s doc comment sat above `canKeepComputerName`; it is above its own function.
+- NIT taken: the comment says `computer_name` takes `device_name`'s place when both are sent.
+- NITs not taken: passing a precomputed choice around (the derivation is pure and one function); a test for the
+  fast-Enter path beyond the wiring assertion (the comment states what it does).

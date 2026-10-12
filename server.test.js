@@ -11971,6 +11971,8 @@ test('#5995: the name this computer is sent under can be read first, rides the s
   const argvLog = nodePath.join(sb, 'argv.jsonl');
   fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
     'const a = process.argv.slice(2);',
+    // The start goes out, and the settings file stops being readable while it does (the save after it must fail).
+    "if (a[0] === 'signin' && a[1] === 'start' && process.env.FAKE_NAME_LOCK) { require('node:fs').chmodSync(process.env.FAKE_NAME_LOCK, 0); require('node:fs').appendFileSync(process.env.FAKE_NAME_ARGV, JSON.stringify(a) + '\\n'); console.log(JSON.stringify({ stage: 'code_sent' })); process.exit(0); }",
     "if (a[0] === 'signin' && a[1] === 'start' && process.env.FAKE_NAME_FAIL) { process.stderr.write('error: the coordinator is not answering\\n'); process.exit(1); }",
     // Fails the first start that finds the marker file (and removes it), after a pause; later starts go out.
     "if (a[0] === 'signin' && a[1] === 'start' && process.env.FAKE_NAME_FAIL_ONCE && require('node:fs').existsSync(process.env.FAKE_NAME_FAIL_ONCE)) { require('node:fs').rmSync(process.env.FAKE_NAME_FAIL_ONCE); setTimeout(() => { process.stderr.write('error: the coordinator is not answering\\n'); process.exit(1); }, 400); return; }",
@@ -11979,7 +11981,7 @@ test('#5995: the name this computer is sent under can be read first, rides the s
     "if (a[0] === 'signin' && a[1] === 'device-id') { process.stderr.write(\"error: unrecognized subcommand 'device-id'\\n\"); process.exit(2); }",
     'process.exit(0);', ''].join('\n'));
   fs.chmodSync(fakeBin, 0o755);
-  const keys = ['AGENT_WORKFORCE_TUNNEL_BIN', 'AGENT_WORKFORCE_TUNNEL_STATE', 'FAKE_NAME_ARGV', 'FAKE_NAME_FAIL', 'FAKE_NAME_FAIL_ONCE'];
+  const keys = ['AGENT_WORKFORCE_TUNNEL_BIN', 'AGENT_WORKFORCE_TUNNEL_STATE', 'FAKE_NAME_ARGV', 'FAKE_NAME_FAIL', 'FAKE_NAME_FAIL_ONCE', 'FAKE_NAME_LOCK'];
   const prev = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
   process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeBin;
   process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(sb, 'state');
@@ -12056,6 +12058,19 @@ test('#5995: the name this computer is sent under can be read first, rides the s
         assert.equal((await start({})).status, 200, 'CONTROL: on the same unreadable file, a start that names nothing was refused too');
       } finally { fs.chmodSync(remoteEngine.FILE, 0o600); }
       assert.equal(fs.readFileSync(remoteEngine.FILE, 'utf8'), whole, 'the unreadable settings file was rewritten');
+      /* The one gap: the name could be kept when asked, the start went out, and the save then failed. The person is
+         told a code was sent and the name was not kept; nothing claims the typed name was. */
+      const keptBefore = remoteEngine.read().computer_name;
+      const sentGap = sentNames().length;
+      process.env.FAKE_NAME_LOCK = remoteEngine.FILE;
+      let gap;
+      try { gap = await start({ computer_name: 'Lost In The Gap' }); }
+      finally { delete process.env.FAKE_NAME_LOCK; fs.chmodSync(remoteEngine.FILE, 0o600); }
+      assert.equal(sentNames().length, sentGap + 1, 'CONTROL: the start in the gap arm did not go out');
+      assert.equal(gap.status, 400, gap.body);
+      assert.match(JSON.parse(gap.body).error, /^a code was sent, but we could not keep that name just now; ask for a new code$/);
+      assert.equal(JSON.parse(gap.body).computer_name, undefined, 'the answer claims the typed name was kept');
+      assert.equal(remoteEngine.read().computer_name, keptBefore, 'the name that could not be saved reads as kept');
     }
     // Leaving the computer's own name in the field goes back to following the computer.
     assert.equal((await start({ computer_name: first.name })).status, 200);
