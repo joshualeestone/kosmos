@@ -8959,6 +8959,9 @@ function snapshot() {
       // rule this block already states. Untied -> 0, the no-picture value.
       avatarVer: tied ? store.avatarVersion(pane.name) : 0,
       profile: rowProfile,
+      /* kosmos#5957 slice 2: how far behind its working rules are, for the card; null unless far behind and its own page
+         would offer the update. Required here, not at the top: doctrine's requires reach back to this module. */
+      rulesBehind: tied ? require('./doctrine').rulesBehind(pane.name, rowProfile) : null,
       /* #3564: null for an ordinary agent; for a swarm, its helpers and today's tokens,
          read from the lead's transcripts (engine/swarm.js). Same `tied` gate as every
          other read keyed on the name. The contract with the UI is on #3564. */
