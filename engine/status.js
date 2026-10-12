@@ -3184,9 +3184,8 @@ function activeWhileWaitingFrom(state, freshest, askedAtMs) {
 /**
  * kosmos#5942: when the standing wait began, for the task list's "Waiting on you for 12 days". The self-report's
  * `askedAt` (#5943: the first of the trailing run of identical waiting reports, so re-reporting the same question
- * does not re-date it). Kept only when the report's own state is the card's state: a question read off the screen
- * over an older blocked report is a different wait, and its start is not known. A missing, unparseable or future
- * value is null too, never a guess: the screen then shows no age.
+ * does not re-date it). Kept only when the report's own state is the card's state, so a question read off the screen
+ * over an older blocked report gets no start. A missing, unparseable or future value is null too.
  */
 function waitingSinceFrom(waitReport, cardState, nowMs = Date.now()) {
   if (!waitReport || waitReport.found !== true || typeof waitReport.askedAt !== 'string') return null;
