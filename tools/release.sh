@@ -720,7 +720,7 @@ kosmos_sign_preflight || exit 1
 # rejects, or "notarise" through a stub that never contacted Apple, and print one line about it.
 # KOSMOS_NOTARY_PROBE_BIN is deliberately NOT refused: like KOSMOS_CODESIGN_BIN it replaces only
 # the 1c probe below, says "not probed" when set, and tools.release-gate.test.js needs it.
-for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSMOS_NOTARY_LIPO_CMD KOSMOS_NOTARY_RETRY_DELAYS; do
+for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSMOS_NOTARY_LIPO_CMD KOSMOS_NOTARY_RETRY_DELAYS KOSMOS_STAPLER_CMD KOSMOS_STAPLER_RETRY_DELAYS KOSMOS_NOTARY_SPCTL_CMD KOSMOS_NOTARY_XATTR_CMD; do
   if [ -n "${!_nv+x}" ]; then
     echo "$_nv is set in this shell (even an empty value counts). A cut always notarises the app binaries for real (#5137): unset it and run again."; exit 1
   fi

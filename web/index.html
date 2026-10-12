@@ -58536,6 +58536,10 @@ function wakeHeldLine(manualText, delivery) {
   if (delivery && delivery.heldBy === 'menu') {
     return manualText + ' It is waiting for an answer on its screen, so Kosmos sent nothing; answer it in its window first.';
   }
+  // #5948: held because its sign-in stopped working (heldBy stays 'limit'; heldFor says why). No reset to name.
+  if (delivery && delivery.heldFor === 'signin') {
+    return manualText + ' It is signed out, so Kosmos sent nothing. Sign it in again first.';
+  }
   /* #5805: held because this Claude agent is out of usage. The time is the printed reset (limitReset) while it is
      ahead; heldUntil may be only the next look after it, so it is not used here. */
   if (delivery && delivery.heldBy === 'limit') {
@@ -61186,7 +61190,11 @@ function tskRepeatSentence(t, now) {
   if (t.lastRunAt) {
     const ago = agoWords(now - Date.parse(t.lastRunAt));
     const who = t.lastRunByPerson === true ? 'you' : t.lastRunBy ? tskAgentName(t.lastRunBy) : '';   // review 5: a flag, never the name 'operator'
-    s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunLate === true ? ', late' : '') + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
+    /* kosmos#5920: a run that came after scheduled runs that never happened says how many, so a recovery never hides the
+       misses before it (the missed count starts again from this run). */
+    const rec = t.lastRunRecovered && Number(t.lastRunRecovered.missed) >= 1 ? t.lastRunRecovered : null;
+    const recWords = rec ? ', after ' + (rec.more === true ? 'more than ' + rec.missed + ' missed runs' : Number(rec.missed) === 1 ? '1 missed run' : rec.missed + ' missed runs') : '';
+    s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunLate === true ? ', late' : '') + recWords + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
     /* kosmos#5643: how many runs in a row found nothing new, and when (and what) the last change was. */
     const same = Number(t.unchangedRuns);
     if (same >= 1) {
@@ -62220,7 +62228,7 @@ function tkActPhrase(ev, p) {
     // kosmos#4787: a recurring task's rule, and each run its owner reported (kosmos task ran).
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
-    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.unchanged ? (ev.inferred ? ', the same note again' : ', nothing new') : '') + (ev.note ? ': ' + ev.note : ''); }   // kosmos#5643: said, or only a repeated note
+    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); const missed = Number(ev.missedBefore) >= 1 ? Number(ev.missedBefore) : 0; return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (missed ? ', after ' + (ev.missedMore === true ? 'more than ' + missed + ' missed runs' : missed === 1 ? '1 missed run' : missed + ' missed runs') : '') + (ev.unchanged ? (ev.inferred ? ', the same note again' : ', nothing new') : '') + (ev.note ? ': ' + ev.note : ''); }   // kosmos#5643: said, or only a repeated note
     /* kosmos#4787 slice 3 (review 5): who reviews it, and a missed run with who was told. */
     case 'reviewer-set': return ev.person ? 'You will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
     case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
@@ -62516,7 +62524,7 @@ function tkActRowsHtml(events, p, now) {
     return '<div class="tkact"><time datetime="' + esc(String(ev.at)) + '">' + esc(when) + '</time>'
       + '<span class="tkact-what">' + esc(tkActPhrase(ev, p)) + '</span></div>';
   };
-  const quiet = (ev) => ev && ev.kind === 'run' && ev.unchanged === true && ev.late !== true;
+  const quiet = (ev) => ev && ev.kind === 'run' && ev.unchanged === true && ev.late !== true && !(Number(ev.missedBefore) >= 1);   // kosmos#5920: a recovery is never folded away
   const out = [];
   for (let i = 0; i < events.length;) {
     let j = i;
@@ -63121,7 +63129,8 @@ async function tkSayPost() {
             const at = Date.parse(d.heldUntil || '');
             const until = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
             // "will try": a kept line can still be dropped a day after the reset (recording that is #5842's second slice).
-            lines.push(until ? lead + ' is out of usage until ' + until + '. Kosmos will try to send your message to ' + who + ' after that.'
+            lines.push(d.heldFor === 'signin' ? lead + ' is signed out. Kosmos will try to send your message to ' + who + ' once it is signed in again.'   // #5948
+              : until ? lead + ' is out of usage until ' + until + '. Kosmos will try to send your message to ' + who + ' after that.'
               : /still has messages kept/.test(why) ? 'Kosmos will try to send your message to ' + who + ' after the ones already waiting for it.'
               : 'Kosmos is keeping your message and will try to send it to ' + who + ' later.');   // no time known: claim nothing more
           } else lines.push('Kosmos could not confirm that ' + who + ' got it.');
@@ -70261,6 +70270,8 @@ function dmHeldWords(name, d) {
   const stuck = d && d.stuck && typeof d.stuck.because === 'string' && d.stuck.because
     ? ' Kosmos tried to send it and could not: ' + d.stuck.because.replace(/[.\s]+$/, '') + '.' : '';
   if (d && d.behind === true) return 'Held: Kosmos sends this after the messages kept for ' + name + ' while it was out of usage.' + stuck;
+  // #5948: held because its sign-in stopped working; there is no reset to name, only signing in again.
+  if (d && d.heldFor === 'signin') return 'Held: ' + name + ' is signed out. Kosmos sends it once it is signed in again.' + stuck;
   const at = d && typeof d.heldUntil === 'string' ? Date.parse(d.heldUntil) : NaN;
   const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
   return 'Held: ' + name + ' is out of usage' + (when ? ' until ' + when : '') + '. Kosmos sends it after the reset.' + stuck;

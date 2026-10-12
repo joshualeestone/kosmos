@@ -28,7 +28,8 @@
 # release bundle is built from the official binary, always.
 #
 # Usage:  tools/build-kosmos-bundle.sh [output-dir]
-#         Notarises kosmos-app and kosmos-tunnel with Apple before packing (#5137), so it
+#         Notarises kosmos-app, kosmos-tunnel and the sealed Kosmos.app (stapled, #5896) with Apple
+#         before packing (#5137), so it
 #         needs the notary key; KOSMOS_NOTARIZE=0 skips that for a local test build.
 # Output: <out>/kosmos-<arch>.tar.gz plus the staged tree it was made from.
 
@@ -1001,8 +1002,12 @@ fi
 # Gatekeeper rejects them the moment anything quarantines them. Then both shas are checked
 # against the ones taken after signing, since those are what the logs and manifest describe.
 # KOSMOS_NOTARIZE=0 skips it for a local test build only (it says so loudly).
-notarize_binaries "$STAGE/app/bin/kosmos-app" "$STAGE/app/bin/kosmos-tunnel" || {
-  echo "could not notarise the native app and the Plus connector (#5137). NOT shipping binaries Gatekeeper rejects." >&2; exit 1; }
+# #5896 slice 3: the sealed Kosmos.app rides the same submission, then has its ticket stapled and a quarantined copy
+# assessed (tools/lib/notarize-binaries.sh): a quarantined copy that is sealed but not notarised is refused by
+# Gatekeeper, and a notarised, stapled one is accepted (measured). This is not shown to be the cause of Josh's 0.7.42
+# "Kosmos is damaged" (#5896). Stapling adds the ticket inside the bundle only.
+notarize_binaries "$STAGE/app/bin/kosmos-app" "$STAGE/app/bin/kosmos-tunnel" "$STAGE/app/Kosmos.app" || {
+  echo "could not notarise and staple the native app, the Plus connector and the sealed Kosmos.app (#5137, #5896). NOT shipping what Gatekeeper rejects." >&2; exit 1; }
 [ "$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')" = "$_app_bin_sha" ] \
   && [ "$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}')" = "$_tunnel_sha" ] || {
   echo "a signed binary changed between signing and packing; the checksums taken after signing no longer describe what ships" >&2; exit 1; }

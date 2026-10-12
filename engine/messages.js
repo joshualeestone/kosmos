@@ -1286,7 +1286,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     const typed = log.find((r) => r && r.kind === 'held-delivered' && r.of === sameMsg.id);
     const keptCopy = typed ? null : require('./limitqueue').list(qName).find((e) => e.id === sameMsg.id);
     if (keptCopy) {
-      return heldReceipt(toName, sameMsg.id, sameMsg.at, Date.parse(sameMsg.heldUntil) > Date.parse(at) ? sameMsg.heldUntil : null, true, keptCopy.behind === true);
+      return heldReceipt(toName, sameMsg.id, sameMsg.at, Date.parse(sameMsg.heldUntil) > Date.parse(at) ? sameMsg.heldUntil : null, true, keptCopy.behind === true, keptCopy.signin === true);
     }
     // Typed after the reset: the same send again is that delivery. Dropped: nothing reached them, so it goes as new.
     // As the fold below: only while the two have not spoken since (#4580); after that the same words are a new message.
@@ -1308,7 +1308,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     const typedRow = log.find((r) => r && r.kind === 'held-delivered' && r.of === keptEarly.id);
     if (typedRow) return { state: typedRow.state, because: null, id: keptEarly.id, at: keptEarly.at, duplicate: true };
   } else if (keptEarly) {
-    return heldReceipt(toName, keptEarly.id, keptEarly.at, !keptEarly.behind && Date.parse(keptEarly.reset) > Date.parse(at) ? keptEarly.reset : null, true, keptEarly.behind === true);
+    return heldReceipt(toName, keptEarly.id, keptEarly.at, !keptEarly.behind && Date.parse(keptEarly.reset) > Date.parse(at) ? keptEarly.reset : null, true, keptEarly.behind === true, keptEarly.signin === true);
   }
 
   /* THE VALVE, split per the person's control (limits.js): crossing the
@@ -1381,7 +1381,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   /* #5805 slice 2a: the recipient is out of usage (slice 1's hold): typed now, the message would land on its limit
      screen and be counted delivered. It is kept and typed after the reset by the minute sweep (limitqueue.flush). */
   let limitHold = null;
-  try { limitHold = chat.limitHeldVerdict(toName, roster); } catch { limitHold = null; }
+  try { limitHold = chat.accountHeldVerdict(toName, roster); } catch { limitHold = null; }
   /* Released, but messages kept while it was out of usage are still waiting for the minute sweep: this one goes
      behind them, so nothing it says arrives ahead of what was sent before it. */
   // One small file read per send to an agent not held (a missing file is a failed open): the price of keeping order.
@@ -1395,19 +1395,21 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     /* The drop clock: the printed reset, or now when that is already past (a limit menu left up overnight would
        otherwise drop the message at the next sweep). */
     const dropFrom = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : at;
-    const why = limitqueue.addOrWhy(qName, { id, from, envelope, at, reset: dropFrom, key: msgKey, spill: spillFile, behind: limitHold.behind === true });
+    const why = limitqueue.addOrWhy(qName, { id, from, envelope, at, reset: dropFrom, key: msgKey, spill: spillFile, behind: limitHold.behind === true,
+      signin: limitHold.heldFor === 'signin' && limitHold.behind !== true });
     if (why) {
       unspill(spillFile);
-      const situation = limitHold.behind ? 'still has messages kept from while it was out of usage' : 'is out of usage';
+      const situation = limitHold.behind ? 'still has messages kept from while it was out of usage'
+        : limitHold.heldFor === 'signin' ? 'is signed out' : 'is out of usage';   // #5948
       return refuse(toName, toName + ' ' + situation + ', and Kosmos ' + (why === 'sender-cap'
         ? 'is already keeping ' + limitqueue.MAX_PER_SENDER + ' messages from you for it; wait for those to arrive before sending more'
-        : why === 'agent-cap' ? 'is already keeping ' + limitqueue.MAX_KEPT + ' messages for it; try again after its reset'
+        : why === 'agent-cap' ? 'is already keeping ' + limitqueue.MAX_KEPT + ' messages for it; try again ' + (limitHold.heldFor === 'signin' ? 'once it is signed in again' : 'after its reset')
           : 'could not keep this one for it (its queue could not be read or written); try again in a minute'));
     }
     // The printed reset while it is ahead; past it (the card still reads capped) no time is promised.
     const until = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : null;
     appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: HELD_STATE, heldUntil: until });
-    return heldReceipt(toName, id, at, until, false, limitHold.behind === true);
+    return heldReceipt(toName, id, at, until, false, limitHold.behind === true, limitHold.heldFor === 'signin');
   }
 
   const finish = (sent) => {
@@ -1444,12 +1446,14 @@ function send(input, roster) {
 /* #5805 slice 2a: a `kosmos msg` message kept for an agent out of usage. Its row's state, and the sender's answer:
    nothing was typed (could_not), it is held (the chat held shape, heldBy 'limit'), and when it will be typed. */
 const HELD_STATE = 'held';
-function heldReceipt(toName, id, at, heldUntil, duplicate, behind) {
+function heldReceipt(toName, id, at, heldUntil, duplicate, behind, signin) {
   return {
-    state: chat.DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: (!behind && heldUntil) || null, id, at,
+    state: chat.DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: (!behind && !signin && heldUntil) || null, id, at,
     because: behind
       ? 'held: ' + toName + ' still has messages kept from while it was out of usage; Kosmos types this one after them'
+      : signin ? 'held: ' + toName + ' is signed out; Kosmos types it once it is signed in again'   // #5948
       : 'held: ' + toName + ' is out of usage' + (heldUntil ? ' until ' + heldUntil : '') + '; Kosmos types it after the reset',
+    ...(!behind && signin ? { heldFor: 'signin' } : {}),
     ...(behind ? { behind: true } : {}),
     ...(duplicate ? { duplicate: true } : {}),
   };
@@ -1487,6 +1491,7 @@ async function tellHeldDropped(entry, roster) {
 function keepTaskLine(toName, line, roster, from, about, where) {
   let decided = false;   // a hold was found: from here a failure must not fall through to typing
   let behindNow = false;
+  let signinNow = false;   // #5948: decided on a sign-in hold, for the catch below
   try {
     const limitqueue = require('./limitqueue');
     /* The delivery's free refusals first: a line it refuses whenever it is typed (not sendable, the agent not
@@ -1497,7 +1502,7 @@ function keepTaskLine(toName, line, roster, from, about, where) {
     if (can.ok !== true) return null;
     if (can.card && can.card.swarm && can.card.swarm.active === false) return null;
     let hold = null;
-    try { hold = chat.limitHeldVerdict(toName, roster); } catch { hold = null; }
+    try { hold = chat.accountHeldVerdict(toName, roster); } catch { hold = null; }
     const qName = limitQueueName(toName, roster);
     const at = new Date().toISOString();
     if (!hold) {
@@ -1509,22 +1514,23 @@ function keepTaskLine(toName, line, roster, from, about, where) {
     decided = true;
     const behind = hold.behind === true;
     behindNow = behind;
+    signinNow = !behind && hold.heldFor === 'signin';
     // The drop clock: the printed reset, or now when that is already past (as for `kosmos msg`).
     const dropFrom = Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : at;
     const id = 'k' + crypto.randomBytes(6).toString('hex');
-    const why = limitqueue.addOrWhy(qName, { id, kind: limitqueue.TASK_KIND, from: String(from || ''), envelope: String(line), at, reset: dropFrom, about: String(about || ''), behind,
+    const why = limitqueue.addOrWhy(qName, { id, kind: limitqueue.TASK_KIND, from: String(from || ''), envelope: String(line), at, reset: dropFrom, about: String(about || ''), behind, signin: !behind && hold.heldFor === 'signin',
       projectId: where && where.projectId, task: where && where.task, person: !!(where && where.person === true) });
     if (why) {
       const cause = why === 'sender-cap' ? limitqueue.MAX_PER_SENDER + ' messages from this sender are kept for it already'
         : why === 'agent-cap' ? limitqueue.MAX_KEPT + ' messages are kept for it already' : 'its queue could not be read or written';
-      return { state: chat.DELIVERY.COULD_NOT, because: toName + (behind ? ' still has messages kept from while it was out of usage' : ' is out of usage')
+      return { state: chat.DELIVERY.COULD_NOT, because: toName + (behind ? ' still has messages kept from while it was out of usage' : hold.heldFor === 'signin' ? ' is signed out' : ' is out of usage')
         + ', and Kosmos could not keep this one for it (' + cause + '), so it was not told' };
     }
     const until = !behind && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
     // heldReceipt is `kosmos msg`'s answer (could_not, held: true); the task route reports the row state instead.
-    return { ...heldReceipt(toName, id, at, until, false, behind), state: HELD_STATE };
+    return { ...heldReceipt(toName, id, at, until, false, behind, hold.heldFor === 'signin'), state: HELD_STATE };
   } catch {
-    return decided ? { state: chat.DELIVERY.COULD_NOT, because: toName + (behindNow ? ' still has messages kept from while it was out of usage' : ' is out of usage')
+    return decided ? { state: chat.DELIVERY.COULD_NOT, because: toName + (behindNow ? ' still has messages kept from while it was out of usage' : signinNow ? ' is signed out' : ' is out of usage')
       + ', and Kosmos could not keep this one for it, so it was not told' } : null;
   }
 }
@@ -1551,7 +1557,7 @@ async function tellTaskLineDropped(entry, roster) {
   if (entry.from) {
     // The task page's words (engine/taskactphrase.js): a line kept behind earlier messages names no usage limit.
     const line = '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it '
-      + (entry.behind === true ? 'behind earlier messages' : 'while ' + entry.to + ' was out of usage')
+      + (entry.behind === true ? 'behind earlier messages' : 'while ' + entry.to + (entry.signin === true ? ' was signed out' : ' was out of usage'))
       + ' and could not send it within a day. Send it again if it still matters.';
     try { v = await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { v = null; }
     told = entry.from + ', delivery=' + ((v && v.state) || 'could_not');

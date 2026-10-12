@@ -641,7 +641,7 @@ async function sweepOnce(o) {
         let heldBy = null;   // #4588 ask 3: which hold, for the log
         let paneBusy = false;
         typedOne = true;
-        try { const r = o.deliver(session, nudgeText(p.posts), roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = r && r.heldBy; paneBusy = Boolean(r && r.busy === true); }
+        try { const r = o.deliver(session, nudgeText(p.posts), roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = r && (r.heldFor === 'signin' ? 'signin' : r.heldBy); paneBusy = Boolean(r && r.busy === true); }
         /* Review 13 (Sonnet): a throw from the typing path may come after the paste (chat.js's own rule: a throw is
            unconfirmed, "nothing was typed" is not ours to claim), so it keeps the written-ahead record, never repeats. */
         catch (err) { state = (o.DELIVERY && o.DELIVERY.UNCONFIRMED) || 'unconfirmed'; }
@@ -649,8 +649,8 @@ async function sweepOnce(o) {
            Review 8 (Opus): either is said once per change of state (as skipSaid), so it is on record without a line every pass. */
         if (held || paneBusy) {
           rollBack();
-          const act = held ? (heldBy === 'menu' ? 'menu-held' : heldBy === 'limit' ? 'limit-held' : 'quota-held') : 'pane-busy';
-          results.push({ session, name: display, act, delivered: false, delivery: state, because: held ? p.because + (heldBy === 'cap' ? '; held by the Gemini limit' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : heldBy === 'limit' ? '; held while it is out of usage (#5805)' : '; held on the shared Google quota') : p.because });
+          const act = held ? (heldBy === 'menu' ? 'menu-held' : heldBy === 'signin' ? 'signin-held' : heldBy === 'limit' ? 'limit-held' : 'quota-held') : 'pane-busy';
+          results.push({ session, name: display, act, delivered: false, delivery: state, because: held ? p.because + (heldBy === 'cap' ? '; held by the Gemini limit' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : heldBy === 'signin' ? '; held while it is signed out (#5948)' : heldBy === 'limit' ? '; held while it is out of usage (#5805)' : '; held on the shared Google quota') : p.because });
           const m = book.get(session) || {};
           if (m.waitSaid !== act) { say({ name: display, session, act, delivered: false, delivery: state, because: p.because }); book.set(session, { ...m, waitSaid: act }); }
           continue;

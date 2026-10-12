@@ -21,7 +21,9 @@
  * the provider's folder itself may be. The folder's real path is returned, so the snapshot walks what was checked.
  * A transcript Claude Code wrote under a shortened name (a very long folder) is not found, as status.js does not find it.
  *
- * sessionsFor(agentDir, { id, claudeRoots, geminiHome, codexHome }) -> [{ name, path, optional: true, only? }]
+ * sessionsFor(agentDir, { id, claudeRoots, geminiHome, codexHome, moreHomes? }) -> [{ name, path, optional: true, only? }]
+ *   moreHomes [{ provider: 'codex'|'gemini', home, tag }]: further homes of this agent's sessions (kosmos#5883), each
+ *          named sessions/<id>/<provider><tag>, tag a hyphen and 1 to 16 lowercase letters or digits, one per FOLDER.
  *   (or { name, refused, optional: true } where a session folder is a link: the snapshot records it as skipped)
  *   id     the agent's stored name, one plain segment of lowercase letters, digits and hyphens (any other id gives
  *          nothing: the caller derives it); every name built from it must pass the snapshot's rootNameProblem, or nothing is
@@ -131,7 +133,7 @@ function claudeOwned(real, belongs) {
   return only.sort();
 }
 
-function geminiRoot(agentDir, geminiHome, id) {
+function geminiRoot(agentDir, geminiHome, id, tag = '') {
   if (typeof geminiHome !== 'string' || !path.isAbsolute(geminiHome)) return null;
   let map;
   try { map = JSON.parse(fs.readFileSync(path.join(geminiHome, 'projects.json'), 'utf8')).projects; } catch { return null; }
@@ -142,28 +144,28 @@ function geminiRoot(agentDir, geminiHome, id) {
     // The slug becomes a folder name under tmp/: one plain segment only, never a path out of it.
     if (typeof slug !== 'string' || !slug || slug === '.' || slug === '..' || /[\\/\0]/.test(slug)) return null;
     const c = folderCheck(geminiHome, 'tmp', slug, 'chats');
-    if (c.link) return { name: `sessions/${id}/gemini`, refused: 'a session folder that is a link (not followed)', optional: true };
+    if (c.link) return { name: `sessions/${id}/gemini${tag}`, refused: 'a session folder that is a link (not followed)', optional: true };
     const real = c.real;
     if (!real) return null;
     // The session files forWorkdir reads, named. Two agent folders mapped to one slug would both name them: the snapshot
     // then leaves both out and records why, since it cannot tell whose they are.
     const only = filesUnder(real, (n) => /^session-.*\.jsonl$/.test(n), 0);
-    return only.length ? { name: `sessions/${id}/gemini`, path: real, optional: true, only } : null;
+    return only.length ? { name: `sessions/${id}/gemini${tag}`, path: real, optional: true, only } : null;
   }
   return null;
 }
 
-function codexRoot(agentDir, codexHome, id, belongs) {
+function codexRoot(agentDir, codexHome, id, belongs, tag = '') {
   if (typeof codexHome !== 'string' || !path.isAbsolute(codexHome)) return null;
   const c = folderCheck(codexHome, 'sessions');
-  if (c.link) return { name: `sessions/${id}/codex`, refused: 'a session folder that is a link (not followed)', optional: true };
+  if (c.link) return { name: `sessions/${id}/codex${tag}`, refused: 'a session folder that is a link (not followed)', optional: true };
   const real = c.real;
   if (!real) return null;
   const only = filesUnder(real, (n) => /^rollout-.*\.jsonl$/.test(n), 3).filter((rel) => {
     const meta = codexsession.metaOf(path.join(real, rel));
     return !!meta && belongs(meta.cwd);
   });
-  return only.length ? { name: `sessions/${id}/codex`, path: real, optional: true, only } : null;
+  return only.length ? { name: `sessions/${id}/codex${tag}`, path: real, optional: true, only } : null;
 }
 
 function sessionsFor(agentDir, opts) {
@@ -176,6 +178,16 @@ function sessionsFor(agentDir, opts) {
   if (g) roots.push(g);
   const c = codexRoot(agentDir, o.codexHome, o.id, belongs);
   if (c) roots.push(c);
+  // kosmos#5883: more homes the same agent's sessions can be in (a Codex runtime home, a named account's), each under a
+  // tag the CALLER derives from the folder itself, so one folder keeps one name across snapshots whatever the agent's
+  // account is now. A home that resolves to one already read is skipped (one folder, one root per agent).
+  const seenReal = new Set(roots.filter((r) => r.path).map((r) => r.path));
+  for (const x of Array.isArray(o.moreHomes) ? o.moreHomes : []) {
+    if (!x || typeof x.tag !== 'string' || !/^-[a-z0-9]{1,16}$/.test(x.tag)) continue;
+    const r = x.provider === 'codex' ? codexRoot(agentDir, x.home, o.id, belongs, x.tag)
+      : x.provider === 'gemini' ? geminiRoot(agentDir, x.home, o.id, x.tag) : null;
+    if (r && (!r.path || !seenReal.has(r.path))) { roots.push(r); if (r.path) seenReal.add(r.path); }
+  }
   // Every name actually built must be one the snapshot accepts; if any is not, none is returned (a refused name would
   // fail the whole world's snapshot).
   return roots.some((r) => rootNameProblem(r.name)) ? [] : roots;

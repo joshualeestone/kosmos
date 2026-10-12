@@ -1,6 +1,14 @@
 {
-  "version": "0.7.42",
+  "version": "0.7.43",
   "highlights": [
+    {
+      "icon": "shield",
+      "title": "macOS may ask about Kosmos once",
+      "line": "Kosmos is now one app that we sign and Apple notarizes, so after this update macOS may ask once more for permissions you gave it.",
+      "platforms": [
+        "mac"
+      ]
+    },
     {
       "icon": "chat",
       "title": "Messages wait for an agent out of usage",
@@ -26,11 +34,6 @@
       "icon": "phone",
       "title": "Kosmos fits a phone screen better",
       "line": "On a phone, a project's name gets two lines, its message box hint fits, and Settings' Community section fits most phone screens."
-    },
-    {
-      "icon": "list",
-      "title": "A project shows an agent it stopped",
-      "line": "When an agent not on a project tries to change its tasks, the project's room says so, with a button to add that agent when it can."
     }
   ]
 }

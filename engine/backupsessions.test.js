@@ -189,3 +189,29 @@ test('#5686: what cannot be used gives nothing, never a guess', () => {
     assert.equal(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude] }).length, 1);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('#5883: moreHomes add a root per further home, refuse a bad tag, read one folder once, and refuse a linked one', () => {
+  const s = world();
+  try {
+    const second = path.join(s.base, '.codex-two');
+    s.w(path.join(second, 'sessions', '2026', '10', '12', 'rollout-z.jsonl'), JSON.stringify({ type: 'session_meta', payload: { cwd: s.agent } }) + '\n');
+    // A folder of its OWN for the bad tag, so the tag rule is what refuses it (not the one-folder rule).
+    const third = path.join(s.base, '.codex-three');
+    s.w(path.join(third, 'sessions', '2026', '10', '12', 'rollout-y.jsonl'), JSON.stringify({ type: 'session_meta', payload: { cwd: s.agent } }) + '\n');
+    const roots = bs.sessionsFor(s.agent, { id: 'mikey', codexHome: s.codex, moreHomes: [
+      { provider: 'codex', home: second, tag: '-a1b2c3d4' },
+      { provider: 'codex', home: third, tag: '-BAD' },           // refused: not lowercase
+      { provider: 'codex', home: s.codex, tag: '-again' },       // the primary's folder again: one folder, one root
+      { provider: 'nope', home: second, tag: '-x' },             // unknown provider: nothing
+    ] });
+    const r = byName(roots);
+    assert.deepEqual(Object.keys(r).filter((n) => n.startsWith('sessions/mikey/codex')).sort(), ['sessions/mikey/codex', 'sessions/mikey/codex-a1b2c3d4']);
+    assert.deepEqual(r['sessions/mikey/codex-a1b2c3d4'].only, ['2026/10/12/rollout-z.jsonl']);
+    // A linked sessions folder in a further home is refused, never followed.
+    const linked = path.join(s.base, '.codex-linked');
+    fs.mkdirSync(linked, { recursive: true });
+    fs.symlinkSync(path.join(second, 'sessions'), path.join(linked, 'sessions'));
+    const l = byName(bs.sessionsFor(s.agent, { id: 'mikey', codexHome: s.codex, moreHomes: [{ provider: 'codex', home: linked, tag: '-linked' }] }));
+    assert.ok(l['sessions/mikey/codex-linked'] && l['sessions/mikey/codex-linked'].refused, JSON.stringify(Object.keys(l)));
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});

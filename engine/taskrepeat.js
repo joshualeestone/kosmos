@@ -275,9 +275,10 @@ function runIsLate(t, at) {
   const ans = answeredSlot(t.repeat, nextAfter(t.repeat, from), at);
   return ans !== null && ans <= at && at - ans >= missGraceFor(t.repeat);
 }
-function missedRuns(t, now = Date.now()) {
-  if (!t || !t.repeat || t.isClosed === true || t.closedAt) return null;
-  const grace = missGraceFor(t.repeat);
+/* The first slot the last run did not answer: dueSlot, or the slot after it when the last run was reported up to the miss
+   grace before it. Shared by missedRuns and skippedBefore (kosmos#5920), so the board's missed count and the misses a
+   recovering run records can never start from different slots. */
+function firstUnanswered(t, now) {
   let slot = dueSlot(t, now);
   /* review 1: a run reported up to the miss grace BEFORE its slot answers that slot (a job that started at 08:50 for
      09:00 ran; dueSlot's own early grace is smaller, for the nudge), so it is never called missed. */
@@ -286,11 +287,49 @@ function missedRuns(t, now = Date.now()) {
   const ruleFrom = Date.parse(t.repeatSetAt || t.createdAt || '');
   if (Number.isFinite(lastRun) && answersEarly(t.repeat, lastRun, slot)
     && !(Number.isFinite(ruleFrom) && lastRun < ruleFrom)) slot = nextAfter(t.repeat, slot);
+  return slot;
+}
+function missedRuns(t, now = Date.now()) {
+  if (!t || !t.repeat || t.isClosed === true || t.closedAt) return null;
+  const grace = missGraceFor(t.repeat);
+  let slot = firstUnanswered(t, now);
   if (slot === null || slot + grace > now) return null;
   const first = slot;
   let count = 0;
   while (slot !== null && slot + grace <= now && count < MISSED_CAP) { count += 1; slot = nextAfter(t.repeat, slot); }
   return { count, more: slot !== null && slot + grace <= now, lastAt: latestAtOrBefore(t.repeat, first, now - grace) };
+}
+
+/* kosmos#5920: the scheduled slots a run at `at` comes AFTER with none of them run: the slots missedRuns counts at `at`,
+   less the one this run answers (answeredSlot, the same rule runIsLate uses). A recovery that lands hours late (a retry
+   that held the agent) records ONE run, and moving lastRunAt past the slots it skipped would otherwise make them vanish
+   from the count and from the history. Returns { count, more, firstAt, lastAt }, or null when it skipped none. lastAt is
+   the last slot COUNTED: past MISSED_CAP it is the cap's slot, and `more` says there were more. */
+function skippedBefore(t, at) {
+  if (!t || !t.repeat || !Number.isFinite(at)) return null;
+  const grace = missGraceFor(t.repeat);
+  let slot = firstUnanswered(t, at);
+  if (slot === null) return null;
+  // With no time the rule was set there is no first slot to answer from (runIsLate says not late there): claim nothing.
+  const from = Date.parse(t.repeatSetAt || t.createdAt || '');
+  if (!Number.isFinite(from)) return null;
+  const answered = answeredSlot(t.repeat, nextAfter(t.repeat, from), at);
+  const skipped = (s) => s !== null && s + grace <= at && (answered === null || s < answered);
+  let count = 0; let first = null; let last = null;
+  while (skipped(slot) && count < MISSED_CAP) { count += 1; if (first === null) first = slot; last = slot; slot = nextAfter(t.repeat, slot); }
+  return count ? { count, more: skipped(slot), firstAt: first, lastAt: last } : null;
+}
+
+/* kosmos#5920 reviews 1 and 2: the time a run due at `at` must be recorded BEFORE so it answers `at`: the next slot less
+   the miss grace (a record inside that grace answers the next slot early, which would count this run as missed),
+   rounded down to the minute, so "before 9:22am" can be read to the minute and is never past the real limit (09:22:30
+   for runs at 09:00 and 09:30). null with no next slot, when that time has already passed at `now` (no deadline is left
+   to meet), and when it is not after the due slot itself (two times a minute apart: the floor lands on the due slot). */
+function recordBy(rule, at, now = Date.now()) {
+  const next = nextAfter(rule, at);
+  if (next === null) return null;
+  const by = Math.floor((next - missGraceFor(rule)) / 60000) * 60000;
+  return by > now && by > at ? by : null;
 }
 
 /* kosmos#4787 slice 1b: the fields a screen shows for a repeating task (its rule in words, its next run in this board's
@@ -311,4 +350,4 @@ function fieldsOf(t, now = Date.now()) {
   return out;
 }
 
-module.exports = { VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, missGraceFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
+module.exports = { VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
