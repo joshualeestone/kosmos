@@ -61,6 +61,7 @@ const PROVIDER_VALUES = new Set(Object.values(PROVIDER));
 // so the text before the first space names the provider unambiguously and the rest is
 // the agent -- an agent name may contain spaces (e.g. "Sonya Blade") without colliding.
 const store = new Map();
+const okStore = new Map();   // #5959 slice 2: (provider, agent) -> the newest OK's time, see lastOk
 function keyOf(provider, agent) { return provider + ' ' + agent; }
 
 /*
@@ -97,6 +98,18 @@ function saw(provider, agent, outcome, now) {
   if (outcome !== OUTCOME.OK && outcome !== OUTCOME.REJECTED) return;
   const at = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();
   store.set(keyOf(provider, agent), { provider, agent, outcome, at });
+  /* #5959 slice 2: the newest OK kept apart, so a later rejection (which overwrites the entry above) does not erase
+     when this agent last worked. Never moved backwards: an OK stamped at an older completion time leaves a newer one. */
+  if (outcome === OUTCOME.OK) {
+    const prev = okStore.get(keyOf(provider, agent));
+    if (prev === undefined || at >= prev) okStore.set(keyOf(provider, agent), at);
+  }
+}
+/* #5959 slice 2: when this agent was last seen working (ms), or null when Kosmos has not seen it work since it
+   started. In memory like the store above, so a board restart empties it. */
+function lastOk(provider, agent) {
+  const at = okStore.get(keyOf(provider, agent));
+  return typeof at === 'number' ? at : null;
 }
 
 function read(provider, agent) {
@@ -132,7 +145,7 @@ function readDir(provider, dir) {
 }
 
 // Test-only: reset both in-memory records between cases.
-function _clearForTest() { store.clear(); dirStore.clear(); }
+function _clearForTest() { store.clear(); dirStore.clear(); okStore.clear(); }
 
 /*
  * How recent an observation must be to still drive the badge. The background sweep
@@ -203,4 +216,4 @@ function forgetDir(provider, dir) {
   dirStore.delete(keyOfDir(provider, dir));
 }
 
-module.exports = { OUTCOME, PROVIDER, saw, read, all, sawDir, readDir, forgetDir, freshMs, isFresh, verdict, _clearForTest };
+module.exports = { OUTCOME, PROVIDER, saw, read, all, sawDir, readDir, forgetDir, freshMs, isFresh, verdict, lastOk, _clearForTest };

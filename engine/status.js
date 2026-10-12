@@ -7478,6 +7478,22 @@ function providerLimitReport(reported) {
 function cardRunnerOf(pane) {
   return (pane.runner === 'codex' || (!pane.runner && isCodexCommand(pane.command))) ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : pane.runner === 'muse' ? 'muse' : 'claude';
 }
+/* #5959 slice 2: which provider's observations speak for a card's runner. Antigravity and Muse have none: nothing
+   in observed.js is recorded for them, so their card says Kosmos cannot see their turns rather than "not seen". */
+const RUNNER_OBSERVED_PROVIDER = Object.freeze({
+  claude: observed.PROVIDER.ANTHROPIC, codex: observed.PROVIDER.OPENAI, gemini: observed.PROVIDER.GOOGLE, grok: observed.PROVIDER.XAI,
+});
+/* #5959 slice 2: when this agent was last seen working, for its page's health line. { at: ISO } when Kosmos saw it;
+   { at: null, why: 'not_seen' } when its runner is observed but nothing was seen since the board started (the record
+   is in memory); { at: null, why: 'no_source' } for a runner with no observation at all. Null for a pane that is not
+   ours, which is never observed. */
+function lastWorkedOf(pane, runner) {
+  if (!isNamedOurs(pane)) return null;
+  const provider = RUNNER_OBSERVED_PROVIDER[runner];
+  if (!provider) return { at: null, why: 'no_source' };
+  const at = observed.lastOk(provider, pane.name);
+  return at === null ? { at: null, why: 'not_seen' } : { at: new Date(at).toISOString(), why: null };
+}
 /* #5948: the automatic report of a turn its provider refused for the sign-in (see the blocked rule in reconcileReport). */
 function providerAuthReport(reported) {
   return !!reported && reported.state === 'blocked' && reported.by === 'auto'
@@ -8139,6 +8155,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
        through a channel. Carried so every card answers the question. */
     reachedByChannel: false,
     runner: null,
+    lastWorked: null,   // #5959 slice 2: no pane, nothing observed; its page shows no health line
     task: null,
     state: status.state,
     stateConfidence: status.confidence,
@@ -8889,6 +8906,8 @@ function snapshot() {
          claudeLimitUntil), so the card can say when: "Looks like a usage limit until <time>" (every Claude card is a
          screen reading today; a reported one would say "Out of usage until"). Null for any other card or an unread line. */
       limitUntil: claudeLimitUntilIso(pane, status),
+      /* #5959 slice 2: when it was last seen working, for the health line on its page (see lastWorkedOf). */
+      lastWorked: lastWorkedOf(pane, cardRunnerOf(pane)),
       because: status.because,
       /* #2019: present while state === 'restarting' -- {cause, startedAt}
          for the deliberate disruption in flight -- and (#4006) on the needs_you of a
