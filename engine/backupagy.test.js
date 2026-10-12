@@ -161,3 +161,17 @@ test('review 1: a stale copy left in the staging folder is replaced, never backe
     copy.close();
   } finally { t.done(); }
 });
+
+test('review 2: a conversation larger than the snapshot takes is not copied (it would only be refused there)', async () => {
+  const t = home();
+  try {
+    const ann = t.mk('workers', 'ann');
+    t.add('c-small', [ann]); t.add('c-huge', [ann]);
+    const snap = require('./backupsnapshot');
+    fs.truncateSync(path.join(t.h, 'conversations', 'c-huge.db'), snap.MAX_FILE + 1);   // sparse: no real disk use
+    const stage = path.join(t.base, 'stage');
+    const roots = await agy.stageAgy({ home: t.h, stageDir: stage, agents: [{ dir: ann, seg: 'ann' }] });
+    assert.deepEqual(roots.map((r) => r.only), [['c-small.db']]);
+    assert.ok(!fs.existsSync(path.join(stage, 'c-huge.db')));
+  } finally { t.done(); }
+});
