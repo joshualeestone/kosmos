@@ -16,7 +16,8 @@ it stays off (no runner there yet).
 - NOT_INSTALLED_BECAUSE says what to do ("... yet. Install it from Meta, then come back"), the first-run step's words.
   On screen, the pills carry the short form ("Install Muse Code from Meta": Add a provider, Create Agent, Create a
   Team; the old "Set up in Settings, AI Models" pill was for a state Settings cannot fix), and the first-run step has
-  its own sentence; the engine's sentence is what GET /api/muse, the CLI and agents read.
+  its own sentence; the engine's sentence is what GET /api/muse and a Muse agent's failed turn (engine/muserun.js, Muse Code removed
+  after the agent was made) carry, so it is worded for both.
 - Off spellings: 0, false, off, no (case and spaces ignored), as AGENT_WORKFORCE_ANTIGRAVITY reads.
 - First run's under-18 line names Meta Muse only once Muse Code is installed (#5856's rule, now that "on" is every Mac).
 - Two first-run browser checks (render-firstrun-grok-3386, render-firstrun-reentry-3359) fail on origin/main too, with
