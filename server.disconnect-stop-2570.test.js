@@ -884,9 +884,9 @@ test('#2570 CONTROL: the OpenAI route with no flag still refuses and names the a
   assert.ok(fs.existsSync(dir));
 });
 
-/* #5994 end to end through this route: an account whose own "Sign in again" was left unfinished. The pre-flight (agents
-   on the account, no stopAgents) is refused and cancels nothing; with stopAgents the agent is stopped, the account is
-   deleted, and the abandoned sign-in is cancelled rather than refusing the delete after the agent was already stopped. */
+/* #5994 end to end through this route: an account whose own "Sign in again" was left unfinished. Without stopAgents the
+   request is refused and cancels nothing; with stopAgents the agent is stopped, the account is deleted, and the abandoned
+   sign-in is cancelled rather than refusing the delete after the agent was already stopped. */
 test('#5994: disconnect-and-stop on an account with its own unfinished Sign in again stops, deletes and cancels', async () => {
   installRunner();
   const openai = require('./engine/openaiaccounts');
@@ -900,12 +900,13 @@ test('#5994: disconnect-and-stop on an account with its own unfinished Sign in a
   fs.chmodSync(mock, 0o755);
   const started = openai.startChatgptLogin({ codexBin: mock, mode: 'browser', reauthDir: dir });
   assert.equal(started.ok, true, started.because);
-  const t0 = Date.now();   // the sign-in is under way (its URL printed) before the pre-flight runs
+  const t0 = Date.now();   // the sign-in is under way (its URL printed) before the first request
   while (Date.now() - t0 < 4000 && openai.chatgptLoginStatus(started.sessionId).state === 'starting') await new Promise((res) => setTimeout(res, 25));
   assert.equal(openai.chatgptLoginStatus(started.sessionId).state, 'awaiting-browser');
   registeredNotRunning('reauth5994', dir, 'codex');
   try {
-    // CONTROL, the pre-flight: refused, names the agent, and the sign-in is NOT cancelled.
+    // CONTROL, without stopAgents: refused, names the agent, and the sign-in is NOT cancelled. (That the #2570
+    // pre-flight inside the next request cancels nothing is pinned at engine level, where it is observable.)
     const refused = await del('openai', { dir, remove: true });
     assert.equal(refused.code, 400, JSON.stringify(refused.json));
     assert.match(String(refused.json.error), /reauth5994 is set up to run on this account/);

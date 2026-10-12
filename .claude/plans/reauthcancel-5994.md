@@ -52,10 +52,12 @@ cancel a reauth while a staging sign-in still writes into the folder.
 - an account already gone from the disk still has its own reauth cancelled (review 2: that success branch skipped it).
 - a reauth cancelled a moment ago, its child not exited yet, does not refuse the remove (review 2).
 - any other hold refuses for forget as well as remove.
-- server.disconnect-stop-2570: the real route, an own unfinished reauth plus a registered agent: the pre-flight is
-  refused and cancels nothing; stopAgents stops, deletes and cancels (review 2).
-- a cancelled reauth whose child writes a VALID auth.json as it dies (exit 0) does not bring the removed account back
-  (review 7: the old 'cannot bring it back' assertion could not fail, the mock never wrote one).
+- server.disconnect-stop-2570: the real route, an own unfinished reauth plus a registered agent: a request without
+  stopAgents is refused and cancels nothing; stopAgents stops, deletes and cancels (review 2). That the #2570
+  pre-flight inside it cancels nothing is pinned at engine level, where it can be seen.
+- a cancelled reauth whose child writes a VALID auth.json as it dies (exit 0) does not promote into a folder put back
+  at that path before it finishes (reviews 7 and 9: without the folder a late promote fails on its own).
+- the partial-delete test skips itself on a filesystem that lists sessions/ before auth.json (review 9).
 - a rename or delete that THROWS (home made read-only) cancels nothing (review 7: the free-name test returns earlier).
 - every sign-in a test starts is cancelled after it, so a failing assertion leaves no child; the sandbox is removed
   when the file ends (it was left behind on every run, 62 found on this Mac).
