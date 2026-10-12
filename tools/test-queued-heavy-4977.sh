@@ -243,14 +243,14 @@ run5923() {   # run5923 <name> [env assignments...]: runs the real wrapper with 
 }
 lh5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse HEAD; }
 lm5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse origin/main; }
-for n in mv mk ps sh set dirty; do qh_lib5923 $S/l5923-$n; : > $S/ps5923-$n; done
+for n in mv mk ps sh set dirty nops; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
 run5923 mv
 ok "#5923: the default lib checkout behind origin/main, nothing live: moved to origin/main, said so, run runs, lock gone" '[ "$rc" = 0 ] && [ -e $S/l5923-mv-ran ] && [ "$(lh5923 mv)" = "$(lm5923 mv)" ] && [[ "$o" == *"moved"*"-> origin/main"*"cut-guard.sh differed"* ]] && [ ! -e $S/ml5923-mv/queued-heavy-lib.lock ]'
 run5923 mv
 ok "#5923: once at origin/main the next join says the queue files match and moves nothing" '[ "$rc" = 0 ] && [[ "$o" == *"files match origin/main"* ]] && [[ "$o" != *moved* ]]'
 mkdir -p $S/ml5923-mk && : > $S/ml5923-mk/suitewait.999999
 run5923 mk
-ok "#5923: a queue marker present: NOT moved, says which, joins on the old lib and runs" '[ "$rc" = 0 ] && [ -e $S/l5923-mk-ran ] && [ "$(lh5923 mk)" != "$(lm5923 mk)" ] && [[ "$o" == *"is BEHIND"*"not moved (a queue marker is present (suitewait.999999))"* ]]'
+ok "#5923: a queue marker present: NOT moved, says which, joins on the old lib and runs" '[ "$rc" = 0 ] && [ -e $S/l5923-mk-ran ] && [ "$(lh5923 mk)" != "$(lm5923 mk)" ] && [[ "$o" == *"DIFFERS"*"not moved (a queue marker is present (suitewait.999999))"* ]]'
 printf '4242 1 /bin/bash /x/queued-heavy.sh --queued-args /tmp/queued-heavy-args.x\n' > $S/ps5923-ps
 run5923 ps
 ok "#5923: another queued-heavy.sh live (a waiter after its re-exec): NOT moved, names its pid" '[ "$rc" = 0 ] && [ "$(lh5923 ps)" != "$(lm5923 ps)" ] && [[ "$o" == *"another queued-heavy.sh is live (pid 4242)"* ]]'
@@ -262,6 +262,8 @@ ok "#5923: a checkout named by QUEUED_HEAVY_LIB is reported, never moved" '[ "$r
 echo '# local' >> $S/l5923-dirty/work/kosmos-bc-main-4610/tools/lib/process-fixture.sh
 run5923 dirty
 ok "#5923: a checkout with local changes is not moved and keeps them" '[ "$rc" = 0 ] && [ "$(lh5923 dirty)" != "$(lm5923 dirty)" ] && [[ "$o" == *"not moved (it has local changes)"* ]] && tail -1 $S/l5923-dirty/work/kosmos-bc-main-4610/tools/lib/process-fixture.sh | grep -q local'
+run5923 nops QH_TEST_PS=false
+ok "#5923: a process list that fails is not read as nothing live: NOT moved, says so" '[ "$rc" = 0 ] && [ "$(lh5923 nops)" != "$(lm5923 nops)" ] && [[ "$o" == *"not moved (could not list processes)"* ]]'
 # The REAL ps (no QH_TEST_PS): the run's own pipeline subshell keeps this script's argv and must not read as a waiter.
 # QH_TEST_PS_NAME gives the script a name no real waiter on this box carries. Control: a live process of that name blocks.
 for n in rp rpc; do qh_lib5923 $S/l5923-$n; mkdir -p $S/ml5923-$n $S/rp5923-$n; cp "$REAL_QH" $S/rp5923-$n/qh5923self.sh; done
@@ -415,7 +417,7 @@ sed 's|  exec /bin/bash "${BASH_SOURCE\[0\]}" --queued-args "$_qh_af"|  exec /no
 mkdir -p $S/tmpx; o=$(TMPDIR=$S/tmpx KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash $S/qh-noexec.sh "noexec" true 2>&1); r=$?
 ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"could not restart itself"* ]] && [ -z "$(ls $S/tmpx)" ] && grep -q /nonexistent/bash $S/qh-noexec.sh'
 
-EXPECTED=114   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, nine #5923 lib-drift arms
+EXPECTED=115   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, ten #5923 lib-drift arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
