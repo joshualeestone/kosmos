@@ -488,7 +488,10 @@ sealed_icon_mark_reuse() {
 # #5913 review 4: the uninstall's sentence about a shared sealed icon it leaves in place. An account that only REUSED
 # another account's icon neither owns nor can delete it, so it is not told to drag it to the Trash.
 sealed_left_note() {
-  if [ "$(file_owner_uid "$SYS_APP_DIR/Kosmos.app")" != "$(/usr/bin/id -u)" ]; then
+  local owner
+  owner="$(file_owner_uid "$SYS_APP_DIR/Kosmos.app")"
+  # Merge review 2: an owner that cannot be read is not "another account"; it gets the cautious sentence below.
+  if [ -n "$owner" ] && [ "$owner" != "$(/usr/bin/id -u)" ]; then
     info "note: the Kosmos app in $SYS_APP_DIR belongs to another account on this computer, so it was left in place."
   else
     # Merge review: this account's icon that is not proven THIS install's (the config named another install of this
@@ -1752,11 +1755,6 @@ uninstall() {
   # the litter sweep, the closing sentence) reads this variable and none calls
   # the helper again: after `rm -rf "$KOSMOS_HOME"` the interpreter it consults
   # is gone and a fresh call would quietly return the literal instead.
-  # #5913 / #5912: this account no longer opens another account's shared sealed icon, so it takes back its own
-  # marker before the icon sweeps below read that folder. Review 2: AFTER the sandbox refusal above (a refused
-  # uninstall changes nothing), and sealed_icon_unmark removes only a marker that names THIS install, so a
-  # sandboxed uninstall never removes the real install's marker.
-  sealed_icon_unmark || info "note: could not remove this account's note in $SEALED_USERS_DIR; another account's uninstall will keep the shared icon because of it"
   _support="$(_kosmos_data_root)"
   if [ "$(uname -s)" = "Linux" ]; then
     # #4920: piece B's removeBoard (stop, disable, delete, reload), the same derivation of the unit's name and path as
@@ -2961,6 +2959,13 @@ UNWIREEOF
     fi
     printf '  Remove these entries if you want the question back everywhere.\n\n'
   fi
+  # #5913 / #5912: this account no longer opens another account's shared sealed icon, so it takes back its marker,
+  # LAST (merge review 2): taken at the start, an uninstall that then failed left this install still depending on
+  # the icon with no marker, and the owner's uninstall would delete it. Nothing above needs it gone: the icon sweep
+  # reads other accounts' markers only (the reader skips the icon owner's own). sealed_icon_unmark removes only a
+  # marker that names THIS install (its tag is this KOSMOS_HOME), so a sandboxed uninstall never removes the real
+  # install's marker, and it needs nothing the uninstall removed.
+  sealed_icon_unmark || info "note: could not remove this account's note in $SEALED_USERS_DIR; another account's uninstall will keep the shared icon because of it"
   exit 0
 }
 

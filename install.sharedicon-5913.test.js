@@ -287,12 +287,15 @@ test('#5913 review 2: open and uninstall wiring (text only, every platform)', ()
   assert.match(SETUP, /if \[ "\$\{APP_SKIP_REASON:-\}" = "shared-sealed" \]; then\n  _open_app="\$SYS_APP_DIR\/Kosmos\.app"\n  sealed_icon_reusable "\$_open_app" && _open_ok=yes/, 'a reusing install no longer opens the shared icon');
   assert.match(SETUP, /&& \[ "\$_open_ok" = yes \] \\/, 'the open gate no longer uses the reuse-aware check');
   assert.match(SETUP, /_board_url="\$_open_app"/, 'the open target is not the chosen app');
-  // The uninstall takes back the marker AFTER its sandbox refusal and BEFORE the icon sweeps.
+  // The uninstall takes back the marker after its sandbox refusal and after the icon sweep: last (merge review 2).
   const un = SETUP.indexOf('\nuninstall() {\n');
   const refusal = SETUP.indexOf('this uninstall is for a sandboxed install', un);
   const unmark = SETUP.indexOf('sealed_icon_unmark ||', un);
   const sweep = SETUP.indexOf('shared_sealed_stays "$SYS_APP_DIR/Kosmos.app"', un);   // #5912 merged: the sweep asks shared_sealed_stays
-  assert.ok(refusal !== -1 && unmark > refusal && sweep > unmark, `uninstall order wrong (refusal ${refusal}, unmark ${unmark}, sweep ${sweep})`);
+  // Merge review 2: the marker goes LAST, just before the uninstall's exit 0 (a failed uninstall keeps it).
+  const exit0 = SETUP.indexOf('\n  exit 0\n}', un);
+  assert.ok(refusal !== -1 && sweep > refusal && unmark > sweep && exit0 > unmark && SETUP.slice(unmark, exit0).split('\n').length <= 3,
+    `uninstall order wrong (refusal ${refusal}, sweep ${sweep}, unmark ${unmark}, exit ${exit0})`);
 });
 
 test('#5913: setup.sh wiring (text only, every platform)', () => {
@@ -304,11 +307,11 @@ test('#5913: setup.sh wiring (text only, every platform)', () => {
   assert.ok(own !== -1 && reuse > own && divert > reuse, 'the reuse check is not between the own-icon check and the divert');
   // The transcript says it, and the marker is written there.
   assert.match(SETUP, /if \[ "\$APP_SKIP_REASON" = "shared-sealed" \]; then[\s\S]{0,300}it opens your Kosmos too\.[\s\S]{0,200}sealed_icon_mark_reuse/, 'the reuse sentence or its marker write is gone');
-  // The uninstall takes back the marker BEFORE anything else reads that folder, for the install the config names.
+  // The uninstall takes back the marker after the icon sweep, as its last act, for the install the config names.
   const un = SETUP.indexOf('\nuninstall() {\n');
   const unmark = SETUP.indexOf('sealed_icon_unmark ||', un);
   const firstSweep = SETUP.indexOf('shared_sealed_stays "$SYS_APP_DIR/Kosmos.app"', un);   // #5912 merged: the sweep asks shared_sealed_stays
-  assert.ok(un !== -1 && unmark > un && firstSweep > unmark, 'the uninstall does not take back its marker first');
+  assert.ok(un !== -1 && firstSweep > un && unmark > firstSweep, 'the uninstall does not take back its marker after the icon sweep (merge review 2: last)');
   // Sandboxed runs never touch the real /Users/Shared.
   assert.match(SETUP, /elif \[ -n "\$\{KOSMOS_SYS_APP_DIR:-\}" \]; then SEALED_USERS_DIR="\$KOSMOS_SYS_APP_DIR\/\.kosmos-sealed-icon-users"/, 'a run sandboxed by KOSMOS_SYS_APP_DIR could reach the real shared folder');
 });
