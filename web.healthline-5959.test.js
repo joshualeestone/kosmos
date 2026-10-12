@@ -34,8 +34,9 @@ test('#5959 slice 2: the health line says sign-in, usage and when Kosmos last sa
     /· Usage: limit reached · /);
   assert.match(healthLine({ state: 'working', lastWorked: { at: null, why: 'no_source' } }, NOW),
     /Last seen working: Kosmos cannot see this agent's turns$/);
-  // Stopped, restarting or unreadable: Kosmos sees nothing of its sign-in or usage, so only the time is said.
-  for (const state of ['stopped', 'restarting', 'unknown']) {
+  // Stopped, restarting or unreadable: Kosmos sees nothing of its sign-in or usage, so only the time is said. Blocked
+  // too: a Claude card stays blocked on Claude Code's own report of a refused sign-in or a usage cap.
+  for (const state of ['stopped', 'restarting', 'unknown', 'blocked']) {
     assert.equal(healthLine({ state, lastWorked: { at: null, why: 'not_seen' } }, NOW), 'Last seen working: not since Kosmos started', state);
   }
   // A clock time, not "N minutes ago": the page is painted once, so a relative time would go stale while it is open.

@@ -6,7 +6,8 @@ signed in or not, quota, last successful turn time."
 ## The call
 - **Engine.** `engine/observed.js` keeps the newest OK per (provider, agent) in its own map (`lastOk`), so a later
   rejection, which overwrites the latest reading, does not erase when the agent last worked; an older OK read late
-  never moves it backwards. Every pane card of ours carries `lastWorked` (`status.js lastWorkedOf`):
+  never moves it backwards. Every pane card of ours carries `lastWorked` (`status.js lastWorkedOf`), read under the
+  provider the observation arms filed it under (`observedProviderOf`, from the same `paneObservedKinds` the arms use):
   `{ at: ISO, why: null }` when seen, `{ at: null, why: 'not_seen' }` when its runner is observed but nothing was seen
   since the board started, `{ at: null, why: 'no_source' }` for Antigravity and Muse (no observation exists).
   Null for a pane that is not ours and for a paneless card.
@@ -34,7 +35,13 @@ signed in or not, quota, last successful turn time."
 - A Claude pane in its retry loop: a rate limit or a rejected sign-in classifies as such before working chrome, so it
   records no OK; a plain network retry (connection_lost) likewise. A retry shape that scrapes as WORKING would record
   one; none is known.
-- Stopped, restarting or unknown agents show only the time: Kosmos sees nothing of their sign-in or usage.
+- Stopped, restarting, unknown or blocked agents show only the time. Blocked because a Claude card stays blocked on
+  Claude Code's own report of a refused sign-in or a usage cap, where "no problem showing" would be false.
+- Windows: a Codex agent there is read through its rollout like any Codex agent. Whether the rollout is found on
+  Windows is reasoned from source, not measured; if it is not, the line says "not since Kosmos started" where
+  "cannot see" would be truer. Windows changes go to Homer.
+- The account's own Check-now verdict (Settings, AI Models) is not read here: it is about the account, which may serve
+  several agents, and it has its own row. A follow-up could name it on this line.
 - In memory: after a board restart every agent reads "Last seen working: not since Kosmos started" until its next turn.
 - "At a glance" in the ask may mean the board card; if so, the line is one call away (`healthLine` is pure).
 
