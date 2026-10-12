@@ -49,7 +49,8 @@ of reading signed out.
 - The module's Windows behaviour (drive letters, case folding in realpath) is not tested: its test file is excluded
   from the Windows job (POSIX fixture paths).
 
-- A stopped agent whose job predates the `runner` field (no runner on job or card) is skipped.
+- An agent whose job carries no `runner` is skipped, running or stopped (the job is the authority once there is one;
+  create.js writes a runner on every job it makes, so this is old jobs only).
 
 ## Weakest premise
 **A key the launch inherits from its own environment is not seen (review 13).** The shared-key check reads Kosmos's

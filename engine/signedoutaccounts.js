@@ -63,7 +63,8 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
     let job = null;
     try { job = readJob(c.sessionName); } catch { job = null; }
     // The job's runner first: a stopped agent's card has none (status.panelessCard).
-    const p = PROVIDER_OF_RUNNER[job ? job.runner : c.runner];   // a job, when there is one, is the authority
+    const runner = job ? job.runner : c.runner;   // a job, when there is one, is the authority
+    const p = typeof runner === 'string' && Object.prototype.hasOwnProperty.call(PROVIDER_OF_RUNNER, runner) ? PROVIDER_OF_RUNNER[runner] : null;
     if (!p) continue;
     const dir = job && typeof job.configDir === 'string' && job.configDir ? path.resolve(job.configDir) : null;
     if (!dir) continue;
@@ -122,7 +123,7 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
           : r.sharedKeyUnsure
             ? { state: 'unknown', badge: 'unlisted', because: 'its own sign-in or key is gone from its folder, Kosmos could not read this computer\'s shared ' + r.providerName + ' key to tell whether one stands in, and ' + who + '.' }
             : r.sharedKey
-              ? { state: 'unknown', badge: 'unlisted', because: 'its own sign-in or key is gone from its folder, but this computer\'s shared ' + r.providerName + ' key can stand in for it, and ' + who + '.' + fix }
+              ? { state: 'unknown', badge: 'unlisted', because: 'its own sign-in or key is gone from its folder, but this computer\'s shared ' + r.providerName + ' key can stand in for it, and ' + who + '.' }
               : { state: 'none', badge: 'signed_out', because: 'its sign-in or key is no longer on this computer, and ' + who + '.' + fix },
     };
   });
