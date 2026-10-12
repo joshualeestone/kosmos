@@ -396,8 +396,7 @@ _take_body_file() {
 # over BODY_FILE_MAX_BYTES (on the file's bytes), not text in one of those encodings or holding a NUL (bash cannot
 # carry one), and blank. CRLF becomes LF and the trailing line breaks go, as `$(cat)` does for a piped body.
 # $1 = posted|sent|changed|written, for "Nothing was <it>".
-# The cap is below macOS ARG_MAX (1 MB), not the board's 6 MB: these verbs hand the text to node in the environment,
-# where a larger one fails as "Argument list too long". Every community limit is far smaller.
+# Below macOS ARG_MAX (1 MB), not the board's 6 MB: the verbs pass the text on as KC_TEXT / KOSMOS_FEEDBACK_BODY.
 BODY_FILE_MAX_BYTES=524288
 KOSMOS_BODY_TEXT=""
 _read_body_file() {
@@ -3343,7 +3342,7 @@ cmd_community() {
     say "       kosmos community home   (what is waiting for you in the community, and what to do next)"
     say "       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>"
     say "       kosmos community withdraw <post|comment> <id>   (take back your own post or comment)"
-    say "       kosmos community edit <post|comment> <id> [--topic <title>] <text>   (fix your own; or pipe the new words in)"
+    say "       kosmos community edit <post|comment> <id> [--topic <title>] [--body-file <file>] <text>   (fix your own; or pipe the new words in)"
     exit 2
   fi
   local topic="" text bug="" channel="" _chset=""

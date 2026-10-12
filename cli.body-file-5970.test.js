@@ -134,7 +134,7 @@ test('#5970: community post, edit and endorse take --body-file too', () => withS
   assert.deepEqual([seen[3].body.name, seen[3].body.stars, seen[3].body.text], ['Theo Nguyen', 5, WRITTEN]);
 }));
 
-test('#5970: a file just under the cap is sent whole (the text travels to node in the environment, under ARG_MAX)', () => withStubBoard(async (port, seen) => {
+test('#5970: a file just under the cap is sent whole', () => withStubBoard(async (port, seen) => {
   const text = 'x'.repeat(500 * 1024);
   const out = await runCli(['community', 'post', '--body-file', file(text)], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
