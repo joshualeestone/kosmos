@@ -10,9 +10,11 @@ signed in or not, quota, last successful turn time."
   `{ at: ISO, why: null }` when seen, `{ at: null, why: 'not_seen' }` when its runner is observed but nothing was seen
   since the board started, `{ at: null, why: 'no_source' }` for Antigravity and Muse (no observation exists).
   Null for a pane that is not ours and for a paneless card.
-- **Page.** `healthLine(a, now)` builds "Sign-in: ... · Usage: ... · Last worked: ..." and paints `#d-health` under
-  Runs on, in the agent page's AI Settings section, repainted with the page so one agent's line never stands on
-  another's. Sign-in and usage say only what the card's state shows ("no problem seen" / "no limit seen" otherwise).
+- **Page.** `healthLine(a, now)` builds "Sign-in: ... · Usage: ... · Last seen working: <clock time>" and paints
+  `#d-health` under Runs on, in the agent page's AI Settings section, when the page opens. Sign-in and usage say only
+  what the card's state shows ("no problem showing" / "no limit showing" otherwise), hedged with "looks like" for a
+  screen reading as the state sentence is (#215). A clock time, not "N minutes ago": the open page is not repainted
+  by the poll, so a relative time would go stale. A provider switch clears the line (it spoke for the old runner).
 
 ## Rejected
 - **On the board card itself.** #855 (Josh) cut the card's extra lines, and a sign-in or usage problem already shows
@@ -20,12 +22,16 @@ signed in or not, quota, last successful turn time."
 - **"Signed in" as a positive claim.** Kosmos cannot see a working sign-in without a turn; "no problem seen" is all it
   can honestly say.
 - **Reading `observed.read()`'s latest outcome as last-good.** A rejection overwrites it, which loses the time.
+- **Reading the per-agent REJECTED reading for the sign-in segment.** For Claude it is recorded only while the card
+  itself reads auth_failed, so it adds nothing the state does not; the other runners record no rejection at all.
+- **"Last worked".** For Claude the measure is "seen streaming", not a finished turn, so the page says
+  "Last seen working".
 
 ## Weakest premises
 - The Claude arm records an OK on every tick a pane reads WORKING (streaming), so for Claude "last worked" is the
   last time Kosmos saw it streaming, not the end of a completed turn. Codex/Gemini/Grok record the completion time,
   and only when that completion was fresh at a sweep, so a turn that ended before the board started is not seen.
-- In memory: after a board restart every agent reads "not seen since Kosmos started" until its next turn.
+- In memory: after a board restart every agent reads "Last seen working: not since Kosmos started" until its next turn.
 - "At a glance" in the ask may mean the board card; if so, the line is one call away (`healthLine` is pure).
 
 ## Tests

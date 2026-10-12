@@ -23671,22 +23671,31 @@ function agoWords(ms) {
 }
 
 /* #5959 slice 2 (the Windows agents' QA report, item 2): one health line on the agent's page: sign-in, usage, and when
-   it last worked. Sign-in and usage say only what the card's state shows ("no problem seen" is all Kosmos can claim
-   without one); the last-worked time is the engine's lastWorked (status.js lastWorkedOf), kept in memory, so after a
-   board restart it says so instead of a time. '' for a card with no lastWorked (not ours, or no pane): no line.
+   Kosmos last saw it working. Sign-in and usage come from the card's state only, hedged as the state sentence is for a
+   screen reading (#215). The time is the engine's lastWorked (status.js lastWorkedOf), said as a clock time because the
+   page is painted once when it opens. '' for a card with no lastWorked: no line.
    On the agent's page, not its card on the board: #855 cut the card's extra lines, and the card's state already says a
    sign-in or usage problem. */
 function healthLine(a, nowMs) {
   const lw = a && a.lastWorked;
   if (!lw || typeof lw !== 'object') return '';
-  const signin = a.state === 'auth_failed' ? 'isn\'t working' : 'no problem seen';
-  const usage = a.state === 'rate_limited' ? 'limit reached' : 'no limit seen';
+  const looks = a.stateConfidence === 'scraped';
+  const signin = a.state === 'auth_failed' ? (looks ? 'looks like it isn\'t working' : 'isn\'t working') : 'no problem showing';
+  const usage = a.state === 'rate_limited' ? (looks ? 'looks like a limit' : 'limit reached') : 'no limit showing';
   const at = typeof lw.at === 'string' ? Date.parse(lw.at) : NaN;
   let last;
-  if (Number.isFinite(at)) last = agoWords(nowMs - at) || 'just now';   // a time a little ahead (clock skew) is now
-  else if (lw.why === 'no_source') last = 'Kosmos cannot see this agent\'s turns yet';
-  else last = 'not seen since Kosmos started';
-  return 'Sign-in: ' + signin + ' · Usage: ' + usage + ' · Last worked: ' + last;
+  if (Number.isFinite(at)) last = seenAtWords(at, nowMs);
+  else if (lw.why === 'no_source') last = 'Kosmos cannot see this agent\'s turns';
+  else last = 'not since Kosmos started';
+  return 'Sign-in: ' + signin + ' · Usage: ' + usage + ' · Last seen working: ' + last;
+}
+/* #5959 slice 2: a past time as this computer's clock reads it, with the weekday when it was not today's, and the date
+   when it was over six days ago. */
+function seenAtWords(atMs, nowMs) {
+  const age = nowMs - atMs;
+  const when = age > 6 * 86400e3 ? { month: 'short', day: 'numeric' }
+    : new Date(atMs).toDateString() !== new Date(nowMs).toDateString() ? { weekday: 'short' } : {};
+  return new Date(atMs).toLocaleString([], { ...when, hour: 'numeric', minute: '2-digit' });
 }
 
 /* Whether this window is a Kosmos+ view of a Mac somewhere else, the one test both the offline note
@@ -52530,6 +52539,10 @@ async function changeProviderNow(say) {
       if (Object.prototype.hasOwnProperty.call(RUNNER, want)) CURRENT.runner = RUNNER[want];
       /* Round 4: the row carries modelName / plannedModelName (there is no `model`), and both name the OLD runner's model. */
       CURRENT.modelName = null;
+      /* #5959 slice 2: the health line spoke for the OLD runner (its last-seen time, or that its turns cannot be seen), so it
+         goes until the page is opened again. */
+      CURRENT.lastWorked = null;
+      { const dh = document.getElementById('d-health'); if (dh) { dh.textContent = ''; dh.hidden = true; } }
       // Round 5: Claude starts on its own default model, said in the server's own words (markGuide), never "Unknown Model".
       // #5429: a model picked with the switch is the one Runs on names until the live reading catches up.
       CURRENT.plannedModelName = out && out.model && out.model.label ? out.model.label : want === 'anthropic' ? 'Claude (its default model)' : null;

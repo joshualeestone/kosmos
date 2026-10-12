@@ -7,8 +7,8 @@
  * The check opens agent pages and reads text: no Save, no Restart, no Remove.
  *
  * 🔑 CONTROLS: Rick was seen working five minutes ago, Bob never was, and Agy runs on a runner Kosmos cannot observe.
- * If all three said the same thing, the check would be reading the fixture, not the card. Opening Bob after Rick
- * also proves Rick's time does not stand on Bob's page.
+ * If all three said the same thing, the check would be reading the fixture, not the card. Each page is opened from a
+ * fresh load, so this does not test one page following another without a reload.
  *
  *   node docs/browser-checks/render-health-line-5959.js            # headed
  *   HEADED=0 node docs/browser-checks/render-health-line-5959.js   # headless
@@ -41,7 +41,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     fleet.agent('bob', { state: 'idle', displayName: 'Bob', role: 'a bookkeeper' }),
     fleet.agent('agy', { state: 'unknown', displayName: 'Agy', runner: 'antigravity', command: 'agy' }),
   ]);
-  observed.saw(observed.PROVIDER.ANTHROPIC, 'rick', observed.OUTCOME.OK, Date.now() - 5 * 60e3);
+  const seenAt = Date.now() - 5 * 60e3;
+  observed.saw(observed.PROVIDER.ANTHROPIC, 'rick', observed.OUTCOME.OK, seenAt);
 
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -66,15 +67,16 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       });
     };
     const rick = await healthOf('rick');
-    say(/^Sign-in: no problem seen · Usage: no limit seen · Last worked: [45] minutes ago$/.test(rick), 'Rick, seen working five minutes ago, shows when', rick);
+    const at = new Date(seenAt).toLocaleString([], { hour: 'numeric', minute: '2-digit' });
+    say(rick === 'Sign-in: no problem showing · Usage: no limit showing · Last seen working: ' + at, 'Rick, seen working five minutes ago, shows when', rick);
     await page.goto(URL, { waitUntil: 'networkidle' });
     await page.waitForSelector('[data-agent="bob"]', { timeout: 8000 });
     const bob = await healthOf('bob');
-    say(/Last worked: not seen since Kosmos started$/.test(bob), 'CONTROL: Bob, never seen working, says so (not Rick\'s time)', bob);
+    say(/Last seen working: not since Kosmos started$/.test(bob), 'CONTROL: Bob, never seen working, says so', bob);
     await page.goto(URL, { waitUntil: 'networkidle' });
     await page.waitForSelector('[data-agent="agy"]', { timeout: 8000 });
     const agy = await healthOf('agy');
-    say(/Last worked: Kosmos cannot see this agent's turns yet$/.test(agy), 'CONTROL: an Antigravity agent says Kosmos cannot see its turns', agy);
+    say(/Last seen working: Kosmos cannot see this agent's turns$/.test(agy), 'CONTROL: an Antigravity agent says Kosmos cannot see its turns', agy);
     say(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
     await browser.close();
