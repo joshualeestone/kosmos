@@ -26,11 +26,12 @@ test('#5959 slice 2: the health line says sign-in, usage and when Kosmos last sa
     'Sign-in: no problem showing · Usage: no limit showing · Last seen working: ' + clock(at5));
   const seen = { at: new Date(at5).toISOString(), why: null };
   const never = { at: null, why: 'not_seen' };
-  // A screen reading is hedged, as the state sentence is (#215); the agent's own report is not.
+  // A screen reading is hedged, as the state sentence is (#215); the agent's own report is not. Beside a refused sign-in,
+  // "no limit" is not said: no turn runs, so no limit could show.
   assert.equal(healthLine({ state: 'auth_failed', stateConfidence: 'scraped', runner: 'claude', lastWorked: seen }, NOW),
-    'Sign-in: looks like it isn\'t working · Usage: no limit showing · Last seen working: ' + clock(at5));
+    'Sign-in: looks like it isn\'t working · Last seen working: ' + clock(at5));
   assert.equal(healthLine({ state: 'auth_failed', stateConfidence: 'structured', runner: 'claude', lastWorked: seen }, NOW),
-    'Sign-in: isn\'t working · Usage: no limit showing · Last seen working: ' + clock(at5));
+    'Sign-in: isn\'t working · Last seen working: ' + clock(at5));
   assert.equal(healthLine({ state: 'rate_limited', stateConfidence: 'scraped', runner: 'claude', lastWorked: seen }, NOW),
     'Sign-in: no problem showing · Usage: looks like a limit · Last seen working: ' + clock(at5));
   assert.equal(healthLine({ state: 'rate_limited', stateConfidence: 'structured', runner: 'claude', lastWorked: seen }, NOW),

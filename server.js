@@ -8664,7 +8664,8 @@ const server = http.createServer(async (req, res) => {
         let back;
         try { back = removal.restart(name, 'provider'); }
         catch (err) { back = { outcome: 'partial', because: String(err && err.message || err), steps: [] }; }
-        // #5959 slice 2: again after it, since the old pane can be seen working until the restart replaces it.
+        // #5959 slice 2: again after it, since the old pane can be seen working until the restart replaces it (a reading
+        // from the new pane in between goes too; the next sweep records it again).
         try { observed.forgetAgent(name); } catch { /* best-effort, as above */ }
         const ok = back.outcome === removal.OUTCOME.RESTARTED;
         /* #3296/#3391: the vendor word, keyed on the provider the switch landed on.
@@ -12945,9 +12946,13 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
           return;
         }
+        /* #5959 slice 2: a move keeps the name, so a time seen on the old account would otherwise say "no problem showing"
+           for the new one. Before the restart (the job already names the new account) and after it (as on a provider switch). */
+        try { observed.forgetAgent(name); } catch { /* best-effort, like the forgets on remove */ }
         let back;
         try { back = removal.restart(name, 'account'); }
         catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
+        try { observed.forgetAgent(name); } catch { /* best-effort, as above */ }
         const ok = back.outcome === removal.OUTCOME.RESTARTED;
         /* #2338: lead with the human-chosen account name (the `.kosmos-name`
            sidecar an OpenAI row carries, #2095), the same value the picker shows,
