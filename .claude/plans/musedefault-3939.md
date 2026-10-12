@@ -43,6 +43,9 @@ it stays off (no runner there yet).
 - The off switches are documented in engine/musestatus.js and this plan only; AGENT_WORKFORCE_ANTIGRAVITY has no
   operator page either. Support reads the code.
 
+- Decided, not missed: on a Mac without Muse Code a meta hint on an AGENTS.md folder (POST /api/connect, which no
+  screen sends) is ignored and the folder adopts as it would with Muse off; no sentence says why. API-only, and
+  consistent with the off behaviour; #6004's install makes the case rare.
 - Known gap until #6004: the first-run Meta row offers Connect on every Mac, and on one without Muse Code that
   press says to install Muse Code from Meta (it cannot connect yet). #6004 makes that press install it.
 

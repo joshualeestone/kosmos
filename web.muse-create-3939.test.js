@@ -103,7 +103,7 @@ test('#3939 3c-3b: turned off here is not asked again within the recheck window;
   assert.equal(on.els['create-provider'].opt('meta').disabled, false);
 });
 
-test('#3939: a switched-off answer older than a minute is asked again (the preview marker can switch it on)', async () => {
+test('#3939: a switched-off answer older than a minute is asked again', async () => {
   const p = page([{ enabled: false }, { enabled: true, installed: true, signedIn: true }]);
   assert.equal(p.api.recheckMs, 60000, 'the page\'s own recheck window, one minute');
   await p.api.museCreateAsk();
