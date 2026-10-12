@@ -28,20 +28,22 @@ left open. Chosen: the conversation's header row, beside search.
   is drawn, so the toggle sits beside the search rather than on a row of its own.
 - The toggle goes where the header goes: where a phone collapses the caption row to save room, the toggle collapses
   with it. Two cases:
-  - Sideways phone with an idle search: the off toggle steps aside so the row takes no room in a conversation that
-    has 57 to 90 px; an ON toggle stays, as the sign and the way to stop it (iteration 4).
+  - Sideways phone with an idle search: the toggle steps aside, on or off, so the row takes no room in a conversation
+    that has 57 to 90 px (the same 44px #3969 refused for the back link; iteration 9 reversed iteration 4's exception
+    for an ON toggle).
   - Keyboard up while writing: an existing rule hides the whole row, ON toggle included. Accepted, because the person
     is typing in that very conversation at that moment, and exempting one child would mean rewriting that rule for a
     held feature (iteration 6).
 - The stated reason above ("always in view") holds wherever the header itself is shown.
-- Accepted (iterations 3 and 8): in a direct conversation on a narrow phone (the new look, or today's look at 480px
-  and below where no touch rule keeps the search beside it), the caption row wraps and the search takes its own line, so the toggle ends the Back row instead of sitting beside the search. It stays in the
+- Accepted (iteration 3): in a direct conversation on a phone under the new look, the caption row wraps and the
+  search takes its own line, so the toggle ends the Back row instead of sitting beside the search. It stays in the
   header and in view. The room got a wrapper because its stacked header would otherwise give the toggle a row of
   its own; giving the direct conversation one too would touch a dozen phone rules on that row for a held feature.
 
 ## Tests
 docs/browser-checks/render-convmode-5624.js C1 now asserts each toggle is in its header row immediately before the
 search, and inside no message box. C20 (new) asserts that at 700px the room's toggle sits on the search's line, in both looks (C20b) and at 375px (C20c).
-C21 (new) measures the direct conversation's toggle on its search's line at desktop width. All other arms are
+C21 (new) measures the direct conversation's toggle on its search's line at desktop width, and C21b at 375px in
+today's look. All other arms are
 unchanged. Not covered by a check: the touch-only rules (the sideways-phone and keyboard-up collapses, and the 44px touch
 size), which need a touch-emulating browser context.
