@@ -33,9 +33,21 @@ and the app reads it.
 ## Not in this slice
 Notarize and staple (slice 3, after Renet's #5137).
 
-## Tests (to write)
-- build: a stub-codesign run (KOSMOS_CODESIGN_CMD seam) proves the bundle is assembled with the right files and the
-  bundle-level codesign call is made; tools/test-codesign-retry-5149.sh's line count moves by one.
-- setup.sh: lifted-function tests for the placement choice (sealed vs built) on each write_install_config result,
-  and for the third bundle_is_ours proof with a stub codesign; uninstall leaves a shared sealed icon.
-- release: release_bundle_matches_tree must not compare the new bundle files against the tree (as kosmos-app).
+## Tests
+- tools/test-release-detached.sh: a verifying sealed app passes and its files are never sought in the tree; one
+  changed after signing is caught by its signature; with "sealed" expected, a tarball without it fails; CONTROL with
+  no expectation. Removing the comparator's skip fails the first case.
+- install.sealed-app-5896.test.js (real setup.sh functions, real ad-hoc-signed bundles, no keychain): placement is
+  sealed only with the config written (0); 2, 1 and no shipped app build as before; a shipped app that does not
+  verify is not used; bundle_is_ours proves our own sealed icon and refuses another signature, a missing shipped copy
+  and a changed icon; a bundle with a per-install file is still judged by it; the uninstall's sealed check sits
+  before the removal branch. Making bundle_is_sealed always true, or dropping the config condition, fails a test.
+- tools/test-codesign-retry-5149.sh: three codesign_ts_retry signs in the build (was two).
+- tools/test-install.sh: reads the config from the shape the install used; checks the icon is the sealed one when
+  the build shipped it.
+- The build's sealed block was run by hand with an ad-hoc identity against a real compiled binary: assembled,
+  signed, verified --deep --strict, identifier checked, executable ran.
+
+## Not run (and where it runs)
+- A real Developer ID build of the sealed app: needs the signing keychain; it runs at the next cut (build step 4).
+- tools/test-install.sh: needs staged dist trees and launches the app; it runs at a cut on Mortals.
