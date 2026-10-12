@@ -229,6 +229,10 @@ test('#5957: re-connecting a stopped Kosmos-made agent\'s own folder gets the jo
   const r = require('./engine/discover').connect(folder, {});
   assert.equal(r.ok, false);
   assert.equal(r.because, 'Kosmos already looks after an agent by that name');
+  // The other connect path (a folder with no instructions, named by the person) refuses the same way, first.
+  const r2 = require('./engine/discover').connect(mk('empty-for-dozer'), { name: key });
+  assert.equal(r2.ok, false);
+  assert.equal(r2.because, 'Kosmos already looks after an agent by that name');
 });
 
 test('#5957: on Windows, a stopped agent is read from the session record (the Windows roster lists only live ones)', (t) => {
