@@ -23,5 +23,7 @@ server.task-nonmember-5971.test.js: add and assign, each refused (and nothing wr
 - A refusal with an override flag: nothing on main lets a non-member through, so there is nothing to override.
 
 ## Weakest premise
-That #5956's collisions came from this path. If they came from something else (an agent on the project handing work
-outward some other way), this card does not cover it; I say so on the card.
+That #5956's collisions came from this path. One concrete other way is visible on main: an agent REMOVED from a project
+keeps the parts it held (removeAgent does not clear `who`, by design per the comment above assignPart), so work can
+sit with someone no longer on the project. Not giving work, so not this card; named on the card as a lead.
+The test runs every arm through the agent CLI's path (its token, recorded as a process add) and the page's.
