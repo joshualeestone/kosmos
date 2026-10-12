@@ -57,7 +57,7 @@ test('#3939 3c-3b: the create form offers Meta only when Muse is on, installed a
      option that still said "coming soon" read as disabled (Josh 11:06). */
   const cases = [
     [{ enabled: false }, true, '', 'Meta Muse \u00b7 coming soon'],
-    [{ enabled: true, installed: false, signedIn: false }, true, 'Install Muse Code from Meta', 'Meta Muse \u00b7 install Muse Code first'],   // #3939: a plain select shows this text
+    [{ enabled: true, installed: false, signedIn: false }, true, 'Set up in Settings, AI Models', 'Meta Muse \u00b7 set up in Settings'],   // #6004: Settings installs it; a plain select shows this text
     [{ enabled: true, installed: true, signedIn: false }, true, 'Sign in to Meta Muse first', 'Meta Muse \u00b7 sign in first'],
     [{ enabled: true, installed: true, signedIn: true }, false, '', 'Meta Muse'],
   ];
@@ -194,6 +194,7 @@ test('#5316: the logo list strips the new suffix as it strips "coming soon"', ()
     assert.equal('Meta Muse \u00b7 coming soon'.replace(re, '').trim(), 'Meta Muse', l);
     assert.equal('Meta Muse \u00b7 set up first'.replace(re, '').trim(), 'Meta Muse', l);
     assert.equal('Meta Muse \u00b7 install Muse Code first'.replace(re, '').trim(), 'Meta Muse', l);   // #3939
+    assert.equal('Meta Muse \u00b7 set up in Settings'.replace(re, '').trim(), 'Meta Muse', l);   // #6004
     assert.equal('Google Gemini (API key)'.replace(re, '').trim(), 'Google Gemini (API key)', l);
   }
 });
@@ -214,7 +215,8 @@ const loadAsk = new Function('document', 'fetch', `
 test('#5316: Add a provider\'s Meta option says what its state is (live, not installed, off, a failed read)', async () => {
   const cases = [
     [{ enabled: true, installed: true, signedIn: false }, false, 'Meta Muse'],
-    [{ enabled: true, installed: false, because: 'Muse Code is not on this computer' }, true, 'Meta Muse \u00b7 install Muse Code first'],
+    // #6004: not installed is offered too: Meta's step installs Muse Code first.
+    [{ enabled: true, installed: false, because: 'Muse Code is not on this computer' }, false, 'Meta Muse'],
     [{ enabled: false }, true, 'Meta Muse \u00b7 coming soon'],
     ['throw', true, 'Meta Muse \u00b7 coming soon'],
   ];
