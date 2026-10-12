@@ -41,6 +41,14 @@ and the app reads it.
 - The Info.plist version is the build's. Weakest premise (from the card): that the app never needs its plist version
   to match the installed board.
 
+## What a person will notice (reasoned, not measured; check at the first cut)
+- macOS privacy permissions are keyed to the app's code identity. Today's icon runs the standalone binary, signed
+  with the identifier `kosmos-app`; the sealed app is signed as `com.chaoskosmos.kosmos`. So after the first update
+  that places the sealed app, expect Kosmos to ask ONCE more for the microphone, speech recognition and permission
+  to control Terminal. Worth a line in that release's notes.
+- On a Mac where this account's config could not be saved where the app looks, and its own sealed icon already
+  sits in /Applications, the install says so and puts this install's icon in ~/Applications (iteration 5).
+
 ## Not in this slice
 Notarize and staple (slice 3, after Renet's #5137).
 
