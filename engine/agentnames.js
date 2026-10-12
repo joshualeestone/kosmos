@@ -64,7 +64,10 @@ function takenSentence(clash) {
 /* One call for the callers: null when the name is free, else the sentence to refuse with. */
 function refusalFor(wanted, opts) {
   let clash;
-  try { clash = clashFor(wanted, opts); } catch { return COULD_NOT_CHECK; }
+  try { clash = clashFor(wanted, opts); } catch (err) {
+    process.stderr.write(`name check could not run: ${String((err && err.message) || err)}\n`);   // the log gets the cause
+    return COULD_NOT_CHECK;
+  }
   return clash ? takenSentence(clash) : null;
 }
 

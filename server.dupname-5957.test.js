@@ -97,6 +97,7 @@ test('#5957: an instructions line naming a taken name saves the text but not the
   assert.equal(res.status, 200, JSON.stringify(await res.clone().json()));
   const body = await res.json();
   assert.match(String(body.nameKept), /^The name was not changed: there is already an agent called GEMINI \(@gemini\)\./);
+  assert.match(String(body.nameKept), /Its instructions still say Ge Mini, so it will call itself that until you change the "You are" line\.$/);
   assert.match(fs.readFileSync(briefOf('other'), 'utf8'), /You are \*\*Ge Mini\*\*/, 'the text itself did not save');
   assert.equal(shownOf('other'), 'Other Two', 'the record followed the line into a clash');
 
@@ -158,7 +159,11 @@ test('#5957: connecting a folder under a name another agent has is refused, on b
   fs.writeFileSync(path.join(named, 'CLAUDE.md'), '# x\n\nYou are **Gemini**, an assistant.\n');
   const r2 = discover.connect(named, {});
   assert.equal(r2.ok, false);
-  assert.match(String(r2.because), /^there is already an agent called GEMINI \(@gemini\)/);
+  assert.equal(r2.because, 'its instructions call it Gemini, and there is already an agent called GEMINI (@gemini). Change the "You are" line in its instructions, or rename that one first.');
+  // Typing a free name does not help here (the file's name wins), and the sentence must not tell the person it would.
+  const r2b = discover.connect(named, { name: 'Totally Free' });
+  assert.equal(r2b.ok, false);
+  assert.match(String(r2b.because), /^its instructions call it Gemini/);
 
   // Control: the same bare folder under a free name is not refused for its name.
   const r3 = discover.connect(bare, { name: 'freshname' });

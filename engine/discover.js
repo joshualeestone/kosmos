@@ -1978,7 +1978,14 @@ function connect(dir, opts) {
     const agentnames = require('./agentnames');
     let agents;
     try { agents = agentnames.fleet(); } catch { return { ok: false, because: agentnames.COULD_NOT_CHECK }; }   // one read, both names
-    const nameTaken = agentnames.refusalFor(displayName, { agents }) || agentnames.refusalFor(name, { agents });
+    /* A display name that comes from the folder's own instructions cannot be changed by typing another name, so that
+       refusal says where the name comes from and what to change instead. */
+    const fromFile = Boolean(id && id.displayName);
+    const shownClash = agentnames.clashFor(displayName, { agents });
+    if (shownClash && fromFile) {
+      return { ok: false, because: `its instructions call it ${displayName}, and there is already an agent called ${shownClash.shown} (@${shownClash.handle}). Change the "You are" line in its instructions, or rename that one first.` };
+    }
+    const nameTaken = (shownClash && agentnames.takenSentence(shownClash)) || agentnames.refusalFor(name, { agents });
     if (nameTaken) return { ok: false, because: nameTaken };
   }
   /* #5534: connecting a folder starts a new agent, so a company policy that does not allow its provider (or the

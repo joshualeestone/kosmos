@@ -17726,9 +17726,11 @@ const server = http.createServer(async (req, res) => {
                 const agentnames = require('./engine/agentnames');
                 const taken = agentnames.refusalFor(typed, { except: name });
                 if (taken) {
+                  /* The file keeps the line (the person's text), and the AGENT reads its file, so say that it will
+                     still call itself by that name until the line changes. */
                   wrote.nameKept = taken === agentnames.COULD_NOT_CHECK
                     ? 'The name was not changed, because we could not check the names already in use; try again in a moment.'
-                    : `The name was not changed: ${taken}`;
+                    : `The name was not changed: ${taken} Its instructions still say ${typed}, so it will call itself that until you change the "You are" line.`;
                 } else {
                   store.writeProfile(name, { displayName: typed });
                 }
