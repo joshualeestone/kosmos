@@ -49,7 +49,8 @@ Residuals, stated:
   lock and the working-directory gate make such an edit unlikely). If the checkout back fails too but HEAD is still
   the old commit and no tracked file differs from it, the line says the checkout is unchanged rather than MIXED.
   git runs off the terminal (stdin and stdout /dev/null), so it cannot be stopped by job control and hang the wait.
-- A move needs an idle queue: any suitewait.* marker blocks it, and run-tests.sh suites write those too (they load
+- A move needs an idle queue: any other live queued-heavy.sh blocks it (a queue waiter, and also a run spinning on
+  the lib lock, so two joins that overlap move nothing), and any suitewait.* marker blocks it, and run-tests.sh suites write those too (they load
   the lib from their own worktree, not this checkout). On a busy box the move may seldom fire; it never fails
   silently, since every join prints DIFFERS and why. If it stays behind in practice, a follow-up can count only
   markers written by queued-heavy.sh runs.
