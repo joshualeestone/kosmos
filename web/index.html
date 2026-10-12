@@ -33413,7 +33413,9 @@ function communityReadyLine(l) {
   const p = document.createElement('p');
   p.className = 'dhint';
   p.append(l.text);
-  if ('at' in l) {
+  /* A line the board wrote around a time has words after it; a time that was lost on the way (no `at` at all) is said
+     as one the page cannot read, never as a sentence that stops short. */
+  if ('at' in l || typeof l.after === 'string') {
     const t = document.createElement('time');
     if (Number.isFinite(l.at)) { const d = new Date(l.at); if (!isNaN(d)) t.dateTime = d.toISOString(); }
     t.textContent = communityReadyWhen(l.at);

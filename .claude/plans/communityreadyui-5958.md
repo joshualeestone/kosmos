@@ -209,3 +209,15 @@ replaced by tests of the new one. That is a change of behaviour, not a tidy-up: 
   it no longer says it does.
 - **CONVENTION, a duplicate:** not run in a browser yet. No dark-theme screenshot arm in the check: the design shots
   are where both themes are looked at, and they are on the not-run list.
+
+## Review 10 (2026-10-12, sonnet, the plain brief)
+- **WARNING, taken:** a post taken back while Kosmos never heard whether its first send arrived was placed as "not in
+  the community". Kosmos does not know that. It is with the other unconfirmed ones, and a test now holds each place
+  to the status module's own words: a state whose words say Kosmos is unsure cannot be placed as in, out or waiting.
+- **WARNING, taken:** one row that could not be worded would have failed the whole list. It costs that row.
+- **WARNING, taken:** a timed line that lost its time on the way stopped mid-sentence on the page. It says the date
+  could not be read.
+- **NITs, taken:** "of its" is not English; those three lines say "it wrote". The unreadable-record words.
+- **NITs, not taken:** the note above the list and a row can both say the community is off (a row is read on its
+  own, which is why each says it).
+- **CONVENTION, a duplicate:** not run in a browser yet.

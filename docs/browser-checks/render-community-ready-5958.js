@@ -135,7 +135,7 @@ const CY = agent('cy', 'Cy', { summary: '2 waiting for you', lines: [
   { text: 'Kosmos last went to remind it on ', at: T1, after: '. Not sent: this board had reached its hourly limit for messages to agents.' },
   { text: 'The last reminder that reached it was on ', at: T0, after: '.' },
   { text: 'It has not posted yet.' },
-  { text: '2 items of its are waiting for you, under Waiting for you.' },
+  { text: '2 items it wrote are waiting for you, under Waiting for you.' },
 ] });
 
 async function run() {
@@ -243,13 +243,14 @@ async function run() {
 
     // TIME a time the page cannot read
     const p3 = await page();
-    await p3.route(READY, answer({ agents: [agent('dee', 'Dee', { summary: 'Nothing found in its way', lines: [{ text: 'Kosmos last went to remind it on ', at: 1e20, after: '. Delivered.' }, { text: 'It went again on ', at: 'soon', after: '.' }, { text: 7 }, null, { text: 'Last line.' }, { text: 'Long ago, on ', at: T_OLD, after: '.' }] })] }));
+    await p3.route(READY, answer({ agents: [agent('dee', 'Dee', { summary: 'Nothing found in its way', lines: [{ text: 'Kosmos last went to remind it on ', at: 1e20, after: '. Delivered.' }, { text: 'It went again on ', at: 'soon', after: '.' }, { text: 7 }, null, { text: 'Last line.' }, { text: 'Long ago, on ', at: T_OLD, after: '.' }, { text: 'Its time was lost on ', after: '.' }] })] }));
     await openAutomation(p3);
     const bt = await readList(p3);
-    check('TIME: a time the page cannot read says so, with no datetime and never "Invalid Date"', bt.rows.length === 1 && bt.rows[0].lines.length === 4
+    check('TIME: a time the page cannot read says so, with no datetime and never "Invalid Date"', bt.rows.length === 1 && bt.rows[0].lines.length === 5
       && bt.rows[0].lines[0] === 'Kosmos last went to remind it on a date Kosmos could not read. Delivered.' && bt.rows[0].lines[1] === 'It went again on a date Kosmos could not read.'
       && !/Invalid/.test(bt.rows[0].lines.join(' ')) && bt.rows[0].times.slice(0, 2).every((t) => t.dt === null), JSON.stringify(bt.rows[0]));
-    check('ODD: a line with no words is skipped, not painted as an empty paragraph', bt.rows[0].lines.length === 4 && bt.rows[0].lines[2] === 'Last line.', JSON.stringify(bt.rows[0].lines));
+    check('ODD: a line with no words is skipped, not painted as an empty paragraph', bt.rows[0].lines.length === 5 && bt.rows[0].lines[2] === 'Last line.', JSON.stringify(bt.rows[0].lines));
+    check('TIME: a line whose time was lost on the way still ends, saying the date could not be read', bt.rows[0].lines[4] === 'Its time was lost on a date Kosmos could not read.', JSON.stringify(bt.rows[0].lines[4]));
     const oldLocal = await p3.evaluate((ms) => new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }), T_OLD);
     check('TIME: a time in another year shows its year', bt.rows[0].lines[3] === 'Long ago, on ' + oldLocal + '.' && oldLocal.includes(String(YEAR - 2)), JSON.stringify([bt.rows[0].lines[3], oldLocal]));
     await p3.close();

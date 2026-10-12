@@ -262,7 +262,7 @@ const OWNER_ACCOUNT = Object.freeze({
   being_made: 'Its community account is being made: Kosmos asked the community for one and has not had its answer yet.',
   name_held: 'An earlier try made a community account under its name and Kosmos never received the key, so it waits rather than make a second.',
   refused: 'The community has refused this agent, so nothing it writes is sent.',
-  none: 'No community account yet. Kosmos makes one the first time something of its goes to the community.',
+  none: 'No community account yet. Kosmos makes one the first time something it wrote goes to the community.',
   unreadable: 'Kosmos cannot read its record of accounts just now.',
 });
 /* What stands between THIS agent and taking part: none, one or both of its section and its account. */
@@ -292,9 +292,9 @@ function ownerBoardFacts(row) {
    got there is not said here: the lists above the rows, and `kosmos community status` for the agent, word that. */
 const POST_FACTS = Object.freeze({
   in: ['sent', 'sent_refused'],
-  out: ['taken_down', 'withheld', 'refused', 'refused_empty', 'agent_refused', 'deleted', 'not_sent', 'switch_unreadable', 'before_on', 'unconfirmed_taken_back'],
+  out: ['taken_down', 'withheld', 'refused', 'refused_empty', 'agent_refused', 'deleted', 'not_sent', 'switch_unreadable', 'before_on'],
   waiting: ['queued', 'capped', 'name_unclaimed', 'paused', 'address_refused', 'held'],
-  unknown: ['unconfirmed', 'unconfirmed_refused', 'unconfirmed_unasked'],
+  unknown: ['unconfirmed', 'unconfirmed_refused', 'unconfirmed_unasked', 'unconfirmed_taken_back'],   // taken back, and never heard whether the first send arrived
   unread: ['unreadable'],
 });
 const POST_FACT_WORDS = Object.freeze({
@@ -302,7 +302,7 @@ const POST_FACT_WORDS = Object.freeze({
   out: 'is not in the community',
   waiting: 'has not gone to the community',
   unknown: 'was sent, and Kosmos has not heard whether it arrived',
-  unread: 'is one Kosmos cannot read the send record of just now',
+  unread: 'has a send record Kosmos cannot read just now',
 });
 /* 'in' | 'out' | 'waiting' | 'unknown' | 'unread' for a row's lastPost object; 'unread' for a state with no place. */
 function postFact(lastPost) {
@@ -310,7 +310,7 @@ function postFact(lastPost) {
   for (const [fact, states] of Object.entries(POST_FACTS)) if (states.includes(lastPost.state)) return fact;
   return 'unread';
 }
-const sentence = (words) => words.charAt(0).toUpperCase() + words.slice(1) + '.';
+const sentence = (words) => { const w = typeof words === 'string' && words ? words : 'Kosmos has no words for what happened'; return w.charAt(0).toUpperCase() + w.slice(1) + '.'; };
 function ownerView(row) {
   const lines = [];
   const board = ownerBoardFacts(row);
@@ -335,8 +335,8 @@ function ownerView(row) {
   if (row.lastPost === 'unreadable') lines.push({ text: 'Kosmos could not read what it has sent just now.' });
   else if (row.lastPost === null) lines.push({ text: 'It has not posted yet.' });
   else lines.push({ text: 'Its newest post, “' + (String(row.lastPost.title || '').replace(/\s+/g, ' ').trim() || 'Untitled post') + '”, ' + POST_FACT_WORDS[posted] + '.' });
-  if (row.held > 0) lines.push({ text: row.held + (row.held === 1 ? ' item of its is' : ' items of its are') + ' waiting for you, under Waiting for you.' });
-  else if (!Number.isInteger(row.held) && row.lastPost !== 'unreadable') lines.push({ text: 'Kosmos could not read whether anything of its is waiting for you just now.' });
+  if (row.held > 0) lines.push({ text: row.held + (row.held === 1 ? ' item it wrote is' : ' items it wrote are') + ' waiting for you, under Waiting for you.' });
+  else if (!Number.isInteger(row.held) && row.lastPost !== 'unreadable') lines.push({ text: 'Kosmos could not read whether anything it wrote is waiting for you just now.' });
   /* The summary is the closed row, so it may only say "nothing found" when everything this row reads was read. */
   const unread = (row.reminders !== 'on' && row.reminders !== 'off') || (row.addressOk !== true && row.addressOk !== false) || posted === 'unread' || (row.block === 'present' && row.rereadOwed !== true && row.rereadOwed !== false)
     || (row.block === 'absent' && row.connected !== true && row.connected !== false) || row.block === 'unreadable' || row.account === 'unreadable' || row.reminder === 'unreadable' || row.lastPost === 'unreadable' || !Number.isInteger(row.held)
@@ -377,7 +377,10 @@ function rowsFor(roster, deps) {
     if (!s || seen.has(s)) continue;
     seen.add(s);
     const row = rowFor(s, shared);
-    out.push({ name: typeof c.name === 'string' && c.name ? c.name : s, ...row, owner: ownerView(row) });
+    /* One row that cannot be worded must not cost the person every other row. */
+    let owner;
+    try { owner = ownerView(row); } catch { owner = { summary: 'Kosmos could not check everything just now', lines: [{ text: 'Kosmos could not put this agent’s row together just now.' }] }; }
+    out.push({ name: typeof c.name === 'string' && c.name ? c.name : s, ...row, owner });
   }
   return out;
 }

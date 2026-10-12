@@ -570,7 +570,7 @@ test('slice 2 review 9: the newest post gets one fact, whether it is in the comm
   assert.equal(line('not_sent'), 'Its newest post, “Weekly "ops" two”, is not in the community.');
   assert.equal(line('held'), 'Its newest post, “Weekly "ops" two”, has not gone to the community.');
   assert.equal(line('unconfirmed'), 'Its newest post, “Weekly "ops" two”, was sent, and Kosmos has not heard whether it arrived.');
-  assert.equal(line('unreadable'), 'Its newest post, “Weekly "ops" two”, is one Kosmos cannot read the send record of just now.');
+  assert.equal(line('unreadable'), 'Its newest post, “Weekly "ops" two”, has a send record Kosmos cannot read just now.');
   assert.equal(line('a-state-from-the-future'), line('unreadable'), 'a state with no place was given a fact');
   assert.equal(view({ lastPost: { title: '  ', at: '', state: 'sent' } }).lines[3].text, 'Its newest post, “Untitled post”, is in the community.');
   // review 9: a post that did not go out is never under "Nothing found in its way".
@@ -578,8 +578,8 @@ test('slice 2 review 9: the newest post gets one fact, whether it is in the comm
   for (const state of [...ready.POST_FACTS.in, ...ready.POST_FACTS.waiting, ...ready.POST_FACTS.unknown]) assert.equal(view({ lastPost: { title: 't', at: '', state } }).summary, 'Nothing found in its way', 'CONTROL: ' + state);
   // held items still point up the page, once
   const held = said(view({ lastPost: { title: 'Held one', at: '', state: 'held' }, held: 1 }));
-  assert.ok(held.includes('Its newest post, “Held one”, has not gone to the community.\n1 item of its is waiting for you, under Waiting for you.'), held);
-  assert.match(said(view({ held: 4 })), /4 items of its are waiting for you/);
+  assert.ok(held.includes('Its newest post, “Held one”, has not gone to the community.\n1 item it wrote is waiting for you, under Waiting for you.'), held);
+  assert.match(said(view({ held: 4 })), /4 items it wrote are waiting for you/);
   assert.match(said(view({ lastPost: 'unreadable' })), /Kosmos could not read what it has sent just now\./);
   assert.doesNotMatch(said(view({ lastPost: 'unreadable' })), /has not posted yet/);
 });
@@ -634,4 +634,28 @@ test('slice 2 review 9: rowsFor reads each computer-wide record once, however ma
   for (const k of ['turns', 'prompter']) assert.equal(each.counts[k], 3 * one.counts[k], 'CONTROL ' + k + ': ' + JSON.stringify([each.counts, one.counts]));
   assert.ok(each.counts.keys > three.counts.keys && each.counts.owed > three.counts.owed, 'CONTROL: ' + JSON.stringify([each.counts, three.counts]));
   assert.equal(ready.rowsFor(cards, null).length, 3, 'a null deps threw');
+});
+
+test('slice 2 review 10: each state\'s place is TRUE of it, not only present: no state Kosmos is unsure of is called in or out', () => {
+  const st = require('./communitystatus');
+  const UNSURE = /may already be there|may still be up|never heard|has not confirmed|did not confirm/;
+  for (const state of [...ready.POST_FACTS.in, ...ready.POST_FACTS.out, ...ready.POST_FACTS.waiting]) {
+    assert.doesNotMatch(st.POST_WORDS[state], UNSURE, state + ' is placed as known, and its own words say Kosmos is not sure: ' + st.POST_WORDS[state]);
+  }
+  for (const state of ready.POST_FACTS.unknown) assert.match(st.POST_WORDS[state], UNSURE, 'CONTROL: ' + state + ' is where the unsure ones are');
+  assert.ok(ready.POST_FACTS.unknown.includes('unconfirmed_taken_back'));
+  for (const state of ready.POST_FACTS.in) assert.match(st.POST_WORDS[state], /^in the community/, state);
+  for (const state of ready.POST_FACTS.waiting) assert.match(st.POST_WORDS[state], /^(queued|waiting|held)/, state);
+});
+
+test('slice 2 review 10: a row that cannot be worded costs that row, not the list', () => {
+  const cards = ['ann', 'bea'].map((n) => fleetCard(n));
+  for (const n of ['ann', 'bea']) agentFile(n, withBlock());
+  // A reminder record of a kind no words exist for, handed straight in (readTurns would never let it through).
+  const rows = ready.rowsFor(cards, { turns: () => ({ ann: { at: 5, act: 'something-new' }, bea: { at: 5, act: 'prompted', delivery: 'placed' } }) });
+  assert.equal(rows.length, 2);
+  assert.match(rows[0].owner.lines.map((l) => l.text + (l.after || '')).join(' '), /Kosmos has no words for what happened|could not put this agent’s row together/);
+  assert.equal(rows[1].owner.summary, 'Nothing found in its way', 'the other agent\'s row was lost with it');
+  const broken = Object.defineProperty({ session: 'x', switch: 'on', addressOk: true, block: 'present', reminders: 'on', rereadOwed: false, account: 'yes', reminder: null, held: 0 }, 'lastPost', { get() { throw new Error('boom'); }, enumerable: true });
+  assert.throws(() => ready.ownerView(broken), 'fixture: this row should not be wordable');
 });
