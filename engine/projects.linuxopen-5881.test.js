@@ -1,7 +1,7 @@
 'use strict';
-/* #5881: on a Linux board the engine opens things with xdg-open when the board's own environment has a desktop, and
-   refuses with a sentence when it has none; the Mac and Windows openers are unchanged. Every route through the runner
-   seam, so nothing is opened for real. */
+/* #5881: on a Linux board the engine opens a FOLDER with xdg-open when the board's own environment has a desktop, and
+   refuses with a sentence when it has none; a FILE is never opened there (download it). The Mac and Windows openers are
+   unchanged. The runner seam for the routes; the production xdg-open line through a stand-in xdg-open on PATH. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -28,12 +28,13 @@ function on(t, platform, env) {
   return calls;
 }
 
-test('#5881: a Linux board with a desktop opens the folder, the file\'s folder and the file with xdg-open', (t) => {
+test('#5881: a Linux board with a desktop opens the folder and the file\'s folder with xdg-open, and never a file', (t) => {
   const calls = on(t, 'linux', { DISPLAY: ':0' });
   assert.deepEqual(projects.revealFolder(DIR), { ok: true });
   assert.deepEqual(projects.revealFile(path.join(DIR, 'notes.txt')), { ok: true });
-  assert.deepEqual(projects.openFile(DIR, 'notes.txt'), { ok: true });
-  assert.deepEqual(calls, [['xdg-open', DIR], ['xdg-open', DIR], ['xdg-open', path.join(REAL, 'notes.txt')]]);
+  // Review 1: a file is not opened on the computer (an agent-written .desktop file or script could run); download it.
+  assert.deepEqual(projects.openFile(DIR, 'notes.txt'), { ok: false, because: 'on this computer Kosmos does not open files, so download it instead' });
+  assert.deepEqual(calls, [['xdg-open', DIR], ['xdg-open', DIR]], 'the file reached the opener');
   // Wayland names its display in its own variable.
   const w = on(t, 'linux', { WAYLAND_DISPLAY: 'wayland-0' });
   assert.deepEqual(projects.revealFolder(DIR), { ok: true });
@@ -44,18 +45,29 @@ test('#5881: a Linux board with no desktop opens nothing and says why; a file sa
   const calls = on(t, 'linux', {});
   assert.deepEqual(projects.revealFolder(DIR), { ok: false, because: 'this computer has no desktop to open it on' });
   assert.deepEqual(projects.revealFile(path.join(DIR, 'notes.txt')), { ok: false, because: 'this computer has no desktop to open it on' });
-  assert.deepEqual(projects.openFile(DIR, 'notes.txt'), { ok: false, because: 'this computer has no desktop to open it on, so download it instead' });
+  assert.deepEqual(projects.openFile(DIR, 'notes.txt'), { ok: false, because: 'on this computer Kosmos does not open files, so download it instead' });
   assert.deepEqual(calls, [], 'a board with no desktop reached the opener');
   // The gates still come first: a name the list would not show is refused as before, never a desktop question.
   assert.equal(projects.openFile(DIR, '../escape').ok, false);
-  assert.doesNotMatch(projects.openFile(DIR, '../escape').because, /desktop/);
+  assert.doesNotMatch(projects.openFile(DIR, '../escape').because, /download/);
 });
 
-test('#5881: an opener that fails on a Linux desktop is said, not passed off as opened', (t) => {
-  on(t, 'linux', { DISPLAY: ':1' });
-  projects.setRevealRunner(() => { const e = new Error('xdg-open: no method available'); throw e; });
-  assert.deepEqual(projects.revealFolder(DIR), { ok: false, because: 'the folder did not open' });
-  assert.deepEqual(projects.openFile(DIR, 'notes.txt'), { ok: false, because: 'that file did not open' });
+/* The production line (review 1: the runner seam once hid a broken one): a stand-in xdg-open on PATH records what it was
+   given, so nothing opens for real. It is started, not waited on, so the record is read when it appears. */
+test('#5881: the real xdg-open line is started with the folder, and a missing xdg-open is said', { skip: process.platform === 'win32' && 'a shell script stands in for xdg-open' }, async (t) => {
+  const bin = fs.mkdtempSync(path.join(SANDBOX, 'bin-'));
+  const log = path.join(SANDBOX, 'xdg-args.txt');
+  fs.writeFileSync(path.join(bin, 'xdg-open'), '#!/bin/sh\nprintf "%s" "$1" > "' + log + '"\n', { mode: 0o755 });
+  projects.setRevealPlatform('linux');
+  projects.setRevealRunner(null);
+  t.after(() => { projects.setRevealPlatform(null); projects.setRevealEnv(null); });
+  projects.setRevealEnv({ DISPLAY: ':0', PATH: bin });
+  assert.deepEqual(projects.revealFolder(DIR), { ok: true });
+  for (let i = 0; i < 100 && !fs.existsSync(log); i++) await new Promise((r) => setTimeout(r, 20));
+  assert.equal(fs.readFileSync(log, 'utf8'), DIR, 'xdg-open was not started with the folder');
+  // CONTROL: the same call with no xdg-open on PATH says so, rather than claiming it opened.
+  projects.setRevealEnv({ DISPLAY: ':0', PATH: path.join(SANDBOX, 'no-such-bin') });
+  assert.deepEqual(projects.revealFolder(DIR), { ok: false, because: 'this computer has no xdg-open to open it with (it comes with xdg-utils)' });
 });
 
 test('#5881 CONTROL: the Mac opener and the Windows arm are unchanged, whatever the environment says', (t) => {
