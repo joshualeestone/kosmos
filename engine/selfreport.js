@@ -413,6 +413,10 @@ function read(sessionName) {
      next must not make the DM forget what the agent answered), within the TAIL_BYTES this read looks at. A started
      or stopped report forgets it, like the project. */
   let final = null;
+  /* #5943: when the standing question was first asked. The `at` of the FIRST line of the trailing run of identical
+     reports (same state, same words), so re-reporting the same question does not re-date it, and a different one does. */
+  let runKey = null;
+  let runAt = null;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let row;
@@ -426,6 +430,10 @@ function read(sessionName) {
        logic for "latest", but it matters that it REPLACES rather than
        merges: nothing from the previous run may leak into this one. */
     latest = row;
+    {
+      const key = row.state + '\u0000' + (typeof row.because === 'string' ? row.because : '');
+      if (key !== runKey) { runKey = key; runAt = typeof row.at === 'string' ? row.at : null; }
+    }
     /* stopped ends a run; started begins one (a crash leaves no stopped row, so
        a new run must not inherit the old run's project and light it on the
        first question). The cost: the hook reports started on every session
@@ -454,6 +462,8 @@ function read(sessionName) {
     owner: latest.owner || null,
     until: latest.until || null,
     at: latest.at || null,
+    // #5943: null unless the latest report waits on a person (see the loop above).
+    askedAt: WAITING_ON_A_PERSON.includes(latest.state) && runAt && Number.isFinite(Date.parse(runAt)) ? runAt : null,
     /* Null for a pane-derived report, which is most of them: the pane arm has
        no notion of a run. Null means "not known", never "only one run". */
     instance: latest.instance || null,
