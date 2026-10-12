@@ -84,6 +84,11 @@ function runBackup(input, deps) {
 async function runNow(input, deps) {
   try {
     const now = deps.now || Date.now;
+    // The device key first, read locally (review 4): without one no manifest can be signed, so nothing is asked of
+    // Kosmos+. Remote access never set up (missing) would otherwise send a backup-key request every run until a person
+    // acts. It is read again before each snapshot, so a key replaced meanwhile is the one that signs.
+    const dk0 = (deps.deviceKey || require('./backupdevicekey').deviceKey)();
+    if (!dk0 || !dk0.ok) return deviceKeyRefusal(dk0);
     let pair = readPointer();
     for (let attempt = 0; attempt < 2; attempt++) {
       let state;
@@ -154,6 +159,9 @@ function stripState(result) {
   return rest;
 }
 /* The key step's flag that rides on runOnce's `key` rather than its result (review 2). */
+/* missing: remote access was never set up here, which a person must act on; never a retry (review 3). */
+const deviceKeyRefusal = (dk) => Object.assign({ ok: false, because: (dk && dk.because) || 'the device key could not be read' },
+  dk && dk.retry ? { retry: true } : {}, dk && dk.missing ? { missing: true } : {});
 const keyFlags = (r) => (r.key && r.key.lostEpochIgnored ? { lostEpochIgnored: true } : {});
 const POINTER_FAILED = Object.freeze({ ok: false, because: 'this computer could not note which company and member it backs up for; it tries again next time' });
 function keepPointer(pair) {
@@ -181,15 +189,15 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
       return Object.assign({ ok: false, because: 'this computer could not keep the backup state, so no backup was taken' + fixed(err) }, err && err.retry ? { retry: true } : {}, err && err.code === 'refused' && !err.retry ? { refusedState: true } : {});
     }
     const dk = (deps.deviceKey || require('./backupdevicekey').deviceKey)();
-    // missing: remote access was never set up here, which a person must act on; never a retry (review 3).
-    if (!dk || !dk.ok) return Object.assign({ ok: false, because: (dk && dk.because) || 'the device key could not be read' }, dk && dk.retry ? { retry: true } : {}, dk && dk.missing ? { missing: true } : {});
-    ref.took = true;
+    if (!dk || !dk.ok) return deviceKeyRefusal(dk);
     result = await take({
       roots: input.roots, memberPk: k.memberPk, namingKey: p.namingKey, namingKeyId: backupkeys.namingKeyId(p.namingKey),
       deviceKey: dk.privateKey, index: p.index, bucket: p.bucket,
       ctx: { org: pair.org, member: pair.member, epoch: k.epoch, period: label, snapshot: (deps.snapshotId || newSnapshotId)(now()) },
     }, deps.macRequest ? { macRequest: deps.macRequest } : { macRequest: (m, r, b) => require('./remote').macRequest(m, r, b) });
     if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };
+    // "Ran" means a snapshot was stored (review 4): a refused or failed pass took none.
+    if (result.ok === true) ref.took = true;
     const after = backupstate.withRun(ref.state, p, result);
     ref.leftOut += after.leftOut || 0;
     const { leftOut, ...kept } = after;

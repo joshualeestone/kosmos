@@ -161,14 +161,21 @@ test('the job\'s state is kept between runs: a wait is not asked again until it 
   assert.deepEqual([r2.waiting, again.calls.length], [true, 0]);
 });
 
-test('no device key: no snapshot, and the period\'s naming key is still kept', async () => {
+test('no device key: nothing is asked of Kosmos+ and nothing is written; missing is said apart from a retry', async () => {
+  for (const dk of [{ ok: false, retry: true, because: 'the device key could not be read just now' }, { ok: false, missing: true, because: 'remote access is not set up on this computer' }]) {
+    wipe();
+    const ensure = ensurer(okKey(A));
+    const take = taker({ ok: true });
+    const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensure, takeSnapshot: take, deviceKey: () => dk }));
+    assert.deepEqual([r.ok, r.retry === true, r.missing === true, ensure.calls.length, take.calls.length], [false, !!dk.retry, !!dk.missing, 0, 0], JSON.stringify(r));
+    assert.equal(fs.existsSync(path.join(store.ROOT, 'backupstate')), false, 'state was written with no device key');
+  }
+  // A key that goes away between the first read and the snapshot: no snapshot, and the period's naming key is kept.
+  let reads = 0;
   const take = taker({ ok: true });
-  const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, deviceKey: () => ({ ok: false, retry: true, because: 'the device key could not be read just now' }) }));
+  const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, deviceKey: () => (++reads === 1 ? DEV : { ok: false, retry: true, because: 'gone' }) }));
   assert.deepEqual([r.ok, r.retry, take.calls.length], [false, true, 0]);
   assert.equal(backupstate.readState(A.org, A.member).state.periods[0].label, WEEK);
-  // Review 3: never set up is said as that, apart from a retry.
-  const m = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, deviceKey: () => ({ ok: false, missing: true, because: 'remote access is not set up on this computer' }) }));
-  assert.deepEqual([m.ok, m.missing, 'retry' in m, take.calls.length], [false, true, false, 0]);
 });
 
 test('a state that cannot be written before the snapshot: no snapshot, and the answer never claims the backup ran', async () => {
@@ -310,4 +317,16 @@ test('end to end: a run through the REAL snapshot is restored by the real restor
     for (const [rel, b] of Object.entries(files)) assert.ok(committed.get('work/' + rel) && committed.get('work/' + rel).equals(b), rel);
     assert.equal(kept.periods[0].index.size, Object.keys(opened.objects).length, 'every stored chunk is in the kept index');
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+test('review 4: a refused or failed snapshot is never called a backup that ran, even when the final write fails', async () => {
+  await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: taker({ ok: true }) }));
+  const f = backupstate.fileFor(A.org, A.member);
+  for (const answer of [{ ok: false, overAllowance: true, because: 'the week is used up' }, new Error('boom')]) {
+    backupstate.discardState(A.org, A.member);
+    await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: taker({ ok: true }) }));
+    const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: async () => { fs.writeFileSync(f, 'not ours'); if (answer instanceof Error) throw answer; return answer; } }));
+    assert.deepEqual([r.ok, r.stateNotKept], [false, true], JSON.stringify(r));
+    assert.doesNotMatch(r.stateBecause, /ran/, JSON.stringify(answer));
+  }
 });
