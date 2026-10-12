@@ -21793,8 +21793,9 @@ function agentEventsTick() {
  * (engine/win32sessions.js), since the Windows roster lists only live sessions. Removed agents are left out (the
  * created list keeps them for Restore, and a person cannot rename an agent the board does not show); create's
  * removed-list refusal still covers a removed agent's handle. THROWS when the roster or the created list cannot be
- * read (safeRoster answers null), so a create or rename refuses rather than passing a name nobody could check. A tmux
- * with no server is an empty roster, not a failure: nothing is running, and the stopped-agent list still answers.
+ * read (safeRoster answers null), or when the stopped-agent list cannot be (created list or Windows session record), so a
+ * create or rename refuses rather than passing a name nobody could check. A tmux with no server is an empty roster, not
+ * a failure: nothing is running, and the stopped-agent list still answers.
  * `platform` is a parameter so a test can read the Windows arm on any computer.
  */
 function nameCheckFleet(platform = process.platform) {
@@ -21807,7 +21808,7 @@ function nameCheckFleet(platform = process.platform) {
   const named = new Map();
   for (const a of roster) if (a && a.isNamedOurs === true && a.sessionName) named.set(a.sessionName, a.name || a.sessionName);
   const stopped = platform === 'win32'
-    ? Object.values(require('./engine/win32sessions').read()).map((r) => r && r.name).filter((n) => typeof n === 'string' && n)
+    ? Object.values(require('./engine/win32sessions').readStrict()).map((r) => r && r.name).filter((n) => typeof n === 'string' && n)
     : status.createdKeysStrict();
   for (const key of stopped) {
     if (named.has(key) || gone.has(key)) continue;
