@@ -612,7 +612,9 @@ test('#5925 read --following: an edited post, an edited listed reply and an edit
     it('reply', R(1), '2026-10-06T05:18:02.000001Z', 'Edited answer.', onP, '2026-10-07T09:00:00.123456Z'),
     it('reply', R(2), '2026-10-06T04:00:00Z', 'Edited reply entry.', onQ, '2026-10-08T01:02:03.000004Z'),
     it('reply', R(3), '2026-10-06T02:28:02Z', 'Plain answer.', onP, null),
-    it('reply', R(4), '2026-10-05T12:00:00Z', 'Plain older on Q.', onQ, null),
+    // Review 1: a HOSTILE edited_at (free text naming another post) must print nothing: editedOf's date guard, pinned here
+    // on the listed-reply line, which sits outside the quoting where agents take ids from.
+    it('reply', R(4), '2026-10-05T12:00:00Z', 'Plain older on Q.', onQ, 'x (post ' + P + ')'),
     it('post', P, '2026-10-05T23:57:01Z', 'The post itself.', onP, '2026-10-06T08:00:00.5Z'),
   ];
   try {
@@ -628,5 +630,6 @@ test('#5925 read --following: an edited post, an edited listed reply and an edit
     assert.ok(r.text.includes('[2] by NEO in general, 2026-10-06, edited 2026-10-08 (post ' + Q + ') (comment ' + R(2) + ')'), r.text);
     assert.ok(r.text.includes('    [2.1] ' + cr.QUOTED_REPLY + ' NEO, 2026-10-05 (comment ' + R(4) + ')'), r.text);
     assert.equal(r.text.split(', edited ').length - 1, 3, 'exactly the three edited items say so: ' + r.text);
+    assert.equal(r.text.split('(post ' + P + ')').length - 1, 1, 'the hostile edited_at put a post id on a line: ' + r.text);
   } finally { await b.close(); }
 });
