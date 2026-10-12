@@ -9,8 +9,11 @@
  * USAGE
  *   1. Build the three debug binaries from kosmos-relay (origin/main, which carries
  *      #213 own-room ticket + per-computer seat, #214, #215 `fed-room --own-project`):
- *        cd <kosmos-relay> && CARGO_TARGET_DIR=<dir> cargo build \
- *          -p kosmos-coordinator --bin kosmos-coordinator -p kosmos-relay-server -p kosmos-tunnel-client
+ *        cd <kosmos-relay> && CARGO_TARGET_DIR=<dir> cargo build --locked \
+ *          --bin kosmos-coordinator --bin kosmos-relay --bin kosmos-tunnel
+ *      Name all THREE binaries. With `-p ... --bin kosmos-coordinator`, the --bin filter applies to the whole
+ *      command: only the coordinator binary is rebuilt, and an old kosmos-relay and kosmos-tunnel left in the
+ *      target dir from an earlier build are run without anyone seeing it (found 2026-10-11)
  *   2. From this repo's root:
  *        FEDPROOF_BIN_DIR=<dir>/debug node tools/fed-own-e2e.js
  *      FEDPROOF_BIN_DIR defaults to /Volumes/BigLobsterStorage/targets/renet-4693/debug,
