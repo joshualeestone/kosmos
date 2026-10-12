@@ -21,16 +21,18 @@ guess. Every other state shows nothing. The row is the task, so "which task" is 
 - docs/browser-checks/fixtures/agent-card.json: the recorded card gains `waitingSince: null` (an idle card's value).
 
 ## Depends on
-#5943 (selfreport.read(name).askedAt). Until it merges, no card carries waitingSince, so no row shows an age: the
-change is inert, not wrong. The browser arm (render-tasks-view-3559) and the engine tests state both halves
+#5943 (selfreport.read(name).askedAt). It has merged (eae4ad58b), so a card whose report carries askedAt now shows
+its age. The browser arm (render-tasks-view-3559) and the engine tests state both halves
 explicitly (a stamped start, a forced null), so neither depends on whether #5943 has merged.
 
 ## Decided
 - Wording "Waiting on you for 12 days", agoWords with " ago" dropped, agreed with Angel so #5943's "Asked 12 days
   ago" and this read as one system. Weakest premise: that the oldest holder's known wait is the task's wait (any unknown start shows no age).
 
-## After #5943 merges (owed, on this card)
-- Add one unit arm with no selfreport.read wrapper: record a needs_you report, read the real card, assert
-  `waitingSince` is the report's askedAt. The card tests wrap the read today because main has no askedAt.
+## After #5943 merged (eae4ad58b, 2026-10-12): done on this card
+- Rebased onto main with #5943. Added the unit arm with no selfreport.read wrapper (status.waitingsince-5942.test.js,
+  last test): record a needs_you report, read the real card, assert `waitingSince` is the report's own askedAt, with
+  pre-controls that askedAt is a real time. The wrapped arms stay, to compare against a fixed time.
+- No doctrine bump on this branch (CLAUDE.md gains one map clause only), so main's v30 is untouched.
 - A card that needs the person for another reason (a trust wait, a given-up connection, a crash loop) may carry a
   blocked report's start, but waitingSinceOf counts a start only from a needs_you card, so such a task shows no age.

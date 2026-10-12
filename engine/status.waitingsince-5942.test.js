@@ -36,8 +36,8 @@ test('kosmos#5942 waitingSinceFrom: kept only for the same state and a real time
   assert.equal(status.waitingSinceFrom(null, 'needs_you', now), null);
 });
 
-/* The self-report on origin/main does not carry askedAt yet (#5943 adds it), so the read is wrapped to add it the way
-   #5943 will: on a waiting report only. Everything else on the board is real. */
+/* These two arms wrap the read to pin askedAt to a fixed time, so the card's value can be compared exactly; on a
+   waiting report only, as #5943 does. The arm at the end reads main's real askedAt with no wrapper. */
 function withAskedAt(fn) {
   const real = selfreport.read;
   selfreport.read = function (name) {
@@ -73,4 +73,17 @@ test('kosmos#5942: a paneless card that is asking carries waitingSince too', () 
   assert.equal(card.paneless, true, 'PRE-CONTROL: it is the paneless path');
   assert.equal(card.state, 'needs_you');
   assert.equal(card.waitingSince, ASKED);
+});
+
+test("kosmos#5942: with no wrapper, the card carries the self-report's own askedAt (#5943 on main)", () => {
+  assert.equal(selfreport.record('wsreal', { state: 'needs_you', because: 'a real question for the person' }).recorded, true);
+  const report = selfreport.read('wsreal');
+  assert.equal(typeof report.askedAt, 'string', "PRE-CONTROL: main's self-report carries askedAt (#5943)");
+  assert.ok(Number.isFinite(Date.parse(report.askedAt)), 'PRE-CONTROL: a real time');
+  const board = fleet.install([fleet.agent('wsreal', { state: 'needs_you' })]);
+  let cards;
+  try { cards = board.agents; } finally { board.restore(); }
+  const card = cards.find((c) => c.sessionName === 'wsreal');
+  assert.equal(card.state, 'needs_you', 'PRE-CONTROL: the card is asking');
+  assert.equal(card.waitingSince, report.askedAt);
 });
