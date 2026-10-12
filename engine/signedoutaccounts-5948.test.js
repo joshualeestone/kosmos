@@ -187,3 +187,22 @@ test('#5948 review 9: the fix names the folder only where re-adding under that n
   const [c] = signedOutRows([card('cx', 'codex')], { openai: [] }, (n) => cx[n === 'cx' ? 'cxn' : n], readName, () => false, () => '/h/.codex');
   assert.match(c.connection.because, /in Settings > AI Models\.$/);
 });
+
+test('#5948 review 10: on a real disk, an EMPTY credential file holds no credential and reads signed out; a non-empty one reads unlisted', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-so-empty-5948-'));
+  try {
+    const empty = path.join(root, '.grok-empty');
+    const full = path.join(root, '.grok-full');
+    fs.mkdirSync(empty); fs.mkdirSync(full);
+    fs.writeFileSync(path.join(empty, 'auth.json'), '');
+    fs.writeFileSync(path.join(full, 'auth.json'), '{"x":1}');
+    const jobsHere = { e: { configDir: empty, runner: 'grok' }, f: { configDir: full, runner: 'grok' } };
+    const [e] = signedOutRows([card('e', 'grok')], { xai: [] }, (n) => jobsHere[n], () => null);
+    assert.equal(e.connection.badge, 'signed_out', JSON.stringify(e));
+    const [f] = signedOutRows([card('e', 'grok')], { xai: [] }, (n) => jobsHere[n === 'e' ? 'f' : n], () => null);
+    assert.equal(f.connection.badge, 'unlisted', 'CONTROL: ' + JSON.stringify(f));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
