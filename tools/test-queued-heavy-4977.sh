@@ -305,7 +305,7 @@ ok "#5923: origin/main's lib lacks a function this copy calls: not moved, names 
 for n in rp rpc; do qh_lib5923 $S/l5923-$n; mkdir -p $S/ml5923-$n $S/rp5923-$n; cp "$REAL_QH" $S/rp5923-$n/qh5923self-$U.sh; done
 o=$(env -u QUEUED_HEAVY_LIB -u QH_TEST_PS HOME=$S/l5923-rp KOSMOS_RUN_MARKER_DIR=$S/ml5923-rp QH_TEST_PS_NAME=qh5923self-$U.sh perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/rp5923-rp/qh5923self-$U.sh "lib-rp" true 2>&1); rc=$?
 ok "#5923: with the real ps, the run does not count itself or its own subshell, so the move happens" '[ "$rc" = 0 ] && [ "$(lh5923 rp)" = "$(lm5923 rp)" ] && [[ "$o" == *moved* ]]'
-mkdir -p $S/rp5923-other && printf '#!/bin/bash\nfor i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60; do sleep 1; done\n' > $S/rp5923-other/qh5923self-$U.sh   # ends by itself within a minute && chmod +x $S/rp5923-other/qh5923self-$U.sh
+mkdir -p $S/rp5923-other && printf '#!/bin/bash\nfor i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60; do sleep 1; done\n' > $S/rp5923-other/qh5923self-$U.sh   # ends by itself within a minute
 /bin/bash $S/rp5923-other/qh5923self-$U.sh </dev/null >/dev/null 2>&1 & RP5923=$!
 until_true 5 '[[ "$(ps -ww -o command= -p $RP5923)" == *qh5923self-$U.sh* ]]'
 o=$(env -u QUEUED_HEAVY_LIB -u QH_TEST_PS HOME=$S/l5923-rpc KOSMOS_RUN_MARKER_DIR=$S/ml5923-rpc QH_TEST_PS_NAME=qh5923self-$U.sh perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/rp5923-rpc/qh5923self-$U.sh "lib-rpc" true 2>&1); rc=$?
