@@ -4139,11 +4139,16 @@ test('kosmos#5628 review 9: another account cannot take over a computer by its n
   await finishing;
 });
 
+/* kosmos#5889: the opener as on a machine with a display, so a Linux runner with none still reaches the spawn. */
+function openerWithDisplay(argv) {
+  remote.setCompanyOpenSourceForTests({ platform: process.platform, env: Object.assign({}, process.env, { DISPLAY: ':0' }) });
+  remote.setCompanyOpenCommandForTests(argv);
+}
 test('kosmos#5628 slice 2b-ui reviews 1 and 2: opened only when the opener exits 0, never for a gone setup, not twice at once', async () => {
   assert.equal((await remote.companyOpen()).ok, false, 'opened with no setup');
   assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
   // A real spawn of a command that exits 0, then one that exits 1, then one that does not exist.
-  remote.setCompanyOpenSourceForTests({ platform: process.platform, env: Object.assign({}, process.env, { DISPLAY: ':0' }) }); remote.setCompanyOpenCommandForTests(['/usr/bin/true']);
+  openerWithDisplay(['/usr/bin/true']);
   assert.deepEqual(await remote.companyOpen(), { ok: true, because: null });
   assert.match((await remote.companyOpen()).because, /just opened/, 'a second open a moment later opened another tab');
   // Review 4: a NEW setup's page opens at once (the limit is per setup).
@@ -4151,11 +4156,11 @@ test('kosmos#5628 slice 2b-ui reviews 1 and 2: opened only when the opener exits
   assert.deepEqual(await remote.companyOpen(), { ok: true, because: null }, 'a new setup was refused as just opened');
   remote.resetForTests();
   assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
-  remote.setCompanyOpenSourceForTests({ platform: process.platform, env: Object.assign({}, process.env, { DISPLAY: ':0' }) }); remote.setCompanyOpenCommandForTests(['/usr/bin/false']);
+  openerWithDisplay(['/usr/bin/false']);
   assert.match((await remote.companyOpen()).because, /could not open your browser/, 'a refusing opener was called opened');
   remote.resetForTests();
   assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
-  remote.setCompanyOpenSourceForTests({ platform: process.platform, env: Object.assign({}, process.env, { DISPLAY: ':0' }) }); remote.setCompanyOpenCommandForTests(['/nonexistent/opener-5628']);
+  openerWithDisplay(['/nonexistent/opener-5628']);
   assert.match((await remote.companyOpen()).because, /could not open your browser/, 'a missing opener was called opened');
   remote.signinCancel();
   assert.equal((await remote.companyOpen()).ok, false, 'opened after the setup was dropped');

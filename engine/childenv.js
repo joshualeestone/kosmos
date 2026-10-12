@@ -7,7 +7,7 @@
  * kosmos#5881's (engine/projects.js linuxOpenFolder, on its branch when this was written); once that lands it should
  * read this helper rather than keep its own copy.
  *
- * Added in review (each one something xdg-open, or a browser it starts and that keeps it for its whole life, reads):
+ * Beyond that base the list holds what xdg-open, or a browser it starts and that keeps it for its whole life, reads:
  * BROWSER (xdg-open tries it first), the XDG data, cache and state folders (mimeapps and .desktop files), the locale
  * (LANGUAGE and the standard LC_ names, by name, not by prefix: an LC_ prefix would also pass anything smuggled in an
  * LC_ variable over ssh), the user's name, TMPDIR, the toolkit backend hints, input method (CJK typing) and HiDPI
@@ -23,6 +23,9 @@
  *   which forwards the page to the person's own machine). BROWSER alone does not count: on a server it is often a
  *   terminal browser, which shows nothing, does not exit, and would read as "opened". On Linux with none of these an
  *   opener cannot show anything, and waiting on it only delays "use the link".
+ *   Known limit: a board run as the systemd user unit sees a display only if the session imported it into the user
+ *   manager (GNOME and KDE do; a bare sway, Hyprland or i3 session may not), so such a board answers "use the link".
+ *   Without a display xdg-open almost always failed there before too.
  */
 const OPENER_KEYS = Object.freeze([
   'HOME', 'PATH', 'LANG', 'DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS',

@@ -63,3 +63,12 @@ File restored by a trap and compared with cmp after each run.
   MATE_DESKTOP_SESSION_ID added. Left (NIT): hasDesktop is checked on linux only; other Unix is unsupported.
 - Mutants (control 215/215), each red with 214 pass 1 fail: env omitted; display check removed; filter passes
   everything; DISPLAY arm dropped; WAYLAND arm dropped; BROWSER alone counts; XMODIFIERS dropped; LC_ prefix back.
+
+## Review 3 (sonnet, blind, on 2edb66cc3): CONVERGED, NITs only
+- FIXED (NIT): runCompanyOpener's comment reflowed; childenv.js's header describes the list as it stands, not the
+  review history.
+- FIXED (NIT): the known limit stated in hasDesktop's doc: a board run as the systemd user unit sees a display only if
+  the session imported it (GNOME and KDE do; a bare sway, Hyprland or i3 may not), so it answers "use the link".
+  Not counted as a desktop: DBUS_SESSION_BUS_ADDRESS with XDG_CURRENT_DESKTOP; revisit if a person reports it.
+- FIXED (NIT): the three repeated seam lines in the 5628 test are one helper, openerWithDisplay.
+- After: remote.test.js 215/215; reachable 7/7, #1732 8/8, #1777 23/23.
