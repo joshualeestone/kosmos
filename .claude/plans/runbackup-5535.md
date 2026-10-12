@@ -55,3 +55,18 @@ makes a third snapshot impossible, which the newPeriod test asserts (exactly two
    that is a folder makes writePointer throw inside runNow.
 6. NIT: the granted week's write-before was unproven. FIXED: asserted on the second call, and both slots kept.
 Mutants after review 1 (19:20 CDT from `date`), all red (pass 13 fail 1 each): S1 the restart skips reading state (the reviewer's survivor), S2 always "ran", S3 the final write drops the run's flags, S4 a refused first run restarts, S5 it keeps no job state, S6 runNow's catch rethrows, S7 took never set.
+
+## Review 2 (sonnet, blind, on fa96d1e0): one possible must-fix, five nits
+1. FIXED: a pointer write that threw fell to the generic "could not run", and a refused first run's backoff was lost
+   with it. Now its own sentence (a copy of a frozen refusal). Not "keep the backoff anyway": with no pointer the next
+   run cannot find it. If it repeats, it is one backup-key request an hour against a cap of 30.
+2. FIXED: an ok key whose answer named no pair said "learned ... starts again" and leaked learnPair. Now a fixed true
+   refusal; learnPair is stripped from every result.
+3. FIXED: lostEpochIgnored (on runOnce's key) and leftOut (on the stateNotKept path) now reach the caller.
+4. REJECTED: "a failing granted-week pass hides the first week's snapshot". A newPeriod answer is ok: false with no
+   manifest granted (backupsnapshot: a run that crosses the week stops as newPeriod), so the first pass took no
+   snapshot to hide.
+5. ACCEPTED (stated in Decisions): the restart after learning the pair sends one more backup-key request.
+6. ACCEPTED: under a LOST pointer, the first request is sent before the file's own lostEpoch or wait is read, and a
+   refused answer's job state is dropped in favour of the file's. Costs one request once per lost pointer, which is a
+   damaged data root, not a normal path.

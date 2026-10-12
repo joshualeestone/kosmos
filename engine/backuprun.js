@@ -103,12 +103,12 @@ async function runNow(input, deps) {
         snapshot: (k) => (known ? snapshotStep(known, k, ref, input, deps, now) : { ok: false, learnPair: true, because: 'this computer learned its company and member; it starts again' }),
       });
       if (r.result && r.result.otherPair) {
-        writePointer(r.result.otherPair);
+        if (!keepPointer(r.result.otherPair)) return { ...POINTER_FAILED };
         pair = r.result.otherPair;
         continue;
       }
       if (!known && r.pair) {
-        writePointer(r.pair);
+        if (!keepPointer(r.pair)) return { ...POINTER_FAILED };
         // An ok key: start again under the pair, reading its state first (it may have one: a lost pointer).
         if (r.result && r.result.learnPair) { pair = r.pair; continue; }
         // The key step refused (a wait, a pending key, no answer...). Its answer is already this pair's, so it is kept
@@ -121,8 +121,12 @@ async function runNow(input, deps) {
         }
         return stripState(r.result);
       }
-      // No pair named at all (no answer, an unreadable one): nothing to keep the job's state in, so it is not kept.
-      if (!known) return Object.assign({ ok: false }, stripState(r.result));
+      // No pair named at all (no answer, an unreadable one): nothing to keep the job's state in, so it is not kept. An
+      // ok key whose answer named no pair is said as that (review 2), never as the learn-and-restart it did not do.
+      if (!known) {
+        if (r.result && r.result.learnPair) return { ok: false, because: 'Kosmos+ did not name the company and member this computer backs up for' };
+        return Object.assign({ ok: false }, stripState(r.result));
+      }
       // The snapshot step could not write the state, so no snapshot was taken: its own answer says why, and writing
       // again would only fail again under a sentence claiming the backup ran.
       if (ref.unwritable) return stripState(r.result);
@@ -130,11 +134,11 @@ async function runNow(input, deps) {
       try { backupstate.writeState(known.org, known.member, ref.state); } catch (err) {
         // The run's own answer stands, flags and all; the write failure rides beside it (review 1). "Ran" only when a
         // snapshot was taken.
-        return Object.assign(stripState(r.result), { stateNotKept: true,
+        return Object.assign(stripState(r.result), keyFlags(r), ref.leftOut ? { leftOut: ref.leftOut } : {}, { stateNotKept: true,
           stateBecause: (ref.took ? 'the backup ran, but this computer could not keep what it needs for the next one' : 'this computer could not keep the backup state') + fixed(err) },
           err && err.retry ? { stateRetry: true } : {}, err && err.code === 'refused' && !err.retry ? { refusedState: true } : {});
       }
-      return Object.assign(stripState(r.result), ref.leftOut ? { leftOut: ref.leftOut } : {});
+      return Object.assign(stripState(r.result), keyFlags(r), ref.leftOut ? { leftOut: ref.leftOut } : {});
     }
     return { ok: false, pairChanged: true, because: 'Kosmos+ named another company or member twice in one run; this computer tries again next time' };
   } catch (err) {
@@ -142,10 +146,17 @@ async function runNow(input, deps) {
   }
 }
 
-/* The result as the caller sees it: `added` (a Map of every chunk stored) is the state's business, already kept. */
+/* The result as the caller sees it: `added` (a Map of every chunk stored) is the state's business, already kept, and
+   learnPair is this module's own signal. */
 function stripState(result) {
-  const { added, ...rest } = result || {};
+  const { added, learnPair, ...rest } = result || {};
   return rest;
+}
+/* The key step's flag that rides on runOnce's `key` rather than its result (review 2). */
+const keyFlags = (r) => (r.key && r.key.lostEpochIgnored ? { lostEpochIgnored: true } : {});
+const POINTER_FAILED = Object.freeze({ ok: false, because: 'this computer could not note which company and member it backs up for; it tries again next time' });
+function keepPointer(pair) {
+  try { writePointer(pair); return true; } catch { return false; }
 }
 
 /* The snapshot under an ok key for `pair`: this clock's week, and once more in a granted week. ref.state is kept

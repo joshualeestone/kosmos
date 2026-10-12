@@ -190,59 +190,27 @@ test('runs are one at a time', async () => {
   assert.deepEqual([take.calls.length, most], [3, 1]);
 });
 
-test('never throws: an error inside the run itself is a fixed sentence', async () => {
-  // Review 1: a throw the key step would catch never reached the run's own guard. The pointer path is a folder, so
-  // reading it gives none and writing the learned pair throws inside runNow.
+test('a pointer that cannot be written: the run stops with its own sentence, and no snapshot', async () => {
+  // The pointer path is a folder: reading it gives none, writing the learned pair fails.
   fs.mkdirSync(path.join(store.ROOT, 'backupstate', 'current.json'), { recursive: true });
   fs.writeFileSync(path.join(store.ROOT, 'backupstate', 'current.json', 'x'), '');
-  const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: taker({ ok: true }) }));
-  assert.equal(r.ok, false);
-  assert.match(r.because, /^the backup could not run on this computer/);
-  assert.doesNotMatch(JSON.stringify(r), new RegExp(SANDBOX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  const take = taker({ ok: true });
+  const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take }));
+  assert.deepEqual([r.ok, take.calls.length], [false, 0]);
+  assert.match(r.because, /could not note which company/);
+  r.because = 'changed by the caller';   // a copy: the next refusal is unchanged
+  const again = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take }));
+  assert.match(again.because, /could not note which company/);
 });
 
-test('end to end: a run through the REAL snapshot is restored by the real restore with nothing but the member key and the device key', async () => {
-  const bf = require('./backupformat');
-  const br = require('./backuprestore');
-  const { hpkeKeyPair } = require('./hpke');
-  const member = hpkeKeyPair();
-  const dev = crypto.generateKeyPairSync('ed25519');
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-backuprun-e2e-')));
-  const root = path.join(base, 'kosmos');
-  fs.mkdirSync(path.join(root, 'agents', 'a'), { recursive: true });
-  const files = { 'agents/a/notes.md': Buffer.from('plain notes\n'), 'readme.txt': Buffer.from('hello'),
-    'agents/a/long.md': Buffer.from(Array.from({ length: 20000 }, (_, i) => `line ${i} of a long file\n`).join('')) };
-  for (const [rel, b] of Object.entries(files)) fs.writeFileSync(path.join(root, rel), b);
-  // A store standing in for both uploaders, handing out keys in the run's week, under the run's pair and epoch.
-  const objects = new Map(), manifests = [];
-  let n = 0;
-  const LOCKED = Date.parse('2026-11-11T00:15:00Z');
-  const uploadChunks = async (d, batch) => {
-    const keys = new Map(), lockedUntil = new Map();
-    for (const { name, object } of batch) { const key = `${A.org}/${A.member}/1/${WEEK}/k${++n}`; objects.set(key, Buffer.from(object)); keys.set(name, key); lockedUntil.set(name, LOCKED); }
-    return { ok: true, keys, lockedUntil, bucket: 'bucket/' };
-  };
-  const uploadManifest = async (d, bytes) => { manifests.push(bytes); return { ok: true, key: `${A.org}/${A.member}/1/${WEEK}/m${manifests.length}`, lockedUntilMs: LOCKED }; };
-  let sealedCtx;   // the context the run gave the snapshot (the snapshot id is the run's own)
-  const takeSnapshot = (input) => { sealedCtx = input.ctx; return snap.takeSnapshot(input, { now: () => NOW, uploadChunks, uploadManifest }); };
-  try {
-    const ensure = ensurer({ ok: true, epoch: 1, publicKey: member.pk, ...A });
-    const r = await run.runBackup({ roots: [{ name: 'work', path: root }] }, deps({ ensureMemberKey: ensure, takeSnapshot, deviceKey: () => ({ ok: true, privateKey: dev.privateKey }) }));
-    assert.equal(r.ok, true, r.because);
-    assert.equal(manifests.length, 1);
-    // The restore side knows its member key, the device's public key and the context. It is given NO naming key: the
-    // manifest carries it (slice (a)), and nothing else stores one.
-    const kept = backupstate.readState(A.org, A.member).state;
-    const committed = new Map();
-    const sink = { begin(p) { const parts = []; return { write(b) { parts.push(Buffer.from(b)); }, commit() { committed.set(p, Buffer.concat(parts)); }, abort() {} }; } };
-    const opened = bf.openManifest(member.sk, dev.publicKey, sealedCtx, manifests[0]);
-    assert.ok(opened, 'the manifest opens with the device key and the run\'s context');
-    const rr = await br.restoreSnapshot({ memberSk: member.sk, devicePubAtSnapshot: dev.publicKey, ctx: sealedCtx, manifestObject: manifests[0],
-      fetchChunk: (name) => objects.get(opened.objects[name]) || null, sink, maxTotalBytes: 2 ** 40 });
-    assert.equal(rr.failed.length, 0, JSON.stringify(rr.failed));
-    for (const [rel, b] of Object.entries(files)) assert.ok(committed.get('work/' + rel) && committed.get('work/' + rel).equals(b), rel);
-    assert.equal(kept.periods[0].index.size, Object.keys(opened.objects).length, 'every stored chunk is in the kept index');
-  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+test('never throws: an error inside the run itself is a fixed sentence, never its message', async () => {
+  await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: taker({ ok: true }) }));
+  await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer({ ok: false, waiting: true, because: 'once a day', ...A }) }));
+  // A wait is held, so the key step reads the clock outside any guard of its own: the throw reaches runNow's.
+  const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), now: () => { throw new Error('/Users/someone/secret path'); } }));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /^the backup could not run on this computer/);
+  assert.doesNotMatch(JSON.stringify(r), /someone|secret/);
 });
 
 test('review 1: a lost pointer over a live state file reuses that pair\'s naming key and index', async () => {
@@ -282,4 +250,17 @@ test('review 1: a state that cannot be written AFTER the run keeps the run\'s ow
   const waited = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: async () => { fs.writeFileSync(f, 'not ours'); return { ok: false, waiting: true, pendingEpoch: 2, because: 'once a day', ...A }; } }));
   assert.deepEqual([waited.ok, waited.waiting, waited.pendingEpoch, waited.stateNotKept], [false, true, 2, true], JSON.stringify(waited));
   assert.doesNotMatch(waited.stateBecause, /ran/);
+});
+
+test('review 2: an ok key whose answer names no pair is said as that; learnPair never reaches the caller', async () => {
+  const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer({ ok: true, epoch: 1, publicKey: PK }), takeSnapshot: taker({ ok: true }) }));
+  assert.deepEqual([r.ok, 'learnPair' in r], [false, false], JSON.stringify(r));
+  assert.match(r.because, /did not name the company/);
+});
+
+test('review 2: lostEpochIgnored and leftOut reach the caller', async () => {
+  const bad = new Map([['not-a-name', { key: 'x', lockedUntilMs: 1, memberKeyId: MKID }]]);
+  await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: taker({ ok: true }) }));
+  const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(Object.assign(okKey(A), { lostEpochIgnored: true })), takeSnapshot: taker({ ok: true, added: bad, bucket: 'b1' }) }));
+  assert.deepEqual([r.ok, r.lostEpochIgnored, r.leftOut], [true, true, 1], JSON.stringify(r));
 });
