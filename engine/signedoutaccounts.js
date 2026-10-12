@@ -23,7 +23,7 @@ const PROVIDER_OF_RUNNER = Object.freeze({
 });
 const SHOWN_AGENTS = 3;   // a folder many agents share names the first few, then a count
 
-/* Whether a file is there. Only ENOENT is "not there": a folder Kosmos cannot read (EACCES, an unmounted volume) throws,
+/* Whether a file is there. Only ENOENT is "not there": a folder Kosmos cannot read (EACCES) throws,
    so the row says it could not be checked rather than gone. fs.existsSync would answer false for both. */
 function fileThere(file) {
   try { require('node:fs').statSync(file); return true; } catch (e) {
