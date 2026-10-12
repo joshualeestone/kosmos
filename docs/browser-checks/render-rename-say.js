@@ -160,6 +160,8 @@ const KEPT = 'The name was not changed: there is already an agent called Gemini 
   /* #5957: the instructions Save says the name was kept, after "Saved.". */
   await page.evaluate(() => document.getElementById('d-instr-save').scrollIntoView({ block: 'center' }));
   await page.waitForFunction(() => /You are \*\*Fixture\*\*/.test(document.getElementById('d-instr').value), null, { timeout: 8000 });
+  // Save is enabled by an edit (a save of unchanged text has nothing to send), so make the edit a person would.
+  await page.fill('#d-instr', '# Fixture\n\nYou are **Gemini**, a tester.\n');
   await page.click('#d-instr-save');
   await page.waitForFunction(() => {
     const m = document.getElementById('d-instr-msg');
