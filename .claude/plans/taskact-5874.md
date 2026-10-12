@@ -18,7 +18,7 @@ Card: #5874 (split out of #5842, Mona Lisa). Owner: April (night shift shard).
    when either gains a kind the other lacks.
 2. The route: joins AGENT_TOKEN_ROUTE_PATTERNS as a READ. A caller on its token alone reads only a project it is on (the
    /api/tasks rule, same refusals); the page and the person's terminal are as before. With `?words=1` each event also
-   carries `words` (phrase with names from projects.get's members, else the roster card's name, else the session name).
+   carries `words` (phrase worded for an agent, names from the roster cards, else the session name: see below).
    Without it the answer is unchanged. With it (only the CLIs ask), an unknown project or task is said (404), as
    `kosmos task list` says an unknown project (#4891 N6); the page keeps its fail-soft empty list for an unknown task,
    which server.task-activity-768.test.js pins (#992).
@@ -39,7 +39,9 @@ page's, which the parity test holds). A recorded message has no author on the bo
 and the person's are alike, and one could read "Marked done": the CLI marks and quotes it (`A message: "..."`, quote
 characters made plain as `task list` does for words Kosmos did not write). Names come from the roster cards only (what
 describe() names a member by), never projects.get, whose describe() can write the registry: this read answers a token.
-A token-only caller whose projects read failed gets 503, not a false "no such project".
+A projects read that failed gets 503 on the words path and for a token-only caller, never a false "no such project" or
+an empty conversation. Worded for an agent, a part's sentence, the done-when checks and the notes are quoted too
+(review 2): anyone on the project writes them.
 
 ## Weakest premise
 That printing a task's whole conversation to an agent on the project is fine: the page already shows it to the person,

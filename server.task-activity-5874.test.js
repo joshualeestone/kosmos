@@ -114,6 +114,11 @@ test('#5874: a token that names nobody is refused, and a projects read that fail
     const blind = await call('/api/project/p5874/task/1/activity?words=1', asAgent(agentToken));
     assert.equal(blind.code, 503, blind.text.slice(0, 160));
     assert.doesNotMatch(blind.text, /no project by that name/);
+    // Review 2: the words path on the board token too (the person's terminal): never an empty conversation.
+    const blindBoard = await call('/api/project/p5874/task/1/activity?words=1', asBoard);
+    assert.equal(blindBoard.code, 503, blindBoard.text.slice(0, 160));
+    // CONTROL: without words (the page) a failed projects read is not read at all, so the page's answer stands.
+    assert.equal((await call('/api/project/p5874/task/1/activity', asBoard)).code, 200);
   } finally { projectsEngine.readAll = realAll; }
 });
 
