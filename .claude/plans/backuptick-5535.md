@@ -143,3 +143,9 @@ Mutants after review 8 (20:11 CDT from `date`), each 24/23/1: E1 '..' prefix mat
 2. NIT, FIXED BUT UNTESTED HERE: on Windows, %USERPROFILE%\AppData (browser password stores, Credential Manager) is
    protected whole. The line runs only on win32; this Mac cannot run it, and it is said here rather than implied.
 Mutants after review 9 (20:14 CDT from `date`): M1 no hash (a_b and a-b collide): red. M2 refuse non-segments again: red. M3 transcripts under the raw id: red. M4 no snapshot check on a kept id (secrets kept as is): red.
+
+## Review 10 (sonnet, blind, on 61a1828b): NO NEW ISSUES. Converged at 10.
+It replicated rootSegment over about 35 ids (reserved, secret-looking, unicode, underscores) under every prefix; all
+pass the snapshot's rule. Noted, not material: a kept id literally equal to another id's mapped form (a-b-648fa9b3
+beside a_b) would share a name; it needs a constructed id or a 32-bit hash match, and the duplicate is an optional
+root the snapshot records as skipped, never a failed backup.
