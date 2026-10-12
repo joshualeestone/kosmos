@@ -58,7 +58,9 @@ function chk(ok, label, extra) {
   tasks.setBuilt(launch.id, 4, { by: 'ada' });
   const winter = projects.create({ name: 'Winter catalog' });
   tasks.create(winter.id, { sentence: 'Draft the plan' });                // 1: held by pausing its project
-  projects.addAgent(winter.id, 'ada', null);                            // #5864: ada builds task 2 here
+  // #5864: ada builds task 2 here. Making her a project agent cannot get task 1 handed to her mid-check: the board
+  // here never runs live execution, and the Assigner ticks only when it is allowed (server.js, assigner.tick).
+  projects.addAgent(winter.id, 'ada', null);
   tasks.create(winter.id, { sentence: 'Finish the cover', who: 'ada' });  // 2: #5864, built, so pausing leaves it built
   tasks.setBuilt(winter.id, 2, { by: 'ada' });
   const summer = projects.create({ name: 'Summer list' });                // paused by an agent, before the page loads

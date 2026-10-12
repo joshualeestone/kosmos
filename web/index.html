@@ -60905,7 +60905,7 @@ function paintProjectTasks(p) {
     let who;
     if (!assigned.length) {
       /* #5456: a repeating task with nobody on it reads as the Tasks view says it, not as ownerless work. */
-      // A held task (its own hold, or its paused project) does not say On a schedule.
+      // A task on hold, or in a paused project, does not say On a schedule (built or not: this card does not show built).
       who = '<span class="tkcard-who"><span class="tkcard-who-b">' + (t.repeat && t.onHold !== true && p.paused !== true ? 'On a schedule' : 'Nobody yet') + '</span></span>';
     } else if (parts.length > 1) {
       /* #761 item 8: "Multiple assignees, as the pack drew." One face+name
