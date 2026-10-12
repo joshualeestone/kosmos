@@ -115,3 +115,9 @@ fixed sentence, never a path or a byte. Read on each call, never cached or writt
   scheduler classification.
 - FIXED (NITs): null options return instead of throwing (test); a failure to load remote.js has its own sentence; the
   header names a partial-key read as a known unclassified case and the connector's non-signature use of the seed.
+
+## Mortals run 1 (ddfa8ee84, 19:39 CDT): ONE failure, the #1732 Windows-coupling audit
+engine/backupdevicekey.js's open ORs O_NOFOLLOW and O_NONBLOCK in undefined-safe, which the audit inventories file by
+file. Benign by construction (the lstat + dev/ino check and isFile refuse a link, a swap or a FIFO on every platform).
+Classified with two rows in the same shape as server.js's sendFileDownload line (guarded-vanish + benign-nonblock).
+The audit alone: 8/8. Re-validating. (A guard that runs only in the full suite: memory feedback-a-suite-is-not-the-suite.)
