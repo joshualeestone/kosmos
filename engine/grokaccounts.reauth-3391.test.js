@@ -113,7 +113,8 @@ test('a failed, empty or cancelled sign-in again never touches the live account'
     grok.cancelGrokLogin(out.sessionId);
     await waitFor(() => grokDirs().join() === before.join());
     assert.equal(auth(live), OLD);
-    assert.equal(grok.forgetAccount(live, []).ok, true, 'released once the sign-in ended');
+    assert.equal(grok.isSignInPending(live), false, 'released once the sign-in ended');
+    assert.equal(grok.forgetAccount(live, []).ok, true, 'the account can be forgotten after a cancelled sign-in again');
   });
 });
 

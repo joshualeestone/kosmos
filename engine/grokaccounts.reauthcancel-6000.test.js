@@ -245,6 +245,8 @@ test('#6000: a sign-in again cancelled a moment ago (its child still exiting) do
     assert.equal(rm.ok, true, rm.because);
     assert.equal(rm.removed, true);
     await waitFor(() => workSlots().length === 0, 'the SIGKILLed child never freed its slot', 8000);
+    assert.equal(grok.isSignInPending(dir), false, 'the late exit left a hold on the removed account');
+    assert.equal(fs.existsSync(dir), false, 'the late exit brought the removed account back');
   } finally {
     grok.setGrokTimers({ forceKill: 3000 });   // the module's default
   }

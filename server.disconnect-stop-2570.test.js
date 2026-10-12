@@ -933,6 +933,7 @@ test('#5994: disconnect-and-stop on an account with its own unfinished Sign in a
    in again" was left unfinished. With an agent on the account the request is refused and cancels nothing; once the agent
    is gone the delete goes ahead and the abandoned sign-in is cancelled instead of refusing the delete. */
 test('#6000: the Grok route deletes an account with its own unfinished Sign in again and cancels it; refused with an agent on it', async () => {
+  installRunner();   // a clean pane list and runner, as every arm here (one undiagnosable agent anywhere fails closed)
   const grok = require('./engine/grokaccounts');
   const slotsBefore = new Set(fs.readdirSync(HOME).filter((n) => /^\.grok-work/.test(n)));
   const ourSlots = () => fs.readdirSync(HOME).filter((n) => /^\.grok-work/.test(n) && !slotsBefore.has(n));
@@ -963,6 +964,7 @@ test('#6000: the Grok route deletes an account with its own unfinished Sign in a
     assert.equal(r.code, 200, 'the abandoned sign-in still blocked the delete. body: ' + JSON.stringify(r.json));
     assert.ok(!fs.existsSync(dir), 'the account was not deleted');
     assert.equal(grok.grokLoginStatus(started.sessionId).state, 'cancelled');
+    assert.deepEqual(calls, [], 'the runner was called: this route has no stopAgents, so nothing may stop an agent');
   } finally {
     grok.cancelGrokLogin(started.sessionId);
     fs.rmSync(jobfix.jobPath('reauth6000'), { force: true });
