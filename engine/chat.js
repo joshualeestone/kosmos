@@ -1964,7 +1964,7 @@ function limitHeldVerdict(sessionName, roster, now = Date.now()) {
     at: new Date().toISOString(), paneState: null, paneNote: null,
   };
 }
-/* #5948: a line for an agent whose sign-in stopped working (card auth_failed, any runner) is HELD in the #5805 queue
+/* #5948: a line for an agent whose sign-in stopped working (a REPORTED auth_failed, see below) is HELD in the #5805 queue
    rather than typed: typed, it reaches a session that answers every turn "Not signed in", and the sender counts it as
    delivered (on Windows the supervisor even drops it). heldBy stays 'limit' so every #5805 path (the queue, its minute
    sweep, Send now anyway, the room's limit record) carries it unchanged; heldFor says why, for the words. limitReset is
@@ -1972,7 +1972,8 @@ function limitHeldVerdict(sessionName, roster, now = Date.now()) {
    look. Released when the card no longer reads auth_failed (signed in again, or restarted). */
 function signinHeldVerdict(sessionName, roster, now = Date.now()) {
   const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
-  if (!card || card.isNamedOurs !== true || card.state !== status.STATE.AUTH_FAILED) return null;
+  // The REPORTED state only (the seam line): a screen-read auth_failed has no clearing writer on most runners.
+  if (!card || card.isNamedOurs !== true || card.state !== status.STATE.AUTH_FAILED || card.stateReported !== true) return null;
   if (addressable(sessionName, roster).ok !== true) return null;
   const provider = require('./accountproblem').providerOf(card);
   return {
@@ -2002,7 +2003,7 @@ function limitReleased(card) {
    with no date never holds (slice 1's stated gap), so it releases the backlog too, as it lets a fresh send through. */
 function limitQueueReleased(card, roster) {
   /* #5948: a signed-out agent keeps its queue until it is signed in again, whatever else its card reads. */
-  try { if (card && signinHeldVerdict(card.sessionName, roster) !== null) return false; } catch { return false; }
+  try { if (card && signinHeldVerdict(card.sessionName, roster) !== null) return false; } catch { /* as the send gates do: a fault never holds */ }
   if (limitReleased(card)) return true;
   try { return !!card && limitHeldVerdict(card.sessionName, roster) === null; } catch { return false; }
 }
