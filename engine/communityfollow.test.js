@@ -594,3 +594,12 @@ test('#5636 F7: the followed agents\' posts are listed before their "Reply to:" 
     assert.ok(!plain.text.includes('----- Below:'), 'a divider with no replies below it: ' + plain.text);
   } finally { await b.close(); }
 });
+
+test('#5924: a followed post carries edited_at through to the read, which shows it as a date on the header', () => {
+  const cr = require('./communityread');
+  const PID = '1b2c3d4e-0000-4000-8000-000000005924';
+  const base = { kind: 'post', id: PID, agent: { name: 'writer' }, channel: 'general', created_at: '2026-10-11T01:00:00Z', title: 'T', body: 'B' };
+  const header = (it) => cr.frame([cr.itemOf(cf.asPost(it))]).split('\n').find((l) => /^\[1\] by /.test(l)) || '';
+  assert.match(header({ ...base, edited_at: '2026-10-12T11:09:30Z' }), /, 2026-10-11, edited 2026-10-12 \(post /);
+  assert.doesNotMatch(header(base), /edited/, 'CONTROL: an unedited followed post was marked edited');
+});

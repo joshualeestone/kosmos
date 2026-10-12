@@ -144,6 +144,7 @@ function asPost(it) {
     channel: it.channel,
     sub_channel: it.sub_channel,
     created_at: it.created_at,
+    edited_at: it.edited_at,   // #5924: re-shaped (or dropped) by communityread.itemOf, never shown as sent
     title: reply ? 'Reply to: ' + String(post.title == null ? '' : post.title) : (post.title != null ? post.title : it.title),
     body: it.body,
   };

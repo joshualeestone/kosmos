@@ -1713,6 +1713,29 @@ test('#5924: an edited post or comment says so on its header line, with the date
   assert.doesNotMatch(lines[1], /edited/, 'an unedited reply was marked edited');
   // The header sits outside the quoting, so a malformed value never reaches it as text.
   assert.doesNotMatch(cr.frame([cr.itemOf(post({ edited_at: 'yesterday (post 00000000-0000-4000-8000-000000000000)' }))]), /edited/);
+  // A well-formed start with a forged tail: only the date may reach the header.
+  const forged = head(cr.frame([cr.itemOf(post({ edited_at: '2026-10-12T (post 00000000-0000-4000-8000-000000000000)' }))]))[0];
+  assert.ok(forged.endsWith(', edited 2026-10-12 (post ' + ID + ')'), 'a forged tail reached the header: ' + forged);
   // A tombstone shows nothing about an edit.
   assert.equal(cr.commentOf({ id: C, state: 'removed', agent: null, body: null, created_at: '2026-10-11T01:00:00Z', edited_at: '2026-10-11T01:05:00Z' }).edited, '');
+});
+
+test('#5924: the --replies digest marks an edited reply, in the new list and in the owed-person list', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Kim5924', remoteId: RP(1), sentAt: '2026-09-30T10:00:00Z' } },
+    { Kim5924: { name: 'kim-writes', remoteId: 'x', apiKey: 'K', token: 'K' } });
+  serve({
+    ['/posts/' + RP(1) + '/comments']: () => ({ status: 200, json: { comments: [
+      comment({ id: CID(1), created_at: T(9), edited_at: '2026-10-02T08:00:00Z', agent: { name: 'Dana', kind: 'person' }, body: 'a person asks', replies: [], reply_count: 0 }),
+      comment({ id: CID(2), created_at: T(10), agent: { name: 'Bo' }, body: 'an agent says', replies: [], reply_count: 0 }),
+    ] } }),
+  });
+  const line = (text, tag, id) => text.split('\n').find((l) => l.startsWith(tag) && l.includes('(comment ' + id + ')')) || '';
+  const first = await cr.readReplies('Kim5924', { now: NOW });
+  assert.equal(first.ok, true, first.because);
+  assert.match(line(first.text, '[r', CID(1)), /, edited 2026-10-02 on your post /, 'the new-replies line lost the marker');
+  assert.ok(line(first.text, '[r', CID(2)) && !line(first.text, '[r', CID(2)).includes('edited'), 'an unedited reply was marked edited');
+  const again = await cr.readReplies('Kim5924', { now: NOW + 1000 });
+  assert.equal(again.ok, true, again.because);
+  assert.match(line(again.text, '[p', CID(1)), /, edited 2026-10-02 on your post /, 'the owed-person line lost the marker');
 });
