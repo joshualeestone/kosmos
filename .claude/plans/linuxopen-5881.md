@@ -19,8 +19,12 @@ Card: #5881 (Angel, found building #5865). Owner: April (night shift shard).
 1. A FOLDER (revealFolder; revealFile opens the file's folder, xdg-open cannot select a file): on Linux with a desktop
    (the board's own environment has DISPLAY or WAYLAND_DISPLAY) `xdg-open` is STARTED, detached, never waited on (review 1:
    on a desktop it does not know, it runs the file manager in the foreground, and waiting would hold the board's event
-   loop until that window closed). "ok" means started; a missing xdg-open (no xdg-utils) is said. No desktop: refused with
-   a sentence.
+   loop until that window closed). "ok" means started; a missing xdg-open (no xdg-utils) is said. It is given only what it
+   needs to reach the desktop (HOME, PATH, LANG, the display, XDG_RUNTIME_DIR, the session bus), never the board's own
+   environment and its tokens (review 2). No desktop: refused, "Kosmos cannot open it on this computer: it is not running
+   in a desktop session". Review 2: the board's own systemd unit sets no display, so an INSTALLED Linux board always
+   takes this refusal, even on a desktop machine; only a board started by hand from a desktop opens folders. Giving the
+   unit the session's display is the Linux port's call (#4916); suggested there.
 2. A FILE (openFile) is never opened on a Linux board (review 1): xdg-open would hand an agent-written .desktop file or
    script to whatever the desktop runs it with, a type Windows refuses (SAFETY 1); and the page downloads files there
    anyway. Refused after resolveListedFile's gates, with "download it instead".
@@ -35,10 +39,9 @@ every Linux board (a Linux desktop can open a folder, and opening a folder runs 
 machine.js (#5877), Antigravity (no Linux package), the buttons #5865 hides.
 
 ## Weakest premise
-That DISPLAY/WAYLAND_DISPLAY in the board's own environment means a person is at that desktop. A board run as a systemd
-user service may or may not have them (a desktop session can pass them into the user's services; a lingering service can
-keep a stale one). Missing one is the safe direction (the refusal); a stale one starts an xdg-open that fails unseen,
-because it is not waited on.
+That a refusal is the right answer for an installed board on a desktop machine (it is true there: the service is not in
+the desktop session, and the sentence says exactly that), until #4916 decides whether the service gets the display. A
+stale display starts an xdg-open that fails unseen, because it is not waited on.
 
 ## Tests
 engine (projects): each route on linux with and without a desktop through the runner seam; the PRODUCTION xdg-open line
