@@ -66,3 +66,19 @@ tunnel that cannot reach the coordinator fails the sign-in step, loudly.
   PASS with the account check never running. It now requires verify 409 with `reason: 'other-account'`.
 - **NITs, taken:** the stale "an own code carries no account" comment, the 703738ab date, and a header line rewrapped.
 - **Code changed after tonight's 49/49 run, so the harness runs again before the PR.**
+
+## Review 2 (sonnet, 2026-10-11 23:36)
+- **SHOULD-FIX, taken, and it matters:** review 1's stricter 7a sat inside the refusal branch only. A build that
+  ACCEPTED another account's code (verify 200, join 200) skipped it, and the accept branch's relay checks pass on a
+  true cross-account accept. So a regression dropping the account check at engine/federation.js stayed green. The
+  check is now asserted before the branch, on every path. The header's step 7 text (which still described C joining)
+  is rewritten to match.
+- **SHOULD-FIX, taken as a claim fix:** the both-families free-port check is checked once, at start; the coordinator
+  binds one family, so a process taking the other family's port later is not excluded. Local cross-talk only. Binding
+  both families is not possible with one KOSMOS_LISTEN, so the comment now says what is actually checked.
+- **Comment added:** the loopback allowlist is stricter than loopback (127.0.0.2, ::ffff:127.0.0.1 stop the run). That
+  fails closed, which is the safe direction.
+- **Not measured:** a mutant where the product accepts the code. It needs a modified engine and a full harness run;
+  the fix is a move of one assertion out of a branch, checked by reading. Weakest point of this round.
+- Confirmed by the reviewer against source: 409 other-account is returned only at engine/federation.js:392, after the
+  account check ran; the usage note's build line builds all three binaries.

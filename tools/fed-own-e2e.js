@@ -47,10 +47,12 @@
  *      The inbound federated text never reaches the other board's pane (typed.log),
  *      while each board's OWN local post does (the instrument's positive control, on
  *      both boards). Both typed.logs are read again at the very end of the run.
- *   7. Controls that can fail: (a) board C on a DIFFERENT account joins with A's own
- *      code and must end up in a different room, exchanging nothing with A or B; then
- *      C is stopped and its seat must LEAVE the relay's member list (the control for the
- *      log parser's "disconnected" half), while A's and B's stay; (b) with the relay
+ *   7. Controls that can fail: (a) board C on a DIFFERENT account must be refused A's
+ *      own code with verify 409, reason other-account (#4699), on every path. Should a
+ *      build accept it anyway (a FAIL), C must still end up in a different room,
+ *      exchanging nothing with A or B; then C is stopped and its seat must LEAVE the
+ *      relay's member list (the control for the log parser's "disconnected" half),
+ *      while A's and B's stay; (b) with the relay
  *      stopped, a post on A must not arrive on B (bounded wait) and a "not connected"
  *      note must be the very next row after THAT post in A's room (and the row after an
  *      earlier post must not be one); (c) the harness's own detector reports FAIL for a
@@ -58,8 +60,7 @@
  *      shown readable; (d) the relay-log parser is run on a fixture and must
  *      keep a seated member and drop a disconnected one; (e) the env allowlist check must
  *      flag a board's env, which is not service-shaped; (f) the pane recorder (typed.log)
- *      is driven with each typing verb and must log all of them. If C is instead refused
- *      A's code, the refusal must be a 4xx.
+ *      is driven with each typing verb and must log all of them.
  *   8. PASS/FAIL per step, a verdict, exit 1 on any FAIL. Every process it started
  *      (and each one's descendants: seats, tunnels) is stopped by exact pid, and the
  *      sandbox removed, on success and on failure. Once stopping has begun no new
@@ -149,6 +150,8 @@ function fedproofPortFreeOn(port, host) {
 }
 // Review 1: free on BOTH loopback families. A name that resolves to [::1, 127.0.0.1] lets a client try either, so
 // another process on the other family's port would be cross-talk with this run's coordinator.
+// Review 2: this is checked once, at start. The coordinator binds only one family, so a process that takes the other
+// family's port AFTER this check is not excluded. That is local cross-talk, never another machine.
 async function fedproofPortFree(port) {
   return (await fedproofPortFreeOn(port, '127.0.0.1')) && (await fedproofPortFreeOn(port, '::1'));
 }
@@ -503,6 +506,8 @@ async function main() {
   // could reach another machine.
   // Review 1: EVERY address the name resolves to must be loopback, not just the first: clients fall through the list,
   // so [::1, 10.x] would reach another machine whenever [::1] is not answering.
+  // Review 2: deliberately stricter than "loopback": 127.0.0.2 or ::ffff:127.0.0.1 also stop the run (fails closed). A
+  // resolver that answers those for *.localhost, or does not resolve it at all, cannot run this proof as written.
   const coordAll = await require('node:dns').promises.lookup(FEDPROOF_COORD_HOST, { all: true }).catch((e) => ({ error: e }));
   if (coordAll.error || !coordAll.length || coordAll.some((a) => !['127.0.0.1', '::1'].includes(a.address))) {
     throw new Error(FEDPROOF_COORD_HOST + ' must resolve ONLY to this machine (127.0.0.1 or ::1), got '
@@ -719,9 +724,15 @@ async function main() {
     pidC = r.status === 200 && r.json ? r.json.id : null;
   }
   info('C verify ' + cVerify + ', join ' + (pidC ? 'made project ' + pidC : 'refused'));
-  // Since #4699 a board refuses another account's own code (409 other-account), asserted below. Kept as a report, not
-  // a failure, should a build ever accept it: the SAFETY property (nothing crosses accounts) is then checked on the
-  // relay (C's seat must sit in its own account's room, never A's).
+  // Since #4699 a board refuses another account's own code. Review 1: verify answers 409 for several unrelated reasons
+  // (unchecked: no computer domain or not yet allowed; old-code; no-remote), and 'unchecked' is exactly what main's
+  // IP-addressed harness got, so only reason 'other-account' shows the account check itself refusing.
+  // Review 2: asserted HERE, on every path. Inside the refusal branch only, a build that ACCEPTED the code would skip
+  // it and pass on the relay checks below.
+  chk(cVerify === 409 && cReason === 'other-account', 'step 7a: C is REFUSED A\'s own code BECAUSE it is another account (verify 409, reason other-account)',
+    'verify ' + cVerify + ' reason ' + cReason + ', join ' + cJoin);
+  // Should a build accept it anyway, the SAFETY property (nothing crosses accounts) is still checked on the relay
+  // (C's seat must sit in its own account's room, never A's), as extra evidence beside the failure above.
   if (pidC) console.log('NOTE  a different account\'s computer ACCEPTED the own code (verify ' + cVerify + ', join 200): it gets a project that can never connect, and no refusal says why');
   if (pidC) {
     // C joined locally; its seat must be in ITS account's room, never A's.
@@ -765,13 +776,7 @@ async function main() {
       chk(seats.members.every((m) => kept.includes(m)), 'step 7a: A\'s and B\'s seats are still held after C\'s left (a disconnect of theirs would show)', kept.join(', '));
     }
   } else {
-    // A refusal proves the cross-account property only if it IS a refusal (a 4xx), not a
-    // crash or a timeout. The parser's "disconnected" half still has its step 2 fixture control.
-    // Review 1: since #4699 verify answers 409 for several unrelated reasons (unchecked: no computer domain or not yet
-    // allowed; old-code; no-remote), and 'unchecked' is exactly what main's IP-addressed harness got. Only
-    // reason 'other-account' shows the account check itself refusing, so that is what 7a requires.
-    chk(cVerify === 409 && cReason === 'other-account', 'step 7a: C is REFUSED A\'s own code BECAUSE it is another account (verify 409, reason other-account)',
-      'verify ' + cVerify + ' reason ' + cReason + ', join ' + cJoin);
+    // The parser's "disconnected" half still has its step 2 fixture control.
     console.log('NOTE  C never held a seat, so the relay-log parser\'s "disconnected" half had only its step 2 fixture control this run');
   }
 
