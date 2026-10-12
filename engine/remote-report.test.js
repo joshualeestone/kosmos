@@ -86,6 +86,11 @@ test('classify: each known failure kind gets its code, anything else is other, n
     ['reading /Users/j/remote/mac_id', 'state-file-unreadable'],
     ['/Users/j/remote/mac_identity does not hold an id and a key', 'state-file-unreadable'],
     ['/Users/j/remote/mac_id holds no id', 'state-file-unreadable'],
+    // Review 5: the default state dir has a space in it, and so can a Windows profile.
+    ['reading /Users/j/Library/Application Support/Kosmos/remote/mac_identity: Permission denied (os error 13)', 'state-file-unreadable'],
+    ['reading /Users/j/Library/Application Support/Kosmos/remote/mac_id', 'state-file-unreadable'],
+    ['reading C:\\Users\\Jo Smith\\AppData\\Roaming\\Kosmos\\remote\\mac_identity: Access is denied. (os error 5)', 'state-file-unreadable'],
+    ['reading /Users/j/Library/Application Support/Kosmos/remote/not_mac_identity: Permission denied', 'other'],
     // Not a state file: reading a file merely NAMED like one must not match.
     ['reading /Users/j/remote/mac_identity.md.bak2 failed', 'other'],
     ['relay refused the tunnel: bad ticket', 'relay-refused'],

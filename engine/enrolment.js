@@ -31,6 +31,8 @@ function enrolledBy(exists) {
    at every registration, in one step, and the old `mac_id` / `mac_key` pair after it for older readers. So: the id
    in `mac_identity` names it, unless the `mac_id` file names a DIFFERENT id and is NEWER (an older tunnel, which
    writes only the pair, registered since). No `mac_identity` (registered before it existed): the `mac_id` file.
+   This rests on every registration getting a NEW id (the coordinator's register_mac mints one, util::new_id, into a
+   primary key): a re-registration under the same id with a new key would keep mac_identity's old key here.
    ⚠️ COUPLING, across a repo: this is the rule of kosmos-relay crates/tunnel/src/coordinator.rs
    MacState::identity_record, so the app and the tunnel always name the same computer. Change them together.
    A mac_identity without BOTH an id and a key, or one that cannot be read (read throws), is no id (null), never

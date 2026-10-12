@@ -36,7 +36,8 @@ test('#5871: with no mac_id file, nothing names the computer (the tunnel will no
   assert.equal(pick({ [IDENTITY_FILE]: 'mac-only\nKEY\n' }), null);
 });
 
-/* The SAME rows as the tunnel's identity_rule_table (kosmos-relay crates/tunnel/src/coordinator.rs): change both. */
+/* The SAME rows as the tunnel's identity_rule_table (kosmos-relay crates/tunnel/src/coordinator.rs), copied by hand:
+   nothing compares the two, so a row changed on one side only stays green on both. Change both. */
 test('#5871: the rule table shared with the tunnel', () => {
   const rows = [
     ['no mac_identity', null, 'mac-a', '=', 'mac-a'],
