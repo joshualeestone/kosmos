@@ -71,7 +71,9 @@ _notarize_xattr() { "${KOSMOS_NOTARY_XATTR_CMD:-xattr}" "$@"; }
 # Prints the main executable of a .app (CFBundleExecutable from its XML Info.plist), or nothing.
 _notarize_app_exe() {
   local name
-  name="$(sed -n '/<key>CFBundleExecutable<\/key>/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' "$1/Contents/Info.plist" 2>/dev/null | head -1)" || name=""
+  # Flattened first: setup.sh's plist (which the build copies) has the key and its string on ONE line; others split them.
+  name="$(tr -d '\n\r' < "$1/Contents/Info.plist" 2>/dev/null \
+    | sed -n 's/.*<key>CFBundleExecutable<\/key>[[:space:]]*<string>\([^<]*\)<\/string>.*/\1/p' | head -1)" || name=""
   [ -n "$name" ] && [ -f "$1/Contents/MacOS/$name" ] && printf '%s\n' "$1/Contents/MacOS/$name"
 }
 

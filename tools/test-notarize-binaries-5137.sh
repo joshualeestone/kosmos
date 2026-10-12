@@ -257,7 +257,8 @@ HK=5555555555555555555555555555555555555555
 APP="$WORK/apps/Kosmos.app"
 mkdir -p "$APP/Contents/MacOS"
 printf 'kosmos\n' > "$APP/Contents/MacOS/Kosmos"
-printf '<plist><dict>\n<key>CFBundleExecutable</key>\n<string>Kosmos</string>\n</dict></plist>\n' > "$APP/Contents/Info.plist"
+# The shape setup.sh's heredoc really has (the build copies it): key and string on ONE line. A split layout is checked below.
+printf '<plist version="1.0"><dict>\n  <key>CFBundleName</key><string>Kosmos</string>\n  <key>CFBundleExecutable</key><string>Kosmos</string>\n</dict></plist>\n' > "$APP/Contents/Info.plist"
 cs_app_stub() { if [ "$4" = "$APP" ] && [ "$3" = arm64 ]; then echo "CDHash=$HK" >&2; else cs_stub "$@"; fi; }
 # stapler: ST_STAPLE_FAIL_TIMES makes the first N staples fail; ST_VALIDATE=fail fails validate.
 st_stub() {
@@ -306,6 +307,13 @@ NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" XA_FAIL=1; rc=$(runapp)
 [ "$rc" = 1 ] && ok "app: a copy that could not be quarantined refuses (an unquarantined pass proves nothing)" || bad "assessed without quarantine"
 unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
 NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK"
+cp "$APP/Contents/Info.plist" "$WORK/plist.oneline"
+printf '<plist><dict>\n<key>CFBundleExecutable</key>\n<string>Kosmos</string>\n</dict></plist>\n' > "$APP/Contents/Info.plist"
+rc=$(runapp)
+[ "$rc" = 0 ] && ok "app: a plist with the key and string on separate lines is read too" || bad "split-layout plist refused (rc=$rc): $(cat "$WORK/out")"
+cp "$WORK/plist.oneline" "$APP/Contents/Info.plist"
+_real="$(awk '/cat > "\$target\/Info.plist" <<PLIST/ { f = 1; next } f && /^PLIST$/ { exit } f' "$REPO/install/setup.sh" | grep -c '<key>CFBundleExecutable</key><string>')"
+[ "$_real" = 1 ] && ok "app: the fixture's one-line layout is setup.sh's real one (the plist the build copies)" || bad "setup.sh's Info.plist no longer has CFBundleExecutable on one line ($_real); re-check the fixture"
 rm -f "$APP/Contents/Info.plist"; rc=$(runapp)
 [ "$rc" = 1 ] && grep -q 'main executable' "$WORK/out" && ok "app: a bundle with no readable main executable refuses before submitting" || bad "an app with no executable passed (rc=$rc)"
 [ "$(ran submit)" = 0 ] && ok "app: and nothing was submitted for it" || bad "submitted an app with no executable"
@@ -332,6 +340,6 @@ pack="$(grep -n '^echo "==> packing"' "$B" | head -1 | cut -d: -f1)"
   || bad "order wrong: notarise=$call last-sign=$last_sign last-selftest=$last_selftest pack=$pack"
 
 echo "test-notarize-binaries-5137: $passes passed, $fails failed"
-EXPECTED=75   # the number of ok lines above; a skipped arm must not read as green
+EXPECTED=77   # the number of ok lines above; a skipped arm must not read as green
 [ "$passes" = "$EXPECTED" ] || echo "test-notarize-binaries-5137: $passes passes, expected $EXPECTED (an arm was skipped or added without updating EXPECTED)"
 [ "$fails" = 0 ] && [ "$passes" = "$EXPECTED" ]
