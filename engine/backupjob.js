@@ -61,16 +61,17 @@ function backoffMs(waits) {
 }
 
 /* The key step. deps: { ensureMemberKey, pair?, now? } (now in whole milliseconds, as Date.now). Resolves
-   { ok: true, key: { epoch, publicKey, org?, member? }, state, lostEpochIgnored? }
-   or { ok: false, because, waiting?, pendingEpoch?, lostEpochIgnored?, unreadableKeyFile?, refusal?, otherPair?, state }.
-   key.org and key.member are the pair the answer named, when it named one. Never throws. */
+   { ok: true, key: { epoch, publicKey, org?, member? }, state, lostEpochIgnored?, pair? }
+   or { ok: false, because, waiting?, pendingEpoch?, lostEpochIgnored?, unreadableKeyFile?, refusal?, otherPair?, needsPair?,
+   pair?, state }. pair, and key.org and key.member, are the pair the answer named, when it named one. Never throws. */
 async function memberKeyFor(state, deps) {
   const st = cleanState(state);
   const now = (deps && deps.now) || Date.now;
   const ensure = deps && deps.ensureMemberKey;
   if (typeof ensure !== 'function') return { ok: false, because: 'no member key step', state: st };
   const pair = isPair(deps.pair) ? { org: deps.pair.org, member: deps.pair.member } : null;
-  if (st.lostEpoch && !pair) return { ok: false, because: 'the backup state does not say which company and member it is for', state: st };
+  // needsPair: a caller mistake (the state was read from its pair's file, so the pair is known), refused loudly.
+  if (st.lostEpoch && !pair) return { ok: false, needsPair: true, because: 'the backup state does not say which company and member it is for', state: st };
   if (st.waitUntilMs && now() < st.waitUntilMs && st.waitUntilMs - now() <= BACKOFF_MAX_MS) {
     return { ok: false, waiting: true, because: 'Kosmos+ takes a new backup key at most once a day; this computer tries again later', state: st };
   }
@@ -81,6 +82,12 @@ async function memberKeyFor(state, deps) {
   if (pair && named && (named.org !== pair.org || named.member !== pair.member)) {
     return { ok: false, otherPair: named, because: 'Kosmos+ named another company or member than this backup state is for', state: st };
   }
+  // Every result after an answer that named its pair says so (`pair`), ok or not: a first run (no deps.pair) that
+  // records a lostEpoch must tell its caller which pair's file to keep it in, or the next run refuses as needsPair.
+  const out = fromAnswer(st, r, named, now);
+  return named ? Object.assign(out, { pair: named }) : out;
+}
+function fromAnswer(st, r, named, now) {
   if (r && r.ok && isEpoch(r.epoch) && Buffer.isBuffer(r.publicKey) && r.publicKey.length === 32) {
     // An answer below the lost epoch comes when ensureMemberKey ignored lostEpoch (it is not the file's newest
     // registered key): that key is older still, so it is the one to replace next run. Never sealed under. (Equal is
@@ -118,7 +125,7 @@ function afterSnapshot(state, key, result) {
 
 /* One run: the key step, then (only under an ok key) deps.snapshot({ memberPk, epoch, org?, member? }), where epoch is
    the key's context id and org and member are the pair the key step's answer named. deps: { ensureMemberKey, snapshot,
-   pair?, now? }. Resolves { state, key?, result }: result is the key step's
+   pair?, now? }. A refusal's flags are memberKeyFor's (otherPair, needsPair and pair among them). Resolves { state, key?, result }: result is the key step's
    refusal when no snapshot was taken (its because and flags), else the snapshot's own
    result. key, when present, carries the key step's lostEpochIgnored. Never throws. */
 async function runOnce(state, deps) {
