@@ -1036,6 +1036,7 @@ const openaiAccounts = require('./engine/openaiaccounts');
 const claudeAccounts = require('./engine/claudeaccounts');
 const geminiAccounts = require('./engine/geminiaccounts'); // #3296 accounts slice
 const grokAccounts = require('./engine/grokaccounts');     // #3391 accounts slice
+const qwenAccounts = require('./engine/qwenaccounts');     // #5977
 const codexupdate = require('./engine/codexupdate');
 const runners = require('./engine/runners');
 const github = require('./engine/github');
@@ -2284,7 +2285,7 @@ function accountForAgent(name, known) {
      OpenAI's: "a codex dir cannot equal a claude row's dir" held while codex was the only
      foreign runner. Claude rows carry no provider, keyed rows carry theirs. */
   const wantProvider = ({ codex: 'openai', gemini: 'google', grok: 'xai' })[job.runner] || null;
-  const isKeyedRow = (x) => !!(x && (x.provider === 'openai' || x.provider === 'google' || x.provider === 'xai'));
+  const isKeyedRow = (x) => !!(x && (x.provider === 'openai' || x.provider === 'google' || x.provider === 'xai' || x.provider === 'alibaba'));   // #5977
   const found = dir
     ? list.find((x) => x.dir === dir)
     : list.find((x) => x.isDefault && (foreign ? (!!wantProvider && x.provider === wantProvider) : !isKeyedRow(x)));
@@ -2767,7 +2768,7 @@ function handleApikeyAccountDelete(req, res, { mod, runner }) {
       }
       /* #3391: a Grok subscription account holds a sign-in, not a key; say which. */
       let what = 'key';
-      try { const who = mod.identityOf(dir); if (who && who.authMode === 'subscription') what = 'sign-in'; } catch { /* keep "key" */ }
+      try { const who = mod.identityOf(dir); if (who && who.authMode === 'subscription') what = 'sign-in'; if (who && who.authMode === 'endpoint') what = 'endpoint setting'; } catch { /* keep "key" */ }
       const result = remove ? mod.removeAccount(dir, usedBy) : mod.forgetAccount(dir, usedBy);
       if (!result.ok) {
         /* #3566: stopUnavailable -- this route has no disconnect-and-stop (see above), so
@@ -2785,6 +2786,50 @@ function handleApikeyAccountDelete(req, res, { mod, runner }) {
           because: result.forgotten ? `That account is off the list. Its ${what} is set aside on this computer, so nothing was deleted.` : (result.because || 'That account is already gone from this computer.') });
     })
     .catch(() => sendJson(res, 400, { error: deleteDoor ? 'we could not delete that account' : 'we could not read that request' }));
+}
+
+/* #5977: add a Qwen account (an OpenAI-compatible endpoint the codex runner is pointed at). Body:
+   { baseUrl, model, contextWindow?, key?, label?, name? }. The endpoint is checked before anything is written: an
+   endpoint that positively says no (the model is not there, the key is refused) stores nothing; one that cannot be
+   reached is stored and said so (Ollama may simply not be running yet). An existing account is never overwritten. */
+function handleQwenAccountStore(req, res) {
+  readBody(req)
+    .then(async (raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      if (!runners.resolveBin('codex').present || runners.installing('codex')) {
+        sendJson(res, 400, { error: 'we could not find Codex, the runner Qwen agents use, on this computer', needsRunner: true, provider: 'codex' });
+        return;
+      }
+      const ep = {
+        baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl.trim() : '',
+        model: typeof body.model === 'string' ? body.model.trim() : '',
+        contextWindow: body.contextWindow === undefined || body.contextWindow === null ? qwenAccounts.LOCAL.contextWindow : body.contextWindow,
+      };
+      if (typeof body.key === 'string' && body.key.trim() !== '') ep.key = body.key.trim();
+      const problem = qwenAccounts.endpointProblem(ep);
+      if (problem) { sendJson(res, 400, { error: problem }); return; }
+      const label = typeof body.label === 'string' && body.label.trim() !== ''
+        ? body.label : (qwenAccounts.isLocal(ep.baseUrl) ? 'local' : 'endpoint');
+      const named = qwenAccounts.dirForLabel(label);
+      if (!named.ok) { sendJson(res, 400, { error: named.because }); return; }
+      let exists = false;
+      try { fs.lstatSync(named.dir); exists = true; } catch { exists = false; }
+      if (exists) {
+        sendJson(res, 409, { error: `there is already a Qwen account called ${named.label} on this computer; give this one another name` });
+        return;
+      }
+      const live = await qwenAccounts.validateLive(ep);
+      if (live.state === qwenAccounts.STATE.NONE) { sendJson(res, 400, { error: live.because }); return; }
+      try { qwenAccounts.storeEndpoint(named.dir, ep); }
+      catch { sendJson(res, 400, { error: 'we could not save this Qwen account on this computer' }); return; }
+      if (typeof body.name === 'string' && body.name.trim()) qwenAccounts.writeName(named.dir, body.name);
+      const account = qwenAccounts.list().find((a) => a.dir === named.dir) || null;
+      const connection = { state: live.state, because: live.because };
+      sendJson(res, 200, { ok: true, account: account ? { ...account, connection } : null, connection });
+    })
+    .catch(() => sendJson(res, 400, { error: 'we could not add that Qwen account' }));
 }
 
 /* #1279 GLOBAL PER-CREATOR ACTIVE-AGENT CAP.
@@ -5484,7 +5529,7 @@ const server = http.createServer(async (req, res) => {
          them apart: a folder matches only its own row, and a dir-less default matches only the runner's
          provider. OpenAI's list is left out on purpose: codex agents keep their existing account shape. */
       const listOf = (m) => { try { return m.list(); } catch { return []; } };
-      const known = listOf(accounts).concat(listOf(geminiAccounts), listOf(grokAccounts));
+      const known = listOf(accounts).concat(listOf(geminiAccounts), listOf(grokAccounts), listOf(qwenAccounts));   // #5977: a Qwen agent names its Qwen account
       /* 🛑 `null` HERE MEANS ONE THING ONLY: we could not read this agent's
          launch file, so we do not know. It does NOT mean the default account.
          The first version let the SCREEN decide, by falling back to "your
@@ -10630,8 +10675,8 @@ const server = http.createServer(async (req, res) => {
     const grokSubStarted = new Map(grokAccounts.list()
       .filter((a) => a && a.dir && a.authMode === 'subscription')
       .map((a) => [a.dir, grokAccounts.subscriptionLive(a.dir).catch(() => ({ verdict: 'unknown', because: 'we could not check this sign-in just now' }))]));
-    Promise.all([accounts.listLive(), openaiAccounts.listLive(), geminiAccounts.listLive(), grokAccounts.listLive()])
-      .then(async ([claudeRows, openaiRows, geminiRows, grokRows]) => {
+    Promise.all([accounts.listLive(), openaiAccounts.listLive(), geminiAccounts.listLive(), grokAccounts.listLive(), qwenAccounts.listLive()])
+      .then(async ([claudeRows, openaiRows, geminiRows, grokRows, qwenRows]) => {
         /* #1921: overlay each Claude account's badge with the LAST OBSERVED
            real-call outcome (engine/observed), joined to the account via the SAME
            accountForAgent the status route uses -- NOT a second copy of the
@@ -11034,7 +11079,10 @@ const server = http.createServer(async (req, res) => {
             // The secrets/env door a launch falls back to when a folder's own key is missing (tokendoor.fileFor).
             (v) => soa.fileThere(tokendoor.fileFor(v)));   // any other fault: unsure, never "gone"
         } catch { unlistedAccounts = []; unlistedComplete = false; }
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub], unlistedAccounts, unlistedComplete });
+        /* #5977: Qwen accounts, badged from their live check alone (the endpoint lists the model, or says no): an
+           endpoint reached with its model is signed_in_unverified until an agent is seen using it. */
+        const qwen = (qwenRows || []).map((a) => ({ ...a, connection: { ...(a.connection || {}), badge: observed.verdict({ checkLiveState: a.connection && a.connection.state }).badge } }));
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub, ...qwen], unlistedAccounts, unlistedComplete });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;
@@ -11397,6 +11445,31 @@ const server = http.createServer(async (req, res) => {
   }
   if (pathname === '/api/accounts/grok' && req.method === 'DELETE') {
     handleApikeyAccountDelete(req, res, { mod: grokAccounts, runner: 'grok' });
+    return;
+  }
+  /* #5977: Qwen accounts. Add one (an endpoint), disconnect or delete one (the same fail-closed agents guard, on the
+     codex runner Qwen agents use), and check one live (GET <baseUrl>/models). */
+  if (pathname === '/api/accounts/qwen' && req.method === 'POST') {
+    handleQwenAccountStore(req, res);
+    return;
+  }
+  if (pathname === '/api/accounts/qwen' && req.method === 'DELETE') {
+    handleApikeyAccountDelete(req, res, { mod: qwenAccounts, runner: 'codex' });
+    return;
+  }
+  if (pathname === '/api/accounts/qwen/check' && req.method === 'POST') {
+    readBody(req)
+      .then(async (raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const dir = body && typeof body === 'object' ? String(body.dir || '') : '';
+        if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const acct = qwenAccounts.list().find((a) => a.dir === path.resolve(dir));
+        if (!acct) { sendJson(res, 404, { error: 'we could not find that Qwen account on this computer' }); return; }
+        const c = await qwenAccounts.checkLive(acct.dir);
+        sendJson(res, 200, { state: c.state, because: c.because });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not check that Qwen account' }));
     return;
   }
   /* #3391: connect a Grok account with a SUBSCRIPTION (device sign-in, no key). The

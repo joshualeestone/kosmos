@@ -118,6 +118,13 @@ function isEndpointHome(dir) {
   try { return fs.statSync(endpointFile(dir)).isFile(); } catch { return false; }
 }
 
+/* There is no default Qwen account (every one is a named folder). Present for callers written for every keyed
+   provider, such as the server's account delete, which compare a folder with the provider's default. */
+function defaultDir() { return null; }
+
+/* What kind of credential an account holds, in the shape the other providers' identityOf answers. */
+function identityOf(dir) { return readEndpoint(dir).kind === 'absent' ? null : { authMode: 'endpoint' }; }
+
 function isLocal(baseUrl) {
   try {
     const h = new URL(baseUrl).hostname;
@@ -363,7 +370,7 @@ if (require.main === module) {
 module.exports = {
   CODEX_PROVIDER_ID, KEY_ENV, launchArgs,
   STATE, PROVIDER, PROVIDER_NAME, LOCAL, MIN_CONTEXT, DIR_PREFIX, FORGOTTEN_PREFIX, ENDPOINT_BASENAME,
-  homeDir, endpointFile, endpointProblem, readEndpoint, isEndpointHome, isLocal, list,
+  homeDir, defaultDir, identityOf, endpointFile, endpointProblem, readEndpoint, isEndpointHome, isLocal, list,
   cleanLabel, dirForLabel, storeEndpoint,
   setFetcher, askModels, validateLive, checkLive, listLive,
   forgetAccount, removeAccount,
