@@ -290,7 +290,10 @@ bundle_is_ours() {
   [ ! -L "$1/Contents/Resources/kosmos-install.json" ] || return 1
   # #5896 slice 2: the SEALED shape carries no per-install file at all (every per-install fact lives in the account's
   # own Library), so its proof is its signature instead. Only a bundle with no such file is asked for it.
+  # A residue sweep passes BUNDLE_SEALED_OK=0: a sealed leftover could be ANOTHER account's stage or aside, and only
+  # the per-install anchor can tell that apart, so there it is left and named.
   if [ ! -e "$1/Contents/Resources/kosmos-install.json" ]; then
+    [ "${BUNDLE_SEALED_OK:-1}" = 1 ] || return 1
     bundle_is_sealed "$1"
     return
   fi
@@ -303,11 +306,16 @@ bundle_is_ours() {
 # so the Team ID is never spelled here. Every account's sealed icon is the same app, so this proves "a Kosmos we
 # built", not "this install's": safe for REPLACING an icon (each account reads its own config), never enough for
 # deleting a shared one (uninstall leaves that). /usr/bin/codesign by absolute path, as /usr/bin/grep above.
-bundle_is_sealed() {
-  local ours="$KOSMOS_HOME/app/Kosmos.app" req
+sealed_requirement() {
+  local ours="$KOSMOS_HOME/app/Kosmos.app"
   [ -d "$ours" ] && [ ! -L "$ours" ] || return 1
   # An implicit requirement (the usual case, Developer ID or ad-hoc) prints as a comment: "# designated => ...".
-  req="$(/usr/bin/codesign -d -r- "$ours" 2>&1 | /usr/bin/sed -n 's/^#* *designated => //p')"
+  /usr/bin/codesign -d -r- "$ours" 2>&1 | /usr/bin/sed -n 's/^#* *designated => //p'
+}
+bundle_is_sealed() {
+  # SEALED_REQ: uninstall reads it BEFORE it deletes $KOSMOS_HOME (and the shipped copy with it), then sweeps icons.
+  local req="${SEALED_REQ:-}"
+  [ -n "$req" ] || req="$(sealed_requirement)" || return 1
   [ -n "$req" ] || return 1
   /usr/bin/codesign --verify --deep --strict "-R=$req" "$1" >/dev/null 2>&1
 }
@@ -1390,6 +1398,9 @@ _kosmos_data_root() {
 
 uninstall() {
   step "Removing Kosmos."
+  # #5896 slice 2: the sealed icon is proven against this install's shipped copy, which the removal below deletes
+  # before the icons are swept, so its requirement is read now.
+  SEALED_REQ="$(sealed_requirement 2>/dev/null)" || SEALED_REQ=""
   # Shared by the icon removals below: unregister BEFORE deleting (a -u on
   # an already-deleted path is likely a no-op, leaving the stale Spotlight
   # record the call exists to clear) and re-register on a failed removal
@@ -2029,7 +2040,7 @@ KOSMOS_SWEEP_LIST
     fi
     for _res in "$APP_DIR"/.Kosmos.app.stage.* "$APP_DIR"/.Kosmos.app.old.*; do
       { [ -e "$_res" ] || [ -L "$_res" ]; } || continue
-      if bundle_is_ours "$_res"; then
+      if BUNDLE_SEALED_OK=0 bundle_is_ours "$_res"; then
         rm -rf "$_res" 2>/dev/null || info "note: could not remove the leftover hidden folder $_res; drag it to the Trash to finish."
       else
         # "could not be proven": a foreign account's aside fails the grep,
@@ -2162,7 +2173,7 @@ KOSMOS_SWEEP_LIST
     for _res in "$SYS_APP_DIR"/.Kosmos.app.stage.* "$SYS_APP_DIR"/.Kosmos.app.old.* \
                 "$HOME_APP_DIR"/.Kosmos.app.stage.* "$HOME_APP_DIR"/.Kosmos.app.old.*; do
       { [ -e "$_res" ] || [ -L "$_res" ]; } || continue
-      if bundle_is_ours "$_res"; then
+      if BUNDLE_SEALED_OK=0 bundle_is_ours "$_res"; then
         rm -rf "$_res" 2>/dev/null || info "note: could not remove the leftover hidden folder $_res; drag it to the Trash to finish."
       else
         # "could not be proven": a foreign account's aside fails the grep,
@@ -3448,7 +3459,7 @@ make_app() {
   local _res
   for _res in "$appdir"/.Kosmos.app.stage.* "$appdir"/.Kosmos.app.old.*; do
     { [ -e "$_res" ] || [ -L "$_res" ]; } || continue
-    if bundle_is_ours "$_res"; then
+    if BUNDLE_SEALED_OK=0 bundle_is_ours "$_res"; then
       rm -rf "$_res" 2>/dev/null || true
     fi
   done
@@ -3577,9 +3588,20 @@ write_install_config() {
 # failed write, a tarball without the sealed app) the per-install bundle is built exactly as before.
 app_bundle_into() {
   local src="$KOSMOS_HOME/app/Kosmos.app"
-  if [ "${_wic_rc:-1}" = 0 ] && [ -d "$src" ] && [ ! -L "$src" ] \
+  # The file must also be where the app will look: an app opened from the Finder reads the REAL home's Library, so
+  # an AGENT_WORKFORCE_HOME elsewhere qualifies only in a harness whose app folder is itself a sandbox (which launches
+  # the app with that environment).
+  local reads_it=no
+  if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "$AGENT_WORKFORCE_HOME" -ef "$HOME" ] \
+     || [ -n "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ]; then
+    reads_it=yes
+  fi
+  if [ "${_wic_rc:-1}" = 0 ] && [ "$reads_it" = yes ] && [ -d "$src" ] && [ ! -L "$src" ] \
      && /usr/bin/codesign --verify --deep --strict "$src" >/dev/null 2>&1; then
     /usr/bin/ditto "$src" "$1" || return 1
+    # #4449: the icon's own modes, not the app tree's (KOSMOS_READONLY_APP makes that read-only, and a read-only icon
+    # could not be replaced or removed later). Modes are not part of the signature.
+    /bin/chmod -R u+w "$1" || return 1
     /usr/bin/codesign --verify --deep --strict "$1" >/dev/null 2>&1 || return 1
     return 0
   fi

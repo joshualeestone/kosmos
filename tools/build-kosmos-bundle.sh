@@ -765,8 +765,10 @@ if [ -f "$STAGE/app/assets/Kosmos.icns" ]; then cp "$STAGE/app/assets/Kosmos.icn
 # hardened runtime, timestamp and entitlements as the binary above (#4409: the mic needs the entitlement here too).
 codesign_ts_retry --force --options runtime --timestamp --entitlements "$REPO/native-app/kosmos-app.entitlements" -s "$_codesign_id" "$_sealed" || {
   printf '%s\n' "could not Developer ID sign the sealed Kosmos.app as \"$_codesign_id\". NOT falling back to ad-hoc." >&2; exit 1; }
-codesign --verify --deep --strict "$_sealed" 2>&1 | sed 's/^/    /'
-[ "${PIPESTATUS[0]}" -eq 0 ] || { echo "the sealed Kosmos.app's signature did not verify (--deep --strict) after signing" >&2; exit 1; }
+if ! _sealed_v="$(codesign --verify --deep --strict "$_sealed" 2>&1)"; then
+  printf '%s\n' "$_sealed_v" | sed 's/^/    /' >&2
+  echo "the sealed Kosmos.app's signature did not verify (--deep --strict) after signing" >&2; exit 1
+fi
 _sealed_id="$(codesign -dv "$_sealed" 2>&1 | sed -n 's/^Identifier=//p')"
 [ "$_sealed_id" = "com.chaoskosmos.kosmos" ] || { echo "the sealed Kosmos.app is signed as '$_sealed_id', not com.chaoskosmos.kosmos" >&2; exit 1; }
 case "$(codesign -d --entitlements - --xml "$_sealed" 2>/dev/null)" in
