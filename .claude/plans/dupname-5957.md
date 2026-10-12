@@ -101,3 +101,14 @@ whether or not it runs. Tested by calling `nameCheckFleet('win32')` with a recor
 a Mac or Linux is read strictly (`status.createdKeysStrict`): a source that fails refuses the check rather than reading
 as "no stopped agents". `win32sessions.read()` answers {} for an unreadable record rather than throwing, so on Windows
 that one source fails open; the roster arm still fails closed.
+
+## Also in this branch (review iterations 3, 7 and 9)
+
+- **The profile route's catch-all answers in a sentence.** The agent page now shows this route's error, so a thrown
+  message (an errno, a temp path) must not reach it: a malformed body says to send JSON, anything else says it did not
+  save, and the real cause goes to stderr. Nothing in the route throws a person-facing sentence today (checked). A body
+  over 6 MB never gets a reply at all (readBody destroys the request; measured ECONNRESET), as before this change.
+- **`except` is compared by the store key**, so a route reached as `/api/agent/Gemini/...` excepts the gemini agent.
+- **What "fails closed" covers:** a roster that cannot be read (safeRoster answers null) and a created list that cannot
+  be read both refuse. A tmux with no server is a true empty roster. On Windows the session record answers {} when
+  unreadable, so that one source fails open.
