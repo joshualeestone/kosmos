@@ -54,3 +54,4 @@ makes a third snapshot impossible, which the newPeriod test asserts (exactly two
 5. NIT: the never-throws test never reached runNow's own catch (R11 was killed by other tests). FIXED: a pointer path
    that is a folder makes writePointer throw inside runNow.
 6. NIT: the granted week's write-before was unproven. FIXED: asserted on the second call, and both slots kept.
+Mutants after review 1 (19:20 CDT from `date`), all red (pass 13 fail 1 each): S1 the restart skips reading state (the reviewer's survivor), S2 always "ran", S3 the final write drops the run's flags, S4 a refused first run restarts, S5 it keeps no job state, S6 runNow's catch rethrows, S7 took never set.
