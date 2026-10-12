@@ -52,13 +52,16 @@ Residuals, stated:
 - The ps match is split on spaces: a path with a space is not seen, nor, for the instant before the #5467 re-exec,
   shell options before the path or `env bash`.
   A ps that fails or prints nothing blocks the move ("could not list processes").
+- Readers of the lib that are not queued-heavy.sh: in this repo only heavy-gate.sh looks at the shared checkout, and
+  it only tests that cut-guard.sh exists (to choose a hint), so during a move it can briefly name the other copy. A
+  script outside this repo that sources it without holding a marker or working inside the checkout is not seen.
 - A move replaces the whole checkout, so a process whose working directory is inside it blocks the move (lsof -d
   cwd, about 0.3 s). A process using files there without its working directory there is not seen.
 - kill -0 on a live holder owned by another user fails (EPERM) and reads as dead; every agent here is one user.
   A lock whose pid was reused by another command is taken over (the holder records its command line).
 
 ## Tests
-tools/test-queued-heavy-4977.sh, twenty-three #5923 arms (EXPECTED 128), listed in the file. Two use the REAL ps under a
+tools/test-queued-heavy-4977.sh, twenty-four #5923 arms (EXPECTED 129), listed in the file. Two use the REAL ps under a
 private script name (QH_TEST_PS_NAME): the run does not count itself (perturbed by removing the ppid exclusion: that
 arm went red), and its control, a live process of that name, blocks the move. The rest use the QH_TEST_PS and
 QH_TEST_CWD seams so real processes on the box cannot sway them.

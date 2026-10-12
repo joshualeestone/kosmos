@@ -317,6 +317,12 @@ live_held5923="$(lh5923 live)"; live_waiting5923=0; kill -0 $LIVE5923 2>/dev/nul
 rm -rf $S/ml5923-live/queued-heavy-lib.lock
 wait $LIVE5923
 ok "#5923: a lib lock held by a live holder is respected (nothing moves while held), and the run moves once it is released" '[ "$live_waiting5923" = 1 ] && [ "$live_held5923" != "$(lm5923 live)" ] && [ "$(cat $S/live5923.rc)" = 0 ] && [ "$(lh5923 live)" = "$(lm5923 live)" ] && grep -q moved $S/live5923.out'
+# A default folder that is a git checkout but has no cut-guard.sh does not fall back to the repo's main checkout (a
+# move there recreates the file, and a run reading in that instant must not load another lib): it exits 3 at the load.
+mkdir -p $S/l5923-nolib/h/work/kosmos-bc-main-4610 && $GE git -C $S/l5923-nolib/h/work/kosmos-bc-main-4610 init -q
+qh_repo $S/l5923-nolib/repo 1
+o=$(env -u QUEUED_HEAVY_LIB HOME=$S/l5923-nolib/h KOSMOS_RUN_MARKER_DIR=$S/ml5923-nolib perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/l5923-nolib/repo/tools/queued-heavy.sh "lib-nolib" touch $S/l5923-nolib-ran 2>&1); rc=$?
+ok "#5923: a default folder that is a git checkout without cut-guard.sh exits 3 and does not fall back to the repo's main checkout" '[ "$rc" = 3 ] && [ ! -e $S/l5923-nolib-ran ] && [[ "$o" == *"could not load cut-guard.sh"* ]] && [[ "$o" != *"main checkout"* ]]'
 # The REAL ps (no QH_TEST_PS): the run's own pipeline subshell keeps this script's argv and must not read as a waiter.
 # QH_TEST_PS_NAME gives the script a name no real waiter on this box carries. Control: a live process of that name blocks.
 for n in rp rpc; do qh_lib5923 $S/l5923-$n; mkdir -p $S/ml5923-$n $S/rp5923-$n; cp "$REAL_QH" $S/rp5923-$n/qh5923self-$U.sh; done
@@ -470,7 +476,7 @@ sed 's|  exec /bin/bash "${BASH_SOURCE\[0\]}" --queued-args "$_qh_af"|  exec /no
 mkdir -p $S/tmpx; o=$(TMPDIR=$S/tmpx KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash $S/qh-noexec.sh "noexec" true 2>&1); r=$?
 ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"could not restart itself"* ]] && [ -z "$(ls $S/tmpx)" ] && grep -q /nonexistent/bash $S/qh-noexec.sh'
 
-EXPECTED=128   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, twenty-three #5923 lib-drift arms
+EXPECTED=129   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, twenty-four #5923 lib-drift arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
