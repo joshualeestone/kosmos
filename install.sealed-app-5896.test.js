@@ -177,22 +177,44 @@ it('#5896: residue sweeps take this account\'s own sealed leftover; a sealed pro
   assert.ok(fn.indexOf('/usr/bin/stat -f %u') < fn.indexOf('bundle_is_sealed "$1"'), 'ownership is not checked before the signature');
 });
 
-it('#5896: the sealed app is placed only where the app will read the config (AGENT_WORKFORCE_HOME)', () => {
+it('#5896: the sealed app is placed only where the app will read the config, judged for the icon\'s own folder', () => {
   const realHome = fs.mkdtempSync(path.join(tmpRoot, 'realhome-'));
   const elsewhere = fs.mkdtempSync(path.join(tmpRoot, 'awh-'));
+  const dir = (n) => fs.mkdtempSync(path.join(tmpRoot, n + '-'));
+  const A = dir('appdir'), S = dir('sysdir'), H = dir('homeapps'), R = dir('realapps');
+  let n = 0;   // the stage sits directly in the icon's folder, as make_app's does
+  const stageIn = (d) => { const st = path.join(d, '.Kosmos.app.stage.' + (++n)); fs.mkdirSync(st); return st; };
+  // [env, the folder the icon lands in, built (per-install) expected]
   const cases = [
-    [{ HOME: realHome }, false],
-    [{ HOME: realHome, AGENT_WORKFORCE_HOME: realHome }, false],
-    [{ HOME: realHome, AGENT_WORKFORCE_HOME: elsewhere }, true],
-    [{ HOME: realHome, AGENT_WORKFORCE_HOME: elsewhere, KOSMOS_APP_DIR: '/sb/apps' }, false],
-    [{ HOME: realHome, AGENT_WORKFORCE_HOME: elsewhere, KOSMOS_SYS_APP_DIR: '/sb/sys' }, false],
-    [{ HOME: realHome, AGENT_WORKFORCE_HOME: elsewhere, KOSMOS_HOME_APP_DIR: '/sb/homeapps' }, true],
+    [{ HOME: realHome }, R, false],
+    [{ HOME: realHome, AGENT_WORKFORCE_HOME: realHome }, R, false],
+    [{ HOME: realHome, AGENT_WORKFORCE_HOME: elsewhere }, R, true],
+    [{ HOME: realHome, AGENT_WORKFORCE_HOME: elsewhere, KOSMOS_APP_DIR: A }, A, false],
+    [{ HOME: realHome, AGENT_WORKFORCE_HOME: elsewhere, KOSMOS_SYS_APP_DIR: S, SYS_APP_DIR: S }, S, false],
+    // the iteration-13 case: only the shared folder is sandboxed, and the icon falls back to a real home folder
+    [{ HOME: realHome, AGENT_WORKFORCE_HOME: elsewhere, KOSMOS_SYS_APP_DIR: S, SYS_APP_DIR: S, HOME_APP_DIR: R }, R, true],
+    [{ HOME: realHome, AGENT_WORKFORCE_HOME: elsewhere, KOSMOS_HOME_APP_DIR: H, HOME_APP_DIR: H }, H, false],
   ];
-  for (const [env, wantBuilt] of cases) {
-    const st = stageOf();
+  for (const [env, folder, wantBuilt] of cases) {
+    const st = stageIn(folder);
     run({ ...env, KOSMOS_HOME: makeHome('v1'), _wic_rc: '0' }, `app_bundle_into "${st}"`);
-    assert.equal(built(st), wantBuilt, JSON.stringify(env) + (wantBuilt ? ': the sealed app was placed where the app would not read the config' : ': the sealed app was not placed'));
+    assert.equal(built(st), wantBuilt, JSON.stringify(env) + ' into ' + path.basename(folder) + (wantBuilt ? ': sealed app placed where its app would not read the config' : ': sealed app not placed'));
   }
+});
+
+it('#5896: placement and recognition agree: a sealed icon this run places is one an uninstall in the same world recognises', () => {
+  const realHome = fs.mkdtempSync(path.join(tmpRoot, 'realhome-'));
+  const S = fs.mkdtempSync(path.join(tmpRoot, 'sysdir-'));
+  const home = makeHome('v1');
+  const env = { HOME: realHome, AGENT_WORKFORCE_HOME: fs.mkdtempSync(path.join(tmpRoot, 'awh-')), KOSMOS_SYS_APP_DIR: S, SYS_APP_DIR: S,
+    KOSMOS_HOME: home, INSTALL_CONFIG_DIR: cfgFor(home) };
+  const st = path.join(S, '.Kosmos.app.stage.1');
+  fs.mkdirSync(st);
+  run({ ...env, _wic_rc: '0' }, `app_bundle_into "${st}"`);
+  assert.equal(built(st), false, 'the sealed app was not placed in the sandboxed shared folder');
+  const icon = path.join(S, 'Kosmos.app');
+  fs.renameSync(st, icon);
+  assert.match(run(env, `${REMOVE}bundle_is_ours "${icon}" remove; echo "rc=$?"`).out, /rc=0/, 'an uninstall in the same world does not recognise the icon this run placed');
 });
 
 it('#5896: a read-only shipped app is placed writable for its owner, and still verifies', () => {

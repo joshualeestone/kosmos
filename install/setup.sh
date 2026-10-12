@@ -315,7 +315,7 @@ bundle_is_ours() {
     esac
     case "${2:-}" in
       anchored|remove|own) ;;
-      *) if ! sealed_placeable && [ "$(/usr/bin/dirname "$1")" -ef "$SYS_APP_DIR" ]; then return 1; fi ;;
+      *) if ! sealed_placeable "$1" && [ "$(/usr/bin/dirname "$1")" -ef "$SYS_APP_DIR" ]; then return 1; fi ;;
     esac
     bundle_is_sealed "$1"
     return
@@ -345,9 +345,8 @@ sealed_serves_this_install() {
 }
 # Is the account config this run reads (INSTALL_CONFIG_DIR, under AGENT_WORKFORCE_HOME) the one the sealed app at
 # $1 will read when opened? Yes with no AGENT_WORKFORCE_HOME elsewhere; otherwise only for an icon in an icon folder
-# the harness itself sandboxed (which launches the app with that environment). KOSMOS_HOME_APP_DIR counts here, for
-# an icon IN that folder; sealed_placeable does not count it, because with it alone this run may still place into
-# the real /Applications.
+# the harness itself sandboxed (which launches the app with that environment). Placement (sealed_placeable) and
+# recognition (bundle_is_ours) both ask this, for the icon's own folder.
 sealed_config_reaches() {
   if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "$AGENT_WORKFORCE_HOME" -ef "$HOME" ]; then return 0; fi
   local d
@@ -421,6 +420,7 @@ APP_SKIP_REASON=""
 APP_SYS_STALE=no
 APP_SYS_FAILED=no
 APP_HOME_FOREIGN=no
+APP_OWN_SEALED=no
 resolve_app_dir() {
   # The verbatim override is a sandbox: no probing, no fallback.
   [ -n "${KOSMOS_APP_DIR:-}" ] && { APP_DIR="$KOSMOS_APP_DIR"; return 0; }
@@ -3645,16 +3645,13 @@ write_install_config() {
   mv -f "$tmp" "$INSTALL_CONFIG_DIR/kosmos-install.json" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
 
-# Will this run place the sealed app? The account config was written (_wic_rc 0), it is where the app will look (an
-# app opened from the Finder reads the REAL home's Library, so an AGENT_WORKFORCE_HOME elsewhere qualifies only in a
-# harness whose icon folder is itself a sandbox (KOSMOS_APP_DIR or KOSMOS_SYS_APP_DIR; KOSMOS_HOME_APP_DIR alone
-# still leaves the real /Applications in play), which launches the app with that environment), and the shipped
-# sealed app verifies.
+# Would this run place the sealed app at $1 (an icon path, or a stage in the icon's folder)? The account config was
+# written (_wic_rc 0), the app there will read that config (sealed_config_reaches: the SAME test recognition uses,
+# so a sealed icon this run places is one a later run recognises), and the shipped sealed app verifies.
 sealed_placeable() {
   local src="$KOSMOS_HOME/app/Kosmos.app"
   [ "${_wic_rc:-1}" = 0 ] || return 1
-  [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "$AGENT_WORKFORCE_HOME" -ef "$HOME" ] \
-    || [ -n "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}" ] || return 1
+  sealed_config_reaches "$1" || return 1
   [ -d "$src" ] && [ ! -L "$src" ] || return 1
   # Verified once per run: a deep verify of the whole app is slow, and the shipped copy does not change mid-run.
   if [ -z "$_SEALED_SRC_OK" ]; then
@@ -3669,7 +3666,7 @@ sealed_placeable() {
 # failed write, a tarball without the sealed app) the per-install bundle is built exactly as before.
 app_bundle_into() {
   local src="$KOSMOS_HOME/app/Kosmos.app"
-  if sealed_placeable; then
+  if sealed_placeable "$1"; then
     # #4449: the icon's own modes, not the app tree's (KOSMOS_READONLY_APP makes that read-only, and a read-only icon
     # could not be replaced or removed later). Modes are not part of the signature.
     if /usr/bin/ditto "$src" "$1" && /bin/chmod -R u+w "$1" \
