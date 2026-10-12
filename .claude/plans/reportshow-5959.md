@@ -1,0 +1,25 @@
+# reportshow-5959: an agent sees its own card, and a stale waiting state is pointed out (kosmos#5959, slice 1)
+
+"Review N" below is challenge-loop iteration N on this branch.
+
+## Problem
+From Josh's Windows QA (#5959, #5968 items 3 and 4): an agent cannot check its own card without reading the board
+directly, and a self-reported "blocked" from 09-26 sat on a card until 10-12 with nothing telling the agent.
+`kosmos report show` (#2709) prints the agent's last REPORT, not what the BOARD shows.
+
+## Change
+- `engine/cardlabel.js`: the card's word as the person sees it (the page's STATE_COPY / restartingLabel / stateCopyOf,
+  ported). `engine/cardlabel-5959.test.js` lifts the page's own functions and compares answers on every state and
+  special case, so the two copies cannot drift.
+- `GET /api/report`: the text arm starts "Your card on the board shows: <label>."; the JSON arm adds `card: { state,
+  label }` and `stale`. A waiting state (needs_you / blocked) standing over a day (REPORT_STALE_MS) gets one line saying
+  how long and how to clear it. Both CLIs read the text arm, so no CLI change.
+
+## Not done here
+- The push side of item 4 (telling the agent unasked, once) is slice 3 on the card.
+- Items 1 (health line) and 2 (diagnostics export) are slices 2 and 4.
+
+## Weakest premise
+That the roster card the route reads carries every field the page's label uses (stateReportedBy, crashLoop,
+reconnect, disruption, modelName). safeRoster adds crashLoop and reconnect as /api/status does; modelName is not
+checked here, so a restart for a model switch may read "Switching model" where the page names the model.
