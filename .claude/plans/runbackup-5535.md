@@ -36,3 +36,9 @@ that cannot be written before the snapshot (no snapshot, no "ran" claim); one at
 through the real takeSnapshot and the real restore with no naming key given.
 
 ## Mutants
+Measured 19:18 CDT from `date`, each on the committed tree, node --check first, reverted:
+R1 no state write before the snapshot: red. R2 snapshot on a first run without learning: red. R3 no retry in a granted
+week: red. R5 no one-at-a-time chain: red. R6 the job's state not kept: red. R7 an unwritable state falls through to the
+"ran" sentence: red. R8 otherPair ignored: red. R9 pointer not written: red. R10 the chunk Map leaks to the caller: red.
+R11 an unguarded throw: red. R4 (the i === 0 guard removed) SURVIVES and is equivalent: the loop's bound of two already
+makes a third snapshot impossible, which the newPeriod test asserts (exactly two calls).
