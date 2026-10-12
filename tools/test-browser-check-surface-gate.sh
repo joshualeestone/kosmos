@@ -419,7 +419,9 @@ _fbtok="$(bc_surface_tokens_of "$(find "$_SDIR" -maxdepth 1 -type f -name '*.js'
 printf '%s\n' '--- a/web/index.html' '+++ b/web/index.html' "+<p id=\"$_fbtok\">x</p>" > "$TMP/fb.wd"; : > "$TMP/fb.files"; : > "$TMP/fb.msgs"
 _fbn="$( (KOSMOS_BCSG_WEBDIFF="$TMP/fb.wd" KOSMOS_BCG_FILES="$TMP/fb.files" KOSMOS_BCG_MSGS="$TMP/fb.msgs" KOSMOS_BCSG_DIR="$_SDIR" kosmos_browser_check_surface_gate) 2>&1; echo "rc=$?")"
 _fbf="$( (TMPDIR="$TMP/no-such-dir" KOSMOS_BCSG_WEBDIFF="$TMP/fb.wd" KOSMOS_BCG_FILES="$TMP/fb.files" KOSMOS_BCG_MSGS="$TMP/fb.msgs" KOSMOS_BCSG_DIR="$_SDIR" kosmos_browser_check_surface_gate) 2>&1; echo "rc=$?")"
-if [ -n "$_fbtok" ] && [ "$_fbn" = "$_fbf" ] && printf '%s' "$_fbn" | grep -q 'rc=1'; then
+# The fallback was really taken: with that TMPDIR the scan itself cannot run.
+TMPDIR="$TMP/no-such-dir" bc_surface_scan_checks "$_SDIR" "x" >/dev/null 2>&1; _fbrc=$?
+if [ -n "$_fbtok" ] && [ "$_fbrc" -ne 0 ] && [ "$_fbn" = "$_fbf" ] && printf '%s' "$_fbn" | grep -q 'rc=1'; then
   pass "FALLBACK: with the scan unable to run, the gate refuses '$_fbtok' with the same words and exit as the scan path"
 else
   fail "FALLBACK: the fallback and the scan path disagree on '$_fbtok' (or nothing was refused): scan='$(printf '%s' "$_fbn" | tail -1)' fallback='$(printf '%s' "$_fbf" | tail -1)'"

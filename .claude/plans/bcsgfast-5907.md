@@ -7,8 +7,8 @@ escape `sed`s, a `grep` of the changed files, a `sed` of the trailers) and per t
 `sed` and the boundary `grep`), about 4,200 processes a call.
 
 ## The change
-- `bc_surface_scan_checks` in the shared lib (`browser-check-surface-lib.sh`, so the gate and `bc-surface-map.sh` keep
-  one definition): one awk pass reads every check's FIRST annotation line (as `bc_surface_tokens_of`'s `sed | head -1`)
+- `bc_surface_scan_checks` in the shared lib (`browser-check-surface-lib.sh`, beside the two primitives it must agree
+  with; only the gate calls it, `bc-surface-map.sh` still uses the primitives): one awk pass reads every check's FIRST annotation line (as `bc_surface_tokens_of`'s `sed | head -1`)
   and the changed text's maximal runs of `[A-Za-z0-9_-]`, and prints per check, in find's order:
   `HIT <first plain token found>`, `MISS` (every token plain, none found), or `SLOW` (a non-plain token comes first).
   A plain token occurs whole exactly when it is one of those runs, which is `bc_surface_token_hits`'s boundary.
@@ -39,6 +39,8 @@ escape `sed`s, a `grep` of the changed files, a `sed` of the trailers) and per t
   unchanged, so only the token decision moved.
 
 ## Weakest premises
+- An interrupt mid-scan leaves its three small, mktemp-named temp files; a trap inside a sourced function would replace
+  the caller's own, so none is set.
 - The scan reads in the C locale; the original `grep`/`sed` read in the ambient one. On INVALID UTF-8 (a byte in the
   changed web text, or in a check file above or on its annotation line) the new gate can refuse where the old passed:
   stricter, never looser; stderr differs too (the old sed printed `illegal byte sequence` and passed that check). The
