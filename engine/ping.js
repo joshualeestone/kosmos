@@ -28,7 +28,9 @@
  * INSTALL and nothing else.
  *
  * Where it goes (kosmos#5995; engine/installid-senders-5995.test.js holds this list):
- *   engine/createdbeacon.js   sent to the install endpoint on a board start and when an agent is made
+ *   ping.json                 kept here, in this Kosmos's data root (each Kosmos on a computer has its own)
+ *   engine/createdbeacon.js   sent to the install endpoint on every board start (no off switch), and when an agent
+ *                             is made (the create form's checkbox)
  *   engine/feedbacksend.js    sent with the daily feedback report, DEFAULT-ON, off in Settings > Automation (#2013/#2957)
  *   engine/feedback.js        written into the report file on this computer
  *   engine/store.js           kept in each agent's profile as `idInstall`; the board serves the profile in each

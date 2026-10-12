@@ -33,15 +33,16 @@ sign-in) are separate branches.
 - **Stop sending the id.** Not this card: the install ping is Josh's ruling (09-14) and the card says so.
 
 ## Verify
-- `node --test engine/installid-senders-5995.test.js`: 8 pass.
-- Mutants, each run on 2026-10-12 after review 1, each red at the named test, each restored and compared byte for byte:
-  - the old promise back in a `phonenotify.js` comment: red at "no shipped file says";
-  - `server.js` starts using the id: red at the mention list;
-  - the beacon sends a fixed string instead of the id: red at "the created beacon sends THIS install's id";
-  - `phonenotify.js` reads the id in code: red at "every mention of the install id is a comment";
+- `node --test engine/installid-senders-5995.test.js`: 9 pass, about a fifth of a second.
+- Mutants, each run on 2026-10-12 after review 3, each red at the named test, each restored and compared byte for byte:
+  - the old promise back in a `phonenotify.js` comment: red at the wording test;
+  - a Swift file starts holding the identifier: red at the identifier list;
+  - the beacon sends a fixed string: red at the senders test;
+  - `feedbacksend.js` sends another value under the same local name: red at the senders test;
+  - `phonenotify.js` reads the id in code: red at the comment-only test and at the list of files that load `ping.js`;
   - `engine/ping.js`'s list drops the beacon: red at the list test;
-  - the page reads the profile's copy: red at the `idInstall` mention list;
-  - `feedbacksend.js` stops putting it in what it sends: red at the senders test.
+  - the page reads the profile's copy: red at the `idInstall` list;
+  - `server.js` loads `ping.js` without naming the id: red at the list of files that load it.
 - NOT RUN: the full suite.
 
 ## Weakest premise
@@ -85,3 +86,20 @@ is its own branch. Written on the card.
 - **WARNING, taken:** the list's line for the profile's copy says the pages it is served to include a phone over
   Kosmos+.
 - **NITs, taken:** two more true sentences as controls, one of them through the "It ..." follow-on branch.
+
+## Review 3 (2026-10-12, default model)
+- **WARNING, taken:** the scan walked chosen folders and missed the native app, the deploy scripts, files with no
+  extension and the git hooks. It asks git for every tracked file now, so no folder can be left out.
+- **WARNING, taken:** the wording check matched "install identity" and "uninstall idle", so a true sentence about
+  another thing would have gone red. It needs the id as a word of its own, reads only comment text (code joined into
+  one long "sentence" was a false red I hit while fixing this), and looks only in the files that hold the identifier.
+- **WARNING, taken as far as a list goes:** six more ways of saying "it never leaves" are on the list, with controls.
+- **WARNING, taken:** the feedback half matched source text. It writes a report in the sandbox and compares what the
+  send would carry, and what the report file holds, to this install's id.
+- **CONVENTION, taken:** "one per install" is one per Kosmos data root (a computer can run several); `ping.js`'s list
+  has a line for the id's own file, and says the board-start send has no off switch where the feedback one does.
+- **CONVENTION, not taken:** a timestamp in this file's name. The plans beside it on main carry none, and the gate
+  finds a plan by the branch name.
+- **NITs, taken:** a comment that opens on the same line counts as a comment; a loop that could not fail on its own
+  is gone; the list test reads an explicit flag, not the wording of a description; the files that load `ping.js` are
+  held too (the gap "reads the id's file without the identifier", as far as loading the module goes).
