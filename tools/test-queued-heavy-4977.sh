@@ -245,7 +245,7 @@ run5923() {   # run5923 <name> [env assignments...]: runs the real wrapper with 
 lh5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse HEAD; }
 lm5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse origin/main; }
 printf 'p1\nn/\n' > $S/cwd5923
-for n in mv mk ps sh set dirty nops cwd nocwd reuse dead ahead same branch claim need psx nopid live; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
+for n in mv mk ps sh set dirty nops cwd nocwd reuse dead ahead same branch claim need psx nopid live mvfail; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
 run5923 mv
 ok "#5923: the default lib checkout behind origin/main, nothing live: moved to origin/main, said so, run runs, lock gone" '[ "$rc" = 0 ] && [ -e $S/l5923-mv-ran ] && [ "$(lh5923 mv)" = "$(lm5923 mv)" ] && [[ "$o" == *"moved"*"-> origin/main"*"cut-guard.sh differed"* ]] && [ ! -e $S/ml5923-mv/queued-heavy-lib.lock ]'
 run5923 mv
@@ -312,7 +312,9 @@ ok "#5923: a lib lock with no pid is taken over after its consecutive empty read
 mkdir -p $S/ml5923-live/queued-heavy-lib.lock && ps -ww -o command= -p $H > $S/ml5923-live/queued-heavy-lib.lock/cmd && echo $H > $S/ml5923-live/queued-heavy-lib.lock/pid
 ( run5923 live; printf '%s\n' "$o" > $S/live5923.out; echo "$rc" > $S/live5923.rc ) &
 LIVE5923=$!
-sleep 4
+# Wait until the wrapper itself is running (re-exec'd, so past perl and its start-up), then give it time to reach the lock.
+until_true 30 'pgrep -f "^/bin/bash $REAL_QH --queued-args" >/dev/null'
+sleep 3
 live_held5923="$(lh5923 live)"; live_waiting5923=0; kill -0 $LIVE5923 2>/dev/null && live_waiting5923=1   # still waiting, not finished
 rm -rf $S/ml5923-live/queued-heavy-lib.lock
 wait $LIVE5923
@@ -323,6 +325,9 @@ mkdir -p $S/l5923-nolib/h/work/kosmos-bc-main-4610 && $GE git -C $S/l5923-nolib/
 qh_repo $S/l5923-nolib/repo 1
 o=$(env -u QUEUED_HEAVY_LIB HOME=$S/l5923-nolib/h KOSMOS_RUN_MARKER_DIR=$S/ml5923-nolib perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/l5923-nolib/repo/tools/queued-heavy.sh "lib-nolib" touch $S/l5923-nolib-ran 2>&1); rc=$?
 ok "#5923: a default folder that is a git checkout without cut-guard.sh exits 3 and does not fall back to the repo's main checkout" '[ "$rc" = 3 ] && [ ! -e $S/l5923-nolib-ran ] && [[ "$o" == *"could not load cut-guard.sh"* ]] && [[ "$o" != *"main checkout"* ]]'
+# A checkout stopped part way (seam: one file changed, rc 1) is put back at the old commit by force, and the line says so.
+run5923 mvfail QH_TEST_MOVE_FAIL=1
+ok "#5923: a move stopped part way is put back at the old commit, clean, and the line says so" '[ "$rc" = 0 ] && [ "$(lh5923 mvfail)" != "$(lm5923 mvfail)" ] && [ -z "$($GE git -C $S/l5923-mvfail/work/kosmos-bc-main-4610 status --porcelain --untracked-files=no)" ] && [[ "$o" == *"git checkout failed (rc 1) and the checkout was put back at"* ]]'
 # The REAL ps (no QH_TEST_PS): the run's own pipeline subshell keeps this script's argv and must not read as a waiter.
 # QH_TEST_PS_NAME gives the script a name no real waiter on this box carries. Control: a live process of that name blocks.
 for n in rp rpc; do qh_lib5923 $S/l5923-$n; mkdir -p $S/ml5923-$n $S/rp5923-$n; cp "$REAL_QH" $S/rp5923-$n/qh5923self-$U.sh; done
@@ -476,7 +481,7 @@ sed 's|  exec /bin/bash "${BASH_SOURCE\[0\]}" --queued-args "$_qh_af"|  exec /no
 mkdir -p $S/tmpx; o=$(TMPDIR=$S/tmpx KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash $S/qh-noexec.sh "noexec" true 2>&1); r=$?
 ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"could not restart itself"* ]] && [ -z "$(ls $S/tmpx)" ] && grep -q /nonexistent/bash $S/qh-noexec.sh'
 
-EXPECTED=129   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, twenty-four #5923 lib-drift arms
+EXPECTED=130   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, twenty-five #5923 lib-drift arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"

@@ -39,8 +39,12 @@ Residuals, stated:
 - The lock's dead-holder takeover is check-then-act, as _qh_take's is: two joiners reading the same dead pid can
   both end up holding it (the pid is read again just before the takeover, which narrows the window but does not close
   it). A dead holder needs a joiner killed inside its check (about a second).
-- INT, TERM and HUP are ignored for the length of the checkout (dropped, not deferred), so only a KILL can stop it
-  part way. A signal sent in that second is lost and the run carries on.
+- The checkout runs in its own process group, so a terminal Ctrl-C does not reach git; bash ignores INT, TERM and
+  HUP while waiting. git installs its own signal handlers, so a signal sent to git directly does stop it part way
+  (measured by challenge iteration 11: 3,000 files left mixed). Measured 2026-10-12 10:2x, both arms twice, a 3,000-file checkout with INT sent to the
+  script's process group 0.12 s in: grouped, rc 0 at the target and clean; plain, rc 128 with 3,000 files mixed. On any failed checkout the old commit is checked out
+  again by force and the line says so; if even that fails, the line says FAILED PART WAY with the repair command. A
+  KILL of the wrapper during the checkout leaves the tree mixed and is not repaired automatically.
 - The #5446 fallback is skipped when the default folder is a git checkout, so a run reading during a move cannot fall
   back to another lib; a default checkout that really lacks cut-guard.sh exits 3 instead of falling back. A holder
   KILLed during `git checkout` leaves a half-moved tree. The next joiner reads it as local changes, does
@@ -61,7 +65,7 @@ Residuals, stated:
   A lock whose pid was reused by another command is taken over (the holder records its command line).
 
 ## Tests
-tools/test-queued-heavy-4977.sh, twenty-four #5923 arms (EXPECTED 129), listed in the file. Two use the REAL ps under a
+tools/test-queued-heavy-4977.sh, twenty-five #5923 arms (EXPECTED 130), listed in the file. Two use the REAL ps under a
 private script name (QH_TEST_PS_NAME): the run does not count itself (perturbed by removing the ppid exclusion: that
 arm went red), and its control, a live process of that name, blocks the move. The rest use the QH_TEST_PS and
 QH_TEST_CWD seams so real processes on the box cannot sway them.

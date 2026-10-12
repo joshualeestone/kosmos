@@ -133,7 +133,8 @@ fi
 # A copy of this script older than #5923 takes no lock here, so one that STARTS during a move is not held off by it.
 # Test seams, never set in production: QH_TEST_PS names a command printing "pid ppid command" lines in place of ps;
 # QH_TEST_PS_NAME replaces the script name matched (queued-heavy.sh), so a test sees only its own processes;
-# QH_TEST_CWD names a command printing lsof -Fn style lines (n<directory>) in place of the working-directory probe.
+# QH_TEST_CWD names a command printing lsof -Fn style lines (n<directory>) in place of the working-directory probe;
+# QH_TEST_MOVE_FAIL stands in for a checkout stopped part way.
 QH_LIB_LOCK=""
 # The functions this script calls unguarded from the lib (checked again after the load, below).
 QH_NEED_BASE="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_suite_waiting kosmos_refuse_if_earlier_suite_waiter _kosmos_suite_waiter_file kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
@@ -192,7 +193,8 @@ _qh_lib_check() {
   # until this copy (the installed one, say) is updated too.
   if [ -z "$why" ]; then
     local fn tgt need="$QH_NEED_BASE"; tgt="$($g show "$main:tools/lib/cut-guard.sh" 2>/dev/null)"
-    # And the side lane's, which the load below requires when the lib offers side turns.
+    # And the side lane's, which the load below requires when the lib offers side turns. Matched as `name()` or
+    # `function name()` at the start of a line; any other spelling reads as missing, and the move is refused.
     printf '%s\n' "$tgt" | grep -qE '^(function )?kosmos_light_side_clear ?\(\)' && need="$need kosmos_light_side_take kosmos_publish_light_side_pgid kosmos_release_light_side"
     [ -n "$tgt" ] || why="could not read origin/main's cut-guard.sh"
     for fn in $need; do
@@ -201,17 +203,34 @@ _qh_lib_check() {
     done
   fi
   if [ -z "$why" ]; then
-    # INT, TERM and HUP are IGNORED during the checkout (git inherits that, so a Ctrl-C cannot stop it part way); one
-    # arriving then is dropped, not delivered later. A KILL can still stop it.
-    local mrc=0
+    # The checkout runs as its own process group (job control on for this one start), so a Ctrl-C at the terminal
+    # does not reach git; bash ignores INT, TERM and HUP while it waits. git sets its own handlers, so a signal sent
+    # to git itself still stops it part way: then the old commit is checked out again, by force, and the line says so.
+    local mrc=0 gp gerr
+    gerr="$(mktemp "${TMPDIR:-/tmp}/qh-libmove.XXXXXX" 2>/dev/null || mktemp /tmp/qh-libmove.XXXXXX)" || gerr=/dev/null
     trap '' INT TERM HUP
-    $g -c core.hooksPath=/dev/null checkout -q --detach "$main" 2>/dev/null || mrc=$?
+    if [ -n "${QH_TEST_MOVE_FAIL:-}" ]; then
+      echo '# a partial move' >> "$LIB_CHECKOUT/tools/lib/cut-guard.sh"; mrc=1   # test seam: a checkout stopped part way
+    else
+      set -m
+      $g -c core.hooksPath=/dev/null checkout -q --detach "$main" 2>"$gerr" &
+      gp=$!
+      set +m
+      wait "$gp" || mrc=$?
+    fi
     trap - INT TERM HUP
     if [ "$mrc" = 0 ]; then
-      echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT moved ${head:0:9} -> origin/main ${main:0:9}: ${diff} differed and no queue waiter, claim or process inside it was live (#5923; back with: git -C '$LIB_CHECKOUT' checkout --detach ${head:0:9})"
+      rm -f "$gerr"
+      echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT moved ${head:0:9} -> origin/main ${main:0:9}: ${diff} differed and no queue waiter, claim or process inside it was live (#5923; back with: git -C '$LIB_CHECKOUT' checkout --detach $head)"
       return 0
     fi
-    why="git checkout failed"
+    local gmsg; gmsg="$(head -c 300 "$gerr" 2>/dev/null | tr '\n' ' ')"; rm -f "$gerr"
+    if $g -c core.hooksPath=/dev/null checkout -q -f --detach "$head" >/dev/null 2>&1 && [ -z "$($g status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+      why="git checkout failed (rc $mrc${gmsg:+: $gmsg}) and the checkout was put back at ${head:0:9}"
+    else
+      echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT: the move to origin/main ${main:0:9} FAILED PART WAY (rc $mrc${gmsg:+: $gmsg}) and could not be put back, so its files may be MIXED; repair with: git -C '$LIB_CHECKOUT' checkout -f --detach $head (#5923)"
+      return 0
+    fi
   fi
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9} DIFFERS from origin/main ${main:0:9} (${diff}); not moved ($why), so this run joins on the lib as it is (#5923)"
 }
@@ -288,7 +307,7 @@ if [ -n "$QH_INHERITED_MAIN" ]; then
   if command -v kosmos_holds_machine_claim >/dev/null && kosmos_holds_machine_claim; then
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') $WHAT runs now, inside the turn that already holds the box (it claims and releases nothing)"
     # Review 13: the same clean command environment an ordinary turn gives (no queue controls, no side labels).
-    unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S QH_TEST_PS QH_TEST_PS_NAME QH_TEST_CWD 2>/dev/null
+    unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S QH_TEST_PS QH_TEST_PS_NAME QH_TEST_CWD QH_TEST_MOVE_FAIL 2>/dev/null
     exec "$@"
   fi
   unset KOSMOS_MACHINE_CLAIM_COOKIE   # a cookie whose claim is gone names nothing; this run takes its own
@@ -574,7 +593,7 @@ fi
 # Review 4: the queue's own wait settings were for THIS script's wait; the command (a page layer, say) must wait on a
 # side turn on its own terms, not inherit KOSMOS_NO_WAIT and refuse beside one. The lib names them.
 unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} 2>/dev/null
-unset KOSMOS_WAIT_KEEP_MARK KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S QH_TEST_PS QH_TEST_PS_NAME QH_TEST_CWD   # review 5: a command that queues on its own must not claim to be one of these
+unset KOSMOS_WAIT_KEEP_MARK KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S QH_TEST_PS QH_TEST_PS_NAME QH_TEST_CWD QH_TEST_MOVE_FAIL   # review 5: a command that queues on its own must not claim to be one of these
 if [ "$LANE" = side ]; then
   # Round 20 (Opus): the stop file and the descendants list exist BEFORE the command starts, so a full disk refuses the
   # turn before anything ran, and a stop is recorded by WRITING to a file that exists (an empty file: not stopped).
