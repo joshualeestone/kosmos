@@ -2,8 +2,8 @@
 # Archive, export and (with --upload) upload the iOS app to App Store Connect (kosmos #4089, #718).
 #
 # Signs as the team, with the bundle id, in ios/Signing.xcconfig (for now the Stone Syndicate team and the
-# interim io.kosmos.app.preview, #4089). It stops at the first check below if the Team ID is empty or not
-# 10 characters.
+# interim io.kosmos.app.preview, #4089). It stops before archiving if the bundle id is malformed, or if the
+# Team ID is empty or not 10 characters.
 #
 #   ios/tools/archive.sh --build <N>            archive + export an .ipa, then check it
 #   ios/tools/archive.sh --build <N> --upload   the same, then upload that build to App Store Connect

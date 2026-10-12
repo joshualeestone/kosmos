@@ -19,16 +19,16 @@ the real app is created fresh as io.kosmos.app under Kosmos Agent Manager, Inc.
 - `ios/tools/check-ipa-entitlements.sh` takes the expected bundle id as a third argument (default io.kosmos.app);
   `ios/tools/archive.sh` reads KOSMOS_BUNDLE_ID from the xcconfig and passes it.
 - `docs/phone-push-go-live.md`: an "Interim" paragraph above Step 4's done list, and the two lines that said the
-  team is empty / waits on the org now say Stone Syndicate for now / change it after the transfer.
+  team is empty / waits on the org now describe the interim preview app and the fresh io.kosmos.app record later.
 
 ## Measured (App Store Connect API, read-only, kosmos-notarize key 43F2HU5BT8)
 No app record and no identifier for io.kosmos.app on this team (control: the same query lists Mission Control
 Parents). The key cannot write (403 registering the identifier). So Josh does three one-time steps (on the card).
 
 ## Weakest premise
-That push can be added later: an APNs key has to come from the team that signs. Under Stone Syndicate that is a
-Stone Syndicate APNs key until the transfer, then a new key from the new team. Push is not live today in any case
-(the coordinator has no APNs key).
+That nothing needs push on the preview app: the coordinator allows only io.kosmos.app, so preview builds never get
+push, and push arrives with the real app under Kosmos Agent Manager, Inc. with that team's APNs key. Push is not
+live today in any case (the coordinator has no APNs key).
 
 ## The cut-sign sweep (review 2)
 tools/test-cut-sign-preflight.sh allows the Stone Syndicate team id, name and notary key only in

@@ -138,8 +138,8 @@ the box (`deploy/deploy-coordinator.sh`: "Not #KEY= for KOSMOS_APNS_*"). Names a
    400 and nothing reaches a phone. It is set to `io.kosmos.app` in the same change as the key
    settings, never later.
    Check: the rendered env contains `KOSMOS_APNS_BUNDLE_IDS=io.kosmos.app`.
-2. **The team and the key must match.** `KOSMOS_APNS_TEAM_ID` is the Team ID of the team that signs
-   the app (`ios/Signing.xcconfig`): Kosmos Agent Manager, Inc. for `io.kosmos.app`.
+2. **The team and the key must match.** `KOSMOS_APNS_TEAM_ID` is Kosmos Agent Manager, Inc.'s Team ID,
+   the team that signs `io.kosmos.app` (not the interim value in `ios/Signing.xcconfig`).
    `KOSMOS_APNS_KEY_ID` and the .p8 must be a key made in that same team. A mismatch gets
    `InvalidProviderToken` from Apple on every send.
    Check: the Key ID and the Team ID both come from the same step 1 account.
@@ -285,7 +285,7 @@ archive.sh uses).
   permanent, Step 1 item 2]. Not a transfer: the preview app cannot be transferred.
 - **Change `DEVELOPMENT_TEAM` and `KOSMOS_BUNDLE_ID` in `ios/Signing.xcconfig`** to the Kosmos Agent
   Manager, Inc. Team ID and `io.kosmos.app`
-  [Josh supplies the id; fleet makes the change]. One line; signing is `Automatic`. Signing under
+  [Josh supplies the id; fleet makes the change]. Two lines; signing is `Automatic`. Signing under
   any other team gives device tokens the coordinator's key cannot send to.
 - **An App Store Connect API key under the new org** for the upload (`ASC_KEY_PATH`, `ASC_KEY_ID`,
   `ASC_ISSUER_ID`), filed with `/add-secret` [Josh creates it, with Admin access for automatic
