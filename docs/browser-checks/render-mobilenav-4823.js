@@ -108,6 +108,7 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
 // kosmos#5921: a proxied request aborted while its page was still open, and a teardown call that failed, are counted
 // and checked at the end, so neither can pass silently; neither replaces an arm's own error.
 let abortedLive = 0;
+const abortedWhy = [];   // which request, and why, so a red count can be diagnosed
 const teardownFails = [];
 
 (async () => {
@@ -152,9 +153,9 @@ const teardownFails = [];
             const u = new URL(r.request().url());
             const res = await r.fetch({ url: 'http://127.0.0.1:' + port + u.pathname + u.search, headers: Object.assign({}, r.request().headers(), { host: 'remote.test:' + port }) });
             return await r.fulfill({ response: res });
-          } catch {
+          } catch (e) {
             const pg = live.get(ctx);
-            if (pg && !pg.isClosed()) abortedLive++;
+            if (pg && !pg.isClosed()) { abortedLive++; abortedWhy.push(r.request().url() + ': ' + (e && e.message)); }
             return r.abort().catch(() => {});
           }
         });
@@ -398,7 +399,7 @@ const teardownFails = [];
   }
   chk(errs.length === 0, 'no page errors', JSON.stringify(errs.slice(0, 3)));
   chk(unsettled === 0, 'every wait for the menu to settle settled', String(unsettled));
-  chk(abortedLive === 0, 'no proxied remote.test request failed while its page was open (kosmos#5921)', String(abortedLive));
+  chk(abortedLive === 0, 'no proxied remote.test request failed while its page was open (kosmos#5921)', abortedLive + ' ' + JSON.stringify(abortedWhy.slice(0, 3)));
   chk(teardownFails.length === 0, 'every context and browser closed cleanly (kosmos#5921)', JSON.stringify(teardownFails));
   server.close();
   for (const d of ROOTS) fs.rmSync(d, { recursive: true, force: true });
