@@ -4,7 +4,7 @@
 # kosmos-app and kosmos-tunnel are Developer ID signed with hardened runtime by
 # build-kosmos-bundle.sh, but until #5137 they were never NOTARISED, so
 # `spctl -a -t exec` rejected both as "Unnotarized Developer ID" (measured on the
-# served 0.7.19 and 0.7.38 tarballs). Nothing warns today only because nothing on
+# served 0.7.19 tarball when #5137 was filed, and again on 0.7.38). Nothing warns today only because nothing on
 # the install path quarantines them; the moment something does (the app copied
 # to another Mac by AirDrop, a zip or a browser), Gatekeeper refuses them.
 #
