@@ -17,33 +17,62 @@ converged: true
 **BLOCKERs found:** 4, all fixed
 **Follow-up cards filed:** #5912 (one-account uninstall leaves the shared icon), #5913 (reuse another account's icon)
 
-### Findings by iteration
-| Iteration | Finding | Status |
-|---|---|---|
-| 1 | BLOCKER uninstall deletes KOSMOS_HOME before proving sealed icon|FIXED (SEALED_REQ captured first)|
-| 1 | read-only ditto copy|FIXED chmod u+w|
-| 1 | residue sweeps could take another account's sealed leftovers|FIXED (anchored mode, later ownership rule)|
-| 1 | AWH elsewhere: sealed placed where app won't read config|FIXED|
-| 2 | BLOCKER VAR=x prefix leaks under /bin/sh|FIXED (mode argument; tests under /bin/sh)|
-| 2 | per-install fallback clobbers another account's shared icon|FIXED (placement gate)|
-| 2 | cut check accepts ad-hoc|FIXED (team requirement)|
-| 3 | cross-account replace: undeletable aside, version flip|FIXED (ownership by uid)|
-| 3 | own leftovers in ~/Applications never swept|FIXED|
-| 3 | cut check not tied to release|FIXED (version)|
-| 4 | several|DEFERRED with comments (one install per account, cut is Developer ID)|
-| 5 | BLOCKER test-install shared-folder checks|FIXED (shape-aware)|
-| 5 | permission re-prompt from identity change|DOCUMENTED (plan)|
-| 6 | second custom-home install takes the account's sealed icon|FIXED (config names this install)|
-| 7 | own-icon message dead code|FIXED (own mode)|
-| 9 | Linux CI red on macOS-only test|FIXED (skip guard)|
-| 9 | App Management prompt|DOCUMENTED|
-| 10 | text tests skipped on Linux|FIXED|
-| 11 | mis-driven harness could uninstall real icon|FIXED (sealed_config_reaches)|
-| 11 | failed sealed copy no fallback|FIXED|
-| 13 | placement not destination-aware|FIXED (same predicate as recognition)|
-| 14 | BLOCKER harness uninstall env asymmetry|FIXED (KOSMOS_HOME_APP_DIR)|
-| 15 | test-install probe block not run at a cut|DOCUMENTED (reasoned only; full run owed)|
-| 15 | stale-probe transcript check in replace mode|FIXED (own)|
+## Per-Iteration Breakdown
+
+#### Iteration 1
+- [BLOCKER] uninstall deletes KOSMOS_HOME before proving sealed icon --> FIXED (SEALED_REQ captured first)
+- [WARNING] read-only ditto copy --> FIXED chmod u+w
+- [WARNING] residue sweeps could take another account's sealed leftovers --> FIXED (anchored mode, later ownership rule)
+- [WARNING] AWH elsewhere: sealed placed where app won't read config --> FIXED
+
+#### Iteration 2
+- [BLOCKER] VAR=x prefix leaks under /bin/sh --> FIXED (mode argument; tests under /bin/sh)
+- [WARNING] per-install fallback clobbers another account's shared icon --> FIXED (placement gate)
+- [WARNING] cut check accepts ad-hoc --> FIXED (team requirement)
+
+#### Iteration 3
+- [WARNING] cross-account replace: undeletable aside, version flip --> FIXED (ownership by uid)
+- [WARNING] own leftovers in ~/Applications never swept --> FIXED
+- [WARNING] cut check not tied to release --> FIXED (version)
+
+#### Iteration 4
+- [WARNING] several --> DEFERRED with comments (one install per account, cut is Developer ID)
+
+#### Iteration 5
+- [BLOCKER] test-install shared-folder checks --> FIXED (shape-aware)
+- [WARNING] permission re-prompt from identity change --> DOCUMENTED (plan)
+
+#### Iteration 6
+- [WARNING] second custom-home install takes the account's sealed icon --> FIXED (config names this install)
+
+#### Iteration 7
+- [WARNING] own-icon message dead code --> FIXED (own mode)
+
+#### Iteration 9
+- [WARNING] Linux CI red on macOS-only test --> FIXED (skip guard)
+- [WARNING] App Management prompt --> DOCUMENTED
+
+#### Iteration 10
+- [WARNING] text tests skipped on Linux --> FIXED
+
+#### Iteration 11
+- [WARNING] mis-driven harness could uninstall real icon --> FIXED (sealed_config_reaches)
+- [WARNING] failed sealed copy no fallback --> FIXED
+
+#### Iteration 13
+- [WARNING] placement not destination-aware --> FIXED (same predicate as recognition)
+
+#### Iteration 14
+- [BLOCKER] harness uninstall env asymmetry --> FIXED (KOSMOS_HOME_APP_DIR)
+
+#### Iteration 15
+- [WARNING] test-install probe block not run at a cut --> DOCUMENTED (reasoned only; full run owed)
+- [WARNING] stale-probe transcript check in replace mode --> FIXED (own)
+
+Iterations 8 and 12 have no row in the loop ledger: no finding from them was recorded as needing action.
+
+#### Iteration 16
+- [WARNING] duplicate of the documented ad-hoc-signing limit (iterations 3 and 4) --> DUPLICATE. Converged.
 
 ### Not run (owed before trust)
 - A real Developer ID build and upgrade: every test bundle is ad-hoc signed.
