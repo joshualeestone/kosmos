@@ -3030,6 +3030,7 @@ function lockedBecause() {
 // agent (see withQuestionRow); a fixed prefix so the id does not vary across
 // polls. Stored messages carry no `id`, so this cannot collide with a real row.
 const NEEDS_YOU_QUESTION_ID_PREFIX = 'needs-you-question:';
+const QUESTION_TYPED_BEFORE_MS = 60000;   // #5943 review 1: a reply of the same words just before the report
 
 function withQuestionRow(messages, agentName, question) {
   const list = Array.isArray(messages) ? messages : [];
@@ -3054,9 +3055,10 @@ function withQuestionRow(messages, agentName, question) {
     if (last && typeof last.text === 'string' && last.text === question.text) return list;
     return list.concat([row]);
   }
-  // The agent typed the same words itself at or after the ask: the question is already in the thread.
+  // The agent typed the same words itself at or after the ask, or in the minute before it (posted, then reported):
+  // the question is already in the thread.
   const typed = list.some((m) => m && m.from === row.from && m.text === question.text
-    && Number.isFinite(Date.parse(m.at)) && Date.parse(m.at) >= askedMs);
+    && Number.isFinite(Date.parse(m.at)) && Date.parse(m.at) >= askedMs - QUESTION_TYPED_BEFORE_MS);
   if (typed) return list;
   // After the last row dated at or before the ask (a row with no readable time does not move it).
   let place = 0;
@@ -3972,6 +3974,11 @@ function dmReactionNote(agent) {
    the agent: clear it, or leave it open and say what it still needs, or replace it. Without this a question answered in
    passing stood for 12 days. One line, no control characters (it is typed into a pane), the question's start only. */
 const DM_QUESTION_SNIPPET = 80;
+/* Review 1: the note goes ONCE per ask (agent + when it was asked), recorded once a message carrying it was placed.
+   Kept in memory: a board restart may tell it once more, which is the cheap direction (a missed note is the other). */
+const DM_QUESTION_TOLD = new Map();
+function dmQuestionTold(agent, askedAt) { return DM_QUESTION_TOLD.get(String(agent)) === String(askedAt); }
+function markDmQuestionTold(agent, askedAt) { DM_QUESTION_TOLD.set(String(agent), String(askedAt)); }
 function dmStandingQuestionNote(question) {
   if (typeof question !== 'string' || !question.trim()) return '';
   const words = question.replace(new RegExp(DM_PANE_UNSAFE.source, 'g'), ' ').replace(/[\s\u0000-\u001f\u007f]+/g, ' ').trim();
@@ -4062,7 +4069,7 @@ module.exports = {
   DELIVERY, DIRECT, dmOwes, noticeStands, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
-  dmStandingQuestionNote,   // #5943
+  dmStandingQuestionNote, dmQuestionTold, markDmQuestionTold,   // #5943
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
   deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,

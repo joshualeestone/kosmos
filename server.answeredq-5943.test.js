@@ -76,6 +76,12 @@ test('#5943 a reported question is dated from its first ask, sits above the answ
     assert.ok(typed.includes('Yes, change them.'), 'control: the message was typed, so the note check means something: ' + typed);
     assert.ok(typed.includes('[kosmos] your question to this person is still open on the board: "' + Q + '"'), 'no note: ' + typed);
     assert.ok(typed.includes('run: kosmos report clear'), typed);
+    // ONCE per ask (review 1): the next ordinary message does not repeat it.
+    sends.length = 0;
+    assert.equal((await say('asker', 'Also, unrelated: thanks.')).status, 200);
+    const again = pastedChunks(sends).join('');
+    assert.ok(again.includes('Also, unrelated'), 'control: the second message was typed: ' + again);
+    assert.ok(!again.includes('[kosmos] your question'), 'the note was repeated on the next message: ' + again);
     // A bare digit (what a numbered menu takes) never carries it.
     sends.length = 0;
     await say('asker', '2');
@@ -97,6 +103,35 @@ test('#5943 a reported question is dated from its first ask, sits above the answ
     const after = (await thread('asker')).messages;
     assert.ok(!after.some((m) => m.kind === 'question'), 'the question stayed after the person cleared it');
     assert.equal(after.length, before, 'clearing deleted conversation');
+  } finally {
+    chat.setRunner(null);
+    fleet.restore();
+    void board;
+  }
+});
+
+test('#5943 review 1: a question ON THE SCREEN wins over a standing report: undated, last, not clearable, and no note', async () => {
+  const board = fleet.install([fleet.agent('menuer', { state: 'idle', displayName: 'Menuer' })]);
+  const sends = [];
+  chat.setRunner((args) => {
+    sends.push(args);
+    if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: 'Do you want to proceed?\n❯ 1. Yes\n  2. No\n', err: '' };
+    if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  });
+  chat.setDryRun(false);
+  try {
+    assert.equal(selfreport.record('menuer', { state: 'needs_you', because: 'An older reported question?' }).recorded, true);
+    const served = (await thread('menuer')).messages;
+    const q = served.find((m) => m.kind === 'question');
+    assert.ok(q, 'no question row');
+    assert.match(q.text, /Do you want to proceed\?/, 'control: the screen question is the one served');
+    assert.equal(q.at, null, 'a screen question was dated from the report');
+    assert.equal(q.clearable, undefined, 'a screen question was offered "Answered, clear this"');
+    assert.equal(served[served.length - 1], q, 'the screen question is not last');
+    sends.length = 0;
+    await say('menuer', 'Something else first');
+    assert.ok(!pastedChunks(sends).join('').includes('[kosmos] your question'), 'the note rode while a question stands on the screen');
   } finally {
     chat.setRunner(null);
     fleet.restore();

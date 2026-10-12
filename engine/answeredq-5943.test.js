@@ -142,3 +142,16 @@ test('#5943 (Josh 09:34) a NEW session retires the question its previous session
   assert.equal(r.state, 'started', 'the new session retired the old question');
   assert.equal(r.askedAt, null);
 });
+
+test('#5943 review 1: the agent posting the same words just before reporting them is not drawn twice', () => {
+  const posted = [{ at: '2026-10-02T00:00:00.000Z', text: 'Q?', from: 'x' }];
+  assert.equal(chat.withQuestionRow(posted, 'x', { text: 'Q?', at: '2026-10-02T00:00:20.000Z' }).length, 1, 'posted 20 s before the report');
+  assert.equal(chat.withQuestionRow(posted, 'x', { text: 'Q?', at: '2026-10-02T00:05:00.000Z' }).length, 2, 'control: five minutes before is a separate ask');
+});
+
+test('#5943 review 1: the note is told once per ask', () => {
+  assert.equal(chat.dmQuestionTold('teller', '2026-10-01T00:00:00.000Z'), false);
+  chat.markDmQuestionTold('teller', '2026-10-01T00:00:00.000Z');
+  assert.equal(chat.dmQuestionTold('teller', '2026-10-01T00:00:00.000Z'), true);
+  assert.equal(chat.dmQuestionTold('teller', '2026-10-02T00:00:00.000Z'), false, 'a new ask is told again');
+});
