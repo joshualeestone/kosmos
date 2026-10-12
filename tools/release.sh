@@ -737,9 +737,10 @@ fi
 # KOSMOS_TEST_PART_LOCAL=1 (#4317). Step 3's `yarn test` inherits this shell, so both left exported (or KOSMOS_TEST_PART
 # alone beside a leftover GITHUB_ACTIONS=true) would let a cut pass on half a suite, said only on stderr in a log
 # nobody reads while the cut is green. KOSMOS_TEST_PART=all (the whole suite) is allowed; anything else, an empty
-# value included, is refused, and so is KOSMOS_TEST_PART_LOCAL.
-if { [ -n "${KOSMOS_TEST_PART+x}" ] && [ "$KOSMOS_TEST_PART" != all ]; } || [ -n "${KOSMOS_TEST_PART_LOCAL+x}" ]; then
-  echo "KOSMOS_TEST_PART or KOSMOS_TEST_PART_LOCAL is set in this shell (part '${KOSMOS_TEST_PART-}', local '${KOSMOS_TEST_PART_LOCAL-}'). A cut always tests the whole suite (#5934): unset them and run again."; exit 1
+# value included, is refused, and so is KOSMOS_TEST_PART_LOCAL. So is KOSMOS_SHELL_SHARD, CI's shard of the shell part:
+# run-tests.sh refuses it beside a whole suite, so a leftover one would stop the cut at step 3, after the bump.
+if { [ -n "${KOSMOS_TEST_PART+x}" ] && [ "$KOSMOS_TEST_PART" != all ]; } || [ -n "${KOSMOS_TEST_PART_LOCAL+x}" ] || [ -n "${KOSMOS_SHELL_SHARD+x}" ]; then
+  echo "KOSMOS_TEST_PART, KOSMOS_TEST_PART_LOCAL or KOSMOS_SHELL_SHARD is set in this shell (part '${KOSMOS_TEST_PART-}', local '${KOSMOS_TEST_PART_LOCAL-}', shard '${KOSMOS_SHELL_SHARD-}'). A cut always tests the whole suite (#5934): unset them and run again."; exit 1
 fi
 # One authenticated request to Apple with the notary key, so a bad key or an outage refuses here,
 # before the bump is pushed. Step 4 can still fail at Apple after the bump (a notary outage that

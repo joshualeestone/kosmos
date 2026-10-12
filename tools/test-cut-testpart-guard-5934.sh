@@ -2,7 +2,8 @@
 # Test for #5934: tools/release.sh refuses a cut with KOSMOS_TEST_PART (anything but all) or
 # KOSMOS_TEST_PART_LOCAL exported, before the bump, because step 3's `yarn test` inherits them and
 # would run only part of the suite. Extracts the guard and runs it, as test-cut-rerun-guard.sh does
-# for #5932. CI sets KOSMOS_TEST_PART for its own matrix, so every arm sets or unsets both itself.
+# for #5932, under release.sh's own shell options. KOSMOS_SHELL_SHARD is refused too. CI sets all three for
+# its own matrix, so every arm unsets them first, then sets its own.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
@@ -25,10 +26,10 @@ if [ -n "$g" ]; then
   SRC="$(sed -n "${g},\$p" "$R" | sed '/^fi$/q')"
   case "$SRC" in *fi) ok "guard extracted whole, through its fi" ;; *) bad "guard has no fi line to extract through" ;; esac
 
-  # run <expected rc> <label> [VAR=value ...]: both variables are unset first, then the arm's own are set.
+  # run <expected rc> <label> [VAR=value ...]: all three variables are unset first, then the arm's own are set.
   run() {
     want="$1"; label="$2"; shift 2
-    out="$(env -u KOSMOS_TEST_PART -u KOSMOS_TEST_PART_LOCAL "$@" bash -c "$SRC" 2>&1)"; rc=$?
+    out="$(env -u KOSMOS_TEST_PART -u KOSMOS_TEST_PART_LOCAL -u KOSMOS_SHELL_SHARD "$@" bash -c "set -euo pipefail; $SRC" 2>&1)"; rc=$?
     if [ "$rc" = "$want" ]; then
       if [ "$want" = 1 ]; then
         case "$out" in *"A cut always tests the whole suite (#5934)"*) ok "$label" ;; *) bad "$label: refused without the #5934 message: $out" ;; esac
@@ -46,6 +47,8 @@ if [ -n "$g" ]; then
   run 1 "KOSMOS_TEST_PART_LOCAL=1 alone refuses" KOSMOS_TEST_PART_LOCAL=1
   run 1 "an EMPTY KOSMOS_TEST_PART_LOCAL refuses" KOSMOS_TEST_PART_LOCAL=
   run 1 "KOSMOS_TEST_PART=all with KOSMOS_TEST_PART_LOCAL=1 still refuses" KOSMOS_TEST_PART=all KOSMOS_TEST_PART_LOCAL=1
+  run 1 "KOSMOS_SHELL_SHARD=1/2 alone refuses (run-tests.sh would stop the cut after the bump)" KOSMOS_SHELL_SHARD=1/2
+  run 1 "an EMPTY KOSMOS_SHELL_SHARD refuses" KOSMOS_SHELL_SHARD=
   run 0 "KOSMOS_TEST_PART=all alone is allowed (the whole suite)" KOSMOS_TEST_PART=all
   run 0 "a clean environment passes (control)"
 else

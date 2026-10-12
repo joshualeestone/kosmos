@@ -119,9 +119,10 @@ function sandboxEnv(dir, extra) {
      origin and refused. An arm that wants a channel passes it in `extra`. */
   delete env.KOSMOS_CUT_CHANNEL;
   /* #5934: step 1c refuses a cut while KOSMOS_TEST_PART (anything but all) or KOSMOS_TEST_PART_LOCAL is set, and CI
-     exports KOSMOS_TEST_PART for its own part, so every arm meant to get past 1c would stop there. */
+     exports KOSMOS_TEST_PART (and KOSMOS_SHELL_SHARD) for its own part, so every arm meant to get past 1c would stop there. */
   delete env.KOSMOS_TEST_PART;
   delete env.KOSMOS_TEST_PART_LOCAL;
+  delete env.KOSMOS_SHELL_SHARD;
   return { ...env, ...(extra || {}) };
 }
 
@@ -672,6 +673,7 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       /* #5934: and these, which CI exports for its own part (see sandboxEnv). */
       KOSMOS_TEST_PART: undefined,
       KOSMOS_TEST_PART_LOCAL: undefined,
+      KOSMOS_SHELL_SHARD: undefined,
       KOSMOS_FUTURE_BOUND: undefined,
       HOME: home,
       KOSMOS_SITE: site,
