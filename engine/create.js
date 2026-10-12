@@ -930,6 +930,16 @@ function jobProvider(job) {
   if (runner === 'codex' && job && job.configDir && require('./qwenaccounts').isQwenHome(job.configDir)) return 'alibaba';
   return runnerProvider(runner);
 }
+/* #5977 review 2: the provider of a NAMED agent, for a caller that holds its runner and its name but not its job
+   (the failover, the project view, the org rollup). Only a codex agent needs its job read; any failure to read it
+   keeps the runner's own provider, the answer every one of those callers gave before Qwen existed. */
+function agentProvider(sessionName, runner) {
+  const r = runner || 'claude';
+  if (r !== 'codex' || !sessionName) return runnerProvider(r);
+  let job = null;
+  try { job = readJob(sessionName); } catch { job = null; }
+  return job ? jobProvider({ ...job, runner: 'codex' }) : runnerProvider(r);
+}
 /* #3296/#3391: the ONE "is this a non-claude runner" predicate -- the recognized set
    {codex, gemini, grok, antigravity}. plistFor (which slots run only for a non-claude runner),
    installJob (which runners it will back-fill a job for) and worldstarts (which imported
@@ -6542,6 +6552,7 @@ module.exports = {
   providerRunner,
   runnerProvider,
   jobProvider,   // #5977
+  agentProvider,   // #5977 review 2
   providerLabel,
   isNonClaudeRunner,
   antigravityEnabled,

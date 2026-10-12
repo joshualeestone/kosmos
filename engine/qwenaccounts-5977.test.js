@@ -36,7 +36,7 @@ const models = (...ids) => ({ status: 200, body: { object: 'list', data: ids.map
 test('endpointProblem accepts the tested default and refuses what cannot work, in words a person can act on', () => {
   assert.equal(qwen.endpointProblem(GOOD), null);
   assert.equal(qwen.endpointProblem({ ...GOOD, baseUrl: 'https://qwen.example.com/v1', key: 'sk-abc123' }), null);
-  assert.match(qwen.endpointProblem({ ...GOOD, baseUrl: 'not a url' }), /address of an OpenAI-compatible endpoint/);
+  assert.match(qwen.endpointProblem({ ...GOOD, baseUrl: 'notaurl' }), /address of an OpenAI-compatible endpoint/);
   assert.match(qwen.endpointProblem({ ...GOOD, baseUrl: 'file:///etc/passwd' }), /http:\/\/ or https:\/\//);
   assert.match(qwen.endpointProblem({ ...GOOD, baseUrl: 'http://u:p@localhost:11434/v1' }), /key box, not in the address/);
   assert.match(qwen.endpointProblem({ ...GOOD, baseUrl: 'http://localhost:11434/v1?x=1' }), /\? or #/);
@@ -87,7 +87,7 @@ test('readEndpoint keeps absent, unreadable and invalid apart', () => {
 });
 
 test('list shows every account folder with an endpoint file, and nothing else', () => {
-  const dir = account({ ...GOOD, key: 'sk-tail-WXYZ' });
+  const dir = account({ ...GOOD, key: 'sk-a-longer-tail-WXYZ' });
   fs.mkdirSync(nodePath.join(SANDBOX, qwen.DIR_PREFIX + 'empty'));          // no endpoint file: not an account
   fs.mkdirSync(nodePath.join(SANDBOX, '.kosmos-qwenx-near'));               // not the prefix
   const rows = qwen.list();
@@ -99,7 +99,7 @@ test('list shows every account folder with an endpoint file, and nothing else', 
   assert.equal(row.keyTail, 'WXYZ');
   assert.equal(row.local, true);
   assert.equal(row.model, GOOD.model);
-  assert.equal(JSON.stringify(rows).includes('sk-tail-WXYZ'), false, 'the key itself is never in a row');
+  assert.equal(JSON.stringify(rows).includes('sk-a-longer-tail-WXYZ'), false, 'the key itself is never in a row');
   assert.equal(rows.some((r) => r.dir.endsWith('empty')), false);
   assert.equal(rows.some((r) => r.dir.includes('qwenx')), false);
 });

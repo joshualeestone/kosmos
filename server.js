@@ -2821,9 +2821,24 @@ function handleQwenAccountStore(req, res) {
          is already there, so of two adds racing for one label (a double click on the default "local") exactly one
          gets it and the other is told, never both writing (review 1). A claimed folder this add then cannot fill is
          removed, so the label is free again. */
-      try { fs.mkdirSync(named.dir, { mode: 0o700 }); }
-      catch (err) {
-        if (err && err.code === 'EEXIST') {
+      /* Review 2: an add that died between the claim and the store (a restart during the live check) leaves an empty
+         folder that the list hides and delete refuses, so the label would be taken forever. A claimed folder with no
+         endpoint file, a real folder (not a link) and over a minute old is that leftover: reclaim it once. */
+      const claim = () => { try { fs.mkdirSync(named.dir, { mode: 0o700 }); return null; } catch (e) { return e || new Error('mkdir'); } };
+      let claimErr = claim();
+      if (claimErr && claimErr.code === 'EEXIST') {
+        let leftover = false;
+        try {
+          const st = fs.lstatSync(named.dir);
+          leftover = st.isDirectory() && !st.isSymbolicLink() && Date.now() - st.mtimeMs > 60000
+            && fs.readdirSync(named.dir).length === 0;
+        } catch { leftover = false; }
+        if (leftover) {
+          try { fs.rmdirSync(named.dir); claimErr = claim(); } catch (e) { claimErr = e || claimErr; }
+        }
+      }
+      if (claimErr) {
+        if (claimErr.code === 'EEXIST') {
           sendJson(res, 409, { error: `there is already a Qwen account called ${named.label} on this computer; give this one another name` });
         } else {
           sendJson(res, 400, { error: 'we could not make a place for this Qwen account on this computer' });
@@ -8908,7 +8923,7 @@ const server = http.createServer(async (req, res) => {
         if (chosen !== '') {
           let job = null;
           try { job = create.readJob(name); } catch { job = null; }
-          if (job && job.runner === 'codex') {
+          if (job && job.runner === 'codex' && create.jobProvider(job) !== 'alibaba') {   // #5977 review 2: no OpenAI check on a Qwen home
             const dir = job.configDir || openaiAccounts.defaultDir();
             try {
               const got = await openaiAccounts.accountModels(dir);

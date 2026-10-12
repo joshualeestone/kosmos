@@ -104,11 +104,11 @@ const aloneOnItsOwn = (p, session) => Array.isArray(p.agents) && p.agents.length
    has a provider; anything else (null, empty, an unknown string, which runnerProvider would call anthropic) is null,
    and the failover neither takes from nor gives to it. Note: readRunner's create.recordedRunner floors a missing record
    at claude, so in practice "unknown" reaches here as claude; that errs toward missing a move (review 7). */
-function providerOf(runner) {
+function providerOf(runner, sessionName) {
   if (typeof runner !== 'string' || !runner) return null;
   const create = require('./create');
   if (runner !== 'claude' && !create.isNonClaudeRunner(runner)) return null;
-  const p = create.runnerProvider(runner);
+  const p = create.agentProvider(sessionName, runner);   // #5977 review 2: a Qwen agent is not an OpenAI one
   return p === 'antigravity' ? 'google' : p;
 }
 
@@ -495,7 +495,7 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
   const limitedMiss = new Map();
   const baseMiss = base.limitedMiss instanceof Map ? base.limitedMiss : new Map();
   for (const a of Array.isArray(roster) ? roster : []) {
-    if (a && a.sessionName) runnerOf.set(a.sessionName, providerOf(runners instanceof Map ? runners.get(a.sessionName) : a.runner));
+    if (a && a.sessionName) runnerOf.set(a.sessionName, providerOf(runners instanceof Map ? runners.get(a.sessionName) : a.runner, a.sessionName));
     if (!a || !a.sessionName) continue;
     if (!limitedCard(a, now)) {
       if (baseLimited.has(a.sessionName) && !baseMiss.has(a.sessionName)) {
