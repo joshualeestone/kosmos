@@ -11962,6 +11962,68 @@ test('#4756: GET /api/remote/signin-addresses needs the held sign-in, answers th
   }
 });
 
+/* kosmos#5995 item 4: the sign-in's "Name for this computer" field. The page reads the name before anything is sent
+   (GET /api/remote/computer-name) and posts what the person left in the field with the start (computer_name), which
+   the engine keeps and sends. */
+test('#5995: the name this computer is sent under can be read first, is kept from the start, and is refused to another website', async () => {
+  const sb = fs.realpathSync(mkTemp('computer-name-'));
+  const fakeBin = nodePath.join(sb, 'fake-tunnel');
+  const argvLog = nodePath.join(sb, 'argv.jsonl');
+  fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
+    'const a = process.argv.slice(2);',
+    "if (a[0] === 'signin' && a[1] === 'start') { require('node:fs').appendFileSync(process.env.FAKE_NAME_ARGV, JSON.stringify(a) + '\\n'); console.log(JSON.stringify({ stage: 'code_sent' })); process.exit(0); }",
+    // An older tunnel refuses the device-key verb as a usage error (exit 2), as real ones do (kosmos#5422).
+    "if (a[0] === 'signin' && a[1] === 'device-id') { process.stderr.write(\"error: unrecognized subcommand 'device-id'\\n\"); process.exit(2); }",
+    'process.exit(0);', ''].join('\n'));
+  fs.chmodSync(fakeBin, 0o755);
+  const keys = ['AGENT_WORKFORCE_TUNNEL_BIN', 'AGENT_WORKFORCE_TUNNEL_STATE', 'FAKE_NAME_ARGV'];
+  const prev = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeBin;
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(sb, 'state');
+  process.env.FAKE_NAME_ARGV = argvLog;
+  const remoteEngine = require('./engine/remote');
+  const sentNames = () => (fs.existsSync(argvLog) ? fs.readFileSync(argvLog, 'utf8').trim().split('\n') : [])
+    .map((line) => { const a = JSON.parse(line); return a[a.indexOf('--device-name') + 1]; });
+  const start = (extra) => postJson('/api/remote/signin-start', Object.assign({ email: 'person@example.com' }, extra));
+  const shown = async () => JSON.parse((await req('/api/remote/computer-name', { headers: { 'sec-fetch-site': 'same-origin' } })).body);
+  let ownName = null;
+  try {
+    await postJson('/api/remote/signin-cancel', {});
+    const first = await shown();
+    assert.equal(first.ok, true, JSON.stringify(first));
+    if (first.fromComputer === true) ownName = first.name;
+    assert.equal(first.fromComputer, true, 'a name was already kept before this test: ' + JSON.stringify(first));
+    assert.equal(first.name + ' (Kosmos app)', remoteEngine.thisComputerDeviceName(), 'the route shows another name than the one that is sent');
+    assert.notEqual(first.name, 'Studio Mac', 'CONTROL: this computer has the test\'s name, so nothing below is told apart');
+    const foreign = await req('/api/remote/computer-name', { headers: { 'sec-fetch-site': 'cross-site' } });
+    assert.equal(foreign.status, 403, 'another website read this computer\'s name: ' + foreign.body);
+    assert.ok(!foreign.body.includes(first.name), 'the refusal carries the name');
+
+    // An older page, or a script: no computer_name in the body, and nothing is kept.
+    const plain = await start({});
+    assert.equal(plain.status, 200, 'the start failed: ' + plain.body);
+    assert.equal(remoteEngine.read().computer_name, null, 'a start that named nothing kept a name');
+    // The person typed one: kept before the code is asked for, sent, and shown next time.
+    assert.equal((await start({ computer_name: ' Studio Mac ' })).status, 200);
+    assert.deepEqual(await shown(), { ok: true, name: 'Studio Mac', fromComputer: false });
+    // A later start that names nothing (the quiet paths, an older page) still sends the kept name.
+    assert.equal((await start({})).status, 200);
+    // They cleared it: the plain name goes, and the field stays cleared in meaning (it shows the plain name).
+    assert.equal((await start({ computer_name: '' })).status, 200);
+    assert.deepEqual(await shown(), { ok: true, name: 'This computer', fromComputer: false });
+    // Not text: ignored, as an absent field is.
+    assert.equal((await start({ computer_name: 7 })).status, 200);
+    assert.deepEqual(sentNames(), [first.name + ' (Kosmos app)', 'Studio Mac (Kosmos app)', 'Studio Mac (Kosmos app)', 'This computer (Kosmos app)', 'This computer (Kosmos app)']);
+    // Leaving the computer's own name in the field goes back to following the computer.
+    assert.equal((await start({ computer_name: first.name })).status, 200);
+    assert.equal(remoteEngine.read().computer_name, null, 'the computer\'s own name was kept as a choice');
+  } finally {
+    if (ownName !== null) remoteEngine.setComputerName(ownName);   // the computer's own name keeps nothing
+    await postJson('/api/remote/signin-cancel', {});
+    for (const k of keys) { if (prev[k] === undefined) delete process.env[k]; else process.env[k] = prev[k]; }
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // In-app sign-in routes (#3149 increment 3a): the engine<->server seam. The
 // bearer material is held engine-side; these assert the routes relay only the

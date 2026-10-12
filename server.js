@@ -9914,11 +9914,28 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         const deviceName = typeof body.device_name === 'string' ? body.device_name : undefined;
+        /* kosmos#5995 item 4: what the person left in "Name for this computer" is kept BEFORE the code is asked for,
+           so start, verify and every later re-approval of this computer send the one name they saw. A name that
+           could not be kept refuses the start: sending the computer's own name after showing another would be the
+           thing this field exists to stop. Absent (an older page, a script): nothing changes. */
+        if (typeof body.computer_name === 'string') {
+          const kept = remote.setComputerName(body.computer_name);
+          if (!kept.ok) { sendJson(res, 400, { error: kept.because }); return; }
+        }
         const got = await remote.signinStart(email, deviceName);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         sendJson(res, 200, { ok: true, stage: got.data.stage });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not start the sign-in' }));
+    return;
+  }
+  /* kosmos#5995 item 4: the name this computer would be sent under, for the sign-in's "Name for this computer"
+     field to show BEFORE anything is sent. Nothing is asked of the coordinator. A page on another site is
+     refused: the name is often a person's own ("Sam's MacBook"). */
+  if (pathname === '/api/remote/computer-name' && req.method === 'GET') {
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    sendJson(res, 200, Object.assign({ ok: true }, remote.computerNameShown()));
     return;
   }
   if (pathname === '/api/remote/signin-verify' && req.method === 'POST') {
