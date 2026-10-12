@@ -545,7 +545,7 @@ function compileAll(opts = {}) {
     for (const name of existing) {
       const day = dayFromFileName(name);
       if (!day) continue;
-      if (keep.has(day)) continue;
+      if (keep.has(day) || held.includes(day)) continue;   // written this run, or already held above
       // kosmos#5866: a held day with no readable rows left may still hold rows this run could not see; it is kept.
       if (isHeld(day)) { held.push(day); continue; }
       try { fs.rmSync(path.join(outDir, name)); pruned.push(day); } catch { /* leave it rather than fail the run */ }
