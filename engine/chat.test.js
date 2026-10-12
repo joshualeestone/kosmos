@@ -1070,6 +1070,48 @@ test('a full thread ROLLS OVER (kosmos#5841): the next message is kept, and noth
   assert.deepEqual(chat.asideChain('full', 'casey', false).map((a) => a.count), [chat.MAX_MESSAGES], 'the chain reaches it');
 });
 
+test('kosmos#5900: a conversation from before projectBornAt still reaches its earlier file after it rolls over and is dated', () => {
+  const P = 'undated-5900';
+  const BORN = '2026-08-01T00:00:00.000Z';
+  const file = chat.threadFile(P, 'casey');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const many = Array.from({ length: chat.MAX_MESSAGES }, (_, i) => ({
+    at: new Date().toISOString(), text: 'u' + i, delivery: { state: chat.DELIVERY.PLACED, because: null },
+  }));
+  // Written before conversations carried a date: no projectBornAt at all.
+  fs.writeFileSync(file, JSON.stringify({ project: P, agent: 'casey', messages: many }));
+  assert.equal(chat.appendMessage(P, 'casey', { text: 'rolls over' }, BORN).recorded, true);
+  const now = chat.readThread(P, 'casey');
+  assert.equal(now.projectBornAt, BORN, 'premise: the fresh file is dated by the send that rolled it over');
+  const aside = JSON.parse(fs.readFileSync(path.join(path.dirname(file), now.continues), 'utf8'));
+  assert.equal(aside.projectBornAt, undefined, 'premise: the file set aside keeps no date');
+  const chain = chat.asideChain(P, 'casey', true);
+  assert.deepEqual(chain.map((a) => a.messages.length), [chat.MAX_MESSAGES], 'the dated conversation lost its undated earlier file');
+  assert.equal(chain[0].messages[0].text, 'u0');
+  assert.deepEqual(chat.asideChain(P, 'casey', false).map((a) => a.count), [chat.MAX_MESSAGES], 'the counting read (and its cache) disagrees');
+  assert.deepEqual(chat.asideChain(P, 'casey', false).map((a) => a.count), [chat.MAX_MESSAGES], 'a second, cached count disagrees');
+
+  // A second rollover, now dated: the chain runs dated file, then undated file, oldest first.
+  const have = chat.readThread(P, 'casey').messages.length;
+  for (let i = have; i < chat.MAX_MESSAGES; i += 1) assert.equal(chat.appendMessage(P, 'casey', { text: 'd' + i }, BORN).recorded, true);
+  assert.equal(chat.appendMessage(P, 'casey', { text: 'rolls again' }, BORN).recorded, true);
+  const two = chat.asideChain(P, 'casey', true);
+  assert.equal(two.length, 2, 'the second rollover cut the chain at the undated file');
+  assert.equal(two[0].messages[0].text, 'u0', 'the undated file is not the oldest in the chain');
+  assert.equal(two[1].messages.length, chat.MAX_MESSAGES);
+
+  // The guard still holds past an undated file: one with a DIFFERENT date is another conversation's, and stops the chain.
+  const kind = '.' + now.continues.split('.').pop();
+  const foreign = path.basename(file) + '.other-project' + kind;
+  fs.writeFileSync(path.join(path.dirname(file), foreign),
+    JSON.stringify({ project: P, agent: 'casey', projectBornAt: '2025-01-01T00:00:00.000Z', messages: [{ text: 'not this conversation' }] }));
+  const undatedPath = path.join(path.dirname(file), now.continues);
+  fs.writeFileSync(undatedPath, JSON.stringify({ ...aside, continues: foreign }));
+  const guarded = chat.asideChain(P, 'casey', true);
+  assert.ok(guarded.every((a) => a.messages.every((m) => m.text !== 'not this conversation')), 'the chain followed an undated file into a differently dated one');
+  assert.equal(guarded.length, 2, 'the guard cut more than the foreign file');
+});
+
 test('a recording failure NEVER throws, so a delivered message cannot come back looking undelivered', () => {
   const kept = chat.appendMessage('../hostile', 'casey', { text: 'hi', delivery: { state: chat.DELIVERY.PLACED } });
   assert.equal(kept.recorded, false);
