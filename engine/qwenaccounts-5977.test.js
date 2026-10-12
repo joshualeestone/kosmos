@@ -36,7 +36,7 @@ const models = (...ids) => ({ status: 200, body: { object: 'list', data: ids.map
 test('endpointProblem accepts the tested default and refuses what cannot work, in words a person can act on', () => {
   assert.equal(qwen.endpointProblem(GOOD), null);
   assert.equal(qwen.endpointProblem({ ...GOOD, baseUrl: 'https://qwen.example.com/v1', key: 'sk-abc123' }), null);
-  assert.match(qwen.endpointProblem({ ...GOOD, baseUrl: 'not a url' }), /address of an OpenAI-compatible endpoint/);
+  assert.match(qwen.endpointProblem({ ...GOOD, baseUrl: 'notaurl' }), /address of an OpenAI-compatible endpoint/);
   assert.match(qwen.endpointProblem({ ...GOOD, baseUrl: 'file:///etc/passwd' }), /http:\/\/ or https:\/\//);
   assert.match(qwen.endpointProblem({ ...GOOD, baseUrl: 'http://u:p@localhost:11434/v1' }), /key box, not in the address/);
   assert.match(qwen.endpointProblem({ ...GOOD, baseUrl: 'http://localhost:11434/v1?x=1' }), /\? or #/);

@@ -33,8 +33,8 @@ fs.writeFileSync(FAKE_TMUX, [
 ].join('\n') + '\n', { mode: 0o755 });
 
 let n = 0;
-function home(files) {
-  const dir = nodePath.join(SANDBOX, `.kosmos-qwen-h${++n}`);
+function home(files, prefix) {
+  const dir = nodePath.join(SANDBOX, `${prefix || '.kosmos-qwen-h'}${++n}`);   // a Qwen account's folder name, unless told otherwise
   fs.mkdirSync(dir, { recursive: true });
   for (const [name, body] of Object.entries(files)) fs.writeFileSync(nodePath.join(dir, name), body, { mode: 0o600 });
   return dir;
@@ -82,7 +82,7 @@ test('an endpoint file that cannot be used stops the launch, saying why', () => 
 });
 
 test('CONTROL: an OpenAI home (auth.json, no endpoint file) launches exactly as before', () => {
-  const r = run(home({ 'auth.json': '{"OPENAI_API_KEY":null,"tokens":{}}' }), 'gpt-5.2');
+  const r = run(home({ 'auth.json': '{"OPENAI_API_KEY":null,"tokens":{}}' }, '.codex-h'), 'gpt-5.2');   // an OpenAI home's name
   assert.match(r.argv, /new-session/, r.out);
   assert.match(r.argv, /-m gpt-5\.2/);
   assert.equal(/model_provider|web_search|model_context_window/.test(r.argv), false, 'no endpoint arguments');
