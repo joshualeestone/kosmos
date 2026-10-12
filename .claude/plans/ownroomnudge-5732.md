@@ -1,7 +1,9 @@
 # #5732: a post from your OWN other computer tells the project's agents to read the room
 
-**Ask:** Splinter, 2026-10-09 18:48. Build it on a branch, off by default, and do not merge it. He puts it to Josh as a
-one-line yes/no during the "Kosmos as main comms" pilot (Josh-Brain/Projects/kosmos-as-primary-comms-plan-2026-10-09.md).
+**Ask:** Splinter, 2026-10-09 18:48: build it on a branch, off by default, not merged, for Josh's yes/no during the
+"Kosmos as main comms" pilot. **Decided 2026-10-12 (Mona Lisa, at Splinter's ask to make the reversible call; reasoning
+on #5732): yes, ON by default, merged; KOSMOS_OWN_ROOM_NUDGE=0 turns it off.** Taken over from Ice Cream Kitty's branch
+ownroomnudge-5732 as ownroomnudge-on-5732.
 
 ## Why
 A shared-room post is recorded as an `external` row and nothing else happens (engine/fedseats.js header, Josh's #3311
@@ -15,8 +17,9 @@ computer tells no agent on the agents Mac. For tomorrow, Splinter checks the roo
     cannot write it.
   - A `same_account` inside `data`, or one that is not exactly `true`, is not passed.
   - The stored row is unchanged, because `externalPost` keeps only its named fields.
-- **server.js:** the `recordExternal` wrapper stores the post as before, then calls `messages.nudgeOwnComputerPost`.
-  It does so only when the stamp is set, and unless `KOSMOS_OWN_ROOM_NUDGE=0`. It never throws into the seat's data handler.
+- **server.js:** the `recordExternal` wrapper stores the post as before, then calls `messages.nudgeOwnComputerPost` when
+  `messages.ownPostNudges(msg, env)` says so: the relay's stamp, a post a PERSON wrote (`fromKind: 'person'`), and the
+  switch not `0`. It never throws into the seat's data handler.
 - **engine/messages.js:** `nudgeOwnComputerPost(projectId, projectName, postId, members, roster, now)`.
   - It types ONE line into each member agent's pane through `chat.deliverAutomatic`, the #185 nudge's path:
     `[a new post from your other computer is in the room <name>; read it with: kosmos room <id>]`.
@@ -25,13 +28,21 @@ computer tells no agent on the agents Mac. For tomorrow, Splinter checks the roo
     fail-closed rule).
   - At most one line per agent per room every 2 minutes (`OWN_POST_NUDGE_GAP_MS`).
   - Only an addressable roster card is typed into.
-  - A quota-held agent is skipped without spending its gap.
+  - An agent switched off in this project (#3564) is not woken, as a room post does not wake it.
+  - A room the valve holds (roomHeld) nudges nobody: an agent told to read it could not post a reply there.
+  - A held agent (a shared quota, a usage limit, a menu or permission prompt) or a send that typed nothing (could_not)
+    is skipped without spending its gap.
   - Each line is recorded as a `nudge` row (`reason: 'own-computer'`, `post`: the external row's id). The #185 sweep's
     at-most-once check matches only operator post ids (`m...`), so an `x-` id cannot collide with it.
 
 ## Decisions
-- **Off by default, by an environment variable** rather than a setting on a screen. Splinter asked for off, and Josh's
-  yes/no is pending. A screen switch would be built only after a yes.
+- **On by default** (decided 2026-10-12): off by default would be a feature nobody can turn on, since it needs an
+  environment variable on the board. `KOSMOS_OWN_ROOM_NUDGE=0` turns it off; no screen switch yet.
+- **Only a person's own post nudges** (review 1): an agent's post relayed from the other computer arrives stamped too,
+  and nudging on it would set two computers' agents telling each other to read the room. Trusting the sender's `kind`
+  is fine here because the sender is this same account.
+- **A held room nudges nobody** (review 1): the valve would refuse the reply the nudge invites. roomHeld fails open (an
+  unreadable record reads as not held), so at worst the nudge goes out as it would have before.
 - **No post text in the nudge.** That is how it stays inside the substance of #3311 even for an own post.
 - **The weakest premise:** that the relay sets `same_account` only when the poster really is this account. That is the
   relay's job (crates/relay/src/federation.rs `same_account`, from verified tickets), not re-checked here.
@@ -42,7 +53,10 @@ computer tells no agent on the agents Mac. For tomorrow, Splinter checks the roo
 - **engine/fedseats.test.js `#5732`:** the stamp is passed; one a sender wrote inside data is not; a non-`true` stamp
   is not.
 - **engine/messages.test.js `#5732`:** one line per member with no post text, recorded as a nudge; a burst is one line
-  per agent until the gap; a non-member is never typed into; the server wiring is gated on the stamp and the switch.
+  per agent until the gap; ownPostNudges run for the default, the off switch, no stamp, a non-true stamp and an agent's
+  post, with the server wrapper checked to ask it; a switched-off member is not woken; a held room nudges nobody; a
+  removed member gets nothing and an unreadable removed list tells nobody; a non-plain project id is never typed.
+  Removing the switched-off skip or the held check turns its test red (review 1).
 - **Red by mutation**, each on valid code (an earlier attempt broke the syntax and was redone):
   - the post's words in the line
   - the gap removed
@@ -54,7 +68,7 @@ computer tells no agent on the agents Mac. For tomorrow, Splinter checks the roo
 - engine guards plus both touched files: 512 tests, 1 failure (the export guard), fixed by the excuse. engine.reachable
   then passes 7/7.
 - The 75 files that read server.js: the same 6 failures as on main's base (unrelated files), none new.
-- No full suite or challenge loop yet. Both are for after a yes, before a PR.
+- Full validation and the challenge loop run on ownroomnudge-on-5732 before its PR.
 
 ## The permission-prompt and question-menu floor (Splinter 2026-10-10 06:27, from Angel's #5406 finding)
 - The blocker: a typed line plus Enter into a Claude pane on a permission prompt takes the highlighted Yes.
@@ -67,5 +81,3 @@ computer tells no agent on the agents Mac. For tomorrow, Splinter checks the roo
   nudge's held check turns both held tests red.
 - Decided: a held nudge is not queued for later. The post stays in the room, and the next post (or the agent's own
   next read) finds it. Weakest premise: one post while the agent sits on a prompt is noticed later rather than at once.
-- Decided 2026-10-12 (Mona Lisa, at Splinter's ask, reasoning on #5732): yes, ON by default; KOSMOS_OWN_ROOM_NUDGE=0
-  turns it off. Off by default would be a feature nobody can turn on (it needs an environment variable on the board).

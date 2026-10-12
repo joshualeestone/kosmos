@@ -21526,12 +21526,12 @@ fedseats.configure({
   spawnSeat: (edge) => remote.spawnFedSeat(edge),
   macRequest: (method, route, body) => remote.macRequest(method, route, body),
   /* #5732: a post the relay stamps as this account's own (another of the person's computers) tells the project's
-     agents to read the room, with no post text. On by default (Mona Lisa's call on the card, 2026-10-12); KOSMOS_OWN_ROOM_NUDGE=0
-     turns it off. Strangers' posts stay data only.
+     agents to read the room, with no post text. Whether it does is messages.ownPostNudges (a person's own post, on by
+     default, KOSMOS_OWN_ROOM_NUDGE=0 turns it off). Strangers' posts and agents' posts stay data only.
      Never throws into the seat's data handler. */
   recordExternal: (projectId, msg) => {
     const row = messages.externalPost(projectId, msg);
-    if (row && msg && msg.sameAccount === true && process.env.KOSMOS_OWN_ROOM_NUDGE !== '0') {
+    if (row && messages.ownPostNudges(msg, process.env)) {
       try {
         const roster = safeRoster();
         const found = projects.get(projectId, roster);
