@@ -193,11 +193,11 @@ _qh_lib_check() {
   if [ -z "$why" ]; then
     local fn tgt need="$QH_NEED_BASE"; tgt="$($g show "$main:tools/lib/cut-guard.sh" 2>/dev/null)"
     # And the side lane's, which the load below requires when the lib offers side turns.
-    printf '%s\n' "$tgt" | grep -qE '^kosmos_light_side_clear\(\)' && need="$need kosmos_light_side_take kosmos_publish_light_side_pgid kosmos_release_light_side"
+    printf '%s\n' "$tgt" | grep -qE '^(function )?kosmos_light_side_clear ?\(\)' && need="$need kosmos_light_side_take kosmos_publish_light_side_pgid kosmos_release_light_side"
     [ -n "$tgt" ] || why="could not read origin/main's cut-guard.sh"
     for fn in $need; do
       [ -n "$why" ] && break
-      printf '%s\n' "$tgt" | grep -qE "^$fn\(\)" || { why="origin/main's cut-guard.sh has no $fn, which this copy calls; update this copy first"; break; }
+      printf '%s\n' "$tgt" | grep -qE "^(function )?$fn ?\(\)" || { why="origin/main's cut-guard.sh has no $fn, which this copy calls; update this copy first"; break; }
     done
   fi
   if [ -z "$why" ]; then
@@ -256,8 +256,12 @@ else
     sleep 0.5
   done
   if [ -n "$QH_LIB_LOCK" ]; then
-    ps -ww -o command= -p "$$" > "$QH_LIB_LOCK/cmd" 2>/dev/null; echo "$$" > "$QH_LIB_LOCK/pid"; _qh_lib_check; else
-    echo "QUEUED-HEAVY $(date '+%H:%M:%S') the lib check's lock stayed taken for 5 min (holder pid ${_qh_op:-?}); loading the lib unchecked, possibly in the middle of a move (#5923)"; fi
+    ps -ww -o command= -p "$$" > "$QH_LIB_LOCK/cmd" 2>/dev/null
+    echo "$$" > "$QH_LIB_LOCK/pid"
+    _qh_lib_check
+  else
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') the lib check's lock stayed taken for 5 min (holder pid ${_qh_op:-?}); loading the lib unchecked, possibly in the middle of a move (#5923)"
+  fi
   unset _qh_i _qh_op _qh_oc _qh_empty _qh_ino _qh_ino2 _qh_lastino
 fi
 . "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || {
