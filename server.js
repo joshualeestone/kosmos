@@ -1007,6 +1007,7 @@ const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
 // #5959: a waiting self-report (needs_you / blocked) standing longer than this is pointed out to the agent (kosmos report show).
 const REPORT_STALE_MS = 24 * 3600 * 1000;
+const cardlabel = require('./engine/cardlabel');   // #5959: the card's word, as the page shows it
 /* ⚠️ For the not-running rows only. `engine/status.js` reads the same store for
    the agents it can see; this is the same question asked about an agent with no
    pane, not a second idea of where a face lives. */
@@ -15111,7 +15112,7 @@ const server = http.createServer(async (req, res) => {
       const rep = selfreport.read(sender.card.sessionName);
       /* #5959: the card as the PERSON sees it (its label is the page's own word, engine/cardlabel), so an agent can
          check its own card without reading the board; and a waiting state standing over a day is pointed out. */
-      const cardLabel = require('./engine/cardlabel').labelOf(sender.card);
+      const cardLabel = cardlabel.labelOf(sender.card);
       const atMs = rep && rep.found === true ? Date.parse(rep.at || '') : NaN;
       const ageMs = Number.isFinite(atMs) ? Date.now() - atMs : null;
       const stale = !!(rep && rep.found === true && selfreport.WAITING_ON_A_PERSON.includes(rep.state)
@@ -15143,7 +15144,7 @@ const server = http.createServer(async (req, res) => {
           if (selfreport.WAITING_ON_A_PERSON.includes(rep.state) && stale) {
             // #5959: a waiting state standing over a day says so in the same sentence, not a second one.
             const days = Math.floor(ageMs / (24 * 3600 * 1000));
-            line += ' This `' + rep.state + '` report has been standing for ' + (days >= 2 ? days + ' days' : 'over a day')
+            line += ' Your own `' + rep.state + '` report has been standing for ' + (days >= 2 ? days + ' days' : 'over a day')
               + '. If nobody needs to answer it any more, clear it with a fresh report (e.g. `kosmos report working ...`).';
           } else if (selfreport.WAITING_ON_A_PERSON.includes(rep.state)) {
             line += ' This is a waiting-on-a-person state; clear it with a fresh report (e.g. `kosmos report working ...`) once you have been answered.';
@@ -15154,6 +15155,8 @@ const server = http.createServer(async (req, res) => {
         res.end(line + '\n');
         return;
       }
+      // #5959: `card` is what the board shows (its raw state and the page's word for it, which can differ: "Question"),
+      // and `stale` says the agent's own waiting report has stood over a day.
       sendJson(res, 200, { ok: true, report: rep, card: { state: sender.card.state || null, label: cardLabel }, stale });
     } catch (err) {
       fail(500, String((err && err.message) || 'we could not read your report right now'));

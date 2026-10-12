@@ -33,6 +33,7 @@ test('#5959: the special cases agree (question, crash loop, restarting causes, r
     { state: 'needs_you', stateReportedBy: 'agent' },
     { state: 'needs_you', stateReportedBy: 'auto' },
     { state: 'working', crashLoop: { looping: true } },
+    { state: 'working', crashLoop: { looping: false } },
     { state: 'restarting', disruption: { cause: 'model' }, modelName: 'Opus' },
     { state: 'restarting', disruption: { cause: 'model' } },
     { state: 'restarting', disruption: { cause: 'provider', timedOut: true } },
