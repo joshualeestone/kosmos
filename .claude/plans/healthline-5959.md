@@ -48,7 +48,7 @@ the pane working (a short turn between sweeps is not seen); for Codex, Gemini an
   Connection lost: "no problem showing" beside it would read as a clean bill of health. Blocked because a Claude card stays blocked on
   Claude Code's own report of a refused sign-in or a usage cap, where "no problem showing" would be false.
 - Windows: a Codex agent there is read through its rollout like any Codex agent. Whether the rollout is found on
-  Windows is reasoned from source, not measured; if it is not, the line says "not seen since Kosmos started" where
+  Windows is reasoned from source, not measured; if it is not, the line says "not yet" where
   "cannot see" would be truer. Windows changes go to Homer.
 - The account's own Check-now verdict (Settings, AI Models) is not read here: it is about the account, which may serve
   several agents, and it has its own row. A follow-up could name it on this line.
@@ -56,7 +56,8 @@ the pane working (a short turn between sweeps is not seen); for Codex, Gemini an
   beside `crashloop.forget` in create, remove and delete-leftover), and so does a provider or account switch, which keeps the name (before and after its restart).
 - The time is in the viewer's clock and zone: in a Kosmos+ view of another computer, the viewer's own. Skew between the
   two computers' clocks moves the hour bound and the today/weekday choice by that much.
-- In memory: after a board restart every agent reads "Last seen working: not seen since Kosmos started" until its next turn.
+- In memory: after a board restart every agent reads "Last seen working: not yet" until its next turn, as does one just switched or
+  recreated (its time is forgotten then; "since Kosmos started" would be false, so the words do not say it).
 - "At a glance" in the ask may mean the board card; if so, the line is one call away (`healthLine` is pure).
 
 ## Tests
