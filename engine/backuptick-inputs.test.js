@@ -219,3 +219,22 @@ test('#5883 slice 2: a Grok agent on a named account is backed up from that acco
   assert.deepEqual(g.only, ['any-folder-name/sid1/chat_history.jsonl', 'any-folder-name/sid1/summary.json']);
   assert.equal(snap.rootNameProblem(g.name), null);
 });
+
+test('#5883 slice 4: an agent that moved between two named accounts keeps the FIRST account\'s conversations', () => {
+  const agentDir = mk('workers', 'mira');
+  const first = mk('home', '.codex-first'), now = mk('home', '.codex-now');
+  rollout(first, agentDir, 'rollout-first.jsonl');
+  rollout(now, agentDir, 'rollout-now.jsonl');
+  const accountsOf = (m) => (m === 'openaiaccounts' ? [{ dir: path.join(BASE, 'default-not-read'), isDefault: true }, { dir: first, isDefault: false }, { dir: now, isDefault: false }] : []);
+  const readJob = (n) => (n === 'mira' ? { runner: 'codex', configDir: now } : null);
+  const { roots } = tick.rootsFor(tick.inputsHere({ readJob, accountsOf }));
+  const mine = roots.filter((r) => r.name.startsWith('sessions/mira/codex-a'));
+  assert.equal(mine.length, 2, JSON.stringify(roots.map((r) => r.name)));
+  assert.deepEqual(mine.map((r) => r.only[0].split('/').pop()).sort(), ['rollout-first.jsonl', 'rollout-now.jsonl']);
+  // The current account is read once (one folder, one root), and names are each folder's own.
+  assert.equal(new Set(mine.map((r) => r.name)).size, 2);
+  // CONTROL: another provider's accounts are never read for a Codex agent.
+  const g = tick.rootsFor(tick.inputsHere({ readJob, accountsOf: (m) => (m === 'geminiaccounts' ? [{ dir: first, isDefault: false }] : []) })).roots
+    .filter((r) => r.name.startsWith('sessions/mira/'));
+  assert.ok(!g.some((r) => r.name.startsWith('sessions/mira/gemini-a')));
+});

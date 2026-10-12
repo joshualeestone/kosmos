@@ -21,9 +21,9 @@
  * sessions/<id>/codex-runtime (#5883), never anything beside them.
  * Transcripts are read from every home an agent's Codex or Gemini sessions can be in, from its launch job (kosmos#5883
  * slices 1 and 2, Grok included). KNOWN GAPS still open on #5883, each leaving that agent's FOLDER backed up but not its
- * transcripts: Antigravity (Gemini on a Google subscription: live SQLite files, which need a consistent copy), a
- * move between two NAMED accounts (the first account's sessions stay unread), and Grok sessions run in a Grok
- * WORKTREE (their launch folder is the worktree, not the agent's folder).
+ * transcripts: Grok sessions run in a Grok WORKTREE (their launch folder is the worktree, not the agent's folder), and
+ * conversations started in a SUBFOLDER of an agent's folder. (Every named account of the agent's provider is read,
+ * slice 4; an agent that changed PROVIDER keeps its old provider's sessions unread.)
  * `left` names what was not added and why (an id or slug a root name cannot carry), never a path.
  *
  * startTick(deps) -> stop(). Every `everyMs` (an hour): only while deps.enrolled() is true (the board passes mayBackUp:
@@ -210,7 +210,7 @@ function startTick(deps) {
    (an agent whose profile write failed still has transcripts), each resolved with create.workerDir. Projects: the
    stored list, each by its id. Claude config roots SORTED by full path (backupsessions numbers them by position, and
    status.configRoots' order is readdir's). A source that cannot be read gives nothing; never throws.
-   deps (tests): readJob(name), sessionsFor(dir, opts). */
+   deps (tests): readJob(name), sessionsFor(dir, opts), accountsOf(moduleName) -> account rows. */
 function inputsHere(deps = {}) {
   const store = require('./store');
   const create = require('./create');
@@ -270,6 +270,20 @@ function inputsHere(deps = {}) {
     } else if (job && job.runner === 'grok' && job.configDir) {
       // kosmos#5883 slice 2: a Grok agent on a named account (its GROK_HOME is the account folder).
       try { moreHomes.push({ provider: 'grok', home: job.configDir, tag: acctTag(job.configDir) }); } catch { /* left */ }
+    }
+    // kosmos#5883 slice 4: EVERY named account of the agent's provider, not only the current one, so an agent that moved
+    // between two named accounts keeps the first one's conversations. Each is filtered to this agent's own files and
+    // named for its folder (acctTag), so it is stable, and sessionsFor reads one folder once. Only the agent's own
+    // provider's accounts: what the runner can have written. A SIGNED-OUT account is not listed (the account modules
+    // list only folders with an identity), so its old sessions stay unread.
+    const each = { codex: ['openaiaccounts', (d) => d], gemini: ['geminiaccounts', (d) => create.geminiStorageHome(d)], grok: ['grokaccounts', (d) => d] }[job && job.runner];
+    if (each) {
+      try {
+        for (const row of (deps.accountsOf || ((m) => require(`./${m}`).list()))(each[0])) {
+          if (!row || typeof row.dir !== 'string' || row.isDefault) continue;
+          moreHomes.push({ provider: job.runner, home: each[1](row.dir), tag: acctTag(row.dir) });
+        }
+      } catch { /* the current account is still read */ }
     }
     return (deps.sessionsFor || require('./backupsessions').sessionsFor)(dir, { id, claudeRoots, geminiHome: gm, codexHome: cx, grokHome: agentGrokHome, moreHomes });
   };
