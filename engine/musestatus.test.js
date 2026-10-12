@@ -404,10 +404,13 @@ test('#3939: Muse is on by default on a Mac, off with AGENT_WORKFORCE_MUSE=0, ne
       assert.equal(muse.enabled('darwin'), false, 'the off marker did not turn it off');
     } finally { fs.rmSync(off, { force: true }); }
     assert.equal(muse.enabled('darwin'), true, 'removing the off marker did not turn it on again');
-    // CONTROL: the old preview marker, left in a data folder, changes nothing.
+    // The old preview marker, left in a data folder, is not read: with Muse switched off it does not turn Muse back
+    // on (the old code returned on here; on by default, the marker can only show itself in this case).
     const old = path.join(path.dirname(off), 'muse-preview-on');
     fs.writeFileSync(old, '');
-    try { assert.equal(muse.enabled('darwin'), true, 'a leftover preview marker changed the answer'); } finally { fs.rmSync(old, { force: true }); }
+    process.env.AGENT_WORKFORCE_MUSE = '0';
+    try { assert.equal(muse.enabled('darwin'), false, 'a leftover preview marker turned Muse back on'); }
+    finally { fs.rmSync(old, { force: true }); delete process.env.AGENT_WORKFORCE_MUSE; }
   } finally {
     if (was === undefined) delete process.env.AGENT_WORKFORCE_MUSE; else process.env.AGENT_WORKFORCE_MUSE = was;
   }
