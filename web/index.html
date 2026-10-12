@@ -11888,8 +11888,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   /* #5551: the new look's Back row steps aside here too, for the same 44px. */
   :root[data-look="new"] body:not(.consolidated) #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box :is(.d-crumb-back, .d-crumb-rootwrap) { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .d-talk-caprow:has(#d-talk-search:placeholder-shown):not(:focus-within) { margin: 0; }
-  /* #5624: the read-aloud toggle steps aside with the rest of that row, so the row stays empty and takes no room. */
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .d-talk-caprow:has(#d-talk-search:placeholder-shown):not(:focus-within) > #d-conv { display: none; }
+  /* #5624: the read-aloud toggle steps aside with the rest of that row while it is off, so the row stays empty and
+     takes no room; while it is on it stays, as the sign that new messages are read aloud and the way to stop them. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .d-talk-caprow:has(#d-talk-search:placeholder-shown):not(:focus-within) > #d-conv:not([aria-pressed="true"]) { display: none; }
   /* The agent's header is one slim line: name and state, no avatar (it is on Profile). */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dav-wrap { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead { padding: 2px 0 2px 6px; margin-bottom: 4px; }
