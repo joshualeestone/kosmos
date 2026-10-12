@@ -107,3 +107,11 @@ Mutants after review 4 (19:30 CDT from `date`), each tests 18 pass 17 fail 1: W1
 2. NIT: the key step's `pair` leaked through stripState undocumented and inconsistently. FIXED by 1 (replaced or
    removed in one place) and documented. Tests 18 -> 19.
 Mutants after review 6 (19:35 CDT from `date`): X1 no pair on results: red. X2 pair not moved on otherPair: red. X3 the key step's pair not removed: SURVIVES, equivalent (a result can carry the key step's pair only after it set seen.pair, which then overwrites it).
+
+## Review 7 (opus, blind, on 39c01e0c): NO NEW ISSUES. Converged at 7.
+It read every result shape as the hourly tick would and found each one actionable alone.
+
+## Next (after the four prerequisites are on main)
+Rebuild this branch from main and cherry-pick only its own commits (the stack merges drop out), re-run the backup tests
+and both full-suite gates by hand, then Mortals, proof, PR. The review record above stays valid only if the cherry-picked
+backuprun files are byte-identical to 39c01e0c's: check with git diff before trusting it.
