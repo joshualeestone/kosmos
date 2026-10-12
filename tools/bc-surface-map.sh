@@ -4,7 +4,8 @@
 # annotations in docs/browser-checks/*.js (added by #2518) -- the FROZEN contract this and
 # tools/lib/browser-check-surface-gate.sh both read; the annotation FORMAT is the single
 # source of truth. The annotation-parse sed and the whole-token boundary match are the SHARED
-# primitives in tools/lib/browser-check-surface-lib.sh (bc_surface_tokens_of / bc_surface_token_hits),
+# primitives in tools/lib/browser-check-surface-lib.sh (bc_surface_tokens_of / bc_surface_token_hits,
+# and the one-pass bc_surface_scan_checks that covering reads, #5907),
 # which this helper AND the gate source -- so they cannot byte-drift; there is one definition.
 # The DRIFT-DETECTOR arms in test-bc-surface-map.sh (3/3c/3d/4b) survive the extraction as a
 # WIRING check: they assert the helper and the gate still agree BEHAVIOURALLY on plain-token
@@ -97,7 +98,7 @@ _bcm_covering() {
   fi
   [ -n "$changed" ] || return 0
   # #5907: every check in one pass (bc_surface_scan_checks, the scan shared with the gate): a HIT is covering, a MISS is not, and
-  # only a SLOW check (a non-plain token first, or a key line the scan's C-locale match refuses) is read the original
+  # only a SLOW check (a non-plain token before any plain hit, or a key line the scan's C-locale match refuses) is read the original
   # way, token by token. If the scan cannot run, every check is read that way, as before.
   local scan verdict _hit ann   # _hit: the scan's token, not needed here
   if scan="$(bc_surface_scan_checks "$dir" "$changed")"; then

@@ -6,7 +6,7 @@ many queries. Stacked on `bcsgfast-5907`, whose `bc_surface_scan_checks` (in the
 
 ## The change
 `_bcm_covering` reads `bc_surface_scan_checks`: a HIT check is covering, a MISS check is not, and a SLOW check (a
-non-plain token first, or a key line the scan's C-locale match refuses) goes token by token as before
+non-plain token before any plain hit, or a key line the scan's C-locale match refuses) goes token by token as before
 (`_bcm_covers`, the original loop moved into a function). If the scan cannot run, every check takes that original path.
 Output is still `sort -u`, so order is unchanged.
 
@@ -18,7 +18,10 @@ Output is still `sort -u`, so order is unchanged.
 
 ## Weakest premises
 - The same C-locale caveat as the gate: on invalid UTF-8 the scan can find a match the ambient-locale grep misses
-  (covering then lists one more check, never one fewer), and likewise in a locale whose A-Z range takes accented letters.
+  on the changed text (covering then lists one more check, never one fewer), and likewise in a locale whose A-Z range
+  takes accented letters. On a check file with an invalid byte on its first key line, the scan and the sed could read
+  different annotation lines, in either direction; the checks are valid UTF-8.
 - The map test forces the fallback (TMPDIR pointed at a directory that does not exist, so the scan's mktemp fails) and
-  asserts the same answer as the scan path, and it checks the scan itself runs and finds the pj-parent HIT, so a scan
-  that always failed (silently slow again) goes red.
+  asserts the same answer as the scan path, it asserts the scan really failed there; and an `awk` logged first on PATH shows a
+  plain id-list query goes through the scan by default (the original path runs no awk for it), so a covering that stopped
+  calling the scan goes red.
