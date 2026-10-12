@@ -33,3 +33,9 @@ service, the same as the main feed and threads that #5924 already reads.
 - **NIT, taken (here):** an entry whose base is a reply shows the REPLY's edit, never the post's: the service's
   FollowingPost carries no edited_at, so an edited post seen only through a reply is not flagged. By design, not a bug.
 - Note for reviewers: ~/work/kosmos-community's main checkout is stale (10-07); read origin/main for FollowingItem.
+
+## Review 2 (sonnet, 2026-10-12 08:30): CONVERGED, no blocker or should-fix
+- **NIT, not taken:** a hostile edited_at on the ENTRY lines; those go through itemOf's editedOf, already pinned by
+  communityread.test.js's hostile-value check (#5924).
+- Full validation: the PR's CI (node + both shell parts on the merge ref with current main), since Mortals is held by
+  the 0.7.42 cut; merged only on all green.
