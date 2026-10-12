@@ -40,15 +40,16 @@ done
 root="$work/kt1"; mkdir -p "$root"
 mkdir "$root/codex-forget-AbC123" "$root/codex-forget-DeF456" "$root/brand-new-Qw12Er" "$root/aoc-state.abcdef.polls"
 : > "$root/tmp.ULxoc1RTFh"
-printf '%s\n' '# allowed' 'codex-forget' '  tmp  # trailing comment' 'aoc-state.*.polls' 'gone-family' > "$work/allow"
+printf '%s\n' '# allowed' 'codex-forget' '  tmp  # trailing comment' 'aoc-state.*.polls' 'gone-family' 'other-gone' > "$work/allow"
 out=$(leak_tmp_check "$root" "$work/allow"); rc=$?
 [ "$rc" -eq 1 ] && ok "an unlisted family fails the check" || bad "an unlisted family: rc=$rc"
 printf '%s\n' "$out" | grep -q 'brand-new (not on the allowlist; e.g. brand-new-Qw12Er)' && ok "the unlisted family is named, with a raw example" || bad "unlisted family not named: $out"
 printf '%s\n' "$out" | grep -q -E 'x codex-forget|x aoc-state|x tmp ' && bad "an allowlisted family was reported: $out" || ok "allowlisted families (a name, a glob, a commented line) are not reported"
-printf '%s\n' "$out" | grep -q 'note: 1 allowlisted families left nothing' && ok "listed families that left nothing are counted on one note line" || bad "no single note: $out"
+printf '%s\n' "$out" | grep -q 'note: 2 allowlisted families left nothing' && ok "listed families that left nothing are counted on one note line" || bad "no single note: $out"
 # #5907: the note names them, and only them.
-printf '%s\n' "$out" | grep -q 'left nothing this run (gone-family);' && ok "the family that left nothing is named" || bad "the unused family is not named: $out"
-printf '%s\n' "$out" | grep 'left nothing' | grep -q -E 'codex-forget|aoc-state|tmp' && bad "a family that did leak is named as unused: $out" || ok "families that leaked are not named as unused"
+unused_list=$(printf '%s\n' "$out" | sed -n 's/.*left nothing this run (\([^)]*\)).*/\1/p')
+[ "$unused_list" = "gone-family, other-gone" ] && ok "the families that left nothing are named, comma-separated, in sorted order" || bad "unused families named as '$unused_list': $out"
+printf '%s\n' "$unused_list" | grep -q -E 'codex-forget|aoc-state|tmp' && bad "a family that did leak is named as unused: $unused_list" || ok "families that leaked are not named as unused"
 rm -rf "$root/brand-new-Qw12Er"
 leak_tmp_check "$root" "$work/allow" > /dev/null; rc=$?  # pipe-status-ok
 [ "$rc" -eq 0 ] && ok "only allowlisted families left: clean" || bad "allowlisted-only root: rc=$rc"
