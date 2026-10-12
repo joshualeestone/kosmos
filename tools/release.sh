@@ -1256,7 +1256,7 @@ echo "   native app: kosmos-app $NATIVE_APP_SHA"
 # the built ones, so a file the build forgot (#731: the codex bridge, absent
 # from every served bundle for ten versions) stops the cut with nothing
 # published, instead of being caught after step 8 has deployed it.
-_cmp_rc=0; release_bundle_matches_tree "$REPO/dist/kosmos-arm64.tar.gz" "$BUILD" "$TUNNEL_SHA" "$NATIVE_APP_SHA" || _cmp_rc=$?
+_cmp_rc=0; release_bundle_matches_tree "$REPO/dist/kosmos-arm64.tar.gz" "$BUILD" "$TUNNEL_SHA" "$NATIVE_APP_SHA" sealed || _cmp_rc=$?   # sealed: #5896
 if [ "$_cmp_rc" -eq 0 ]; then
   echo "   the built bundle carries everything the tree and the app need, and every file in it is the tree's"
 else
