@@ -1636,6 +1636,9 @@ function registerOnly(given, name, { create, store }) {
   const taken = folderTakenBy(given, name, { store });
   if (!taken.ok) return { ok: false, because: FOLDER_UNREADABLE };
   if (taken.other) return { ok: false, because: folderTakenSentence(taken.other, taken.home, taken.removed) };
+  /* kosmos#5957: no display name another agent answers to (its own, on a re-connect, never clashes). */
+  const nameTaken = require('./agentnames').refusalFor(name, { except: name });
+  if (nameTaken) return { ok: false, because: nameTaken };
   /* The display name is the name they typed. There is no file to disagree with it,
      which is the whole reason this path exists. */
   try { store.writeProfile(name, { dir: given, displayName: name }); }
@@ -1967,6 +1970,12 @@ function connect(dir, opts) {
   const taken = folderTakenBy(given, name, { store });
   if (!taken.ok) return { ok: false, because: FOLDER_UNREADABLE };
   if (taken.other) return { ok: false, because: folderTakenSentence(taken.other, taken.home, taken.removed) };
+  /* kosmos#5957: neither its display name nor its handle may be one another agent already answers to. */
+  {
+    const agentnames = require('./agentnames');
+    const nameTaken = agentnames.refusalFor(displayName, { except: name }) || agentnames.refusalFor(name, { except: name });
+    if (nameTaken) return { ok: false, because: nameTaken };
+  }
   /* #5534: connecting a folder starts a new agent, so a company policy that does not allow its provider (or the
      provider's default model, which is what it will run) refuses it here, before anything is written. */
   {

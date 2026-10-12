@@ -43310,7 +43310,8 @@ document.getElementById('d-instr-save').addEventListener('click', async () => {
     // A different agent, OR the same agent reloaded since this save began.
     if (!CURRENT || CURRENT.sessionName !== forAgent || INSTR_LOAD !== forLoad) return;
     if (!res.ok) throw new Error(data.error || 'that did not work');
-    msg.textContent = 'Saved.';
+    // #5957: the text saved, but a new name another agent already has was not taken; say so in the same line.
+    msg.textContent = typeof data.nameKept === 'string' && data.nameKept ? 'Saved. ' + data.nameKept : 'Saved.';
     INSTR_VERSION = data.version || null;
     INSTR_LOADED_TEXT = text;   // #4406: the box now holds what is saved
     INSTR_EPOCH += 1;
