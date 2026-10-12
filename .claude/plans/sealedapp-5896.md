@@ -2,8 +2,8 @@
 
 ## Finished looks like
 The native app reads its install config (kosmosHome, ownerUid, port) from the running account's
-`~/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json` first, then the bundle's copy, then the
-defaults. setup.sh writes that file on every macOS install (before the icon, whether or not this install writes the
+`~/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json` as well as the bundle's copy (a bundle copy
+that is this account's own wins; see Decisions), then the defaults. setup.sh writes that file on every macOS install (before the icon, whether or not this install writes the
 icon), and --uninstall removes it only when it names this install. Nothing about the bundle changes in this slice, so
 it ships alone; slices 2 (sealed bundle from the build, signature-based bundle_is_ours) and 3 (notarize and staple,
 after Renet's #5137) follow. Design on the card, comment 6117861910.
@@ -17,8 +17,9 @@ for, one the installer can write without touching the bundle.
 - Order: KOSMOS_APP_CONFIG (tests) outright; else the account file, then the bundle copy. A bundle copy that decodes
   AND is this account's own (ownerUid == getuid()) wins, so an older account file naming another of this account's
   installs cannot redirect the app (challenge iteration 1). Otherwise the first file that exists AND decodes wins, so a
-  damaged account file falls back to the bundle copy, and a bundle copy written for another account never outranks
-  this account's own file.
+  damaged account file falls back to the bundle copy. Among the rest, a config whose install folder still exists wins
+  (challenge iteration 3): an account file naming a deleted install yields to another account's bundle copy, so that
+  account keeps reaching the #664 path and its named refusal instead of starting a board on a missing folder.
 - A sandboxed launch of the app must set KOSMOS_APP_CONFIG or KOSMOS_APP_TEST_HOME (main.swift header), since the app
   now reads the real account's Library first.
 - The account file path uses the app's bundle identifier as its folder name.
@@ -38,8 +39,8 @@ relying on the bundle copy. Fine in slice 1; slice 2 must answer it before the b
 
 ## Gates slice 2 must clear before the bundle copy is dropped (challenge iteration 2)
 - The custom-KOSMOS_HOME-with-real-home install above gets its config some other way (it writes no account file).
-- The account file becomes the only source, so a stale one (its kosmosHome gone after a reinstall elsewhere) needs
-  handling; today a same-account bundle copy outranks it.
+- The account file becomes the only source, so a stale one (its kosmosHome gone) has nothing to yield to; today a
+  same-account bundle copy outranks it, and another account's bundle copy outranks it when its folder is gone.
 
 Known, not changed here: #677 wording. Another account that opens the shared icon and has its own account file now
 resolves through the config's ownerUid == getuid() path, so it gets the generic "Kosmos" wording rather than the
