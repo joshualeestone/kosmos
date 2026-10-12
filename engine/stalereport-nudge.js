@@ -86,15 +86,25 @@ function sweepOnce(o) {
       const display = card.name || session;
       let state = null;
       let held = false;
-      try { const r = o.deliver(session, nudgeText(rep, p.ageMs), o.roster); state = r && r.state; held = Boolean(r && r.held === true); }
+      let heldBy = null;
+      try { const r = o.deliver(session, nudgeText(rep, p.ageMs), o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = r && (r.heldFor === 'signin' ? 'signin' : r.heldBy) || null; }
       catch (err) { state = 'threw: ' + String((err && err.message) || err); }
-      // Held (a quota, a limit, a sign-in, an answer awaited on its screen): nothing typed and no try spent.
-      if (held) { results.push({ session, name: display, act: 'held', delivered: false, delivery: state, because: p.because }); continue; }
+      /* Held (a quota, a limit, a sign-in, an answer awaited on its screen): nothing typed and no try spent. Logged once
+         per report with what held it, so a person asking why an agent was never reminded finds the answer in the log. */
+      if (held) {
+        const why = p.because + '; held' + (heldBy ? ' (' + heldBy + ')' : '');
+        results.push({ session, name: display, act: 'held', heldBy, delivered: false, delivery: state, because: why });
+        if (!entry || entry.heldSaidFor !== rep.at) {
+          book.set(session, { ...(entry && entry.forAt === rep.at ? entry : {}), forAt: rep.at, heldSaidFor: rep.at });
+          say({ name: display, session, act: 'held', delivered: false, delivery: state, because: why });
+        }
+        continue;
+      }
       const D = o.DELIVERY || {};
       const delivered = D.PLACED != null && state === D.PLACED;
       const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);
       const tries = ((entry && entry.forAt === rep.at && Number.isInteger(entry.tries)) ? entry.tries : 0) + 1;
-      book.set(session, { forAt: rep.at, nudgedAt: mayHaveReached ? now : null, tries, delivery: state });
+      book.set(session, { forAt: rep.at, nudgedAt: mayHaveReached ? now : null, tries, delivery: state, heldSaidFor: entry && entry.heldSaidFor });
       results.push({ session, name: display, act: 'nudge', delivered, delivery: state, because: p.because });
       if (mayHaveReached || tries === 1 || tries >= MAX_TRIES) say({ name: display, session, act: 'nudge', delivered, delivery: state, because: p.because });
     }

@@ -104,7 +104,7 @@ test('#5959 slice 3: exactly a day old is not yet stale, as for kosmos report sh
 
 test('#5959 slice 3: no report, a working card, a paused swarm, a stranger: nobody is told', () => {
   const [a, b, c] = cardsFor([['ann', 'blocked'], ['bea', 'working'], ['cal', 'blocked']]);
-  const old = (s) => ({ found: true, state: 'blocked', at: iso(NOW - 2 * DAY), by: 'agent', s });
+  const old = () => ({ found: true, state: 'blocked', at: iso(NOW - 2 * DAY), by: 'agent' });
   assert.equal(run([a], {}).sent.length, 0, 'told with no report');
   assert.equal(run([b], { [b.sessionName]: old() }).sent.length, 0, 'told on a working card');
   assert.equal(run([c], { [c.sessionName]: old() }, { paused: true }).sent.length, 0, 'told while its swarm is switched off');
@@ -116,9 +116,16 @@ test('#5959 slice 3: a delivery that reached nothing is retried, up to MAX_TRIES
   const [d] = cardsFor([['dee', 'blocked']]);
   const reports = { [d.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 2 * DAY), by: 'agent' } };
   const book = new Map();
-  const held = run([d], reports, { book, deliver: () => ({ state: 'held', held: true }) });
-  assert.equal(held.out.results[0].act, 'held');
-  assert.equal(book.has(d.sessionName), false, 'a held delivery spent a try');
+  const logged = [];
+  const sweepHeld = () => nudge.sweepOnce({ roster: [d], book, now: NOW, report: (s) => reports[s], paused: () => ({ paused: false }),
+    deliver: () => ({ state: 'held', held: true, heldBy: 'limit' }), DELIVERY, log: (r) => logged.push(r) });
+  const held = sweepHeld();
+  assert.equal(held.results[0].act, 'held');
+  assert.equal(held.results[0].heldBy, 'limit', 'the result does not say what held it');
+  assert.equal(book.get(d.sessionName).tries, undefined, 'a held delivery spent a try');
+  sweepHeld();
+  assert.equal(logged.length, 1, 'a hold is logged once per report, with what held it');
+  assert.match(logged[0].because, /; held \(limit\)$/);
   for (let i = 0; i < nudge.MAX_TRIES; i += 1) {
     assert.equal(run([d], reports, { book, deliver: () => ({ state: DELIVERY.COULD_NOT }) }).sent.length, 1, 'try ' + (i + 1));
   }

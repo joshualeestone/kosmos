@@ -25,7 +25,9 @@ runs `kosmos report show`; this says it without being asked. Stacked on slice 1 
   would nag an agent that is rightly still waiting.
 
 ## Weakest premises
-- The book is in memory: a board restart reminds a still-stale agent once more.
+- The book is in memory: a board restart reminds a still-stale agent once more, and every such agent in the same
+  sweep (about five minutes after boot). One line each; a cap or a persisted book is the fix if that is ever noisy.
+- A held delivery (menu, limit, quota, sign-in) spends no try and is logged once per report with what held it.
 - A Kosmos-written report (by: auto) is included, as slice 1's report show does. A #5948 sign-in report on Windows is
   one: the reminder says to clear it only "if what it was about has passed".
 
