@@ -604,7 +604,7 @@ function rulesBehind(sessionName, profile) {
     const file = instructions.fileFor(sessionName);
     if (!file) return null;
     const st = require('node:fs').statSync(file);
-    const stamp = [st.mtimeMs, st.size, p.updatedAt || '', carried, p.doctrineDeclined == null ? '' : p.doctrineDeclined].join('|');
+    const stamp = [file, st.mtimeMs, st.size, p.updatedAt || '', carried, p.doctrineDeclined == null ? '' : p.doctrineDeclined].join('|');
     const seen = BEHIND_SEEN.get(sessionName);
     if (seen && seen.stamp === stamp) return seen.value;
     const s = status(sessionName);
