@@ -24,7 +24,8 @@ escape `sed`s, a `grep` of the changed files, a `sed` of the trailers) and per t
 - One call, interleaved on the same load: 10.4 s and 9.1 s before, 0.3 s and 0.2 s after.
 - `tools/test-browser-check-surface-gate.sh` and `tools/test-bc-surface-map.sh`: 0 failed.
 - A SCAN arm in the gate's test holds the scan to the per-token primitives on every 10th real check (36 cases: its
-  first token touched, and nothing mapped touched) and checks a non-plain token is left SLOW.
+  first token touched, and nothing mapped touched), on a plain token inside runs joined by `_`, `-` and capitals, and
+  checks a non-plain token is left SLOW. Mutations: dropping `_`, `-` or capitals from the scan's class each go red.
 
 ## Rejected
 - Rewriting the whole gate in awk: the override and updated-file paths (and their exact messages) stay in shell,
