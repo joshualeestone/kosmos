@@ -15290,6 +15290,7 @@ const server = http.createServer(async (req, res) => {
           for (const c of roster || []) for (const n of [c && c.sessionName, c && c.name]) if (typeof n === 'string' && n) agentNames.push(n);
           note = selfreport.blockedOwnerNote(body.state, body.owner, { personName, agentNames });
         } catch { note = ''; }
+        if (body.state === 'needs_you' && body.auto !== true) note = selfreport.NEEDS_YOU_ASK_NOTE;   // #5943: an agent asking, not a hook
         sendJson(res, 200, note ? { recorded: true, note } : { recorded: true });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
@@ -17747,6 +17748,13 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
         const current = selfreport.read(name);
         const waiting = current.found === true && selfreport.WAITING_ON_A_PERSON.includes(current.state);
+        /* #5943 review 3: the DM's "Answered, clear this" names the ask it was drawn for. A different question standing
+           now (reported since the page last painted) is NOT cleared: the person never saw it. Without askedAt (the
+           Engineering-mode control) nothing changes. */
+        if (waiting && typeof body.askedAt === 'string' && body.askedAt && current.askedAt && current.askedAt !== body.askedAt) {
+          sendJson(res, 200, { ok: true, cleared: false, stale: true, state: current.state });
+          return;
+        }
         if (!waiting) {
           /* Idempotent: nothing sticky to clear (never reported, already idle,
              or working). Not an error -- a second click, or a race with the

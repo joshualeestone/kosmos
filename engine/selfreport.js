@@ -527,6 +527,12 @@ function history(sessionName) {
    line of advice. The note names no owner and holds no double quote or backslash, so the macOS CLI can lift it with
    sed; its question is in single quotes, as the nudge's is (unquoted, a ? stops zsh). */
 const PERSON_WORDS = /^(?:(?:the|my|our|your) )?(?:person|human|user|operator|boss|founder|me|you)$/;
+/* #5943 (Josh: questions an agent could settle itself should not reach a non-technical person): said back by the board
+   at the moment of asking, as the report's `note`, which both CLIs print (install/kosmos and tools/windows/kosmos-cli.js).
+   No quote or backslash: the bash CLI reads `note` with a sed that stops at the first quote. */
+const NEEDS_YOU_ASK_NOTE = 'Before a person has to answer this: can you undo it yourself? Can you undo it before anyone acts on it? '
+  + 'If both are yes, decide it, tell them what you decided, and run: kosmos report clear. '
+  + 'When they answer, wherever they answer, run: kosmos report clear.';
 const BLOCKED_PERSON_NOTE = 'Note: that owner looks like a person, and blocked is never followed up or escalated. '
   + 'If a person must decide or act, report it this way instead, and Kosmos follows it up: kosmos report needs_you \'<your question>\'';
 function blockedOwnerNote(state, owner, opts) {
@@ -544,4 +550,4 @@ function blockedOwnerNote(state, owner, opts) {
 }
 
 module.exports = { STATES, WAITING_ON_A_PERSON, DIR, NO_READING, TAIL_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean,
-  blockedOwnerNote, BLOCKED_PERSON_NOTE };
+  blockedOwnerNote, BLOCKED_PERSON_NOTE, NEEDS_YOU_ASK_NOTE };

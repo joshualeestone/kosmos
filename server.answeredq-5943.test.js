@@ -138,3 +138,35 @@ test('#5943 review 1: a question ON THE SCREEN wins over a standing report: unda
     void board;
   }
 });
+
+test('#5943 review 3: "Answered, clear this" never clears a DIFFERENT question reported since the page painted', async () => {
+  const board = fleet.install([fleet.agent('racer', { state: 'idle', displayName: 'Racer' })]);
+  try {
+    assert.equal(selfreport.record('racer', { state: 'needs_you', because: 'First question?' }).recorded, true);
+    const drawnFor = selfreport.read('racer').askedAt;
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal(selfreport.record('racer', { state: 'needs_you', because: 'A NEW question?' }).recorded, true);
+    const res = await (await fetch(`${base}/api/agent/racer/clear-selfreport`, { method: 'POST', headers: SCREEN,
+      body: JSON.stringify({ reason: 'x', askedAt: drawnFor }) })).json();
+    assert.equal(res.cleared, false);
+    assert.equal(res.stale, true);
+    assert.equal(selfreport.read('racer').because, 'A NEW question?', 'the unseen question was cleared');
+    // CONTROL: the ask the button WAS drawn for clears.
+    const now = selfreport.read('racer').askedAt;
+    const ok = await (await fetch(`${base}/api/agent/racer/clear-selfreport`, { method: 'POST', headers: SCREEN,
+      body: JSON.stringify({ reason: 'x', askedAt: now }) })).json();
+    assert.equal(ok.cleared, true);
+  } finally {
+    fleet.restore();
+    void board;
+  }
+});
+
+test('#5943 review 3: the asking reminder comes from the board, so every CLI prints it', () => {
+  assert.doesNotMatch(selfreport.NEEDS_YOU_ASK_NOTE, /["\\]/, 'the bash CLI reads `note` with a sed that stops at a quote');
+  assert.match(selfreport.NEEDS_YOU_ASK_NOTE, /Can you undo it before anyone acts on it\?/);
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  assert.match(src, /if \(body\.state === 'needs_you' && body\.auto !== true\) note = selfreport\.NEEDS_YOU_ASK_NOTE;/);
+  const win = fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
+  assert.match(win, /\.note/, 'the Windows CLI prints the report note');
+});

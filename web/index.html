@@ -38040,7 +38040,7 @@ function dmQuestionFootHtml(m) {
     // data-at so the age is refreshed in place (refreshWhens) and blanked for the repaint check (threadShape): the
     // minute it changes must not rebuild the thread (#3966's flash).
     + (age ? '<span class="dmq-age" data-at="' + esc(String(askedIso)) + '">Asked ' + esc(age) + '</span>' : '')
-    + '<button type="button" class="dmq-clear" aria-label="This question is answered: clear it">Answered, clear this</button>'
+    + '<button type="button" class="dmq-clear" data-asked="' + esc(String(askedIso || '')) + '" aria-label="This question is answered: clear it">Answered, clear this</button>'
     + '<span class="dmq-msg" role="status" aria-live="polite"></span></div>';
 }
 async function dmQuestionClear(btn) {
@@ -38054,7 +38054,8 @@ async function dmQuestionClear(btn) {
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(target) + '/clear-selfreport', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ reason: 'the person marked the question answered' }),
+      // Review 3: the ask this button was drawn for; the route refuses if a different question stands now.
+      body: JSON.stringify({ reason: 'the person marked the question answered', askedAt: btn.getAttribute('data-asked') || undefined }),
     });
     let body = {};
     try { body = await res.json(); } catch { body = {}; }
@@ -68365,7 +68366,7 @@ function speechTextOfRow(row) {
   const src = row && (row.querySelector('.msg-bd') || row);
   if (!src) return '';
   const c = src.cloneNode(true);
-  c.querySelectorAll('.msg-nm, .msg-t, .msg-replyto, .vh, .rxns, button, .att-pic, .att-meta, .att-name, .att-txt').forEach((n) => n.remove());
+  c.querySelectorAll('.msg-nm, .msg-t, .msg-replyto, .vh, .rxns, button, .att-pic, .att-meta, .att-name, .att-txt, .dmq-foot').forEach((n) => n.remove());   // #5943: not the question's age line
   /* A fenced block renders as span.mdcb (pjRich), not <pre>; both are announced. A line break is a space, or
      "Run this:<br>then" is read as "this:then". Measured by render-voice-4409.js V7, which the <pre>-only
      version failed. */
