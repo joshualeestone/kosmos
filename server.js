@@ -11006,13 +11006,15 @@ const server = http.createServer(async (req, res) => {
         let unlistedComplete = true;
         try {
           const readers = { openai: openaiAccounts, google: geminiAccounts, xai: grokAccounts };
+          const soa = require('./engine/signedoutaccounts');
+          const tokendoor = require('./engine/tokendoor');
           // The account walk's names (knownAgentNames): the roster's cards, then known profiles not on it.
           const known = knownAgentNames();
           // A walk that could not read the roster or the profiles is incomplete: kosmos accounts must not then say none.
           unlistedComplete = known.complete !== false;
           const onRoster = new Set((known.roster || []).map((c) => c && c.sessionName));
           const cards = [...(known.roster || []), ...[...known.names].filter((n) => !onRoster.has(n)).map((n) => ({ sessionName: n, name: n }))];
-          unlistedAccounts = require('./engine/signedoutaccounts').signedOutRows(cards,
+          unlistedAccounts = soa.signedOutRows(cards,
             { openai: openaiRows, google: geminiRows, xai: grokRows },
             // A job that could not be READ (not one that is absent) leaves the walk incomplete, as enumerateAgentsOnAccount
             // counts it: a lapsed account behind it must not turn into "none set up".
@@ -11025,7 +11027,7 @@ const server = http.createServer(async (req, res) => {
             (p, d) => readers[p].readName(d),
             undefined, (p) => readers[p].defaultDir(),
             // The secrets/env door a launch falls back to when a folder's own key is missing (tokendoor.fileFor).
-            (v) => require('./engine/signedoutaccounts').fileThere(require('./engine/tokendoor').fileFor(v)));   // any other fault: unsure, never "gone"
+            (v) => soa.fileThere(tokendoor.fileFor(v)));   // any other fault: unsure, never "gone"
         } catch { unlistedAccounts = []; unlistedComplete = false; }
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub], unlistedAccounts, unlistedComplete });
       })
