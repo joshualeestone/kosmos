@@ -1724,6 +1724,27 @@ function waitingOnPerson(task, roster, members) {
 }
 
 /**
+ * kosmos#5942: since when this open task has needed the person, for the task list's "Waiting 12 days": the OLDEST
+ * `waitingSince` among the cards that make waitingOnPerson true (the same holders and the same project rule), as an
+ * ISO string, or null when none of them knows when its wait began. Null is shown as no age, never as "just now".
+ */
+function waitingSinceOf(task, roster, members) {
+  if (!task || progressOf(task).closed || !Array.isArray(roster)) return null;
+  const onProject = Array.isArray(members) ? new Set(members) : null;
+  const holders = new Set(partsOf(task).filter((x) => x && x.who && !x.closedAt && (!onProject || onProject.has(x.who))).map((x) => x.who));
+  if (!holders.size) return null;
+  const status = require('./status');
+  let oldest = null;
+  for (const card of roster) {
+    if (!card || !holders.has(card.sessionName) || card.isNamedOurs !== true || !status.needsPerson(card)) continue;
+    if (card.state === status.STATE.NEEDS_YOU && card.stateProject !== task.projectId) continue;
+    const at = typeof card.waitingSince === 'string' ? Date.parse(card.waitingSince) : NaN;
+    if (Number.isFinite(at) && (oldest === null || at < oldest)) oldest = at;
+  }
+  return oldest === null ? null : new Date(oldest).toISOString();
+}
+
+/**
  * The last time anything happened on a task (#3559's "Quietest first"): for an
  * open task the newest event in its transcript (engine/taskchat.js stamps every
  * event with `at`), else when it was made; for a closed one, when it closed. A task with neither has no answer (null), never
@@ -1930,7 +1951,7 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
 }
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
+  taskState, waitingOnPerson, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };

@@ -159,3 +159,20 @@ test('#4053 (option C v2): every tile, the "cannot tell" one included, draws its
   assert.ok(badge, 'tskBadge moved');
   assert.match(badge[0], /aria-hidden="true" focusable="false"/, 'the badge icon is read aloud');
 });
+
+/* kosmos#5942: a decision row says how long it has waited on the person, through the page's real agoWords. */
+test('kosmos#5942: a decision row says "Waiting on you for 12 days"; no known start, or not a decision, says nothing', () => {
+  const AGO = new Function(page.liftAll(SCRIPT, ['agoWords']) + '\nreturn agoWords;')();
+  const realNow = Date.now;
+  Date.now = () => Date.parse('2026-10-12T16:00:00Z');
+  try {
+    const row = (over) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey', GROUPS + '\n' + FNS + '\nreturn tskRow;')(
+      { sel: new Set(), by: 'status' }, [REX], (s) => String(s), AGO, (x) => x.projectId + '#' + x.number)(T(over));
+    assert.match(row({ state: 'decision', waitingSince: '2026-09-30T15:00:00Z' }), /<div class="why tsk-waiting">Waiting on you for 12 days<\/div>/);
+    assert.match(row({ state: 'decision', waitingSince: '2026-10-12T13:00:00Z' }), /Waiting on you for 3 hours</);
+    assert.match(row({ state: 'decision', waitingSince: '2026-10-12T15:59:58Z' }), /Just started waiting on you</);
+    assert.doesNotMatch(row({ state: 'decision' }), /tsk-waiting/, 'no known start, no age');
+    assert.doesNotMatch(row({ state: 'decision', waitingSince: '2026-10-13T00:00:00Z' }), /tsk-waiting/, 'a start ahead of the clock shows nothing');
+    assert.doesNotMatch(row({ state: 'assigned', waitingSince: '2026-09-30T15:00:00Z' }), /tsk-waiting/, 'CONTROL: not a decision, no wait line');
+  } finally { Date.now = realNow; }
+});

@@ -196,3 +196,23 @@ test('#5456 taskState: a repeating task with nobody on it is scheduled; with an 
   const held = joined(projects.readAll().find((x) => x.id === p.id));
   assert.equal(tasks.taskState(held[0]), 'held', 'a held repeating task with nobody on it read as scheduled');
 });
+
+/* kosmos#5942: since when a decision has waited. The cards are real (fleet), with `waitingSince` set on a copy: on
+   origin/main the self-report does not carry askedAt yet (#5943 adds it), so this field is the one thing a real card
+   cannot produce until then. */
+test('kosmos#5942 waitingSinceOf: the oldest wait among the holders that make waitingOnPerson true, else null', () => {
+  const p = freshProject('Aged');
+  const other = freshProject('Aged elsewhere');
+  const a = Object.assign({}, asking(p.id), { waitingSince: '2026-10-01T10:00:00.000Z' });
+  const b = Object.assign({}, asking(p.id), { waitingSince: '2026-10-05T10:00:00.000Z' });
+  const task = { projectId: p.id, number: 4, parts: [{ id: 'p1', who: a.sessionName }, { id: 'p2', who: b.sessionName }], closedAt: null };
+  assert.equal(tasks.waitingOnPerson(task, [a, b]), true, 'PRE-CONTROL: the task needs the person');
+  assert.equal(tasks.waitingSinceOf(task, [a, b]), '2026-10-01T10:00:00.000Z', 'the oldest wait');
+  const elsewhere = Object.assign({}, asking(other.id), { waitingSince: '2026-09-01T10:00:00.000Z' });
+  const t2 = { projectId: p.id, number: 5, parts: [{ id: 'p1', who: b.sessionName }, { id: 'p2', who: elsewhere.sessionName }], closedAt: null };
+  assert.equal(tasks.waitingSinceOf(t2, [b, elsewhere]), '2026-10-05T10:00:00.000Z', 'a question about another project does not age this task');
+  const unknown = asking(p.id);   // no waitingSince: the agent never said when
+  assert.equal(tasks.waitingSinceOf({ projectId: p.id, number: 6, who: unknown.sessionName, closedAt: null }, [unknown]), null, 'no known start, no age');
+  assert.equal(tasks.waitingSinceOf(Object.assign({}, task, { closedAt: '2026-10-06T00:00:00Z' }), [a, b]), null, 'a closed task has no wait');
+  assert.equal(tasks.waitingSinceOf(task, [a, b], [b.sessionName]), '2026-10-05T10:00:00.000Z', 'a holder taken off the project does not count (#5034)');
+});
