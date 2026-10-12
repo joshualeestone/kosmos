@@ -75,20 +75,23 @@ async function stageAgy(opts) {
   const agents = (o.agents || []).map((a) => ({ seg: a.seg, canon: canonical(a.dir) })).filter((a) => a.canon && typeof a.seg === 'string');
   if (!agents.length) return [];
   const mine = new Map(agents.map((a) => [a.seg, []]));
+  // What was left out is SAID (review 3): a refused optional root per agent and reason, which the snapshot records in
+  // its skipped list. Never a path, never a conversation id.
+  const shared = new Set(), large = new Set();
   const conversations = path.join(o.home, 'conversations');
   for (const conv of owned(o.home)) {
     const owners = agents.filter((a) => conv.folders.includes(a.canon));
-    if (owners.length !== 1) continue;   // none, or shared: see the header
+    if (!owners.length) continue;
+    if (owners.length > 1) { for (const a of owners) shared.add(a.seg); continue; }   // shared: see the header
     const src = path.join(conversations, `${conv.id}.db`);
     // A plain file only, never a link (it could point anywhere).
     let st;
     try { st = fs.lstatSync(src); } catch { continue; }
     if (!st.isFile()) continue;
-    // Larger than the snapshot takes one file (its own MAX_FILE): it would be copied and then refused, so it is not
-    // copied (review 2). The WAL's rows count too.
-    let wal = 0;
-    try { wal = fs.statSync(`${src}-wal`).size; } catch { /* none */ }
-    if (st.size + wal > require('./backupsnapshot').MAX_FILE) continue;
+    // Larger than the snapshot takes one file (its own MAX_FILE): not copied (review 2). The main file alone is checked
+    // here, and the COPY after it (review 3: a WAL keeps its largest size after a checkpoint, so main + WAL overcounts).
+    const MAX = require('./backupsnapshot').MAX_FILE;
+    if (st.size > MAX) { large.add(owners[0].seg); continue; }
     const dest = path.join(o.stageDir, `${conv.id}.db`);
     try {
       // Owner-only every time (review 1: mkdir's mode applies only to a folder it creates), and never a stale copy.
@@ -97,16 +100,20 @@ async function stageAgy(opts) {
       fs.rmSync(dest, { force: true });
       await copyWhole(src, dest);
       fs.chmodSync(dest, 0o600);
+      if (fs.statSync(dest).size > MAX) { fs.rmSync(dest, { force: true }); large.add(owners[0].seg); continue; }
     } catch {
       try { fs.rmSync(dest, { force: true }); } catch { /* left for clearStage */ }
       continue;
     }
     mine.get(owners[0].seg).push(`${conv.id}.db`);
   }
-  let real;
-  try { real = fs.realpathSync(o.stageDir); } catch { return []; }
+  // Nothing staged means no staging folder: the refused roots below are still returned (left out is still said).
+  let real = null;
+  try { real = fs.realpathSync(o.stageDir); } catch { real = null; }
   const roots = [];
-  for (const [seg, files] of mine) if (files.length) roots.push({ name: `sessions/${seg}/agy`, path: real, optional: true, only: files.sort() });
+  if (real) for (const [seg, files] of mine) if (files.length) roots.push({ name: `sessions/${seg}/agy`, path: real, optional: true, only: files.sort() });
+  for (const seg of shared) roots.push({ name: `sessions/${seg}/agy-shared`, refused: 'Antigravity conversations that more than one agent worked in (left out, as whose they are cannot be told)', optional: true });
+  for (const seg of large) roots.push({ name: `sessions/${seg}/agy-large`, refused: 'Antigravity conversations larger than one backup file can be', optional: true });
   return roots;
 }
 

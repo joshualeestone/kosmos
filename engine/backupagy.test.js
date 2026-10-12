@@ -68,7 +68,10 @@ test('a conversation two agents claim is LEFT OUT (review 1: one shared file wou
     t.add('c-ann-own', [ann]);
     const again = await agy.stageAgy({ home: t.h, stageDir: stage, agents: [{ dir: ann, seg: 'ann' }, { dir: bob, seg: 'bob' }] });
     const by = Object.fromEntries(again.map((r) => [r.name, r.only]));
-    assert.deepEqual(by, { 'sessions/ann/agy': ['c-ann-own.db'] }, 'a shared conversation was staged, or an own one lost');
+    assert.deepEqual(by['sessions/ann/agy'], ['c-ann-own.db'], 'a shared conversation was staged, or an own one lost');
+    // Review 3: left out, but SAID, for both agents: a refused root the snapshot records in its skipped list.
+    const refused = again.filter((r) => r.refused).map((r) => r.name).sort();
+    assert.deepEqual(refused, ['sessions/ann/agy-shared', 'sessions/bob/agy-shared']);
     assert.ok(!fs.existsSync(path.join(stage, 'c-shared.db')));
     void roots;
     assert.ok(!fs.existsSync(path.join(stage, 'c-linked.db')), 'a linked conversation database was copied');
@@ -171,7 +174,31 @@ test('review 2: a conversation larger than the snapshot takes is not copied (it 
     fs.truncateSync(path.join(t.h, 'conversations', 'c-huge.db'), snap.MAX_FILE + 1);   // sparse: no real disk use
     const stage = path.join(t.base, 'stage');
     const roots = await agy.stageAgy({ home: t.h, stageDir: stage, agents: [{ dir: ann, seg: 'ann' }] });
-    assert.deepEqual(roots.map((r) => r.only), [['c-small.db']]);
+    assert.deepEqual(roots.filter((r) => r.only).map((r) => r.only), [['c-small.db']]);
     assert.ok(!fs.existsSync(path.join(stage, 'c-huge.db')));
+    assert.deepEqual(roots.filter((r) => r.refused).map((r) => r.name), ['sessions/ann/agy-large'], 'the left-out conversation was not said');
+  } finally { t.done(); }
+});
+
+test('review 3: a stale, large WAL does not keep a conversation out (only the main file and the copy are measured)', async () => {
+  const t = home();
+  try {
+    const ann = t.mk('workers', 'ann');
+    t.add('c-walbig', [ann], 4);
+    const snap = require('./backupsnapshot');
+    fs.writeFileSync(path.join(t.h, 'conversations', 'c-walbig.db-wal'), '');
+    fs.truncateSync(path.join(t.h, 'conversations', 'c-walbig.db-wal'), snap.MAX_FILE + 1);   // a large, stale WAL
+    const roots = await agy.stageAgy({ home: t.h, stageDir: path.join(t.base, 'stage'), agents: [{ dir: ann, seg: 'ann' }] });
+    assert.deepEqual(roots.filter((r) => r.only).map((r) => r.only), [['c-walbig.db']], JSON.stringify(roots));
+  } finally { t.done(); }
+});
+
+test('review 3: nothing staged, and still the left-out conversations are said', async () => {
+  const t = home();
+  try {
+    const ann = t.mk('workers', 'ann'), bob = t.mk('workers', 'bob');
+    t.add('c-only-shared', [ann, bob]);
+    const roots = await agy.stageAgy({ home: t.h, stageDir: path.join(t.base, 'never-made'), agents: [{ dir: ann, seg: 'ann' }, { dir: bob, seg: 'bob' }] });
+    assert.deepEqual(roots.map((r) => r.name).sort(), ['sessions/ann/agy-shared', 'sessions/bob/agy-shared']);
   } finally { t.done(); }
 });
