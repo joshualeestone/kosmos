@@ -60,7 +60,7 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
     let job = null;
     try { job = readJob(c.sessionName); } catch { job = null; }
     // The job's runner first: a stopped agent's card has none (status.panelessCard).
-    const p = PROVIDER_OF_RUNNER[(job && job.runner) || c.runner];
+    const p = PROVIDER_OF_RUNNER[job ? job.runner : c.runner];   // a job, when there is one, is the authority
     if (!p) continue;
     const dir = job && typeof job.configDir === 'string' && job.configDir ? path.resolve(job.configDir) : null;
     if (!dir) continue;
@@ -121,4 +121,4 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
   });
 }
 
-module.exports = { signedOutRows, PROVIDER_OF_RUNNER };
+module.exports = { signedOutRows, PROVIDER_OF_RUNNER, fileThere };

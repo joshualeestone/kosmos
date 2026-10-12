@@ -11013,10 +11013,19 @@ const server = http.createServer(async (req, res) => {
           const onRoster = new Set((known.roster || []).map((c) => c && c.sessionName));
           const cards = [...(known.roster || []), ...[...known.names].filter((n) => !onRoster.has(n)).map((n) => ({ sessionName: n, name: n }))];
           unlistedAccounts = require('./engine/signedoutaccounts').signedOutRows(cards,
-            { openai: openaiRows, google: geminiRows, xai: grokRows }, (n) => create.readJob(n), (p, d) => readers[p].readName(d),
+            { openai: openaiRows, google: geminiRows, xai: grokRows },
+            // A job that could not be READ (not one that is absent) leaves the walk incomplete, as enumerateAgentsOnAccount
+            // counts it: a lapsed account behind it must not turn into "none set up".
+            (n) => {
+              let j;
+              try { j = create.readJob(n); } catch (e) { unlistedComplete = false; throw e; }
+              if (!j) { let absent = false; try { absent = create.jobMissing(n); } catch { absent = false; } if (!absent) unlistedComplete = false; }
+              return j;
+            },
+            (p, d) => readers[p].readName(d),
             undefined, (p) => readers[p].defaultDir(),
             // The secrets/env door a launch falls back to when a folder's own key is missing (tokendoor.fileFor).
-            (v) => { try { return fs.readFileSync(require('./engine/tokendoor').fileFor(v), 'utf8').trim() !== ''; } catch (e) { if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return false; throw e; } });   // any other fault: unsure, never "gone"
+            (v) => require('./engine/signedoutaccounts').fileThere(require('./engine/tokendoor').fileFor(v)));   // any other fault: unsure, never "gone"
         } catch { unlistedAccounts = []; unlistedComplete = false; }
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub], unlistedAccounts, unlistedComplete });
       })

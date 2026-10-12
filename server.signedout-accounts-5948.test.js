@@ -109,3 +109,19 @@ test('#5948 review 14: when the profiles cannot be read, unlistedComplete is fal
   const again = await (await fetch(base + '/api/accounts')).json();
   assert.equal(again.unlistedComplete, true);
 });
+
+test('#5948 review 15: an agent whose job could not be read (not missing) leaves the check incomplete', async () => {
+  const fleet = require('./test-support/fleet');
+  const realRead = create.readJob, realMissing = create.jobMissing;
+  create.readJob = (n, ...rest) => (n === 'grokgone' ? null : realRead(n, ...rest));
+  create.jobMissing = (n, ...rest) => (n === 'grokgone' ? false : realMissing(n, ...rest));
+  const board = fleet.install([fleet.agent('grokgone', { state: null, runner: 'grok', command: 'grok', screen: '' })]);
+  let body;
+  try { body = await (await fetch(base + '/api/accounts')).json(); } finally { board.restore(); create.readJob = realRead; create.jobMissing = realMissing; }
+  assert.equal(body.unlistedComplete, false);
+  // CONTROL: the same agent with its job readable is complete.
+  const board2 = fleet.install([fleet.agent('grokgone', { state: null, runner: 'grok', command: 'grok', screen: '' })]);
+  let again;
+  try { again = await (await fetch(base + '/api/accounts')).json(); } finally { board2.restore(); }
+  assert.equal(again.unlistedComplete, true);
+});
