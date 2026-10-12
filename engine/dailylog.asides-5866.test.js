@@ -142,7 +142,7 @@ test('a .damaged file keeps the daily files only it could have filled from the p
   // every day with readable rows is rewritten, before the line or after it: none is less current than without this
   assert.deepEqual(s.written, ['2026-09-13', '2026-09-14', '2026-09-16']);
   assert.match(day(outDir, 13), /thirteen, another conversation/);
-  // a stale day from the last write on cannot be the damaged file's, and is pruned as usual
+  // a stale day AFTER the day of the last write cannot be the damaged file's, and is pruned as usual
   assert.deepEqual(s.pruned, ['2026-09-17']);
 
   // SUCCESSIVE RUNS, the sequences reviewers used to find a freeze in earlier cuts: later messages on the day before
@@ -161,7 +161,20 @@ test('a .damaged file keeps the daily files only it could have filled from the p
   assert.deepEqual([one.written, one.held], [['2026-09-13'], []]);
 });
 
-test('NO DAY IS LESS CURRENT THAN WITHOUT THIS: with a damaged file present, every daily file main would write is written the same', () => {
+test('the line is the day of the last write itself: that day is held, the next is not', () => {
+  // The day a file was last written is the day most likely to hold its newest messages. Reviewers found it pruned.
+  for (const [label, name, body] of [['aside', DAMAGED, 'junk'], ['live', 'direct..p.json', '{ broken']]) {
+    const { chatsDir, outDir } = dirs('boundary-' + label);
+    for (const d of [4, 5, 6]) put(outDir, `2026-09-0${d}.md`, `COMPILED ${d}`);
+    put(chatsDir, name, body);
+    lastWritten(chatsDir, name, '2026-09-05T13:00:00Z');
+    put(chatsDir, 'proj1.b.json', { messages: [row(20, 'twenty')] });
+    const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf, now: NOW });
+    assert.deepEqual([s.held, s.pruned], [['2026-09-04', '2026-09-05'], ['2026-09-06']], label);
+  }
+});
+
+test('with a damaged file present, every day with readable rows is written exactly as the same folder without it', () => {
   // The same folder compiled twice: once with the damaged file there, once without. Every day that has readable
   // rows comes out byte for byte the same; the only difference is the day kept from the prune.
   const withIt = dirs('same-with');
@@ -275,7 +288,7 @@ test('a LIVE thread file chat.js would set aside as damaged holds the same days 
   // Skipped as junk in between, the days only it had were pruned before the hold could begin.
   for (const [label, body] of [['cut', '{"messages":[{"at":"2026-09-10T09:00:00Z","text":"cut sh'], ['shape', JSON.stringify({ messages: { not: 'a list' } })], ['digits', '{bad']]) {
     const { chatsDir, outDir } = dirs('live-' + label);
-    const live = label === 'digits' ? 'direct..1234567890123.json' : 'direct..p.json';   // digits in a key are not a set-aside time
+    const live = label === 'digits' ? 'direct..1234567890123.json' : 'direct..p.json';   // a key made of digits, as any other key
     put(outDir, '2026-09-10.md', 'COMPILED 10, ITS ROWS ONLY');
     put(chatsDir, live, body);
     lastWritten(chatsDir, live, '2026-09-12T09:00:00Z');

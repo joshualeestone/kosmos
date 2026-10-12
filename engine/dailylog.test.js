@@ -356,10 +356,10 @@ test('the direct/project filename convention still matches engine/chat.js (pin, 
   assert.ok(chatSrc.includes('${id}.${key}.json'), 'chat.js project-thread naming changed; re-sync dailylog PROJECT_THREAD_FILE');
 });
 
-test('compileAll: invalid JSON is not a read error, and blocks pruning only for days before it was last written (kosmos#5866)', () => {
+test('compileAll: invalid JSON is not a read error, and blocks pruning only for days up to its last write (kosmos#5866)', () => {
   // Was: "invalid JSON is stable junk and does NOT block pruning". kosmos#5866 refines it: a thread file that will not
-  // parse may have put rows in daily files compiled while it still parsed, so days BEFORE its last write are held.
-  // A stale day from its last write on is still pruned, which is what the earlier rule was protecting.
+  // parse may have put rows in daily files compiled while it still parsed, so days up to its last write are held.
+  // A stale day AFTER the day of its last write is still pruned, which is what the earlier rule was protecting.
   const chatsDir = path.join(SANDBOX, 'chats-junk');
   const outDir = path.join(SANDBOX, 'chats-daily-junk');
   fs.mkdirSync(chatsDir, { recursive: true });
