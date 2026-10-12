@@ -207,3 +207,48 @@ test('review 1: refused before Kosmos+ named the company (an old connector gives
   await r.stop.tick(); r.advance(3600000); await r.stop.tick(); await r.stop.tick();
   assert.equal(r.stop.state.blind, 1);
 });
+
+test('review 2: transcript roots that nest with a folder root are resolved: inside one, dropped (covered); holding one, left and said', () => {
+  const s = sandbox();
+  try {
+    const workers = s.mk('w');
+    const proj = s.mk('Kosmos', 'Projects');
+    const insideProj = s.mk('Kosmos', 'Projects', 'linked-claude');     // a provider folder linked into a project
+    const holder = s.mk('provider');                                        // a provider folder that holds an agent folder
+    const agentIn = s.mk('provider', 'bob');
+    const sessions = (dir, id) => (id === 'ann' ? [{ name: 'sessions/ann/claude', path: insideProj, optional: true, only: ['a.jsonl'] }]
+      : [{ name: 'sessions/bob/claude', path: holder, optional: true, only: ['b.jsonl'] }]);
+    const { roots, left } = tick.rootsFor({ workersDir: workers, projectsDir: proj, sessions,
+      agents: [{ id: 'ann', dir: s.mk('w', 'ann') }, { id: 'bob', dir: agentIn }] });
+    assert.deepEqual(roots.map((r) => r.name), ['workers', 'projects', 'agents/bob']);
+    assert.deepEqual(left, [{ what: 'an agent\'s transcripts', why: 'their folder holds another folder being backed up' }]);
+  } finally { s.done(); }
+});
+
+test('review 2: a name the snapshot refuses is said, not dropped silently; a relative protected path fails closed', () => {
+  const s = sandbox();
+  try {
+    const workers = s.mk('w');
+    const r = tick.rootsFor({ workersDir: workers, projects: [{ slug: 'secrets', folder: s.mk('far', 'secrets') }] });
+    assert.deepEqual(r.roots.map((x) => x.name), ['workers']);
+    assert.deepEqual(r.left, [{ what: 'a project', why: 'its name cannot be a backup root name' }]);
+    const c = tick.rootsFor({ workersDir: workers, protect: ['relative/data'] });
+    assert.deepEqual([c.roots.length, c.left[0].what], [0, 'everything']);
+  } finally { s.done(); }
+});
+
+test('review 2: a roots() that throws is said once with no run; overAllowance is said once; a missing because is never "undefined"', async () => {
+  const said = [], runs = [];
+  let boom = true;
+  const stop = tick.startTick({ runBackup: async (i) => { runs.push(i); return { ok: false, overAllowance: true, pair: { org: 'o', member: 'm' } }; },
+    roots: () => { if (boom) throw new Error('/secret/path'); return { roots: [{ name: 'workers', path: '/w' }], left: [] }; },
+    enrolled: () => true, say: (x) => said.push(x), now: () => 0, setInterval: () => ({ unref() {} }), clearInterval: () => {} });
+  await stop.tick(); await stop.tick();
+  assert.deepEqual([runs.length, said.length], [0, 1]);
+  assert.doesNotMatch(said[0], /secret/);
+  boom = false;
+  await stop.tick();
+  stop.state.pausedUntil = 0; await stop.tick();
+  assert.equal(runs.length, 2);
+  assert.deepEqual(said.slice(1), ['company backup: it did not run, and did not say why'], JSON.stringify(said));
+});
