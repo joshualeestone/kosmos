@@ -15,7 +15,9 @@ was its slowest file at 193 s.
   it is one of those runs, so it is the same match. Each line counts once per token, as `grep -c` counts lines.
 - The two halves' counts are joined into one table; `token_counts` looks a plain token up there and falls back to
   `token_web_scan` for any token with another character (so a metacharacter token keeps the grep's escaping).
-- The CONTROL arms still call `token_web_scan` directly, so the original matcher stays tested.
+- The CONTROL arms still call `token_web_scan` directly, so the original matcher stays tested, and a PARITY arm checks
+  the one-pass counter against it on the fixture's 11 plain tokens. Mutation: dropping `-` from the counter's class
+  reds it, naming each token.
 
 ## Proof
 - The test's full output (1,083 lines) is byte-identical before and after (`diff` clean).
