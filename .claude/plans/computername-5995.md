@@ -305,3 +305,11 @@ This is a code change after the round that converged, so one more blind round fo
 - NITs not taken: a lower-case "(kosmos app)" typed by hand is part of the name, as the glued form is; invisible
   characters inside a name that draws stay (the comment now says so); an unreachable refusal branch; where the
   one-time read of the computer's name lands.
+
+## Review 14 (sonnet): converged
+0 BLOCKER, 0 WARNING, 3 NIT, and a caution that this plan's mutant list must stay true to the code (it is rerun
+at the final head, below). The reviewer read the three product files and did not read the tests in detail.
+NITs, not applied: `keepComputerNameChoice` answers a `name` its one caller does not read; `ableToKeep` reads the
+file a second time to tell "absent" from "unreadable" (it says why); sending both `computer_name` and
+`device_name` is not refused.
+The loop ends here at 14 rounds: 4 on the first design, 10 on the name-rides-the-start design, models alternating.
