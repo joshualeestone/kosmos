@@ -94,3 +94,8 @@ run every web*.test.js from the worktree as cwd.
 ## Final state of the agent's Terminal section on Linux
 Section name stays "Terminal" (it holds the live window box); the box heading reads "Start-up and restart" and its
 Open Terminal button is hidden.
+
+## Review 9 (blind, opus)
+- The Files overflow line names the button in its platform's words (Windows: "Open in File Explorer"); tested
+  on all three platforms. worldswStuck is pinned to restartHow so they cannot drift. Comments moved or corrected.
+- boardEmpty's remote words tested on Linux, Mac control.

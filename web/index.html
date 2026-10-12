@@ -19684,9 +19684,9 @@ function hostMachineCap(platform) {   // the same words opening a sentence
 }
 function linuxCopyTable() {
   return {
-    /* Settings can be read from a phone through Kosmos+, so not "this computer". */
     terminalBoxTitle: 'Start-up and restart',   // its Terminal button is hidden on Linux, as on Windows
     trustRestartHint: 'Approves this agent&rsquo;s folder so it can start without asking each time.',
+    // Settings can be read from a phone through Kosmos+, so "the computer it is installed on", not "this computer".
     settingsOpenKosmos: 'If Kosmos stops, run <b>kosmos restart</b> in a terminal on the computer it is installed on '
       + '(over SSH on a headless server).',
   };
@@ -29020,7 +29020,8 @@ async function worldswSwitch(id, name, agents) {
    verdict). The reload-on-flip behaviour is unchanged. */
 /* What to do when a world switch's self-restart does not come back. #5862: a Linux server has no window, and this is
    reached only after the board began restarting itself, which on Linux means an installed board, so the installed
-   `kosmos restart` is the true step there. Elsewhere it stays the Mac's words, as it was. */
+   `kosmos restart` is the true step there. #5865: Windows takes its restartHow step (worldswStuck); the Mac keeps
+   "quit and reopen". */
 function worldswStuckStep() {
   return onLinux()
     ? 'run kosmos restart in a terminal on the computer running Kosmos (over SSH on a headless server).'
@@ -39435,7 +39436,8 @@ async function paintAgentFilesAll(sessionName) {
   if (more && rest > 0) {
     // #5165: over Kosmos+ the folder button cannot show them on this device, so it is not offered as the way.
     // #5865: and on Linux, where the Finder button is hidden (revealFolder runs /usr/bin/open).
-    more.textContent = 'And ' + rest + ' more in the folder.' + (kplusRemote() || onLinux() ? '' : ' Open in Finder shows them all.');
+    more.textContent = 'And ' + rest + ' more in the folder.'
+      + (kplusRemote() || onLinux() ? '' : ' ' + platformCopy('docsOpenFolder', 'Open in Finder') + ' shows them all.');   // the button's own words
     more.hidden = false;
   }
 }
@@ -72986,8 +72988,6 @@ document.getElementById('pj-head-pause').addEventListener('click', () => pjToggl
 // (which drops the membership list and cannot be undone by re-adding the
 // folder), archiving keeps everything and Restore is one click away in the
 // disclosure this returns you to.
-/* kosmos#5340: point a project whose folder moved at its new place. The board checks the path as it checks a new
-   project's folder (there, a folder, readable, not a temporary folder, not another project's) and tells the members. */
 /* After a folder move the form hides, so the keyboard goes to the next control: "Show me where it is". #5865: on Linux
    that button is hidden and focus() on it does nothing, so the sentence saying it was done takes the keyboard. */
 function pjsMoveDoneFocus(said) {
@@ -72996,6 +72996,8 @@ function pjsMoveDoneFocus(said) {
   said.tabIndex = -1;
   said.focus();
 }
+/* kosmos#5340: point a project whose folder moved at its new place. The board checks the path as it checks a new
+   project's folder (there, a folder, readable, not a temporary folder, not another project's) and tells the members. */
 document.getElementById('pjs-move-btn').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);
   if (!p) return;

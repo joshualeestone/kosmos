@@ -64,6 +64,7 @@ function harness(respond, current = card('ana'), linux = false) {
     'let AGENT_FILES_EPOCH = 0; let AGENT_FILES_STAMP = null; let AGENT_FILES_ALL_EPOCH = 0; const AGENT_FILES_SHOWN = 10;\n'
     + 'const kplusRemote = () => false;\n'   // #5165: at the computer
     + 'const onLinux = () => env.LINUX;\n'   // #5865: a Mac board unless the test says Linux
+    + 'const platformCopy = (key, mac) => mac;\n'   // #5865: the overflow line names the button in its platform's words
     + 'const detailSection = (k) => document.getElementById("d-sec-" + k);\n'
     + 'const CURRENT_REF = env; \n'
     + FNS.replace(/\bCURRENT\b/g, 'CURRENT_REF.CURRENT')
