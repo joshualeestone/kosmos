@@ -136,3 +136,26 @@ test('#5948 review 18: a Claude agent whose job cannot be read does not make the
   try { body = await (await fetch(base + '/api/accounts')).json(); } finally { board.restore(); create.readJob = realRead; create.jobMissing = realMissing; }
   assert.equal(body.unlistedComplete, true);
 });
+
+test('#5948 review 21: through the route, an UNTAGGED gemini agent (its card reads claude) and a codex agent each report their gone account', async () => {
+  const GEM = nodePath.join(HOME, '.gemini-gone');
+  const CDX = nodePath.join(HOME, '.codex-gone');
+  for (const [name, dir, runner] of [['gemgone', GEM, 'gemini'], ['cdxgone', CDX, 'codex']]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(create.workerDir(name), { recursive: true });
+    fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, '/usr/bin/true', process.env.AGENT_WORKFORCE_TMUX_BIN, null, dir, runner), 'utf8');
+  }
+  const fleet = require('./test-support/fleet');
+  const board = fleet.install([
+    fleet.agent('gemgone', { state: null, runner: '', command: 'gemini', screen: '' }),   // no runner tag yet
+    fleet.agent('cdxgone', { state: null, runner: 'codex', command: 'codex', screen: '' }),
+  ]);
+  let body;
+  try {
+    assert.equal(board.agents.find((c) => c.sessionName === 'gemgone').runner, 'claude', 'setup: the untagged gemini card does not read claude, so this arm tests nothing');
+    body = await (await fetch(base + '/api/accounts')).json();
+  } finally { board.restore(); }
+  const rows = body.unlistedAccounts || [];
+  assert.deepEqual(rows.filter((r) => r.dir === GEM).map((r) => [r.provider, r.connection.badge]), [['google', 'signed_out']], JSON.stringify(rows));
+  assert.deepEqual(rows.filter((r) => r.dir === CDX).map((r) => [r.provider, r.connection.badge]), [['openai', 'signed_out']], JSON.stringify(rows));
+});

@@ -52,6 +52,11 @@ of reading signed out.
 - An agent whose job carries no `runner` is skipped, running or stopped (the job is the authority once there is one;
   create.js writes a runner on every job it makes, so this is old jobs only).
 
+- Folder matching uses real paths (samePlace) here, while server.js accountForAgent and enumerateAgentsOnAccount
+  compare path.resolve; a symlinked spelling can therefore match differently in the two walks (review 21, deferred).
+- Each row also carries `unreadable`, `folderUnsure`, `sharedKey`, `sharedKeyUnsure` and `defaultUnsure`, the facts
+  behind its badge and words.
+
 ## Weakest premise
 **A key the launch inherits from its own environment is not seen (review 13).** The shared-key check reads Kosmos's
 secrets/env door only. An `XAI_API_KEY` / `GEMINI_API_KEY` inherited by the launching process would let an agent run
