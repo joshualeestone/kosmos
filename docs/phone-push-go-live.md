@@ -63,7 +63,9 @@ These have to exist before anything else. None of them is something an agent can
 TestFlight app, `io.kosmos.app.preview`, is signed under the Stone Syndicate team (see "Interim" in
 Step 4). It is not transferred: Apple transfers only an app with a version released on the App Store.
 `io.kosmos.app` is never used under Stone Syndicate. Nothing else in this list waits on the approval,
-and development keeps testing against Kano's mock APNs meanwhile.
+and development keeps testing against Kano's mock APNs meanwhile. Device builds now carry the preview
+id too, so on-device push against a local or staging coordinator needs `io.kosmos.app.preview` in that
+coordinator's `KOSMOS_APNS_BUNDLE_IDS`.
 
 1. **Apple approves the Kosmos Agent Manager, Inc. developer org.** Josh confirms it is active and
    notes its **Team ID**.
@@ -275,7 +277,7 @@ archive.sh uses).
   checked file. Details are in `ios/README.md`, "Signing, archive and upload".
 - **The push check on the exported app is automatic.** `ios/tools/check-ipa-entitlements.sh` runs
   inside `archive.sh`, and nothing uploads unless `aps-environment` reads `production` and the app
-  is signed by the team in `ios/Signing.xcconfig`.
+  is signed by the team, with the bundle id, in `ios/Signing.xcconfig`.
 - **The app icon and the navy launch screen are in an asset catalog** (`ios/Kosmos/Assets.xcassets`,
   icon from `assets/Kosmos-1024.png`). It compiles on GitHub's macOS runner, and iOS CI checks the
   built app carries both. It does not compile on the Mac mini until an iOS runtime is installed
@@ -337,7 +339,9 @@ archive.sh uses).
     re-signs those builds, not yet measured.
 
 **On-device check:** use Sonya's single phone script on #4184,
-`android/phone-test-checklist.md`, once a signed iOS build exists. That script
+`android/phone-test-checklist.md`, once a signed iOS build exists. On the interim
+`io.kosmos.app.preview` builds its push steps ("Notify me on this phone", "Get a notification") cannot
+pass, by design: the coordinator refuses that bundle id. That is not a defect. That script
 owns the user-visible sequence and screenshots. This guide only owns which
 deploy or release makes each capability available.
 
