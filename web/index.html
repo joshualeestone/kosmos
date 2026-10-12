@@ -38060,6 +38060,8 @@ async function dmQuestionClear(btn) {
     let body = {};
     try { body = await res.json(); } catch { body = {}; }
     ok = res.ok && body && body.ok === true;   // cleared:false (already cleared, a race) is success too
+    // Review 4: the agent asked something new since this was drawn; that one was NOT cleared, and the next poll shows it.
+    if (ok && body.stale === true) { say('The agent asked something new since this was shown, so nothing was cleared. It appears in a moment.'); return; }
   } catch { ok = false; }
   if (!ok) { btn.disabled = false; say('We could not clear that just now. Try again.'); return; }
   // The next paint has no question row, so the bubble (and this button) goes; the card's badge goes on its next tick.
