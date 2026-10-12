@@ -28,16 +28,17 @@ function setFleetSource(fn) { fleetSource = typeof fn === 'function' ? fn : null
 
 const COULD_NOT_CHECK = 'we could not check the names already in use, so nothing was changed; try again in a moment';
 
-/* The agents to compare against: [{ sessionName, shown }]. Throws when a wired source cannot answer. */
+/* The agents to compare against: [{ handle, shown }], the handle being the agent's session name. Throws when a wired
+   source cannot answer. */
 function fleet() {
   if (!fleetSource) return [];
   const got = fleetSource();
   if (!Array.isArray(got)) throw new Error('the agent list could not be read');
-  return got.filter((a) => a && typeof a.sessionName === 'string' && a.sessionName);
+  return got.filter((a) => a && typeof a.handle === 'string' && a.handle);
 }
 
 /**
- * clashFor(wanted, { except, agents }) -> null, or { sessionName, shown } of the agent that already answers to it.
+ * clashFor(wanted, { except, agents }) -> null, or { handle, shown } of the agent that already answers to it.
  * `except` is the agent being renamed: its own names never clash with it. `agents` overrides the wired source (tests).
  * Throws when the wired source cannot answer (callers refuse with COULD_NOT_CHECK).
  */
@@ -47,9 +48,9 @@ function clashFor(wanted, opts) {
   const except = opts && typeof opts.except === 'string' ? opts.except : null;
   const agents = opts && Array.isArray(opts.agents) ? opts.agents : fleet();
   for (const a of agents) {
-    if (!a || a.sessionName === except) continue;
-    if (nameKey(a.sessionName) === key || (typeof a.shown === 'string' && nameKey(a.shown) === key)) {
-      return { sessionName: a.sessionName, shown: typeof a.shown === 'string' && a.shown.trim() ? a.shown.trim() : a.sessionName };
+    if (!a || a.handle === except) continue;
+    if (nameKey(a.handle) === key || (typeof a.shown === 'string' && nameKey(a.shown) === key)) {
+      return { handle: a.handle, shown: typeof a.shown === 'string' && a.shown.trim() ? a.shown.trim() : a.handle };
     }
   }
   return null;
@@ -57,7 +58,7 @@ function clashFor(wanted, opts) {
 
 /* The refusal, naming the other agent by display name and handle (as ambiguousNote does) so the person can find it. */
 function takenSentence(clash) {
-  return `there is already an agent called ${clash.shown} (@${clash.sessionName}). Pick another name, or rename that one first.`;
+  return `there is already an agent called ${clash.shown} (@${clash.handle}). Pick another name, or rename that one first.`;
 }
 
 /* One call for the callers: null when the name is free, else the sentence to refuse with. */
