@@ -16,10 +16,13 @@ was its slowest file at 193 s.
 - `count_table` joins the two halves' counts into one table (plain = ASCII `[A-Za-z0-9_-]` under `LC_ALL=C`).
   `token_counts` looks a token up there, compared as strings (so `1000` never takes `1e3`'s row), and any token the
   table lacks, for whatever reason, goes to `token_web_scan`: a classifier disagreement costs time, never the answer.
-- Each check's annotation is parsed once (`path<TAB>tokens`), and both the table and the per-check loop read that.
+- Each check's annotation is parsed once (`path<TAB>tokens`), and both the table and the per-check loop read that. A
+  check file with a tab in its name would not parse (none has one; the old loop allowed it).
+- The token reaches awk through the environment, not `-v` (which reads `\101` as `A`); a table row missing a count
+  falls back to the grep.
 - The CONTROL arms still call `token_web_scan` directly, so the original matcher stays tested. A PARITY arm runs the
-  counted path (count_table + token_counts) against it on its own fixture: a token twice on one line, a token inside a
-  longer run, one in a comment, `1e3` present with `1000` absent, and an absent token. Mutations checked red: the
+  counted path (count_table + token_counts) against it on its own fixture: a token twice on one line and again on
+  another, a token inside a longer run, a backslash token that must not take another's row, one in a comment, `1e3` present with `1000` absent, and an absent token. Mutations checked red: the
   per-line dedup, the string compare, an empty table, and dropping `-` from the counter's class.
 
 ## Proof
