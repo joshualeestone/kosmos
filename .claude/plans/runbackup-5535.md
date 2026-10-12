@@ -70,3 +70,8 @@ Mutants after review 1 (19:20 CDT from `date`), all red (pass 13 fail 1 each): S
 6. ACCEPTED: under a LOST pointer, the first request is sent before the file's own lostEpoch or wait is read, and a
    refused answer's job state is dropped in favour of the file's. Costs one request once per lost pointer, which is a
    damaged data root, not a normal path.
+Mutants after review 2 (19:23 CDT from `date`): U1 pointer write unguarded: red. U2 the unnamed pair says
+"learned": red. U4 key flags dropped: red. U5b the shared frozen refusal returned on the learn path: red (U5 first hit the
+otherPair return, which no test reaches with a failing pointer: same code, said here rather than claimed). U6 runNow's
+catch rethrows: red. U3 (learnPair not stripped) SURVIVES and is equivalent: every learnPair result now goes to the
+restart or to the unnamed-pair sentence, so no path hands one to stripState.
