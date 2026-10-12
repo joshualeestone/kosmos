@@ -257,3 +257,18 @@ test('#5957: a created list that cannot be read refuses the name check rather th
   t.after(() => status.setCreatedSource(null));
   assert.throws(() => nameCheckFleet('darwin'), /LaunchAgents unreadable/);
 });
+
+test('#5957: on Windows, a session record that is there but unreadable refuses; an absent one is empty', (t) => {
+  const win32sessions = require('./engine/win32sessions');
+  const { nameCheckFleet } = require('./server');
+  const file = win32sessions.FILE;
+  const had = fs.existsSync(file) ? fs.readFileSync(file) : null;
+  t.after(() => { if (had === null) fs.rmSync(file, { force: true }); else fs.writeFileSync(file, had); });
+
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '{ not json');
+  assert.throws(() => nameCheckFleet('win32'), 'a corrupt record read as "no stopped agents"');
+
+  fs.rmSync(file, { force: true });
+  assert.ok(Array.isArray(nameCheckFleet('win32')), 'an absent record is not a failure');
+});

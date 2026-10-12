@@ -48,7 +48,8 @@ function clashFor(wanted, opts) {
   const except = opts && typeof opts.except === 'string' ? opts.except : null;
   /* The agent's identity is its store key (one profile per key), so ANY spelling a route accepted for it (ANGEL, an.gel)
      excepts exactly that agent and no other. */
-  const keyOf = (h) => { try { return require('./store').safeKey(h); } catch { return null; } };
+  const { safeKey } = require('./store');
+  const keyOf = (h) => { try { return safeKey(h); } catch { return null; } };
   const exceptKey = except === null ? null : keyOf(except);
   const agents = opts && Array.isArray(opts.agents) ? opts.agents : fleet();
   for (const a of agents) {

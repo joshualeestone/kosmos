@@ -98,9 +98,8 @@ It names the other agent by display name and handle, as `ambiguousNote` does, so
 The defect was reported on Windows, where the roster lists only LIVE sessions and there is no created list. So the
 fleet also reads Kosmos's Windows session record (engine/win32sessions.js), which keeps every agent Kosmos made there
 whether or not it runs. Tested by calling `nameCheckFleet('win32')` with a recorded, stopped agent. The created list on
-a Mac or Linux is read strictly (`status.createdKeysStrict`): a source that fails refuses the check rather than reading
-as "no stopped agents". `win32sessions.read()` answers {} for an unreadable record rather than throwing, so on Windows
-that one source fails open; the roster arm still fails closed.
+a Mac or Linux is read strictly (`status.createdKeysStrict`), and so is the Windows record (`win32sessions.readStrict`):
+a source that fails refuses the check rather than reading as "no stopped agents".
 
 ## Also in this branch (review iterations 3, 7 and 9)
 
@@ -110,5 +109,5 @@ that one source fails open; the roster arm still fails closed.
   over 6 MB never gets a reply at all (readBody destroys the request; measured ECONNRESET), as before this change.
 - **`except` is compared by the store key**, so a route reached as `/api/agent/Gemini/...` excepts the gemini agent.
 - **What "fails closed" covers:** a roster that cannot be read (safeRoster answers null) and a created list that cannot
-  be read both refuse. A tmux with no server is a true empty roster. On Windows the session record answers {} when
-  unreadable, so that one source fails open.
+  be read both refuse, and so does a Windows session record that is there but cannot be read or parsed
+  (win32sessions.readStrict; an absent record is empty). A tmux with no server is a true empty roster.
