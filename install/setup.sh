@@ -2092,7 +2092,16 @@ const path = require('path');
 const [kosmosHome, home] = process.argv.slice(2);
 const roots = [kosmosHome];
 try { roots.push(fs.realpathSync(kosmosHome)); } catch { /* the given path is enough */ }
-const inside = (s) => typeof s === 'string' && roots.some((r) => s.includes(r.replace(/\/+$/, '') + '/'));
+// Inside this home: the root starts the string or follows a quote or a space (so /var/x does not match /private/var/x).
+const inside = (s) => typeof s === 'string' && roots.some((r) => {
+  const root = r.replace(/\/+$/, '') + '/';
+  let at = s.indexOf(root);
+  while (at !== -1) {
+    if (at === 0 || /["'\s]/.test(s[at - 1])) return true;
+    at = s.indexOf(root, at + 1);
+  }
+  return false;
+});
 const hookIsOurs = (h) => !!h && (
   (typeof h.command === 'string' && h.command.includes('kosmos-report-hook') && inside(h.command))
   || (Array.isArray(h.args) && h.args.some((a) => typeof a === 'string' && a.includes('kosmos-report-hook') && inside(a))));
@@ -2111,7 +2120,7 @@ for (const file of files) {
     mode = st.mode & 0o7777;
     data = JSON.parse(fs.readFileSync(target, 'utf8'));
   } catch {
-    try { if (/kosmos-(report-hook|statusline)/.test(fs.readFileSync(target, 'utf8'))) left.push(file); } catch { /* unreadable */ }
+    try { const raw = fs.readFileSync(target, 'utf8'); if (/kosmos-(report-hook|statusline)/.test(raw) && inside(raw.replace(/\\\//g, '/'))) left.push(file); } catch { /* unreadable */ }
     continue;
   }
   if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
@@ -2121,12 +2130,15 @@ for (const file of files) {
       const list = data.hooks[event];
       if (!Array.isArray(list)) continue;
       const kept = [];
+      let ours = false;
       for (const entry of list) {
         if (!entry || !Array.isArray(entry.hooks) || !entry.hooks.some(hookIsOurs)) { kept.push(entry); continue; }
-        changed = true;
+        ours = true;
         const rest = entry.hooks.filter((h) => !hookIsOurs(h));
         if (rest.length) kept.push({ ...entry, hooks: rest });   // somebody else's hook shared our entry: theirs stays
       }
+      if (!ours) continue;                                        // an event with nothing of ours is left exactly as it was
+      changed = true;
       if (kept.length) data.hooks[event] = kept; else delete data.hooks[event];
     }
     if (changed && Object.keys(data.hooks).length === 0) delete data.hooks;
@@ -2137,18 +2149,29 @@ for (const file of files) {
     changed = true;
   }
   if (!changed) continue;
+  const tmp = target + '.kosmos-unwire.' + process.pid;
   try {
-    const tmp = target + '.kosmos-unwire.' + process.pid;
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { mode });
+    const fd = fs.openSync(tmp, 'w', mode);
+    try { fs.writeSync(fd, JSON.stringify(data, null, 2) + '\n'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
     fs.chmodSync(tmp, mode);
     fs.renameSync(tmp, target);
   } catch {
+    try { fs.unlinkSync(tmp); } catch { /* never written */ }
     left.push(file);
   }
 }
 process.stdout.write(left.join('\n'));
 UNWIREEOF
         _unwire_left="$(cat "$_unwire_out" 2>/dev/null)" || _unwire_left=""
+      else
+        # No node to edit JSON with (a partial install) or no temp file: name every settings file that still points
+        # at this install's hook, rather than leaving it silently.
+        _kh_real="$(cd -P "$KOSMOS_HOME" 2>/dev/null && pwd)" || _kh_real="$KOSMOS_HOME"
+        for _uf in "${AGENT_WORKFORCE_HOME:-$HOME}/.claude/settings.json" "${AGENT_WORKFORCE_HOME:-$HOME}"/.claude-*/settings.json; do
+          [ -f "$_uf" ] && grep -qF -e "$KOSMOS_HOME/app/bin/kosmos-report-hook" -e "$_kh_real/app/bin/kosmos-report-hook" "$_uf" 2>/dev/null \
+            && _unwire_left="${_unwire_left:+$_unwire_left
+}$_uf"
+        done
       fi
       [ -z "$_unwire_out" ] || rm -f "$_unwire_out"
       if [ -n "$_unwire_left" ]; then
@@ -2633,9 +2656,9 @@ UNWIREEOF
     [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && _sl_left=yes
   done
   if [ -n "$_sl_left" ]; then
-    printf '  Kosmos\047s status line was left in these settings files (the "statusLine"\n'
-    printf '  entry naming kosmos-statusline.js). It records nothing now; delete that entry\n'
-    printf '  if you want to use a status line of your own:\n'
+    printf '  A Kosmos status line is still in these settings files (the "statusLine" entry\n'
+    printf '  naming kosmos-statusline.js). If no other Kosmos on this computer uses it, it\n'
+    printf '  records nothing now; delete that entry to use a status line of your own:\n'
     for _sl in "$HOME/.claude/settings.json" "$HOME"/.claude-*/settings.json; do
       [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && printf '    %s\n' "$_sl"
     done
