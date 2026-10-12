@@ -105,7 +105,7 @@ function paintScan(platform) {
   };
   const doc = Object.assign(docFor(platform), { getElementById: (id) => (id === 'fr-fleet-title' ? title : id === 'fr-fleet' ? box : null) });
   // eslint-disable-next-line no-new-func
-  new Function('document', ...Object.keys(stubs), LAYER + '\n' + page.lift(SCRIPT, 'frPaintScan') + '\nfrPaintScan();')(doc, ...Object.values(stubs));
+  new Function('document', ...Object.keys(stubs), LAYER + '\n' + page.liftAll(SCRIPT, ['scanBlockedByMacPermission', 'frPaintScan']) + '\nfrPaintScan();')(doc, ...Object.values(stubs));
   return box.innerHTML;
 }
 
@@ -114,7 +114,25 @@ test('#5877: pane 9 on a Linux board does not say it could not scan Documents, D
   assert.match(paintScan('darwin'), /Could not scan Documents, Downloads, or Desktop this time/, 'CONTROL: a Mac still says it');
 });
 
-test('#5877: the Create panel\'s scan list holds the same line back on a Linux board', () => {
-  const fn = page.lift(SCRIPT, 'populateFoundImports');
-  assert.match(fn, /const tccOut = !onLinux\(\) && /, 'the Create panel says the macOS folder line on Linux');
+test('#5877: a scan is never called blocked by a Mac permission on a Linux board; on a Mac it is when the engine says so', () => {
+  // eslint-disable-next-line no-new-func
+  const run = (platform, scan) => new Function('document', LAYER + '\n' + page.lift(SCRIPT, 'scanBlockedByMacPermission') + '\nreturn scanBlockedByMacPermission(' + JSON.stringify(scan) + ');')(docFor(platform));
+  const blocked = { bounded: { tccUnavailable: true } };
+  assert.equal(run('linux', blocked), false);
+  assert.equal(run('darwin', blocked), true, 'CONTROL: a Mac still reads the permission result');
+  assert.equal(run('darwin', { bounded: {} }), false);
+  assert.equal(run('darwin', null), false);
+});
+
+test('#5877: every reader of tccUnavailable on the page goes through scanBlockedByMacPermission (source check)', () => {
+  // Code lines only (comments mention the field freely). A new reader of the raw field would let a Mac permission line
+  // back onto a Linux board.
+  const code = SCRIPT.replace(/\/\*[\s\S]*?\*\//g, ' ').split('\n')
+    .map((l) => l.replace(/^\s*\/\/.*$/, '').replace(/\s\/\/ .*$/, ''))
+    .filter((l) => /tccUnavailable/.test(l));
+  assert.deepEqual(code.map((l) => l.trim()), ['return !onLinux() && !!(scan && scan.bounded && scan.bounded.tccUnavailable);'],
+    'a code line reads tccUnavailable outside the helper');
+  for (const fn of ['frPaintScan', 'populateFoundImports', 'frPaintFleet']) {
+    assert.match(page.lift(SCRIPT, fn), /scanBlockedByMacPermission\(/, fn + ' no longer asks the helper');
+  }
 });

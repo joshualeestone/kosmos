@@ -33,6 +33,10 @@ say is better gone).
   Documents, Downloads, or Desktop this time" on Linux (review 2): it is a macOS folder-permission result, and a Linux
   board reports those folders unavailable because the engine routes them to the macOS hatch. frPaintScan is painted for
   real in the test with a Mac control. The engine half (those folders are never scanned on Linux) is #5882.
+- A third reader (review 4): frPaintFleet held back pane 9's "They are already here. There is nothing to import" when
+  the flag was set, so a Linux board with nothing to import saw an empty pane. All three readers now ask one helper,
+  scanBlockedByMacPermission, false on Linux; a test runs the helper with a Mac control, and a source check fails if
+  any code line reads tccUnavailable outside it. Deep links: 2, 3, 4 land on Model (5) and 7 on About you (8), by number.
 - web.firstrun-linux-5877.test.js fails on main's page (the Linux sequence, deep-link and kept-pane tests; the controls
   and the pane-9 boundary and hatch checks pass there by design).
 

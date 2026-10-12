@@ -57125,8 +57125,7 @@ async function populateFoundImports() {
   const paint = (body) => {
     if (gen !== FR_IMPORT_POP_GEN) return;   // a newer populateFoundImports superseded this one
     const items = body && Array.isArray(body.importable) ? body.importable : [];
-    // #5877: macOS folder permission only; a Linux board has none, so it never says this (#5882 is the engine half: those folders are never scanned on Linux).
-    const tccOut = !onLinux() && !!(body && body.bounded && body.bounded.tccUnavailable);
+    const tccOut = scanBlockedByMacPermission(body);   // #5877
     if (!items.length && !tccOut) { wrap.hidden = true; wrap.innerHTML = ''; return; }
     const more = body && body.bounded && body.bounded.importable
       ? '<p class="fr-scanhint">There may be more than shown here.</p>' : '';
@@ -77451,6 +77450,13 @@ function frImportOffer() {
  * place) and loose agent FILES (importable, imported through the create form), so
  * every agent the scan finds appears on this one screen with a one-click action.
  */
+/* #5877: whether a scan left out Documents, Downloads and Desktop because macOS folder permission was not given (the
+   engine's bounded.tccUnavailable). A Linux board has no such permission; its engine reports those folders unavailable
+   too, because it routes them to the macOS app (#5882 is that engine half), so on Linux this is never true and no
+   screen speaks of a permission there. Every reader of tccUnavailable on the page goes through here. */
+function scanBlockedByMacPermission(scan) {
+  return !onLinux() && !!(scan && scan.bounded && scan.bounded.tccUnavailable);
+}
 function frPaintScan() {
   importAddsDropStuck();   // kosmos#4962: first run's list drops a stuck add too (its receipts stay for the visit)
   const title = document.getElementById('fr-fleet-title');  // install-flow-9screen: the visible pane-9 head (shell #fr-title retired)
@@ -77464,8 +77470,7 @@ function frPaintScan() {
   // #3/#4 half (b): the protected folders (Documents/Downloads/Desktop) could not be scanned this
   // time (the app-identity hatch did not answer). Some agents were found elsewhere; say the rest
   // could not be reached rather than implying the found set is everything.
-  // #5877: macOS folder permission only; a Linux board has none, so it never says this (#5882 is the engine half: those folders are never scanned on Linux).
-  const tccOut = !onLinux() && !!(FR_SCAN && FR_SCAN.bounded && FR_SCAN.bounded.tccUnavailable);
+  const tccOut = scanBlockedByMacPermission(FR_SCAN);   // #5877
   const kept = importNamesKept(box);   // kosmos#4962: a typed name survives a re-scan's repaint
   box.innerHTML = '<p>These are on this computer but not yet in Kosmos. Add the ones '
     + 'that are yours.' + (more ? ' There may be more than shown here.' : '') + '</p>'
@@ -78228,7 +78233,7 @@ function frPaintFleet() {
        copy call: if he wants the verbatim gated on a full granted readable scan, it is a one-line
        change to require FR_SCAN_FULL here. */
     if (FR_SCAN && FR_SCAN.ok === true && FR_SCAN.scanning !== true
-        && !(FR_SCAN.bounded && FR_SCAN.bounded.tccUnavailable)) {
+        && !scanBlockedByMacPermission(FR_SCAN)) {   // #5877
       box.innerHTML = '<p>They are already here. There is nothing to import and '
         + 'nothing to wait for.</p>';
       frForkActions();
