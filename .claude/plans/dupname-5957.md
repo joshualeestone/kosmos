@@ -1,0 +1,61 @@
+# #5957 slice 1: no two agents share a display name
+
+**Branch:** `dupname-5957` · **Card:** kosmos#5957 (slice 1 of 3; slices 2 and 3 are the version-behind flag and the
+archive offer for long-idle agents).
+
+## The defect
+
+Josh's Windows QA (10-12): two agents on one computer are both shown as "Gemini". Today nothing compares DISPLAY
+names. Session names (the slug) are checked at create, import and restore; the display name (`profile.displayName`,
+or the `You are **X**` line) is never compared, on any path. `@gemini` in a room then names two members, and
+`mentionedMembers` (engine/messages.js) already treats that as ambiguous and asks nobody.
+
+## The rule
+
+A name is taken when its KEY equals the key of another agent's display name OR session name. The key is the one
+@-mentions already use (`mentionKey` in `mentionedMembers`): NFKD, lower-case, letters and digits only. Using the SAME
+key is the point: Kosmos refuses exactly the names that would make an @-word mean two agents, no more, no fewer.
+"Gemini", "gemini", "GEMINI " and "Ge-mini" all clash. A key shorter than 2 is never a clash (mentions ignore it too).
+
+Moving `mentionKey` into the new module and having `mentionedMembers` call it keeps the two from drifting. The page's
+own resolver is held to `mentionedMembers` by web.mention-parity-4642.test.js, so behaviour there is unchanged.
+
+## Where the fleet comes from
+
+`engine/agentnames.js` holds `nameKey`, `clashFor(wanted, { except, agents })` and a `setFleetSource(fn)` seam, the
+same shape as `status.setCreatedSource`. The board wires it to every agent the board shows: `safeRoster()` rows that
+are ours (sessionName + display name) plus `status.createdKeys()` (created agents, running or not, including stopped
+ones like the idle Gemini), named through `status.readIdentity`. Removed agents are left out here; slice 1's restore
+path is not changed (see "Not in this slice").
+
+With no source wired (unit tests, a context without a board) `clashFor` answers "no clash": the session-name checks
+that exist today still run, so this is purely additive. With a source that THROWS, a create or rename is refused with
+"we could not check the names already in use", fail closed, the same posture as create's own roster check.
+
+## The paths that set a display name, and what each does now
+
+| path | change |
+|---|---|
+| `createAgentInner` (POST /api/agents, POST /api/team, the setup guide) | refuse 400, `field: 'name'`, before anything is written |
+| `PUT /api/agent/:name/profile` with `displayName` | refuse 400, `field: 'displayName'`; the agent's OWN names never clash (`except`) |
+| `PUT /api/agent/:name/instructions` changing the `You are **X**` line | the file save still succeeds (it is the person's text); the display-name follow is skipped and the reply says why |
+| `POST /api/connect-agent` (discover.connect) | refuse, as create |
+
+The sentence: `there is already an agent called Gemini (@gemini). Pick another name, or rename that one first.`
+It names the other agent by display name and handle, as `ambiguousNote` does, so the person can find it.
+
+## Not in this slice, said on the card
+
+- Restore of a removed agent whose name is now taken, and copying agents into another Kosmos (worldimport): both keep
+  today's session-name checks. Follow-up if wanted.
+- Existing duplicates (Josh's two Geminis) are not renamed. Slice 1 stops NEW ones; the board shows the duplicate as it
+  is, and renaming either one now works only to a free name.
+
+## Tests
+
+- `engine/agentnames.test.js`: the key (case, spaces, punctuation, NFKD, length under 2), `except`, a session-name clash,
+  a display-name clash, no source = no clash, a throwing source = refuse.
+- A create refusal and a profile rename refusal through the server, plus the instructions follow being skipped with the
+  file still saved. Each with a control that the free name still works.
+- The existing mention tests must stay green (same key).
+- Mutants: break the key (case-sensitive), drop `except`, and make the create check a no-op; each must turn a named test red.
