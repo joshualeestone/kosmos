@@ -3,8 +3,8 @@
   "highlights": [
     {
       "icon": "shield",
-      "title": "Kosmos opens after you download it",
-      "line": "The Kosmos app is now signed and notarized by Apple as a whole, so a Mac opens a downloaded copy instead of calling it damaged.",
+      "title": "macOS may ask about Kosmos once",
+      "line": "Kosmos is now one app that we sign and Apple notarizes, so after this update macOS may ask once more for permissions you gave it.",
       "platforms": [
         "mac"
       ]
