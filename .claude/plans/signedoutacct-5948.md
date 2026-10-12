@@ -22,7 +22,8 @@ of reading signed out.
   (GEMINI_API_KEY / XAI_API_KEY, the fallback a launch uses) is also `unlisted`: the agent may still be working on the
   shared key, so "not signed in" would be confidently wrong (review 9). A door that cannot be read counts as unsure.
 - When Kosmos could not look (a locked folder, an unread door), the row says that, never that a file or a shared key
-  is there (review 13). A failed check sends `unlistedComplete: false`, and the CLI then does not say "none set up".
+  is there (review 13). A failed check, or a walk that could not read the roster or the profiles (review 14), sends
+  `unlistedComplete: false`, and the CLI then does not say "none set up".
 - A signed-out row says how to fix it: add the key or sign in again in Settings > AI Models. It does not name a folder
   to re-add under: whether a name lands in the same folder depends on env overrides and label cleaning (review 11).
 - The agents walked are the same set the account guard walks (`knownAgentNames`, factored out of

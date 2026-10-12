@@ -11006,16 +11006,17 @@ const server = http.createServer(async (req, res) => {
         let unlistedComplete = true;
         try {
           const readers = { openai: openaiAccounts, google: geminiAccounts, xai: grokAccounts };
-          // The account walk's names (knownAgentNames): the roster's cards, then known profiles not on it. Its `complete` is
-          // not used: this is a read-only listing, and a name it could not read only leaves a row out.
+          // The account walk's names (knownAgentNames): the roster's cards, then known profiles not on it.
           const known = knownAgentNames();
+          // A walk that could not read the roster or the profiles is incomplete: kosmos accounts must not then say none.
+          unlistedComplete = known.complete !== false;
           const onRoster = new Set((known.roster || []).map((c) => c && c.sessionName));
           const cards = [...(known.roster || []), ...[...known.names].filter((n) => !onRoster.has(n)).map((n) => ({ sessionName: n, name: n }))];
           unlistedAccounts = require('./engine/signedoutaccounts').signedOutRows(cards,
             { openai: openaiRows, google: geminiRows, xai: grokRows }, (n) => create.readJob(n), (p, d) => readers[p].readName(d),
             undefined, (p) => readers[p].defaultDir(),
             // The secrets/env door a launch falls back to when a folder's own key is missing (tokendoor.fileFor).
-            (v) => { try { return fs.readFileSync(require('./engine/tokendoor').fileFor(v), 'utf8').trim() !== ''; } catch (e) { if (e && e.code === 'ENOENT') return false; throw e; } });   // any other fault: unsure, never "gone"
+            (v) => { try { return fs.readFileSync(require('./engine/tokendoor').fileFor(v), 'utf8').trim() !== ''; } catch (e) { if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return false; throw e; } });   // any other fault: unsure, never "gone"
         } catch { unlistedAccounts = []; unlistedComplete = false; }
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub], unlistedAccounts, unlistedComplete });
       })
