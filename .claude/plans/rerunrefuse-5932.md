@@ -44,3 +44,8 @@ sets it, which it does not.
 - **NITs, not taken:** the order arm compares line numbers (the column-0 anchor makes a guard nested in a branch
   unlikely); a `fi` with a trailing comment would over-extract, but that fails loud (undefined function, exit 1) with no
   side effect.
+
+## Review 2 (sonnet, 2026-10-12 08:06): CONVERGED, no blocker or should-fix
+- **NITs, taken (wording):** the message says the contention RERUN runs the real suite (a cut reruns only on a
+  contention red); the comment no longer names a speculative source for the leftover export; the lib's seam list says
+  release.sh refuses it.

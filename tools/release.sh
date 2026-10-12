@@ -726,12 +726,12 @@ for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSM
   fi
 done
 # #5932: KOSMOS_SUITE_RERUN_CMD is cut-rerun-guard.sh's test seam for the command a contention rerun runs. A
-# green from it dismisses a fail-0 red and the cut goes on, so a leftover export (`=true`, from running the guard's
-# test by hand) would ship a real shell-stage or browser-check-gate failure. Refused like the notarise seams, an empty
+# green from it dismisses a fail-0 red and the cut goes on, so a leftover export (`=true`, say) would ship a real
+# shell-stage or browser-check-gate failure. Refused like the notarise seams, an empty
 # value included. KOSMOS_SUITE_RERUN_SLEEP stays allowed (it only paces the reruns), and so does KOSMOS_SUITE_RERUN_MAX,
 # the operator setting #5907's rerunbudget-5907 branch adds (not read on main yet).
 if [ -n "${KOSMOS_SUITE_RERUN_CMD+x}" ]; then
-  echo "KOSMOS_SUITE_RERUN_CMD is set in this shell (even an empty value counts). A cut always reruns its real suite (#5932): unset it and run again."; exit 1
+  echo "KOSMOS_SUITE_RERUN_CMD is set in this shell (even an empty value counts). A cut's contention rerun always runs the real suite (#5932): unset it and run again."; exit 1
 fi
 # One authenticated request to Apple with the notary key, so a bad key or an outage refuses here,
 # before the bump is pushed. Step 4 can still fail at Apple after the bump (a notary outage that

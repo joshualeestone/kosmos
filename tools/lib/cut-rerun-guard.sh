@@ -85,7 +85,7 @@ kosmos_failing_test_files() {
 # direction and bounded; if the file path is ever given a higher `max`, split them.
 #
 # SEAMS (so the test proves both verdicts without a real 2-minute suite):
-#   KOSMOS_SUITE_RERUN_CMD   the command run in $repo (default `yarn test`)
+#   KOSMOS_SUITE_RERUN_CMD   the command run in $repo (default `yarn test`); tests only: release.sh refuses a cut with it set (#5932)
 #   KOSMOS_SUITE_RERUN_SLEEP seconds to pause between attempts (default 5; 0 in tests)
 # Written errexit-safe (release.sh sources this under set -euo pipefail): the rerun
 # runs in an `if ( ... )` subshell so its non-zero does not abort, and the
