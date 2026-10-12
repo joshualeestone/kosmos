@@ -46475,7 +46475,11 @@ document.getElementById('d-save').addEventListener('click', async () => {
                                   line every time somebody saved a role. */
                                ...(reportsSent === null ? {} : { reportsTo: reportsSent }) }) });
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
-    if (!res.ok) throw new Error('that did not save');
+    /* #5957: a refusal carries its own sentence (a name another agent already has); say it, as the instructions Save does. */
+    if (!res.ok) {
+      const refused = await res.json().catch(() => null);
+      throw new Error((refused && typeof refused.error === 'string' && refused.error) || 'that did not save');
+    }
     const saved = await res.json().catch(() => null);
     /* 🔑 A RENAME IS TWO ACTS AND THE SENTENCE SAYS WHICH ONES HAPPENED. The
        record is what every screen reads; the sentence at the top of the agent's

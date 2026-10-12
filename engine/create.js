@@ -4599,9 +4599,9 @@ function createAgentInner(opts) {
   // from the server (no client-side copy of the rule); this only says where it goes.
   if (problem) return { outcome: OUTCOME.REFUSED, because: problem, field: 'name', steps };
   /* kosmos#5957: a name another agent already answers to (its display name or its handle, compared the way an @-word
-     is) is taken, checked here before anything else runs so a refusal changes nothing. The session-name checks below
-     stay: they also cover a running session that is not an agent. */
-  const taken = agentnames.refusalFor(shown);
+     is) is taken. Checked before anything is written. An agent under this SAME handle is skipped (`except`): the
+     checks below refuse that case with the sentence that fits it (removed, half made, already running). */
+  const taken = agentnames.refusalFor(shown, { except: name });
   if (taken === agentnames.COULD_NOT_CHECK) return { outcome: OUTCOME.REFUSED, because: taken, steps };   // #2606: untagged, the name may be fine
   if (taken) return { outcome: OUTCOME.REFUSED, because: taken, field: 'name', steps };
 

@@ -1636,8 +1636,9 @@ function registerOnly(given, name, { create, store }) {
   const taken = folderTakenBy(given, name, { store });
   if (!taken.ok) return { ok: false, because: FOLDER_UNREADABLE };
   if (taken.other) return { ok: false, because: folderTakenSentence(taken.other, taken.home, taken.removed) };
-  /* kosmos#5957: no display name another agent answers to (its own, on a re-connect, never clashes). */
-  const nameTaken = require('./agentnames').refusalFor(name, { except: name });
+  /* kosmos#5957: no name another agent answers to. Nothing is excepted: the job and session checks above already
+     refused an agent under this handle, so any entry left that matches is a different agent. */
+  const nameTaken = require('./agentnames').refusalFor(name);
   if (nameTaken) return { ok: false, because: nameTaken };
   /* The display name is the name they typed. There is no file to disagree with it,
      which is the whole reason this path exists. */
@@ -1970,10 +1971,11 @@ function connect(dir, opts) {
   const taken = folderTakenBy(given, name, { store });
   if (!taken.ok) return { ok: false, because: FOLDER_UNREADABLE };
   if (taken.other) return { ok: false, because: folderTakenSentence(taken.other, taken.home, taken.removed) };
-  /* kosmos#5957: neither its display name nor its handle may be one another agent already answers to. */
+  /* kosmos#5957: neither its display name nor its handle may be one another agent already answers to. Nothing is
+     excepted, as in registerOnly: the checks above already refused an agent under this handle. */
   {
     const agentnames = require('./agentnames');
-    const nameTaken = agentnames.refusalFor(displayName, { except: name }) || agentnames.refusalFor(name, { except: name });
+    const nameTaken = agentnames.refusalFor(displayName) || agentnames.refusalFor(name);
     if (nameTaken) return { ok: false, because: nameTaken };
   }
   /* #5534: connecting a folder starts a new agent, so a company policy that does not allow its provider (or the
