@@ -109,6 +109,14 @@ function superviseCodexStreaming(spec, opts) {
     : (name, instance) => win32create.retireRun(name, instance);
   const sessions = o.sessions || win32sessions;
   const supervisorPid = Number.isInteger(o.supervisorPid) ? o.supervisorPid : process.pid;
+  /* #5949: the automatic idle report at the end of a turn, sent as Claude's Stop hook sends it (the same writer, the
+     same /api/report route, auto:true, this run's own token). Injectable for tests. Never throws, never awaited.
+     ⚠️ Inside a test the default sends nothing, on the two signs agystatus.js reads (live-execution's --test, which a
+     runtime can stop reporting, and the runner's NODE_TEST_CONTEXT): a suite that drives this loop without the seam
+     must not post to a real board on 127.0.0.1. */
+  const reportIdle = typeof o.reportIdle === 'function' ? o.reportIdle
+    : (env) => (require('./live-execution').inTestProcess() || process.env.NODE_TEST_CONTEXT ? null : require('./kosmos-report-hook')
+      .main({ input: JSON.stringify({ hook_event_name: 'Stop' }), env, stdout: () => {} }));
 
   /* The codex binary (path hint or bare name) and the turn environment, resolved
      once: every turn runs the same program with the same account, token and PATH. */
@@ -199,6 +207,14 @@ function superviseCodexStreaming(spec, opts) {
       if (r && r.ok) onEvent({ action: 'turn', sessionId });
       else onEvent({ action: 'turn-failed', sessionId, because: (r && r.error) || 'the ' + runner + ' turn produced no answer' });
       turning = false;
+      /* 🛑 #5949: SAY IDLE WHEN THE WORK IS DONE. Only Claude's Stop hook ever reported idle, so the automatic
+         "working" from a Codex, Grok, Gemini or Antigravity turn's start was the last word, and five minutes later the
+         card read "Can't tell". Sent only on a NORMAL end with nothing queued behind it (a failed turn says its own
+         thing, #5948; a queued message starts the next turn now), and AUTOMATIC, so the board refuses it over a
+         standing blocked or needs_you, exactly as it refuses Claude's. */
+      if (r && r.ok && queue.length === 0) {
+        try { Promise.resolve(reportIdle(turnEnv)).catch(() => {}); } catch { /* a report is never worth a turn */ }
+      }
       pump();
     }).catch((e) => {
       turnChild = null;

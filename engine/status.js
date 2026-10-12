@@ -4793,7 +4793,10 @@ function classify(pane, paneText) {
       return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is working' };
     }
     if (paneText === 'idle') {
-      return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it is idle at its prompt' };
+      /* #5949: `liveToken` marks this idle as a direct reading -- `claude agents --json`'s own status, or the state
+         file the agent's supervisor writes when a turn ends -- not a guess off a screen. reconcileReport lets it end a
+         stale automatic "working" (see there). Set only here, so no Mac pane ever carries it. */
+      return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it is idle at its prompt', liveToken: true };
     }
     // null (a failed/absent live read) or any status token we do not recognise:
     // refuse honestly rather than assert a state off a look that did not land.
@@ -7920,6 +7923,15 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          now one. `backgroundWait` still rides out on `...scraped` for any
          downstream reader (e.g. chat.waitingNote). */
       return { ...scraped, reported: false, conflict: null, ...workingProject(true) };
+    }
+    /* 🛑 #5949: A WINDOWS AGENT THAT HAS FINISHED ITS TURN IS IDLE, NOT "CAN'T TELL". Every Codex, Grok, Gemini and
+       Antigravity agent on Windows fell here five minutes after each turn: its last report was the automatic
+       "working" from the turn's start, and its supervisor wrote idle to its state file when the turn ended, which the
+       board read (scraped IDLE) and then ignored for "we could not check". A Windows idle token is a direct reading
+       (`liveToken`, set only by classify's win32 arm), so it decides once the working report has gone stale. A Mac
+       screen that merely looks idle still falls through to the honest unknown below. */
+    if (scraped.state === STATE.IDLE && scraped.liveToken === true) {
+      return { ...scraped, reported: false, conflict: null };
     }
     return {
       state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE,
