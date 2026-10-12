@@ -134,7 +134,7 @@ test('#5970: community post, edit and endorse take --body-file too', () => withS
   assert.deepEqual([seen[3].body.name, seen[3].body.stars, seen[3].body.text], ['Theo Nguyen', 5, WRITTEN]);
 }));
 
-test('#5970: a file just under the cap is sent whole', () => withStubBoard(async (port, seen) => {
+test('#5970: a file at the cap is sent whole', () => withStubBoard(async (port, seen) => {
   const text = 'x'.repeat(102400);
   const out = await runCli(['community', 'post', '--body-file', file(text)], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -158,7 +158,7 @@ test('#5970: every refusal exits 2, names the problem, and sends nothing', () =>
   const good = file('Fine words.');
   const big = path.join(FILES, 'big.txt');
   fs.writeFileSync(big, '');
-  fs.truncateSync(big, 2 * 102400 + 5);   // past the raw-size bound (twice BODY_FILE_MAX_BYTES), sparse, so it stays fast
+  fs.truncateSync(big, 4 * 102400 + 5);   // past the raw-size bound, sparse, so it stays fast
   const cases = [
     ['words plus file', ['community', 'comment', 'post-1', '--body-file', good, 'and', 'words'], /as words OR with --body-file, not both/],
     ['twice', ['community', 'comment', 'post-1', '--body-file', good, '--body-file', good], /given twice/],
@@ -169,7 +169,8 @@ test('#5970: every refusal exits 2, names the problem, and sends nothing', () =>
     ['an option as the path, = spelling', ['community', 'comment', 'post-1', '--body-file=--reply-to'], /--body-file needs a value, and --reply-to is an option/],
     ['over the cap once decoded (no BOM, under the raw bound)', ['community', 'comment', 'post-1', '--body-file', file('y'.repeat(102400 + 1))], /over the 100 KB Kosmos takes from a file/],
     ['over the cap once decoded (UTF-16 CJK)', ['community', 'comment', 'post-1', '--body-file', file(Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('\u4e2d'.repeat(34200), 'utf16le')]))], /over the 100 KB/],
-    ['UTF-16 with no byte order mark', ['community', 'comment', 'post-1', '--body-file', file(Buffer.from('Hi there', 'utf16le'))], /is not UTF-8 text/],
+    ['UTF-16 with no byte order mark', ['community', 'comment', 'post-1', '--body-file', file(Buffer.from('Hi there', 'utf16le'))], /is not text Kosmos can read/],
+    ['endorse has no value options, so the flag after a word is still the flag', ['community', 'endorse', 'Theo', '5', '--topic', '--body-file', good], /not both/],
     ['-- as the path', ['community', 'comment', 'post-1', '--body-file', '--', 'words'], /needs the path of a file/],
     ['the flag as --topic\'s value', ['community', 'post', '--topic', '--body-file', good, 'words'], /--topic needs a value, and --body-file is an option/],
     ['the flag as --channel\'s value', ['community', 'post', '--channel', '--body-file', good], /--channel needs a value, and --body-file is an option/],
@@ -177,11 +178,11 @@ test('#5970: every refusal exits 2, names the problem, and sends nothing', () =>
     ['the flag as edit --topic\'s value', ['community', 'edit', 'post', 'id-1', '--topic', '--body-file', good], /--topic needs a value, and --body-file is an option/],
     ['missing file', ['community', 'comment', 'post-1', '--body-file', path.join(FILES, 'nope.txt')], /Nothing was sent: there is no file Kosmos can read at/],
     ['a folder', ['community', 'comment', 'post-1', '--body-file', FILES], /there is no file Kosmos can read at/],
-    ['not UTF-8', ['community', 'comment', 'post-1', '--body-file', file(Buffer.from([0x68, 0x69, 0xc3, 0x28]))], /is not UTF-8 text/],
-    ['a NUL', ['community', 'comment', 'post-1', '--body-file', file(Buffer.from('a\0b'))], /is not UTF-8 text/],
+    ['not UTF-8', ['community', 'comment', 'post-1', '--body-file', file(Buffer.from([0x68, 0x69, 0xc3, 0x28]))], /is not text Kosmos can read/],
+    ['a NUL', ['community', 'comment', 'post-1', '--body-file', file(Buffer.from('a\0b'))], /is not text Kosmos can read/],
     ['over the cap', ['community', 'comment', 'post-1', '--body-file', big], /over the 100 KB Kosmos takes from a file/],
-    ['empty', ['community', 'comment', 'post-1', '--body-file', file('')], /Nothing was sent: .* is empty/],
-    ['blank', ['community', 'post', '--body-file', file(' \r\n\t\n')], /Nothing was posted: .* is empty/],
+    ['empty', ['community', 'comment', 'post-1', '--body-file', file('')], /Nothing was sent: .* has no text in it/],
+    ['blank', ['community', 'post', '--body-file', file(' \r\n\t\n')], /Nothing was posted: .* has no text in it/],
     ['edit, words plus file', ['community', 'edit', 'post', 'id-1', '--body-file', good, 'more'], /not both/],
     ['endorse, words plus file', ['community', 'endorse', 'Theo', '5', '--body-file', good, 'more'], /not both/],
   ];
@@ -223,6 +224,12 @@ test('#5970: feedback write --body-file saves the file as the report; a refusal 
   assert.equal(w.code, 0, w.both);
   const s = await runBash(['feedback', 'show'], fbEnv(h));
   assert.match(s.both, /## Did not work\n- X `y` \$z/, 'the UTF-16 report was not saved as written');
+
+  // PowerShell 5.1 writes UTF-16 LE with CRLF: 4 bytes a line break on disk, 1 once decoded. Under the cap as text.
+  const ps = file(Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('y\r\n'.repeat(40000), 'utf16le')]));
+  const h4 = makeHome();
+  const pw = await runBash(['feedback', 'write', '--body-file', ps], fbEnv(h4));
+  assert.equal(pw.code, 0, 'a UTF-16 CRLF file under the cap as text was refused: ' + pw.both);
 
   const h3 = makeHome();
   const eq = await runBash(['feedback', 'write', `--body-file=${file('Equals spelling.')}`], fbEnv(h3));

@@ -9,11 +9,12 @@ Card: #5970. Windows half: #5946 (Homer), not on origin when this was built.
 ## Shape
 - `_take_body_file <verb> <usage> args...` lifts the flag out of the args before `--` (anywhere among the
   options, including before positional ids), so each verb's existing parser runs unchanged on the rest.
-  Past `--` it is words. Right after --topic/--channel/--reply-to it stays in place, so that option's own
-  value check refuses it. Refuses: given twice, no path, an option or `--` as the path.
+  Past `--` it is words. Each verb passes its own value options (post: --channel --topic; comment: --reply-to;
+  edit: --topic; endorse and feedback write: none); right after one of those it stays in place, so that
+  option's own value check refuses it. Refuses: given twice, no path, an option or `--` as the path.
 - `_read_body_file <past-verb>` reads the file with the engine's node: decodes by BOM (UTF-8, UTF-16 LE/BE;
   none means UTF-8, fatal decoder), CRLF to LF, trailing line breaks dropped (as `$(cat)` does). Refuses
-  (exit 2): missing/not a file, over BODY_FILE_MAX_BYTES (100 KB, measured as UTF-8 after decoding), not UTF-8 or holding a NUL (bash cannot carry one), blank.
+  (exit 2): missing/not a file, over BODY_FILE_MAX_BYTES (100 KB, measured as UTF-8 after decoding; a loose raw bound of 4x only stops a huge file being read whole), not UTF-8 or holding a NUL (bash cannot carry one), blank.
 - `_body_file_and_words`: words plus file is refused.
 - stdin is not read when the flag is given.
 - `community endorse` drops a leading `--` before the review (it never ran `_text_args`, so `--` used to go out

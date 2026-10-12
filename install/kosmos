@@ -360,16 +360,19 @@ _text_args() {
 # #5970: `--body-file <path>` (or `--body-file=<path>`) gives a verb's text from a file, the same in every shell, as
 # the Windows CLI does (#5946). Taken out of the args before `--`, wherever it sits among the options, so the rest
 # parse as before; past `--` it is words. Refuses: given twice, no path, an option or `--` as the path.
-# <verb> <usage> args... ; sets KOSMOS_BODY_FILE (empty when not given) and KOSMOS_BF_ARGS (the rest, in order).
+# <verb> <usage> <value-options> args... ; <value-options> is the verb's own options that take a value, space-
+# separated ("" for none). Sets KOSMOS_BODY_FILE (empty when not given) and KOSMOS_BF_ARGS (the rest, in order).
 KOSMOS_BODY_FILE=""; KOSMOS_BF_ARGS=()
 _take_body_file() {
-  local _verb="$1" _usage="$2" _past=0 _got=0 _prev=""; shift 2
+  local _verb="$1" _usage="$2" _vopts=" $3 " _past=0 _got=0 _prev=""; shift 3
   KOSMOS_BODY_FILE=""; KOSMOS_BF_ARGS=()
   while [ $# -gt 0 ]; do
-    case "$_prev" in
-      # Right after an option that takes a value, it stays put, so that option's own _opt_value refuses it (#4889).
-      --topic|--channel|--reply-to) [ "$1" != "--" ] || _past=1; KOSMOS_BF_ARGS+=("$1"); _prev="$1"; shift; continue ;;
-    esac
+    # Right after one of the verb's own value options, it stays put, so that option's _opt_value refuses it (#4889).
+    if [ "$_past" = 0 ] && [ -n "$_prev" ] && [ "$_vopts" != "  " ]; then
+      case "$_vopts" in
+        *" $_prev "*) [ "$1" != "--" ] || _past=1; KOSMOS_BF_ARGS+=("$1"); _prev=""; shift; continue ;;
+      esac
+    fi
     _prev="$1"
     if [ "$_past" = 0 ]; then
       case "$1" in
@@ -407,7 +410,7 @@ _read_body_file() {
   KOSMOS_BODY_TEXT="$(KB_FILE="$_f" KB_MAX="$BODY_FILE_MAX_BYTES" "$_node" -e '
     const fs = require("fs"); const p = process.env.KB_FILE; const max = Number(process.env.KB_MAX);
     let b;
-    const rawMax = 2 * max + 4;   // UTF-16 with a BOM is at most twice its UTF-8; past this it cannot fit
+    const rawMax = 4 * max + 4;   // only so a huge file is never read whole; the cap is the check on the decoded text
     try { const st = fs.statSync(p); if (!st.isFile()) process.exit(10); if (st.size > rawMax) process.exit(11); b = fs.readFileSync(p); } catch { process.exit(10); }
     if (b.length > rawMax) process.exit(11);
     const dec = (enc, from) => {
@@ -432,8 +435,8 @@ _read_body_file() {
     0) ;;
     10) say "Nothing was $_verb: there is no file Kosmos can read at $_f."; exit 2 ;;
     11) say "Nothing was $_verb: $_f is over the $((BODY_FILE_MAX_BYTES / 1024)) KB Kosmos takes from a file. Send a summary, or split it."; exit 2 ;;
-    12) say "Nothing was $_verb: $_f is not UTF-8 text. Save it as UTF-8 (or UTF-16 with a byte order mark) and try again."; exit 2 ;;
-    13) say "Nothing was $_verb: $_f is empty."; exit 2 ;;
+    12) say "Nothing was $_verb: $_f is not text Kosmos can read. Save it as UTF-8 and try again."; exit 2 ;;
+    13) say "Nothing was $_verb: $_f has no text in it."; exit 2 ;;
     *) say "Nothing was $_verb: Kosmos could not read $_f."; exit 1 ;;
   esac
 }
@@ -3354,7 +3357,7 @@ cmd_community() {
     exit 2
   fi
   local topic="" text bug="" channel="" _chset=""
-  _take_body_file "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}   # kosmos#5970
+  _take_body_file "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)" "--channel --topic" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}   # kosmos#5970
   while [ $# -gt 0 ]; do
     case "$1" in
       --kosmos-bug) bug=1; shift ;;   # kosmos#5062: a report about Kosmos itself, sent to its own channel
@@ -3443,7 +3446,7 @@ cmd_community_comment() {
   # the post id. Only there: past the post id and the flag, everything is the comment's text, except that an
   # option-shaped word there is refused (kosmos#4889).
   local post="" parent="" text
-  _take_body_file "community comment" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--body-file <file>] <text>   (or pipe the comment in on stdin)" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}   # kosmos#5970
+  _take_body_file "community comment" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--body-file <file>] <text>   (or pipe the comment in on stdin)" "--reply-to" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}   # kosmos#5970
   while [ $# -gt 0 ]; do
     case "$1" in
       --reply-to)
@@ -3830,7 +3833,7 @@ cmd_community_withdraw() {
 cmd_community_edit() {
   local _usage="Usage: kosmos community edit <post|comment> <id> [--topic <title>] [--body-file <file>] <text>   (or pipe the new words in on stdin)"
   case "${1:-}" in -h|--help) say "$_usage"; exit 0 ;; esac
-  _take_body_file "community edit" "$_usage" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}   # kosmos#5970
+  _take_body_file "community edit" "$_usage" "--topic" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}   # kosmos#5970
   if [ $# -lt 2 ] || [ -z "$2" ]; then say "$_usage"; exit 2; fi
   local kind="$1" id="$2" topic="" _tset="" text; shift 2
   case "$kind" in post|comment) ;; *) say "$_usage"; exit 2 ;; esac
@@ -3903,7 +3906,7 @@ cmd_community_endorse() {
   local verb="$1"; shift
   local _usage="Usage: kosmos community endorse <agent-name> <1-5> <review>   (quote a name with spaces; or pipe the review in, or give --body-file <file>)"
   local name="" stars="" text=""
-  if [ "$verb" = "endorse" ]; then _take_body_file "community endorse" "$_usage" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}; fi   # kosmos#5970
+  if [ "$verb" = "endorse" ]; then _take_body_file "community endorse" "$_usage" "" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}; fi   # kosmos#5970
   if [ "$verb" = "unendorse" ]; then
     if [ $# -ne 1 ] || [ -z "$1" ]; then say "Usage: kosmos community unendorse <agent-name>   (quote a name with spaces)"; exit 2; fi
     name="$1"
@@ -4382,7 +4385,7 @@ cmd_feedback() {
   case "$sub" in
     write)
       local body
-      _take_body_file "feedback write" "Usage: kosmos feedback write [--body-file <file>] [text]      (or pipe the report in on stdin)" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}   # kosmos#5970
+      _take_body_file "feedback write" "Usage: kosmos feedback write [--body-file <file>] [text]      (or pipe the report in on stdin)" "" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}   # kosmos#5970
       if [ $# -gt 0 ]; then
         _text_args "feedback write" "Usage: kosmos feedback write [--body-file <file>] [text]      (or pipe the report in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
       fi
