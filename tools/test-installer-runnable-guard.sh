@@ -11,7 +11,7 @@ set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 FILES="install/kosmos install/setup.sh install/kosmos-report-hook.sh"
 fails=0
-# Every scratch file below lands in one folder, removed on any exit (an interrupted run leaves nothing behind).
+# Every scratch file below lands in one folder, removed by an EXIT trap (a normal end, a failure or a TERM; a KILL cannot be trapped).
 _tmproot="$(mktemp -d)" || { echo "installer runnable-guard: could not make a scratch folder"; exit 1; }
 trap 'rm -rf "$_tmproot"' EXIT
 export TMPDIR="$_tmproot"
@@ -61,7 +61,7 @@ FOLDER_SEARCH_TESTS="$(printf '%s\n' \
   '[ -d "$SEALED_USERS_DIR" ] && [ ! -L "$SEALED_USERS_DIR" ] && [ -r "$SEALED_USERS_DIR" ] && [ -x "$SEALED_USERS_DIR" ] || return 0')"
 export FOLDER_SEARCH_TESTS
 # With -v whole=1 (the installer scan), each listed test must be excused exactly once: a copy (a heredoc, a paste)
-# or a stale entry is reported. Controls that scan a single made-up file leave it off.
+# or a stale entry is reported. The controls that only count flags leave it off.
 _scan='
 BEGIN {
   n = split(ENVIRON["FOLDER_SEARCH_TESTS"], a, "\n")
@@ -132,8 +132,8 @@ rel() { printf '%s\n' "$FOLDER_SEARCH_TESTS" | sed -n "$((($1 - 1) * 3 + $2))p";
 for _e in $(seq 1 $((_nl / 3))); do
   { printf '    %s\n\n    # a comment\n    %s\n' "$(rel "$_e" 2)" "$(rel "$_e" 3)"; } >> "$_cdir/$(rel "$_e" 1)"
 done
-_out="$(cd "$_cdir" && awk -v whole=1 "$_scan" $(printf '%s\n' "$FOLDER_SEARCH_TESTS" | awk 'NR % 3 == 1' | sort -u) 2>/dev/null)"
-if [ -z "$_out" ]; then pass "each listed folder test is excused once in its file after its listed line (a blank and a comment between)"
+_out="$(cd "$_cdir" && awk -v whole=1 "$_scan" $(printf '%s\n' "$FOLDER_SEARCH_TESTS" | awk 'NR % 3 == 1' | sort -u) 2>/dev/null)"; _awk_rc=$?
+if [ "$_awk_rc" -eq 0 ] && [ -z "$_out" ]; then pass "each listed folder test is excused once in its file after its listed line (a blank and a comment between)"
 else fail "a listed folder test was not excused as listed: $(printf '%s' "$_out" | head -1)"; fi
 # The same, with every listed test copied once more inside a heredoc: the copies are reported (found twice).
 for _e in $(seq 1 $((_nl / 3))); do
@@ -176,7 +176,7 @@ flagged "$_f" '  [ -d $P ] && [ -x $P ] || return 0'
 flagged "$_f" '  [ -d "$P" ] && [ -x "$P" ] || return 0'
 flagged "$_f" '  [ -d "$P" ] || [ -x "$P" ] && run "$P"'
 flagged "$_f" '  ! [ -d "$P" ] && [ -x "$P" ] && run "$P"'
-[ "$_n" -eq "$_total" ] && pass "in its own file, a listed test after another line (a || list, a heredoc on ||, ||#) or alone is flagged; so is it in another file, and every unlisted folder test ($_total controls)"
+[ "$_n" -eq "$_total" ] && pass "in its own file, a listed test after any other line before it (the scan does not parse || or heredocs; only the exact line before counts) or alone is flagged; so is it in another file, and every unlisted folder test ($_total controls)"
 # The line before does not carry across files: the first file ends with a listed line-before, the second starts with
 # its listed test, and the test is flagged.
 printf '  %s\n' "$(rel 1 2)" > "$_cdir/install/a-first.sh"; printf '  %s\n' "$(rel 1 3)" > "$_cdir/$(rel 1 1)"
