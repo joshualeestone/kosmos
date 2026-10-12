@@ -434,6 +434,12 @@ sealed_icon_other_users() {
 # Trust assumption, stated: the folder is shared by the accounts of one Mac; an account could remove another's
 # marker only through the folder's owner (the first account to reuse), and the worst outcome is that the shared icon
 # is removed by its owner's uninstall, which the next run of this installer repairs.
+# #5913 review 3: what a marker holds. A hash of this install's KOSMOS_HOME, never the path itself (the path names the
+# account, and the folder is shared by every account on the Mac); the file is also written owner-only. Enough for
+# this install's uninstall to tell its own marker from a marker another install of this account wrote.
+sealed_marker_tag() {
+  printf '%s' "$KOSMOS_HOME" | /usr/bin/shasum -a 256 | /usr/bin/cut -d' ' -f1
+}
 sealed_icon_mark_reuse() {
   local me parent f
   me="$(/usr/bin/id -u)"
@@ -445,11 +451,11 @@ sealed_icon_mark_reuse() {
   [ ! -L "$SEALED_USERS_DIR" ] || return 1
   f="$SEALED_USERS_DIR/$me"
   if [ -f "$f" ] && [ ! -L "$f" ] && [ "$(file_owner_uid "$f")" = "$me" ]; then
-    /usr/bin/grep -qxF "$KOSMOS_HOME" "$f" 2>/dev/null && return 0
+    /usr/bin/grep -qxF "$(sealed_marker_tag)" "$f" 2>/dev/null && return 0
     rm -f "$f" 2>/dev/null || return 1   # this account's own marker for another of its installs: replaced
   fi
   { [ -e "$f" ] || [ -L "$f" ]; } && return 1
-  ( set -C; printf '%s\n' "$KOSMOS_HOME" > "$f" ) 2>/dev/null
+  ( umask 077; set -C; printf '%s\n' "$(sealed_marker_tag)" > "$f" ) 2>/dev/null
 }
 
 # #5913: this install's uninstall takes back ITS OWN marker: a regular file this account owns, naming this install.
@@ -458,7 +464,7 @@ sealed_icon_unmark() {
   me="$(/usr/bin/id -u)"
   f="$SEALED_USERS_DIR/$me"
   [ -f "$f" ] && [ ! -L "$f" ] && [ "$(file_owner_uid "$f")" = "$me" ] || return 0
-  /usr/bin/grep -qxF "$KOSMOS_HOME" "$f" 2>/dev/null || return 0
+  /usr/bin/grep -qxF "$(sealed_marker_tag)" "$f" 2>/dev/null || return 0
   rm -f "$f" 2>/dev/null || return 1
 }
 
@@ -4158,7 +4164,7 @@ elif [ "$APP_SKIP_ICON" = "yes" ]; then
     # #5913: another account's sealed Kosmos icon opens this install too, so none is made here.
     info "Kosmos is already in Applications for every account on this computer; it opens your Kosmos too."
     sealed_icon_mark_reuse \
-      || info "(this computer could not note that your account uses that icon, so if its owner uninstalls Kosmos, run this installer again)"
+      || info "(this computer could not note that your account uses that icon: something is in the way at $SEALED_USERS_DIR. If the icon's owner uninstalls Kosmos, your icon goes too; run this installer again after that)"
   elif [ "$APP_SKIP_REASON" = "same" ]; then
     info "something else already has the Kosmos spot in Applications, and this computer's home"
     info "Applications folder is the same folder, so no icon was created."

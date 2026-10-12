@@ -29,7 +29,7 @@ function fnSource(name) {
 }
 const FNS = ['file_owner_uid', 'bundle_is_ours', 'sealed_config_reaches', 'bundle_looks_sealed', 'sealed_serves_this_install',
   'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'sealed_icon_reusable', 'sealed_icon_other_users',
-  'sealed_icon_mark_reuse', 'sealed_icon_unmark', 'resolve_app_dir'].map(fnSource).join('\n');
+  'sealed_marker_tag', 'sealed_icon_mark_reuse', 'sealed_icon_unmark', 'resolve_app_dir'].map(fnSource).join('\n');
 const ME = String(process.getuid());
 
 let tmpRoot;
@@ -216,7 +216,13 @@ it('#5913 review 2: reuse fires only while the home Applications slot is empty (
 it('#5913 review 2: the marker names its install; only that install\'s uninstall takes it back', () => {
   const w = world();
   assert.match(run(w, 'sealed_icon_mark_reuse; echo "rc=$?"').out, /rc=0/);
-  assert.equal(fs.readFileSync(path.join(w.users, ME), 'utf8').trim(), w.home, 'the marker does not name this install');
+  // Review 3: the marker names this install by a HASH of its home, never the path (which names the account), and is
+  // readable by its owner only.
+  const body = fs.readFileSync(path.join(w.users, ME), 'utf8').trim();
+  const want = require('node:crypto').createHash('sha256').update(w.home).digest('hex');
+  assert.equal(body, want, 'the marker does not hold the hash of this install\'s home');
+  assert.ok(!body.includes(w.home) && !body.includes(path.basename(w.home)), 'the marker leaks the install path');
+  assert.equal(fs.statSync(path.join(w.users, ME)).mode & 0o777, 0o600, 'the marker is readable by other accounts');
   // A sandboxed uninstall (another KOSMOS_HOME) leaves the real install's marker.
   run(w, 'sealed_icon_unmark', { extraEnv: { KOSMOS_HOME: path.join(w.root, 'sandbox-home') } });
   assert.ok(fs.existsSync(path.join(w.users, ME)), 'an uninstall of another install removed this install\'s marker');
