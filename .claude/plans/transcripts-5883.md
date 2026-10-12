@@ -2,14 +2,12 @@
 
 Stacked on backuptick-5535 (itself on the #5535 stack). Rebuilt from main when they land.
 
-## What
-engine/backuptick.js inputsHere: sessionsFor is given, per agent, the Codex and Gemini homes its own launch job names,
-by the helpers the status reader uses (status.readCodexSession / readGeminiSession), so a backup and the board can never
-read different folders:
-- Codex: the agent's private runtime home (codexruntime.forAgent, #4592) when it exists, else its account home
-  (job.configDir = CODEX_HOME), else create.defaultAgentCodexHome().
-- Gemini: create.geminiStorageHome(job.configDir) (<account>/.gemini, or the default).
-- Any other agent, or a job that cannot be read: the defaults, as before.
+## What (as built; the first design read ONE home, review 1 replaced it)
+engine/backuptick.js inputsHere gives sessionsFor, per agent, every home its sessions can be in, from its launch job,
+each under a root named for its FOLDER (review 2): the agents' default Codex / Gemini home as `codex` / `gemini` for
+every agent (review 3), a Codex agent's runtime home (#4592) as `codex-runtime`, and a named account's home as
+`codex-a<8 hex of its true path>` / `gemini-a<...>` (review 4). engine/backupsessions.js sessionsFor takes them as
+moreHomes, one root per folder per agent, each filtered to this agent's own files.
 Claude needed nothing: status.configRoots already scans every ~/.claude* config root.
 
 ## Not in this slice (#5883 stays open)
@@ -21,7 +19,8 @@ Grok: backupsessions has no Grok reader. Needs where Grok keeps a session and ho
 
 ## Weakest premise
 That the job's runner is the provider whose transcripts matter. An agent switched from Codex to Claude keeps its old
-Codex rollouts; after the switch they are no longer read here (its Claude ones are). Those rollouts stay on disk.
+Codex rollouts in the default home, which every agent's `codex` root still reads (filtered to its own files), but its
+old NAMED account and runtime homes are no longer named once the job says claude. Those rollouts stay on disk.
 
 ## Tests
 backuptick-inputs.test.js: a Codex agent on a named account is backed up from that account's sessions (a real rollout,
@@ -71,3 +70,8 @@ Tests 37 -> 38.
 2. FIXED: acctTag hashed the path as spelled; one account folder named through a link or another spelling got two
    names and its rollouts were stored twice. Now hashed on the true path. Test with a control (another folder, another
    name). Mutant U1 (hash the spelling again, 20:43 CDT from `date`): red. Tests 38 -> 39.
+
+## Review 5 (opus, blind, on b1fc81d9): no must-fix; three documentation nits, all fixed
+The header's "data root not covered" now names its one exception (each Codex agent's runtime rollouts); its gap list
+names all three (Grok, Antigravity, a move between named accounts); the plan's What and Weakest premise describe the
+current design, not the first one.
