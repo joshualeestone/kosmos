@@ -133,7 +133,7 @@ it('#5896: a bundle that carries a per-install file is still judged by it, never
   assert.match(run({ KOSMOS_HOME: home }, `bundle_is_ours "${icon}"; echo "rc=$?"`).out, /rc=[1-9]/, 'another install\'s per-install bundle was called ours');
 });
 
-it('#5896: uninstall checks for the shared sealed icon BEFORE the branch that removes it', () => {
+test('#5896: uninstall checks for the shared sealed icon BEFORE the branch that removes it', () => {
   const at = SETUP.indexOf('if bundle_looks_sealed "$SYS_APP_DIR/Kosmos.app"; then');
   assert.notEqual(at, -1, 'the uninstall no longer asks whether the shared icon is the sealed one');
   const rm = SETUP.indexOf('elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then', at);
@@ -268,4 +268,23 @@ it('#5896: "own" mode answers whether a sealed icon is this install\'s without t
   assert.match(run({ KOSMOS_HOME: home, _wic_rc: '1', SYS_APP_DIR: sys }, `bundle_is_ours "${shared}" own; echo "rc=$?"`).out, /rc=0/, 'this install\'s own sealed icon was not recognised as its own');
   assert.match(run({ KOSMOS_HOME: home, _wic_rc: '1', SYS_APP_DIR: sys, INSTALL_CONFIG_DIR: cfgFor('/elsewhere') }, `bundle_is_ours "${shared}" own; echo "rc=$?"`).out, /rc=[1-9]/, 'an icon serving another install was called this install\'s own');
   assert.match(SETUP, /bundle_is_ours "\$SYS_APP_DIR\/Kosmos\.app" own; then APP_OWN_SEALED=yes; fi/, 'the transcript line no longer asks in own mode');
+});
+
+// Text-only invariants: they read setup.sh and run no macOS tool, so they run on every platform (the Linux lane is
+// where CI runs them).
+test('#5896: setup.sh ordering and mode invariants (text only, every platform)', () => {
+  const un = SETUP.slice(SETUP.indexOf('\nuninstall() {\n'));
+  const del = un.indexOf('rm -rf "$KOSMOS_HOME"');
+  const serves = un.indexOf('if sealed_serves_this_install; then SEALED_REQ=');
+  assert.ok(serves !== -1 && del !== -1 && serves < del, 'uninstall does not read the sealed requirement before it deletes KOSMOS_HOME');
+  const sweeps = SETUP.match(/^\s*if bundle_is_ours "\$_res"( anchored)?; then$/gm) || [];
+  assert.equal(sweeps.length, 3, 'expected the three residue sweeps');
+  assert.ok(sweeps.every((l) => l.includes(' anchored;')), 'a residue sweep does not say it is one');
+  assert.doesNotMatch(SETUP, /BUNDLE_SEALED_OK/, 'a VAR=x prefix flag came back');
+  const fn = fnSource('bundle_is_ours');
+  assert.ok(fn.indexOf('/usr/bin/stat -f %u') !== -1 && fn.indexOf('/usr/bin/stat -f %u') < fn.indexOf('bundle_is_sealed "$1"'), 'ownership is not checked before the signature');
+  assert.ok(fn.indexOf('sealed_serves_this_install') < fn.indexOf('bundle_is_sealed "$1"'), 'the config is not checked before the signature');
+  assert.match(SETUP, /bundle_is_ours "\$SYS_APP_DIR\/Kosmos\.app" own; then APP_OWN_SEALED=yes; fi/, 'the transcript line no longer asks in own mode');
+  assert.match(SETUP, /^SEALED_REQ=""/m, 'SEALED_REQ can be inherited');
+  assert.match(SETUP, /^_SEALED_SRC_OK=""/m, 'the placement cache can be inherited');
 });
