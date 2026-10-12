@@ -32,11 +32,17 @@ Grok has the same refusal (engine/grokaccounts.js forget/remove while its own re
 port this once it merges so the two stay the same shape.
 
 ## A delete that fails part way (review 8)
-If `rmSync` throws after it has already taken auth.json, the folder is no longer an account, so its own sign-in is
+If `rmSync` throws after it has already taken auth.json (checked by the file's existence, not by identityOf, so a
+corrupt auth.json that is still there cancels nothing), the folder is no longer an account, so its own sign-in is
 cancelled too (it must not finish into the remains). If it throws with the account still whole, nothing is cancelled,
 like any failed call. Neither path is reachable from the #2570 pre-flight, which stops at the agents guard.
 
 ## Weakest premise
+Accepted residual (reviews 4, 6, 8, 10): a session reaped from chatgptSessions (sessionTtlMs after it settles) whose
+child still lives keeps its hold and is no longer seen as the account's own, so the old refusal returns. It needs
+forceKillMs >= sessionTtlMs (3 s against 2 min by default) or a child that survives SIGKILL, and it fails toward
+refusing, never toward deleting. Keying holds by owner would close it; not done here.
+
 That a live account folder is never also a sign-in's staging folder. It holds an auth.json, and
 resolveFreshChatgptDir refuses a labelled dir with one while nextWorkDir skips it. If that ever changes, a remove could
 cancel a reauth while a staging sign-in still writes into the folder.
