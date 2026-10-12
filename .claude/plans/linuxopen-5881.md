@@ -23,7 +23,7 @@ Card: #5881 (Angel, found building #5865). Owner: April (night shift shard).
    loop until that window closed). "ok" means started; a missing xdg-open (no xdg-utils) is said. It is given only what it
    needs to reach the desktop (HOME, PATH, LANG, the display and its X cookie XAUTHORITY, XDG_RUNTIME_DIR, the session
    bus, the desktop's identity (XDG_CURRENT_DESKTOP, XDG_SESSION_TYPE, DESKTOP_SESSION, XDG_SESSION_DESKTOP,
-   KDE_FULL_SESSION, KDE_SESSION_VERSION (Plasma's opener depends on it), GNOME_DESKTOP_SESSION_ID) and where its choices live (XDG_DATA_DIRS, XDG_CONFIG_HOME, XDG_CONFIG_DIRS), so xdg-open
+   KDE_FULL_SESSION, KDE_SESSION_VERSION (Plasma's opener depends on it), GNOME_DESKTOP_SESSION_ID) and where its choices live (XDG_DATA_HOME, XDG_DATA_DIRS, XDG_CONFIG_HOME, XDG_CONFIG_DIRS), so xdg-open
    finds the desktop's file manager rather than a browser), never the board's own environment and its tokens. Only an
    absolute path reaches it: xdg-open reads a leading "-" as an option and takes no "--". No desktop: refused, "Kosmos cannot open it on this computer: it is not running
    in a desktop session". Whether an INSTALLED board has a display depends on when its service started (review 3): its
