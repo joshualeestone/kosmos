@@ -241,7 +241,7 @@ test('#5535 review 2: a first run (no pair) that records a lostEpoch says which 
     if (answer) r1 = await job.memberKeyFor({}, { ensureMemberKey: ensurer(answer) });
     else {
       const run = await job.runOnce({}, { ensureMemberKey: ensurer({ ok: true, epoch: 2, publicKey: PK, ...PAIR }), snapshot: snapper({ ok: false, otherEpoch: 3 }) });
-      r1 = { state: run.state, pair: run.key && { org: run.key.org, member: run.key.member } };
+      r1 = { state: run.state, pair: run.pair };   // review 3: the top-level pair, where the header says it is
     }
     assert.deepStrictEqual([r1.state.lostEpoch, r1.pair], [2, PAIR], `${what}: ${JSON.stringify(r1)}`);
     // The next run, given that pair, asks scoped instead of refusing as needsPair.
@@ -259,4 +259,29 @@ test('#5535 review 2: a first run (no pair) that records a lostEpoch says which 
   // The no-pair refusal is flagged, so a caller can tell it from every other refusal.
   const np = await job.memberKeyFor({ lostEpoch: 2 }, { ensureMemberKey: ensurer({ ok: true, epoch: 3, publicKey: PK }) });
   assert.deepStrictEqual([np.ok, np.needsPair], [false, true]);
+});
+
+test('#5535 review 3: runOnce puts the named pair at the top on every path; a malformed pair is refused, not read as absent', async () => {
+  const paths = [
+    ['key refused', { ok: false, because: 'no', ...PAIR }, snapper({ ok: true })],
+    ['snapshot refused, later epoch', { ok: true, epoch: 2, publicKey: PK, ...PAIR }, snapper({ ok: false, otherEpoch: 3 })],
+    ['snapshot ok', { ok: true, epoch: 2, publicKey: PK, ...PAIR }, snapper({ ok: true })],
+    ['no snapshot step', { ok: true, epoch: 2, publicKey: PK, ...PAIR }, undefined],
+  ];
+  for (const [what, answer, snapshot] of paths) {
+    const r = await job.runOnce({}, { ensureMemberKey: ensurer(answer), snapshot });
+    assert.deepStrictEqual(r.pair, PAIR, what);
+  }
+  const unnamed = await job.runOnce({}, { ensureMemberKey: ensurer({ ok: false, because: 'no answer' }), snapshot: snapper({ ok: true }) });
+  assert.strictEqual('pair' in unnamed, false);
+  for (const bad of [null, {}, { org: 'o1', memberId: 'm1' }, 'o1', { org: 'o1', member: '' }]) {
+    const ensure = ensurer({ ok: true, epoch: 1, publicKey: PK, org: 'o2', member: 'm2' });
+    const snapshot = snapper({ ok: true });
+    const r = await job.runOnce({}, { ensureMemberKey: ensure, snapshot, pair: bad });
+    assert.deepStrictEqual([r.result.ok, r.result.badPair, ensure.calls.length, snapshot.calls.length], [false, true, 0, 0], JSON.stringify(bad));
+  }
+  // CONTROL: absent is a first run, and proceeds.
+  const s = snapper({ ok: true });
+  await job.runOnce({}, { ensureMemberKey: ensurer({ ok: true, epoch: 1, publicKey: PK, ...PAIR }), snapshot: s });
+  assert.strictEqual(s.calls.length, 1);
 });

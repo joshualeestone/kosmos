@@ -62,14 +62,17 @@ function backoffMs(waits) {
 
 /* The key step. deps: { ensureMemberKey, pair?, now? } (now in whole milliseconds, as Date.now). Resolves
    { ok: true, key: { epoch, publicKey, org?, member? }, state, lostEpochIgnored?, pair? }
-   or { ok: false, because, waiting?, pendingEpoch?, lostEpochIgnored?, unreadableKeyFile?, refusal?, otherPair?, needsPair?,
+   or { ok: false, because, waiting?, pendingEpoch?, lostEpochIgnored?, unreadableKeyFile?, refusal?, otherPair?, needsPair?, badPair?,
    pair?, state }. pair, and key.org and key.member, are the pair the answer named, when it named one. Never throws. */
 async function memberKeyFor(state, deps) {
   const st = cleanState(state);
   const now = (deps && deps.now) || Date.now;
   const ensure = deps && deps.ensureMemberKey;
   if (typeof ensure !== 'function') return { ok: false, because: 'no member key step', state: st };
-  const pair = isPair(deps.pair) ? { org: deps.pair.org, member: deps.pair.member } : null;
+  // Only an ABSENT deps.pair means a first run. One given but malformed is refused (badPair, review 3): read as absent,
+  // it would switch off the otherPair check and let another pair's answer be sealed under and recorded here.
+  if (deps.pair !== undefined && !isPair(deps.pair)) return { ok: false, badPair: true, because: 'the backup state names its company and member in a form this computer does not know', state: st };
+  const pair = deps.pair === undefined ? null : { org: deps.pair.org, member: deps.pair.member };
   // needsPair: a caller mistake (the state was read from its pair's file, so the pair is known), refused loudly.
   if (st.lostEpoch && !pair) return { ok: false, needsPair: true, because: 'the backup state does not say which company and member it is for', state: st };
   if (st.waitUntilMs && now() < st.waitUntilMs && st.waitUntilMs - now() <= BACKOFF_MAX_MS) {
@@ -125,22 +128,26 @@ function afterSnapshot(state, key, result) {
 
 /* One run: the key step, then (only under an ok key) deps.snapshot({ memberPk, epoch, org?, member? }), where epoch is
    the key's context id and org and member are the pair the key step's answer named. deps: { ensureMemberKey, snapshot,
-   pair?, now? }. A refusal's flags are memberKeyFor's (otherPair, needsPair and pair among them). Resolves { state, key?, result }: result is the key step's
+   pair?, now? }. A refusal's flags are memberKeyFor's (otherPair, needsPair, badPair among them). Resolves
+   { state, key?, result, pair? }: pair, on every path after an answer that named one, is the pair `state` belongs to: result is the key step's
    refusal when no snapshot was taken (its because and flags), else the snapshot's own
    result. key, when present, carries the key step's lostEpochIgnored. Never throws. */
 async function runOnce(state, deps) {
   const k = await memberKeyFor(state, deps);
+  // The pair the answer named, at the top of every return, ok or not (review 3): the caller keeps `state` in that
+  // pair's file, and on a first run this is the only place it learns which.
+  const top = k.pair ? { pair: k.pair } : {};
   if (!k.ok) {
     const { ok, state: kept, ...rest } = k;
-    return { state: kept, result: Object.assign({ ok: false }, rest) };
+    return Object.assign({ state: kept, result: Object.assign({ ok: false }, rest) }, top);
   }
-  if (!deps || typeof deps.snapshot !== 'function') return { state: k.state, key: k.key, result: { ok: false, because: 'no snapshot step' } };
+  if (!deps || typeof deps.snapshot !== 'function') return Object.assign({ state: k.state, key: k.key, result: { ok: false, because: 'no snapshot step' } }, top);
   let result;
   const named = k.key.org ? { org: k.key.org, member: k.key.member } : {};
   try { result = await deps.snapshot(Object.assign({ memberPk: k.key.publicKey, epoch: String(k.key.epoch) }, named)); } catch { result = null; }
   if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };
   const key = Object.assign({}, k.key, k.lostEpochIgnored ? { lostEpochIgnored: true } : {});
-  return { state: afterSnapshot(k.state, k.key, result), key, result };
+  return Object.assign({ state: afterSnapshot(k.state, k.key, result), key, result }, top);
 }
 
 module.exports = { BACKOFF_MIN_MS, BACKOFF_MAX_MS, backoffMs, memberKeyFor, afterSnapshot, runOnce };
