@@ -71,7 +71,7 @@ function cfgFor(home) {
 const REMOVE = 'SEALED_REQ="$(sealed_requirement)"; ';   // what uninstall() sets before it deletes anything
 
 function run(env, body) {
-  env = { _SEALED_SRC_OK: '', _SEALED_REQ_RUN: '', ...env };
+  env = { _SEALED_SRC_OK: '', _SEALED_REQ_RUN: '', _kosmos_home_default: '/nonexistent-default-home', ...env };   // #5912: setup.sh sets it at the top
   if (env.KOSMOS_HOME && !('INSTALL_CONFIG_DIR' in env)) env = { ...env, INSTALL_CONFIG_DIR: cfgFor(env.KOSMOS_HOME) };
   const script = ['set -u', 'build_app_bundle() { /bin/mkdir -p "$1/Contents"; : > "$1/Contents/BUILT"; }', FNS, body].join('\n');
   try {
@@ -345,21 +345,22 @@ it('#5896: a sealed copy that does not come out whole falls back to building the
 });
 
 // #5912 (review): after this uninstall the sealed icon can open only the DEFAULT install (the config naming this one is
-// removed), so it stays only when this install is not the default and the default's board login job remains.
-test('#5912: sealed_opens_another: only the default install, still present, can open the icon afterwards', () => {
-  const la = fs.mkdtempSync(path.join(tmpRoot || os.tmpdir(), 'launchagents-'));
-  const ask = (self, dir) => {
-    const script = ['set -u', fnSource('sealed_opens_another'), `sealed_opens_another "${self}"; echo "rc=$?"`].join('\n');
-    return execFileSync('/bin/sh', ['-c', script], { env: { PATH: '/usr/bin:/bin', HOME: la, AGENT_WORKFORCE_LAUNCH: dir || la }, encoding: 'utf8' });
+// removed), so it stays only when this install is not the default and the default home's bin/kosmos is runnable,
+// the same test native-app/main.swift makes before it opens a home.
+test('#5912: sealed_opens_another: only a runnable default install can open the icon afterwards', () => {
+  const home = fs.mkdtempSync(path.join(tmpRoot || os.tmpdir(), 'acct-'));
+  const def = path.join(home, '.local', 'share', 'kosmos');
+  const ask = (self) => {
+    const script = ['set -u', `_kosmos_home_default='${def}'`, fnSource('sealed_opens_another'), `sealed_opens_another "${self}"; echo "rc=$?"`].join('\n');
+    return execFileSync('/bin/sh', ['-c', script], { env: { PATH: '/usr/bin:/bin', HOME: home }, encoding: 'utf8' });
   };
-  assert.match(ask('com.kosmos.board.0a1b2c3d'), /rc=1/, 'an empty folder kept the icon for nobody');
-  fs.writeFileSync(path.join(la, 'com.kosmos.board.9f8e7d6c.plist'), '');
-  fs.writeFileSync(path.join(la, 'com.kosmos.board.watchdog.plist'), '');
-  assert.match(ask('com.kosmos.board.0a1b2c3d'), /rc=1/, 'another CUSTOM-home install (which cannot open it) or a watchdog kept it');
-  fs.writeFileSync(path.join(la, 'com.kosmos.board.plist'), '');
-  assert.match(ask('com.kosmos.board.0a1b2c3d'), /rc=0/, 'the default install, still present, was not counted');
+  assert.match(ask('com.kosmos.board.0a1b2c3d'), /rc=1/, 'no default install, yet the icon was kept');
+  fs.mkdirSync(path.join(def, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(def, 'bin', 'kosmos'), '#!/bin/sh\n');
+  assert.match(ask('com.kosmos.board.0a1b2c3d'), /rc=1/, 'a default bin/kosmos that cannot be run (as the app tests) kept it');
+  fs.chmodSync(path.join(def, 'bin', 'kosmos'), 0o755);
+  assert.match(ask('com.kosmos.board.0a1b2c3d'), /rc=0/, 'a runnable default install was not counted');
   assert.match(ask('com.kosmos.board'), /rc=1/, 'removing the DEFAULT install kept an icon nothing can open afterwards');
-  assert.match(ask('com.kosmos.board.0a1b2c3d', path.join(la, 'no-such-folder')), /rc=0/, 'a missing folder did not keep the icon (fail closed)');
 });
 
 it('#5912: shared_sealed_stays: removed unless the default install, still present, can open it; kept when not proven this install\'s', () => {
@@ -370,12 +371,14 @@ it('#5912: shared_sealed_stays: removed unless the default install, still presen
   const la = fs.mkdtempSync(path.join(tmpRoot, 'launchagents-'));
   const env = { KOSMOS_HOME: home, SYS_APP_DIR: S, AGENT_WORKFORCE_LAUNCH: la };
   const stays = (extra, req, label = 'com.kosmos.board') => run({ ...env, ...extra }, `${req === false ? 'SEALED_REQ=""; ' : REMOVE}shared_sealed_stays "${icon}" ${label}; echo "rc=$?"`).out;
-  fs.writeFileSync(path.join(la, 'com.kosmos.board.plist'), '');   // this install's own: does not count
+  const defHome = fs.mkdtempSync(path.join(tmpRoot, 'defhome-'));
+  fs.mkdirSync(path.join(defHome, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(defHome, 'bin', 'kosmos'), '#!/bin/sh\n', { mode: 0o755 });
+  const withDefault = { _kosmos_home_default: defHome };
   assert.match(stays({}), /rc=1/, 'on a one-install account this install\'s own sealed icon was kept');
-  fs.writeFileSync(path.join(la, 'com.kosmos.board.0a1b2c3d.plist'), '');
-  assert.match(stays({}), /rc=1/, 'removing the default install kept the icon for a custom-home install that cannot open it');
-  assert.match(stays({}, true, 'com.kosmos.board.0a1b2c3d'), /rc=0/, 'removing a custom-home install removed the icon the default install still opens');
-  fs.rmSync(path.join(la, 'com.kosmos.board.0a1b2c3d.plist'));
+  assert.match(stays(withDefault), /rc=1/, 'removing the default install kept the icon though nothing can open it afterwards');
+  assert.match(stays(withDefault, true, 'com.kosmos.board.0a1b2c3d'), /rc=0/, 'removing a custom-home install removed the icon the runnable default install still opens');
+  assert.match(stays({ _kosmos_home_default: path.join(defHome, 'gone') }, true, 'com.kosmos.board.0a1b2c3d'), /rc=1/, 'CONTROL: with no default install the icon is removed');
   assert.match(stays({}, false), /rc=0/, 'an icon not proven this install\'s (config named another) was not kept');
   // As uninstall() captures it: the requirement is read only when the config names this install.
   const capture = 'SEALED_REQ=""; if sealed_serves_this_install; then SEALED_REQ="$(sealed_requirement)"; fi; ';

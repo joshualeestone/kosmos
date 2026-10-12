@@ -5,9 +5,9 @@ Stacked on #5896 slice 2 (sealedapp2-5896); opened as a PR only after that lands
 ## Finished looks like
 `--uninstall` removes /Applications/Kosmos.app when it is the sealed icon AND it is this install's (this account owns
 it on disk and the account config named this install when the uninstall began, i.e. bundle_is_ours ... remove) AND
-no other install of this account remains (no other board login job in the account's LaunchAgents folder:
-com.kosmos.board or com.kosmos.board.<8 hex>, other than this install's own). Otherwise it is left in place and
-named, exactly as slice 2 does. The closing sentence follows (it qualifies only when the icon was left).
+nothing left on this account could open it afterwards (see the review round below: only a runnable DEFAULT install
+can, and only when this install is not the default). Otherwise it is left in place and named. The closing sentence
+follows (it qualifies only when the icon was left).
 
 ## Decision and reasoning
 On the card (#5912). Another account never opens an icon this account owns (slice 2 makes such an icon foreign to
@@ -33,9 +33,11 @@ A fresh review found that keeping the icon "for another install of this account"
 opens the install the account config names, or the default home when there is none, and this uninstall removes the
 config when it names this install, so afterwards the icon can open only the DEFAULT install. New rule
 (`sealed_opens_another`, replacing other_board_installs): keep it only when this install is not the default and the
-default install's board login job remains; a missing or unreadable login-job folder keeps it (fail closed). The note
+default install is runnable (its bin/kosmos executable: the test native-app/main.swift makes before it opens a home;
+a board login job was the first version and is a weak proxy, round 2). The note
 for a kept icon now says it still opens this account's main Kosmos install. tools/test-install.sh's three owner-
-uninstall checks assert ONE outcome (sealed_icon_must_go) instead of "removed or named". #5913's contract is named
+uninstall checks assert ONE outcome (sealed_icon_must_go); in the probe world the sealed icon follows the config, so
+the home3 uninstall (the install the config names) takes it and the owner finds it gone. #5913's contract is named
 where it plugs in (shared_sealed_stays).
 Weakest premise: tools/test-install.sh's changed checks have not been run anywhere (a cut runs only the gate half);
 the unit tests exercise the rule on a real sealed icon.
