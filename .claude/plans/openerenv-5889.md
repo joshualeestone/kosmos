@@ -72,3 +72,13 @@ File restored by a trap and compared with cmp after each run.
   Not counted as a desktop: DBUS_SESSION_BUS_ADDRESS with XDG_CURRENT_DESKTOP; revisit if a person reports it.
 - FIXED (NIT): the three repeated seam lines in the 5628 test are one helper, openerWithDisplay.
 - After: remote.test.js 215/215; reachable 7/7, #1732 8/8, #1777 23/23.
+
+## Review 4 (opus, blind, on fe92debba): NOT CONVERGED, two WARNINGs FIXED
+Run because fe92debba (the t.after leak fix, after Mortals caught a temp folder left behind) came after review 3.
+- WARNING: the positive test covered 11 of 64 keys, so dropping a needed one (Wayland, D-Bus, a proxy) stayed green.
+  FIXED: a full-scope test with the allowlist PINNED in the test (iterating OPENER_KEYS itself would be circular);
+  every key arrives with its value and nothing else from the source does. Mutants: WAYLAND_DISPLAY dropped from the
+  list 1 pass 1 fail; a filter that passes everything 0 pass 2 fail.
+- WARNING: vouchTick also calls runCompanyOpener, so a Linux board with no display reaches its existing "could not
+  open the browser" branch at once; nothing said so. FIXED in the runCompanyOpener comment. Not added: a vouch test
+  for it (the vouch flow's fixture is heavy, and the branch it reaches is the one it already had for a failed open).
