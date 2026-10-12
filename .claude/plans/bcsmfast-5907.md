@@ -13,11 +13,14 @@ was its slowest file at 193 s.
 - `count_plain_tokens`: one awk pass per half counts every PLAIN token (only `[A-Za-z0-9_-]`, the boundary class the
   grep uses) at once. A line splits into maximal runs of that class; a plain token sits between boundaries exactly when
   it is one of those runs, so it is the same match. Each line counts once per token, as `grep -c` counts lines.
-- The two halves' counts are joined into one table; `token_counts` looks a plain token up there and falls back to
-  `token_web_scan` for any token with another character (so a metacharacter token keeps the grep's escaping).
-- The CONTROL arms still call `token_web_scan` directly, so the original matcher stays tested, and a PARITY arm checks
-  the one-pass counter against it on the fixture's 11 plain tokens. Mutation: dropping `-` from the counter's class
-  reds it, naming each token.
+- `count_table` joins the two halves' counts into one table (plain = ASCII `[A-Za-z0-9_-]` under `LC_ALL=C`).
+  `token_counts` looks a token up there, compared as strings (so `1000` never takes `1e3`'s row), and any token the
+  table lacks, for whatever reason, goes to `token_web_scan`: a classifier disagreement costs time, never the answer.
+- Each check's annotation is parsed once (`path<TAB>tokens`), and both the table and the per-check loop read that.
+- The CONTROL arms still call `token_web_scan` directly, so the original matcher stays tested. A PARITY arm runs the
+  counted path (count_table + token_counts) against it on its own fixture: a token twice on one line, a token inside a
+  longer run, one in a comment, `1e3` present with `1000` absent, and an absent token. Mutations checked red: the
+  per-line dedup, the string compare, an empty table, and dropping `-` from the counter's class.
 
 ## Proof
 - The test's full output (1,083 lines) is byte-identical before and after (`diff` clean).
@@ -28,5 +31,5 @@ was its slowest file at 193 s.
   lines are produced; the lookup costs seconds now, not minutes.
 
 ## Weakest premise
-- That every token in a check's annotation is either plain or rare: a non-plain token still costs two greps. Today none
-  is non-plain except the control's `tok.dot`.
+- That non-plain tokens stay rare: each still costs two greps. Today two declared tokens are non-plain
+  (`data-pmark="xai"` and `data-pmark="gemini"`).
