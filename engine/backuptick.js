@@ -38,29 +38,45 @@ function inside(child, parent) {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
-/* input: { workersDir, agents: [{ id, dir }], projectsDir?, projects: [{ slug, folder }], sessions: (dir, id) -> roots } */
+/* input: { workersDir, agents: [{ id, dir }], projectsDir?, projects: [{ slug, folder }], sessions: (dir, id) -> roots,
+   protect?: [folders] }. protect: the data root and each provider's config home. A root that holds one, or sits inside
+   one, is refused (review 1): the card says never credentials, and backupscan's name rules alone are the wrong place to
+   rely on for a whole folder of them (the backup state itself has no name rule).
+   Nesting, both ways (review 1): backupsnapshot drops BOTH optional roots of a nested pair, so a root that holds roots
+   already added replaces them (it covers their files), and one inside a root already added is not added. A root that
+   would hold the workers folder is refused instead: workers is the one required root. */
 function rootsFor(input) {
   const roots = [], left = [];
   const workers = real(input.workersDir);
   if (!workers) return { roots, left: [{ what: 'workers', why: 'the workers folder could not be found' }] };
+  const protect = (input.protect || []).map((x) => (typeof x === 'string' && path.isAbsolute(x) ? real(x) : null)).filter(Boolean);
+  const guarded = (p) => protect.some((q) => inside(p, q) || inside(q, p));
+  const GUARDED = 'it holds, or is inside, Kosmos\'s own data or a provider\'s sign-in folder';
+  if (guarded(workers)) return { roots, left: [{ what: 'workers', why: GUARDED }] };
   roots.push({ name: 'workers', path: workers });
-  const covered = [workers];
-  const isCovered = (p) => covered.some((c) => inside(p, c));
+  const add = (name, p, what) => {
+    if (roots.some((r) => !r.only && inside(p, r.path))) return;
+    if (inside(workers, p)) { left.push({ what, why: 'it holds the workers folder' }); return; }
+    if (guarded(p)) { left.push({ what, why: GUARDED }); return; }
+    for (let i = roots.length - 1; i >= 1; i--) if (!roots[i].only && inside(roots[i].path, p)) roots.splice(i, 1);
+    roots.push({ name, path: p, optional: true });
+  };
   const projectsDir = input.projectsDir ? real(input.projectsDir) : null;
-  if (projectsDir && !isCovered(projectsDir)) { roots.push({ name: 'projects', path: projectsDir, optional: true }); covered.push(projectsDir); }
+  if (projectsDir) add('projects', projectsDir, 'the projects folder');
   for (const p of input.projects || []) {
     const f = p && typeof p.folder === 'string' && path.isAbsolute(p.folder) ? real(p.folder) : null;
-    if (!f || isCovered(f)) continue;
+    if (!f) continue;
+    if (roots.some((r) => !r.only && inside(f, r.path))) continue;
     if (typeof p.slug !== 'string' || !SEGMENT.test(p.slug)) { left.push({ what: 'a project', why: 'its name cannot be a backup root name' }); continue; }
-    roots.push({ name: `elsewhere/${p.slug}`, path: f, optional: true }); covered.push(f);
+    add(`elsewhere/${p.slug}`, f, 'a project');
   }
   for (const a of input.agents || []) {
     const d = a && typeof a.dir === 'string' && path.isAbsolute(a.dir) ? real(a.dir) : null;
     if (!d) continue;
     const idOk = typeof a.id === 'string' && SEGMENT.test(a.id);
-    if (!isCovered(d)) {
-      if (!idOk) { left.push({ what: 'an agent folder', why: 'its name cannot be a backup root name' }); continue; }
-      roots.push({ name: `agents/${a.id}`, path: d, optional: true }); covered.push(d);
+    if (!roots.some((r) => !r.only && inside(d, r.path))) {
+      if (!idOk) left.push({ what: 'an agent folder', why: 'its name cannot be a backup root name' });
+      else add(`agents/${a.id}`, d, 'an agent folder');
     }
     if (!idOk) { left.push({ what: 'an agent\'s transcripts', why: 'its name cannot be a backup root name' }); continue; }
     let s = [];
@@ -81,19 +97,35 @@ function nextWeekStart(ms) {
 function startTick(deps) {
   const now = deps.now || Date.now;
   const every = Number.isSafeInteger(deps.everyMs) && deps.everyMs > 0 ? deps.everyMs : HOUR;
-  const state = { running: false, pausedUntil: 0, said: null };
+  const state = { running: false, pausedUntil: 0, said: null, saidLeft: '', blind: 0 };
+  const say = (text) => { try { if (deps.say) deps.say(`company backup: ${text}`); } catch { /* a log line */ } };
   async function tick() {
     try {
       if (state.running || now() < state.pausedUntil || !deps.enrolled()) return;
+      // roots() gives rootsFor's { roots, left } (or a bare list). What was left out is said once per change (review 1).
+      const plan = deps.roots();
+      const roots = Array.isArray(plan) ? plan : (plan && plan.roots) || [];
+      const leftKey = JSON.stringify((plan && plan.left) || []);
+      if (leftKey !== '[]' && leftKey !== state.saidLeft) say(`left out: ${plan.left.map((l) => `${l.what} (${l.why})`).join('; ')}`);
+      state.saidLeft = leftKey;
+      // No workers root, no backup and no request: the run would only ask Kosmos+ for a key to refuse afterwards.
+      if (!roots.some((r) => r && r.name === 'workers')) return;
       state.running = true;
       let r;
-      try { r = await deps.runBackup({ roots: deps.roots() }); } finally { state.running = false; }
+      try { r = await deps.runBackup({ roots }); } finally { state.running = false; }
       if (!r || typeof r !== 'object') return;
+      // Refused before Kosmos+ named the company (no pair): Kosmos+ is unreachable, refuses, or an older connector will
+      // not sign and so gives no refusal code (review 1). Backed off, doubling to a day, so an enrolled Mac does not
+      // send a request every hour for as long as it lasts. backup_off and overAllowance have their own pauses.
+      if (!r.ok && !r.pair && !(r.refusal && r.refusal.code === 'backup_off') && !r.missing) {
+        state.blind += 1;
+        state.pausedUntil = now() + Math.min(HOUR * 2 ** Math.min(state.blind - 1, 5), DAY);
+      } else state.blind = 0;
       if (r.refusal && r.refusal.code === 'backup_off') state.pausedUntil = now() + DAY;
       else if (r.overAllowance) state.pausedUntil = nextWeekStart(now());
       const act = r.refusedState ? 'refusedState' : r.missing ? 'missing' : r.unreadableKeyFile ? 'unreadableKeyFile' : null;
       if (r.ok) state.said = null;
-      else if (act && state.said !== act) { state.said = act; if (deps.say) deps.say(`company backup: ${r.because}`); }
+      else if (act && state.said !== act) { state.said = act; say(r.because); }
     } catch { /* never throws; the next tick tries again */ }
   }
   const t = (deps.setInterval || setInterval)(tick, every);
@@ -123,7 +155,9 @@ function inputsHere() {
   try { geminiHome = require('./geminisession').HOME(); } catch { /* none */ }
   try { codexHome = require('./codexupdate').defaultHome(); } catch { /* none */ }
   const sessions = (dir, id) => require('./backupsessions').sessionsFor(dir, { id, claudeRoots, geminiHome, codexHome });
-  return { workersDir: create.WORKERS_DIR, projectsDir, agents, projects, sessions };
+  // Never inside a root, never holding one: Kosmos's own data and each provider's config home (review 1).
+  const protect = [store.ROOT, ...claudeRoots, geminiHome, codexHome].filter((x) => typeof x === 'string' && x);
+  return { workersDir: create.WORKERS_DIR, projectsDir, agents, projects, sessions, protect };
 }
 
 /* The board's own tick: enrolled here (orgenroll.isEnrolledHere, the check /api/org uses), the roots of this world, the
@@ -131,7 +165,7 @@ function inputsHere() {
 function startHere() {
   return startTick({
     runBackup: (input) => require('./backuprun').runBackup(input),
-    roots: () => rootsFor(inputsHere()).roots,
+    roots: () => rootsFor(inputsHere()),
     enrolled: () => { try { return require('./orgenroll').isEnrolledHere() === true; } catch { return false; } },
     say: (text) => console.error(text),
   });
