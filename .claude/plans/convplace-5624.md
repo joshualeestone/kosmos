@@ -11,8 +11,8 @@ switch on (C1), and still proves the held default (C0).
 Josh's only ruling (2026-10-09 10:52): "It doesn't make sense to have it in the input box." Placement was otherwise
 left open. Chosen: the conversation's header row, beside search.
 - Why: the mode is a setting OF the conversation (on for this thread), like search, which already lives there; the
-  header is visible whenever the thread is, so the on state is always in view and audio never surprises anyone (a
-  card requirement). It also keeps the message box for writing only, which is what Josh's ruling points at.
+  header shows with the thread on a computer and a tablet, so the on state is in view there and audio does not
+  surprise (a card requirement). On a phone the header collapses in two cases (see Layout) and the toggle with it. It also keeps the message box for writing only, which is what Josh's ruling points at.
 - Rejected: an overflow / settings menu (hides the on state, so audio would surprise); Settings > a global switch
   (the card wants it per conversation, and a global switch says nothing about which room is talking); the agent's
   identity column in a direct conversation (not present in a project room, so the two would differ); beside each
@@ -34,7 +34,9 @@ left open. Chosen: the conversation's header row, beside search.
   - Keyboard up while writing: an existing rule hides the whole row, ON toggle included. Accepted, because the person
     is typing in that very conversation at that moment, and exempting one child would mean rewriting that rule for a
     held feature (iteration 6).
-- The stated reason above ("always in view") holds wherever the header itself is shown.
+- So the on state is in view wherever the header itself is shown. Before the hold is lifted, decide whether a phone
+  needs a separate on-sign for those two collapses (for example on the message box's edge); that is a design call
+  for the lift, not this move.
 - Accepted (iteration 3): in a direct conversation on a phone under the new look, the caption row wraps and the
   search takes its own line, so the toggle ends the Back row instead of sitting beside the search. It stays in the
   header and in view. The room got a wrapper because its stacked header would otherwise give the toggle a row of
@@ -42,7 +44,7 @@ left open. Chosen: the conversation's header row, beside search.
 
 ## Tests
 docs/browser-checks/render-convmode-5624.js C1 now asserts each toggle is in its header row immediately before the
-search, and inside no message box. C20 (new) asserts that at 700px the room's toggle sits on the search's line, in both looks (C20b) and at 375px (C20c).
+search, and inside no message box. C20 (new) asserts that at 700px the room's toggle sits on the search's line, in both looks (C20b), at 375px (C20c) and at desktop width (C20d).
 C21 (new) measures the direct conversation's toggle on its search's line at desktop width, and C21b at 375px in
 today's look. All other arms are
 unchanged. Not covered by a check: the touch-only rules (the sideways-phone and keyboard-up collapses, and the 44px touch
