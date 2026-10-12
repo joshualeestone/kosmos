@@ -1277,7 +1277,8 @@ fi
 echo "== the uninstall sweep proves ownership before deleting =="
 # The system-folder icon was installed by the home2 install; this uninstall
 # runs as the home3 install, so the sweep must take the per-user icon and
-# REFUSE the shared one it does not own, in a sentence.
+# REFUSE a per-install shared one it does not own, in a sentence. A SEALED shared icon follows the account config
+# instead (#5912): when home3's fallback install rewrote the config, this uninstall is the one it opens, and takes it.
 SYS_OK_SEALED=no; icon_is_sealed "$SYS_OK/Kosmos.app" && SYS_OK_SEALED=yes
 # Not just "whichever shape it is": when the build shipped the sealed app, the shared-folder install must have placed it.
 # #5896: the uninstall below is driven with the SAME KOSMOS_HOME_APP_DIR as the fallback install above (the rule
