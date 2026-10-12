@@ -6,7 +6,8 @@ Card: #6004 (split from #3939). Stacked on musedefault-3939 (Meta Muse on by def
 On a Mac without Muse Code, Settings, AI Models, Add a provider offers Meta; its step says Muse Code is a download
 from Meta and offers Install Muse Code (the press is the confirm, as Antigravity's is). Installed, the same button
 becomes Sign in with Meta. The first-run Meta row's Connect opens the same panel. A failed install says why and
-offers Try again; a double press installs once. Nothing touches the person's shell profiles.
+offers Try again (a refusal a retry cannot change hides the button and focuses the reason); a double press installs once;
+a sign-in refused because Muse Code went missing returns to the Install step. Nothing touches the person's shell profiles.
 
 ## Change
 - engine/museinstall.js: install() (Mac only, Muse on, not sandboxed, already-installed is a no-op): Meta's
@@ -19,7 +20,7 @@ offers Try again; a double press installs once. Nothing touches the person's she
   signs in); museAsk offers Meta whenever Muse is on (MUSE_CODE_HERE records whether Muse Code is here); first run's
   Connect opens the panel on its install step; the create forms point at Settings again ("set up in Settings"),
   since Settings can now install it.
-- engine/musestatus.js NOT_INSTALLED_BECAUSE and engine/connections.js say Kosmos installs it.
+- engine/musestatus.js NOT_INSTALLED_BECAUSE, engine/create.js's refusal and engine/connections.js point at Settings.
 
 ## Decided
 - Mirror the Antigravity install (engine/agystatus.js) rather than invent a new pattern.

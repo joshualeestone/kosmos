@@ -44,7 +44,6 @@ function installerEnv(from = process.env) {
   return env;
 }
 
-/* The seam a test replaces: fetch and run Meta's installer, then call done(err). */
 /* The two processes the install runs; a test replaces this to see exactly what Meta's installer would be given. */
 let execSeam = (cmd, args, opts, cb) => execFile(cmd, args, opts, cb);
 let runInstall = (done) => {

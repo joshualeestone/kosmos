@@ -223,7 +223,10 @@ const chk = (ok, label, extra) => {
   await q(() => { window.__startAnswer = [400, { ok: false, error: 'Muse Code is not on this computer' }]; document.getElementById('acct-muse-go').click(); });
   await settle();
   chk(/not on this computer/.test((await G('acct-muse-say')).text), 'a refused start is said in words', (await G('acct-muse-say')).text);
-  await q(() => { window.__startAnswer = null; });
+  // #6004: refused because Muse Code went missing: the step goes back to Install, never a sign-in loop.
+  chk(await q(() => document.getElementById('acct-muse-go').textContent === 'Install Muse Code' && MUSE_CODE_HERE === false),
+    '#6004: a sign-in refused for missing Muse Code returns the step to Install Muse Code');
+  await q(() => { window.__startAnswer = null; MUSE_CODE_HERE = true; ACCT_MUSE.reset(); });   // Muse Code is back for the arms below
 
   // Stop, and closing the dialog, each stop the engine's sign-in by id.
   await q(() => { window.__status = { id: 'mine000000000001', state: 'starting' }; document.getElementById('acct-muse-go').click(); });
