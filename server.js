@@ -16336,8 +16336,13 @@ const server = http.createServer(async (req, res) => {
        clear button, even while some report stands. */
     if (question && question === reportedQuestion && card && card.stateReported === true) {
       let askedAt = null;
-      try { const rep = selfreport.read(card.sessionName); askedAt = rep && rep.found ? rep.askedAt : null; } catch { askedAt = null; }
-      questionRow = { ...question, clearable: true, ...(askedAt ? { at: askedAt } : {}) };
+      let permissionWait = false;
+      try {
+        const rep = selfreport.read(card.sessionName);
+        askedAt = rep && rep.found ? rep.askedAt : null;
+        permissionWait = Boolean(rep && rep.found && selfreport.isAutoPermissionWait(rep));   // answered on the screen (review 2)
+      } catch { askedAt = null; }
+      if (!permissionWait) questionRow = { ...question, clearable: true, ...(askedAt ? { at: askedAt } : {}) };
     }
     const servedMessages = Array.isArray(messages)
       ? chat.withAccountRow(chat.withQuestionRow(messages, (card && card.sessionName) || name, questionRow),
@@ -16750,7 +16755,7 @@ const server = http.createServer(async (req, res) => {
           try { rep = selfreport.read(askingCard.sessionName); } catch { rep = null; }
           if (rep && rep.found && rep.state === 'needs_you' && !selfreport.isAutoPermissionWait(rep) && rep.askedAt
             && !chat.dmQuestionTold(askingCard.sessionName, rep.askedAt)) {
-            questionNote = chat.dmStandingQuestionNote(askingCard.because);
+            questionNote = chat.dmStandingQuestionNote(rep.because || askingCard.because);   // the fresh report's words (review 2)
             questionAsk = rep.askedAt;
           }
         }

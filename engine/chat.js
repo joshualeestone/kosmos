@@ -2987,7 +2987,8 @@ function lockedBecause() {
  *
  * Pure and view-level: it takes the messages the route already read plus the
  * question the route already derived (live `questionIn`, or the reported
- * fallback), and returns the messages with a synthetic question row appended.
+ * fallback), and returns the messages with a synthetic question row added: appended
+ * last when undated, placed at its time when dated (#5943, see below).
  * NOTHING is persisted — the question is derived live each poll, exactly like the
  * `asking`/`question` banner fields it replaces, so this row appears while the
  * question stands and clears with the state (the state-keyed lifecycle
@@ -3057,9 +3058,16 @@ function withQuestionRow(messages, agentName, question) {
   }
   // The agent typed the same words itself at or after the ask, or in the minute before it (posted, then reported):
   // the question is already in the thread.
-  const typed = list.some((m) => m && m.from === row.from && m.text === question.text
+  const typedAt = list.findIndex((m) => m && m.from === row.from && m.text === question.text
     && Number.isFinite(Date.parse(m.at)) && Date.parse(m.at) >= askedMs - QUESTION_TYPED_BEFORE_MS);
-  if (typed) return list;
+  if (typedAt >= 0) {
+    if (!row.clearable) return list;
+    /* Review 2: not drawn twice, but the person must still be able to see its age and clear it: the agent's own message
+       carries both (a copy; the stored row is untouched). */
+    const out = list.slice();
+    out[typedAt] = { ...list[typedAt], questionClearable: true, questionAt: new Date(askedMs).toISOString() };
+    return out;
+  }
   // After the last row dated at or before the ask (a row with no readable time does not move it).
   let place = 0;
   for (let i = 0; i < list.length; i += 1) {
@@ -3976,9 +3984,18 @@ function dmReactionNote(agent) {
 const DM_QUESTION_SNIPPET = 80;
 /* Review 1: the note goes ONCE per ask (agent + when it was asked), recorded once a message carrying it was placed.
    Kept in memory: a board restart may tell it once more, which is the cheap direction (a missed note is the other). */
+/* Review 2: and again once DM_QUESTION_RENOTE_MS has passed, so a note spent on "thanks, will look soon" does not leave
+   the real answer, hours later, without it. */
 const DM_QUESTION_TOLD = new Map();
-function dmQuestionTold(agent, askedAt) { return DM_QUESTION_TOLD.get(String(agent)) === String(askedAt); }
-function markDmQuestionTold(agent, askedAt) { DM_QUESTION_TOLD.set(String(agent), String(askedAt)); }
+const DM_QUESTION_RENOTE_MS = 6 * 60 * 60 * 1000;
+function dmQuestionTold(agent, askedAt, nowMs) {
+  const t = DM_QUESTION_TOLD.get(String(agent));
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  return Boolean(t && t.askedAt === String(askedAt) && now - t.at < DM_QUESTION_RENOTE_MS);
+}
+function markDmQuestionTold(agent, askedAt, nowMs) {
+  DM_QUESTION_TOLD.set(String(agent), { askedAt: String(askedAt), at: Number.isFinite(nowMs) ? nowMs : Date.now() });
+}
 function dmStandingQuestionNote(question) {
   if (typeof question !== 'string' || !question.trim()) return '';
   const words = question.replace(new RegExp(DM_PANE_UNSAFE.source, 'g'), ' ').replace(/[\s\u0000-\u001f\u007f]+/g, ' ').trim();
