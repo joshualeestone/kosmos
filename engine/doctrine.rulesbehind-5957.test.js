@@ -21,6 +21,7 @@ const instructions = require('./instructions');
 const doctrine = require('./doctrine');
 
 const DV = defaults.DOCTRINE_VERSION;
+test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 const NOW = new Date(2026, 9, 12);
 function agent(name, profile, text) {
   store.writeProfile(name, { provider: 'anthropic', ...profile });
@@ -67,6 +68,16 @@ test('kept between polls, and recomputed when the file changes', () => {
   const later = new Date(Date.now() + 5000);
   fs.utimesSync(file, later, later);
   assert.equal(doctrine.rulesBehind('moving'), null, 'a stale answer outlived the file change');
+});
+
+test('the cache saves work: unchanged polls read the instructions file once', (t) => {
+  agent('steady', { doctrineVersion: DV - 13 }, OLD_FILE('Steady'));
+  const real = instructions.read;
+  let reads = 0;
+  instructions.read = (...args) => { reads += 1; return real.apply(instructions, args); };
+  t.after(() => { instructions.read = real; });
+  for (let i = 0; i < 5; i++) assert.equal(doctrine.rulesBehind('steady'), 13);
+  assert.equal(reads, 1, 'every poll re-read and re-planned the file');
 });
 
 test('never throws: no instructions file is null', () => {

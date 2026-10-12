@@ -585,7 +585,10 @@ function decline(sessionName) {
  * against DOCTRINE_VERSION), its own page would offer the update (status() says `refresh`, so the card and the page
  * agree), and the person has not said Not now to this version. null for an unknown version (no record, no claim).
  * status() reads and plans the whole file, so the answer is kept per agent and recomputed only when the instructions
- * file (mtime, size) or the profile (updatedAt, doctrineVersion, doctrineDeclined) changes: a poll costs one stat.
+ * file (mtime, size) or the profile (updatedAt, doctrineVersion, doctrineDeclined) changes. An agent not far behind
+ * returns before any file is touched; a far-behind one costs finding its file (fileFor reads its job record) and one
+ * stat per poll. Entries are not pruned when an agent is removed: one small entry per name, and a re-created agent of
+ * the same name has a new file and profile, so it is recomputed.
  * `profile` is the row's own read, passed in so the card does not read it twice. Never throws.
  */
 const RULES_FAR_BEHIND = 5;
