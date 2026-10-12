@@ -49,6 +49,7 @@ function samePlace(d) {
  */
 function signedOutRows(cards, listed, readJob, readName, exists = fileThere, defaultDirOf = () => null) {
   const byDir = new Map();
+  const listedPlaces = new Map();
   for (const c of Array.isArray(cards) ? cards : []) {
     if (!c || !c.sessionName) continue;
     let job = null;
@@ -61,9 +62,13 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
     let dflt = null;
     try { dflt = defaultDirOf(p.provider); } catch { dflt = null; }
     if (dflt && samePlace(dflt) === samePlace(dir)) continue;
-    const rows = (listed && Array.isArray(listed[p.provider])) ? listed[p.provider] : [];
-    if (rows.some((r) => r && typeof r.dir === 'string' && samePlace(r.dir) === samePlace(dir))) continue;
-    const key = p.provider + '\u0000' + samePlace(dir);   // one row per folder, however its jobs spell it
+    if (!listedPlaces.has(p.provider)) {   // each provider's listed folders resolved once, not once per card
+      const rows = (listed && Array.isArray(listed[p.provider])) ? listed[p.provider] : [];
+      listedPlaces.set(p.provider, new Set(rows.filter((r) => r && typeof r.dir === 'string').map((r) => samePlace(r.dir))));
+    }
+    const here = samePlace(dir);
+    if (listedPlaces.get(p.provider).has(here)) continue;
+    const key = p.provider + '\u0000' + here;   // one row per folder, however its jobs spell it
     if (!byDir.has(key)) {
       let name = null;
       try { name = readName(p.provider, dir); } catch { name = null; }

@@ -12,7 +12,7 @@ of reading signed out.
   the job first, since a stopped agent's card has none. Shape: an account row with `signedOut: true`, `usedBy` (the
   agents, the first three named), and `connection: { state: 'none', badge: 'signed_out', because }`. When one of the
   provider's credential files IS in the folder (the list left it out because it could not read or recognise it), the
-  row says so instead: `{ state: 'unknown', badge: 'unchecked' }` (the file may be unreadable, or the folder outside the
+  row says so instead: `{ state: 'unknown', badge: 'unlisted' }`, printed "not checked by Kosmos" (the file may be unreadable, or the folder outside the
   one the list scans). So is a folder Kosmos cannot look into at all: only ENOENT counts as missing (statSync, not
   existsSync, which answers false for a permission error). "We cannot tell" is never written as "gone" (reviews 1, 3).
 - The agents walked are the same set the account guard walks (`knownAgentNames`, factored out of
