@@ -67,7 +67,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       });
     };
     const rick = await healthOf('rick');
-    const at = new Date(seenAt).toLocaleString([], { hour: 'numeric', minute: '2-digit' });
+    // The page's own words for that time (a weekday when it was yesterday, as it can be just after midnight).
+    const at = await page.evaluate((t) => seenAtWords(t, Date.now()), seenAt);
     say(rick === 'Sign-in: no problem showing · Usage: no limit showing · Last seen working: ' + at, 'Rick, seen working five minutes ago, shows when', rick);
     await page.goto(URL, { waitUntil: 'networkidle' });
     await page.waitForSelector('[data-agent="bob"]', { timeout: 8000 });
