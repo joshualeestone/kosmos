@@ -17,7 +17,7 @@
 # Usage: source this file.
 #   build="$(release_freeze <repo> <sha> <root>)"   prints the worktree path
 #   release_thaw <repo> <build>                     removes it
-#   release_bundle_matches_tree <tarball> <tree> [<connector-sha>]
+#   release_bundle_matches_tree <tarball> <tree> [<connector-sha> [<native-app-sha> [sealed [<requirement>]]]]
 #       0 if every tree-derived file in the tarball (app/** and the top-level
 #       bin/kosmos command) equals the tree's, web/index.html after the
 #       version bake; the connector (app/bin/kosmos-tunnel, not a tree file) is

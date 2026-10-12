@@ -1253,6 +1253,10 @@ echo "== the uninstall sweep proves ownership before deleting =="
 # runs as the home3 install, so the sweep must take the per-user icon and
 # REFUSE the shared one it does not own, in a sentence.
 SYS_OK_SEALED=no; icon_is_sealed "$SYS_OK/Kosmos.app" && SYS_OK_SEALED=yes
+# Not just "whichever shape it is": when the build shipped the sealed app, the shared-folder install must have placed it.
+if [ -d "$KOS_SRC/app/Kosmos.app" ]; then
+  chk "#5896: the shared-folder icon is the sealed app the build shipped" "[ \"$SYS_OK_SEALED\" = yes ]"
+fi
 RC=0; HOME="$SBH" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" sh -s -- --uninstall < "$SETUP" > "$SB/probe-un.log" 2>&1 || RC=$?
 chk "sweep uninstall exits 0" "rc_ok $RC"
 chk "home-folder icon swept" "[ ! -d \"$SBH/Applications/Kosmos.app\" ]"

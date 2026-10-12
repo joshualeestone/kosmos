@@ -34,7 +34,7 @@ function fnSource(name) {
   const end = SETUP.indexOf('\n}\n', at);
   return SETUP.slice(at + 1, end + 3);
 }
-const FNS = ['bundle_is_ours', 'bundle_looks_sealed', 'sealed_serves_this_install', 'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'app_bundle_into'].map(fnSource).join('\n');
+const FNS = ['bundle_is_ours', 'sealed_config_reaches', 'bundle_looks_sealed', 'sealed_serves_this_install', 'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'app_bundle_into'].map(fnSource).join('\n');
 
 let tmpRoot, SYS;   // SYS: the stand-in for the shared /Applications (setup.sh's SYS_APP_DIR)
 test.before(() => {
@@ -185,6 +185,8 @@ it('#5896: the sealed app is placed only where the app will read the config (AGE
     [{ HOME: realHome, AGENT_WORKFORCE_HOME: realHome }, false],
     [{ HOME: realHome, AGENT_WORKFORCE_HOME: elsewhere }, true],
     [{ HOME: realHome, AGENT_WORKFORCE_HOME: elsewhere, KOSMOS_APP_DIR: '/sb/apps' }, false],
+    [{ HOME: realHome, AGENT_WORKFORCE_HOME: elsewhere, KOSMOS_SYS_APP_DIR: '/sb/sys' }, false],
+    [{ HOME: realHome, AGENT_WORKFORCE_HOME: elsewhere, KOSMOS_HOME_APP_DIR: '/sb/homeapps' }, true],
   ];
   for (const [env, wantBuilt] of cases) {
     const st = stageOf();
@@ -287,4 +289,32 @@ test('#5896: setup.sh ordering and mode invariants (text only, every platform)',
   assert.match(SETUP, /bundle_is_ours "\$SYS_APP_DIR\/Kosmos\.app" own; then APP_OWN_SEALED=yes; fi/, 'the transcript line no longer asks in own mode');
   assert.match(SETUP, /^SEALED_REQ=""/m, 'SEALED_REQ can be inherited');
   assert.match(SETUP, /^_SEALED_SRC_OK=""/m, 'the placement cache can be inherited');
+});
+
+it('#5896: with AGENT_WORKFORCE_HOME elsewhere, a sealed icon in a REAL folder is never ours (its app reads the real home\'s config)', () => {
+  const home = makeHome('v1');
+  const realHome = fs.mkdtempSync(path.join(tmpRoot, 'realhome-'));
+  const sandboxApps = fs.mkdtempSync(path.join(tmpRoot, 'sbapps-'));
+  const realApps = fs.mkdtempSync(path.join(tmpRoot, 'realapps-'));
+  const inReal = path.join(realApps, 'Kosmos.app'), inSandbox = path.join(sandboxApps, 'Kosmos.app');
+  for (const b of [inReal, inSandbox]) execFileSync('/usr/bin/ditto', [path.join(home, 'app', 'Kosmos.app'), b]);
+  const env = { KOSMOS_HOME: home, HOME: realHome, AGENT_WORKFORCE_HOME: fs.mkdtempSync(path.join(tmpRoot, 'awh-')),
+    KOSMOS_APP_DIR: sandboxApps, HOME_APP_DIR: realApps, _wic_rc: '0' };
+  for (const mode of ['', 'anchored', 'own']) {
+    assert.match(run(env, `bundle_is_ours "${inReal}" ${mode}; echo "rc=$?"`).out, /rc=[1-9]/, `mode '${mode}': a real-folder sealed icon was called ours under a sandbox config`);
+  }
+  assert.match(run(env, `${REMOVE}bundle_is_ours "${inReal}" remove; echo "rc=$?"`).out, /rc=[1-9]/, 'an uninstall under a sandbox config would remove a real-folder sealed icon');
+  assert.match(run(env, `bundle_is_ours "${inSandbox}"; echo "rc=$?"`).out, /rc=0/, 'CONTROL: the icon in the sandboxed folder is ours');
+});
+
+it('#5896: a sealed copy that does not come out whole falls back to building the per-install bundle', () => {
+  const home = makeHome('v1');
+  const st = stageOf();
+  // A stand-in ditto that writes a partial copy and fails, ahead of /usr/bin on PATH, is not reachable (the
+  // function calls /usr/bin/ditto by path), so the copy is made to fail by a stage that already holds a file of
+  // the bundle's top-level name as a directory's name.
+  fs.writeFileSync(path.join(st, 'Contents'), 'in the way');
+  const r = run({ KOSMOS_HOME: home, _wic_rc: '0' }, `app_bundle_into "${st}"; echo "rc=$?"`);
+  assert.match(r.out, /rc=0/, 'a failed sealed copy ended the icon step instead of falling back');
+  assert.equal(built(st), true, 'the per-install bundle was not built after the failed copy');
 });
