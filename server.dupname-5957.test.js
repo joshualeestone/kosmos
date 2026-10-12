@@ -209,20 +209,42 @@ test('#5957: an instructions line moving BACK to the name already on record is n
 test('#5957: re-connecting a stopped Kosmos-made agent\'s own folder gets the job refusal, not "already an agent called"', async (t) => {
   /* createdKeys comes from the job files Kosmos wrote, so a stopped created agent always has one; connect's job check
      runs before the name check and owns this case. Write the job file this platform reads. */
-  if (process.platform === 'win32') { t.skip('Windows records jobs elsewhere; no created source there yet'); return; }
   const status = require('./engine/status');
   const key = 'dozer';
   const folder = mk(key);
   fs.writeFileSync(path.join(folder, 'CLAUDE.md'), '# Dozer\n\nYou are **Dozer**, an assistant.\n');
   store.writeProfile(key, { provider: 'anthropic', displayName: 'Dozer' });
-  const job = process.platform === 'linux' ? require('./engine/linuxjob').unitPath(key) : create.plistPath(key);
-  fs.mkdirSync(path.dirname(job), { recursive: true });
-  fs.writeFileSync(job, 'fixture job');
+  /* Both job files, the Mac plist and the Linux unit, so the test needs no host branch: hasJob reads whichever this
+     computer uses. A computer that reads neither (Windows keeps its record elsewhere) skips, and says so. */
+  const jobs = [create.plistPath(key), require('./engine/linuxjob').unitPath(key)];
+  for (const job of jobs) { fs.mkdirSync(path.dirname(job), { recursive: true }); fs.writeFileSync(job, 'fixture job'); }
   status.setCreatedSource(() => [key]);
-  t.after(() => { status.setCreatedSource(null); fs.rmSync(job, { force: true }); });
-
-  assert.equal(create.hasJob(key), true, 'fixture: the job file is not the one hasJob reads here');
+  t.after(() => { status.setCreatedSource(null); for (const job of jobs) fs.rmSync(job, { force: true }); });
+  if (!create.hasJob(key)) { t.skip('this computer does not keep agent jobs as a plist or a systemd unit'); return; }
   const r = require('./engine/discover').connect(folder, {});
   assert.equal(r.ok, false);
   assert.equal(r.because, 'Kosmos already looks after an agent by that name');
+});
+
+test('#5957: on Windows, a stopped agent is read from the session record (the Windows roster lists only live ones)', (t) => {
+  const win32sessions = require('./engine/win32sessions');
+  const key = 'winsleeper';
+  store.writeProfile(key, { provider: 'anthropic', displayName: 'Win Sleeper' });
+  const id = '0f1e2d3c-4b5a-4968-8776-655443322110';
+  assert.equal(win32sessions.record(id, { name: key, runner: 'claude' }).ok, true, 'fixture: the record was not written');
+  t.after(() => win32sessions.forget(id));
+  const { nameCheckFleet } = require('./server');
+
+  const onWindows = nameCheckFleet('win32');
+  assert.deepEqual(onWindows.find((a) => a.handle === key), { handle: key, shown: 'Win Sleeper' });
+  // Control: elsewhere that record is not a source (the created list is), so the same agent is not there.
+  assert.equal(nameCheckFleet('darwin').some((a) => a.handle === key), false);
+});
+
+test('#5957: a created list that cannot be read refuses the name check rather than reading as "no stopped agents"', (t) => {
+  const status = require('./engine/status');
+  const { nameCheckFleet } = require('./server');
+  status.setCreatedSource(() => { throw new Error('LaunchAgents unreadable'); });
+  t.after(() => status.setCreatedSource(null));
+  assert.throws(() => nameCheckFleet('darwin'), /LaunchAgents unreadable/);
 });
