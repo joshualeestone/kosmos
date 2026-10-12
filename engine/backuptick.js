@@ -62,7 +62,7 @@ function rootsFor(input) {
   }
   const protect = (input.protect || []).map(real).filter(Boolean);
   const guarded = (p) => protect.some((q) => inside(p, q) || inside(q, p));
-  const GUARDED = 'it holds, or is inside, Kosmos\'s own data or a provider\'s sign-in folder';
+  const GUARDED = 'it holds, or is inside, Kosmos\'s own data, a provider\'s sign-in folder, or a hidden folder in the home folder';
   if (guarded(workers)) return { roots, left: [{ what: 'workers', why: GUARDED }] };
   roots.push({ name: 'workers', path: workers });
   const add = (name, p, what) => {
@@ -205,9 +205,11 @@ function inputsHere() {
     try { for (const row of require(`./${m}`).list()) if (row && typeof row.dir === 'string') accountDirs.push(row.dir); } catch { /* the home rule still holds */ }
   }
   try { accountDirs.push(require('./grokaccounts').defaultDir()); } catch { /* the home rule still holds */ }
-  const home = process.env.AGENT_WORKFORCE_HOME || require('os').homedir();
+  // Both homes when they differ (review 6): the providers and workers use AGENT_WORKFORCE_HOME, projectsRoot the real one.
   const hidden = [];
-  try { for (const n of fs.readdirSync(home)) if (n.startsWith('.') && n !== '.' && n !== '..') hidden.push(path.join(home, n)); } catch { /* none */ }
+  for (const home of new Set([process.env.AGENT_WORKFORCE_HOME, require('os').homedir()].filter(Boolean))) {
+    try { for (const n of fs.readdirSync(home)) if (n.startsWith('.') && n !== '.' && n !== '..') hidden.push(path.join(home, n)); } catch { /* none */ }
+  }
   const protect = [store.ROOT, ...claudeRoots, geminiHome, codexHome, ...accountDirs, ...hidden]
     .filter((x) => typeof x === 'string' && x).map((x) => path.resolve(x));
   return { workersDir: create.WORKERS_DIR, projectsDir, agents, projects, sessions, protect };
