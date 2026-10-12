@@ -18,8 +18,8 @@ sent, let the person change or clear it, and use the chosen name on every path t
 - `web/index.html`: a "Name for this computer" box on the email step. It is hidden until the route has
   answered, then shown filled; the start waits for that read and sends the box's text. Enter in it asks
   for the code.
-- Tests: 4 in `engine/remote.test.js`, 1 in `server.test.js`, `web.computer-name-5995.test.js` (4),
-  `web.code-box.test.js` loads the real name function. Browser check
+- Tests: 8 in `engine/remote.test.js`, 1 in `server.test.js`, `web.computer-name-5995.test.js` (5), one
+  in `web.code-box.test.js`, which also loads the real name function. Browser check
   `docs/browser-checks/render-plus-computer-name-5995.js` drives the real page and the real routes.
 
 ## Decided
@@ -47,18 +47,18 @@ That a person looks at a prefilled box before pressing the button. The box makes
 does not make anyone read it. Second: a phone reached through the relay can read the route too. That is
 the person's own allowed device, and the same name is already in their device list.
 
-## Verify (each run on the branch; the full suite is not in this list)
-- `node --test --test-name-pattern='#5995|#3831' engine/remote.test.js`: 10 pass. The whole file at
-  25357d9df: 220 pass.
-- `node --test --test-name-pattern='#5995' server.test.js`: 1 pass.
-- `node --test web.computer-name-5995.test.js web.code-box.test.js`: 11 pass.
-- every `web*.test.js` at fe4f20ab7 (after review 1): 2742 pass, 0 fail.
-- Mutants at 25357d9df, each red by name in a throwaway worktree: the chosen name ignored; the
-  computer's own name kept as a choice; the quiet approval naming the computer itself; start and verify
-  naming the computer itself; the start not keeping the name; another website reading the name; the
-  start not sending the name. One mutant first read green because it never fired (it looked for a
-  function name in a stack); aimed at the call site, it reds.
-- NOT yet: the browser check (queued), the full suite, any look by a person.
+## Verify (what ran, and on which head; the full suite is not in this list)
+- At 3d3cd7842 (after review 2): every `web*.test.js` 2743 pass, 0 fail; the whole `engine/remote.test.js`: see
+  `REMOTE_EXIT` in the review 3 commit's note below.
+- At the head of the review 3 commit: `--test-name-pattern='#5995|#3831' engine/remote.test.js` 10 pass;
+  `--test-name-pattern='#5995' server.test.js` 1 pass; `web.computer-name-5995.test.js` and `web.code-box.test.js`
+  12 pass. The page changed again in that commit (four lines), so the web sweep is owed once more before the proof.
+- Mutants at 25357d9df (before the reviews), each red by name: the chosen name ignored; the computer's own name kept
+  as a choice; the quiet approval and the start/verify naming the computer itself; the start not keeping the name;
+  another website reading the name; the start not sending the name. They are owed again at the final head, with
+  the new ones (the put-back removed; the starts not serialised; the read's give-up removed).
+- NOT yet, and each is owed before the proof: the browser check (queued; it has never run), the full suite, a look by
+  a person or a design review of the new box.
 
 ## Review 1 (default model)
 4 WARNING, 3 CONVENTION, 3 NIT (the last NIT and anything after it were cut off in delivery and asked
@@ -97,3 +97,24 @@ Not taken:
 - "the fallback This computer is stored as a choice when typed text is unusable": the person did type something;
   it behaves as a cleared box does.
 - "read remote.json once and pass it through" (second time raised): the reason in Review 1 stands.
+
+## Review 3 (default)
+2 WARNING, 2 CONVENTION, 6 NIT (one more was cut off in delivery and asked for again).
+Taken:
+- two overlapping starts could undo a name one of them carried (the first keeps "B" and fails late, the second
+  found "B" kept and went out, the first's put-back cleared it). Keep, start and put back are now ONE step, one
+  request at a time (`computerNameTurn` in server.js). Tested with two requests at once and a stand-in that fails
+  only the first.
+- the plan's test counts and Verify lines were stale (rewritten above, saying which head each ran on).
+- a put-back that cannot be saved is logged (never the name); test messages no longer print this computer's name;
+  after a start, the box shows the name as kept, so coming back to the step shows what was sent.
+Recorded, not fixable in a review round:
+- "the verification behind the head is thinner than the change": true, and the Verify section now says exactly
+  what is owed. The browser check has waited in the machine's suite queue since 16:35.
+- a start that fails on a remote.json holding unreadable text leaves that file repaired and keeping nothing: the
+  repair is the sign-in's own behaviour (#4308), and nothing readable was lost.
+Not taken:
+- commit subjects (second time): this PR is squash-merged under a title in the repo's form, as #5988 was.
+- warming the computer's name before the wizard opens: it would run `scutil` at every board start for a screen
+  most starts never open. The box appearing moves the button once; the start waits for the read either way.
+- dropping `fromComputer` from the route: the browser check and the server test read it to tell the arms apart.

@@ -4829,7 +4829,7 @@ const ownAllows5995 = (from) => recorded().slice(from).filter((a) => a[0] === 'd
 test('#5995: an untouched name field keeps nothing and sends what was sent before', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   const shown = remote.computerNameShown();
-  assert.equal(shown.fromComputer, true, 'a name was already kept before this test: ' + JSON.stringify(shown));
+  assert.equal(shown.fromComputer, true, 'a name was already kept before this test');
   assert.equal(shown.name + ' (Kosmos app)', remote.thisComputerDeviceName(), 'the field does not show the name that is sent');
   assert.deepEqual(remote.setComputerName(shown.name), { ok: true, name: shown.name, was: null });
   assert.equal(remote.read().computer_name, null, 'the computer\'s own name was kept as if the person had typed it');

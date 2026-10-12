@@ -2569,7 +2569,13 @@ function setComputerName(raw) {
     kept once a start carried it. Best effort: a start that failed is already being reported, and this must not mask it. */
 function putBackComputerName(was) {
   const before = typeof was === 'string' ? was : null;
-  try { if (read().computer_name !== before) write({ computer_name: before }); } catch { /* the start's own refusal stands */ }
+  let saved = true;
+  try { if (read().computer_name !== before) { const wrote = write({ computer_name: before }); saved = !!wrote && wrote.ok !== false; } }
+  catch { saved = false; }
+  /* The start's own refusal is what the person is told. This is for whoever reads the log: a name no start carried
+     is still kept. Never the name itself. */
+  if (!saved) { try { console.error('remote: a computer name typed for a sign-in start that did not go out could not be put back'); } catch { /* never mask the refusal */ } }
+  return saved;
 }
 
 /** Append --device-name. A caller's label goes through only when clean (trimmed

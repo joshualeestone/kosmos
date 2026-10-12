@@ -49748,6 +49748,9 @@ async function plusSiRequestCode(btn) {
     return;
   }
   plusSetBusy(btn, false);
+  /* #5995: the box shows the name as it was kept (one line, cut to fit), so coming back to this step shows what
+     was sent and not what was typed. */
+  { const cn = document.getElementById('plus-si-computer'); if (cn && r.data && typeof r.data.computer_name === 'string') cn.value = r.data.computer_name; }
   /* #3796: one short line on the code step ("We sent a code to <email>.") replaces the
      paragraph; the status line below only says something when a resend went out. */
   document.getElementById('plus-si-code-to').textContent = email;

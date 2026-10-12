@@ -50,6 +50,20 @@ function boxWorld(fetchImpl) {
   return { ctx, el, staged, btn, click: () => ctx.plusSiRequestCode(btn), line: () => el('plus-signin-msg').textContent };
 }
 
+test('#5995: after a start that carried a name, the name box shows the name as it was kept', async () => {
+  const w = boxWorld(async () => ({ ok: true, json: async () => ({ stage: 'code_sent', computer_name: 'Studio Mac' }) }));
+  w.el('plus-signin-email').value = 'her@example.com';
+  w.el('plus-si-computer').value = '  Studio   Mac  ';
+  await w.click();
+  assert.equal(w.el('plus-si-computer').value, 'Studio Mac');
+  // An answer with no name (an older board, a start that named nothing) leaves the box as it is.
+  const o = boxWorld(async () => ({ ok: true, json: async () => ({ stage: 'code_sent' }) }));
+  o.el('plus-signin-email').value = 'her@example.com';
+  o.el('plus-si-computer').value = 'typed';
+  await o.click();
+  assert.equal(o.el('plus-si-computer').value, 'typed');
+});
+
 test('a good ask goes to the code step, naming the address the code went to', async () => {
   const asked = [];
   const w = boxWorld(async (path, init) => { asked.push([path, JSON.parse(init.body)]); return { ok: true, json: async () => ({ stage: 'code_sent' }) }; });

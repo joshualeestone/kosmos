@@ -11972,12 +11972,14 @@ test('#5995: the name this computer is sent under can be read first, is kept fro
   fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
     'const a = process.argv.slice(2);',
     "if (a[0] === 'signin' && a[1] === 'start' && process.env.FAKE_NAME_FAIL) { process.stderr.write('error: the coordinator is not answering\\n'); process.exit(1); }",
+    // Fails the first start that finds the marker file (and removes it), after a pause; later starts go out.
+    "if (a[0] === 'signin' && a[1] === 'start' && process.env.FAKE_NAME_FAIL_ONCE && require('node:fs').existsSync(process.env.FAKE_NAME_FAIL_ONCE)) { require('node:fs').rmSync(process.env.FAKE_NAME_FAIL_ONCE); setTimeout(() => { process.stderr.write('error: the coordinator is not answering\\n'); process.exit(1); }, 400); return; }",
     "if (a[0] === 'signin' && a[1] === 'start') { require('node:fs').appendFileSync(process.env.FAKE_NAME_ARGV, JSON.stringify(a) + '\\n'); console.log(JSON.stringify({ stage: 'code_sent' })); process.exit(0); }",
     // An older tunnel refuses the device-key verb as a usage error (exit 2), as real ones do (kosmos#5422).
     "if (a[0] === 'signin' && a[1] === 'device-id') { process.stderr.write(\"error: unrecognized subcommand 'device-id'\\n\"); process.exit(2); }",
     'process.exit(0);', ''].join('\n'));
   fs.chmodSync(fakeBin, 0o755);
-  const keys = ['AGENT_WORKFORCE_TUNNEL_BIN', 'AGENT_WORKFORCE_TUNNEL_STATE', 'FAKE_NAME_ARGV', 'FAKE_NAME_FAIL'];
+  const keys = ['AGENT_WORKFORCE_TUNNEL_BIN', 'AGENT_WORKFORCE_TUNNEL_STATE', 'FAKE_NAME_ARGV', 'FAKE_NAME_FAIL', 'FAKE_NAME_FAIL_ONCE'];
   const prev = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
   process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeBin;
   process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(sb, 'state');
@@ -11991,13 +11993,13 @@ test('#5995: the name this computer is sent under can be read first, is kept fro
   try {
     await postJson('/api/remote/signin-cancel', {});
     const first = await shown();
-    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.equal(first.ok, true, 'the name route did not answer ok');
     if (first.fromComputer === true) ownName = first.name;
-    assert.equal(first.fromComputer, true, 'a name was already kept before this test: ' + JSON.stringify(first));
+    assert.equal(first.fromComputer, true, 'a name was already kept before this test');
     assert.equal(first.name + ' (Kosmos app)', remoteEngine.thisComputerDeviceName(), 'the route shows another name than the one that is sent');
     assert.notEqual(first.name, 'Studio Mac', 'CONTROL: this computer has the test\'s name, so nothing below is told apart');
     const foreign = await req('/api/remote/computer-name', { headers: { 'sec-fetch-site': 'cross-site' } });
-    assert.equal(foreign.status, 403, 'another website read this computer\'s name: ' + foreign.body);
+    assert.equal(foreign.status, 403, 'another website read this computer\'s name');
     assert.ok(!foreign.body.includes(first.name), 'the refusal carries the name');
 
     // An older page, or a script: no computer_name in the body, and nothing is kept.
@@ -12005,7 +12007,9 @@ test('#5995: the name this computer is sent under can be read first, is kept fro
     assert.equal(plain.status, 200, 'the start failed: ' + plain.body);
     assert.equal(remoteEngine.read().computer_name, null, 'a start that named nothing kept a name');
     // The person typed one: kept before the code is asked for, sent, and shown next time.
-    assert.equal((await start({ computer_name: ' Studio Mac ' })).status, 200);
+    const typed = await start({ computer_name: ' Studio Mac ' });
+    assert.equal(typed.status, 200);
+    assert.equal(JSON.parse(typed.body).computer_name, 'Studio Mac', 'the start does not answer with the name as kept');
     assert.deepEqual(await shown(), { ok: true, name: 'Studio Mac', fromComputer: false });
     // A later start that names nothing (the quiet paths, an older page) still sends the kept name.
     assert.equal((await start({})).status, 200);
@@ -12014,7 +12018,9 @@ test('#5995: the name this computer is sent under can be read first, is kept fro
     assert.deepEqual(await shown(), { ok: true, name: 'This computer', fromComputer: false });
     // Not text: ignored, as an absent field is.
     assert.equal((await start({ computer_name: 7 })).status, 200);
-    assert.deepEqual(sentNames(), [first.name + ' (Kosmos app)', 'Studio Mac (Kosmos app)', 'Studio Mac (Kosmos app)', 'This computer (Kosmos app)', 'This computer (Kosmos app)']);
+    // Compared as "own" or the literal, so a failing line never prints this computer's real name.
+    const told = sentNames().map((n) => (n === first.name + ' (Kosmos app)' ? 'OWN' : n));
+    assert.deepEqual(told, ['OWN', 'Studio Mac (Kosmos app)', 'Studio Mac (Kosmos app)', 'This computer (Kosmos app)', 'This computer (Kosmos app)']);
     // A start that does not go out keeps nothing new: what was kept before it is put back.
     assert.equal(remoteEngine.read().computer_name, '', 'CONTROL: the cleared choice is not what is kept going in');
     process.env.FAKE_NAME_FAIL = '1';
@@ -12025,6 +12031,16 @@ test('#5995: the name this computer is sent under can be read first, is kept fro
     assert.equal((await start({ computer_name: 'Never Sent' })).status, 200);
     assert.equal(remoteEngine.read().computer_name, 'Never Sent', 'CONTROL: the same name on a start that went out was not kept');
     assert.equal(sentNames().at(-1), 'Never Sent (Kosmos app)');
+    /* Two starts at once with the same new name, the first failing late: the second carried the name, so it stays.
+       (Unserialised, the first's put-back would clear what the second sent.) The stand-in fails only its FIRST start
+       here, after a pause that lets the second request arrive. */
+    assert.equal((await start({ computer_name: '' })).status, 200);
+    process.env.FAKE_NAME_FAIL_ONCE = nodePath.join(sb, 'fail-once');
+    fs.writeFileSync(process.env.FAKE_NAME_FAIL_ONCE, '');
+    const [slowFail, second] = await Promise.all([start({ computer_name: 'Two Tabs' }), start({ computer_name: 'Two Tabs' })]);
+    delete process.env.FAKE_NAME_FAIL_ONCE;
+    assert.deepEqual([slowFail.status, second.status].sort(), [200, 400], 'CONTROL: one of the two starts did not fail and one go out');
+    assert.equal(remoteEngine.read().computer_name, 'Two Tabs', 'a start that failed undid the name another start carried');
     // Leaving the computer's own name in the field goes back to following the computer.
     assert.equal((await start({ computer_name: first.name })).status, 200);
     assert.equal(remoteEngine.read().computer_name, null, 'the computer\'s own name was kept as a choice');

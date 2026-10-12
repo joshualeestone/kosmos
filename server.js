@@ -4302,6 +4302,8 @@ function listedFileVerb(req, res, verb, folder, where, opts) {
   }).catch(() => sendJson(res, 404, { ok: false, because: 'this computer could not draw that file' }));
   return true;
 }
+/* kosmos#5995: sign-in starts that name this computer run one at a time (see the signin-start route). */
+let computerNameTurn = Promise.resolve();
 function crossSiteRead(req) {
   const site = req && req.headers && req.headers['sec-fetch-site'];
   if (site && site !== 'same-origin' && site !== 'none') {
@@ -9920,19 +9922,32 @@ const server = http.createServer(async (req, res) => {
            thing this field exists to stop. Absent (an older page, a script): nothing changes. A start that then
            does not go out (busy, the tunnel failing, a thrown error) puts back what was kept before, so a name is
            only ever kept once a start carried it; the page still shows what the person typed, and the next press
-           sends it again. */
-        let nameWas;
-        if (typeof body.computer_name === 'string') {
-          const kept = remote.setComputerName(body.computer_name);
-          if (!kept.ok) { sendJson(res, 400, { error: kept.because }); return; }
-          nameWas = { was: kept.was };
+           sends it again.
+           ONE AT A TIME (computerNameTurn): keep, start and put back are one step. Two starts overlapping (two
+           tabs, a script) could otherwise undo a name the other one carried: the first keeps "B" and fails late,
+           the second found "B" already kept and went out, and the first's put-back would clear it. A start that
+           names no computer does not wait: it keeps and puts back nothing. */
+        if (typeof body.computer_name !== 'string') {
+          const plain = await remote.signinStart(email, deviceName);
+          if (!plain.ok) { sendJson(res, 400, { error: plain.because }); return; }
+          sendJson(res, 200, { ok: true, stage: plain.data.stage });
+          return;
         }
-        let got;
-        try { got = await remote.signinStart(email, deviceName); }
-        catch (err) { if (nameWas) remote.putBackComputerName(nameWas.was); throw err; }
-        if (!got.ok && nameWas) remote.putBackComputerName(nameWas.was);
-        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
-        sendJson(res, 200, { ok: true, stage: got.data.stage });
+        const turn = computerNameTurn.then(async () => {
+          const kept = remote.setComputerName(body.computer_name);
+          if (!kept.ok) return { refused: kept.because };
+          let got;
+          try { got = await remote.signinStart(email, deviceName); }
+          catch (err) { remote.putBackComputerName(kept.was); throw err; }
+          if (!got.ok) remote.putBackComputerName(kept.was);
+          return { got, name: kept.name };
+        });
+        computerNameTurn = turn.catch(() => {});   // the next start waits for this one, whatever it did
+        const done = await turn;
+        if (done.refused) { sendJson(res, 400, { error: done.refused }); return; }
+        if (!done.got.ok) { sendJson(res, 400, { error: done.got.because }); return; }
+        // computer_name: the name as kept (one line, cut to fit), so the box can show what was sent.
+        sendJson(res, 200, { ok: true, stage: done.got.data.stage, computer_name: done.name });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not start the sign-in' }));
     return;
