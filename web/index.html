@@ -23717,12 +23717,13 @@ function agoWords(ms) {
 /* #5959 slice 2 (the Windows agents' QA report, item 2): one health line on the agent's page: sign-in, usage, and when
    Kosmos last saw it working. Sign-in and usage come from the card's state only, hedged as the state sentence is for a
    screen reading (#215). The time is the engine's lastWorked (status.js lastWorkedOf), said as a clock time because the
-   page's poll repaints the line with the state pill but a relative time would still age between polls of an idle card.
+   poll repaints the line with the state pill, but an idle card's line changes rarely and a relative time would age.
    '' for a card with no lastWorked: no line.
    On the agent's page, not its card on the board: #855 cut the card's extra lines, and the card's state already says a
    sign-in or usage problem. */
 /* Not 'blocked': a Claude card stays blocked on Claude Code's own report of a refused sign-in or a usage cap, so
    "no problem showing" would be false there; a blocked agent shows only the time. */
+const HEALTH_QUIET_MS = 3600e3;   // see healthLine: how recent a sighting "no problem showing" rests on
 const HEALTH_READ_STATES = new Set(['working', 'idle', 'needs_you', 'rate_limited', 'auth_failed', 'connection_lost']);
 function healthLine(a, nowMs) {
   const lw = a && a.lastWorked;
@@ -23733,15 +23734,16 @@ function healthLine(a, nowMs) {
   else if (lw.why === 'no_source') last = 'Kosmos cannot see this agent\'s turns';
   else last = 'not seen since Kosmos started';
   /* A problem the state shows is always said. "No problem" is said only for a state Kosmos reads (HEALTH_READ_STATES)
-     on an agent it has seen work: otherwise it would be a health claim resting only on an absence. */
+     on an agent it has seen work within the last hour (HEALTH_QUIET_MS): otherwise it would be a health claim resting
+     on an absence, or on a sighting old enough for a sign-in to have lapsed since. */
   const looks = a.stateConfidence === 'scraped';
-  const quiet = HEALTH_READ_STATES.has(a.state) && Number.isFinite(at);
+  const quiet = HEALTH_READ_STATES.has(a.state) && Number.isFinite(at) && nowMs - at <= HEALTH_QUIET_MS;
   const parts = [];
   if (a.state === 'auth_failed') parts.push('Sign-in: ' + (looks ? 'looks like it isn\'t working' : 'isn\'t working'));
   /* Only a Claude agent's state can show a sign-in that stopped working on this computer (a Codex 401 loop reads as
      working, and the other runners' sign-in report is written by the Windows supervisor alone), so "no problem" is said
      only for Claude. */
-  else if (quiet && (!a.runner || a.runner === 'claude')) parts.push('Sign-in: no problem showing');
+  else if (quiet && a.runner === 'claude') parts.push('Sign-in: no problem showing');
   if (a.state === 'rate_limited') parts.push('Usage: ' + (looks ? 'looks like a limit' : 'limit reached'));
   else if (quiet) parts.push('Usage: no limit showing');
   parts.push('Last seen working: ' + last);
