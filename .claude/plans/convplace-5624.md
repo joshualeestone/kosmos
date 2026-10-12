@@ -26,13 +26,14 @@ left open. Chosen: the conversation's header row, beside search.
 - The room's toggle and search share a wrapper (.pjconvsearch, display: contents), so every existing layout sees the
   search exactly as before. Up to 60rem, where the room header stacks, the wrapper becomes one row once the toggle
   is drawn, so the toggle sits beside the search rather than on a row of its own.
-- The toggle goes where the header goes. Where a phone collapses the caption row to save room (keyboard up while
-  writing; the sideways phone with an idle search), the toggle collapses with it, except that on the sideways phone
-  it stays while it is ON (iteration 4), as the sign and the way to stop it. With the keyboard up the whole row is
-  hidden by an existing rule, ON toggle included: accepted, because the person is typing in that very conversation at
-  that moment, and exempting one child would mean rewriting that rule for a held feature (iteration 6). Accepted: the person turned the
-  mode on in this conversation and is in it, and the alternative costs a conversation that has 57 to 90 px. The
-  stated reason above ("always in view") holds wherever the header itself is shown.
+- The toggle goes where the header goes: where a phone collapses the caption row to save room, the toggle collapses
+  with it. Two cases:
+  - Sideways phone with an idle search: the off toggle steps aside so the row takes no room in a conversation that
+    has 57 to 90 px; an ON toggle stays, as the sign and the way to stop it (iteration 4).
+  - Keyboard up while writing: an existing rule hides the whole row, ON toggle included. Accepted, because the person
+    is typing in that very conversation at that moment, and exempting one child would mean rewriting that rule for a
+    held feature (iteration 6).
+- The stated reason above ("always in view") holds wherever the header itself is shown.
 - Accepted (iteration 3): in a direct conversation on a phone under the new look, the caption row wraps and the
   search takes its own line, so the toggle ends the Back row instead of sitting beside the search. It stays in the
   header and in view. The room got a wrapper because its stacked header would otherwise give the toggle a row of
@@ -42,5 +43,5 @@ left open. Chosen: the conversation's header row, beside search.
 docs/browser-checks/render-convmode-5624.js C1 now asserts each toggle is in its header row immediately before the
 search, and inside no message box. C20 (new) asserts that at 700px the room's toggle sits on the search's line, in both looks (C20b) and at 375px (C20c).
 C21 (new) measures the direct conversation's toggle on its search's line at desktop width. All other arms are
-unchanged. Not covered by a check: the touch-only collapses (sideways phone, keyboard up), which need a touch-emulating
-browser context.
+unchanged. Not covered by a check: the touch-only rules (the sideways-phone and keyboard-up collapses, and the 44px touch
+size), which need a touch-emulating browser context.
