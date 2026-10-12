@@ -113,11 +113,80 @@ if [ -z "${QUEUED_HEAVY_LIB:-}" ] && [ ! -f "$LIB_CHECKOUT/tools/lib/cut-guard.s
   esac
   unset _qh_common
 fi
+# #5923: that shared checkout sat five days and 2,058 commits behind main, and nothing said so. On every join, compare
+# the two files the queue loads (cut-guard.sh and the process-fixture.sh it sources) with origin/main's, by BLOB:
+# commit distance is the wrong measure (2,058 commits behind and both files unchanged). origin/main is read from the
+# checkout's own refs; on Agent1s it is a worktree of ~/work/kosmos, whose refs every agent fetches. Nothing is fetched.
+# Only the DEFAULT checkout (QUEUED_HEAVY_LIB unset, no #5446 fallback) is ever moved, and only when moving it cannot
+# put two lib generations in one queue (#4977): detached and clean, no other queued-heavy.sh process (waiter or
+# holder), and no queue marker (suitewait.*, a machine claim, a side claim). A stale marker only blocks the move; the
+# line says why and this run joins on the lib as it is. The check, the move and the load below are one step under a
+# lock, so a joiner never loads the lib halfway through another's move.
+# Weakest premise: a process is matched only as `<shell> <path>/queued-heavy.sh ...` (what a waiter shows, before and
+# after its #5467 re-exec); a queued-heavy.sh started some other way is not seen as a waiter.
+# Test seam: QH_TEST_PS names a command printing "pid command" lines in place of ps, so a test is not swayed by real
+# waiters on the box.
+QH_LIB_LOCK=""
+_qh_libgit() { env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git -C "$LIB_CHECKOUT" "$@"; }
+_qh_lib_check() {
+  local files="tools/lib/cut-guard.sh tools/lib/process-fixture.sh" f head main diff="" why="" g=_qh_libgit
+  head="$($g rev-parse --verify -q HEAD 2>/dev/null)" || return 0   # not a git checkout (a test fixture): nothing to say
+  main="$($g rev-parse --verify -q origin/main 2>/dev/null)" || { echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9}; it has no origin/main to compare with (#5923)"; return 0; }
+  for f in $files; do
+    [ "$($g rev-parse -q "HEAD:$f" 2>/dev/null)" = "$($g rev-parse -q "origin/main:$f" 2>/dev/null)" ] || diff="$diff ${f##*/}"
+  done
+  if [ -z "$diff" ]; then
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9}: the queue's files match origin/main ${main:0:9} (#5923)"
+    return 0
+  fi
+  if [ -n "${QUEUED_HEAVY_LIB:-}" ] || [ -n "$QH_LIB_FALLBACK" ]; then why="it is not the default shared checkout"
+  elif $g symbolic-ref -q HEAD >/dev/null 2>&1; then why="it is on a branch, not detached"
+  elif [ -n "$($g status --porcelain --untracked-files=no 2>/dev/null)" ]; then why="it has local changes"
+  else
+    local d m; d="$(_qh_marker_dir_raw)"
+    for m in "$d"/suitewait.* "$d/machine-claim" "$d/light-side-claim"; do
+      [ -e "$m" ] && { why="a queue marker is present (${m##*/})"; break; }
+    done
+    if [ -z "$why" ]; then
+      local p; p="$(${QH_TEST_PS:-ps -axww -o pid= -o command=} 2>/dev/null | awk -v me="$$" '$1 != me && ($2 ~ /queued-heavy\.sh$/ || ($2 ~ /(^|\/)(ba|z|da|k)?sh$/ && $3 ~ /queued-heavy\.sh$/)) { print $1; exit }')"
+      [ -n "$p" ] && why="another queued-heavy.sh is live (pid $p)"
+    fi
+  fi
+  if [ -z "$why" ]; then
+    if $g checkout -q --detach "$main" 2>/dev/null; then
+      echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT moved ${head:0:9} -> origin/main ${main:0:9}: its${diff} differed and no queue run was live (#5923; back with: git -C '$LIB_CHECKOUT' checkout --detach ${head:0:9})"
+      return 0
+    fi
+    why="git checkout failed"
+  fi
+  echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9} is BEHIND: its${diff} differ from origin/main ${main:0:9}; not moved ($why), so this run joins on the lib as it is (#5923)"
+}
+# The marker dir as the lib names it (_kosmos_marker_dir), needed before the lib is loaded.
+_qh_marker_dir_raw() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cache/kosmos-run-markers}"; }
+if command -v git >/dev/null 2>&1; then
+  QH_LIB_LOCK="$(_qh_marker_dir_raw)/queued-heavy-lib.lock"
+  mkdir -p "$(_qh_marker_dir_raw)" 2>/dev/null
+  _qh_i=0
+  # Same shape as _qh_take's lock: a dead holder's lock is taken over, and so is one that never wrote its pid (about 10
+  # s of consecutive empty reads). Bounded at about 60 s: past that this run reports and loads without the lock.
+  until mkdir "$QH_LIB_LOCK" 2>/dev/null; do
+    _qh_op="$(cat "$QH_LIB_LOCK/pid" 2>/dev/null)"
+    if [ -n "$_qh_op" ]; then kill -0 "$_qh_op" 2>/dev/null || rm -rf "$QH_LIB_LOCK"
+    elif [ $((_qh_i % 20)) = 19 ]; then rm -rf "$QH_LIB_LOCK"; fi
+    _qh_i=$((_qh_i + 1)); [ "$_qh_i" -ge 120 ] && { QH_LIB_LOCK=""; break; }
+    sleep 0.5
+  done
+  if [ -n "$QH_LIB_LOCK" ]; then echo "$$" > "$QH_LIB_LOCK/pid"; _qh_lib_check; else
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') the lib check's lock stayed taken for 60 s; loading the lib unchecked (#5923)"; fi
+  unset _qh_i _qh_op
+fi
 . "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || {
+  [ -n "$QH_LIB_LOCK" ] && rm -rf "$QH_LIB_LOCK"
   echo "QUEUED-HEAVY: could not load cut-guard.sh from $LIB_CHECKOUT (set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2
   # #5446: the main-checkout fallback was tried and that checkout has no lib either (it predates it).
   [ -n "$QH_MAIN_TRIED" ] && echo "QUEUED-HEAVY: this repo's main checkout $QH_MAIN_TRIED has none either; if it is on main, bring it up to date with: git -C '$QH_MAIN_TRIED' pull --ff-only" >&2
   exit 3; }
+[ -n "$QH_LIB_LOCK" ] && rm -rf "$QH_LIB_LOCK"   # #5923: loaded, so a move by the next joiner can no longer reach this run
 # The functions called unguarded: every run's, then the side lane's (it is offered only when kosmos_light_side_clear exists).
 _qh_need="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_suite_waiting kosmos_refuse_if_earlier_suite_waiter _kosmos_suite_waiter_file kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
 declare -F kosmos_light_side_clear >/dev/null && _qh_need="$_qh_need kosmos_light_side_take kosmos_publish_light_side_pgid kosmos_release_light_side"
@@ -135,7 +204,7 @@ if [ -n "$QH_INHERITED_MAIN" ]; then
   if command -v kosmos_holds_machine_claim >/dev/null && kosmos_holds_machine_claim; then
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') $WHAT runs now, inside the turn that already holds the box (it claims and releases nothing)"
     # Review 13: the same clean command environment an ordinary turn gives (no queue controls, no side labels).
-    unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S 2>/dev/null
+    unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S QH_TEST_PS 2>/dev/null
     exec "$@"
   fi
   unset KOSMOS_MACHINE_CLAIM_COOKIE   # a cookie whose claim is gone names nothing; this run takes its own
@@ -421,7 +490,7 @@ fi
 # Review 4: the queue's own wait settings were for THIS script's wait; the command (a page layer, say) must wait on a
 # side turn on its own terms, not inherit KOSMOS_NO_WAIT and refuse beside one. The lib names them.
 unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} 2>/dev/null
-unset KOSMOS_WAIT_KEEP_MARK KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S   # review 5: a command that queues on its own must not claim to be one of these
+unset KOSMOS_WAIT_KEEP_MARK KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S QH_TEST_PS   # review 5: a command that queues on its own must not claim to be one of these
 if [ "$LANE" = side ]; then
   # Round 20 (Opus): the stop file and the descendants list exist BEFORE the command starts, so a full disk refuses the
   # turn before anything ran, and a stop is recorded by WRITING to a file that exists (an empty file: not stopped).
