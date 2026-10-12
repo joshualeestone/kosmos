@@ -42,6 +42,11 @@ function fileThere(file) {
   }
 }
 
+/* One folder, however it is spelled: a symlinked or differently-cased home names the same folder (best effort). */
+function samePlace(d) {
+  try { return require('node:fs').realpathSync.native(d); } catch { return path.resolve(d); }
+}
+
 function signedOutRows(cards, listed, readJob, readName, exists = fileThere, defaultDirOf = () => null) {
   const byDir = new Map();
   for (const c of Array.isArray(cards) ? cards : []) {
@@ -55,9 +60,9 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
     if (!dir) continue;
     let dflt = null;
     try { dflt = defaultDirOf(p.provider); } catch { dflt = null; }
-    if (dflt && path.resolve(dflt) === dir) continue;
+    if (dflt && samePlace(dflt) === samePlace(dir)) continue;
     const rows = (listed && Array.isArray(listed[p.provider])) ? listed[p.provider] : [];
-    if (rows.some((r) => r && typeof r.dir === 'string' && path.resolve(r.dir) === dir)) continue;
+    if (rows.some((r) => r && typeof r.dir === 'string' && samePlace(r.dir) === samePlace(dir))) continue;
     const key = p.provider + '\u0000' + dir;
     if (!byDir.has(key)) {
       let name = null;

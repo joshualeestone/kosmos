@@ -17,7 +17,7 @@ of reading signed out.
   existsSync, which answers false for a permission error). "We cannot tell" is never written as "gone" (reviews 1, 3).
 - The agents walked are the same set the account guard walks (`knownAgentNames`, factored out of
   `enumerateAgentsOnAccount`): the roster's cards plus known profiles not on it.
-- `GET /api/accounts` sends them as `signedOutAccounts`, APART from `accounts`: eight page consumers read `accounts`,
+- `GET /api/accounts` sends them as `unlistedAccounts`, APART from `accounts`: eight page consumers read `accounts`,
   two of them account pickers, and a folder with no credential must not be offered to a new agent.
 - `engine/accountline.answer` (both CLIs' words) prints them after the listed accounts, so `kosmos accounts` shows
   "Grok: <name>: not signed in: its sign-in or key is no longer on this computer, and <agent> uses it".
@@ -34,3 +34,8 @@ of reading signed out.
 That the lapsed account's folder still exists and the job still names it. If the folder itself was removed, the row
 still appears (the job names it) and says the credential is gone, which is true; if the job names no folder (default
 account), nothing appears, as before.
+- The field is `unlistedAccounts` (review 4): it carries unreadable rows (`signedOut: false, unreadable: true`) as
+  well as signed-out ones, so each row's own `signedOut` / `unreadable` says which.
+- A credential file a provider module starts reading later is not seen here until its name is added to
+  `PROVIDER_OF_RUNNER.files`; the review-2 test pins today's names to the modules' own path functions (review 4,
+  deferred: only grokaccounts has a presence helper, and it uses existsSync).
