@@ -52,6 +52,7 @@ function run(cards, reports, opts = {}) {
     roster: cards,
     book: opts.book || new Map(),
     reminded: opts.reminded || memReminded(),
+    screen: opts.screen || (() => null),   // a clear prompt unless a test says otherwise; the real reader has its own test
     now: opts.now || NOW,
     report: (s) => reports[s] || { found: false },
     paused: () => ({ paused: opts.paused === true }),
@@ -179,7 +180,7 @@ test('#5959 slice 3: the reminded record is kept on disk under the data root and
   assert.ok(file.startsWith(process.env.AGENT_WORKFORCE_DATA), 'CONTROL: the record is not under the sandboxed data root: ' + file);
   const sent = [];
   const sweep = () => nudge.sweepOnce({ roster: [h], book: new Map(), now: NOW, report: (s) => reports[s], paused: () => ({ paused: false }),
-    deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; }, DELIVERY });
+    screen: () => null, deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; }, DELIVERY });
   sweep();
   assert.equal(JSON.parse(fs.readFileSync(file, 'utf8'))[h.sessionName], reports[h.sessionName].at);
   sweep();   // a new book and a new reader, as after a restart
@@ -193,6 +194,45 @@ test('#5959 slice 3: the reminded record is kept on disk under the data root and
   sweep();
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8'))).sort(), ['away', h.sessionName].sort(),
     'pruned a recent record of an agent briefly off the board, or kept an old one');
+});
+
+test('#5959 slice 3: nothing is typed while a menu or prompt is open on its screen, or a channel-reached agent', () => {
+  const [o] = cardsFor([['oli', 'blocked']]);
+  const reports = { [o.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 2 * DAY), by: 'agent' } };
+  const book = new Map();
+  const reminded = memReminded();
+  const logged = [];
+  for (let i = 0; i < 5; i += 1) {
+    const r = run([o], reports, { book, reminded, screen: () => 'a menu is open on its screen', log: (x) => logged.push(x) });
+    assert.equal(r.sent.length, 0, 'typed into an open menu');
+  }
+  assert.equal(logged.length, 1, 'an open screen is logged once per report');
+  assert.equal(book.get(o.sessionName).tries, undefined, 'an open screen spent a try');
+  assert.equal(run([{ ...o, reachedByChannel: true }], reports, { book, reminded }).sent.length, 0, 'typed to an agent whose screen cannot be read here');
+  assert.equal(run([o], reports, { book, reminded }).sent.length, 1, 'CONTROL: told once its prompt is clear');
+});
+
+test('#5959 slice 3: the screen reader refuses a menu, a permission prompt and an unreadable screen, and passes a clear prompt', () => {
+  const status = require('./status');
+  const chat = require('./chat');
+  const real = chat.viewport;
+  const seen = [];
+  try {
+    chat.viewport = () => ({ text: null });
+    assert.equal(nudge.screenOpen('x', []), 'its screen could not be read');
+    // Whatever the readers say about a given text is what screenOpen says: driven through stubs of status's readers.
+    const orig = { q: status.claudeQuestionMenuUp, s: status.claudeSafeguardsMenuUp, p: status.claudePermissionPromptKind };
+    try {
+      chat.viewport = () => ({ text: 'anything' });
+      status.claudeSafeguardsMenuUp = () => false; status.claudeQuestionMenuUp = () => false; status.claudePermissionPromptKind = () => null;
+      assert.equal(nudge.screenOpen('x', []), null, 'CONTROL: a clear prompt');
+      status.claudeQuestionMenuUp = () => true; seen.push(nudge.screenOpen('x', []));
+      status.claudeQuestionMenuUp = () => false; status.claudeSafeguardsMenuUp = () => true; seen.push(nudge.screenOpen('x', []));
+      status.claudeSafeguardsMenuUp = () => false; status.claudePermissionPromptKind = () => 'wording'; seen.push(nudge.screenOpen('x', []));
+      status.claudePermissionPromptKind = () => 'shape'; seen.push(nudge.screenOpen('x', []));
+    } finally { Object.assign(status, { claudeQuestionMenuUp: orig.q, claudeSafeguardsMenuUp: orig.s, claudePermissionPromptKind: orig.p }); }
+  } finally { chat.viewport = real; }
+  assert.deepEqual(seen, ['a menu is open on its screen', 'a menu is open on its screen', 'a prompt is open on its screen', 'a prompt is open on its screen']);
 });
 
 test('#5959 slice 3: a record that could not be written is logged', () => {
