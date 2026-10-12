@@ -59,3 +59,7 @@ test('#5959 review 4: an offline card (running false) reads as the page\'s offli
   // A restarting agent is not swallowed by the offline branch (the page's own exception).
   assert.equal(labelOf({ running: false, state: 'restarting' }), 'Restarting agent');
 });
+
+test('#5959 review 5: a state named like an Object member reads "Can\'t tell" (where the page has no word)', () => {
+  for (const state of ['constructor', 'toString', '__proto__']) assert.equal(labelOf({ state }), "Can't tell", state);
+});
