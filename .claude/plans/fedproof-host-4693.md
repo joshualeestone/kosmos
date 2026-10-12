@@ -96,3 +96,12 @@ tunnel that cannot reach the coordinator fails the sign-in step, loudly.
 - **NITs, not taken:** the name is checked once and re-resolved by clients later (already the weakest premise above);
   `coordAt` keeps the whole record (harmless).
 - Comment and plan only. No behaviour changed, so the queued run on this head is the measurement.
+
+## Review 4 (sonnet, 2026-10-11 23:39): CONVERGED, no blocker or should-fix
+- Confirmed again against engine/federation.js and engine/fedseats.js: 7a cannot pass on any unchecked path or on an
+  accepting build, and both NOT_CONNECTED alternations match strings the product posts.
+- **NITs, not taken, decided:** "Review N:" labels in code comments (they carry the reason for each guard, which is
+  what a later reader of a security proof needs); the "37 notes" count (it is from the 10-06 run log, as the comment
+  says); the 23:23 run's 7a quote above (that run predates reviews 1 to 3, and the measurement for this head is the
+  next run); the accept-path NOTE wording (7a's FAIL is printed right before it, so it cannot be read as a pass).
+  Rewording comments now would only regenerate findings on the comments themselves.
