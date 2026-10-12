@@ -29,7 +29,7 @@ function fnSource(name) {
 }
 const FNS = ['file_owner_uid', 'bundle_is_ours', 'sealed_config_reaches', 'bundle_looks_sealed', 'sealed_serves_this_install',
   'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'sealed_icon_reusable', 'sealed_icon_other_users',
-  'sealed_icon_mark_reuse', 'sealed_icon_unmark', 'sealed_reuse_drop_second_icon', 'resolve_app_dir'].map(fnSource).join('\n');
+  'sealed_icon_mark_reuse', 'sealed_icon_unmark', 'resolve_app_dir'].map(fnSource).join('\n');
 const ME = String(process.getuid());
 
 let tmpRoot;
@@ -143,40 +143,6 @@ function ownHomeIcon(dir, home) {
   return dir;
 }
 
-it('#5913 review 1: the earlier second icon goes only when proven ours, in a different folder, on an unsandboxed run', () => {
-  const w = world(); const icon = path.join(w.homeApps, 'Kosmos.app');
-  ownHomeIcon(icon, w.home);
-  const r = run(w, 'sealed_reuse_drop_second_icon; echo "rc=$?"');
-  assert.ok(!fs.existsSync(icon), 'this install\'s own second icon was not removed: ' + r.out);
-  assert.match(r.out, /second Kosmos icon .* was removed/, 'the removal was not said');
-  // Not ours (another home): kept.
-  ownHomeIcon(icon, path.join(w.root, 'someone-else'));
-  run(w, 'sealed_reuse_drop_second_icon');
-  assert.ok(fs.existsSync(icon), 'an icon that is not this install\'s was removed');
-  fs.rmSync(icon, { recursive: true });
-  // A link at the home icon: kept, and its target untouched.
-  const target = ownHomeIcon(path.join(w.root, 'real-icon', 'Kosmos.app'), w.home);
-  fs.symlinkSync(target, icon);
-  run(w, 'sealed_reuse_drop_second_icon');
-  assert.ok(fs.lstatSync(icon).isSymbolicLink() && fs.existsSync(target), 'a link at the home icon, or its target, was removed');
-  fs.unlinkSync(icon);
-  // A sandboxed run that leaves the home folder real: kept (#226's gate).
-  ownHomeIcon(icon, w.home);
-  run(w, 'sealed_reuse_drop_second_icon', { extraEnv: { KOSMOS_SYS_APP_DIR: w.sys } });
-  assert.ok(fs.existsSync(icon), 'a run sandboxed by KOSMOS_SYS_APP_DIR alone removed a home icon');
-  // CONTROL: the same run naming the home folder as its sandbox gets the removal back.
-  run(w, 'sealed_reuse_drop_second_icon', { extraEnv: { KOSMOS_SYS_APP_DIR: w.sys, KOSMOS_HOME_APP_DIR: w.homeApps } });
-  assert.ok(!fs.existsSync(icon), 'naming the home folder as the sandbox did not get the removal back');
-});
-
-it('#5913 review 1: an aliased home Applications folder never loses the shared icon', () => {
-  const w = world(); occupy(w);
-  const alias = path.join(w.root, 'home-apps-alias');
-  fs.symlinkSync(w.sys, alias);   // ~/Applications -> /Applications
-  run(w, 'HOME_APP_DIR="' + alias + '"; sealed_reuse_drop_second_icon');
-  assert.ok(fs.existsSync(w.shared), 'the shared icon was removed through an aliased home folder');
-});
-
 it('#5913 review 1: the reader keeps the icon on a folder it cannot judge', () => {
   const w = world();
   const ask = () => run(w, `sealed_icon_other_users ${ME}; echo "rc=$?"`).out;
@@ -230,6 +196,72 @@ test('#5913 review 1: every sandbox signal keeps the marker folder inside the sa
   for (const v of ['KOSMOS_SYS_APP_DIR', 'KOSMOS_HOME_APP_DIR', 'KOSMOS_APP_DIR']) {
     assert.match(SETUP, new RegExp('elif \\[ -n "\\$\\{' + v + ':-\\}" \\]; then SEALED_USERS_DIR="\\$' + v + '/\\.kosmos-sealed-icon-users"'), v + ' does not keep the marker folder in its sandbox');
   }
+});
+
+it('#5913 review 2: reuse fires only while the home Applications slot is empty (an own second icon is kept and updated)', () => {
+  const w = world(); occupy(w);
+  const slot = path.join(w.homeApps, 'Kosmos.app');
+  const ask = () => run(w, 'resolve_app_dir; echo "reason=$APP_SKIP_REASON"', { other: w.shared }).out;
+  assert.match(ask(), /reason=shared-sealed/, 'CONTROL: an empty slot reuses');
+  ownHomeIcon(slot, w.home);
+  assert.doesNotMatch(ask(), /shared-sealed/, 'reused although this install already has its own second icon');
+  fs.rmSync(slot, { recursive: true });
+  ownHomeIcon(slot, path.join(w.root, 'someone-else'));
+  assert.doesNotMatch(ask(), /shared-sealed/, 'reused although something else is in the home slot');
+  fs.rmSync(slot, { recursive: true });
+  fs.symlinkSync(path.join(w.root, 'nowhere'), slot);
+  assert.doesNotMatch(ask(), /shared-sealed/, 'reused although a (dangling) link is in the home slot');
+});
+
+it('#5913 review 2: the marker names its install; only that install\'s uninstall takes it back', () => {
+  const w = world();
+  assert.match(run(w, 'sealed_icon_mark_reuse; echo "rc=$?"').out, /rc=0/);
+  assert.equal(fs.readFileSync(path.join(w.users, ME), 'utf8').trim(), w.home, 'the marker does not name this install');
+  // A sandboxed uninstall (another KOSMOS_HOME) leaves the real install's marker.
+  run(w, 'sealed_icon_unmark', { extraEnv: { KOSMOS_HOME: path.join(w.root, 'sandbox-home') } });
+  assert.ok(fs.existsSync(path.join(w.users, ME)), 'an uninstall of another install removed this install\'s marker');
+  // CONTROL: this install's own uninstall takes it back.
+  run(w, 'sealed_icon_unmark');
+  assert.ok(!fs.existsSync(path.join(w.users, ME)), 'this install\'s uninstall did not take back its marker');
+});
+
+it('#5913 review 2: a FIFO planted at the marker name is refused, never opened (no hang)', () => {
+  const w = world();
+  fs.mkdirSync(w.users); fs.chmodSync(w.users, 0o1777);
+  execFileSync('/usr/bin/mkfifo', [path.join(w.users, ME)]);
+  const t0 = Date.now();
+  let out = '';
+  try {
+    out = execFileSync('/bin/sh', ['-c', ['set -u', 'info() { :; }', FNS, 'sealed_icon_mark_reuse; echo "rc=$?"'].join('\n')],
+      { env: { PATH: '/usr/bin:/bin', KOSMOS_HOME: w.home, SEALED_USERS_DIR: w.users, INSTALL_CONFIG_DIR: w.cfg, SYS_APP_DIR: w.sys, HOME_APP_DIR: w.homeApps },
+        encoding: 'utf8', timeout: 5000 });
+  } catch (e) { out = 'TIMEOUT or error: ' + (e.signal || e.status); }
+  assert.match(out, /rc=[1-9]/, 'the writer did not refuse the FIFO: ' + out);
+  assert.ok(Date.now() - t0 < 5000, 'the writer hung on the FIFO');
+});
+
+it('#5913 review 2: the reader keeps the icon when an ancestor above the parent cannot be searched', () => {
+  const w = world();
+  const locked = path.join(w.root, 'locked'); fs.mkdirSync(locked);
+  const deep = path.join(locked, 'Kosmos', 'sealed-icon-users');   // parent "Kosmos" is absent, grandparent locked
+  fs.chmodSync(locked, 0o000);
+  try {
+    assert.match(run({ ...w, users: deep }, `sealed_icon_other_users ${ME}; echo "rc=$?"`).out, /rc=0/, 'a folder hidden by an unsearchable grandparent read as absent');
+  } finally { fs.chmodSync(locked, 0o755); }
+  assert.match(run({ ...w, users: deep }, `sealed_icon_other_users ${ME}; echo "rc=$?"`).out, /rc=1/, 'CONTROL: with the grandparent searchable, the folder reads absent');
+});
+
+test('#5913 review 2: open and uninstall wiring (text only, every platform)', () => {
+  // A reusing run opens the shared icon, gated on reuse, never on bundle_is_ours.
+  assert.match(SETUP, /if \[ "\$\{APP_SKIP_REASON:-\}" = "shared-sealed" \]; then\n  _open_app="\$SYS_APP_DIR\/Kosmos\.app"\n  sealed_icon_reusable "\$_open_app" && _open_ok=yes/, 'a reusing install no longer opens the shared icon');
+  assert.match(SETUP, /&& \[ "\$_open_ok" = yes \] \\/, 'the open gate no longer uses the reuse-aware check');
+  assert.match(SETUP, /_board_url="\$_open_app"/, 'the open target is not the chosen app');
+  // The uninstall takes back the marker AFTER its sandbox refusal and BEFORE the icon sweeps.
+  const un = SETUP.indexOf('\nuninstall() {\n');
+  const refusal = SETUP.indexOf('this uninstall is for a sandboxed install', un);
+  const unmark = SETUP.indexOf('sealed_icon_unmark ||', un);
+  const sweep = SETUP.indexOf('bundle_looks_sealed "$SYS_APP_DIR/Kosmos.app"', un);
+  assert.ok(refusal !== -1 && unmark > refusal && sweep > unmark, `uninstall order wrong (refusal ${refusal}, unmark ${unmark}, sweep ${sweep})`);
 });
 
 test('#5913: setup.sh wiring (text only, every platform)', () => {
