@@ -56,3 +56,8 @@ run every web*.test.js from the worktree as cwd.
 - The Linux not-answering sentence covers both causes it names ("Make sure it is on, then run kosmos restart").
 - platformHides knows data-linux-hide, so a first-run gate #5877 hides on Linux is not waited on.
 - HostMachine renamed hostMachineCap (a case-only difference was easy to mistype).
+
+## Review 4 (blind, sonnet)
+- The Files overflow line no longer says "Open in Finder shows them all" on Linux, and the file preview offers
+  Download on Linux (as it does through Kosmos+) instead of a reveal that runs /usr/bin/open.
+- MAC_ASLEEP_SENTENCE's Mac arm names the machine through hostMachine(); the Windows test loop covers all four sentences.

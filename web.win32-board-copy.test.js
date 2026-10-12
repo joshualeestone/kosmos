@@ -715,7 +715,7 @@ test('#5865: a Linux board seen from elsewhere is "the computer running Kosmos",
   assert.match(sentence('linux', 'SIGNED_OUT_SENTENCE'), /The computer running Kosmos and your agents are fine\./);
   assert.match(sentence('linux', 'ORG_SIGNED_OUT_SENTENCE'), /The computer running Kosmos and your agents are fine\./);
   // A Windows board seen from a phone is a PC (review 2: it fell into the Mac's words).
-  for (const name of ['OFFLINE_SENTENCE', 'SIGNED_OUT_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE']) {
+  for (const name of SENTENCES) {
     assert.doesNotMatch(sentence('win32', name), /\bMac\b/, name + ' told a Windows board about a Mac');
   }
   assert.match(sentence('win32', 'SIGNED_OUT_SENTENCE'), /Your PC and your agents are fine\./);
@@ -784,6 +784,13 @@ test('#5865: every data-linux-copy key has a Linux string, the agent page drops 
   assert.equal(runPage('linux', [], 'platformHides(e)', { e: el('data-win-hide') }), false, 'Linux honoured a Windows-only hide');
   assert.equal(runPage('win32', [], 'platformHides(e)', { e: el('data-win-hide') }), true);
   assert.equal(runPage('darwin', [], 'platformHides(e)', { e: el('data-linux-hide') }), false, 'CONTROL: a Mac hid a Linux-only element');
+});
+
+test('#5865: on Linux the Files overflow line and the preview do not offer Finder', () => {
+  const lister = page.lift(SCRIPT, 'paintAgentFilesAll');
+  assert.match(lister, /\(kplusRemote\(\) \|\| onLinux\(\) \? '' : ' Open in Finder shows them all\.'\)/, 'the overflow line still points Linux at Finder');
+  const pv = page.lift(SCRIPT, 'pvOpen');
+  assert.match(pv, /\} else if \(kplusRemote\(\) \|\| onLinux\(\)\) \{[^\n]*\n\s*const dl = document\.createElement\('a'\)/, 'the preview offers Finder on Linux');
 });
 
 test('#5865: an unreadable daily-report setting on Linux does not send the person to an app icon', () => {
