@@ -16,7 +16,8 @@ The card's premise does not hold on main: the engine already REFUSES both, with 
 ## The gap, and the change
 No test drives `task add --who <non-member>` through the route with the REAL engine: server.task-who-4887 stubs
 tasks.create, so a regression that let a non-member through would pass every test. This adds
-server.task-nonmember-5971.test.js: add and assign, each refused (and nothing written) with a member control.
+server.task-nonmember-5971.test.js: add and assign, each refused (and nothing written) with a member control, each run
+on the agent CLI's path (its token, recorded as a process add) and the page's.
 
 ## Rejected
 - A warning that lets the assignment through: the engine's refusal is stricter and already what the card asks for.
@@ -26,4 +27,3 @@ server.task-nonmember-5971.test.js: add and assign, each refused (and nothing wr
 That #5956's collisions came from this path. One concrete other way is visible on main: an agent REMOVED from a project
 keeps the parts it held (removeAgent does not clear `who`, by design per the comment above assignPart), so work can
 sit with someone no longer on the project. Not giving work, so not this card; named on the card as a lead.
-The test runs every arm through the agent CLI's path (its token, recorded as a process add) and the page's.
