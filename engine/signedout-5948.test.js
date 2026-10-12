@@ -57,15 +57,28 @@ test('#5948 CONTROLS: only the automatic authentication_failed line maps; its ne
 });
 
 test('#5948: on a grok card the account problem reads as a Grok sign-in, so the chat line and the manager notice fire', () => {
-  const out = status.reconcileReport({ ...AUTH, at: now() }, IDLE, Date.now(), undefined, null, undefined, undefined, 'grok');
-  const card = { sessionName: 'gk', name: 'Gk', runner: 'grok', state: out.state, stateEvidence: out.evidence };
-  const p = accountProblemOf(card);
-  assert.ok(p, 'no account problem on a signed-out card');
-  assert.equal(p.kind, 'signin');
-  assert.equal(p.provider, 'Grok');
-  assert.equal(p.notify, true);
-  // CONTROL: the same card before the report (idle) has no account problem, so the assertion above can fail.
-  assert.equal(accountProblemOf({ ...card, state: status.STATE.IDLE }), null);
+  // A real board card (test-support/fleet), made signed out through the seam itself.
+  const fleet = require('../test-support/fleet');
+  const spec = () => [fleet.agent('gk', { state: null, runner: 'grok', command: 'grok', screen: '' })];
+  const first = fleet.install(spec());
+  const name = first.agents.find((c) => c.sessionName === 'gk').name;
+  first.restore();
+  const before = fleet.install(spec());
+  try {
+    // CONTROL: the same card before the report has no account problem, so the assertions below can fail.
+    assert.equal(accountProblemOf(before.agents.find((c) => c.sessionName === 'gk')), null);
+  } finally { before.restore(); }
+  assert.equal(selfreport.record(name, { state: 'blocked', auto: true, on: AUTH.on, owner: 'provider', because: GROK_SAID }).recorded, true);
+  const board = fleet.install(spec());
+  try {
+    const card = board.agents.find((c) => c.sessionName === 'gk');
+    assert.equal(card.state, status.STATE.AUTH_FAILED, JSON.stringify(card.state));
+    const p = accountProblemOf(card);
+    assert.ok(p, 'no account problem on a signed-out card');
+    assert.equal(p.kind, 'signin');
+    assert.equal(p.provider, 'Grok');
+    assert.equal(p.notify, true);
+  } finally { board.restore(); fs.rmSync(selfreport.DIR, { recursive: true, force: true }); }
 });
 
 test('#5948: written through selfreport, the sign-in line replaces a standing question, and the agent clears it itself', () => {
