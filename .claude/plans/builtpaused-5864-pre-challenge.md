@@ -18,15 +18,35 @@ nothing (other agents' suites were live) and to read committed content only afte
 CLI test pinning [on hold] [built] for a task under its own hold in a paused project).
 
 ## Per-iteration findings
-- 1 (opus): W both CLIs printed [on hold] [built] while the row grouped built, so --state held disagreed with the
-  printed marks: now [built] [project paused], with a paused-project fixture for the route and both CLIs. W stale
-  CLAUDE.md row. C/N stale comments and test names.
-- 2 (sonnet): C my CLAUDE.md edit left a garbled, duplicated sentence. N comments.
-- 3 (opus): W the card promised the row says the project is paused; the board did not: span.tsk-paused added and
-  checked in render-onhold-4771. C no browser check covered the new behaviour (added). N wording.
-- 4 (sonnet): W the browser assertions had one control, so dropping either half of the row condition passed: one
-  control per half added. N README row, CSS and field comments.
-- 5 (opus): no BLOCKER/WARNING/CONVENTION; four NITs taken.
+
+#### Iteration 1 (opus)
+- [WARNING] Both CLIs printed [on hold] [built] while the row grouped built, so --state held disagreed with the
+  printed marks. Fixed: [built] [project paused], with a paused-project fixture for the route and both CLIs.
+- [WARNING] CLAUDE.md's Tasks view row still said held is checked first for a paused project. Fixed.
+- [CONVENTION] The 5705 test name and a fixture comment gave the old order. Fixed.
+- [NIT] No route-level paused fixture; a web comment overstated. Fixed.
+
+#### Iteration 2 (sonnet)
+- [CONVENTION] My CLAUDE.md edit left a garbled, duplicated sentence. Fixed.
+- [NIT] taskState's header comment never listed held; a web comment. Fixed.
+
+#### Iteration 3 (opus)
+- [WARNING] The card's decision promised the row says the project is paused; the CLI did, the board did not.
+  Fixed: span.tsk-paused on the row, checked in render-onhold-4771.
+- [CONVENTION] No browser check covered the new screen behaviour. Added.
+- [CONVENTION] A stale projectPaused field comment. Fixed.
+- [NIT] Two comments' wording. Fixed.
+
+#### Iteration 4 (sonnet)
+- [WARNING] The browser assertions had one control, so dropping either half of `projectPaused && state ===
+  'built'` passed. Fixed: one control per half.
+- [NIT] README row, a CSS comment for .tsk-paused, the field comment. Fixed.
+
+#### Iteration 5 (opus)
+- No issues found at BLOCKER, WARNING or CONVENTION.
+- [NIT] CLAUDE.md sentence order; a web comment; no CLI test of a built task under its own hold in a paused project
+  (added: [on hold] [built], no [project paused]); a comment on why the Assigner cannot move a fixture task. All taken.
+- [STRENGTH] Every reader of task state (Assigner, nudger, worldview, missedtell, blockBody) checked and consistent.
 
 ## Evidence
 - Targeted node tests 67/67 (TAP counts); four mutants (old order in taskState, in listGroup, old marks in each CLI)
