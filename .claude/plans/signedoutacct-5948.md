@@ -12,8 +12,9 @@ of reading signed out.
   the job first, since a stopped agent's card has none. Shape: an account row with `signedOut: true`, `usedBy` (the
   agents, the first three named), and `connection: { state: 'none', badge: 'signed_out', because }`. When one of the
   provider's credential files IS in the folder (the list left it out because it could not read or recognise it), the
-  row says so instead: `{ state: 'unknown', badge: 'unchecked' }`, "there but Kosmos could not read it". "We cannot
-  tell" is never written as "gone" (review 1).
+  row says so instead: `{ state: 'unknown', badge: 'unchecked' }` (the file may be unreadable, or the folder outside the
+  one the list scans). So is a folder Kosmos cannot look into at all: only ENOENT counts as missing (statSync, not
+  existsSync, which answers false for a permission error). "We cannot tell" is never written as "gone" (reviews 1, 3).
 - The agents walked are the same set the account guard walks (`knownAgentNames`, factored out of
   `enumerateAgentsOnAccount`): the roster's cards plus known profiles not on it.
 - `GET /api/accounts` sends them as `signedOutAccounts`, APART from `accounts`: eight page consumers read `accounts`,
@@ -26,8 +27,8 @@ of reading signed out.
   Folding the three together touches two callers outside this change; left for a follow-up (review 1, deferred).
 - Settings > AI Models does not show them yet (the page reads `accounts` only). A follow-up can paint them with a
   Sign in again action; the field is there for it.
-- A DEFAULT-account agent (no configDir) is not looked at: no keyed provider lists its default folder, by design, so its
-  absence says nothing.
+- The provider's DEFAULT folder is not looked at, whether a job names it or names none: a default account can run on
+  this computer's own key from the environment (e.g. XAI_API_KEY), so a missing file there proves nothing (review 3).
 
 ## Weakest premise
 That the lapsed account's folder still exists and the job still names it. If the folder itself was removed, the row

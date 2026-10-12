@@ -6,8 +6,8 @@
  * (a key file, or a sign-in file), so an account whose sign-in lapsed and took its file with it was not shown as signed
  * out: it vanished, from Settings > AI Models and from `kosmos accounts`. This adds one row per such folder, built from
  * the agents' own jobs: a NAMED account folder (job.configDir) that an agent of that provider uses and that no listed
- * row of that provider names. A default-account agent (no configDir) is not looked at: its default folder is not listed
- * by design for every keyed provider, so its absence says nothing.
+ * row of that provider names. The provider's DEFAULT folder is not looked at, whether a job names it or names none: a
+ * default account can run on this computer's own key from the environment, so a missing file there proves nothing.
  *
  * Pure: the cards, the listed rows, and the two readers are passed in.
  */
@@ -28,11 +28,21 @@ const SHOWN_AGENTS = 3;   // a folder many agents share names the first few, the
  * @param {{ openai: Array, google: Array, xai: Array }} listed the rows each provider's list already gives
  * @param {(sessionName: string) => ({ configDir?: string|null } | null)} readJob
  * @param {(provider: string, dir: string) => (string|null)} readName the folder's chosen name, or null
- * @param {(file: string) => boolean} [exists] whether a file is there (fs.existsSync by default)
+ * @param {(file: string) => boolean} [exists] whether a file is there; throws when that cannot be told
+ * @param {(provider: string) => (string|null)} [defaultDirOf] the provider's default folder, which is skipped
  * @returns {Array} rows, one per missing folder: connection state 'none' when no credential file is there, and an
  *   unchecked state when one is there but its list could not read it
  */
-function signedOutRows(cards, listed, readJob, readName, exists = (f) => require('node:fs').existsSync(f)) {
+/* Whether a file is there. Only ENOENT is "not there": a folder Kosmos cannot read (EACCES, an unmounted volume) throws,
+   so the row says it could not be checked rather than gone. fs.existsSync would answer false for both. */
+function fileThere(file) {
+  try { require('node:fs').statSync(file); return true; } catch (e) {
+    if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return false;
+    throw e;
+  }
+}
+
+function signedOutRows(cards, listed, readJob, readName, exists = fileThere, defaultDirOf = () => null) {
   const byDir = new Map();
   for (const c of Array.isArray(cards) ? cards : []) {
     if (!c || !c.sessionName) continue;
@@ -43,6 +53,9 @@ function signedOutRows(cards, listed, readJob, readName, exists = (f) => require
     if (!p) continue;
     const dir = job && typeof job.configDir === 'string' && job.configDir ? path.resolve(job.configDir) : null;
     if (!dir) continue;
+    let dflt = null;
+    try { dflt = defaultDirOf(p.provider); } catch { dflt = null; }
+    if (dflt && path.resolve(dflt) === dir) continue;
     const rows = (listed && Array.isArray(listed[p.provider])) ? listed[p.provider] : [];
     if (rows.some((r) => r && typeof r.dir === 'string' && path.resolve(r.dir) === dir)) continue;
     const key = p.provider + '\u0000' + dir;
@@ -50,14 +63,13 @@ function signedOutRows(cards, listed, readJob, readName, exists = (f) => require
       let name = null;
       try { name = readName(p.provider, dir); } catch { name = null; }
       const base = path.basename(dir);
-      const isDefault = base === p.prefix.slice(0, -1);   // the provider's default home, pinned by its job
       let unreadable = false;
       // A look that fails counts as "there but unreadable": "could not be checked", never a confident "gone".
       try { unreadable = p.files.some((f) => exists(path.join(dir, f))); } catch { unreadable = true; }
       byDir.set(key, {
         provider: p.provider, providerName: p.providerName, dir,
-        label: isDefault ? null : base.startsWith(p.prefix) ? base.slice(p.prefix.length) : base,
-        name: name || null, isDefault, email: null, authMode: null, keyTail: null,
+        label: base.startsWith(p.prefix) ? base.slice(p.prefix.length) : base,
+        name: name || null, isDefault: false, email: null, authMode: null, keyTail: null,
         signedOut: !unreadable, unreadable, usedBy: [],
       });
     }
@@ -70,7 +82,7 @@ function signedOutRows(cards, listed, readJob, readName, exists = (f) => require
     return {
       ...r,
       connection: r.unreadable
-        ? { state: 'unknown', badge: 'unchecked', because: 'its sign-in or key is there but Kosmos could not read it, and ' + who }
+        ? { state: 'unknown', badge: 'unchecked', because: 'a sign-in or key file is in its folder, but Kosmos could not read it or does not look in that folder, and ' + who }
         : { state: 'none', badge: 'signed_out', because: 'its sign-in or key is no longer on this computer, and ' + who },
     };
   });
