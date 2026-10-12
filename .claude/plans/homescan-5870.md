@@ -12,6 +12,7 @@
 - Per pass, by design: a new pass is a new Map, so a change between passes is seen. Within one pass (seconds) a file changed between two agents' reads is read once: the same as one agent reading it a moment earlier.
 - What is cached is deep-frozen. Today no reader changes a parsed file (checked); a later one that did would otherwise change it for every agent after it in the pass, silently. Frozen, it throws (the module is strict).
 - A FAILED read is never cached (review 1): a torn write, EACCES or EMFILE is read again by the next agent. Cached, one torn read of a file Claude Code rewrites constantly (.claude.json) would make every agent in the pass not whole. A good read and a missing file are kept.
+- A tier the guard itself rewrites in the pass (an agent folder's own settings, `rewritten`) is never cached (review 2), so no later scan in the pass could see it from before the rewrite.
 - With no cache (a caller that passes none), reads are fresh and unfrozen, exactly as before.
 - Weakest premise: that nothing downstream mutates the parsed JSON. The guard set (986 tests) passes with every cached read frozen, which would have thrown on any mutation those tests reach.
 
@@ -19,7 +20,7 @@
 - agentevents' per-tick check still passes no accountConfigDir (its configUnsafe is not trusted; commented in route 5). A separate small change.
 
 ## Tests
-`engine/homescan-5870.test.js` (4; the fourth since review 1):
+`engine/homescan-5870.test.js` (5; the fourth since review 1, the fifth since review 2):
 - one pass over two agents reads the other home's plugin record once, and a plugin's hooks.json once, while both agents still get the hook's script denied; the control (no shared cache) reads it once per agent, so the counter can see a second read;
 - a change to the home between passes is seen, and (control) the same pass's cache still holds the old read;
 - a cached read is deep-frozen and throws on a write; an uncached read is not frozen.
@@ -31,4 +32,7 @@ Mutations red: the cache not passed from setup-assistant (2 tests), the memo dis
   - [NIT] FIXED (comment): where a TypeError from a frozen read surfaces (an unreadable config, named), so a "could not be read" on a file that reads fine is traced here.
   - [NIT] FIXED in part: known_marketplaces.json is counted (read once in a two-agent pass). The plist reader (managed preferences) is not counted: it goes through the same memo, and a hermetic plutil read is not worth a fixture.
   - [NIT] not taken: two spellings of one file are read twice (one extra read, never wrong; as the guard keys elsewhere).
+- Iteration 2 (Sonnet), on 4ec80bc7: no BLOCKER.
+  - [WARNING, a hazard, not wrong today] FIXED. An agent folder's own settings (a tier the guard rewrites during the pass) was cached like any read; no later scan reads another agent's folder today, but if one ever did it would see the file from before the rewrite. Rewritten tiers now bypass the cache. Tested, with a control that a home tier IS cached in the same pass; mutation red.
+  - [NIT] DUPLICATE: two spellings read twice (stated). [NIT] not taken: test 2 restores the shared settings in a finally (as written); the plist path is untested (stated).
 

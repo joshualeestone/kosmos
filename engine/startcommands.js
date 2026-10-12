@@ -853,7 +853,9 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   const unsafe = [];
   const sources = [];
   for (const s of configSources(agentDir, homes, home, { platform, managedDir: md, managedPrefsDir })) {
-    const r = s.failed ? { error: s.failed } : s.plist ? read.plist(s.file) : read.json(s.file);
+    // Review 2: a tier the guard itself rewrites during the pass (an agent folder's own settings) is never cached, so no
+    // later scan in the pass could see it from before the rewrite.
+    const r = s.failed ? { error: s.failed } : s.rewritten ? readJsonFile(s.file) : s.plist ? read.plist(s.file) : read.json(s.file);
     if (r.error) { if (!s.rewritten) unsafe.push(`${s.file} (could not be read: ${r.error}), so the commands in it are unknown`); }
     else if (!r.missing) sources.push({ ...s, json: r.json });
   }

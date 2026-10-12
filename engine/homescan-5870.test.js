@@ -116,3 +116,13 @@ test('#5870 review 1: a failed read is not cached (the next agent reads again); 
     assert.equal(readsOf(km, () => pass(new Map(), 'pilot-i', 'pilot-j')), 1, 'known_marketplaces.json once per pass');
   } finally { fs.rmSync(km, { force: true }); }
 });
+
+test('#5870 review 2: an agent folder\'s own settings (which the guard rewrites in the pass) are never taken from the cache', () => {
+  const d = agentDir('pilot-own');
+  const own = path.join(d, '.claude', 'settings.json');
+  const cache = new Map();
+  setup.guardTokenOnlyFolder(d, 'pilot-own', { ...DEPS, agentConfigDirs: [OTHER], launchCache: cache });
+  assert.ok(![...cache.keys()].some((k) => k.startsWith('#5870 read') && k.endsWith(path.resolve(own))), 'the agent\'s own settings.json was cached');
+  // Control: the other home's settings ARE cached in the same pass (so the check above can see a key).
+  assert.ok([...cache.keys()].some((k) => k.startsWith('#5870 read json') && k.endsWith(path.join(OTHER, 'settings.json'))), 'control: a home tier is cached');
+});
