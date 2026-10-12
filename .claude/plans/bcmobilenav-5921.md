@@ -10,23 +10,26 @@ catches it, and the whole check dies after its assertions passed. The disposal c
 /api/status poll just before the close. Fix: every ctx.close() goes through shut(), which first calls
 page.unrouteAll and ctx.unrouteAll with { behavior: 'ignoreErrors' }; and the finally that closes the browser
 unroutes any context an arm left open (a failing arm never reaches its shut()), so a teardown crash cannot replace
-the real error. Precedent, stated exactly: render-login-expiry-3532 and render-teamcreate-4557 call page.unrouteAll
-with ignoreErrors before closing (render-project-done-4583 uses 'wait', a different semantic). None of them routes on
-the context, so ctx.unrouteAll here is new, needed for WebKit's remote.test route.
+the real error. The page is closed between the two unroutes, because on WebKit the context's route is what answers
+remote.test and a page still polling without it would reach real DNS. Precedent: render-login-expiry-3532,
+render-teamcreate-4557, render-engine-restart-4408, render-update-win32-manual and render-updates-stale call
+page.unrouteAll with ignoreErrors at teardown (render-project-done-4583 uses 'wait', a different semantic). No other
+check routes on the context, so ctx.unrouteAll is new here.
 
 ## Decided
 - The repo's established unrouteAll-before-close, not a per-handler message match (my first version, reviewed and
-  replaced): it covers every handler on the page and the context (the stubs too), every variant of the error, and
-  applies only at teardown, so it cannot hide a routing error while assertions are running.
+  replaced): it covers every handler still routed at teardown and every variant of the error, and applies only at
+  teardown, so it cannot hide a routing error while assertions are running. Two stubs taken off earlier with a plain
+  page.unroute (lines near the O1 and LO1 arms) are outside it; both fulfil at once with no fetch.
 - Rejected: retrying the check more times in browser-checks.sh (hides a race behind a retry count).
 - Weakest premise: ignoreErrors at teardown also swallows a real handler bug that only shows during close. Nothing
   is asserted after close, so no assertion can depend on it.
 
 ## Measured
 - Before: alone on Mortals at 5621723a5, 3 runs, 1 crashed (169 pass, then disposed); in the cut, 2 of 2 crashed.
-- After: alone on Mortals at origin/main, 12 of 12 clean with the unroute approach (171 pass, 0 fail, 0 disposed):
-  8 on the version before the finally change, 4 on this final file.
-- At the before-rate (1 in 3), 12 clean runs happen by chance under 1% of the time. Evidence, not proof.
+- After: alone on Mortals at origin/main, 16 of 16 clean with the unroute approach (171 pass, 0 fail, 0 disposed):
+  8 before the finally change, 4 with it, 4 on this final file (page closed between the unroutes).
+- At the before-rate (1 in 3), 16 clean runs happen by chance about 0.2% of the time. Evidence, not proof.
 - The fix rests on Playwright's documented ignoreErrors semantics, not on a reproduced failure.
 - NOT measured: a deterministic red arm. Two injections were tried, applied identically to the old and new files:
   - a pause of 400 ms before the status fulfil: both passed (not discriminating)

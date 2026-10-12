@@ -123,9 +123,12 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
     // catches it, and the whole check dies after its assertions passed. render-login-expiry-3532 and
     // render-teamcreate-4557 unroute the page this way; this check also routes on the context (WebKit's remote.test),
     // so it unroutes both. ignoreErrors makes Playwright ignore errors from handlers already running when it is called.
-    const live = new Map();   // every open context and its page, so a failing arm still unroutes before browser.close
+    const live = new Map();   // every context that got a page, so a failing arm still unroutes before browser.close
+    // The page closes before the context's route goes: on WebKit that route is what answers remote.test, and a page
+    // still polling without it would reach real DNS and report a page error.
     const unroute = async (ctx, page) => {
       await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+      await page.close().catch(() => {});
       await ctx.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
     };
     const shut = async (ctx, page) => {
