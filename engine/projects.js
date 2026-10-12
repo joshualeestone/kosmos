@@ -1496,7 +1496,8 @@ function setRevealPlatform(p) { revealPlatform = p || null; }
 function revealOnWindows() { return (revealPlatform || process.platform) === 'win32'; }
 /* #5881: a Linux board has no `/usr/bin/open`. A FOLDER it opens with `xdg-open` when the board's own environment names
    a display (DISPLAY or WAYLAND_DISPLAY); without one it cannot, and the answer says so. (engine/remote.js also uses
-   xdg-open, for the company sign-in page, but checks no display and waits on it.) A stale display starts an xdg-open that fails unseen, since it is not waited on (below).
+   xdg-open, for the company sign-in page, but checks no display and waits on it.) A stale display starts an xdg-open
+   that fails unseen, since it is not waited on (below).
    xdg-open is STARTED, never waited on (review 1): on a desktop it does not know it runs the file manager in the
    foreground, and waiting would hold the board's event loop until that window closed. So "ok" means it was started; a
    missing xdg-open (xdg-utils not installed) is said. The environment is injectable for tests, as the platform is. */
@@ -1519,6 +1520,11 @@ function linuxOpenFolder(folder) {
   /* xdg-open reads an argument starting with "-" as an option and takes no "--", so only an absolute path reaches it
      (every caller passes one: a stored folder, or the folder of a resolved file). */
   if (!path.isAbsolute(String(folder))) return { ok: false, because: 'the folder did not open' };
+  /* Only a folder reaches xdg-open, never a file or a link to one (it would open a .desktop file or a script with whatever
+     the desktop runs it with: the reason files are refused here). The Windows arm makes the same check. */
+  let st;
+  try { st = fs.statSync(String(folder)); } catch { return { ok: false, because: 'that folder is not there any more' }; }
+  if (!st.isDirectory()) return { ok: false, because: 'that is not a folder' };
   if (revealRunner) return revealRunner('xdg-open', [folder]);
   const bin = xdgOpenPath();
   if (!bin) return { ok: false, because: 'this computer has no program installed for opening folders' };   // xdg-open, from xdg-utils

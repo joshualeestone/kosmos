@@ -72,6 +72,14 @@ test('#5881: the real xdg-open line is started with the folder, and a missing xd
     'xdg-open was not started with the folder, the display and its X cookie, and never the board\'s token (reviews 2, 3)');
   // A path that is not absolute never reaches xdg-open (an argument starting with "-" would be read as an option).
   assert.deepEqual(projects.revealFolder('-x'), { ok: false, because: 'the folder did not open' });
+  // Review 7: neither does a file, or a link to one, given as a folder (a .desktop file would run).
+  const launcher = path.join(SANDBOX, 'evil.desktop');
+  fs.writeFileSync(launcher, '[Desktop Entry]\nExec=true\n');
+  assert.deepEqual(projects.revealFolder(launcher), { ok: false, because: 'that is not a folder' });
+  const link = path.join(SANDBOX, 'looks-like-a-folder');
+  try { fs.symlinkSync(launcher, link); } catch { /* no symlinks here */ }
+  if (fs.existsSync(link)) assert.deepEqual(projects.revealFolder(link), { ok: false, because: 'that is not a folder' });
+  assert.deepEqual(projects.revealFolder(path.join(SANDBOX, 'gone')), { ok: false, because: 'that folder is not there any more' });
   // CONTROL: the same call with no xdg-open on PATH says so, rather than claiming it opened.
   projects.setRevealEnv({ DISPLAY: ':0', PATH: path.join(SANDBOX, 'no-such-bin') });
   assert.deepEqual(projects.revealFolder(DIR), { ok: false, because: 'this computer has no program installed for opening folders' });
@@ -86,7 +94,16 @@ test('#5881 CONTROL: the Mac opener and the Windows arm are unchanged, whatever 
   assert.deepEqual(projects.revealFile(path.join(DIR, 'notes.txt')), { ok: true });
   assert.deepEqual(projects.openFile(DIR, 'notes.txt'), { ok: true });
   assert.deepEqual(mac, [['/usr/bin/open', DIR], ['/usr/bin/open', '-R', path.join(DIR, 'notes.txt')], ['/usr/bin/open', path.join(REAL, 'notes.txt')]]);
+  /* Review 7: the Windows arm has its own runner (win32explorer), and on a Windows host a real folder would reach
+     Explorer itself, which the live-execution gate refuses under node --test. So the arm gets a Windows path, a stat
+     that says it is a folder, and a spy for Explorer: on every host it then reaches the spy, never xdg-open. */
   const win = on(t, 'win32', { DISPLAY: ':0' });
-  projects.revealFolder(DIR);
-  assert.ok(!win.some((c) => c[0] === 'xdg-open'), 'Windows reached xdg-open');
+  const win32explorer = require('./win32explorer');
+  const explorer = [];
+  win32explorer.setRunner((exe, args) => { explorer.push(args); return { ok: true }; });
+  win32explorer.setStatForTests(() => ({ isDirectory: () => true, isFile: () => false }));
+  t.after(() => { win32explorer.setRunner(null); win32explorer.setStatForTests(null); });
+  assert.deepEqual(projects.revealFolder('C:\\Users\\kosmos\\docs'), { ok: true });
+  assert.equal(explorer.length, 1, 'the Windows arm did not reach Explorer');
+  assert.deepEqual(win, [], 'Windows reached xdg-open');
 });
