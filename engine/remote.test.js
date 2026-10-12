@@ -4159,7 +4159,7 @@ test('kosmos#5628 slice 2b-ui reviews 1 and 2: opened only when the opener exits
   assert.match((await remote.companyOpen()).because, /could not open your browser/, 'a missing opener was called opened');
   remote.signinCancel();
   assert.equal((await remote.companyOpen()).ok, false, 'opened after the setup was dropped');
-  remote.setCompanyOpenSourceForTests({ platform: process.platform, env: Object.assign({}, process.env, { DISPLAY: ':0' }) }); remote.setCompanyOpenCommandForTests(null);
+  remote.setCompanyOpenSourceForTests(null); remote.setCompanyOpenCommandForTests(null);
 });
 
 test('kosmos#5651: the second-step text goes through the tunnel with the secret on stdin; an older tunnel is unsupported', async () => {
@@ -4246,6 +4246,8 @@ test('kosmos#5651 board review 6: a refusal for a setup that is gone says start 
 const vouchFor = (secret, id) => require('node:crypto').createHmac('sha256', secret).update(id, 'utf8').digest('base64url');
 async function vouchSignedIn(name) {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  // kosmos#5889: a display is named through the seam, so a Linux machine with none still starts the opener here.
+  remote.setCompanyOpenSourceForTests({ platform: process.platform, env: Object.assign({}, process.env, { DISPLAY: ':0' }) });
   remote.setCompanyOpenCommandForTests(['/usr/bin/true']);
   await remote.signinStart('her@example.com');
   await remote.signinVerify('her@example.com', '111111');
@@ -4719,8 +4721,11 @@ test('kosmos#5889: the company sign-in opener passes only the desktop allowlist;
   const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
   const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'opener-5889-')), 'env.json');
   const writer = [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify(process.env))`];
-  const src = { HOME: '/home/ann', PATH: process.env.PATH, LANG: 'en_US.UTF-8', DISPLAY: ':0', XAUTHORITY: '/home/ann/.Xauthority',
-    KOSMOS_BOARD_TOKEN: 'secret-board-token', GITHUB_TOKEN: 'ghp_secret' };
+  // The board's REAL environment carries the secrets (review 1): a child spawned with process.env would see them.
+  process.env.KOSMOS_5889_SECRET = 'secret-board-token'; process.env.GITHUB_TOKEN_5889 = 'ghp_secret';
+  const src = Object.assign({}, process.env, { HOME: '/home/ann', LANG: 'en_US.UTF-8', DISPLAY: ':0', XAUTHORITY: '/home/ann/.Xauthority',
+    BROWSER: 'firefox', XDG_DATA_HOME: '/home/ann/.local/share', LC_TIME: 'en_GB.UTF-8', https_proxy: 'http://proxy.acme.test:3128' });
+  try {
   for (const platform of ['darwin', 'linux']) {
     remote.resetForTests();
     assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
@@ -4728,9 +4733,20 @@ test('kosmos#5889: the company sign-in opener passes only the desktop allowlist;
     remote.setCompanyOpenCommandForTests(writer);
     assert.deepEqual(await remote.companyOpen(), { ok: true, because: null }, platform);
     const got = JSON.parse(fs.readFileSync(out, 'utf8'));
-    for (const k of ['HOME', 'PATH', 'LANG', 'DISPLAY', 'XAUTHORITY']) assert.equal(got[k], src[k], `${platform}: ${k} did not reach the opener`);
-    assert.equal(got.KOSMOS_BOARD_TOKEN, undefined, `${platform}: a board token reached the opener`);
-    assert.equal(got.GITHUB_TOKEN, undefined, `${platform}: a token reached the opener`);
+    for (const k of ['HOME', 'PATH', 'LANG', 'DISPLAY', 'XAUTHORITY', 'BROWSER', 'XDG_DATA_HOME', 'LC_TIME', 'https_proxy']) assert.equal(got[k], src[k], `${platform}: ${k} did not reach the opener`);
+    assert.equal(got.KOSMOS_5889_SECRET, undefined, `${platform}: a board secret reached the opener`);
+    assert.equal(got.GITHUB_TOKEN_5889, undefined, `${platform}: a token reached the opener`);
+    fs.rmSync(out, { force: true });
+  }
+  } finally { delete process.env.KOSMOS_5889_SECRET; delete process.env.GITHUB_TOKEN_5889; }
+  // Linux with no display but a browser the person named, or WSL: the opener is still started.
+  for (const extra of [{ BROWSER: 'firefox' }, { WSL_DISTRO_NAME: 'Ubuntu' }]) {
+    remote.resetForTests();
+    assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+    remote.setCompanyOpenSourceForTests({ platform: 'linux', env: Object.assign({ PATH: process.env.PATH, HOME: '/home/ann' }, extra) });
+    remote.setCompanyOpenCommandForTests(writer);
+    assert.deepEqual(await remote.companyOpen(), { ok: true, because: null }, Object.keys(extra)[0]);
+    assert.equal(fs.existsSync(out), true, `${Object.keys(extra)[0]}: no opener was started`);
     fs.rmSync(out, { force: true });
   }
   // Linux with no display: nothing is started, and the answer is "use the link" at once.
