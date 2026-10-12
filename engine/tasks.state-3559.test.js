@@ -216,5 +216,8 @@ test('kosmos#5942 waitingSinceOf: the oldest wait among the holders that make wa
   assert.equal(tasks.waitingOnPerson(t6, [unknown]), true, 'PRE-CONTROL: task 6 does need the person');
   assert.equal(tasks.waitingSinceOf(t6, [unknown]), null, 'no known start, no age');
   assert.equal(tasks.waitingSinceOf(Object.assign({}, task, { closedAt: '2026-10-06T00:00:00Z' }), [a, b]), null, 'a closed task has no wait');
+  const mixed = { projectId: p.id, number: 7, parts: [{ id: 'p1', who: a.sessionName }, { id: 'p2', who: unknown.sessionName }], closedAt: null };
+  assert.equal(tasks.waitingOnPerson(mixed, [a, unknown]), true, 'PRE-CONTROL: task 7 needs the person');
+  assert.equal(tasks.waitingSinceOf(mixed, [a, unknown]), null, 'one holder with no known start: no age, never a too-short one');
   assert.equal(tasks.waitingSinceOf(task, [a, b], [b.sessionName]), '2026-10-05T10:00:00.000Z', 'a holder taken off the project does not count (#5034)');
 });

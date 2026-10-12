@@ -10,8 +10,11 @@ guess. Every other state shows nothing. The row is the task, so "which task" is 
   while the state is needs_you or blocked; `waitingSinceFrom` keeps a real time only (missing, garbage or ahead of
   the clock is null). A blocked card carries it too, but needsPerson does not count blocked, so no Tasks row
   ever shows a blocked agent's age.
-- engine/tasks.js `waitingSinceOf`: the oldest `waitingSince` among the cards that make waitingOnPerson true (the
-  same holders, the same project rule, #5034 members).
+- engine/tasks.js `waitingSinceOf`: the oldest `waitingSince` among the cards that make waitingOnPerson true, chosen
+  by one shared rule (`cardsNeedingPerson`). If any of those cards has no known start, null: an age from the others
+  could be shorter than the real wait.
+- #5943 (Angel, 12:00 CDT): askedAt's run is state + because + project, so the same words about another project
+  are dated afresh.
 - server.js Tasks route: `waitingSince` on each row while waitingOnPerson (null when only a missed repeating run is
   waiting: that has its own repeat line).
 - web/index.html tskRow: the "Waiting on you for ..." line.
@@ -24,7 +27,7 @@ explicitly (a stamped start, a forced null), so neither depends on whether #5943
 
 ## Decided
 - Wording "Waiting on you for 12 days", agoWords with " ago" dropped, agreed with Angel so #5943's "Asked 12 days
-  ago" and this read as one system. Weakest premise: that the oldest holder's wait is the task's wait.
+  ago" and this read as one system. Weakest premise: that the oldest holder's known wait is the task's wait (any unknown start shows no age).
 
 ## After #5943 merges (owed, on this card)
 - Add one unit arm with no selfreport.read wrapper: record a needs_you report, read the real card, assert
