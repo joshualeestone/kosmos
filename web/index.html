@@ -12883,6 +12883,7 @@ window.kosmosMeasureScrollbarWidth();
          than pressing. -->
     <p class="runnow" id="d-runson"></p>
     <p class="dhint" id="d-runson-why" hidden></p>
+    <p class="dhint" id="d-health" hidden></p>
     <div class="msteps" role="group" aria-label="Change what this agent runs on" style="margin-top:12px;">
       <div class="frow">
         <!-- kosmos#990 (Josh, 2026-08-26): "prepopulate that with what it is
@@ -23711,6 +23712,25 @@ function agoWords(ms) {
   if (hours < 36) return hours + (hours === 1 ? ' hour ago' : ' hours ago');
   const days = Math.floor(n / 86400);
   return days + (days === 1 ? ' day ago' : ' days ago');
+}
+
+/* #5959 slice 2 (the Windows agents' QA report, item 2): one health line on the agent's page: sign-in, usage, and when
+   it last worked. Sign-in and usage say only what the card's state shows ("no problem seen" is all Kosmos can claim
+   without one); the last-worked time is the engine's lastWorked (status.js lastWorkedOf), kept in memory, so after a
+   board restart it says so instead of a time. '' for a card with no lastWorked (not ours, or no pane): no line.
+   On the agent's page, not the grid card: #855 cut the card's extra lines, and the card's state already says a
+   sign-in or usage problem. */
+function healthLine(a, nowMs) {
+  const lw = a && a.lastWorked;
+  if (!lw || typeof lw !== 'object') return '';
+  const signin = a.state === 'auth_failed' ? 'isn\'t working' : 'no problem seen';
+  const usage = a.state === 'rate_limited' ? 'limit reached' : 'no limit seen';
+  const at = typeof lw.at === 'string' ? Date.parse(lw.at) : NaN;
+  let last;
+  if (Number.isFinite(at)) last = agoWords(nowMs - at) || 'just now';   // a time a little ahead (clock skew) is now
+  else if (lw.why === 'no_source') last = 'Kosmos cannot see this agent\'s turns yet';
+  else last = 'not seen since Kosmos started';
+  return 'Sign-in: ' + signin + ' · Usage: ' + usage + ' · Last worked: ' + last;
 }
 
 /* Whether this window is a Kosmos+ view of a Mac somewhere else, the one test both the offline note
@@ -40155,6 +40175,9 @@ function openDetail(sessionName, section, fromProject) {
       : '';
     drunWhy.hidden = !drunWhy.textContent;
   }
+  /* #5959 slice 2: the health line, repainted with the page like Runs on above, so it never shows another agent's. */
+  const dhealth = document.getElementById('d-health');
+  if (dhealth) { dhealth.textContent = healthLine(a, Date.now()); dhealth.hidden = !dhealth.textContent; }
   /* ⚠️ CLEARED BEFORE the paint's awaits, like the window box below: agent A's
      question and A's messages standing under B's name for two round-trips is
      cross-agent misattribution, and this box holds the strongest version of it

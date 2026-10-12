@@ -26,6 +26,7 @@
   "poolUntil": null,
   "screenState": null,
   "limitUntil": null,
+  "lastWorked": null,
   "because": "it says it is working",
   "disruption": null,
   "activeWhileWaiting": false,
