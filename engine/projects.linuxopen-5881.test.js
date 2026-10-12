@@ -17,7 +17,7 @@ const projects = require('./projects');
 const DIR = path.join(SANDBOX, 'docs');
 fs.mkdirSync(DIR, { recursive: true });
 fs.writeFileSync(path.join(DIR, 'notes.txt'), 'x');
-const REAL = fs.realpathSync(DIR);
+const REAL = fs.realpathSync.native(DIR);   // the engine's own resolution: on Windows it expands an 8.3 short name (RUNNER~1)
 
 function on(t, platform, env) {
   const calls = [];

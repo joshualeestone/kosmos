@@ -1534,12 +1534,16 @@ function linuxOpenFolder(folder) {
     const e = linuxEnv();
     const env = {};
     for (const k of ['HOME', 'PATH', 'LANG', 'DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS',
-      'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'XDG_DATA_DIRS', 'XDG_CONFIG_HOME', 'XDG_CONFIG_DIRS',
+      'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'XDG_DATA_HOME', 'XDG_DATA_DIRS', 'XDG_CONFIG_HOME', 'XDG_CONFIG_DIRS',
       'DESKTOP_SESSION', 'XDG_SESSION_DESKTOP', 'KDE_FULL_SESSION', 'KDE_SESSION_VERSION', 'GNOME_DESKTOP_SESSION_ID']) {
       if (e[k]) env[k] = e[k];
     }
     const child = spawn(bin, [folder], { detached: true, stdio: 'ignore', env });
-    child.on('error', () => { /* started or not, the answer below was already sent; nothing waits on it */ });
+    /* The answer below is already "ok" (started); a failure after that cannot change it, so it is logged with the
+       command, as win32explorer's launch does, so the board's log can explain a folder that never opened. */
+    child.on('error', (err) => {
+      process.stderr.write('[projects] ' + bin + ' ' + folder + ' failed to start: ' + String((err && err.message) || err) + '\n');
+    });
     child.unref();
     return { ok: true };
   } catch (err) {
