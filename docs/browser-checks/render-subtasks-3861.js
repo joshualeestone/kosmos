@@ -173,6 +173,7 @@ function chk(ok, label, extra) {
         const preset = await page.evaluate(() => document.getElementById('nt-parent').value);
         chk(preset === '3', '[add subtask] New task opens with Part of set to this task', preset);
         await page.fill('#nt-what', 'Proofread the invitations');
+        await page.fill('#nt-done', 'No typos left');   // kosmos#5956
         if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'subtasks-new-task-dialog.png'), fullPage: false });
         await page.click('#nt-go');
         await page.waitForFunction(() => document.getElementById('nt-modal').hidden, null, { timeout: 8000 }).catch(() => {});

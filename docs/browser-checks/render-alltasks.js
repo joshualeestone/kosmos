@@ -209,6 +209,7 @@ const say = (n, cond, note) => {
     }));
     say('+ New task on a picked project: its dialog, no picker', dlgA.pickerHidden && dlgA.project === 'Alpha Project', JSON.stringify(dlgA));
     await p.fill('#nt-what', 'Made from the Tasks view');
+    await p.fill('#nt-done', 'It shows in the list');   // kosmos#5956
     await p.click('#nt-go');
     await p.waitForFunction(() => /Added task/.test(document.getElementById('tsk-msg').textContent), null, { timeout: 8000 }).catch(() => {});
     await p.waitForFunction(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].some((b) => b.textContent === 'Made from the Tasks view'), null, { timeout: 8000 }).catch(() => {});
@@ -244,6 +245,7 @@ const say = (n, cond, note) => {
     await p.selectOption('#nt-proj', made[1]);
     const kept = await p.inputValue('#nt-what');
     say('changing the project keeps what was typed', kept === 'Aimed at Beta', JSON.stringify(kept));
+    await p.fill('#nt-done', 'It lands in Beta');   // kosmos#5956
     await p.click('#nt-go');
     // Wait for THIS create's answer: the Alpha one above already says "Added task".
     await p.waitForFunction(() => /to Beta Project\./.test(document.getElementById('tsk-msg').textContent), null, { timeout: 8000 }).catch(() => {});
