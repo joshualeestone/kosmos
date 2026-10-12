@@ -7963,10 +7963,8 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said(ASKING_GENERIC), reported: true, conflict: null, by: reported.by || null, ...project };
   }
   if (reported.state === 'blocked') {
-    /* #5948: the automatic sign-in report reads as a sign-in that stopped working, so the card, the chat line
-       (chat.withAccountRow) and the manager notice (accountnotify) say so, and messages are held (chat.signinHeldVerdict).
-       Claude Code's StopFailure hook writes it on an authentication_failed turn; a Windows per-turn supervisor writes
-       the same line, with the vendor's own sentence in `because`, when its CLI answers "Not signed in". */
+    /* #5948: on a non-Claude card, the automatic sign-in line reads auth_failed, so accountProblemOf and
+       chat.signinHeldVerdict see it. A Claude card's line stays blocked. Pinned by engine/signedout-5948.test.js. */
     if (runner && runner !== 'claude' && providerAuthReport(reported)) {
       const said0 = typeof reported.because === 'string' && reported.because.trim() ? reported.because.trim() : null;
       return {
