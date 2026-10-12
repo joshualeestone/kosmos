@@ -23,4 +23,9 @@ test('#5871: macIdHere names the computer by mac_identity when a registration wa
   assert.equal(remote.macIdHere(), 'mac-old', 'control: with no mac_identity, mac_id names it');
   fs.writeFileSync(path.join(STATE, 'mac_identity'), 'mac-new\nKEY\n');
   assert.equal(remote.macIdHere(), 'mac-new', 'macIdHere read mac_id alone, not the tunnel\'s rule');
+  // Review 8: the mtimes reach the rule. An older connector registered since: a newer mac_id naming another id wins.
+  const older = new Date(Date.now() - 120000);
+  fs.utimesSync(path.join(STATE, 'mac_identity'), older, older);
+  fs.writeFileSync(path.join(STATE, 'mac_id'), 'mac-later');
+  assert.equal(remote.macIdHere(), 'mac-later', 'macIdHere did not see the files\' times');
 });
