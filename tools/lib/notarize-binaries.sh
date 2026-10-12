@@ -73,8 +73,9 @@ _notarize_key() {
 
 # The cut's step 1c probe: one authenticated request to Apple's notary service with the key
 # step 4 will use, so a revoked or mistyped key, or an outage, stops the cut BEFORE the version
-# bump is pushed rather than at step 4, after it. It reads Apple's answer, not notarytool's exit
-# status: an answer carrying the "history" key is the only pass.
+# bump is pushed rather than at step 4, after it. It passes only when notarytool exits 0 AND its
+# answer carries a "history" key with an array value (Apple puts "message" first, so the key's
+# position is not checked).
 # KOSMOS_NOTARY_PROBE_BIN (tests only, like the preflight's KOSMOS_CODESIGN_BIN) replaces this
 # one probe and nothing else: step 4 never reads it. It is run with no arguments, its exit status
 # decides, and the line it prints says nothing was probed.
@@ -89,8 +90,9 @@ notarize_probe_credentials() (
   key="$(_notarize_key)" || exit 1
   rc=0
   out="$(_notarytool history --key "$key" --key-id "$key_id" --issuer "$issuer" --output-format json 2>&1)" || rc=$?
-  case "$out" in
-    *'"history"'*) echo "notary preflight: Apple answered an authenticated request with the notary key ($KOSMOS_NOTARY_SECRET_TARGET, key id $key_id)"; exit 0 ;;
+  _flat="$(printf '%s' "$out" | tr -d ' \t\n\r')"
+  case "$rc:$_flat" in
+    0:*'"history":['*) echo "notary preflight: Apple answered an authenticated request with the notary key ($KOSMOS_NOTARY_SECRET_TARGET, key id $key_id)"; exit 0 ;;
   esac
   echo "notary preflight: Apple's notary service did not answer an authenticated request with the notary key (notarytool rc=$rc). Step 4 notarises the app binaries with it (#5137), after the version bump is pushed. What it said:"
   printf '%s\n' "$out" | sed 's/^/    /'
