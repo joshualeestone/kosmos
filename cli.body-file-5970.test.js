@@ -4,7 +4,7 @@
  * kosmos#5970: `--body-file <path>` (and `--body-file=<path>`) on the Mac CLI's `feedback write`, `community post`,
  * `community comment`, `community edit` and `community endorse`, the same input path the Windows CLI takes (#5946).
  * The file is decoded by its byte order mark (UTF-8, UTF-16 LE or BE; none means UTF-8) and refused when it is
- * missing, over the board's limit, not text, or blank, and the flag is refused given twice, with no path, or beside
+ * missing, over the CLI's own 100 KB cap (as UTF-8), not text, or blank, and the flag is refused given twice, with no path, or beside
  * words. The community verbs run against a stub board (the #4913 endorse test's shape), so no real board and no
  * network; feedback write runs against a faked install (the #2037 test's shape) and a dead feedback URL.
  *
@@ -135,7 +135,7 @@ test('#5970: community post, edit and endorse take --body-file too', () => withS
 }));
 
 test('#5970: a file just under the cap is sent whole', () => withStubBoard(async (port, seen) => {
-  const text = 'x'.repeat(500 * 1024);
+  const text = 'x'.repeat(102400);
   const out = await runCli(['community', 'post', '--body-file', file(text)], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].body.body.length, text.length, 'the post did not arrive whole');
@@ -145,13 +145,16 @@ test('#5970: past --, "--body-file" is words, not the flag', () => withStubBoard
   const out = await runCli(['community', 'comment', 'post-1', '--', '--body-file', 'is', 'a', 'flag'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].body.body, '--body-file is a flag');
+  const e = await runCli(['community', 'endorse', 'Theo', '5', '--', '--body-file', 'is', 'neat'], envFor(port));
+  assert.equal(e.code, 0, e.stdout + e.stderr);
+  assert.equal(seen[1].body.text, '--body-file is neat', 'endorse sent the -- as review text, or took the flag');
 }));
 
 test('#5970: every refusal exits 2, names the problem, and sends nothing', () => withStubBoard(async (port, seen) => {
   const good = file('Fine words.');
   const big = path.join(FILES, 'big.txt');
   fs.writeFileSync(big, '');
-  fs.truncateSync(big, 524288 + 1);   // one byte over BODY_FILE_MAX_BYTES, sparse, so the test stays fast
+  fs.truncateSync(big, 2 * 102400 + 5);   // past the raw-size bound (twice BODY_FILE_MAX_BYTES), sparse, so it stays fast
   const cases = [
     ['words plus file', ['community', 'comment', 'post-1', '--body-file', good, 'and', 'words'], /as words OR with --body-file, not both/],
     ['twice', ['community', 'comment', 'post-1', '--body-file', good, '--body-file', good], /given twice/],
@@ -159,6 +162,9 @@ test('#5970: every refusal exits 2, names the problem, and sends nothing', () =>
     ['no path', ['community', 'comment', 'post-1', '--body-file'], /needs the path of a file/],
     ['empty path', ['community', 'comment', 'post-1', '--body-file='], /needs the path of a file/],
     ['an option as the path', ['community', 'comment', 'post-1', '--body-file', '--reply-to'], /--body-file needs a value, and --reply-to is an option/],
+    ['an option as the path, = spelling', ['community', 'comment', 'post-1', '--body-file=--reply-to'], /--body-file needs a value, and --reply-to is an option/],
+    ['over the cap once decoded (no BOM, under the raw bound)', ['community', 'comment', 'post-1', '--body-file', file('y'.repeat(102400 + 1))], /over the 100 KB Kosmos takes from a file/],
+    ['over the cap once decoded (UTF-16 CJK)', ['community', 'comment', 'post-1', '--body-file', file(Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('\u4e2d'.repeat(34200), 'utf16le')]))], /over the 100 KB/],
     ['-- as the path', ['community', 'comment', 'post-1', '--body-file', '--', 'words'], /needs the path of a file/],
     ['the flag as --topic\'s value', ['community', 'post', '--topic', '--body-file', good, 'words'], /--topic needs a value, and --body-file is an option/],
     ['the flag as --channel\'s value', ['community', 'post', '--channel', '--body-file', good], /--channel needs a value, and --body-file is an option/],
@@ -168,7 +174,7 @@ test('#5970: every refusal exits 2, names the problem, and sends nothing', () =>
     ['a folder', ['community', 'comment', 'post-1', '--body-file', FILES], /there is no file Kosmos can read at/],
     ['not UTF-8', ['community', 'comment', 'post-1', '--body-file', file(Buffer.from([0x68, 0x69, 0xc3, 0x28]))], /is not UTF-8 text/],
     ['a NUL', ['community', 'comment', 'post-1', '--body-file', file(Buffer.from('a\0b'))], /is not UTF-8 text/],
-    ['over the cap', ['community', 'comment', 'post-1', '--body-file', big], /over the 512 KB Kosmos takes from a file/],
+    ['over the cap', ['community', 'comment', 'post-1', '--body-file', big], /over the 100 KB Kosmos takes from a file/],
     ['empty', ['community', 'comment', 'post-1', '--body-file', file('')], /Nothing was sent: .* is empty/],
     ['blank', ['community', 'post', '--body-file', file(' \r\n\t\n')], /Nothing was posted: .* is empty/],
     ['edit, words plus file', ['community', 'edit', 'post', 'id-1', '--body-file', good, 'more'], /not both/],

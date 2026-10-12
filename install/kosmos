@@ -383,6 +383,7 @@ _take_body_file() {
             [ $# -ge 2 ] && shift
           else
             KOSMOS_BODY_FILE="${1#--body-file=}"
+            [ -z "$KOSMOS_BODY_FILE" ] || _opt_value "$_verb" --body-file "$KOSMOS_BODY_FILE" "$_usage"
           fi
           if [ -z "$KOSMOS_BODY_FILE" ] || [ "$KOSMOS_BODY_FILE" = "--" ]; then say "--body-file needs the path of a file, so nothing was done."; say "$_usage"; exit 2; fi
           shift; continue ;;
@@ -393,11 +394,12 @@ _take_body_file() {
 }
 # #5970: read KOSMOS_BODY_FILE into KOSMOS_BODY_TEXT. Decoded by its byte order mark (UTF-8, UTF-16 LE or BE; none
 # means UTF-8), so a file PowerShell or Notepad saved arrives as written. Refuses (exit 2): missing or unreadable,
-# over BODY_FILE_MAX_BYTES (on the file's bytes), not text in one of those encodings or holding a NUL (bash cannot
+# over BODY_FILE_MAX_BYTES (as UTF-8, after decoding), not text in one of those encodings or holding a NUL (bash cannot
 # carry one), and blank. CRLF becomes LF and the trailing line breaks go, as `$(cat)` does for a piped body.
 # $1 = posted|sent|changed|written, for "Nothing was <it>".
-# Below macOS ARG_MAX (1 MB), not the board's 6 MB: the verbs pass the text on as KC_TEXT / KOSMOS_FEEDBACK_BODY.
-BODY_FILE_MAX_BYTES=524288
+# Below Linux's 128 KB limit on one environment string, not the board's 6 MB: the verbs pass the text on as
+# KC_TEXT / KOSMOS_FEEDBACK_BODY.
+BODY_FILE_MAX_BYTES=102400
 KOSMOS_BODY_TEXT=""
 _read_body_file() {
   local _verb="$1" _f="$KOSMOS_BODY_FILE" _node _rc=0
@@ -405,8 +407,9 @@ _read_body_file() {
   KOSMOS_BODY_TEXT="$(KB_FILE="$_f" KB_MAX="$BODY_FILE_MAX_BYTES" "$_node" -e '
     const fs = require("fs"); const p = process.env.KB_FILE; const max = Number(process.env.KB_MAX);
     let b;
-    try { const st = fs.statSync(p); if (!st.isFile()) process.exit(10); if (st.size > max) process.exit(11); b = fs.readFileSync(p); } catch { process.exit(10); }
-    if (b.length > max) process.exit(11);
+    const rawMax = 2 * max + 4;   // UTF-16 with a BOM is at most twice its UTF-8; past this it cannot fit
+    try { const st = fs.statSync(p); if (!st.isFile()) process.exit(10); if (st.size > rawMax) process.exit(11); b = fs.readFileSync(p); } catch { process.exit(10); }
+    if (b.length > rawMax) process.exit(11);
     const dec = (enc, from) => new TextDecoder(enc, { fatal: true, ignoreBOM: true }).decode(b.subarray(from));
     let s;
     try {
@@ -417,13 +420,14 @@ _read_body_file() {
     } catch { process.exit(12); }
     if (s.includes("\0")) process.exit(12);
     s = s.replace(/\r\n/g, "\n").replace(/[\r\n]+$/, "");
+    if (Buffer.byteLength(s, "utf8") > max) process.exit(11);
     if (!s.trim()) process.exit(13);
     process.stdout.write(s);
   ')" || _rc=$?
   case "$_rc" in
     0) ;;
     10) say "Nothing was $_verb: there is no file Kosmos can read at $_f."; exit 2 ;;
-    11) say "Nothing was $_verb: $_f is over the 512 KB Kosmos takes from a file. Send a summary, or split it."; exit 2 ;;
+    11) say "Nothing was $_verb: $_f is over the $((BODY_FILE_MAX_BYTES / 1024)) KB Kosmos takes from a file. Send a summary, or split it."; exit 2 ;;
     12) say "Nothing was $_verb: $_f is not UTF-8 text. Save it as UTF-8 (or UTF-16 with a byte order mark) and try again."; exit 2 ;;
     13) say "Nothing was $_verb: $_f is empty."; exit 2 ;;
     *) say "Nothing was $_verb: Kosmos could not read $_f."; exit 1 ;;
@@ -3906,6 +3910,7 @@ cmd_community_endorse() {
       [1-5]) ;;
       *) say "Give 1 to 5 stars. $_usage"; exit 2 ;;
     esac
+    if [ "${1:-}" = "--" ]; then shift; fi   # kosmos#5970: `--` ends the options, as for the other verbs, and is not review text
     if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community endorse" "$_usage"; _read_body_file sent; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi   # kosmos#5970
     if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
       say "Nothing to send: an endorsement needs a short review (pass it after the stars, or pipe it in on stdin)."
