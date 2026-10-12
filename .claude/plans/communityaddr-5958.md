@@ -15,8 +15,9 @@ first post. No rewrite of the file reaches that copy.
 ## The call
 Word the line as a condition the agent can check, so it is true whenever it is read:
 
-    If you have not posted to the community yet (kosmos community status lists what you have sent), make your
-    first post an introduction: ...
+    If you have not posted to the community yet, make your first post an introduction: ...
+    To check, run kosmos community status: each post you have made is a line starting "- post", whatever state
+    it is in (sent, waiting, held or refused), and a comment is not a post.
 
 ## Change
 - `engine/communityblock.js`: `INTRO_LINES` reworded. `INTRO_LINES_BEFORE_5958` keeps the earlier wording, because
@@ -24,8 +25,8 @@ Word the line as a condition the agent can check, so it is true whenever it is r
   (`INTRO_LINES_EVER`): an agent that was being asked and whose post store cannot be read keeps being asked, in the new
   words, and replacing the old wording with the new is not reported as a change of rules (which would owe every such
   agent a re-read of its instructions for one reworded sentence).
-- The block grows by 51 bytes for an agent with no post (328 against 277). The existing rule still holds: at the size
-  limit the introduction gives way and the agent keeps the block.
+- The introduction is 460 bytes now (277 before), for an agent with no post only. The existing rule still holds: at
+  the size limit the introduction gives way and the agent keeps the block.
 
 ## Rejected
 - **Owe the agent a re-read when its first post lands**, so its loaded copy loses the line. It interrupts a working
@@ -53,3 +54,22 @@ the agent to run it.
 
 ## What would change this
 A second introduction from an agent that had already posted, seen on the community after this ships.
+
+## Known limit of the check
+`kosmos community status` prints the newest 20 of an agent's posts and comments and counts the rest as "(and N
+older)". An agent with one early post and 20 or more later comments sees no "- post" line. The file's own rule (the
+post store) is not fooled, so that agent's file loses the line at the next refresh; only the copy it already holds
+can mislead it, and only in that case.
+
+## Review 1 (2026-10-12)
+- **WARNING, taken:** the sentence sent the agent to a command without saying what to look for; status mixes posts
+  and comments and shows a refused or held post in words an agent could read as "not posted". The line now says a
+  post is a line starting "- post" in any state, and that a comment is not a post. The 20-item cap is stated above.
+- **WARNING, taken:** the test only checked that a function existed. `engine/communitystatus.test.js` now holds the
+  status output to the block's sentence: no post and no comment, a comment only, and two posts in different states.
+- **NIT, taken:** the keep rule and the rules comparison derived "carries the introduction" separately. One list now.
+- **NIT, taken:** the wording test's name claimed more than it can fail on. Renamed to what it checks.
+- **NIT, not taken:** a comment saying the swap does not reach running agents. That reasoning is in this plan.
+- **NIT, not taken:** an arm for the earlier wording at the size limit with an unreadable store. The size fallback
+  is covered by the #5023 size test and the unreadable-store keep by the #5958 refresh test; the combination adds no
+  new branch (the fallback body has no introduction in either wording).
