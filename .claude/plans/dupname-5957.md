@@ -88,8 +88,9 @@ It names the other agent by display name and handle, as `ambiguousNote` does, so
 - **Check-then-write is not atomic.** Two renames to one name in the same instant could both pass. A board is
   driven by one person, and the result is a duplicate this check would then refuse to make worse; a lock across
   create, rename and connect is not worth its cost here.
-- **Names written only in non-Latin letters are not compared.** Their key is empty, as it is for @-mentions, which
-  ignore them too. Known gap, said on the card.
+- ~~Names written only in non-Latin letters are not compared.~~ **Closed in review iteration 12:** "taken" is decided by
+  `takenKey` (letters and digits of every script), not the @-mention key, which kept only a-z and 0-9 and so read
+  王12 and 李12 as one name ("12") while never comparing an all-CJK one. For a Latin name the two keys agree.
 - **An unchanged name is not re-checked** on the profile route, so an agent that already shares its name (Josh's two
   Geminis, made before this check) can still save a role. Renaming either one now works only to a free name.
 
@@ -120,3 +121,10 @@ a source that fails refuses the check rather than reading as "no stopped agents"
 (one pane listing, no captures; it throws when tmux could not be asked) and names each agent with
 `status.readIdentity`, as the board does. Removed agents are filtered here for both lists, since paneRoster does not
 drop them the way safeRoster did. Tested: an unreadable pane listing refuses.
+
+## The "taken" key (review iteration 12)
+
+The rule section above says "taken" uses the @-mention key. That held until iteration 12: `takenKey` is NFKD,
+lower-case, letters and digits of every script; `nameKey` (the mention key, a-z and 0-9) is unchanged and still what
+`mentionedMembers` calls. Same answer for Latin names; non-Latin names are now compared, and digits alone never
+clash. A single Latin letter or digit is too short to clash; a single character of another script (王) is a name.

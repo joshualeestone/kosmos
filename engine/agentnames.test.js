@@ -68,3 +68,14 @@ test('except is the agent by its store key, so any spelling a route accepted for
   // Control: a spelling of ANOTHER agent's key does not except gemini.
   assert.equal(agentnames.clashFor('gemini', { agents: FLEET, except: 'SubZero' }).handle, 'gemini');
 });
+
+test('takenKey: every script counts, so non-Latin names are compared and digits alone never make a clash', () => {
+  for (const s of ['Gemini', 'gemini', ' GEMINI ', 'Ge-mini', 'Gémini']) assert.equal(agentnames.takenKey(s), 'gemini', s);
+  const ws = [{ handle: 'wang', shown: '王12' }, { handle: 'mei', shown: '王' }, { handle: 'ivan', shown: 'Иван' }];
+  assert.equal(agentnames.clashFor('李12', { agents: ws }), null, '王12 and 李12 are two names');
+  assert.equal(agentnames.clashFor('王', { agents: ws }).handle, 'mei', 'one CJK character is a whole name');
+  assert.equal(agentnames.clashFor('иван', { agents: ws }).handle, 'ivan', 'Cyrillic is compared, without case');
+  // Controls: one Latin letter is still too short, and a free non-Latin name is free.
+  assert.equal(agentnames.clashFor('k', { agents: [{ handle: 'k', shown: 'K' }] }), null);
+  assert.equal(agentnames.clashFor('李', { agents: ws }), null);
+});
