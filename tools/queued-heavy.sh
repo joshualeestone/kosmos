@@ -199,7 +199,12 @@ _qh_lib_check() {
     done
   fi
   if [ -z "$why" ]; then
-    if $g -c core.hooksPath=/dev/null checkout -q --detach "$main" 2>/dev/null; then
+    # INT, TERM and HUP wait until the checkout is done (a KILL still cannot), so a half-moved tree needs a KILL.
+    local mrc=0
+    trap '' INT TERM HUP
+    $g -c core.hooksPath=/dev/null checkout -q --detach "$main" 2>/dev/null || mrc=$?
+    trap - INT TERM HUP
+    if [ "$mrc" = 0 ]; then
       echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT moved ${head:0:9} -> origin/main ${main:0:9}: ${diff} differed and no queue waiter, claim or process inside it was live (#5923; back with: git -C '$LIB_CHECKOUT' checkout --detach ${head:0:9})"
       return 0
     fi
@@ -207,7 +212,8 @@ _qh_lib_check() {
   fi
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9} DIFFERS from origin/main ${main:0:9} (${diff}); not moved ($why), so this run joins on the lib as it is (#5923)"
 }
-# The marker dir as the lib names it (_kosmos_marker_dir), needed before the lib is loaded.
+# The marker dir as the lib names it (_kosmos_marker_dir in cut-guard.sh; keep the two the same), needed before the lib
+# is loaded.
 _qh_marker_dir_raw() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cache/kosmos-run-markers}"; }
 # Removes the lib lock only while it is still this run's (a joiner may have taken it over).
 _qh_lib_unlock() { [ -n "$QH_LIB_LOCK" ] && [ "$(cat "$QH_LIB_LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$QH_LIB_LOCK"; return 0; }
@@ -232,14 +238,20 @@ else
         # Only if it is still that holder's lock (another joiner may have just taken it over).
         [ "$(cat "$QH_LIB_LOCK/pid" 2>/dev/null)" = "$_qh_op" ] && rm -rf "$QH_LIB_LOCK"
       fi
-    else _qh_empty=$((_qh_empty + 1)); if [ "$_qh_empty" -ge 20 ]; then rm -rf "$QH_LIB_LOCK"; _qh_empty=0; fi; fi
+    else
+      # Counted per lock dir (its inode): a new holder's fresh dir restarts the count, so its mkdir-to-pid gap is safe.
+      _qh_ino="$(ls -di "$QH_LIB_LOCK" 2>/dev/null)"; _qh_ino="${_qh_ino%% *}"
+      [ "$_qh_ino" = "${_qh_lastino:-}" ] || _qh_empty=0
+      _qh_lastino="$_qh_ino"; _qh_empty=$((_qh_empty + 1))
+      if [ "$_qh_empty" -ge 20 ]; then rm -rf "$QH_LIB_LOCK"; _qh_empty=0; fi
+    fi
     _qh_i=$((_qh_i + 1)); [ "$_qh_i" -ge 600 ] && { QH_LIB_LOCK=""; break; }
     sleep 0.5
   done
   if [ -n "$QH_LIB_LOCK" ]; then
     ps -ww -o command= -p "$$" > "$QH_LIB_LOCK/cmd" 2>/dev/null; echo "$$" > "$QH_LIB_LOCK/pid"; _qh_lib_check; else
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') the lib check's lock stayed taken for 5 min (holder pid ${_qh_op:-?}); loading the lib unchecked, possibly in the middle of a move (#5923)"; fi
-  unset _qh_i _qh_op _qh_oc _qh_empty
+  unset _qh_i _qh_op _qh_oc _qh_empty _qh_ino _qh_lastino
 fi
 . "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || {
   _qh_lib_unlock
