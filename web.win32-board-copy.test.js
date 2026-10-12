@@ -228,12 +228,13 @@ test('NIT 1 (review round 2): open, then a file shown instead, then open again l
     ];
     // eslint-disable-next-line no-new-func
     const handler = new Function('document', 'fetch', 'PJ_CURRENT', 'pjSentence', 'asSentence',
-      'PJ_DOCS_VIEW_PARTIAL', 'PJ_DOCS_PARTIAL', 'PJ_DOCS_RAIL_PARTIAL', 'kplusRemote', 'filesPvOpen', 'return ' + body)(
+      'PJ_DOCS_VIEW_PARTIAL', 'PJ_DOCS_PARTIAL', 'PJ_DOCS_RAIL_PARTIAL', 'kplusRemote', 'filesPvOpen', 'onLinux', 'return ' + body)(
       { getElementById: (id) => (id === msgId ? msg : null) },
       async () => answers.shift(),
       'proj', (s) => s, (s) => s, false, 'PARTIAL NOTE', false,
       () => false,   // #5165: at the computer; the Kosmos+ branch is the browser check's
       () => false,   // #4997: the full-page preview did not take this row (these arms are about the open path)
+      () => false,   // #5881: not a Linux board (its Download branch: web.files-linux-download-5881.test.js)
     );
     const click = { target: { closest: () => ({ dataset: { doc: 'notes.pdf', ref: 'notes.pdf' } }) } };
     await handler(click);
@@ -255,12 +256,13 @@ test('#2245: after an open, a list that was cut short keeps its partial note (Vi
       const msg = { textContent: 'before' };
       // eslint-disable-next-line no-new-func
       const handler = new Function('document', 'fetch', 'PJ_CURRENT', 'pjSentence', 'asSentence',
-        'PJ_DOCS_VIEW_PARTIAL', 'PJ_DOCS_PARTIAL', 'PJ_DOCS_RAIL_PARTIAL', 'kplusRemote', 'filesPvOpen', 'return ' + body)(
+        'PJ_DOCS_VIEW_PARTIAL', 'PJ_DOCS_PARTIAL', 'PJ_DOCS_RAIL_PARTIAL', 'kplusRemote', 'filesPvOpen', 'onLinux', 'return ' + body)(
         { getElementById: (id) => (id === msgId ? msg : null) },
         async () => ({ ok: true, json: async () => ({ ok: true }) }),
         'proj', (s) => s, (s) => s, flag === 'view' && partial, 'PARTIAL NOTE', flag === 'rail' && partial,
         () => false,   // #5165: at the computer
         () => false,   // #4997: not a previewed row
+        () => false,   // #5881: not a Linux board
       );
       await handler({ target: { closest: () => ({ dataset: { doc: 'a/b.pdf' } }) } });
       return msg.textContent;

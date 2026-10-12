@@ -1494,11 +1494,31 @@ function setRevealRunner(f) { revealRunner = f; }
 let revealPlatform = null;
 function setRevealPlatform(p) { revealPlatform = p || null; }
 function revealOnWindows() { return (revealPlatform || process.platform) === 'win32'; }
+/* #5881: a Linux board has no `/usr/bin/open`. With a desktop (the board's own environment names a display) it opens
+   things with `xdg-open`, as engine/remote.js does; without one (a server, a board run as a systemd user service) there
+   is nothing to open them on, and the answer says so. The environment is injectable for tests, as the platform is. */
+let revealEnv = null;
+function setRevealEnv(e) { revealEnv = e || null; }
+function revealOnLinux() { return (revealPlatform || process.platform) === 'linux'; }
+function linuxHasDesktop() { const e = revealEnv || process.env; return Boolean(e.DISPLAY || e.WAYLAND_DISPLAY); }
+const NO_DESKTOP = 'this computer has no desktop to open it on';
+function linuxOpen(args, failed) {
+  if (!linuxHasDesktop()) return { ok: false, because: NO_DESKTOP };
+  try {
+    if (revealRunner) return revealRunner('xdg-open', args);
+    execFileSync('xdg-open', args, { timeout: 5000, stdio: 'ignore' });
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof ReferenceError || err instanceof TypeError) throw err;
+    return { ok: false, because: failed };
+  }
+}
 function revealFolder(folder) {
   /* On Windows the folder opens in File Explorer, through the one module that
      validates the path, holds the live-execution gate and never waits on Explorer's
      exit code (it exits 1 on success). */
   if (revealOnWindows()) return win32explorer.openFolder(folder);
+  if (revealOnLinux()) return linuxOpen([folder], 'the folder did not open');   // #5881
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', [folder]);
     execFileSync('/usr/bin/open', [folder], { timeout: 5000, stdio: 'ignore' });
@@ -1521,6 +1541,8 @@ function revealFolder(folder) {
  */
 function revealFile(file, opts) {
   if (revealOnWindows()) return win32explorer.revealFile(file, opts);   // #4997: opts.namedAs, as openFile
+  // #5881: xdg-open cannot select a file in its folder, so a Linux desktop opens the folder the file is in.
+  if (revealOnLinux()) return linuxOpen([path.dirname(String(file))], 'the folder did not open');
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', ['-R', file]);
     execFileSync('/usr/bin/open', ['-R', file], { timeout: 5000, stdio: 'ignore' });
@@ -1822,6 +1844,12 @@ function openFile(folder, name, where = 'this project') {
      the project record names (review round 2), so a mapped Z:\ project opens its
      documents the same way "Open in File Explorer" opens its folder. */
   if (revealOnWindows()) return win32explorer.openFile(target, { namedAs: path.join(String(folder), given) });
+  /* #5881: on Linux the same gated target, through xdg-open; with no desktop, the person is told to download it (the page
+     offers Download on a Linux board, as it does through Kosmos+). */
+  if (revealOnLinux()) {
+    const r = linuxOpen([target], 'that file did not open');
+    return r.ok || r.because !== NO_DESKTOP ? r : { ok: false, because: NO_DESKTOP + ', so download it instead' };
+  }
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', [target]);
     /* ⚠️ STDERR IS CAPTURED, NOT IGNORED (#1199), and that is the whole fix.
@@ -3701,6 +3729,6 @@ module.exports = {
   BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
-  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile, resolveListedFile, sameOpenedFile, sameListedPath,
+  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setRevealEnv, setFsWorldForTests, listFiles, openFile, resolveListedFile, sameOpenedFile, sameListedPath,
   isUnderTmpDir, tmpFolderRefused,
 };
