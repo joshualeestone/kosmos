@@ -297,7 +297,7 @@ bundle_is_ours() {
   # $2, the caller's purpose (an argument, not a VAR=x prefix: under /bin/sh a prefix on a function call outlives
   # the call):
   #   anchored  a residue sweep          remove  an uninstall removing an icon (in the shared folder a sealed
-  #             icon never gets this far: the uninstall leaves it and names it first, bundle_looks_sealed)
+  #             icon gets this far only when nothing left on this account could open it, shared_sealed_stays)
   #   own       "is this this install's own sealed icon?", for what the transcript says (no placement gate)
   #   (none)    replacing an icon: in the SHARED folder a sealed occupant counts only when this run places the
   #             sealed app too, or the per-install bundle built instead would leave other accounts that use this
@@ -329,8 +329,8 @@ bundle_is_ours() {
 # THIS install's own shipped copy ($KOSMOS_HOME/app/Kosmos.app), which carries the identifier and the signing team,
 # so the Team ID is never spelled here. Every account's sealed icon is the same app, so this proves "a Kosmos we
 # built", not "this install's". bundle_is_ours adds what makes it this install's (this account owns it on disk, and
-# the account's config names this install). Even then an uninstall leaves a sealed icon in the SHARED folder and
-# names it; residue this account left there, and its icon in its own ~/Applications, are removed.
+# the account's config names this install). An uninstall removes such an icon in the SHARED folder only when nothing
+# left on this account could open it (shared_sealed_stays, #5912); residue and ~/Applications icons as usual.
 # /usr/bin/codesign by absolute path, as /usr/bin/grep above.
 sealed_requirement() {
   local ours="$KOSMOS_HOME/app/Kosmos.app"
@@ -356,8 +356,31 @@ sealed_config_reaches() {
     || { [ -n "${KOSMOS_SYS_APP_DIR:-}" ] && [ "$d" -ef "$SYS_APP_DIR" ]; } \
     || { [ -n "${KOSMOS_HOME_APP_DIR:-}" ] && [ "$d" -ef "$HOME_APP_DIR" ]; }
 }
+# #5912: does the sealed icon at $1 stay on uninstall? Yes unless it is this install's (bundle_is_ours ... remove:
+# this account owns it, the account's config named this install when the uninstall began) and nothing left on this
+# account could open it (sealed_opens_another, given this install's board label as $2). Not sealed: no (the
+# per-install proof decides, below it).
+# #5913 (PigeonPete, wired as the second to land): another ACCOUNT can reuse this icon, so it is removed only when
+# `sealed_icon_other_users <owner-uid>` also says no other account uses it (exit 1); every failure of the reader
+# keeps the icon (the contract is on #5912's card).
+shared_sealed_stays() {
+  bundle_looks_sealed "$1" || return 1
+  bundle_is_ours "$1" remove && ! sealed_opens_another "$2" && ! sealed_icon_other_users "$(file_owner_uid "$1")" && return 1
+  return 0
+}
+# #5912 review: would a sealed icon this account owns still open an install of THIS account after this uninstall?
+# The sealed app opens the install the account config names, or the default home when there is none
+# (native-app/main.swift resolveInstall: it opens a home whose bin/kosmos it can run), and this uninstall removes the
+# config when it names this install. So afterwards it can open only the DEFAULT install: yes only when this install
+# ($1, its board label) is not the default (com.kosmos.board) and the default home's bin/kosmos is runnable, the same
+# test the app makes. A board login job is not that test (a default install can have none, and a stale one outlives
+# its home). -f as well as -x (#1716): a directory named bin/kosmos is not a runnable install, so it keeps nothing.
+sealed_opens_another() {
+  [ "$1" = "com.kosmos.board" ] && return 1
+  [ -f "$_kosmos_home_default/bin/kosmos" ] && [ -x "$_kosmos_home_default/bin/kosmos" ]
+}
 # A sealed Kosmos icon of ANY install (no per-install file, a valid signature with our identifier). Weaker than
-# bundle_is_sealed and used only where the answer LEAVES an icon in place and names it, never to delete one.
+# bundle_is_sealed: a yes here can only KEEP an icon (shared_sealed_stays); a removal needs bundle_is_ours as well.
 bundle_looks_sealed() {
   [ ! -L "$1" ] && [ ! -e "$1/Contents/Resources/kosmos-install.json" ] \
     && /usr/bin/codesign --verify --deep --strict '-R=identifier "com.chaoskosmos.kosmos"' "$1" >/dev/null 2>&1
@@ -1583,6 +1606,34 @@ _kosmos_data_root() {
 }
 
 
+# #5998: the Claude settings files that still hold the report hook of the install at $1 (its path as given, and $2
+# its real path when that differs), one per line. Matched right after a quote, as the hook command and args write
+# it, so another install whose folder merely ends in this one's path is not named. Used when no node could take
+# the hooks out, and when an earlier uninstall already removed the folder but left them.
+hook_settings_left() {
+  local _hg="${1%/}" _hr="${2%/}" _hf
+  [ -n "$_hr" ] || _hr="$_hg"
+  for _hf in "${AGENT_WORKFORCE_HOME:-$HOME}/.claude/settings.json" "${AGENT_WORKFORCE_HOME:-$HOME}"/.claude-*/settings.json; do
+    [ -f "$_hf" ] && grep -qF -e "\"$_hg/app/bin/kosmos-report-hook" -e "\"$_hr/app/bin/kosmos-report-hook" "$_hf" 2>/dev/null \
+      && printf '%s\n' "$_hf"
+  done
+  return 0
+}
+
+# #5998: say which settings files still hold Kosmos's entries for the install at $2 (real path $3), listed in $1.
+say_hooks_left() {
+  [ -n "$1" ] || return 0
+  info "note: Kosmos's entries could not be taken out of these Claude settings files, and Claude Code may show"
+  info "errors there until they are gone; delete the entries naming kosmos-report-hook or"
+  if [ -n "$3" ] && [ "${3%/}" != "${2%/}" ]; then
+    info "kosmos-statusline.js inside $2 (also written as $3):"
+  else
+    info "kosmos-statusline.js inside $2:"
+  fi
+  printf '%s\n' "$1" | while IFS= read -r _sf; do [ -n "$_sf" ] && info "  $_sf"; done
+  return 0
+}
+
 uninstall() {
   step "Removing Kosmos."
   # #5896 slice 2: the sealed icon is proven against this install's shipped copy, which the removal below deletes
@@ -2185,6 +2236,111 @@ KOSMOS_SWEEP_LIST
     if [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ] \
        || { [ -f "$KOSMOS_HOME/VERSION" ] && { [ -d "$KOSMOS_HOME/app" ] || [ -d "$KOSMOS_HOME/tmux" ]; }; }; then
       info "deleting $KOSMOS_HOME"
+      # #5998: TAKE KOSMOS'S HOOKS AND STATUS LINE BACK OUT OF CLAUDE CODE'S SETTINGS while the bundled node that
+      # can edit JSON still exists (the rm below deletes it). Left in, every hook points at a script this uninstall
+      # removes, and Claude Code reports a hook error on every tool call from then on, with nothing saying why.
+      # Self-contained on purpose: `sh -s -- --uninstall` runs THIS file against whatever engine is installed, which
+      # may predate any unwire function, so nothing here loads the app's code. Only items that are ours AND point
+      # inside THIS install's home are removed (another Kosmos install on this Mac shares these files), anything
+      # else in the file is kept, and a file that cannot be read or saved is named below, never rewritten wrong.
+      _unwire_left=""
+      _unwire_done=""
+      _kh_real="$(cd -P "$KOSMOS_HOME" 2>/dev/null && pwd)" || _kh_real=""
+      _unwire_out="$(mktemp "${TMPDIR:-/tmp}/kosmos-unwire.XXXXXX" 2>/dev/null)" || _unwire_out=""
+      if [ -n "$_unwire_out" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ]; then
+        "$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" "${AGENT_WORKFORCE_HOME:-$HOME}" <<'UNWIREEOF' >"$_unwire_out" 2>/dev/null || true
+const fs = require('fs');
+const path = require('path');
+const [kosmosHome, home] = process.argv.slice(2);
+const roots = [kosmosHome];
+try { roots.push(fs.realpathSync(kosmosHome)); } catch { /* the given path is enough */ }
+// Inside this home: the root starts the string or follows a quote or a space (so /var/x does not match /private/var/x).
+const inside = (s) => typeof s === 'string' && roots.some((r) => {
+  const root = r.replace(/\/+$/, '') + '/';
+  let at = s.indexOf(root);
+  while (at !== -1) {
+    if (at === 0 || /["'\s]/.test(s[at - 1])) return true;
+    at = s.indexOf(root, at + 1);
+  }
+  return false;
+});
+const hookIsOurs = (h) => !!h && (
+  (typeof h.command === 'string' && h.command.includes('kosmos-report-hook') && inside(h.command))
+  || (Array.isArray(h.args) && h.args.some((a) => typeof a === 'string' && a.includes('kosmos-report-hook') && inside(a))));
+const files = [path.join(home, '.claude', 'settings.json')];
+try {
+  for (const d of fs.readdirSync(home)) if (d.startsWith('.claude-')) files.push(path.join(home, d, 'settings.json'));
+} catch { /* no home listing: the default file alone */ }
+const left = [];
+for (const file of files) {
+  let target;
+  try { target = fs.realpathSync(file); } catch { continue; }   // absent, or a link to nothing: nothing of ours
+  let data;
+  let mode;
+  try {
+    const st = fs.statSync(target);
+    mode = st.mode & 0o7777;
+    data = JSON.parse(fs.readFileSync(target, 'utf8'));
+  } catch {
+    try { const raw = fs.readFileSync(target, 'utf8'); if (/kosmos-(report-hook|statusline)/.test(raw) && inside(raw.replace(/\\\//g, '/'))) left.push(file); } catch { /* unreadable */ }
+    continue;
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    if (/kosmos-(report-hook|statusline)/.test(JSON.stringify(data)) && inside(JSON.stringify(data).replace(/\\\//g, '/'))) left.push(file);
+    continue;
+  }
+  let changed = false;
+  if (data.hooks && typeof data.hooks === 'object' && !Array.isArray(data.hooks)) {
+    for (const event of Object.keys(data.hooks)) {
+      const list = data.hooks[event];
+      if (!Array.isArray(list)) continue;
+      const kept = [];
+      let ours = false;
+      for (const entry of list) {
+        if (!entry || !Array.isArray(entry.hooks) || !entry.hooks.some(hookIsOurs)) { kept.push(entry); continue; }
+        ours = true;
+        const rest = entry.hooks.filter((h) => !hookIsOurs(h));
+        if (rest.length) kept.push({ ...entry, hooks: rest });   // somebody else's hook shared our entry: theirs stays
+      }
+      if (!ours) continue;                                        // an event with nothing of ours is left exactly as it was
+      changed = true;
+      if (kept.length) data.hooks[event] = kept; else delete data.hooks[event];
+    }
+    if (changed && Object.keys(data.hooks).length === 0) delete data.hooks;
+  }
+  const sl = data.statusLine;
+  if (sl && typeof sl === 'object' && typeof sl.command === 'string' && sl.command.includes('kosmos-statusline.js') && inside(sl.command)) {
+    delete data.statusLine;
+    changed = true;
+  }
+  if (!changed) continue;
+  const tmp = target + '.kosmos-unwire.' + process.pid;
+  try {
+    const fd = fs.openSync(tmp, 'wx', mode);   // exclusive: never through something already at this name
+    try { fs.writeSync(fd, JSON.stringify(data, null, 2) + '\n'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.chmodSync(tmp, mode);
+    fs.renameSync(tmp, target);
+  } catch {
+    try { fs.unlinkSync(tmp); } catch { /* never written */ }
+    left.push(file);
+  }
+}
+// The last line says the program finished; without it (a node that crashed or cannot run here) the shell names
+// the files itself.
+process.stdout.write(left.concat(['@kosmos-unwire-done']).join('\n') + '\n');
+UNWIREEOF
+        if [ "$(tail -n 1 "$_unwire_out" 2>/dev/null)" = "@kosmos-unwire-done" ]; then
+          _unwire_done=yes
+          _unwire_left="$(grep -v '^@kosmos-unwire-done$' "$_unwire_out" 2>/dev/null)" || _unwire_left=""
+        fi
+      fi
+      if [ -z "$_unwire_done" ]; then
+        # No node that ran to the end (a partial install, a node that crashed or cannot run here) or no temp file:
+        # name every settings file that still points at this install's hook, rather than leaving it silently.
+        _unwire_left="$(hook_settings_left "$KOSMOS_HOME" "$_kh_real")"
+      fi
+      [ -z "$_unwire_out" ] || rm -f "$_unwire_out"
+      say_hooks_left "$_unwire_left" "$KOSMOS_HOME" "$_kh_real"
       # 🔑 RETIRE THIS MAC AT THE COORDINATOR WHILE IT CAN STILL SPEAK (#793).
       # The Mac's key lives in the support folder's remote/ dir and the
       # connector in the app tree about to go; after either is gone only a
@@ -2208,6 +2364,10 @@ KOSMOS_SWEEP_LIST
     else
       info "note: $KOSMOS_HOME does not look like a Kosmos install, so it was left alone."
     fi
+  else
+    # #5998: the folder is already gone (an earlier uninstall, from before the hooks were taken out): there is no
+    # node to edit the settings with, but the hooks it left can still be named.
+    say_hooks_left "$(hook_settings_left "$KOSMOS_HOME" "")" "$KOSMOS_HOME" ""
   fi
   # The icon goes too, or uninstall leaves a dead app that opens nothing.
   # BOTH default locations are swept -- installs before 2026-08-13 wrote
@@ -2269,11 +2429,19 @@ KOSMOS_SWEEP_LIST
     # (Ownership cannot be proven through a dangling link, so the refusal
     # note prints; that is honest, and the note names the survivor.)
     if [ -e "$SYS_APP_DIR/Kosmos.app" ] || [ -L "$SYS_APP_DIR/Kosmos.app" ]; then
-      if bundle_looks_sealed "$SYS_APP_DIR/Kosmos.app"; then
-        # #5896 slice 2: the sealed icon is the same app for every account on this Mac, and another account may be
-        # using it, so a shared one is left in place and named.
+      # #5912: a sealed icon stays only when another install can still open it (shared_sealed_stays); otherwise it is
+      # removed like any other icon of this install, by the branch below.
+      if shared_sealed_stays "$SYS_APP_DIR/Kosmos.app" "$_board_label"; then
         _sys_sealed_left=yes
-        sealed_left_note   # #5913 review 4: says whose icon it is
+        # #5912 + #5913: say why it stays. This account's icon stays because its main install still opens it, or
+        # because another account on this computer uses it (its marker); any other icon is named by owner.
+        if bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove && sealed_opens_another "$_board_label"; then
+          info "note: the Kosmos app in $SYS_APP_DIR still opens this account's main Kosmos install, so it was left in place."
+        elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then
+          info "note: the Kosmos app in $SYS_APP_DIR is also used by another account on this computer, so it was left in place."
+        else
+          sealed_left_note   # #5913 review 4: says whose icon it is
+        fi
       # The same anchored token as resolve_app_dir: the closing `}"` keeps
       # two homes in a prefix relationship from cross-matching, because
       # this grep is the sole gate on an rm -rf in a shared folder.
@@ -2645,9 +2813,10 @@ KOSMOS_SWEEP_LIST
     printf '  (Claude switches to another model when Opus safeguards flag a message).\n'
     printf '  Set it to false there if you want to be asked instead.\n\n'
   fi
-  # #3946: the status line Kosmos adds to record weekly usage is ours by its marker,
-  # but the bundled Node that could edit the JSON is gone by now, so it is NAMED, as
-  # the header's rule asks. Left in place it points at files this uninstall removed,
+  # #3946: the status line Kosmos adds to record weekly usage is ours by its marker. #5998 removes this
+  # install's own before the home goes; one still here belongs to another install, or sat in a file that
+  # could not be saved, and the bundled Node that could edit the JSON is gone by now, so it is NAMED, as the
+  # header's rule asks. Left in place it points at files this uninstall removed,
   # so it records nothing any more, and it keeps the one status-line slot.
   # Every account Kosmos wires, not only the default: account folders are kept by this
   # uninstall, so their entries would otherwise be left unnamed.
@@ -2658,9 +2827,9 @@ KOSMOS_SWEEP_LIST
     [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && _sl_left=yes
   done
   if [ -n "$_sl_left" ]; then
-    printf '  Kosmos\047s status line was left in these settings files (the "statusLine"\n'
-    printf '  entry naming kosmos-statusline.js). It records nothing now; delete that entry\n'
-    printf '  if you want to use a status line of your own:\n'
+    printf '  A Kosmos status line is still in these settings files (the "statusLine" entry\n'
+    printf '  naming kosmos-statusline.js). If no other Kosmos on this computer uses it, it\n'
+    printf '  records nothing now; delete that entry to use a status line of your own:\n'
     for _sl in "$HOME/.claude/settings.json" "$HOME"/.claude-*/settings.json; do
       [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && printf '    %s\n' "$_sl"
     done
@@ -3875,7 +4044,9 @@ build_app_bundle() {
        Terminal"), which is exactly what every agent hit after 0.6.56. This string
        is the text the one-time "Kosmos wants to control Terminal" prompt shows;
        once the person allows it, the grant persists for this Developer ID
-       signature across updates.
+       signature across updates. That holds for the sealed app; a per-install
+       bundle is signed ad hoc (#5992), an identity tied to its exact bytes, so
+       macOS may ask again after each update there.
        #3113: this ONE NSAppleEventsUsageDescription is SHARED (macOS allows only
        one per bundle) and serves the RUNTIME automation paths: Open Terminal
        (control Terminal) AND an agent driving Terminal/System Events under its
@@ -3936,6 +4107,20 @@ PLIST
   # cache, not a bad icns.)
   [ -f "$KOSMOS_HOME/app/assets/Kosmos.icns" ] && cp "$KOSMOS_HOME/app/assets/Kosmos.icns" "$target/Resources/Kosmos.icns" \
     && chmod 644 "$target/Resources/Kosmos.icns" || true   # best effort, like the copy it follows
+
+  # #5992: seal the bundle, last, after every file in it is written. A folder assembled around the signed kosmos-app
+  # has no _CodeSignature, so the bundle as a whole does not verify ("code has no resources but signature indicates
+  # they must be present") and macOS calls it "damaged" even without a quarantine flag. An ad-hoc signature over the
+  # whole bundle seals it, keeping the program's entitlements (the microphone) and flags (hardened runtime).
+  # Extended attributes go first: codesign refuses a bundle holding Finder info or similar on any file (an icon
+  # copied with one would otherwise cost the whole icon), and a quarantine flag copied from the program would make
+  # Gatekeeper refuse the ad-hoc bundle.
+  local _cs_err
+  /usr/bin/xattr -cr "$app" 2>/dev/null || true
+  _cs_err="$(/usr/bin/codesign --force --sign - --preserve-metadata=entitlements,flags "$app" 2>&1 >/dev/null)" || {
+    info "note: Kosmos could not sign its app icon: $(printf '%s\n' "$_cs_err" | /usr/bin/tail -1)"; return 1; }
+  /usr/bin/codesign --verify --deep --strict "$app" >/dev/null 2>&1 || {
+    info "note: Kosmos signed its app icon but the signature does not check out"; return 1; }
   return 0
 }
 

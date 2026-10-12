@@ -37,6 +37,9 @@ const EVENTS = [
   { kind: 'repeat-set', words: 'daily at 09:00' }, { kind: 'repeat-set' }, { kind: 'repeat-cleared' },
   { kind: 'run', person: true, note: 'all good' }, { kind: 'run', by: 'mara-discord', late: true, unchanged: true, inferred: true },
   { kind: 'run', by: 'leo-discord', unchanged: true }, { kind: 'run' },
+  // kosmos#5920: a recovering run, one, several and past the cap.
+  { kind: 'run', by: 'mara-discord', late: true, missedBefore: 2, note: 'back up' }, { kind: 'run', by: 'leo-discord', missedBefore: 1 },
+  { kind: 'run', person: true, missedBefore: 99, missedMore: true },
   { kind: 'reviewer-set', person: true }, { kind: 'reviewer-set', who: 'leo-discord' }, { kind: 'reviewer-set' }, { kind: 'reviewer-cleared' },
   { kind: 'missed', count: 3, more: true, person: true }, { kind: 'missed', count: 2, told: 'mara-discord' },
   { kind: 'missed', count: 1, told: 'leo-discord', reached: false }, { kind: 'missed', count: 1 },

@@ -214,7 +214,11 @@ function treeOf(p) {
   const under = (n) => kids.get(Number(n)) || [];
   /* The parent's "2 of 5 done": its DIRECT children, finished by progressOf (parts included).
      Direct only: a grandchild is counted by its own parent, never twice up a chain. */
-  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, total: k.length }; };
+  /* kosmos#5956: `built` counts the open children marked built (builtAt), so a parent can say every subtask is built
+     and waiting for the person, not only every subtask closed. Marking built already asks the agent to answer the
+     task's done-when checks. */
+  const isBuilt = (t) => !progressOf(t).closed && !isOnHold(t) && typeof t.builtAt === 'string' && t.builtAt !== '';   // held reads held (taskState)
+  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, built: k.filter(isBuilt).length, total: k.length }; };
   return { byNum, up, under, progress };
 }
 
@@ -309,7 +313,7 @@ function childrenOf(p, n) {
   return treeOf(p).under(n);
 }
 
-/** A parent's `{done, total}` over its direct children; total 0 means no subtasks. */
+/** A parent's `{done, built, total}` over its direct children (kosmos#5956: built = open, not held, marked built); total 0 means no subtasks. */
 function subtaskProgress(p, n) {
   return treeOf(p).progress(n);
 }
@@ -1090,13 +1094,13 @@ function setRepeat(projectId, n, rule, opts = {}) {
     if (next) {
       changed.repeat = next; if (person) changed.repeatByPerson = true; else if (didChange) delete changed.repeatByPerson;
       if (didChange) changed.repeatSetAt = new Date().toISOString();   // review 4: a first run is due from when the rule was set
-      if (didChange) delete changed.lastRunLate;   // slice 2 review 1: "late" was measured against the old rule
+      if (didChange) { delete changed.lastRunLate; delete changed.lastRunRecovered; }   // slice 2 review 1: "late" (and #5920's misses) were measured against the old rule
       // kosmos#5643 review 1: and the streak of runs that found nothing new belonged to the old rule's job.
       if (didChange) dropRunStreak(changed);
       if (changed.builtAt) { changed = withoutBuilt(changed); droppedBuilt = true; }   // review 3: a recurring job is never built
     } else {
       // review 3: the runs belonged to the rule; a rule set again later starts with no stale "last run".
-      delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunByPerson; delete changed.lastRunNote; delete changed.lastRunLate;
+      delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunByPerson; delete changed.lastRunNote; delete changed.lastRunLate; delete changed.lastRunRecovered;
       dropRunStreak(changed);   // kosmos#5643 review 1
       // slice 3: the reviewer reviewed this rule's results, so it goes with the rule.
       dropReviewer(changed);
@@ -1204,6 +1208,7 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
   let changed;
   let duplicate = false;
   let inferred = false;   // kosmos#5643 review 2: set in the write, read by the transcript row after it
+  let skipped = null;   // kosmos#5920: the runs this one comes after with none of them run, set in the write
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
@@ -1273,10 +1278,17 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
        Review 2: a job reporting a few minutes early (08:50 for 09:00) is not late; a second runner in the same minute gets
        the same answer as the first. */
     if (taskrepeat.runIsLate(t, at)) changed.lastRunLate = true; else delete changed.lastRunLate;
+    /* kosmos#5920: a run that comes after scheduled runs that never happened RECOVERS from them. Measured before
+       lastRunAt moves (on t, the task as it was), and kept on the task and on this run's history row, so the misses are
+       still on the record once the count (which starts from the last run) has moved past them. */
+    skipped = taskrepeat.skippedBefore(t, at);
+    if (skipped) {
+      changed.lastRunRecovered = { missed: skipped.count, from: new Date(skipped.firstAt).toISOString(), to: new Date(skipped.lastAt).toISOString(), ...(skipped.more ? { more: true } : {}) };
+    } else delete changed.lastRunRecovered;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
   if (duplicate) return Object.assign({}, changed, { duplicate: true });
-  taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}), ...(changed.lastRunLate ? { late: true } : {}), ...(changed.lastRunUnchanged ? { unchanged: true, ...(inferred ? { inferred: true } : {}) } : {}) });
+  taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}), ...(changed.lastRunLate ? { late: true } : {}), ...(skipped ? { missedBefore: skipped.count, ...(skipped.more ? { missedMore: true } : {}) } : {}), ...(changed.lastRunUnchanged ? { unchanged: true, ...(inferred ? { inferred: true } : {}) } : {}) });
   return changed;
 }
 

@@ -1964,6 +1964,31 @@ function limitHeldVerdict(sessionName, roster, now = Date.now()) {
     at: new Date().toISOString(), paneState: null, paneNote: null,
   };
 }
+/* #5948: a line for an agent whose sign-in stopped working (a REPORTED auth_failed, see below) is HELD in the #5805 queue
+   rather than typed: typed, it reaches a session that answers every turn "Not signed in", and the sender counts it as
+   delivered (on Windows the supervisor even drops it). heldBy stays 'limit' so every #5805 path (the queue, its minute
+   sweep, Send now anyway, the room's limit record) carries it unchanged; heldFor says why, for the words. limitReset is
+   now: the queue's drop clock counts a day from the send, since a sign-in has no printed reset. heldUntil is the next
+   look. Released when the card no longer reads auth_failed (signed in again, or restarted). */
+function signinHeldVerdict(sessionName, roster, now = Date.now()) {
+  const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
+  // The REPORTED state only (the seam line): a screen-read auth_failed has no clearing writer on most runners.
+  if (!card || card.isNamedOurs !== true || card.state !== status.STATE.AUTH_FAILED || card.stateReported !== true) return null;
+  if (String(card.runner || 'claude') === 'claude') return null;   // the seam's own scope (status.reconcileReport)
+  if (addressable(sessionName, roster).ok !== true) return null;
+  const provider = require('./accountproblem').providerOf(card);
+  return {
+    state: DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldFor: 'signin',
+    heldUntil: new Date(now + LIMIT_RELOOK_MS).toISOString(), limitReset: new Date(now).toISOString(),
+    because: 'held: it is signed out of ' + provider + '; Kosmos sends it once it is signed in again',
+    at: new Date(now).toISOString(), paneState: null, paneNote: null,
+  };
+}
+/* #5948: the one hold every #5805 sender asks: out of usage, or signed out. */
+function accountHeldVerdict(sessionName, roster, now = Date.now()) {
+  // Through the exports, so a test that replaces either (limitmsg-5805 review 9) still reaches every sender.
+  return module.exports.limitHeldVerdict(sessionName, roster, now) || module.exports.signinHeldVerdict(sessionName, roster, now);
+}
 /* #5805: the server's release test for a limit-held member: its card reads idle, or still reads the blocked report
    Claude Code's StopFailure hook made on the limit while its screen reads idle (that report stands until the agent's
    next turn, which the held posts are what gives it). */
@@ -1978,6 +2003,8 @@ function limitReleased(card) {
    fresh `kosmos msg` (typed straight in) does not: decided, since a line typed into a menu answers it. A limit line
    with no date never holds (slice 1's stated gap), so it releases the backlog too, as it lets a fresh send through. */
 function limitQueueReleased(card, roster) {
+  /* #5948: a signed-out agent keeps its queue until it is signed in again, whatever else its card reads. */
+  try { if (card && module.exports.signinHeldVerdict(card.sessionName, roster) !== null) return false; } catch { /* as the send gates do: a fault never holds */ }
   if (limitReleased(card)) return true;
   try { return !!card && limitHeldVerdict(card.sessionName, roster) === null; } catch { return false; }
 }
@@ -1991,7 +2018,7 @@ function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}
   try { menuHold = menuHeldVerdict(sessionName, roster); } catch { menuHold = null; }   // never throws (the floor still reads)
   if (menuHold) return menuHold;
   let limitHold = null;
-  try { limitHold = limitHeldVerdict(sessionName, roster); } catch { limitHold = null; }   // never throws
+  try { limitHold = accountHeldVerdict(sessionName, roster); } catch { limitHold = null; }   // never throws (#5948: or signed out)
   if (limitHold) return limitHold;
   const held = quotaHeldVerdict(sessionName, roster, opts);
   if (held) return held;
@@ -2010,7 +2037,7 @@ async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer
   try { menuHold = menuHeldVerdict(sessionName, roster); } catch { menuHold = null; }   // never throws (the floor still reads)
   if (menuHold) return menuHold;
   let limitHold = null;
-  try { limitHold = limitHeldVerdict(sessionName, roster); } catch { limitHold = null; }   // never throws
+  try { limitHold = accountHeldVerdict(sessionName, roster); } catch { limitHold = null; }   // never throws (#5948: or signed out)
   if (limitHold) return limitHold;
   const held = quotaHeldVerdict(sessionName, roster, opts);
   if (held) return held;
@@ -2960,7 +2987,8 @@ function lockedBecause() {
  *
  * Pure and view-level: it takes the messages the route already read plus the
  * question the route already derived (live `questionIn`, or the reported
- * fallback), and returns the messages with a synthetic question row appended.
+ * fallback), and returns the messages with a synthetic question row added: appended
+ * last when undated, placed at its time when dated (#5943, see below).
  * NOTHING is persisted — the question is derived live each poll, exactly like the
  * `asking`/`question` banner fields it replaces, so this row appears while the
  * question stands and clears with the state (the state-keyed lifecycle
@@ -2983,14 +3011,15 @@ function lockedBecause() {
  *     polls. Stored messages carry no `id`, so this cannot collide with a real row,
  *     and a stable id lets the bubble update its text in place as the question
  *     changes rather than churning the thread's repaint key.
- *   - NO `at` (null): the board keeps no "since" timestamp for a standing question
- *     (status.js classifies fresh each tick). ⚠️ Do NOT add a per-poll clock `at`.
- *     A dated row would churn the thread's repaint key every ~5s (breaking the
- *     #1926 anchor for a reader on the question) and re-stamp the agent as having
- *     "just spoken" while it is actually WAITING. Staying dateless avoids both at
- *     the source.
+ *   - NO per-poll `at`. ⚠️ Do NOT stamp the row with the clock: it would churn the
+ *     thread's repaint key every ~5s (breaking the #1926 anchor for a reader on the
+ *     question) and re-stamp the agent as having "just spoken" while it is WAITING.
+ *     #5943: a REPORTED question passes `question.at`, when it was first asked (a
+ *     fixed time, so neither problem arises), and the row is dated with it and placed
+ *     in time (see the function). A question read off the screen alone has no such
+ *     time and stays dateless and last. The page does not count the row as speech.
  *
- * DEDUP: only the TRAILING real row is compared by text. If the agent typed its
+ * DEDUP (undated): only the TRAILING real row is compared by text. If the agent typed its
  * own question (or any same-text row trails), no synthetic row is added -- the
  * question is already shown. A same-text question sitting further back with a
  * newer real row after it is NOT deduped -- a rare transient double that clears
@@ -3002,13 +3031,12 @@ function lockedBecause() {
 // agent (see withQuestionRow); a fixed prefix so the id does not vary across
 // polls. Stored messages carry no `id`, so this cannot collide with a real row.
 const NEEDS_YOU_QUESTION_ID_PREFIX = 'needs-you-question:';
+const QUESTION_TYPED_BEFORE_MS = 60000;   // #5943 review 1: a reply of the same words just before the report
 
 function withQuestionRow(messages, agentName, question) {
   const list = Array.isArray(messages) ? messages : [];
   if (!question || typeof question.text !== 'string' || !question.text) return list;
-  const last = list.length ? list[list.length - 1] : null;
-  if (last && typeof last.text === 'string' && last.text === question.text) return list;
-  return list.concat([{
+  const row = {
     id: NEEDS_YOU_QUESTION_ID_PREFIX + String(agentName),
     at: null,
     text: question.text,
@@ -3016,7 +3044,38 @@ function withQuestionRow(messages, agentName, question) {
     delivery: null,
     kind: 'question',
     reported: Boolean(question.reported),
-  }]);
+    ...(question.clearable === true ? { clearable: true } : {}),
+  };
+  /* #5943: a question the agent REPORTED carries when it was first asked (selfreport askedAt). That time is stable
+     across polls, so it is not the per-poll clock the note above forbids: the row takes its place in time, and the
+     person's answer and everything after it sit below it instead of under it. Undated (a question read off the screen
+     alone) keeps the old rule: appended last, deduped against the trailing row only. */
+  const askedMs = typeof question.at === 'string' ? Date.parse(question.at) : NaN;
+  if (!Number.isFinite(askedMs)) {
+    const last = list.length ? list[list.length - 1] : null;
+    if (last && typeof last.text === 'string' && last.text === question.text) return list;
+    return list.concat([row]);
+  }
+  // The agent typed the same words itself at or after the ask, or in the minute before it (posted, then reported):
+  // the question is already in the thread.
+  const typedAt = list.findIndex((m) => m && m.from === row.from && m.text === question.text
+    && Number.isFinite(Date.parse(m.at)) && Date.parse(m.at) >= askedMs - QUESTION_TYPED_BEFORE_MS);
+  if (typedAt >= 0) {
+    if (!row.clearable) return list;
+    /* Review 2: not drawn twice, but the person must still be able to see its age and clear it: the agent's own message
+       carries both (a copy; the stored row is untouched). */
+    const out = list.slice();
+    out[typedAt] = { ...list[typedAt], questionClearable: true, questionAt: new Date(askedMs).toISOString() };
+    return out;
+  }
+  // After the last row dated at or before the ask (a row with no readable time does not move it).
+  let place = 0;
+  for (let i = 0; i < list.length; i += 1) {
+    const t = list[i] ? Date.parse(list[i].at) : NaN;
+    if (Number.isFinite(t) && t <= askedMs) place = i + 1;
+  }
+  row.at = new Date(askedMs).toISOString();
+  return list.slice(0, place).concat([row], list.slice(place));
 }
 
 /**
@@ -3918,6 +3977,36 @@ function dmReactionNote(agent) {
   return dmReactionNews(agent).note;
 }
 
+/* #5943: the person writes while the agent has a REPORTED question standing (needs_you). Kosmos cannot know whether
+   this message answers it and never guesses (an answered-looking reply is not an answer), so it hands the decision to
+   the agent: clear it, or leave it open and say what it still needs, or replace it. Without this a question answered in
+   passing stood for 12 days. One line, no control characters (it is typed into a pane), the question's start only. */
+const DM_QUESTION_SNIPPET = 80;
+/* Review 1: the note goes ONCE per ask (agent + when it was asked), recorded once a message carrying it was placed.
+   Kept in memory: a board restart may tell it once more, which is the cheap direction (a missed note is the other). */
+/* Review 2: and again once DM_QUESTION_RENOTE_MS has passed, so a note spent on "thanks, will look soon" does not leave
+   the real answer, hours later, without it. */
+const DM_QUESTION_TOLD = new Map();
+const DM_QUESTION_RENOTE_MS = 6 * 60 * 60 * 1000;
+function dmQuestionTold(agent, askedAt, nowMs) {
+  const t = DM_QUESTION_TOLD.get(String(agent));
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  return Boolean(t && t.askedAt === String(askedAt) && now - t.at < DM_QUESTION_RENOTE_MS);
+}
+function markDmQuestionTold(agent, askedAt, nowMs) {
+  DM_QUESTION_TOLD.set(String(agent), { askedAt: String(askedAt), at: Number.isFinite(nowMs) ? nowMs : Date.now() });
+}
+function dmStandingQuestionNote(question) {
+  if (typeof question !== 'string' || !question.trim()) return '';
+  const words = question.replace(new RegExp(DM_PANE_UNSAFE.source, 'g'), ' ').replace(/[\s\u0000-\u001f\u007f]+/g, ' ').trim();
+  const chars = Array.from(words);
+  const snippet = chars.length > DM_QUESTION_SNIPPET ? chars.slice(0, DM_QUESTION_SNIPPET).join('').trimEnd() + '…' : words;
+  if (!snippet) return '';
+  return ' [kosmos] your question to this person is still open on the board: "' + snippet.replace(/"/g, '\'') + '".'
+    + ' If this message answers it, act on the answer and run: kosmos report clear.'
+    + ' If it does not, leave it open and tell them what you still need (or report the new question instead).';
+}
+
 /* Whether the note may ride this message at all. Never on a numbered menu answer: the
    pane gets a bare digit there, and anything typed after it could land in whatever
    prompt comes next. Checked on `chose` (the button that was pressed) AND on the text,
@@ -3997,8 +4086,9 @@ module.exports = {
   DELIVERY, DIRECT, dmOwes, noticeStands, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
+  dmStandingQuestionNote, dmQuestionTold, markDmQuestionTold,   // #5943
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,

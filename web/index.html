@@ -6988,6 +6988,15 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dmchoice[disabled] { opacity: .5; cursor: not-allowed; }
 .dmchoice-n { color: var(--k-ink-2); font-variant-numeric: tabular-nums; }
 .dmchoices-msg { font-size: .8125rem; color: var(--k-ink-2); }
+/* #5943: under a reported question, its age and the person's own "Answered, clear this" (the .dmchoice tokens, AA). */
+.dmq-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 2px; }
+.dmq-age { font-size: .8125rem; color: var(--k-ink-2); }
+.dmq-clear { font: inherit; font-size: .8125rem; font-weight: 600; color: var(--k-ink); background: var(--k-surface);
+  border: 1px solid var(--k-optline); border-radius: 10px; padding: .3em .8em; cursor: pointer; }
+.dmq-clear:hover { border-color: var(--k-ink-2); }
+.dmq-clear:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.dmq-clear[disabled] { opacity: .5; cursor: not-allowed; }
+.dmq-msg { font-size: .8125rem; color: var(--k-ink-2); }
 /* #3134-followup (Josh 6.72): name + timestamp now live INSIDE the bubble. The agent
    name is a bold heading at the TOP; the timestamp is a small muted line at the
    bottom-RIGHT under the body. Scoped to .msg-bd so the .msg-valve inline timestamp
@@ -9495,6 +9504,10 @@ body.consolidated .tkcard:hover { border-color: transparent; }
 /* #766: a dialog that holds a form (New task) takes the create page's width
    and lets its fields fill it. */
 .rm-box.rm-box-form { max-width: 34rem; }
+/* kosmos#5956: New task, taller since it asks how you will know it is done, scrolls inside the backdrop on a phone or a
+   short window instead of losing its top and its Create button off-screen. Scoped to this dialog: Add a provider's logo
+   list hangs past its dialog's edge on purpose, and a scroll container would clip it (review 4). */
+#nt-modal .rm-box.rm-box-form { max-height: 100%; overflow-y: auto; }
 .rm-box-form .field { margin-top: var(--space-5); }
 .rm-box-form .tk-inp { width: 100%; }
 /* 0.6.45 (Josh): the add-member modal closes with an X in the corner (not a
@@ -13761,9 +13774,17 @@ window.kosmosMeasureScrollbarWidth();
       <label class="flabel tk-lab" for="nt-what">What needs doing?</label>
       <input class="tk-inp" id="nt-what" type="text" maxlength="200" placeholder="Rewrite the handoff checklist">
     </div>
+    <!-- kosmos#5956: what done looks like is asked for at creation, as #4583 asks a project for its done-when. One line,
+         sent as the task's first done-when check (engine/tasks.js holds up to three, 200 characters each); the agent
+         answers it when it marks the task built. Required here only: agents and the CLI keep it optional. -->
+    <div class="field">
+      <label class="flabel tk-lab" for="nt-done">How will you know it is done?</label>
+      <input class="tk-inp" id="nt-done" type="text" maxlength="200" aria-required="true" aria-describedby="nt-done-hint" placeholder="The checklist fits on one page and the team has read it">
+      <p class="fhint" id="nt-done-hint" style="margin:8px 0 0;">Needed to create the task. The agent checks its work against this.</p>
+    </div>
     <div class="field">
       <label class="flabel tk-lab" for="nt-detail">Anything they should know</label>
-      <div class="micwrap"><textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, what done looks like, anything you already tried."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="nt-detail" data-voice-name="Anything they should know" data-voice-msg="nt-voice-msg" aria-label="Talk instead of typing: Anything they should know" title="Talk instead of typing: Anything they should know" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
+      <div class="micwrap"><textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, anything you already tried."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="nt-detail" data-voice-name="Anything they should know" data-voice-msg="nt-voice-msg" aria-label="Talk instead of typing: Anything they should know" title="Talk instead of typing: Anything they should know" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       <p class="fmsg" id="nt-voice-msg" role="status" aria-live="polite"></p><!-- #4409 slice 2: the mic's own polite line; #nt-msg is an assertive alert -->
     </div>
     <!-- #3861 part 2: optional, none by default. The open tasks of the project the dialog is aimed
@@ -16939,6 +16960,7 @@ window.kosmosMeasureScrollbarWidth();
              with this task already picked as what it is part of. -->
         <h3 class="dlab" style="margin-top: var(--space-6);">Subtasks</h3>
         <div class="tksubs" id="tk-subs"></div>
+        <p class="dhint tksubs-done" id="tk-subs-built" hidden>All subtasks are built. Check each one and close it, then close this task.</p>
         <p class="dhint tksubs-done" id="tk-subs-done" hidden><span>All subtasks done.</span><button class="linkish" type="button" id="tk-subs-close">Close this task</button></p>
         <button class="linkish" type="button" id="tk-subadd">+ Add subtask</button>
       </section>
@@ -37591,7 +37613,7 @@ function dmRow(m, name, replyAdjacent) {
        room's own pills + hover quick bar (rxnsInner), keyed by the message's `at`
        (a DM row has no id; the react route finds the message by it). `typeof`-guarded
        because the lifted dmRow tests run without the room's reaction helpers. */
-    const rxns = (m.at && typeof rxnsInner === 'function')
+    const rxns = (m.at && m.kind !== 'question' && typeof rxnsInner === 'function')   // #5943: a dated question is not a stored message, so it takes no reaction
       ? '<div class="rxns" data-at="' + esc(String(m.at)) + '" data-speak>' + rxnsInner(m.reactions,
         typeof CURRENT === 'undefined' || !CURRENT || m.from === CURRENT.sessionName, true, m.id) + '</div>' : '';   // #4409: an agent's row, so it can be read aloud   // #4631: its id for Copy reference   // #4256: Reply on this agent's own messages (the server takes no other sender's)
     return '<div class="msg" data-mid="' + midOf(m) + '">' + av
@@ -37601,6 +37623,7 @@ function dmRow(m, name, replyAdjacent) {
       + pjRich(typeof pjDropSelfName === 'function' ? pjDropSelfName(pjWords(m), [shownFrom, m.from]) : pjWords(m))   // #4873
       + pjPreviewCard(m.preview) + pjAttachmentCards(m)
       + (typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m) : '')   // #5406 (guarded: the lifted dmRow tests run without it)
+      + (typeof dmQuestionFootHtml === 'function' ? dmQuestionFootHtml(m) : '')   // #5943 (guarded: the lifted dmRow tests run without it)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
       + '</div>' + rxns + '</div></div>';
   }
@@ -38001,6 +38024,53 @@ document.addEventListener('click', (e) => {
   const b = e.target && e.target.closest ? e.target.closest('#d-dmthread .dmchoice') : null;
   if (b && !b.disabled) dmChoicePress(b);
 });
+/* #5943 (Josh: an answered question stayed the newest bubble for 12 days, and only an Engineering-mode button cleared
+   it). Under a question the agent REPORTED: how long it has been asked ("Asked 12 days ago", agoWords, the wording
+   #5942 matches), and "Answered, clear this" for anyone. The button takes the marker off through the same route as
+   the Engineering-mode control (clear-selfreport, recorded as the person's); no message is deleted. A question read
+   off the agent's screen alone has neither: it is in front of the agent now and is answered by replying. */
+function dmQuestionFootHtml(m) {
+  // The question row itself, or (review 2) the agent's own message that IS the question, carrying its ask time.
+  const own = Boolean(m && m.kind !== 'question' && m.questionClearable === true);
+  if (!m || (!own && (m.kind !== 'question' || m.clearable !== true))) return '';
+  const askedIso = own ? m.questionAt : m.at;
+  const asked = Date.parse(askedIso || '');
+  const age = Number.isFinite(asked) && typeof agoWords === 'function' ? agoWords(Date.now() - asked) : '';
+  return '<div class="dmq-foot">'
+    // data-at so the age is refreshed in place (refreshWhens) and blanked for the repaint check (threadShape): the
+    // minute it changes must not rebuild the thread (#3966's flash).
+    + (age ? '<span class="dmq-age" data-at="' + esc(String(askedIso)) + '">Asked ' + esc(age) + '</span>' : '')
+    + '<button type="button" class="dmq-clear" data-asked="' + esc(String(askedIso || '')) + '" aria-label="This question is answered: clear it">Answered, clear this</button>'
+    + '<span class="dmq-msg" role="status" aria-live="polite"></span></div>';
+}
+async function dmQuestionClear(btn) {
+  const target = CURRENT && CURRENT.sessionName;
+  if (!target || !btn || btn.disabled) return;
+  const foot = btn.closest('.dmq-foot');
+  const say = (t) => { const el = foot && foot.querySelector('.dmq-msg'); if (el) el.textContent = t; };
+  btn.disabled = true;
+  say('');
+  let ok = false;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(target) + '/clear-selfreport', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      // Review 3: the ask this button was drawn for; the route refuses if a different question stands now.
+      body: JSON.stringify({ reason: 'the person marked the question answered', askedAt: btn.getAttribute('data-asked') || undefined }),
+    });
+    let body = {};
+    try { body = await res.json(); } catch { body = {}; }
+    ok = res.ok && body && body.ok === true;   // cleared:false (already cleared, a race) is success too
+    // Review 4: the agent asked something new since this was drawn; that one was NOT cleared, and the next poll shows it.
+    if (ok && body.stale === true) { say('The agent asked something new since this was shown, so nothing was cleared. It appears in a moment.'); return; }
+  } catch { ok = false; }
+  if (!ok) { btn.disabled = false; say('We could not clear that just now. Try again.'); return; }
+  // The next paint has no question row, so the bubble (and this button) goes; the card's badge goes on its next tick.
+  if (CURRENT && CURRENT.sessionName === target) await paintTalk(CURRENT.sessionName, CURRENT.name);
+}
+document.addEventListener('click', (e) => {
+  const b = e.target && e.target.closest ? e.target.closest('#d-dmthread .dmq-clear') : null;
+  if (b) dmQuestionClear(b);
+});
 /**
  * kosmos#5841: a direct conversation's EARLIER messages, opened from the "older messages are still kept" line, a page
  * at a time from GET .../thread/older?before=<n>, and drawn IN the thread, before the latest 200, by the thread's own
@@ -38162,7 +38232,7 @@ function paintTalkThread(body, name) {
   DM_ROWS_NAME = name;
   DM_ROWS_OLDER = CURRENT && earlierOn(CURRENT.sessionName) ? EARLIER.before : (Number(body.olderCount) || 0);   // kosmos#5841
   DM_ROWS_OLDEST = null;
-  for (const r of allRows) if (r && typeof r.at === 'string' && (DM_ROWS_OLDEST === null || r.at < DM_ROWS_OLDEST)) DM_ROWS_OLDEST = r.at;
+  for (const r of allRows) if (r && r.kind !== 'question' && typeof r.at === 'string' && (DM_ROWS_OLDEST === null || r.at < DM_ROWS_OLDEST)) DM_ROWS_OLDEST = r.at;   // #5943: the dated question is not a stored row
   dmReplyPaint(DM_ROWS_OF);
   convPaint();   // #5624 review 1: the toggle follows the agent on screen, whatever this paint shows
   if (TALK_QUERY && String(TALK_QUERY).trim()) convPause();   // #5624 review 4: any search, a no-match one too
@@ -38185,6 +38255,7 @@ function paintTalkThread(body, name) {
   for (const m of dmSession && Array.isArray(body.messages) ? body.messages : []) {   // kosmos#5841: the latest only, not earlier rows
     if (!m || m.from !== dmSession || !m.at) continue;
     if (m.kind && ROOM_NOT_SPEECH.has(m.kind)) continue;
+    if (m.kind === 'question') continue;   // #5943: a standing question, dated when it was asked, is not a new reply
     const at = Date.parse(m.at);
     if (!Number.isFinite(at)) continue;
     const seen = DM_SPOKE_AT.get(dmSession);
@@ -58536,6 +58607,10 @@ function wakeHeldLine(manualText, delivery) {
   if (delivery && delivery.heldBy === 'menu') {
     return manualText + ' It is waiting for an answer on its screen, so Kosmos sent nothing; answer it in its window first.';
   }
+  // #5948: held because its sign-in stopped working (heldBy stays 'limit'; heldFor says why). No reset to name.
+  if (delivery && delivery.heldFor === 'signin') {
+    return manualText + ' It is signed out, so Kosmos sent nothing. Sign it in again first.';
+  }
   /* #5805: held because this Claude agent is out of usage. The time is the printed reset (limitReset) while it is
      ahead; heldUntil may be only the next look after it, so it is not used here. */
   if (delivery && delivery.heldBy === 'limit') {
@@ -61049,7 +61124,7 @@ function paintProjectTasks(p) {
     const sub = t.subtasks && t.subtasks.total > 0 ? t.subtasks : null;
     const subLabel = sub ? sub.done + ' of ' + sub.total + ' subtasks done' : '';
     const chip = sub ? '<span class="tsk-chip" title="' + esc(subLabel) + '">' + sub.done + '/' + sub.total
-      + (sub.done === sub.total ? ', all subtasks done' : '<span class="vh"> subtasks done</span>') + '</span>' : '';
+      + (sub.done === sub.total ? ', all subtasks done' : (!t.closedAt && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total) ? ', all subtasks built' : '<span class="vh"> subtasks done</span>') + '</span>' : '';
     const partOf = crumb && t.parent != null
       ? '<span class="tkcard-part-of">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
     return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + (depth ? ' sub' + depth : '') + '" type="button" data-task="' + n + '">'
@@ -61186,7 +61261,11 @@ function tskRepeatSentence(t, now) {
   if (t.lastRunAt) {
     const ago = agoWords(now - Date.parse(t.lastRunAt));
     const who = t.lastRunByPerson === true ? 'you' : t.lastRunBy ? tskAgentName(t.lastRunBy) : '';   // review 5: a flag, never the name 'operator'
-    s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunLate === true ? ', late' : '') + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
+    /* kosmos#5920: a run that came after scheduled runs that never happened says how many, so a recovery never hides the
+       misses before it (the missed count starts again from this run). */
+    const rec = t.lastRunRecovered && Number(t.lastRunRecovered.missed) >= 1 ? t.lastRunRecovered : null;
+    const recWords = rec ? ', after ' + (rec.more === true ? 'more than ' + rec.missed + ' missed runs' : Number(rec.missed) === 1 ? '1 missed run' : rec.missed + ' missed runs') : '';
+    s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunLate === true ? ', late' : '') + recWords + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
     /* kosmos#5643: how many runs in a row found nothing new, and when (and what) the last change was. */
     const same = Number(t.unchangedRuns);
     if (same >= 1) {
@@ -61384,7 +61463,11 @@ function tskRow(t, at) {
   /* Every subtask closed, the parent still open: say so and offer Close. Closing the last child
      never closes the parent (nothing cascades, engine/tasks.js); the person decides here. */
   const allDone = sub && sub.done === sub.total && t.state !== 'closed'
-    ? '<span>all subtasks done</span><button type="button" data-close-parent="' + esc(tskKey(t)) + '">Close it</button>' : '';
+    ? '<span>all subtasks done</span><button type="button" data-close-parent="' + esc(tskKey(t)) + '">Close it</button>'
+    /* kosmos#5956: every subtask closed or built, some only built: the parent is ready for the person to check. No
+       Close here: the built subtasks are still open, and closing them is the person's call on each one. */
+    : sub && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total && t.state !== 'closed'
+      ? '<span>all subtasks built, ready for you to check</span>' : '';
   const partOf = place.crumb && t.parent != null
     ? '<span class="tsk-part">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
   /* A state this view does not know gets no label at all, never a group the engine did not name. */
@@ -62172,18 +62255,22 @@ function tkPaintSubtasks(p, t, closed) {
   const kids = (p.tasks || []).filter((x) => x && x.parent === t.number)
     .sort((a, b) => Number(a.number) - Number(b.number));
   const done = (x) => (x.progress ? Boolean(x.progress.closed) : Boolean(x.closedAt));
+  const built = (x) => !done(x) && x.onHold !== true && typeof x.builtAt === 'string' && x.builtAt !== '';   // kosmos#5956; held reads held
   const list = document.getElementById('tk-subs');
   if (list) {
     /* Change-guarded like the project column (TK_LIST_HTML): the poll repaints this page, and an
        unconditional write would take a keyboard user's focus off a subtask every tick. */
     const html = kids.length ? kids.map((x) => '<button class="tksub' + (done(x) ? ' done' : '') + '" type="button" data-sub="' + Number(x.number) + '">'
       + '<span class="tksub-n">#' + Number(x.number) + '</span><span class="tksub-t">' + esc(x.sentence) + '</span>'
-      + '<span class="tksub-s">' + (done(x) ? 'Done' : 'Open') + '</span></button>').join('')
+      + '<span class="tksub-s">' + (done(x) ? 'Done' : built(x) ? 'Built' : 'Open') + '</span></button>').join('')
       : '<p class="dhint" style="margin:0;">None yet. Break this task into smaller ones, each with its own page.</p>';
     if (list.innerHTML !== html) list.innerHTML = html;
   }
   const all = document.getElementById('tk-subs-done');
   if (all) all.hidden = !(kids.length && kids.every(done) && !closed);
+  /* kosmos#5956: every subtask closed or built, some only built: ready for the person to check each one. */
+  const ready = document.getElementById('tk-subs-built');
+  if (ready) ready.hidden = !(kids.length && !kids.every(done) && kids.every((x) => done(x) || built(x)) && !closed);
   const row = document.getElementById('tk-partof-row');
   const up = document.getElementById('tk-partof');
   const parent = t.parent != null ? (p.tasks || []).find((x) => x && x.number === t.parent) : null;
@@ -62220,7 +62307,7 @@ function tkActPhrase(ev, p) {
     // kosmos#4787: a recurring task's rule, and each run its owner reported (kosmos task ran).
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
-    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.unchanged ? (ev.inferred ? ', the same note again' : ', nothing new') : '') + (ev.note ? ': ' + ev.note : ''); }   // kosmos#5643: said, or only a repeated note
+    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); const missed = Number(ev.missedBefore) >= 1 ? Number(ev.missedBefore) : 0; return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (missed ? ', after ' + (ev.missedMore === true ? 'more than ' + missed + ' missed runs' : missed === 1 ? '1 missed run' : missed + ' missed runs') : '') + (ev.unchanged ? (ev.inferred ? ', the same note again' : ', nothing new') : '') + (ev.note ? ': ' + ev.note : ''); }   // kosmos#5643: said, or only a repeated note
     /* kosmos#4787 slice 3 (review 5): who reviews it, and a missed run with who was told. */
     case 'reviewer-set': return ev.person ? 'You will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
     case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
@@ -62516,7 +62603,7 @@ function tkActRowsHtml(events, p, now) {
     return '<div class="tkact"><time datetime="' + esc(String(ev.at)) + '">' + esc(when) + '</time>'
       + '<span class="tkact-what">' + esc(tkActPhrase(ev, p)) + '</span></div>';
   };
-  const quiet = (ev) => ev && ev.kind === 'run' && ev.unchanged === true && ev.late !== true;
+  const quiet = (ev) => ev && ev.kind === 'run' && ev.unchanged === true && ev.late !== true && !(Number(ev.missedBefore) >= 1);   // kosmos#5920: a recovery is never folded away
   const out = [];
   for (let i = 0; i < events.length;) {
     let j = i;
@@ -63121,7 +63208,8 @@ async function tkSayPost() {
             const at = Date.parse(d.heldUntil || '');
             const until = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
             // "will try": a kept line can still be dropped a day after the reset (recording that is #5842's second slice).
-            lines.push(until ? lead + ' is out of usage until ' + until + '. Kosmos will try to send your message to ' + who + ' after that.'
+            lines.push(d.heldFor === 'signin' ? lead + ' is signed out. Kosmos will try to send your message to ' + who + ' once it is signed in again.'   // #5948
+              : until ? lead + ' is out of usage until ' + until + '. Kosmos will try to send your message to ' + who + ' after that.'
               : /still has messages kept/.test(why) ? 'Kosmos will try to send your message to ' + who + ' after the ones already waiting for it.'
               : 'Kosmos is keeping your message and will try to send it to ' + who + ' later.');   // no time known: claim nothing more
           } else lines.push('Kosmos could not confirm that ' + who + ' got it.');
@@ -63219,7 +63307,7 @@ function openNewTask(projectId, origin, parent) {
       document.getElementById('nt-back').focus();
       return;
     }
-    const drafted = NT_FOR && ['nt-what', 'nt-detail'].some((id) => document.getElementById(id).value.trim());
+    const drafted = NT_FOR && ['nt-what', 'nt-detail', 'nt-done'].some((id) => document.getElementById(id).value.trim());
     sel.value = drafted && choices.some((c) => c.id === NT_FOR) ? NT_FOR : choices[0].id;
     p = pjById(sel.value);
     if (p && p.id !== NT_FOR) {
@@ -63236,7 +63324,7 @@ function openNewTask(projectId, origin, parent) {
   ntAimAt(p);
   document.getElementById('nt-msg').textContent = '';
   document.getElementById('nt-voice-msg').textContent = '';   // #4409 slice 2: the mic's line, like every dialog's
-  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
+  ntGoState();   // kosmos#5956: the one Create rule (what needs doing, how you will know it is done, a project)
   document.getElementById('nt-modal').hidden = false;
   /* With the picker showing, focus starts on it: its chosen project is heard first, before any
      words are typed for it. */
@@ -63257,6 +63345,7 @@ function ntAimAt(p) {
     NT_FOR = p.id;
     document.getElementById('nt-what').value = '';
     document.getElementById('nt-detail').value = '';
+    document.getElementById('nt-done').value = '';
   }
   const sel = document.getElementById('nt-who');
   /* The chosen assignee is part of the draft too: the rebuild below resets
@@ -63327,11 +63416,15 @@ document.getElementById('nt-proj').addEventListener('change', (e) => {
 document.getElementById('nt-back').addEventListener('click', leaveNewTask);
 // #3861 part 2: a Part of the person picks themselves is part of their draft, even after a preset.
 document.getElementById('nt-parent').addEventListener('change', (e) => { e.target.dataset.preset = ''; });
-// Create is held down until the one required thing exists (pack: disabled).
-document.getElementById('nt-what').addEventListener('input', () => {
+// Create is held down until the required things exist (pack: disabled): what needs doing and, kosmos#5956, how you
+// will know it is done.
+function ntGoState() {
   // No project to file it to (the Tasks view with none made yet): Create stays down whatever is typed.
-  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim() || !NT_PROJECT;
-});
+  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim()
+    || !document.getElementById('nt-done').value.trim() || !NT_PROJECT;
+}
+document.getElementById('nt-what').addEventListener('input', ntGoState);
+document.getElementById('nt-done').addEventListener('input', ntGoState);
 document.getElementById('nt-go').addEventListener('click', async () => {
   const p = pjById(NT_PROJECT);
   if (!p) return;
@@ -63343,20 +63436,26 @@ document.getElementById('nt-go').addEventListener('click', async () => {
       body: JSON.stringify({
         sentence: document.getElementById('nt-what').value,
         detail: document.getElementById('nt-detail').value.trim() || undefined,
+        doneWhen: document.getElementById('nt-done').value.trim() ? [document.getElementById('nt-done').value.trim()] : undefined,   // kosmos#5956
         who: document.getElementById('nt-who').value || undefined,
         parent: document.getElementById('nt-parent').value ? Number(document.getElementById('nt-parent').value) : undefined,
       }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {
-      document.getElementById('nt-msg').textContent =
-        (body && body.error) || 'we could not add that task';
+      /* kosmos#5956: the engine's done-when refusal names "done-when checks", words this dialog never shows; say it in
+         the field's own words. */
+      const why = (body && body.error) || '';
+      document.getElementById('nt-msg').textContent = /done-when check has to be (one line of plain text|\d+ characters or fewer)/.test(why)
+        ? 'Your answer to "How will you know it is done?" has to be one line of plain text, 200 characters or fewer. Some emoji and symbols cannot be used there.'
+        : why || 'we could not add that task';
       go.disabled = false;
       return;
     }
     NT_FOR = null;
     document.getElementById('nt-what').value = '';
     document.getElementById('nt-detail').value = '';
+    document.getElementById('nt-done').value = '';
     leaveNewTask();
     if (NT_ORIGIN === 'tasks') {
       /* From the Tasks view: stay there. The view re-reads (a refresh, so ticks stay), and its
@@ -68269,7 +68368,7 @@ function speechTextOfRow(row) {
   const src = row && (row.querySelector('.msg-bd') || row);
   if (!src) return '';
   const c = src.cloneNode(true);
-  c.querySelectorAll('.msg-nm, .msg-t, .msg-replyto, .vh, .rxns, button, .att-pic, .att-meta, .att-name, .att-txt').forEach((n) => n.remove());
+  c.querySelectorAll('.msg-nm, .msg-t, .msg-replyto, .vh, .rxns, button, .att-pic, .att-meta, .att-name, .att-txt, .dmq-foot').forEach((n) => n.remove());   // #5943: not the question's age line
   /* A fenced block renders as span.mdcb (pjRich), not <pre>; both are announced. A line break is a space, or
      "Run this:<br>then" is read as "this:then". Measured by render-voice-4409.js V7, which the <pre>-only
      version failed. */
@@ -70108,6 +70207,7 @@ function pjWhenLive(at) {
 function threadShape(html) {
   return String(html)
     .replace(/(<span class="mwhen" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2')
+    .replace(/(<span class="dmq-age" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2')   // #5943
     .replace(/<svg class="lring"[\s\S]*?<\/svg>/g, (ring) => ring.replace(/stroke-dasharray="[^"]*"/g, 'stroke-dasharray=""'));
 }
 /** #3991: bring every memory ring arc under `root` to the one in `html`, pairing each ring with the
@@ -70142,6 +70242,12 @@ function refreshWhens(root) {
   if (!root || typeof root.querySelectorAll !== 'function') return;
   for (const el of root.querySelectorAll('.mwhen[data-at]')) {
     const said = pjWhen(el.getAttribute('data-at'));
+    if (said && el.textContent !== said) el.textContent = said;
+  }
+  // #5943: a standing question's age, the same in-place refresh (threadShape blanks it too).
+  for (const el of root.querySelectorAll('.dmq-age[data-at]')) {
+    const age = agoWords(Date.now() - Date.parse(el.getAttribute('data-at')));
+    const said = age ? 'Asked ' + age : '';
     if (said && el.textContent !== said) el.textContent = said;
   }
 }
@@ -70261,6 +70367,8 @@ function dmHeldWords(name, d) {
   const stuck = d && d.stuck && typeof d.stuck.because === 'string' && d.stuck.because
     ? ' Kosmos tried to send it and could not: ' + d.stuck.because.replace(/[.\s]+$/, '') + '.' : '';
   if (d && d.behind === true) return 'Held: Kosmos sends this after the messages kept for ' + name + ' while it was out of usage.' + stuck;
+  // #5948: held because its sign-in stopped working; there is no reset to name, only signing in again.
+  if (d && d.heldFor === 'signin') return 'Held: ' + name + ' is signed out. Kosmos sends it once it is signed in again.' + stuck;
   const at = d && typeof d.heldUntil === 'string' ? Date.parse(d.heldUntil) : NaN;
   const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
   return 'Held: ' + name + ' is out of usage' + (when ? ' until ' + when : '') + '. Kosmos sends it after the reset.' + stuck;

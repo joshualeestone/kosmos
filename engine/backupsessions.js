@@ -21,7 +21,9 @@
  * the provider's folder itself may be. The folder's real path is returned, so the snapshot walks what was checked.
  * A transcript Claude Code wrote under a shortened name (a very long folder) is not found, as status.js does not find it.
  *
- * sessionsFor(agentDir, { id, claudeRoots, geminiHome, codexHome }) -> [{ name, path, optional: true, only? }]
+ * sessionsFor(agentDir, { id, claudeRoots, geminiHome, codexHome, grokHome?, moreHomes? }) -> [{ name, path, optional: true, only? }]
+ *   moreHomes [{ provider: 'codex'|'gemini'|'grok', home, tag }]: further homes of this agent's sessions (kosmos#5883), each
+ *          named sessions/<id>/<provider><tag>, tag a hyphen and 1 to 16 lowercase letters or digits, one per FOLDER.
  *   (or { name, refused, optional: true } where a session folder is a link: the snapshot records it as skipped)
  *   id     the agent's stored name, one plain segment of lowercase letters, digits and hyphens (any other id gives
  *          nothing: the caller derives it); every name built from it must pass the snapshot's rootNameProblem, or nothing is
@@ -131,7 +133,7 @@ function claudeOwned(real, belongs) {
   return only.sort();
 }
 
-function geminiRoot(agentDir, geminiHome, id) {
+function geminiRoot(agentDir, geminiHome, id, tag = '') {
   if (typeof geminiHome !== 'string' || !path.isAbsolute(geminiHome)) return null;
   let map;
   try { map = JSON.parse(fs.readFileSync(path.join(geminiHome, 'projects.json'), 'utf8')).projects; } catch { return null; }
@@ -142,28 +144,63 @@ function geminiRoot(agentDir, geminiHome, id) {
     // The slug becomes a folder name under tmp/: one plain segment only, never a path out of it.
     if (typeof slug !== 'string' || !slug || slug === '.' || slug === '..' || /[\\/\0]/.test(slug)) return null;
     const c = folderCheck(geminiHome, 'tmp', slug, 'chats');
-    if (c.link) return { name: `sessions/${id}/gemini`, refused: 'a session folder that is a link (not followed)', optional: true };
+    if (c.link) return { name: `sessions/${id}/gemini${tag}`, refused: 'a session folder that is a link (not followed)', optional: true };
     const real = c.real;
     if (!real) return null;
     // The session files forWorkdir reads, named. Two agent folders mapped to one slug would both name them: the snapshot
     // then leaves both out and records why, since it cannot tell whose they are.
     const only = filesUnder(real, (n) => /^session-.*\.jsonl$/.test(n), 0);
-    return only.length ? { name: `sessions/${id}/gemini`, path: real, optional: true, only } : null;
+    return only.length ? { name: `sessions/${id}/gemini${tag}`, path: real, optional: true, only } : null;
   }
   return null;
 }
 
-function codexRoot(agentDir, codexHome, id, belongs) {
+function codexRoot(agentDir, codexHome, id, belongs, tag = '') {
   if (typeof codexHome !== 'string' || !path.isAbsolute(codexHome)) return null;
   const c = folderCheck(codexHome, 'sessions');
-  if (c.link) return { name: `sessions/${id}/codex`, refused: 'a session folder that is a link (not followed)', optional: true };
+  if (c.link) return { name: `sessions/${id}/codex${tag}`, refused: 'a session folder that is a link (not followed)', optional: true };
   const real = c.real;
   if (!real) return null;
   const only = filesUnder(real, (n) => /^rollout-.*\.jsonl$/.test(n), 3).filter((rel) => {
     const meta = codexsession.metaOf(path.join(real, rel));
     return !!meta && belongs(meta.cwd);
   });
-  return only.length ? { name: `sessions/${id}/codex`, path: real, optional: true, only } : null;
+  return only.length ? { name: `sessions/${id}/codex${tag}`, path: real, optional: true, only } : null;
+}
+
+/* kosmos#5883 slice 2: Grok keeps each conversation in <grok home>/sessions/<encoded cwd>/<session id>/. The folder
+   name is NOT matched (review 1): Grok encodes it with Rust's urlencoding (not encodeURIComponent: ! ' ( ) * differ)
+   and slugs plus hashes a name past the folder-name byte cap. Matched instead, as the board's reader does
+   (engine/groksession.js forWorkdir), on each session's summary.json info.cwd, canonicalized on both sides, by that
+   reader's own summaries() and summaryOf(). So every spelling the agent was launched under is found, in one root over
+   the sessions folder whose `only` lists each matched session's files.
+   Only the conversation record is named: chat_history, events and updates (.jsonl) and summary.json; NOT
+   system_prompt.txt or prompt_context.json (instructions and context), never the locks, never a link. Sessions of a
+   Grok WORKTREE (a different launch folder) are not this agent's by cwd and are not taken (#5883). */
+const GROK_KEEP = ['chat_history.jsonl', 'events.jsonl', 'updates.jsonl', 'summary.json'];
+function grokRoot(agentDir, grokHome, id, tag = '') {
+  if (typeof grokHome !== 'string' || !path.isAbsolute(grokHome)) return null;
+  const c = folderCheck(grokHome, 'sessions');
+  if (c.link) return { name: `sessions/${id}/grok${tag}`, refused: 'a session folder that is a link (not followed)', optional: true };
+  if (!c.real) return null;
+  const gs = require('./groksession');
+  const want = trust.canonicalOnDisk(path.resolve(agentDir));
+  const only = [];
+  for (const file of gs.summaries(grokHome)) {
+    const sm = gs.summaryOf(file);
+    const cwd = sm && sm.info && typeof sm.info.cwd === 'string' ? sm.info.cwd : null;
+    if (!cwd || trust.canonicalOnDisk(cwd) !== want) continue;
+    const sessionDir = path.dirname(file);
+    let rel;
+    try { rel = path.relative(c.real, fs.realpathSync(sessionDir)); } catch { continue; }   // gone meanwhile
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel) || rel.split(path.sep).length !== 2) continue;
+    for (const f of GROK_KEEP) {
+      let st;
+      try { st = fs.lstatSync(path.join(sessionDir, f)); } catch { continue; }
+      if (st.isFile()) only.push(rel.split(path.sep).concat(f).join('/'));
+    }
+  }
+  return only.length ? { name: `sessions/${id}/grok${tag}`, path: c.real, optional: true, only: only.sort() } : null;
 }
 
 function sessionsFor(agentDir, opts) {
@@ -176,6 +213,19 @@ function sessionsFor(agentDir, opts) {
   if (g) roots.push(g);
   const c = codexRoot(agentDir, o.codexHome, o.id, belongs);
   if (c) roots.push(c);
+  const k = grokRoot(agentDir, o.grokHome, o.id);
+  if (k) roots.push(k);
+  // kosmos#5883: more homes the same agent's sessions can be in (a Codex runtime home, a named account's), each under a
+  // tag the CALLER derives from the folder itself, so one folder keeps one name across snapshots whatever the agent's
+  // account is now. A home that resolves to one already read is skipped (one folder, one root per agent).
+  const seenReal = new Set(roots.filter((r) => r.path).map((r) => r.path));
+  for (const x of Array.isArray(o.moreHomes) ? o.moreHomes : []) {
+    if (!x || typeof x.tag !== 'string' || !/^-[a-z0-9]{1,16}$/.test(x.tag)) continue;
+    const r = x.provider === 'codex' ? codexRoot(agentDir, x.home, o.id, belongs, x.tag)
+      : x.provider === 'gemini' ? geminiRoot(agentDir, x.home, o.id, x.tag)
+      : x.provider === 'grok' ? grokRoot(agentDir, x.home, o.id, x.tag) : null;
+    if (r && (!r.path || !seenReal.has(r.path))) { roots.push(r); if (r.path) seenReal.add(r.path); }
+  }
   // Every name actually built must be one the snapshot accepts; if any is not, none is returned (a refused name would
   // fail the whole world's snapshot).
   return roots.some((r) => rootNameProblem(r.name)) ? [] : roots;

@@ -87,7 +87,7 @@ kosmos_failing_test_files() {
 # .claude/plans/rerunbudget-5907.md. KOSMOS_SUITE_RERUN_MAX=3 restores the old budget.
 #
 # SEAMS (so the test proves both verdicts without running a real suite):
-#   KOSMOS_SUITE_RERUN_CMD   the command run in $repo (default `yarn test`)
+#   KOSMOS_SUITE_RERUN_CMD   the command run in $repo (default `yarn test`); tests only: release.sh refuses a cut with it set (#5932)
 #   KOSMOS_SUITE_RERUN_SLEEP seconds to pause between attempts (default 5; 0 in tests)
 #   KOSMOS_SUITE_RERUN_MAX   attempts for this path (default 1)
 # Written errexit-safe (release.sh sources this under set -euo pipefail): the rerun

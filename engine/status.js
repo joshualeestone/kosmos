@@ -7474,9 +7474,18 @@ function providerLimitReport(reported) {
   return !!reported && reported.state === 'blocked' && reported.by === 'auto'
     && /^provider api \(rate_limit\)$/.test(String(reported.on || ''));
 }
+/* The runner a pane's card shows (#5948: one derivation, read by the card and by reconcileReport's sign-in rule). */
+function cardRunnerOf(pane) {
+  return (pane.runner === 'codex' || (!pane.runner && isCodexCommand(pane.command))) ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : pane.runner === 'muse' ? 'muse' : 'claude';
+}
+/* #5948: the automatic report of a turn its provider refused for the sign-in (see the blocked rule in reconcileReport). */
+function providerAuthReport(reported) {
+  return !!reported && reported.state === 'blocked' && reported.by === 'auto'
+    && /^provider api \(authentication_failed\)$/.test(String(reported.on || ''));
+}
 
 // #4588 part 3: not pure for an Antigravity quota report: it also reads agyquota's pool memory (see the quota block).
-function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity) {
+function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity, runner) {
   /* #1930: a live-HEALTHY account means a scraped auth_failed is STALE, whether or not the
      agent has reported. Handle it HERE, above the no-report early return below, so a
      never-reported agent -- one that hit a 401 on launch and sits idle at a prompt after an
@@ -7512,7 +7521,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
         conflict: 'the account sign-in currently reads valid, but its screen is still producing new Claude sign-in rejections, so a live rejection loop is running' + saidWords(reported, nowMs),
       };
     }
-    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
+    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity, runner);
     return { ...answer, conflict: 'its screen shows an old Claude sign-in rejection, but the account sign-in is currently valid, so the rejection is stale' };
   }
   /* #4006: a restart that did NOT come back (disruption.fail). Not "restarting" and not a quiet
@@ -7767,7 +7776,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        (rate_limit)", the #3723 case in Claude's words: it says the turn hit the limit, so it cannot outrank the screen
        that says so, and the card keeps its dated limit line (the usage-limit hold reads it). */
     if (freshRl && !autoOverCodexLimit && !providerLimitReport(reported)) {
-      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
+      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity, runner);
       return { ...answer, conflict: 'its screen shows a usage limit, but it is still reporting, so it may be working through it' };
     }
     return { ...scraped, reported: false, conflict: 'its screen shows it has hit a usage limit, which its reports cannot know about' + saidWords(reported, nowMs) };
@@ -7958,6 +7967,15 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said(ASKING_GENERIC), reported: true, conflict: null, by: reported.by || null, ...project };
   }
   if (reported.state === 'blocked') {
+    /* #5948: on a non-Claude card, the automatic sign-in line reads auth_failed, so accountProblemOf and
+       chat.signinHeldVerdict see it. A Claude card's line stays blocked. Pinned by engine/signedout-5948.test.js. */
+    if (runner && runner !== 'claude' && providerAuthReport(reported)) {
+      const said0 = typeof reported.because === 'string' && reported.because.trim() ? reported.because.trim() : null;
+      return {
+        state: STATE.AUTH_FAILED, confidence: CONFIDENCE.STRUCTURED, because: 'its sign-in is not working',
+        ...(said0 ? { evidence: said0 } : {}), reported: true, conflict: null,
+      };
+    }
     const what = reported.on ? 'it is waiting on ' + reported.on + (reported.owner ? ', which ' + reported.owner + ' owns' : '')
       : 'it is waiting on something that is not you';
     /* #5805: for the StopFailure limit report only, what the screen reads under it: the report stands until the agent's
@@ -8499,7 +8517,7 @@ function snapshot() {
     }
     const status = reconcileReport(
       isNamedOurs(pane) ? selfreport.read(pane.name) : { found: false },
-      scrapedStatus, now, liveAuth, disruptionRec, codexLiveAuth, activityFresh);
+      scrapedStatus, now, liveAuth, disruptionRec, codexLiveAuth, activityFresh, cardRunnerOf(pane));   // #5948: the card's own runner
     /* #2019 forward self-heal (challenge iter 2): a disruption record on file
        but a reconciled state that is a confident LIVE reading means the restart
        COMPLETED -- drop the record now rather than waiting out the window. This
@@ -8838,7 +8856,7 @@ function snapshot() {
       // #3568: an agy pane read before its runner tag lands is still antigravity (as isAgyPane says).
       // #4589 round 2: and an UNTAGGED native codex pane is codex (the startup window the hook dialog lives in); a pane
       // whose tag says otherwise keeps its tag (round 3).
-      runner: (pane.runner === 'codex' || (!pane.runner && isCodexCommand(pane.command))) ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : pane.runner === 'muse' ? 'muse' : 'claude',
+      runner: cardRunnerOf(pane),
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,

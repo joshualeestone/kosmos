@@ -8,18 +8,22 @@
  *   projects          the projects root, when it is not inside the workers root (optional).
  *   elsewhere/<slug>  a project whose folder is outside both (optional).
  *   agents/<id>       an agent folder outside the workers root (optional).
- *   sessions/<id>/... each agent's transcripts, from backupsessions.sessionsFor (optional, `only` lists). These sit
+ *   sessions/<id>/... each agent's transcripts, from backupsessions.sessionsFor (optional, `only` lists); input.sessions
+ *                     is called (dir, rootSegment, the agent's stored name). These sit
  *                     INSIDE a protected provider home by design, so they are not put through the protection check:
  *                     their safety is backupsessions' file lists (session files only, never the sign-ins beside them).
  * Names never nest (backupsnapshot refuses `projects` beside `projects/x`), hence `elsewhere/`. A folder inside one
  * already covered is not added again. Every root but `workers` is optional, so one folder that cannot be read is left
  * out and named in the snapshot's skipped list rather than failing the backup.
  * NOT covered, on purpose: the data root (keys, the backup state itself, pairing, codex-homes). Its credentials are what
- * the card says never to take, and what is left is Kosmos's own state, not the person's work.
- * KNOWN GAP in transcripts (review 5), kosmos#5883: backupsessions takes ONE Codex home and ONE Gemini home
- * and has no Grok case, so these transcripts are NOT backed up: agents on a ~/.codex-<label> or ~/.gemini-<label>
- * account, per-session Codex homes (<data root>/codex-homes/<session>), and every Grok agent. Their agent FOLDERS are
- * backed up (under workers or agents/<id>); only the provider's record of the conversation is missing.
+ * the card says never to take, and what is left is Kosmos's own state, not the person's work. The ONE exception: each
+ * Codex agent's rollout files in its runtime home (<data root>/codex-homes/<key>/sessions), taken by name as
+ * sessions/<id>/codex-runtime (#5883), never anything beside them.
+ * Transcripts are read from every home an agent's Codex or Gemini sessions can be in, from its launch job (kosmos#5883
+ * slices 1 and 2, Grok included). KNOWN GAPS still open on #5883, each leaving that agent's FOLDER backed up but not its
+ * transcripts: Antigravity (Gemini on a Google subscription: live SQLite files, which need a consistent copy), a
+ * move between two NAMED accounts (the first account's sessions stay unread), and Grok sessions run in a Grok
+ * WORKTREE (their launch folder is the worktree, not the agent's folder).
  * `left` names what was not added and why (an id or slug a root name cannot carry), never a path.
  *
  * startTick(deps) -> stop(). Every `everyMs` (an hour): only while deps.enrolled() is true (the board passes mayBackUp:
@@ -58,7 +62,7 @@ function inside(child, parent) {
   return rel === '' || (rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel));
 }
 
-/* input: { workersDir, agents: [{ id, dir }], projectsDir?, projects: [{ slug, folder }], sessions: (dir, id) -> roots,
+/* input: { workersDir, agents: [{ id, dir }], projectsDir?, projects: [{ slug, folder }], sessions: (dir, rootSegment, storedName) -> roots,
    protect?: [folders] }. protect: the data root and each provider's config home. A root that holds one, or sits inside
    one, is refused (review 1): the card says never credentials, and backupscan's name rules alone are the wrong place to
    rely on for a whole folder of them (the backup state itself has no name rule).
@@ -119,7 +123,7 @@ function rootsFor(input) {
     let s = [];
     // As Kosmos recorded the folder, not its true spelling (review 4): a transcript records the folder its agent was
     // started in, and backupsessions matches by that.
-    try { s = input.sessions ? input.sessions(a.dir, seg) : []; } catch { s = []; }
+    try { s = input.sessions ? input.sessions(a.dir, seg, a.id) : []; } catch { s = []; }
     for (const r of s) roots.push(r);
   }
   // Transcript roots (`only` lists) last, against every folder root (review 2): a provider folder may be a link, so its
@@ -201,8 +205,9 @@ function startTick(deps) {
 /* The inputs for rootsFor on this computer's active world. Agents: every profile, and every folder in the workers root
    (an agent whose profile write failed still has transcripts), each resolved with create.workerDir. Projects: the
    stored list, each by its id. Claude config roots SORTED by full path (backupsessions numbers them by position, and
-   status.configRoots' order is readdir's). A source that cannot be read gives nothing; never throws. */
-function inputsHere() {
+   status.configRoots' order is readdir's). A source that cannot be read gives nothing; never throws.
+   deps (tests): readJob(name), sessionsFor(dir, opts). */
+function inputsHere(deps = {}) {
   const store = require('./store');
   const create = require('./create');
   const names = new Set();
@@ -220,7 +225,50 @@ function inputsHere() {
   let geminiHome, codexHome;
   try { geminiHome = require('./geminisession').HOME(); } catch { /* none */ }
   try { codexHome = require('./codexupdate').defaultHome(); } catch { /* none */ }
-  const sessions = (dir, id) => require('./backupsessions').sessionsFor(dir, { id, claudeRoots, geminiHome, codexHome });
+  // The homes AGENTS are launched against (review 3): `sessions/<id>/codex` and `.../gemini` name these for EVERY agent,
+  // so the folder behind those names never depends on the agent's runner or on the board's own CODEX_HOME or
+  // GEMINI_CLI_HOME. The board's homes above stay in `protect`.
+  let agentCodexHome = codexHome, agentGeminiHome = geminiHome;
+  try { agentCodexHome = create.defaultAgentCodexHome(); } catch { /* the board's */ }
+  try { agentGeminiHome = create.geminiStorageHome(null); } catch { /* the board's */ }
+  let agentGrokHome = null;
+  try { agentGrokHome = require('./grokaccounts').defaultDir(); } catch { /* none */ }
+  // Each agent's OWN provider homes (kosmos#5883), from its launch job. The board reads ONE home (the current session);
+  // a backup owes EVERY conversation (review 1), so it reads each home the agent's sessions can be in. Each root is
+  // named for its FOLDER, never its role (review 2: a role name moved to another folder when the agent changed account,
+  // and the same files were stored again under the new name): the default home is `codex` / `gemini` (as before this
+  // change), the runtime home (#4592) `codex-runtime`, and a named account's home `codex-a<8 hex of its path>` /
+  // `gemini-a<...>`. Every one is filtered to this agent's own files (backupsessions). The homes come from the helpers
+  // the board's readers use (create.defaultAgentCodexHome, create.geminiStorageHome). An agent whose job cannot be
+  // read keeps the plain defaults. NOT covered: a move between two NAMED accounts leaves the first account's sessions
+  // unread (#5883).
+  // Hashed on the folder's TRUE path (review 4): a job naming the account through a link or another spelling gets the
+  // same name, so its rollouts are not stored again. A folder that does not resolve hashes as given.
+  const acctTag = (home) => {
+    let p = path.resolve(home);
+    try { p = fs.realpathSync.native(p); } catch { /* as given */ }
+    return '-a' + require('crypto').createHash('sha256').update(p).digest('hex').slice(0, 8);
+  };
+  const sessions = (dir, id, name) => {
+    let job = null;
+    try { job = (deps.readJob || create.readJob)(name); } catch { job = null; }
+    const cx = agentCodexHome, gm = agentGeminiHome;
+    const moreHomes = [];
+    // Each lookup on its own (review 3): one that throws must not take the others with it.
+    if (job && job.runner === 'codex') {
+      if (job.configDir) { try { moreHomes.push({ provider: 'codex', home: job.configDir, tag: acctTag(job.configDir) }); } catch { /* left */ } }
+      try {
+        const runtime = require('./codexruntime').forAgent(name);
+        if (fs.existsSync(runtime)) moreHomes.push({ provider: 'codex', home: runtime, tag: '-runtime' });
+      } catch { /* left */ }
+    } else if (job && job.runner === 'gemini' && job.configDir) {
+      try { moreHomes.push({ provider: 'gemini', home: create.geminiStorageHome(job.configDir), tag: acctTag(job.configDir) }); } catch { /* left */ }
+    } else if (job && job.runner === 'grok' && job.configDir) {
+      // kosmos#5883 slice 2: a Grok agent on a named account (its GROK_HOME is the account folder).
+      try { moreHomes.push({ provider: 'grok', home: job.configDir, tag: acctTag(job.configDir) }); } catch { /* left */ }
+    }
+    return (deps.sessionsFor || require('./backupsessions').sessionsFor)(dir, { id, claudeRoots, geminiHome: gm, codexHome: cx, grokHome: agentGrokHome, moreHomes });
+  };
   // Never inside a root, never holding one (reviews 1 and 5): Kosmos's own data, every provider's config home and every
   // ACCOUNT folder (~/.codex-<label>, ~/.gemini-<label>, ~/.grok and its accounts), and every hidden entry directly in
   // the home folder (~/.ssh, ~/.aws, ~/.config, a provider not listed here yet). The last makes any root that holds the
@@ -241,7 +289,7 @@ function inputsHere() {
   // Windows keeps browser password stores and Credential Manager files under %USERPROFILE%\\AppData, which is not
   // dot-named (review 9): protected whole.
   const winAppData = process.platform === 'win32' ? [path.join(process.env.USERPROFILE || require('os').homedir(), 'AppData')] : [];
-  const protect = [store.ROOT, ...claudeRoots, geminiHome, codexHome, ...accountDirs, ...hidden, ...winAppData]
+  const protect = [store.ROOT, ...claudeRoots, geminiHome, codexHome, agentGeminiHome, agentCodexHome, ...accountDirs, ...hidden, ...winAppData]
     .filter((x) => typeof x === 'string' && x).map((x) => path.resolve(x));
   return { workersDir: create.WORKERS_DIR, projectsDir, agents, projects, sessions, protect, protectIncomplete };
 }

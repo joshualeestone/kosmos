@@ -720,11 +720,29 @@ kosmos_sign_preflight || exit 1
 # rejects, or "notarise" through a stub that never contacted Apple, and print one line about it.
 # KOSMOS_NOTARY_PROBE_BIN is deliberately NOT refused: like KOSMOS_CODESIGN_BIN it replaces only
 # the 1c probe below, says "not probed" when set, and tools.release-gate.test.js needs it.
-for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSMOS_NOTARY_LIPO_CMD KOSMOS_NOTARY_RETRY_DELAYS; do
+for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSMOS_NOTARY_LIPO_CMD KOSMOS_NOTARY_RETRY_DELAYS KOSMOS_STAPLER_CMD KOSMOS_STAPLER_RETRY_DELAYS KOSMOS_NOTARY_SPCTL_CMD KOSMOS_NOTARY_XATTR_CMD; do
   if [ -n "${!_nv+x}" ]; then
     echo "$_nv is set in this shell (even an empty value counts). A cut always notarises the app binaries for real (#5137): unset it and run again."; exit 1
   fi
 done
+# #5932: KOSMOS_SUITE_RERUN_CMD is cut-rerun-guard.sh's test seam for the command a contention rerun runs. A
+# green from it dismisses a fail-0 red and the cut goes on, so a leftover export (`=true`, say) would ship a real
+# shell-stage or browser-check-gate failure. Refused like the notarise seams, an empty
+# value included. KOSMOS_SUITE_RERUN_SLEEP stays allowed (it only paces the reruns), and so does KOSMOS_SUITE_RERUN_MAX,
+# #5907's operator setting for how many attempts that rerun gets.
+if [ -n "${KOSMOS_SUITE_RERUN_CMD+x}" ]; then
+  echo "KOSMOS_SUITE_RERUN_CMD is set in this shell (even an empty value counts). A cut's contention rerun always runs the real suite (#5932): unset it and run again."; exit 1
+fi
+# #5934: run-tests.sh runs only the node or shell part when KOSMOS_TEST_PART says so, honoured outside CI only with
+# KOSMOS_TEST_PART_LOCAL=1 (#4317). Step 3's `yarn test` inherits this shell, so both left exported (or KOSMOS_TEST_PART
+# alone beside a leftover GITHUB_ACTIONS=true) would let a cut pass on half a suite, said only on stderr in a log
+# nobody reads while the cut is green. KOSMOS_TEST_PART=all (the whole suite) is allowed; anything else, an empty
+# value included, is refused, and so is KOSMOS_TEST_PART_LOCAL. So is KOSMOS_SHELL_SHARD, CI's shard of the shell part:
+# run-tests.sh refuses a non-empty one beside a whole suite, so a leftover one would stop the cut at step 3, after the
+# bump. An empty one is refused too, as the other two are, though run-tests.sh would ignore it.
+if { [ -n "${KOSMOS_TEST_PART+x}" ] && [ "$KOSMOS_TEST_PART" != all ]; } || [ -n "${KOSMOS_TEST_PART_LOCAL+x}" ] || [ -n "${KOSMOS_SHELL_SHARD+x}" ]; then
+  echo "KOSMOS_TEST_PART, KOSMOS_TEST_PART_LOCAL or KOSMOS_SHELL_SHARD is set in this shell (part '${KOSMOS_TEST_PART-}', local '${KOSMOS_TEST_PART_LOCAL-}', shard '${KOSMOS_SHELL_SHARD-}'). A cut always tests the whole suite (#5934): unset them and run again."; exit 1
+fi
 # One authenticated request to Apple with the notary key, so a bad key or an outage refuses here,
 # before the bump is pushed. Step 4 can still fail at Apple after the bump (a notary outage that
 # starts mid-cut, or a submission still unfinished after its two 30-minute waits), the same exposure

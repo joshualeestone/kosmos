@@ -84,7 +84,10 @@ function openParts(session, projects) {
           if (slot !== null) {
             const latest = tr.latestAtOrBefore(t.repeat, slot, Date.now());
             const at = latest === null ? slot : latest;
-            due = { dueWords: tr.whenWords(at), ...(at > slot ? { dueEarlier: true } : {}) };
+            /* kosmos#5920: the doctrine's per-run deadline for the latest due run, named so a retry that drags on knows
+               when to record what it has and move on (taskrepeat.recordBy; none when it has already passed). */
+            const by = tr.recordBy(t.repeat, at);
+            due = { dueWords: tr.whenWords(at), ...(at > slot ? { dueEarlier: true } : {}), ...(by !== null ? { byWords: tr.whenWords(by) } : {}) };
           }
         }
         out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...due });
@@ -116,7 +119,9 @@ function nudgeText(part) {
   /* #4787: a repeating task's due run, named with how to record it, so a missed run is rerun and recorded, not lost. */
   const due = typeof part.dueWords === 'string' && part.dueWords
     ? ' Its scheduled run (' + plainWords(part.dueWords, 60) + ')' + (part.dueEarlier === true ? ', and earlier ones,' : '')
-      + ' has not been reported: run it now, then record it with kosmos task ran '
+      + ' has not been reported: run it now'
+      + (typeof part.byWords === 'string' && part.byWords ? ' (record it before ' + plainWords(part.byWords, 60) + ', ahead of the next one; if it is still going then, stop it, record it as it stands with what stopped it, and start the next)' : '')
+      + ', then record it with kosmos task ran '
       + (id ? id + ' ' + part.n : '<project-id> <task-number>') + ' (add --unchanged if it found nothing new).'
     : '';
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
@@ -188,10 +193,10 @@ function sweepOnce(o) {
         let state = null;
         let held = false;
         let heldBy = null;   // #4588 ask 3: which hold, so the log does not say "quota" for the Gemini limit
-        try { const r = o.deliver(session, text, o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = r && r.heldBy; }
+        try { const r = o.deliver(session, text, o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = r && (r.heldFor === 'signin' ? 'signin' : r.heldBy); }
         catch (err) { state = 'threw: ' + String((err && err.message) || err); }
         /* #4588 PR B: held (the shared Google quota, the Gemini cap, #5743 an answer awaited on its screen, or #5805 a usage limit), nothing typed: no try is spent and nothing counts toward the hour. */
-        if (held) { results.push({ session, name: display, act: heldBy === 'menu' ? 'menu-held' : heldBy === 'limit' ? 'limit-held' : 'quota-held', delivered: false, delivery: state, because: p.because + (heldBy === 'cap' ? '; held by the Gemini limit' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : heldBy === 'limit' ? '; held while it is out of usage (#5805)' : '; held on the shared Google quota'), task: p.part.n }); continue; }
+        if (held) { results.push({ session, name: display, act: heldBy === 'menu' ? 'menu-held' : heldBy === 'signin' ? 'signin-held' : heldBy === 'limit' ? 'limit-held' : 'quota-held', delivered: false, delivery: state, because: p.because + (heldBy === 'cap' ? '; held by the Gemini limit' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : heldBy === 'signin' ? '; held while it is signed out (#5948)' : heldBy === 'limit' ? '; held while it is out of usage (#5805)' : '; held on the shared Google quota'), task: p.part.n }); continue; }
         const D = o.DELIVERY || {};
         const delivered = D.PLACED != null && state === D.PLACED;
         const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);

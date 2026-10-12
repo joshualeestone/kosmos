@@ -23,6 +23,7 @@ process.env.AGENT_WORKFORCE_HOME = mk('home');
 delete process.env.AGENT_WORKFORCE_GROK_HOME;
 const store = require('./store');
 const tick = require('./backuptick');
+const snap = require('./backupsnapshot');
 
 test.after(() => fs.rmSync(BASE, { recursive: true, force: true }));
 
@@ -90,4 +91,131 @@ test('review 7: the gate is consent, not enrolment alone: a record with no conse
   assert.equal(tick.mayBackUp(), false, 'enrolled with no consent recorded here must not back up');
   fs.writeFileSync(path.join(store.ROOT, 'org-enrollment.json'), JSON.stringify(Object.assign({}, rec, { consentHash: 'b'.repeat(64) })));
   assert.equal(tick.mayBackUp(), true, 'with the words accepted here it may');
+});
+
+test('#5883: a Codex agent on a named account is backed up from THAT account\'s sessions, not the default home', () => {
+  const agentDir = path.join(BASE, 'workers', 'cody');
+  fs.mkdirSync(agentDir, { recursive: true });
+  const acct = mk('home', '.codex-work2');
+  const day = path.join(acct, 'sessions', '2026', '10', '11');
+  fs.mkdirSync(day, { recursive: true });
+  fs.writeFileSync(path.join(day, 'rollout-a.jsonl'), JSON.stringify({ type: 'session_meta', payload: { cwd: agentDir } }) + '\n');
+  const readJob = (name) => (name === 'cody' ? { runner: 'codex', configDir: acct } : null);
+  const { roots } = tick.rootsFor(tick.inputsHere({ readJob }));
+  const r = roots.find((x) => /^sessions\/cody\/codex-a[0-9a-f]{8}$/.test(x.name));
+  assert.ok(r, `no transcript root for the agent on a named account: ${JSON.stringify(roots.map((x) => x.name))}`);
+  assert.equal(fs.realpathSync(r.path), fs.realpathSync(path.join(acct, 'sessions')));
+  assert.deepEqual(r.only, [path.join('2026', '10', '11', 'rollout-a.jsonl')]);
+  // CONTROL: with no job read, the default Codex home (which holds no rollout of this agent) gives none.
+  const none = tick.rootsFor(tick.inputsHere({ readJob: () => null })).roots.find((x) => x.name.startsWith('sessions/cody/codex'));
+  assert.equal(none, undefined);
+});
+
+test('#5883: a Gemini agent\'s sessions are read from its account storage home (create.geminiStorageHome)', () => {
+  const create = require('./create');
+  const acct = mk('home', '.gemini-two');
+  mk('workers', 'cody');   // the control agent, made here so this test runs alone (review 1)
+  const seen = {};
+  const sessionsFor = (dir, opts) => { seen[opts.id] = opts; return []; };
+  mk('workers', 'gemma');
+  const input = tick.inputsHere({ readJob: (n) => (n === 'gemma' ? { runner: 'gemini', configDir: acct } : null), sessionsFor });
+  tick.rootsFor(input);
+  // The default storage home as `gemini`, the account's as gemini-a<hex> (review 2: named by folder, never by role).
+  assert.equal(seen.gemma.geminiHome, create.geminiStorageHome(null));
+  const acctHome = seen.gemma.moreHomes.find((h) => h.provider === 'gemini');
+  assert.equal(acctHome.home, create.geminiStorageHome(acct));
+  assert.match(acctHome.tag, /^-a[0-9a-f]{8}$/);
+  // CONTROL: an agent with no job keeps the default home, so the line above is the job's doing.
+  assert.ok(seen.cody, 'CONTROL: the agent with no job was asked too');
+  assert.equal(seen.cody.moreHomes.length, 0, 'an agent with no job was given an account home');
+});
+
+function rollout(home, agentDir, name) {
+  const day = path.join(home, 'sessions', '2026', '10', '12');
+  fs.mkdirSync(day, { recursive: true });
+  fs.writeFileSync(path.join(day, name), JSON.stringify({ type: 'session_meta', payload: { cwd: agentDir } }) + '\n');
+}
+
+test('#5883 review 1: a backup reads EVERY home an agent\'s Codex sessions can be in: account, runtime, and the default', () => {
+  const create = require('./create');
+  const agentDir = mk('workers', 'rhea');
+  const acct = mk('home', '.codex-acct3');
+  rollout(acct, agentDir, 'rollout-acct.jsonl');
+  rollout(require('./codexruntime').forAgent('rhea'), agentDir, 'rollout-runtime.jsonl');
+  rollout(create.defaultAgentCodexHome(), agentDir, 'rollout-before.jsonl');   // kept before the account move
+  const readJob = (n) => (n === 'rhea' ? { runner: 'codex', configDir: acct } : null);
+  const { roots } = tick.rootsFor(tick.inputsHere({ readJob }));
+  const mine = roots.filter((r) => r.name.startsWith('sessions/rhea/'));
+  const names = mine.map((r) => r.name).sort();
+  assert.equal(names.length, 3, JSON.stringify(names));
+  assert.deepEqual([names[0], names[2]], ['sessions/rhea/codex', 'sessions/rhea/codex-runtime']);
+  assert.match(names[1], /^sessions\/rhea\/codex-a[0-9a-f]{8}$/);
+  for (const r of mine) assert.equal(r.only.length, 1, r.name);
+  for (const r of mine) assert.equal(snap.rootNameProblem(r.name), null, r.name);
+  // On the DEFAULT account there is no separate default root: the account home IS the default (one folder, one root).
+  const d = tick.rootsFor(tick.inputsHere({ readJob: (n) => (n === 'rhea' ? { runner: 'codex', configDir: null } : null) })).roots
+    .filter((r) => r.name.startsWith('sessions/rhea/')).map((r) => r.name).sort();
+  assert.deepEqual(d, ['sessions/rhea/codex', 'sessions/rhea/codex-runtime']);
+});
+
+test('#5883 review 2: one folder keeps ONE name across an account move, so its files are never stored again under another', () => {
+  const agentDir = mk('workers', 'vale');
+  const acct = mk('home', '.codex-vale');
+  rollout(acct, agentDir, 'rollout-a.jsonl');
+  rollout(require('./create').defaultAgentCodexHome(), agentDir, 'rollout-d.jsonl');
+  const namesOn = (configDir) => Object.fromEntries(tick.rootsFor(tick.inputsHere({ readJob: (n) => (n === 'vale' ? { runner: 'codex', configDir } : null) })).roots
+    .filter((r) => r.name.startsWith('sessions/vale/')).map((r) => [fs.realpathSync(r.path), r.name]));
+  const before = namesOn(null);   // on the default account
+  const after = namesOn(acct);    // moved to a named account
+  for (const [folder, name] of Object.entries(before)) assert.equal(after[folder], name, `${folder} was renamed by the move`);
+  assert.equal(Object.keys(after).length, 2, 'CONTROL: after the move both homes are read');
+});
+
+test('#5883 review 3: `codex` names the agents\' default home for every agent, never the board\'s CODEX_HOME', (t) => {
+  const create = require('./create');
+  const saved = { a: process.env.AGENT_WORKFORCE_CODEX_HOME, c: process.env.CODEX_HOME };
+  try {
+    // Inside the try (review 4): a throw here must still restore the environment for the tests after this one.
+    delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+    process.env.CODEX_HOME = mk('board-codex-home');
+    const board = require('./codexupdate').defaultHome();
+    const agents = create.defaultAgentCodexHome();
+    if (board === agents) { t.skip('the two homes do not differ here, so there is nothing to tell apart'); return; }
+    const seen = {};
+    mk('workers', 'plain');
+    tick.rootsFor(tick.inputsHere({ readJob: (n) => (n === 'plain' ? { runner: 'claude', configDir: null } : null), sessionsFor: (d, o) => { seen[o.id] = o; return []; } }));
+    assert.equal(seen.plain.codexHome, agents, 'a non-Codex agent was read from the board\'s CODEX_HOME');
+  } finally {
+    if (saved.a === undefined) delete process.env.AGENT_WORKFORCE_CODEX_HOME; else process.env.AGENT_WORKFORCE_CODEX_HOME = saved.a;
+    if (saved.c === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = saved.c;
+  }
+});
+
+test('#5883 review 4: an account folder named through a link gets the same root name as its real path', () => {
+  const real = mk('home', '.codex-linked-acct');
+  const link = path.join(BASE, 'acct-link');
+  if (!fs.existsSync(link)) fs.symlinkSync(real, link);
+  const seen = [];
+  mk('workers', 'lynn');
+  const nameVia = (configDir) => {
+    seen.length = 0;
+    tick.rootsFor(tick.inputsHere({ readJob: (n) => (n === 'lynn' ? { runner: 'codex', configDir } : null), sessionsFor: (d, o) => { if (o.id === 'lynn') seen.push(...o.moreHomes); return []; } }));
+    return seen.find((h) => h.home === configDir).tag;
+  };
+  assert.equal(nameVia(link), nameVia(real));
+  assert.notEqual(nameVia(real), nameVia(mk('home', '.codex-other-acct')), 'CONTROL: another folder gets another name');
+});
+
+test('#5883 slice 2: a Grok agent on a named account is backed up from that account, under the folder\'s own name', () => {
+  const agentDir = mk('workers', 'gwen');
+  const acct = mk('home', '.grok-two');
+  const sid = path.join(acct, 'sessions', 'any-folder-name', 'sid1');
+  fs.mkdirSync(sid, { recursive: true });
+  fs.writeFileSync(path.join(sid, 'summary.json'), JSON.stringify({ info: { cwd: agentDir } }));
+  fs.writeFileSync(path.join(sid, 'chat_history.jsonl'), '{}\n');
+  const { roots } = tick.rootsFor(tick.inputsHere({ readJob: (n) => (n === 'gwen' ? { runner: 'grok', configDir: acct } : null) }));
+  const g = roots.find((r) => /^sessions\/gwen\/grok-a[0-9a-f]{8}$/.test(r.name));
+  assert.ok(g, JSON.stringify(roots.map((r) => r.name)));
+  assert.deepEqual(g.only, ['any-folder-name/sid1/chat_history.jsonl', 'any-folder-name/sid1/summary.json']);
+  assert.equal(snap.rootNameProblem(g.name), null);
 });

@@ -291,7 +291,7 @@ test('#5913 review 2: open and uninstall wiring (text only, every platform)', ()
   const un = SETUP.indexOf('\nuninstall() {\n');
   const refusal = SETUP.indexOf('this uninstall is for a sandboxed install', un);
   const unmark = SETUP.indexOf('sealed_icon_unmark ||', un);
-  const sweep = SETUP.indexOf('bundle_looks_sealed "$SYS_APP_DIR/Kosmos.app"', un);
+  const sweep = SETUP.indexOf('shared_sealed_stays "$SYS_APP_DIR/Kosmos.app"', un);   // #5912 merged: the sweep asks shared_sealed_stays
   assert.ok(refusal !== -1 && unmark > refusal && sweep > unmark, `uninstall order wrong (refusal ${refusal}, unmark ${unmark}, sweep ${sweep})`);
 });
 
@@ -307,7 +307,7 @@ test('#5913: setup.sh wiring (text only, every platform)', () => {
   // The uninstall takes back the marker BEFORE anything else reads that folder, for the install the config names.
   const un = SETUP.indexOf('\nuninstall() {\n');
   const unmark = SETUP.indexOf('sealed_icon_unmark ||', un);
-  const firstSweep = SETUP.indexOf('bundle_looks_sealed "$SYS_APP_DIR/Kosmos.app"', un);
+  const firstSweep = SETUP.indexOf('shared_sealed_stays "$SYS_APP_DIR/Kosmos.app"', un);   // #5912 merged: the sweep asks shared_sealed_stays
   assert.ok(un !== -1 && unmark > un && firstSweep > unmark, 'the uninstall does not take back its marker first');
   // Sandboxed runs never touch the real /Users/Shared.
   assert.match(SETUP, /elif \[ -n "\$\{KOSMOS_SYS_APP_DIR:-\}" \]; then SEALED_USERS_DIR="\$KOSMOS_SYS_APP_DIR\/\.kosmos-sealed-icon-users"/, 'a run sandboxed by KOSMOS_SYS_APP_DIR could reach the real shared folder');
