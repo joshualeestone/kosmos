@@ -96,8 +96,9 @@ It names the other agent by display name and handle, as `ambiguousNote` does, so
 ## Windows (review iteration 5)
 
 The defect was reported on Windows, where the roster lists only LIVE sessions and there is no created list. So the
-fleet also reads Kosmos's Windows session record (engine/win32sessions.js), which keeps every agent Kosmos made there
-whether or not it runs. Tested by calling `nameCheckFleet('win32')` with a recorded, stopped agent. The created list on
+fleet also reads Kosmos's Windows session record (engine/win32sessions.js), which has a row for every agent whose
+session has STARTED there, running or not. **Known gap:** a Windows agent whose first launch never started has no row
+and no pane, so its name reads as free until it runs (said on the card). Tested by calling `nameCheckFleet('win32')` with a recorded, stopped agent. The created list on
 a Mac or Linux is read strictly (`status.createdKeysStrict`), and so is the Windows record (`win32sessions.readStrict`):
 a source that fails refuses the check rather than reading as "no stopped agents".
 
@@ -111,3 +112,11 @@ a source that fails refuses the check rather than reading as "no stopped agents"
 - **What "fails closed" covers:** a roster that cannot be read (safeRoster answers null) and a created list that cannot
   be read both refuse, and so does a Windows session record that is there but cannot be read or parsed
   (win32sessions.readStrict; an absent record is empty). A tmux with no server is a true empty roster.
+
+## The fleet reads the pane listing, not the board snapshot (review iteration 11)
+
+`nameCheckFleet` used `safeRoster()`, which runs `status.snapshot()`: a capture of every pane and its own side effects
+(limit sweeps), on every create, rename and connect. A name check only reads, so it now uses `status.paneRoster()`
+(one pane listing, no captures; it throws when tmux could not be asked) and names each agent with
+`status.readIdentity`, as the board does. Removed agents are filtered here for both lists, since paneRoster does not
+drop them the way safeRoster did. Tested: an unreadable pane listing refuses.

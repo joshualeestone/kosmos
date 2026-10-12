@@ -272,3 +272,11 @@ test('#5957: on Windows, a session record that is there but unreadable refuses; 
   fs.rmSync(file, { force: true });
   assert.ok(Array.isArray(nameCheckFleet('win32')), 'an absent record is not a failure');
 });
+
+test('#5957: a pane listing that cannot be read refuses the name check (tmux could not be asked)', (t) => {
+  const status = require('./engine/status');
+  const { nameCheckFleet } = require('./server');
+  status.setPaneSource(() => null);   // what tmux answers when it could not be asked
+  t.after(() => { status.setPaneSource(null); board = fleet.install(AGENTS.map((a) => fleet.agent(a.session, { state: 'idle' }))); });
+  assert.throws(() => nameCheckFleet('darwin'), /could not see what is running/);
+});

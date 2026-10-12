@@ -21787,30 +21787,25 @@ function agentEventsTick() {
 }
 /**
  * kosmos#5957: every agent's handle and display name, for engine/agentnames.js (wired in start()).
- * Every agent of ours the board shows (roster rows that are isNamedOurs, by display name; a pane that is not an agent
- * never holds a name), plus the agents Kosmos made that are not
- * running: on a Mac or Linux the created list (status.createdKeysStrict), and on Windows the session record
- * (engine/win32sessions.js), since the Windows roster lists only live sessions. Removed agents are left out (the
- * created list keeps them for Restore, and a person cannot rename an agent the board does not show); create's
- * removed-list refusal still covers a removed agent's handle. THROWS when the roster or the created list cannot be
- * read (safeRoster answers null), or when the stopped-agent list cannot be (created list or Windows session record), so a
- * create or rename refuses rather than passing a name nobody could check. A tmux with no server is an empty roster, not
- * a failure: nothing is running, and the stopped-agent list still answers.
+ * The running agents of ours from status.paneRoster (ONE pane listing, no captures and none of snapshot()'s side
+ * effects; a name check only reads), plus the agents Kosmos made that are not running: on a Mac or Linux the created
+ * list (status.createdKeysStrict), on Windows the session record (engine/win32sessions.js, which has a row once a
+ * session has started; an agent whose first launch never started is not in it). Each is named by status.readIdentity,
+ * as the board names it. Removed agents are left out (the created list keeps them for Restore, and a person cannot
+ * rename an agent the board does not show); create's removed-list refusal still covers a removed agent's handle.
+ * THROWS when the pane listing or the stopped-agent list cannot be read, so a create or rename refuses rather than
+ * passing a name nobody could check. A tmux with no server is an empty listing, not a failure.
  * `platform` is a parameter so a test can read the Windows arm on any computer.
  */
 function nameCheckFleet(platform = process.platform) {
-  const roster = safeRoster();
-  if (!Array.isArray(roster)) throw new Error('the roster could not be read');
   const status = require('./engine/status');
-  /* Wider than safeRoster's hidesCard filter on purpose: a removed agent whose card still shows is in the roster rows,
-     so it is counted there; this set only stops the stopped-agent lists re-adding the rest. */
   const gone = new Set(removal.removedAgents().map((r) => r && r.name));
-  const named = new Map();
-  for (const a of roster) if (a && a.isNamedOurs === true && a.sessionName) named.set(a.sessionName, a.name || a.sessionName);
+  const running = status.paneRoster().filter((p) => p && p.isNamedOurs === true && p.sessionName).map((p) => p.sessionName);
   const stopped = platform === 'win32'
     ? Object.values(require('./engine/win32sessions').readStrict()).map((r) => r && r.name).filter((n) => typeof n === 'string' && n)
     : status.createdKeysStrict();
-  for (const key of stopped) {
+  const named = new Map();
+  for (const key of [...running, ...stopped]) {
     if (named.has(key) || gone.has(key)) continue;
     let shown = key;
     try { shown = status.readIdentity(key).displayName || key; } catch { /* the handle still counts */ }
