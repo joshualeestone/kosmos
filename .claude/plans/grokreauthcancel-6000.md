@@ -1,6 +1,6 @@
 # #6000: removing a Grok account cancels its own unfinished "Sign in again" (the #5994 shape)
 
-**Branch:** `grokreauthcancel-6000` · **Card:** kosmos#6000 · **Mirrors:** #5994 (branch reauthcancel-5994 at 2ff0f19c, not yet merged; first ported from 3a5e59a2, synced in challenge iteration 1)
+**Branch:** `grokreauthcancel-6000` · **Card:** kosmos#6000 · **Mirrors:** #5994 (branch reauthcancel-5994 at 62c7d5ff, not yet merged; first ported from 3a5e59a2, synced in challenge iteration 1)
 
 ## The defect
 Pressing Sign in again on a Grok subscription account reserves the account's folder (`activeGrokDirs`). While
@@ -32,7 +32,7 @@ on the live folder, and goes ahead. Any other hold still refuses with the old se
 That a live account folder is never also a sign-in's staging folder. resolveFreshGrokDir refuses a named dir that
 holds credentials and nextWorkDir skips one; pinned by the premise test.
 
-## Tests (engine/grokaccounts.reauthcancel-6000.test.js, 12; the chmod ones skip as root, as #5994's do)
+## Tests (engine/grokaccounts.reauthcancel-6000.test.js, 13; the chmod ones skip as root, as #5994's do)
 premise; remove cancels and deletes; forget cancels and moves (the moved account keeps its sign-in); a refused call
 (agents) cancels nothing; the late exit does not release a new sign-in's hold (child kept alive with a TERM trap so
 the window is real); a forget refused for no free name cancels nothing; a forget whose rename fails (read-only home)
@@ -43,3 +43,7 @@ release before the move; settled reauths filtered out; no release when already g
 release on any failed delete.
 Wider: engine/grokaccounts*.test.js 68/68; server.grok-subscription-3391, server.provider-accounts-3296,
 server.disconnect-stop-2570, engine.reachable 72/72.
+Added in iteration 2: a dying sign-in that writes a valid auth.json on SIGTERM does not promote into a folder put back
+at the path; the part-way delete test skips when the filesystem lists sessions/ first (as #5994's iteration 9). Route
+level: server.disconnect-stop-2570.test.js, the Grok DELETE route refuses with an agent on the account (cancels
+nothing) and, once the agent is gone, deletes and cancels; red when own-reauth detection is broken.

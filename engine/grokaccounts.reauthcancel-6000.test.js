@@ -26,6 +26,9 @@ fs.writeFileSync(FAKE, [
   '#!/bin/bash',
   // ignoreterm: the trap is set BEFORE the code is printed, so "a code is showing" means a cancel cannot kill it.
   'if [ "$FAKE_MODE" = "ignoreterm" ]; then trap \'\' TERM; ' + CODE + '; while :; do sleep 0.2; done; fi',
+  // writeonterm: on SIGTERM wait half a second, then write a valid sign-in for $FAKE_EMAIL and exit 0: the one way a
+  // cancelled sign-in again could still try to promote, late enough for a test to put a folder back at the path first.
+  'if [ "$FAKE_MODE" = "writeonterm" ]; then trap \'sleep 0.5; printf "{\\"https://auth.x.ai::u2\\":{\\"email\\":\\"%s\\",\\"refresh_token\\":\\"NEW\\"}}" "$FAKE_EMAIL" > "$GROK_HOME/auth.json"; exit 0\' TERM; ' + CODE + '; while :; do sleep 0.2; done; fi',
   CODE,
   'exec sleep 30',
 ].join('\n') + '\n', { mode: 0o755 });
@@ -70,6 +73,23 @@ test('#6000: removeAccount cancels the account\'s own unfinished sign-in again a
   assert.equal(state(sessionId), 'cancelled', 'the sign-in again was not cancelled');
   await waitFor(() => workSlots().length === 0, 'the cancelled sign-in\'s staging slot was never freed');
   assert.equal(fs.existsSync(dir), false, 'the late exit brought the account back');
+});
+
+test('#6000: a cancelled sign-in again that writes a valid sign-in as it dies does not promote into a folder now at that path', async () => {
+  process.env.FAKE_MODE = 'writeonterm';
+  process.env.FAKE_EMAIL = 'back10@example.com';   // the SAME account, so a promote would be accepted
+  try {
+    const { dir, sessionId } = await startHeldReauth('.grok-back10', 'back10@example.com');
+    assert.equal(grok.removeAccount(dir, []).removed, true);
+    // A folder is back at that path before the child finishes dying (a new account under the same name, say).
+    // Without it a late promote fails on its own (the parent is gone), so the test could not fail.
+    fs.mkdirSync(dir);
+    await waitFor(() => workSlots().length === 0, 'the child never exited');
+    assert.equal(fs.existsSync(nodePath.join(dir, 'auth.json')), false, 'the dying sign-in again promoted into the folder now at that path');
+    assert.equal(state(sessionId), 'cancelled');
+  } finally {
+    delete process.env.FAKE_EMAIL;
+  }
 });
 
 test('#6000: forgetAccount cancels the account\'s own unfinished sign-in again and moves it aside', async () => {
@@ -159,7 +179,7 @@ test('#6000: a forget whose MOVE itself fails (the home cannot be written) cance
   await waitFor(() => workSlots().length === 0, 'the cancelled sign-in never exited');
 });
 
-test('#6000: a delete that fails PART WAY, after auth.json is gone, cancels the sign-in so it cannot finish into the remains', AS_ROOT, async () => {
+test('#6000: a delete that fails PART WAY, after auth.json is gone, cancels the sign-in so it cannot finish into the remains', AS_ROOT, async (t) => {
   const { dir, sessionId } = await startHeldReauth('.grok-half12', 'half12@example.com');
   const stuck = nodePath.join(dir, 'sessions');
   fs.mkdirSync(stuck, { recursive: true });
@@ -169,7 +189,14 @@ test('#6000: a delete that fails PART WAY, after auth.json is gone, cancels the 
   try { rm = grok.removeAccount(dir, []); } finally { fs.chmodSync(stuck, 0o755); }
   assert.equal(rm.ok, false);
   assert.match(rm.because, /could not delete/);
-  assert.equal(fs.existsSync(nodePath.join(dir, 'auth.json')), false, 'fixture: auth.json survived, so this is the whole-account case');
+  // rmSync walks entries in directory-listing order and stops at the first error, so on a filesystem that lists
+  // sessions/ first auth.json survives and this is the whole-account case (pinned by the next test).
+  if (fs.existsSync(nodePath.join(dir, 'auth.json'))) {
+    grok.cancelGrokLogin(sessionId);
+    await waitFor(() => workSlots().length === 0, 'the cancelled sign-in never exited');
+    t.skip('this filesystem listed sessions/ before auth.json');
+    return;
+  }
   assert.equal(state(sessionId), 'cancelled', 'the sign-in was left to finish into a half-deleted folder');
   await waitFor(() => workSlots().length === 0, 'the staging slot was never freed');
 });
