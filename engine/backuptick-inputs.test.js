@@ -72,3 +72,10 @@ test('review 5: a Grok home set OUTSIDE the home folder is protected too (only t
     assert.ok(input.protect.includes(grokOut), 'an env-set Grok home outside home was not protected');
   } finally { delete process.env.AGENT_WORKFORCE_GROK_HOME; }
 });
+
+test('review 6: the real home\'s hidden folders are protected too when AGENT_WORKFORCE_HOME is another folder', () => {
+  const input = tick.inputsHere();
+  const realHidden = fs.readdirSync(os.homedir()).filter((n) => n.startsWith('.')).map((n) => path.join(os.homedir(), n));
+  if (!realHidden.length) return;   // a home with no hidden entry: nothing to check
+  assert.ok(realHidden.every((d) => input.protect.includes(d)), 'a hidden folder of the real home was not protected');
+});
