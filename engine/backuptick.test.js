@@ -341,3 +341,20 @@ test('review 8: a folder named ..x inside a protected folder is inside it; prote
     assert.deepEqual(ok.roots.map((x) => x.name), ['workers', 'elsewhere/far']);
   } finally { s.done(); }
 });
+
+// A timeout of its own: the broken shape does not fail, it hangs (the first run's roots() is never released).
+test('#5883 slice 3 review 1: a tick while roots() is still being awaited does not start a second run', { timeout: 5000 }, async () => {
+  let release;
+  const runs = [];
+  const stop = tick.startTick({
+    runBackup: async (i) => { runs.push(i); return { ok: true }; },
+    roots: () => new Promise((r) => { release = () => r({ roots: [{ name: 'workers', path: '/w' }], left: [] }); }),
+    enrolled: () => true, now: () => 0, setInterval: () => ({ unref() {} }), clearInterval: () => {},
+  });
+  const first = stop.tick();
+  await new Promise((r) => setImmediate(r));
+  await stop.tick();   // during the awaited roots()
+  release(); await first;
+  assert.equal(runs.length, 1, 'a second run started while the first was still listing its roots');
+  assert.equal(stop.state.running, false);
+});

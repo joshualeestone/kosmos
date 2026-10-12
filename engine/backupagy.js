@@ -12,8 +12,10 @@
  *   A conversation is an agent's when one of its workspace URIs, as a path, canonicalized (trust.canonicalOnDisk, as
  *   every other reader), is the agent's folder. Each owned conversation is copied with node:sqlite's backup() into
  *   ONE shared staging folder: a consistent copy, never the live file's bytes (a raw copy of a WAL db can be torn).
- *   Each agent gets one root over the staging folder naming its own copies (sessions/<seg>/agy). A conversation two
- *   agents claim is ONE staged file named by two roots, which the snapshot drops from both and records as skipped.
+ *   Each agent gets one root over the staging folder naming its own copies (sessions/<seg>/agy). A conversation more
+ *   than one agent claims is LEFT OUT here (review 1): the snapshot drops a whole optional root when two roots name one
+ *   file, so a single shared conversation would have taken every conversation of both agents out of the backup.
+ *   Ownership is an exact folder match: a conversation agy started in a SUBFOLDER of an agent's folder is not taken.
  *   NOT taken: the summaries db (titles and previews of every agent's conversations), the token beside it.
  *   Never throws: a home, a summaries db or a conversation that cannot be read gives nothing for it.
  * clearStage(stageDir): removes the staging folder; called after every run, whatever happened.
@@ -50,6 +52,23 @@ function owned(home) {
   return out;
 }
 
+/* node:sqlite backup() on Node 26 resolves on a thread-pool callback that does not wake an idle event loop (review 1,
+   measured: it finished only when an unrelated timer fired, so on an idle board it never would). A timer is kept alive
+   while it is pending. One step: Node takes a positive page count, so the largest int32 (SQLite's own "all pages" is
+   -1, which Node refuses), so writes agy makes meanwhile cannot restart it forever. */
+async function copyWhole(src, dest) {
+  const sqlite = require('node:sqlite');
+  let db;
+  const keepAwake = setInterval(() => {}, 25);
+  try {
+    db = new sqlite.DatabaseSync(src, { readOnly: true });
+    await sqlite.backup(db, dest, { rate: 2147483647 });
+  } finally {
+    clearInterval(keepAwake);
+    try { if (db) db.close(); } catch { /* closed */ }
+  }
+}
+
 async function stageAgy(opts) {
   const o = opts || {};
   if (typeof o.home !== 'string' || !path.isAbsolute(o.home) || typeof o.stageDir !== 'string' || !path.isAbsolute(o.stageDir)) return [];
@@ -59,26 +78,25 @@ async function stageAgy(opts) {
   const conversations = path.join(o.home, 'conversations');
   for (const conv of owned(o.home)) {
     const owners = agents.filter((a) => conv.folders.includes(a.canon));
-    if (!owners.length) continue;
+    if (owners.length !== 1) continue;   // none, or shared: see the header
     const src = path.join(conversations, `${conv.id}.db`);
     // A plain file only, never a link (it could point anywhere).
     let st;
     try { st = fs.lstatSync(src); } catch { continue; }
     if (!st.isFile()) continue;
     const dest = path.join(o.stageDir, `${conv.id}.db`);
-    if (!fs.existsSync(dest)) {
-      let db;
-      try {
-        fs.mkdirSync(o.stageDir, { recursive: true, mode: 0o700 });
-        const sqlite = require('node:sqlite');
-        db = new sqlite.DatabaseSync(src, { readOnly: true });
-        await sqlite.backup(db, dest);
-      } catch {
-        try { fs.rmSync(dest, { force: true }); } catch { /* left for clearStage */ }
-        continue;
-      } finally { try { if (db) db.close(); } catch { /* closed */ } }
+    try {
+      // Owner-only every time (review 1: mkdir's mode applies only to a folder it creates), and never a stale copy.
+      fs.mkdirSync(o.stageDir, { recursive: true, mode: 0o700 });
+      fs.chmodSync(o.stageDir, 0o700);
+      fs.rmSync(dest, { force: true });
+      await copyWhole(src, dest);
+      fs.chmodSync(dest, 0o600);
+    } catch {
+      try { fs.rmSync(dest, { force: true }); } catch { /* left for clearStage */ }
+      continue;
     }
-    for (const a of owners) mine.get(a.seg).push(`${conv.id}.db`);
+    mine.get(owners[0].seg).push(`${conv.id}.db`);
   }
   let real;
   try { real = fs.realpathSync(o.stageDir); } catch { return []; }
