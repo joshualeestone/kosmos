@@ -29,6 +29,7 @@
  * runBackup({ roots }, deps?) -> { ok, because?, ...flags }. Never throws. Flags:
  *   the snapshot's own (manifestKey, files, uploaded, reused, retryLater, newPeriod, staleIndex, overAllowance ...);
  *   the key step's (waiting, pendingEpoch, unreadableKeyFile, refusal ...) when no snapshot was taken;
+ *   the device key's missing (remote access never set up on this computer: a person acts, not a retry) and retry;
  *   refusedState (the state file is not this computer's; the caller may discardState it), retry (a passing error),
  *   pairChanged (Kosmos+ named another pair twice in one run). leftOut: index rows withRun could not keep (a bug shows).
  *   stateNotKept, stateBecause, stateRetry: the state could not be written AFTER the run; the run's own answer and
@@ -180,7 +181,8 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
       return Object.assign({ ok: false, because: 'this computer could not keep the backup state, so no backup was taken' + fixed(err) }, err && err.retry ? { retry: true } : {}, err && err.code === 'refused' && !err.retry ? { refusedState: true } : {});
     }
     const dk = (deps.deviceKey || require('./backupdevicekey').deviceKey)();
-    if (!dk || !dk.ok) return Object.assign({ ok: false, because: (dk && dk.because) || 'the device key could not be read' }, dk && dk.retry ? { retry: true } : {});
+    // missing: remote access was never set up here, which a person must act on; never a retry (review 3).
+    if (!dk || !dk.ok) return Object.assign({ ok: false, because: (dk && dk.because) || 'the device key could not be read' }, dk && dk.retry ? { retry: true } : {}, dk && dk.missing ? { missing: true } : {});
     ref.took = true;
     result = await take({
       roots: input.roots, memberPk: k.memberPk, namingKey: p.namingKey, namingKeyId: backupkeys.namingKeyId(p.namingKey),

@@ -75,3 +75,10 @@ Mutants after review 2 (19:23 CDT from `date`): U1 pointer write unguarded: red.
 otherPair return, which no test reaches with a failing pointer: same code, said here rather than claimed). U6 runNow's
 catch rethrows: red. U3 (learnPair not stripped) SURVIVES and is equivalent: every learnPair result now goes to the
 restart or to the unnamed-pair sentence, so no path hands one to stripState.
+
+## Review 3 (opus, blind, on 812dea64): one must-fix, one nit, both fixed
+1. MUST-FIX, MY ERROR: the end-to-end test was DELETED in the review-2 commit and the plan still claimed it. My edit
+   replaced the never-throws test by slicing from it to the next named test, and the end-to-end test sat in that range.
+   Nothing reported it: the count went 14 to 16 because I added three and lost one. RESTORED verbatim from fa96d1e0c.
+   Lesson: after a slice edit, check the test COUNT against what was added and removed, not only the pass line.
+2. NIT: the device key's `missing` (remote access never set up: a person acts) was dropped. FIXED: passed through.
