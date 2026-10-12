@@ -86,12 +86,13 @@ function version() {
 /** Whether Meta Muse shows anywhere: on a Mac (the only platform the runner is built for), ON by default since
     #3939's Muse Wonder release (2026-10-12): every provider list offers Meta, and a computer without Muse Code
     is told to set it up first. Two ways off, both support switches rather than settings:
-    AGENT_WORKFORCE_MUSE=0 for one run, and the OFF MARKER (a file named muse-off in the Kosmos data folder),
+    AGENT_WORKFORCE_MUSE=0 (or false, off, no, as AGENT_WORKFORCE_ANTIGRAVITY reads) for one run, and the OFF MARKER (a file named muse-off in the Kosmos data folder),
     which lasts, because every install and update rewrites the board's launchd job with a fixed list of
     variables and so drops the variable. The old preview marker (muse-preview-on) is no longer read. */
 function enabled(platform = process.platform) {
   if (platform !== 'darwin') return false;
-  if (process.env.AGENT_WORKFORCE_MUSE === '0') return false;
+  if (/^(0|false|off|no)$/i.test(String(process.env.AGENT_WORKFORCE_MUSE || '').trim())) return false;
+  // An unreadable data folder leaves it on: on is the default, and the marker is only ever a way off.
   try { return !fs.existsSync(offMarker()); } catch { return true; }
 }
 /* Read on every check, store.ROOT at call time (the AGENT_WORKFORCE_HOME / _DATA seams), as the preview marker was:

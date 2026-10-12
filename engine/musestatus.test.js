@@ -387,8 +387,12 @@ test('#3939: Muse is on by default on a Mac, off with AGENT_WORKFORCE_MUSE=0, ne
     process.env.AGENT_WORKFORCE_MUSE = '0';
     assert.equal(muse.enabled('darwin'), false, 'AGENT_WORKFORCE_MUSE=0 did not turn it off');
     process.env.AGENT_WORKFORCE_MUSE = '1';
-    assert.equal(muse.enabled('darwin'), true, 'the old on value no longer works');
-    assert.equal(muse.previewMarker, undefined, 'the preview marker is still exported, so something may still read it');
+    assert.equal(muse.enabled('darwin'), true, 'AGENT_WORKFORCE_MUSE=1 turned it off');
+    for (const v of ['false', 'OFF', 'no', ' 0 ']) {
+      process.env.AGENT_WORKFORCE_MUSE = v;
+      assert.equal(muse.enabled('darwin'), false, 'AGENT_WORKFORCE_MUSE=' + JSON.stringify(v) + ' did not turn it off');
+    }
+    assert.equal(muse.previewMarker, undefined, 'the preview marker is still exported, so something may still read it (expected no export)');
     // The off marker lasts across updates (the variable does not): present, Muse is off; removed, on again.
     delete process.env.AGENT_WORKFORCE_MUSE;
     const off = muse.offMarker();

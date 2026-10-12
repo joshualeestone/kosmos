@@ -12,8 +12,14 @@ it stays off (no runner there yet).
 ## Change
 - engine/musestatus.js enabled(): darwin and not AGENT_WORKFORCE_MUSE=0. The preview marker file is no longer read
   (previewMarker and PREVIEW_MARKER removed; a marker left in a data folder changes nothing).
-- NOT_INSTALLED_BECAUSE says what to do ("... yet. Install it from Meta, then come back"), the first-run step's words,
-  since most Macs will now see it.
+- NOT_INSTALLED_BECAUSE says what to do ("... yet. Install it from Meta, then come back"), the first-run step's words.
+  On screen, the pills carry the short form ("Install Muse Code from Meta": Add a provider, Create Agent, Create a
+  Team; the old "Set up in Settings, AI Models" pill was for a state Settings cannot fix), and the first-run step has
+  its own sentence; the engine's sentence is what GET /api/muse, the CLI and agents read.
+- Off spellings: 0, false, off, no (case and spaces ignored), as AGENT_WORKFORCE_ANTIGRAVITY reads.
+- First run's under-18 line names Meta Muse only once Muse Code is installed (#5856's rule, now that "on" is every Mac).
+- Two first-run browser checks (render-firstrun-grok-3386, render-firstrun-reentry-3359) fail on origin/main too, with
+  the same counts; they are not in tools/browser-checks.sh, so nothing runs them. Not this card.
 - Tests: the gate test rewritten for default-on (with the off marker and a leftover preview marker as control); tests
   that meant "off" by deleting the variable now set =0; a route test that an unset Mac board answers enabled, not
   installed, with the new sentence.
