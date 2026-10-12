@@ -142,3 +142,4 @@ Mutants after review 8 (20:11 CDT from `date`), each 24/23/1: E1 '..' prefix mat
    are asked for under the same segment. Tests rewritten to the mapped behaviour, with a control for a good id.
 2. NIT, FIXED BUT UNTESTED HERE: on Windows, %USERPROFILE%\AppData (browser password stores, Credential Manager) is
    protected whole. The line runs only on win32; this Mac cannot run it, and it is said here rather than implied.
+Mutants after review 9 (20:14 CDT from `date`): M1 no hash (a_b and a-b collide): red. M2 refuse non-segments again: red. M3 transcripts under the raw id: red. M4 no snapshot check on a kept id (secrets kept as is): red.
