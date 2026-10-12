@@ -99,3 +99,27 @@ test('#6004: the installer gets only what an installer needs, stays out of shell
   for (const k of ['OPENAI_API_KEY', 'AGENT_WORKFORCE_TOKEN', 'KOSMOS_PORT']) assert.equal(env[k], undefined, k + ' reached Meta\'s installer');
   assert.equal(museinstall.INSTALL_URL, 'https://dev.meta.ai/install.sh');
 });
+
+test('#6004: the real run gives Meta\'s installer only installerEnv(), refuses http redirects, and runs the saved script with bash', async () => {
+  setup();
+  museinstall.resetForTests();
+  museinstall.setPlatformForTests('darwin');
+  museinstall.allowSandboxInstallForTests(true);
+  const calls = [];
+  museinstall.setExecForTests((cmd, args, opts, cb) => {
+    calls.push({ cmd, args, env: opts.env });
+    if (cmd === '/usr/bin/curl') { fs.writeFileSync(args[args.indexOf('-o') + 1], '#!/bin/sh\nexit 0\n'); setImmediate(() => cb(null)); return {}; }
+    writeLauncher(); setImmediate(() => cb(null)); return { stdin: { end() {} } };
+  });
+  process.env.KOSMOS_SECRET_FOR_TEST = 'board-only';
+  try {
+    assert.deepEqual(await museinstall.install(), { ok: true, installed: true });
+  } finally { delete process.env.KOSMOS_SECRET_FOR_TEST; museinstall.setExecForTests(null); }
+  const curl = calls.find((c) => c.cmd === '/usr/bin/curl');
+  const bash = calls.find((c) => c.cmd === '/bin/bash');
+  assert.ok(curl && bash, 'the real run did not fetch and then run the installer: ' + JSON.stringify(calls.map((c) => c.cmd)));
+  assert.ok(curl.args.includes('--proto-redir') && curl.args[curl.args.indexOf('--proto-redir') + 1] === '=https', 'an http redirect would be followed');
+  assert.equal(curl.args[curl.args.length - 1], museinstall.INSTALL_URL);
+  assert.equal(bash.env.MUSE_NO_MODIFY_PATH, '1', 'the installer was not kept out of shell profiles');
+  assert.equal(bash.env.KOSMOS_SECRET_FOR_TEST, undefined, 'the board\'s own environment reached Meta\'s installer');
+});

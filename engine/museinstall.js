@@ -45,14 +45,17 @@ function installerEnv(from = process.env) {
 }
 
 /* The seam a test replaces: fetch and run Meta's installer, then call done(err). */
+/* The two processes the install runs; a test replaces this to see exactly what Meta's installer would be given. */
+let execSeam = (cmd, args, opts, cb) => execFile(cmd, args, opts, cb);
 let runInstall = (done) => {
   let dir;
   try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-muse-install-')); } catch (e) { done(e); return; }
   const script = path.join(dir, 'install.sh');
   const clean = () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } };
-  execFile('/usr/bin/curl', ['-fsSL', '--proto', '=https', '-o', script, INSTALL_URL], { timeout: DOWNLOAD_MS, killSignal: 'SIGKILL' }, (err) => {
+  // --proto-redir as well: a redirect to plain http is refused, not followed into a script bash then runs.
+  execSeam('/usr/bin/curl', ['-fsSL', '--proto', '=https', '--proto-redir', '=https', '-o', script, INSTALL_URL], { timeout: DOWNLOAD_MS, killSignal: 'SIGKILL' }, (err) => {
     if (err) { clean(); done(err); return; }
-    const child = execFile('/bin/bash', [script], { cwd: dir, timeout: INSTALL_MS, killSignal: 'SIGKILL', env: installerEnv() }, (err2) => { clean(); done(err2); });
+    const child = execSeam('/bin/bash', [script], { cwd: dir, timeout: INSTALL_MS, killSignal: 'SIGKILL', env: installerEnv() }, (err2) => { clean(); done(err2); });
     // Nothing is typed into it: a step that prompts reads end-of-input and moves on.
     if (child && child.stdin) child.stdin.end();
   });
@@ -85,10 +88,11 @@ const sharedInstall = inflight.collapse(installOnce);
 /** Install Muse Code once; concurrent presses share one run. Promise of { ok, installed, because? }; never rejects. */
 function install() { return sharedInstall(); }
 
-const REAL = { runInstall };
+const REAL = { runInstall, execSeam };
+function setExecForTests(fn) { execSeam = fn || REAL.execSeam; }
 function setInstallerForTests(fn) { runInstall = fn; }
 function setPlatformForTests(p) { platformForTests = p || null; }
 function allowSandboxInstallForTests(v) { sandboxAllowedForTests = !!v; }
-function resetForTests() { runInstall = REAL.runInstall; platformForTests = null; sandboxAllowedForTests = false; }
+function resetForTests() { runInstall = REAL.runInstall; execSeam = REAL.execSeam; platformForTests = null; sandboxAllowedForTests = false; }
 
-module.exports = { install, installerEnv, INSTALL_URL, setInstallerForTests, setPlatformForTests, allowSandboxInstallForTests, resetForTests };
+module.exports = { install, installerEnv, INSTALL_URL, setInstallerForTests, setExecForTests, setPlatformForTests, allowSandboxInstallForTests, resetForTests };

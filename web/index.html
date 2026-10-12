@@ -15299,7 +15299,7 @@ window.kosmosMeasureScrollbarWidth();
                 <div class="llm off" id="fr-meta-row"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon" id="fr-meta-soon">Coming soon</span><button class="connect-b" type="button" id="fr-meta-connect" aria-expanded="false" aria-controls="fr-muse-flow" aria-label="Connect Meta Muse" hidden>Connect</button></div>
                 <!-- #3939 3c-4: Meta Muse on this step, only where Muse is switched on (GET /api/muse says enabled); otherwise the
                      row above stays "Coming soon" and none of this shows. The same sign-in controller as Add a provider
-                     (museSigninFlow) with the fr-muse- prefix; Kosmos does not install Muse Code, so a computer without it is told. -->
+                     (museSigninFlow) with the fr-muse- prefix; #6004: Kosmos installs Muse Code on this step, so a computer without it is told. -->
                 <div id="fr-muse-flow" hidden class="fr-confirm" role="group" aria-labelledby="fr-muse-t">
                   <p class="fr-confirm-t" id="fr-muse-t"><b>Sign in to Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password.</p>
                   <div class="frow" style="margin-top:12px;"><button class="btn uprime" id="fr-muse-go" type="button">Sign in with Meta</button><span class="muse-connecting" id="fr-muse-spin" hidden><span class="spin" aria-hidden="true"></span>Connecting&hellip;</span></div>
@@ -31113,7 +31113,8 @@ function museSigninFlow(prefix, opts) {
     const sp = el('spin'); if (sp) sp.hidden = true;
     const dn = el('done'); if (dn) dn.hidden = true;
     // A reopened step starts fresh (review round 1); a failure relabels after. #6004: no Muse Code here, install first.
-    if (g) g.textContent = needsInstall() ? 'Install Muse Code' : 'Sign in with Meta';
+    if (g) { g.textContent = needsInstall() ? 'Install Muse Code' : 'Sign in with Meta'; g.removeAttribute('aria-disabled'); }   // #6004: no busy mark left by an install the panel was closed on
+    { const sp0 = el('spin'); if (sp0 && sp0.dataset.was) { sp0.lastChild.textContent = sp0.dataset.was; delete sp0.dataset.was; } }
     if (needsInstall()) say(MUSE_INSTALL_INTRO);
     if (opts && opts.onReset) opts.onReset();
   }
@@ -31239,8 +31240,11 @@ function museSigninFlow(prefix, opts) {
     if (!out.ok) {
       // A refusal a retry cannot change offers nothing to press (as Antigravity's goes to Check again, not Try again).
       const stuck = /different home|switched off|not available/.test(out.error || out.because || '');
-      if (go) { if (stuck) go.hidden = true; else { go.textContent = 'Try again'; go.focus(); } }
       say(pjSentence(out.error || out.because) || 'We could not install Muse Code just now.');
+      if (go) {
+        if (stuck) { const m = el('say'); if (m) { m.tabIndex = -1; m.focus(); } go.hidden = true; }   // focus to the reason first, never stranded
+        else { go.textContent = 'Try again'; go.focus(); }
+      }
       return;
     }
     if (opts && opts.onInstalled) { try { opts.onInstalled(); } catch { /* the place repaints on its next read */ } }
@@ -31292,7 +31296,7 @@ function acctMuseShow(on) {
 museSigninWire(ACCT_MUSE, 'acct-muse-');
 /* #3939 3c-4: Meta Muse on the first-run model step. The row is today's "Coming soon" unless Muse is switched
    on here (the Create form's read, museCreateAsk / MUSE_CREATE); then it offers Connect, which opens the same
-   sign-in as Add a provider under the row, or says Muse Code is not on this computer (Kosmos does not install
+   sign-in as Add a provider under the row, or says Muse Code is not on this computer (#6004: Kosmos now installs it; before, it did not install
    it). Signed in, the row reads Connected with the gold box, like Gemini's and Grok's. */
 const FR_MUSE = museSigninFlow('fr-muse-', {
   needsInstall: () => !!(MUSE_CREATE && MUSE_CREATE.on && MUSE_CREATE.installed === false),
