@@ -438,7 +438,7 @@ unset ${KOSMOS_WAIT_CONTROL_VARS:-}
 # by setting TMPDIR to two different values and getting /var/folders back both
 # times. Node's `os.tmpdir()` DOES honour it, which is why this catches 91 of
 # the 92. The four that remain are three `tmp.*` from shell tests and one yarn
-# scratch dir. Those need their own cleanup at their own call sites; do not
+# scratch dir (measured while test:shell still ran through yarn, before #5907). Those need their own cleanup at their own call sites; do not
 # assume this line covers them.
 KOSMOS_RUN_TMPDIR="${TMPDIR:-/tmp}"
 KOSMOS_RUN_TMPDIR="${KOSMOS_RUN_TMPDIR%/}/kt$$"

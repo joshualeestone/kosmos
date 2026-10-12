@@ -29,6 +29,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const cp = require('node:child_process');
+const { performance } = require('node:perf_hooks');
 
 const ROOT = path.join(__dirname, '..');
 // How many shell jobs test.yml runs. 2 was projected at 464 s and 557 s of shell time from the
@@ -93,7 +94,8 @@ function runShard(list, ii, nn, stdio = 'inherit', write = (s) => fs.writeSync(1
     if (r.status !== 0) {
       const why = r.error ? `could not run: ${r.error.message}` : `exit ${r.status === null ? r.signal : r.status}`;
       write(slowestSummary(ii, nn, times));
-      console.error(`shell-shard ${ii}/${nn}: FAILED (${why}): ${c}`);
+      // Synchronous, as the summary above is, so the FAILED line lands after it in a log that takes both.
+      fs.writeSync(2, `shell-shard ${ii}/${nn}: FAILED (${why}): ${c}\n`);
       return r.status || 1;
     }
   }
@@ -110,7 +112,7 @@ function main(argv) {
   return runShard(commands(), ii, nn);
 }
 
-module.exports = { commands, shardOf, select, parseShard, runShard, slowestSummary, SHELL_SHARDS, SLOWEST };
+module.exports = { commands, shardOf, select, parseShard, runShard, SHELL_SHARDS, SLOWEST };
 
 if (require.main === module) {
   try { process.exitCode = main(process.argv.slice(2)); } catch (e) { console.error(e.message); process.exitCode = 2; }
