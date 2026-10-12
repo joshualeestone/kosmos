@@ -17,6 +17,7 @@
  *             never "Invalid Date".
  *   MARK      a closed row shows a mark that it opens, and the mark turns when it does; a summary reached by the
  *             keyboard shows a focus ring.
+ *   SAME      an answer identical to the one on the page does not rebuild the rows; a different one does.
  *   KEPT      a row the person opened stays open when the list is painted again with a new answer (opening Automation
  *             again), keeps the keyboard's place, and is still open after a read that failed in between.
  *   HOSTILE   a name, summary and line made of markup are shown as text; nothing in them becomes an element.
@@ -165,6 +166,7 @@ async function run() {
 
     // OPEN
     await p1.click('#community-ready-list details[data-session="cy"] > summary');
+    await p1.waitForTimeout(300);   // the mark's turn is a short transition; read it once it has ended
     const o = await readList(p1);
     check('OPEN: clicking a summary opens that row only', JSON.stringify(o.rows.map((x) => x.open)) === JSON.stringify([false, false, true]), JSON.stringify(o.rows.map((x) => x.open)));
     check('OPEN: the row holds every line the board sent, in order', o.rows[2].lines.length === CY.owner.lines.length
@@ -219,6 +221,12 @@ async function run() {
     await p2.keyboard.press('Enter');
     const f3 = await readList(p2);
     check('KEYS: Enter opens the focused row', f3.rows[1].open === true && f3.rows[0].open === false, JSON.stringify(f3.rows.map((x) => x.open)));
+    // SAME: an identical answer leaves the rows on the page alone (a marked node is still there)
+    await p2.evaluate(() => { document.querySelector('#community-ready-list details[data-session="bo"]').dataset.mark = 'kept'; });
+    await p2.evaluate(() => refreshCommunityReady());
+    await p2.waitForTimeout(500);
+    const sameMark = await p2.evaluate(() => { const d = document.querySelector('#community-ready-list details[data-session="bo"]'); return d ? d.dataset.mark || null : 'gone'; });
+    check('SAME: an identical answer does not rebuild the rows', sameMark === 'kept', String(sameMark));
     // a repaint under the keyboard keeps its place
     await p2.unroute(READY);
     await p2.route(READY, answer({ agents: [AVA, { ...BO, owner: { ...BO.owner, summary: 'Painted again' } }] }));
@@ -226,6 +234,8 @@ async function run() {
     await p2.waitForFunction(() => { const d = document.querySelector('#community-ready-list details[data-session="bo"] summary .community-ready-words'); return d && d.textContent === 'Painted again'; }, null, { timeout: 5000 }).catch(() => {});
     const f4 = await readList(p2);
     check('KEPT CONTROL: the list was painted again under the keyboard', f4.rows.length === 2 && f4.rows[1].summary === 'Painted again', JSON.stringify(f4.rows.map((x) => x.summary)));
+    const rebuilt = await p2.evaluate(() => { const d = document.querySelector('#community-ready-list details[data-session="bo"]'); return d ? d.dataset.mark || null : 'gone'; });
+    check('SAME CONTROL: a different answer does rebuild them (the mark is gone)', rebuilt === null, String(rebuilt));
     check('KEPT: a repaint leaves the keyboard on the same row\'s summary', f4.focusIsSummary && f4.focusSession === 'bo' && f4.rows[1].open === true, JSON.stringify([f4.focusIsSummary, f4.focusSession, f4.rows.map((x) => x.open)]));
     // a read that fails takes the row away: the keyboard goes to the heading, not to nothing
     await p2.unroute(READY);
@@ -278,7 +288,7 @@ async function run() {
     await p5.route(READY, answer({ agents: [] }));
     await openAutomation(p5);
     const e = await readList(p5);
-    check('EMPTY: the list is hidden and the line says there are no agents yet', e.listHidden === true && e.emptyHidden === false && e.empty === 'You have no agents yet.', JSON.stringify([e.listHidden, e.emptyHidden, e.empty]));
+    check('EMPTY: the list is hidden and the line says there are no agents yet', e.listHidden === true && e.emptyHidden === false && e.empty === 'Kosmos lists no agents yet.', JSON.stringify([e.listHidden, e.emptyHidden, e.empty]));
     await p5.close();
 
     // 503 and 403

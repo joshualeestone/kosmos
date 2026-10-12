@@ -42,10 +42,13 @@ const own = (o, k) => Boolean(o) && Object.prototype.hasOwnProperty.call(o, k);
 const OWNER_CAP_WORDS = 'not sent: your limit on how many agents work at once was reached';
 /* The agent is told "this board"; the person is told "this computer", as every other line to them says. */
 const OWNER_LIMIT_WORDS = 'not sent: this computer had reached its hourly limit for messages to agents';
+/* The agent is also told Kosmos tries again later; a line to the person states the one fact. */
+const OWNER_BUSY_WORDS = 'not sent: it was busy with another message';
 /* The words for one kept reminder: to the agent, or (`toOwner`) to the person about the agent. */
 function reminderWords(rem, toOwner = false) {
   if (toOwner && rem.act === 'held' && rem.heldFor !== 'signin' && rem.heldBy === 'cap') return OWNER_CAP_WORDS;
   if (toOwner && rem.act === 'limit') return OWNER_LIMIT_WORDS;
+  if (toOwner && rem.act === 'pane-busy') return OWNER_BUSY_WORDS;
   if (rem.act === 'held') return rem.heldFor === 'signin' ? SIGNED_OUT_WORDS : own(HELD_WORDS, rem.heldBy) ? HELD_WORDS[rem.heldBy] : TURN_WORDS.held;
   if (rem.act === 'prompted' && rem.delivery !== 'placed') return UNCONFIRMED_WORDS;
   return TURN_WORDS[rem.act];
@@ -317,7 +320,7 @@ const POST_FACT_WORDS = Object.freeze({
   in: 'is in the community',
   out: 'is not in the community',
   waiting: 'has not gone to the community',
-  unknown: 'was sent, and Kosmos has not heard whether it arrived',
+  unknown: 'is one Kosmos has not heard back about, so it does not know whether it is in the community',
   unread: 'has a send record Kosmos cannot read just now',
 });
 /* The same fact, short, for the closed row. `none` is an agent with no post; `unread` says nothing here because "could
@@ -327,7 +330,7 @@ const POST_SUMMARY = Object.freeze({
   in: 'Newest post is in the community',
   out: 'Newest post is not in the community',
   waiting: 'Newest post has not gone to the community',
-  unknown: 'Newest post was sent and is not confirmed',
+  unknown: 'Kosmos has not heard whether its newest post is in the community',
   unread: null,
 });
 /* 'in' | 'out' | 'waiting' | 'unknown' | 'unread' for a row's lastPost object; 'unread' for a state with no place. */

@@ -33429,6 +33429,7 @@ function communityReadyLine(l) {
   return p;
 }
 let COMMUNITY_READY_EPOCH = 0;
+let COMMUNITY_READY_PAINTED = null;   // the answer the rows on the page were painted from, as text; null when none is
 /* The rows the person has open, by agent. Kept here, not read back from the page, so a read that fails (and clears the
    list) does not forget them. */
 const COMMUNITY_READY_OPEN = new Set();
@@ -33454,7 +33455,7 @@ function communityReadyPaint(rows) {
   }
   list.hidden = rows.length === 0;
   empty.hidden = rows.length > 0;
-  empty.textContent = 'You have no agents yet.';
+  empty.textContent = 'Kosmos lists no agents yet.';
   for (const r of rows) {
     const view = r && r.owner && Array.isArray(r.owner.lines) ? r.owner : null;
     if (!r || typeof r.session !== 'string' || !view) continue;
@@ -33509,11 +33510,18 @@ function communityReadyPaint(rows) {
 async function refreshCommunityReady() {
   const mine = ++COMMUNITY_READY_EPOCH;
   try {
-    const res = await fetch('/api/community/ready');
+    const res = await fetch('/api/community/ready', { cache: 'no-store' });
     const body = res.ok ? await res.json() : null;
-    if (mine === COMMUNITY_READY_EPOCH) communityReadyPaint(body && Array.isArray(body.agents) ? body.agents : null);
+    if (mine !== COMMUNITY_READY_EPOCH) return;
+    const rows = body && Array.isArray(body.agents) ? body.agents : null;
+    /* The same answer as the one on the page is not painted again: a repaint rebuilds every row, which would take a
+       half-made click or a selection away for nothing. A failed read always paints, and forgets what was painted. */
+    const same = rows === null ? null : JSON.stringify(rows);
+    if (same !== null && same === COMMUNITY_READY_PAINTED) return;
+    COMMUNITY_READY_PAINTED = same;
+    communityReadyPaint(rows);
   } catch {
-    if (mine === COMMUNITY_READY_EPOCH) communityReadyPaint(null);
+    if (mine === COMMUNITY_READY_EPOCH) { COMMUNITY_READY_PAINTED = null; communityReadyPaint(null); }
   }
 }
 async function refreshCommunityMine() {

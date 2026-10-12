@@ -504,7 +504,8 @@ test('slice 2 review 9: the person is told "this computer" where the agent is to
   agentFile('ann', withBlock());
   ready.noteTurn({ session: 'ann', act: 'limit' }, 5);
   assert.match(text('ann'), /not sent: this board had reached its hourly limit/);
-  for (const act of Object.keys(ready.TURN_WORDS)) assert.doesNotMatch(said(view({ reminder: { at: 5, act, delivery: 'placed' } })), /\bthis board\b/, act);
+  for (const act of Object.keys(ready.TURN_WORDS)) assert.doesNotMatch(said(view({ reminder: { at: 5, act, delivery: 'placed' } })), /\bthis board\b|tries again later/, act);
+  assert.equal(view({ reminder: { at: 5, act: 'pane-busy' } }).lines[2].after, '. Not sent: it was busy with another message.');
 });
 
 test('slice 2 review 9: rowsFor reads each computer-wide record once, however many agents there are', () => {
@@ -577,7 +578,7 @@ test('slice 2 review 12: the closed row always says where the newest post is, or
   assert.deepEqual(parts({ lastPost: 'unreadable' }), ['Kosmos could not check everything just now']);
   // review 12's own case: a post that has not gone out is never under an all-clear.
   assert.deepEqual(parts({ lastPost: { title: 't', at: '', state: 'capped' } }), ['Newest post has not gone to the community']);
-  assert.deepEqual(parts({ lastPost: { title: 't', at: '', state: 'unconfirmed' } }), ['Newest post was sent and is not confirmed']);
+  assert.deepEqual(parts({ lastPost: { title: 't', at: '', state: 'unconfirmed' } }), ['Kosmos has not heard whether its newest post is in the community']);
   assert.deepEqual(Object.keys(ready.POST_SUMMARY).sort(), [...Object.keys(ready.POST_FACTS), 'none'].sort());
 });
 
@@ -630,7 +631,9 @@ test('slice 2 review 12: the newest post\'s line says one fact, and every state 
   assert.equal(line('sent'), 'Its newest post, \u201cWeekly "ops" two\u201d, is in the community.');
   assert.equal(line('before_on'), 'Its newest post, \u201cWeekly "ops" two\u201d, is not in the community.');
   assert.equal(line('held'), 'Its newest post, \u201cWeekly "ops" two\u201d, has not gone to the community.');
-  assert.equal(line('unconfirmed'), 'Its newest post, \u201cWeekly "ops" two\u201d, was sent, and Kosmos has not heard whether it arrived.');
+  assert.equal(line('unconfirmed'), 'Its newest post, \u201cWeekly "ops" two\u201d, is one Kosmos has not heard back about, so it does not know whether it is in the community.');
+  assert.equal(line('unconfirmed_taken_back'), line('unconfirmed'));
+  for (const state of ready.POST_FACTS.unknown) assert.doesNotMatch(line(state) + ' ' + view({ lastPost: { title: 't', at: '', state } }).summary, /\bwas sent\b|\bnot in the community\b|\bis in the community\.$/, state + ': a claim Kosmos cannot make of a post it has not heard back about');
   assert.equal(line('unreadable'), 'Its newest post, \u201cWeekly "ops" two\u201d, has a send record Kosmos cannot read just now.');
   assert.equal(line('a-state-from-the-future'), line('unreadable'), 'a state with no place was given a fact');
   assert.equal(view({ lastPost: { title: '  ', at: '', state: 'sent' } }).lines[3].text, 'Its newest post, \u201cUntitled post\u201d, is in the community.');

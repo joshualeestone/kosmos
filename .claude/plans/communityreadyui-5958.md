@@ -69,7 +69,7 @@ newest post, and what is held for the person.
   records are unreadable in every row.
 - `docs/browser-checks/render-community-ready-5958.js`, registered on the shared first-run board: rows, open, keys,
   times in the page's zone, kept open across a repaint, markup as text, empty, 503, 403, rows it cannot paint, a phone.
-- NOT RUN as of review 1: the browser check (queued for a turn; nothing here has been seen in a browser), the web
+- NOT RUN as of review 14 (2026-10-12 15:0x CDT), still: the browser check (queued for a turn; nothing here has been seen in a browser), the web
   tests that pin the page beyond the 12 files that mention the community (97 pass), the full suite, design shots.
 
 ## Weakest premise
@@ -271,3 +271,16 @@ replaced by tests of the new one. That is a change of behaviour, not a tidy-up: 
 - **CONVENTION, taken:** two code comments told the review history; they give the reason. This file's count of
   "three sentences" was wrong and it now lists them; what a row reads is listed under the rule, not in a review note.
 - Not changed: test names keep their "review N" labels, as the repo's other test files do.
+
+## Review 14 (2026-10-12, sonnet, the plain brief plus the layout line)
+- **WARNING, taken by saying less:** the words for a post Kosmos has not heard back about said it "was sent". For one
+  of those states the send may not have gone. They say only that Kosmos has not heard and does not know.
+- **WARNING, taken:** the person's reminder line for a busy screen carried "so Kosmos tries again later". The person's
+  version states the fact; the agent's keeps the clause.
+- **WARNING, taken:** every refresh rebuilt every row, which could take a half-made click or a selection away. An
+  answer identical to the one on the page is not painted again; the check marks a node and requires it to survive an
+  identical answer and not a different one.
+- **NITs, taken:** the read is not cached; "Kosmos lists no agents yet" (not a claim about the person's computer); the
+  check reads the mark's turn after its transition; this file's not-run line carried an old date.
+- **NITs, not taken:** no live region on the status line (the two lists above have none); no dark-theme, Space-key or
+  reduced-motion arm in the check (design shots are where both themes are looked at); the long unread expression.
