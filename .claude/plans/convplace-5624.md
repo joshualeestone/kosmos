@@ -34,8 +34,8 @@ left open. Chosen: the conversation's header row, beside search.
     is typing in that very conversation at that moment, and exempting one child would mean rewriting that rule for a
     held feature (iteration 6).
 - The stated reason above ("always in view") holds wherever the header itself is shown.
-- Accepted (iteration 3): in a direct conversation on a phone under the new look, the caption row wraps and the
-  search takes its own line, so the toggle ends the Back row instead of sitting beside the search. It stays in the
+- Accepted (iterations 3 and 8): in a direct conversation on a narrow phone (the new look, or today's look at 480px
+  and below where no touch rule keeps the search beside it), the caption row wraps and the search takes its own line, so the toggle ends the Back row instead of sitting beside the search. It stays in the
   header and in view. The room got a wrapper because its stacked header would otherwise give the toggle a row of
   its own; giving the direct conversation one too would touch a dozen phone rules on that row for a held feature.
 
