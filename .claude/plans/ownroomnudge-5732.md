@@ -16,7 +16,7 @@ computer tells no agent on the agents Mac. For tomorrow, Splinter checks the roo
   - A `same_account` inside `data`, or one that is not exactly `true`, is not passed.
   - The stored row is unchanged, because `externalPost` keeps only its named fields.
 - **server.js:** the `recordExternal` wrapper stores the post as before, then calls `messages.nudgeOwnComputerPost`.
-  It does so only when the stamp is set and `KOSMOS_OWN_ROOM_NUDGE=1`. It never throws into the seat's data handler.
+  It does so only when the stamp is set, and unless `KOSMOS_OWN_ROOM_NUDGE=0`. It never throws into the seat's data handler.
 - **engine/messages.js:** `nudgeOwnComputerPost(projectId, projectName, postId, members, roster, now)`.
   - It types ONE line into each member agent's pane through `chat.deliverAutomatic`, the #185 nudge's path:
     `[a new post from your other computer is in the room <name>; read it with: kosmos room <id>]`.
@@ -67,4 +67,5 @@ computer tells no agent on the agents Mac. For tomorrow, Splinter checks the roo
   nudge's held check turns both held tests red.
 - Decided: a held nudge is not queued for later. The post stays in the room, and the next post (or the agent's own
   next read) finds it. Weakest premise: one post while the agent sits on a prompt is noticed later rather than at once.
-- Still OFF by default (KOSMOS_OWN_ROOM_NUDGE=1) and unmerged: Josh's yes or no during the pilot.
+- Decided 2026-10-12 (Mona Lisa, at Splinter's ask, reasoning on #5732): yes, ON by default; KOSMOS_OWN_ROOM_NUDGE=0
+  turns it off. Off by default would be a feature nobody can turn on (it needs an environment variable on the board).

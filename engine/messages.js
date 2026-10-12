@@ -3293,7 +3293,7 @@ function projectOfPost(id) {
  * At most one line per agent per room per OWN_POST_NUDGE_GAP_MS, so a burst of posts is one prompt to read.
  * Removed agents get nothing, and an unreadable removed list tells nobody (the post gate's fail-closed rule).
  * Recorded as a `nudge` row naming the external post, so what was typed is checkable from the store.
- * Off unless KOSMOS_OWN_ROOM_NUDGE=1 (server.js decides; this function does not read the switch).
+ * On unless KOSMOS_OWN_ROOM_NUDGE=0 (server.js decides; this function does not read the switch).
  */
 const OWN_POST_NUDGE_GAP_MS = 2 * 60 * 1000;
 const ownPostNudgedAt = new Map();

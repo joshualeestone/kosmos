@@ -3520,12 +3520,13 @@ test('#5732: a burst of posts is one line per agent until the gap passes; a non-
   });
 });
 
-test('#5732: the server tells agents only for a relay-stamped own post, and only when the switch is on', () => {
+test('#5732: the server tells agents only for a relay-stamped own post, on by default, off with KOSMOS_OWN_ROOM_NUDGE=0', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const at = src.indexOf('recordExternal: (projectId, msg) => {');
   assert.ok(at > 0, 'the recordExternal wrapper is gone');
   const body = src.slice(at, at + 900);
   assert.match(body, /msg\.sameAccount === true/, 'the nudge is not gated on the relay\'s same_account stamp');
-  assert.match(body, /process\.env\.KOSMOS_OWN_ROOM_NUDGE === '1'/, 'the nudge is not off by default');
+  assert.match(body, /process\.env\.KOSMOS_OWN_ROOM_NUDGE !== '0'/, 'the nudge is not on by default with an off switch');
+  assert.doesNotMatch(body, /KOSMOS_OWN_ROOM_NUDGE === '1'/, 'the nudge still needs the old opt-in');
   assert.match(body, /messages\.nudgeOwnComputerPost\(/);
 });
