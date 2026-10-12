@@ -2214,6 +2214,7 @@ cmd_msg() {
       # #5805 slice 2a: kept for an agent out of usage, typed after its reset. Accepted, so 0, as Queued is.
       case "$body" in
         *'"behind":true'*|*'"behind": true'*) say "Held for $to: it still has messages kept from while it was out of usage, and Kosmos types this one after them. Do not re-send." ;;
+        *'"heldFor":"signin"'*|*'"heldFor": "signin"'*) say "Held for $to: it is signed out. Kosmos types it once it is signed in again; do not re-send." ;;   # #5948
         *)
           held_until=$(printf '%s' "$body" | sed -n 's/.*"heldUntil":"\([^"]*\)".*/\1/p')
           say "Held for $to: it is out of usage${held_until:+ until $held_until}. Kosmos types it after the reset; do not re-send." ;;

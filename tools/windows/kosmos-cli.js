@@ -406,6 +406,11 @@ async function verbMsg(ctx, args) {
     ctx.out('Held for ' + to + ': it still has messages kept from while it was out of usage, and Kosmos types this one after them. Do not re-send.');
     return 0;
   }
+  // #5948: kept for an agent that is signed out, typed once it is signed in again.
+  if (d.held === true && d.heldBy === 'limit' && d.heldFor === 'signin') {
+    ctx.out('Held for ' + to + ': it is signed out. Kosmos types it once it is signed in again; do not re-send.');
+    return 0;
+  }
   if (d.held === true && d.heldBy === 'limit') {
     ctx.out('Held for ' + to + ': it is out of usage' + (typeof d.heldUntil === 'string' && d.heldUntil ? ' until ' + d.heldUntil : '') + '. Kosmos types it after the reset; do not re-send.');
     return 0;

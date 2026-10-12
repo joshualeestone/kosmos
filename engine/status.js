@@ -7474,6 +7474,11 @@ function providerLimitReport(reported) {
   return !!reported && reported.state === 'blocked' && reported.by === 'auto'
     && /^provider api \(rate_limit\)$/.test(String(reported.on || ''));
 }
+/* #5948: the automatic report of a turn its provider refused for the sign-in (see the blocked rule in reconcileReport). */
+function providerAuthReport(reported) {
+  return !!reported && reported.state === 'blocked' && reported.by === 'auto'
+    && /^provider api \(authentication_failed\)$/.test(String(reported.on || ''));
+}
 
 // #4588 part 3: not pure for an Antigravity quota report: it also reads agyquota's pool memory (see the quota block).
 function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity) {
@@ -7958,6 +7963,17 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said(ASKING_GENERIC), reported: true, conflict: null, by: reported.by || null, ...project };
   }
   if (reported.state === 'blocked') {
+    /* #5948: the automatic sign-in report reads as a sign-in that stopped working, so the card, the chat line
+       (chat.withAccountRow) and the manager notice (accountnotify) say so, and messages are held (chat.signinHeldVerdict).
+       Claude Code's StopFailure hook writes it on an authentication_failed turn; a Windows per-turn supervisor writes
+       the same line, with the vendor's own sentence in `because`, when its CLI answers "Not signed in". */
+    if (providerAuthReport(reported)) {
+      const said0 = typeof reported.because === 'string' && reported.because.trim() ? reported.because.trim() : null;
+      return {
+        state: STATE.AUTH_FAILED, confidence: CONFIDENCE.STRUCTURED, because: 'its sign-in is not working',
+        ...(said0 ? { evidence: said0 } : {}), reported: true, conflict: null,
+      };
+    }
     const what = reported.on ? 'it is waiting on ' + reported.on + (reported.owner ? ', which ' + reported.owner + ' owns' : '')
       : 'it is waiting on something that is not you';
     /* #5805: for the StopFailure limit report only, what the screen reads under it: the report stands until the agent's

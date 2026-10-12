@@ -70239,6 +70239,8 @@ function dmHeldWords(name, d) {
   const stuck = d && d.stuck && typeof d.stuck.because === 'string' && d.stuck.because
     ? ' Kosmos tried to send it and could not: ' + d.stuck.because.replace(/[.\s]+$/, '') + '.' : '';
   if (d && d.behind === true) return 'Held: Kosmos sends this after the messages kept for ' + name + ' while it was out of usage.' + stuck;
+  // #5948: held because its sign-in stopped working; there is no reset to name, only signing in again.
+  if (d && d.heldFor === 'signin') return 'Held: ' + name + ' is signed out. Kosmos sends it once it is signed in again.' + stuck;
   const at = d && typeof d.heldUntil === 'string' ? Date.parse(d.heldUntil) : NaN;
   const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
   return 'Held: ' + name + ' is out of usage' + (when ? ' until ' + when : '') + '. Kosmos sends it after the reset.' + stuck;

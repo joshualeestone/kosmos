@@ -68,6 +68,7 @@ function addOrWhy(name, entry) {
     now.push({ id: entry.id, from: String(entry.from || ''), to: String(name), envelope: entry.envelope, at: entry.at, reset: entry.reset,
       key: typeof entry.key === 'string' ? entry.key : '', spill: typeof entry.spill === 'string' ? entry.spill : null,
       ...(entry.behind === true ? { behind: true } : {}),
+      ...(entry.signin === true ? { signin: true } : {}),   // #5948: kept while its sign-in had stopped working
       // #5805 slice 2b: a person's own message: its text and trailer are typed with the envelope, as the route types them.
       ...(entry.kind === 'dm' ? { kind: 'dm', text: String(entry.text || ''), trailer: String(entry.trailer || '') } : {}),
       // A task message's line: typed as it is, and on a drop its sender is told which task it was in. #5842: the task
@@ -129,7 +130,9 @@ function isDone(id) { return done.has(id); }   // read by the tests; the sweep r
 /* What the recipient is told about a kept message as it is typed: kept, and when it was sent, so a day-old go-ahead
    does not read as new. */
 function keptNote(e) {
-  return e && e.behind ? ' [kept behind earlier messages; sent ' + e.at + ']' : ' [kept for you while you were out of usage; sent ' + e.at + ']';
+  return e && e.behind ? ' [kept behind earlier messages; sent ' + e.at + ']'
+    : e && e.signin ? ' [kept for you while you were signed out; sent ' + e.at + ']'   // #5948
+    : ' [kept for you while you were out of usage; sent ' + e.at + ']';
 }
 /* Send now anyway (slice 2b) takes the same claim while it types a kept message, so the sweep skips it and a crash
    mid-typing leaves it kept (typed again, at worst) rather than lost. False when it is already claimed, or already

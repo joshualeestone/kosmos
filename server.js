@@ -16734,7 +16734,7 @@ const server = http.createServer(async (req, res) => {
         if (!automatic && !qmenuAnswer && !qmenuClosed && body.anyway !== true) {
           const limitqueue = require('./engine/limitqueue');
           let hold = null;
-          try { hold = chat.limitHeldVerdict(name, roster); } catch { hold = null; }
+          try { hold = chat.accountHeldVerdict(name, roster); } catch { hold = null; }   // #5948: or signed out
           let behind = !hold && chat.addressable(name, roster).ok === true && limitqueue.list(name).length > 0;
           /* Never held while the agent's screen waits on an answer: a question or permission menu, or, past the reset,
              Claude Code's limit menu, which the person's message may be answering (held, nothing could dismiss it).
@@ -16742,7 +16742,7 @@ const server = http.createServer(async (req, res) => {
           if (hold || behind) {
             let answering = false;
             try { answering = chat.menuHeld(name, roster); } catch { answering = false; }
-            if (!answering && hold && !(Date.parse(hold.limitReset) > Date.now())) {
+            if (!answering && hold && hold.heldFor !== 'signin' && !(Date.parse(hold.limitReset) > Date.now())) {
               try {
                 const view = chat.viewport(name, roster);
                 answering = !!(view && typeof view.text === 'string' && require('./engine/status').claudeLimitMenuUp(view.text));
@@ -16752,13 +16752,15 @@ const server = http.createServer(async (req, res) => {
           }
           if (hold || behind) {
             const at = new Date().toISOString();
-            const until = hold && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
+            const signin = !!hold && hold.heldFor === 'signin';   // #5948: no reset to wait for, only a sign-in
+            const until = hold && !signin && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
             const trailer = (attachments.wireNote(files.recs) || '') + reactionNote;
             const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');   // two sends in one millisecond stay two
-            if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at })) {
+            if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at, signin: signin && !behind })) {
               const heldDelivery = {
-                state: 'held', held: true, heldBy: 'limit', heldUntil: until, at, ...(behind ? { behind: true } : {}),
+                state: 'held', held: true, heldBy: 'limit', heldUntil: until, at, ...(behind ? { behind: true } : {}), ...(signin ? { heldFor: 'signin' } : {}),
                 because: behind ? 'held: it still has messages kept from while it was out of usage; Kosmos sends this one after them'
+                  : signin ? hold.because
                   : 'held: it is out of usage' + (until ? ' until ' + until : '') + '; Kosmos sends it after the reset',
               };
               const keptRow = chat.appendMessage(chat.DIRECT, name, {
