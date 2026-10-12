@@ -3831,6 +3831,13 @@ PLIST
   # cache, not a bad icns.)
   [ -f "$KOSMOS_HOME/app/assets/Kosmos.icns" ] && cp "$KOSMOS_HOME/app/assets/Kosmos.icns" "$target/Resources/Kosmos.icns" \
     && chmod 644 "$target/Resources/Kosmos.icns" || true   # best effort, like the copy it follows
+
+  # #5992: seal the bundle, last, after every file in it is written. kosmos-app is signed as a bundle's program, so
+  # its signature expects a sealed bundle around it; a folder assembled here has none (no _CodeSignature), and macOS
+  # calls that "damaged" even without a quarantine flag. An ad-hoc signature over the whole bundle seals it, keeping
+  # the program's entitlements (the microphone) and flags (hardened runtime).
+  /usr/bin/codesign --force --sign - --preserve-metadata=entitlements,flags "$app" >/dev/null 2>&1 || return 1
+  /usr/bin/codesign --verify --deep --strict "$app" >/dev/null 2>&1 || return 1
   return 0
 }
 
