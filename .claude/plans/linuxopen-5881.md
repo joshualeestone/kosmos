@@ -21,8 +21,10 @@ Card: #5881 (Angel, found building #5865). Owner: April (night shift shard).
    on a desktop it does not know, it runs the file manager in the foreground, and waiting would hold the board's event
    loop until that window closed). "ok" means started; a missing xdg-open (no xdg-utils) is said. It is given only what it
    needs to reach the desktop (HOME, PATH, LANG, the display and its X cookie XAUTHORITY, XDG_RUNTIME_DIR, the session
-   bus, and XDG_CURRENT_DESKTOP / XDG_SESSION_TYPE / XDG_DATA_DIRS so xdg-open picks the desktop's file manager rather
-   than a browser: review 3), never the board's own environment and its tokens (review 2). No desktop: refused, "Kosmos cannot open it on this computer: it is not running
+   bus, the desktop's identity (XDG_CURRENT_DESKTOP, XDG_SESSION_TYPE, DESKTOP_SESSION, KDE_FULL_SESSION,
+   GNOME_DESKTOP_SESSION_ID) and where its choices live (XDG_DATA_DIRS, XDG_CONFIG_HOME, XDG_CONFIG_DIRS), so xdg-open
+   finds the desktop's file manager rather than a browser), never the board's own environment and its tokens. Only an
+   absolute path reaches it: xdg-open reads a leading "-" as an option and takes no "--". No desktop: refused, "Kosmos cannot open it on this computer: it is not running
    in a desktop session". Whether an INSTALLED board has a display depends on when its service started (review 3): its
    unit sets none itself, but GNOME and KDE pass the session's display into the user's services at login, so a board
    started or restarted after the person logged in to a desktop has one, and one started before does not. The same
@@ -34,6 +36,8 @@ Card: #5881 (Angel, found building #5865). Owner: April (night shift shard).
 3. The page's FOUR file-row handlers (an agent's Files, docs-list, pj-docs, pj-room) download on a Linux board, as they do
    through Kosmos+ (#5165) and as #5865 makes the preview do: the page cannot know whether the board has a desktop, and a
    download works either way.
+This changes behaviour on Linux only, and it is reversible: a person at a Linux desktop gets a download, not the file
+opening. Flagged on the PR for anyone who wants it the other way.
 Rejected: opening files with xdg-open on a desktop (the page never asks, and the type gate Windows has would be needed);
 telling the page whether there is a desktop (more surface for a case the download already covers); refusing folders on
 every Linux board (a Linux desktop can open a folder, and opening a folder runs nothing).

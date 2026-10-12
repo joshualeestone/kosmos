@@ -1516,6 +1516,9 @@ function xdgOpenPath() {
 }
 function linuxOpenFolder(folder) {
   if (!linuxHasDesktop()) return { ok: false, because: NO_DESKTOP };
+  /* xdg-open reads an argument starting with "-" as an option and takes no "--", so only an absolute path reaches it
+     (every caller passes one: a stored folder, or the folder of a resolved file). */
+  if (!path.isAbsolute(String(folder))) return { ok: false, because: 'the folder did not open' };
   if (revealRunner) return revealRunner('xdg-open', [folder]);
   const bin = xdgOpenPath();
   if (!bin) return { ok: false, because: 'this computer has no xdg-open to open it with (it comes with xdg-utils)' };
@@ -1525,7 +1528,8 @@ function linuxOpenFolder(folder) {
     const e = linuxEnv();
     const env = {};
     for (const k of ['HOME', 'PATH', 'LANG', 'DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS',
-      'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'XDG_DATA_DIRS']) {
+      'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'XDG_DATA_DIRS', 'XDG_CONFIG_HOME', 'XDG_CONFIG_DIRS',
+      'DESKTOP_SESSION', 'KDE_FULL_SESSION', 'GNOME_DESKTOP_SESSION_ID']) {
       if (e[k]) env[k] = e[k];
     }
     const child = spawn(bin, [folder], { detached: true, stdio: 'ignore', env });

@@ -69,6 +69,8 @@ test('#5881: the real xdg-open line is started with the folder, and a missing xd
   for (let i = 0; i < 100 && !fs.existsSync(log); i++) await new Promise((r) => setTimeout(r, 20));
   assert.equal(fs.readFileSync(log, 'utf8'), DIR + '||:0|/run/user/1000/gdm/Xauthority',
     'xdg-open was not started with the folder, the display and its X cookie, and never the board\'s token (reviews 2, 3)');
+  // A path that is not absolute never reaches xdg-open (an argument starting with "-" would be read as an option).
+  assert.deepEqual(projects.revealFolder('-x'), { ok: false, because: 'the folder did not open' });
   // CONTROL: the same call with no xdg-open on PATH says so, rather than claiming it opened.
   projects.setRevealEnv({ DISPLAY: ':0', PATH: path.join(SANDBOX, 'no-such-bin') });
   assert.deepEqual(projects.revealFolder(DIR), { ok: false, because: 'this computer has no xdg-open to open it with (it comes with xdg-utils)' });
