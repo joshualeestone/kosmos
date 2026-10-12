@@ -218,6 +218,20 @@ test('#5998: an uninstall run again after an older one removed the folder names 
   assert.ok(!notice.includes(path.join(sb.home, '.claude-work', 'settings.json')), 'a file holding only another install\'s hooks was named');
 });
 
+test('#5998: a re-run with nothing of this install left says nothing about hooks (only another install\'s are there)', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox();
+  // An earlier uninstall removed the folder AND its hooks; only another install's remain, in .claude-work.
+  fs.rmSync(sb.real, { recursive: true, force: true });
+  const main = read(sb.mainFile);
+  for (const e of Object.keys(main.hooks)) main.hooks[e] = main.hooks[e].filter((x) => !mentions(x, 'kosmos-report-hook'));
+  delete main.statusLine;
+  fs.writeFileSync(sb.mainFile, JSON.stringify(main, null, 2) + '\n');
+  for (const d of ['.claude-broken', '.claude-arr']) fs.rmSync(path.join(sb.home, d), { recursive: true, force: true });
+  assert.ok(mentions(read(sb.dot), 'kosmos-report-hook'), 'control: another install\'s hooks are still in .claude-work');
+  const out = runUninstall(sb);
+  assert.doesNotMatch(out, /could not be taken out of these Claude settings files/, 'a re-run named hooks that are not this install\'s');
+});
+
 test('#5998: the unwire step runs inside the proven-install branch, before the home is deleted', () => {
   const s = fs.readFileSync(SETUP, 'utf8');
   const step = s.indexOf("<<'UNWIREEOF'");
