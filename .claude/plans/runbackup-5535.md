@@ -97,3 +97,5 @@ Mutants after review 3 (19:25 CDT from `date`): V1 bucket dropped from the snaps
    is read FIRST, locally; without one nothing is asked and nothing is written. Read again before each snapshot.
    Tests count 17 -> 18 (one replaced in place, one added).
 Mutants after review 4 (19:30 CDT from `date`), each tests 18 pass 17 fail 1: W1 took set on any pass, W2 no device-key check before the key step, W3 no re-check before the snapshot.
+
+## Review 5 (opus, blind, on 2e110082): no must-fix; one nit FIXED (the keyFlags comment had been left above deviceKeyRefusal by the review-4 edit).

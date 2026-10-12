@@ -158,10 +158,10 @@ function stripState(result) {
   const { added, learnPair, ...rest } = result || {};
   return rest;
 }
-/* The key step's flag that rides on runOnce's `key` rather than its result (review 2). */
 /* missing: remote access was never set up here, which a person must act on; never a retry (review 3). */
 const deviceKeyRefusal = (dk) => Object.assign({ ok: false, because: (dk && dk.because) || 'the device key could not be read' },
   dk && dk.retry ? { retry: true } : {}, dk && dk.missing ? { missing: true } : {});
+/* The key step's flag that rides on runOnce's `key` rather than its result (review 2). */
 const keyFlags = (r) => (r.key && r.key.lostEpochIgnored ? { lostEpochIgnored: true } : {});
 const POINTER_FAILED = Object.freeze({ ok: false, because: 'this computer could not note which company and member it backs up for; it tries again next time' });
 function keepPointer(pair) {
