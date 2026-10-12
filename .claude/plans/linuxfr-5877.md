@@ -8,8 +8,11 @@ A Linux board gets first run, a shorter one: Welcome, Model, Help make Kosmos be
 five screens is about a desktop Mac.
 
 Skipped on Linux, each for a reason that would hurt there:
-- 2 Access (macOS folder-permission dialog) and 3 Automation (Accessibility and sleep grants): both keep Next greyed
-  until the grant, and a Linux board can never grant them, so the person would be stuck on step 3 for good.
+- 2 Access (macOS folder-permission dialog) and 3 Automation (Accessibility and sleep grants): permissions a server
+  does not have. Corrected in review 3: they would NOT have trapped the person. The gates are fail-safe (an unreadable
+  reading is advisory, engine/fileaccessstatus.js read(): checkable:false), so Next stays enabled; the rows would sit
+  on "Checking..." then "Not activated" with a Turn On that opens nothing on a server. My first note said "stuck on
+  step 3 for good"; that was wrong and is corrected here, in the code comment and on the card.
 - 4 Notifications: a macOS "App Background Activity" banner that Linux never shows.
 - 7 Success: the Dock drawing and "Kosmos is now in your Applications folder".
 
@@ -37,6 +40,9 @@ say is better gone).
 - The card's item 3, walking it on a real Linux board (the #4916 box). That needs the Linux board; the card stays open
   for it after merge, parked needs-device.
 - The gate poll (frPollGates) reads only the shown screen's gates, so skipped gated screens are never polled.
+- A deep link to 2, 3 or 4 on Linux lands on Model (5), earlier in the display order: frStepAfter falls back by pane
+  NUMBER, as it does on Windows. Only the screenshot deep link reaches it; every Next hop follows the sequence.
+  Accepted (review 3).
 
 ## Weakest premise
 That every Linux board is a server reached in a browser. A Linux desktop with a dock would lose a Success screen it
