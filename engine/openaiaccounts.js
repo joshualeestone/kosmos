@@ -1842,4 +1842,5 @@ module.exports = {
   chatgptDeviceLinkToOpen, setChatgptBrowserOpener,   // 0.6.96: win32 opens the device page itself; the link guard and the test seam
   accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist, openaiModelClass,
   readName, writeName,   // #2095: the human-chosen display name (sidecar file)
+  authFile,   // #5948: the credential file, so signedoutaccounts can be pinned to it
 };

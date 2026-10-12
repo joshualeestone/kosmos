@@ -665,6 +665,10 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       KOSMOS_NOTARY_CODESIGN_CMD: undefined,
       KOSMOS_NOTARY_LIPO_CMD: undefined,
       KOSMOS_NOTARY_RETRY_DELAYS: undefined,
+      KOSMOS_STAPLER_CMD: undefined,   // #5896 slice 3: refused at 1c like the rest
+      KOSMOS_STAPLER_RETRY_DELAYS: undefined,
+      KOSMOS_NOTARY_SPCTL_CMD: undefined,
+      KOSMOS_NOTARY_XATTR_CMD: undefined,
       KOSMOS_FUTURE_BOUND: undefined,
       HOME: home,
       KOSMOS_SITE: site,

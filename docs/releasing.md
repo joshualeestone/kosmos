@@ -92,10 +92,17 @@ improvement it gained would have died with the session that wrote it.
    key).
    Since #5137, step 4 notarises the app binaries on every cut, so 1c also
    refuses a cut while `KOSMOS_NOTARIZE`, `KOSMOS_NOTARYTOOL_CMD`,
-   `KOSMOS_NOTARY_CODESIGN_CMD`, `KOSMOS_NOTARY_LIPO_CMD` or
-   `KOSMOS_NOTARY_RETRY_DELAYS` is exported (even empty), and then makes one
+   `KOSMOS_NOTARY_CODESIGN_CMD`, `KOSMOS_NOTARY_LIPO_CMD`,
+   `KOSMOS_NOTARY_RETRY_DELAYS`, or (since #5896 slice 3) `KOSMOS_STAPLER_CMD`,
+   `KOSMOS_STAPLER_RETRY_DELAYS`, `KOSMOS_NOTARY_SPCTL_CMD` or
+   `KOSMOS_NOTARY_XATTR_CMD` is exported (even empty), and then makes one
    authenticated `notarytool history` request to Apple with the notary key, so a
-   bad key or an outage refuses before the bump is pushed. `KOSMOS_NOTARY_PROBE_BIN`
+   bad key or an outage refuses before the bump is pushed. Since #5896 slice 3,
+   step 4 also submits the sealed `app/Kosmos.app` in the same submission,
+   staples its ticket, and refuses unless a quarantined copy is accepted by
+   `spctl -a -t exec -vv` as "Notarized Developer ID" of our team (a downloaded,
+   quarantined copy that is not notarised is rejected by `spctl`, measured on #5896).
+   `KOSMOS_NOTARY_PROBE_BIN`
    is deliberately not refused: like `KOSMOS_CODESIGN_BIN` it replaces only that
    probe (the release-gate tests set it), says "not probed" when set, and step 4
    still notarises for real.
@@ -106,11 +113,14 @@ improvement it gained would have died with the session that wrote it.
    #2006); green dismisses it as contention, red aborts the cut. One attempt by default
    (#5907); `KOSMOS_SUITE_RERUN_MAX=3` set before a cut allows up to 3.
 4. **Build**, then copy the bundle, `.sha256` and `latest.json` to the site.
-   The build notarises `kosmos-app` and `kosmos-tunnel` with Apple just before
-   packing (#5137) and refuses unless Apple's ticket lists every architecture
-   slice's cdhash. That waits on Apple: usually minutes, and past an hour when
-   Apple is slow (each wait gives up at 30 minutes and is tried twice, and the
-   upload and log fetch retry). A failure there comes after the bump. It counts
+   The build notarises `kosmos-app`, `kosmos-tunnel` and the sealed
+   `app/Kosmos.app` with Apple just before packing (#5137, #5896), refuses
+   unless Apple's ticket lists every architecture slice's cdhash, then staples
+   the ticket to the app and refuses unless a quarantined copy is accepted as
+   "Notarized Developer ID" of our team. That waits on Apple: usually minutes,
+   and past an hour when Apple is slow (each wait gives up at 30 minutes and is
+   tried twice, the upload and log fetch retry, and a lagging staple is tried
+   for up to about 8.5 minutes more). A failure there comes after the bump. It counts
    toward the cut's duration `D`, so a hand-stamped page (option (b) under the
    versions entry below) has less room than it did before #5137.
    ⚠️ The tarball and `latest.json` must land in the **same deploy**: shipping

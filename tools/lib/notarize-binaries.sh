@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Notarise the bare Mach-O binaries the bundle ships (#5137).
+# Notarise the bare Mach-O binaries the bundle ships (#5137), and the sealed Kosmos.app with its ticket stapled (#5896).
 #
 # kosmos-app and kosmos-tunnel are Developer ID signed with hardened runtime by
 # build-kosmos-bundle.sh, but until #5137 they were never NOTARISED, so
@@ -23,16 +23,26 @@
 # reach Apple twice; only the id this function holds is waited on and checked. A submission
 # with an id is never resubmitted: it is waited on instead.
 #
-# Usage: notarize_binaries <binary>...   returns non-zero on any failure, after
+# #5896 slice 3: an argument ending in .app is the sealed Kosmos.app, submitted whole in the same zip. After Apple
+# accepts, its ticket is STAPLED to it (stapler staple, then stapler validate), and a copy with a quarantine flag must
+# be accepted by `spctl -a -t exec -vv` as "Notarized Developer ID". Measured 2026-10-12 on a real submission: a
+# quarantined copy that is sealed and signed but NOT notarised is rejected ("Unnotarized Developer ID"); notarised and
+# stapled, it is accepted. (What caused Josh's own 0.7.42 "Kosmos is damaged" is NOT established: his copy carried no
+# quarantine flag and an ad-hoc reseal did not clear it; #5896.) Stapling adds the ticket inside the bundle; it does
+# not change the signed executable or the bare binaries, whose checksums the build re-checks.
+#
+# Usage: notarize_binaries <binary or .app>...   returns non-zero on any failure, after
 # printing why. Sourced by build-kosmos-bundle.sh under set -euo pipefail; call it
 # as `notarize_binaries ... || exit 1`.
 #
 # KOSMOS_NOTARIZE=0 skips it, LOUDLY, for a local test build that has no notary
 # key. release.sh refuses to cut while KOSMOS_NOTARIZE, KOSMOS_NOTARYTOOL_CMD,
-# KOSMOS_NOTARY_CODESIGN_CMD, KOSMOS_NOTARY_LIPO_CMD or KOSMOS_NOTARY_RETRY_DELAYS is set.
+# KOSMOS_NOTARY_CODESIGN_CMD, KOSMOS_NOTARY_LIPO_CMD, KOSMOS_NOTARY_RETRY_DELAYS, KOSMOS_STAPLER_CMD,
+# KOSMOS_STAPLER_RETRY_DELAYS, KOSMOS_NOTARY_SPCTL_CMD or KOSMOS_NOTARY_XATTR_CMD is set.
 #
 # Seams (tests only): KOSMOS_NOTARYTOOL_CMD replaces `xcrun notarytool`,
 # KOSMOS_NOTARY_CODESIGN_CMD replaces codesign, KOSMOS_NOTARY_LIPO_CMD replaces lipo,
+# KOSMOS_STAPLER_CMD replaces `xcrun stapler`, KOSMOS_NOTARY_SPCTL_CMD spctl, KOSMOS_NOTARY_XATTR_CMD xattr (#5896),
 # and KOSMOS_SECRETS_MAP_BIN replaces secrets-map.sh, as in cut-sign-preflight.sh.
 
 . "$(dirname "${BASH_SOURCE[0]}")/signing-identity.sh"
@@ -52,6 +62,64 @@ _notarize_archs() {
 # Runs notarytool with the given arguments. A function so the seam can be a shell function.
 _notarytool() {
   if [ -n "${KOSMOS_NOTARYTOOL_CMD:-}" ]; then "$KOSMOS_NOTARYTOOL_CMD" "$@"; else xcrun notarytool "$@"; fi
+}
+# #5896: the app bundle's ticket is STAPLED to it, and a quarantined copy is assessed. Seams as above.
+_stapler() {
+  if [ -n "${KOSMOS_STAPLER_CMD:-}" ]; then "$KOSMOS_STAPLER_CMD" "$@"; else xcrun stapler "$@"; fi
+}
+_notarize_spctl() { "${KOSMOS_NOTARY_SPCTL_CMD:-spctl}" "$@"; }
+_notarize_xattr() { "${KOSMOS_NOTARY_XATTR_CMD:-xattr}" "$@"; }
+
+# Prints the main executable of a .app (CFBundleExecutable from its XML Info.plist), or nothing.
+_notarize_app_exe() {
+  local name
+  # Flattened first: setup.sh's plist (which the build copies) has the key and its string on ONE line; others split them.
+  name="$({ tr -d '\n\r' < "$1/Contents/Info.plist"; } 2>/dev/null \
+    | sed -n 's/.*<key>CFBundleExecutable<\/key>[[:space:]]*<string>\([^<]*\)<\/string>.*/\1/p' | head -1)" || name=""
+  [ -n "$name" ] && [ -f "$1/Contents/MacOS/$name" ] && printf '%s\n' "$1/Contents/MacOS/$name"
+}
+
+# #5896 slice 3: after Apple accepted submission <id> holding <app>, staple its ticket to it (so Gatekeeper finds it
+# offline, on any Mac), validate the staple, then assess a copy carrying a quarantine flag, as a download, AirDrop or
+# zip would leave it, which spctl rejects when it is not notarised (measured; see the file header). (spctl -a
+# assesses signature, notarisation and staple with or without the flag; the flag makes the copy what a user actually
+# opens.) <scratch> is a
+# folder the copy may be made in. A ticket can reach the staple service a while after acceptance, and a cut that fails
+# here has already pushed its version bump, so stapling has its OWN, longer schedule (KOSMOS_STAPLER_RETRY_DELAYS,
+# default 30 60 120 300 seconds, refused at a cut like the other seams), and a final failure names the submission.
+_notarize_staple_app() {
+  local app="$1" scratch="$2" sub="$3" out rc try=1 tries d q
+  local -a delays
+  read -r -a delays <<< "${KOSMOS_STAPLER_RETRY_DELAYS-30 60 120 300}"
+  tries=$(( ${#delays[@]} + 1 ))
+  while :; do
+    rc=0; out="$(_stapler staple "$app" 2>&1)" || rc=$?
+    printf '%s\n' "$out" | sed 's/^/    /'
+    [ "$rc" != 0 ] && [ "$try" -lt "$tries" ] || break
+    d="${delays[$((try - 1))]:-0}"
+    echo "==> could not staple the ticket to ${app##*/} yet (rc=$rc); trying again in ${d}s (#5896)" >&2
+    sleep "$d" || :
+    try=$((try + 1))
+  done
+  [ "$rc" = 0 ] || { echo "notarize: could not staple the notarisation ticket to $app (stapler rc=$rc). Apple accepted submission $sub, but nothing was packed: re-run the cut, which submits again" >&2; return 1; }
+  rc=0; out="$(_stapler validate "$app" 2>&1)" || rc=$?
+  printf '%s\n' "$out" | sed 's/^/    /'
+  [ "$rc" = 0 ] || { echo "notarize: the staple on $app did not validate (stapler validate rc=$rc)" >&2; return 1; }
+  q="$scratch/quarantined"
+  mkdir -p "$q" && cp -Rp "$app" "$q/" || { echo "notarize: could not copy $app to assess it quarantined" >&2; return 1; }
+  q="$q/${app##*/}"
+  _notarize_xattr -w com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");Kosmos release check;" "$q" \
+    || { echo "notarize: could not quarantine the copy of $app, so it cannot be assessed as a download is" >&2; return 1; }
+  rc=0; out="$(_notarize_spctl -a -t exec -vv "$q" 2>&1)" || rc=$?
+  printf '%s\n' "$out" | sed 's/^/    /'
+  # Whole lines, not a substring: spctl's first line echoes the path assessed. And the origin must be OUR team.
+  if [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -qx 'source=Notarized Developer ID' \
+     && printf '%s\n' "$out" | grep -q "^origin=Developer ID Application: .*($KOSMOS_SIGN_TEAM_ID)\$"; then
+    echo "==> stapled and assessed quarantined: ${app##*/} is accepted as Notarized Developer ID, team $KOSMOS_SIGN_TEAM_ID (#5896)"
+  else
+    echo "notarize: a quarantined copy of $app is not accepted as Notarized Developer ID of team $KOSMOS_SIGN_TEAM_ID (spctl rc=$rc, above). Gatekeeper (spctl) rejects a quarantined copy of it." >&2
+    return 1
+  fi
 }
 
 # Prints the value of the FIRST "<key>": "<value>" pair in notarytool's JSON, or nothing.
@@ -94,7 +162,7 @@ notarize_probe_credentials() (
   case "$rc:$_flat" in
     0:*'"history":['*) echo "notary preflight: Apple answered an authenticated request with the notary key ($KOSMOS_NOTARY_SECRET_TARGET, key id $key_id)"; exit 0 ;;
   esac
-  echo "notary preflight: Apple's notary service did not answer an authenticated request with the notary key (notarytool rc=$rc). Step 4 notarises the app binaries with it (#5137), after the version bump is pushed. What it said:"
+  echo "notary preflight: Apple's notary service did not answer an authenticated request with the notary key (notarytool rc=$rc). Step 4 notarises the app binaries and the sealed Kosmos.app with it (#5137, #5896), after the version bump is pushed. What it said:"
   printf '%s\n' "$out" | sed 's/^/    /'
   exit 1
 )
@@ -115,12 +183,23 @@ notarize_binaries() (
 
   key="$(_notarize_key)" || exit 1
 
+  # A trailing slash ("Kosmos.app/") names the same bundle; taken off once here, so every branch below sees ".app".
+  _args=(); for b in "$@"; do _args+=("${b%/}"); done; set -- "${_args[@]}"
+
   # Every slice's cdhash, read BEFORE submitting: an unsigned binary cannot be notarised, and
   # finding that out after a several-minute wait is waste. One "name arch cdhash" line each.
   want=""
   for b in "$@"; do
-    [ -f "$b" ] || { echo "notarize: no such binary: $b" >&2; exit 1; }
-    archs="$(_notarize_archs "$b")"
+    # #5896: a .app is submitted whole and its ticket stapled after; its slices are its main executable's, and its
+    # cdhash is read from the bundle (codesign on a bundle reports the main executable's, sealed with the bundle).
+    case "$b" in
+      *.app) [ -d "$b" ] || { echo "notarize: no such app: $b" >&2; exit 1; }
+             exe="$(_notarize_app_exe "$b")" || exe=""
+             [ -n "$exe" ] || { echo "notarize: could not find the main executable of $b (CFBundleExecutable)" >&2; exit 1; }
+             archs="$(_notarize_archs "$exe")" ;;
+      *)     [ -f "$b" ] || { echo "notarize: no such binary: $b" >&2; exit 1; }
+             archs="$(_notarize_archs "$b")" ;;
+    esac
     [ -n "$archs" ] || { echo "notarize: could not read the architectures of $b (is it a Mach-O file?)" >&2; exit 1; }
     for a in $archs; do
       h="$(_notarize_cdhash "$b" "$a")"
@@ -132,7 +211,12 @@ notarize_binaries() (
 
   dir="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-notarize.XXXXXX")" || { echo "notarize: could not make a scratch directory" >&2; exit 1; }
   mkdir "$dir/bin" || { echo "notarize: could not make $dir/bin" >&2; exit 1; }
-  for b in "$@"; do cp -p "$b" "$dir/bin/" || { echo "notarize: could not copy $b" >&2; exit 1; }; done
+  for b in "$@"; do
+    case "$b" in
+      *.app) cp -Rp "$b" "$dir/bin/" || { echo "notarize: could not copy $b" >&2; exit 1; } ;;   # the whole bundle (#5896)
+      *)     cp -p "$b" "$dir/bin/" || { echo "notarize: could not copy $b" >&2; exit 1; } ;;
+    esac
+  done
   ditto -c -k --keepParent "$dir/bin" "$dir/binaries.zip" || { echo "notarize: could not zip the binaries" >&2; exit 1; }
 
   # Submitted WITHOUT --wait, so the submission id is printed as soon as Apple has one, before
@@ -217,5 +301,9 @@ EOF
     echo "notarize: Apple's ticket for $id does not list these cdhashes:$missing. The ticket covers other bytes." >&2
     exit 1
   fi
+  # #5896: a bundle carries its ticket (a bare binary cannot), and is proven against a quarantined copy.
+  for b in "$@"; do
+    case "$b" in *.app) _notarize_staple_app "$b" "$dir" "$id" || exit 1 ;; esac
+  done
   exit 0
 )

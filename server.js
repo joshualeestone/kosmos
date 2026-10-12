@@ -2502,23 +2502,10 @@ function safeRoster() {
   }
 }
 
-/* #3296/#3391 accounts slice: the fail-closed "which agents run on this account
-   directory" enumeration, shared by EVERY provider's disconnect/remove route so the
-   safety property lives in ONE place rather than being copied per provider (the
-   "two derivations of the fleet" habit this file's own comments call its worst).
-   Returns { usedBy, complete }:
-     - `usedBy`: the running-or-known agents of runner `runner` whose account home
-       resolves to `dir` (or the default account, when `isDefault` and the agent
-       carries no configDir).
-     - `complete`: FALSE whenever ANYTHING could not be read -- an unreadable roster,
-       a launch file that threw, a non-ENOENT job miss, or a path that would not
-       resolve. A caller MUST refuse the destructive act when `complete` is false:
-       an enumeration that cannot tell "nobody" from "I could not look" is not a
-       safety check (Renet Tilley, reviewing #1447 -- AMBIGUITY WAS SILENTLY NONE).
-   `runner` scopes the walk to ONE provider's agents (a codex account is never held
-   by a gemini agent). This is the exact logic the OpenAI DELETE route grew inline;
-   that route now calls this so the four providers cannot drift. */
-function enumerateAgentsOnAccount(dir, isDefault, runner) {
+/* The agents an account walk looks at: the roster's cards, plus every profile Kosmos knows that is not removed.
+   { names, complete, roster }; `complete` is false whenever any source could not be read (see below). #5948: shared
+   with GET /api/accounts' unlisted rows, so the two walks read one set of names. */
+function knownAgentNames() {
   const roster = safeRoster();
   let complete = roster !== null;
   // register.known() separates "nothing was ever written" (ok, empty) from "we
@@ -2539,6 +2526,28 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
       if (!goneNames.has(n)) names.add(n);
     }
   }
+  return { names, complete, roster };
+}
+/* #3296/#3391 accounts slice: the fail-closed "which agents run on this account
+   directory" enumeration, shared by EVERY provider's disconnect/remove route so the
+   safety property lives in ONE place rather than being copied per provider (the
+   "two derivations of the fleet" habit this file's own comments call its worst).
+   Returns { usedBy, complete }:
+     - `usedBy`: the running-or-known agents of runner `runner` whose account home
+       resolves to `dir` (or the default account, when `isDefault` and the agent
+       carries no configDir).
+     - `complete`: FALSE whenever ANYTHING could not be read -- an unreadable roster,
+       a launch file that threw, a non-ENOENT job miss, or a path that would not
+       resolve. A caller MUST refuse the destructive act when `complete` is false:
+       an enumeration that cannot tell "nobody" from "I could not look" is not a
+       safety check (Renet Tilley, reviewing #1447 -- AMBIGUITY WAS SILENTLY NONE).
+   `runner` scopes the walk to ONE provider's agents (a codex account is never held
+   by a gemini agent). This is the exact logic the OpenAI DELETE route grew inline;
+   that route now calls this so the four providers cannot drift. */
+function enumerateAgentsOnAccount(dir, isDefault, runner) {
+  const known = knownAgentNames();
+  let complete = known.complete;
+  const names = known.names;
   const usedBy = [];
   for (const sessionName of names) {
     let job = null;
@@ -10991,7 +11000,41 @@ const server = http.createServer(async (req, res) => {
             }
           }
         } catch { museSub = []; }
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub] });
+        /* #5948: an account an agent uses whose sign-in or key is gone is not in the lists above (they list a folder only
+           when it holds a credential). Sent apart, so no account picker offers it; `kosmos accounts` prints it. */
+        let unlistedAccounts = [];
+        let unlistedComplete = true;
+        try {
+          const readers = { openai: openaiAccounts, google: geminiAccounts, xai: grokAccounts };
+          const soa = require('./engine/signedoutaccounts');
+          const tokendoor = require('./engine/tokendoor');
+          // The account walk's names (knownAgentNames): the roster's cards, then known profiles not on it.
+          const known = knownAgentNames();
+          // A walk that could not read the roster or the profiles is incomplete: kosmos accounts must not then say none.
+          unlistedComplete = known.complete !== false;
+          const onRoster = new Set((known.roster || []).map((c) => c && c.sessionName));
+          const cards = [...(known.roster || []), ...[...known.names].filter((n) => !onRoster.has(n)).map((n) => ({ sessionName: n, name: n }))];
+          const runnerOf = new Map((known.roster || []).filter((c) => c && c.sessionName).map((c) => [c.sessionName, c.runner || null]));
+          unlistedAccounts = soa.signedOutRows(cards,
+            { openai: openaiRows, google: geminiRows, xai: grokRows },
+            // A job that could not be READ (not one that is absent) leaves the walk incomplete, as enumerateAgentsOnAccount
+            // counts it: a lapsed account behind it must not turn into "none set up".
+            (n) => {
+              // The job is always read (it is the authority: an untagged gemini pane's card says claude). Only the walk's
+              // completeness is scoped: a card whose roster runner is not keyed does not mark it incomplete.
+              const cardRunner = runnerOf.get(n);
+              const counts = !cardRunner || Object.prototype.hasOwnProperty.call(soa.PROVIDER_OF_RUNNER, cardRunner);
+              let j;
+              try { j = create.readJob(n); } catch (e) { if (counts) unlistedComplete = false; throw e; }
+              if (!j && counts) { let absent = false; try { absent = create.jobMissing(n); } catch { absent = false; } if (!absent) unlistedComplete = false; }
+              return j;
+            },
+            (p, d) => readers[p].readName(d),
+            undefined, (p) => readers[p].defaultDir(),
+            // The secrets/env door a launch falls back to when a folder's own key is missing (tokendoor.fileFor).
+            (v) => soa.fileThere(tokendoor.fileFor(v)));   // any other fault: unsure, never "gone"
+        } catch { unlistedAccounts = []; unlistedComplete = false; }
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub], unlistedAccounts, unlistedComplete });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;

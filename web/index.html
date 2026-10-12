@@ -61190,7 +61190,11 @@ function tskRepeatSentence(t, now) {
   if (t.lastRunAt) {
     const ago = agoWords(now - Date.parse(t.lastRunAt));
     const who = t.lastRunByPerson === true ? 'you' : t.lastRunBy ? tskAgentName(t.lastRunBy) : '';   // review 5: a flag, never the name 'operator'
-    s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunLate === true ? ', late' : '') + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
+    /* kosmos#5920: a run that came after scheduled runs that never happened says how many, so a recovery never hides the
+       misses before it (the missed count starts again from this run). */
+    const rec = t.lastRunRecovered && Number(t.lastRunRecovered.missed) >= 1 ? t.lastRunRecovered : null;
+    const recWords = rec ? ', after ' + (rec.more === true ? 'more than ' + rec.missed + ' missed runs' : Number(rec.missed) === 1 ? '1 missed run' : rec.missed + ' missed runs') : '';
+    s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunLate === true ? ', late' : '') + recWords + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
     /* kosmos#5643: how many runs in a row found nothing new, and when (and what) the last change was. */
     const same = Number(t.unchangedRuns);
     if (same >= 1) {
@@ -62224,7 +62228,7 @@ function tkActPhrase(ev, p) {
     // kosmos#4787: a recurring task's rule, and each run its owner reported (kosmos task ran).
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
-    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.unchanged ? (ev.inferred ? ', the same note again' : ', nothing new') : '') + (ev.note ? ': ' + ev.note : ''); }   // kosmos#5643: said, or only a repeated note
+    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); const missed = Number(ev.missedBefore) >= 1 ? Number(ev.missedBefore) : 0; return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (missed ? ', after ' + (ev.missedMore === true ? 'more than ' + missed + ' missed runs' : missed === 1 ? '1 missed run' : missed + ' missed runs') : '') + (ev.unchanged ? (ev.inferred ? ', the same note again' : ', nothing new') : '') + (ev.note ? ': ' + ev.note : ''); }   // kosmos#5643: said, or only a repeated note
     /* kosmos#4787 slice 3 (review 5): who reviews it, and a missed run with who was told. */
     case 'reviewer-set': return ev.person ? 'You will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
     case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
@@ -62520,7 +62524,7 @@ function tkActRowsHtml(events, p, now) {
     return '<div class="tkact"><time datetime="' + esc(String(ev.at)) + '">' + esc(when) + '</time>'
       + '<span class="tkact-what">' + esc(tkActPhrase(ev, p)) + '</span></div>';
   };
-  const quiet = (ev) => ev && ev.kind === 'run' && ev.unchanged === true && ev.late !== true;
+  const quiet = (ev) => ev && ev.kind === 'run' && ev.unchanged === true && ev.late !== true && !(Number(ev.missedBefore) >= 1);   // kosmos#5920: a recovery is never folded away
   const out = [];
   for (let i = 0; i < events.length;) {
     let j = i;

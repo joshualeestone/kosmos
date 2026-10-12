@@ -499,7 +499,25 @@ test('#4787: a due repeating task is nudged with its due run and the record verb
   const t3 = proj({ number: 3, sentence: 'Hourly check', who: 'ag', repeat: { every: 'hour', minute: 0 }, repeatSetAt: hourAgo, createdAt: hourAgo })[0].tasks[0];
   const latest = tr.latestAtOrBefore(t3.repeat, tr.dueSlot(t3), Date.now());
   assert.equal(due[0].dueWords, tr.whenWords(latest), 'the line does not name the latest due run');
-  assert.match(text, /has not been reported: run it now, then record it with kosmos task ran rp4787 3 \(add --unchanged if it found nothing new\)\./);
+  // kosmos#5920: the hourly task above may be checked in the last quarter of an hour, when its deadline has passed and none
+  // is named, so it only pins that a passed deadline is never named (when the clock says so).
+  if (tr.recordBy(t3.repeat, tr.latestAtOrBefore(t3.repeat, tr.dueSlot(t3), Date.now())) === null) {
+    assert.equal('byWords' in due[0], false, 'a deadline already past is named');
+    assert.match(text, /has not been reported: run it now, then record it with kosmos task ran rp4787 3 \(add --unchanged if it found nothing new\)\./);
+  }
+  // Review 3: a daily job whose slot passed two minutes ago ALWAYS has its deadline ahead (tomorrow's slot less the
+  // 15-minute grace), worked out here without recordBy, so the wiring and recordBy are both pinned on every run.
+  const back = new Date(now - 2 * 60000);
+  const hhmm = String(back.getHours()).padStart(2, '0') + ':' + String(back.getMinutes()).padStart(2, '0');
+  const daily = { number: 9, sentence: 'Daily check', who: 'ag', repeat: { every: 'day', at: hhmm }, repeatSetAt: new Date(now - 10 * 60000).toISOString(), createdAt: new Date(now - 10 * 60000).toISOString() };
+  const d = nudge.openParts('ag', proj(daily))[0];
+  const slotD = new Date(back.getFullYear(), back.getMonth(), back.getDate(), back.getHours(), back.getMinutes()).getTime();
+  const tomorrow = tr.nextAfter(daily.repeat, slotD);
+  assert.equal(d.byWords, tr.whenWords(Math.floor((tomorrow - 15 * 60000) / 60000) * 60000), 'the daily deadline is not tomorrow\'s slot less 15 minutes: ' + JSON.stringify(d));
+  assert.match(nudge.nudgeText(d), /has not been reported: run it now \(record it before [^,]+, ahead of the next one; if it is still going then, stop it, record it as it stands with what stopped it, and start the next\), then record it with kosmos task ran rp4787 9 \(add --unchanged if it found nothing new\)\./);
+  // CONTROL: a part with no deadline named says nothing about one, and one with a deadline says it.
+  assert.doesNotMatch(nudge.nudgeText({ ...due[0], byWords: undefined }), /record it before/);
+  assert.match(nudge.nudgeText({ ...due[0], byWords: 'today at 9:44am' }), /\(record it before today at 9:44am, ahead of the next one;/);
   // Review 1: after a long gap, the LATEST due run, with "and earlier ones" (the reviewer's line names the latest too).
   const longAgo = new Date(now - 72 * 3600 * 1000).toISOString();
   const gap = { number: 6, sentence: 'Long gap', who: 'ag', repeat: { every: 'hour', minute: 0 }, repeatSetAt: longAgo, createdAt: longAgo, lastRunAt: longAgo };
