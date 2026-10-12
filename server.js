@@ -14573,9 +14573,12 @@ const server = http.createServer(async (req, res) => {
       })
       /* #5957: the agent page now shows this route's error, so it must be a sentence, never an errno or a temp path
          (the instructions route's round-40 rule). Its own refusals above answer with their sentences directly. */
-      .catch((err) => sendJson(res, 400, { error: err instanceof SyntaxError
-        ? 'we could not read that request; send it as JSON'
-        : 'that did not save; try again in a moment' }));
+      .catch((err) => {
+        if (!(err instanceof SyntaxError)) process.stderr.write(`profile save for ${name} failed: ${String((err && err.message) || err)}\n`);   // kept for the log, not the page
+        sendJson(res, 400, { error: err instanceof SyntaxError
+          ? 'we could not read that request; send it as JSON'
+          : 'that did not save; try again in a moment' });
+      });
     return;
   }
 

@@ -205,3 +205,24 @@ test('#5957: an instructions line moving BACK to the name already on record is n
   assert.equal(body.nameKept, undefined, 'a save that changes no record was told the name was taken: ' + body.nameKept);
   assert.equal(shownOf('other'), shared);
 });
+
+test('#5957: re-connecting a stopped Kosmos-made agent\'s own folder gets the job refusal, not "already an agent called"', async (t) => {
+  /* createdKeys comes from the job files Kosmos wrote, so a stopped created agent always has one; connect's job check
+     runs before the name check and owns this case. Write the job file this platform reads. */
+  if (process.platform === 'win32') { t.skip('Windows records jobs elsewhere; no created source there yet'); return; }
+  const status = require('./engine/status');
+  const key = 'dozer';
+  const folder = mk(key);
+  fs.writeFileSync(path.join(folder, 'CLAUDE.md'), '# Dozer\n\nYou are **Dozer**, an assistant.\n');
+  store.writeProfile(key, { provider: 'anthropic', displayName: 'Dozer' });
+  const job = process.platform === 'linux' ? require('./engine/linuxjob').unitPath(key) : create.plistPath(key);
+  fs.mkdirSync(path.dirname(job), { recursive: true });
+  fs.writeFileSync(job, 'fixture job');
+  status.setCreatedSource(() => [key]);
+  t.after(() => { status.setCreatedSource(null); fs.rmSync(job, { force: true }); });
+
+  assert.equal(create.hasJob(key), true, 'fixture: the job file is not the one hasJob reads here');
+  const r = require('./engine/discover').connect(folder, {});
+  assert.equal(r.ok, false);
+  assert.equal(r.because, 'Kosmos already looks after an agent by that name');
+});
