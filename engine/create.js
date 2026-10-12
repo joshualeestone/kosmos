@@ -942,18 +942,24 @@ function jobProvider(job) {
 const AGENT_PROVIDER_MS = 2000;
 const agentProviderMemo = new Map();
 function forgetAgentProvider(name) { if (name) agentProviderMemo.delete(String(name)); }
-function agentProvider(sessionName, runner) {
-  const r = runner || 'claude';
-  if (r !== 'codex' || !sessionName) return runnerProvider(r);
+/* Review 6: the provider a codex agent's JOB names ('alibaba' or 'openai'), or null when there is no job to read, so
+   a caller with its own fallback (the profile) can tell "the job says OpenAI" from "there is no job". Same memo. */
+function codexJobProvider(sessionName) {
+  if (!sessionName) return null;
   const key = String(sessionName);
   const hit = agentProviderMemo.get(key);
   const now = Date.now();
   if (hit && now - hit.at >= 0 && now - hit.at < AGENT_PROVIDER_MS) return hit.provider;
   let job = null;
   try { job = readJob(sessionName); } catch { job = null; }
-  const provider = job ? jobProvider({ ...job, runner: 'codex' }) : runnerProvider(r);
+  const provider = job ? jobProvider({ ...job, runner: 'codex' }) : null;
   agentProviderMemo.set(key, { at: now, provider });
   return provider;
+}
+function agentProvider(sessionName, runner) {
+  const r = runner || 'claude';
+  if (r !== 'codex' || !sessionName) return runnerProvider(r);
+  return codexJobProvider(sessionName) || runnerProvider(r);
 }
 /* #3296/#3391: the ONE "is this a non-claude runner" predicate -- the recognized set
    {codex, gemini, grok, antigravity}. plistFor (which slots run only for a non-claude runner),
@@ -1816,11 +1822,20 @@ function setQwenAccount(clean, spoken, dir, job, platform) {
   // Review 3: the new home is a fresh CODEX_HOME, so it needs the folder-trust entry too.
   try { trustCodexFolder(workerDir(clean), acct.dir, false); }
   catch { return { outcome: OUTCOME.REFUSED, because: 'we could not let Codex work in its folder, so nothing was changed' }; }
+  /* Review 6: the account Repair would rebuild on is recorded BEFORE the job moves, and must land: a job on B with a
+     profile still naming A would later be rebuilt on A, another endpoint and model, with nothing said. If the record
+     cannot be written nothing moves; if the job cannot be rewritten the old record is put back. */
+  let before = null;
+  try { before = store.readProfile(clean).qwenAccount || null; } catch { before = null; }
+  try { store.writeProfile(clean, { qwenAccount: acct.dir }); }
+  catch { return { outcome: OUTCOME.REFUSED, because: `we could not record which Qwen account ${spoken} is on, so nothing was changed` }; }
   const unwritten = rewriteAgentJob(clean, spoken, {
     runnerBin: job.claude, tmux: job.tmux, model: null, configDir: acct.dir, runner: 'codex',
   }, platform);
-  if (unwritten) return unwritten;
-  try { store.writeProfile(clean, { qwenAccount: acct.dir }); } catch { /* the job is the launch truth */ }   // #5977 review 5
+  if (unwritten) {
+    try { store.writeProfile(clean, { qwenAccount: before }); } catch { /* the job did not move, so Repair finds it */ }
+    return unwritten;
+  }
   return { outcome: OUTCOME.CREATED, because: null, account: acct };
 }
 
@@ -6616,6 +6631,7 @@ module.exports = {
   runnerProvider,
   jobProvider,   // #5977
   agentProvider,   // #5977 review 2
+  codexJobProvider,   // #5977 review 6
   providerLabel,
   isNonClaudeRunner,
   antigravityEnabled,

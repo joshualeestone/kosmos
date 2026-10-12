@@ -297,6 +297,31 @@ test('#5977 r5: a slow endpoint is "did not answer in time", not "could not reac
   } finally { qwen.setFetcher(null); }
 });
 
+/* ---- review 6 --------------------------------------------------------------------------------------------- */
+
+test('#5977 r6: codexJobProvider says null with no job, so a caller can fall back; agentProvider still floors at the runner', () => {
+  assert.equal(create.codexJobProvider(QW), 'alibaba');
+  assert.equal(create.codexJobProvider(OA), 'openai');
+  assert.equal(create.codexJobProvider('r6-nobody'), null, 'no job is not OpenAI');
+  assert.equal(create.agentProvider('r6-nobody', 'codex'), 'openai', 'CONTROL: the floor callers rely on');
+});
+
+test('#5977 r6: an account move that cannot record the new account moves nothing', () => {
+  const a = nodePath.join(HOME, qwen.DIR_PREFIX + 'r6a'); qwen.storeEndpoint(a, EP);
+  const b = nodePath.join(HOME, qwen.DIR_PREFIX + 'r6b'); qwen.storeEndpoint(b, EP);
+  const name = codexAgent('r6-mover', a, 'alibaba');
+  store.writeProfile(name, { qwenAccount: a });
+  const orig = store.writeProfile;
+  store.writeProfile = () => { throw new Error('disk full'); };
+  let r;
+  try { r = create.setAccount(name, b, { platform: 'darwin' }); } finally { store.writeProfile = orig; }
+  assert.equal(r.outcome, 'refused');
+  assert.equal(create.readJob(name).configDir, a, 'the job moved while the record did not');
+  const ok = create.setAccount(name, b, { platform: 'darwin' });
+  assert.equal(ok.outcome, 'created', 'CONTROL: ' + ok.because);
+  assert.equal(store.readProfile(name).qwenAccount, b);
+});
+
 /* Last in the file: setRunner(null) leaves dry-run on, which the earlier switch tests must not inherit. */
 test('#5977 r5: Repair rebuilds a Qwen agent on its recorded Qwen account, and refuses rather than make it OpenAI', () => {
   const register = require('./register');
@@ -332,6 +357,21 @@ test('#5977 r5: Repair rebuilds a Qwen agent on its recorded Qwen account, and r
   const born = create.createAgent({ name: 'r5-born', role: 'pm', provider: 'alibaba', account: acct, codexBin: CODEX_BIN, claudeBin: CODEX_BIN, tmuxBin: TMUX_BIN, platform: 'darwin' });
   assert.equal(born.outcome, 'created', born.because);
   assert.equal(store.readProfile('r5-born').qwenAccount, acct);
+  // Review 6: a policy-held Qwen agent is checked against its account's model on Repair.
+  const orgpolicy = require('./orgpolicy');
+  const other = nodePath.join(HOME, qwen.DIR_PREFIX + 'r6pol'); qwen.storeEndpoint(other, { ...EP, model: 'not-allowed-model' });
+  fs.mkdirSync(create.workerDir('r6-held'), { recursive: true });
+  fs.writeFileSync(nodePath.join(create.workerDir('r6-held'), 'AGENTS.md'), '# brief\n');
+  store.writeProfile('r6-held', { provider: 'alibaba', qwenAccount: other, policyHeld: true });
+  fs.mkdirSync(nodePath.dirname(orgpolicy.APPLIED()), { recursive: true });
+  fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 1, applied_at: 1,
+    policy: { providers_allowed: ['alibaba'], models_allowed: { alibaba: [EP.model] } } }));
+  try {
+    const held = (register.repair({ platform: 'darwin' }).results || []).find((x) => x.name === 'r6-held');
+    assert.ok(held, 'repair did not see the held agent');
+    assert.equal(held.ok, false, 'a model the policy forbids was restored');
+    assert.match(String(held.because), /not-allowed-model/);
+  } finally { fs.rmSync(orgpolicy.APPLIED(), { force: true }); }
   } finally { create.setRunner(null); }
 });
 
