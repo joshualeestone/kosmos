@@ -291,8 +291,7 @@
       "icon": "shield",
       "rank": 6,
       "since": "0.7.44",
-      "status": "held",
-      "why": "Held until PR #6005 (#5994) is merged and its code is on main; then set pending and rebuild."
+      "status": "pending"
     },
     {
       "title": "Late recurring runs say what they missed",

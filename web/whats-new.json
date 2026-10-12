@@ -28,9 +28,9 @@
       "line": "New task asks \"How will you know it is done?\" and Create waits for your answer; a parent task says when all its subtasks are built."
     },
     {
-      "icon": "tasks",
-      "title": "Late recurring runs say what they missed",
-      "line": "When a recurring task runs after scheduled runs that never happened, its activity now counts the runs it missed."
+      "icon": "shield",
+      "title": "Removing an account works mid sign-in",
+      "line": "If you left a Sign in again unfinished on a ChatGPT account, you can now remove that account instead of waiting for it to time out."
     }
   ]
 }
