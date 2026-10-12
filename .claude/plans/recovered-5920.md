@@ -22,7 +22,8 @@ vanished from the count and the history, leaving one "late" row.
 - Weakest premise: an agent deep in a retry notices the time. If not, the misses now show instead of vanishing.
 
 ## Doctrine
-v29 pinned (fingerprint 63b704431e8076d5). engine/doctrine-past.js gains the v29 row and the new section hash only:
+v29 pinned (fingerprint fad5f367610465f9, after review 1 reworded the deadline; the first wording, 63b704431e8076d5,
+was never released and keeps its row as any branch block does). engine/doctrine-past.js gains rows only:
 tools/doctrine-past.js also dropped two interim v21 rows and an old section hash that this worktree's history cannot
 see, so those rows were kept.
 
