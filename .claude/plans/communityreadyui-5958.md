@@ -20,7 +20,8 @@ sentence that says what is automatic: Kosmos reminds, the agent decides.
   person's words; the row names the post. It does not point at the posts list, which holds only posts with a send
   record (review 3). A held newest post, and the count of held items, point to Waiting for you.
 - **A summary says only what was looked at.** "Nothing found in its way", not "ready": the row does not ask the
-  community service, and does not know the reminder pass's own switches.
+  community service. It does read every gate Kosmos itself applies (the rule is under Review 3), and when one could
+  not be read the summary says so and a line says which.
 - **Rows are closed by default** (a `details` per agent): fifteen agents at four lines each is a wall. A row the
   person opened stays open across a repaint.
 - **One read of the send records and the store for all rows** (the small per-agent files are still read per agent).
@@ -115,3 +116,18 @@ what is held and the newest post.
 - **NIT, not taken:** each repaint sets `open` on a row, which queues a toggle event whose handler writes the same
   value; the "Looking at your agents" line has no timeout and no live region, as the two lists above it have none.
 - **CONVENTION, not a change:** this file's "not run" list is still true and stays until those runs happen.
+
+## Review 5 (2026-10-12, default model)
+- **WARNING, taken by deleting the claim:** review 3's own line for the reminder switch ended "What it writes is still
+  sent", which is false beside a refused account. That sentence is gone; the line says only what that switch does.
+- **WARNING, taken:** a summary could say something was not checked while no line under it said what. An unreadable
+  reminder setting and an unreadable held count each have a line, and a test requires one for every unread state.
+- **WARNING, a duplicate:** the browser check, the wider web tests, the full suite and design shots have not run.
+  True, recorded above, and the reason this branch has no proof file yet.
+- **CONVENTION, taken:** this file said the row does not know the reminder pass's switches. It reads them now.
+- **NITs, taken:** the open set is read from the page's rows at the start of a repaint; focus goes to the heading when
+  a good read no longer has the focused agent; the TIME arm runs in a fixed zone that is not UTC and has a control for
+  it; the no-agent-voice walk covers signed-out, delivered and unconfirmed and more phrases; a row with only held
+  items gives the count; the chevron comment; the README row names the arms.
+- **NITs, not taken:** the three refreshes after a release, a discard and a delete have no arm of their own (stated
+  under Review 2); the list is read at page load as its two neighbours are.

@@ -396,7 +396,7 @@ test('slice 2: what stands in an agent\'s way is its summary, the first that app
     [{ block: 'absent', account: 'refused', held: 3 }, 'No community section in its instructions. 3 waiting for you'],
     [{ switch: 'off', held: 1 }, 'The community is off. 1 waiting for you'],
     [{ reminders: 'off', held: 2 }, 'Not being reminded. 2 waiting for you'],
-    [{ held: 2 }, 'Waiting for you'],
+    [{ held: 2 }, '2 waiting for you'],
   ]) {
     const v = view(over);
     assert.equal(v.summary, summary, JSON.stringify(over));
@@ -411,7 +411,7 @@ test('slice 2 review 1: "nothing found" is said only when everything was read', 
     { block: 'unreadable', account: 'unreadable', reminder: 'unreadable', lastPost: 'unreadable', held: null }]) {
     assert.equal(view(over).summary, 'Kosmos could not check everything just now', JSON.stringify(over));
   }
-  assert.equal(view({ block: 'unreadable', held: 2 }).summary, 'Waiting for you', 'something known to be waiting was hidden by a read that failed');
+  assert.equal(view({ block: 'unreadable', held: 2 }).summary, '2 waiting for you', 'something known to be waiting was hidden by a read that failed');
   assert.equal(view({ account: 'unreadable', block: 'absent' }).summary, 'No community section in its instructions');
 });
 
@@ -479,11 +479,11 @@ test('slice 2: no line of the person\'s words speaks to the agent, and none has 
   const T = 5;
   for (const block of ['present', 'absent', 'ambiguous', 'no_file', 'unreadable', 'something-new']) {
     for (const account of [...Object.keys(ready.ACCOUNT_WORDS), 'something-new']) {
-      for (const reminder of [null, 'unreadable', ...Object.keys(ready.TURN_WORDS).map((act) => ({ at: T, act, reachedAt: 1 })), ...Object.keys(ready.HELD_WORDS).map((heldBy) => ({ at: T, act: 'held', heldBy }))]) {
+      for (const reminder of [null, 'unreadable', ...Object.keys(ready.TURN_WORDS).map((act) => ({ at: T, act, reachedAt: 1 })), ...Object.keys(ready.HELD_WORDS).map((heldBy) => ({ at: T, act: 'held', heldBy })), { at: T, act: 'held', heldBy: 'limit', heldFor: 'signin' }, { at: T, act: 'prompted', delivery: 'placed' }, { at: T, act: 'prompted', delivery: 'unconfirmed' }]) {
         for (const board of [{}, { switch: 'off' }, { switch: 'unreadable' }, { addressOk: false }, { reminders: 'off' }, { reminders: 'unreadable' }]) {
         const v = view({ block, account, reminder, held: 2, rereadOwed: true, connected: true, ...board });
         const t = said(v) + '\n' + v.summary;
-        assert.doesNotMatch(t, /\byour person\b|\byou have\b|\byour instructions\b|\byour first\b|\byour newest\b/i, t);
+        assert.doesNotMatch(t, /\byour person\b|\byou have\b|\byour instructions\b|\byour first\b|\byour newest\b|\byour name\b|\byours\b|\bremind you\b|\breached you\b/i, t);
         assert.doesNotMatch(t, /—|&mdash;|&#8212;|&#x2014;|undefined|\[object/, t);
         assert.ok(v.lines.every((l) => typeof l.text === 'string' && l.text.length > 0 && l.text === l.text.replace(/\s+$/, '') + ('at' in l ? ' ' : '')), 'an empty line, or one with a stray space at its end: ' + t);
         }
@@ -530,10 +530,13 @@ function fleetCard(name) {
 test('slice 2 review 3: the reminder pass has its own switch, and a row says when it is off', () => {
   const v = view({ reminders: 'off' });
   assert.equal(v.summary, 'Not being reminded');
-  assert.equal(v.lines[0].text, '“Check on your agents” is off, so Kosmos is not reminding this agent to post. What it writes is still sent.');
+  assert.equal(v.lines[0].text, '“Check on your agents” is off, so Kosmos is not reminding this agent to post.');
+  // review 5: that line says nothing about sending, so it cannot contradict a refused account below it.
+  assert.doesNotMatch(said(view({ reminders: 'off', account: 'refused' })), /still sent/);
   assert.equal(view({ reminders: 'off', switch: 'off' }).summary, 'The community is off', 'the community switch stops more, so it is named first');
   assert.equal(view({ reminders: 'off', block: 'absent' }).summary, 'No community section in its instructions');
   assert.equal(view({ reminders: 'unreadable' }).summary, 'Kosmos could not check everything just now');
+  assert.match(said(view({ reminders: 'unreadable' })), /Kosmos could not read the “Check on your agents” setting just now/, 'the summary said something was unread and no line said what');
   assert.equal(view({ reminders: 'on' }).lines.length, 4, 'CONTROL: on, it adds no line');
   // The same switch, through the real setting file, and in what the agent is told.
   agentFile('ann', withBlock());
@@ -544,4 +547,14 @@ test('slice 2 review 3: the reminder pass has its own switch, and a row says whe
   assert.equal(ready.rowFor('ann').reminders, 'off');
   assert.match(text('ann'), /Reminders are switched off on this computer, so Kosmos is not sending any\. You can still post\./);
   assert.equal(ready.rowsFor([fleetCard('ann')])[0].owner.summary, 'Not being reminded');
+});
+
+test('slice 2 review 5: whenever the summary says something could not be checked, an open row says what', () => {
+  const NAMES = /could not read|cannot read/;
+  for (const over of [{ block: 'unreadable' }, { account: 'unreadable' }, { reminder: 'unreadable' }, { lastPost: 'unreadable' }, { held: null }, { reminders: 'unreadable' }, { block: 'something-new' }, { account: 'something-new' }]) {
+    const v = view(over);
+    assert.equal(v.summary, 'Kosmos could not check everything just now', JSON.stringify(over));
+    assert.match(said(v), NAMES, 'nothing under the summary says what was not read: ' + JSON.stringify(over) + '\n' + said(v));
+  }
+  assert.doesNotMatch(said(view({})), NAMES, 'CONTROL: a row that was read says nothing of the kind');
 });

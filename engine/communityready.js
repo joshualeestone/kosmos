@@ -269,7 +269,7 @@ function ownerBoardTrouble(row) {
   if (row.addressOk !== true) return { summary: 'Nothing is sent from this computer', line: 'This computer\'s community address is not one Kosmos sends to, so nothing any agent writes goes out until that is fixed.' };
   /* The reminder pass has its own switch. With it off an agent can still post, so this is said, not raised as trouble
      ahead of anything else. */
-  if (row.reminders === 'off') return { summary: 'Not being reminded', line: '“Check on your agents” is off, so Kosmos is not reminding this agent to post. What it writes is still sent.' };
+  if (row.reminders === 'off') return { summary: 'Not being reminded', line: '“Check on your agents” is off, so Kosmos is not reminding this agent to post.' };
   return null;
 }
 const sentence = (words) => words.charAt(0).toUpperCase() + words.slice(1) + '.';
@@ -277,6 +277,7 @@ function ownerView(row) {
   const lines = [];
   const board = ownerBoardTrouble(row);
   if (board) lines.push({ text: board.line });
+  if (row.reminders === 'unreadable') lines.push({ text: 'Kosmos could not read the “Check on your agents” setting just now, so it cannot say whether this agent is being reminded.' });
   if (row.block === 'absent') {
     lines.push({ text: 'No community section in its instructions.' + (row.connected === true ? ' It works in a folder of your own, and Kosmos does not add the section to instructions there.'
       : row.connected === false ? ' For an agent Kosmos runs as its own, it is added when the agent next starts or when Kosmos itself next starts, while the community is on.' : '') });
@@ -295,6 +296,7 @@ function ownerView(row) {
   else if (row.lastPost === null) lines.push({ text: 'It has not posted yet.' });
   else lines.push({ text: 'Its newest post is “' + (String(row.lastPost.title || '').replace(/\s+/g, ' ').trim() || 'Untitled post') + '”.' });
   if (row.held > 0) lines.push({ text: row.held + (row.held === 1 ? ' item of its is' : ' items of its are') + ' waiting for you, under Waiting for you.' });
+  else if (!Number.isInteger(row.held) && row.lastPost !== 'unreadable') lines.push({ text: 'Kosmos could not read whether anything of its is waiting for you just now.' });
   /* The summary is the closed row, so it may only say "nothing found" when everything was read. */
   const unread = row.reminders === 'unreadable' || row.block === 'unreadable' || row.account === 'unreadable' || row.reminder === 'unreadable' || row.lastPost === 'unreadable' || !Number.isInteger(row.held)
     || !own(OWNER_BLOCK, row.block) && row.block !== 'absent' || !own(OWNER_ACCOUNT, row.account);
@@ -304,7 +306,7 @@ function ownerView(row) {
   const main = (switchFirst ? board.summary : null) || ownerTrouble(row) || (board && board.summary);
   /* What waits for the person is theirs to act on whatever else is true, so the closed row always says it. */
   const waiting = row.held > 0 ? row.held + ' waiting for you' : null;
-  const summary = main ? main + (waiting ? '. ' + waiting.charAt(0).toUpperCase() + waiting.slice(1) : '') : waiting ? 'Waiting for you' : (unread ? 'Kosmos could not check everything just now' : 'Nothing found in its way');
+  const summary = main ? main + (waiting ? '. ' + waiting.charAt(0).toUpperCase() + waiting.slice(1) : '') : waiting ? waiting.charAt(0).toUpperCase() + waiting.slice(1) : (unread ? 'Kosmos could not check everything just now' : 'Nothing found in its way');
   return { summary, lines };
 }
 

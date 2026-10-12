@@ -125,7 +125,7 @@ const BO = agent('bo', 'Bo', { summary: 'No community section in its instruction
   { text: 'Kosmos has no record of going to remind it.' },
   { text: 'It has not posted yet.' },
 ] });
-const CY = agent('cy', 'Cy', { summary: 'Waiting for you', lines: [
+const CY = agent('cy', 'Cy', { summary: '2 waiting for you', lines: [
   { text: 'The community section is in its instructions.' },
   { text: 'It has a community account.' },
   { text: 'Kosmos last went to remind it on ', at: T1, after: '. Not sent: this board had reached its hourly limit for messages to agents.' },
@@ -136,7 +136,10 @@ const CY = agent('cy', 'Cy', { summary: 'Waiting for you', lines: [
 
 async function run() {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
-  const page = (viewport = { width: 1400, height: 1000 }) => browser.newPage({ viewport });
+  /* A fixed zone that is not UTC, and a fixed locale: the TIME arm asserts an hour, and on a runner in UTC a page that
+     wrote UTC would otherwise look right. */
+  const ZONE = 'Asia/Tokyo';
+  const page = (viewport = { width: 1400, height: 1000 }) => browser.newPage({ viewport, timezoneId: ZONE, locale: 'en-US' });
   try {
     // ROWS (the control)
     const p1 = await page();
@@ -146,7 +149,7 @@ async function run() {
     check('ROWS: the list exists and its heading shows under Automation', r.found && r.headShown, JSON.stringify({ found: r.found, headShown: r.headShown }));
     check('ROWS: the heading sits below the posts-and-comments heading', r.belowMine, JSON.stringify(r.belowMine));
     check('ROWS: three rows, each with its name and summary, all closed', r.listHidden === false && r.emptyHidden === true && r.rows.length === 3
-      && JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])) === JSON.stringify([['ava', 'Ava', 'Nothing found in its way', false], ['bo', 'Bo', 'No community section in its instructions', false], ['cy', 'Cy', 'Waiting for you', false]]), JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])));
+      && JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])) === JSON.stringify([['ava', 'Ava', 'Nothing found in its way', false], ['bo', 'Bo', 'No community section in its instructions', false], ['cy', 'Cy', '2 waiting for you', false]]), JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])));
     check('ROWS: a name and its words are read as two things, with a space between', r.rows[0].read === 'Ava Nothing found in its way', JSON.stringify(r.rows[0].read));
     check('ROWS: the note says a reminder only asks and the agent decides', /A reminder only asks: whether to post, and what to say, is the agent[’']s own decision\./.test(r.note), r.note);
 
@@ -161,6 +164,8 @@ async function run() {
     const tm = o.rows[2].times;
     check('TIME: each time is a <time> with a machine datetime', tm.length === 2 && tm[0].dt === new Date(T1).toISOString() && tm[1].dt === new Date(T0).toISOString(), JSON.stringify(tm));
     const local = await p1.evaluate((ms) => new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }), T1);
+    // 15:04 UTC on the 12th is 00:04 on the 13th in Tokyo: the page's zone, not UTC and not this runner's.
+    check('TIME CONTROL: the page is in a zone that is not UTC', /Jan 13/.test(local) && /12:04\s?AM/.test(local), local);
     check('TIME: it is written in the page\'s own zone, between the board\'s words', tm[0].text === local && o.rows[2].lines[2] === 'Kosmos last went to remind it on ' + local + '. Not sent: this board had reached its hourly limit for messages to agents.', JSON.stringify([tm[0].text, local, o.rows[2].lines[2]]));
 
     // MARK
@@ -219,6 +224,18 @@ async function run() {
     await p2.waitForFunction(() => document.getElementById('community-ready-list').hidden === true, null, { timeout: 5000 }).catch(() => {});
     const onHead = await p2.evaluate(() => document.activeElement && document.activeElement.id);
     check('KEPT: when a failed read takes the focused row away, focus goes to the heading', onHead === 'community-ready-head', String(onHead));
+    // the same when the read is good and that agent is simply gone
+    await p2.unroute(READY);
+    await p2.route(READY, answer({ agents: [AVA, BO] }));
+    await p2.evaluate(() => refreshCommunityReady());
+    await p2.waitForFunction(() => document.querySelectorAll('#community-ready-list li').length === 2, null, { timeout: 5000 }).catch(() => {});
+    await p2.focus('#community-ready-list details[data-session="bo"] > summary');
+    await p2.unroute(READY);
+    await p2.route(READY, answer({ agents: [AVA] }));
+    await p2.evaluate(() => refreshCommunityReady());
+    await p2.waitForFunction(() => document.querySelectorAll('#community-ready-list li').length === 1, null, { timeout: 5000 }).catch(() => {});
+    const gone = await p2.evaluate(() => [document.querySelectorAll('#community-ready-list li').length, document.activeElement && document.activeElement.id]);
+    check('KEPT: when the focused agent is gone from a good read, focus goes to the heading', gone[0] === 1 && gone[1] === 'community-ready-head', JSON.stringify(gone));
     await p2.close();
 
     // TIME a time the page cannot read
@@ -299,7 +316,7 @@ async function run() {
     const fr1 = await readList(p9);
     check('FRESH: turning the switch on reads the list again and the row stops saying it is off', reads > before && fr1.rows.length === 1 && fr1.rows[0].summary === 'Nothing found in its way', JSON.stringify([reads - before, fr1.rows.map((x) => x.summary)]));
     // the other switch the rows name
-    const NOTREM = { ...AVA, owner: { summary: 'Not being reminded', lines: [{ text: '“Check on your agents” is off, so Kosmos is not reminding this agent to post. What it writes is still sent.' }] } };
+    const NOTREM = { ...AVA, owner: { summary: 'Not being reminded', lines: [{ text: '“Check on your agents” is off, so Kosmos is not reminding this agent to post.' }] } };
     let hbOn = true;
     let hbPuts = 0;
     await p9.unroute(READY);

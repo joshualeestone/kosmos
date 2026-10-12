@@ -33430,6 +33430,9 @@ function communityReadyPaint(rows) {
   const list = document.getElementById('community-ready-list');
   const empty = document.getElementById('community-ready-empty');
   const open = COMMUNITY_READY_OPEN;
+  /* A row's toggle event comes a moment after its click; take what the rows on the page say now, so a repaint that
+     lands in between does not paint from the older set. */
+  for (const live of list.querySelectorAll('details')) { if (live.open) open.add(live.dataset.session); else open.delete(live.dataset.session); }
   const focused = document.activeElement && document.activeElement.closest ? document.activeElement.closest('#community-ready-list details') : null;
   const focusSession = focused ? focused.dataset.session : null;
   list.replaceChildren();
@@ -33455,7 +33458,7 @@ function communityReadyPaint(rows) {
     d.open = open.has(r.session);
     d.addEventListener('toggle', () => { if (d.open) open.add(r.session); else open.delete(r.session); });
     const sum = document.createElement('summary');
-    /* The mark the Connections rows use (.con-chev), built here because the row is. */
+    /* The same chevron shape the Connections rows use (.con-chev), before the name here, built in script because the row is. */
     const SVG = 'http://www.w3.org/2000/svg';
     const chev = document.createElementNS(SVG, 'svg');
     chev.setAttribute('class', 'community-ready-chev');
@@ -33487,6 +33490,8 @@ function communityReadyPaint(rows) {
   if (!list.children.length) { list.hidden = true; empty.hidden = false; if (rows.length) empty.textContent = COULD_NOT; }
   /* An agent that is gone no longer has a row to keep open. */
   const here = new Set([...list.querySelectorAll('details')].map((x) => x.dataset.session));
+  /* The row the keyboard was on is gone (its agent was removed): the heading, as on a failed read. */
+  if (focusSession && !here.has(focusSession)) { const head = document.getElementById('community-ready-head'); if (head) { head.tabIndex = -1; head.focus({ preventScroll: true }); } }
   for (const s of [...open]) if (!here.has(s)) open.delete(s);
 }
 async function refreshCommunityReady() {
