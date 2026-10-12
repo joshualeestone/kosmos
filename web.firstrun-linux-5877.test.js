@@ -92,3 +92,29 @@ test('#5877 CONTROL: the reader does find Mac words in the steps a Linux board s
   assert.equal(macWord(' Sleep settings '), 'Sleep', 'CONTROL: a capitalised Mac word is caught');
   assert.equal(macWord(' Open a terminal there, over SSH '), null, 'CONTROL: "a terminal" on a server is not a Mac word');
 });
+
+/* Pane 9's scan list, painted for real: the "Could not scan Documents, Downloads, or Desktop" line is a macOS folder
+   permission result, and a Linux board (no such permission) reports those folders unavailable too, so it must not say it. */
+function paintScan(platform) {
+  const title = { textContent: '' };
+  const box = { innerHTML: '' };
+  const stubs = {
+    importAddsDropStuck: () => {}, frScanOffer: () => [], frImportOffer: () => [{ file: '/x/a.md' }],
+    scanRowsHtml: () => '', foundImportRowsHtml: () => '<div>row</div>', importNamesKept: () => null, importNamesRestore: () => {},
+    frActions: () => {}, frFinish: () => {}, showTab: () => {}, FR_SCAN: { bounded: { tccUnavailable: true } },
+  };
+  const doc = Object.assign(docFor(platform), { getElementById: (id) => (id === 'fr-fleet-title' ? title : id === 'fr-fleet' ? box : null) });
+  // eslint-disable-next-line no-new-func
+  new Function('document', ...Object.keys(stubs), LAYER + '\n' + page.lift(SCRIPT, 'frPaintScan') + '\nfrPaintScan();')(doc, ...Object.values(stubs));
+  return box.innerHTML;
+}
+
+test('#5877: pane 9 on a Linux board does not say it could not scan Documents, Downloads or Desktop', () => {
+  assert.doesNotMatch(paintScan('linux'), /Documents, Downloads, or Desktop/);
+  assert.match(paintScan('darwin'), /Could not scan Documents, Downloads, or Desktop this time/, 'CONTROL: a Mac still says it');
+});
+
+test('#5877: the Create panel\'s scan list holds the same line back on a Linux board', () => {
+  const fn = page.lift(SCRIPT, 'populateFoundImports');
+  assert.match(fn, /const tccOut = !onLinux\(\) && /, 'the Create panel says the macOS folder line on Linux');
+});

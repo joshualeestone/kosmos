@@ -57172,7 +57172,8 @@ async function populateFoundImports() {
   const paint = (body) => {
     if (gen !== FR_IMPORT_POP_GEN) return;   // a newer populateFoundImports superseded this one
     const items = body && Array.isArray(body.importable) ? body.importable : [];
-    const tccOut = !!(body && body.bounded && body.bounded.tccUnavailable);
+    // #5877: macOS folder permission only; a Linux board has none, so it never says this (#5882 is the engine half: those folders are never scanned on Linux).
+    const tccOut = !onLinux() && !!(body && body.bounded && body.bounded.tccUnavailable);
     if (!items.length && !tccOut) { wrap.hidden = true; wrap.innerHTML = ''; return; }
     const more = body && body.bounded && body.bounded.importable
       ? '<p class="fr-scanhint">There may be more than shown here.</p>' : '';
@@ -77522,7 +77523,8 @@ function frPaintScan() {
   // #3/#4 half (b): the protected folders (Documents/Downloads/Desktop) could not be scanned this
   // time (the app-identity hatch did not answer). Some agents were found elsewhere; say the rest
   // could not be reached rather than implying the found set is everything.
-  const tccOut = !!(FR_SCAN && FR_SCAN.bounded && FR_SCAN.bounded.tccUnavailable);
+  // #5877: macOS folder permission only; a Linux board has none, so it never says this (#5882 is the engine half: those folders are never scanned on Linux).
+  const tccOut = !onLinux() && !!(FR_SCAN && FR_SCAN.bounded && FR_SCAN.bounded.tccUnavailable);
   const kept = importNamesKept(box);   // kosmos#4962: a typed name survives a re-scan's repaint
   box.innerHTML = '<p>These are on this computer but not yet in Kosmos. Add the ones '
     + 'that are yours.' + (more ? ' There may be more than shown here.' : '') + '</p>'
