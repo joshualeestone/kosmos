@@ -304,6 +304,16 @@ const POST_FACT_WORDS = Object.freeze({
   unknown: 'was sent, and Kosmos has not heard whether it arrived',
   unread: 'has a send record Kosmos cannot read just now',
 });
+/* The same fact, short, for the closed row. `none` is an agent with no post; `unread` says nothing here because "could
+   not check everything" already does. */
+const POST_SUMMARY = Object.freeze({
+  none: 'Has not posted yet',
+  in: 'Newest post is in the community',
+  out: 'Newest post is not in the community',
+  waiting: 'Newest post has not gone to the community',
+  unknown: 'Newest post was sent and is not confirmed',
+  unread: null,
+});
 /* 'in' | 'out' | 'waiting' | 'unknown' | 'unread' for a row's lastPost object; 'unread' for a state with no place. */
 function postFact(lastPost) {
   if (!lastPost || lastPost === 'unreadable') return null;
@@ -335,18 +345,20 @@ function ownerView(row) {
   if (row.lastPost === 'unreadable') lines.push({ text: 'Kosmos could not read what it has sent just now.' });
   else if (row.lastPost === null) lines.push({ text: 'It has not posted yet.' });
   else lines.push({ text: 'Its newest post, “' + (String(row.lastPost.title || '').replace(/\s+/g, ' ').trim() || 'Untitled post') + '”, ' + POST_FACT_WORDS[posted] + '.' });
-  if (row.held > 0) lines.push({ text: row.held + (row.held === 1 ? ' item it wrote is' : ' items it wrote are') + ' waiting for you, under Waiting for you.' });
+  if (row.held > 0) lines.push({ text: row.held + (row.held === 1 ? ' item it wrote is' : ' items it wrote are') + ' under Waiting for you.' });
   else if (!Number.isInteger(row.held) && row.lastPost !== 'unreadable') lines.push({ text: 'Kosmos could not read whether anything it wrote is waiting for you just now.' });
   /* The summary is the closed row, so it may only say "nothing found" when everything this row reads was read. */
-  const unread = (row.reminders !== 'on' && row.reminders !== 'off') || (row.addressOk !== true && row.addressOk !== false) || posted === 'unread' || (row.block === 'present' && row.rereadOwed !== true && row.rereadOwed !== false)
+  const unread = row.lastPost === 'unreadable' || (row.reminders !== 'on' && row.reminders !== 'off') || (row.addressOk !== true && row.addressOk !== false) || posted === 'unread' || (row.block === 'present' && row.rereadOwed !== true && row.rereadOwed !== false)
     || (row.block === 'absent' && row.connected !== true && row.connected !== false) || row.block === 'unreadable' || row.account === 'unreadable' || row.reminder === 'unreadable' || row.lastPost === 'unreadable' || !Number.isInteger(row.held)
     || !own(OWNER_BLOCK, row.block) && row.block !== 'absent' || !own(OWNER_ACCOUNT, row.account);
   /* The closed row names EVERYTHING that applies, in one fixed order, and picks no cause among them: the computer's
-     own facts, the agent's own trouble, that something was not read, what waits for the person. */
+     own facts, the agent's own trouble, where its newest post is, that something was not read, what waits for the
+     person. It never says that nothing is wrong: that was a claim about everything this row does not read, and it was
+     false beside some line of the row in three reviews. Where the newest post is, is always there to say. */
   const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
-  const parts = [...board.map((b) => b.summary), ...ownerTroubles(row), posted === 'out' ? 'Its newest post is not in the community' : null, unread ? 'Kosmos could not check everything just now' : null,
-    row.held > 0 ? cap(row.held + ' waiting for you') : null].filter(Boolean);
-  const summary = parts.length ? parts.join('. ') : 'Nothing found in its way';
+  const parts = [...board.map((b) => b.summary), ...ownerTroubles(row), POST_SUMMARY[posted === null ? (row.lastPost === null ? 'none' : 'unread') : posted],
+    unread ? 'Kosmos could not check everything just now' : null, row.held > 0 ? cap(row.held + ' waiting for you') : null].filter(Boolean);
+  const summary = parts.join('. ');
   return { summary, lines };
 }
 
@@ -385,4 +397,4 @@ function rowsFor(roster, deps) {
   return out;
 }
 
-module.exports = { TURN_WORDS, HELD_WORDS, SIGNED_OUT_WORDS, UNCONFIRMED_WORDS, ACCOUNT_WORDS, REMINDER_NOTE, turnsFile, readTurns, noteTurn, blockState, rereadOwed, accountState, rowFor, linesFor, readyText, rowsFor, ownerView, OWNER_CAP_WORDS, OWNER_LIMIT_WORDS, POST_FACTS, POST_FACT_WORDS };
+module.exports = { TURN_WORDS, HELD_WORDS, SIGNED_OUT_WORDS, UNCONFIRMED_WORDS, ACCOUNT_WORDS, REMINDER_NOTE, turnsFile, readTurns, noteTurn, blockState, rereadOwed, accountState, rowFor, linesFor, readyText, rowsFor, ownerView, OWNER_CAP_WORDS, OWNER_LIMIT_WORDS, POST_FACTS, POST_FACT_WORDS, POST_SUMMARY };

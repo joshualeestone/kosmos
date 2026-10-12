@@ -16,7 +16,10 @@ it ("Turn Community off and on again above", when that switch is hidden in exact
 sentence and the next round found the next. So:
 - **A line states one thing Kosmos read.** Not what follows from it, not why, not what to do.
 - **The summary names everything that applies**, in one fixed order (the computer's own facts, the agent's own
-  trouble, that something was not read, what waits for the person), joined. It never picks one as the cause.
+  trouble, where its newest post is, that something was not read, what waits for the person), joined. It never picks
+  one as the cause, and (from review 12) it never says that nothing is wrong: "Nothing found in its way" was a claim
+  about everything the row does not read, and three reviews found a row it was false of. Every row can say where
+  the newest post is, so that is what a row with nothing else to say says.
 - **What the two switches do is said once**, in the sentence above the list, not on every row.
 A test walks every combination of switch, address, reminder setting, section, account and folder and refuses any
 line that carries a consequence, a cause or a remedy, with the two sentences reviews caught as its controls.
@@ -36,12 +39,10 @@ line can contradict them.
   that module's own list. How it got there is not worded again (the lists above the rows do that). A newest post that
   is not in the community is named in the closed row. (Until review 9 the row named the post and said nothing of
   whether it went out, so a post that never left read as "Nothing found in its way".)
-- **A summary says only what was looked at.** "Nothing found in its way", not "ready". What a row reads is listed
+- **The closed row makes no claim that an agent is ready or that nothing is in its way.** What a row reads is listed
   under Review 3. What it does NOT read: whether the community service answers; whether this computer is allowed to
-  run agents at all right now; the reminder pass's own limits (a few a day, an hourly limit on messages to agents, only
-  agents that have gone quiet). So an agent with "Nothing found in its way" may still go unreminded for a while, and
-  its reminder line is where that shows. When something a row does read could not be read, the summary says so and a
-  line says which.
+  run agents at all right now; the reminder pass's own limits. When something a row does read could not be read, the
+  summary says so and a line says which.
 - **Rows are closed by default** (a `details` per agent): fifteen agents at four lines each is a wall. A row the
   person opened stays open across a repaint.
 - **Every record that is one answer for the whole computer is read once for all rows**: the send records and the
@@ -235,3 +236,15 @@ replaced by tests of the new one. That is a change of behaviour, not a tidy-up: 
   (it is true, and picking which reasons count is the cause-picking the rule at the top forbids); no live region, as
   the neighbours; the check's phone arm goes through the Settings nav at 390 px, which no sibling check does, so a
   red there may be the nav and not this list.
+
+## Review 12 (2026-10-12, sonnet, the plain brief plus a line asking for the layout to be worked through)
+- **WARNING, taken by deleting the claim:** "Nothing found in its way" stood over a row whose newest post had not gone
+  out. It was the third round to find a state that phrase was false of (rounds 1, 9, 12), so the phrase is gone, not
+  qualified again. See the rule at the top. Seven tests that pinned whole summaries were rewritten to read the closed
+  row as the list it is; one walks every state and refuses any wording of "nothing is wrong".
+- **WARNING, taken:** the check's width floor was a number close to the style sheet's 16ch at today's font. It
+  measures 16ch in the row's own font.
+- **NITs, taken:** "waiting for you, under Waiting for you" said it twice; the guard regexes hold the em dash as an
+  escape, not as the character.
+- **NITs, not taken:** the refused-account line's "so nothing it writes is sent" (the exception listed under the
+  rule); no live region and `list-style: none`, as the neighbouring lists.

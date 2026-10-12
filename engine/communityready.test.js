@@ -332,7 +332,7 @@ test('the text says it did not ask the community and names the read that does; n
   agentFile('ann', withBlock());
   const t = text('ann');
   assert.match(t, /This does not ask the community itself\. To see whether it answers, run: kosmos community read/);
-  assert.doesNotMatch(t, /—|&mdash;|&#8212;|&#x2014;/);
+  assert.doesNotMatch(t, /\u2014|&mdash;|&#8212;|&#x2014;/);
 });
 
 test('readyText refuses an empty name; rowsFor gives one row per agent with its own data', () => {
@@ -379,13 +379,6 @@ test('review 3: a time no date can hold costs that record, not the agent\'s whol
 const view = (over) => ready.ownerView({ session: 'ann', switch: 'on', addressOk: true, block: 'present', connected: false, reminders: 'on', rereadOwed: false, account: 'yes', reminder: null, lastPost: null, held: 0, ...over });
 const said = (v) => v.lines.map((l) => l.text + ('at' in l ? '<' + l.at + '>' + l.after : '')).join('\n');
 
-test('slice 2: an agent with nothing in its way says so, and never claims more than was looked at', () => {
-  const v = view({});
-  assert.equal(v.summary, 'Nothing found in its way');
-  assert.ok(!('needsYou' in v), 'a field no page reads');
-  assert.match(said(v), /^The community section is in its instructions\.\nIt has a community account\.\nKosmos has no record of going to remind it\.\nIt has not posted yet\.$/);
-});
-
 test('slice 2: a reminder is a time the page writes, between the same words the agent is told', () => {
   const T = Date.parse('2026-10-12T15:04:00Z');
   let v = view({ reminder: { at: T, act: 'prompted', delivery: 'placed', reachedAt: T } });
@@ -411,7 +404,7 @@ test('slice 2: no line of the person\'s words speaks to the agent, and none has 
         const v = view({ block, account, reminder, held: 2, rereadOwed: true, connected: true, ...board });
         const t = said(v) + '\n' + v.summary;
         assert.doesNotMatch(t, /\byour person\b|\byou have\b|\byour instructions\b|\byour first\b|\byour newest\b|\byour name\b|\byours\b|\bremind you\b|\breached you\b/i, t);
-        assert.doesNotMatch(t, /—|&mdash;|&#8212;|&#x2014;|undefined|\[object/, t);
+        assert.doesNotMatch(t, /\u2014|&mdash;|&#8212;|&#x2014;|undefined|\[object/, t);
         assert.ok(v.lines.every((l) => typeof l.text === 'string' && l.text.length > 0 && l.text === l.text.replace(/\s+$/, '') + ('at' in l ? ' ' : '')), 'an empty line, or one with a stray space at its end: ' + t);
         }
       }
@@ -454,58 +447,8 @@ function fleetCard(name) {
   try { return status.snapshot().agents.map((c) => ({ ...c })).find((c) => c.sessionName === name); } finally { board.restore(); }
 }
 
-test('slice 2 review 5: whenever the summary says something could not be checked, an open row says what', () => {
-  const NAMES = /could not read|cannot read/;
-  for (const over of [{ block: 'unreadable' }, { account: 'unreadable' }, { reminder: 'unreadable' }, { lastPost: 'unreadable' }, { held: null }, { reminders: 'unreadable' }, { block: 'something-new' }, { account: 'something-new' }, { rereadOwed: null }, { rereadOwed: undefined }]) {
-    const v = view(over);
-    assert.equal(v.summary, 'Kosmos could not check everything just now', JSON.stringify(over));
-    assert.match(said(v), NAMES, 'nothing under the summary says what was not read: ' + JSON.stringify(over) + '\n' + said(v));
-  }
-  assert.doesNotMatch(said(view({})), NAMES, 'CONTROL: a row that was read says nothing of the kind');
-});
-
 /* Review 7 replaced the rules the five tests above this point used to pin (pick the first trouble, guess its cause, say
    what follows from it). The rule now: every line states one thing Kosmos read, and the summary names all that apply. */
-test('slice 2 review 7: the summary names everything that applies, in one fixed order, and picks no cause', () => {
-  for (const [over, summary] of [
-    [{}, 'Nothing found in its way'],
-    [{ block: 'absent' }, 'No community section in its instructions'],
-    [{ block: 'ambiguous' }, 'Its instructions hold the community section more than once'],
-    [{ block: 'no_file' }, 'It has no instructions file'],
-    [{ account: 'refused' }, 'The community has refused this agent'],
-    [{ account: 'name_held' }, 'Its community account is waiting on an earlier try'],
-    [{ held: 2 }, '2 waiting for you'],
-    [{ switch: 'off' }, 'The community is off'],
-    [{ switch: 'unreadable' }, 'Kosmos cannot read the community switch'],
-    [{ addressOk: false }, 'This computer’s community address is not one Kosmos sends to'],
-    [{ addressOk: null }, 'Kosmos could not check everything just now'],
-    [{ lastPost: { title: 't', at: '', state: 'refused' } }, 'Its newest post is not in the community'],
-    [{ lastPost: { title: 't', at: '', state: 'sent' } }, 'Nothing found in its way'],
-    [{ lastPost: { title: 't', at: '', state: 'queued' } }, 'Nothing found in its way'],
-    [{ lastPost: { title: 't', at: '', state: 'unreadable' } }, 'Kosmos could not check everything just now'],
-    [{ reminders: 'off' }, '“Check on your agents” is off'],
-    [{ reminders: 'unreadable' }, 'Kosmos could not check everything just now'],
-    [{ block: 'absent', account: 'refused', held: 3 }, 'No community section in its instructions. The community has refused this agent. 3 waiting for you'],
-    [{ switch: 'off', block: 'absent', connected: true }, 'The community is off. No community section in its instructions'],
-    [{ switch: 'off', block: 'absent', connected: false }, 'The community is off. No community section in its instructions'],
-    [{ switch: 'off', addressOk: false, reminders: 'off', held: 1 }, 'The community is off. This computer’s community address is not one Kosmos sends to. “Check on your agents” is off. 1 waiting for you'],
-    [{ addressOk: false, reminders: 'off' }, 'This computer’s community address is not one Kosmos sends to. “Check on your agents” is off'],
-    [{ block: 'unreadable', held: 2 }, 'Kosmos could not check everything just now. 2 waiting for you'],
-    [{ account: 'refused', reminder: 'unreadable' }, 'The community has refused this agent. Kosmos could not check everything just now'],
-  ]) assert.equal(view(over).summary, summary, JSON.stringify(over));
-  for (const over of [{ account: 'none' }, { account: 'being_made' }, { rereadOwed: true }, { reminder: { at: 1, act: 'not-reached' } }]) {
-    assert.equal(view(over).summary, 'Nothing found in its way', 'CONTROL: ' + JSON.stringify(over) + ' is not something in its way');
-  }
-});
-
-test('slice 2 review 7: "nothing found" is said only when everything the row reads was read', () => {
-  for (const over of [{ block: 'unreadable' }, { account: 'unreadable' }, { reminder: 'unreadable' }, { lastPost: 'unreadable' }, { held: null }, { block: 'something-new' }, { account: 'something-new' },
-    { reminders: 'unreadable' }, { reminders: undefined }, { rereadOwed: null },
-    { block: 'unreadable', account: 'unreadable', reminder: 'unreadable', lastPost: 'unreadable', held: null }]) {
-    assert.equal(view(over).summary, 'Kosmos could not check everything just now', JSON.stringify(over));
-  }
-});
-
 test('slice 2 review 7: each fact about the whole computer is one line that says only that fact', () => {
   const first = (over, n = 1) => view(over).lines.slice(0, n).map((l) => l.text);
   assert.deepEqual(first({ switch: 'off' }), ['The community is off on this computer.']);
@@ -540,48 +483,6 @@ test('slice 2 review 7: the section line says what is in the file and what Kosmo
   assert.match(said(view({ rereadOwed: true })), /in its instructions\. It changed while the agent was running, and Kosmos still owes it a line asking it to read the section again\./);
   assert.match(said(view({ rereadOwed: null })), /in its instructions\. Kosmos could not read whether the agent has been asked to read a newer version of it\./);
   assert.doesNotMatch(said(view({ block: 'ambiguous', rereadOwed: true })), /still owes/, 'a re-read was promised for a section Kosmos leaves alone');
-});
-
-test('slice 2 review 7: the reminder switch through the real setting file, in the row and in what the agent is told', () => {
-  agentFile('ann', withBlock());
-  assert.equal(ready.rowFor('ann').reminders, 'on', 'no setting file reads as on (heartbeat-setting\'s default)');
-  const hs = require('./heartbeat-setting');
-  hs.setOn(false);
-  assert.equal(hs.read().on, false, 'fixture: could not switch the Prompter off');
-  assert.equal(ready.rowFor('ann').reminders, 'off');
-  const t = text('ann');
-  assert.match(t, /\n  Reminders are switched off on this computer\.\n/);
-  assert.doesNotMatch(t, /You can still post/, 'the agent was told it can post, whatever the community switch says');
-  assert.equal(ready.rowsFor([fleetCard('ann')])[0].owner.summary, '“Check on your agents” is off');
-  fs.writeFileSync(hs.FILE, '{ not json');
-  assert.equal(ready.rowFor('ann').reminders, 'unreadable');
-  assert.doesNotMatch(text('ann'), /Reminders are switched off/, 'an unreadable setting was told to the agent as off');
-});
-
-test('slice 2 review 9: the newest post gets one fact, whether it is in the community, and every state has a place', () => {
-  const st = require('./communitystatus');
-  const placed = Object.values(ready.POST_FACTS).flat();
-  assert.deepEqual([...placed].sort(), Object.keys(st.POST_WORDS).sort(), 'a state communitystatus can give a post has no place (or a place names a state that is gone)');
-  assert.equal(new Set(placed).size, placed.length, 'a state is placed twice');
-  assert.deepEqual(Object.keys(ready.POST_FACTS).sort(), Object.keys(ready.POST_FACT_WORDS).sort());
-  const line = (state) => view({ lastPost: { title: 'Weekly "ops"\n  two', at: '', state } }).lines[3].text;
-  assert.equal(line('sent'), 'Its newest post, “Weekly "ops" two”, is in the community.');
-  assert.equal(line('before_on'), 'Its newest post, “Weekly "ops" two”, is not in the community.');
-  assert.equal(line('not_sent'), 'Its newest post, “Weekly "ops" two”, is not in the community.');
-  assert.equal(line('held'), 'Its newest post, “Weekly "ops" two”, has not gone to the community.');
-  assert.equal(line('unconfirmed'), 'Its newest post, “Weekly "ops" two”, was sent, and Kosmos has not heard whether it arrived.');
-  assert.equal(line('unreadable'), 'Its newest post, “Weekly "ops" two”, has a send record Kosmos cannot read just now.');
-  assert.equal(line('a-state-from-the-future'), line('unreadable'), 'a state with no place was given a fact');
-  assert.equal(view({ lastPost: { title: '  ', at: '', state: 'sent' } }).lines[3].text, 'Its newest post, “Untitled post”, is in the community.');
-  // review 9: a post that did not go out is never under "Nothing found in its way".
-  for (const state of ready.POST_FACTS.out) assert.equal(view({ lastPost: { title: 't', at: '', state } }).summary, 'Its newest post is not in the community', state);
-  for (const state of [...ready.POST_FACTS.in, ...ready.POST_FACTS.waiting, ...ready.POST_FACTS.unknown]) assert.equal(view({ lastPost: { title: 't', at: '', state } }).summary, 'Nothing found in its way', 'CONTROL: ' + state);
-  // held items still point up the page, once
-  const held = said(view({ lastPost: { title: 'Held one', at: '', state: 'held' }, held: 1 }));
-  assert.ok(held.includes('Its newest post, “Held one”, has not gone to the community.\n1 item it wrote is waiting for you, under Waiting for you.'), held);
-  assert.match(said(view({ held: 4 })), /4 items it wrote are waiting for you/);
-  assert.match(said(view({ lastPost: 'unreadable' })), /Kosmos could not read what it has sent just now\./);
-  assert.doesNotMatch(said(view({ lastPost: 'unreadable' })), /has not posted yet/);
 });
 
 test('slice 2 review 9: an address that could not be read is not "not one Kosmos sends to"', () => {
@@ -648,14 +549,120 @@ test('slice 2 review 10: each state\'s place is TRUE of it, not only present: no
   for (const state of ready.POST_FACTS.waiting) assert.match(st.POST_WORDS[state], /^(queued|waiting|held)/, state);
 });
 
-test('slice 2 review 10: a row that cannot be worded costs that row, not the list', () => {
+
+/* Review 12 took the last claim out of the closed row: it never says nothing is wrong. It is a list of parts joined by
+   ". ", always including where the newest post is. These tests read it as that list. */
+const parts = (over) => view(over).summary.split('. ');
+const POSTED_IN = { lastPost: { title: 't', at: '', state: 'sent' } };
+
+test('slice 2 review 12: the closed row never says nothing is wrong, in any state', () => {
+  for (const sw of ['on', 'off', 'unreadable']) for (const reminders of ['on', 'off', 'unreadable']) for (const block of ['present', 'absent', 'unreadable'])
+    for (const account of ['yes', 'none', 'refused', 'unreadable']) for (const lastPost of [null, 'unreadable', ...Object.values(ready.POST_FACTS).flat().map((state) => ({ title: 't', at: '', state }))]) for (const held of [0, 2, null]) {
+      const v = view({ switch: sw, reminders, block, account, lastPost, held });
+      assert.doesNotMatch(v.summary, /nothing found|in its way|all (is )?(clear|fine|good)|\bready\b|no problems?/i, v.summary);
+      assert.ok(v.summary.length > 0 && !/\. $|^\. |\.\. /.test(v.summary), 'an empty or badly joined summary: ' + JSON.stringify(v.summary));
+    }
+});
+
+test('slice 2 review 12: the closed row always says where the newest post is, or that there is none', () => {
+  assert.deepEqual(parts({}), ['Has not posted yet']);
+  assert.deepEqual(parts(POSTED_IN), ['Newest post is in the community']);
+  for (const [fact, states] of Object.entries(ready.POST_FACTS)) for (const state of states) {
+    const got = parts({ lastPost: { title: 't', at: '', state } });
+    if (fact === 'unread') assert.deepEqual(got, ['Kosmos could not check everything just now'], state);
+    else assert.deepEqual(got, [ready.POST_SUMMARY[fact]], state);
+  }
+  assert.deepEqual(parts({ lastPost: 'unreadable' }), ['Kosmos could not check everything just now']);
+  // review 12's own case: a post that has not gone out is never under an all-clear.
+  assert.deepEqual(parts({ lastPost: { title: 't', at: '', state: 'capped' } }), ['Newest post has not gone to the community']);
+  assert.deepEqual(parts({ lastPost: { title: 't', at: '', state: 'unconfirmed' } }), ['Newest post was sent and is not confirmed']);
+  assert.deepEqual(Object.keys(ready.POST_SUMMARY).sort(), [...Object.keys(ready.POST_FACTS), 'none'].sort());
+});
+
+test('slice 2 review 12: everything that applies is in the closed row, in one fixed order', () => {
+  for (const [over, want] of [
+    [{ block: 'absent' }, ['No community section in its instructions', 'Has not posted yet']],
+    [{ block: 'ambiguous' }, ['Its instructions hold the community section more than once', 'Has not posted yet']],
+    [{ block: 'no_file' }, ['It has no instructions file', 'Has not posted yet']],
+    [{ account: 'refused' }, ['The community has refused this agent', 'Has not posted yet']],
+    [{ account: 'name_held' }, ['Its community account is waiting on an earlier try', 'Has not posted yet']],
+    [{ held: 2 }, ['Has not posted yet', '2 waiting for you']],
+    [{ switch: 'off' }, ['The community is off', 'Has not posted yet']],
+    [{ switch: 'unreadable' }, ['Kosmos cannot read the community switch', 'Has not posted yet']],
+    [{ addressOk: false }, ['This computer\u2019s community address is not one Kosmos sends to', 'Has not posted yet']],
+    [{ addressOk: null }, ['Has not posted yet', 'Kosmos could not check everything just now']],
+    [{ reminders: 'off' }, ['\u201cCheck on your agents\u201d is off', 'Has not posted yet']],
+    [{ reminders: 'unreadable' }, ['Has not posted yet', 'Kosmos could not check everything just now']],
+    [{ block: 'absent', account: 'refused', held: 3 }, ['No community section in its instructions', 'The community has refused this agent', 'Has not posted yet', '3 waiting for you']],
+    [{ switch: 'off', block: 'absent', connected: true }, ['The community is off', 'No community section in its instructions', 'Has not posted yet']],
+    [{ switch: 'off', block: 'absent', connected: false }, ['The community is off', 'No community section in its instructions', 'Has not posted yet']],
+    [{ switch: 'off', addressOk: false, reminders: 'off', held: 1, ...POSTED_IN }, ['The community is off', 'This computer\u2019s community address is not one Kosmos sends to', '\u201cCheck on your agents\u201d is off', 'Newest post is in the community', '1 waiting for you']],
+    [{ block: 'unreadable', held: 2 }, ['Has not posted yet', 'Kosmos could not check everything just now', '2 waiting for you']],
+    [{ account: 'refused', reminder: 'unreadable', lastPost: { title: 't', at: '', state: 'refused' } }, ['The community has refused this agent', 'Newest post is not in the community', 'Kosmos could not check everything just now']],
+  ]) assert.deepEqual(parts(over), want, JSON.stringify(over));
+  for (const over of [{ account: 'none' }, { account: 'being_made' }, { rereadOwed: true }, { reminder: { at: 1, act: 'not-reached' } }]) {
+    assert.deepEqual(parts(over), ['Has not posted yet'], 'CONTROL: ' + JSON.stringify(over) + ' adds nothing to the closed row');
+  }
+});
+
+test('slice 2 review 12: when something was not read, the closed row says so and an open row says what', () => {
+  const NAMES = /could not read|cannot read/;
+  for (const over of [{ block: 'unreadable' }, { account: 'unreadable' }, { reminder: 'unreadable' }, { lastPost: 'unreadable' }, { held: null }, { reminders: 'unreadable' }, { reminders: undefined },
+    { block: 'something-new' }, { account: 'something-new' }, { rereadOwed: null }, { rereadOwed: undefined }, { addressOk: null }, { lastPost: { title: 't', at: '', state: 'unreadable' } },
+    { block: 'unreadable', account: 'unreadable', reminder: 'unreadable', lastPost: 'unreadable', held: null }]) {
+    const v = view(over);
+    assert.ok(v.summary.split('. ').includes('Kosmos could not check everything just now'), JSON.stringify(over) + ' -> ' + v.summary);
+    assert.match(said(v), NAMES, 'nothing under the summary says what was not read: ' + JSON.stringify(over) + '\n' + said(v));
+  }
+  assert.ok(!view({}).summary.includes('could not check'), 'CONTROL: a row that was read does not say so');
+  assert.doesNotMatch(said(view({})), NAMES, 'CONTROL: and no line of it does');
+});
+
+test('slice 2 review 12: the newest post\'s line says one fact, and every state has a place', () => {
+  const st = require('./communitystatus');
+  const placed = Object.values(ready.POST_FACTS).flat();
+  assert.deepEqual([...placed].sort(), Object.keys(st.POST_WORDS).sort(), 'a state communitystatus can give a post has no place (or a place names a state that is gone)');
+  assert.equal(new Set(placed).size, placed.length, 'a state is placed twice');
+  assert.deepEqual(Object.keys(ready.POST_FACTS).sort(), Object.keys(ready.POST_FACT_WORDS).sort());
+  const line = (state) => view({ lastPost: { title: 'Weekly "ops"\n  two', at: '', state } }).lines[3].text;
+  assert.equal(line('sent'), 'Its newest post, \u201cWeekly "ops" two\u201d, is in the community.');
+  assert.equal(line('before_on'), 'Its newest post, \u201cWeekly "ops" two\u201d, is not in the community.');
+  assert.equal(line('held'), 'Its newest post, \u201cWeekly "ops" two\u201d, has not gone to the community.');
+  assert.equal(line('unconfirmed'), 'Its newest post, \u201cWeekly "ops" two\u201d, was sent, and Kosmos has not heard whether it arrived.');
+  assert.equal(line('unreadable'), 'Its newest post, \u201cWeekly "ops" two\u201d, has a send record Kosmos cannot read just now.');
+  assert.equal(line('a-state-from-the-future'), line('unreadable'), 'a state with no place was given a fact');
+  assert.equal(view({ lastPost: { title: '  ', at: '', state: 'sent' } }).lines[3].text, 'Its newest post, \u201cUntitled post\u201d, is in the community.');
+  const held = said(view({ lastPost: { title: 'Held one', at: '', state: 'held' }, held: 1 }));
+  assert.ok(held.includes('Its newest post, \u201cHeld one\u201d, has not gone to the community.\n1 item it wrote is under Waiting for you.'), held);
+  assert.match(said(view({ held: 4 })), /4 items it wrote are under Waiting for you\./);
+  assert.match(said(view({ lastPost: 'unreadable' })), /Kosmos could not read what it has sent just now\./);
+  assert.doesNotMatch(said(view({ lastPost: 'unreadable' })), /has not posted yet/);
+  assert.equal(view({}).lines[3].text, 'It has not posted yet.');
+});
+
+test('slice 2 review 12: the reminder switch through the real setting file, in the row and in what the agent is told', () => {
+  agentFile('ann', withBlock());
+  assert.equal(ready.rowFor('ann').reminders, 'on', 'no setting file reads as on (heartbeat-setting\'s default)');
+  const hs = require('./heartbeat-setting');
+  hs.setOn(false);
+  assert.equal(hs.read().on, false, 'fixture: could not switch the Prompter off');
+  assert.equal(ready.rowFor('ann').reminders, 'off');
+  const t = text('ann');
+  assert.match(t, /\n  Reminders are switched off on this computer\.\n/);
+  assert.doesNotMatch(t, /You can still post/, 'the agent was told it can post, whatever the community switch says');
+  assert.deepEqual(ready.rowsFor([fleetCard('ann')])[0].owner.summary.split('. '), ['\u201cCheck on your agents\u201d is off', 'Has not posted yet']);
+  fs.writeFileSync(hs.FILE, '{ not json');
+  assert.equal(ready.rowFor('ann').reminders, 'unreadable');
+  assert.doesNotMatch(text('ann'), /Reminders are switched off/, 'an unreadable setting was told to the agent as off');
+});
+
+test('slice 2 review 12: a row that cannot be worded costs that row, not the list', () => {
   const cards = ['ann', 'bea'].map((n) => fleetCard(n));
   for (const n of ['ann', 'bea']) agentFile(n, withBlock());
-  // A reminder record of a kind no words exist for, handed straight in (readTurns would never let it through).
   const rows = ready.rowsFor(cards, { turns: () => ({ ann: { at: 5, act: 'something-new' }, bea: { at: 5, act: 'prompted', delivery: 'placed' } }) });
   assert.equal(rows.length, 2);
-  assert.match(rows[0].owner.lines.map((l) => l.text + (l.after || '')).join(' '), /Kosmos has no words for what happened|could not put this agent’s row together/);
-  assert.equal(rows[1].owner.summary, 'Nothing found in its way', 'the other agent\'s row was lost with it');
+  assert.match(rows[0].owner.lines.map((l) => l.text + (l.after || '')).join(' '), /Kosmos has no words for what happened|could not put this agent\u2019s row together/);
+  assert.equal(rows[1].owner.summary, 'Has not posted yet', 'the other agent\'s row was lost with it');
   const broken = Object.defineProperty({ session: 'x', switch: 'on', addressOk: true, block: 'present', reminders: 'on', rereadOwed: false, account: 'yes', reminder: null, held: 0 }, 'lastPost', { get() { throw new Error('boom'); }, enumerable: true });
   assert.throws(() => ready.ownerView(broken), 'fixture: this row should not be wordable');
 });

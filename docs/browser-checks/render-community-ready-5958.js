@@ -80,6 +80,8 @@ function readList(pg) {
         read: sum ? sum.textContent : null,
         summary: sum && sum.querySelector('.community-ready-words') ? sum.querySelector('.community-ready-words').textContent : null,
         wordsWidth: sum && sum.querySelector('.community-ready-words') ? Math.round(sum.querySelector('.community-ready-words').getBoundingClientRect().width) : 0,
+        /* The width the style sheet asks for the words (16ch), measured in their own font, so the arm follows the font. */
+        wordsBasis: (() => { const w = sum && sum.querySelector('.community-ready-words'); if (!w) return 0; const probe = document.createElement('span'); probe.style.cssText = 'position:absolute;visibility:hidden;width:16ch;font:inherit'; w.append(probe); const px = probe.getBoundingClientRect().width; probe.remove(); return Math.round(px); })(),
         markBesideName: (() => { const m = sum && sum.querySelector('svg'); const b = sum && sum.querySelector('b'); if (!m || !b) return null; const mb = m.getBoundingClientRect(); const bb = b.getBoundingClientRect(); return mb.bottom > bb.top && mb.top < bb.bottom; })(),
         lines: d ? [...d.querySelectorAll(':scope > p')].map((p) => p.textContent) : [],
         times: d ? [...d.querySelectorAll('time')].map((t) => ({ dt: t.getAttribute('datetime'), text: t.textContent })) : [],
@@ -120,7 +122,7 @@ const T1 = Date.UTC(YEAR, 5, 12, 15, 4);   // mid-year, so no zone moves it into
 const T0 = Date.UTC(YEAR, 5, 12, 10, 0);
 const T_OLD = Date.UTC(YEAR - 2, 5, 3, 9, 30);
 const agent = (session, name, owner) => ({ session, name, switch: 'on', addressOk: true, block: 'present', connected: false, rereadOwed: false, account: 'yes', reminder: null, lastPost: null, held: 0, owner });
-const AVA = agent('ava', 'Ava', { summary: 'Nothing found in its way', lines: [
+const AVA = agent('ava', 'Ava', { summary: 'Newest post is in the community', lines: [
   { text: 'The community section is in its instructions.' },
   { text: 'It has a community account.' },
   { text: 'Kosmos last went to remind it on ', at: T1, after: '. Delivered.' },
@@ -138,7 +140,7 @@ const CY = agent('cy', 'Cy', { summary: '2 waiting for you', lines: [
   { text: 'Kosmos last went to remind it on ', at: T1, after: '. Not sent: this board had reached its hourly limit for messages to agents.' },
   { text: 'The last reminder that reached it was on ', at: T0, after: '.' },
   { text: 'It has not posted yet.' },
-  { text: '2 items it wrote are waiting for you, under Waiting for you.' },
+  { text: '2 items it wrote are under Waiting for you.' },
 ] });
 
 async function run() {
@@ -155,8 +157,8 @@ async function run() {
     check('ROWS: the list exists and its heading shows under Automation', r.found && r.headShown, JSON.stringify({ found: r.found, headShown: r.headShown }));
     check('ROWS: the heading sits below the posts-and-comments heading', r.belowMine, JSON.stringify(r.belowMine));
     check('ROWS: three rows, each with its name and summary, all closed', r.listHidden === false && r.emptyHidden === true && r.rows.length === 3
-      && JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])) === JSON.stringify([['ava', 'Ava', 'Nothing found in its way', false], ['bo', 'Bo', 'No community section in its instructions', false], ['cy', 'Cy', '2 waiting for you', false]]), JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])));
-    check('ROWS: the row\'s text has a space between the name and its words', r.rows[0].read === 'Ava Nothing found in its way', JSON.stringify(r.rows[0].read));
+      && JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])) === JSON.stringify([['ava', 'Ava', 'Newest post is in the community', false], ['bo', 'Bo', 'No community section in its instructions', false], ['cy', 'Cy', '2 waiting for you', false]]), JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])));
+    check('ROWS: the row\'s text has a space between the name and its words', r.rows[0].read === 'Ava Newest post is in the community', JSON.stringify(r.rows[0].read));
     check('ROWS: the note says a reminder only asks and the agent decides', /^Kosmos may remind an agent that has gone quiet to post, and only while the community and .Check on your agents. are both on\./.test(r.note) && /A reminder only asks: whether to post, and what to say, is the agent[’']s own decision\./.test(r.note), r.note);
 
     // OPEN
@@ -180,11 +182,11 @@ async function run() {
 
     // KEPT: the second answer differs, so a repaint that never happened cannot pass
     await p1.unroute(READY);
-    await p1.route(READY, answer({ agents: [AVA, BO, { ...CY, owner: { ...CY.owner, summary: 'Nothing found in its way' } }] }));
+    await p1.route(READY, answer({ agents: [AVA, BO, { ...CY, owner: { ...CY.owner, summary: 'Newest post is in the community' } }] }));
     await p1.click('#s-nav button[data-go="automation"]');
-    await p1.waitForFunction(() => { const d = document.querySelector('#community-ready-list details[data-session="cy"] summary .community-ready-words'); return d && d.textContent === 'Nothing found in its way'; }, null, { timeout: 5000 }).catch(() => {});
+    await p1.waitForFunction(() => { const d = document.querySelector('#community-ready-list details[data-session="cy"] summary .community-ready-words'); return d && d.textContent === 'Newest post is in the community'; }, null, { timeout: 5000 }).catch(() => {});
     const k = await readList(p1);
-    check('KEPT CONTROL: the list was painted again from the new answer', k.rows.length === 3 && k.rows[2].summary === 'Nothing found in its way', JSON.stringify(k.rows.map((x) => x.summary)));
+    check('KEPT CONTROL: the list was painted again from the new answer', k.rows.length === 3 && k.rows[2].summary === 'Newest post is in the community', JSON.stringify(k.rows.map((x) => x.summary)));
     check('KEPT: the opened row is still open, and the others still closed', k.rows.length === 3 && k.rows[2].open === true && k.rows[0].open === false && k.rows[1].open === false, JSON.stringify(k.rows.map((x) => x.open)));
     // a read that fails clears the list; the next good one must still know which row was open
     await p1.unroute(READY);
@@ -246,7 +248,7 @@ async function run() {
 
     // TIME a time the page cannot read
     const p3 = await page();
-    await p3.route(READY, answer({ agents: [agent('dee', 'Dee', { summary: 'Nothing found in its way', lines: [{ text: 'Kosmos last went to remind it on ', at: 1e20, after: '. Delivered.' }, { text: 'It went again on ', at: 'soon', after: '.' }, { text: 7 }, null, { text: 'Last line.' }, { text: 'Long ago, on ', at: T_OLD, after: '.' }, { text: 'Its time was lost on ', after: '.' }] })] }));
+    await p3.route(READY, answer({ agents: [agent('dee', 'Dee', { summary: 'Newest post is in the community', lines: [{ text: 'Kosmos last went to remind it on ', at: 1e20, after: '. Delivered.' }, { text: 'It went again on ', at: 'soon', after: '.' }, { text: 7 }, null, { text: 'Last line.' }, { text: 'Long ago, on ', at: T_OLD, after: '.' }, { text: 'Its time was lost on ', after: '.' }] })] }));
     await openAutomation(p3);
     const bt = await readList(p3);
     check('TIME: a time the page cannot read says so, with no datetime and never "Invalid Date"', bt.rows.length === 1 && bt.rows[0].lines.length === 5
@@ -319,9 +321,9 @@ async function run() {
     const toggle = await p9.evaluate(() => { const t = document.getElementById('community-toggle'); return { shown: Boolean(t) && !t.hidden, on: t ? t.getAttribute('aria-checked') : null }; });
     check('FRESH CONTROL: the community switch is there to press, and reads off', toggle.shown && toggle.on === 'false', JSON.stringify(toggle));
     await p9.click('#community-toggle');
-    await p9.waitForFunction(() => { const d = document.querySelector('#community-ready-list summary .community-ready-words'); return d && d.textContent === 'Nothing found in its way'; }, null, { timeout: 5000 }).catch(() => {});
+    await p9.waitForFunction(() => { const d = document.querySelector('#community-ready-list summary .community-ready-words'); return d && d.textContent === 'Newest post is in the community'; }, null, { timeout: 5000 }).catch(() => {});
     const fr1 = await readList(p9);
-    check('FRESH: turning the switch on reads the list again and the row stops saying it is off', reads > before && fr1.rows.length === 1 && fr1.rows[0].summary === 'Nothing found in its way', JSON.stringify([reads - before, fr1.rows.map((x) => x.summary)]));
+    check('FRESH: turning the switch on reads the list again and the row stops saying it is off', reads > before && fr1.rows.length === 1 && fr1.rows[0].summary === 'Newest post is in the community', JSON.stringify([reads - before, fr1.rows.map((x) => x.summary)]));
     // the other switch the rows name
     const NOTREM = { ...AVA, owner: { summary: '“Check on your agents” is off', lines: [{ text: '“Check on your agents” is off on this computer.' }] } };
     let hbOn = true;
@@ -382,7 +384,7 @@ async function run() {
     await p8.evaluate(() => document.getElementById('community-ready-head').scrollIntoView());
     const ph = await readList(p8);
     check('PHONE CONTROL: the rows are painted at 390 px', ph.viewport === 390 && ph.rows.length === 3 && ph.rows[0].lines.length === 2, JSON.stringify([ph.viewport, ph.rows.length]));
-    check('PHONE: beside a name of any length the words keep a readable width (a line of their own when the name leaves too little)', ph.rows.every((x) => x.wordsWidth >= 120), JSON.stringify(ph.rows.map((x) => [x.name.length, x.wordsWidth])));
+    check('PHONE: beside a name of any length the words keep a readable width (a line of their own when the name leaves too little)', ph.rows.every((x) => x.wordsBasis > 40 && x.wordsWidth >= x.wordsBasis - 2), JSON.stringify(ph.rows.map((x) => [x.name.length, x.wordsWidth, x.wordsBasis])));
     check('PHONE: the mark stays on the name\'s line, never alone above it', ph.rows.every((x) => x.markBesideName === true), JSON.stringify(ph.rows.map((x) => x.markBesideName)));
     check('PHONE: no row is wider than the screen or scrolls sideways', ph.rows.every((x) => x.right <= ph.viewport && !x.scrollWide) && !ph.pageWide, JSON.stringify(ph.rows.map((x) => [x.right, x.scrollWide]).concat([ph.pageWide])));
     check('PHONE: each summary is at least 44 px tall', ph.rows.every((x) => x.sumHeight >= 44), JSON.stringify(ph.rows.map((x) => x.sumHeight)));
