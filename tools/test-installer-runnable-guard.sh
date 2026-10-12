@@ -34,47 +34,42 @@ rm -rf "$_td"
 #      [ -x P ]     (P = "quoted" or an unquoted /path)  needs  [ -f P ]
 #      [ ! -x P ]   (the negated form: a +x dir reads as executable there too)
 #                                                        needs  [ ! -f P ]
-#    or, for a test of whether a FOLDER can be entered (#5913), [ -d P ] gating it (see dgated).
+#    or, for a test of whether a FOLDER can be entered (#5913), the one exact shape dgated accepts.
 #    Any missing guard is a directory-accepting site. Red if any is added.
+#    NOT covered (a line scan of the bracket form only): `test -x P`, `[ P1 -a -x P ]`, `[  -x P ]` with two
+#    spaces, and an -f excuse placed behind || or in a comment (#5986).
 _scan='
-# #5913: a SEARCH test on a folder (can this account enter it) is not the class, but only when a folder test
-# gates THIS -x: a [ -d P ] earlier on the line that STARTS a command, and between the two nothing but " && "
-# joining bracket tests on the same P (for example [ ! -L P ] or [ -r P ]). "Starts a command" means the text
-# before it is empty (and the last code line before does not continue into it with \, ||, && or |), or ends in
-# an unescaped ; { ( or in then, do, else, if, elif, while or until as the FIRST word after the line start or
-# a ; (so "echo then [ -d P ]" is not a start, review 9). So a negation (! [ -d P ]) or an earlier list (a || [ -d P ], which
-# the shell groups as (a || [ -d P ]) && [ -x P ], review 8) is not a gate. Then a path that is not a folder
-# never reaches the -x. Anything else (||, ;, a pipe, &, a string, a subshell, another path) is not read as a
-# gate: a folder test written another way is flagged, which is the safe direction (reviews 7, 8).
-function dgated(line, p, xi,    pre, d, from, k, di, t, tail, before) {
-  pre = substr(line, 1, xi - 1); d = "[ -d " p " ]"; tail = p " ]"; from = 1
-  while ((k = index(substr(pre, from), d)) > 0) {
-    di = from + k - 1; from = di + 1
-    before = substr(line, 1, di - 1); sub(/[ \t]+$/, "", before)
-    if (before == "") { if (contprev) continue }
-    else if (before !~ /(^|[^\\])[;{(]$/ && before !~ /(^|[^\\];)[ \t]*(then|do|else|if|elif|while|until)$/) continue
-    t = substr(pre, di + length(d))
-    while (t != " && ") {
-      if (substr(t, 1, 6) != " && [ ") break
-      t = substr(t, 7)
-      if (substr(t, 1, 2) == "! ") t = substr(t, 3)
-      if (t !~ /^-[a-zA-Z] /) break
-      t = substr(t, 4)
-      if (substr(t, 1, length(tail)) != tail) break
-      t = substr(t, length(tail) + 1)
-    }
-    if (t == " && ") return 1
+# #5913: a SEARCH test on a folder (can this account enter it) is not the class. Exactly one shape is excused,
+# the one the installer uses (setup.sh, sealed_icon_other_users): a whole command line, trailing comment aside,
+#   [ -d P ] && [ -x P ] || return 0          or with more bracket tests on the same P between them, as in
+#   [ -d P ] && [ ! -L P ] && [ -r P ] && [ -x P ] || return 0
+# and the last code line before it does not continue into it (a trailing \, ||, && or |, comments ignored). A path
+# that is not a folder fails the -d and returns before the -x. Any other way of writing a folder test is flagged
+# (the safe direction); five review rounds of a general rule kept finding shell grammar a line scan cannot judge.
+function dgated(line, p,    t, d, tail, rest, neg, flag) {
+  if (contprev) return 0
+  t = line; sub(/^[ \t]+/, "", t); sub(/[ \t]+#.*$/, "", t); sub(/[ \t]+$/, "", t)
+  d = "[ -d " p " ]"; tail = p " ]"
+  if (substr(t, 1, length(d)) != d) return 0
+  t = substr(t, length(d) + 1)
+  while (substr(t, 1, 6) == " && [ ") {
+    rest = substr(t, 7); neg = 0
+    if (substr(rest, 1, 2) == "! ") { rest = substr(rest, 3); neg = 1 }
+    if (rest !~ /^-[a-zA-Z] /) return 0
+    flag = substr(rest, 2, 1); rest = substr(rest, 4)
+    if (substr(rest, 1, length(tail)) != tail) return 0
+    t = substr(rest, length(tail) + 1)
+    if (flag == "x") return (!neg && t == " || return 0")   # any -x ends it; only an un-negated last one passes
   }
   return 0
 }
 FNR == 1 { contprev = 0 }
 {
   line = $0
-  s = line; off = 0
+  s = line
   while (match(s, /\[ -x ("[^"]+"|[^] ]+) \]/)) {
     p = substr(s, RSTART, RLENGTH); sub(/^\[ -x /, "", p); sub(/ \]$/, "", p)
-    xi = off + RSTART; off = off + RSTART + RLENGTH - 1
-    if (index(line, "[ -f " p " ]") == 0 && !dgated(line, p, xi))
+    if (index(line, "[ -f " p " ]") == 0 && !dgated(line, p))
       printf "%s:%d: bare [ -x %s ] (a directory passes)\n", FILENAME, FNR, p
     s = substr(s, RSTART + RLENGTH)
   }
@@ -85,9 +80,10 @@ FNR == 1 { contprev = 0 }
       printf "%s:%d: bare [ ! -x %s ] (a directory reads as executable)\n", FILENAME, FNR, p
     t = substr(t, RSTART + RLENGTH)
   }
-  # Does this line continue into the next one (a trailing \, ||, && or |)? Then the next line does not start a command.
-  # A blank or comment-only line keeps the state of the line before it, as the shell skips it (review 9).
-  if (line !~ /^[ \t]*(#.*)?$/) contprev = (line ~ /(\\|&&|\|)[ \t]*$/)
+  # Does this line continue into the next one? Judged on the code without a trailing comment ("a || # why" continues,
+  # review 10). A blank or comment-only line keeps the state of the line before it, as the shell skips it (review 9).
+  code = line; sub(/(^|[ \t]+)#.*$/, "", code)
+  if (code !~ /^[ \t]*$/) contprev = (code ~ /(\\|&&|\|)[ \t]*$/)
 }'
 bare="$(cd "$HERE" && awk "$_scan" $FILES 2>/dev/null)"
 if [ -z "$bare" ]; then
@@ -110,20 +106,18 @@ if [ "$_hits" -eq 2 ]; then pass "the scan flags both a planted unquoted [ -x ] 
 else fail "the scan missed a planted bare form (flagged $_hits of 2), so it is vacuous for some form"; fi
 rm -f "$_ctl"
 
-# 4. #5913: a folder SEARCH test, [ -d P ] && [ -x P ] on one path, is accepted; a -d on a DIFFERENT path is not a guard.
+# 4. #5913: the installer's folder SEARCH test shape is accepted, and nothing else is.
 _ctl="$(mktemp)"
-printf '  [ -d "$DIR" ] && [ -x "$DIR" ] || return 0\n' > "$_ctl"
-if [ -z "$(awk "$_scan" "$_ctl" 2>/dev/null)" ]; then pass "a folder search test ([ -d P ] && [ -x P ]) is not flagged"
-else fail "the scan flagged a folder search test guarded by -d on the same path"; fi
+printf '  [ -d "$DIR" ] && [ -x "$DIR" ] || return 0   # why\n' > "$_ctl"
+if [ -z "$(awk "$_scan" "$_ctl" 2>/dev/null)" ]; then pass "the exact folder search shape ([ -d P ] && [ -x P ] || return 0) is not flagged, a trailing comment aside"
+else fail "the scan flagged the exact folder search shape"; fi
 printf '  [ -d "$S" ] && [ ! -L "$S" ] && [ -r "$S" ] && [ -x "$S" ] || return 0\n' > "$_ctl"
-if [ -z "$(awk "$_scan" "$_ctl" 2>/dev/null)" ]; then pass "a folder search test with other && tests between is not flagged"
-else fail "the scan flagged a folder search test joined by && through other tests"; fi
-printf '  if [ -d "$P" ] && [ -x "$P" ]; then :; fi\n  x=1; [ -d "$P" ] && [ -x "$P" ] || return 0\n  if true; then [ -d "$P" ] && [ -x "$P" ]; fi\n' > "$_ctl"
-if [ -z "$(awk "$_scan" "$_ctl" 2>/dev/null)" ]; then pass "a folder search test after if, a ; or then is not flagged (it starts a command)"
-else fail "the scan flagged a folder search test that starts a command after if or ;"; fi
-# Each of these lets a path that is NOT a folder reach an -x, so each must be flagged exactly once (reviews 6, 7, 8).
-_n=0
-for _l in '  [ -d "$OTHER" ] && [ -x "$DIR" ] || return 0' \
+if [ -z "$(awk "$_scan" "$_ctl" 2>/dev/null)" ]; then pass "the same shape with other bracket tests on P between is not flagged"
+else fail "the scan flagged the folder search shape with tests between"; fi
+# Each of these is flagged: most let a path that is NOT a folder reach the -x; the last three are safe
+# folder tests in another shape, flagged on purpose because only the installer's shape is accepted (reviews 6 to 10).
+set -- \
+          '  [ -d "$OTHER" ] && [ -x "$DIR" ] || return 0' \
           '  [ -d "$P" ] || [ -x "$P" ] && run "$P"' \
           '  [ -d "$P" ] && [ -r "$P" ]; [ -x "$P" ] && "$P" --version' \
           '  true || [ -d "$P" ] && [ -x "$P" ] && run "$P"' \
@@ -137,20 +131,28 @@ for _l in '  [ -d "$OTHER" ] && [ -x "$DIR" ] || return 0' \
           '  [ -d "$P" ] && [ -x "$P" ]; [ -x "$P" ] && run' \
           '  [ -d "$P" ] | [ -x "$P" ] && run' \
           '  [ -d "$P" ] & [ -x "$P" ] && run' \
-          '  echo "[ -d "$P" ]" && [ -x "$P" ] && run'; do
+          '  echo "[ -d "$P" ]" && [ -x "$P" ] && run' \
+          '  echo x{ [ -d "$P" ] && [ -x "$P" ] || return 0' \
+          '  [ -d "$P" ] && [ -x "$P" ] || return 0; [ -x "$P" ]' \
+          '  [ -d "$P" ] && [ -x "$P" ] || return 1' \
+          '  if [ -d "$P" ] && [ -x "$P" ]; then :; fi' \
+          '  x=1; [ -d "$P" ] && [ -x "$P" ] || return 0' \
+          '  [ -d "$P" ] && [ -x "$P" ] && run "$P"'
+_n=0
+for _l in "$@"; do
   printf '%s\n' "$_l" > "$_ctl"
-  if [ "$(awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -eq 1 ]; then _n=$((_n + 1))
-  else fail "a -d that does not gate the -x excused it: $_l"; fi
+  if [ "$(awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -ge 1 ]; then _n=$((_n + 1))
+  else fail "this shape was not flagged: $_l"; fi
 done
-[ "$_n" -eq 15 ] && pass "a -d that does not gate the -x excuses nothing: another path, ||, ;, after a || list, a keyword as an argument, an escaped ;, a comment, after it, negated, a second -x, a pipe, &, a string (15 controls)"
-# A || list continued past a comment and a blank line (review 9): the shell skips both, so the -d line still continues it.
-printf '  true ||\n  # c\n\n  [ -d "$P" ] && [ -x "$P" ] && run "$P"\n' > "$_ctl"
-if [ "$(awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -eq 1 ]; then pass "a -d after a || list continued past a comment and a blank line is not a gate"
-else fail "a comment or blank line after || reset the continuation and excused the -x"; fi
-# The same || list split over two lines with a trailing \ (review 8): the second line does not start a command.
-printf '  true || \\\n  [ -d "$P" ] && [ -x "$P" ] && run "$P"\n' > "$_ctl"
-if [ "$(awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -eq 1 ]; then pass "a -d on a line continued from a || list is not a gate"
-else fail "a -d on a line continued from a || list excused the -x"; fi
+[ "$_n" -eq "$#" ] && pass "every other shape is flagged: another path, ||, ;, a || list before it, a keyword or { as an argument, an escaped ;, a comment, after it, negated, a second -x, a pipe, &, a string, and safe folder tests in another shape ($# controls)"
+# A || list continued onto the -d line: across a blank and a comment line, behind a trailing comment, and by a \.
+for _f in '  true ||\n  # c\n\n  [ -d "$P" ] && [ -x "$P" ] || return 0\n' \
+          '  [ -n "$F" ] || # forced\n  [ -d "$P" ] && [ -x "$P" ] || return 0\n' \
+          '  true || \\\n  [ -d "$P" ] && [ -x "$P" ] || return 0\n'; do
+  printf "$_f" > "$_ctl"
+  if [ "$(awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -eq 1 ]; then pass "a folder shape continued from a || list is flagged: $(head -1 "$_ctl")"
+  else fail "a folder shape continued from a || list was excused: $(head -1 "$_ctl")"; fi
+done
 rm -f "$_ctl"
 
 echo "installer runnable-guard: $fails failures"

@@ -411,7 +411,7 @@ sealed_icon_other_users() {
     local a
     a="$(/usr/bin/dirname "$SEALED_USERS_DIR")"
     while [ ! -e "$a" ] && [ ! -L "$a" ] && [ "$a" != / ]; do a="$(/usr/bin/dirname "$a")"; done
-    [ -d "$a" ] && [ -x "$a" ] || return 0   # a search test on a folder (the runnable guard accepts -d with -x)
+    [ -d "$a" ] && [ -x "$a" ] || return 0   # a folder search test, in the one shape the runnable guard accepts
     return 1
   fi
   [ -d "$SEALED_USERS_DIR" ] && [ ! -L "$SEALED_USERS_DIR" ] && [ -r "$SEALED_USERS_DIR" ] && [ -x "$SEALED_USERS_DIR" ] || return 0
