@@ -48,7 +48,8 @@ rm -rf "$_td"
 #    line blanks the real ; and || on the line where it ends, and an || there can be missed. Do not put a
 #    guarded -x on the line that closes a multi-line string.
 #      Not this shape at all: "test -x P", "[ A -a -x P ]", "[  -x P ]" and any other -x inside [ ] or test
-#    outside a comment is flagged as a form the scan cannot judge: write it as [ -f P ] && [ -x P ].
+#    on a code line (a trailing comment included) is flagged as a form the scan cannot judge: write it as
+#    [ -f P ] && [ -x P ]. The guard must itself be a command, so "echo [ -f P ] && [ -x P ]" is flagged.
 #    Any missing guard is a directory-accepting site. Red if any is added.
 _scan='
 # skel: the line with every quoted string (and everything in it) replaced by X, same length. A backslash
@@ -92,6 +93,9 @@ function reaches(line, gpos, glen, xpos, p, join, bad,   btw, sk, seg, i, c) {
   while (sub(/^[ \t]*(then|do|else|if|elif|while|until)[ \t]+/, "", seg)) ;
   if (index(seg, bad) > 0) return 0
   if (match(seg, /(^|&&|\|\|)[ \t]*![ \t]/)) return 0
+  # The guard must itself be a command: at the start of the segment or right after a joiner, not an
+  # argument (echo [ -f P ] && [ -x P ] runs the -x unguarded).
+  if (seg !~ /^[ \t]*$/ && seg !~ /(&&|\|\|)[ \t]*$/) return 0
   return 1
 }
 # otherx: an -x inside [ ] or a test command (test stops at ; | and &, so a later tar -x is not one).
@@ -126,22 +130,24 @@ function scanline(full, cut, n, f,   s, t, u, off, at, len, p, g) {
   if (otherx(u) || otherx(skel(u)))
     printf "%s:%d: a -x test this scan cannot judge (write it as [ -f P ] && [ -x P ])\n", f, n
 }
-FNR == 1 && buf != "" { scanline(buffull, buf, bufn, buff); buf = "" }
+FNR == 1 && buf != "" { scanline(buf, buf, bufn, buff); buf = "" }
 # A line that is only a comment runs nothing (and may sit inside a continued command).
 /^[ \t]*#/ { next }
 {
   full = $0; code = $0
   if (match(skel(code), /(^|[ \t])#/)) code = substr(code, 1, RSTART - 1)
-  if (buf != "") { code = buf " " code; full = buffull " " full }
+  # The lines before are joined as their cut text, so full and code differ only in the comment of this line, and a
+  # position on full is the same position on code.
+  if (buf != "") { code = buf " " code; full = buf " " full }
   # A line ending in a backslash, &&, || or | continues on the next one: judge them as one line, so an ||
   # at the end of the line before cannot skip a guard on this one.
   if (match(skel(code), /(\\|&&|\|\||\|)[ \t]*$/)) {
     if (buf == "") { bufn = FNR; buff = FILENAME }
-    buf = code; sub(/\\[ \t]*$/, "", buf); buffull = substr(full, 1, length(buf) + length(full) - length(code)); next
+    buf = code; sub(/\\[ \t]*$/, "", buf); next
   }
   if (buf != "") { scanline(full, code, bufn, buff); buf = "" } else scanline(full, code, FNR, FILENAME)
 }
-END { if (buf != "") scanline(buffull, buf, bufn, buff) }'
+END { if (buf != "") scanline(buf, buf, bufn, buff) }'
 for _f in $FILES; do [ -f "$HERE/$_f" ] || fail "installer file $_f is missing: the scan below would pass on nothing"; done
 bare="$(cd "$HERE" && awk "$_scan" $FILES 2>/dev/null)" || fail "the scan itself failed (awk exit $?), so a clean result below means nothing"
 if [ -z "$bare" ]; then
@@ -195,9 +201,12 @@ done <<'FLAG'
   echo "a\\" || [ -f "$P" ] && [ -x "$P" ] && run "$P"
   sh -c 'test -x "$1"' _ "$P" && run "$P"
   true || ${X} [ -f "$P" ] && [ -x "$P" ] && run "$P"
+  echo [ -f "$P" ] && [ -x "$P" ] && run "$P"
+  [ "a]b" -a -x "$P" ] && run "$P"
+  ! [ ! -f "$P" ] || [ ! -x "$P" ] || echo usable
 FLAG
-if [ "$_flags" -eq "$_nflag" ] && [ "$_nflag" -ge 18 ]; then pass "#5986: every shape the old rule excused or never read is flagged ($_flags controls, each passing the old rule)"
-else fail "#5986: $_flags of $_nflag must-flag controls flagged (at least 18 expected)"; fi
+if [ "$_flags" -eq "$_nflag" ] && [ "$_nflag" -ge 21 ]; then pass "#5986: every shape the old rule excused or never read is flagged ($_flags controls, each passing the old rule)"
+else fail "#5986: $_flags of $_nflag must-flag controls flagged (at least 21 expected)"; fi
 _clean=0; _nclean=0
 while IFS= read -r _l; do
   [ -n "$_l" ] || continue
@@ -229,8 +238,10 @@ printf '%s\n' '  true || \' '  [ -f "$P" ] && [ -x "$P" ] && run "$P"' > "$_ctl"
 _o2="$(awk "$_scan" "$_ctl" 2>/dev/null)"; _p2="$(awk "$_old" "$_ctl" 2>/dev/null)"
 printf '%s\n' '  if [ -n "$P" ] \' '      && [ -f "$P" ] && [ -x "$P" ]; then run "$P"; fi' > "$_ctl"
 _o3="$(awk "$_scan" "$_ctl" 2>/dev/null)"
+printf '%s\n' '  [ -n "$C" ] && # why this one' '  [ -f "$C" ] && [ -x "$C" ] && run "$C"' > "$_ctl"
+_o3="$_o3$(awk "$_scan" "$_ctl" 2>/dev/null)"
 if [ -n "$_o1" ] && [ -n "$_o2" ] && [ -z "$_p1" ] && [ -z "$_p2" ] && [ -z "$_o3" ]; then
-  pass "#5986: an || ending the line before is flagged (both forms, each passing the old rule); a && continuation stays clean"
+  pass "#5986: an || ending the line before is flagged (both forms, each passing the old rule); a && continuation, also with a comment on the line before, stays clean"
 else fail "#5986: continued lines judged wrongly (flagged: [$_o1] [$_o2]; old rule: [$_p1] [$_p2]; must stay clean: [$_o3])"; fi
 # A # inside $( ) or inside quotes is not a comment, and the line scan cannot always tell: a false cut must
 # not hide an -x after it. (The old rule flagged these too; this keeps it so.)
