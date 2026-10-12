@@ -59,3 +59,7 @@ see, so those rows were kept.
 - NITs: recordBy's "not after the due slot" guard is documented and pinned (times a minute apart); the doctrine log and
   this plan say "at least as early as" the miss grace; the content test's title and comment match the wording. A DST
   change is not pinned by a test (from source: nextAfter is the board's own, and the floor is to whole minutes).
+
+## Review 4 (sonnet, blind, on 2c7f6176): 0 blockers, 0 warnings, 0 conventions, 1 nit. CONVERGED
+The nit: the daily nudge assertion renders "today"/"tomorrow" at two instants a few microseconds apart, so midnight
+falling exactly between them would differ; left as it is.
