@@ -936,12 +936,24 @@ function jobProvider(job) {
 /* #5977 review 2: the provider of a NAMED agent, for a caller that holds its runner and its name but not its job
    (the failover, the project view, the org rollup). Only a codex agent needs its job read; any failure to read it
    keeps the runner's own provider, the answer every one of those callers gave before Qwen existed. */
+/* Review 4: several readers ask this per codex agent on every board tick, and readJob parses the job file each time.
+   An answer is kept for AGENT_PROVIDER_MS, and every job write here (rewriteAgentJob, installJob) drops that
+   agent's entry, so a switch is seen at once and the cache only collapses the reads within one tick. */
+const AGENT_PROVIDER_MS = 2000;
+const agentProviderMemo = new Map();
+function forgetAgentProvider(name) { if (name) agentProviderMemo.delete(String(name)); }
 function agentProvider(sessionName, runner) {
   const r = runner || 'claude';
   if (r !== 'codex' || !sessionName) return runnerProvider(r);
+  const key = String(sessionName);
+  const hit = agentProviderMemo.get(key);
+  const now = Date.now();
+  if (hit && now - hit.at >= 0 && now - hit.at < AGENT_PROVIDER_MS) return hit.provider;
   let job = null;
   try { job = readJob(sessionName); } catch { job = null; }
-  return job ? jobProvider({ ...job, runner: 'codex' }) : runnerProvider(r);
+  const provider = job ? jobProvider({ ...job, runner: 'codex' }) : runnerProvider(r);
+  agentProviderMemo.set(key, { at: now, provider });
+  return provider;
 }
 /* #3296/#3391: the ONE "is this a non-claude runner" predicate -- the recognized set
    {codex, gemini, grok, antigravity}. plistFor (which slots run only for a non-claude runner),
@@ -1325,6 +1337,7 @@ function noJobRefusal(clean, spoken, verdict, macSentence) {
  * Returns null on success, or a REFUSED outcome naming what went wrong.
  */
 function rewriteAgentJob(clean, spoken, fields, platform) {
+  forgetAgentProvider(clean);   // review 4: the job is about to change
   const f = fields || {};
   const plat = platform || process.platform;
   if (plat === 'linux') {
@@ -3788,6 +3801,7 @@ function win32StartViaJob(name, o) {
 
 function installJob(name, opts) {
   const clean = String(name == null ? '' : name);
+  forgetAgentProvider(clean);   // review 4
   if (!NAME_RE.test(clean)) {
     return { ok: false, because: 'that is not a name this product can build a job from' };
   }
@@ -4506,6 +4520,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
 }
 
 function createAgent(opts) {
+  forgetAgentProvider(opts && opts.name);   // review 4: a new job for this name
   /* #4475: did a token already stand for this name when we were asked? A live remote agent holds no folder, job or
      pane, so create can take its name, and its own revoke then clears that agent's tokens. The birth says so, and the
      removal route never lets the asking agent remove such a name. */

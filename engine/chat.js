@@ -1039,6 +1039,12 @@ function waitingNote(state, outcome, runner, backgroundWait, sessionName) {
     // was doing") for exactly the case where the most was known -- its
     // Claude sign-in had already failed.
     case status.STATE.AUTH_FAILED:
+      /* #5977 review 4: a Qwen account has no sign-in; what fails is reaching its endpoint (accountproblem's words). */
+      if (provider === 'Qwen') {
+        return unsure
+          ? 'it could not get answers from its Qwen endpoint'
+          : 'it could not get answers from its Qwen endpoint, so it will not act on this until that is fixed';
+      }
       return unsure
         ? 'its ' + provider + ' sign-in was not working'
         : 'its ' + provider + ' sign-in was not working, so it will not act on this until that is fixed';
