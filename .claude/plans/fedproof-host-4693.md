@@ -22,6 +22,10 @@ schedule, so nobody would see that.
   (`[::1]:port` or `127.0.0.1:port`). A name that resolves anywhere else stops the run: dialling it
   could reach another machine.
 
+- **Also widened: `NOT_CONNECTED` (step 7b).** engine/fedseats.js farSide words the not-connected note "the other
+  computers in this project" for a project shared between one person's own computers, the case this harness runs. The
+  old pattern knew only "the external project", so it matched none of the 37 notes the 10-06 02:54 run recorded.
+
 ## Rejected
 
 - **A test-only switch in the board to skip the domain check.** It would put a bypass of a security
@@ -82,3 +86,13 @@ tunnel that cannot reach the coordinator fails the sign-in step, loudly.
   the fix is a move of one assertion out of a branch, checked by reading. Weakest point of this round.
 - Confirmed by the reviewer against source: 409 other-account is returned only at engine/federation.js:392, after the
   account check ran; the usage note's build line builds all three binaries.
+
+## Review 3 (opus, 2026-10-11 23:38)
+- No blockers. Confirmed against source: other-account is reachable only after ownAccountNames ran on a signed
+  coordinator answer with a computer domain and a valid address list; an empty list, an unallowed C, or a missing
+  domain all end in unchecked and now FAIL 7a. Step 5 is the matching same-account control through the same path.
+- **SHOULD-FIX, taken:** the comment's list of 409 reasons omitted already_joined; it now says "among them".
+- **SHOULD-FIX, taken:** the NOT_CONNECTED widening was not recorded here; added under Call.
+- **NITs, not taken:** the name is checked once and re-resolved by clients later (already the weakest premise above);
+  `coordAt` keeps the whole record (harmless).
+- Comment and plan only. No behaviour changed, so the queued run on this head is the measurement.

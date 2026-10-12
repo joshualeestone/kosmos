@@ -725,7 +725,7 @@ async function main() {
   }
   info('C verify ' + cVerify + ', join ' + (pidC ? 'made project ' + pidC : 'refused'));
   // Since #4699 a board refuses another account's own code. Review 1: verify answers 409 for several unrelated reasons
-  // (unchecked: no computer domain or not yet allowed; old-code; no-remote), and 'unchecked' is exactly what main's
+  // (among them unchecked: no computer domain or not yet allowed; old-code; no-remote; already_joined), and 'unchecked' is exactly what main's
   // IP-addressed harness got, so only reason 'other-account' shows the account check itself refusing.
   // Review 2: asserted HERE, on every path. Inside the refusal branch only, a build that ACCEPTED the code would skip
   // it and pass on the relay checks below.
