@@ -16,7 +16,7 @@ bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-unset KOSMOS_NOTARIZE KOSMOS_NOTARY_KEY_ID KOSMOS_NOTARY_ISSUER NT_NOID_TIMES NT_LOG_FAIL NT_ISSUE_HASH NT_MESSAGE   # an operator's export must not change the arms
+unset KOSMOS_NOTARIZE KOSMOS_NOTARY_KEY_ID KOSMOS_NOTARY_ISSUER KOSMOS_NOTARY_PROBE_BIN NT_HISTORY NT_TAIL NT_NOID_TIMES NT_LOG_FAIL NT_ISSUE_HASH NT_MESSAGE   # an operator's export must not change the arms
 
 HA=1111111111111111111111111111111111111111
 HT=2222222222222222222222222222222222222222
@@ -60,7 +60,8 @@ nt_stub() {
     submit) printf '%s\n' "$*" > "$WORK/submit.argv"
             if [ "$(grep -c '^submit$' "$WORK/nt.ran")" -le "${NT_NOID_TIMES:-0}" ]; then
               echo "Error: HTTP status code: 503. Service Unavailable" >&2; return 1; fi
-            echo "{\"status\":\"$NT_STATUS\",\"id\":\"sub-1\",\"message\":\"${NT_MESSAGE:-Processing complete}\"}" ;;
+            echo "{\"status\":\"$NT_STATUS\",\"id\":\"sub-1\",\"message\":\"${NT_MESSAGE:-Processing complete}\"${NT_TAIL:-}}" ;;
+    history) echo "${NT_HISTORY:-{\"history\":[]\}}" ;;
     log)    [ "${NT_LOG_FAIL:-0}" = 1 ] && { echo "Error: log unavailable" >&2; return 1; }
             printf '{\n  "jobId": "sub-1",\n  "status": "%s",\n  "ticketContents": [\n' "$NT_STATUS"
             local h sep=""; for h in $NT_HASHES; do printf '%s    {\n      "cdhash": "%s"\n    }' "$sep" "$h"; sep=$',\n'; done
@@ -153,13 +154,33 @@ after="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'kosmos-notarize.*' 2>/dev/nul
 
 # --- release.sh refuses to cut with the opt-out or a seam exported, before step 4 builds ---
 R="$REPO/tools/release.sh"
-guard="$(grep -n '^for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSMOS_NOTARY_LIPO_CMD; do$' "$R" | head -1 | cut -d: -f1)"
+guard="$(grep -n '^for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSMOS_NOTARY_LIPO_CMD KOSMOS_NOTARY_RETRY_DELAYS; do$' "$R" | head -1 | cut -d: -f1)"
 build="$(grep -n 'bash tools/build-kosmos-bundle.sh dist' "$R" | head -1 | cut -d: -f1)"
 [ -n "$guard" ] && [ -n "$build" ] && [ "$guard" -lt "$build" ] && ok "release.sh refuses the opt-out and every seam before step 4 ($guard < $build)" || bad "release.sh guard missing or after the build (guard=$guard build=$build)"
 out="$(KOSMOS_NOTARIZE=0 bash -c "$(sed -n "${guard},$((guard + 4))p" "$R")" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && case "$out" in *"KOSMOS_NOTARIZE is set"*) true ;; *) false ;; esac && ok "the release.sh guard really refuses an exported KOSMOS_NOTARIZE" || bad "guard did not refuse (rc=$rc): $out"
-out="$(env -u KOSMOS_NOTARIZE -u KOSMOS_NOTARYTOOL_CMD -u KOSMOS_NOTARY_CODESIGN_CMD -u KOSMOS_NOTARY_LIPO_CMD bash -c "$(sed -n "${guard},$((guard + 4))p" "$R")" 2>&1)"; rc=$?
+out="$(env -u KOSMOS_NOTARIZE -u KOSMOS_NOTARYTOOL_CMD -u KOSMOS_NOTARY_CODESIGN_CMD -u KOSMOS_NOTARY_LIPO_CMD -u KOSMOS_NOTARY_RETRY_DELAYS bash -c "$(sed -n "${guard},$((guard + 4))p" "$R")" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && ok "the guard passes a clean environment (control)" || bad "guard refused a clean env (rc=$rc): $out"
+
+# --- the submission id is the FIRST one in the answer, not a later nested one ---
+NT_STATUS=Accepted NT_HASHES="$HA" NT_TAIL=',"extra":{"id":"other-job"}'; rc=$(run "$WORK/bin/kosmos-app")
+[ "$rc" = 0 ] && grep -q 'submission sub-1)' "$WORK/out" && ok "a later nested id does not replace the submission id" || bad "id parse (rc=$rc): $(cat "$WORK/out")"
+unset NT_TAIL
+
+# --- step 1c's probe: Apple's answer decides, not notarytool's exit status ---
+out="$(notarize_probe_credentials 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(ran history)" -ge 1 ] && ok "the probe passes on an answer carrying history" || bad "probe pass (rc=$rc): $out"
+out="$(NT_HISTORY='Error: invalidPEMDocument' notarize_probe_credentials 2>&1)"; rc=$?
+[ "$rc" = 1 ] && case "$out" in *invalidPEMDocument*) true ;; *) false ;; esac && ok "the probe refuses an error answer, even with exit 0, and shows it" || bad "probe error (rc=$rc): $out"
+out="$(KOSMOS_SECRETS_MAP_BIN=sm_none notarize_probe_credentials 2>&1)"; rc=$?
+[ "$rc" = 1 ] && ok "the probe refuses with no key" || bad "probe no key (rc=$rc)"
+out="$(KOSMOS_NOTARY_PROBE_BIN=true notarize_probe_credentials 2>&1)"; rc=$?
+[ "$rc" = 0 ] && case "$out" in *"NOT notarytool: the key was not probed"*) true ;; *) false ;; esac && ok "the probe seam passes and says nothing was probed" || bad "probe seam (rc=$rc): $out"
+out="$(KOSMOS_NOTARY_PROBE_BIN=false notarize_probe_credentials 2>&1)"; rc=$?
+[ "$rc" = 1 ] && ok "a failing probe seam refuses" || bad "failing probe seam passed"
+probe="$(grep -n '^notarize_probe_credentials || exit 1$' "$REPO/tools/release.sh" | head -1 | cut -d: -f1)"
+[ -n "$probe" ] && [ -n "$guard" ] && [ "$probe" -gt "$guard" ] && [ "$probe" -lt "$build" ] && ok "release.sh probes the notary key after the guard and before step 4 ($guard < $probe < $build)" || bad "probe call missing or misplaced (guard=$guard probe=$probe build=$build)"
+grep -q 'KOSMOS_NOTARY_PROBE_BIN' "$REPO/tools/lib/notarize-binaries.sh" && ! sed -n '/^notarize_binaries() (/,$p' "$REPO/tools/lib/notarize-binaries.sh" | grep -q 'KOSMOS_NOTARY_PROBE_BIN' && ok "step 4's notarize_binaries never reads the probe seam" || bad "the probe seam reaches notarize_binaries"
 
 # --- the build calls it, on both binaries, after the last self-test and before packing ---
 B="$REPO/tools/build-kosmos-bundle.sh"
@@ -175,4 +196,6 @@ pack="$(grep -n '^echo "==> packing"' "$B" | head -1 | cut -d: -f1)"
   || bad "order wrong: notarise=$call last-sign=$last_sign last-selftest=$last_selftest pack=$pack"
 
 echo "test-notarize-binaries-5137: $passes passed, $fails failed"
-[ "$fails" = 0 ] && [ "$passes" = 35 ]
+EXPECTED=43   # the number of ok lines above; a skipped arm must not read as green
+[ "$passes" = "$EXPECTED" ] || echo "test-notarize-binaries-5137: $passes passes, expected $EXPECTED (an arm was skipped or added without updating EXPECTED)"
+[ "$fails" = 0 ] && [ "$passes" = "$EXPECTED" ]

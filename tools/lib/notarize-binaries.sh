@@ -28,7 +28,7 @@
 # as `notarize_binaries ... || exit 1`.
 #
 # KOSMOS_NOTARIZE=0 skips it, LOUDLY, for a local test build that has no notary
-# key. release.sh refuses to cut while it, or any seam below, is set.
+# key. release.sh refuses to cut while it, any seam below, or KOSMOS_NOTARY_RETRY_DELAYS is set.
 #
 # Seams (tests only): KOSMOS_NOTARYTOOL_CMD replaces `xcrun notarytool`,
 # KOSMOS_NOTARY_CODESIGN_CMD replaces codesign, KOSMOS_NOTARY_LIPO_CMD replaces lipo,
@@ -53,6 +53,49 @@ _notarytool() {
   if [ -n "${KOSMOS_NOTARYTOOL_CMD:-}" ]; then "$KOSMOS_NOTARYTOOL_CMD" "$@"; else xcrun notarytool "$@"; fi
 }
 
+# Prints the value of the FIRST "<key>": "<value>" pair in notarytool's JSON, or nothing.
+# The first, not the last: a greedy `.*"id"` would take a later nested id.
+_notarize_json_first() {
+  { printf '%s' "$2" | grep -o "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed 's/.*"\([^"]*\)"$/\1/'; } || :
+}
+
+# Prints the notary key's path, or explains on stderr and returns 1.
+_notarize_key() {
+  local sm="${KOSMOS_SECRETS_MAP_BIN:-$HOME/.claude/scripts/secrets-map.sh}" key
+  key="$("$sm" path "$KOSMOS_NOTARY_SECRET_TARGET" 2>/dev/null)" || key=""
+  if [ -z "$key" ] || [ ! -f "$key" ] || [ ! -r "$key" ]; then
+    echo "notarize: the notary key \"$KOSMOS_NOTARY_SECRET_TARGET\" does not resolve to a readable file through $sm. File it with /add-secret, cut on the Mac that holds it, or set KOSMOS_NOTARIZE=0 for a local test build." >&2
+    return 1
+  fi
+  printf '%s\n' "$key"
+}
+
+# The cut's step 1c probe: one authenticated request to Apple's notary service with the key
+# step 4 will use, so a revoked or mistyped key, or an outage, stops the cut BEFORE the version
+# bump is pushed rather than at step 4, after it. It reads Apple's answer, not notarytool's exit
+# status: an answer carrying the "history" key is the only pass.
+# KOSMOS_NOTARY_PROBE_BIN (tests only, like the preflight's KOSMOS_CODESIGN_BIN) replaces this
+# one probe and nothing else: step 4 never reads it. It is run with no arguments, its exit status
+# decides, and the line it prints says nothing was probed.
+notarize_probe_credentials() (
+  if [ -n "${KOSMOS_NOTARY_PROBE_BIN:-}" ]; then
+    "$KOSMOS_NOTARY_PROBE_BIN" >/dev/null 2>&1 || { echo "notary preflight: KOSMOS_NOTARY_PROBE_BIN=$KOSMOS_NOTARY_PROBE_BIN failed"; exit 1; }
+    echo "notary preflight: PASSED THROUGH KOSMOS_NOTARY_PROBE_BIN=$KOSMOS_NOTARY_PROBE_BIN, NOT notarytool: the key was not probed. Unset it for a real cut."
+    exit 0
+  fi
+  key_id="${KOSMOS_NOTARY_KEY_ID:-$KOSMOS_NOTARY_KEY_ID_DEFAULT}"
+  issuer="${KOSMOS_NOTARY_ISSUER:-$KOSMOS_NOTARY_ISSUER_DEFAULT}"
+  key="$(_notarize_key)" || exit 1
+  rc=0
+  out="$(_notarytool history --key "$key" --key-id "$key_id" --issuer "$issuer" --output-format json 2>&1)" || rc=$?
+  case "$out" in
+    *'"history"'*) echo "notary preflight: Apple answered an authenticated request with the notary key ($KOSMOS_NOTARY_SECRET_TARGET, key id $key_id)"; exit 0 ;;
+  esac
+  echo "notary preflight: Apple's notary service did not answer an authenticated request with the notary key (notarytool rc=$rc). Step 4 notarises the app binaries with it (#5137), after the version bump is pushed. What it said:"
+  printf '%s\n' "$out" | sed 's/^/    /'
+  exit 1
+)
+
 # A subshell body, so the EXIT trap removes the scratch copies on every path, an
 # interrupted --wait included.
 notarize_binaries() (
@@ -61,18 +104,13 @@ notarize_binaries() (
     echo "==> NOT NOTARISED (KOSMOS_NOTARIZE=0): $*. A test build only; Gatekeeper rejects these if anything quarantines them (#5137)."
     exit 0
   fi
-  sm="${KOSMOS_SECRETS_MAP_BIN:-$HOME/.claude/scripts/secrets-map.sh}"
   key_id="${KOSMOS_NOTARY_KEY_ID:-$KOSMOS_NOTARY_KEY_ID_DEFAULT}"
   issuer="${KOSMOS_NOTARY_ISSUER:-$KOSMOS_NOTARY_ISSUER_DEFAULT}"
   dir=""
   trap 'rm -rf "${dir:-}"' EXIT
   trap 'exit 130' INT TERM
 
-  key="$("$sm" path "$KOSMOS_NOTARY_SECRET_TARGET" 2>/dev/null)" || key=""
-  if [ -z "$key" ] || [ ! -f "$key" ] || [ ! -r "$key" ]; then
-    echo "notarize: the notary key \"$KOSMOS_NOTARY_SECRET_TARGET\" does not resolve to a readable file through $sm. File it with /add-secret, cut on the Mac that holds it, or set KOSMOS_NOTARIZE=0 for a local test build." >&2
-    exit 1
-  fi
+  key="$(_notarize_key)" || exit 1
 
   # Every slice's cdhash, read BEFORE submitting: an unsigned binary cannot be notarised, and
   # finding that out after a several-minute wait is waste. One "name arch cdhash" line each.
@@ -102,7 +140,7 @@ notarize_binaries() (
     out="$(_notarytool submit "$dir/binaries.zip" --key "$key" --key-id "$key_id" --issuer "$issuer" \
              --wait --timeout 30m --output-format json 2>&1)" || rc=$?
     printf '%s\n' "$out" | sed 's/^/    /'
-    id="$(printf '%s' "$out" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+    id="$(_notarize_json_first id "$out")"
     [ -z "$id" ] && [ "$try" -lt "$tries" ] || break
     d="${delays[$((try - 1))]:-0}"
     echo "==> notarytool returned no submission id (rc=$rc); trying again in ${d}s (#5137)" >&2
@@ -111,7 +149,7 @@ notarize_binaries() (
   done
   # The status VALUE, read from its own key: a glob for "Accepted" anywhere would pass an answer
   # whose message merely mentions the word.
-  status="$(printf '%s' "$out" | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+  status="$(_notarize_json_first status "$out")"
   if [ "$status" != Accepted ]; then
     echo "notarize: Apple did not accept the binaries (status '${status:-none}', notarytool rc=$rc)." >&2
     if [ -n "$id" ]; then
