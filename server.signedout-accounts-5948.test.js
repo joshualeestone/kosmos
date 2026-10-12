@@ -95,3 +95,17 @@ test('#5948 review 9: with a shared Grok key in this computer\'s secrets/env doo
   assert.ok(row, JSON.stringify(body.unlistedAccounts));
   assert.deepEqual([row.signedOut, row.sharedKey, row.connection.badge], [false, true, 'unlisted']);
 });
+
+test('#5948 review 14: when the profiles cannot be read, unlistedComplete is false and kosmos accounts does not say none are set up', async () => {
+  const register = require('./engine/register');
+  const real = register.known;
+  register.known = () => ({ ok: false, names: [] });
+  let body;
+  try { body = await (await fetch(base + '/api/accounts')).json(); } finally { register.known = real; }
+  assert.equal(body.unlistedComplete, false, JSON.stringify({ unlistedComplete: body.unlistedComplete }));
+  const { answer } = require('./engine/accountline');
+  assert.ok(!answer(200, { ...body, accounts: [] }).lines.some((l) => /No provider accounts are set up/.test(l)));
+  // CONTROL: with the profiles readable again, the walk is complete.
+  const again = await (await fetch(base + '/api/accounts')).json();
+  assert.equal(again.unlistedComplete, true);
+});
