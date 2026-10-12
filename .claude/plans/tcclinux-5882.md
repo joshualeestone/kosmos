@@ -77,3 +77,7 @@ Mutants after review 3 (20:21 CDT from `date`, all discover tests, 211): O1 Docu
 discover.acceptance-1329.test.js claims to prove the hatch ("via grant") merge, but passed no platform: on the Linux
 and Windows CI runners this branch would make the engine walk Documents itself, so the hatch path silently stopped
 being tested there. Pinned platform: 'darwin' and the comment says why. It re-ran under a forced Linux platform too.
+
+## Review 6 (sonnet, blind, on 790297dc): NO NEW ISSUES. Converged at 6.
+It checked every existing test that runs an import scan for the review-5 trap (a test that silently stops testing on a
+Linux or Windows runner): none left.
