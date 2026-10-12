@@ -1246,7 +1246,8 @@ function releaseOwnReauth(dir) {
     cancelChatgptLogin(id);
     if (s) s.reauthReleased = true;
   }
-  // Drop the hold unless another live sign-in is staging into this same path (never expected: see isHeldByOwnReauth).
+  // Drop the hold unless another live sign-in is staging into this same path. Defence only: isHeldByOwnReauth's premise
+  // says that cannot happen, and no test can reach this branch.
   for (const s of chatgptSessions.values()) if (s.dir === dir && !s.holdFreed) return;
   activeChatgptDirs.delete(dir);
 }
