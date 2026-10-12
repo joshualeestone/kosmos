@@ -15,7 +15,8 @@ function src(name) {
   return m[0];
 }
 const { healthLine, seenAtWords } = new Function(src('seenAtWords') + PAGE.match(/\nconst HEALTH_QUIET_MS = [^\n]*\n/)[0] + PAGE.match(/\nconst HEALTH_READ_STATES = [^\n]*\n/)[0] + src('healthLine') + '\nreturn { healthLine, seenAtWords };')();
-const NOW = Date.parse('2026-10-12T17:00:00Z');
+// Local noon, so the times this test steps back from it (up to two hours) stay on the same local day in every zone.
+const NOW = new Date(2026, 9, 12, 12, 0, 0).getTime();
 const ago = (ms) => new Date(NOW - ms).toISOString();
 
 test('#5959 slice 2: the health line says sign-in, usage and when Kosmos last saw it working', () => {
