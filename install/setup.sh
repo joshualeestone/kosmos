@@ -3845,7 +3845,8 @@ PLIST
   /usr/bin/xattr -cr "$app" 2>/dev/null || true
   _cs_err="$(/usr/bin/codesign --force --sign - --preserve-metadata=entitlements,flags "$app" 2>&1 >/dev/null)" || {
     info "note: Kosmos could not sign its app icon: $(printf '%s\n' "$_cs_err" | /usr/bin/tail -1)"; return 1; }
-  /usr/bin/codesign --verify --deep --strict "$app" >/dev/null 2>&1 || return 1
+  /usr/bin/codesign --verify --deep --strict "$app" >/dev/null 2>&1 || {
+    info "note: Kosmos signed its app icon but the signature does not check out"; return 1; }
   return 0
 }
 
