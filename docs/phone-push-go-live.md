@@ -248,8 +248,14 @@ control. Record the live build and rollback anchor on #3763 when deployed.
 and tap handling on an iPhone after Step 3 allows the bundle id. It does not
 open the Mac's send lock or make Step 8's log-only coordinator send for real.
 
+**Interim, decided by Josh 2026-10-12 (kosmos #4089):** TestFlight ships now under the active
+Stone Syndicate LLC team (864QZ69GF2), internal testers only, and the app is transferred to Kosmos
+Agent Manager, Inc. once Apple approves #3643. `DEVELOPMENT_TEAM` is set to 864QZ69GF2 until then.
+Push does not reach these builds: the coordinator has no APNs key, and when one is made it has to come
+from the team that signs the app.
+
 **Done now, before Apple's approval (kosmos #4089):**
-- **The Team ID has one home, `ios/Signing.xcconfig`** (`DEVELOPMENT_TEAM`, empty today). The Xcode
+- **The Team ID has one home, `ios/Signing.xcconfig`** (`DEVELOPMENT_TEAM`, Stone Syndicate's for now). The Xcode
   project and the archive script both read it from there.
 - **`ios/tools/archive.sh --build <N>`** archives, exports for App Store Connect
   (`ios/tools/ExportOptions.plist`) and checks the exported `.ipa`. `--upload` then sends that same
@@ -263,7 +269,7 @@ open the Mac's send lock or make Step 8's log-only coordinator send for real.
   there (`xcodebuild -downloadPlatform iOS`), which matters only for building on that Mac.
 
 **Waits on Apple approving the org (#3643):**
-- **Set `DEVELOPMENT_TEAM` in `ios/Signing.xcconfig`** to the Kosmos Agent Manager, Inc. Team ID
+- **Change `DEVELOPMENT_TEAM` in `ios/Signing.xcconfig`** to the Kosmos Agent Manager, Inc. Team ID
   [Josh supplies the id; fleet makes the change]. One line; signing is `Automatic`. Signing under
   any other team gives device tokens the coordinator's key cannot send to.
 - **The App Store Connect app record** for `io.kosmos.app`, under that org [Josh: the seller name
