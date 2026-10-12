@@ -302,6 +302,13 @@ bundle_is_ours() {
   #             icon opening this install
   if [ ! -e "$1/Contents/Resources/kosmos-install.json" ]; then
     [ "$(/usr/bin/stat -f %u "$1" 2>/dev/null)" = "$(/usr/bin/id -u)" ] || return 1
+    # And the account's config must name THIS install: an account can also hold a second, custom-home install
+    # (write_install_config stands down for it), and the sealed icon serves the install the config names, not it.
+    # An uninstall decides that before it deletes anything (SEALED_REQ is set only then).
+    case "${2:-}" in
+      remove) [ -n "${SEALED_REQ:-}" ] || return 1 ;;
+      *) sealed_serves_this_install || return 1 ;;
+    esac
     case "${2:-}" in
       anchored|remove) ;;
       *) if ! sealed_placeable && [ "$(/usr/bin/dirname "$1")" -ef "$SYS_APP_DIR" ]; then return 1; fi ;;
@@ -325,6 +332,18 @@ sealed_requirement() {
   [ -d "$ours" ] && [ ! -L "$ours" ] || return 1
   # An implicit requirement (the usual case, Developer ID or ad-hoc) prints as a comment: "# designated => ...".
   /usr/bin/codesign -d -r- "$ours" 2>&1 | /usr/bin/sed -n 's/^#* *designated => //p'
+}
+# Does the account's own config (slice 1, write_install_config) name THIS install? Same anchored match as the
+# uninstall's removal of that file.
+sealed_serves_this_install() {
+  local f="$INSTALL_CONFIG_DIR/kosmos-install.json"
+  [ -f "$f" ] && [ ! -L "$f" ] && /usr/bin/grep -qF "\"kosmosHome\":\"$KOSMOS_HOME\"" "$f" 2>/dev/null
+}
+# A sealed Kosmos icon of ANY install (no per-install file, a valid signature with our identifier). Weaker than
+# bundle_is_sealed and used only where the answer LEAVES an icon in place and names it, never to delete one.
+bundle_looks_sealed() {
+  [ ! -L "$1" ] && [ ! -e "$1/Contents/Resources/kosmos-install.json" ] \
+    && /usr/bin/codesign --verify --deep --strict '-R=identifier "com.chaoskosmos.kosmos"' "$1" >/dev/null 2>&1
 }
 SEALED_REQ=""   # never inherited: it widens the proof below, which decides an rm -rf
 bundle_is_sealed() {
@@ -1419,7 +1438,10 @@ uninstall() {
   step "Removing Kosmos."
   # #5896 slice 2: the sealed icon is proven against this install's shipped copy, which the removal below deletes
   # before the icons are swept, so its requirement is read now.
-  SEALED_REQ="$(sealed_requirement 2>/dev/null)" || SEALED_REQ=""
+  # Only when the account's config names this install: otherwise a sealed icon here serves another install of this
+  # account, and stays.
+  SEALED_REQ=""
+  if sealed_serves_this_install; then SEALED_REQ="$(sealed_requirement 2>/dev/null)" || SEALED_REQ=""; fi
   # Shared by the icon removals below: unregister BEFORE deleting (a -u on
   # an already-deleted path is likely a no-op, leaving the stale Spotlight
   # record the call exists to clear) and re-register on a failed removal
@@ -2095,10 +2117,10 @@ KOSMOS_SWEEP_LIST
       # The same anchored token as resolve_app_dir: the closing `}"` keeps
       # two homes in a prefix relationship from cross-matching, because
       # this grep is the sole gate on an rm -rf in a shared folder.
-      if [ ! -L "$SYS_APP_DIR/Kosmos.app" ] && bundle_is_sealed "$SYS_APP_DIR/Kosmos.app"; then
+      if bundle_looks_sealed "$SYS_APP_DIR/Kosmos.app"; then
         # #5896 slice 2: the sealed icon is the same app for every account on this Mac, and another account may be
         # using it, so a shared one is left in place and named.
-        info "note: the Kosmos app in $SYS_APP_DIR is the one every account on this computer opens, so it was left in place (it no longer opens anything for this account); drag it to the Trash if no one else here uses Kosmos."
+        info "note: the Kosmos app in $SYS_APP_DIR is the one every account on this computer opens, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
       elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then
         info "removing the Kosmos app from $SYS_APP_DIR"
         # A standard user cannot always delete from /Applications; an icon
@@ -3935,8 +3957,8 @@ if [ "$APP_MADE" = "yes" ]; then
       # app carrying the name, where "another account has Kosmos" would
       # assert something never established.
       if [ "${APP_OWN_SEALED:-no}" = yes ]; then
-        info "your Kosmos icon is already in Applications, but this install could not save where it lives for that"
-        info "icon, so this install's icon went to the Applications folder inside your home folder, as Kosmos"
+        info "your Kosmos icon is already in Applications, but this install cannot use it, so this install's icon"
+        info "went to the Applications folder inside your home folder, as Kosmos"
       else
         info "something else already has the Kosmos spot in Applications, so yours went to the"
         info "Applications folder inside your home folder, as Kosmos (or type Kosmos into Spotlight)"

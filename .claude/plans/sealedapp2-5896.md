@@ -32,8 +32,12 @@ and the app reads it.
   that use the icon opening this install. Residue sweeps take this account's own sealed leftovers.
   Follow-up worth a card: another account's sealed icon already serves this account (the app reads the clicking
   account's own config), so the divert could become "use it and say so" instead of a second icon.
-- One install per account is assumed (one config file in the account's Library), so an uninstall may remove this
-  account's own sealed icon from ~/Applications (iteration 4).
+- A sealed icon serves the install the account's config names (iteration 6): an account may also hold a second,
+  custom-home install (write_install_config stands down for it), and that install never replaces, sweeps or
+  uninstalls the sealed icon. Uninstall decides this before it deletes anything. Leaving an icon in the shared
+  folder only needs "a Kosmos-signed bundle with no per-install file" (bundle_looks_sealed), since it never deletes.
+- Follow-up worth a card: on a Mac with one account, uninstall now leaves the shared sealed icon behind and asks the
+  person to drag it to the Trash; it could remove it when this account owns it and its config names this install.
 - A cut is Developer ID signed by construction (step 1c's preflight), so the cut's team requirement never meets an
   ad-hoc build; other callers of the comparator check the identifier only (iteration 4).
 - Leave the shared sealed icon on uninstall. Rejected: removing it (strands another account that still uses it).

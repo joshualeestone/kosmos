@@ -30,7 +30,7 @@ function fnSource(name) {
   const end = SETUP.indexOf('\n}\n', at);
   return SETUP.slice(at + 1, end + 3);
 }
-const FNS = ['bundle_is_ours', 'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'app_bundle_into'].map(fnSource).join('\n');
+const FNS = ['bundle_is_ours', 'bundle_looks_sealed', 'sealed_serves_this_install', 'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'app_bundle_into'].map(fnSource).join('\n');
 
 let tmpRoot, SYS;   // SYS: the stand-in for the shared /Applications (setup.sh's SYS_APP_DIR)
 test.before(() => {
@@ -58,7 +58,16 @@ function makeHome(tag) {
   return home;
 }
 
+/** The account's own config (slice 1), naming `home`, in a folder of its own; run() writes one for KOSMOS_HOME unless given. */
+function cfgFor(home) {
+  const dir = fs.mkdtempSync(path.join(tmpRoot, 'cfg-'));
+  fs.writeFileSync(path.join(dir, 'kosmos-install.json'), JSON.stringify({ kosmosHome: home, ownerUid: process.getuid(), port: 1 }));
+  return dir;
+}
+const REMOVE = 'SEALED_REQ="$(sealed_requirement)"; ';   // what uninstall() sets before it deletes anything
+
 function run(env, body) {
+  if (env.KOSMOS_HOME && !('INSTALL_CONFIG_DIR' in env)) env = { ...env, INSTALL_CONFIG_DIR: cfgFor(env.KOSMOS_HOME) };
   const script = ['set -u', 'build_app_bundle() { /bin/mkdir -p "$1/Contents"; : > "$1/Contents/BUILT"; }', FNS, body].join('\n');
   try {
     // /bin/sh, the shell the installer runs under (bash in POSIX mode on macOS), where a VAR=x prefix on a function
@@ -120,7 +129,7 @@ test('#5896: a bundle that carries a per-install file is still judged by it, nev
 });
 
 test('#5896: uninstall checks for the shared sealed icon BEFORE the branch that removes it', () => {
-  const at = SETUP.indexOf('if [ ! -L "$SYS_APP_DIR/Kosmos.app" ] && bundle_is_sealed "$SYS_APP_DIR/Kosmos.app"; then');
+  const at = SETUP.indexOf('if bundle_looks_sealed "$SYS_APP_DIR/Kosmos.app"; then');
   assert.notEqual(at, -1, 'the uninstall no longer asks whether the shared icon is the sealed one');
   const rm = SETUP.indexOf('elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then', at);
   assert.ok(rm > at && rm - at < 600, 'the sealed check is not directly before the removal branch');
@@ -206,5 +215,40 @@ test('#5896: a sealed occupant of the SHARED folder is not ours to replace when 
       `wic=${rc}: this account's own sealed icon in its own folder was called foreign`);
   }
   assert.match(run({ KOSMOS_HOME: home, _wic_rc: '0', SYS_APP_DIR: sys }, `bundle_is_ours "${shared}"; echo "rc=$?"`).out, /rc=0/, 'CONTROL: placing the sealed app too, it is ours to replace');
-  assert.match(run({ KOSMOS_HOME: home, _wic_rc: '1', SYS_APP_DIR: sys }, `bundle_is_ours "${shared}" remove; echo "rc=$?"`).out, /rc=0/, 'an uninstall removal does not depend on placement');
+  assert.match(run({ KOSMOS_HOME: home, _wic_rc: '1', SYS_APP_DIR: sys }, `${REMOVE}bundle_is_ours "${shared}" remove; echo "rc=$?"`).out, /rc=0/, 'an uninstall removal does not depend on placement');
+});
+
+test('#5896: a sealed icon serves the install the account config names: a second install of this account never takes it', () => {
+  const home = makeHome('v1');
+  const icon = path.join(fs.mkdtempSync(path.join(tmpRoot, 'homeapps-')), 'Kosmos.app');
+  execFileSync('/usr/bin/ditto', [path.join(home, 'app', 'Kosmos.app'), icon]);
+  const other = cfgFor('/Users/a/.local/share/kosmos');   // the account's default install, not this one
+  for (const mode of ['', 'anchored']) {
+    assert.match(run({ KOSMOS_HOME: home, _wic_rc: '2', INSTALL_CONFIG_DIR: other }, `bundle_is_ours "${icon}" ${mode}; echo "rc=$?"`).out, /rc=[1-9]/,
+      `mode '${mode}': a second install took the sealed icon that serves the account's other install`);
+  }
+  // Uninstall: the requirement is read only when the config names this install, so a removal is refused otherwise.
+  const un = run({ KOSMOS_HOME: home, INSTALL_CONFIG_DIR: other }, [
+    'SEALED_REQ=""',
+    'if sealed_serves_this_install; then SEALED_REQ="$(sealed_requirement)"; fi',
+    `bundle_is_ours "${icon}" remove; echo "rc=$?"`,
+  ].join('\n')).out;
+  assert.match(un, /rc=[1-9]/, 'another install\'s uninstall removed the sealed icon that serves the account\'s default install');
+  assert.match(run({ KOSMOS_HOME: home, _wic_rc: '0' }, `bundle_is_ours "${icon}"; echo "rc=$?"`).out, /rc=0/, 'CONTROL: with the config naming this install it is ours');
+  const fn = SETUP.slice(SETUP.indexOf('\nuninstall() {\n'));
+  assert.ok(fn.indexOf('if sealed_serves_this_install; then SEALED_REQ=') !== -1 && fn.indexOf('if sealed_serves_this_install; then SEALED_REQ=') < fn.indexOf('rm -rf "$KOSMOS_HOME"'),
+    'uninstall does not decide whether the sealed icon serves this install before it deletes anything');
+});
+
+test('#5896: the uninstall names ANY sealed Kosmos icon in the shared folder as left in place, whoever it serves', () => {
+  const icon = makeBundle(path.join(fs.mkdtempSync(path.join(tmpRoot, 'apps-')), 'Kosmos.app'), 'another install');
+  assert.match(run({}, `bundle_looks_sealed "${icon}"; echo "rc=$?"`).out, /rc=0/);
+  const legacy = path.join(fs.mkdtempSync(path.join(tmpRoot, 'apps-')), 'Kosmos.app');
+  execFileSync('/usr/bin/ditto', [icon, legacy]);
+  fs.mkdirSync(path.join(legacy, 'Contents', 'Resources'), { recursive: true });
+  fs.writeFileSync(path.join(legacy, 'Contents', 'Resources', 'kosmos-install.json'), '{}');
+  assert.match(run({}, `bundle_looks_sealed "${legacy}"; echo "rc=$?"`).out, /rc=[1-9]/, 'a per-install bundle was called sealed');
+  const link = path.join(fs.mkdtempSync(path.join(tmpRoot, 'apps-')), 'Kosmos.app');
+  fs.symlinkSync(icon, link);
+  assert.match(run({}, `bundle_looks_sealed "${link}"; echo "rc=$?"`).out, /rc=[1-9]/, 'a link was called a sealed icon');
 });
