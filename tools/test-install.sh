@@ -715,6 +715,22 @@ chk "launcher passes its own account and starts the board" "[ -s \"$SB/launcher.
 # that sealed app (signed, nothing per-install inside it), and the config lives only in the account's Library.
 # The sealed shape: no per-install file inside, and a signature that verifies. Read BEFORE an uninstall, which
 # leaves a shared sealed icon in place and names it, where it removes a per-install one.
+# #5912 review: what the owner's uninstall MUST do with the shared sealed icon, from the same facts setup.sh's
+# sealed_opens_another reads (so each check asserts ONE outcome, not "removed or named"): it is kept only when the
+# install being removed is not the default home ($1 = the HOME the uninstall ran with, against the KOSMOS_HOME it
+# inherits) and the default install's board login job (com.kosmos.board) is in the launch folder. 0 = must be removed.
+sealed_icon_must_go() {
+  if [ "$(printf '%s' "$KOSMOS_HOME" | tr -s '/')" = "$(printf '%s' "$1/.local/share/kosmos" | tr -s '/')" ]; then return 0; fi
+  [ -e "$AGENT_WORKFORCE_LAUNCH/com.kosmos.board.plist" ] && return 1
+  return 0
+}
+check_sealed_owner_uninstall() { # $1 label, $2 icon dir, $3 log, $4 HOME used
+  if sealed_icon_must_go "$4"; then
+    chk "$1: removed (nothing left on this account opens it)" "[ ! -e \"$2/Kosmos.app\" ] && ! grep -q 'so it was left in place' \"$3\""
+  else
+    chk "$1: kept and named (the default install still opens it)" "[ -d \"$2/Kosmos.app\" ] && grep -q \"still opens this account's main Kosmos install\" \"$3\""
+  fi
+}
 icon_is_sealed() { [ ! -e "$1/Contents/Resources/kosmos-install.json" ] && /usr/bin/codesign --verify --deep --strict "$1" >/dev/null 2>&1; }
 APP_CFG="$SB/apps/Kosmos.app/Contents/Resources/kosmos-install.json"
 [ -f "$APP_CFG" ] || APP_CFG="$SB/home/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json"
@@ -1287,8 +1303,8 @@ SYS_OK_SEALED=no; icon_is_sealed "$SYS_OK/Kosmos.app" && SYS_OK_SEALED=yes
 RC=0; HOME="$SBH" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" sh -s -- --uninstall < "$SETUP" > "$SB/probe-un2.log" 2>&1 || RC=$?
 chk "owner uninstall exits 0" "rc_ok $RC"
 if [ "$SYS_OK_SEALED" = yes ]; then
-  # #5912: removed when no other install of this account (no other board login job) remains, else left and named.
-  chk "#5896/#5912: the owner's uninstall removes the shared sealed icon, or leaves it and names it" "[ ! -d \"$SYS_OK/Kosmos.app\" ] || grep -q 'so it was left in place' \"$SB/probe-un2.log\""
+  # #5912: removed unless the default install, still present, can open it (sealed_icon_must_go says which).
+  check_sealed_owner_uninstall "#5896/#5912: the owner's uninstall and the shared sealed icon" "$SYS_OK" "$SB/probe-un2.log" "$SBH"
 else
   chk "system-folder icon swept by its owner" "[ ! -d \"$SYS_OK/Kosmos.app\" ]"
 fi
@@ -1326,7 +1342,7 @@ ALIAS_SEALED=no; icon_is_sealed "$SYSALIAS/Kosmos.app" && ALIAS_SEALED=yes
 RC=0; HOME="$SBH3" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYSALIAS" sh -s -- --uninstall < "$SETUP" > "$SB/alias-un2.log" 2>&1 || RC=$?
 chk "owner uninstall exits 0 in the aliased world" "rc_ok $RC"
 if [ "$ALIAS_SEALED" = yes ]; then
-  chk "#5896/#5912: the aliased shared sealed icon is removed, or left in place and named" "[ ! -d \"$SYSALIAS/Kosmos.app\" ] || grep -q 'so it was left in place' \"$SB/alias-un2.log\""
+  check_sealed_owner_uninstall "#5896/#5912: the aliased shared sealed icon" "$SYSALIAS" "$SB/alias-un2.log" "$SBH3"
 else
   chk "aliased bundle removed by its owner" "[ ! -d \"$SYSALIAS/Kosmos.app\" ]"
 fi
@@ -1480,7 +1496,7 @@ else
   RC=0; HOME="$SBH17" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_DEEP" sh -s -- --uninstall < "$SETUP" > "$SB/deep-un.log" 2>&1 || RC=$?
   chk "deep-world uninstall exits 0" "rc_ok $RC"
   if [ "$DEEP_SEALED" = yes ]; then
-    chk "#5896/#5912: the deep-world shared sealed icon is removed, or left in place and named" "[ ! -e \"$SYS_DEEP/Kosmos.app\" ] || grep -q 'so it was left in place' \"$SB/deep-un.log\""
+    check_sealed_owner_uninstall "#5896/#5912: the deep-world shared sealed icon" "$SYS_DEEP" "$SB/deep-un.log" "$SBH17"
   else
     chk "deep-world slot fully cleared" "[ ! -e \"$SYS_DEEP/Kosmos.app\" ]"
   fi
