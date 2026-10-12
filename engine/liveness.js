@@ -136,4 +136,10 @@ function idleDays(sessionName, nowMs) {
   return days >= IDLE_DAYS ? days : null;
 }
 
-module.exports = { DIR, STALE_AFTER_MS, IDLE_DAYS, fileFor, seen, read, alive, idleDays };
+/* kosmos#5957 slice 3: the agent was removed, deleted, or a new one is being made under its name, so a new agent never
+   inherits the old one's last report as its "has not run in N days" (as crashloop.forget). */
+function forget(sessionName) {
+  try { fs.rmSync(fileFor(sessionName), { force: true }); return true; } catch { return false; }
+}
+
+module.exports = { DIR, STALE_AFTER_MS, IDLE_DAYS, fileFor, seen, read, alive, idleDays, forget };

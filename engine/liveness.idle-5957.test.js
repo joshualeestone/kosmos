@@ -59,3 +59,10 @@ test('a beat written by seen() reads as not idle', () => {
   liveness.seen('fresh');
   assert.equal(liveness.idleDays('fresh'), null);
 });
+
+test('forget drops the record, and forgetting a name with none is fine', () => {
+  beatAt('gone', NOW - 30 * DAY);
+  assert.equal(liveness.forget('gone'), true);
+  assert.equal(liveness.read('gone').found, false);
+  assert.equal(liveness.forget('never-there'), true);
+});

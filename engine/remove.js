@@ -816,6 +816,7 @@ function recordRemoval(clean, job, stopped, shownAs, leftRunningByChoice) {
   try { require('./crashloop').forget(clean); } catch { /* #5154 review 1: a removed agent's runs go with it */ }
   try { require('./observed').forgetAgent(clean); } catch { /* #5959 slice 2: nor the old name's last-seen time */ }
   try { require('./stuckterminal').forget(clean); } catch { /* #5154 slice C: and its stuck-terminal anchor, so a recreate never inherits the old clock */ }
+  try { require('./liveness').forget(clean); } catch { /* #5957 slice 3: and its last report */ }
   try { require('./instructionadds').forget(clean); } catch { /* #5293 review 1: and its waiting addition and Undo record */ }
   try { revoked = sendertoken.revoke(clean); } catch (e) { revoked = { ok: false, because: (e && e.message) || 'threw' }; }
   if (!revoked || revoked.ok !== true) {
