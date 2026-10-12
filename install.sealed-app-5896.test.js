@@ -355,7 +355,9 @@ test('#5912: sealed_opens_another: only a runnable default install can open the 
     return execFileSync('/bin/sh', ['-c', script], { env: { PATH: '/usr/bin:/bin', HOME: home }, encoding: 'utf8' });
   };
   assert.match(ask('com.kosmos.board.0a1b2c3d'), /rc=1/, 'no default install, yet the icon was kept');
-  fs.mkdirSync(path.join(def, 'bin'), { recursive: true });
+  fs.mkdirSync(path.join(def, 'bin', 'kosmos'), { recursive: true, mode: 0o755 });   // #1716: a directory passes a bare [ -x ]
+  assert.match(ask('com.kosmos.board.0a1b2c3d'), /rc=1/, 'a DIRECTORY named bin/kosmos counted as a runnable default install');
+  fs.rmdirSync(path.join(def, 'bin', 'kosmos'));
   fs.writeFileSync(path.join(def, 'bin', 'kosmos'), '#!/bin/sh\n');
   assert.match(ask('com.kosmos.board.0a1b2c3d'), /rc=1/, 'a default bin/kosmos that cannot be run (as the app tests) kept it');
   fs.chmodSync(path.join(def, 'bin', 'kosmos'), 0o755);
