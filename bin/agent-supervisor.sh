@@ -1058,7 +1058,8 @@ if [ -z "$adopt" ]; then
       # A key named in the arguments (env_key) must reach the pane, or codex starts and fails later with nothing said.
       _ep_wants_key=0
       for _ep_arg in "${ENDPOINT_ARGS[@]}"; do case "$_ep_arg" in *.env_key=*) _ep_wants_key=1 ;; esac; done
-      _ep_key="$("$NODE_BIN" "$_eng/qwenaccounts.js" launch-key "$EFFECTIVE_CODEX_HOME" 2>/dev/null || true)"
+      # Review 7: the key only from a launch-key that succeeded; a refusal's sentence must never become the key.
+      _ep_key="$("$NODE_BIN" "$_eng/qwenaccounts.js" launch-key "$EFFECTIVE_CODEX_HOME" 2>/dev/null)" || _ep_key=""
       if [ "$_ep_wants_key" -eq 1 ] && [ -z "$_ep_key" ]; then
         say "$SESSION: could not read its Qwen account's key; the agent was not started"
         exit 1

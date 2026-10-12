@@ -99,7 +99,9 @@ function endpointProblem(ep) {
    link-local address is not caught here (no DNS lookup); the live check refuses to follow redirects (askModels). */
 function isLinkLocal(hostname) {
   let host = String(hostname || '').replace(/^\[|\]$/g, '').toLowerCase();
-  const mapped = host.match(/^(?:::ffff:|64:ff9b::)(?:([0-9a-f]{1,4}):([0-9a-f]{1,4})|(\d+\.\d+\.\d+\.\d+))$/);
+  if (host === 'fd00:ec2::254') return true;   // review 7: a cloud's IPv6 metadata address
+  // Review 7: IPv4-compatible (::a9fe:a9fe) too, beside mapped (::ffff:) and NAT64 (64:ff9b::).
+  const mapped = host.match(/^(?:::ffff:|64:ff9b::|::)(?:([0-9a-f]{1,4}):([0-9a-f]{1,4})|(\d+\.\d+\.\d+\.\d+))$/);
   if (mapped) {
     if (mapped[3]) host = mapped[3];
     else {

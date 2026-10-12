@@ -1819,9 +1819,8 @@ function setQwenAccount(clean, spoken, dir, job, platform) {
   /* Review 3: the account names the model, so a move is a model change and the company policy holds here too. */
   const allowed = policyAllows('alibaba', '', acct.dir);
   if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because };
-  // Review 3: the new home is a fresh CODEX_HOME, so it needs the folder-trust entry too.
-  try { trustCodexFolder(workerDir(clean), acct.dir, false); }
-  catch { return { outcome: OUTCOME.REFUSED, because: 'we could not let Codex work in its folder, so nothing was changed' }; }
+  // Review 7: belt-and-braces only (the supervisor trusts the folder in the private runtime home codex reads, #4592).
+  try { trustCodexFolder(workerDir(clean), acct.dir, false); } catch { /* the launch writes the one codex reads */ }
   /* Review 6: the account Repair would rebuild on is recorded BEFORE the job moves, and must land: a job on B with a
      profile still naming A would later be rebuilt on A, another endpoint and model, with nothing said. If the record
      cannot be written nothing moves; if the job cannot be rewritten the old record is put back. */
@@ -2297,10 +2296,10 @@ function setProvider(name, provider, opts) {
     if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal('Qwen') };
     if (acct.endpointProblem) return { outcome: OUTCOME.REFUSED, because: `that Qwen account cannot be used (${acct.endpointProblem}), so nothing was changed` };
     switchAccount = { ...acct, chosen: opts.pickedByPerson === true };
-    /* Review 3: codex asks "trust this folder?" on its first interactive start and nothing answers it, so the entry
-       goes into the Qwen home codex will run in, as the OpenAI arm writes its own. */
-    try { trustCodexFolder(workerDir(clean), acct.dir, false); }
-    catch { return { outcome: OUTCOME.REFUSED, because: 'we could not let Codex work in its folder, so nothing was changed' }; }
+    /* Review 3, corrected in review 7: the supervisor runs codex on a private runtime home (#4592) and writes the
+       folder-trust entry there on every launch, which is the one codex reads. This entry in the account folder only
+       mirrors the OpenAI arm, so a failure here never refuses the switch. */
+    try { trustCodexFolder(workerDir(clean), acct.dir, false); } catch { /* the launch writes the one codex reads */ }
   }
   if ((runner === 'gemini' || runner === 'grok') && !DRY_RUN) {
     const mod = runner === 'gemini' ? require('./geminiaccounts') : require('./grokaccounts');
@@ -2337,6 +2336,17 @@ function setProvider(name, provider, opts) {
       }
       switchAccount = { ...acct, chosen };
     }
+  }
+  /* #5977 review 7: Repair rebuilds a lost job from the profile, so a switch to or from Qwen records the new
+     { provider, qwenAccount } BEFORE the job moves, as setQwenAccount does: a failed record moves nothing, and a failed
+     job rewrite puts the old record back. (Other switches keep the best-effort write below: their Repair needs only the
+     provider, which a failed write leaves pointing at the old runner, the #1159 behaviour.) */
+  const qwenSide = provider === 'alibaba' || jobProvider(job) === 'alibaba';
+  let qwenBefore = null;
+  if (qwenSide && !DRY_RUN) {
+    try { const p0 = store.readProfile(clean) || {}; qwenBefore = { provider: p0.provider || null, qwenAccount: p0.qwenAccount || null }; } catch { qwenBefore = null; }
+    try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null }); }
+    catch { return { outcome: OUTCOME.REFUSED, because: `we could not record which provider ${spoken} is on, so nothing was changed` }; }
   }
   /* ⚠️ `job.tmux` is kept (the recorded path is the working one); the model
      and the account are NOT, in either direction: they are provider-shaped
@@ -2385,7 +2395,10 @@ function setProvider(name, provider, opts) {
             : (openaiAccount && !(openaiAccount.isDefault && !codexHomeOverridden()) ? openaiAccount.dir : null))
           : (switchAccount && !switchAccount.isDefault ? switchAccount.dir : null),
     }, platform);
-    if (unwritten) return unwritten;
+    if (unwritten) {
+      if (qwenBefore) { try { store.writeProfile(clean, qwenBefore); } catch { /* the job did not move */ } }
+      return unwritten;
+    }
   }
   /* #2245: the brief FILENAME is runner-aware (codex boots AGENTS.md, claude
      boots CLAUDE.md), so a runner CHANGE must MOVE the brief to the file the
@@ -4360,7 +4373,10 @@ async function accountConnectable({ provider, accountDir } = {}) {
     if (!dir) return { ok: true };   // createAgentInner refuses a Qwen create with no account
     try {
       const qwen = require('./qwenaccounts');
-      const live = await qwen.checkLive(dir);
+      // Review 7: only a listed account is asked; an unknown folder is createAgentInner's to refuse in its own words.
+      const listed = qwen.list().find((a) => a.dir === require('path').resolve(dir));
+      if (!listed) return { ok: true };
+      const live = await qwen.checkLive(listed.dir);
       if (live && live.state === qwen.STATE.NONE) return { ok: false, because: `that Qwen account cannot be used: ${live.because}` };
     } catch (err) {
       console.error('#1916: account liveness precheck errored in qwen (failing open):', (err && err.stack) || err);
@@ -6001,8 +6017,10 @@ function createAgentInner(opts) {
    * the agent IS that consent: the folder is ours, made three steps up.
    * Append-only, once, into the same CODEX_HOME codexsession.js reads.
    */
-  const trustedFolder = (provider !== 'openai' && provider !== 'alibaba')   // review 3: a Qwen home is a CODEX_HOME too
-    || ((wroteInstructions && installedSupervisor) && step(provider === 'alibaba' ? 'let Codex work in its folder' : 'let the OpenAI runner work in its folder', () => {
+  /* #5977 review 7: not for Qwen. The supervisor trusts the folder in codex's private runtime home (#4592) on every
+     launch, which is the copy codex reads; an entry in the Qwen account folder would be unread. */
+  const trustedFolder = provider !== 'openai'
+    || ((wroteInstructions && installedSupervisor) && step('let the OpenAI runner work in its folder', () => {
       if (DRY_RUN) return true;
       trustCodexFolder(workerDir(name), configDir, !configDir);
       /* Same moment, same home, same reason: a first-run prompt nothing will

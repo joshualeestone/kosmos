@@ -322,6 +322,50 @@ test('#5977 r6: an account move that cannot record the new account moves nothing
   assert.equal(store.readProfile(name).qwenAccount, b);
 });
 
+/* ---- review 7 --------------------------------------------------------------------------------------------- */
+
+test('#5977 r7: a switch to Qwen that cannot record it changes nothing; a recorded one carries its account', () => {
+  const a = nodePath.join(HOME, qwen.DIR_PREFIX + 'r7a'); qwen.storeEndpoint(a, EP);
+  const name = codexAgent('r7-sw', null, 'anthropic');
+  fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), '# brief\n');
+  const before = create.readJob(name).configDir;
+  const orig = store.writeProfile;
+  store.writeProfile = () => { throw new Error('disk full'); };
+  let r;
+  try { r = create.setProvider(name, 'alibaba', { accountDir: a, codexBin: CODEX_BIN, tmuxBin: TMUX_BIN, platform: 'darwin' }); }
+  finally { store.writeProfile = orig; }
+  assert.equal(r.outcome, 'refused');
+  assert.equal(create.readJob(name).configDir, before, 'the job moved to Qwen while the record still said otherwise');
+  const ok = create.setProvider(name, 'alibaba', { accountDir: a, codexBin: CODEX_BIN, tmuxBin: TMUX_BIN, platform: 'darwin' });
+  assert.equal(ok.outcome, 'created', 'CONTROL: ' + ok.because);
+  assert.equal(store.readProfile(name).qwenAccount, a);
+});
+
+test('#5977 r7: the create pre-check asks only a listed Qwen account', async () => {
+  const stray = nodePath.join(HOME, 'not-a-qwen-account');
+  fs.mkdirSync(stray, { recursive: true });
+  fs.writeFileSync(nodePath.join(stray, qwen.ENDPOINT_BASENAME), JSON.stringify({ ...EP, baseUrl: 'https://stray.example.com/v1' }));
+  let asked = 0;
+  qwen.setFetcher(async () => { asked += 1; return { status: 401, body: null }; });
+  try {
+    assert.equal((await create.accountConnectable({ provider: 'alibaba', accountDir: stray })).ok, true);
+    assert.equal(asked, 0, 'an unlisted folder\'s endpoint was fetched');
+  } finally { qwen.setFetcher(null); }
+});
+
+test('#5977 r7: IPv4-compatible IPv6 and the IPv6 metadata address are link-local too', () => {
+  for (const u of ['http://[::a9fe:a9fe]/v1', 'http://[::169.254.169.254]/v1', 'http://[fd00:ec2::254]/v1']) {
+    assert.match(String(qwen.endpointProblem({ ...EP, baseUrl: u })), /link-local/, u);
+  }
+  assert.equal(qwen.endpointProblem({ ...EP, baseUrl: 'http://[::1]:11434/v1' }), null, 'CONTROL: this computer');
+});
+
+test('#5977 r7: the supervisor takes the key only from a launch-key that succeeded (pinned: a race cannot be staged)', () => {
+  const sup = fs.readFileSync(nodePath.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
+  assert.match(sup, /launch-key "\$EFFECTIVE_CODEX_HOME" 2>\/dev\/null\)" \|\| _ep_key=""/);
+  assert.doesNotMatch(sup, /launch-key "\$EFFECTIVE_CODEX_HOME" 2>\/dev\/null \|\| true\)/, 'a failed launch-key\'s words would become the key');
+});
+
 /* Last in the file: setRunner(null) leaves dry-run on, which the earlier switch tests must not inherit. */
 test('#5977 r5: Repair rebuilds a Qwen agent on its recorded Qwen account, and refuses rather than make it OpenAI', () => {
   const register = require('./register');
