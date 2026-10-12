@@ -328,6 +328,6 @@ for (const which of ['card', 'lrow']) {
     assert.ok(!render(which, offlineRow()).includes('working rules'), 'a row with no number drew the sentence');
     const html = render(which, { ...offlineRow({ strict: false }), rulesBehind: 13 });
     assert.ok(html.includes(SAID), `${which} did not draw the sentence: ${html.slice(0, 200)}`);
-    assert.ok(html.includes(which === 'card' ? '<div class="atask">' + SAID : '<div class="ltask">' + SAID), `${which} drew it outside its task slot`);
+    assert.ok(html.includes(which === 'card' ? '<div class="note">' + SAID : '<div class="ltask">' + SAID), `${which} drew it outside its slot`);
   });
 }
