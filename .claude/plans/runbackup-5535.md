@@ -96,3 +96,4 @@ Mutants after review 3 (19:25 CDT from `date`): V1 bucket dropped from the snaps
 2. NIT: a missing device key repeated one backup-key request every run. FIXED rather than documented: the device key
    is read FIRST, locally; without one nothing is asked and nothing is written. Read again before each snapshot.
    Tests count 17 -> 18 (one replaced in place, one added).
+Mutants after review 4 (19:30 CDT from `date`), each tests 18 pass 17 fail 1: W1 took set on any pass, W2 no device-key check before the key step, W3 no re-check before the snapshot.
