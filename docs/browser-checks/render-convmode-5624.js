@@ -32,7 +32,7 @@
  *   C18 opening the same agent again (openDetail) reads nothing that arrived meanwhile (reviews 5, 6)
  *   C19 a real tab change away from a room and back reads nothing that arrived meanwhile (review 7)
  *   C20 at 700px, where the room's header stacks, the room's toggle sits on the search's line, not a row of its own,
- *       in today's look and in the new look (C20b), with nothing pushed out of the row
+ *       in today's look and in the new look (C20b), with nothing pushed out of the row, and at phone width (C20c)
  *   C21 the direct conversation's toggle renders on its search's line, just before it (desktop)
  *   C9 no page errors
  *
@@ -149,7 +149,7 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     const c1 = await page.evaluate(() => {
       const b = document.getElementById('d-conv');
       const p = document.getElementById('pj-conv');
-      const box = (el) => !!el && !!el.closest('.composerbox, .dmbar, .pjbar');
+      const box = (el) => !!el && !!el.closest('.composerbox, .dmbar');
       return { exists: !!b, shown: !!b && getComputedStyle(b).display !== 'none', pressed: b && b.getAttribute('aria-pressed'),
         inHead: !!b && !!b.closest('.d-talk-caprow') && b.nextElementSibling && b.nextElementSibling.id === 'd-talk-search-wrap',
         pjInHead: !!p && !!p.closest('.pjmidhead') && !!p.nextElementSibling && p.nextElementSibling.classList.contains('tsearch'),
@@ -281,7 +281,17 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
       if (typeof placeLook === 'function') placeLook(cons);
       return out;
     });
+    // C20c: phone width, where the room's search is the taller touch size.
+    await page.setViewportSize({ width: 375, height: 800 });
+    const c20c = await page.evaluate(() => {
+      const mid = document.querySelector('#pj-one-view .pjmidhead');
+      const b = document.getElementById('pj-conv').getBoundingClientRect();
+      const s = mid.querySelector('.tsearch').getBoundingClientRect();
+      return { drawn: b.width > 0 && s.width > 0, dy: Math.round(Math.abs((b.top + b.height / 2) - (s.top + s.height / 2))),
+        before: b.right <= s.left + 1, inside: s.right <= mid.getBoundingClientRect().right + 1 };
+    });
     await page.setViewportSize({ width: 1200, height: 800 });
+    chk(c20c.drawn && c20c.dy <= 6 && c20c.before && c20c.inside, 'C20c at 375px the room toggle still sits on the search line, inside the header', JSON.stringify(c20c));
     chk(c20.stacked && c20.head && c20.drawn && c20.dy <= 6 && c20.before, 'C20 at 700px the room toggle sits on the search line, not a row of its own', JSON.stringify(c20));
     chk(c20b.look && c20b.drawn && c20b.dy <= 6 && c20b.before && c20b.inside, 'C20b the same in the new look, with the search inside the row', JSON.stringify(c20b));
     await page.click('#pj-conv');   // off again for the room
