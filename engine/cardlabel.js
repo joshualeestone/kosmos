@@ -3,9 +3,10 @@
  * #5959: the word a person sees on an agent's card, for the agent itself (`kosmos report show`), so an agent can check
  * its own card without reading the board.
  *
- * The page owns these words (web/index.html STATE_COPY, restartingLabel, stateCopyOf). This is a second copy, kept
- * equal by cardlabel-5959.test.js, which lifts the page's own functions and compares their answers with these on every
- * state and special case. Change one and that test goes red until the other matches.
+ * The page owns these words (web/index.html STATE_COPY, restartingLabel, stateCopyOf, and the card render's offline
+ * branch). This is a second copy, kept equal by cardlabel-5959.test.js: it lifts the page's functions and compares
+ * answers on every state and special case, and pins the offline branch (a template) by its text. A state named like an
+ * Object member reads "Can't tell" here, where the page has no word.
  */
 
 const STATE_COPY = Object.freeze({
@@ -34,7 +35,7 @@ function restartingLabel(a) {
   return base;
 }
 
-/** The card's label for board card `a`, as the page's stateCopyOf picks it. */
+/** The card's label for board card `a`: the card render's offline branch, then the page's stateCopyOf. */
 function labelOf(a) {
   /* The page's offline card (renderAgentCard's `a.running === false` branch) comes before stateCopyOf: a trust prompt,
      a job running where Kosmos cannot see it ("Can't tell"), or "Not running". */
