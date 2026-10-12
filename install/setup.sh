@@ -417,7 +417,7 @@ sealed_icon_other_users() {
   [ -d "$SEALED_USERS_DIR" ] && [ ! -L "$SEALED_USERS_DIR" ] && [ -r "$SEALED_USERS_DIR" ] && [ -x "$SEALED_USERS_DIR" ] || return 0
   [ "$(/usr/bin/stat -f %Mp%Lp "$SEALED_USERS_DIR" 2>/dev/null)" = 1777 ] || return 0   # %Lp alone drops the sticky bit (measured)
   local f
-  for f in "$SEALED_USERS_DIR"/* "$SEALED_USERS_DIR"/.??* "$SEALED_USERS_DIR"/..?*; do
+  for f in "$SEALED_USERS_DIR"/* "$SEALED_USERS_DIR"/.[!.]* "$SEALED_USERS_DIR"/..?*; do
     [ -e "$f" ] || [ -L "$f" ] || continue
     [ "$(/usr/bin/basename "$f")" = "$1" ] && continue
     return 0
@@ -453,6 +453,7 @@ sealed_icon_mark_reuse() {
     /usr/bin/grep -qxF "$(sealed_marker_tag)" "$f" 2>/dev/null && return 0
     rm -f "$f" 2>/dev/null || return 1   # this account's own marker for another of its installs: replaced
   fi
+  [ -d "$f" ] && return 1   # review 5: ln into a directory there would "succeed" inside it
   tmp="$(umask 077; /usr/bin/mktemp "$SEALED_USERS_DIR/.mark.$me.XXXXXX" 2>/dev/null)" || return 1
   printf '%s\n' "$(sealed_marker_tag)" > "$tmp" 2>/dev/null && /bin/ln "$tmp" "$f" 2>/dev/null
   rc=$?

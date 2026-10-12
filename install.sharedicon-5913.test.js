@@ -115,6 +115,9 @@ it('#5913/#5912 reader: exit 1 only when no OTHER account has a marker; every fa
   fs.writeFileSync(path.join(w.users, '.hidden'), '');
   assert.match(ask(), /rc=0/, 'a dot-named marker must keep the icon too (fail safe)');
   fs.rmSync(path.join(w.users, '.hidden'));
+  fs.writeFileSync(path.join(w.users, '.a'), '');   // review 5: a two-character dot-name counts too
+  assert.match(ask(), /rc=0/, 'a two-character dot-name was skipped');
+  fs.rmSync(path.join(w.users, '.a'));
   fs.chmodSync(w.users, 0o000);
   try { assert.match(ask(), /rc=0/, 'an unreadable folder must keep the icon'); } finally { fs.chmodSync(w.users, 0o755); }
   fs.rmSync(w.users, { recursive: true }); fs.writeFileSync(w.users, 'not a folder');
@@ -249,6 +252,10 @@ it('#5913 review 2: a FIFO planted at the marker name is refused, never opened (
   fs.unlinkSync(path.join(w.users, ME));
   assert.match(run(w, 'sealed_icon_mark_reuse; echo "rc=$?"').out, /rc=0/, 'CONTROL: a clean name is written');
   assert.deepEqual(fs.readdirSync(w.users).filter((n) => n.startsWith('.mark.')), [], 'a temp marker file was left after a success');
+  // Review 5: a DIRECTORY at this account's name is refused, not "marked" by a link made inside it.
+  fs.unlinkSync(path.join(w.users, ME)); fs.mkdirSync(path.join(w.users, ME));
+  assert.match(run(w, 'sealed_icon_mark_reuse; echo "rc=$?"').out, /rc=[1-9]/, 'a directory at the marker name read as marked');
+  assert.deepEqual(fs.readdirSync(path.join(w.users, ME)), [], 'a link was made inside the planted directory');
 });
 
 it('#5913 review 2: the reader keeps the icon when an ancestor above the parent cannot be searched', () => {
