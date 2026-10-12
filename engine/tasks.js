@@ -313,7 +313,7 @@ function childrenOf(p, n) {
   return treeOf(p).under(n);
 }
 
-/** A parent's `{done, total}` over its direct children; total 0 means no subtasks. */
+/** A parent's `{done, built, total}` over its direct children (kosmos#5956: built = open, not held, marked built); total 0 means no subtasks. */
 function subtaskProgress(p, n) {
   return treeOf(p).progress(n);
 }

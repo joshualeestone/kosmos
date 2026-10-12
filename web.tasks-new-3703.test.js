@@ -23,7 +23,7 @@ test.after(() => { try { BOARD.restore(); } catch { /* restored */ } fs.rmSync(S
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
-const FNS = page.liftAll(SCRIPT, ['pjById', 'ntChoices', 'openNewTask', 'ntAimAt', 'ntFillParents', 'leaveNewTask']);
+const FNS = page.liftAll(SCRIPT, ['pjById', 'ntChoices', 'openNewTask', 'ntAimAt', 'ntFillParents', 'leaveNewTask', 'ntGoState']);
 
 function world(projects, { current = null, readFailed = false } = {}) {
   const els = {};
@@ -225,7 +225,7 @@ test('kosmos#5956: Create stays down until both what needs doing and how you wil
 });
 
 test('kosmos#5956 review 1: the engine\'s done-when refusal is said in the field\'s own words, and the field says it is needed', () => {
-  assert.match(SCRIPT, /\/done-when check\/\.test\(why\)\s*\? 'How will you know it is done has to be one line of plain text, 200 characters or fewer\.'/);
+  assert.match(SCRIPT, /\/done-when check\/\.test\(why\)\s*\? 'Your answer to "How will you know it is done\?" has to be one line of plain text, 200 characters or fewer\. Some emoji and symbols cannot be used there\.'/);
   assert.match(PAGE, /id="nt-done"[^>]*aria-required="true"[^>]*aria-describedby="nt-done-hint"/);
   assert.match(PAGE, /<p class="fhint" id="nt-done-hint"[^>]*>Needed to create the task\. The agent checks its work against this\.<\/p>/);
 });

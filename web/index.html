@@ -9495,6 +9495,9 @@ body.consolidated .tkcard:hover { border-color: transparent; }
 /* #766: a dialog that holds a form (New task) takes the create page's width
    and lets its fields fill it. */
 .rm-box.rm-box-form { max-width: 34rem; }
+/* kosmos#5956 review 3: a form dialog that is taller than the window (New task on a phone, or a short window) scrolls
+   inside the backdrop instead of losing its top and its Create button off-screen. */
+.rm-box.rm-box-form { max-height: 100%; overflow-y: auto; }
 .rm-box-form .field { margin-top: var(--space-5); }
 .rm-box-form .tk-inp { width: 100%; }
 /* 0.6.45 (Josh): the add-member modal closes with an X in the corner (not a
@@ -63253,8 +63256,7 @@ function openNewTask(projectId, origin, parent) {
   ntAimAt(p);
   document.getElementById('nt-msg').textContent = '';
   document.getElementById('nt-voice-msg').textContent = '';   // #4409 slice 2: the mic's line, like every dialog's
-  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim()
-    || !document.getElementById('nt-done').value.trim();   // kosmos#5956
+  ntGoState();   // kosmos#5956: the one Create rule (what needs doing, how you will know it is done, a project)
   document.getElementById('nt-modal').hidden = false;
   /* With the picker showing, focus starts on it: its chosen project is heard first, before any
      words are typed for it. */
@@ -63377,7 +63379,7 @@ document.getElementById('nt-go').addEventListener('click', async () => {
          the field's own words. */
       const why = (body && body.error) || '';
       document.getElementById('nt-msg').textContent = /done-when check/.test(why)
-        ? 'How will you know it is done has to be one line of plain text, 200 characters or fewer.'
+        ? 'Your answer to "How will you know it is done?" has to be one line of plain text, 200 characters or fewer. Some emoji and symbols cannot be used there.'
         : why || 'we could not add that task';
       go.disabled = false;
       return;

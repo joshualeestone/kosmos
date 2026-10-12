@@ -252,3 +252,25 @@ test('#3898: New task\'s "Part of" picker escapes each open task\'s sentence', (
   assert.match(html, escapedTag);
   assert.match(fillParents(PASS, ep), rawTag, 'CONTROL: without esc the raw tag reaches the picker');
 });
+
+test('kosmos#5956 review 3: the project card chip says "all subtasks built" only when every subtask is closed or built, and never on a closed parent', () => {
+  const rec0 = projects.create({ name: 'Card built ' + Math.random().toString(36).slice(2), agents: ['rex'] });
+  const top = tasks.create(rec0.id, { sentence: 'Launch' });
+  const a = tasks.create(rec0.id, { sentence: 'Copy', parent: top.number, who: 'rex' });
+  const b = tasks.create(rec0.id, { sentence: 'Photos', parent: top.number, who: 'rex' });
+  const chipOf = () => {
+    const rec = projects.readAll().find((x) => x.id === rec0.id);
+    const joined = { ...rec, tasks: projects.joinTaskClaims(rec.tasks, projects.readAll(), [], [], { name: rec.name, id: rec.id }) };
+    const only = { ...joined, tasks: joined.tasks.filter((t) => t.number === top.number) };
+    const m = paintColumn(ESC, only).match(/<span class="tsk-chip"[^>]*>[\s\S]*?<\/span>/);
+    return m ? m[0] : '';
+  };
+  assert.equal(tasks.setBuilt(rec0.id, a.number, { by: 'rex', note: 'copy is in' }).ok, true);
+  assert.doesNotMatch(chipOf(), /all subtasks built/, 'CONTROL: Photos is neither closed nor built');
+  tasks.close(rec0.id, b.number);
+  assert.match(chipOf(), /1\/2, all subtasks built/);
+  tasks.close(rec0.id, a.number);
+  assert.match(chipOf(), /2\/2, all subtasks done/, 'all closed: done wins');
+  tasks.close(rec0.id, top.number);
+  assert.doesNotMatch(chipOf(), /all subtasks built/, 'a closed parent says nothing about built');
+});
