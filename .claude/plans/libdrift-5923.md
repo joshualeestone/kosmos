@@ -32,19 +32,20 @@ ps pipeline keeps this script's argv, so without the ppid exclusion every real r
 
 Residuals, stated:
 - A copy of the script older than #5923 takes no lib lock, so one that STARTS during a move is not held off by it.
-  The installed copy is replaced by this version on merge, which closes that window.
+- Merging changes only the repo copy. The installed copy (~/.cache/claude-handoffs/queued-heavy.sh, what agents run)
+  is installed by hand, written beside and moved over; April installs it after merge as part of this card.
 - The lock's dead-holder takeover is check-then-act, as _qh_take's is: two joiners reading the same dead pid can
   both end up holding it. A dead holder needs a joiner killed inside its check (about a second).
 - Past about 5 minutes on the lock a run loads the lib unchecked rather than wait without bound.
 - The ps match is split on spaces: shell options before the path, `env bash`, or a path with a space is not seen.
   A ps that fails or prints nothing blocks the move ("could not list processes").
-- The lock holds off only queued-heavy.sh joiners. Anything else sourcing cut-guard.sh from this checkout during the
-  milliseconds of a checkout could read a file mid-rewrite.
+- A move replaces the whole checkout, so a process whose working directory is inside it blocks the move (lsof -d
+  cwd, about 0.3 s). A process using files there without its working directory there is not seen.
 - kill -0 on a live holder owned by another user fails (EPERM) and reads as dead; every agent here is one user.
+  A lock whose pid was reused by another command is taken over (the holder records its command line).
 
 ## Tests
-tools/test-queued-heavy-4977.sh: nine #5923 arms. Two use the REAL ps under a private script name (QH_TEST_PS_NAME):
-the run does not count itself (perturbed by removing the ppid exclusion: that arm goes red), and CONTROL, a live
-process of that name blocks the move. The other seven (moved; then matches; marker blocks; live waiter blocks; CONTROL:
-caller shell and grep are not waiters, move happens; QUEUED_HEAVY_LIB set is report-only; local changes block and are
-kept). QH_TEST_PS seam replaces ps so real waiters on the box cannot sway the arms.
+tools/test-queued-heavy-4977.sh, thirteen #5923 arms (EXPECTED 118), listed in the file. Two use the REAL ps under a
+private script name (QH_TEST_PS_NAME): the run does not count itself (perturbed by removing the ppid exclusion: that
+arm went red), and its control, a live process of that name, blocks the move. The rest use the QH_TEST_PS and
+QH_TEST_CWD seams so real processes on the box cannot sway them.
