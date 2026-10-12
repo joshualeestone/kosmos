@@ -121,12 +121,16 @@ else
 fi
 # The sweep above looks for the CURRENT values, so right after a team switch it would be blind to a
 # leftover of the OLD team. Pin the Stone Syndicate team id (built from fragments so this file does
-# not match itself) everywhere, tests included: only the lib may carry it.
+# not match itself) everywhere, tests included: only the lib may carry it, and ios/Signing.xcconfig only while
+# it names the lib's CURRENT team (checked below), so a leftover there after a switch is still caught.
 # Only whole-line comments are unhashed in the pkg input, so a value line must not carry an inline one.
 _inline="$(grep -nE '^[[:space:]]*[A-Z_]+=.*[[:space:]]#' "$REPO/tools/lib/signing-identity.sh" || true)"
 [ -z "$_inline" ] && ok "no value line in lib/signing-identity.sh carries an inline comment (it would be hashed)" || bad "an inline comment on a value line in lib/signing-identity.sh would force a pkg rebuild: $_inline"
 _retired="864QZ""69GF2"; _retired_name="Stone Syndicate"" LLC"; _retired_key="43F2HU""5BT8"; _retired_iss="69a6de7f-a03e-47e3-""e053-5b8c7c11a4d1"
-_ret_hits="$(grep -rlIF --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.claude -e "$_retired" -e "$_retired_name" -e "$_retired_key" -e "$_retired_iss" "$REPO" | grep -v '/tools/lib/signing-identity.sh$' | grep -v '/ios/Signing.xcconfig$' || true)"   # the iOS exception, as above
+# The iOS team file is exempt only while its DEVELOPMENT_TEAM is the lib's current team (#4089).
+_ios_team="$(sed -n 's|//.*||; s/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*//p' "$REPO/ios/Signing.xcconfig" 2>/dev/null | tr -d '[:space:]')"
+if [ -n "$_ios_team" ] && [ "$_ios_team" = "$KOSMOS_SIGN_TEAM_ID" ]; then _ios_skip='/ios/Signing.xcconfig$'; else _ios_skip='^$'; fi
+_ret_hits="$(grep -rlIF --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.claude -e "$_retired" -e "$_retired_name" -e "$_retired_key" -e "$_retired_iss" "$REPO" | grep -v '/tools/lib/signing-identity.sh$' | grep -v "$_ios_skip" || true)"
 [ -z "$_ret_hits" ] && ok "the Stone Syndicate team id, name and notary key appear nowhere but the lib (and the iOS team file), tests included" || bad "the Stone Syndicate team id is named outside lib/signing-identity.sh: $_ret_hits"
 # The iOS exception admits the TEAM only: a notary key id or issuer there is still refused (#4089).
 _ios_keys="$(grep -nF -e "$KOSMOS_NOTARY_KEY_ID_DEFAULT" -e "$KOSMOS_NOTARY_ISSUER_DEFAULT" -e "$_retired_key" -e "$_retired_iss" "$REPO/ios/Signing.xcconfig" 2>/dev/null || true)"

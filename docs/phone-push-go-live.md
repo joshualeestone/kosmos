@@ -258,8 +258,8 @@ internal testers only. Apple transfers only an app with a version released on th
 (App Transfer Criteria), so this app is never transferred: when #3643 is approved, the real app is
 created fresh as `io.kosmos.app` under Kosmos Agent Manager, Inc., testers install it once, and the
 preview app is retired. `io.kosmos.app` is never registered under Stone Syndicate. Push does not
-reach preview builds: the coordinator has no APNs key, and `KOSMOS_APNS_BUNDLE_IDS` allows only
-`io.kosmos.app`. Before the first upload Josh does three one-time steps under Stone Syndicate (exact
+reach preview builds: the coordinator has no APNs key, and `KOSMOS_APNS_BUNDLE_IDS` (unset today) is
+planned to allow only `io.kosmos.app`. Before the first upload Josh does three one-time steps under Stone Syndicate (exact
 clicks on kosmos #4089): register `io.kosmos.app.preview` with Push Notifications, create its App
 Store Connect app record (named `Kosmos Preview`), and make an Admin App Store Connect API key (the kosmos-notarize key was
 refused even registering an identifier, so Admin is the safe choice for the automatic signing
