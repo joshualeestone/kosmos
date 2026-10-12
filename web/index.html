@@ -7793,11 +7793,13 @@ html.kosmos-keyboard-up .pj-held-why { display: block; max-height: 4.4em; overfl
 .micbtn { display: none; touch-action: manipulation; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 html.has-voice .micbtn { display: grid; }
-/* #5624: conversation mode, beside the mic in a conversation's box: shown where the page can speak (html.has-speak)
-   AND the mode is switched on (html.conv-on; held off by Josh 2026-10-09 10:49, see CONV_ENABLED). */
+/* #5624: conversation mode, in a conversation's header row beside its search (not the message box: Josh 2026-10-09
+   10:52), shown where the page can speak (html.has-speak) AND the mode is switched on (html.conv-on; held, see
+   CONV_ENABLED). */
 .convbtn { display: none; touch-action: manipulation; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 html.has-speak.conv-on .convbtn { display: grid; }
+@media (hover: none) { .convbtn { width: 44px; height: 44px; } }   /* the 44px touch minimum the phone rows use */
 .convbtn:hover { background: color-mix(in srgb, var(--k-ink) 8%, transparent); color: var(--k-ink); }
 .convbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .convbtn[aria-pressed="true"] { color: var(--k-ink); background: color-mix(in srgb, var(--k-ink) 14%, transparent);
@@ -10788,7 +10790,20 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-shared,
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-paused,   /* kosmos#5391 review 1 */
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-head-pause-msg,
-  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .tsearch { flex: 1 0 100%; }
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .pjconvsearch > .tsearch { flex: 1 0 100%; }
+}
+/* #5624: the room's read-aloud toggle and its search share one wrapper, display: contents, so every layout above
+   sees the search as before. Where the header stacks (up to 60rem) and the toggle is drawn, the wrapper becomes one
+   row, so the toggle sits beside the search instead of on a row of its own. ⚠️ flex: none in the stacked column, for
+   the same height-balloon reason as the .tsearch re-reset above; under the new look's wrapping row it takes the line. */
+.pjconvsearch { display: contents; }
+@media (max-width: 60rem) {
+  html.has-speak.conv-on .pjmidhead:has(.pjhead) > .pjconvsearch { display: flex; flex: none; align-items: center; gap: 8px; }
+  html.has-speak.conv-on .pjmidhead:has(.pjhead) > .pjconvsearch > .tsearch { flex: 1 1 auto; }
+  :root[data-look="new"].has-speak.conv-on body:not(.consolidated) #pj-one-view .pjmidhead > .pjconvsearch { flex: 1 0 100%; }
+  /* Outweighs the look's own full-line rule for the search (one id each, more classes here), which inside the row
+     would push the search past the toggle. */
+  :root[data-look="new"].has-speak.conv-on body:not(.consolidated) #pj-one-view .pjmidhead > .pjconvsearch > .tsearch { flex: 1 1 auto; }
 }
 /* #4470, Create an agent in the new look. The option cards on every create step (the kind picker's and the role
    step's) lose their hairline at rest (the look's cards have none; the grey bounds them on the white page): a chosen
@@ -11874,6 +11889,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   /* #5551: the new look's Back row steps aside here too, for the same 44px. */
   :root[data-look="new"] body:not(.consolidated) #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box :is(.d-crumb-back, .d-crumb-rootwrap) { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .d-talk-caprow:has(#d-talk-search:placeholder-shown):not(:focus-within) { margin: 0; }
+  /* #5624: the read-aloud toggle steps aside with the rest of that row, on or off, for the same 44px. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .d-talk-caprow:has(#d-talk-search:placeholder-shown):not(:focus-within) > #d-conv { display: none; }
   /* The agent's header is one slim line: name and state, no avatar (it is on Profile). */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dav-wrap { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead { padding: 2px 0 2px 6px; margin-bottom: 4px; }
@@ -12697,6 +12714,7 @@ window.kosmosMeasureScrollbarWidth();
       <button class="pj-back d-crumb-back" id="d-crumb-back" type="button" aria-label="Back to All agents"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
       <span class="d-crumb-rootwrap"><button class="linkish d-crumb-root" id="d-crumb-root" type="button" tabindex="-1" aria-hidden="true">All agents</button><span class="pj-crumb-sep" aria-hidden="true">/</span></span>
       <h3 id="d-talk-label"></h3>
+      <button class="convbtn" id="d-conv" type="button" data-conv-for="dm" aria-pressed="false" aria-label="Read new messages aloud as they arrive" title="Read new messages aloud"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
       <div class="tsearch" id="d-talk-search-wrap">
         <span class="tsearch-i" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -12780,7 +12798,7 @@ window.kosmosMeasureScrollbarWidth();
            grey smiley and panel, driven by the same code (EMOJI_AT below), so there is one list
            of emoji and one behaviour. The panel sits inside this box, which is its anchor. -->
       <!-- #4409: the mic. Drawn only where a voice bridge exists (html.has-voice): the Mac app, or a phone (slice 3). -->
-      <button class="micbtn" id="d-mic" type="button" data-voice-for="d-say" data-voice-msg="d-say-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button><button class="convbtn" id="d-conv" type="button" data-conv-for="dm" aria-pressed="false" aria-label="Read new messages aloud as they arrive" title="Read new messages aloud"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
+      <button class="micbtn" id="d-mic" type="button" data-voice-for="d-say" data-voice-msg="d-say-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
       <button class="emojibtn" id="d-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="d-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
             <button class="btn uprime cpost" id="d-send" type="button">Post</button>
       <div class="emojipanel" id="d-emoji" role="group" aria-label="Pick an emoji" hidden></div>
@@ -16593,11 +16611,14 @@ window.kosmosMeasureScrollbarWidth();
 
     <section class="pjcol pjmid">
       <div class="pjmidhead"><h3 class="dlab">Conversation</h3>
+        <div class="pjconvsearch">
+          <button class="convbtn" id="pj-conv" type="button" data-conv-for="pj" aria-pressed="false" aria-label="Read new messages aloud as they arrive" title="Read new messages aloud"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
         <div class="tsearch">
           <span class="tsearch-i" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
           </span>
           <input type="search" id="pj-room-search" placeholder="Search" aria-label="Search this conversation">
+        </div>
         </div>
       </div>
       <!-- THE ROOM (View D): this project's thread, drawn from the record
@@ -16677,7 +16698,7 @@ window.kosmosMeasureScrollbarWidth();
                app: "the yellow post button", match the pack. So Post and the
                agent page's Send wear `.uprime`, the build's gold. The
                argument above stays as the record of what it cost. -->
-                    <button class="micbtn" id="pj-mic" type="button" data-voice-for="pj-post" data-voice-msg="pj-room-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button><button class="convbtn" id="pj-conv" type="button" data-conv-for="pj" aria-pressed="false" aria-label="Read new messages aloud as they arrive" title="Read new messages aloud"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
+                    <button class="micbtn" id="pj-mic" type="button" data-voice-for="pj-post" data-voice-msg="pj-room-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
                     <button class="emojibtn" id="pj-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="pj-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
                     <button class="btn uprime cpost" id="pj-post-go" type="button">Post</button>
         </div>
@@ -68353,11 +68374,12 @@ window.addEventListener('pagehide', () => { if (SPEAK.btn) speakStop(); });
 /* ---- #5624: conversation mode ----
    While it is on for a conversation (an agent's direct thread, or a project room), each NEW message from an agent
    there is read aloud as it arrives, with the read-aloud parts above (on-device voice, code announced not spelled).
-   On/off is per conversation, remembered on this computer only (localStorage), and always visible on its button.
+   On/off is per conversation, remembered on this computer only (localStorage), and shown on its button.
    Nothing already on screen is read: a conversation's messages count as heard the first time they are drawn, and
    when the mode is turned on. A newer message stops the one being read; leaving the conversation or turning the mode
    off stops it too. A long message is read up to CONV_MAX characters, cut at a sentence end. */
-/* HELD (Josh 2026-10-09 10:49 and 10:52: "It doesn't make sense to have it in the input box"): off, so no toggle is drawn and nothing is read,
+/* HELD (Josh 2026-10-09 10:49 and 10:52) until Josh lifts it; the toggle has since moved out of the input box (#5624,
+   2026-10-12) into each conversation's header. Off, so no toggle is drawn and nothing is read,
    even for a conversation someone turned on before the hold. To bring it back, make the default true. The
    kosmos.convmode.enabled switch exists so the page check can still exercise the mode; nothing in the app sets it. */
 const CONV_ENABLED = (() => { try { return localStorage.getItem('kosmos.convmode.enabled') === '1'; } catch { return false; } })();

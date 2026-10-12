@@ -162,6 +162,12 @@ unset CODEX_HOME AGENT_WORKFORCE_CODEX_HOME
 # agent carries a KOSMOS_AGENT_TOKEN) would make each CLI test that spreads process.env stop sending the board
 # token, and five tests that expect it went red (measured). A test that wants the switch sets it itself.
 unset KOSMOS_AGENT_TOKEN_ONLY
+# #5933, the same boundary for the agent's identity itself: since #5898 every agent's launcher passes
+# KOSMOS_AGENT_TOKEN and KOSMOS_AGENT_SESSION, and install/kosmos treats a process carrying either as an agent
+# that presents its token. A CLI test that spreads process.env then presents a token its sandbox board never
+# issued and is refused (server.subtasks-3861: three reds, measured, in an agent's own validation and none in
+# CI). Every test that wants either variable sets its own.
+unset KOSMOS_AGENT_TOKEN KOSMOS_AGENT_SESSION
 # #5073, the same boundary for the caller's locale: with none, tmux replaces its field tabs and every test that reads
 # tmux goes red for that alone (the 0.7.19 re-cut, launched through `tmux run-shell`, had no LANG). The rules are in
 # the lib; a lib that is missing fails loud here rather than skipping the pin.

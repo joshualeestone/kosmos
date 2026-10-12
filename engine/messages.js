@@ -842,7 +842,9 @@ function rowShaped(m) {
      valve's window mark, exactly as an operator post does, without adding a
      content row. Given its own read-side rule so a malformed reopen is dropped
      like every other first-class kind. Always operator: an agent cannot mint
-     one (the route is board-token gated, the operator surface). */
+     one (the route is board-token gated, the operator surface). #5902 adds one
+     writer: a person's post from their own other computer (reopenForOwnPost,
+     reason 'own-computer'), which the relay stamps same_account. */
   if (m.kind === 'reopen') {
     return str(m.project) && m.operator === true;
   }
@@ -2067,7 +2069,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      without having to type a content post into the room to do it. Both reset
      the arrival budget to the moment they happened; neither can be minted by
      an agent (operator posts ride the operator route, reopen rows the
-     board-token-gated reopen route). */
+     board-token-gated reopen route). #5902 adds one more writer: a post the
+     relay stamps as this account's own and that is not marked an agent's
+     (reopenForOwnPost). A modified or older client on the person's other
+     computer could send an agent's post unmarked, and it would write one too. */
   const lastOperatorAt = log.reduce((mark, m) => {
     if (!m || m.project !== projectId) return mark;
     const isOperatorPost = m.kind === 'post' && m.operator === true;
@@ -3085,7 +3090,9 @@ function react({ project, of, emoji, from, operator, members }) {
    OPERATOR SURFACE. The row is always operator: true, and the only route that
    reaches this is board-token gated -- the same posture as an operator post.
    An agent cannot reopen a room it is looping in, and even if it could, the
-   valve simply re-fires once the budget is spent again. */
+   valve simply re-fires once the budget is spent again. (#5902's
+   reopenForOwnPost is the one other writer, with the caveat at its own
+   comment.) */
 function reopenRoom(project, at) {
   const projectId = String(project == null ? '' : project).trim();
   if (!projectId) return { ok: false, because: 'say which project room to reopen' };
@@ -3094,6 +3101,31 @@ function reopenRoom(project, at) {
   }
   const when = typeof at === 'string' && Number.isFinite(Date.parse(at)) ? at : new Date().toISOString();
   appendLog({ kind: 'reopen', from: 'you', to: projectId, project: projectId, operator: true, at: when });
+  return { ok: true, at: when };
+}
+
+/* #5902: a person's post from their OWN other computer releases a held room, as a post typed here does. The valve
+   exists to stop agents looping with nobody in the room, and a person typing is the sign that someone is: the same
+   person, on another of their computers. Without this, #5732's nudge is skipped in a held room (a reply could not be
+   posted), so that post reached no agent and the room stayed held until somebody pressed Reopen HERE.
+   Called only when ownPostNudges(msg) is true (server.js recordExternal), so exactly the posts that nudge: stamped
+   same_account by the relay AND written by a person. A stranger's post, or an agent's relayed from the other computer,
+   never releases it, and KOSMOS_OWN_ROOM_NUDGE=0 turns this off with the nudge (one switch for the behaviour).
+   Weakest premise, on the card: fromKind is said by the sending board, and engine/fedseats.js reads any kind but
+   'agent' as a person (an older client that sends none included), so a same-account post not marked as an agent's
+   releases the room. It can never be a stranger: same_account is the relay's.
+   Written for EVERY such post, held or not: like a post typed here, it also restarts the valve's count in an open
+   room.
+   Written as the reopen marker reopenRoom writes (it renders nothing; both valve readers count it), at the external
+   row's own time, naming that row. */
+function reopenForOwnPost(projectId, row) {
+  const id = String(projectId == null ? '' : projectId).trim();
+  if (!id || !/^[A-Za-z0-9._ -]+$/.test(id) || !row || typeof row.id !== 'string' || !row.id) return { ok: false };
+  /* Never later than now (externalPost stamps now, so this guards a hand-built row): a future time would move the
+     valve's window start ahead and stop it counting until then. */
+  const t = typeof row.at === 'string' ? Date.parse(row.at) : NaN;
+  const when = Number.isFinite(t) && t <= Date.now() ? row.at : new Date().toISOString();
+  appendLog({ kind: 'reopen', from: 'you', to: id, project: id, operator: true, at: when, post: row.id, reason: 'own-computer' });
   return { ok: true, at: when };
 }
 
@@ -3354,7 +3386,8 @@ module.exports = {
   keepTaskLine, tellTaskLineDropped, recordTaskLineOutcome,   // kosmos#5805: task messages; #5842: their outcome on the task
   NOT_ON_PROJECT_FIX,   // kosmos#5752 slice 2
   logRoomRefusal,       // kosmos#5752 slice 3
-  nudgeOwnComputerPost, ownPostNudges, OWN_POST_NUDGE_GAP_MS, _resetOwnPostNudgesForTests: resetOwnPostNudgesForTests,   // #5732
+  nudgeOwnComputerPost, ownPostNudges, OWN_POST_NUDGE_GAP_MS, reopenForOwnPost,   // #5902
+  _resetOwnPostNudgesForTests: resetOwnPostNudgesForTests,   // #5732
   staleHeld, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS,
   SEND_DEDUP_WINDOW_MS,
   // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.

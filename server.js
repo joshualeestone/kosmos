@@ -21532,6 +21532,9 @@ fedseats.configure({
   recordExternal: (projectId, msg) => {
     const row = messages.externalPost(projectId, msg);
     if (row && messages.ownPostNudges(msg, process.env)) {
+      /* #5902: the person typing on their other computer releases a held room, written NOW so the deferred nudge below
+         finds it released. A failure here only leaves the room held, as before. */
+      try { messages.reopenForOwnPost(projectId, row); } catch { /* the post is recorded either way */ }
       /* Deferred so the seat's data handler returns before any pane is inspected or typed into. The typing itself is
          synchronous (chat.deliverAutomatic, as the #185 sweep), one member at a time. */
       const nudge = () => {
