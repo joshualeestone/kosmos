@@ -33,7 +33,8 @@ was its slowest file at 193 s.
   nothing (a fix to a leak older than this change).
 
 ## Proof
-- The test's full output (1,083 lines) is byte-identical before and after (`diff` clean).
+- The test's full output (1,083 lines) is byte-identical before and after (`diff` clean), apart from the three new
+  arm lines (fast path, spot, parity).
 - Interleaved on the same load: the original 340 s and 205 s, the new one 13 s and 12 s (load-dependent figures,
   not a contract).
 

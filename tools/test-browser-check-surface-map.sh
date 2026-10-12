@@ -37,8 +37,8 @@
 #
 # dstat/dpath naming avoided; no tied var names (path/status/cdpath); find, not a glob (zsh aborts
 # a no-match glob); every glob quoted. Runs under bash (shebang), wired into test:shell. Most surface
-# tokens are DOM ids ([A-Za-z0-9_-]+); some are not (data-pmark="xai"), so token_web_scan escapes
-# ERE metachars, as the sibling gate does.
+# tokens are DOM ids ([A-Za-z0-9_-]+), some are not (data-pmark="xai"), and the annotation parser
+# accepts any string, so token_web_scan escapes ERE metachars, as the sibling gate does.
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 WEB="$REPO/web/index.html"
@@ -95,8 +95,8 @@ split_halves() {
 # halves counts toward both, which is correct). grep exits 1 on zero matches; with no `set -e`
 # the count is still captured. The token is ERE-escaped with the SAME sed the sibling gate uses
 # (browser-check-surface-gate.sh), so a token carrying a metachar (`.`, `+`, ...) matches only
-# itself, not a lookalike -- parity with the gate, and never a false pass. (Surface tokens are
-# DOM ids in practice, but the annotation parser accepts any string, so this must not assume.)
+# itself, not a lookalike -- parity with the gate, and never a false pass. (Most surface tokens
+# are DOM ids, but the annotation parser accepts any string, so this must not assume.)
 token_web_scan() {
   local esc; esc="$(printf '%s' "$1" | sed 's/[][\\.^$*+?(){}|]/\\&/g')"
   local b="(^|[^A-Za-z0-9_-])${esc}([^A-Za-z0-9_-]|\$)"
@@ -160,11 +160,13 @@ else bad "the counted table holds $_nrows rows for $_nplain plain tokens: the fa
 # that undercounts (and stays above zero, so the loop would still pass) goes red here.
 _spot=0; _spotbad=0
 while IFS= read -r t; do
+  [ -n "$t" ] || continue   # a here-string of no tokens still delivers one empty line
   _spot=$((_spot + 1))
   _got="$(token_counts "$t" "$COUNTS" /dev/null /dev/null)"; _want="$(token_web_scan "$t" "$WEB_CODE" "$WEB_CMT")"
   [ "$_got" = "$_want" ] || { bad "SPOT: the table says '$_got' for $t on web/index.html, token_web_scan says '$_want'"; _spotbad=1; }
 done <<< "$(LC_ALL=C grep -E '^[A-Za-z0-9_-]+$' "$ALL_TOKS" | LC_ALL=C sort -u | awk 'NR % 40 == 1')"
-[ "$_spot" -ge 1 ] && [ "$_spotbad" -eq 0 ] && ok "SPOT: the table matches token_web_scan on all $_spot sampled real tokens"
+if [ "$_spot" -eq 0 ]; then ok "SPOT: no plain token declared, so nothing to sample"
+elif [ "$_spotbad" -eq 0 ]; then ok "SPOT: the table matches token_web_scan on all $_spot sampled real tokens"; fi
 
 annotated=0
 while IFS="$(printf '\t')" read -r f toks; do
