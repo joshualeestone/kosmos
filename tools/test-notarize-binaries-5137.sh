@@ -16,7 +16,7 @@ bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-unset KOSMOS_NOTARIZE KOSMOS_NOTARY_KEY_ID KOSMOS_NOTARY_ISSUER KOSMOS_NOTARY_PROBE_BIN NT_HISTORY NT_TAIL NT_FIRST_WAIT NT_RAWLOG NT_NOID_TIMES NT_LOG_FAIL NT_LOG_FAIL_TIMES NT_ISSUE_HASH NT_MESSAGE   # an operator's export must not change the arms
+unset KOSMOS_NOTARIZE KOSMOS_NOTARY_KEY_ID KOSMOS_NOTARY_ISSUER KOSMOS_NOTARY_PROBE_BIN NT_HISTORY NT_TAIL NT_FIRST_WAIT NT_RAWLOG NT_NOID_TIMES NT_LOG_FAIL NT_LOG_FAIL_TIMES NT_LOG_EMPTY_TIMES NT_ISSUE_HASH NT_MESSAGE   # an operator's export must not change the arms
 
 HA=1111111111111111111111111111111111111111
 HT=2222222222222222222222222222222222222222
@@ -70,6 +70,7 @@ nt_stub() {
              else echo '{"message":"Successfully received submission history.","history":[{"id":"x","status":"Accepted"}]}'; fi ;;
     log)    [ "${NT_LOG_FAIL:-0}" = 1 ] && { echo "Error: log unavailable" >&2; return 1; }
             [ "$(grep -c '^log$' "$WORK/nt.ran")" -le "${NT_LOG_FAIL_TIMES:-0}" ] && { echo "Error: connection reset" >&2; return 1; }
+            [ "$(grep -c '^log$' "$WORK/nt.ran")" -le "${NT_LOG_EMPTY_TIMES:-0}" ] && { echo "<html>502 Bad Gateway</html>"; return 0; }
             [ -n "${NT_RAWLOG:-}" ] && { printf '%s\n' "$NT_RAWLOG"; return 0; }
             printf '{\n  "jobId": "sub-1",\n  "status": "%s",\n  "ticketContents": [\n' "$NT_STATUS"
             local h sep=""; for h in $NT_HASHES; do printf '%s    {\n      "cdhash": "%s"\n    }' "$sep" "$h"; sep=$',\n'; done
@@ -156,6 +157,9 @@ unset NT_LOG_FAIL
 NT_STATUS=Accepted NT_HASHES="$HA" NT_LOG_FAIL_TIMES=1; rc=$(run "$WORK/bin/kosmos-app")
 [ "$rc" = 0 ] && [ "$(ran log)" = 2 ] && ok "a log fetch that fails once is tried again and passes" || bad "log retry (rc=$rc, log=$(ran log)): $(cat "$WORK/out")"
 unset NT_LOG_FAIL_TIMES
+NT_STATUS=Accepted NT_HASHES="$HA" NT_LOG_EMPTY_TIMES=1; rc=$(run "$WORK/bin/kosmos-app")
+[ "$rc" = 0 ] && [ "$(ran log)" = 2 ] && ok "a log that exits 0 with no ticketContents is fetched again and passes" || bad "exit-0 log retry (rc=$rc, log=$(ran log)): $(cat "$WORK/out")"
+unset NT_LOG_EMPTY_TIMES
 
 # --- a missing binary and a non-Mach-O file refuse before submitting ---
 rc=$(run "$WORK/bin/no-such-binary"); [ "$rc" = 1 ] && [ "$(ran submit)" = 0 ] && ok "a missing binary refuses before submitting" || bad "missing binary (rc=$rc)"
@@ -246,6 +250,6 @@ pack="$(grep -n '^echo "==> packing"' "$B" | head -1 | cut -d: -f1)"
   || bad "order wrong: notarise=$call last-sign=$last_sign last-selftest=$last_selftest pack=$pack"
 
 echo "test-notarize-binaries-5137: $passes passed, $fails failed"
-EXPECTED=54   # the number of ok lines above; a skipped arm must not read as green
+EXPECTED=55   # the number of ok lines above; a skipped arm must not read as green
 [ "$passes" = "$EXPECTED" ] || echo "test-notarize-binaries-5137: $passes passes, expected $EXPECTED (an arm was skipped or added without updating EXPECTED)"
 [ "$fails" = 0 ] && [ "$passes" = "$EXPECTED" ]
