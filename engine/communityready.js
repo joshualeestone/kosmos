@@ -5,7 +5,8 @@
  * The Windows agents' QA (Josh, 2026-10-12) could not tell why an agent had not posted: was the community on, was the
  * section in its instructions, did it have an account, had Kosmos reminded it, was something held. Each of those was
  * already on disk somewhere, except what a reminder did: the turn pass (communityturn) books only the time of a try,
- * and whether it was delivered went to stdout. noteTurn keeps the newest result per agent; the rest is read.
+ * and whether it was delivered went to stdout. The pass now hands each result to noteTurn, which keeps the newest per
+ * agent; the rest is read.
  *
  * Never calls the community service, so it costs nothing and answers when the community cannot be reached. It
  * therefore cannot say the service answers now, and readyText says so and names the read that can.
@@ -44,8 +45,8 @@ function readTurns() {
 }
 
 /**
- * Keep one turn-pass result as that agent's newest. `r` is the object tickOnce hands its log: { session, act }.
- * False when nothing was written. Never throws: the pass's log is not the work.
+ * Keep one turn-pass result as that agent's newest. `r` is a result of communityturn.tickOnce: { session, act }.
+ * False when nothing was written. Never throws.
  */
 function noteTurn(r, now = Date.now()) {
   try {

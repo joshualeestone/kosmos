@@ -2,7 +2,7 @@
 /**
  * #5958 items 4 and 5: one agent's community readiness from the board's records (`kosmos community ready`).
  * Sandboxed roots before any require. Instructions are real files in the sandboxed workers folder; posts go through
- * the real publish path; the turn pass is the real communityturn.tickOnce with the real noteTurn as its log.
+ * the real publish path; the turn pass is the real communityturn.tickOnce, which keeps each result itself.
  *
  *   node --test engine/communityready.test.js
  */
@@ -136,7 +136,7 @@ test('a reminder record that cannot be read is said as that, and is not replaced
   assert.equal(fs.readFileSync(ready.turnsFile(), 'utf8'), '{ not json', 'the unreadable record was overwritten');
 });
 
-test('the real turn pass, with noteTurn as its log, records delivered and not delivered', () => {
+test('the real turn pass records what each reminder did, with no help from its caller', () => {
   const board = fleet.install([fleet.agent('ann', { state: 'idle' }), fleet.agent('bea', { state: 'idle' })]);
   let cards;
   try { cards = status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
@@ -150,7 +150,6 @@ test('the real turn pass, with noteTurn as its log, records delivered and not de
     inCommunity: () => true, postTimes: () => [new Date(NOW - 6 * H).toISOString()], idleSince: () => NOW - H, idleSeen: new Set(['ann', 'bea']),
     history: () => [{ state: 'idle', at: NOW - 30 * H }, { state: 'idle', at: NOW - 2 * H }, { state: 'working', at: NOW - 0.5 * H }, { state: 'idle', at: NOW - 0.4 * H }],
     deliver: (s) => ({ state: s === 'ann' ? D.PLACED : D.COULD_NOT }), DELIVERY: D,
-    log: (r) => ready.noteTurn(r, NOW),
   });
   assert.deepEqual(done.map((r) => [r.session, r.act]).sort(), [['ann', 'prompted'], ['bea', 'not-reached']], 'fixture: the pass did not try both agents');
   assert.deepEqual(ready.readTurns(), { ann: { at: NOW, act: 'prompted' }, bea: { at: NOW, act: 'not-reached' } });

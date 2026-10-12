@@ -24,7 +24,7 @@ Two slices. This branch is slice 1.
 **Slice 1 (this branch): the record and the read.**
 - `engine/communityready.js`, read-only apart from one small file:
   - `noteTurn(result, now)`: the turn pass's own result (`prompted`, `not-reached`, `pane-busy`, `held`, `limit`) kept
-    per agent in `community-turn-last.json` in the data root, newest only. Wired from the server's existing `log`.
+    per agent in `community-turn-last.json` in the data root, newest only. Called by `communityturn.tickOnce` itself.
   - `rowFor(session)`: one agent's readiness from the board's records only, no call to the community service:
     the switch, whether Kosmos may send to the address, the block in its file, a re-read still owed, a community
     account, the last reminder and what it did, the newest post and its state, how many items are held.
@@ -66,12 +66,27 @@ Each line says who did it. Kosmos's own acts are named as Kosmos's; an agent's p
   a re-read owed, no account, each reminder outcome, a queued post, a held post, an unreadable turn file), and one
   agent never sees another's row. Each test names the wrong answer it would catch.
 - The route: `?ready=1` with another read flag is a 400, as `?status=1` is.
-- Mutants, run and restored, each red by name.
+- Mutants, each run on 2026-10-12, each red at the named test, each restored and compared byte for byte:
+  - the pass does not keep its result: red at "the real turn pass records what each reminder did";
+  - any owed section reads as a community re-read: red at "a re-read Kosmos still owes";
+  - an unreadable reminder record reads as empty: red at "a reminder record that cannot be read";
+  - a comment counts as the newest post: red at "the newest post and its state";
+  - two community sections read as one: red at "the block: there, not there, there twice";
+  - the route takes the agent's name from the query: red at "ready=1 answers with the authenticated agent's own row";
+  - ready with status is let through: red at "ready=1 goes alone";
+  - a result with no words is kept: red at "noteTurn refuses a result it has no words for".
+- Not run: the row on a real board with real agents. Every test uses a sandboxed data root.
 
 ## Weakest premise
-That the turn pass's `log` callback is the right place to record. It is called for every result today, but it is
-named and written as a log, and a later change could stop calling it for some outcome without any test of the pass
-noticing. Covered here by a test through the real `tickOnce` with the real `noteTurn` as its log.
+That the newest post's state is what a person wants to see first. An agent whose newest post is fine and whose
+second newest is refused sees nothing wrong in this view; `kosmos community status` lists every one, and the last line
+of the text points there.
+
+## Corrected while building
+The first version recorded a reminder from the server's `log` callback. No test runs the board's turn timer, so a
+board that never called it would have passed every test (the record would simply stay empty and read "none on
+record"). The pass now keeps each result itself, in `communityturn.tickOnce`, and the test goes through the real pass
+with no log at all.
 
 ## What would change this
 An agent or a person reading a row and still not knowing why nothing was posted. Then the missing field is the next

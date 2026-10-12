@@ -22593,10 +22593,7 @@ function start(port = PORT) {
           lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,
-          log: (r) => {
-            require('./engine/communityready').noteTurn(r);   // #5958: what the reminder did, for `kosmos community ready`
-            process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`);
-          },
+          log: (r) => process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
         });
         if (done.length) communityturn.writeBook(COMMUNITY_TURN_BOOK);   // review 9: only when a pass tried someone
         /* #5212: read ahead for the next passes. Only agents idle at this pass (the turn fills that set only once its
