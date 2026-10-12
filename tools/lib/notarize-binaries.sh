@@ -178,8 +178,8 @@ notarize_binaries() (
     printf '%s\n' "$log" | sed 's/^/    /' >&2; echo "notarize: could not fetch Apple's log for $id" >&2; exit 1; }
   # Only the ticketContents array counts: a hash named in issues[] is not a ticket.
   # Read up to the array's first "]", with whitespace removed so a match can name the key.
-  # A nested array inside an entry would cut it short; tools/test-notarize-binaries-5137.sh pins
-  # that this refuses rather than passes.
+  # A nested array inside an entry cuts it short, which can only drop hashes, never add them
+  # (tools/test-notarize-binaries-5137.sh pins the refusal).
   ticket="$(printf '%s' "$log" | tr -d ' \t\n\r' | sed -n 's/.*"ticketContents":\[\([^]]*\)\].*/\1/p')"
   case "$ticket" in
     *'"cdhash":"'*) ;;

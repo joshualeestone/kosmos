@@ -730,17 +730,6 @@ echo "==> native app: dictation listens on-device only, or not at all (#4409)"
 _app_bin_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')"
 echo "==> native app: kosmos-app signed $_app_bin_sha"
 
-# #5137: NOTARISE both signed binaries, after every self-test above has run them and before
-# anything is packed. Signed but unnotarised, Gatekeeper rejects them the moment anything
-# quarantines them. Notarising does not change the bytes, so the checksums above still hold.
-# KOSMOS_NOTARIZE=0 skips it for a local test build only (it says so loudly).
-. "$REPO/tools/lib/notarize-binaries.sh"
-notarize_binaries "$STAGE/app/bin/kosmos-app" "$STAGE/app/bin/kosmos-tunnel" || {
-  echo "could not notarise the native app and the Plus connector (#5137). NOT shipping binaries Gatekeeper rejects." >&2; exit 1; }
-[ "$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')" = "$_app_bin_sha" ] \
-  && [ "$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}')" = "$_tunnel_sha" ] || {
-  echo "a binary changed during notarisation; the checksums taken after signing no longer describe what ships" >&2; exit 1; }
-
 # ---- the runtime ------------------------------------------------------------
 node_arch() {
   case "$ARCH" in
@@ -956,6 +945,18 @@ fi
   echo "node:   $("$STAGE/runtime/bin/node" --version)"
   echo "built:  $(date -u +%Y-%m-%dT%H:%M:%SZ) on macOS $(sw_vers -productVersion 2>/dev/null || echo '?')"
 } > "$STAGE/VERSION"
+
+# #5137: NOTARISE both signed binaries, after every self-test and local gate above (so a
+# build they refuse never waits on Apple) and just before packing. Signed but unnotarised,
+# Gatekeeper rejects them the moment anything quarantines them. Then both shas are checked
+# against the ones taken after signing, since those are what the logs and manifest describe.
+# KOSMOS_NOTARIZE=0 skips it for a local test build only (it says so loudly).
+. "$REPO/tools/lib/notarize-binaries.sh"
+notarize_binaries "$STAGE/app/bin/kosmos-app" "$STAGE/app/bin/kosmos-tunnel" || {
+  echo "could not notarise the native app and the Plus connector (#5137). NOT shipping binaries Gatekeeper rejects." >&2; exit 1; }
+[ "$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')" = "$_app_bin_sha" ] \
+  && [ "$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}')" = "$_tunnel_sha" ] || {
+  echo "a signed binary changed between signing and packing; the checksums taken after signing no longer describe what ships" >&2; exit 1; }
 
 echo "==> packing"
 TARBALL_OUT="$OUT/kosmos-$ARCH.tar.gz"
