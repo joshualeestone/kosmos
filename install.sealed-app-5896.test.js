@@ -34,7 +34,7 @@ function fnSource(name) {
   const end = SETUP.indexOf('\n}\n', at);
   return SETUP.slice(at + 1, end + 3);
 }
-const FNS = ['bundle_is_ours', 'sealed_config_reaches', 'bundle_looks_sealed', 'sealed_serves_this_install', 'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'app_bundle_into'].map(fnSource).join('\n');
+const FNS = ['bundle_is_ours', 'other_board_installs', 'sealed_config_reaches', 'bundle_looks_sealed', 'sealed_serves_this_install', 'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'app_bundle_into'].map(fnSource).join('\n');
 
 let tmpRoot, SYS;   // SYS: the stand-in for the shared /Applications (setup.sh's SYS_APP_DIR)
 test.before(() => {
@@ -134,7 +134,7 @@ it('#5896: a bundle that carries a per-install file is still judged by it, never
 });
 
 test('#5896: uninstall checks for the shared sealed icon BEFORE the branch that removes it', () => {
-  const at = SETUP.indexOf('if bundle_looks_sealed "$SYS_APP_DIR/Kosmos.app"; then');
+  const at = SETUP.indexOf('if bundle_looks_sealed "$SYS_APP_DIR/Kosmos.app" \\\n');
   assert.notEqual(at, -1, 'the uninstall no longer asks whether the shared icon is the sealed one');
   const rm = SETUP.indexOf('elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then', at);
   assert.ok(rm > at && rm - at < 900, 'the sealed check is not directly before the removal branch');
@@ -342,4 +342,34 @@ it('#5896: a sealed copy that does not come out whole falls back to building the
   const r = run({ KOSMOS_HOME: home, _wic_rc: '0' }, `app_bundle_into "${st}"; echo "rc=$?"`);
   assert.match(r.out, /rc=0/, 'a failed sealed copy ended the icon step instead of falling back');
   assert.equal(built(st), true, 'the per-install bundle was not built after the failed copy');
+});
+
+// #5912: on a one-account Mac the shared sealed icon goes when no other install of this account remains.
+test('#5912: other_board_installs counts other boards of this account, never this install\'s own or a watchdog', () => {
+  const la = fs.mkdtempSync(path.join(tmpRoot || os.tmpdir(), 'launchagents-'));
+  const ask = (self) => {
+    const script = ['set -u', fnSource('other_board_installs'), `other_board_installs "${self}"; echo "rc=$?"`].join('\n');
+    return execFileSync('/bin/sh', ['-c', script], { env: { PATH: '/usr/bin:/bin', HOME: la, AGENT_WORKFORCE_LAUNCH: la }, encoding: 'utf8' });
+  };
+  assert.match(ask('com.kosmos.board'), /rc=1/, 'an empty folder reported another install');
+  fs.writeFileSync(path.join(la, 'com.kosmos.board.watchdog.plist'), '');
+  fs.writeFileSync(path.join(la, 'com.kosmos.board.watchdog.0a1b2c3d.plist'), '');
+  fs.writeFileSync(path.join(la, 'com.kosmos.board.plist.bak-20260921T140335'), '');
+  fs.writeFileSync(path.join(la, 'com.kosmos.agent.echo.plist'), '');
+  assert.match(ask('com.kosmos.board'), /rc=1/, 'a watchdog, a backup or an agent job was counted as another install');
+  fs.writeFileSync(path.join(la, 'com.kosmos.board.plist'), '');
+  assert.match(ask('com.kosmos.board'), /rc=1/, 'this install\'s own board was counted as another install');
+  assert.match(ask('com.kosmos.board.0a1b2c3d'), /rc=0/, 'the default install\'s board was not seen from a custom-home install');
+  fs.writeFileSync(path.join(la, 'com.kosmos.board.9f8e7d6c.plist'), '');
+  assert.match(ask('com.kosmos.board'), /rc=0/, 'a custom-home install\'s board was not seen from the default install');
+});
+
+test('#5912: the uninstall removes the shared sealed icon only when it is this install\'s and no other install remains', () => {
+  const at = SETUP.indexOf('if bundle_looks_sealed "$SYS_APP_DIR/Kosmos.app" \\\n');
+  assert.notEqual(at, -1);
+  const cond = SETUP.slice(at, SETUP.indexOf('; then', at));
+  assert.match(cond, /! \{ bundle_is_ours "\$SYS_APP_DIR\/Kosmos\.app" remove && ! other_board_installs "\$_board_label"; \}/,
+    'the leave-it condition no longer exempts this install\'s own icon on a one-install account');
+  const un = SETUP.slice(SETUP.indexOf('\nuninstall() {\n'));
+  assert.ok(un.indexOf('_board_label=com.kosmos.board') < un.indexOf('other_board_installs "$_board_label"'), '_board_label is set after it is used');
 });
