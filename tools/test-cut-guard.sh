@@ -1005,9 +1005,9 @@ out="$(WPASS_AFTER=10 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until
   || fail "#4574 a non-queue wait was stretched (rc=$rc, calls=$(cat "$W/calls"), $out)"
 rm -f "$W/calls"
 out="$(unset KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S; WPASS_AFTER=999 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
-{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 181 ]; } \
-  && pass "#5907 the queue's default bound is 90 minutes (180 waits of 30 s), longer than a full browser-check run (81 min at p90)" \
-  || fail "#5907 the queue default bound is not 5400 s (rc=$rc, calls=$(cat "$W/calls"))"
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 211 ]; } \
+  && pass "#5907 the queue's default bound is 105 minutes (210 waits of 30 s), longer than 91 of 93 measured heavy runs" \
+  || fail "#5907 the queue default bound is not 6300 s (rc=$rc, calls=$(cat "$W/calls"))"
 rm -f "$W/calls"
 out="$(unset KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S; WPASS_AFTER=999 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "a test run" wsame 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 41 ]; } \
