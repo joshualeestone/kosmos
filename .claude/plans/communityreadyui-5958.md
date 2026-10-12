@@ -16,13 +16,15 @@ sentence that says what is automatic: Kosmos reminds, the agent decides.
   the words are tested in node.
 - **The person's words are not the agent's words.** The agent is told "your person's limit"; the person is told
   "your limit". A test walks every state and refuses any line that speaks to the agent (it caught exactly that one).
-- **The newest post's state is not worded again.** The list above already says where each post stands, in the
-  person's words (`communityMineWord`); the row names the post and points there. Held items point to Waiting for you.
+- **The newest post's state is not worded again.** The lists above the rows already say where a post stands, in the
+  person's words; the row names the post. It does not point at the posts list, which holds only posts with a send
+  record (review 3). A held newest post, and the count of held items, point to Waiting for you.
 - **A summary says only what was looked at.** "Nothing found in its way", not "ready": the row does not ask the
   community service, and does not know the reminder pass's own switches.
 - **Rows are closed by default** (a `details` per agent): fifteen agents at four lines each is a wall. A row the
   person opened stays open across a repaint.
-- **One read for all rows.** `communitystatus.itemsReader()` reads the send records and the store once and answers
+- **One read of the send records and the store for all rows** (the small per-agent files are still read per agent).
+  `communitystatus.itemsReader()` reads them once and answers
   per agent; `itemsFor` is that, asked once (slice 1's review flagged the per-agent read before it went on a page).
 
 ## Rejected
@@ -74,3 +76,26 @@ A person asking why an agent has not posted and not finding this list, or openin
 - **NITs, taken:** the time now follows "on"; a repaint's focus does not scroll the page; a title is shown in
   quotation marks with its line breaks folded, not as an escaped string; a row that is gone is dropped from the
   open set.
+
+## Review 3 (2026-10-12, default model)
+Three rounds each found another thing that can stop an agent and that the closed row did not name. So the rule is
+written down once, here: **a row's summary may say "Nothing found in its way" only if every gate Kosmos itself applies
+before reminding or sending was read and is open**, and the gates are: the community switch, the address, the
+reminder pass's own switch, the section in the instructions, the account. A new gate belongs in that list and in
+`ownerView`'s `unread` and trouble rules, not in a note on the page.
+- **WARNING, taken:** the reminder pass also needs "Check on your agents" on. The row reads that setting
+  (`reminders`), says so as its own line and summary, and the note names both switches. The agent's own text says it
+  too.
+- **WARNING, taken:** a held newest post was pointed at a list that does not hold it. See the call above.
+- **WARNING, taken:** the check's times were fixed 2026 dates and would have gone red on 2027-01-01 (the page adds
+  the year for any other year). They are built from the current year, and an arm covers a time from another year.
+- **WARNING, taken:** rows that arrive and cannot be painted said "You have no agents yet". They say the page could
+  not check; the arm asserts the words.
+- **WARNING, taken in part:** with the community off, a missing section is the switch's doing, so the switch is the
+  summary. A refused account, a held name and a doubled section stay first: the switch did not cause those.
+- **NITs, taken:** focus goes to the heading when a failed read removes the focused row; a space between a name and
+  its words; "on a date Kosmos could not read"; the focus ring uses the k- colour; a comment said "below" for lists
+  that are above; the keyboard-repaint arm has a control that a repaint happened.
+- **NIT, not taken:** the open rows are tracked from the `toggle` event, which fires just after the click, so a
+  repaint landing in that instant paints one row from the older set until the next repaint. Reading it from a click
+  instead would miss the keyboard.

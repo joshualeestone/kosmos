@@ -13,7 +13,8 @@
  *   OPEN      clicking a summary opens that row only and shows every line the board sent, in order.
  *   KEYS      the summary takes focus by Tab order and Enter opens it.
  *   TIME      a line with a time is written as <time> with a machine datetime, in the page's own zone, between the
- *             board's words; a time the page cannot read says so and is never "Invalid Date".
+ *             board's words; a time in another year shows its year; a time the page cannot read says so and is
+ *             never "Invalid Date".
  *   MARK      a closed row shows a mark that it opens, and the mark turns when it does; a summary reached by the
  *             keyboard shows a focus ring.
  *   KEPT      a row the person opened stays open when the list is painted again with a new answer (opening Automation
@@ -72,6 +73,7 @@ function readList(pg) {
         session: d ? d.dataset.session : null,
         open: d ? d.open : null,
         name: sum && sum.querySelector('b') ? sum.querySelector('b').textContent : null,
+        read: sum ? sum.textContent : null,
         summary: sum && sum.querySelector('span') ? sum.querySelector('span').textContent : null,
         lines: d ? [...d.querySelectorAll(':scope > p')].map((p) => p.textContent) : [],
         times: d ? [...d.querySelectorAll('time')].map((t) => ({ dt: t.getAttribute('datetime'), text: t.textContent })) : [],
@@ -103,14 +105,18 @@ function readList(pg) {
 }
 
 const answer = (body, status = 200) => (route) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
-const T1 = Date.parse('2026-10-12T15:04:00Z');
-const T0 = Date.parse('2026-10-12T10:00:00Z');
+/* Times in THIS year, so the page writes them without one (it adds the year for any other); a fixed date would turn
+   this check red on the first of January. T_OLD is in an earlier year, for the arm that needs the year shown. */
+const YEAR = new Date().getFullYear();
+const T1 = Date.UTC(YEAR, 0, 12, 15, 4);
+const T0 = Date.UTC(YEAR, 0, 12, 10, 0);
+const T_OLD = Date.UTC(YEAR - 2, 5, 3, 9, 30);
 const agent = (session, name, owner) => ({ session, name, switch: 'on', addressOk: true, block: 'present', connected: false, rereadOwed: false, account: 'yes', reminder: null, lastPost: null, held: 0, owner });
 const AVA = agent('ava', 'Ava', { summary: 'Nothing found in its way', lines: [
   { text: 'The community section is in its instructions.' },
   { text: 'It has a community account.' },
   { text: 'Kosmos last went to remind it on ', at: T1, after: '. Delivered.' },
-  { text: 'Its newest post is “Weekly ops”. Where that post stands is in the list of posts and comments.' },
+  { text: 'Its newest post is “Weekly ops”.' },
 ] });
 const BO = agent('bo', 'Bo', { summary: 'No community section in its instructions', lines: [
   { text: 'No community section in its instructions. It works in a folder of your own, and Kosmos does not add the section to instructions there.' },
@@ -140,6 +146,7 @@ async function run() {
     check('ROWS: the heading sits below the posts-and-comments heading', r.belowMine, JSON.stringify(r.belowMine));
     check('ROWS: three rows, each with its name and summary, all closed', r.listHidden === false && r.emptyHidden === true && r.rows.length === 3
       && JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])) === JSON.stringify([['ava', 'Ava', 'Nothing found in its way', false], ['bo', 'Bo', 'No community section in its instructions', false], ['cy', 'Cy', 'Waiting for you', false]]), JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])));
+    check('ROWS: a name and its words are read as two things, with a space between', r.rows[0].read === 'Ava Nothing found in its way', JSON.stringify(r.rows[0].read));
     check('ROWS: the note says a reminder only asks and the agent decides', /A reminder only asks: whether to post, and what to say, is the agent[’']s own decision\./.test(r.note), r.note);
 
     // OPEN
@@ -197,20 +204,33 @@ async function run() {
     const f3 = await readList(p2);
     check('KEYS: Enter opens the focused row', f3.rows[1].open === true && f3.rows[0].open === false, JSON.stringify(f3.rows.map((x) => x.open)));
     // a repaint under the keyboard keeps its place
+    await p2.unroute(READY);
+    await p2.route(READY, answer({ agents: [AVA, { ...BO, owner: { ...BO.owner, summary: 'Painted again' } }] }));
     await p2.evaluate(() => refreshCommunityReady());
-    await p2.waitForTimeout(400);
+    await p2.waitForFunction(() => { const d = document.querySelector('#community-ready-list details[data-session="bo"] summary span'); return d && d.textContent === 'Painted again'; }, null, { timeout: 5000 }).catch(() => {});
     const f4 = await readList(p2);
+    check('KEPT CONTROL: the list was painted again under the keyboard', f4.rows.length === 2 && f4.rows[1].summary === 'Painted again', JSON.stringify(f4.rows.map((x) => x.summary)));
     check('KEPT: a repaint leaves the keyboard on the same row\'s summary', f4.focusIsSummary && f4.focusSession === 'bo' && f4.rows[1].open === true, JSON.stringify([f4.focusIsSummary, f4.focusSession, f4.rows.map((x) => x.open)]));
+    // a read that fails takes the row away: the keyboard goes to the heading, not to nothing
+    await p2.unroute(READY);
+    await p2.route(READY, answer({ error: 'x' }, 503));
+    await p2.evaluate(() => refreshCommunityReady());
+    await p2.waitForFunction(() => document.getElementById('community-ready-list').hidden === true, null, { timeout: 5000 }).catch(() => {});
+    const onHead = await p2.evaluate(() => document.activeElement && document.activeElement.id);
+    check('KEPT: when a failed read takes the focused row away, focus goes to the heading', onHead === 'community-ready-head', String(onHead));
     await p2.close();
 
     // TIME a time the page cannot read
     const p3 = await page();
-    await p3.route(READY, answer({ agents: [agent('dee', 'Dee', { summary: 'Nothing found in its way', lines: [{ text: 'Kosmos last went to remind it on ', at: 1e20, after: '. Delivered.' }, { text: 'It went again ', at: 'soon', after: '.' }, { text: 7 }, null, { text: 'Last line.' }] })] }));
+    await p3.route(READY, answer({ agents: [agent('dee', 'Dee', { summary: 'Nothing found in its way', lines: [{ text: 'Kosmos last went to remind it on ', at: 1e20, after: '. Delivered.' }, { text: 'It went again on ', at: 'soon', after: '.' }, { text: 7 }, null, { text: 'Last line.' }, { text: 'Long ago, on ', at: T_OLD, after: '.' }] })] }));
     await openAutomation(p3);
     const bt = await readList(p3);
-    check('TIME: a time the page cannot read says so, with no datetime and never "Invalid Date"', bt.rows.length === 1 && bt.rows[0].lines.length === 3
-      && bt.rows[0].lines.slice(0, 2).every((t) => /at a time Kosmos could not read/.test(t) && !/Invalid/.test(t)) && bt.rows[0].times.every((t) => t.dt === null), JSON.stringify(bt.rows[0]));
-    check('ODD: a line with no words is skipped, not painted as an empty paragraph', bt.rows[0].lines.length === 3 && bt.rows[0].lines[2] === 'Last line.', JSON.stringify(bt.rows[0].lines));
+    check('TIME: a time the page cannot read says so, with no datetime and never "Invalid Date"', bt.rows.length === 1 && bt.rows[0].lines.length === 4
+      && bt.rows[0].lines[0] === 'Kosmos last went to remind it on a date Kosmos could not read. Delivered.' && bt.rows[0].lines[1] === 'It went again on a date Kosmos could not read.'
+      && !/Invalid/.test(bt.rows[0].lines.join(' ')) && bt.rows[0].times.slice(0, 2).every((t) => t.dt === null), JSON.stringify(bt.rows[0]));
+    check('ODD: a line with no words is skipped, not painted as an empty paragraph', bt.rows[0].lines.length === 4 && bt.rows[0].lines[2] === 'Last line.', JSON.stringify(bt.rows[0].lines));
+    const oldLocal = await p3.evaluate((ms) => new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }), T_OLD);
+    check('TIME: a time in another year shows its year', bt.rows[0].lines[3] === 'Long ago, on ' + oldLocal + '.' && oldLocal.includes(String(YEAR - 2)), JSON.stringify([bt.rows[0].lines[3], oldLocal]));
     await p3.close();
 
     // HOSTILE
@@ -254,7 +274,7 @@ async function run() {
     await p7.route(READY, answer({ agents: [{ session: 'nolines', name: 'No lines' }] }));
     await openAutomation(p7);
     const od2 = await readList(p7);
-    check('ODD: when no row can be painted the list is hidden and a line shows, not an empty box', od2.listHidden === true && od2.emptyHidden === false, JSON.stringify([od2.listHidden, od2.emptyHidden, od2.empty]));
+    check('ODD: when rows came and none can be painted, the line says it could not check, never "no agents"', od2.listHidden === true && od2.emptyHidden === false && /^We could not check where your agents stand just now\./.test(od2.empty) && !/no agents/.test(od2.empty), JSON.stringify([od2.listHidden, od2.emptyHidden, od2.empty]));
     await p7.close();
 
     // FRESH: the switch changes what every row says, so saving it must read the list again
@@ -283,7 +303,7 @@ async function run() {
     const p8 = await page({ width: 390, height: 844 });
     const LONG = agent('long', 'An agent with a very long name that has no reason to fit on one line of a phone', { summary: 'Its community account is waiting on an earlier try', lines: [
       { text: 'An earlier try made a community account under its name and Kosmos never received the key, so it waits rather than make a second.' },
-      { text: 'Its newest post is “' + 'averyveryverylongunbrokenwordthatcannotwrapanywhereonitsown'.repeat(3) + '”. Where that post stands is in the list of posts and comments.' },
+      { text: 'Its newest post is “' + 'averyveryverylongunbrokenwordthatcannotwrapanywhereonitsown'.repeat(3) + '”.' },
     ] });
     await p8.route(READY, answer({ agents: [LONG, CY] }));
     await openAutomation(p8);

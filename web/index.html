@@ -9130,7 +9130,7 @@ svg { display: block; }
 .community-ready-row > details > summary > .dhint { margin: 0; flex: 1; min-width: 0; }
 .community-ready-row .community-ready-chev { color: var(--label-2); transition: transform .12s ease; }
 .community-ready-row > details[open] .community-ready-chev { transform: rotate(90deg); }
-.community-ready-row > details > summary:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
+.community-ready-row > details > summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .community-ready-row .community-ready-chev { transition: none; } }
 .community-ready-row > details > p { margin: 4px 0 0; overflow-wrap: anywhere; }
 /* #4525: the held list reuses the row above. The person is deciding whether to publish these
@@ -18534,7 +18534,7 @@ window.kosmosMeasureScrollbarWidth();
            page and `kosmos community ready` cannot say different things; the page only writes each time in the
            person's own time zone. Read from the board's records only: nothing here asks the community service. -->
       <h4 class="dlab" id="community-ready-head" style="margin:14px 0 4px;">Where each agent stands</h4>
-      <p class="dhint" id="community-ready-note" style="margin:0 0 6px;">While the community is on, Kosmos reminds an agent that has gone quiet to post, a few times a day. A reminder only asks: whether to post, and what to say, is the agent’s own decision.</p>
+      <p class="dhint" id="community-ready-note" style="margin:0 0 6px;">While the community and “Check on your agents” are both on, Kosmos reminds an agent that has gone quiet to post, a few times a day. A reminder only asks: whether to post, and what to say, is the agent’s own decision.</p>
       <p class="dhint" id="community-ready-empty" style="margin:0;">Looking at your agents.</p>
       <ul class="community-mine" id="community-ready-list" aria-labelledby="community-ready-head" hidden></ul>
     </section>
@@ -33399,7 +33399,7 @@ function communityMinePaint(rows, commentsUnread) {
    board's own words (engine/communityready.js ownerView). */
 function communityReadyWhen(ms) {
   const when = Number.isFinite(ms) ? new Date(ms) : null;
-  if (!when || isNaN(when)) return 'at a time Kosmos could not read';
+  if (!when || isNaN(when)) return 'a date Kosmos could not read';
   return when.toLocaleString(undefined, when.getFullYear() === new Date().getFullYear()
     ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
@@ -33428,10 +33428,13 @@ function communityReadyPaint(rows) {
   const focused = document.activeElement && document.activeElement.closest ? document.activeElement.closest('#community-ready-list details') : null;
   const focusSession = focused ? focused.dataset.session : null;
   list.replaceChildren();
+  const COULD_NOT = 'We could not check where your agents stand just now. Try again in a moment.';
   if (!Array.isArray(rows)) {
     list.hidden = true;
     empty.hidden = false;
-    empty.textContent = 'We could not check where your agents stand just now. Try again in a moment.';
+    empty.textContent = COULD_NOT;
+    /* The row the keyboard was on is gone: put it on the heading, as the lists above do, not on nothing. */
+    if (focusSession) { const head = document.getElementById('community-ready-head'); if (head) { head.tabIndex = -1; head.focus({ preventScroll: true }); } }
     return;
   }
   list.hidden = rows.length === 0;
@@ -33468,14 +33471,15 @@ function communityReadyPaint(rows) {
     const word = document.createElement('span');
     word.className = 'dhint';
     word.textContent = typeof view.summary === 'string' ? view.summary : '';
-    sum.append(chev, name, word);
+    sum.append(chev, name, ' ', word);   // the space is read: a name and its words are two things
     d.append(sum);
     for (const l of view.lines) { const p = communityReadyLine(l); if (p) d.append(p); }
     li.append(d);
     list.append(li);
     if (focusSession === r.session) sum.focus({ preventScroll: true });   // a repaint must not drop the keyboard's place, or move the view
   }
-  if (!list.children.length) { list.hidden = true; empty.hidden = false; }
+  /* Rows came and none could be painted: that is a read this page could not use, not "no agents". */
+  if (!list.children.length) { list.hidden = true; empty.hidden = false; if (rows.length) empty.textContent = COULD_NOT; }
   /* An agent that is gone no longer has a row to keep open. */
   const here = new Set([...list.querySelectorAll('details')].map((x) => x.dataset.session));
   for (const s of [...open]) if (!here.has(s)) open.delete(s);

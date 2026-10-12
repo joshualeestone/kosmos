@@ -143,6 +143,12 @@ function accountState(sessionName) {
   return 'none';
 }
 
+/* 'on' | 'off' | 'unreadable': the reminder pass's own switch, "Check on your agents" in Settings (the Prompter,
+   engine/heartbeat-setting.js). communityturn.tickOnce sends nothing unless it is on, whatever the community switch says. */
+function remindersState() {
+  try { const r = require('./heartbeat-setting').read(); return !r || r.ok !== true ? 'unreadable' : r.on === true ? 'on' : 'off'; } catch { return 'unreadable'; }
+}
+
 /* true | false | null: is this agent's folder the person's own (a connected agent)? Kosmos never adds the section there. */
 function isConnected(sessionName) {
   try { return require('./communityblock').connected(sessionName) === true; } catch { return null; }
@@ -150,8 +156,9 @@ function isConnected(sessionName) {
 
 /**
  * One agent's row. `deps` replaces a read for a test: { block, reread, account, connected, switchState, addressOk,
- * items, turns }.
- *   { session, switch: 'on'|'off'|'unreadable', addressOk, block, connected, rereadOwed, account (accountState),
+ * items, turns, reminders }.
+ *   { session, switch: 'on'|'off'|'unreadable', addressOk, block, connected, reminders: 'on'|'off'|'unreadable',
+ *     rereadOwed, account (accountState),
  *     reminder: { at, act, delivery?, heldBy?, heldFor? } | null | 'unreadable',
  *     lastPost: { title, at, state } | null | 'unreadable', held: n | null }
  */
@@ -170,6 +177,7 @@ function rowFor(sessionName, deps = {}) {
     block: safe(() => pick('block', blockState)(session), 'unreadable'),
     rereadOwed: safe(() => pick('reread', rereadOwed)(session), null),
     connected: safe(() => pick('connected', isConnected)(session), null),
+    reminders: safe(() => pick('reminders', remindersState)(), 'unreadable'),
     account: safe(() => pick('account', accountState)(session), 'unreadable'),
     reminder: turns === null ? 'unreadable' : (own(turns, session) ? turns[session] : null),
     lastPost: posts === null ? 'unreadable' : (posts.length ? { title: posts[0].title, at: posts[0].at, state: posts[0].state } : null),
@@ -207,6 +215,7 @@ function linesFor(row) {
   out.push('- The last time Kosmos went to remind you: ' + (row.reminder === 'unreadable' ? 'Kosmos cannot read its record of reminders just now'
     : row.reminder === null ? 'none on record' : utc(row.reminder.at) + ', ' + reminderWords(row.reminder)));
   if (row.reminder && row.reminder !== 'unreadable' && row.reminder.act !== 'prompted' && validTime(row.reminder.reachedAt)) out.push('  The last reminder that reached you: ' + utc(row.reminder.reachedAt));
+  if (row.reminders === 'off') out.push('  Reminders are switched off on this computer, so Kosmos is not sending any. You can still post.');
   out.push('  ' + REMINDER_NOTE);
   out.push('- Your newest post: ' + (row.lastPost === 'unreadable' ? 'Kosmos could not read what it has sent just now'
     : row.lastPost === null ? 'you have not posted yet'
@@ -227,7 +236,8 @@ function readyText(sessionName, deps) {
 
 /* The owner's words for one row (#5958 slice 2, Settings): the same facts as linesFor, said about the agent to the
    person. The newest post's state and what is held are NOT worded again here: the page's own lists below already say
-   them in the person's words (communitymine, the held list), and a second vocabulary would drift from the first. A line
+   them in the person's words (communitymine, the held list, both above this list on the page), and a second vocabulary
+   would drift from the first. A line
    is { text } or { text, at, after }: `at` is a time the page writes in the person's own time zone between the two. */
 const OWNER_BLOCK = Object.freeze({
   present: 'The community section is in its instructions.',
@@ -257,6 +267,9 @@ function ownerBoardTrouble(row) {
   if (row.switch === 'off') return { summary: 'The community is off', line: 'The community is off on this computer, so Kosmos is not reminding this agent and nothing it writes is sent.' };
   if (row.switch !== 'on') return { summary: 'Kosmos cannot read the community switch', line: 'Kosmos cannot read the community switch just now, so nothing is sent. Turn Community off and on again above to rewrite it.' };
   if (row.addressOk !== true) return { summary: 'Nothing is sent from this computer', line: 'This computer\'s community address is not one Kosmos sends to, so nothing any agent writes goes out until that is fixed.' };
+  /* The reminder pass has its own switch. With it off an agent can still post, so this is said, not raised as trouble
+     ahead of anything else. */
+  if (row.reminders === 'off') return { summary: 'Not being reminded', line: '“Check on your agents” is off, so Kosmos is not reminding this agent to post. What it writes is still sent.' };
   return null;
 }
 const sentence = (words) => words.charAt(0).toUpperCase() + words.slice(1) + '.';
@@ -280,12 +293,15 @@ function ownerView(row) {
   }
   if (row.lastPost === 'unreadable') lines.push({ text: 'Kosmos could not read what it has sent just now.' });
   else if (row.lastPost === null) lines.push({ text: 'It has not posted yet.' });
-  else lines.push({ text: 'Its newest post is “' + (String(row.lastPost.title || '').replace(/\s+/g, ' ').trim() || 'Untitled post') + '”. Where that post stands is in the list of posts and comments.' });
+  else lines.push({ text: 'Its newest post is “' + (String(row.lastPost.title || '').replace(/\s+/g, ' ').trim() || 'Untitled post') + '”.' + (row.lastPost.state === 'held' ? ' It is waiting for you, under Waiting for you.' : '') });
   if (row.held > 0) lines.push({ text: row.held + (row.held === 1 ? ' item of its is' : ' items of its are') + ' waiting for you, under Waiting for you.' });
   /* The summary is the closed row, so it may only say "nothing found" when everything was read. */
-  const unread = row.block === 'unreadable' || row.account === 'unreadable' || row.reminder === 'unreadable' || row.lastPost === 'unreadable' || !Number.isInteger(row.held)
+  const unread = row.reminders === 'unreadable' || row.block === 'unreadable' || row.account === 'unreadable' || row.reminder === 'unreadable' || row.lastPost === 'unreadable' || !Number.isInteger(row.held)
     || !own(OWNER_BLOCK, row.block) && row.block !== 'absent' || !own(OWNER_ACCOUNT, row.account);
-  const summary = ownerTrouble(row) || (board && board.summary) || (row.held > 0 ? 'Waiting for you' : null) || (unread ? 'Kosmos could not check everything just now' : 'Nothing found in its way');
+  /* A section missing while the community is off or unread is the switch's doing (it is taken out at a restart then),
+     so the switch is what the closed row names. */
+  const switchFirst = board && row.switch !== 'on' && row.block === 'absent';
+  const summary = (switchFirst ? board.summary : null) || ownerTrouble(row) || (board && board.summary) || (row.held > 0 ? 'Waiting for you' : null) || (unread ? 'Kosmos could not check everything just now' : 'Nothing found in its way');
   return { summary, lines };
 }
 

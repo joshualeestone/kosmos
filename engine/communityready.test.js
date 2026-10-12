@@ -376,7 +376,7 @@ test('review 3: a time no date can hold costs that record, not the agent\'s whol
 });
 
 /* #5958 slice 2: the person's words for a row (the Settings list), and one read of the records for every row. */
-const view = (over) => ready.ownerView({ session: 'ann', switch: 'on', addressOk: true, block: 'present', connected: false, rereadOwed: false, account: 'yes', reminder: null, lastPost: null, held: 0, ...over });
+const view = (over) => ready.ownerView({ session: 'ann', switch: 'on', addressOk: true, block: 'present', connected: false, reminders: 'on', rereadOwed: false, account: 'yes', reminder: null, lastPost: null, held: 0, ...over });
 const said = (v) => v.lines.map((l) => l.text + ('at' in l ? '<' + l.at + '>' + l.after : '')).join('\n');
 
 test('slice 2: an agent with nothing in its way says so, and never claims more than was looked at', () => {
@@ -424,7 +424,12 @@ test('slice 2 review 1: what stops every agent is said on each row, and never un
     assert.match(v.lines[0].text, line, JSON.stringify(over));
     assert.equal(v.lines.length, 5, 'the agent\'s own lines are still there');
   }
-  assert.equal(view({ switch: 'off', block: 'absent' }).summary, 'No community section in its instructions', 'the agent\'s own trouble comes first');
+  // A missing section under a switch that is off is the switch's doing; the agent's other troubles still come first.
+  assert.equal(view({ switch: 'off', block: 'absent' }).summary, 'The community is off');
+  assert.equal(view({ switch: 'unreadable', block: 'absent' }).summary, 'Kosmos cannot read the community switch');
+  assert.equal(view({ switch: 'off', account: 'refused' }).summary, 'The community has refused this agent');
+  assert.equal(view({ switch: 'off', block: 'ambiguous' }).summary, 'Its instructions hold the community section more than once');
+  assert.equal(view({ addressOk: false, block: 'absent' }).summary, 'No community section in its instructions', 'CONTROL: with the switch on, a missing section is the agent\'s own');
   assert.equal(view({}).lines.length, 4, 'CONTROL: with the community on and sending, there is no such line');
 });
 
@@ -455,9 +460,11 @@ test('slice 2: a reminder is a time the page writes, between the same words the 
 
 test('slice 2: the newest post is named and its state left to the list that already words it; held items point up the page', () => {
   const v = view({ lastPost: { title: 'Weekly "ops"\n  two', at: '2026-10-12T00:00:00Z', state: 'refused' }, held: 1 });
-  assert.ok(said(v).includes('Its newest post is “Weekly "ops" two”. Where that post stands is in the list of posts and comments.'), said(v));
+  assert.ok(said(v).includes('Its newest post is “Weekly "ops" two”.\n'), said(v));
   assert.ok(said(view({ lastPost: { title: '  ', at: '', state: 'sent' } })).includes('Its newest post is “Untitled post”.'));
-  assert.doesNotMatch(said(v), /refused|not sent/, 'the row worded the post\'s state a second time');
+  assert.doesNotMatch(said(v), /refused|not sent|in the list of posts/, 'the row worded the post\'s state, or pointed at a list that may not hold it');
+  // review 3: a held post is not in the list of posts and comments; it is under Waiting for you.
+  assert.ok(said(view({ lastPost: { title: 'Held one', at: '', state: 'held' }, held: 1 })).includes('Its newest post is “Held one”. It is waiting for you, under Waiting for you.'));
   assert.match(said(v), /1 item of its is waiting for you, under Waiting for you\./);
   assert.match(said(view({ held: 4 })), /4 items of its are waiting for you/);
   assert.match(said(view({ lastPost: 'unreadable' })), /Kosmos could not read what it has sent just now\./);
@@ -469,7 +476,7 @@ test('slice 2: no line of the person\'s words speaks to the agent, and none has 
   for (const block of ['present', 'absent', 'ambiguous', 'no_file', 'unreadable', 'something-new']) {
     for (const account of [...Object.keys(ready.ACCOUNT_WORDS), 'something-new']) {
       for (const reminder of [null, 'unreadable', ...Object.keys(ready.TURN_WORDS).map((act) => ({ at: T, act, reachedAt: 1 })), ...Object.keys(ready.HELD_WORDS).map((heldBy) => ({ at: T, act: 'held', heldBy }))]) {
-        for (const board of [{}, { switch: 'off' }, { switch: 'unreadable' }, { addressOk: false }]) {
+        for (const board of [{}, { switch: 'off' }, { switch: 'unreadable' }, { addressOk: false }, { reminders: 'off' }, { reminders: 'unreadable' }]) {
         const v = view({ block, account, reminder, held: 2, rereadOwed: true, connected: true, ...board });
         const t = said(v) + '\n' + v.summary;
         assert.doesNotMatch(t, /\byour person\b|\byou have\b|\byour instructions\b|\byour first\b|\byour newest\b/i, t);
@@ -515,3 +522,22 @@ function fleetCard(name) {
   const board = fleet.install([fleet.agent(name, { state: 'idle' })]);
   try { return status.snapshot().agents.map((c) => ({ ...c })).find((c) => c.sessionName === name); } finally { board.restore(); }
 }
+
+test('slice 2 review 3: the reminder pass has its own switch, and a row says when it is off', () => {
+  const v = view({ reminders: 'off' });
+  assert.equal(v.summary, 'Not being reminded');
+  assert.equal(v.lines[0].text, '“Check on your agents” is off, so Kosmos is not reminding this agent to post. What it writes is still sent.');
+  assert.equal(view({ reminders: 'off', switch: 'off' }).summary, 'The community is off', 'the community switch stops more, so it is named first');
+  assert.equal(view({ reminders: 'off', block: 'absent' }).summary, 'No community section in its instructions');
+  assert.equal(view({ reminders: 'unreadable' }).summary, 'Kosmos could not check everything just now');
+  assert.equal(view({ reminders: 'on' }).lines.length, 4, 'CONTROL: on, it adds no line');
+  // The same switch, through the real setting file, and in what the agent is told.
+  agentFile('ann', withBlock());
+  assert.equal(ready.rowFor('ann').reminders, 'on', 'no setting file reads as on (heartbeat-setting\'s default)');
+  const hs = require('./heartbeat-setting');
+  hs.setOn(false);
+  assert.equal(hs.read().on, false, 'fixture: could not switch the Prompter off');
+  assert.equal(ready.rowFor('ann').reminders, 'off');
+  assert.match(text('ann'), /Reminders are switched off on this computer, so Kosmos is not sending any\. You can still post\./);
+  assert.equal(ready.rowsFor([fleetCard('ann')])[0].owner.summary, 'Not being reminded');
+});
