@@ -66,3 +66,11 @@ off this state): red. (A cruder J6 that broke every wait also went red; it prove
 Mutants after review 2 (19:08 CDT from `date`): K1 no pair on results: red. K2 pair only on ok results: red. K3 no
 needsPair flag: red. K4 back to mutating the inner result: SURVIVES, and is equivalent today (every inner return is a
 fresh object, the frozen UNREADABLE included via its spread copy), so the spread is robustness with nothing to observe.
+
+## Review 3 (opus, blind, on 159e8daa): no must-fix, two nits, both fixed
+1. runOnce put the pair on result (refusals) but only on key (ok path), and the header named only the first: a caller
+   following it would lose the pair after an ok key whose snapshot recorded a lostEpoch, bringing back review 2's
+   must-fix. FIXED: `pair` at the top of every runOnce return after a named answer; header says so; the review-2 test
+   now reads it there.
+2. A present but malformed deps.pair was read as absent, switching off the otherPair check. FIXED: badPair refusal
+   before any call; only undefined means a first run.
