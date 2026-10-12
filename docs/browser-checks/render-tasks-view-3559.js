@@ -845,13 +845,14 @@ function chk(ok, label, extra) {
           `${tag} an unreadable roster from the route reaches the tile and its group through the page's own read, and a good read clears it`, JSON.stringify({ wire, wireBack }));
         /* kosmos#5942: a decision row says how long it has waited. The route's own rows, with the one field #5943's
            askedAt will fill (until it merges no card carries it), so the real row renders it through the real page. */
-        await page.route('**/api/tasks?view=tasks*', async (route) => {
+        const stampAge = async (route) => {
           const resp = await route.fetch();
           const json = await resp.json();
           const since = new Date(Date.now() - (12 * 86400 + 3600) * 1000).toISOString();
           json.tasks = json.tasks.map((t) => (t.state === 'decision' ? Object.assign({}, t, { waitingSince: since }) : t));
           await route.fulfill({ response: resp, json });
-        });
+        };
+        await page.route('**/api/tasks?view=tasks*', stampAge);
         let aged;
         try {
           aged = await page.evaluate(async () => {
@@ -861,21 +862,22 @@ function chk(ok, label, extra) {
             return { n: lines.length, shown: shown.length, text: shown[0] ? shown[0].innerText.trim() : null };
           });
         } finally {
-          await page.unroute('**/api/tasks?view=tasks*');   // never left stamping rows for the arms after this one
+          await page.unroute('**/api/tasks?view=tasks*', stampAge);   // this handler only; never left stamping rows
         }
         /* No known start: the same rows with waitingSince forced to null on the decision row, so this half means the
            same before and after #5943 gives real cards a start. */
-        await page.route('**/api/tasks?view=tasks*', async (route) => {
+        const noAge = async (route) => {
           const resp = await route.fetch();
           const json = await resp.json();
           json.tasks = json.tasks.map((t) => (t.state === 'decision' ? Object.assign({}, t, { waitingSince: null }) : t));
           await route.fulfill({ response: resp, json });
-        });
+        };
+        await page.route('**/api/tasks?view=tasks*', noAge);
         let agedBack;
         try {
           agedBack = await page.evaluate(async () => { await tskLoad(); return document.querySelectorAll('#tsk-groups .tsk-row .tsk-waiting').length; });
         } finally {
-          await page.unroute('**/api/tasks?view=tasks*');
+          await page.unroute('**/api/tasks?view=tasks*', noAge);
         }
         await page.evaluate(async () => { await tskLoad(); });   // back to the route's own rows for the arms after this
         chk(aged.n === 1 && aged.shown === 1 && aged.text === 'Waiting on you for 12 days' && agedBack === 0,

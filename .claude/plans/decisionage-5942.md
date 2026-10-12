@@ -25,3 +25,9 @@ explicitly (a stamped start, a forced null), so neither depends on whether #5943
 ## Decided
 - Wording "Waiting on you for 12 days", agoWords with " ago" dropped, agreed with Angel so #5943's "Asked 12 days
   ago" and this read as one system. Weakest premise: that the oldest holder's wait is the task's wait.
+
+## After #5943 merges (owed, on this card)
+- Add one unit arm with no selfreport.read wrapper: record a needs_you report, read the real card, assert
+  `waitingSince` is the report's askedAt. The card tests wrap the read today because main has no askedAt.
+- Cards that need the person for other reasons (a trust wait, a given-up connection, a crash loop) never carry a
+  start, so a task held only by such an agent shows no age. That is the "no known start" rule, not a gap.
