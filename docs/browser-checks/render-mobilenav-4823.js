@@ -134,7 +134,7 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
     const shut = async (ctx, page) => {
       await unroute(ctx, page);
       live.delete(ctx);
-      await ctx.close();
+      await ctx.close().catch((e) => console.log('teardown: ctx.close failed: ' + (e && e.message)));
     };
     const open = async (host, theme, opts) => {
       const ctx = await browser.newContext(Object.assign({ viewport: { width: 430, height: 932 }, colorScheme: theme, hasTouch: true, serviceWorkers: 'block' }, opts || {}));
