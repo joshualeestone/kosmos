@@ -34,7 +34,7 @@
  *   C19 a real tab change away from a room and back reads nothing that arrived meanwhile (review 7)
  *   C20 at 700px, where the room's header stacks, the room's toggle sits on the search's line, not a row of its own,
  *       in today's look and in the new look (C20b), with nothing pushed out of the row, and at phone width (C20c)
- *   C21 the direct conversation's toggle renders on its search's line, just before it (desktop)
+ *   C21 the direct conversation's toggle renders on its search's line, just before it (desktop; C21b at 375px)
  *   C9 no page errors
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-convmode-5624.js [shots-dir]
@@ -152,11 +152,12 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
       const p = document.getElementById('pj-conv');
       const box = (el) => !!el && !!el.closest('.composerbox, .dmbar');
       return { exists: !!b, shown: !!b && getComputedStyle(b).display !== 'none', pressed: b && b.getAttribute('aria-pressed'),
+        pjDrawnStyle: !!p && getComputedStyle(p).display !== 'none',
         inHead: !!b && !!b.closest('.d-talk-caprow') && b.nextElementSibling && b.nextElementSibling.id === 'd-talk-search-wrap',
         pjInHead: !!p && !!p.closest('.pjmidhead') && !!p.nextElementSibling && p.nextElementSibling.classList.contains('tsearch'),
         inBox: box(b) || box(p) };
     });
-    chk(c1.exists && c1.shown && c1.pressed === 'false' && c1.inHead && c1.pjInHead && !c1.inBox,
+    chk(c1.exists && c1.shown && c1.pjDrawnStyle && c1.pressed === 'false' && c1.inHead && c1.pjInHead && !c1.inBox,
       'C1 the toggle is drawn in each conversation\'s header beside its search, not in the message box, and starts off', JSON.stringify(c1));
     const c21 = await page.evaluate(() => {
       const b = document.getElementById('d-conv').getBoundingClientRect();
@@ -165,6 +166,15 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
         gap: Math.round(s.left - b.right) };
     });
     chk(c21.drawn && c21.dy <= 6 && c21.gap >= 0 && c21.gap <= 24, 'C21 the direct conversation\'s toggle renders on its search\'s line, just before it', JSON.stringify(c21));
+    await page.setViewportSize({ width: 375, height: 800 });
+    const c21b = await page.evaluate(() => {
+      const b = document.getElementById('d-conv').getBoundingClientRect();
+      const s = document.getElementById('d-talk-search-wrap').getBoundingClientRect();
+      return { drawn: b.width > 0 && s.width > 0, dy: Math.round(Math.abs((b.top + b.height / 2) - (s.top + s.height / 2))),
+        before: b.right <= s.left + 1, inside: s.right <= document.documentElement.clientWidth + 1 };
+    });
+    await page.setViewportSize({ width: 1200, height: 800 });
+    chk(c21b.drawn && c21b.dy <= 6 && c21b.before && c21b.inside, 'C21b at 375px the direct conversation\'s toggle still sits on its search\'s line', JSON.stringify(c21b));
 
     // C2: mode off, a new agent message arrives: nothing is read.
     thread = [...thread, agentRow(3, 'A new thing while the mode is off.')];
@@ -262,7 +272,7 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
       const s = mid.querySelector('.tsearch').getBoundingClientRect();
       return { stacked: getComputedStyle(mid).flexDirection === 'column', head: !!mid.querySelector('.pjhead'),
         drawn: b.width > 0 && s.width > 0, dy: Math.round(Math.abs((b.top + b.height / 2) - (s.top + s.height / 2))),
-        before: b.right <= s.left + 1 };
+        before: b.right <= s.left + 1, inside: s.right <= mid.getBoundingClientRect().right + 1 };
     });
     // C20b: the same under the new look, whose header is a wrapping row with a full-line search.
     const c20b = await page.evaluate(() => {
@@ -293,7 +303,7 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
         before: b.right <= s.left + 1, inside: s.right <= mid.getBoundingClientRect().right + 1 };
     });
     await page.setViewportSize({ width: 1200, height: 800 });
-    chk(c20.stacked && c20.head && c20.drawn && c20.dy <= 6 && c20.before, 'C20 at 700px the room toggle sits on the search line, not a row of its own', JSON.stringify(c20));
+    chk(c20.stacked && c20.head && c20.drawn && c20.dy <= 6 && c20.before && c20.inside, 'C20 at 700px the room toggle sits on the search line, not a row of its own', JSON.stringify(c20));
     chk(c20b.look && c20b.drawn && c20b.dy <= 6 && c20b.before && c20b.inside, 'C20b the same in the new look, with the search inside the row', JSON.stringify(c20b));
     chk(c20c.stacked && c20c.drawn && c20c.dy <= 6 && c20c.before && c20c.inside, 'C20c at 375px the room toggle still sits on the search line, inside the header', JSON.stringify(c20c));
     await page.click('#pj-conv');   // off again for the room

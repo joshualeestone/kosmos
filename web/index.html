@@ -7799,7 +7799,7 @@ html.has-voice .micbtn { display: grid; }
 .convbtn { display: none; touch-action: manipulation; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 html.has-speak.conv-on .convbtn { display: grid; }
-@media (hover: none) { .convbtn { width: 44px; height: 44px; } }   /* a touch target the size of its row's others */
+@media (hover: none) { .convbtn { width: 44px; height: 44px; } }   /* the 44px touch minimum the phone rows use */
 .convbtn:hover { background: color-mix(in srgb, var(--k-ink) 8%, transparent); color: var(--k-ink); }
 .convbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .convbtn[aria-pressed="true"] { color: var(--k-ink); background: color-mix(in srgb, var(--k-ink) 14%, transparent);
@@ -11889,9 +11889,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   /* #5551: the new look's Back row steps aside here too, for the same 44px. */
   :root[data-look="new"] body:not(.consolidated) #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box :is(.d-crumb-back, .d-crumb-rootwrap) { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .d-talk-caprow:has(#d-talk-search:placeholder-shown):not(:focus-within) { margin: 0; }
-  /* #5624: the read-aloud toggle steps aside with the rest of that row while it is off, so the row stays empty and
-     takes no room; while it is on it stays, as the sign that new messages are read aloud and the way to stop them. */
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .d-talk-caprow:has(#d-talk-search:placeholder-shown):not(:focus-within) > #d-conv:not([aria-pressed="true"]) { display: none; }
+  /* #5624: the read-aloud toggle steps aside with the rest of that row, on or off, for the same 44px. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .d-talk-caprow:has(#d-talk-search:placeholder-shown):not(:focus-within) > #d-conv { display: none; }
   /* The agent's header is one slim line: name and state, no avatar (it is on Profile). */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dav-wrap { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead { padding: 2px 0 2px 6px; margin-bottom: 4px; }
@@ -68357,7 +68356,8 @@ window.addEventListener('pagehide', () => { if (SPEAK.btn) speakStop(); });
    Nothing already on screen is read: a conversation's messages count as heard the first time they are drawn, and
    when the mode is turned on. A newer message stops the one being read; leaving the conversation or turning the mode
    off stops it too. A long message is read up to CONV_MAX characters, cut at a sentence end. */
-/* HELD (Josh 2026-10-09 10:49 and 10:52: "It doesn't make sense to have it in the input box"): off, so no toggle is drawn and nothing is read,
+/* HELD (Josh 2026-10-09 10:49 and 10:52) until Josh lifts it; the toggle has since moved out of the input box (#5624,
+   2026-10-12) into each conversation's header. Off, so no toggle is drawn and nothing is read,
    even for a conversation someone turned on before the hold. To bring it back, make the default true. The
    kosmos.convmode.enabled switch exists so the page check can still exercise the mode; nothing in the app sets it. */
 const CONV_ENABLED = (() => { try { return localStorage.getItem('kosmos.convmode.enabled') === '1'; } catch { return false; } })();
