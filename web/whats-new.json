@@ -25,12 +25,12 @@
     {
       "icon": "tasks",
       "title": "New tasks ask how you will know they are done",
-      "line": "New task asks How will you know it is done?, and a parent task says when all its subtasks are built, ready for you to check."
+      "line": "New task asks \"How will you know it is done?\" before it creates a task, and a parent task says when all its subtasks are built."
     },
     {
       "icon": "shield",
       "title": "Removing an account works mid sign-in",
-      "line": "If you left a Sign in again unfinished on an OpenAI account, removing or disconnecting that account now works straight away."
+      "line": "If you left a Sign in again unfinished on a ChatGPT account, removing or disconnecting that account now works straight away."
     }
   ]
 }

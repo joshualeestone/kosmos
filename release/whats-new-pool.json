@@ -279,7 +279,7 @@
     },
     {
       "title": "New tasks ask how you will know they are done",
-      "line": "New task asks How will you know it is done?, and a parent task says when all its subtasks are built, ready for you to check.",
+      "line": "New task asks \"How will you know it is done?\" before it creates a task, and a parent task says when all its subtasks are built.",
       "icon": "tasks",
       "rank": 4,
       "since": "0.7.44",
@@ -287,7 +287,7 @@
     },
     {
       "title": "Removing an account works mid sign-in",
-      "line": "If you left a Sign in again unfinished on an OpenAI account, removing or disconnecting that account now works straight away.",
+      "line": "If you left a Sign in again unfinished on a ChatGPT account, removing or disconnecting that account now works straight away.",
       "icon": "shield",
       "rank": 6,
       "since": "0.7.44",
@@ -295,7 +295,7 @@
     },
     {
       "title": "A late recurring run keeps the next one",
-      "line": "When a recurring task's run is late, the next scheduled run still happens, and the task says how many runs were missed.",
+      "line": "When a recurring task runs late, its next scheduled run still happens, and the task says how many runs it missed before.",
       "icon": "tasks",
       "rank": 7,
       "since": "0.7.44",
@@ -307,7 +307,7 @@
       "icon": "shield",
       "rank": 8,
       "since": "0.7.44",
-      "status": "pending"
+      "status": "held"
     }
   ]
 }
