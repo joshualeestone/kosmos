@@ -80,6 +80,8 @@ test('#3965: a name the list hides cannot be opened either (the same rule, not o
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-scratchopen-3965-'));
   let ran = false;
   projects.setRevealRunner(() => { ran = true; return { ok: true }; });
+  // #5881: the Mac opener, on every runner (a Linux CI box with no desktop now refuses before the runner).
+  projects.setRevealPlatform('darwin');
   try {
     for (const n of ['~$report.docx', 'Thumbs.db', '~WRL0001.tmp', 'real.txt']) fs.writeFileSync(path.join(dir, n), 'x');
     for (const n of ['~$report.docx', 'Thumbs.db', '~WRL0001.tmp']) {
@@ -91,6 +93,7 @@ test('#3965: a name the list hides cannot be opened either (the same rule, not o
     assert.equal(ran, true);
   } finally {
     projects.setRevealRunner(null);
+    projects.setRevealPlatform(null);
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

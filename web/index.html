@@ -39447,7 +39447,7 @@ for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-lis
   const who = CURRENT.sessionName;
   if (filesPvOpen(row, { agent: who }, e)) return;   // #4997: an image or PDF opens the full-page preview
   const msg = document.getElementById(msgId);
-  if (kplusRemote()) {   // #5165: download it to this device
+  if (kplusRemote() || onLinux()) {   // #5165: download it to this device; #5881: on a Linux board too, which may have no desktop to open it on
     kplusDownload('agent', who, row.dataset.doc, kplusSayer(msg, () => CURRENT && CURRENT.sessionName === who));
     return;
   }
@@ -64658,7 +64658,7 @@ document.getElementById('docs-list').addEventListener('click', async (e) => {
   if (!row || !PJ_CURRENT) return;
   if (filesPvOpen(row, { project: PJ_CURRENT }, e)) return;   // #4997
   const msg = document.getElementById('docs-msg');
-  if (kplusRemote()) {   // #5165: download it to this device
+  if (kplusRemote() || onLinux()) {   // #5165: download it to this device; #5881: on a Linux board too, which may have no desktop to open it on
     const forProject = PJ_CURRENT;
     kplusDownload('project', forProject, row.dataset.doc, kplusSayer(msg, () => PJ_CURRENT === forProject && PJ_VIEW === 'docs'),
       PJ_DOCS_VIEW_PARTIAL ? pjDocsPartialHere() : '');
@@ -65804,7 +65804,7 @@ document.getElementById('pj-docs').addEventListener('click', async (e) => {
   if (filesPvOpen(row, { project: PJ_CURRENT }, e)) return;   // #4997
   const msg = document.getElementById('pj-docs-msg');
   const forProject = PJ_CURRENT;
-  if (kplusRemote()) {   // #5165: download it to this device
+  if (kplusRemote() || onLinux()) {   // #5165: download it to this device; #5881: on a Linux board too, which may have no desktop to open it on
     kplusDownload('project', forProject, row.dataset.doc, kplusSayer(msg, () => PJ_CURRENT === forProject),
       PJ_DOCS_RAIL_PARTIAL ? pjDocsPartialHere() : '');
     return;
@@ -65841,7 +65841,7 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
   if (!go || !PJ_CURRENT) return;
   const msg = document.getElementById('pj-room-msg');
   const forProject = PJ_CURRENT;
-  if (kplusRemote()) {   // #5165: download it to this device
+  if (kplusRemote() || onLinux()) {   // #5165: download it to this device; #5881: on a Linux board too, which may have no desktop to open it on
     kplusDownload('project', forProject, go.dataset.ref, kplusSayer(msg, () => PJ_CURRENT === forProject));
     return;
   }

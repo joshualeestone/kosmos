@@ -65,7 +65,7 @@ const WROTE_WHY = {
  */
 
 const fs = require('node:fs');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawn } = require('node:child_process');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -1488,17 +1488,80 @@ function cleanDescription(text) {
  */
 let revealRunner = null;
 function setRevealRunner(f) { revealRunner = f; }
-/* win32-board-copy: which platform's opener runs. Production reads process.platform;
-   a suite states the arm it asserts, so the Mac contract below stays pinned to
-   `/usr/bin/open` on a Windows box and the Windows arm is assertable from a Mac. */
+/* win32-board-copy: which platform's opener runs (the Mac's `/usr/bin/open`, Windows's File Explorer, and since #5881
+   Linux's xdg-open). Production reads process.platform; a suite states the arm it asserts, so the Mac contract below
+   stays pinned to `/usr/bin/open` on a Windows or Linux box and the other arms are assertable from a Mac. */
 let revealPlatform = null;
 function setRevealPlatform(p) { revealPlatform = p || null; }
 function revealOnWindows() { return (revealPlatform || process.platform) === 'win32'; }
+/* #5881: a Linux board has no `/usr/bin/open`. A FOLDER it opens with `xdg-open` when the board's own environment names
+   a display (DISPLAY or WAYLAND_DISPLAY); without one it cannot, and the answer says so. (engine/remote.js also uses
+   xdg-open, for the company sign-in page, but checks no display and waits on it.) A stale display starts an xdg-open
+   that fails unseen, since it is not waited on (below).
+   xdg-open is STARTED, never waited on (review 1): on a desktop it does not know it runs the file manager in the
+   foreground, and waiting would hold the board's event loop until that window closed. So "ok" means it was started; a
+   missing xdg-open (xdg-utils not installed) is said. The environment is injectable for tests, as the platform is. */
+let revealEnv = null;
+function setRevealEnv(e) { revealEnv = e || null; }
+function revealOnLinux() { return (revealPlatform || process.platform) === 'linux'; }
+function linuxEnv() { return revealEnv || process.env; }
+function linuxHasDesktop() { const e = linuxEnv(); return Boolean(e.DISPLAY || e.WAYLAND_DISPLAY); }
+const NO_DESKTOP = 'Kosmos cannot open it on this computer: it is not running in a desktop session';
+function xdgOpenPath() {
+  for (const dir of String(linuxEnv().PATH || '').split(path.delimiter)) {
+    if (!dir || !path.isAbsolute(dir)) continue;   // never a folder relative to where the board happens to run
+    const f = path.join(dir, 'xdg-open');
+    if (require('./runners').isRunnable(f)) return f;   // a runnable FILE, never a folder of that name (#1592)
+  }
+  return null;
+}
+function linuxOpenFolder(folder) {
+  if (!linuxHasDesktop()) return { ok: false, because: NO_DESKTOP };
+  /* xdg-open reads an argument starting with "-" as an option and takes no "--", so only an absolute path reaches it
+     (every caller passes one: a stored folder, or the folder of a resolved file). */
+  if (!path.isAbsolute(String(folder))) return { ok: false, because: 'the folder did not open' };
+  /* A folder, as this check saw it, never a file or a link to one (xdg-open would hand a .desktop file or a script to
+     whatever the desktop runs it with: the reason files are refused here). The link is resolved first and the RESOLVED
+     path is what xdg-open gets, so a link swapped after the check cannot redirect it; replacing the folder itself in that
+     instant is not covered. The Windows arm makes the same check. */
+  let real;
+  try { real = fs.realpathSync(String(folder)); } catch { return { ok: false, because: 'that folder is not there any more' }; }
+  let st;
+  try { st = fs.statSync(real); } catch { return { ok: false, because: 'that folder is not there any more' }; }
+  if (!st.isDirectory()) return { ok: false, because: 'that is not a folder' };
+  folder = real;
+  if (revealRunner) return revealRunner('xdg-open', [folder]);
+  const bin = xdgOpenPath();
+  if (!bin) return { ok: false, because: 'this computer has no program installed for opening folders' };   // xdg-open, from xdg-utils
+  try {
+    /* Review 2: only what xdg-open needs to reach the desktop, never the board's own environment (its tokens) handed to
+       a file manager that may run for a long time. */
+    const e = linuxEnv();
+    const env = {};
+    for (const k of ['HOME', 'PATH', 'LANG', 'DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS',
+      'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'XDG_DATA_HOME', 'XDG_DATA_DIRS', 'XDG_CONFIG_HOME', 'XDG_CONFIG_DIRS',
+      'DESKTOP_SESSION', 'XDG_SESSION_DESKTOP', 'KDE_FULL_SESSION', 'KDE_SESSION_VERSION', 'GNOME_DESKTOP_SESSION_ID']) {
+      if (e[k]) env[k] = e[k];
+    }
+    const child = spawn(bin, [folder], { detached: true, stdio: 'ignore', env });
+    /* The answer below is already "ok" (started); a failure after that cannot change it, so it is logged with the
+       command, as win32explorer's launch does, so the board's log can explain a folder that never opened. */
+    child.on('error', (err) => {
+      process.stderr.write('[projects] ' + bin + ' ' + folder + ' failed to start: ' + String((err && err.message) || err) + '\n');
+    });
+    child.unref();
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof ReferenceError || err instanceof TypeError) throw err;
+    return { ok: false, because: 'the folder did not open' };
+  }
+}
 function revealFolder(folder) {
   /* On Windows the folder opens in File Explorer, through the one module that
      validates the path, holds the live-execution gate and never waits on Explorer's
      exit code (it exits 1 on success). */
   if (revealOnWindows()) return win32explorer.openFolder(folder);
+  if (revealOnLinux()) return linuxOpenFolder(folder);   // #5881
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', [folder]);
     execFileSync('/usr/bin/open', [folder], { timeout: 5000, stdio: 'ignore' });
@@ -1521,6 +1584,9 @@ function revealFolder(folder) {
  */
 function revealFile(file, opts) {
   if (revealOnWindows()) return win32explorer.revealFile(file, opts);   // #4997: opts.namedAs, as openFile
+  // #5881: xdg-open cannot select a file in its folder, so a Linux desktop opens the folder the file is in (opts.namedAs
+  // is Windows's, unused here).
+  if (revealOnLinux()) return linuxOpenFolder(path.dirname(String(file)));
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', ['-R', file]);
     execFileSync('/usr/bin/open', ['-R', file], { timeout: 5000, stdio: 'ignore' });
@@ -1822,6 +1888,11 @@ function openFile(folder, name, where = 'this project') {
      the project record names (review round 2), so a mapped Z:\ project opens its
      documents the same way "Open in File Explorer" opens its folder. */
   if (revealOnWindows()) return win32explorer.openFile(target, { namedAs: path.join(String(folder), given) });
+  /* #5881 (review 1): on a Linux board a file is never opened on the computer: the page downloads it instead (its file
+     rows do, on every Linux board), and xdg-open would hand an agent-written .desktop file or script to whatever the
+     desktop runs it with, a type Windows refuses (SAFETY 1). Refused after the gates, so a name the list would not show
+     is still refused for that reason first. */
+  if (revealOnLinux()) return { ok: false, because: 'on this computer Kosmos does not open files, so download it instead' };
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', [target]);
     /* ⚠️ STDERR IS CAPTURED, NOT IGNORED (#1199), and that is the whole fix.
@@ -3701,6 +3772,6 @@ module.exports = {
   BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
-  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile, resolveListedFile, sameOpenedFile, sameListedPath,
+  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setRevealEnv, setFsWorldForTests, listFiles, openFile, resolveListedFile, sameOpenedFile, sameListedPath,
   isUnderTmpDir, tmpFolderRefused,
 };
