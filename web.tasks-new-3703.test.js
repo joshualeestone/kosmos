@@ -246,3 +246,14 @@ test('kosmos#5956 review 2: the Create gate run as typed: what alone keeps it do
   gate('a');
   assert.equal(els['nt-go'].disabled, true, 'blank done-when is no done-when');
 });
+
+test('kosmos#5956 review 5: the engine\'s real refusal for an emoji joined with U+200D is the one the dialog rewords', () => {
+  const tasks = require('./engine/tasks');
+  const m = SCRIPT.match(/textContent = (\/done-when check has to be [^\n]*?\/)\.test\(why\)/);
+  assert.ok(m, 'PRE-CONTROL: the dialog\'s pattern is in the page');
+  const re = new Function('return ' + m[1])();
+  const refusal = tasks.doneWhenProblem(['Ship it \u{1F469}‍\u{1F4BB}']);
+  assert.ok(refusal, 'PRE-CONTROL: the engine refuses a zero-width joiner');
+  assert.match(refusal, re, 'the engine reworded its refusal; the dialog would show the raw text again');
+  assert.doesNotMatch(String(tasks.doneWhenProblem(['Ship it'])), re, 'CONTROL: a plain answer is not refused');
+});
