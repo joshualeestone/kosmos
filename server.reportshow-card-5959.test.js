@@ -168,6 +168,7 @@ test('#5959 review 3: a waiting report Kosmos wrote (by auto) is not called "you
 });
 
 test('#5959 review 4: a waiting report a person or an unknown writer left is said without naming a writer', async () => {
+  // Defensive: today no operator path writes a waiting state (the #2575 and #5034 writers clear), and null is a legacy line.
   boardAuthState.on = false;
   await withLeo(async () => {
     const tok = sendertoken.mint(WHO).token;
