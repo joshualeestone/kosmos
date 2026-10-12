@@ -106,8 +106,9 @@ token_web_scan() {
 # #5907: one pass per half counts every PLAIN token (only [A-Za-z0-9_-], the boundary class) at once. A line splits into
 # maximal runs of that class, and a plain token sits between boundaries exactly when it is one of those runs, so this is
 # token_web_scan's match; a line counts once per token, as grep -c counts lines. Prints "token count" for each wanted
-# token. (The split is C-locale and the grep runs in the ambient locale: on invalid UTF-8 next to a token, or in a locale
-# whose A-Z range takes accented letters, they can differ. web/index.html is valid UTF-8, and macOS ranges are ASCII.) Calling token_web_scan per token cost two full-file greps for each of ~1,000 tokens (most of this test's time).
+# token. (The split is C-locale and the grep runs in the ambient locale: on invalid UTF-8 next to a token, or in a
+# locale whose A-Z range takes accented letters, they can differ. web/index.html is valid UTF-8, and macOS ranges are
+# ASCII.) Calling token_web_scan per token cost two full-file greps for each of ~1,000 tokens (most of this test's time).
 count_plain_tokens() {   # $1: file of tokens, one per line; $2: the half to count in
   # FILENAME == ARGV[1], not NR == FNR: an empty token file must not turn the half's own lines into wanted tokens.
   LC_ALL=C awk 'FILENAME == ARGV[1] { if ($0 != "") want[$0]=1; next }
@@ -155,6 +156,15 @@ _nplain="$(LC_ALL=C grep -E '^[A-Za-z0-9_-]+$' "$ALL_TOKS" | LC_ALL=C sort -u | 
 _nrows="$(awk 'NF == 3' "$COUNTS" | wc -l | tr -d ' ')"   # complete rows only: a row missing a count is not counted
 if [ "$_nrows" = "$_nplain" ]; then ok "the counted table holds all $_nrows plain tokens (the fast path is taken)"
 else bad "the counted table holds $_nrows rows for $_nplain plain tokens: the fast path is not taken"; fi
+# And the table's VALUES on the real page, not only its rows: every 40th plain token against token_web_scan, so a counter
+# that undercounts (and stays above zero, so the loop would still pass) goes red here.
+_spot=0; _spotbad=0
+while IFS= read -r t; do
+  _spot=$((_spot + 1))
+  _got="$(token_counts "$t" "$COUNTS" /dev/null /dev/null)"; _want="$(token_web_scan "$t" "$WEB_CODE" "$WEB_CMT")"
+  [ "$_got" = "$_want" ] || { bad "SPOT: the table says '$_got' for $t on web/index.html, token_web_scan says '$_want'"; _spotbad=1; }
+done <<< "$(LC_ALL=C grep -E '^[A-Za-z0-9_-]+$' "$ALL_TOKS" | LC_ALL=C sort -u | awk 'NR % 40 == 1')"
+[ "$_spot" -ge 1 ] && [ "$_spotbad" -eq 0 ] && ok "SPOT: the table matches token_web_scan on all $_spot sampled real tokens"
 
 annotated=0
 while IFS="$(printf '\t')" read -r f toks; do
@@ -215,8 +225,8 @@ _chk tok-absent "0 0" "an absent token is neither functional nor comment"       
 # #5907: the counted path (count_table + token_counts, as the loop above uses it) agrees with token_web_scan on its own
 # fixture: a token twice on one line (a line counts once) and again on another line (lines add up), a token inside a
 # longer run (not a match: tok inside tok-dup and tok_u, TOK and UP inside TOK-UP, so `_`, `-` and capitals are all
-# run characters), one in a comment,
-# a numeric-looking pair (1e3 present, 1000 absent: compared as strings), and an absent one. Names any token that drifts.
+# run characters), one in a comment, a numeric-looking pair (1e3 present, 1000 absent: compared as strings), and an
+# absent one. Names any token that drifts.
 _pf="$(_mktmp)"
 printf '%s\n' \
   '<div id="tok-dup">a</div> <span class="tok-dup">b</span>' \
