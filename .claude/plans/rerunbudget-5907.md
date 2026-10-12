@@ -11,9 +11,9 @@ Every cut log on Agent1s that reached this path (grep for "isolation-rerun: re-r
 10-07 to 10-08: cut-0729, cut-0742 (aborted for another reason later), cut-0726 PASSED on attempt 1; cut-0707,
 cut-0708, cut-0723 stayed red on attempts 1, 2 and 3. **Attempts 2 and 3 changed no verdict**; each real red paid two
 extra suites.
-Also ~/.claude/logs/cut-suite-runs.log (last written 09-27; found by review iteration 7, counted here): five more
+Also ~/.claude/logs/cut-suite-runs.log (last written 09-27): five more
 whole-suite reruns, all "still red alone" on attempts 1/3, 2/3 and 3/3, zero passes (some may be retries of one
-version). Eleven cut runs in all: 3 passed on
+version). Eleven cut runs in all (an upper bound on independent cuts): 3 passed on
 attempt 1, 8 real reds paid two extra suites each, no attempt 2 or 3 ever passed.
 
 ## Change
@@ -33,3 +33,9 @@ my mind: a cut log where attempt 2 or 3 passed. **That evidence stops arriving w
 budget attempts 2 and 3 never run, so silence afterwards is not confirmation. The cost of being wrong shows up only as
 re-cuts after a contention abort (the abort line names the override), and a cut run with KOSMOS_SUITE_RERUN_MAX=2 is
 the way to collect it again.
+
+## The override reaches a cut
+release.sh does not scrub or refuse KOSMOS_SUITE_RERUN_MAX (no env -i; its refusal loop at release.sh:723 names only
+the notarize variables), so an export before the cut reaches kosmos_isolation_rerun_verdict at release.sh:1032. Read
+from source. The same read found that the test seam KOSMOS_SUITE_RERUN_CMD is not refused either, a pre-existing hazard
+filed as #5932 (out of scope here).
