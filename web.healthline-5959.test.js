@@ -113,14 +113,14 @@ test('#5959 slice 2: the real paintDetailState paints the line from the card it 
     'return paintDetailState;',
   ].join('\n'))(doc, new Map(), 0);
   const recent = new Date(Date.now() - 5 * 60e3).toISOString();
-  paint({ sessionName: 's', name: 'S', state: 'idle', runner: 'claude', lastWorked: { at: recent, why: null } });
+  paint({ name: 'S', state: 'idle', runner: 'claude', lastWorked: { at: recent, why: null } });
   assert.match(els['d-health'].textContent, /^Sign-in: no problem showing · Usage: no limit showing · Last seen working: /);
   assert.equal(els['d-health'].hidden, false);
   // The next poll's card says the sign-in failed: the line follows it.
-  paint({ sessionName: 's', name: 'S', state: 'auth_failed', stateConfidence: 'structured', runner: 'claude', lastWorked: { at: recent, why: null } });
+  paint({ name: 'S', state: 'auth_failed', stateConfidence: 'structured', runner: 'claude', lastWorked: { at: recent, why: null } });
   assert.match(els['d-health'].textContent, /^Sign-in: isn't working · Last seen working: /);
   // A card with no lastWorked: no line, and hidden.
-  paint({ sessionName: 's', name: 'S', state: 'idle', runner: 'claude', lastWorked: null });
+  paint({ name: 'S', state: 'idle', runner: 'claude', lastWorked: null });
   assert.equal(els['d-health'].textContent, '');
   assert.equal(els['d-health'].hidden, true);
 });

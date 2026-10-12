@@ -12946,13 +12946,11 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
           return;
         }
-        /* #5959 slice 2: a move keeps the name, so a time seen on the old account would otherwise say "no problem showing"
-           for the new one. Before the restart (the job already names the new account) and after it (as on a provider switch). */
-        try { observed.forgetAgent(name); } catch { /* best-effort, like the forgets on remove */ }
+        try { observed.forgetAgent(name); } catch { /* #5959 */ }
         let back;
         try { back = removal.restart(name, 'account'); }
         catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
-        try { observed.forgetAgent(name); } catch { /* best-effort, as above */ }
+        try { observed.forgetAgent(name); } catch { /* #5959 */ }
         const ok = back.outcome === removal.OUTCOME.RESTARTED;
         /* #2338: lead with the human-chosen account name (the `.kosmos-name`
            sidecar an OpenAI row carries, #2095), the same value the picker shows,
