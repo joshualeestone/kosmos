@@ -122,6 +122,8 @@ kosmos_whole_suite_rerun_verdict() {
     if [ "$attempt" -le "$max" ] && [ "$sleep_s" -gt 0 ]; then sleep "$sleep_s"; fi
   done
   echo "  whole suite: red in isolation across all $max attempts -> a real failure, not contention. The cut aborts."
+  # #5907: the budget is 1 by default, so say where the override is, in the log a person reads.
+  echo "  (whole-suite attempts: $max. If you believe this red was contention, KOSMOS_SUITE_RERUN_MAX=3 before the cut allows up to 3.)"
   return 1
 }
 
