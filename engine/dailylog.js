@@ -123,8 +123,8 @@ const CHAIN_MAX = 1000;
  *
  * The rule for following a name is engine/chat.js's asideChain's, restated here because that function reads only
  * Kosmos's own chats folder and this compiler is given a folder: the name is this thread file's name, a dot, and
- * `.full` at the end, with no path separator; the file parses, holds a message list, and carries the same `agent` and
- * the same `projectBornAt` as the file that led to it. A test compares the two on files the real writer made.
+ * `.full` at the end, with no path separator; the file parses, holds a message list, its `agent` is `key`, and its
+ * `projectBornAt` is the one `parsed` carries. A test compares the two on files the real writer made.
  *
  * Returns `{ complete, earlier }`: `earlier` is [{ name, carried, messages }] as asideChain(..., true) gives it, and
  * `complete` is true only when the walk reached a file that names no earlier one. asideChain keeps what it read when
@@ -407,7 +407,9 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
  *   - `chainFiles` (kosmos#5855 step 2) are the `.full` files that were read: each
  *     was followed from a thread file whose whole chain could be followed
  *     (followChain), and that conversation in `conversations` holds the chain's
- *     rows, oldest first, with each file's carried copies counted once.
+ *     rows, oldest first, with each file's carried copies counted once. Also
+ *     in it: a `.full` file that is a byte-for-byte copy of one of those, of
+ *     the same thread (its rows were read from the other).
  *   - `rolledOver` counts the files NAMED as a rolled-over conversation's `.full` file
  *     (isRolledOverFileName) that are NOT in `chainFiles`: no thread file's
  *     complete chain reached them, so their rows are not returned.
@@ -532,8 +534,13 @@ function readConversations(chatsDir, now = new Date()) {
      complete, every file in it is one this listing saw, and no other conversation's chain holds the same file (the
      writer never makes that; read twice, its rows would be in a day twice). Then its rows are the chain's, merged as
      engine/chat.js merges them (chainRows: a file's carried rows are served from the newer copy), and its `.full`
-     files leave `rolledOverFiles`. Otherwise the file stays in `continuedFiles`, which refuses the run. */
+     files leave `rolledOverFiles`. Otherwise the file stays in `continuedFiles`, which refuses the run.
+     A `.damaged` file of the same thread changes none of this: its rows are unknown as any `.damaged` file's are
+     (kosmos#5866), so the prune is limited and a day it shares with readable rows is written without them. */
   const listed = new Set(rolledOverFiles);
+  // Lazy-required, and only when a chain is merged, so dailylog keeps its light top-level dependency set.
+  let chainRows = null;
+  const followed = [];
   const chains = naming.map((c) => ({ ...c, chain: followChain(chatsDir, c.base, c.key, out[c.at].parsed) }));
   const holders = new Map();
   for (const c of chains) for (const a of c.chain.earlier) holders.set(a.name, (holders.get(a.name) || 0) + 1);
@@ -546,9 +553,22 @@ function readConversations(chatsDir, now = new Date()) {
     const cur = out[c.at].parsed;
     // how many of the current file's leading rows copy the end of the file before it, read as chat.js's readThread does
     const carried = Number.isInteger(cur.carried) && cur.carried >= 0 && cur.carried <= cur.messages.length ? cur.carried : 0;
-    const messages = require('./chat').chainRows(c.chain.earlier, cur.messages, carried);
+    if (chainRows === null) chainRows = require('./chat').chainRows;
+    const messages = chainRows(c.chain.earlier, cur.messages, carried);
     out[c.at] = { desc: out[c.at].desc, parsed: { ...cur, messages } };
-    for (const a of c.chain.earlier) chainFiles.push(a.name);
+    for (const a of c.chain.earlier) { chainFiles.push(a.name); followed.push({ base: c.base, name: a.name }); }
+  }
+  /* A `.full` file no chain reached that is, byte for byte, a file a chain of the same thread did reach holds no
+     row that was not read. The writer leaves one when a rollover is interrupted between setting the full file aside
+     (a hard link) and writing the fresh file: the next message rolls the same full file over again under a new name,
+     and the first name stays. Counted as read, so that one interruption does not refuse every later run. */
+  const bytes = (n) => { try { return fs.readFileSync(path.join(chatsDir, n)); } catch { return null; } };
+  for (const name of rolledOverFiles) {
+    if (chainFiles.includes(name)) continue;
+    const own = followed.filter((f) => name.startsWith(f.base + '.'));
+    if (!own.length) continue;
+    const mine = bytes(name);
+    if (mine !== null && own.some((f) => { const theirs = bytes(f.name); return theirs !== null && mine.equals(theirs); })) chainFiles.push(name);
   }
   const read = new Set(chainFiles);
   for (let i = rolledOverFiles.length - 1; i >= 0; i -= 1) if (read.has(rolledOverFiles[i])) rolledOverFiles.splice(i, 1);
@@ -726,8 +746,8 @@ if (require.main === module) {
   const USAGE = 'usage: node engine/dailylog.js [--all | --day YYYY-MM-DD] [--out <dir>]\n'
     + '  the default run prunes stale day files in the rollup dir; --out disables pruning\n'
     + '  a daily file with no readable messages left is kept when a conversation file that cannot be read as one may hold them\n'
-    + `  exits ${EXIT_REFUSED}, having written and removed nothing, while the chats folder holds a file named as\n`
-    + '  the earlier part of a conversation (ending .full) or a conversation file that refers to an earlier file\n';
+    + `  exits ${EXIT_REFUSED}, having written and removed nothing, while the chats folder holds a file ending .full\n`
+    + '  that no conversation file leads to, or a conversation file whose earlier files cannot all be followed\n';
   const die = (msg) => { process.stderr.write(`dailylog: ${msg}\n` + USAGE); process.exit(2); };
   const argv = process.argv.slice(2);
   const opts = {};

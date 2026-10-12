@@ -243,13 +243,103 @@ test('a chain that cannot be followed whole refuses the run, whatever broke it, 
 test('a full file no thread file leads to refuses the run, beside a chain that was followed whole', () => {
   const { chatsDir, outDir, aside, base } = rolled('orphan', 'agentg');
   const orphan = base + '.20260101T000000Z.1.1767225600000.full';
-  fs.copyFileSync(path.join(chatsDir, aside), path.join(chatsDir, orphan));
+  // the followed file's rows but one: a file whose rows were not all read
+  const rec = JSON.parse(fs.readFileSync(path.join(chatsDir, aside), 'utf8'));
+  fs.writeFileSync(path.join(chatsDir, orphan), JSON.stringify({ ...rec, messages: rec.messages.slice(1) }));
   const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
   assert.equal(s.refused, 'rolled-over');
   assert.deepEqual(s.rolledOverFiles, [orphan], 'only the file that was not reached is listed');
   assert.deepEqual(s.continuedFiles, []);
   assert.deepEqual(s.chainFiles, [aside]);
   assert.ok(!fs.existsSync(outDir), 'a refused run created its output folder');
+});
+
+test('a rollover interrupted after the full file was set aside leaves a second name for it, which does not refuse the run', () => {
+  // the interruption: the hard link under the aside name exists, the fresh file was never written
+  const file = fullThread('chain', 'agentl', 'twin');
+  const first = path.basename(file) + '.20260801T000000000Z.999.1791000000000.full';
+  fs.linkSync(file, path.join(path.dirname(file), first));
+  // the next message: the writer rolls the same full file over again, under a new name
+  const second = rollOver('chain', 'agentl', 'twin after the rollover', '2026-09-16T09:00:00Z');
+  assert.notEqual(second, first);
+  assert.deepEqual(chat.asideChain('chain', 'agentl', true).map((a) => a.name), [second], 'precondition: chat.js follows the second name only');
+  const { chatsDir, outDir, base } = isolate('twin', 'chain', 'agentl');
+  assert.deepEqual(fs.readdirSync(chatsDir).sort(), [base, first, second].sort(), 'precondition: both names are there');
+  const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
+  assert.equal(s.refused, null, 'a copy of a file that was read refused the run');
+  assert.deepEqual(s.chainFiles, [first, second].sort());
+  assert.equal(s.messages, MAX + 1, 'the copy\'s rows were compiled a second time');
+  assert.deepEqual(timesEach(outDir, 'twin', MAX), []);
+  // the same name over another thread's followed file is not a copy of this thread's: still refused
+  const other = 'chain.agentz.json.x.full';
+  fs.renameSync(path.join(chatsDir, first), path.join(chatsDir, other));
+  const no = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
+  assert.equal(no.refused, 'rolled-over');
+  assert.deepEqual(no.rolledOverFiles, [other]);
+});
+
+test('a thread file with no project date that rolls over under one is refused: chat.js does not follow it either', () => {
+  // KNOWN, and chat.js's to fix: the fresh file is stamped with the project's date and the full file has none, so
+  // neither engine/chat.js nor this compiler follows the link. Refused here, which loses nothing.
+  const file = chat.threadFile('chain', 'agentm');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ project: 'chain', agent: 'agentm', messages: Array.from({ length: MAX }, (_, i) => row('undated', i)) }));
+  rollOver('chain', 'agentm', 'undated after the rollover', '2026-09-16T09:00:00Z');
+  const follows = chat.asideChain('chain', 'agentm', true).length;
+  const { chatsDir, outDir, base } = isolate('undated', 'chain', 'agentm');
+  const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
+  // when chat.js follows this link the compiler must too: then this test is the one to change
+  assert.equal(follows, 0, 'engine/chat.js follows a full file with no project date now: this compiler should compile it');
+  assert.equal(s.refused, 'rolled-over');
+  assert.deepEqual(s.continuedFiles, [base]);
+});
+
+test('a direct conversation that rolled over compiles whole', () => {
+  const file = chat.threadFile(chat.DIRECT, 'agentn');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ project: chat.DIRECT, agent: 'agentn', messages: Array.from({ length: MAX }, (_, i) => row('direct', i)) }));
+  const kept = chat.appendMessage(chat.DIRECT, 'agentn', { text: 'direct after the rollover', at: '2026-09-16T09:00:00Z', delivery: { state: chat.DELIVERY.PLACED } });
+  assert.equal(kept.recorded, true, kept.because);
+  const fromChat = chat.asideChain(chat.DIRECT, 'agentn', true);
+  assert.equal(fromChat.length, 1, 'precondition: chat.js follows it');
+  const { chatsDir, outDir, base } = isolate('direct', chat.DIRECT, 'agentn');
+  assert.equal(base, 'direct..agentn.json');
+  assert.deepEqual(dl.followChain(chatsDir, base, 'agentn', JSON.parse(fs.readFileSync(path.join(chatsDir, base), 'utf8'))).earlier, fromChat);
+  const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
+  assert.equal(s.refused, null);
+  assert.equal(s.messages, MAX + 1);
+  assert.deepEqual(timesEach(outDir, 'direct', MAX), []);
+});
+
+test('KNOWN LIMIT: a current file damaged after a rollover is set aside, and the days it shared are written without its rows', () => {
+  // The same limit as for any `.damaged` file (kosmos#5866): its rows cannot be read, the prune is limited, and a
+  // day it shares with readable rows is written without them. Pinned here because a rollover makes that day likely.
+  fullThread('chain', 'agento', 'hurt');
+  const aside = rollOver('chain', 'agento', 'hurt message ' + MAX, '2026-09-15T20:00:00Z');
+  const say = (i, at) => assert.equal(chat.appendMessage('chain', 'agento', { text: 'hurt message ' + i, at, delivery: { state: chat.DELIVERY.PLACED } }, BORN).recorded, true);
+  say(MAX + 1, '2026-09-15T21:00:00Z');
+  say(MAX + 2, '2026-09-16T09:00:00Z');
+  const file = chat.threadFile('chain', 'agento');
+  const outDir = path.join(SANDBOX, 'daily-hurt');
+  const whole = dl.compileAll({ chatsDir: chat.chatsDir(), outDir, dayOf, timeOf });
+  assert.equal(whole.messages, MAX + 3, 'precondition: compiled whole before the damage');
+  const day15 = readDay(outDir, '2026-09-15');
+  // the damage, then the next message: the writer sets the file aside as .damaged and continues from the full file
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').slice(0, 300));
+  say(MAX + 3, '2026-09-17T09:00:00Z');
+  const now = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepEqual([now.continues, now.carried, now.messages.length], [aside, undefined, 1], 'precondition: relinked to the full file, nothing carried');
+  const { chatsDir } = isolate('hurt', 'chain', 'agento');
+  const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf, now: new Date('2026-09-17T10:00:00Z') });
+  assert.equal(s.refused, null);
+  assert.equal(s.unknownFiles.length, 1, 'the .damaged file is counted as not read');
+  assert.equal(s.messages, MAX + 1, 'the full file\'s rows and the one after the damage');
+  assert.deepEqual(timesEach(outDir, 'hurt', MAX), [], 'a row of the full file is missing or doubled');
+  assert.deepEqual(s.held, ['2026-09-16'], 'the day only the damaged file held is kept, not pruned');
+  assert.deepEqual(s.pruned, []);
+  // the limit: the 15th is rewritten from the full file alone, so the two rows only the damaged file held are gone
+  assert.notEqual(readDay(outDir, '2026-09-15'), day15);
+  assert.doesNotMatch(readDay(outDir, '2026-09-15'), new RegExp(`hurt message ${MAX + 1}(?!\\d)`));
 });
 
 test('one full file reached from two conversation files is read for neither: the run is refused', () => {
