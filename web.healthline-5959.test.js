@@ -38,10 +38,10 @@ test('#5959 slice 2: the health line says sign-in, usage and when Kosmos last sa
     'Sign-in: no problem showing · Usage: limit reached · Last seen working: ' + clock(at5));
   // Never seen working: a problem the state shows is still said, but "no problem" is not (it would rest on an absence).
   assert.equal(healthLine({ state: 'auth_failed', stateConfidence: 'scraped', lastWorked: never }, NOW),
-    'Sign-in: looks like it isn\'t working · Last seen working: not yet');
+    'Sign-in: looks like it isn\'t working · Last seen working: no record');
   assert.equal(healthLine({ state: 'rate_limited', stateConfidence: 'structured', lastWorked: never }, NOW),
-    'Usage: limit reached · Last seen working: not yet');
-  assert.equal(healthLine({ state: 'idle', lastWorked: never }, NOW), 'Last seen working: not yet');
+    'Usage: limit reached · Last seen working: no record');
+  assert.equal(healthLine({ state: 'idle', lastWorked: never }, NOW), 'Last seen working: no record');
   assert.equal(healthLine({ state: 'working', lastWorked: { at: null, why: 'no_source' } }, NOW),
     'Last seen working: Kosmos cannot see this agent\'s turns');
   // A pane that reads stopped, restarting or unreadable: Kosmos sees nothing of its sign-in or usage, so only the time

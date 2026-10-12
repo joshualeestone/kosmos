@@ -23733,9 +23733,9 @@ function healthLine(a, nowMs) {
   let last;
   if (Number.isFinite(at)) last = seenAtWords(at, nowMs);
   else if (lw.why === 'no_source') last = 'Kosmos cannot see this agent\'s turns';
-  /* "not yet", not "since Kosmos started": the time is also forgotten on a switch or a recreate, after which "since Kosmos
-     started" would be false. */
-  else last = 'not yet';
+  /* "no record": true after a board restart (the record is in memory) and after a switch or a recreate (it is forgotten
+     then), where "not yet" would read as never and "since Kosmos started" would be false. */
+  else last = 'no record';
   /* auth_failed and rate_limited are always said (a blocked card says neither: see HEALTH_READ_STATES). "No problem" is
      said only for a state Kosmos reads (HEALTH_READ_STATES)
      on an agent it has seen work within the last hour (HEALTH_QUIET_MS): otherwise it would be a health claim resting
