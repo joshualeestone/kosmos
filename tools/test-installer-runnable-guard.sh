@@ -1,7 +1,7 @@
 #!/bin/bash
 # #1716: [ -x "$p" ] succeeds on a DIRECTORY, so a directory named like a binary
 # reads as an installed program. Every executable test in the shipped installer
-# must guard the SAME path with -f (or, for a folder search test, gate it with -d;
+# must guard the SAME path with -f (a folder search test is listed by name instead;
 # see section 2). This test (1) demonstrates the class and
 # (2) asserts no bare, unguarded [ -x "P" ] remains in the three installer files.
 #
@@ -40,26 +40,34 @@ rm -rf "$_td"
 #
 #    #5913: a test of whether a FOLDER can be entered uses -x on purpose. A line scan cannot parse shell well
 #    enough to tell a safe folder test from an unsafe one (a || list, a heredoc or a comment on the line before,
-#    an unquoted variable, and more), so no shape is excused. Each folder test is excused by name instead: the
-#    exact line, with the exact code line before it (blank and comment-only lines skipped), listed below. Edit
-#    either line, or add a folder test anywhere, and this guard goes red until a person reads it and lists it.
+#    an unquoted variable, and more), so no shape is excused. Each folder test is listed by name below instead,
+#    and the scan of the installer requires each listed test to appear exactly once where it is listed.
+#    The listed line is trusted to gate its own -x with [ -d P ]: read it before listing it.
+#    To add one, append three lines to FOLDER_SEARCH_TESTS: the file (as in FILES), the code line before the
+#    test, and the test line itself, both trimmed of leading and trailing space. "The code line before" skips
+#    blank and comment-only lines; a trailing comment is part of a line, so editing one reds this guard too.
 FOLDER_SEARCH_TESTS="$(printf '%s\n' \
+  'install/setup.sh' \
   'while [ ! -e "$a" ] && [ ! -L "$a" ] && [ "$a" != / ]; do a="$(/usr/bin/dirname "$a")"; done' \
   '[ -d "$a" ] && [ -x "$a" ] || return 0   # a folder search test, listed in tools/test-installer-runnable-guard.sh' \
+  'install/setup.sh' \
   'fi' \
   '[ -d "$SEALED_USERS_DIR" ] && [ ! -L "$SEALED_USERS_DIR" ] && [ -r "$SEALED_USERS_DIR" ] && [ -x "$SEALED_USERS_DIR" ] || return 0')"
 export FOLDER_SEARCH_TESTS
+# With -v whole=1 (the installer scan), each listed test must be excused exactly once: a copy (a heredoc, a paste)
+# or a stale entry is reported. Controls on scratch files leave it off.
 _scan='
 BEGIN {
-  # FOLDER_SEARCH_TESTS holds pairs of lines: the code line before, then the folder test.
   n = split(ENVIRON["FOLDER_SEARCH_TESTS"], a, "\n")
-  for (i = 1; i < n; i += 2) listed[a[i] "\n" a[i + 1]] = 1
+  for (i = 1; i + 2 <= n; i += 3) { key = a[i] "\n" a[i + 1] "\n" a[i + 2]; listed[key] = 1; seen[key] = 0 }
 }
 FNR == 1 { prevcode = "" }
 {
   line = $0
   t = line; sub(/^[ \t]+/, "", t); sub(/[ \t]+$/, "", t)
-  folder = ((prevcode "\n" t) in listed)
+  key = FILENAME "\n" prevcode "\n" t
+  folder = (key in listed)
+  if (folder) seen[key]++
   s = line
   while (match(s, /\[ -x ("[^"]+"|[^] ]+) \]/)) {
     p = substr(s, RSTART, RLENGTH); sub(/^\[ -x /, "", p); sub(/ \]$/, "", p)
@@ -75,10 +83,15 @@ FNR == 1 { prevcode = "" }
     u = substr(u, RSTART + RLENGTH)
   }
   if (t != "" && substr(t, 1, 1) != "#") prevcode = t
+}
+END {
+  if (whole) for (key in seen) if (seen[key] != 1) {
+    split(key, k, "\n"); printf "%s: listed folder test found %d times, not once: %s\n", k[1], seen[key], k[3]
+  }
 }'
-bare="$(cd "$HERE" && awk "$_scan" $FILES 2>/dev/null)"
+bare="$(cd "$HERE" && awk -v whole=1 "$_scan" $FILES 2>/dev/null)"
 if [ -z "$bare" ]; then
-    pass "no unguarded executable test in the installer (positive or negated, quoted or unquoted)"
+    pass "no unguarded executable test in the installer (positive or negated, quoted or unquoted), and each listed folder test found once"
 else
     fail "unguarded executable test site(s) remain:"
     printf '%s\n' "$bare" | sed 's/^/        /'
@@ -97,39 +110,51 @@ if [ "$_hits" -eq 2 ]; then pass "the scan flags both a planted unquoted [ -x ] 
 else fail "the scan missed a planted bare form (flagged $_hits of 2), so it is vacuous for some form"; fi
 rm -f "$_ctl"
 
-# 4. #5913: each listed folder test is excused with its own line before it, and nothing else is.
-_ctl="$(mktemp)"
+# 4. #5913: each listed folder test is excused in its own file after its own line, once, and nothing else is.
 _nl=$(printf '%s\n' "$FOLDER_SEARCH_TESTS" | grep -c .)
-[ $((_nl % 2)) -eq 0 ] && [ "$_nl" -ge 2 ] && pass "the folder test list holds $((_nl / 2)) pair(s)" || fail "the folder test list is not pairs of lines ($_nl lines)"
-# The pairs as they appear in a file: indented, with a blank line and a comment between them, as in setup.sh.
-printf '%s\n' "$FOLDER_SEARCH_TESTS" | awk 'NR % 2 == 1 { print "    " $0; print ""; print "    # a comment"; next } { print "    " $0 }' > "$_ctl"
-if [ -z "$(awk "$_scan" "$_ctl" 2>/dev/null)" ]; then pass "each listed folder test is excused after its listed line (a blank and a comment line between)"
-else fail "a listed folder test was flagged after its listed line: $(awk "$_scan" "$_ctl" 2>/dev/null | head -1)"; fi
-# The same folder tests are flagged after any other line before them, and every other folder test shape is flagged.
-_first_test="$(printf '%s\n' "$FOLDER_SEARCH_TESTS" | sed -n 2p)"
-set -- \
-  "  true ||
-  $_first_test" \
-  "  cat >f <<X ||
+[ $((_nl % 3)) -eq 0 ] && [ "$_nl" -ge 3 ] && pass "the folder test list holds $((_nl / 3)) entries of three lines" || fail "the folder test list is not entries of three lines ($_nl lines)"
+_cdir="$(mktemp -d)"; mkdir -p "$_cdir/install"
+# rel <entry> <line within it>: one line of one list entry.
+rel() { printf '%s\n' "$FOLDER_SEARCH_TESTS" | sed -n "$((($1 - 1) * 3 + $2))p"; }
+# Each entry, written as it appears in its file (indented, a blank and a comment line between), in a scratch tree.
+for _e in $(seq 1 $((_nl / 3))); do
+  { printf '    %s\n\n    # a comment\n    %s\n' "$(rel "$_e" 2)" "$(rel "$_e" 3)"; } >> "$_cdir/$(rel "$_e" 1)"
+done
+_out="$(cd "$_cdir" && awk -v whole=1 "$_scan" $(printf '%s\n' "$FOLDER_SEARCH_TESTS" | awk 'NR % 3 == 1' | sort -u) 2>/dev/null)"
+if [ -z "$_out" ]; then pass "each listed folder test is excused once in its file after its listed line (a blank and a comment between)"
+else fail "a listed folder test was not excused as listed: $(printf '%s' "$_out" | head -1)"; fi
+# The same, with every listed test copied once more inside a heredoc: the copies are reported (found twice).
+for _e in $(seq 1 $((_nl / 3))); do
+  { printf 'cat <<X\n%s\n%s\nX\n' "$(rel "$_e" 2)" "$(rel "$_e" 3)"; } >> "$_cdir/$(rel "$_e" 1)"
+done
+_out="$(cd "$_cdir" && awk -v whole=1 "$_scan" $(printf '%s\n' "$FOLDER_SEARCH_TESTS" | awk 'NR % 3 == 1' | sort -u) 2>/dev/null)"
+if [ "$(printf '%s\n' "$_out" | grep -c 'found 2 times')" -eq "$((_nl / 3))" ]; then pass "a listed folder test copied a second time (in a heredoc) is reported, for every entry"
+else fail "a copied listed folder test was not reported: $_out"; fi
+rm -rf "$_cdir"
+# Every listed test after any other line, alone, or in another file, and every unlisted folder test, is flagged.
+_ctl="$(mktemp)"
+set --
+for _e in $(seq 1 $((_nl / 3))); do
+  set -- "$@" "  true ||
+  $(rel "$_e" 3)" "  cat >f <<X ||
 body
 X
-  $_first_test" \
-  "  [ -n \"\$F\" ] ||#c
-  $_first_test" \
-  "  $_first_test" \
+  $(rel "$_e" 3)" "  [ -n \"\$F\" ] ||#c
+  $(rel "$_e" 3)" "  $(rel "$_e" 3)" "  $(rel "$_e" 2)
+  $(rel "$_e" 3)"
+done
+set -- "$@" \
   '  [ -d $P ] && [ -x $P ] || return 0' \
   '  [ -d "$P" ] && [ -x "$P" ] || return 0' \
-  '  [ -d "$OTHER" ] && [ -x "$DIR" ] || return 0' \
   '  [ -d "$P" ] || [ -x "$P" ] && run "$P"' \
-  '  ! [ -d "$P" ] && [ -x "$P" ] && run "$P"' \
-  '  [ -d "$P" ] && [ -x "$P" ] || return 1'
+  '  ! [ -d "$P" ] && [ -x "$P" ] && run "$P"'
 _n=0
 for _l in "$@"; do
   printf '%s\n' "$_l" > "$_ctl"
   if [ "$(awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -ge 1 ]; then _n=$((_n + 1))
   else fail "this was not flagged: $(printf '%s' "$_l" | tr '\n' '/')"; fi
 done
-[ "$_n" -eq "$#" ] && pass "a listed folder test after another line (a || list, a heredoc opened on ||, ||#), or alone, and every unlisted folder test, is flagged ($# controls)"
+[ "$_n" -eq "$#" ] && pass "every listed test after another line (a || list, a heredoc on ||, ||#), alone, or with its own line but in another file, and every unlisted folder test, is flagged ($# controls)"
 rm -f "$_ctl"
 
 echo "installer runnable-guard: $fails failures"
