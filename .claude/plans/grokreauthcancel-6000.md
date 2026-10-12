@@ -28,6 +28,11 @@ on the live folder, and goes ahead. Any other hold still refuses with the old se
 - The default ~/.grok stays refused before any of this (Grok's own divergence from OpenAI: it is the machine's CLI
   home), so this changes nothing for it.
 
+- A sign-in the reaper has already dropped from grokSessions while its child still lives is not seen as the
+  account's own, so its hold refuses as before. Accepted as #5994 does: it needs grokForceKillMs >= grokSessionTtlMs
+  (defaults 3 s and 2 min) or a child that survives SIGKILL; no guard in setGrokTimers, which only tests call.
+- The test file's finally blocks reset forceKill to the literal 3000, as #5994's suite does.
+
 ## Weakest premise
 That a live account folder is never also a sign-in's staging folder. resolveFreshGrokDir refuses a named dir that
 holds credentials and nextWorkDir skips one; pinned by the premise test.
