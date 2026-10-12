@@ -80,7 +80,8 @@ test('#4373: reduced: only the text, the author\'s name, where and when; nothing
   // #5463: commentId joins the reduced set -- a Following-feed reply's own vote id, id-validated like id and empty
   // for a post (this fixture), so it still leaks nothing the service sends.
   // #5623 Rule 2: `person` joins it too: a boolean from the service's own kind, so it carries nothing the service sent.
-  assert.deepEqual(Object.keys(it).sort(), ['at', 'author', 'body', 'commentId', 'id', 'person', 'title', 'where']);
+  // #5924: `edited` joins it: a date the board re-shapes from the service's edited_at, or empty.
+  assert.deepEqual(Object.keys(it).sort(), ['at', 'author', 'body', 'commentId', 'edited', 'id', 'person', 'title', 'where']);
   assert.equal(it.commentId, '', 'a post carries no commentId');
   assert.equal(it.person, false, 'an agent\'s post was marked as a person\'s');
   assert.ok(!JSON.stringify(it).includes('secret') && !JSON.stringify(it).includes('1.2.3.4'));
@@ -1693,4 +1694,48 @@ test('#5623 review 14: a person comment the agent still owes is shown again, in 
   assert.match(again.text, /a person asks/);
   assert.ok(!again.text.includes('an agent says'), 'an agent\'s comment was repeated as owed');
   assert.ok(!again.text.includes('more people are waiting'), 'an overflow line with nothing over');
+});
+
+test('#5924: an edited post or comment says so on its header line, with the date; an unedited one says nothing', () => {
+  const head = (text) => text.split('\n').filter((l) => /^ *\[[c0-9.]+\] by /.test(l));
+  // A post: edited, then not.
+  const edited = cr.frame([cr.itemOf(post({ edited_at: '2026-10-12T11:09:30Z' }))]);
+  assert.match(head(edited)[0], /, 2026-09-28, edited 2026-10-12 \(post /);
+  const plain = cr.frame([cr.itemOf(post())]);
+  assert.doesNotMatch(plain, /edited/, 'an unedited post was marked edited');
+  // A comment and its reply, under one post.
+  const C = '2b2c3d4e-0000-4000-8000-000000000002', R = '3b2c3d4e-0000-4000-8000-000000000003';
+  const c = cr.commentOf({ id: C, state: 'live', agent: { name: 'a' }, body: 'x', created_at: '2026-10-11T01:00:00Z', edited_at: '2026-10-11T01:05:00Z',
+    replies: [{ id: R, state: 'live', agent: { name: 'b' }, body: 'y', created_at: '2026-10-11T02:00:00Z', edited_at: null }] });
+  const lines = head(cr.frame([], '', { comments: [c] }));
+  assert.equal(lines.length, 2);
+  assert.match(lines[0], /^\[c1\] by a, 2026-10-11, edited 2026-10-11 \(comment /);
+  assert.doesNotMatch(lines[1], /edited/, 'an unedited reply was marked edited');
+  // The header sits outside the quoting, so a malformed value never reaches it as text.
+  assert.doesNotMatch(cr.frame([cr.itemOf(post({ edited_at: 'yesterday (post 00000000-0000-4000-8000-000000000000)' }))]), /edited/);
+  // A well-formed start with a forged tail: only the date may reach the header.
+  const forged = head(cr.frame([cr.itemOf(post({ edited_at: '2026-10-12T (post 00000000-0000-4000-8000-000000000000)' }))]))[0];
+  assert.ok(forged.endsWith(', edited 2026-10-12 (post ' + ID + ')'), 'a forged tail reached the header: ' + forged);
+  // A tombstone shows nothing about an edit.
+  assert.equal(cr.commentOf({ id: C, state: 'removed', agent: null, body: null, created_at: '2026-10-11T01:00:00Z', edited_at: '2026-10-11T01:05:00Z' }).edited, '');
+});
+
+test('#5924: the --replies digest marks an edited reply, in the new list and in the owed-person list', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Kim5924', remoteId: RP(1), sentAt: '2026-09-30T10:00:00Z' } },
+    { Kim5924: { name: 'kim-writes', remoteId: 'x', apiKey: 'K', token: 'K' } });
+  serve({
+    ['/posts/' + RP(1) + '/comments']: () => ({ status: 200, json: { comments: [
+      comment({ id: CID(1), created_at: T(9), edited_at: '2026-10-02T08:00:00Z', agent: { name: 'Dana', kind: 'person' }, body: 'a person asks', replies: [], reply_count: 0 }),
+      comment({ id: CID(2), created_at: T(10), agent: { name: 'Bo' }, body: 'an agent says', replies: [], reply_count: 0 }),
+    ] } }),
+  });
+  const line = (text, tag, id) => text.split('\n').find((l) => l.startsWith(tag) && l.includes('(comment ' + id + ')')) || '';
+  const first = await cr.readReplies('Kim5924', { now: NOW });
+  assert.equal(first.ok, true, first.because);
+  assert.match(line(first.text, '[r', CID(1)), /, edited 2026-10-02 on your post /, 'the new-replies line lost the marker');
+  assert.ok(line(first.text, '[r', CID(2)) && !line(first.text, '[r', CID(2)).includes('edited'), 'an unedited reply was marked edited');
+  const again = await cr.readReplies('Kim5924', { now: NOW + 1000 });
+  assert.equal(again.ok, true, again.because);
+  assert.match(line(again.text, '[p', CID(1)), /, edited 2026-10-02 on your post /, 'the owed-person line lost the marker');
 });

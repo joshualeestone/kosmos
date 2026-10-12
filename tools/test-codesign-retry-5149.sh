@@ -89,11 +89,12 @@ rm -f "$WORK/calls"; rc=$(IFS=$'\n'; run cs_ts_one)
 rc=$(KOSMOS_CODESIGN_TS_DELAYS="" run cs_ts_always)
 { [ "$rc" = 1 ] && [ "$(calls)" = 1 ]; } && ok "KOSMOS_CODESIGN_TS_DELAYS empty: one try" || bad "empty delays: exit $rc, $(calls) calls, want 1 and 1"
 
-# 7. The two Developer ID signs in the bundle build go through the retry, and no bare
+# 7. The three Developer ID signs in the bundle build (the connector, the native binary, and the sealed
+#    Kosmos.app since #5896) go through the retry, and no bare
 #    timestamped codesign is left there (a new one added later would not be retried).
 B="$REPO/tools/build-kosmos-bundle.sh"
 n=$(grep -cE '^codesign_ts_retry --force --options runtime --timestamp' "$B")
-[ "$n" = 2 ] && ok "build-kosmos-bundle.sh signs both binaries through codesign_ts_retry" || bad "build-kosmos-bundle.sh: $n codesign_ts_retry signs, want 2"
+[ "$n" = 3 ] && ok "build-kosmos-bundle.sh signs both binaries and the sealed app through codesign_ts_retry" || bad "build-kosmos-bundle.sh: $n codesign_ts_retry signs, want 3"
 grep -qE '^\. "\$REPO/tools/lib/codesign-retry\.sh"' "$B" && ok "build-kosmos-bundle.sh sources codesign-retry.sh" || bad "build-kosmos-bundle.sh does not source codesign-retry.sh"
 n=$(grep -E '(^|[^_[:alnum:]])codesign [^|]*--timestamp( |=|$)' "$B" | grep -vc 'timestamp=none')
 [ "$n" = 0 ] && ok "no bare timestamped codesign left in build-kosmos-bundle.sh" || bad "$n bare timestamped codesign line(s) in build-kosmos-bundle.sh"

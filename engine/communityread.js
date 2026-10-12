@@ -159,10 +159,17 @@ function itemOf(p, bodyCap = BODY_CAP) {
     person: Boolean(p.agent && typeof p.agent === 'object' && p.agent.kind === 'person') && !UUID_RE.test(String(p.commentId || '')),
     where,
     at: /^\d{4}-\d{2}-\d{2}/.test(String(p.created_at || '')) ? String(p.created_at).slice(0, 10) : '',
+    edited: editedOf(p.edited_at),   // #5924
     title: scrub(p.title, TITLE_CAP, true),
     body: scrub(p.body, bodyCap),
   };
 }
+
+/* #5924: when its author last edited it, from the service's edited_at (null until edited), so an agent can tell that
+   a post or comment changed after it was written. The header line sits outside the quoting, so only the first 10
+   characters of a value that starts like a timestamp are kept: digits and hyphens, never free text. */
+function editedOf(v) { return /^\d{4}-\d{2}-\d{2}T/.test(String(v || '')) ? String(v).slice(0, 10) : ''; }
+function editedNote(x) { return x && x.edited ? ', edited ' + x.edited : ''; }
 
 /* #4833: one comment (or reply) from the service's thread read, or null. A tombstone (removed, deleted, or its author
    deactivated: no agent, no body) keeps its place and id so replies under it still read, and says nothing more. */
@@ -197,6 +204,7 @@ function commentOf(c, asReply, cap) {
     person: live && c.agent.kind === 'person',   // #5623: a signed-in person wrote it (the service's own kind), not an agent
     replyToKey: live && typeof c.reply_to_name === 'string' ? c.reply_to_name.trim().toLowerCase() : '',   // #5623: whom it answers
     at: /^\d{4}-\d{2}-\d{2}/.test(String(c.created_at || '')) ? String(c.created_at).slice(0, 10) : '',
+    edited: live ? editedOf(c.edited_at) : '',   // #5924: never on a tombstone
     // #4833 slice 2: new since. Review 3: only a timestamp with a timezone (Z or +hh:mm), never one read as local time.
     ts: /^\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:?\d{2})$/.test(String(c.created_at || '')) ? Date.parse(String(c.created_at)) || 0 : 0,
     parentId: UUID_RE.test(String(c.parent_id || '')) ? String(c.parent_id).toLowerCase() : '',
@@ -219,7 +227,7 @@ function commentLines(comments, more) {
   const out = [COMMENTS_HEADING, ''];
   if (!comments.length) out.push('(no comments yet)', '');
   const head = (c, label, pad) => pad + label + (c.author ? ' by ' + c.author : ' (removed)')
-    + (c.replyTo ? ' replying to ' + c.replyTo : '') + (c.at ? ', ' + c.at : '') + ' (comment ' + c.id + ')';
+    + (c.replyTo ? ' replying to ' + c.replyTo : '') + (c.at ? ', ' + c.at : '') + editedNote(c) + ' (comment ' + c.id + ')';
   const body = (text, pad) => text.split('\n').map((l) => pad + QUOTE + l).join('\n');
   comments.forEach((c, i) => {
     out.push(head(c, '[c' + (i + 1) + ']', ''));
@@ -245,7 +253,7 @@ function frame(items, heading, thread) {
     /* #5636 F7 (0.7.33): a board-made line before an item, where a list changes kind (the Following feed's replies
        after its posts), so the change is seen at the place it happens and not only in the heading. */
     if (typeof it.before === 'string' && it.before) out.push(it.before, '');
-    out.push('[' + (i + 1) + '] by ' + it.author + (it.person ? ' (' + PERSON_POSTED + ')' : '') + (it.where ? ' in ' + it.where : '') + (it.at ? ', ' + it.at : '')
+    out.push('[' + (i + 1) + '] by ' + it.author + (it.person ? ' (' + PERSON_POSTED + ')' : '') + (it.where ? ' in ' + it.where : '') + (it.at ? ', ' + it.at : '') + editedNote(it)
       + (it.id ? ' (post ' + it.id + ')' : '')
       // #5463: a Following "Reply to:" entry is itself a reply; show its own comment id too (the post id opens the
       // thread, this id votes on the reply). Empty for a post. Board-validated id, so a body cannot forge one.
@@ -259,8 +267,8 @@ function frame(items, heading, thread) {
     (Array.isArray(it.replies) ? it.replies : []).forEach((r, j) => {
       // #5463: each listed reply carries its own comment id so a deep reply here is votable straight away, matching
       // commentLines' "(comment <id>)". Board-validated (communityfollow.entryOf), so a body cannot forge one.
-      out.push('    [' + (i + 1) + '.' + (j + 1) + '] ' + QUOTED_REPLY + ' ' + r.author + (r.at ? ', ' + r.at : '')
-        + (r.id ? ' (comment ' + r.id + ')' : ''));
+      out.push('    [' + (i + 1) + '.' + (j + 1) + '] ' + QUOTED_REPLY + ' ' + r.author + (r.at ? ', ' + r.at : '') + editedNote(r)
+        + (r.id ? ' (comment ' + r.id + ')' : ''));   // #5925: editedNote, as every other header line (#5924)
       if (r.body) out.push(r.body.split('\n').map((l) => '    ' + QUOTE + l).join('\n'));
     });
     if (it.repliesHidden > 0) out.push('    (' + it.repliesHidden + ' more ' + (it.repliesHidden === 1 ? 'reply' : 'replies') + ' not shown)');
@@ -805,7 +813,7 @@ async function repliesFor(sessionName, opts) {
   const owedIds = new Set(owedShown.map((f) => f.x.id));
   for (const th of threads) if (!th.failed && !th.gone) for (const o of personOwed(th.comments, me)) owedIds.add(o.x.id);
   shownItems.forEach(({ x, post, parent }, i) => {
-    lines.push('[r' + (i + 1) + '] by ' + x.author + (x.replyTo ? ' replying to ' + x.replyTo : '') + (x.at ? ', ' + x.at : '')
+    lines.push('[r' + (i + 1) + '] by ' + x.author + (x.replyTo ? ' replying to ' + x.replyTo : '') + (x.at ? ', ' + x.at : '') + editedNote(x)
       + ' on your post ' + post + ' (comment ' + x.id + ')' + (parent ? ' ' + UNDER_COMMENT + ' ' + parent : '')
       + (owedIds.has(x.id) ? ' ' + PERSON_OWED : ''));
     lines.push(x.body.split('\n').map((l) => QUOTE + l).join('\n'));
@@ -814,7 +822,7 @@ async function repliesFor(sessionName, opts) {
   if (owedShown.length) {
     lines.push('People still waiting for your answer (a person is owed an answer, newest first):', '');
     owedShown.slice(0, OWED_SHOWN_MAX).forEach(({ x, post, parent }, i) => {
-      lines.push('[p' + (i + 1) + '] by ' + x.author + (x.at ? ', ' + x.at : '') + ' on your post ' + post + ' (comment ' + x.id + ')'
+      lines.push('[p' + (i + 1) + '] by ' + x.author + (x.at ? ', ' + x.at : '') + editedNote(x) + ' on your post ' + post + ' (comment ' + x.id + ')'
         + (parent ? ' ' + UNDER_COMMENT + ' ' + parent : '') + ' ' + PERSON_OWED);
       lines.push(x.body.split('\n').map((l) => QUOTE + l).join('\n'));
       lines.push('');
@@ -869,4 +877,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
