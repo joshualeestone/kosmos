@@ -65,6 +65,8 @@ function harness(answers, opts) {
     slice('let ACCT_QWEN_LOCAL_RUNNING =', ';'),
     slice('let ACCT_QWEN_LOCAL_LOCKED =', ';'),
     slice('let ACCT_QWEN_LOCAL_LOCK_TIMER =', ';'),
+    slice('let ACCT_QWEN_ADD_BLOCKED =', ';'),
+    slice('function acctQwenAddBlock(on)', '\n}'),
     slice('function acctQwenIsLocalSetup()', '\n}'),
     slice('function acctQwenGb(n)', '}'),
     slice('function acctQwenLocalHideRow(row, t)', '\n}'),
@@ -253,4 +255,28 @@ test('UI review 3: on Windows neither intro says Qwen works, and the first-run r
   assert.match(muse, /xAI Grok and Meta Muse work today/);
   assert.match(k.ACCT_ADD_INTRO, /Alibaba Qwen/, 'CONTROL: off Windows the intro names Qwen');
   assert.match(PAGE, /data-pmark="qwen"(?:(?!class="llm )[\s\S])*<span class="soon" data-win-hide>Add in Settings<\/span><span class="soon" data-win-only hidden>Coming to Windows<\/span>/);
+});
+
+test("Mona Lisa's review: Add waits while Qwen is still to be set up or downloading, and opens when it is set up (or Ollama is not there)", async () => {
+  let state = { state: 'needs_model' };
+  const h = harness({ '/api/accounts/qwen/local': () => ({ status: 200, body: state }) });
+  h.api.show(true);
+  assert.equal(h.el('acct-qwen-go').disabled, true, 'Add was open before the answer came (a fast click could add first)');
+  await flush(); await flush();
+  assert.equal(h.els['acct-qwen-go'].disabled, true, 'Add is open while the 16k model does not exist yet');
+  assert.match(h.els['acct-qwen-local-t'].textContent, /Add is ready once Qwen is set up/);
+  state = { state: 'needs_download', download: { running: true, completed: 1.9e9, total: 4.7e9 } };
+  await h.api.paint(); await flush();
+  assert.equal(h.els['acct-qwen-go'].disabled, true, 'Add is open under a half-full bar');
+  assert.equal(h.els['acct-qwen-local-n'].textContent, '1.9 of 4.7 GB');
+  assert.equal(h.els['acct-qwen-local-n'].hidden, false);
+  state = { state: 'ready' };
+  await h.api.paint(); await flush();
+  assert.equal(h.els['acct-qwen-go'].disabled, false, 'CONTROL: set up, Add opens');
+  state = { state: 'no_ollama', because: 'Ollama is not running on this computer.' };
+  await h.api.paint(); await flush();
+  assert.equal(h.els['acct-qwen-go'].disabled, false, 'CONTROL: no Ollama, Add stays open (saved, checked when used)');
+  h.els['acct-qwen-url'].value = 'https://qwen.example.com/v1';
+  await h.api.paint(); await flush();
+  assert.equal(h.els['acct-qwen-go'].disabled, false, 'CONTROL: a server the person names is never held');
 });

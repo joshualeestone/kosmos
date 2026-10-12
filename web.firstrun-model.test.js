@@ -184,8 +184,8 @@ test('no disclosure survives: all eleven providers render in the open', () => {
      Connect, so they are `.llm on` like Claude and GPT and carry no pill. The seven
      genuinely unavailable providers stay `.llm off` and say "Coming soon", and no
      "After setup" pill survives (it said the opposite of what the row now does). */
-  assert.equal((STEP.match(/class="llm off"/g) || []).length, 7,
-    'expected exactly the seven not-yet-available providers at .llm off weight');
+  assert.equal((STEP.match(/class="llm off"/g) || []).length, 6,   // #5977: Qwen is available (in Settings), not Coming soon
+    'expected exactly the six not-yet-available providers at .llm off weight');
   assert.equal((STEP.match(/class="llm on"/g) || []).length, 4,
     'expected Claude, GPT, Gemini and Grok as connectable rows');
   /* #5977: Qwen is connectable in Settings but not on this step (it needs Ollama), so its pill says where,
@@ -213,8 +213,9 @@ test('every provider carries a real, inlined vendor mark', () => {
   assert.match(STEP, /class="llm-m pmark live" data-pmark="openai"/, 'OpenAI is not a live mark');
   /* #3658: Gemini's mark is live now (it connects here); the seven coming-soon marks stay dim. */
   assert.match(STEP, /class="llm-m pmark live" data-pmark="gemini"/, 'Gemini is not a live mark');
-  assert.equal((STEP.match(/class="llm-m pmark dim"/g) || []).length, 7,
-    'expected all seven still-coming-soon marks to be dimmed');
+  assert.equal((STEP.match(/class="llm-m pmark dim"/g) || []).length, 6,   // #5977: Qwen's mark is live
+    'expected all six still-coming-soon marks to be dimmed');
+  assert.match(STEP, /class="llm fr-qwen"><span class="llm-m pmark live" data-pmark="qwen"/, 'the Qwen row reads as available (live, not off)');
 });
 
 test('the tier label and its separator match the rest of the product', () => {
