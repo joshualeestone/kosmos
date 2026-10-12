@@ -34,3 +34,4 @@ engine/backuptick.test.js (7) and engine/backuptick-inputs.test.js (2). Guards b
 27/27, engine.reachable 7/7, every backup test together 417/417.
 
 ## Mutants
+Measured 19:46 CDT from `date`, all red: T1 workers optional, T2 no already-covered check, T3 a bad project slug added, T4 runs while not enrolled, T5 no backup_off pause, T6 said every tick, T7 no skip while running, T8 nextWeekStart on a Monday gives the same instant, T9 a hidden folder counted as an agent, T10 a success does not reset what was said.
