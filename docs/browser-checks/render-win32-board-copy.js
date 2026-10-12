@@ -107,6 +107,9 @@ const LINUX_HIDDEN = {
   'Open Terminal': '.field:has(> #d-open-terminal)',
   'agent Files: Open in Finder': '#d-files-finder',
   'project docs: Open this folder in Finder': '#docs-finder',
+  'project: Show me where it is': '#pjs-reveal',
+  'project: Show me where the conversations live': '#pjs-chats-reveal',
+  'task: Show me where the task conversations live': '#tk-chats-reveal',
 };
 const LINUX_OPEN_LINE = 'If Kosmos stops, run kosmos restart in a terminal on the computer it is installed on (over SSH on a headless server).';
 
@@ -250,8 +253,10 @@ async function readLinux(browser, platform) {
       hidden[name] = getComputedStyle(el).display === 'none';
     }
     const line = document.querySelector('[data-linux-copy="settingsOpenKosmos"]');
+    const term = document.getElementById('d-sec-term');
     return {
       hidden, stamped: document.documentElement.getAttribute('data-kosmos-platform'),
+      termName: term ? term.getAttribute('aria-label') : null,
       openLine: line ? line.textContent.replace(/\s+/g, ' ').trim() : null,
     };
   }, { platform, linuxHidden: LINUX_HIDDEN });
@@ -299,12 +304,14 @@ async function readLinux(browser, platform) {
       check(`${engine}: linux hides ${name}`, isHidden === true, String(isHidden));
     }
     check(`${engine}: linux Opening Kosmos says how to restart it`, lin.got.openLine === LINUX_OPEN_LINE, JSON.stringify(lin.got.openLine));
+    check(`${engine}: linux names the agent's Terminal section as its heading reads`, lin.got.termName === 'Start-up and restart', JSON.stringify(lin.got.termName));
     check(`${engine}: linux page raised no errors`, lin.errors.length === 0, lin.errors.join(' | '));
     const macL = await readLinux(browser, 'darwin');
     for (const [name, isHidden] of Object.entries(macL.got.hidden)) {
       check(`${engine}: CONTROL a Mac page shows ${name}`, isHidden === false, String(isHidden));
     }
     check(`${engine}: CONTROL a Mac Opening Kosmos line still names the Dock`, /in your Dock/.test(macL.got.openLine || ''), JSON.stringify(macL.got.openLine));
+    check(`${engine}: CONTROL a Mac Terminal section is still named Terminal`, macL.got.termName === 'Terminal', JSON.stringify(macL.got.termName));
 
     const card = await readConnectCard(browser);
     if (card.got.noCard) {

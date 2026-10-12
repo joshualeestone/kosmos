@@ -61,3 +61,9 @@ run every web*.test.js from the worktree as cwd.
 - The Files overflow line no longer says "Open in Finder shows them all" on Linux, and the file preview offers
   Download on Linux (as it does through Kosmos+) instead of a reveal that runs /usr/bin/open.
 - MAC_ASLEEP_SENTENCE's Mac arm names the machine through hostMachine(); the Windows test loop covers all four sentences.
+
+## Review 5 (blind, opus)
+- The same revealFolder route is behind project Settings' "Show me where it is" and "Show me where the conversations
+  live" and the task page's "Show me where the task conversations live": hidden on Linux with their hints.
+- The agent's Terminal section is named "Start-up and restart" on Linux (data-linux-aria-label, applied by
+  applyPlatformCopy), matching its heading; browser-checked with a Mac control.
