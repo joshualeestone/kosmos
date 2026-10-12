@@ -310,7 +310,58 @@ function removeAccount(dir, usedBy) {
   return { ok: true, removed: true, wasDefault: false, because: null };
 }
 
+/* ---- launch ----------------------------------------------------------------- */
+
+/* The codex provider id the launch defines, and the variable the key (if any) reaches codex through. */
+const CODEX_PROVIDER_ID = 'kosmos_endpoint';
+const KEY_ENV = 'KOSMOS_ENDPOINT_KEY';
+
+/* A TOML basic string. The values are already narrowed (a parsed URL, a [A-Za-z0-9._:/-] model), so JSON's quoting
+   of them is valid TOML; anything else is refused rather than escaped. */
+function toml(s) {
+  const v = String(s);
+  if (/["\\\u0000-\u001f\u007f]/.test(v)) throw new Error('a launch value with a quote, backslash or control character');
+  return '"' + v + '"';
+}
+
+/**
+ * The codex arguments that point an agent at its account's endpoint, from bin/agent-supervisor.sh. Both measured
+ * requirements are here: the context (model_context_window, matching the model's own num_ctx) and web search off.
+ * Returns { ok, args, key } or { ok: false, because } (the supervisor then refuses to start the agent, rather than
+ * starting codex against OpenAI with no sign-in).
+ */
+function launchArgs(dir) {
+  const got = readEndpoint(dir);
+  if (got.kind !== 'ok') {
+    const because = got.kind === 'invalid' ? got.because : (got.kind === 'absent' ? 'it has no endpoint set up' : 'its endpoint file could not be read');
+    return { ok: false, because: 'this Qwen account cannot be used: ' + because };
+  }
+  const ep = got.endpoint;
+  const p = `model_providers.${CODEX_PROVIDER_ID}`;
+  const args = [
+    '-c', `model_provider=${toml(CODEX_PROVIDER_ID)}`,
+    '-c', `${p}.name=${toml(PROVIDER_NAME)}`,
+    '-c', `${p}.base_url=${toml(ep.baseUrl)}`,
+    '-c', `${p}.wire_api=${toml('responses')}`,
+  ];
+  if (ep.key) args.push('-c', `${p}.env_key=${toml(KEY_ENV)}`);
+  args.push('-c', `model_context_window=${ep.contextWindow}`, '-c', `web_search=${toml('disabled')}`, '-m', ep.model);
+  return { ok: true, args, key: ep.key || null };
+}
+
+/* The supervisor's entry: `node qwenaccounts.js launch-args <dir>` prints the arguments NUL-separated (exit 0), or
+   the refusal sentence (exit 2); `launch-key <dir>` prints the key, if any, with no newline. */
+if (require.main === module) {
+  const [verb, dir] = process.argv.slice(2);
+  const r = launchArgs(dir);
+  if (!r.ok) { process.stdout.write(r.because); process.exit(2); }
+  if (verb === 'launch-args') process.stdout.write(r.args.join('\0') + '\0');
+  else if (verb === 'launch-key') process.stdout.write(r.key || '');
+  else process.exit(64);
+}
+
 module.exports = {
+  CODEX_PROVIDER_ID, KEY_ENV, launchArgs,
   STATE, PROVIDER, PROVIDER_NAME, LOCAL, MIN_CONTEXT, DIR_PREFIX, FORGOTTEN_PREFIX, ENDPOINT_BASENAME,
   homeDir, endpointFile, endpointProblem, readEndpoint, isEndpointHome, isLocal, list,
   cleanLabel, dirForLabel, storeEndpoint,
