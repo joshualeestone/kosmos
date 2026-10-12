@@ -1088,15 +1088,17 @@ test('kosmos#5900: a conversation from before projectBornAt still reaches its ea
   const chain = chat.asideChain(P, 'casey', true);
   assert.deepEqual(chain.map((a) => a.messages.length), [chat.MAX_MESSAGES], 'the dated conversation lost its undated earlier file');
   assert.equal(chain[0].messages[0].text, 'u0');
-  // The counting read on its own disk path (a new mtime defeats its cache), then served from the cache it filled.
+  // The counting read on its own disk path (a new mtime defeats its cache), then again.
   const asideFile = path.join(path.dirname(file), now.continues);
   fs.utimesSync(asideFile, new Date(), new Date(Date.now() + 1000));
   assert.deepEqual(chat.asideChain(P, 'casey', false).map((a) => a.count), [chat.MAX_MESSAGES], 'the uncached counting read disagrees');
-  assert.deepEqual(chat.asideChain(P, 'casey', false).map((a) => a.count), [chat.MAX_MESSAGES], 'the cached count disagrees');
+  assert.deepEqual(chat.asideChain(P, 'casey', false).map((a) => a.count), [chat.MAX_MESSAGES], 'a repeated count disagrees');
 
   // A second rollover, now dated: the chain runs dated file, then undated file, oldest first.
-  const have = chat.readThread(P, 'casey').messages.length;
-  for (let i = have; i < chat.MAX_MESSAGES; i += 1) assert.equal(chat.appendMessage(P, 'casey', { text: 'd' + i }, BORN).recorded, true);
+  // Filled straight to the cap on disk (one append per row rewrites the file each time), keeping its link and carry.
+  const cur = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const fill = Array.from({ length: chat.MAX_MESSAGES - cur.messages.length }, (_, i) => ({ at: new Date().toISOString(), text: 'd' + i }));
+  fs.writeFileSync(file, JSON.stringify({ ...cur, messages: [...cur.messages, ...fill] }));
   assert.equal(chat.appendMessage(P, 'casey', { text: 'rolls again' }, BORN).recorded, true);
   const two = chat.asideChain(P, 'casey', true);
   assert.equal(two.length, 2, 'the second rollover cut the chain at the undated file');

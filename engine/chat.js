@@ -3340,9 +3340,10 @@ const ASIDE_META = new Map();
  * carried from the file before it). A name is followed ONLY if it is this thread's own `.full` aside (the same
  * directory, the thread file's name as its prefix, no separator, the ROLL_KIND suffix) AND it belongs to the same
  * conversation: the same agent and the same `projectBornAt` (a project deleted and re-created under its name must not
- * inherit the old one's messages, which is what bornAt guards everywhere else), or no `projectBornAt` at all (kosmos#5900:
- * a file written before conversations were dated, read as readThread reads one). That reading has the cost readThread's
- * has: a project from before dates, deleted and re-created under its name, reaches the old one's undated files too. A cycle or a broken link ends the
+ * inherit the old one's messages, which is what bornAt guards everywhere else), or no `projectBornAt` at all
+ * (kosmos#5900: a file written before conversations were dated, read as readThread reads one). That reading has
+ * readThread's cost: a project from before dates, deleted and re-created under its name, reaches the old one's
+ * undated files too. A cycle or a broken link ends the
  * chain where it is: what was read is kept, nothing is invented. A count is taken from the cache only while its file
  * has the same size and modification time.
  */
@@ -3377,7 +3378,8 @@ function asideChain(projectId, agent, withRows, from, bornAt) {
     if (!rec || rec.agent !== String(agent) || !Array.isArray(rec.messages)) break;
     // Another conversation's file is never part of this chain. kosmos#5900: a file with NO date is followed when this
     // conversation's link names it, as readThread reads an undated file (a mismatch only when both are dated). After
-    // the first undated file, only undated files can follow.
+    // the first undated file, only undated files can follow: appendMessage keeps a date once a file has one, so an
+    // undated file's predecessor is undated too.
     const recBorn = rec.projectBornAt || null;
     if (recBorn !== born) {
       if (recBorn !== null) break;
