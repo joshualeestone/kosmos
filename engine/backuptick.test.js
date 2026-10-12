@@ -282,8 +282,11 @@ test('review 4: a runBackup that throws is said once; transcripts are looked up 
   const s = sandbox();
   try {
     const w = s.mk('w');
-    const given = path.join(s.base, 'w', '.', 'ann');   // a spelling that is not the resolved one
-    s.mk('w', 'ann');
+    // A spelling that is not the resolved one: a link to the agent's folder (path.join would normalise a '.' away).
+    const target = s.mk('w', 'ann');
+    const given = path.join(s.base, 'ann-link');
+    fs.symlinkSync(target, given);
+    assert.notEqual(fs.realpathSync.native(given), given, 'the control: the two spellings differ');
     const seen = [];
     tick.rootsFor({ workersDir: w, agents: [{ id: 'ann', dir: given }], sessions: (dir) => { seen.push(dir); return []; } });
     assert.deepEqual(seen, [given]);
