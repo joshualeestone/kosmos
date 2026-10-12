@@ -61,8 +61,10 @@ function answer(status, json, now = Date.now()) {
   if (status >= 500 || (status >= 400 && !err)) return { fail: 'Kosmos could not read its accounts just now' + (err ? ': ' + err : '') + '. Try again in a minute.' };
   if (status >= 400) return { fail: 'Kosmos refused that request: ' + err + '.' };
   if (!json || !Array.isArray(json.accounts)) return { fail: 'Kosmos gave an answer we could not read about its accounts.' };
-  if (!json.accounts.length) return { lines: ['No provider accounts are set up on this board yet. The person adds one in Settings > AI Models.'] };
-  return { lines: json.accounts.filter((a) => a && typeof a === 'object').map((a) => accountLine(a, now)) };
+  // #5948: accounts an agent uses whose sign-in or key is gone, sent apart from `accounts` so no picker offers them.
+  const gone = (Array.isArray(json.signedOutAccounts) ? json.signedOutAccounts : []).filter((a) => a && typeof a === 'object');
+  if (!json.accounts.length && !gone.length) return { lines: ['No provider accounts are set up on this board yet. The person adds one in Settings > AI Models.'] };
+  return { lines: [...json.accounts, ...gone].filter((a) => a && typeof a === 'object').map((a) => accountLine(a, now)) };
 }
 
 module.exports = { accountLine, accountName, accountState, answer, clean };
