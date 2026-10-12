@@ -26475,9 +26475,10 @@ function paintMuseOption(sel, current) {
      installed), or coming soon (not switched on here). */
   const pending = !on && creating && !!MUSE_CREATE && MUSE_CREATE.on === true;   // switched on, not usable yet
   const signIn = pending && MUSE_CREATE.installed === true;   // installed, only the sign-in is missing
-  opt.textContent = on ? 'Meta Muse' : signIn ? 'Meta Muse \u00b7 sign in first' : pending ? 'Meta Muse \u00b7 set up first' : 'Meta Muse \u00b7 coming soon';
+  // #3939: the team step is a plain select, so its words carry the instruction too.
+  opt.textContent = on ? 'Meta Muse' : signIn ? 'Meta Muse \u00b7 sign in first' : pending ? 'Meta Muse \u00b7 install Muse Code first' : 'Meta Muse \u00b7 coming soon';
   // The logo list's pill.
-  // #3939: switched on and not signed in means Muse Code is not on this computer, which Settings cannot fix either.
+  // #3939: switched on and not installed (signIn above is installed but signed out); Settings cannot install it either.
   if (signIn) opt.dataset.off = 'Sign in to Meta Muse first';
   else if (pending) opt.dataset.off = 'Install Muse Code from Meta';
   else delete opt.dataset.off;
@@ -31045,8 +31046,7 @@ async function museAsk() {
     /* Offered only when Muse Code is on this computer too (round 2: as Gemini's and Grok's rows wait
        until they are ready); turned on but not installed says so on the row instead of "Coming soon". */
     on = !!(out && out.enabled === true && out.installed === true);
-    // The engine's own reason (round 3); the fallback is deliberately not a copy of it (round 4).
-    missing = !!(out && out.enabled === true && out.installed === false) && (pjSentence(out.because) || 'Not ready on this computer');
+    missing = !!(out && out.enabled === true && out.installed === false);   // its pill is a fixed short sentence
   } catch { on = false; }   // a failed read keeps it "coming soon": today's screen, never a guess
   if (mine !== MUSE_ASK_GEN) return on;
   if (on) { const say = document.getElementById('acct-add-pick-say'); if (say && say.textContent === MUSE_NOT_HERE) acctAddPickSay(''); }
@@ -52082,7 +52082,7 @@ function enhanceProviderSelect(selectId) {
     li.setAttribute('aria-selected', o.selected && !disabled ? 'true' : 'false');
     // The bare provider name: the <option> text carries " · coming soon" (or #5316's " · sign in first" or
     // " · set up first"); strip it, the widget shows a pill instead.
-    const label = o.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first)\s*$/i, '').trim();
+    const label = o.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first|install Muse Code first)\s*$/i, '').trim();
     const mark = providerMarkNode(o.value, label);
     mark.classList.add('pcombo-mark');
     if (disabled) mark.classList.add('dim');
@@ -52139,7 +52139,7 @@ function enhanceProviderSelect(selectId) {
        for an unrecognised provider, leaving selectedIndex -1 / a blank native select), the
        trigger must show blank too, not silently present the first option as selected. */
     const cur = opts.find((o) => o.value === select.value) || null;
-    const label = cur ? cur.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first)\s*$/i, '').trim() : '';
+    const label = cur ? cur.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first|install Muse Code first)\s*$/i, '').trim() : '';
     trigger.textContent = '';
     if (cur) {
       const mark = providerMarkNode(cur.value, label);

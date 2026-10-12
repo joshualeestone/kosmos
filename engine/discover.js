@@ -1862,9 +1862,10 @@ function connect(dir, opts) {
   if (instructionsFile !== null && opts && opts.provider) {
     const hinted = create.providerRunner(String(opts.provider));
     // #3568: an Antigravity hint counts only with its flag on, like every other way to make one.
-    // #3939: and a Muse hint only with the Muse flag on.
+    // #3939: and a Muse hint only with Muse on AND Muse Code on this computer: Muse is on by default on a Mac, and a
+    // Muse agent without Muse Code would never start (create refuses that case; this path must not make one either).
     if (create.briefFilename(hinted) === instructionsFile && (hinted !== 'antigravity' || create.antigravityEnabled())
-      && (hinted !== 'muse' || create.museEnabled())) {
+      && (hinted !== 'muse' || (create.museEnabled() && require('./musestatus').installed().installed))) {
       runner = hinted === 'claude' ? null : hinted;
     }
   }

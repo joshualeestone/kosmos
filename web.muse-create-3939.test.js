@@ -57,7 +57,7 @@ test('#3939 3c-3b: the create form offers Meta only when Muse is on, installed a
      option that still said "coming soon" read as disabled (Josh 11:06). */
   const cases = [
     [{ enabled: false }, true, '', 'Meta Muse \u00b7 coming soon'],
-    [{ enabled: true, installed: false, signedIn: false }, true, 'Install Muse Code from Meta', 'Meta Muse \u00b7 set up first'],   // #3939
+    [{ enabled: true, installed: false, signedIn: false }, true, 'Install Muse Code from Meta', 'Meta Muse \u00b7 install Muse Code first'],   // #3939: a plain select shows this text
     [{ enabled: true, installed: true, signedIn: false }, true, 'Sign in to Meta Muse first', 'Meta Muse \u00b7 sign in first'],
     [{ enabled: true, installed: true, signedIn: true }, false, '', 'Meta Muse'],
   ];
@@ -193,6 +193,7 @@ test('#5316: the logo list strips the new suffix as it strips "coming soon"', ()
     assert.equal('Meta Muse \u00b7 sign in first'.replace(re, '').trim(), 'Meta Muse', l);
     assert.equal('Meta Muse \u00b7 coming soon'.replace(re, '').trim(), 'Meta Muse', l);
     assert.equal('Meta Muse \u00b7 set up first'.replace(re, '').trim(), 'Meta Muse', l);
+    assert.equal('Meta Muse \u00b7 install Muse Code first'.replace(re, '').trim(), 'Meta Muse', l);   // #3939
     assert.equal('Google Gemini (API key)'.replace(re, '').trim(), 'Google Gemini (API key)', l);
   }
 });

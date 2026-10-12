@@ -4,8 +4,9 @@ Card: #3939 (Splinter's routing 2026-10-12, after Meta launched Muse Wonder). Fo
 from inside Kosmos).
 
 ## Finished looks like
-On a Mac, with no switch set, GET /api/muse says enabled, so every provider list (Settings Add a provider, the
-switch dialog, Create Agent, Create a Team, the first-run model step) offers Meta Muse: "Meta Muse" when Muse Code is
+On a Mac, with no switch set, GET /api/muse says enabled, so every list where an agent is made or a provider added
+(Settings Add a provider, Create Agent, Create a Team, the first-run model step) offers Meta Muse (the switch dialog
+offers Meta only as an agent's current provider: switching an agent to Meta is not built, as before): "Meta Muse" when Muse Code is
 installed and signed in, "set up first" with what to do when it is not. AGENT_WORKFORCE_MUSE=0 turns it off. Off a Mac
 it stays off (no runner there yet).
 
@@ -36,6 +37,11 @@ it stays off (no runner there yet).
   passing --model muse-wonder-1.0 (the only official id is the Model API's; not verified for the CLI, and a wrong id
   would break every Muse agent). Revisit if a real turn shows a model other than Muse Wonder.
 - Kosmos still does not install Muse Code; #6004 does that as the other providers do.
+
+- A Meta hint on an AGENTS.md folder (POST /api/connect) is honoured only with Muse Code installed: Muse being on
+  by default would otherwise register a Muse agent that can never start.
+- The off switches are documented in engine/musestatus.js and this plan only; AGENT_WORKFORCE_ANTIGRAVITY has no
+  operator page either. Support reads the code.
 
 ## Weakest premise
 That Muse Code's default model is now Muse Wonder. Not measured: a real turn needs Muse Code installed and signed in
