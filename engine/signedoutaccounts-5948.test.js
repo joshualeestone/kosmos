@@ -114,7 +114,7 @@ test('#5948 review 2: each provider\'s credential file names are the ones its ow
   assert.deepEqual(PROVIDER_OF_RUNNER.grok.files, [base(require('./grokaccounts').keyFile), base(require('./grokaccounts').authFile)]);
 });
 
-test('#5948 review 3: on a real disk, a folder Kosmos cannot read reads unchecked, never gone; a missing folder reads gone', { skip: process.getuid && process.getuid() === 0 }, () => {
+test('#5948 review 3: on a real disk, a folder Kosmos cannot read reads unchecked, never gone; a missing folder reads gone', { skip: process.platform === 'win32' || (process.getuid && process.getuid() === 0) }, () => {
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
@@ -131,7 +131,7 @@ test('#5948 review 3: on a real disk, a folder Kosmos cannot read reads unchecke
   } finally { fs.chmodSync(locked, 0o700); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('#5948 review 4: a listed folder named through a symlink is the same folder, not a second unlisted row', () => {
+test('#5948 review 4: a listed folder named through a symlink is the same folder, not a second unlisted row', { skip: process.platform === 'win32' }, () => {
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');

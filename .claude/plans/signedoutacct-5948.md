@@ -23,6 +23,11 @@ of reading signed out.
   "Grok: <name>: not signed in: its sign-in or key is no longer on this computer, and <agent> uses it".
 
 ## Not done here
+- The field is `unlistedAccounts` (review 4): it carries unreadable rows (`signedOut: false, unreadable: true`) as
+  well as signed-out ones, so each row's own `signedOut` / `unreadable` says which.
+- A credential file a provider module starts reading later is not seen here until its name is added to
+  `PROVIDER_OF_RUNNER.files`; the review-2 test pins today's names to the modules' own path functions (review 4,
+  deferred: only grokaccounts has a presence helper, and it uses existsSync).
 - One shared runner-to-provider map: this module carries its own, as server.js accountForAgent and create.js do.
   Folding the three together touches two callers outside this change; left for a follow-up (review 1, deferred).
 - Settings > AI Models does not show them yet (the page reads `accounts` only). A follow-up can paint them with a
@@ -39,8 +44,3 @@ side of the line but not the words Josh needed. Not measured: what `grok logout`
 That the lapsed account's folder still exists and the job still names it. If the folder itself was removed, the row
 still appears (the job names it) and says the credential is gone, which is true; if the job names no folder (default
 account), nothing appears, as before.
-- The field is `unlistedAccounts` (review 4): it carries unreadable rows (`signedOut: false, unreadable: true`) as
-  well as signed-out ones, so each row's own `signedOut` / `unreadable` says which.
-- A credential file a provider module starts reading later is not seen here until its name is added to
-  `PROVIDER_OF_RUNNER.files`; the review-2 test pins today's names to the modules' own path functions (review 4,
-  deferred: only grokaccounts has a presence helper, and it uses existsSync).
