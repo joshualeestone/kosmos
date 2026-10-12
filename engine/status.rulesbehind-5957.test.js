@@ -46,3 +46,17 @@ test('#5957: a far-behind agent\'s card carries the number; a recent one carries
   assert.equal(of('fresh').rulesBehind, null);
   assert.ok('rulesBehind' in of('fresh'), 'the field is missing from the row, not just null');
 });
+
+test('#5957: a created agent with no pane (panelessCard, how a stopped Mac agent reaches the board) carries it too', (t) => {
+  store.writeProfile('ghost', { doctrineVersion: DV - 13, displayName: 'Ghost' });
+  store.writeProfile('quiet', { doctrineVersion: DV, displayName: 'Quiet' });
+  file('ghost', 'Ghost');
+  file('quiet', 'Quiet');
+  status.setCreatedSource(() => ['ghost', 'quiet']);
+  t.after(() => status.setCreatedSource(null));
+  const cards = status.snapshot().agents;
+  const of = (n) => cards.find((c) => c.sessionName === n);
+  assert.ok(of('ghost') && of('quiet'), 'fixture: the created agents are not on the board: ' + cards.map((c) => c.sessionName).join(','));
+  assert.equal(of('ghost').rulesBehind, 13);
+  assert.equal(of('quiet').rulesBehind, null);
+});

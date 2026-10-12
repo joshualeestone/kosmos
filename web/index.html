@@ -20879,9 +20879,11 @@ function waitingLine(w) {
 /* #5957 slice 2: the one sentence for an agent whose working rules are far behind (a.rulesBehind, from
    engine/doctrine.js: a whole number only when its own page offers the update), or ''. Said by stateReason on a
    running card and by the offline card and list row, which draw no task line of their own. */
-function rulesBehindLine(a) {
-  return a && Number.isSafeInteger(a.rulesBehind) && a.rulesBehind > 0
-    ? 'Its working rules are ' + a.rulesBehind + ' versions behind. Open it to update them.' : '';
+function rulesBehindLine(a, offline) {
+  if (!(a && Number.isSafeInteger(a.rulesBehind) && a.rulesBehind > 0)) return '';
+  /* `offline`: the not-running card and row (no session in the roster), where the page's update is refused (it needs
+     the agent in the roster), so the sentence states the fact and promises no action. */
+  return 'Its working rules are ' + a.rulesBehind + ' versions behind.' + (offline ? '' : ' Open it to update them.');
 }
 function stateReason(a, opts) {
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
@@ -21961,7 +21963,7 @@ function card(a) {
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate ${split ? 'st-unknown' : 'st-stopped'}">${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b></div>
-    ${!split && rulesBehindLine(a) ? `<div class="arules">${esc(rulesBehindLine(a))}</div>` : ''}
+    ${!split && rulesBehindLine(a, true) ? `<div class="arules">${esc(rulesBehindLine(a, true))}</div>` : ''}
     ${comm ? `<div class="acommunity">${esc(comm)}</div>` : ''}
   </div>`;
   }
@@ -22164,7 +22166,7 @@ function lrow(a) {
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
-      <div class="ltask">${esc(a.jobRunningUnseen === true ? '' : rulesBehindLine(a))}</div>
+      <div class="ltask">${esc(a.jobRunningUnseen === true ? '' : rulesBehindLine(a, true))}</div>
       <div class="lmodel"></div>
       <div class="lmem"></div>
     </div>`;

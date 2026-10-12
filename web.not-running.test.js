@@ -324,11 +324,13 @@ test('on a partial read the headline tiles are marked as floors, never printed a
    drawn; the same row 13 versions behind draws the sentence in each renderer's own slot. */
 for (const which of ['card', 'lrow']) {
   test(`#5957 ${which}: a stopped agent far behind says its working rules are behind; the real row (null) says nothing`, () => {
-    const SAID = 'Its working rules are 13 versions behind. Open it to update them.';
+    // Offline: the fact only (the page's update is refused for an agent not in the roster), no 'Open it to update them'.
+    const SAID = 'Its working rules are 13 versions behind.';
     assert.ok(!render(which, offlineRow()).includes('working rules'), 'a row with no number drew the sentence');
     const html = render(which, { ...offlineRow({ strict: false }), rulesBehind: 13 });
     assert.ok(html.includes(SAID), `${which} did not draw the sentence: ${html.slice(0, 200)}`);
     assert.ok(html.includes(which === 'card' ? '<div class="arules">' + SAID : '<div class="ltask">' + SAID), `${which} drew it outside its slot`);
+    assert.ok(!html.includes('Open it to update'), `${which} promised an update the page would refuse`);
     // Not when launchd says a process may be running (the "could not check" split): the update restarts it.
     // The split branch names its label from the page's STATE_COPY, which render() does not supply: given here only.
     globalThis.STATE_COPY = { unknown: { label: 'Could not check' } };
