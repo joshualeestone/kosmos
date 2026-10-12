@@ -92,3 +92,35 @@ test('#5959 slice 2: no line for a card with no lastWorked, and the page paints 
   assert.match(paint, /getElementById\('d-health'\)[\s\S]{0,200}healthLine\(a, Date\.now\(\)\)/, 'paintDetailState does not paint the health line');
   assert.equal((PAGE.match(/healthLine\(a, Date\.now\(\)\)/g) || []).length, 1, 'the health line is painted somewhere else as well');
 });
+
+test('#5959 slice 2: the real paintDetailState paints the line from the card it is handed, and hides it without one', () => {
+  const els = {};
+  const doc = { getElementById: (id) => (els[id] = els[id] || { className: '', innerHTML: '', textContent: '', hidden: false, dataset: {} }) };
+  // The same stubs the pill tests lift paintDetailState with (web.pill-remembered-3958.test.js).
+  // eslint-disable-next-line no-new-func
+  const paint = new Function('document', 'DM_SPOKE_AT', 'LAST_AT', [
+    'const esc = (s) => String(s);',
+    'const stateCopyOf = (a) => ({ label: a.state });',
+    'const cardStOf = (a) => ({ st: a.state });',
+    'const glyphOf = () => "";',
+    'const taskLine = () => "";',
+    src('workingSampleIsStale'),
+    PAGE.match(/\nconst HEALTH_QUIET_MS = [^\n]*\n/)[0],
+    PAGE.match(/\nconst HEALTH_READ_STATES = [^\n]*\n/)[0],
+    src('seenAtWords'),
+    src('healthLine'),
+    src('paintDetailState'),
+    'return paintDetailState;',
+  ].join('\n'))(doc, new Map(), 0);
+  const recent = new Date(Date.now() - 5 * 60e3).toISOString();
+  paint({ sessionName: 's', name: 'S', state: 'idle', runner: 'claude', lastWorked: { at: recent, why: null } });
+  assert.match(els['d-health'].textContent, /^Sign-in: no problem showing · Usage: no limit showing · Last seen working: /);
+  assert.equal(els['d-health'].hidden, false);
+  // The next poll's card says the sign-in failed: the line follows it.
+  paint({ sessionName: 's', name: 'S', state: 'auth_failed', stateConfidence: 'structured', runner: 'claude', lastWorked: { at: recent, why: null } });
+  assert.match(els['d-health'].textContent, /^Sign-in: isn't working · Last seen working: /);
+  // A card with no lastWorked: no line, and hidden.
+  paint({ sessionName: 's', name: 'S', state: 'idle', runner: 'claude', lastWorked: null });
+  assert.equal(els['d-health'].textContent, '');
+  assert.equal(els['d-health'].hidden, true);
+});
