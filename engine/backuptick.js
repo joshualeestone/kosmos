@@ -21,8 +21,9 @@
  * sessions/<id>/codex-runtime (#5883), never anything beside them.
  * Transcripts are read from every home an agent's Codex or Gemini sessions can be in, from its launch job (kosmos#5883
  * slices 1 and 2, Grok included). KNOWN GAPS still open on #5883, each leaving that agent's FOLDER backed up but not its
- * transcripts: Antigravity (Gemini on a Google subscription: live SQLite files, which need a consistent copy), and a
- * move between two NAMED accounts (the first account's sessions stay unread).
+ * transcripts: Antigravity (Gemini on a Google subscription: live SQLite files, which need a consistent copy), a
+ * move between two NAMED accounts (the first account's sessions stay unread), and Grok sessions run in a Grok
+ * WORKTREE (their launch folder is the worktree, not the agent's folder).
  * `left` names what was not added and why (an id or slug a root name cannot carry), never a path.
  *
  * startTick(deps) -> stop(). Every `everyMs` (an hour): only while deps.enrolled() is true (the board passes mayBackUp:
