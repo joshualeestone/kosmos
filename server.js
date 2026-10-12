@@ -15139,20 +15139,19 @@ const server = http.createServer(async (req, res) => {
           if (rep.until) detail.push('until ' + rep.until);
           line = 'You are currently: ' + rep.state + (detail.length ? ' (' + detail.join(', ') + ')' : '') + '.';
           if (rep.at) line += ' Set ' + rep.at + '.';
-          if (selfreport.WAITING_ON_A_PERSON.includes(rep.state) && stale) {
+          if (stale) {
             // #5959: a waiting state standing over a day says so in the same sentence, not a second one.
-            const days = Math.floor(ageMs / (24 * 3600 * 1000));   // calendar days for the words; the threshold is STALE_WAIT_MS
-            const age = (days >= 2 ? days + ' days' : 'over a day');
+            const age = cardlabel.standingFor(ageMs);
+            // blocked waits on something that is not the person (a deploy, another agent); needs_you waits on a person.
+            const passed = rep.state === 'blocked' ? 'If it is no longer in your way' : 'If nobody needs to answer it any more';
             // Who wrote it: the agent ("your own"), Kosmos for it (a permission prompt, a provider error), or someone
             // else / unknown (an operator, a legacy line), which is said without naming a writer.
             line += rep.by === 'agent'
-              ? ' Your own `' + rep.state + '` report has been standing for ' + age
-                + '. If nobody needs to answer it any more, clear it with `kosmos report clear`.'
+              ? ' Your own `' + rep.state + '` report has been standing for ' + age + '. ' + passed + ', clear it with `kosmos report clear`.'
               : rep.by === 'auto'
                 ? ' A `' + rep.state + '` report Kosmos wrote for you has been standing for ' + age
                   + '. If what it was about has passed, clear it with `kosmos report clear`.'
-                : ' This `' + rep.state + '` report has been standing for ' + age
-                  + '. If nobody needs to answer it any more, clear it with `kosmos report clear`.';
+                : ' This `' + rep.state + '` report has been standing for ' + age + '. ' + passed + ', clear it with `kosmos report clear`.';
           } else if (selfreport.WAITING_ON_A_PERSON.includes(rep.state)) {
             line += ' This is a waiting-on-a-person state; clear it with a fresh report (e.g. `kosmos report working ...`) once you have been answered.';
           }
