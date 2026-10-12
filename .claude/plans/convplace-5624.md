@@ -12,7 +12,8 @@ Josh's only ruling (2026-10-09 10:52): "It doesn't make sense to have it in the 
 left open. Chosen: the conversation's header row, beside search.
 - Why: the mode is a setting OF the conversation (on for this thread), like search, which already lives there; the
   header shows with the thread on a computer and a tablet, so the on state is in view there and audio does not
-  surprise (a card requirement). On a phone the header collapses in two cases (see Layout) and the toggle with it. It also keeps the message box for writing only, which is what Josh's ruling points at.
+  surprise (a card requirement). On a phone a direct conversation's caption row collapses in two cases (see Layout) and the
+  toggle with it; the project room's header has no such collapse. It also keeps the message box for writing only, which is what Josh's ruling points at.
 - Rejected: an overflow / settings menu (hides the on state, so audio would surprise); Settings > a global switch
   (the card wants it per conversation, and a global switch says nothing about which room is talking); the agent's
   identity column in a direct conversation (not present in a project room, so the two would differ); beside each
@@ -26,7 +27,7 @@ left open. Chosen: the conversation's header row, beside search.
 - The room's toggle and search share a wrapper (.pjconvsearch, display: contents), so every existing layout sees the
   search exactly as before. Up to 60rem, where the room header stacks, the wrapper becomes one row once the toggle
   is drawn, so the toggle sits beside the search rather than on a row of its own.
-- The toggle goes where the header goes: where a phone collapses the caption row to save room, the toggle collapses
+- The toggle goes where the header goes: where a phone collapses a direct conversation's caption row to save room, the toggle collapses
   with it. Two cases:
   - Sideways phone with an idle search: the toggle steps aside, on or off, so the row takes no room in a conversation
     that has 57 to 90 px (the same 44px #3969 refused for the back link; iteration 9 reversed iteration 4's exception
@@ -49,3 +50,7 @@ C21 (new) measures the direct conversation's toggle on its search's line at desk
 today's look. All other arms are
 unchanged. Not covered by a check: the touch-only rules (the sideways-phone and keyboard-up collapses, and the 44px touch
 size), which need a touch-emulating browser context.
+
+## Before the hold is lifted (checklist for whoever turns CONV_ENABLED on)
+- Decide whether a phone needs a separate on-sign for the two caption-row collapses.
+- Check the touch-only rules on a real phone: the sideways-phone and keyboard-up collapses, and the 44px size.
