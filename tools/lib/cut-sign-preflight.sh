@@ -13,7 +13,8 @@
 # is only "can this session use the key", which a timestamp does not change.
 # Scope: this proves the Application key is reachable. Since #3647 it also checks that
 # the Developer ID INSTALLER identity is listed as valid (missing or expired refuses) and
-# that the notary .p8 resolves; step 3c needs both whenever the pkg is rebuilt. It does
+# that the notary .p8 resolves; step 3c needs both whenever the pkg is rebuilt, and step 4 needs the
+# .p8 on every cut, to notarise kosmos-app and kosmos-tunnel (#5137). It does
 # not contact Apple's timestamp or notary services, and it does not detect two Installer
 # identities matching the same name (3c's own check does not either; productsign would).
 #
@@ -56,7 +57,7 @@ kosmos_sign_preflight_installer_and_notary() {
     if [ "${sm##*/}" != secrets-map.sh ]; then echo "signing preflight: notary key PASSED THROUGH KOSMOS_SECRETS_MAP_BIN=$sm, NOT secrets-map.sh: not probed. Unset it for a real cut."
     else echo "signing preflight: the notary key ($KOSMOS_NOTARY_SECRET_TARGET) resolves to a readable file"; fi
   else
-    echo "signing preflight: the notary key \"$KOSMOS_NOTARY_SECRET_TARGET\" does not resolve to a readable file through $sm on this machine (rc=$krc, got '${key:-nothing}'). Step 3c notarises the installer with it. File it with /add-secret, or cut on Mortals."
+    echo "signing preflight: the notary key \"$KOSMOS_NOTARY_SECRET_TARGET\" does not resolve to a readable file through $sm on this machine (rc=$krc, got '${key:-nothing}'). Step 3c notarises the installer with it, and step 4 notarises the app binaries with it on every cut (#5137). File it with /add-secret, or cut on Mortals."
     [ "$err" = /dev/null ] || { [ -s "$err" ] && sed 's/^/    /' "$err"; }
     fail=1
   fi
