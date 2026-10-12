@@ -39,7 +39,7 @@ rm -rf "$_td"
 #    if/elif/while/until) up to the guard, no || (&& for the negated form) and no ! negating a command. That is
 #    stricter than the shell needs (A || B && [ -f P ] && [ -x P ] is safe and still flagged): fail-closed on
 #    purpose, so loosen it only with a control that shows the -x cannot run without the -f. A line ending in
-#    \, &&, || or | is joined to the next before it is judged. So
+#    \, &&, || or | is joined to the next before it is judged (and reported at its first line). So
 #    "[ -f P ] || [ -x P ]", "[ -x P ] # [ -f P ]", "x || [ -f P ] && [ -x P ]" and "! [ -f P ] && [ -x P ]"
 #    are all flagged. Quoted text is blanked before the joiners are read.
 #      Not this shape at all: "test -x P", "[ A -a -x P ]", "[  -x P ]" and any other -x inside [ ] or test
@@ -86,6 +86,8 @@ function reaches(line, gpos, glen, xpos, p, join, bad,   btw, sk, seg, i, c) {
   if (match(seg, /(^|&&|\|\|)[ \t]*![ \t]/)) return 0
   return 1
 }
+# otherx: an -x inside [ ] or a test command (test stops at ; | and &, so a later tar -x is not one).
+function otherx(l) { return match(l, /(\[[^]]*|(^|[^A-Za-z0-9_])test([ \t][^;|&]*)?)[ \t]-x([ \t]|$)/) }
 # scanline: judge one logical line (comments cut, continuation lines joined) of file f; n is where it starts.
 function scanline(line, n, f,   s, t, u, off, at, len, p, g) {
   s = line; off = 0
@@ -106,11 +108,11 @@ function scanline(line, n, f,   s, t, u, off, at, len, p, g) {
       printf "%s:%d: bare [ ! -x %s ] (a directory reads as executable)\n", f, n, p
     off += at + len - 1; t = substr(t, at + len)
   }
-  # Any other -x test: drop the forms judged above, then look for one more on the skeleton (a ] in quotes
-  # cannot end the bracket early there).
+  # Any other -x test: drop the forms judged above, then look for one more, on the line as written (a test
+  # inside quotes, as in sh -c, is still a test) and on the skeleton (a ] inside quotes cannot end a bracket).
   u = line
   gsub(/\[ (! )?-x ("[^"]+"|[^] ]+) \]/, "", u)
-  if (match(skel(u), /(\[|(^|[^A-Za-z0-9_])test)[^]]*[ \t]-x([ \t]|$)/))
+  if (otherx(u) || otherx(skel(u)))
     printf "%s:%d: a -x test this scan cannot judge (write it as [ -f P ] && [ -x P ])\n", f, n
 }
 FNR == 1 && buf != "" { scanline(buf, bufn, buff); buf = "" }
@@ -129,6 +131,7 @@ FNR == 1 && buf != "" { scanline(buf, bufn, buff); buf = "" }
   if (buf != "") { scanline(code, bufn, buff); buf = "" } else scanline(code, FNR, FILENAME)
 }
 END { if (buf != "") scanline(buf, bufn, buff) }'
+for _f in $FILES; do [ -f "$HERE/$_f" ] || fail "installer file $_f is missing: the scan below would pass on nothing"; done
 bare="$(cd "$HERE" && awk "$_scan" $FILES 2>/dev/null)"
 if [ -z "$bare" ]; then
     pass "no unguarded executable test in the installer (positive or negated, quoted or unquoted)"
@@ -179,9 +182,10 @@ done <<'FLAG'
   true && [ ! -f "$P" ] || [ ! -x "$P" ] && echo missing
   echo it\'s || [ -f "$P" ] && [ -x "$P" ] && run "$P"
   echo "a\\" || [ -f "$P" ] && [ -x "$P" ] && run "$P"
+  sh -c 'test -x "$1"' _ "$P" && run "$P"
 FLAG
-if [ "$_flags" -eq "$_nflag" ] && [ "$_nflag" -ge 16 ]; then pass "#5986: every shape the old rule excused or never read is flagged ($_flags controls, each passing the old rule)"
-else fail "#5986: $_flags of $_nflag must-flag controls flagged (at least 16 expected)"; fi
+if [ "$_flags" -eq "$_nflag" ] && [ "$_nflag" -ge 17 ]; then pass "#5986: every shape the old rule excused or never read is flagged ($_flags controls, each passing the old rule)"
+else fail "#5986: $_flags of $_nflag must-flag controls flagged (at least 17 expected)"; fi
 _clean=0; _nclean=0
 while IFS= read -r _l; do
   [ -n "$_l" ] || continue
@@ -201,9 +205,10 @@ done <<'CLEAN'
   f() { [ -f "$1" ] && [ -x "$1" ] || command -v "$1" >/dev/null 2>&1 || return 1; }
   [ -f "$P" ] && [ -x "$P" ] && run "$P"   # not [ -x "$P" ] alone, and test -x is not used
   echo "it\'s || not a join" && [ -f "$P" ] && [ -x "$P" ] && run "$P"
+  echo "$P" | grep -q test; tar -x -f "$A"
 CLEAN
-if [ "$_clean" -eq "$_nclean" ] && [ "$_nclean" -ge 11 ]; then pass "#5986: the guarded shapes the installer uses stay clean ($_clean controls)"
-else fail "#5986: $_clean of $_nclean guarded shapes stayed clean (at least 11 expected)"; fi
+if [ "$_clean" -eq "$_nclean" ] && [ "$_nclean" -ge 12 ]; then pass "#5986: the guarded shapes the installer uses stay clean ($_clean controls)"
+else fail "#5986: $_clean of $_nclean guarded shapes stayed clean (at least 12 expected)"; fi
 # Continued lines are one command: an || ending the line before reaches a guard on this one (flagged), and
 # a guard continued from the line before still counts (clean). Each must-flag pair passes the old rule.
 printf '%s\n' '  command -v foo >/dev/null ||' '  [ -f "$P" ] && [ -x "$P" ] && run "$P"' > "$_ctl"

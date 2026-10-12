@@ -21,9 +21,11 @@ never read (test -x, -a, extra spaces). Each new rule has a control that the OLD
 - Parsing shell properly: out of proportion for a guard over three files; the rule is fail-closed instead.
 
 ## Weakest premise
-That the command-start heuristic (last ; { ( ` before the guard, on the quote-blanked line) is right for every
-real line. An unquoted $( ... ) before the guard ends the segment early, which could excuse a || before it.
-No such line exists in the installer today.
+That a line scan judges shell well enough. Known limits, all in the fail-closed direction except the last:
+the || rule is stricter than shell precedence; an unquoted $( ) before the guard ends the segment early,
+which can excuse a line only when an || sits before that $( ) and the guard is its direct right operand
+(A || $(c) [ -f P ] is not shell anyone writes); a guard split across a heredoc or a here-string is not followed. None of these
+shapes is in the installer today.
 
 ## Verify
 bash tools/test-installer-runnable-guard.sh under macOS awk and mawk; CI test-linux-setup (Ubuntu awk).
