@@ -57,7 +57,7 @@ FOLDER_SEARCH_TESTS="$(printf '%s\n' \
   '[ -d "$SEALED_USERS_DIR" ] && [ ! -L "$SEALED_USERS_DIR" ] && [ -r "$SEALED_USERS_DIR" ] && [ -x "$SEALED_USERS_DIR" ] || return 0')"
 export FOLDER_SEARCH_TESTS
 # With -v whole=1 (the installer scan), each listed test must be excused exactly once: a copy (a heredoc, a paste)
-# or a stale entry is reported. Controls on scratch files leave it off.
+# or a stale entry is reported. Controls that scan a single made-up file leave it off.
 _scan='
 BEGIN {
   n = split(ENVIRON["FOLDER_SEARCH_TESTS"], a, "\n")
@@ -92,10 +92,13 @@ END {
   }
 }'
 # An installer file that is missing would make awk stop with an error (hidden below) and the scan read as clean.
-for _f in $FILES; do [ -f "$HERE/$_f" ] || fail "installer file $_f is missing, so the scan below cannot be trusted"; done
+_scan_ok=1
+for _f in $FILES; do [ -f "$HERE/$_f" ] || { fail "installer file $_f is missing, so the scan below cannot be trusted"; _scan_ok=0; }; done
 bare="$(cd "$HERE" && awk -v whole=1 "$_scan" $FILES 2>/dev/null)"; _awk_rc=$?
-[ "$_awk_rc" -eq 0 ] || fail "the installer scan's awk exited $_awk_rc, so an empty result means nothing"
-if [ -z "$bare" ]; then
+[ "$_awk_rc" -eq 0 ] || { fail "the installer scan's awk exited $_awk_rc, so an empty result means nothing"; _scan_ok=0; }
+if [ "$_scan_ok" -eq 0 ]; then
+    :   # already failed above; an empty result is not a pass
+elif [ -z "$bare" ]; then
     pass "no unguarded executable test in the installer (positive or negated, quoted or unquoted), and each listed folder test found once"
 else
     fail "unguarded executable test site(s) remain:"
@@ -165,7 +168,18 @@ flagged "$_f" '  [ -d "$P" ] && [ -x "$P" ] || return 0'
 flagged "$_f" '  [ -d "$P" ] || [ -x "$P" ] && run "$P"'
 flagged "$_f" '  ! [ -d "$P" ] && [ -x "$P" ] && run "$P"'
 [ "$_n" -eq "$_total" ] && pass "in its own file, a listed test after another line (a || list, a heredoc on ||, ||#) or alone is flagged; so is it in another file, and every unlisted folder test ($_total controls)"
+# The line before does not carry across files: the first file ends with a listed line-before, the second starts with
+# its listed test, and the test is flagged.
+printf '  %s\n' "$(rel 1 2)" > "$_cdir/install/a-first.sh"; printf '  %s\n' "$(rel 1 3)" > "$_cdir/$(rel 1 1)"
+if [ "$(cd "$_cdir" && awk "$_scan" install/a-first.sh "$(rel 1 1)" 2>/dev/null | grep -c .)" -ge 1 ]; then pass "the line before a listed test does not carry over from the previous file"
+else fail "a listed test at the top of a file was excused by the last line of the file before it"; fi
 rm -rf "$_cdir"
+# A negated [ ! -x P ] is never excused, even when listed: a scan with a list naming one still flags it.
+_ctl="$(mktemp)"; printf '  true\n  [ -d "$Q" ] && [ ! -x "$Q" ] || return 0\n' > "$_ctl"
+_neg_list="$(printf '%s\n' "$_ctl" 'true' '[ -d "$Q" ] && [ ! -x "$Q" ] || return 0')"
+if [ "$(FOLDER_SEARCH_TESTS="$_neg_list" awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -eq 1 ]; then pass "a listed negated [ ! -x ] is still flagged (only [ -x ] can be listed)"
+else fail "a listed negated [ ! -x ] was excused"; fi
+rm -f "$_ctl"
 
 echo "installer runnable-guard: $fails failures"
 [ "$fails" -eq 0 ]
