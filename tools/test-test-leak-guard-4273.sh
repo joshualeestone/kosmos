@@ -46,6 +46,9 @@ out=$(leak_tmp_check "$root" "$work/allow"); rc=$?
 printf '%s\n' "$out" | grep -q 'brand-new (not on the allowlist; e.g. brand-new-Qw12Er)' && ok "the unlisted family is named, with a raw example" || bad "unlisted family not named: $out"
 printf '%s\n' "$out" | grep -q -E 'x codex-forget|x aoc-state|x tmp ' && bad "an allowlisted family was reported: $out" || ok "allowlisted families (a name, a glob, a commented line) are not reported"
 printf '%s\n' "$out" | grep -q 'note: 1 allowlisted families left nothing' && ok "listed families that left nothing are counted on one note line" || bad "no single note: $out"
+# #5907: the note names them, and only them.
+printf '%s\n' "$out" | grep -q 'left nothing this run (gone-family);' && ok "the family that left nothing is named" || bad "the unused family is not named: $out"
+printf '%s\n' "$out" | grep 'left nothing' | grep -q -E 'codex-forget|aoc-state|tmp' && bad "a family that did leak is named as unused: $out" || ok "families that leaked are not named as unused"
 rm -rf "$root/brand-new-Qw12Er"
 leak_tmp_check "$root" "$work/allow" > /dev/null; rc=$?  # pipe-status-ok
 [ "$rc" -eq 0 ] && ok "only allowlisted families left: clean" || bad "allowlisted-only root: rc=$rc"
