@@ -239,11 +239,12 @@ qh_lib5923() {   # qh_lib5923 <home>: the fixture checkout under <home>/work/kos
 }
 run5923() {   # run5923 <name> [env assignments...]: runs the real wrapper with QUEUED_HEAVY_LIB unset and HOME=$S/l5923-<name>
   local n="$1"; shift; mkdir -p $S/ml5923-$n
-  o=$(env -u QUEUED_HEAVY_LIB HOME=$S/l5923-$n KOSMOS_RUN_MARKER_DIR=$S/ml5923-$n QH_TEST_PS="cat $S/ps5923-$n" "$@" perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$REAL_QH" "lib-$n" touch $S/l5923-$n-ran 2>&1); rc=$?
+  o=$(env -u QUEUED_HEAVY_LIB HOME=$S/l5923-$n KOSMOS_RUN_MARKER_DIR=$S/ml5923-$n QH_TEST_PS="cat $S/ps5923-$n" QH_TEST_CWD="cat $S/cwd5923" "$@" perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$REAL_QH" "lib-$n" touch $S/l5923-$n-ran 2>&1); rc=$?
 }
 lh5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse HEAD; }
 lm5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse origin/main; }
-for n in mv mk ps sh set dirty nops; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
+printf 'p1\nn/\n' > $S/cwd5923
+for n in mv mk ps sh set dirty nops cwd nocwd reuse; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
 run5923 mv
 ok "#5923: the default lib checkout behind origin/main, nothing live: moved to origin/main, said so, run runs, lock gone" '[ "$rc" = 0 ] && [ -e $S/l5923-mv-ran ] && [ "$(lh5923 mv)" = "$(lm5923 mv)" ] && [[ "$o" == *"moved"*"-> origin/main"*"cut-guard.sh differed"* ]] && [ ! -e $S/ml5923-mv/queued-heavy-lib.lock ]'
 run5923 mv
@@ -264,6 +265,15 @@ run5923 dirty
 ok "#5923: a checkout with local changes is not moved and keeps them" '[ "$rc" = 0 ] && [ "$(lh5923 dirty)" != "$(lm5923 dirty)" ] && [[ "$o" == *"not moved (it has local changes)"* ]] && tail -1 $S/l5923-dirty/work/kosmos-bc-main-4610/tools/lib/process-fixture.sh | grep -q local'
 run5923 nops QH_TEST_PS=false
 ok "#5923: a process list that fails is not read as nothing live: NOT moved, says so" '[ "$rc" = 0 ] && [ "$(lh5923 nops)" != "$(lm5923 nops)" ] && [[ "$o" == *"not moved (could not list processes)"* ]]'
+printf 'p1\nn/\np4246\nn%s/tools\n' $S/l5923-cwd/work/kosmos-bc-main-4610 > $S/cwd5923-in
+run5923 cwd QH_TEST_CWD="cat $S/cwd5923-in"
+ok "#5923: a process working inside the checkout blocks the move (a move replaces the whole tree)" '[ "$rc" = 0 ] && [ "$(lh5923 cwd)" != "$(lm5923 cwd)" ] && [[ "$o" == *"not moved (a process is working inside it)"* ]]'
+run5923 nocwd QH_TEST_CWD=false
+ok "#5923: a working-directory probe that fails blocks the move and says so" '[ "$rc" = 0 ] && [ "$(lh5923 nocwd)" != "$(lm5923 nocwd)" ] && [[ "$o" == *"not moved (could not list working directories)"* ]]'
+# A lib lock left by a holder whose pid now runs another command (here the test's own live holder H) is taken over at once.
+mkdir -p $S/ml5923-reuse/queued-heavy-lib.lock && echo $H > $S/ml5923-reuse/queued-heavy-lib.lock/pid && echo "a holder long gone" > $S/ml5923-reuse/queued-heavy-lib.lock/cmd
+run5923 reuse
+ok "#5923: a lib lock whose pid was reused by another command is taken over, and the run moves the lib" '[ "$rc" = 0 ] && [ "$(lh5923 reuse)" = "$(lm5923 reuse)" ] && [[ "$o" == *moved* ]] && [[ "$o" != *"stayed taken"* ]] && kill -0 $H'
 # The REAL ps (no QH_TEST_PS): the run's own pipeline subshell keeps this script's argv and must not read as a waiter.
 # QH_TEST_PS_NAME gives the script a name no real waiter on this box carries. Control: a live process of that name blocks.
 for n in rp rpc; do qh_lib5923 $S/l5923-$n; mkdir -p $S/ml5923-$n $S/rp5923-$n; cp "$REAL_QH" $S/rp5923-$n/qh5923self.sh; done
@@ -417,7 +427,7 @@ sed 's|  exec /bin/bash "${BASH_SOURCE\[0\]}" --queued-args "$_qh_af"|  exec /no
 mkdir -p $S/tmpx; o=$(TMPDIR=$S/tmpx KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash $S/qh-noexec.sh "noexec" true 2>&1); r=$?
 ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"could not restart itself"* ]] && [ -z "$(ls $S/tmpx)" ] && grep -q /nonexistent/bash $S/qh-noexec.sh'
 
-EXPECTED=115   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, ten #5923 lib-drift arms
+EXPECTED=118   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirteen #5923 lib-drift arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
