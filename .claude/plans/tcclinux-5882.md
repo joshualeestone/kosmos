@@ -63,3 +63,4 @@ Mutants after review 1 (20:17 CDT from `date`, all discover tests, 207): B1 no o
    (cheap, shallow); macOS keeps the hatch's order. Test with a control for the macOS order.
 2. FIXED: with the folder budget and the candidate cap both full, the new skip said dirs where main said count. The
    skip now checks the candidate cap first, as the old loop did. Test.
+Mutants after review 3 (20:21 CDT from `date`, all discover tests, 211): O1 Documents first everywhere: red. O2 no candidate check in the skip: red (my first pattern matched two identical lines in the file, so it was rerun with its comment line to be unique).
