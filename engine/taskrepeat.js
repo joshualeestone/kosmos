@@ -303,14 +303,17 @@ function missedRuns(t, now = Date.now()) {
 /* kosmos#5920: the scheduled slots a run at `at` comes AFTER with none of them run: the slots missedRuns counts at `at`,
    less the one this run answers (answeredSlot, the same rule runIsLate uses). A recovery that lands hours late (a retry
    that held the agent) records ONE run, and moving lastRunAt past the slots it skipped would otherwise make them vanish
-   from the count and from the history. Returns { count, more, firstAt, lastAt }, or null when it skipped none. */
+   from the count and from the history. Returns { count, more, firstAt, lastAt }, or null when it skipped none. lastAt is
+   the last slot COUNTED: past MISSED_CAP it is the cap's slot, and `more` says there were more. */
 function skippedBefore(t, at) {
   if (!t || !t.repeat || !Number.isFinite(at)) return null;
   const grace = missGraceFor(t.repeat);
   let slot = firstUnanswered(t, at);
   if (slot === null) return null;
+  // With no time the rule was set there is no first slot to answer from (runIsLate says not late there): claim nothing.
   const from = Date.parse(t.repeatSetAt || t.createdAt || '');
-  const answered = Number.isFinite(from) ? answeredSlot(t.repeat, nextAfter(t.repeat, from), at) : null;
+  if (!Number.isFinite(from)) return null;
+  const answered = answeredSlot(t.repeat, nextAfter(t.repeat, from), at);
   const skipped = (s) => s !== null && s + grace <= at && (answered === null || s < answered);
   let count = 0; let first = null; let last = null;
   while (skipped(slot) && count < MISSED_CAP) { count += 1; if (first === null) first = slot; last = slot; slot = nextAfter(t.repeat, slot); }

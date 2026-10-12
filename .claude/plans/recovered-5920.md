@@ -25,3 +25,18 @@ vanished from the count and the history, leaving one "late" row.
 v29 pinned (fingerprint 63b704431e8076d5). engine/doctrine-past.js gains the v29 row and the new section hash only:
 tools/doctrine-past.js also dropped two interim v21 rows and an old section hash that this worktree's history cannot
 see, so those rows were kept.
+
+## Review 1 (opus, blind, on 7d624942): 2 blockers, 0 warnings, 2 conventions, 2 nits. FIXED
+- B: the deadline "until the next run" disagreed with the slot accounting: a run recorded inside the miss grace before
+  the next slot answers that slot early, so an obedient overrun read as a missed run (and the real next run as late).
+  The deadline is now the next slot LESS the miss grace: the nudge names that time ("record it by ..."), the doctrine
+  says "a little before the next one is due (the reminder Kosmos sends names the time)". A test pins that a record a
+  second before the deadline answers its own slot, with the 09:50 control.
+- B: engine/taskactphrase.js (the CLI's copy of the history words, held word for word with the page) did not say the
+  misses, so `kosmos task activity` dropped them. Fixed, with parity fixtures.
+- C: a task with no time the rule was set now claims no skipped runs (runIsLate says not late there too).
+- C, noted rather than changed: a missed-run notice (missedtell, from missedRuns) can say "3 runs missed" and the
+  recovering run's row "late, after 2 missed runs" for the same outage. Both are right: the third is the slot the late
+  run answers, which its row calls late.
+- NITs: the nudge uses the doctrine's words for the overrun step; lastRunRecovered.to is documented as the last slot
+  counted (the cap's slot when `more`).

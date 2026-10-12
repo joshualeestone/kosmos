@@ -499,11 +499,14 @@ test('#4787: a due repeating task is nudged with its due run and the record verb
   const t3 = proj({ number: 3, sentence: 'Hourly check', who: 'ag', repeat: { every: 'hour', minute: 0 }, repeatSetAt: hourAgo, createdAt: hourAgo })[0].tasks[0];
   const latest = tr.latestAtOrBefore(t3.repeat, tr.dueSlot(t3), Date.now());
   assert.equal(due[0].dueWords, tr.whenWords(latest), 'the line does not name the latest due run');
-  assert.match(text, /has not been reported: run it now \(it has until [^,]+, when the next one is due; if it is still going then, record it as it stands and start the next\), then record it with kosmos task ran rp4787 3 \(add --unchanged if it found nothing new\)\./);
-  // kosmos#5920: the deadline is the slot after the one due, in the board's own words.
-  assert.equal(due[0].nextWords, tr.whenWords(tr.nextAfter(t3.repeat, tr.latestAtOrBefore(t3.repeat, tr.dueSlot(t3), Date.now()))));
-  // CONTROL: a part with no next run named says nothing about a deadline.
-  assert.doesNotMatch(nudge.nudgeText({ ...due[0], nextWords: undefined }), /it has until/);
+  assert.match(text, /has not been reported: run it now \(record it by [^,]+, before the next one is due; if it is still going then, stop it, record it as it stands with what stopped it, and start the next\), then record it with kosmos task ran rp4787 3 \(add --unchanged if it found nothing new\)\./);
+  // kosmos#5920: the deadline is the next slot less the miss grace (inside the grace a record answers the next slot).
+  const dueAt = tr.latestAtOrBefore(t3.repeat, tr.dueSlot(t3), Date.now());
+  const by = tr.nextAfter(t3.repeat, dueAt) - tr.missGraceFor(t3.repeat);
+  assert.equal(due[0].byWords, tr.whenWords(by));
+  assert.equal(tr.answeredSlot(t3.repeat, tr.nextAfter(t3.repeat, Date.parse(t3.repeatSetAt)), by - 1000), dueAt, 'a record a second before the deadline answers the due run, not the next');
+  // CONTROL: a part with no deadline named says nothing about one.
+  assert.doesNotMatch(nudge.nudgeText({ ...due[0], byWords: undefined }), /record it by/);
   // Review 1: after a long gap, the LATEST due run, with "and earlier ones" (the reviewer's line names the latest too).
   const longAgo = new Date(now - 72 * 3600 * 1000).toISOString();
   const gap = { number: 6, sentence: 'Long gap', who: 'ag', repeat: { every: 'hour', minute: 0 }, repeatSetAt: longAgo, createdAt: longAgo, lastRunAt: longAgo };

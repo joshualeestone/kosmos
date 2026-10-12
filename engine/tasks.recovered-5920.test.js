@@ -38,6 +38,17 @@ test('#5920: an on-time run, a slightly late one and an early one skipped nothin
   assert.equal(taskrepeat.skippedBefore(hourly('2026-10-12T09:00:00Z'), D('09:55')), null, 'early for 10:00');
   assert.equal(taskrepeat.skippedBefore(hourly(null), D('08:30')), null, 'before the rule\'s first slot');
   assert.equal(taskrepeat.skippedBefore({ lastRunAt: '2026-10-12T09:00:00Z' }, D('12:30')), null, 'no rule');
+  // Review 1: no time the rule was set (a legacy task): no answered slot to leave out, so nothing is claimed.
+  assert.equal(taskrepeat.skippedBefore({ repeat: taskrepeat.normalise(HOURLY), lastRunAt: '2026-10-12T09:00:00Z' }, D('12:30')), null);
+});
+
+test('#5920 review 1: a run recorded by the nudge\'s deadline (the next slot less the grace) answers its own slot', () => {
+  // Last ran 08:00; the 09:00 run overran and is recorded at 09:44, one minute inside the 09:45 deadline.
+  const t = hourly('2026-10-12T08:00:00Z');
+  assert.equal(taskrepeat.skippedBefore(t, D('09:44')), null, 'an obedient overrun is not after a missed run');
+  assert.equal(taskrepeat.runIsLate(t, D('09:44')), true, 'it is late for 09:00, which it is');
+  // CONTROL: recorded at 09:50, inside the grace, it answers 10:00 early and 09:00 counts as missed.
+  assert.equal(taskrepeat.skippedBefore(t, D('09:50')).count, 1);
 });
 
 test('#5920: an early run for the next slot still names the slots before it that never ran', () => {

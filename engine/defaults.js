@@ -452,10 +452,11 @@ const BLOCK = [
   '',
   '(or `hourly`, or `weekly --on mon --at 09:00`). **Kosmos shows when each run is',
   'due; it does not start the run for you.** Run it when it is due, and if nothing',
-  'will bring you back at that time, tell the person so. **Each run has until the',
-  'next one is due:** if a run (a retry included) is still going when the next is',
-  'due, stop it, record it as it stands with what stopped it, and start the next',
-  'run, so one slow run never holds up the ones after it. After each run, record',
+  'will bring you back at that time, tell the person so. **Record each run a',
+  'little before the next one is due** (the reminder Kosmos sends names the time):',
+  'if a run (a retry included) is still going then, stop it, record it as it',
+  'stands with what stopped it, and start the next run, so one slow run never',
+  'holds up the ones after it. After each run, record',
   'what it found and how the checks went:',
   '',
   '`kosmos task ran <project-id> <task-number> "what this run found"`',
@@ -1033,10 +1034,12 @@ function block() {
  *     reading reads as changed, so it over-reports rather than missing a change.
  *  29. kosmos#5920. A user's recurring monitor hit a provider error; its retry held
  *     the agent for hours and the scheduled runs after it never ran, with nothing to
- *     show they were missed. The repeating-work paragraph now says each run has until
- *     the next one is due, and what to do when it runs over: record it as it stands,
- *     with what stopped it, and start the next. (The board records the misses a late
- *     run comes after, and the due-run nudge names the deadline: same card.)
+ *     show they were missed. The repeating-work paragraph now says to record each run
+ *     a little before the next one is due (the due-run nudge names the time: the next
+ *     slot less the miss grace, since a run recorded inside that grace answers the
+ *     next slot early), and what to do when it runs over: record it as it stands, with
+ *     what stopped it, and start the next. (The board records the misses a late run
+ *     comes after: same card.)
  *     WEAKEST PREMISE, NAMED: an agent deep in a retry notices the time. The board
  *     does not interrupt a working agent (the Prompter never types into one, #4544),
  *     so this is the agent's own rule; if it is not followed, the misses still show.
