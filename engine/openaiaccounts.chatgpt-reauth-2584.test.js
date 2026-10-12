@@ -251,7 +251,7 @@ async function startHeldReauth(dirName, email) {
   const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', reauthDir: dir });
   assert.equal(r.ok, true, r.because);
   STARTED.push(r.sessionId);
-  await waitFor(r.sessionId, (x) => x.state === 'awaiting-browser' || x.state === 'awaiting-code' || x.state === 'starting');
+  await waitFor(r.sessionId, (x) => x.state === 'awaiting-browser');   // the mock is up and has printed its URL
   return { dir, sessionId: r.sessionId };
 }
 

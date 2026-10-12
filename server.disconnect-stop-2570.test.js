@@ -890,6 +890,8 @@ test('#2570 CONTROL: the OpenAI route with no flag still refuses and names the a
 test('#5994: disconnect-and-stop on an account with its own unfinished Sign in again stops, deletes and cancels', async () => {
   installRunner();
   const openai = require('./engine/openaiaccounts');
+  const slotsBefore = new Set(fs.readdirSync(HOME).filter((n) => /^\.codex-work/.test(n)));
+  const ourSlots = () => fs.readdirSync(HOME).filter((n) => /^\.codex-work/.test(n) && !slotsBefore.has(n));
   const dir = nodePath.join(HOME, '.codex-reauth5994');
   fs.mkdirSync(dir, { recursive: true });
   const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
@@ -923,6 +925,6 @@ test('#5994: disconnect-and-stop on an account with its own unfinished Sign in a
   }
   // let the killed child exit so nothing outlives this test
   const end = Date.now() + 4000;
-  while (Date.now() < end && fs.readdirSync(HOME).some((n) => /^\.codex-work/.test(n))) await new Promise((res) => setTimeout(res, 25));
-  assert.ok(!fs.readdirSync(HOME).some((n) => /^\.codex-work/.test(n)), 'the cancelled sign-in never exited');
+  while (Date.now() < end && ourSlots().length) await new Promise((res) => setTimeout(res, 25));
+  assert.deepEqual(ourSlots(), [], 'the cancelled sign-in never exited');
 });
