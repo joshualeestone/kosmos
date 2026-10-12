@@ -30,7 +30,7 @@
     {
       "icon": "tasks",
       "title": "Late recurring runs say what they missed",
-      "line": "When a recurring task runs after scheduled runs that never happened, its activity now says how many were missed."
+      "line": "When a recurring task runs after scheduled runs that never happened, its activity now counts the runs it missed."
     }
   ]
 }
