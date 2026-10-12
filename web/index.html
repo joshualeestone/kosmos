@@ -36216,7 +36216,7 @@ function deviceOffline() {
    load from the served platform meta, which is in <head> before this script runs. */
 const MAC_ASLEEP_SENTENCE = onLinux()   // per platform since #5865, the name kept for its callers
   ? 'It may be turned off, or Kosmos may have stopped on it. Make sure it is on, then run kosmos restart in a terminal on it, and this page asks again by itself. If it is running, check this phone or computer\'s own connection.'
-  : 'It may be asleep or turned off. Wake it and make sure Kosmos is open on it, and this page asks again by itself. If your Mac is on, check this phone or computer\'s own connection.';
+  : 'It may be asleep or turned off. Wake it and make sure Kosmos is open on it, and this page asks again by itself. If ' + hostMachine() + ' is on, check this phone or computer\'s own connection.';
 const OFFLINE_SENTENCE = 'This phone or computer is not connected to the internet, so it cannot reach ' + hostMachine() + '. The board tries again by itself when you are online again.';
 function deviceOfflineHtml() {
   return '<div class="pj-empty boardfail">'
@@ -39432,7 +39432,8 @@ async function paintAgentFilesAll(sessionName) {
   const rest = Number(body.total) - files.length;
   if (more && rest > 0) {
     // #5165: over Kosmos+ the folder button cannot show them on this device, so it is not offered as the way.
-    more.textContent = 'And ' + rest + ' more in the folder.' + (kplusRemote() ? '' : ' Open in Finder shows them all.');
+    // #5865: and on Linux, where the Finder button is hidden (revealFolder runs /usr/bin/open).
+    more.textContent = 'And ' + rest + ' more in the folder.' + (kplusRemote() || onLinux() ? '' : ' Open in Finder shows them all.');
     more.hidden = false;
   }
 }
@@ -65617,7 +65618,7 @@ function pvOpen(id, from) {
     b.type = 'button'; b.className = 'pv-btn'; b.id = 'pv-do'; b.textContent = 'Download';
     b.addEventListener('click', () => a.download());
     act.replaceWith(b);
-  } else if (kplusRemote()) {
+  } else if (kplusRemote() || onLinux()) {   // #5865: a Linux board has no Finder to reveal in, so Download, as remotely
     const dl = document.createElement('a');
     dl.className = 'pv-btn'; dl.id = 'pv-do'; dl.href = a.url; dl.setAttribute('download', a.name); dl.textContent = 'Download';
     act.replaceWith(dl);
