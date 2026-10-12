@@ -54,3 +54,4 @@ Measured 19:46 CDT from `date`, all red: T1 workers optional, T2 no already-cove
    Kosmos+ named the company backs off 1, 2, 4 ... 24 hours. Test of the schedule and of its reset.
 5. NIT: the excuse claim was wrong. FIXED and measured, see Decisions.
 Tests 9 -> 13 (+4), inputs test asserts protect.
+Mutants after review 1 (19:53 CDT from `date`), each tests 13 pass 12 fail 1: Y1 no outer replace, Y2 a root may hold workers, Y3 no protection, Y4 protection one way only, Y5 a run with no workers root, Y6 left said every tick, Y7 no backoff when no pair, Y8 the backoff never resets, Y9 inputsHere passes no protect.
