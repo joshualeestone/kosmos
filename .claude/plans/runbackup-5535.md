@@ -83,3 +83,9 @@ restart or to the unnamed-pair sentence, so no path hands one to stripState.
    Lesson: after a slice edit, check the test COUNT against what was added and removed, not only the pass line.
 2. NIT: the device key's `missing` (remote access never set up: a person acts) was dropped. FIXED: passed through.
 Mutants after review 3 (19:25 CDT from `date`): V1 bucket dropped from the snapshot input: red (the restored end to end). V2 a snapshot id outside the context alphabet: red. V3 missing dropped: red.
+
+## Full-suite gates checked by hand before review 4 (memory: they run only in the full suite)
+- engine.reachable.test.js: runBackup is tested and reachable from nowhere until the tick. Excused there with its
+  caller named (slice (d)), as its siblings are. readPointer and newSnapshotId were exported for nothing; unexported.
+- tools/test-connector-verbs.sh: backuprun.js is a new macRequest caller. Re-decided in the file: it signs nothing of
+  its own (backupupload's grant routes and backupmemberkey's, both decided). 27/27 after.

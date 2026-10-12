@@ -203,4 +203,4 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
   return result;
 }
 
-module.exports = { runBackup, readPointer, newSnapshotId };
+module.exports = { runBackup };
