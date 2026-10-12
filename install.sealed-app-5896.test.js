@@ -34,7 +34,7 @@ function fnSource(name) {
   const end = SETUP.indexOf('\n}\n', at);
   return SETUP.slice(at + 1, end + 3);
 }
-const FNS = ['bundle_is_ours', 'sealed_config_reaches', 'bundle_looks_sealed', 'sealed_serves_this_install', 'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'app_bundle_into'].map(fnSource).join('\n');
+const FNS = ['file_owner_uid', 'bundle_is_ours', 'sealed_config_reaches', 'bundle_looks_sealed', 'sealed_serves_this_install', 'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'app_bundle_into'].map(fnSource).join('\n');
 
 let tmpRoot, SYS;   // SYS: the stand-in for the shared /Applications (setup.sh's SYS_APP_DIR)
 test.before(() => {
@@ -173,8 +173,10 @@ it('#5896: residue sweeps take this account\'s own sealed leftover; a sealed pro
   assert.doesNotMatch(SETUP, /BUNDLE_SEALED_OK/, 'a VAR=x prefix flag came back');
   // Another account's sealed bundle cannot be made here without root, so the ownership rule is pinned by its text.
   const fn = fnSource('bundle_is_ours');
-  assert.match(fn, /\[ "\$\(\/usr\/bin\/stat -f %u "\$1" 2>\/dev\/null\)" = "\$\(\/usr\/bin\/id -u\)" \] \|\| return 1/, 'the sealed proof no longer requires this account to own the bundle');
-  assert.ok(fn.indexOf('/usr/bin/stat -f %u') < fn.indexOf('bundle_is_sealed "$1"'), 'ownership is not checked before the signature');
+  // #5913: the owner comes from file_owner_uid, the one lookup (which a test can stand in for another account).
+  assert.match(fn, /\[ "\$\(file_owner_uid "\$1"\)" = "\$\(\/usr\/bin\/id -u\)" \] \|\| return 1/, 'the sealed proof no longer requires this account to own the bundle');
+  assert.ok(fn.indexOf('file_owner_uid "$1"') < fn.indexOf('bundle_is_sealed "$1"'), 'ownership is not checked before the signature');
+  assert.match(fnSource('file_owner_uid'), /\/usr\/bin\/stat -f %u "\$1"/, 'file_owner_uid no longer reads the owner from disk');
 });
 
 it('#5896: the sealed app is placed only where the app will read the config, judged for the icon\'s own folder', () => {
@@ -307,7 +309,7 @@ test('#5896: setup.sh ordering and mode invariants (text only, every platform)',
   assert.ok(sweeps.every((l) => l.includes(' anchored;')), 'a residue sweep does not say it is one');
   assert.doesNotMatch(SETUP, /BUNDLE_SEALED_OK/, 'a VAR=x prefix flag came back');
   const fn = fnSource('bundle_is_ours');
-  assert.ok(fn.indexOf('/usr/bin/stat -f %u') !== -1 && fn.indexOf('/usr/bin/stat -f %u') < fn.indexOf('bundle_is_sealed "$1"'), 'ownership is not checked before the signature');
+  assert.ok(fn.indexOf('file_owner_uid "$1"') !== -1 && fn.indexOf('file_owner_uid "$1"') < fn.indexOf('bundle_is_sealed "$1"'), 'ownership is not checked before the signature');   // #5913: the one owner lookup
   assert.ok(fn.indexOf('sealed_serves_this_install') < fn.indexOf('bundle_is_sealed "$1"'), 'the config is not checked before the signature');
   assert.match(SETUP, /bundle_is_ours "\$SYS_APP_DIR\/Kosmos\.app" own; then APP_OWN_SEALED=yes; fi/, 'the transcript line no longer asks in own mode');
   assert.match(SETUP, /elif bundle_is_ours "\$SYS_APP_DIR\/Kosmos\.app" own; then   # own:/, 'the stale-probe transcript check no longer asks in own mode');
