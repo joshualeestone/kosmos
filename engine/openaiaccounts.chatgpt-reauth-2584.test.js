@@ -51,7 +51,7 @@ const MOCK = nodePath.join(SANDBOX, 'codex-mock.sh');
 fs.writeFileSync(MOCK, `#!/bin/bash
 if [ "$FAKE_CODEX_FAIL" = "1" ]; then echo "sign-in failed" >&2; exit 1; fi
 echo "Sign in at https://auth.openai.com/device and enter code WXYZ-1234"
-if [ "$FAKE_CODEX_SLEEP" = "1" ]; then sleep 30; exit 0; fi
+if [ "$FAKE_CODEX_SLEEP" = "1" ]; then exec sleep 30; fi   # exec (#5994 review 1): the kill reaches the process holding the pipe
 printf '{"auth_mode":"chatgpt","tokens":{"id_token":"%s"}}' "$FAKE_ID_TOKEN" > "$CODEX_HOME/auth.json"
 exit 0
 `);
@@ -60,16 +60,15 @@ fs.chmodSync(MOCK, 0o755);
 // #5727: poll chatgptLoginStatus via the shared eventually() helper, which scales its
 // deadline by KOSMOS_TEST_TIME_SCALE so this does not false-red on a contended box. At
 // scale 1 (CI / unloaded) this polls identically to the hand-rolled loop it replaces.
-async function eventuallyTrue(fn, msg, ms = 4000) {
-  const end = Date.now() + ms * (Number(process.env.KOSMOS_TEST_TIME_SCALE) || 1);
-  while (Date.now() < end) { if (fn()) return; await new Promise((r) => setTimeout(r, 25)); }
-  assert.fail(msg);
-}
 async function waitFor(sessionId, pred, ms = 4000) {
   return eventually(() => openai.chatgptLoginStatus(sessionId), pred, {
     timeoutMs: ms,
     describe: (s) => `last state=${s.state} error=${s.error}`,
   });
+}
+// #5994: wait for a plain condition through the same shared helper.
+async function eventuallyTrue(fn, msg, ms = 4000) {
+  return eventually(() => Boolean(fn()), (v) => v === true, { timeoutMs: ms, describe: () => msg });
 }
 const terminal = (x) => x.state === 'connected' || x.state === 'error';
 
@@ -284,6 +283,28 @@ test('#5994: the cancelled reauth\'s late exit does not release a hold a NEW sig
   openai.cancelChatgptLogin(fresh.sessionId);
   delete process.env.FAKE_CODEX_SLEEP;
   await waitFor(fresh.sessionId, (x) => x.state === 'cancelled');
+  // and its child has really gone: the labelled name is free again
+  await eventuallyTrue(() => !fs.existsSync(nodePath.join(SANDBOX, '.codex-busy4')), 'the cancelled sign-in never exited');
+});
+
+test('#5994: a forget that FAILS at the move (no free name to move it to) cancels nothing', async () => {
+  const { dir, sessionId } = await startHeldReauth('.codex-busy6', 'busy6@example.com');
+  const taken = [nodePath.join(SANDBOX, '.removed-codex-busy6')];
+  for (let n = 2; n < 500; n += 1) taken.push(nodePath.join(SANDBOX, `.removed-codex-busy6-${n}`));
+  for (const t of taken) fs.mkdirSync(t, { recursive: true });
+  try {
+    const f = openai.forgetAccount(dir, []);
+    assert.equal(f.ok, false);
+    assert.match(f.because, /free name/);
+    const st = openai.chatgptLoginStatus(sessionId).state;
+    assert.ok(st !== 'cancelled' && st !== 'error', 'a failed forget cancelled the sign-in: ' + st);
+    assert.equal(fs.existsSync(nodePath.join(dir, 'auth.json')), true);
+  } finally {
+    for (const t of taken) fs.rmSync(t, { recursive: true, force: true });
+    openai.cancelChatgptLogin(sessionId);
+    delete process.env.FAKE_CODEX_SLEEP;
+  }
+  await waitFor(sessionId, (x) => x.state === 'cancelled');
 });
 
 test('#5994: any OTHER hold still refuses (a new sign-in staging into that name)', async () => {

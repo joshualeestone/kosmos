@@ -707,7 +707,7 @@ test('#2570: every OpenAI refusal that ignores the agents runs BEFORE the agents
     const agents = body.indexOf('const agents = (Array.isArray(usedBy)');
     assert.ok(reauth > 0 && agents > 0, `${fn}: could not find both guards, so this pin proves nothing`);
     assert.ok(reauth < agents,
-      `${fn}: the sign-in-in-progress refusal sits AFTER the agents guard, so #2570's `
+      `${fn}: the sign-in-in-progress refusal (any hold but the account's own reauth, #5994) sits AFTER the agents guard, so #2570's `
       + 'pre-flight cannot see it and will stop every agent on the account before learning '
       + 'the operation was refused');
   }
