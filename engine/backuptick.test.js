@@ -292,3 +292,11 @@ test('review 4: a runBackup that throws is said once; transcripts are looked up 
     assert.deepEqual(seen, [given]);
   } finally { s.done(); }
 });
+
+test('review 7: a reason that comes back after runs that failed for other reasons is said again', async () => {
+  const P = { org: 'o1', member: 'm1' };
+  const missing = { ok: false, missing: true, because: 'remote access is not set up' };
+  const d = driven([missing, { ok: false, retry: true, because: 'busy', pair: P }, missing]);
+  for (let i = 0; i < 3; i++) { d.stop.state.pausedUntil = 0; await d.stop.tick(); }
+  assert.deepEqual(d.said, [`company backup: ${missing.because}`, `company backup: ${missing.because}`]);
+});
