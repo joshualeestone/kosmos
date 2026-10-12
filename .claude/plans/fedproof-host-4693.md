@@ -40,7 +40,7 @@ tunnel that cannot reach the coordinator fails the sign-in step, loudly.
 
 - Both arms with the 10-03 relay binaries (renet-grace-1330): main's harness must FAIL at the
   own-code join (the defect, measured rather than reasoned); this branch must PASS end to end.
-- Then this branch with a fresh debug build of kosmos-relay origin/main 703738ab.
+- Then this branch with a fresh debug build of kosmos-relay origin/main 703738ab (that was 10-06; see the re-run below).
 - Results, 2026-10-06: this branch reported VERDICT PASS (49/49) on the machine queue (fedproof-arm-4693d.log).
 - **Re-run 2026-10-11 23:23 CDT (Ice Cream Kitty), after rebasing onto main (2598 commits on):** VERDICT PASS (49/49
   checks, 54 s), through queued-heavy. The relay binaries were built from kosmos-relay origin/main 0578de95, which
@@ -53,3 +53,16 @@ tunnel that cannot reach the coordinator fails the sign-in step, loudly.
     newer than the build start. The usage note is fixed on this branch.
 - **Not re-measured:** main's unfixed harness failing on current code (the control arm). It was measured failing on
   10-06. The cause is a design fact unchanged on main (a coordinator reached by IP has no computer domain, #4699).
+
+## Review 1 (opus, 2026-10-11 23:2x)
+- **SHOULD-FIX, taken:** the loopback check looked at the FIRST address only. On this Mac the name resolves to
+  [::1, 127.0.0.1], and a resolver answering [::1, 10.x] would have passed. Now `lookup(..., { all: true })`, and
+  EVERY address must be loopback.
+- **SHOULD-FIX, taken (same lines):** the coordinator binds one family. The free-port check now requires the port to
+  be free on BOTH 127.0.0.1 and ::1, so no other process can sit on the other family's port (cross-talk, not an
+  escape).
+- **SHOULD-FIX, taken, and the important one:** step 7a accepted ANY 4xx. Since #4699 verify answers 409 for several
+  unrelated reasons, including `unchecked`, which is exactly what main's IP-addressed harness got. So 7a could print
+  PASS with the account check never running. It now requires verify 409 with `reason: 'other-account'`.
+- **NITs, taken:** the stale "an own code carries no account" comment, the 703738ab date, and a header line rewrapped.
+- **Code changed after tonight's 49/49 run, so the harness runs again before the PR.**
