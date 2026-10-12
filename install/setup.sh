@@ -373,10 +373,10 @@ shared_sealed_stays() {
 # config when it names this install. So afterwards it can open only the DEFAULT install: yes only when this install
 # ($1, its board label) is not the default (com.kosmos.board) and the default home's bin/kosmos is runnable, the same
 # test the app makes. A board login job is not that test (a default install can have none, and a stale one outlives
-# its home).
+# its home). -f as well as -x (#1716): a directory named bin/kosmos is not a runnable install, so it keeps nothing.
 sealed_opens_another() {
   [ "$1" = "com.kosmos.board" ] && return 1
-  [ -x "$_kosmos_home_default/bin/kosmos" ]
+  [ -f "$_kosmos_home_default/bin/kosmos" ] && [ -x "$_kosmos_home_default/bin/kosmos" ]
 }
 # A sealed Kosmos icon of ANY install (no per-install file, a valid signature with our identifier). Weaker than
 # bundle_is_sealed: a yes here can only KEEP an icon (shared_sealed_stays); a removal needs bundle_is_ours as well.
