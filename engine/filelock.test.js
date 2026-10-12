@@ -223,7 +223,7 @@ test('#5997: a lock that vanished at the stat is NOT treated as stale; a waiter 
   }
 });
 
-test('#5997 review 1: a stat that fails another way once (Windows delete-pending: EPERM) is retried too; only a repeated failure reads as debris', () => {
+test('#5997 reviews 1 and 3: a stat that fails another way (Windows delete-pending: EPERM), once or every time, never leads to moving the lock', () => {
   const file = tmpFile();
   const lock = file + '.lock';
   fs.mkdirSync(lock);
@@ -243,11 +243,14 @@ test('#5997 review 1: a stat that fails another way once (Windows delete-pending
     assert.equal(fails, 1, 'CONTROL: the failing stat was reached');
     assert.deepEqual(moved, [], 'one EPERM sent the waiter to move a live lock');
     assert.deepEqual(r, { ok: false, because: 'still held' });
-    // CONTROL: the same failure every time is still read as debris (the old reading), so the change is scoped.
+    // Review 3: every time too. A steal needs a measured mtime; with none it could only move a lock aside and put it
+    // back (the #5997 window), never collect it. So it waits and answers busy, and moves nothing.
     fails = 0; failTimes = Infinity;
     // A long deadline: a 20 ms pause measured ~165 ms on a loaded Mac (load 11.5), and this arm needs two of them.
-    withFileLock(file, () => 'ran', { busy: 'still held', waitMs: 1500 });
-    assert.ok(moved.length > 0, 'CONTROL: a stat that keeps failing must still reach the debris path (the old reading)');
+    const r2 = withFileLock(file, () => 'ran', { busy: 'still held', waitMs: 400 });
+    assert.ok(fails >= 2, 'CONTROL: the stat failed repeatedly (the arm under test was reached)');
+    assert.deepEqual(moved, [], 'a stat that keeps failing sent the waiter to move the lock');
+    assert.deepEqual(r2, { ok: false, because: 'still held' });
   } finally {
     fs.statSync = realStat;
     fs.renameSync = realRename;
