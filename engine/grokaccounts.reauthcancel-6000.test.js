@@ -233,6 +233,17 @@ test('#6000: an account already gone from the disk still has its own unfinished 
   await waitFor(() => workSlots().length === 0, 'the staging slot was never freed');
 });
 
+test('#6000: forgetting an account already gone from the disk also cancels its own unfinished sign-in again', async () => {
+  const { dir, sessionId } = await startHeldReauth('.grok-gone9', 'gone9@example.com');
+  fs.rmSync(dir, { recursive: true, force: true });   // removed outside Kosmos
+  const f = grok.forgetAccount(dir, []);
+  assert.equal(f.ok, true);
+  assert.equal(f.forgotten, false);
+  assert.equal(state(sessionId), 'cancelled', 'forget left the abandoned sign-in holding a gone account');
+  assert.equal(grok.isSignInPending(dir), false);
+  await waitFor(() => workSlots().length === 0, 'the staging slot was never freed');
+});
+
 test('#6000: a sign-in again cancelled a moment ago (its child still exiting) does not refuse the remove', async () => {
   grok.setGrokTimers({ forceKill: 1500 });   // the TERM-ignoring child lives until this SIGKILL
   try {

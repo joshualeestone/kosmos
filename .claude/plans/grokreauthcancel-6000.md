@@ -40,20 +40,20 @@ on the live folder, and goes ahead. Any other hold still refuses with the old se
   file, but such an account has no Sign in again (reauthTarget requires a subscription identity), so it never has an
   own reauth to cancel. If reauthTarget ever allows key accounts, use holdsCredentials there.
 - Mutants are reproducible with a script that swaps one line at a time and runs this test file with a 60 s cap per run
-  (a timeout counts as red); the eight swaps are listed under Tests.
+  (a timeout counts as red); the nine swaps are listed under Tests.
 
 ## Weakest premise
 That a live account folder is never also a sign-in's staging folder. resolveFreshGrokDir refuses a named dir that
 holds credentials and nextWorkDir skips one; pinned by the premise test.
 
-## Tests (engine/grokaccounts.reauthcancel-6000.test.js, 13; the chmod ones skip as root, as #5994's do)
+## Tests (engine/grokaccounts.reauthcancel-6000.test.js, 14; the chmod ones skip as root, as #5994's do)
 premise; remove cancels and deletes; forget cancels and moves (the moved account keeps its sign-in); a refused call
 (agents) cancels nothing; the late exit does not release a new sign-in's hold (child kept alive with a TERM trap so
 the window is real); a forget refused for no free name cancels nothing; a forget whose rename fails (read-only home)
-cancels nothing; a part-way delete cancels; a failed delete of a whole account cancels nothing; already gone still cancels; a reauth cancelled a moment ago does not refuse; any other hold refuses.
+cancels nothing; a part-way delete cancels; a failed delete of a whole account cancels nothing; already gone still cancels (remove, and forget since iteration 9); a reauth cancelled a moment ago does not refuse; any other hold refuses.
 engine/grokaccounts.reauth-3391.test.js: the old "forget/remove refuse while held" assertions removed (now cancel).
-Mutants (each red, the first by timeout): no release in remove; late exit ignores the flag; any hold counted as own;
-release before the move; settled reauths filtered out; no release when already gone; no release on a part-way delete;
+Mutants (nine, each red): no release in remove; late exit ignores the flag; any hold counted as own;
+release before the move; settled reauths filtered out; no release when already gone (remove; forget); no release on a part-way delete;
 release on any failed delete.
 Wider: engine/grokaccounts*.test.js 68/68; server.grok-subscription-3391, server.provider-accounts-3296,
 server.disconnect-stop-2570, engine.reachable 72/72.
