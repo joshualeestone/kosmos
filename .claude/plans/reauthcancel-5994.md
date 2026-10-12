@@ -27,6 +27,10 @@ the live folder, and goes ahead. Any other hold still refuses with the old sente
   settling the session already removes the only write the child could make into the live folder.
 - Only rewording the refusal: the person would still be refused for minutes for something they asked for.
 
+## Not here
+Grok has the same refusal (engine/grokaccounts.js forget/remove while its own reauth runs): carded as #6000, to
+port this once it merges so the two stay the same shape.
+
 ## Weakest premise
 That a live account folder is never also a sign-in's staging folder. It holds an auth.json, and
 resolveFreshChatgptDir refuses a labelled dir with one while nextWorkDir skips it. If that ever changes, a remove could

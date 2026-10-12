@@ -918,4 +918,7 @@ test('#5994: disconnect-and-stop on an account with its own unfinished Sign in a
   } finally {
     openai.cancelChatgptLogin(started.sessionId);
   }
+  // let the killed child exit so nothing outlives this test
+  const end = Date.now() + 4000;
+  while (Date.now() < end && fs.readdirSync(HOME).some((n) => /^\.codex-work/.test(n))) await new Promise((res) => setTimeout(res, 25));
 });
