@@ -346,7 +346,7 @@ for (const which of ['card', 'lrow']) {
    apply, and points at the Remove on its page (Kosmos removes nothing itself). Not on the could-not-check split. */
 for (const which of ['card', 'lrow']) {
   test(`#5957 slice 3 ${which}: a stopped agent idle 23 days says so; the real row (null) says nothing`, () => {
-    const IDLE = 'Has not run in 23 days. If it is no longer needed, remove it under Advanced on its page.';
+    const IDLE = 'Has not run in 23 days. If it is no longer needed, remove it under AI Settings on its page.';
     assert.ok(!render(which, offlineRow()).includes('Has not run'), 'a row with no number drew the sentence');
     const html = render(which, { ...offlineRow({ strict: false }), idleDays: 23 });
     const slot = (text) => (which === 'card' ? '<div class="arules">' : '<div class="ltask" title="' + text + '">') + text;
@@ -362,3 +362,14 @@ for (const which of ['card', 'lrow']) {
     assert.ok(!split.includes('Has not run'), `${which} said it on the could-not-check split`);
   });
 }
+
+/* kosmos#5957 slice 3: the idle sentence names where Remove is. If Remove moves to another button, this goes red, so
+   the sentence cannot quietly send the person to the wrong place. */
+test('#5957 slice 3: Remove opens under the AI Settings button, as the idle sentence says', () => {
+  const m = PAGE.match(/const DETAIL_SECTION_PILL = (\{[^}]*\});/);
+  assert.ok(m, 'DETAIL_SECTION_PILL not found');
+  const pill = Function('return ' + m[1])().remove;
+  const btn = PAGE.match(new RegExp('<button type="button" data-go="' + pill + '"[^>]*>[\\s\\S]*?<span class="dnav-lab">([^<]*)</span>'));
+  assert.ok(btn, 'no nav button for the remove pill ' + pill);
+  assert.equal(btn[1], 'AI Settings');
+});

@@ -20909,10 +20909,11 @@ function rulesBehindLine(a, offline) {
 }
 /* #5957 slice 3: the sentence for an agent that has not run for two weeks or more (a.idleDays, from
    engine/liveness.js idleDays: a whole number only then), or ''. Kosmos removes nothing itself; Remove is on the
-   agent's own page (under Advanced), and the person decides. */
+   agent's own page (under AI Settings: DETAIL_SECTION_PILL.remove, guarded in web.not-running.test.js), and the
+   person decides. */
 function idleLine(a) {
   if (!(a && Number.isSafeInteger(a.idleDays) && a.idleDays > 0)) return '';
-  return 'Has not run in ' + a.idleDays + ' days. If it is no longer needed, remove it under Advanced on its page.';
+  return 'Has not run in ' + a.idleDays + ' days. If it is no longer needed, remove it under AI Settings on its page.';
 }
 /* The offline card and list row's one note: rules behind, then not run in N days, whichever apply. */
 function offlineNote(a) {
