@@ -25,7 +25,11 @@ say is better gone).
   Launchpad, menu bar, sleep, in any case, and the app name "Terminal"); a control proves the reader finds them in panes
   3 and 7. Text painted at run time is not rendered by the test; the one Linux-specific painter arm, pane 5's sign-in
   hatch (#5449), is read from source and holds none. The other painters in the kept panes (frPaintYou, frPaintFleet)
-  were read by hand in review 1 and hold none (review 1).
+  hold no Mac words in their painted text (frPaintYou, frPaintFleet; checked in reviews 1 and 2).
+- Pane 9's scan list (frPaintScan) and the Create panel's (populateFoundImports) no longer say "Could not scan
+  Documents, Downloads, or Desktop this time" on Linux (review 2): it is a macOS folder-permission result, and a Linux
+  board reports those folders unavailable because the engine routes them to the macOS hatch. frPaintScan is painted for
+  real in the test with a Mac control. The engine half (those folders are never scanned on Linux) is #5882.
 - web.firstrun-linux-5877.test.js fails on main's page (the Linux sequence, deep-link and kept-pane tests; the controls
   and the pane-9 boundary and hatch checks pass there by design).
 
