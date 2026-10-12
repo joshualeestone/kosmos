@@ -4722,9 +4722,11 @@ test('#5786 (b): a second sign-in while a refused Not me waits on its allow does
 
 /* kosmos#5889: the company opener's child gets only what a desktop needs, never the board's whole environment. The child
    here is node itself, writing the environment it was given. */
-test('kosmos#5889: the company sign-in opener passes only the desktop allowlist; a board token never reaches the browser', async () => {
+test('kosmos#5889: the company sign-in opener passes only the desktop allowlist; a board token never reaches the browser', async (t) => {
   const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
-  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'opener-5889-')), 'env.json');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opener-5889-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));   // removed even when an assertion fails (#4273)
+  const out = path.join(dir, 'env.json');
   const writer = [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify(process.env))`];
   // The board's REAL environment carries the secrets (review 1): a child spawned with process.env would see them.
   process.env.KOSMOS_5889_SECRET = 'secret-board-token'; process.env.GITHUB_TOKEN_5889 = 'ghp_secret';
