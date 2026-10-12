@@ -43,22 +43,36 @@ test('rootsFor: the workers folder is the one required root; projects, outside f
   } finally { s.done(); }
 });
 
-test('rootsFor: nothing is added twice, and names a root cannot carry are left out and said, never a path', () => {
+test('rootsFor: nothing is added twice; names a root cannot carry as they are are MAPPED, never dropped (review 9)', () => {
   const s = sandbox();
   try {
     const workers = s.mk('w');
     const projectsInsideWorkers = s.mk('w', 'projects');
     const far = s.mk('far');
+    const seen = [];
     const { roots, left } = tick.rootsFor({
       workersDir: workers, projectsDir: projectsInsideWorkers,
-      agents: [{ id: 'Bad_Name', dir: s.mk('w', 'Bad_Name') }, { id: 'Also Bad', dir: s.mk('out', 'x') }],
-      projects: [{ slug: 'inside', folder: s.mk('w', 'p') }, { slug: 'Not OK', folder: far }, { slug: 'missing', folder: path.join(s.base, 'nope') }],
-      sessions: () => { throw new Error('never asked for a bad id'); },
+      agents: [{ id: 'ice_cream', dir: s.mk('w', 'ice_cream') }, { id: 'Also Bad', dir: s.mk('out', 'x') }],
+      projects: [{ slug: 'inside', folder: s.mk('w', 'p') }, { slug: 'q3_plan', folder: far }, { slug: 'missing', folder: path.join(s.base, 'nope') }],
+      sessions: (dir, id) => { seen.push(id); return []; },
     });
-    assert.deepEqual(roots.map((r) => r.name), ['workers'], 'a folder inside workers was added again');
-    // Bad_Name (inside workers): its transcripts. Also Bad (outside): its folder AND its transcripts. Not OK: a project.
-    assert.deepEqual(left.map((l) => l.what).sort(), ['a project', 'an agent folder', 'an agent\'s transcripts', 'an agent\'s transcripts'].sort());
-    assert.doesNotMatch(JSON.stringify(left), new RegExp(s.base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    const names = roots.map((r) => r.name);
+    assert.equal(names[0], 'workers');
+    assert.ok(!names.includes('projects'), 'a folder inside workers was added again');
+    assert.match(names.find((n) => n.startsWith('elsewhere/')), /^elsewhere\/q3-plan-[0-9a-f]{8}$/);
+    assert.match(names.find((n) => n.startsWith('agents/')), /^agents\/also-bad-[0-9a-f]{8}$/);
+    for (const n of names) assert.equal(snap.rootNameProblem(n), null, n);
+    assert.deepEqual(left, [], 'a real agent or project was left out');
+    // Transcripts are asked for under the mapped segment, the same one every snapshot.
+    assert.equal(seen.length, 2);
+    assert.ok(seen.every((id) => /^[a-z0-9][a-z0-9-]{0,31}$/.test(id)), JSON.stringify(seen));
+    assert.deepEqual(tick.rootsFor({ workersDir: workers, agents: [{ id: 'ice_cream', dir: s.mk('w', 'ice_cream') }], sessions: (d, id) => { seen.push(id); return []; } }).roots.length, 1);
+    assert.equal(seen[2], seen[0], 'the same agent mapped to another name');
+    // A good id is kept as it is (CONTROL), and two ids that clean alike do not share a name.
+    const c = tick.rootsFor({ workersDir: workers, projects: [{ slug: 'okname', folder: s.mk('f1') }, { slug: 'a_b', folder: s.mk('f2') }, { slug: 'a-b', folder: s.mk('f3') }] });
+    const cn = c.roots.map((r) => r.name);
+    assert.ok(cn.includes('elsewhere/okname') && cn.includes('elsewhere/a-b'));
+    assert.equal(new Set(cn).size, cn.length);
   } finally { s.done(); }
 });
 
@@ -225,13 +239,15 @@ test('review 2: transcript roots that nest with a folder root are resolved: insi
   } finally { s.done(); }
 });
 
-test('review 2: a name the snapshot refuses is said, not dropped silently; a relative protected path fails closed', () => {
+test('review 2 and 9: a name the snapshot refuses is mapped to one it accepts; a relative protected path fails closed', () => {
   const s = sandbox();
   try {
     const workers = s.mk('w');
+    // `secrets` passes the segment rule but the snapshot never stores it: it is mapped (review 9), not dropped.
     const r = tick.rootsFor({ workersDir: workers, projects: [{ slug: 'secrets', folder: s.mk('far', 'secrets') }] });
-    assert.deepEqual(r.roots.map((x) => x.name), ['workers']);
-    assert.deepEqual(r.left, [{ what: 'a project', why: 'its name cannot be a backup root name' }]);
+    assert.match(r.roots[1].name, /^elsewhere\/secrets-[0-9a-f]{8}$/);
+    assert.equal(snap.rootNameProblem(r.roots[1].name), null);
+    assert.deepEqual(r.left, []);
     const c = tick.rootsFor({ workersDir: workers, protect: ['relative/data'] });
     assert.deepEqual([c.roots.length, c.left[0].what], [0, 'everything']);
   } finally { s.done(); }

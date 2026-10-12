@@ -132,3 +132,13 @@ Mutants after review 7 (20:09 CDT from `date`): G1 gate back to isEnrolledHere: 
    their safety is backupsessions' session-file lists. Said in the header.
 Tests 23 -> 24.
 Mutants after review 8 (20:11 CDT from `date`), each 24/23/1: E1 '..' prefix match back, E2 an unresolvable protected folder dropped (proves the locked parent gives a non-ENOENT error here), E3 protectIncomplete ignored.
+
+## Review 9 (opus, blind, on 776b782e): one must-fix, one nit
+1. MUST-FIX, FIXED: names were refused when the root-name rule could not carry them, but Kosmos's own names allow `_`
+   (create.js NAME_RE) and project ids run to 64 characters (projects.idFor). So `ice_cream` lost its transcripts, and a
+   `q3_plan` project outside the projects root lost its folder, said only as a nameless log line. My review-1 test locked
+   that in as correct. Now every id maps to a root segment: kept as is when it is a good segment the snapshot accepts,
+   else its cleaned form plus 8 hex of its SHA-256 (stable across snapshots; a_b and a-b never share one). Transcripts
+   are asked for under the same segment. Tests rewritten to the mapped behaviour, with a control for a good id.
+2. NIT, FIXED BUT UNTESTED HERE: on Windows, %USERPROFILE%\AppData (browser password stores, Credential Manager) is
+   protected whole. The line runs only on win32; this Mac cannot run it, and it is said here rather than implied.

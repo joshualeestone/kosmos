@@ -33,6 +33,17 @@ const path = require('path');
 const fs = require('fs');
 
 const SEGMENT = /^[a-z0-9][a-z0-9-]{0,31}$/;
+/* The root-name segment for an agent's name or a project's id (review 9). Kosmos names allow `_` and project ids run to
+   64 characters, so refusing every id the root-name rule cannot carry dropped real agents and projects. An id that is
+   already a good segment (and one the snapshot accepts as agents/<id>) is kept as is; any other becomes its cleaned
+   form plus 8 hex of its SHA-256: stable across snapshots, and two ids that clean alike (a_b, a-b) never share one. */
+function rootSegment(id) {
+  if (typeof id !== 'string' || !id) return null;
+  if (SEGMENT.test(id) && !snapshotNameProblem(`agents/${id}`)) return id;
+  const base = id.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 20) || 'x';
+  const seg = `${base}-${require('crypto').createHash('sha256').update(id).digest('hex').slice(0, 8)}`;
+  return SEGMENT.test(seg) ? seg : null;
+}
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
@@ -91,22 +102,24 @@ function rootsFor(input) {
     const f = p && typeof p.folder === 'string' && path.isAbsolute(p.folder) ? real(p.folder) : null;
     if (!f) continue;
     if (roots.some((r) => !r.only && inside(f, r.path))) continue;
-    if (typeof p.slug !== 'string' || !SEGMENT.test(p.slug)) { left.push({ what: 'a project', why: 'its name cannot be a backup root name' }); continue; }
-    add(`elsewhere/${p.slug}`, f, 'a project');
+    const seg = rootSegment(p.slug);
+    if (!seg) { left.push({ what: 'a project', why: 'it has no name' }); continue; }
+    add(`elsewhere/${seg}`, f, 'a project');
   }
   for (const a of input.agents || []) {
     const d = a && typeof a.dir === 'string' && path.isAbsolute(a.dir) ? real(a.dir) : null;
     if (!d) continue;
-    const idOk = typeof a.id === 'string' && SEGMENT.test(a.id);
+    const seg = rootSegment(a.id);
+    const idOk = !!seg;
     if (!roots.some((r) => !r.only && inside(d, r.path))) {
-      if (!idOk) left.push({ what: 'an agent folder', why: 'its name cannot be a backup root name' });
-      else add(`agents/${a.id}`, d, 'an agent folder');
+      if (!idOk) left.push({ what: 'an agent folder', why: 'it has no name' });
+      else add(`agents/${seg}`, d, 'an agent folder');
     }
-    if (!idOk) { left.push({ what: 'an agent\'s transcripts', why: 'its name cannot be a backup root name' }); continue; }
+    if (!idOk) { left.push({ what: 'an agent\'s transcripts', why: 'it has no name' }); continue; }
     let s = [];
     // As Kosmos recorded the folder, not its true spelling (review 4): a transcript records the folder its agent was
     // started in, and backupsessions matches by that.
-    try { s = input.sessions ? input.sessions(a.dir, a.id) : []; } catch { s = []; }
+    try { s = input.sessions ? input.sessions(a.dir, seg) : []; } catch { s = []; }
     for (const r of s) roots.push(r);
   }
   // Transcript roots (`only` lists) last, against every folder root (review 2): a provider folder may be a link, so its
@@ -225,7 +238,10 @@ function inputsHere() {
       if (!err || err.code !== 'ENOENT') protectIncomplete = true;   // fail closed in rootsFor (review 8)
     }
   }
-  const protect = [store.ROOT, ...claudeRoots, geminiHome, codexHome, ...accountDirs, ...hidden]
+  // Windows keeps browser password stores and Credential Manager files under %USERPROFILE%\\AppData, which is not
+  // dot-named (review 9): protected whole.
+  const winAppData = process.platform === 'win32' ? [path.join(process.env.USERPROFILE || require('os').homedir(), 'AppData')] : [];
+  const protect = [store.ROOT, ...claudeRoots, geminiHome, codexHome, ...accountDirs, ...hidden, ...winAppData]
     .filter((x) => typeof x === 'string' && x).map((x) => path.resolve(x));
   return { workersDir: create.WORKERS_DIR, projectsDir, agents, projects, sessions, protect, protectIncomplete };
 }
