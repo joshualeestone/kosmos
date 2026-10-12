@@ -639,6 +639,7 @@ function removeAccount(dir, usedBy) {
        an account, and its own sign-in must not finish into it: cancel it. While the account is still whole, cancel
        nothing. */
     // Decided on the FILE, not on identityOf (see holdsCredentials): an auth.json we cannot read is still the account.
+    // auth.json only, not the key file: an API-key account has no Sign in again (reauthTarget needs a subscription).
     if (ownReauth && !fs.existsSync(authFile(clean))) releaseOwnReauth(clean);
     return { ok: false, removed: false, because: 'we could not delete that account from this computer' };
   }

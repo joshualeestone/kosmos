@@ -60,3 +60,5 @@ Added in iteration 2: a dying sign-in that writes a valid auth.json on SIGTERM d
 at the path; the part-way delete test skips when the filesystem lists sessions/ first (as #5994's iteration 9). Route
 level: server.disconnect-stop-2570.test.js, the Grok DELETE route refuses with an agent on the account (cancels
 nothing) and, once the agent is gone, deletes and cancels; red when own-reauth detection is broken.
+Filesystem note: the part-way delete test skips where the directory listing puts sessions/ before auth.json (rmSync
+stops at the first error), so on such a filesystem that arm and its mutant are not exercised; on APFS here it runs.
