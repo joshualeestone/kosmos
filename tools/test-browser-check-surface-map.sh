@@ -149,6 +149,12 @@ while IFS= read -r f; do
 done <<< "$(find "$BCDIR" -maxdepth 1 -type f -name '*.js' 2>/dev/null)" > "$ANNOT"
 cut -f2- "$ANNOT" | tr ' \t' '\n\n' > "$ALL_TOKS"
 count_table "$ALL_TOKS" "$WEB_CODE" "$WEB_CMT" > "$COUNTS"
+# The fast path is really taken: one table row per distinct plain declared token. If the parse above broke, every token
+# would fall back to the grep, still right but slow again (#5907), and nothing else would say so.
+_nplain="$(LC_ALL=C grep -E '^[A-Za-z0-9_-]+$' "$ALL_TOKS" | LC_ALL=C sort -u | wc -l | tr -d ' ')"
+_nrows="$(wc -l < "$COUNTS" | tr -d ' ')"
+if [ "$_nplain" -ge 1 ] && [ "$_nrows" = "$_nplain" ]; then ok "the counted table holds all $_nrows plain tokens (the fast path is taken)"
+else bad "the counted table holds $_nrows rows for $_nplain plain tokens: the fast path is not taken"; fi
 
 annotated=0
 while IFS="$(printf '\t')" read -r f toks; do
