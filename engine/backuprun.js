@@ -32,6 +32,8 @@
  *   the device key's missing (remote access never set up on this computer: a person acts, not a retry) and retry;
  *   refusedState (the state file is not this computer's; the caller may discardState it), retry (a passing error),
  *   pairChanged (Kosmos+ named another pair twice in one run). leftOut: index rows withRun could not keep (a bug shows).
+ *   pair { org, member }: the pair the run worked under (the one refusedState is about), whenever it knew one; only
+ *   ever this, never the key step's own copy.
  *   stateNotKept, stateBecause, stateRetry: the state could not be written AFTER the run; the run's own answer and
  *   flags stand beside them (a snapshot taken is still taken; its chunks are uploaded again next run).
  * A first run (no pointer) whose key step refuses keeps that answer's job state in the named pair's file (when the file
@@ -81,7 +83,16 @@ function runBackup(input, deps) {
   return run;
 }
 
+/* Every result names the pair the run worked under, when it knew one (review 6): the caller needs it to set aside a
+   refused file (discardState(org, member)) or to say which company a refusal is about, and it is the pointer's or the
+   one the pointer just moved to, which the caller cannot read. */
 async function runNow(input, deps) {
+  const seen = { pair: null };
+  const r = await runPaired(input, deps, seen);
+  const { pair, ...rest } = r;
+  return seen.pair ? Object.assign(rest, { pair: { org: seen.pair.org, member: seen.pair.member } }) : rest;
+}
+async function runPaired(input, deps, seen) {
   try {
     const now = deps.now || Date.now;
     // The device key first, read locally (review 4): without one no manifest can be signed, so nothing is asked of
@@ -90,6 +101,7 @@ async function runNow(input, deps) {
     const dk0 = (deps.deviceKey || require('./backupdevicekey').deviceKey)();
     if (!dk0 || !dk0.ok) return deviceKeyRefusal(dk0);
     let pair = readPointer();
+    seen.pair = pair;
     for (let attempt = 0; attempt < 2; attempt++) {
       let state;
       if (pair) {
@@ -110,11 +122,12 @@ async function runNow(input, deps) {
       });
       if (r.result && r.result.otherPair) {
         if (!keepPointer(r.result.otherPair)) return { ...POINTER_FAILED };
-        pair = r.result.otherPair;
+        pair = seen.pair = r.result.otherPair;
         continue;
       }
       if (!known && r.pair) {
         if (!keepPointer(r.pair)) return { ...POINTER_FAILED };
+        seen.pair = r.pair;
         // An ok key: start again under the pair, reading its state first (it may have one: a lost pointer).
         if (r.result && r.result.learnPair) { pair = r.pair; continue; }
         // The key step refused (a wait, a pending key, no answer...). Its answer is already this pair's, so it is kept
