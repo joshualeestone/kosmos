@@ -37,7 +37,7 @@ test('inputsHere reads profiles, workers folders and projects, and every root it
   assert.deepEqual(input.agents.map((a) => a.id).sort(), ['ann', 'bob']);
   assert.deepEqual(input.projects.map((p) => p.slug).sort(), ['alpha', 'beta']);
   // Review 1: the data root and every provider config home are protected.
-  for (const d of [store.ROOT, process.env.AGENT_WORKFORCE_CONFIG_ROOT, process.env.AGENT_WORKFORCE_GEMINI_HOME]) assert.ok(input.protect.includes(d), d);
+  for (const d of [store.ROOT, process.env.AGENT_WORKFORCE_CONFIG_ROOT, process.env.AGENT_WORKFORCE_GEMINI_HOME, process.env.AGENT_WORKFORCE_CODEX_HOME]) assert.ok(input.protect.includes(d), d);
   const { roots } = tick.rootsFor(input);
   assert.deepEqual(roots.map((r) => r.name), ['workers', 'projects', 'elsewhere/beta']);
   const snap = require('./backupsnapshot');

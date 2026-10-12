@@ -55,3 +55,18 @@ Measured 19:46 CDT from `date`, all red: T1 workers optional, T2 no already-cove
 5. NIT: the excuse claim was wrong. FIXED and measured, see Decisions.
 Tests 9 -> 13 (+4), inputs test asserts protect.
 Mutants after review 1 (19:53 CDT from `date`), each tests 13 pass 12 fail 1: Y1 no outer replace, Y2 a root may hold workers, Y3 no protection, Y4 protection one way only, Y5 a run with no workers root, Y6 left said every tick, Y7 no backoff when no pair, Y8 the backoff never resets, Y9 inputsHere passes no protect.
+
+## Review 2 (sonnet, blind, on 5fd1c526): no must-fix, eight nits; seven fixed, one accepted
+1. FIXED: transcript roots were never checked against folder roots (a linked provider folder can sit inside or hold
+   one, and the snapshot drops both). A last pass: inside one, dropped (covered); holding one, left and said.
+2. FIXED: names passing SEGMENT but refused by the snapshot (secrets, aux) were dropped silently; now checked with
+   the snapshot's own rootNameProblem and said.
+3. FIXED: a protected entry that is not a full path now fails CLOSED (no roots, said).
+4. FIXED: a roots() that throws is said once, with no run.
+5. FIXED: overAllowance is said once; a missing because never prints "undefined".
+6. ACCEPTED, no change: a runBackup that never settles keeps every later tick skipped. A tick-level timeout cannot
+   recover it: runBackup chains its runs, so a new one would queue behind the hung one anyway. The fix belongs in the
+   request layer's timeouts (remote.macRequest, the uploaders' fetch). What would change my mind: a hang measured there.
+7. FIXED: the inputs test now asserts the Codex home is protected too.
+8. FIXED: config roots sorted by full path, not basename (ties would swap the -<n> names).
+Tests 13 -> 16 (+3).
