@@ -353,5 +353,42 @@ else
   fail "bcg_anchor_base differs between the two gate libs (or is missing)"
 fi
 
+# #5907: bc_surface_scan_checks (the gate's one-pass decision) agrees with the per-token primitives it replaced, on
+# the real checks: every 10th annotated check, against a diff touching its first token and against one touching nothing
+# mapped. The expected verdict is computed the original way (bc_surface_tokens_of + bc_surface_token_hits, token by
+# token, the first hit wins), so a scan that drifted from the boundary match names the check. Plus one non-plain token:
+# it must be SLOW, never decided by the scan.
+. "$HERE/lib/browser-check-surface-lib.sh"
+_SDIR="$(cd "$HERE/.." && pwd)/docs/browser-checks"
+_sbad=0; _sn=0
+_expect() {   # $1 check path, $2 changed text -> "HIT <tok>", "MISS" or "SLOW"
+  local toks t
+  toks="$(bc_surface_tokens_of "$1")"
+  for t in $(printf '%s' "$toks" | tr ' \t' '\n\n'); do
+    case "$t" in *[!A-Za-z0-9_-]*) echo SLOW; return ;; esac
+    if bc_surface_token_hits "$t" "$2"; then echo "HIT $t"; return; fi
+  done
+  echo MISS
+}
+_k=0
+while IFS= read -r _c; do
+  [ -n "$_c" ] || continue
+  _toks="$(bc_surface_tokens_of "$_c")"; [ -n "$_toks" ] || continue
+  _k=$((_k + 1)); [ $((_k % 10)) -eq 1 ] || continue
+  _first="$(printf '%s' "$_toks" | tr ' \t' '\n\n' | grep -v '^$' | head -1)"
+  for _chg in "+<p id=\"${_first}\">x</p>" "+<p id=\"zz-nothing-mapped-5907\">x</p>"; do
+    _sn=$((_sn + 1))
+    _want="$(_expect "$_c" "$_chg")"
+    _got="$(bc_surface_scan_checks "$_SDIR" "$_chg" | awk -F '\t' -v f="$_c" '$1 == f { print ($2 == "HIT" ? $2 " " $3 : $2) }')"
+    [ "$_got" = "$_want" ] || { fail "SCAN: ${_c##*/} on '$_chg': the scan says '$_got', the per-token primitives say '$_want'"; _sbad=1; }
+  done
+done <<< "$(find "$_SDIR" -maxdepth 1 -type f -name '*.js' 2>/dev/null)"
+_nd="$(mktemp -d "${TMPDIR:-/tmp}/bcsg-np.XXXXXX")"
+printf '// Browser-check-surface: data-pmark="xai" plain-tok\n' > "$_nd/np.js"
+_np="$(bc_surface_scan_checks "$_nd" '+<i data-pmark="xai" id="plain-tok">' | cut -f2)"
+rm -rf "$_nd"
+[ "$_np" = SLOW ] || { fail "SCAN: a check whose first token is not plain was decided by the scan ('$_np'), not left SLOW"; _sbad=1; }
+[ "$_sn" -ge 2 ] && [ "$_sbad" -eq 0 ] && pass "SCAN: bc_surface_scan_checks agrees with the per-token primitives on $_sn real cases, and leaves a non-plain token SLOW"
+
 echo "browser-check surface gate: $fails FAILED"
 [ "$fails" -eq 0 ]
