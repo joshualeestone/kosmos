@@ -9495,9 +9495,10 @@ body.consolidated .tkcard:hover { border-color: transparent; }
 /* #766: a dialog that holds a form (New task) takes the create page's width
    and lets its fields fill it. */
 .rm-box.rm-box-form { max-width: 34rem; }
-/* kosmos#5956 review 3: a form dialog that is taller than the window (New task on a phone, or a short window) scrolls
-   inside the backdrop instead of losing its top and its Create button off-screen. */
-.rm-box.rm-box-form { max-height: 100%; overflow-y: auto; }
+/* kosmos#5956: New task, taller since it asks how you will know it is done, scrolls inside the backdrop on a phone or a
+   short window instead of losing its top and its Create button off-screen. Scoped to this dialog: Add a provider's logo
+   list hangs past its dialog's edge on purpose, and a scroll container would clip it (review 4). */
+#nt-modal .rm-box.rm-box-form { max-height: 100%; overflow-y: auto; }
 .rm-box-form .field { margin-top: var(--space-5); }
 .rm-box-form .tk-inp { width: 100%; }
 /* 0.6.45 (Josh): the add-member modal closes with an X in the corner (not a
@@ -63378,7 +63379,7 @@ document.getElementById('nt-go').addEventListener('click', async () => {
       /* kosmos#5956: the engine's done-when refusal names "done-when checks", words this dialog never shows; say it in
          the field's own words. */
       const why = (body && body.error) || '';
-      document.getElementById('nt-msg').textContent = /done-when check/.test(why)
+      document.getElementById('nt-msg').textContent = /done-when check has to be (one line of plain text|\d+ characters or fewer)/.test(why)
         ? 'Your answer to "How will you know it is done?" has to be one line of plain text, 200 characters or fewer. Some emoji and symbols cannot be used there.'
         : why || 'we could not add that task';
       go.disabled = false;
