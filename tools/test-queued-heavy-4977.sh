@@ -226,6 +226,42 @@ ok "#5446: a worktree's copy falls back to its MAIN checkout, not its own tree" 
 qh_repo $S/fbnone 0; mkdir -p $S/fbnone/x && cp "$REAL_QH" $S/fbnone/x/queued-heavy.sh
 o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbnone/h KOSMOS_RUN_MARKER_DIR=$S/mfbz perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbnone/x/queued-heavy.sh "fallback-none" touch $S/fbz-ran 2>&1); rc=$?
 ok "#5446: a main checkout with no lib at all: exits 3, names that checkout and the pull" '[ "$rc" = 3 ] && [ ! -e $S/fbz-ran ] && [[ "$o" == *"/fbnone has none either"* ]] && [[ "$o" == *"pull --ff-only"* ]]'
+# #5923: the DEFAULT shared lib checkout ($HOME/work/kosmos-bc-main-4610) is compared with origin/main by the blobs of
+# the two files the queue loads, and moved there only when no queue run could hold the old lib. Fixture: a repo whose
+# origin/main changed cut-guard.sh, checked out detached one commit behind. QH_TEST_PS stands in for ps, so a real
+# waiter on this box cannot sway an arm. Each arm: its own HOME, marker dir and deadline.
+qh_lib5923() {   # qh_lib5923 <home>: the fixture checkout under <home>/work/kosmos-bc-main-4610, one commit behind origin/main
+  local d="$1/work/kosmos-bc-main-4610" c="-c user.name=t -c user.email=t@t -c commit.gpgsign=false"
+  mkdir -p "$d/tools/lib" && $GE git -C "$d" init -q && cp "$ROOT"/tools/lib/*.sh "$d/tools/lib/"
+  $GE git -C "$d" add -A && $GE git -C "$d" $c commit -qm old
+  echo '# a later main' >> "$d/tools/lib/cut-guard.sh"; $GE git -C "$d" $c commit -qam new
+  $GE git -C "$d" update-ref refs/remotes/origin/main HEAD && $GE git -C "$d" checkout -q --detach HEAD~1
+}
+run5923() {   # run5923 <name> [env assignments...]: runs the real wrapper with QUEUED_HEAVY_LIB unset and HOME=$S/l5923-<name>
+  local n="$1"; shift; mkdir -p $S/ml5923-$n
+  o=$(env -u QUEUED_HEAVY_LIB HOME=$S/l5923-$n KOSMOS_RUN_MARKER_DIR=$S/ml5923-$n QH_TEST_PS="cat $S/ps5923-$n" "$@" perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$REAL_QH" "lib-$n" touch $S/l5923-$n-ran 2>&1); rc=$?
+}
+lh5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse HEAD; }
+lm5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse origin/main; }
+for n in mv mk ps sh set dirty; do qh_lib5923 $S/l5923-$n; : > $S/ps5923-$n; done
+run5923 mv
+ok "#5923: the default lib checkout behind origin/main, nothing live: moved to origin/main, said so, run runs, lock gone" '[ "$rc" = 0 ] && [ -e $S/l5923-mv-ran ] && [ "$(lh5923 mv)" = "$(lm5923 mv)" ] && [[ "$o" == *"moved"*"-> origin/main"*"cut-guard.sh differed"* ]] && [ ! -e $S/ml5923-mv/queued-heavy-lib.lock ]'
+run5923 mv
+ok "#5923: once at origin/main the next join says the queue files match and moves nothing" '[ "$rc" = 0 ] && [[ "$o" == *"files match origin/main"* ]] && [[ "$o" != *moved* ]]'
+mkdir -p $S/ml5923-mk && : > $S/ml5923-mk/suitewait.999999
+run5923 mk
+ok "#5923: a queue marker present: NOT moved, says which, joins on the old lib and runs" '[ "$rc" = 0 ] && [ -e $S/l5923-mk-ran ] && [ "$(lh5923 mk)" != "$(lm5923 mk)" ] && [[ "$o" == *"is BEHIND"*"not moved (a queue marker is present (suitewait.999999))"* ]]'
+printf '4242 /bin/bash /x/queued-heavy.sh --queued-args /tmp/queued-heavy-args.x\n' > $S/ps5923-ps
+run5923 ps
+ok "#5923: another queued-heavy.sh live (a waiter after its re-exec): NOT moved, names its pid" '[ "$rc" = 0 ] && [ "$(lh5923 ps)" != "$(lm5923 ps)" ] && [[ "$o" == *"another queued-heavy.sh is live (pid 4242)"* ]]'
+printf '4243 zsh -c bash /x/queued-heavy.sh "x" true\n4244 grep queued-heavy.sh\n' > $S/ps5923-sh
+run5923 sh
+ok "#5923 CONTROL: a shell of the CALLER or a grep naming queued-heavy.sh is not a waiter, so the move happens" '[ "$rc" = 0 ] && [ "$(lh5923 sh)" = "$(lm5923 sh)" ] && [[ "$o" == *moved* ]]'
+mkdir -p $S/ml5923-set; o=$(HOME=$S/nowhere KOSMOS_RUN_MARKER_DIR=$S/ml5923-set QH_TEST_PS="cat $S/ps5923-set" QUEUED_HEAVY_LIB=$S/l5923-set/work/kosmos-bc-main-4610 perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$REAL_QH" "lib-set" true 2>&1); rc=$?
+ok "#5923: a checkout named by QUEUED_HEAVY_LIB is reported, never moved" '[ "$rc" = 0 ] && [ "$(lh5923 set)" != "$(lm5923 set)" ] && [[ "$o" == *"not moved (it is not the default shared checkout)"* ]]'
+echo '# local' >> $S/l5923-dirty/work/kosmos-bc-main-4610/tools/lib/process-fixture.sh
+run5923 dirty
+ok "#5923: a checkout with local changes is not moved and keeps them" '[ "$rc" = 0 ] && [ "$(lh5923 dirty)" != "$(lm5923 dirty)" ] && [[ "$o" == *"not moved (it has local changes)"* ]] && tail -1 $S/l5923-dirty/work/kosmos-bc-main-4610/tools/lib/process-fixture.sh | grep -q local'
 # The shim itself can fail: a run with the marker dir outside this test's dir is refused before the wrapper starts.
 o=$(KOSMOS_RUN_MARKER_DIR=/tmp/not-this-test /bin/bash $QH "escape" true 2>&1); rc=$?
 ok "CONTROL: the shim refuses a marker dir outside this test" '[ "$rc" = 99 ] && [[ "$o" == *TEST-REFUSED* ]]'
@@ -368,7 +404,7 @@ sed 's|  exec /bin/bash "${BASH_SOURCE\[0\]}" --queued-args "$_qh_af"|  exec /no
 mkdir -p $S/tmpx; o=$(TMPDIR=$S/tmpx KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash $S/qh-noexec.sh "noexec" true 2>&1); r=$?
 ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"could not restart itself"* ]] && [ -z "$(ls $S/tmpx)" ] && grep -q /nonexistent/bash $S/qh-noexec.sh'
 
-EXPECTED=105   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms
+EXPECTED=112   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, seven #5923 lib-drift arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
