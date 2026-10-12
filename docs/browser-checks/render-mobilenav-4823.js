@@ -118,13 +118,19 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
     const browser = await playwright[engine].launch(engine === 'chromium'
       ? { headless: process.env.HEADED === '0', args: ['--host-resolver-rules=MAP remote.test 127.0.0.1'] }
       : { headless: process.env.HEADED === '0' });
-    // kosmos#5921: stop routing before a context closes, as render-login-expiry-3532 and render-teamcreate-4557 do. A
-    // route handler still between r.fetch and r.fulfill when its context closes otherwise throws ("Fetch response has
-    // been disposed", "Request context disposed") where nothing catches it, and the whole check dies after its
-    // assertions passed. ignoreErrors applies only to handlers still running at teardown.
-    const shut = async (ctx, page) => {
+    // kosmos#5921: stop routing before a context closes. A route handler still between r.fetch and r.fulfill when its
+    // context closes otherwise throws ("Fetch response has been disposed", "Request context disposed") where nothing
+    // catches it, and the whole check dies after its assertions passed. render-login-expiry-3532 and
+    // render-teamcreate-4557 unroute the page this way; this check also routes on the context (WebKit's remote.test),
+    // so it unroutes both. ignoreErrors makes Playwright ignore errors from handlers already running when it is called.
+    const live = new Map();   // every open context and its page, so a failing arm still unroutes before browser.close
+    const unroute = async (ctx, page) => {
       await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
       await ctx.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+    };
+    const shut = async (ctx, page) => {
+      await unroute(ctx, page);
+      live.delete(ctx);
       await ctx.close();
     };
     const open = async (host, theme, opts) => {
@@ -138,6 +144,7 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         });
       }
       const page = await ctx.newPage();
+      live.set(ctx, page);
       page.on('pageerror', (e) => errs.push(engine + ' ' + theme + ': ' + e.message));
       // A known context reading and an unread message, so the ring and the bubbles have something to show.
       await page.route('**/api/status*', async (r) => {
@@ -369,6 +376,7 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         await shut(ctx, page);
       }
     } finally {
+      for (const [ctx, page] of live) await unroute(ctx, page);
       await browser.close();
     }
   }
