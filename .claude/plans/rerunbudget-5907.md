@@ -27,5 +27,5 @@ A command red on its first run and green after: this branch, rc 1 after 1 run; o
 
 ## Weakest premise
 Six cuts. The leniency given up is real: contention that clears on a second attempt now aborts the cut, and a re-cut
-costs more than one suite. None of the six showed it; all three real reds paid two wasted suites. What would change
+costs more than one suite. None of the logged cut runs showed it; every real red paid two wasted suites. What would change
 my mind: a cut log where attempt 2 or 3 passed.
