@@ -30,24 +30,27 @@ const UNCONFIRMED_WORDS = 'sent, but Kosmos could not confirm it arrived';
 /* Why a line was held (chat.deliverAutomatic's heldBy / heldFor). A reason outside this set gets TURN_WORDS.held. */
 const HELD_WORDS = Object.freeze({
   menu: 'not sent: a question on its screen was waiting for an answer',
-  signin: 'not sent: it was signed out of its provider',
   limit: 'not sent: it had reached its provider\'s usage limit',
   quota: 'not sent: the Google quota its provider shares was used up',
   cap: 'not sent: your person\'s limit on how many agents work at once was reached',
 });
+const SIGNED_OUT_WORDS = 'not sent: it was signed out of its provider';   // chat sends this as heldFor: 'signin', under heldBy: 'limit'
 const DELIVERIES = Object.freeze(['placed', 'unconfirmed']);
+const DATE_MAX_MS = 8.64e15;   // past this a Date has no words, and one bad time must not cost the agent its whole answer
 const own = (o, k) => Boolean(o) && Object.prototype.hasOwnProperty.call(o, k);
 /* The words for one kept reminder. */
 function reminderWords(rem) {
-  if (rem.act === 'held') return (rem.heldFor === 'signin' ? HELD_WORDS.signin : own(HELD_WORDS, rem.heldBy) ? HELD_WORDS[rem.heldBy] : null) || TURN_WORDS.held;
+  if (rem.act === 'held') return rem.heldFor === 'signin' ? SIGNED_OUT_WORDS : own(HELD_WORDS, rem.heldBy) ? HELD_WORDS[rem.heldBy] : TURN_WORDS.held;
   if (rem.act === 'prompted' && rem.delivery !== 'placed') return UNCONFIRMED_WORDS;
   return TURN_WORDS[rem.act];
 }
 const REMINDER_NOTE = 'A reminder only asks. Whether to post, and what to say, is the agent\'s own decision.';
 
+const validTime = (ms) => Number.isFinite(ms) && Math.abs(ms) <= DATE_MAX_MS;
+
 function turnsFile() { return path.join(require('./store').ROOT, 'community-turn-last.json'); }
 
-/* { session: { at: ms, act } }, or null when the file is there and cannot be read or is not a record (a reader must not
+/* { session: { at: ms, act, delivery?, heldBy?, heldFor?, reachedAt? } }, or null when the file is there and cannot be read or is not a record (a reader must not
    say "never reminded"). No file is an empty record. `why`, when given, is told which: 'io' (the file could not be
    opened) or 'content' (it opened and holds something else). */
 function readTurns(why) {
@@ -59,8 +62,9 @@ function readTurns(why) {
   if (!d || typeof d !== 'object' || Array.isArray(d)) return say('content');
   const out = Object.create(null);   // an agent may be named "constructor": only its own record is ever its reminder
   for (const [k, v] of Object.entries(d)) {
-    if (!k || !v || typeof v !== 'object' || !Number.isFinite(v.at) || !own(TURN_WORDS, v.act)) continue;
+    if (!k || !v || typeof v !== 'object' || !validTime(v.at) || !own(TURN_WORDS, v.act)) continue;
     out[k] = { at: v.at, act: v.act,
+      ...(validTime(v.reachedAt) ? { reachedAt: v.reachedAt } : {}),
       ...(DELIVERIES.includes(v.delivery) ? { delivery: v.delivery } : {}),
       ...(own(HELD_WORDS, v.heldBy) ? { heldBy: v.heldBy } : {}),
       ...(v.heldFor === 'signin' ? { heldFor: 'signin' } : {}) };
@@ -71,6 +75,8 @@ function readTurns(why) {
 /**
  * Keep one turn-pass result as that agent's newest. `r` is a result of communityturn.tickOnce, { session, act,
  * delivery }, with the hold's `heldBy` / `heldFor` when the line was held. False when nothing was written. Never throws.
+ * `reachedAt` is the newest time a reminder reached the agent, carried forward: while a board sits at its hourly limit
+ * every pass records "not sent", and that must not erase when one last got through.
  */
 function noteTurn(r, now = Date.now()) {
   try {
@@ -81,7 +87,11 @@ function noteTurn(r, now = Date.now()) {
        be recovered, and refusing would leave every later result unrecorded until someone deleted it by hand. One that
        cannot be opened is left alone. */
     if (cur === null) { if (bad !== 'content') return false; cur = Object.create(null); }
-    cur[r.session] = { at: Number.isFinite(now) ? now : Date.now(), act: r.act,
+    const at = validTime(now) ? now : Date.now();
+    const before = own(cur, r.session) ? cur[r.session] : null;
+    const reachedAt = r.act === 'prompted' ? at : before ? (before.act === 'prompted' ? before.at : before.reachedAt) : undefined;
+    cur[r.session] = { at, act: r.act,
+      ...(validTime(reachedAt) ? { reachedAt } : {}),
       ...(DELIVERIES.includes(r.delivery) ? { delivery: r.delivery } : {}),
       ...(own(HELD_WORDS, r.heldBy) ? { heldBy: r.heldBy } : {}),
       ...(r.heldFor === 'signin' ? { heldFor: 'signin' } : {}) };
@@ -183,7 +193,7 @@ function linesFor(row) {
   if (row.addressOk !== true) out.push('- Sending: this board\'s community address is not one Kosmos sends to, so nothing goes until that is fixed; tell your person');
   out.push('- The community section in your instructions: ' + ({
     present: 'there' + (row.rereadOwed === true ? '; it changed while you were running, and Kosmos still owes you a line asking you to read it again' : ''),
-    absent: row.connected === false ? 'not there. Kosmos adds it when you next start, or when Kosmos itself next starts, while the community is on'
+    absent: row.connected === false ? 'not there. For an agent Kosmos runs as its own, it is added when the agent next starts or when Kosmos itself next starts, while the community is on'
       : row.connected === true ? 'not there. You work in your person\'s own folder, and Kosmos does not add this section to instructions there'
       : 'not there',
     ambiguous: 'there more than once, so Kosmos cannot tell which is its own and leaves it alone; tell your person',
@@ -191,8 +201,9 @@ function linesFor(row) {
     unreadable: 'Kosmos could not read your instructions just now',
   })[row.block]);
   out.push('- A community account: ' + (own(ACCOUNT_WORDS, row.account) ? ACCOUNT_WORDS[row.account] : ACCOUNT_WORDS.unreadable));
-  out.push('- The last reminder from Kosmos: ' + (row.reminder === 'unreadable' ? 'Kosmos cannot read its record of reminders just now'
+  out.push('- The last time Kosmos went to remind you: ' + (row.reminder === 'unreadable' ? 'Kosmos cannot read its record of reminders just now'
     : row.reminder === null ? 'none on record' : utc(row.reminder.at) + ', ' + reminderWords(row.reminder)));
+  if (row.reminder && row.reminder !== 'unreadable' && row.reminder.act !== 'prompted' && validTime(row.reminder.reachedAt)) out.push('  The last reminder that reached you: ' + utc(row.reminder.reachedAt));
   out.push('  ' + REMINDER_NOTE);
   out.push('- Your newest post: ' + (row.lastPost === 'unreadable' ? 'Kosmos could not read what it has sent just now'
     : row.lastPost === null ? 'you have not posted yet'
@@ -226,4 +237,4 @@ function rowsFor(roster, deps) {
   return out;
 }
 
-module.exports = { TURN_WORDS, HELD_WORDS, UNCONFIRMED_WORDS, ACCOUNT_WORDS, REMINDER_NOTE, turnsFile, readTurns, noteTurn, blockState, rereadOwed, accountState, rowFor, linesFor, readyText, rowsFor };
+module.exports = { TURN_WORDS, HELD_WORDS, SIGNED_OUT_WORDS, UNCONFIRMED_WORDS, ACCOUNT_WORDS, REMINDER_NOTE, turnsFile, readTurns, noteTurn, blockState, rereadOwed, accountState, rowFor, linesFor, readyText, rowsFor };

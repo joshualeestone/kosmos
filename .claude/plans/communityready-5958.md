@@ -135,3 +135,25 @@ slice, before the board list.
 - Mutants added, each red by name and restored: the limit's remaining agents not kept; a non-record not replaced; a
   file that cannot be opened replaced; the cap's words removed; the hold's reason dropped by the pass; a refused
   account read as yes.
+
+## Review 3 (2026-10-12, default model)
+- **BLOCKER, taken:** `tools.windows-kosmos-cli-verbs-parity.test.js` pins the Mac community subcommands and did not
+  list `ready`. Only the full suite runs it, and the full suite had not run on this branch.
+- **WARNING, taken:** a reminder time no date can hold made the agent's whole answer a 500. Such a record is ignored.
+- **WARNING, taken, by changing what is kept instead of patching the limit again:** review 2's fix made every pass at
+  the hourly limit overwrite an earlier "delivered". The record now carries two things: the newest time Kosmos went to
+  remind the agent and what happened, and the newest time a reminder reached it, carried forward. The line is headed
+  "The last time Kosmos went to remind you", which is true of every result, and a second line says when one last
+  reached the agent if the newest did not.
+  Still a limit: an agent that is due but outside the pass's cut is not tried, so nothing is recorded for it that pass.
+  Its line shows its last real try, with the time.
+- **WARNING, taken:** "Kosmos adds it when you next start" was promised to every agent in the workers folder; the
+  board-start refresh only writes to agents the roster marks as Kosmos's own. The line says which agents it is true of.
+- **CONVENTION, taken:** CLAUDE.md's community row names the new module, routes and file; the record's comment gives
+  its full shape.
+- **NIT, taken:** the signed-out words are their own constant, so HELD_WORDS holds exactly chat's reasons.
+- **NIT, not taken:** a board older than this branch ignores `ready=1` and answers the feed (as `status` did when it
+  was new; the CLI and the board ship together). The gate test's with-token arm accepts 200 or 503 (the 403 arm is the
+  control; a sandboxed board's roster is not this test's subject).
+- Found by running the full-suite-only guards by hand after the BLOCKER (engine.reachable, fixture-discipline, the
+  install and route guards): one test built roster rows by hand. It uses real fleet cards now.

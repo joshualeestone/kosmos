@@ -54,9 +54,9 @@ test('#5958: ready=1 answers with the authenticated agent\'s own row, whatever n
   const j = await r.json();
   assert.equal(j.ok, true);
   assert.match(j.text, /^Where you stand with the Kosmos\+ community, from this computer's own records:/);
-  assert.match(j.text, /The last reminder from Kosmos: none on record/, 'the reader was shown another agent\'s reminder: ' + j.text);
+  assert.match(j.text, /The last time Kosmos went to remind you: none on record/, 'the reader was shown another agent\'s reminder: ' + j.text);
   const other = await (await readAs(sendertoken.mint('Other').token, '?ready=1')).json();
-  assert.match(other.text, /The last reminder from Kosmos: 2026-10-12 15:04 UTC, not delivered: Kosmos could not reach it/, 'CONTROL: the agent that was reminded sees it');
+  assert.match(other.text, /The last time Kosmos went to remind you: 2026-10-12 15:04 UTC, not delivered: Kosmos could not reach it/, 'CONTROL: the agent that was reminded sees it');
   assert.equal(readCalls, 0, 'the community was read');
 });
 
@@ -93,7 +93,7 @@ test('#5958: GET /api/community/ready lists each agent once with its own row', a
   const by = (s) => rows.filter((x) => x.session === s);
   assert.equal(by('Reader').length, 1, JSON.stringify(rows));
   assert.equal(by('Other').length, 1, JSON.stringify(rows));
-  assert.deepEqual(by('Other')[0].reminder, { at: 1234, act: 'prompted', delivery: 'placed' });
+  assert.deepEqual(by('Other')[0].reminder, { at: 1234, act: 'prompted', reachedAt: 1234, delivery: 'placed' });
   assert.equal(by('Reader')[0].reminder, null);
   for (const k of ['switch', 'addressOk', 'block', 'connected', 'rereadOwed', 'account', 'lastPost', 'held']) assert.ok(k in by('Reader')[0], 'the row has no ' + k);
 });
