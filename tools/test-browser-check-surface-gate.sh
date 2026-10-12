@@ -386,8 +386,16 @@ done <<< "$(find "$_SDIR" -maxdepth 1 -type f -name '*.js' 2>/dev/null)"
 _nd="$(mktemp -d "${TMPDIR:-/tmp}/bcsg-np.XXXXXX")"
 printf '// Browser-check-surface: data-pmark="xai" plain-tok\n' > "$_nd/np.js"
 _np="$(bc_surface_scan_checks "$_nd" '+<i data-pmark="xai" id="plain-tok">' | cut -f2)"
-rm -rf "$_nd"
 [ "$_np" = SLOW ] || { fail "SCAN: a check whose first token is not plain was decided by the scan ('$_np'), not left SLOW"; _sbad=1; }
+# A plain token inside a longer run joined by `_`, `-` or capitals is not a match: the scan must agree with the primitives.
+rm -f "$_nd/np.js"; printf '// Browser-check-surface: plain-tok tokx\n' > "$_nd/run.js"
+for _chg in '+<i id="plain-tok_x">' '+<i id="plain-tok-y">' '+<i id="tokxZ">' '+<i id="plain-tok">'; do
+  _sn=$((_sn + 1))
+  _want="$(_expect "$_nd/run.js" "$_chg")"
+  _got="$(bc_surface_scan_checks "$_nd" "$_chg" | awk -F '\t' '{ print ($2 == "HIT" ? $2 " " $3 : $2) }')"
+  [ "$_got" = "$_want" ] || { fail "SCAN: run.js on '$_chg': the scan says '$_got', the per-token primitives say '$_want'"; _sbad=1; }
+done
+rm -rf "$_nd"
 [ "$_sn" -ge 2 ] && [ "$_sbad" -eq 0 ] && pass "SCAN: bc_surface_scan_checks agrees with the per-token primitives on $_sn real cases, and leaves a non-plain token SLOW"
 
 echo "browser-check surface gate: $fails FAILED"
