@@ -90,23 +90,16 @@ test('#5959 slice 3: an agent\'s own blocked report over a day old on its card i
   assert.equal(run([casey], reports, { book, reminded, now: NOW + DAY + 60e3 }).sent.length, 1, 'a fresh report a day later was not');
 });
 
-test('#5959 slice 3: never needs_you (a question waiting on the person); a blocked Kosmos wrote is told in its own words', () => {
+test('#5959 slice 3: never needs_you (a question waiting on the person), never a report Kosmos wrote (a provider failure)', () => {
   const [q, k] = cardsFor([['quin', 'needs_you'], ['kai', 'blocked']]);
   const { sent } = run([q, k], {
     [q.sessionName]: { found: true, state: 'needs_you', at: iso(NOW - 3 * DAY), by: 'agent' },
-    [k.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3 * DAY), by: 'auto' },
+    // The real shape of Kosmos's automatic blocked: the StopFailure hook's provider failure.
+    [k.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3 * DAY), by: 'auto', on: 'provider api (server_error)' },
   });
-  assert.deepEqual(sent.map((x) => x.s), [k.sessionName], 'typed into a question, or missed a Kosmos-written blocked');
-  assert.match(sent[0].text, /: A `blocked` report Kosmos wrote for you has been standing for 3 days\. If what it was about has passed, clear it with: kosmos report clear\./);
-});
-
-test('#5959 slice 3: a provider failure Kosmos recorded is not reminded about; another Kosmos-written blocked is', () => {
-  const [p, q] = cardsFor([['pat', 'blocked'], ['quil', 'blocked']]);
-  const { sent } = run([p, q], {
-    [p.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3 * DAY), by: 'auto', on: 'provider api (server_error)' },
-    [q.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3 * DAY), by: 'auto', on: 'waiting on the person' },
-  });
-  assert.deepEqual(sent.map((x) => x.s), [q.sessionName], 'a reminder would start a turn that fails while the provider does');
+  assert.deepEqual(sent, [], 'typed into a question, or about a provider failure whose reminder turn would fail');
+  assert.equal(run([k], { [k.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3 * DAY), by: 'agent' } }).sent.length, 1,
+    'CONTROL: the same card with its own blocked is told');
 });
 
 test('#5959 slice 3: an agent mid-turn is told at a later sweep, between turns', () => {

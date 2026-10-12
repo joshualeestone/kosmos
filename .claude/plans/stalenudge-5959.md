@@ -8,7 +8,7 @@ runs `kosmos report show`; this says it without being asked. Stacked on slice 1 
 ## The call
 - `engine/stalereport-nudge.js`, the shape of `firstreply-nudge.js`: a pure `plan`, an injected `sweepOnce`, a gated
   `makeTick`. Told: a Claude card of ours reading `blocked` that shows the agent's report (`stateReported`), whose latest report
-  (`selfreport.read`) is `blocked` (whoever wrote it), over `selfreport.STALE_WAIT_MS` (a day) old with the comparison
+  (`selfreport.read`) is `blocked`, not written by Kosmos, over `selfreport.STALE_WAIT_MS` (a day) old with the comparison
   report show uses, not mid-turn (`activeWhileWaiting`: a later sweep tells it), and whose swarm is not switched off.
 - Once per report line, kept on disk: `stalereport-reminded.json` under the data root (session -> the report's `at`,
   an entry dropped only when its agent is off the board and its report over 30 days old), so a board restart or an update does not repeat it; a write that
@@ -16,10 +16,8 @@ runs `kosmos report show`; this says it without being asked. Stacked on slice 1 
   is retried up to MAX_TRIES (3, in memory), and the give-up is logged; an unconfirmed delivery counts as reached.
 - A held delivery (deliverAutomatic's holds: an answer awaited on screen, a usage limit, a quota, the Gemini cap)
   spends no try and is logged once per report with what held it.
-- The words are `kosmos report show`'s for a blocked report ("Your own" for the agent's, "A ... report Kosmos wrote for
-  you" with "if what it was about has passed" for Kosmos's, "This" for anyone else or no writer), then how to see the
-  card. A Kosmos-written blocked (a provider outage) is the kind nothing automatic clears (selfreport.record refuses an
-  automatic line over any standing blocked), so it is the likeliest to go stale and is included. The report's own `on` text is not repeated to the agent.
+- The words are `kosmos report show`'s for a blocked report ("Your own" for the agent's, "This" for anyone else or no
+  writer), then how to see the card. The report's own `on` text is not repeated to the agent.
 - server.js: its own timer (5 minutes), gated like the sibling sweeps: live execution allowed, brake
   `AGENT_WORKFORCE_STALEREPORT_NUDGE_OFF=1`, typed through `chat.deliverAutomatic` (pinned in
   `server.agyhold-4588.test.js`'s AUTOMATIC table with the other timers).
@@ -39,10 +37,18 @@ runs `kosmos report show`; this says it without being asked. Stacked on slice 1 
   stall episodes; a stale report is a different trigger.
 - **Repeating it daily.** Once per report is what the card asks; a repeat would nag an agent that is rightly waiting.
 
-- **A provider failure Kosmos recorded** (`by: auto`, `on: provider api (<kind>)`): while the provider still fails, the
-  turn a reminder starts fails and writes a fresh report, so it would be reminded once a day for the outage. Review 7.
+- **A report Kosmos wrote** (`by: auto`). For a Claude agent the only automatic blocked is the StopFailure hook's
+  provider failure (`provider api (<kind>)`): while the provider still fails, the turn a reminder starts fails and writes
+  a fresh report, so it would be reminded once a day for the outage. Reviews 7 and 9.
 
 ## Weakest premises
+- The cost of leaving out Kosmos-written reports: an outage blocked is the stickiest report there is (nothing automatic
+  may overwrite a standing blocked, selfreport.record), so after the provider recovers it can stand for days and is
+  pointed out only if the agent runs `kosmos report show`.
+- Windows agents (reached through a channel) are not reminded: the QA report came from them, so item 4 stays open for
+  Windows beyond slice 1's report show. Say so on the card when this ships.
+- A record file that cannot be read is treated as empty, and the next write keeps only the new entry, so every earlier
+  reminder can repeat once after the following restart.
 - The screen is read, then the line is typed: a menu that opens between the two is not seen (the same window the
   sibling sweeps have). So "nothing typed while a menu is open" holds for what the read saw, not for that instant.
 - A reminder starts a model turn, which costs tokens: once per stale report per agent.

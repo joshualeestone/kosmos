@@ -6,9 +6,8 @@
  * `kosmos report show` says the same thing when the agent asks (slice 1); this says it without being asked.
  *
  * Who is told, all of:
- *  - its latest report (selfreport.read) is `blocked`, over STALE_WAIT_MS ago (selfreport.STALE_WAIT_MS, with the
- *    comparison `kosmos report show` uses), whoever wrote it (a Kosmos-written one, from a provider outage, is the kind
- *    nothing automatic clears, selfreport.record);
+ *  - its latest report (selfreport.read) is `blocked`, not written by Kosmos, over STALE_WAIT_MS ago
+ *    (selfreport.STALE_WAIT_MS, with the comparison `kosmos report show` uses);
  *  - its card shows that report (stateReported, and the same state: the board's reconcile can set a report aside);
  *  - its card is ours, a Claude agent, not mid-turn (activeWhileWaiting: a later sweep tells it), and not a switched-off
  *    swarm.
@@ -75,22 +74,20 @@ function fileReminded() {
    is taught one command. Kosmos's own words only: the report's `on` text is the agent's and is not repeated to it. */
 function nudgeText(rep, ageMs) {
   const age = cardlabel.standingFor(ageMs);
-  // Who wrote it, as report show says it: the agent, Kosmos for it, or someone else / no writer recorded ("This").
-  const whose = rep.by === 'agent' ? 'Your own `' + rep.state + '` report'
-    : rep.by === 'auto' ? 'A `' + rep.state + '` report Kosmos wrote for you'
-      : 'This `' + rep.state + '` report';
-  const todo = rep.by === 'auto' ? 'If what it was about has passed' : 'If it is no longer in your way';
+  // Who wrote it, as report show says it: the agent, or someone else / no writer recorded ("This").
+  const whose = rep.by === 'agent' ? 'Your own `' + rep.state + '` report' : 'This `' + rep.state + '` report';
   return 'Kosmos here, a reminder: ' + whose + ' has been standing for ' + age + '. '
-    + todo + ', clear it with: kosmos report clear. If it still holds, leave it. '
+    + 'If it is no longer in your way, clear it with: kosmos report clear. If it still holds, leave it. '
     + 'To see your card as the person sees it, run: kosmos report show';
 }
 
 function plan(card, rep, entry, now, remindedAt) {
   if (!card || !rep || rep.found !== true) return { act: 'none', because: 'no report' };
   if (rep.state !== REMINDED_STATE) return { act: 'none', because: 'its report is not ' + REMINDED_STATE };
-  /* A provider failure Kosmos recorded (the StopFailure hook's "provider api (<kind>)"): while the provider still fails,
-     the turn a reminder starts fails too and writes a fresh one, so it would be reminded once a day for the outage. */
-  if (rep.by === 'auto' && /^provider api\b/.test(String(rep.on || ''))) return { act: 'none', because: 'its report is a provider failure Kosmos recorded' };
+  /* Not one Kosmos wrote: for a Claude agent that is the StopFailure hook's "provider api (<kind>)" failure, and while
+     the provider still fails the turn a reminder starts fails too and writes a fresh one, so it would be reminded once a
+     day for the outage. */
+  if (rep.by === 'auto') return { act: 'none', because: 'Kosmos wrote its report (a provider failure)' };
   /* The card shows THE REPORT, not only its state: reconcile can show a screen reading of the same state over a report
      it set aside, and then stateReported is false. */
   if (card.stateReported !== true || card.state !== rep.state) return { act: 'none', because: 'its card does not show that report' };
@@ -170,8 +167,8 @@ function sweepOnce(o) {
       let heldBy = null;
       try { const r = o.deliver(session, nudgeText(rep, p.ageMs), o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = (r && r.heldBy) || null; }
       catch (err) { state = 'threw: ' + String((err && err.message) || err); }
-      /* Held (deliverAutomatic's holds: an answer awaited on its screen, a usage limit, a quota, the Gemini cap): nothing
-         typed and no try spent. Logged once
+      /* Held (deliverAutomatic's holds; for a blocked Claude card screenOpen above is what protects it, and these are a
+         backstop): nothing typed and no try spent. Logged once
          per report with what held it, so a person asking why an agent was never reminded finds the answer in the log. */
       if (held) {
         const why = p.because + '; held' + (heldBy ? ' (' + heldBy + ')' : '');
