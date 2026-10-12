@@ -9,8 +9,11 @@
  * USAGE
  *   1. Build the three debug binaries from kosmos-relay (origin/main, which carries
  *      #213 own-room ticket + per-computer seat, #214, #215 `fed-room --own-project`):
- *        cd <kosmos-relay> && CARGO_TARGET_DIR=<dir> cargo build \
- *          -p kosmos-coordinator --bin kosmos-coordinator -p kosmos-relay-server -p kosmos-tunnel-client
+ *        cd <kosmos-relay> && CARGO_TARGET_DIR=<dir> cargo build --locked \
+ *          --bin kosmos-coordinator --bin kosmos-relay --bin kosmos-tunnel
+ *      Name all THREE binaries. With `-p ... --bin kosmos-coordinator`, the --bin filter applies to the whole
+ *      command: only the coordinator binary is rebuilt, and an old kosmos-relay and kosmos-tunnel left in the
+ *      target dir from an earlier build are run without anyone seeing it (found 2026-10-11)
  *   2. From this repo's root:
  *        FEDPROOF_BIN_DIR=<dir>/debug node tools/fed-own-e2e.js
  *      FEDPROOF_BIN_DIR defaults to /Volumes/BigLobsterStorage/targets/renet-4693/debug,
@@ -22,8 +25,10 @@
  * WHAT IT DOES (every file under ONE mktemp sandbox, every port a free high port,
  * checked free before use; the live board and 16180-16199 are never touched)
  *   1. Starts the coordinator (KOSMOS_DEV_MODE=1: codes to stdout, REQUIRE_SECOND=0,
- *      FEDERATION_LIVE=1) and waits on GET /v1/meta. The coordinator and relay get an
- *      ALLOWLISTED environment (PATH, TMPDIR, a sandboxed HOME, and only the KOSMOS_*
+ *      FEDERATION_LIVE=1, KOSMOS_DOMAIN=fedproof.localhost) and waits on GET /v1/meta.
+ *      Everything reaches it as http://login.fedproof.localhost:<port>, never by IP: a
+ *      board refuses own codes when its Kosmos+ address has no computer domain (#4699). The coordinator and relay
+ *      get an ALLOWLISTED environment (PATH, TMPDIR, a sandboxed HOME, and only the KOSMOS_*
  *      keys set here), never this shell's, which may carry real keys.
  *   2. Cuts dev relay certs and starts the relay, pinned to the coordinator pubkey
  *      /v1/meta reports (the same key every Mac state dir pins at setup).
@@ -35,16 +40,19 @@
  *      route refuses to CREATE an account, #4454). A and B then both sign in to it
  *      through the board's Plus wizard routes (signin-start/verify/register), reading
  *      each dev code off the coordinator's stdout. Distinct mac_id, standing good.
+ *   4b. B is ALLOWED by A (#4681): B's join code, A's Allow with that code, B's "codes match".
  *   5. A makes a project and its own code; B verifies and joins it (edge "own:<ref>").
  *   6. Both seats up; A posts, B must hold it as an external row; B posts, A must hold
  *      it. Each computer has its own seat (two distinct relay members in one room).
  *      The inbound federated text never reaches the other board's pane (typed.log),
  *      while each board's OWN local post does (the instrument's positive control, on
  *      both boards). Both typed.logs are read again at the very end of the run.
- *   7. Controls that can fail: (a) board C on a DIFFERENT account joins with A's own
- *      code and must end up in a different room, exchanging nothing with A or B; then
- *      C is stopped and its seat must LEAVE the relay's member list (the control for the
- *      log parser's "disconnected" half), while A's and B's stay; (b) with the relay
+ *   7. Controls that can fail: (a) board C on a DIFFERENT account must be refused A's
+ *      own code with verify 409, reason other-account (#4699), on every path. Should a
+ *      build accept it anyway (a FAIL), C must still end up in a different room,
+ *      exchanging nothing with A or B; then C is stopped and its seat must LEAVE the
+ *      relay's member list (the control for the log parser's "disconnected" half),
+ *      while A's and B's stay; (b) with the relay
  *      stopped, a post on A must not arrive on B (bounded wait) and a "not connected"
  *      note must be the very next row after THAT post in A's room (and the row after an
  *      earlier post must not be one); (c) the harness's own detector reports FAIL for a
@@ -52,8 +60,7 @@
  *      shown readable; (d) the relay-log parser is run on a fixture and must
  *      keep a seated member and drop a disconnected one; (e) the env allowlist check must
  *      flag a board's env, which is not service-shaped; (f) the pane recorder (typed.log)
- *      is driven with each typing verb and must log all of them. If C is instead refused
- *      A's code, the refusal must be a 4xx.
+ *      is driven with each typing verb and must log all of them.
  *   8. PASS/FAIL per step, a verdict, exit 1 on any FAIL. Every process it started
  *      (and each one's descendants: seats, tunnels) is stopped by exact pid, and the
  *      sandbox removed, on success and on failure. Once stopping has begun no new
@@ -86,6 +93,14 @@ const BIN = {
   relay: path.join(BIN_DIR, 'kosmos-relay'),
   tunnel: path.join(BIN_DIR, 'kosmos-tunnel'),
 };
+/* kosmos#4693: the coordinator is reached by a NAME, not 127.0.0.1. Since #4699 a board refuses
+   an own code when its Kosmos+ address has no domain for computers to live under (an IP, a
+   localhost, a two-label host: engine/account-computers.js computerDomain), so an IP-addressed
+   coordinator fails the own-code join before anything is shared. `.localhost` names resolve to
+   this machine (RFC 6761), so login.<FEDPROOF_DOMAIN> gives the domain FEDPROOF_DOMAIN, and the
+   coordinator's KOSMOS_DOMAIN is set to it so the computers it names are trusted under it. */
+const FEDPROOF_DOMAIN = 'fedproof.localhost';
+const FEDPROOF_COORD_HOST = 'login.' + FEDPROOF_DOMAIN;
 const KEEP = process.env.FEDPROOF_KEEP === '1';
 const DELIVERY_MS = Number(process.env.FEDPROOF_DELIVERY_MS) || 30000;   // how long a delivery may take
 const ABSENCE_MS = Number(process.env.FEDPROOF_ABSENCE_MS) || 12000;     // how long an absence is watched
@@ -126,12 +141,19 @@ fs.mkdirSync(LOGS);
 const started = [];   // { name, child, log }
 let stopping = false; // set once the run is being torn down: no process may start after it
 
-function fedproofPortFree(port) {
+function fedproofPortFreeOn(port, host) {
   return new Promise((resolve) => {
     const s = net.createServer();
-    s.once('error', () => resolve(false));
-    s.listen(port, '127.0.0.1', () => s.close(() => resolve(true)));
+    s.once('error', (e) => resolve(e && e.code === 'EADDRNOTAVAIL'));   // no such family here: nothing can take it
+    s.listen(port, host, () => s.close(() => resolve(true)));
   });
+}
+// Review 1: free on BOTH loopback families. A name that resolves to [::1, 127.0.0.1] lets a client try either, so
+// another process on the other family's port would be cross-talk with this run's coordinator.
+// Review 2: this is checked once, at start. The coordinator binds only one family, so a process that takes the other
+// family's port AFTER this check is not excluded. That is local cross-talk, never another machine.
+async function fedproofPortFree(port) {
+  return (await fedproofPortFreeOn(port, '127.0.0.1')) && (await fedproofPortFreeOn(port, '::1'));
 }
 const taken = new Set();
 async function freePort() {
@@ -417,7 +439,10 @@ async function hasExternal(b, id, text) {
 const ANY_STAYED = /stayed on this computer/i;
 // ONLY the not-connected variants of engine/fedseats.js post(): the seat is down, or the
 // own-room seat was refused. Not "ended", "nobody has joined", sealed-room or too-long.
-const NOT_CONNECTED = /stayed on this computer: (the connection to the external project is not up right now|this project is not connected to your other computers right now)/;
+// engine/fedseats.js farSide: "the external project" for another person's project, "the other computers in this
+// project" for one shared between one person's own computers, the case this harness runs (the 10-06 02:54 run
+// recorded 37 of these and the old pattern matched none).
+const NOT_CONNECTED = /stayed on this computer: (the connection to (the external project|the other computers in this project) is not up right now|this project is not connected to your other computers right now)/;
 /* The room lines AFTER the (last) line carrying `text`, or null if `text` is not there. */
 async function linesAfter(b, id, text) {
   const lines = (await roomText(b, id)).split('\n');
@@ -475,14 +500,27 @@ async function main() {
     if (!require(path.join(REPO, 'engine', 'runners')).isRunnable(p)) throw new Error('missing or not executable: ' + k + ' binary at ' + p + ' (set FEDPROOF_BIN_DIR)');
   }
 
-  // 1. coordinator
+  // 1. coordinator, bound to the loopback address its name resolves to HERE (macOS answers
+  // ::1 for a .localhost name, Linux may answer 127.0.0.1), so every client that dials the
+  // name reaches it. A name that does not resolve to loopback stops the run: dialling it
+  // could reach another machine.
+  // Review 1: EVERY address the name resolves to must be loopback, not just the first: clients fall through the list,
+  // so [::1, 10.x] would reach another machine whenever [::1] is not answering.
+  // Review 2: deliberately stricter than "loopback": 127.0.0.2 or ::ffff:127.0.0.1 also stop the run (fails closed). A
+  // resolver that answers those for *.localhost, or does not resolve it at all, cannot run this proof as written.
+  const coordAll = await require('node:dns').promises.lookup(FEDPROOF_COORD_HOST, { all: true }).catch((e) => ({ error: e }));
+  if (coordAll.error || !coordAll.length || coordAll.some((a) => !['127.0.0.1', '::1'].includes(a.address))) {
+    throw new Error(FEDPROOF_COORD_HOST + ' must resolve ONLY to this machine (127.0.0.1 or ::1), got '
+      + (coordAll.error ? coordAll.error.code : coordAll.map((a) => a.address).join(', ')));
+  }
+  const coordAt = coordAll[0];
   const coordPort = await freePort();
-  REL.coordinator = 'http://127.0.0.1:' + coordPort;
+  REL.coordinator = 'http://' + FEDPROOF_COORD_HOST + ':' + coordPort;
   const coordData = path.join(SANDBOX, 'coordinator');
   fs.mkdirSync(coordData);
   coord = start('coordinator', BIN.coordinator, [], { env: serviceEnv(path.join(SANDBOX, 'coordinator-home'), {
-    KOSMOS_DEV_MODE: '1', KOSMOS_REQUIRE_SECOND: '0', KOSMOS_FEDERATION_LIVE: '1',
-    KOSMOS_LISTEN: '127.0.0.1:' + coordPort, KOSMOS_DATA_DIR: coordData }) });
+    KOSMOS_DEV_MODE: '1', KOSMOS_REQUIRE_SECOND: '0', KOSMOS_FEDERATION_LIVE: '1', KOSMOS_DOMAIN: FEDPROOF_DOMAIN,
+    KOSMOS_LISTEN: (coordAt.family === 6 ? '[::1]:' : '127.0.0.1:') + coordPort, KOSMOS_DATA_DIR: coordData }) });
   // Load-tolerant (a debug build on a busy Mac), but a coordinator that EXITED (a port taken
   // between the check and its bind) is reported at once rather than waited on.
   const meta = await waitFor(async () => {
@@ -568,6 +606,39 @@ async function main() {
   chk(remoteJson(A).standing === 'good' && remoteJson(B).standing === 'good', 'step 4: both hold standing good (Kosmos+)',
     remoteJson(A).standing + ' / ' + remoteJson(B).standing);
 
+  // 4b. kosmos#4681/#4794: a second computer must be ALLOWED by the first before the account's computers can be read
+  // from it, so without this the own-code verify in step 5 answers 409 "This computer has not been allowed" (measured
+  // 10-06 01:28 on both arms). Done as a person does it: B's join rounds work out a code, A's Allow carries that same
+  // code from A's pending list, and B confirms "The codes match".
+  // A computer that joins is not a row on the device ALLOWED list (that is phones and browsers; measured 10-06 02:52),
+  // so the Allow is shown by B leaving A's WAITING list, which the running tunnel refreshes every few seconds.
+  const waitingOnA = async (id) => {
+    const p = await http(A.base, 'GET', '/api/remote/pending');
+    return p.json && Array.isArray(p.json.devices) ? p.json.devices.some((d) => d && d.device_id === id) : null;
+  };
+  let joinCode = '';
+  let waiting = null;
+  const paired = await waitFor(async () => {
+    const j = await http(B.base, 'GET', '/api/remote/join');
+    if (j.status === 200 && j.json && j.json.join_code) joinCode = j.json.join_code;
+    if (!joinCode) return null;
+    const p = await http(A.base, 'GET', '/api/remote/pending');
+    const devs = p.json && Array.isArray(p.json.devices) ? p.json.devices : [];
+    waiting = devs.find((d) => d.code === joinCode) || null;
+    return waiting;
+  }, 90000, 1500);
+  chk(!!paired, 'step 4b: B shows a join code and A lists B as waiting with that same code',
+    'code ' + (joinCode || '-') + ', waiting ' + (waiting ? waiting.device_id.slice(0, 12) + '... (' + (waiting.joining_computer || '-') + ')' : '-'));
+  if (paired) {
+    let r0 = await http(A.base, 'POST', '/api/remote/devices/allow', { device_id: waiting.device_id, code: joinCode }, SCREEN);
+    chk(r0.status === 200, 'step 4b: A allows B with the code it shows', r0.status + ' ' + r0.text.slice(0, 200));
+    r0 = await http(B.base, 'POST', '/api/remote/join/confirm', { code: joinCode }, SCREEN);
+    chk(r0.status === 200 && r0.json && r0.json.confirmed === true, 'step 4b: B confirms the codes match', r0.status + ' ' + r0.text.slice(0, 200));
+    // B WAS waiting (asserted above, the control); the Allow must take it off.
+    const gone = await waitFor(async () => (await waitingOnA(waiting.device_id)) === false, 30000, 1000);
+    chk(!!gone, 'step 4b: after the Allow, B is no longer waiting on A (it was, above)');
+  }
+
   // 5. A: a project with an agent, and its own code. B: verify + join with that code.
   let r = await http(A.base, 'POST', '/api/projects', { name: 'Shared ' + RUN });
   const pidA = r.json && r.json.project && r.json.project.id;
@@ -644,6 +715,7 @@ async function main() {
   chk(cOk && remoteJson(C).standing === 'good' && fedproofStateFile(C, 'mac_id'), 'step 7a: board C signs in on a DIFFERENT Kosmos+ account (standing good)');
   r = await http(C.base, 'POST', '/api/federation/verify', { code: own }, SCREEN);
   const cVerify = r.status;
+  const cReason = r.json && r.json.reason ? String(r.json.reason) : null;   // review 1: WHICH refusal, not just a 4xx
   let pidC = null;
   let cJoin = null;
   if (r.status === 200) {
@@ -652,10 +724,15 @@ async function main() {
     pidC = r.status === 200 && r.json ? r.json.id : null;
   }
   info('C verify ' + cVerify + ', join ' + (pidC ? 'made project ' + pidC : 'refused'));
-  // Reported, not failed: the SAFETY property (nothing crosses accounts) is what this control
-  // asserts. An own code carries no account, so another account's computer accepts it and makes
-  // a project whose seat sits alone in its own account's room, with no word that it never will
-  // connect (kosmos#4693 finding for #4649).
+  // Since #4699 a board refuses another account's own code. Review 1: verify answers 409 for several unrelated reasons
+  // (among them unchecked: no computer domain or not yet allowed; old-code; no-remote; already_joined), and 'unchecked' is exactly what main's
+  // IP-addressed harness got, so only reason 'other-account' shows the account check itself refusing.
+  // Review 2: asserted HERE, on every path. Inside the refusal branch only, a build that ACCEPTED the code would skip
+  // it and pass on the relay checks below.
+  chk(cVerify === 409 && cReason === 'other-account', 'step 7a: C is REFUSED A\'s own code BECAUSE it is another account (verify 409, reason other-account)',
+    'verify ' + cVerify + ' reason ' + cReason + ', join ' + cJoin);
+  // Should a build accept it anyway, the SAFETY property (nothing crosses accounts) is still checked on the relay
+  // (C's seat must sit in its own account's room, never A's), as extra evidence beside the failure above.
   if (pidC) console.log('NOTE  a different account\'s computer ACCEPTED the own code (verify ' + cVerify + ', join 200): it gets a project that can never connect, and no refusal says why');
   if (pidC) {
     // C joined locally; its seat must be in ITS account's room, never A's.
@@ -699,10 +776,7 @@ async function main() {
       chk(seats.members.every((m) => kept.includes(m)), 'step 7a: A\'s and B\'s seats are still held after C\'s left (a disconnect of theirs would show)', kept.join(', '));
     }
   } else {
-    // A refusal proves the cross-account property only if it IS a refusal (a 4xx), not a
-    // crash or a timeout. The parser's "disconnected" half still has its step 2 fixture control.
-    const refused = (cVerify >= 400 && cVerify < 500) || (cJoin !== null && cJoin >= 400 && cJoin < 500);
-    chk(refused, 'step 7a: C is REFUSED A\'s own code (a 4xx at verify or join)', 'verify ' + cVerify + ', join ' + cJoin);
+    // The parser's "disconnected" half still has its step 2 fixture control.
     console.log('NOTE  C never held a seat, so the relay-log parser\'s "disconnected" half had only its step 2 fixture control this run');
   }
 
