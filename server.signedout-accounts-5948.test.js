@@ -71,6 +71,7 @@ test('#5948: the agent\'s account with no credential is in signedOutAccounts, no
   assert.ok(!accounts.some((a) => a.dir === GONE), 'a folder with no credential was offered as an account');
   assert.deepEqual(gone.map((a) => [a.provider, a.dir, a.connection && a.connection.badge]), [['xai', GONE, 'signed_out']], JSON.stringify(gone));
   assert.equal(gone[0].usedBy.length, 1);
+  assert.match(String(gone[0].usedBy[0]), /grokgone/i, 'attributed to the wrong agent: ' + JSON.stringify(gone[0].usedBy));
   const { answer } = require('./engine/accountline');
   assert.ok(answer(200, body).lines.some((l) => /^Grok: gone: not signed in: its sign-in or key is no longer on this computer/.test(l)),
     'kosmos accounts does not print it');

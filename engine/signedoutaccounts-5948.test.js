@@ -59,3 +59,26 @@ test('#5948: a stopped agent (its card has no runner) is read from its job', () 
   const rows = signedOutRows([{ sessionName: 'stopped', name: 'Old', runner: null }], { xai: [] }, readJob, readName);
   assert.deepEqual(rows.map((r) => [r.dir, r.usedBy]), [['/h/.grok-old', ['Old']]]);
 });
+
+test('#5948 review 1: a credential file that is there but was not listed reads "could not be checked", never "gone"', () => {
+  const there = (f) => f === '/h/.grok-work/.kosmos-grok-apikey';
+  const [r] = signedOutRows([card('gk', 'grok', 'Gk')], { xai: [] }, readJob, readName, there);
+  assert.deepEqual([r.signedOut, r.unreadable, r.connection.state, r.connection.badge], [false, true, 'unknown', 'unchecked']);
+  assert.match(r.connection.because, /there but Kosmos could not read it/);
+  assert.doesNotMatch(r.connection.because, /no longer/);
+  // CONTROL: the same folder with no credential file reads gone.
+  const [g] = signedOutRows([card('gk', 'grok', 'Gk')], { xai: [] }, readJob, readName, () => false);
+  assert.deepEqual([g.signedOut, g.connection.badge], [true, 'signed_out']);
+});
+
+test('#5948 review 1: a job pinned to the provider\'s default home is the default account, not a ".grok" label; many agents are counted, not all named', () => {
+  const pinned = { d: { configDir: '/h/.grok', runner: 'grok' } };
+  const [d] = signedOutRows([card('d', 'grok')], { xai: [] }, (n) => pinned[n], readName, () => false);
+  assert.deepEqual([d.isDefault, d.label], [true, null]);
+  const many = {};
+  const cards = [];
+  for (let i = 1; i <= 5; i++) { many['a' + i] = { configDir: '/h/.grok-team', runner: 'grok' }; cards.push(card('a' + i, 'grok', 'A' + i)); }
+  const [m] = signedOutRows(cards, { xai: [] }, (n) => many[n], readName, () => false);
+  assert.equal(m.usedBy.length, 5);
+  assert.match(m.connection.because, /and A1, A2, A3 and 2 more use it$/);
+});
