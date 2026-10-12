@@ -10800,6 +10800,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   html.has-speak.conv-on .pjmidhead:has(.pjhead) > .pjconvsearch { display: flex; flex: none; align-items: center; gap: 8px; }
   html.has-speak.conv-on .pjmidhead:has(.pjhead) > .pjconvsearch > .tsearch { flex: 1 1 auto; }
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .pjconvsearch { flex: 1 0 100%; }
+  /* Outweighs the look's own full-line rule for the search (one id each, more classes here), which inside the row
+     would push the search past the toggle. */
+  :root[data-look="new"].has-speak.conv-on body:not(.consolidated) #pj-one-view .pjmidhead > .pjconvsearch > .tsearch { flex: 1 1 auto; }
 }
 /* #4470, Create an agent in the new look. The option cards on every create step (the kind picker's and the role
    step's) lose their hairline at rest (the look's cards have none; the grey bounds them on the white page): a chosen
