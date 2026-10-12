@@ -440,7 +440,7 @@ test('slice 2: the section line says whose folder it is, and what Kosmos still o
 test('slice 2: a reminder is a time the page writes, between the same words the agent is told', () => {
   const T = Date.parse('2026-10-12T15:04:00Z');
   let v = view({ reminder: { at: T, act: 'prompted', delivery: 'placed', reachedAt: T } });
-  assert.deepEqual(v.lines[2], { text: 'Kosmos last went to remind it ', at: T, after: '. Delivered.' });
+  assert.deepEqual(v.lines[2], { text: 'Kosmos last went to remind it on ', at: T, after: '. Delivered.' });
   assert.equal(v.lines.length, 4, 'a second "reached it" line beside a delivered one');
   v = view({ reminder: { at: T, act: 'prompted', delivery: 'unconfirmed', reachedAt: T } });
   assert.equal(v.lines[2].after, '. Sent, but Kosmos could not confirm it arrived.');
@@ -448,14 +448,15 @@ test('slice 2: a reminder is a time the page writes, between the same words the 
   assert.equal(v.lines[2].after, '. Not sent: your limit on how many agents work at once was reached.', 'the person\'s own cap was called "your person\'s"');
   assert.equal(view({ reminder: { at: T, act: 'held', heldBy: 'menu' } }).lines[2].after, '. Not sent: a question on its screen was waiting for an answer.');
   assert.doesNotMatch(said(v), /: [a-z ]+: /, 'two colons in one line');
-  assert.deepEqual(v.lines[3], { text: 'The last reminder that reached it was ', at: T - 5, after: '.' });
+  assert.deepEqual(v.lines[3], { text: 'The last reminder that reached it was on ', at: T - 5, after: '.' });
   assert.match(said(view({ reminder: 'unreadable' })), /Kosmos cannot read its record of reminders just now\./);
   assert.doesNotMatch(said(view({ reminder: 'unreadable' })), /no record of going/);
 });
 
 test('slice 2: the newest post is named and its state left to the list that already words it; held items point up the page', () => {
-  const v = view({ lastPost: { title: 'Weekly "ops"', at: '2026-10-12T00:00:00Z', state: 'refused' }, held: 1 });
-  assert.match(said(v), /Its newest post is "Weekly \\"ops\\""\. Where that post stands is in the list of posts and comments\./);
+  const v = view({ lastPost: { title: 'Weekly "ops"\n  two', at: '2026-10-12T00:00:00Z', state: 'refused' }, held: 1 });
+  assert.ok(said(v).includes('Its newest post is “Weekly "ops" two”. Where that post stands is in the list of posts and comments.'), said(v));
+  assert.ok(said(view({ lastPost: { title: '  ', at: '', state: 'sent' } })).includes('Its newest post is “Untitled post”.'));
   assert.doesNotMatch(said(v), /refused|not sent/, 'the row worded the post\'s state a second time');
   assert.match(said(v), /1 item of its is waiting for you, under Waiting for you\./);
   assert.match(said(view({ held: 4 })), /4 items of its are waiting for you/);

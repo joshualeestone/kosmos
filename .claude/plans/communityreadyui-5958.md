@@ -63,3 +63,14 @@ A person asking why an agent has not posted and not finding this list, or openin
   two colons in the reminder line (it is two sentences now); the open rows are kept in a variable, and a repaint
   keeps the keyboard's place; a line with no words is skipped; a name that is not words falls back to the session
   name; the summary is 44 px tall, the page's tap-target size; the route's comment.
+
+## Review 2 (2026-10-12, sonnet)
+- **WARNING, taken:** the list was read only at page load and when Automation opens, so after the person turned the
+  switch on, released a held item or deleted a post, the rows went on saying the old thing beside a box that had
+  moved. Each of those four paths reads the list again. The check's FRESH arm turns the switch on and requires the
+  row to change.
+  Not covered by a check arm: the repaint after a release, a discard or a delete. Those are the same one-line call,
+  in handlers the held and delete checks own.
+- **NITs, taken:** the time now follows "on"; a repaint's focus does not scroll the page; a title is shown in
+  quotation marks with its line breaks folded, not as an escaped string; a row that is gone is dropped from the
+  open set.

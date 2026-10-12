@@ -23,6 +23,8 @@
  *   503       the board could not read its agents: the line says it could not check, never "no agents".
  *   403       a gated read says the same.
  *   ODD       rows the page cannot paint (no session, no owner lines) are skipped, the rest are painted.
+ *   FRESH     turning the community switch on or off reads the list again, so a row never keeps saying the community
+ *             is off beside a switch that is on.
  *   PHONE     at 390 px wide, nothing in the list is wider than the screen and each summary is at least 44 px tall
  *             (the page's tap-target size; the arm reads the size, so the number is here and in the style sheet).
  *
@@ -107,8 +109,8 @@ const agent = (session, name, owner) => ({ session, name, switch: 'on', addressO
 const AVA = agent('ava', 'Ava', { summary: 'Nothing found in its way', lines: [
   { text: 'The community section is in its instructions.' },
   { text: 'It has a community account.' },
-  { text: 'Kosmos last went to remind it ', at: T1, after: '. Delivered.' },
-  { text: 'Its newest post is "Weekly ops". Where that post stands is in the list of posts and comments.' },
+  { text: 'Kosmos last went to remind it on ', at: T1, after: '. Delivered.' },
+  { text: 'Its newest post is “Weekly ops”. Where that post stands is in the list of posts and comments.' },
 ] });
 const BO = agent('bo', 'Bo', { summary: 'No community section in its instructions', lines: [
   { text: 'No community section in its instructions. It works in a folder of your own, and Kosmos does not add the section to instructions there.' },
@@ -119,8 +121,8 @@ const BO = agent('bo', 'Bo', { summary: 'No community section in its instruction
 const CY = agent('cy', 'Cy', { summary: 'Waiting for you', lines: [
   { text: 'The community section is in its instructions.' },
   { text: 'It has a community account.' },
-  { text: 'Kosmos last went to remind it ', at: T1, after: '. Not sent: this board had reached its hourly limit for messages to agents.' },
-  { text: 'The last reminder that reached it was ', at: T0, after: '.' },
+  { text: 'Kosmos last went to remind it on ', at: T1, after: '. Not sent: this board had reached its hourly limit for messages to agents.' },
+  { text: 'The last reminder that reached it was on ', at: T0, after: '.' },
   { text: 'It has not posted yet.' },
   { text: '2 items of its are waiting for you, under Waiting for you.' },
 ] });
@@ -151,7 +153,7 @@ async function run() {
     const tm = o.rows[2].times;
     check('TIME: each time is a <time> with a machine datetime', tm.length === 2 && tm[0].dt === new Date(T1).toISOString() && tm[1].dt === new Date(T0).toISOString(), JSON.stringify(tm));
     const local = await p1.evaluate((ms) => new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }), T1);
-    check('TIME: it is written in the page\'s own zone, between the board\'s words', tm[0].text === local && o.rows[2].lines[2] === 'Kosmos last went to remind it ' + local + '. Not sent: this board had reached its hourly limit for messages to agents.', JSON.stringify([tm[0].text, local, o.rows[2].lines[2]]));
+    check('TIME: it is written in the page\'s own zone, between the board\'s words', tm[0].text === local && o.rows[2].lines[2] === 'Kosmos last went to remind it on ' + local + '. Not sent: this board had reached its hourly limit for messages to agents.', JSON.stringify([tm[0].text, local, o.rows[2].lines[2]]));
 
     // MARK
     check('MARK: every row shows a mark that it opens, hidden from a screen reader', o.rows.every((x) => x.mark && x.mark.shown && x.mark.w >= 8 && x.mark.h >= 8 && x.mark.hidden === 'true'), JSON.stringify(o.rows.map((x) => x.mark)));
@@ -203,7 +205,7 @@ async function run() {
 
     // TIME a time the page cannot read
     const p3 = await page();
-    await p3.route(READY, answer({ agents: [agent('dee', 'Dee', { summary: 'Nothing found in its way', lines: [{ text: 'Kosmos last went to remind it ', at: 1e20, after: '. Delivered.' }, { text: 'It went again ', at: 'soon', after: '.' }, { text: 7 }, null, { text: 'Last line.' }] })] }));
+    await p3.route(READY, answer({ agents: [agent('dee', 'Dee', { summary: 'Nothing found in its way', lines: [{ text: 'Kosmos last went to remind it on ', at: 1e20, after: '. Delivered.' }, { text: 'It went again ', at: 'soon', after: '.' }, { text: 7 }, null, { text: 'Last line.' }] })] }));
     await openAutomation(p3);
     const bt = await readList(p3);
     check('TIME: a time the page cannot read says so, with no datetime and never "Invalid Date"', bt.rows.length === 1 && bt.rows[0].lines.length === 3
@@ -255,11 +257,33 @@ async function run() {
     check('ODD: when no row can be painted the list is hidden and a line shows, not an empty box', od2.listHidden === true && od2.emptyHidden === false, JSON.stringify([od2.listHidden, od2.emptyHidden, od2.empty]));
     await p7.close();
 
+    // FRESH: the switch changes what every row says, so saving it must read the list again
+    const p9 = await page();
+    let reads = 0;
+    const OFF = { ...AVA, owner: { summary: 'The community is off', lines: [{ text: 'The community is off on this computer, so Kosmos is not reminding this agent and nothing it writes is sent.' }] } };
+    let onNow = false;
+    await p9.route(READY, (route) => { reads += 1; return answer({ agents: [onNow ? AVA : OFF] })(route); });
+    await p9.route('**/api/community-setting', (route) => {
+      if (route.request().method() === 'PUT') { onNow = true; return answer({ ok: true, on: true })(route); }
+      return answer({ ok: true, on: onNow })(route);
+    });
+    await openAutomation(p9);
+    const fr0 = await readList(p9);
+    check('FRESH CONTROL: with the community off, the row says so', fr0.rows.length === 1 && fr0.rows[0].summary === 'The community is off', JSON.stringify(fr0.rows.map((x) => x.summary)));
+    const before = reads;
+    const toggle = await p9.evaluate(() => { const t = document.getElementById('community-toggle'); return { shown: Boolean(t) && !t.hidden, on: t ? t.getAttribute('aria-checked') : null }; });
+    check('FRESH CONTROL: the community switch is there to press, and reads off', toggle.shown && toggle.on === 'false', JSON.stringify(toggle));
+    await p9.click('#community-toggle');
+    await p9.waitForFunction(() => { const d = document.querySelector('#community-ready-list summary span'); return d && d.textContent === 'Nothing found in its way'; }, null, { timeout: 5000 }).catch(() => {});
+    const fr1 = await readList(p9);
+    check('FRESH: turning the switch on reads the list again and the row stops saying it is off', reads > before && fr1.rows.length === 1 && fr1.rows[0].summary === 'Nothing found in its way', JSON.stringify([reads - before, fr1.rows.map((x) => x.summary)]));
+    await p9.close();
+
     // PHONE
     const p8 = await page({ width: 390, height: 844 });
     const LONG = agent('long', 'An agent with a very long name that has no reason to fit on one line of a phone', { summary: 'Its community account is waiting on an earlier try', lines: [
       { text: 'An earlier try made a community account under its name and Kosmos never received the key, so it waits rather than make a second.' },
-      { text: 'Its newest post is "' + 'averyveryverylongunbrokenwordthatcannotwrapanywhereonitsown'.repeat(3) + '". Where that post stands is in the list of posts and comments.' },
+      { text: 'Its newest post is “' + 'averyveryverylongunbrokenwordthatcannotwrapanywhereonitsown'.repeat(3) + '”. Where that post stands is in the list of posts and comments.' },
     ] });
     await p8.route(READY, answer({ agents: [LONG, CY] }));
     await openAutomation(p8);

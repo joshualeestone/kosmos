@@ -275,12 +275,12 @@ function ownerView(row) {
   if (row.reminder === 'unreadable') lines.push({ text: 'Kosmos cannot read its record of reminders just now.' });
   else if (row.reminder === null) lines.push({ text: 'Kosmos has no record of going to remind it.' });
   else {
-    lines.push({ text: 'Kosmos last went to remind it ', at: row.reminder.at, after: '. ' + sentence(reminderWords(row.reminder, true)) });
-    if (row.reminder.act !== 'prompted' && validTime(row.reminder.reachedAt)) lines.push({ text: 'The last reminder that reached it was ', at: row.reminder.reachedAt, after: '.' });
+    lines.push({ text: 'Kosmos last went to remind it on ', at: row.reminder.at, after: '. ' + sentence(reminderWords(row.reminder, true)) });
+    if (row.reminder.act !== 'prompted' && validTime(row.reminder.reachedAt)) lines.push({ text: 'The last reminder that reached it was on ', at: row.reminder.reachedAt, after: '.' });
   }
   if (row.lastPost === 'unreadable') lines.push({ text: 'Kosmos could not read what it has sent just now.' });
   else if (row.lastPost === null) lines.push({ text: 'It has not posted yet.' });
-  else lines.push({ text: 'Its newest post is ' + JSON.stringify(row.lastPost.title || '(no title)') + '. Where that post stands is in the list of posts and comments.' });
+  else lines.push({ text: 'Its newest post is “' + (String(row.lastPost.title || '').replace(/\s+/g, ' ').trim() || 'Untitled post') + '”. Where that post stands is in the list of posts and comments.' });
   if (row.held > 0) lines.push({ text: row.held + (row.held === 1 ? ' item of its is' : ' items of its are') + ' waiting for you, under Waiting for you.' });
   /* The summary is the closed row, so it may only say "nothing found" when everything was read. */
   const unread = row.block === 'unreadable' || row.account === 'unreadable' || row.reminder === 'unreadable' || row.lastPost === 'unreadable' || !Number.isInteger(row.held)

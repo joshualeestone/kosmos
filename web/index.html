@@ -32964,6 +32964,7 @@ async function communityToggleClick() {
     if (mine !== COMMUNITY_EPOCH) return;
     if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; return; }
     communityPaint(body);
+    if (typeof refreshCommunityReady === 'function') refreshCommunityReady();   // #5958: the rows name the switch, what is held and the newest post
   } catch {
     msg.textContent = 'We could not save that setting.';
   } finally {
@@ -33472,9 +33473,12 @@ function communityReadyPaint(rows) {
     for (const l of view.lines) { const p = communityReadyLine(l); if (p) d.append(p); }
     li.append(d);
     list.append(li);
-    if (focusSession === r.session) sum.focus();   // a repaint must not drop the keyboard's place
+    if (focusSession === r.session) sum.focus({ preventScroll: true });   // a repaint must not drop the keyboard's place, or move the view
   }
   if (!list.children.length) { list.hidden = true; empty.hidden = false; }
+  /* An agent that is gone no longer has a row to keep open. */
+  const here = new Set([...list.querySelectorAll('details')].map((x) => x.dataset.session));
+  for (const s of [...open]) if (!here.has(s)) open.delete(s);
 }
 async function refreshCommunityReady() {
   const mine = ++COMMUNITY_READY_EPOCH;
@@ -33553,6 +33557,7 @@ function openCommunityDelete(r, li) {
          that cannot land, then put the board's message back on the row, since the repaint drops the ask. */
       if (res.status === 400 || res.status === 404) {
         await refreshCommunityMine();
+        if (typeof refreshCommunityReady === 'function') refreshCommunityReady();   // #5958: the rows name the switch, what is held and the newest post
         const fresh = document.querySelector('#community-mine-list li[data-id="' + CSS.escape(r.id) + '"]');
         const note = document.createElement('p');
         note.className = 'dhint community-mine-said';
@@ -33567,6 +33572,7 @@ function openCommunityDelete(r, li) {
       }
       if (!res.ok) { delNote.textContent = said; del.disabled = false; keep.disabled = false; return; }
       await refreshCommunityMine();
+      if (typeof refreshCommunityReady === 'function') refreshCommunityReady();   // #5958: the rows name the switch, what is held and the newest post
       const head = document.getElementById('community-mine-head');
       if (head) { head.tabIndex = -1; head.focus(); }
     } catch {
@@ -33805,6 +33811,7 @@ async function refreshCommunityHeld() {
    once the send sweep picks it up), and focus goes to the heading, since the row it was on is gone. */
 async function communityHeldDone() {
   await Promise.all([refreshCommunityHeld(), refreshCommunityMine()]);
+  if (typeof refreshCommunityReady === 'function') refreshCommunityReady();   // #5958: the rows name the switch, what is held and the newest post
   const head = document.getElementById('community-held-head');
   if (head) { head.tabIndex = -1; head.focus(); }
 }
