@@ -118,32 +118,33 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
     const browser = await playwright[engine].launch(engine === 'chromium'
       ? { headless: process.env.HEADED === '0', args: ['--host-resolver-rules=MAP remote.test 127.0.0.1'] }
       : { headless: process.env.HEADED === '0' });
-    // kosmos#5921: a request the page abandoned (Log out reloads it) has nothing left to fulfil, and Playwright throws
-    // "Fetch response has been disposed" or "closed" from inside a route handler, where nothing catches it and the
-    // whole check dies. Only that is swallowed; any other routing error still throws.
-    const abandoned = (e) => /has been disposed|has been closed/.test(String(e && e.message));
+    // kosmos#5921: stop routing before a context closes, as render-login-expiry-3532 and render-teamcreate-4557 do. A
+    // route handler still between r.fetch and r.fulfill when its context closes otherwise throws ("Fetch response has
+    // been disposed", "Request context disposed") where nothing catches it, and the whole check dies after its
+    // assertions passed. ignoreErrors applies only to handlers still running at teardown.
+    const shut = async (ctx, page) => {
+      await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+      await ctx.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+      await ctx.close();
+    };
     const open = async (host, theme, opts) => {
       const ctx = await browser.newContext(Object.assign({ viewport: { width: 430, height: 932 }, colorScheme: theme, hasTouch: true, serviceWorkers: 'block' }, opts || {}));
       if (engine === 'webkit' && host === 'remote.test') {
         // remote.test answered by the same board on loopback; the Host header stays remote.test, which the board accepts.
         await ctx.route(/^http:\/\/remote\.test(:\d+)?\//, async (r) => {
-          try {
-            const u = new URL(r.request().url());
-            const res = await r.fetch({ url: 'http://127.0.0.1:' + port + u.pathname + u.search, headers: Object.assign({}, r.request().headers(), { host: 'remote.test:' + port }) });
-            return await r.fulfill({ response: res });
-          } catch (e) { if (!abandoned(e)) throw e; }
+          const u = new URL(r.request().url());
+          const res = await r.fetch({ url: 'http://127.0.0.1:' + port + u.pathname + u.search, headers: Object.assign({}, r.request().headers(), { host: 'remote.test:' + port }) });
+          return r.fulfill({ response: res });
         });
       }
       const page = await ctx.newPage();
       page.on('pageerror', (e) => errs.push(engine + ' ' + theme + ': ' + e.message));
       // A known context reading and an unread message, so the ring and the bubbles have something to show.
       await page.route('**/api/status*', async (r) => {
-        try {
-          const res = await r.fetch({ url: r.request().url().replace(/^http:\/\/remote\.test/, 'http://127.0.0.1') }); let j;
-          try { j = await res.json(); } catch { return await r.fulfill({ response: res }); }
-          (j.agents || []).forEach((a, i) => { a.context = Object.assign({}, a.context || {}, { percent: 40 + i * 20 }); a.dmUnread = i === 0 ? 3 : 0; });
-          return await r.fulfill({ response: res, json: j });
-        } catch (e) { if (!abandoned(e)) throw e; }
+        const res = await r.fetch({ url: r.request().url().replace(/^http:\/\/remote\.test/, 'http://127.0.0.1') }); let j;
+        try { j = await res.json(); } catch { return r.fulfill({ response: res }); }
+        (j.agents || []).forEach((a, i) => { a.context = Object.assign({}, a.context || {}, { percent: 40 + i * 20 }); a.dmUnread = i === 0 ? 3 : 0; });
+        return r.fulfill({ response: res, json: j });
       });
       await page.route('**/api/remote/computers*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TWO) }));
       await page.route('**/_kosmos/logout', (r) => r.fulfill({ status: 404, body: '' }));
@@ -164,7 +165,7 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         chk(!l.bar && !l.nav && l.klink && l.burger && l.stats && l.gridBtn && l.layout === 'grid',
           E + 'L CONTROL: on the Mac itself at phone width there is no navy bar or phone menu; the K mark, the menu button, the count tiles and the grid stay',
           JSON.stringify({ bar: !!l.bar, nav: !!l.nav, klink: l.klink, burger: l.burger, stats: l.stats, grid: l.gridBtn, layout: l.layout }));
-        await ctx.close();
+        await shut(ctx, page);
       }
       for (const theme of ['light', 'dark']) {
         const T = E + theme + ' ';
@@ -326,7 +327,7 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         chk(l.nav && !l.nav.shown && !l.menuBtn && l.logoutBtn && l.stats && l.gridBtn && l.layout === 'grid' && l.saved === 'grid' && !l.up,
           T + 'W1 CONTROL: at 1280 the menu closes and today\'s header and board are back, the saved grid with them',
           JSON.stringify({ shown: l.nav && l.nav.shown, menuBtn: !!l.menuBtn, out: l.logoutBtn, stats: l.stats, grid: l.gridBtn, layout: l.layout, saved: l.saved, up: l.up }));
-        await ctx.close();
+        await shut(ctx, page);
       }
       // A phone held sideways is still a phone (the board's PHONE_WIDTH): the navy header and menu button stay.
       // Chromium only: "hover: none" needs a mobile emulation, which Playwright offers in Chromium and not in WebKit.
@@ -335,7 +336,7 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         const l = await look(page);
         chk(l.bar && l.bar.h === 48 && l.menuBtn && !l.klink && !l.burger && !l.stats && !l.gridBtn,
           E + 'O1 sideways (844x390, touch) keeps the phone header and Agents page', JSON.stringify({ bar: l.bar, menuBtn: !!l.menuBtn, klink: l.klink, burger: l.burger, stats: l.stats, grid: l.gridBtn }));
-        await ctx.close();
+        await shut(ctx, page);
       }
       // Reduced motion: the level changes at once, with no movement.
       {
@@ -345,7 +346,7 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         const now = await page.evaluate(() => ({ level: [...document.querySelectorAll('#pnav .pnav-level')].filter((x) => !x.hidden).map((x) => x.dataset.level),
           running: document.getAnimations().filter((a) => a.playState === 'running' && a.effect && a.effect.target && document.getElementById('pnav').contains(a.effect.target)).length }));
         chk(JSON.stringify(now.level) === '["settings"]' && now.running === 0, E + 'R1 with reduced motion Settings is there at once, nothing moving', JSON.stringify(now));
-        await ctx.close();
+        await shut(ctx, page);
       }
       // kosmos#4879: the phone menu's Log out, when it works, lands where the bar's does (P4 in render-plus-bar-3837):
       // the address's start, '/#signed-out', reloaded. Its own context, since it leaves the board. S4 covers the refusal.
@@ -365,7 +366,7 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         const s5 = await page.evaluate(() => ({ reloaded: !window.__before, path: location.pathname, hash: location.hash, host: location.hostname }));
         chk(asked === 1 && s5.reloaded && s5.path + s5.hash === '/#signed-out' && s5.host === 'remote.test',
           E + 'LO1 the phone menu\'s Log out that works posts once and lands on the address\'s start, signed out', JSON.stringify({ asked, lo1: s5 }));
-        await ctx.close();
+        await shut(ctx, page);
       }
     } finally {
       await browser.close();
