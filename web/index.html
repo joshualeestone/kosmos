@@ -62127,8 +62127,7 @@ function tkActPhrase(ev, p) {
     // an authored message reads correctly when two-way delivery lands later). The
     // whole return is esc()'d once at the render site, like every other phrase.
     case 'said': { const who = nameOf(ev.who); return (who ? who + ': ' : '') + (ev.text || ''); }
-    /* #5842: a message kept for an agent out of usage, sent after its reset or dropped a day later. `from` is the
-       agent that sent it; none means the person. */
+    /* #5842: a message kept for an agent out of usage, sent once it could be, or dropped a day later. */
     case 'kept-sent': case 'kept-dropped': {
       /* No reset time is named: the queue can count its day from when the message arrived, so "after the reset" could
          describe a reset nobody saw. Kept behind earlier messages (`behind`): no usage limit is named either. */

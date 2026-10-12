@@ -193,7 +193,7 @@ test('#5805 task: one still kept a day past its reset is dropped, untyped, and t
 
 test('#5805 task: a dropped line the person sent is told to no pane (the task conversation holds it)', async () => {
   const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
-  limitqueue.add('casey', { id: 'k2', kind: 'task', from: '', envelope: LINE, about: ABOUT, at: old, reset: old });
+  limitqueue.add('casey', { id: 'k2', kind: 'task', from: '', envelope: LINE, about: ABOUT, at: old, reset: old, person: true });
   await withFleet(undefined, 'idle', async (board, tmux) => {
     const out = captureStdout();
     try {
@@ -343,4 +343,18 @@ test('#5842 CONTROL: a kept task line with no task (kept before this change) is 
   });
   assert.deepEqual(kept(), [], 'not dropped as before');
   assert.equal(keptRows(), before, 'a line with no task was recorded on some task');
+});
+
+test('#5842: a dropped line with no sender named and no person mark is not logged as the person\'s', async () => {
+  const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
+  limitqueue.add('casey', { id: 'k5842e', kind: 'task', from: '', envelope: LINE, about: ABOUT, at: old, reset: old });
+  await withFleet(undefined, 'idle', async (board) => {
+    const out = captureStdout();
+    try {
+      await limitqueue.flush(board.agents, limitqueue.sweepHooks({ chat, messages }));
+      await until(() => out.lines.some((l) => l.includes('task line k5842e')));
+    } finally { out.restore(); }
+    const line = out.lines.find((l) => l.includes('task line k5842e')).trim();
+    assert.match(line, /told nobody \(no sender named\)$/, line);
+  });
 });
