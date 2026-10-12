@@ -15,6 +15,7 @@
  */
 const crypto = require('crypto');
 const { CDC, openManifest, openVerifiedChunk, checkBackupContext } = require('./backupformat');
+const { namingKeyId: namingKeyIdOf } = require('./backupkeys');
 
 const CHUNK_NAME_RE = /^[0-9a-f]{64}$/;
 // The format-1 uploader chunks with CDC, so a chunk holds at most CDC.max bytes; sealed and padded it stays well
@@ -93,12 +94,34 @@ function collidingPaths(entries) {
   return bad;
 }
 
+/* The naming key to check chunk names with (#5535). A manifest that carries one (base64, 32 bytes) must also name its
+   id (backupkeys namingKeyId), and a key the caller gives must be that same key. A manifest without one (written before
+   #5535) uses the caller's, which must match the recorded id when there is one. Null when no usable key: never a
+   guess, since a wrong key fails every chunk as tampering. */
+function manifestNamingKey(manifest, given) {
+  // Canonical only: the bytes must encode back to the very string (a non-zero trailing bit in the last character
+  // decodes to the same key and is refused, so one key has one spelling).
+  const decoded = typeof manifest.namingKey === 'string' && /^[A-Za-z0-9+/]{43}=$/.test(manifest.namingKey)
+    ? Buffer.from(manifest.namingKey, 'base64') : null;
+  const carried = decoded && decoded.toString('base64') === manifest.namingKey ? decoded : null;
+  if (manifest.namingKey !== undefined && !carried) return null;
+  const key = carried || (Buffer.isBuffer(given) ? given : null);
+  if (!key || key.length !== 32) return null;
+  if (carried && Buffer.isBuffer(given) && !given.equals(carried)) return null;
+  if (manifest.namingKeyId !== undefined && manifest.namingKeyId !== namingKeyIdOf(key)) return null;
+  if (carried && manifest.namingKeyId === undefined) return null;
+  return key;
+}
+
 /**
  * Restore one snapshot. Resolves to { restored: [path], failed: [{ path, why }] (the first 10000), failedNotListed
  * (how many more failed), skippedAtBackup: [...] }; or { overBound: 'maxManifestObject' | 'maxFiles' } when the
  * manifest is larger than the caller allowed (raise the bound and retry; the object-size bound is checked before the
  * signature, so it says nothing about authenticity); or { malformed: 'files' } when a manifest that verified has no
- * file list (the device wrote it badly, not tampering); or null
+ * file list (the device wrote it badly, not tampering); or { malformed: 'namingKey' } when no usable naming key is
+ * known (the manifest's own is malformed or does not match its namingKeyId, a given one differs from it, or an older
+ * manifest has none and none was given; so it can mean the CALLER's key is wrong, which restore cannot tell apart from
+ * a device fault); or null
  * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering).
  *
  * maxTotalBytes is REQUIRED (the caller sets it from free disk) and caps the bytes committed: a file that would pass
@@ -135,7 +158,8 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   if (!Number.isSafeInteger(maxTotalBytes) || maxTotalBytes < 0) throw new Error('backuprestore: maxTotalBytes (a byte budget, from free disk) is required');
   if (!sink || typeof sink.begin !== 'function') throw new Error('backuprestore: sink.begin is required');
   if (typeof fetchChunk !== 'function') throw new Error('backuprestore: fetchChunk is required');
-  if (!Buffer.isBuffer(namingKey) || namingKey.length !== 32) throw new Error('backuprestore: namingKey must be a 32-byte Buffer');
+  // namingKey is optional (#5535): a manifest carries its own. One given must be 32 bytes, and must match it.
+  if (namingKey !== undefined && namingKey !== null && (!Buffer.isBuffer(namingKey) || namingKey.length !== 32)) throw new Error('backuprestore: namingKey, when given, must be a 32-byte Buffer');
   if (!Buffer.isBuffer(memberSk) || memberSk.length !== 32) throw new Error('backuprestore: memberSk must be a 32-byte Buffer');
   checkBackupContext(ctx);
   if (!(devicePubAtSnapshot instanceof crypto.KeyObject) || devicePubAtSnapshot.type !== 'public' || devicePubAtSnapshot.asymmetricKeyType !== 'ed25519') {
@@ -150,6 +174,9 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   const manifest = openManifest(memberSk, devicePubAtSnapshot, ctx, mo);
   if (!manifest) return null;
   if (!Array.isArray(manifest.files)) return { malformed: 'files' };
+  const nk = manifestNamingKey(manifest, namingKey);
+  if (!nk) return { malformed: 'namingKey' };
+  namingKey = nk;
   if (manifest.files.length > maxFiles) return { overBound: 'maxFiles' };
   const restored = [], failed = [];
   const wellFormed = [];

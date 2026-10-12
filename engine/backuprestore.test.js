@@ -371,3 +371,48 @@ test('#5536 only entries that fit the byte budget earn work allowance; shrinkWar
   assert.throws(() => br.shrinkWarning({ files: [] }, { files: [] }, { bytes: 2 }), /shrinkWarning bytes/);
   assert.equal(br.shrinkWarning({ files: [] }, { files: [] }, { files: 1, bytes: 0.1 }), null, 'CONTROL');
 });
+
+test('#5535: the naming key travels in the manifest; a given one must match it, and a bad or missing key restores nothing', async () => {
+  const { namingKeyId } = require('./backupkeys');
+  const member = hpkeKeyPair(), nk = crypto.randomBytes(32), other = crypto.randomBytes(32), dev = crypto.generateKeyPairSync('ed25519');
+  const ctx = { org: 'o', member: 'm', epoch: 'e', period: 'p', snapshot: 's' };
+  const data = Buffer.from('y'.repeat(100));
+  const { name, object } = bf.sealNamedChunk(member.pk, nk, data);
+  const files = [{ path: 'a.md', chunks: [name], sha256: sha(data), size: data.length }];
+  const run = async (head, given) => {
+    const fetched = [];
+    const r = await br.restoreSnapshot({ maxTotalBytes: BIG, memberSk: member.sk, ...(given === undefined ? {} : { namingKey: given }), devicePubAtSnapshot: dev.publicKey, ctx,
+      manifestObject: bf.sealManifest(member.pk, dev.privateKey, ctx, Object.assign({ files }, head)),
+      fetchChunk: (n) => { fetched.push(n); return n === name ? object : null; }, sink: memorySink() });
+    return { r, fetched };
+  };
+  const id = namingKeyId(nk), b64 = nk.toString('base64');
+  for (const [what, head, given] of [
+    ['carried, none given', { namingKeyId: id, namingKey: b64 }, undefined],
+    ['carried, the same given', { namingKeyId: id, namingKey: b64 }, nk],
+    ['carried, null given', { namingKeyId: id, namingKey: b64 }, null],
+    ['an older manifest (none carried), given, id matches', { namingKeyId: id }, nk],
+    ['an older manifest with no id, given', {}, nk],
+  ]) {
+    const { r } = await run(head, given);
+    assert.deepEqual(r && r.restored, ['a.md'], what);
+  }
+  for (const [what, head, given] of [
+    ['carried, another given', { namingKeyId: id, namingKey: b64 }, other],
+    ['carried, the id is another key\'s', { namingKeyId: namingKeyId(other), namingKey: b64 }, undefined],
+    ['carried with no id', { namingKey: b64 }, undefined],
+    ['carried, not base64 of 32 bytes', { namingKeyId: id, namingKey: b64.slice(0, 40) }, undefined],
+    ['carried, not a string', { namingKeyId: id, namingKey: [...nk] }, undefined],
+    ['carried, not canonical base64', { namingKeyId: id, namingKey: b64.replace(/=$/, '') }, nk],
+    ['carried but malformed, a valid one given (never falls back to it)', { namingKeyId: id, namingKey: 'x' }, nk],
+    // The same 32 bytes spelled with a non-zero trailing bit: decodes to nk, refused as non-canonical.
+    ['carried, a non-canonical spelling of the right key', { namingKeyId: id, namingKey: b64.slice(0, 42) + 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'[('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.indexOf(b64[42]) ^ 1)] + '=' }, undefined],
+    ['none carried, given, the id is another key\'s', { namingKeyId: namingKeyId(other) }, nk],
+    ['none carried, none given', { namingKeyId: id }, undefined],
+  ]) {
+    const { r, fetched } = await run(head, given);
+    assert.deepEqual(r, { malformed: 'namingKey' }, what);
+    assert.equal(fetched.length, 0, `${what}: nothing fetched`);
+  }
+  await assert.rejects(run({ namingKeyId: id, namingKey: b64 }, Buffer.alloc(31)), /namingKey, when given, must be a 32-byte Buffer/);
+});
