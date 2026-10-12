@@ -55,3 +55,13 @@ default is added only beside a named account).
 3. FIXED: a Gemini agent's default arm is create.geminiStorageHome(null) (the board reader's), the same on both paths.
 Mutants (20:40 CDT from `date`): R3 one-folder check removed: red. R4 any tag accepted: red (after the fix
 above). R5 the account home named codex: red. R6 a role tag (-default) instead of the folder's: red.
+
+## Review 3 (opus, blind, on 878f0c45): no must-fix; it ran 40,000 generated names through rootNameProblem (all pass).
+1. FIXED: `codex` / `gemini` named the agents' default home for Codex/Gemini agents but the BOARD's CODEX_HOME /
+   GEMINI_CLI_HOME for the rest, so the folder behind the name moved with the runner. Now the agents' default
+   (create.defaultAgentCodexHome / geminiStorageHome(null)) for every agent; the board's homes stay protected. Test sets
+   CODEX_HOME so the two really differ (it ran, not skipped). Mutant Q1 (the board's home again) red.
+2. FIXED, NOT TESTED: the runtime lookup and the named-account push each have their own try, so a throw in one cannot
+   drop the other. No test makes codexruntime.forAgent throw.
+3. NOTED on #5883: Antigravity agents (Gemini on a Google subscription) are not read here either, as before.
+Tests 37 -> 38.

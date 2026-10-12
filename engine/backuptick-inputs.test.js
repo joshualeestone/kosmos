@@ -170,3 +170,22 @@ test('#5883 review 2: one folder keeps ONE name across an account move, so its f
   for (const [folder, name] of Object.entries(before)) assert.equal(after[folder], name, `${folder} was renamed by the move`);
   assert.equal(Object.keys(after).length, 2, 'CONTROL: after the move both homes are read');
 });
+
+test('#5883 review 3: `codex` names the agents\' default home for every agent, never the board\'s CODEX_HOME', (t) => {
+  const create = require('./create');
+  const saved = { a: process.env.AGENT_WORKFORCE_CODEX_HOME, c: process.env.CODEX_HOME };
+  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  process.env.CODEX_HOME = mk('board-codex-home');
+  try {
+    const board = require('./codexupdate').defaultHome();
+    const agents = create.defaultAgentCodexHome();
+    if (board === agents) { t.skip('the two homes do not differ here, so there is nothing to tell apart'); return; }
+    const seen = {};
+    mk('workers', 'plain');
+    tick.rootsFor(tick.inputsHere({ readJob: (n) => (n === 'plain' ? { runner: 'claude', configDir: null } : null), sessionsFor: (d, o) => { seen[o.id] = o; return []; } }));
+    assert.equal(seen.plain.codexHome, agents, 'a non-Codex agent was read from the board\'s CODEX_HOME');
+  } finally {
+    if (saved.a === undefined) delete process.env.AGENT_WORKFORCE_CODEX_HOME; else process.env.AGENT_WORKFORCE_CODEX_HOME = saved.a;
+    if (saved.c === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = saved.c;
+  }
+});
