@@ -89,4 +89,21 @@ else
   fail "the runner's unset line did not clear KOSMOS_AGENT_TOKEN_ONLY for a node child (line: $uline; got: $probe2)"
 fi
 
+# #5933: the agent's IDENTITY is stripped at the same boundary (an agent launches with both since #5898,
+# and a CLI test that spreads process.env would present a token its sandbox board never issued). Source
+# leg: one top-level line names BOTH, before the node suite. Behavioural leg: that line, run with both
+# poisoned, leaves a node child seeing neither.
+iline="$(grep -E '^unset([[:space:]].*)?[[:space:]]KOSMOS_AGENT_TOKEN([[:space:]].*)?[[:space:]]KOSMOS_AGENT_SESSION([[:space:]]|$)' "$RT" | head -1)"
+iln="$(grep -nE '^unset([[:space:]].*)?[[:space:]]KOSMOS_AGENT_TOKEN([[:space:]].*)?[[:space:]]KOSMOS_AGENT_SESSION([[:space:]]|$)' "$RT" | head -1 | cut -d: -f1)"
+if [ -n "$iln" ] && [ -n "$nln0" ] && [ "$iln" -lt "$nln0" ]; then
+  pass "run-tests.sh unsets KOSMOS_AGENT_TOKEN and KOSMOS_AGENT_SESSION at top level (line $iln) before the node suite"
+else
+  fail "run-tests.sh no longer unsets the agent identity at top level before the node suite (unset=$iln node=$nln0)"
+fi
+probe3="$(KOSMOS_AGENT_TOKEN=poison-token KOSMOS_AGENT_SESSION=poison-session bash -c "$iline"'
+  node -pe "[process.env.KOSMOS_AGENT_TOKEN, process.env.KOSMOS_AGENT_SESSION].map(String).join(\",\")"' 2>&1)"
+[ -n "$iline" ] && [ "$probe3" = "undefined,undefined" ] \
+  && pass "the runner's own identity unset line clears both for a node child" \
+  || fail "the runner's identity unset line did not clear both for a node child (got: $probe3)"
+
 [ "$fails" = 0 ] && { echo "ALL PASS"; exit 0; } || { echo "FAILED"; exit 1; }
