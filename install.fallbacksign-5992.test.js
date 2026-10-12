@@ -1,12 +1,12 @@
 'use strict';
 /*
  * #5992: the per-install Kosmos.app that build_app_bundle assembles (the fallback when the sealed app cannot be
- * placed) must carry a valid signature. kosmos-app is signed as a bundle's program, so its signature expects a sealed
- * bundle around it; a folder assembled around it with no _CodeSignature is what macOS calls "damaged" (Josh,
- * 2026-10-12, on a 0.7.38 icon).
+ * placed) must carry a valid signature. A folder assembled around the signed kosmos-app has no _CodeSignature, so the
+ * bundle does not verify and macOS calls it "damaged" (Josh, 2026-10-12, on a 0.7.38 icon).
  *
  * The REAL build_app_bundle is lifted out of setup.sh and run under /bin/sh against a home whose bin/kosmos-app is a
- * real Mach-O signed as a bundle's program (ad hoc, no keychain), the same shape the shipped kosmos-app has.
+ * lone Mach-O signed the way the cut signs kosmos-app (ad hoc here, no keychain): hardened runtime, with the app's own
+ * entitlements file.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -30,26 +30,28 @@ let tmpRoot;
 test.before(() => { tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-fallbacksign-5992-')); });
 test.after(() => { if (tmpRoot) fs.rmSync(tmpRoot, { recursive: true, force: true }); });
 
-// A home whose app/bin/kosmos-app is a program lifted out of a signed bundle: its signature names resources it
-// no longer sits beside, exactly as the shipped kosmos-app does.
-function makeHome() {
+const ENTITLEMENTS = path.join(__dirname, 'native-app', 'kosmos-app.entitlements');
+// A home whose app/bin/kosmos-app is a lone Mach-O signed with the hardened runtime and the app's entitlements.
+// icnsAttr: also ship an icon carrying a Finder-info attribute, which codesign refuses inside a bundle.
+function makeHome({ icnsAttr = false } = {}) {
   const home = fs.mkdtempSync(path.join(tmpRoot, 'home-'));
-  const donor = path.join(home, 'Donor.app');
-  fs.mkdirSync(path.join(donor, 'Contents', 'MacOS'), { recursive: true });
-  fs.copyFileSync('/usr/bin/true', path.join(donor, 'Contents', 'MacOS', 'Donor'));
-  fs.writeFileSync(path.join(donor, 'Contents', 'Info.plist'),
-    '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>CFBundleExecutable</key><string>Donor</string>'
-    + '<key>CFBundleIdentifier</key><string>kosmos-app</string></dict></plist>\n');
-  execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', '--options', 'runtime', donor]);
   fs.mkdirSync(path.join(home, 'app', 'bin'), { recursive: true });
-  fs.copyFileSync(path.join(donor, 'Contents', 'MacOS', 'Donor'), path.join(home, 'app', 'bin', 'kosmos-app'));
-  fs.chmodSync(path.join(home, 'app', 'bin', 'kosmos-app'), 0o755);
+  const prog = path.join(home, 'app', 'bin', 'kosmos-app');
+  fs.copyFileSync('/usr/bin/true', prog);
+  fs.chmodSync(prog, 0o755);
+  execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', '--options', 'runtime', '--entitlements', ENTITLEMENTS, '--identifier', 'kosmos-app', prog]);
+  if (icnsAttr) {
+    fs.mkdirSync(path.join(home, 'app', 'assets'), { recursive: true });
+    const icns = path.join(home, 'app', 'assets', 'Kosmos.icns');
+    fs.writeFileSync(icns, 'icns');
+    execFileSync('/usr/bin/xattr', ['-wx', 'com.apple.FinderInfo', '69636e7369636e73000000000000000000000000000000000000000000000000', icns]);
+  }
   return home;
 }
 
 function build(src, home) {
   const app = path.join(fs.mkdtempSync(path.join(tmpRoot, 'apps-')), 'Kosmos.app');
-  const script = ['set -u', fnSource(src, 'build_app_bundle'), 'build_app_bundle "$1"; echo "rc=$?"'].join('\n');
+  const script = ['set -u', 'info() { printf "     %s\\n" "$*"; }', fnSource(src, 'build_app_bundle'), 'build_app_bundle "$1"; echo "rc=$?"'].join('\n');
   const out = execFileSync('/bin/sh', ['-c', script, 'sh', app],
     { env: { PATH: '/usr/bin:/bin', HOME: home, KOSMOS_HOME: home, PORT: '16180', MACOS_FLOOR_MAJOR: '13', MACOS_FLOOR_MINOR: '5' }, encoding: 'utf8' });
   return { app, out };
@@ -65,13 +67,23 @@ it('#5992: the bundle build_app_bundle assembles is sealed and verifies, keeping
   const info = spawnSync('/usr/bin/codesign', ['-dv', app], { encoding: 'utf8' }).stderr;
   assert.match(info, /flags=0x[0-9a-f]+\([^)]*runtime/, 'the hardened runtime flag was dropped: ' + info);
   assert.ok(fs.existsSync(path.join(app, 'Contents', 'Resources', 'kosmos-install.json')), 'the per-install config is missing');
+  const ent = spawnSync('/usr/bin/codesign', ['-d', '--entitlements', '-', app], { encoding: 'utf8' });
+  assert.match(ent.stdout + ent.stderr, /com\.apple\.security\.device\.audio-input/, 'the microphone entitlement was dropped');
+});
+
+it('#5992: an icon carrying a Finder-info attribute still gets a signed bundle (attributes are cleared first)', () => {
+  const { app, out } = build(SETUP, makeHome({ icnsAttr: true }));
+  assert.match(out, /rc=0/, 'one icon attribute cost the whole bundle: ' + out);
+  assert.ok(fs.existsSync(path.join(app, 'Contents', 'Resources', 'Kosmos.icns')), 'the icon was not copied');
+  assert.ok(verifies(app), 'the bundle does not verify');
 });
 
 it('#5992 CONTROL: without the signing step the same bundle does not verify (the defect this card is about)', () => {
   const at = SETUP.indexOf('\nbuild_app_bundle() {\n');
   const end = SETUP.indexOf('\n}\n', at);
   const body = SETUP.slice(at, end);
-  const unsigned = body.split('\n').filter((l) => !/^\s*\/usr\/bin\/codesign /.test(l)).join('\n');
+  const unsigned = body.replace('/usr/bin/codesign --force --sign - --preserve-metadata=entitlements,flags "$app"', 'true')
+    .replace('/usr/bin/codesign --verify --deep --strict "$app"', 'true');
   assert.notEqual(unsigned, body, 'the control removed nothing: the signing lines were not found');
   const src = SETUP.slice(0, at) + unsigned + SETUP.slice(end);
   const { app, out } = build(src, makeHome());
