@@ -16,7 +16,8 @@ Deleting allowlist lines. That needs several runs' worth of these notes, since s
 fails (kosmos-dmfiles is listed for that reason).
 
 ## Weakest premise
-That a line of up to ~40 names is readable enough in a validation log. It is one line, at the end, after the verdict.
+That a line of up to ~40 names is readable enough in a validation log. It is one line, printed by run-tests.sh after the
+node tally and before the browser-check gates and the final verdict.
 
 ## Checked
 A probe of leak_tmp_check on a scratch root: `note: 2 allowlisted families left nothing this run (gone-family,
