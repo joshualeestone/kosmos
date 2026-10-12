@@ -328,6 +328,14 @@ for (const which of ['card', 'lrow']) {
     assert.ok(!render(which, offlineRow()).includes('working rules'), 'a row with no number drew the sentence');
     const html = render(which, { ...offlineRow({ strict: false }), rulesBehind: 13 });
     assert.ok(html.includes(SAID), `${which} did not draw the sentence: ${html.slice(0, 200)}`);
-    assert.ok(html.includes(which === 'card' ? '<div class="note">' + SAID : '<div class="ltask">' + SAID), `${which} drew it outside its slot`);
+    assert.ok(html.includes(which === 'card' ? '<div class="ameta">' + SAID : '<div class="ltask">' + SAID), `${which} drew it outside its slot`);
+    // Not when launchd says a process may be running (the "could not check" split): the update restarts it.
+    // The split branch names its label from the page's STATE_COPY, which render() does not supply: given here only.
+    globalThis.STATE_COPY = { unknown: { label: 'Could not check' } };
+    let split;
+    try { split = render(which, { ...offlineRow({ strict: false }), rulesBehind: 13, jobRunningUnseen: true }); }
+    finally { delete globalThis.STATE_COPY; }
+    assert.ok(split.includes('Could not check') || split.includes('st-unknown'), `fixture: ${which} did not take the split branch`);
+    assert.ok(!split.includes('working rules'), `${which} said it on the could-not-check split`);
   });
 }

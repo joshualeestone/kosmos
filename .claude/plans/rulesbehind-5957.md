@@ -16,8 +16,8 @@ hides its note then too). The last two keep the card and the page agreeing: a pe
 
 ## Where it is computed
 `doctrine.status` reads and plans the whole instructions file, too heavy for every card on every poll. So the server
-computes `rulesBehind` (a number, or null) per tied row, CACHED on (instructions file mtime and size, profile
-updatedAt, version, Not now). An agent not far behind returns before touching any file; a far-behind one costs finding
+computes `rulesBehind` (a number, or null) per tied row, CACHED on (the instructions file's path, mtime and size,
+the recorded version, Not now). An agent not far behind returns before touching any file; a far-behind one costs finding
 its file (its job record) and one stat per poll, and the whole plan only when something changed. Null when the version is unknown (an agent made
 before the version was recorded) or the file is missing: no claim from a missing record.
 
@@ -43,3 +43,14 @@ slice; this one makes the far-behind agent visible where agents are seen.
 - Mutants, each red then restored on a clean tree: threshold off by one; the refresh condition dropped; the cache never
   invalidating; no cache at all; the card flag ignored; the row field dropped.
 - The golden agent card (#2519) carries the new key; nearby files (279) green, 6130 pass.
+
+## Review iterations 5 and 6
+- The offline card and list row return early with no task line, so they draw the sentence themselves through the same
+  helper (rulesBehindLine): the card as a small muted line (the ameta style; not atask, which #855's card-order guard
+  keeps after the model line in card(), and not the padded note box, which would change the card's look), the list
+  row in its existing ltask cell. Not in the "could not check" split (launchd says a process may be running).
+- Project rooms' member rows do not carry it: a room is not where an agent's rules are kept up to date; the board's
+  card and list are.
+- Deferred: a per-name cache of the file path (each far-behind agent still finds its file and stats it per poll;
+  measured cheap, and only far-behind agents pay), and a route-level assertion for live rows (the route spreads the
+  snapshot row today; the golden card and the snapshot test cover the field).
