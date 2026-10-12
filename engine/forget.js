@@ -78,7 +78,8 @@ const KINDS = [
 ];
 
 function countIn(dir) {
-  try { return fs.readdirSync(dir).filter((f) => !f.startsWith('.')).length; }
+  // kosmos#5841: a conversation's earlier `.full` files are part of that conversation, not more of them.
+  try { return fs.readdirSync(dir).filter((f) => !f.startsWith('.') && !f.endsWith('.full')).length; }
   catch { return 0; }
 }
 
