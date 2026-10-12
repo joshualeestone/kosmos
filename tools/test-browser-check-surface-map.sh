@@ -101,8 +101,38 @@ token_web_scan() {
   printf '%s %s' "$(grep -cE "$b" "$2")" "$(grep -cE "$b" "$3")"
 }
 
+# #5907: one pass per half counts every PLAIN token (only [A-Za-z0-9_-], the boundary class) at once. A line splits into
+# maximal runs of that class, and a plain token sits between boundaries exactly when it is one of those runs, so this is
+# token_web_scan's match; a line counts once per token, as grep -c counts lines. Prints "token count" for each wanted
+# token. Calling token_web_scan per token cost two full-file greps for each of ~1,000 tokens (most of this test's time).
+count_plain_tokens() {   # $1: file of tokens, one per line; $2: the half to count in
+  awk 'NR==FNR { if ($0 != "") want[$0]=1; next }
+       { split("", seen); n=split($0, w, /[^A-Za-z0-9_-]+/)
+         for (k=1; k<=n; k++) if (w[k] != "" && (w[k] in want) && !(w[k] in seen)) { seen[w[k]]=1; c[w[k]]++ } }
+       END { for (t in want) print t, ((t in c) ? c[t] : 0) }' "$1" "$2"
+}
+
 WEB_CODE="$(_mktmp)"; WEB_CMT="$(_mktmp)"
 split_halves "$WEB" "$WEB_CODE" "$WEB_CMT"
+
+# Every declared token, counted up front: the plain ones in one pass per half, the rest by token_web_scan below.
+ALL_TOKS="$(_mktmp)"; PLAIN_TOKS="$(_mktmp)"; FN_COUNTS="$(_mktmp)"; CMT_COUNTS="$(_mktmp)"; COUNTS="$(_mktmp)"
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  sed -n 's|^[[:space:]]*//[[:space:]]*[Bb][Rr][Oo][Ww][Ss][Ee][Rr]-[Cc][Hh][Ee][Cc][Kk]-[Ss][Uu][Rr][Ff][Aa][Cc][Ee]:[[:space:]]*\(.*\)$|\1|p' "$f" | head -1 | tr ' \t' '\n\n'
+done <<< "$(find "$BCDIR" -maxdepth 1 -type f -name '*.js' 2>/dev/null)" > "$ALL_TOKS"
+grep -E '^[A-Za-z0-9_-]+$' "$ALL_TOKS" | sort -u > "$PLAIN_TOKS"
+count_plain_tokens "$PLAIN_TOKS" "$WEB_CODE" > "$FN_COUNTS"
+count_plain_tokens "$PLAIN_TOKS" "$WEB_CMT" > "$CMT_COUNTS"
+# One table, "token functional comment", so each token is one lookup.
+awk 'NR==FNR { f[$1]=$2; next } { print $1, f[$1], $2 }' "$FN_COUNTS" "$CMT_COUNTS" > "$COUNTS"
+# The same "functional comment" pair token_web_scan prints, from the counts for a plain token.
+token_counts() {
+  case "$1" in
+    *[!A-Za-z0-9_-]*|'') token_web_scan "$1" "$WEB_CODE" "$WEB_CMT" ;;
+    *) awk -v t="$1" '$1 == t { printf "%s %s", $2, $3; exit }' "$COUNTS" ;;
+  esac
+}
 
 annotated=0
 while IFS= read -r f; do
@@ -113,7 +143,7 @@ while IFS= read -r f; do
   base="${f##*/}"
   while IFS= read -r t; do
     [ -n "$t" ] || continue
-    scan="$(token_web_scan "$t" "$WEB_CODE" "$WEB_CMT")"; fn="${scan%% *}"; cmt="${scan##* }"
+    scan="$(token_counts "$t")"; fn="${scan%% *}"; cmt="${scan##* }"
     if [ "$fn" -ge 1 ]; then
       # A comment occurrence alongside the functional one is a minor OVER-FIRE risk (a
       # wording edit to that comment fires the gate; the per-check override clears it). It
