@@ -188,10 +188,10 @@ function sweepOnce(o) {
         let state = null;
         let held = false;
         let heldBy = null;   // #4588 ask 3: which hold, so the log does not say "quota" for the Gemini limit
-        try { const r = o.deliver(session, text, o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = r && r.heldBy; }
+        try { const r = o.deliver(session, text, o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = r && (r.heldFor === 'signin' ? 'signin' : r.heldBy); }
         catch (err) { state = 'threw: ' + String((err && err.message) || err); }
         /* #4588 PR B: held (the shared Google quota, the Gemini cap, #5743 an answer awaited on its screen, or #5805 a usage limit), nothing typed: no try is spent and nothing counts toward the hour. */
-        if (held) { results.push({ session, name: display, act: heldBy === 'menu' ? 'menu-held' : heldBy === 'limit' ? 'limit-held' : 'quota-held', delivered: false, delivery: state, because: p.because + (heldBy === 'cap' ? '; held by the Gemini limit' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : heldBy === 'limit' ? '; held while it is out of usage (#5805)' : '; held on the shared Google quota'), task: p.part.n }); continue; }
+        if (held) { results.push({ session, name: display, act: heldBy === 'menu' ? 'menu-held' : heldBy === 'signin' ? 'signin-held' : heldBy === 'limit' ? 'limit-held' : 'quota-held', delivered: false, delivery: state, because: p.because + (heldBy === 'cap' ? '; held by the Gemini limit' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : heldBy === 'signin' ? '; held while it is signed out (#5948)' : heldBy === 'limit' ? '; held while it is out of usage (#5805)' : '; held on the shared Google quota'), task: p.part.n }); continue; }
         const D = o.DELIVERY || {};
         const delivered = D.PLACED != null && state === D.PLACED;
         const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);

@@ -1964,6 +1964,29 @@ function limitHeldVerdict(sessionName, roster, now = Date.now()) {
     at: new Date().toISOString(), paneState: null, paneNote: null,
   };
 }
+/* #5948: a line for an agent whose sign-in stopped working (card auth_failed, any runner) is HELD in the #5805 queue
+   rather than typed: typed, it reaches a session that answers every turn "Not signed in", and the sender counts it as
+   delivered (on Windows the supervisor even drops it). heldBy stays 'limit' so every #5805 path (the queue, its minute
+   sweep, Send now anyway, the room's limit record) carries it unchanged; heldFor says why, for the words. limitReset is
+   now: the queue's drop clock counts a day from the send, since a sign-in has no printed reset. heldUntil is the next
+   look. Released when the card no longer reads auth_failed (signed in again, or restarted). */
+function signinHeldVerdict(sessionName, roster, now = Date.now()) {
+  const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
+  if (!card || card.isNamedOurs !== true || card.state !== status.STATE.AUTH_FAILED) return null;
+  if (addressable(sessionName, roster).ok !== true) return null;
+  const provider = require('./accountproblem').providerOf(card);
+  return {
+    state: DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldFor: 'signin',
+    heldUntil: new Date(now + LIMIT_RELOOK_MS).toISOString(), limitReset: new Date(now).toISOString(),
+    because: 'held: it is signed out of ' + provider + '; Kosmos sends it once it is signed in again',
+    at: new Date(now).toISOString(), paneState: null, paneNote: null,
+  };
+}
+/* #5948: the one hold every #5805 sender asks: out of usage, or signed out. */
+function accountHeldVerdict(sessionName, roster, now = Date.now()) {
+  // Through the exports, so a test that replaces either (limitmsg-5805 review 9) still reaches every sender.
+  return module.exports.limitHeldVerdict(sessionName, roster, now) || module.exports.signinHeldVerdict(sessionName, roster, now);
+}
 /* #5805: the server's release test for a limit-held member: its card reads idle, or still reads the blocked report
    Claude Code's StopFailure hook made on the limit while its screen reads idle (that report stands until the agent's
    next turn, which the held posts are what gives it). */
@@ -1978,6 +2001,8 @@ function limitReleased(card) {
    fresh `kosmos msg` (typed straight in) does not: decided, since a line typed into a menu answers it. A limit line
    with no date never holds (slice 1's stated gap), so it releases the backlog too, as it lets a fresh send through. */
 function limitQueueReleased(card, roster) {
+  /* #5948: a signed-out agent keeps its queue until it is signed in again, whatever else its card reads. */
+  try { if (card && signinHeldVerdict(card.sessionName, roster) !== null) return false; } catch { return false; }
   if (limitReleased(card)) return true;
   try { return !!card && limitHeldVerdict(card.sessionName, roster) === null; } catch { return false; }
 }
@@ -1991,7 +2016,7 @@ function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}
   try { menuHold = menuHeldVerdict(sessionName, roster); } catch { menuHold = null; }   // never throws (the floor still reads)
   if (menuHold) return menuHold;
   let limitHold = null;
-  try { limitHold = limitHeldVerdict(sessionName, roster); } catch { limitHold = null; }   // never throws
+  try { limitHold = accountHeldVerdict(sessionName, roster); } catch { limitHold = null; }   // never throws (#5948: or signed out)
   if (limitHold) return limitHold;
   const held = quotaHeldVerdict(sessionName, roster, opts);
   if (held) return held;
@@ -2010,7 +2035,7 @@ async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer
   try { menuHold = menuHeldVerdict(sessionName, roster); } catch { menuHold = null; }   // never throws (the floor still reads)
   if (menuHold) return menuHold;
   let limitHold = null;
-  try { limitHold = limitHeldVerdict(sessionName, roster); } catch { limitHold = null; }   // never throws
+  try { limitHold = accountHeldVerdict(sessionName, roster); } catch { limitHold = null; }   // never throws (#5948: or signed out)
   if (limitHold) return limitHold;
   const held = quotaHeldVerdict(sessionName, roster, opts);
   if (held) return held;
@@ -3998,7 +4023,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,

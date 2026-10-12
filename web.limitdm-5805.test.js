@@ -82,3 +82,12 @@ test('#5805 2b review 3: Send now anyway says the route\'s refusal under the box
   assert.equal(say.textContent, '', 'CONTROL: a 409 (sent or dropped meanwhile) repaints, it is not an error');
   assert.deepEqual(gone.painted, ['casey']);
 });
+
+test('#5948: a row held because the agent is signed out says so, with no usage limit or reset named', () => {
+  const words = lift('dmHeldWords', { quotaResetWords: () => 'later today' });
+  const signin = words('casey', { state: 'held', heldFor: 'signin', heldUntil: new Date(Date.now() + 60e3).toISOString() });
+  assert.equal(signin, 'Held: casey is signed out. Kosmos sends it once it is signed in again.');
+  assert.match(words('casey', { state: 'held', heldFor: 'signin', stuck: { because: 'no window' } }), /signed in again\. Kosmos tried to send it and could not: no window\.$/);
+  // CONTROL: the same row without heldFor is still the usage-limit sentence, so the assertion above can fail.
+  assert.match(words('casey', { state: 'held', heldUntil: null }), /out of usage/);
+});
