@@ -1451,7 +1451,9 @@ function runCompanyOpener(url) {
      whole environment (its tokens among it), since the child can be a browser that runs for a long time. On Linux
      with nothing that can show a page (childenv.hasDesktop) it is not started, and the answer is "use the link" at
      once. Windows keeps the environment as it was: rundll32 needs Windows' own variables (SystemRoot and others), and
-     no list for it has been checked on a Windows machine; that list is kosmos#5895. */
+     no list for it has been checked on a Windows machine; that list is kosmos#5895. Two callers: companyOpen (the
+     company sign-in) and vouchTick (connecting this computer's browser), whose existing "could not open the browser"
+     branch is what a Linux board with no display now reaches at once. */
   const src = companyOpenSourceForTests || { platform: process.platform, env: process.env };
   if (src.platform === 'linux' && !childenv.hasDesktop(src.env)) return Promise.resolve(false);
   const env = src.platform === 'win32' ? undefined : childenv.openerEnv(src.env);

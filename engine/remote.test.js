@@ -4720,6 +4720,44 @@ test('#5786 (b): a second sign-in while a refused Not me waits on its allow does
   remote.setOn(false);
 });
 
+/* kosmos#5889 (review 4): at full scope, every key the list allows arrives with its own value, and nothing else the
+   source carries does. A key dropped from the list, or a filter that lets the rest through, fails here. */
+test('kosmos#5889: every allowed key reaches the opener with its value, and nothing else from the source does', async (t) => {
+  const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+  const childenv = require('./childenv');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opener-5889-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const out = path.join(dir, 'env.json');
+  const writer = [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify(process.env))`];
+  // Pinned on purpose: a key taken off engine/childenv.js's list must be taken off here too, and a browser that
+  // needed it (Wayland, D-Bus, a proxy, Kerberos) is then a deliberate change, not a silent one.
+  const EXPECTED = [
+    'ALL_PROXY', 'BROWSER', 'DBUS_SESSION_BUS_ADDRESS', 'DESKTOP_SESSION', 'DISPLAY', 'GDK_BACKEND', 'GDK_DPI_SCALE',
+    'GDK_SCALE', 'GNOME_DESKTOP_SESSION_ID', 'GTK_IM_MODULE', 'HOME', 'HTTPS_PROXY', 'HTTP_PROXY',
+    'KDE_FULL_SESSION', 'KDE_SESSION_VERSION', 'KRB5CCNAME', 'LANG', 'LANGUAGE', 'LC_ADDRESS', 'LC_ALL',
+    'LC_COLLATE', 'LC_CTYPE', 'LC_IDENTIFICATION', 'LC_MEASUREMENT', 'LC_MESSAGES', 'LC_MONETARY', 'LC_NAME',
+    'LC_NUMERIC', 'LC_PAPER', 'LC_TELEPHONE', 'LC_TIME', 'LOGNAME', 'MATE_DESKTOP_SESSION_ID', 'MOZ_ENABLE_WAYLAND',
+    'NO_PROXY', 'PATH', 'QT_AUTO_SCREEN_SCALE_FACTOR', 'QT_IM_MODULE', 'QT_QPA_PLATFORM', 'QT_SCALE_FACTOR',
+    'TMPDIR', 'USER', 'VSCODE_IPC_HOOK_CLI', 'WAYLAND_DISPLAY', 'WSL_DISTRO_NAME', 'WSL_INTEROP', 'XAUTHORITY',
+    'XCURSOR_SIZE', 'XCURSOR_THEME', 'XDG_CACHE_HOME', 'XDG_CONFIG_DIRS', 'XDG_CONFIG_HOME', 'XDG_CURRENT_DESKTOP',
+    'XDG_DATA_DIRS', 'XDG_DATA_HOME', 'XDG_RUNTIME_DIR', 'XDG_SESSION_DESKTOP', 'XDG_SESSION_TYPE', 'XDG_STATE_HOME',
+    'XMODIFIERS', 'all_proxy', 'http_proxy', 'https_proxy', 'no_proxy',
+  ];
+  assert.deepEqual([...childenv.OPENER_KEYS].sort(), EXPECTED, 'the opener allowlist changed: update EXPECTED on purpose');
+  const src = { PATH: process.env.PATH, SECRET_5889: 'board-only', NOT_LISTED_5889: 'x' };
+  for (const k of EXPECTED) if (k !== 'PATH') src[k] = 'v-' + k;
+  remote.resetForTests();
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  remote.setCompanyOpenSourceForTests({ platform: 'linux', env: src });
+  remote.setCompanyOpenCommandForTests(writer);
+  assert.deepEqual(await remote.companyOpen(), { ok: true, because: null });
+  const got = JSON.parse(fs.readFileSync(out, 'utf8'));
+  const missing = EXPECTED.filter((k) => got[k] !== src[k]);
+  assert.deepEqual(missing, [], 'allowed keys that did not reach the opener with their value');
+  const leaked = Object.keys(got).filter((k) => k in src && !EXPECTED.includes(k));
+  assert.deepEqual(leaked, [], 'source keys outside the list that reached the opener');
+});
+
 /* kosmos#5889: the company opener's child gets only what a desktop needs, never the board's whole environment. The child
    here is node itself, writing the environment it was given. */
 test('kosmos#5889: the company sign-in opener passes only the desktop allowlist; a board token never reaches the browser', async (t) => {
