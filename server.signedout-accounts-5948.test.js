@@ -125,3 +125,14 @@ test('#5948 review 15: an agent whose job could not be read (not missing) leaves
   try { again = await (await fetch(base + '/api/accounts')).json(); } finally { board2.restore(); }
   assert.equal(again.unlistedComplete, true);
 });
+
+test('#5948 review 18: a Claude agent whose job cannot be read does not make the keyed-account check incomplete', async () => {
+  const fleet = require('./test-support/fleet');
+  const realRead = create.readJob, realMissing = create.jobMissing;
+  create.readJob = (n, ...rest) => (n === 'claudeone' ? null : realRead(n, ...rest));
+  create.jobMissing = (n, ...rest) => (n === 'claudeone' ? false : realMissing(n, ...rest));
+  const board = fleet.install([fleet.agent('claudeone', { state: 'idle' })]);
+  let body;
+  try { body = await (await fetch(base + '/api/accounts')).json(); } finally { board.restore(); create.readJob = realRead; create.jobMissing = realMissing; }
+  assert.equal(body.unlistedComplete, true);
+});
