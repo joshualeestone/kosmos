@@ -11,6 +11,10 @@ set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 FILES="install/kosmos install/setup.sh install/kosmos-report-hook.sh"
 fails=0
+# Every scratch file below lands in one folder, removed on any exit (an interrupted run leaves nothing behind).
+_tmproot="$(mktemp -d)" || { echo "installer runnable-guard: could not make a scratch folder"; exit 1; }
+trap 'rm -rf "$_tmproot"' EXIT
+export TMPDIR="$_tmproot"
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails + 1)); }
 
@@ -101,7 +105,7 @@ if [ "$_scan_ok" -eq 0 ]; then
 elif [ -z "$bare" ]; then
     pass "no unguarded executable test in the installer (positive or negated, quoted or unquoted), and each listed folder test found once"
 else
-    fail "unguarded executable test site(s) remain:"
+    fail "unguarded executable test site(s) remain, or a listed folder test is not found exactly once:"
     printf '%s\n' "$bare" | sed 's/^/        /'
 fi
 
@@ -138,6 +142,11 @@ done
 _out="$(cd "$_cdir" && awk -v whole=1 "$_scan" $(printf '%s\n' "$FOLDER_SEARCH_TESTS" | awk 'NR % 3 == 1' | sort -u) 2>/dev/null)"
 if [ "$(printf '%s\n' "$_out" | grep -c 'found 2 times')" -eq "$((_nl / 3))" ]; then pass "a listed folder test copied a second time (in a heredoc) is reported, for every entry"
 else fail "a copied listed folder test was not reported: $_out"; fi
+# And with every listed file emptied: each entry is now stale and is reported (found 0 times).
+for _e in $(seq 1 $((_nl / 3))); do : > "$_cdir/$(rel "$_e" 1)"; done
+_out="$(cd "$_cdir" && awk -v whole=1 "$_scan" $(printf '%s\n' "$FOLDER_SEARCH_TESTS" | awk 'NR % 3 == 1' | sort -u) 2>/dev/null)"
+if [ "$(printf '%s\n' "$_out" | grep -c 'found 0 times')" -eq "$((_nl / 3))" ]; then pass "a listed folder test that is no longer in its file is reported (a stale entry), for every entry"
+else fail "a stale listed folder test was not reported: $_out"; fi
 rm -rf "$_cdir"
 # Every listed test after any other line, or alone, IN ITS OWN LISTED FILE (so only the line before differs), with its
 # own line but in another file, and every unlisted folder test, is flagged. flagged <file> <text>: scan <text> as <file>.
