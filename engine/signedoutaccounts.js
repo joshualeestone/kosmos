@@ -90,7 +90,12 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
       let unreadable = false;
       // A look that fails counts as "there but unreadable": "could not be checked", never a confident "gone".
       let folderUnsure = false;   // the look itself failed: nobody saw a file, so the words must not say one is there
-      try { unreadable = p.files.some((f) => exists(path.join(dir, f))); } catch { unreadable = true; folderUnsure = true; }
+      // Every file is looked at: one seen there settles it; only when none is seen and a look failed is it unsure.
+      let faulted = false;
+      for (const f of p.files) {
+        try { if (exists(path.join(dir, f))) { unreadable = true; break; } } catch { faulted = true; }
+      }
+      if (!unreadable && faulted) { unreadable = true; folderUnsure = true; }
       byDir.set(key, {
         provider: p.provider, providerName: p.providerName, dir,
         label: base.startsWith(p.prefix) ? base.slice(p.prefix.length) : base,
