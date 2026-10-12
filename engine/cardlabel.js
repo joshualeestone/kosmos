@@ -36,6 +36,12 @@ function restartingLabel(a) {
 
 /** The card's label for board card `a`, as the page's stateCopyOf picks it. */
 function labelOf(a) {
+  /* The page's offline card (renderAgentCard's `a.running === false` branch) comes before stateCopyOf: a trust prompt,
+     a job running where Kosmos cannot see it ("Can't tell"), or "Not running". */
+  if (a && a.running === false && a.state !== 'restarting') {
+    if (a.needsTrust === true) return STATE_COPY.needs_trust;
+    return a.jobRunningUnseen === true ? STATE_COPY.unknown : 'Not running';
+  }
   if (a && a.crashLoop && a.crashLoop.looping === true) return 'Keeps stopping';
   if (a && a.state === 'restarting') return restartingLabel(a);
   if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') return STATE_COPY.question;
