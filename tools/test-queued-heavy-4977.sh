@@ -324,7 +324,7 @@ ok "#5923: a lib lock held by a live holder is respected (nothing moves while he
 mkdir -p $S/l5923-nolib/h/work/kosmos-bc-main-4610 && $GE git -C $S/l5923-nolib/h/work/kosmos-bc-main-4610 init -q
 qh_repo $S/l5923-nolib/repo 1
 o=$(env -u QUEUED_HEAVY_LIB HOME=$S/l5923-nolib/h KOSMOS_RUN_MARKER_DIR=$S/ml5923-nolib perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/l5923-nolib/repo/tools/queued-heavy.sh "lib-nolib" touch $S/l5923-nolib-ran 2>&1); rc=$?
-ok "#5923: a default folder that is a git checkout without cut-guard.sh exits 3 and does not fall back to the repo's main checkout" '[ "$rc" = 3 ] && [ ! -e $S/l5923-nolib-ran ] && [[ "$o" == *"could not load cut-guard.sh"* ]] && [[ "$o" != *"main checkout"* ]]'
+ok "#5923: a default folder that is a git checkout without cut-guard.sh exits 3 and does not fall back to the repo's main checkout" '[ "$rc" = 3 ] && [ ! -e $S/l5923-nolib-ran ] && [[ "$o" == *"could not load cut-guard.sh"* ]] && [[ "$o" != *"main checkout"* ]] && [[ "$o" == *"is a git checkout, so the fallback"*"is off for it (#5923)"* ]]'
 # A checkout stopped part way (seam: one file changed, rc 1) is put back at the old commit by force, and the line says so.
 run5923 mvfail QH_TEST_MOVE_FAIL=1
 ok "#5923: a move stopped part way is put back at the old commit, clean, and the line says so" '[ "$rc" = 0 ] && [ "$(lh5923 mvfail)" != "$(lm5923 mvfail)" ] && [ -z "$($GE git -C $S/l5923-mvfail/work/kosmos-bc-main-4610 status --porcelain --untracked-files=no)" ] && [[ "$o" == *"git checkout failed (rc 1) and the checkout was put back at"* ]]'
@@ -337,7 +337,7 @@ mkdir -p $S/rp5923-other && printf '#!/bin/bash\nfor i in 1 2 3 4 5 6 7 8 9 10 1
 /bin/bash $S/rp5923-other/qh5923self-$U.sh </dev/null >/dev/null 2>&1 & RP5923=$!
 until_true 5 '[[ "$(ps -ww -o command= -p $RP5923)" == *qh5923self-$U.sh* ]]'
 o=$(env -u QUEUED_HEAVY_LIB -u QH_TEST_PS HOME=$S/l5923-rpc KOSMOS_RUN_MARKER_DIR=$S/ml5923-rpc QH_TEST_PS_NAME=qh5923self-$U.sh perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/rp5923-rpc/qh5923self-$U.sh "lib-rpc" true 2>&1); rc=$?
-kill $RP5923 2>/dev/null   # its one-second sleep ends on its own
+kill $RP5923 2>/dev/null   # stops the loop; the one-second sleep it is in then ends on its own
 ok "#5923 CONTROL: with the real ps, another live process of that name blocks the move and is named" '[ "$rc" = 0 ] && [ "$(lh5923 rpc)" != "$(lm5923 rpc)" ] && [[ "$o" == *"another queued-heavy.sh is live (pid $RP5923)"* ]]'
 # The shim itself can fail: a run with the marker dir outside this test's dir is refused before the wrapper starts.
 o=$(KOSMOS_RUN_MARKER_DIR=/tmp/not-this-test /bin/bash $QH "escape" true 2>&1); rc=$?

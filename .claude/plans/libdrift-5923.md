@@ -46,7 +46,8 @@ Residuals, stated:
   again by force and the line says so; if even that fails, the line says FAILED PART WAY with the repair command. A
   KILL of the wrapper during the checkout leaves the tree mixed and is not repaired automatically.
 - The #5446 fallback is skipped when the default folder is a git checkout, so a run reading during a move cannot fall
-  back to another lib; a default checkout that really lacks cut-guard.sh exits 3 instead of falling back. A holder
+  back to another lib; a default checkout that really lacks cut-guard.sh exits 3 instead of falling back, and its
+  message says the fallback is off for it and how to bring it up to date. A holder
   KILLed during `git checkout` leaves a half-moved tree. The next joiner reads it as local changes, does
   not move it, says so on its line, and loads it as it is. Nothing repairs it automatically; the moved line printed
   the command that puts it back.
@@ -60,7 +61,9 @@ Residuals, stated:
   it only tests that cut-guard.sh exists (to choose a hint), so during a move it can briefly name the other copy. A
   script outside this repo that sources it without holding a marker or working inside the checkout is not seen.
 - A move replaces the whole checkout, so a process whose working directory is inside it blocks the move (lsof -d
-  cwd, about 0.3 s). A process using files there without its working directory there is not seen.
+  cwd, about 0.3 s, run while the lib lock is held and only after every cheaper gate has passed). A process using files
+  there without its working directory there is not seen, and as a non-root user lsof sees only this user's processes;
+  every agent here is one user.
 - kill -0 on a live holder owned by another user fails (EPERM) and reads as dead; every agent here is one user.
   A lock whose pid was reused by another command is taken over (the holder records its command line).
 

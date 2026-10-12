@@ -208,6 +208,8 @@ _qh_lib_check() {
     # to git itself still stops it part way: then the old commit is checked out again, by force, and the line says so.
     local mrc=0 gp gerr
     gerr="$(mktemp "${TMPDIR:-/tmp}/qh-libmove.XXXXXX" 2>/dev/null || mktemp /tmp/qh-libmove.XXXXXX)" || gerr=/dev/null
+    # No trap is set yet at this point (the EXIT and signal traps come later), so the reset below drops nothing; a trap
+    # added earlier in the script would be wiped by it and must be restored here instead.
     trap '' INT TERM HUP
     if [ -n "${QH_TEST_MOVE_FAIL:-}" ]; then
       echo '# a partial move' >> "$LIB_CHECKOUT/tools/lib/cut-guard.sh"; mrc=1   # test seam: a checkout stopped part way
@@ -288,6 +290,8 @@ fi
   echo "QUEUED-HEAVY: could not load cut-guard.sh from $LIB_CHECKOUT (set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2
   # #5446: the main-checkout fallback was tried and that checkout has no lib either (it predates it).
   [ -n "$QH_MAIN_TRIED" ] && echo "QUEUED-HEAVY: this repo's main checkout $QH_MAIN_TRIED has none either; if it is on main, bring it up to date with: git -C '$QH_MAIN_TRIED' pull --ff-only" >&2
+  # #5923: the default folder is a git checkout, so the #5446 fallback was not tried (a move there must not hand a run another lib).
+  [ -z "${QUEUED_HEAVY_LIB:-}" ] && [ -z "$QH_LIB_FALLBACK" ] && [ -e "$LIB_CHECKOUT/.git" ] && echo "QUEUED-HEAVY: $LIB_CHECKOUT is a git checkout, so the fallback to this repo's own checkout is off for it (#5923); bring it up to date with: git -C '$LIB_CHECKOUT' fetch -q origin && git -C '$LIB_CHECKOUT' checkout --detach origin/main" >&2
   exit 3; }
 _qh_lib_unlock   # #5923: loaded, so a move by the next joiner can no longer reach this run
 # The functions called unguarded: every run's, then the side lane's (it is offered only when kosmos_light_side_clear exists).
