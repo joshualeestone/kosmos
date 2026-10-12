@@ -13,7 +13,7 @@ make_ipa() {
   local dir="$work/$1"
   mkdir -p "$dir/Payload/Kosmos.app"
   cp /usr/bin/true "$dir/Payload/Kosmos.app/Kosmos"
-  /usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string Kosmos' -c 'Add :CFBundleIdentifier string io.kosmos.app' "$dir/Payload/Kosmos.app/Info.plist" >/dev/null
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string Kosmos' -c "Add :CFBundleIdentifier string ${4#*.}" "$dir/Payload/Kosmos.app/Info.plist"   # the id the fixture signs (#4089) >/dev/null
   local ents="$dir/ents.plist"
   /usr/libexec/PlistBuddy -c 'Clear dict' "$ents" >/dev/null 2>&1 || true
   [ -n "$2" ] && /usr/libexec/PlistBuddy -c "Add :aps-environment string $2" "$ents" >/dev/null

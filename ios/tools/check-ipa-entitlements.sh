@@ -15,7 +15,7 @@
 # Usage: ios/tools/check-ipa-entitlements.sh <Kosmos.ipa | Kosmos.app> [TEAM_ID] [BUNDLE_ID]
 # Ends with one VERDICT line; no verdict line means the check did not finish.
 set -u
-target="${1:?usage: check-ipa-entitlements.sh <Kosmos.ipa | Kosmos.app> [TEAM_ID]}"
+target="${1:?usage: check-ipa-entitlements.sh <Kosmos.ipa | Kosmos.app> [TEAM_ID] [BUNDLE_ID]}"
 team="${2:-}"
 bundle="${3:-io.kosmos.app}"
 [ -e "$target" ] || { echo "check-ipa-entitlements: nothing at $target"; echo "VERDICT: FAIL"; exit 2; }
