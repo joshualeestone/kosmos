@@ -297,6 +297,7 @@ bundle_is_ours() {
   # $2, the caller's purpose (an argument, not a VAR=x prefix: under /bin/sh a prefix on a function call outlives
   # the call):
   #   anchored  a residue sweep          remove  an uninstall removing an icon
+  #   own       "is this this install's own sealed icon?", for what the transcript says (no placement gate)
   #   (none)    replacing an icon: in the SHARED folder a sealed occupant counts only when this run places the
   #             sealed app too, or the per-install bundle built instead would leave other accounts that use this
   #             icon opening this install
@@ -310,7 +311,7 @@ bundle_is_ours() {
       *) sealed_serves_this_install || return 1 ;;
     esac
     case "${2:-}" in
-      anchored|remove) ;;
+      anchored|remove|own) ;;
       *) if ! sealed_placeable && [ "$(/usr/bin/dirname "$1")" -ef "$SYS_APP_DIR" ]; then return 1; fi ;;
     esac
     bundle_is_sealed "$1"
@@ -323,9 +324,9 @@ bundle_is_ours() {
 # #5896 slice 2: is this the sealed Kosmos.app? Its signature must be valid and satisfy the designated requirement of
 # THIS install's own shipped copy ($KOSMOS_HOME/app/Kosmos.app), which carries the identifier and the signing team,
 # so the Team ID is never spelled here. Every account's sealed icon is the same app, so this proves "a Kosmos we
-# built", not "this install's": safe for REPLACING an icon (each account reads its own config), never enough for
-# deleting one in the SHARED folder (uninstall leaves that). In the person's own ~/Applications an uninstall may
-# remove it: an account has one install (one config file in its Library), so its own icon there is that install's.
+# built", not "this install's". bundle_is_ours adds what makes it this install's (this account owns it on disk, and
+# the account's config names this install). Even then an uninstall leaves a sealed icon in the SHARED folder and
+# names it; residue this account left there, and its icon in its own ~/Applications, are removed.
 # /usr/bin/codesign by absolute path, as /usr/bin/grep above.
 sealed_requirement() {
   local ours="$KOSMOS_HOME/app/Kosmos.app"
@@ -436,7 +437,7 @@ resolve_app_dir() {
     # #5896 slice 2: the occupant may be THIS account's own sealed icon, refused only because this run cannot place the
     # sealed app (its config could not be saved where the app looks). The transcript says that, not "something else".
     APP_OWN_SEALED=no
-    if [ ! -L "$SYS_APP_DIR/Kosmos.app" ] && bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then APP_OWN_SEALED=yes; fi
+    if [ ! -L "$SYS_APP_DIR/Kosmos.app" ] && bundle_is_ours "$SYS_APP_DIR/Kosmos.app" own; then APP_OWN_SEALED=yes; fi
     # ⚠️ THE DIVERT ITSELF NEEDS THE ALIASING GUARD. "Send the icon to the
     # per-user folder instead" is only an escape if the per-user folder is
     # a DIFFERENT folder: with ~/Applications symlinked to the system one,

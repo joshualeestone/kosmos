@@ -37,7 +37,9 @@ and the app reads it.
   uninstalls the sealed icon. Uninstall decides this before it deletes anything. Leaving an icon in the shared
   folder only needs "a Kosmos-signed bundle with no per-install file" (bundle_looks_sealed), since it never deletes.
 - Follow-up worth a card: on a Mac with one account, uninstall now leaves the shared sealed icon behind and asks the
-  person to drag it to the Trash; it could remove it when this account owns it and its config names this install.
+  person to drag it to the Trash. Removing it needs proof that no other install of this account relies on it, and
+  tools/test-install.sh's own harness shows two installs can share one account config, which defeats the proof
+  (iteration 7 kept the safe default; the card is where to settle it).
 - A cut is Developer ID signed by construction (step 1c's preflight), so the cut's team requirement never meets an
   ad-hoc build; other callers of the comparator check the identifier only (iteration 4).
 - Leave the shared sealed icon on uninstall. Rejected: removing it (strands another account that still uses it).
