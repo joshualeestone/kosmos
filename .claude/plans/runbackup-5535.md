@@ -82,3 +82,4 @@ restart or to the unnamed-pair sentence, so no path hands one to stripState.
    Nothing reported it: the count went 14 to 16 because I added three and lost one. RESTORED verbatim from fa96d1e0c.
    Lesson: after a slice edit, check the test COUNT against what was added and removed, not only the pass line.
 2. NIT: the device key's `missing` (remote access never set up: a person acts) was dropped. FIXED: passed through.
+Mutants after review 3 (19:25 CDT from `date`): V1 bucket dropped from the snapshot input: red (the restored end to end). V2 a snapshot id outside the context alphabet: red. V3 missing dropped: red.
