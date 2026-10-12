@@ -30,11 +30,9 @@
 //                 see kosmosDefaultPort() below)
 //   KOSMOS_APP_CONFIG   path to a kosmos-install.json to read instead of
 //                       the account's own Library copy and the bundle's
-//                       Contents/Resources copy (testing only). #5896: a
-//                       sandboxed launch MUST set this (or
-//                       KOSMOS_APP_TEST_HOME), because without it the app
-//                       reads the REAL account's Library first and opens
-//                       that account's install, not the sandbox's.
+//                       Contents/Resources copy (testing only). #5896:
+//                       it replaces every other source, so it keeps a
+//                       sandboxed launch off the account's own Library copy.
 //   KOSMOS_APP_TEST_HOME   stands in for NSHomeDirectory() in the #664
 //                       different-account fallback lookup (testing only --
 //                       NSHomeDirectory() does not honor $HOME, so this is
@@ -73,18 +71,18 @@ struct KosmosInstallConfig: Codable {
                     uid: UInt32(getuid()))
     }
 
-    /// The LAST candidate is the bundle's copy whenever there is more than one (installConfigCandidates). When it reads
-    /// as a config and is THIS account's own (ownerUid == uid), it wins: the installer wrote it for this account, so a
-    /// separate, older account file must not send the app to a different install. Otherwise the first candidate that
-    /// exists and reads as a config wins, so a damaged account file falls back to the bundle's copy, and a bundle copy
-    /// written for ANOTHER account never outranks this account's own file. With one candidate both rules agree.
-    static func load(from paths: [String], uid: UInt32) -> KosmosInstallConfig? {
+    /// The LAST candidate is the bundle's copy whenever there is more than one (installConfigCandidates). Order:
+    /// a bundle copy that is THIS account's own (ownerUid == uid); else the first config whose install folder still
+    /// exists; else the first config that reads at all. Pinned by the "disk" rows of --kosmos-app-mode-selftest.
+    static func load(from paths: [String], uid: UInt32,
+                     homeExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> KosmosInstallConfig? {
         let read = paths.map { path -> KosmosInstallConfig? in
             guard let data = FileManager.default.contents(atPath: path) else { return nil }
             return try? JSONDecoder().decode(KosmosInstallConfig.self, from: data)
         }
         if let last = read.last, let bundled = last, bundled.ownerUid == uid { return bundled }
-        return read.compactMap { $0 }.first
+        let decoded = read.compactMap { $0 }
+        return decoded.first { homeExists($0.kosmosHome) } ?? decoded.first
     }
 }
 
@@ -6856,18 +6854,20 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     let own = cdir.appendingPathComponent("own.json").path, bundled = cdir.appendingPathComponent("bundled.json").path
     FileManager.default.createFile(atPath: bundled, contents: Data(#"{"kosmosHome":"/b","ownerUid":502,"port":16200}"#.utf8))
     FileManager.default.createFile(atPath: own, contents: Data(#"{"kosmosHome":"/a","ownerUid":501,"port":16180}"#.utf8))
-    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501)?.kosmosHome == "/a", "the account's own config wins over a bundle copy written for another account")
+    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, homeExists: { _ in true })?.kosmosHome == "/a", "the account's own config wins over a bundle copy written for another account")
     let bundledOurs = cdir.appendingPathComponent("bundled-ours.json").path
     FileManager.default.createFile(atPath: bundledOurs, contents: Data(#"{"kosmosHome":"/c","ownerUid":501,"port":16180}"#.utf8))
-    disk(KosmosInstallConfig.load(from: [own, bundledOurs], uid: 501)?.kosmosHome == "/c",
+    disk(KosmosInstallConfig.load(from: [own, bundledOurs], uid: 501, homeExists: { _ in true })?.kosmosHome == "/c",
          "a bundle copy that is THIS account's own wins over an account file naming another of its installs")
-    disk(KosmosInstallConfig.load(from: [own, cdir.appendingPathComponent("absent.json").path], uid: 502)?.kosmosHome == "/a",
-         "no bundle copy: the account file is read even when it names another uid")
+    disk(KosmosInstallConfig.load(from: [own, cdir.appendingPathComponent("absent.json").path], uid: 502, homeExists: { _ in false })?.kosmosHome == "/a",
+         "no bundle copy: the account file is read even when it names another uid and its folder is gone")
+    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, homeExists: { $0 == "/b" })?.kosmosHome == "/b",
+         "an account file whose install folder is gone yields to another account's bundle copy (the #664 path)")
     FileManager.default.createFile(atPath: own, contents: Data("not json".utf8))
-    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501)?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
+    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, homeExists: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
     try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 106   // #5896: +8 (4 config-order rows, 4 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 107   // #5896: +9 (4 config-order rows, 5 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

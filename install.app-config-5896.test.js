@@ -130,7 +130,7 @@ test('#5896: uninstall removes the account config only when it names THIS instal
   const env = { HOME: fs.mkdtempSync(path.join(tmpRoot, 'realhome-')), AGENT_WORKFORCE_HOME: awh, PORT: '17001' };
   // Another install of the same account wrote the file: this uninstall leaves it.
   run({ ...env, KOSMOS_HOME: '/sb/other' }, 'write_install_config');
-  run({ ...env, KOSMOS_HOME: '/sb/kosmos' }, UNINSTALL_BLOCK);
+  assert.match(run({ ...env, KOSMOS_HOME: '/sb/kosmos' }, UNINSTALL_BLOCK + '\necho "rc=$?"').out, /rc=0/);
   assert.equal(JSON.parse(fs.readFileSync(cfgFile(awh), 'utf8')).kosmosHome, '/sb/other', 'it removed another install\'s config');
   // This install's own file goes, and the folder with it, even with an interrupted write's temporary file inside.
   run({ ...env, KOSMOS_HOME: '/sb/kosmos' }, 'write_install_config');
@@ -138,6 +138,18 @@ test('#5896: uninstall removes the account config only when it names THIS instal
   run({ ...env, KOSMOS_HOME: '/sb/kosmos' }, UNINSTALL_BLOCK);
   assert.equal(fs.existsSync(cfgFile(awh)), false, 'this install\'s config survived its uninstall');
   assert.equal(fs.existsSync(path.dirname(cfgFile(awh))), false, 'the empty folder was left');
+});
+
+test('#5896: uninstall leaves a symlink in the config\'s place, even one naming this install', () => {
+  const awh = fs.mkdtempSync(path.join(tmpRoot, 'sandboxhome-'));
+  const env = { HOME: fs.mkdtempSync(path.join(tmpRoot, 'realhome-')), AGENT_WORKFORCE_HOME: awh, PORT: '17001', KOSMOS_HOME: '/sb/kosmos' };
+  const target = path.join(awh, 'elsewhere.json');
+  fs.writeFileSync(target, '{"kosmosHome":"/sb/kosmos","ownerUid":501,"port":17001}');
+  fs.mkdirSync(path.dirname(cfgFile(awh)), { recursive: true });
+  fs.symlinkSync(target, cfgFile(awh));
+  run(env, UNINSTALL_BLOCK);
+  assert.equal(fs.lstatSync(cfgFile(awh)).isSymbolicLink(), true, 'uninstall removed a symlink');
+  assert.equal(fs.existsSync(target), true);
 });
 
 test('#5896: the step writes the config before the icon, and a write failure is a note, not a stop', () => {
