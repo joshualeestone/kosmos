@@ -77,7 +77,11 @@ const KEPT = 'The name was not changed: there is already an agent called Gemini 
   });
   /* #5957: the instructions Save, answered as the server answers a line naming a taken name: the text saved, the
      rename did not, and nameKept says so. Intercepted here too, so no file is written. */
-  await page.route('**/api/agent/*/instructions', (r) => {
+  /* The load is answered too, with a fixture, so the editor is ready whatever this sandbox's agent has on disk (a Save
+     before the load lands is refused by the page on purpose). A regex, so the load's ?t= query matches and the
+     /instructions/previous route does not. */
+  await page.route(/\/api\/agent\/[^/]+\/instructions(\?|$)/, (r) => {
+    if (r.request().method() === 'GET') { r.fulfill({ json: { text: '# Fixture\n\nYou are **Fixture**, a tester.\n', version: 'v-fixture' } }); return; }
     if (r.request().method() !== 'PUT') { r.continue(); return; }
     r.fulfill({ json: { ok: true, version: 'v-check', nameKept: KEPT } });
   });
@@ -155,7 +159,7 @@ const KEPT = 'The name was not changed: there is already an agent called Gemini 
 
   /* #5957: the instructions Save says the name was kept, after "Saved.". */
   await page.evaluate(() => document.getElementById('d-instr-save').scrollIntoView({ block: 'center' }));
-  await page.waitForFunction(() => typeof INSTR_READY !== 'undefined' && INSTR_READY === true, null, { timeout: 8000 });
+  await page.waitForFunction(() => /You are \*\*Fixture\*\*/.test(document.getElementById('d-instr').value), null, { timeout: 8000 });
   await page.click('#d-instr-save');
   await page.waitForFunction(() => {
     const m = document.getElementById('d-instr-msg');
