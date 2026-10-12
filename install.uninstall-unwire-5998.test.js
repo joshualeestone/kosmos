@@ -35,7 +35,7 @@ const theirHook = { type: 'command', command: 'echo mine', timeout: 5 };
 /* A sandboxed install. linkHome: KOSMOS_HOME is a symlink to a differently named folder, and the hooks name the REAL
    path, as a real install writes them (hookScriptPath and stableNode resolve from the engine's own realpath).
    noNode: a partial install with no runtime, so nothing can edit the JSON and the leftover must be named. */
-function sandbox({ linkHome = false, noNode = false } = {}) {
+function sandbox({ linkHome = false, noNode = false, crashNode = false } = {}) {
   const root = fs.mkdtempSync(path.join(tmpRoot, 'sb-'));
   const real = path.join(root, linkHome ? 'real-kosmos' : 'kosmos-home');
   const kh = path.join(root, 'kosmos-home');
@@ -45,7 +45,8 @@ function sandbox({ linkHome = false, noNode = false } = {}) {
   fs.mkdirSync(path.join(real, 'runtime', 'bin'), { recursive: true });
   fs.mkdirSync(path.join(real, 'bin'), { recursive: true });
   if (linkHome) fs.symlinkSync(real, kh);
-  if (!noNode) fs.symlinkSync(process.execPath, path.join(real, 'runtime', 'bin', 'node'));
+  if (crashNode) fs.writeFileSync(path.join(real, 'runtime', 'bin', 'node'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  else if (!noNode) fs.symlinkSync(process.execPath, path.join(real, 'runtime', 'bin', 'node'));
   fs.writeFileSync(path.join(real, 'bin', 'kosmos'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(path.join(real, 'VERSION'), '0.0.0\n');
   const script = path.join(real, 'app', 'bin', 'kosmos-report-hook.sh');
@@ -84,6 +85,14 @@ function sandbox({ linkHome = false, noNode = false } = {}) {
   fs.writeFileSync(path.join(home, '.claude-other', 'settings.json'), JSON.stringify({ statusLine: otherStatus }, null, 2) + '\n');
   fs.mkdirSync(path.join(home, '.claude-work'), { recursive: true });
   fs.symlinkSync(dot, path.join(home, '.claude-work', 'settings.json'));
+
+  // A fifth account that started with an empty hooks object and this install's status line: the {} is the person's.
+  fs.mkdirSync(path.join(home, '.claude-empty'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude-empty', 'settings.json'), JSON.stringify({ hooks: {}, statusLine: main.statusLine }, null, 2) + '\n');
+
+  // A sixth account whose file is JSON but not an object, naming this install's hook: named, never rewritten.
+  fs.mkdirSync(path.join(home, '.claude-arr'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude-arr', 'settings.json'), JSON.stringify(['bash "' + script + '"']) + '\n');
 
   // A third account whose file is not JSON but names this install's hook: named, never rewritten.
   fs.mkdirSync(path.join(home, '.claude-broken'), { recursive: true });
@@ -143,11 +152,15 @@ function checkCleaned(sb, out) {
     'an install whose folder path merely contains this one\'s was removed: the match is not anchored');
   assert.deepEqual(read(path.join(sb.home, '.claude-other', 'settings.json')).statusLine, sb.otherStatus,
     'ANOTHER install\'s status line was removed');
+  const empty = read(path.join(sb.home, '.claude-empty', 'settings.json'));
+  assert.equal(empty.statusLine, undefined, 'this install\'s status line was left beside an empty hooks object');
+  assert.deepEqual(empty.hooks, {}, 'an empty hooks object that was never ours was removed');
 
   assert.ok(fs.readFileSync(path.join(sb.home, '.claude-broken', 'settings.json'), 'utf8').startsWith('{ "hooks": "bash'),
     'a settings file that is not JSON was rewritten');
   assert.match(out, /could not be taken out of these Claude settings files/, 'the unreadable file was not named');
   assert.match(out, /\.claude-broken\/settings\.json/, 'the unreadable file was not named by its path');
+  assert.match(out, /\.claude-arr\/settings\.json/, 'a settings file that is JSON but not an object was not named');
 }
 
 test('#5998: uninstall removes this install\'s hooks and status line and keeps everything else', { skip: POSIX }, () => {
@@ -162,17 +175,30 @@ test('#5998: an install reached through a symlink, whose hooks name the real fol
   checkCleaned(sb, runUninstall(sb));
 });
 
-test('#5998: with no node to edit the settings, every file still pointing at this install is named', { skip: POSIX }, () => {
-  const sb = sandbox({ noNode: true });
-  const out = runUninstall(sb);
+function checkNamed(sb, out, what) {
   assert.ok(!fs.existsSync(sb.kh), 'the uninstall did not reach its removal step: ' + out.slice(-600));
-  assert.ok(mentions(read(sb.mainFile), 'kosmos-report-hook'), 'control: with no node the hooks should still be there');
-  assert.match(out, /could not be taken out of these Claude settings files/, 'the leftover hooks were not named');
-  assert.ok(out.includes(sb.mainFile), 'the default settings file was not named');
+  assert.ok(mentions(read(sb.mainFile), 'kosmos-report-hook'), 'control: ' + what + ', so the hooks should still be there');
+  assert.match(out, /could not be taken out of these Claude settings files/, 'the leftover hooks were not named (' + what + ')');
+  assert.ok(out.includes(sb.mainFile), 'the default settings file was not named (' + what + ')');
   // Only the hooks notice: the later status-line notice rightly names .claude-work (it holds this install's status line).
   const notice = out.slice(out.indexOf('could not be taken out'), out.indexOf('status line is still') === -1 ? undefined : out.indexOf('status line is still'));
   assert.ok(!notice.includes(path.join(sb.home, '.claude-work', 'settings.json')),
     'a file holding only another install\'s hooks was named for this install');
+}
+
+test('#5998: with no node to edit the settings, every file still pointing at this install is named', { skip: POSIX }, () => {
+  const sb = sandbox({ noNode: true });
+  checkNamed(sb, runUninstall(sb), 'no node');
+});
+
+test('#5998: a node that fails partway is not taken as done: the files are named', { skip: POSIX }, () => {
+  const sb = sandbox({ crashNode: true });
+  checkNamed(sb, runUninstall(sb), 'a failing node');
+});
+
+test('#5998: with no node, an install reached through a symlink is matched by its real folder', { skip: POSIX }, () => {
+  const sb = sandbox({ linkHome: true, noNode: true });
+  checkNamed(sb, runUninstall(sb), 'no node, symlinked home');
 });
 
 test('#5998: the unwire step runs inside the proven-install branch, before the home is deleted', () => {
