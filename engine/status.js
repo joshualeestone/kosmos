@@ -8266,6 +8266,8 @@ function codexLiveAuthFor(name, readJobFn, verdictFn) {
   if (!job) return undefined;
   if (job.runner !== 'codex') return undefined;
   if (job.configDir === '') return undefined; // malformed job, same guard as liveAuthForAuthFailed
+  // #5977: a Qwen agent (an endpoint home) has no OpenAI sign-in to judge; UNKNOWN stands rather than a false sign-out.
+  if (job.configDir && require('./qwenaccounts').isEndpointHome(job.configDir)) return undefined;
   try { return verdictFn(job.configDir || null); } catch { return undefined; }
 }
 
