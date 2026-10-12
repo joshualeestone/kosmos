@@ -8202,7 +8202,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     // #2698: the avatar version travels with hasAvatar so a changed picture
     // changes the org node's URL and defeats its identical-repaint skip.
     avatarVer: store.avatarVersion(key),
-    profile: store.servedProfile(store.readProfile(key)),   // #5995: without the install's id
+    profile: store.readProfile(key),
   };
 }
 
@@ -8958,7 +8958,7 @@ function snapshot() {
       // above -- the same "every read keyed on the name needs the same gate"
       // rule this block already states. Untied -> 0, the no-picture value.
       avatarVer: tied ? store.avatarVersion(pane.name) : 0,
-      profile: store.servedProfile(rowProfile),   // #5995: without the install's id; the swarm read below takes the whole one
+      profile: rowProfile,
       /* #3564: null for an ordinary agent; for a swarm, its helpers and today's tokens,
          read from the lead's transcripts (engine/swarm.js). Same `tied` gate as every
          other read keyed on the name. The contract with the UI is on #3564. */

@@ -133,6 +133,14 @@ test('#170: the board carries this install\'s agent ids and refuses to speak ano
   assert.ok(blowin, 'the restored agent is missing from the roster, so this proved nothing');
   assert.equal(blowin.id, null,
     "the board spoke another install's id, which names a different agent (#170's decided restore semantics)");
+
+  /* kosmos#5995: the answer holds neither install's id anywhere. Both seeded agents are STOPPED, so these are the rows
+     server.js builds itself (not the cards engine/status.js makes), and each row carries its profile whole. */
+  assert.equal(homegrown.profile && homegrown.profile.role, 'PM', 'CONTROL: the stopped agent\'s row carries no profile, so the sweep below reads nothing');
+  assert.equal(blowin.profile && blowin.profile.role, 'PM', 'CONTROL: the restored agent\'s row carries no profile');
+  const served = JSON.stringify(status);
+  assert.ok(!served.includes('install-under-test'), 'the board served this install\'s id');
+  assert.ok(!served.includes('someone-elses-install'), 'the board served the id of the install an agent was copied from');
   /* The embedded profile may still carry the foreign id verbatim; the
      top-level field is the filtered one consumers read. Pinned so a future
      "simplification" to `profile.id` goes red here. */

@@ -1,81 +1,87 @@
-# cardnoinstallid-5995: an agent's card carried the install's id
+# cardnoinstallid-5995: the install's id rode out in every whole profile
 
 Addresses #5995 (the fifth finding, comment 6132409431). Found while fixing item 3; its own branch on purpose.
 
 ## What was measured, on origin/main a8e120532
 - A profile keeps a copy of the install's id (`idInstall`, written by `engine/store.js` beside the agent's own `id`).
-- A card served the whole profile: `engine/status.js` set `profile:` from `store.readProfile` in two places, one for an
-  agent with a pane and one for an agent without. A card goes to the page, and through Kosmos+ to a phone.
-- Nothing reads it there. `idInstall` appears in no file under `web/`, in none of the Windows or native sources, and in
-  no file of the relay, the community service or the site (each count taken with a control word that did match).
-  Outside tests and plans the name is in `engine/store.js`, `engine/agentfile.js` (a comment), `tools/capture-agent-card.js`,
-  the recorded card fixture, and two comments in `docs/browser-checks/render-talk.js` (missed in the first count: that
-  search left the browser checks out. Recounted with `git grep -l -F idInstall` over the whole tree).
+- Whole profiles are served. Three places, found one review at a time, which is why the fix moved (see Reviews):
+  `engine/status.js` puts the profile in each agent's card (an agent with a pane, and one without); `server.js` puts it
+  in a stopped agent's row; and the answer to a profile save spreads the saved record. All three go to the page, and
+  the status answer goes through Kosmos+ to a phone.
+- Nothing outside `engine/store.js` reads the copy: a fixed-string search for `.idInstall` over the whole tree, bar
+  plans, finds it only in that file and in tests (the same search finds 4 lines in `engine/store.js`, the control).
+  The name alone also appears in a comment in `engine/agentfile.js`, in `tools/capture-agent-card.js`, in two comments in
+  `docs/browser-checks/render-talk.js` and in the recorded card fixture. (`server.js` holds the letters only inside
+  another word, `midInstall`.) The relay, the community service and the site do not hold it at all.
 
 ## Change
-- `engine/store.js`: `servedProfile(profile)` returns a copy without `idInstall`. The store owns the identity fields,
-  so the name stays in the one file that writes it.
-- `engine/status.js`: both card sites serve `store.servedProfile(...)`. The swarm read beside the pane site still takes
-  the whole profile; it never leaves the engine.
-- `server.js`: the answer to a profile save spread the whole saved record back to the page, the same id by the door
-  next to the card (review 1). It answers with `store.servedProfile(...)` of it now.
+- `engine/store.js`: **a profile leaves that file without the install's id.** `readProfile` and the answer of
+  `writeProfile` are copies without `idInstall`. The record as it is on disk is read by a function that is not
+  exported, for the two readers that need the copy: the stamp in `writeProfile` (is this agent this install's, or does
+  it need a fresh id) and `agentId`.
+- `engine/status.js` and `server.js` are unchanged from main: no place that serves a profile has to remember anything.
 - The recorded card (`docs/browser-checks/fixtures/agent-card.json`) loses the key, because a recording mirrors what a
-  card serves; its test asserts the key is absent. The capture tool still blanks one, for a card captured from a board
-  that predates this.
-- `engine/status.cardnoinstallid-5995.test.js`, on the real snapshot: for each kind of card, the profile reached the
-  card (control), the card's profile has no `idInstall`, the install's id is nowhere in the whole snapshot, and the
-  stored profile still has its copy afterwards.
+  card serves; its test asserts the key is absent. The capture tool still replaces one with a fixed value, for a card
+  captured from a board that predates this.
+- Tests. `engine/status.cardnoinstallid-5995.test.js`: both doors of the store, both kinds of card on the real
+  snapshot, each with a control that the profile arrived and that the file on disk still holds its copy; that a second
+  write keeps the id it minted; that an agent copied from another install is still told apart and that install's id
+  is not handed on either. `server.agent-id.test.js`: the real server's `/api/status` answer, whose two seeded agents
+  are stopped (the rows `server.js` builds), holds neither install's id anywhere.
 
 ## Rejected
-- Stripping `id` too. The agent's own id is a different question (the board already answers it through
-  `store.agentId`, which refuses an id minted under another install, while the raw one rides in the profile). Noted on
-  the card; not decided here.
-- Deleting the key inside `engine/status.js`. That would put the name in a fifth source file, and the item 3 branch
-  holds the set of files that name it.
-- Not storing the copy at all. `store.agentId` and the copied-profile check both compare it.
+- Stripping at each place that serves a profile. That was the first two versions of this branch. Each review found
+  another exit, and a new one would be one `readProfile` away.
+- Stripping `id` too. The agent's own id is a different question (the board answers it through `store.agentId`, which
+  refuses an id minted under another install, while the raw one rides in the profile). Noted on the card; not decided
+  here.
+- Not storing the copy at all. `agentId` and the stamp both compare it.
 
 ## Verify
-- `node --test engine/status.cardnoinstallid-5995.test.js`: 5 pass (4 before review 1 added the save route's test).
-- Mutants, each applied and confirmed applied, then restored byte for byte: the pane site reverted -> the pane test
-  red by name (and the no-pane test, whose whole-snapshot sweep sees the pane card); the no-pane site reverted -> the
-  no-pane test red, the pane test green.
-- `render-talk-goldencard-2519.test.js` 35 pass; `engine/status.test.js` 236 pass; `engine.reachable.test.js` 7,
-  `install.reachable-1662.test.js` 46, `engine/store.test.js` 8, `engine/agentfile.test.js` 9,
-  `engine/worldimport.test.js` 34, `engine/status.paneless-roster.test.js` 10, `server.agent-id.test.js` 2: all pass.
-- NOT run yet: the full suite, and any browser check. The page does not read the field, so no page change is
-  expected; that is reasoning from a search, not a look at the page.
+- `node --test engine/status.cardnoinstallid-5995.test.js`: 5 pass. `node --test server.agent-id.test.js`: 2 pass.
+- Mutants, each applied and confirmed applied, then restored byte for byte:
+  - `readProfile` answers with the whole record -> the store test and both card tests red by name, and the real-server
+    test red;
+  - `writeProfile` answers with the whole record -> the store test red by name (the real-server test stays green: it
+    does not save a profile).
+- Every test file that names `idInstall`, `agentId(` or `stripIdentity`, plus the status, store and reachable suites,
+  one file at a time, all exit 0: `engine/create.test.js` 229, `engine/status.test.js` 236,
+  `render-talk-goldencard-2519.test.js` 35, `engine/worldimport.test.js` 34, `server.provider-accounts-3296.test.js` 23,
+  `engine/status.paneless-roster.test.js` 10, `engine/agentfile.test.js` 9, `engine/store.test.js` 8,
+  `engine.reachable.test.js` 7. `server.test.js` was left for the full suite.
+- NOT run yet: the full suite, and any browser check. The page does not read the field; that is reasoning from a
+  search, not a look at the page.
+- NOT driven: the profile save route over HTTP. What it answers with is `writeProfile`'s answer, which is held.
 
 ## Weakest premise
-That nobody reads `profile.idInstall` off a card. It rests on searches for the name. A reader that walks every key of
-a profile (an export, a diff view) would not name it and would not be found; it would lose one key and nothing else.
+That no caller needs the copy from a profile it read. It rests on the search above. A caller that copies a whole
+profile somewhere and expects the install's id to travel with it would not name the field and would not be found; it
+would now lose one key. The store's own writes are not affected: they start from the record on disk.
 
 ## What would change this
-A consumer that needs to tell, from a card alone, which install made an agent. Then serve a yes or no (as
+A consumer that needs to tell, from a profile alone, which install made an agent. Then give it a yes or no (as
 `store.agentId` does), never the id.
 
 ## Order with the item 3 branch (installidwords-5995)
 Both touch what is said about this field. Whichever merges second must, in `engine/installid-senders-5995.test.js`,
-drop the recorded card fixture from the set of files that hold `idInstall` (it no longer does), and correct the two
-sentences that say `engine/status.js` serves the profile's copy (`engine/ping.js` list, and that test's header).
+drop the recorded card fixture from the set of files that hold `idInstall` (it no longer does), and correct the
+sentences that say `engine/status.js` serves the profile's copy (`engine/ping.js`'s list, and that test's header).
 
 ## Review 1 (2026-10-12, default model)
-- **WARNING, taken:** the premise "the card was the only way out" was wrong. The profile save route answered with the
-  whole saved record, `idInstall` in it. Fixed where the record is kept, so nothing downstream of it can spread the id.
-  The test holds it from the source (the route's line, the number of places that keep `writeProfile`'s answer, which is
-  one, and that the answer built the route's way holds no install id). Reverting the route's line turns that test red
-  by name. It does not drive the route over HTTP: that needs a signed-in board, and this is a text check, with the
-  limits of one.
-- **NIT, taken:** the file list in "What was measured" left out two comments in a browser check. Recounted.
-- **NIT, taken:** the no-pane test leaned on the pane test's leftover profile; it seeds its own now.
-- **NIT, taken:** a stored value that is an array is passed on as it is, not turned into an object.
+- **WARNING, taken, then replaced by the change above:** the answer to a profile save carried the id.
+- **NITs, taken:** the file list above; the no-pane test seeds its own profile; a stored value that is an array is
+  passed on as it is.
 
 ## Review 2 (2026-10-12, sonnet)
-No blocker, no warning. The reviewer read every non-test caller of `readProfile` and `writeProfile` and found no
-other path that hands a whole profile to a client.
-- **NIT, taken:** Verify said 4 pass; it is 5.
-- **NIT, taken:** the check on who keeps a saved record did not see `return store.writeProfile(...)` or an arrow
-  that returns it. Widened, and it found two: `server.js` hands `engine/swarm.js` a save function twice. The test now
-  holds all three lines by their text, and holds that `engine/swarm.js` only ever calls that function as a statement,
-  so its answer goes nowhere.
-- **CONVENTION, not a change to make:** no proof file yet. It is the loop's last output, after the full validation.
+- No blocker, no warning. **NITs, taken:** a test count; a text check that missed two ways to pass a saved record on.
+  That text check is gone with the change above.
 
+## Review 3 (2026-10-12, default model)
+- **WARNING, taken by moving the rule:** a stopped agent's row, built in `server.js`, still served the whole profile.
+  It was the third exit in three rounds, and review 2 had recorded "no other path". So the rule went to where the
+  record is read. The real-server test now reads those rows.
+- **CONVENTION, taken:** the text check on three source lines claimed more than it held. Removed; the tests assert on
+  what is answered.
+- **NIT, taken:** the file list said how it was counted and did not say `server.js` matches only inside another word.
+- **NIT, gone with the change:** the helper's comment named cards as its only use.
+- The design changed after this round, so rounds 1 to 3 are history, not convergence.

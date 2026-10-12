@@ -689,10 +689,23 @@ function profilePath(name) {
   return path.join(profilesDir(), profileFileName(name));
 }
 
-/* kosmos#5995: the profile as an agent's card may carry it. A card is served to the page, and through Kosmos+ to a
-   phone, and neither reads the install's id, so the copy kept beside each agent's own id stays on this computer.
-   A copy, never the stored object; a missing profile (null) passes through as it is. */
-function servedProfile(profile) {
+/* The record as it is on disk, the install's id beside the agent's own included. For this file only: the two readers
+   that need that copy are writeProfile and agentId below. Not exported. */
+function storedProfile(name) {
+  try {
+    return JSON.parse(fs.readFileSync(profilePath(name), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+/* kosmos#5995: A PROFILE LEAVES THIS FILE WITHOUT THE INSTALL'S ID, on every door (readProfile, and what writeProfile
+   answers). The file keeps a copy of that id beside each agent's own (`idInstall`), and nothing outside this file reads
+   it. It used to ride along in every whole profile handed on, and whole profiles are served: in each agent's card, in a
+   stopped agent's row, in the answer to a profile save. Three exits were found one review at a time, so the rule is
+   here, where the record is read, and not at each place that serves one.
+   A copy, never the parsed object; a value that is not a record passes through as it is. */
+function withoutInstallId(profile) {
   if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return profile;
   const out = { ...profile };
   delete out.idInstall;
@@ -700,11 +713,7 @@ function servedProfile(profile) {
 }
 
 function readProfile(name) {
-  try {
-    return JSON.parse(fs.readFileSync(profilePath(name), 'utf8'));
-  } catch {
-    return {};
-  }
+  return withoutInstallId(storedProfile(name));
 }
 
 /* The identity fields (#170): `id` is the random anchor minted on first write, and
@@ -757,7 +766,7 @@ function saveFlushed(file, data) {
 
 function writeProfile(name, patch) {
   ensure(profilesDir());
-  const had = readProfile(name);
+  const had = storedProfile(name);   // the whole record: the stamp below compares its install id
   const next = { ...had, ...patch, updatedAt: new Date().toISOString() };
   /**
    * The agent's identity (#170): a random id minted ON THE FIRST WRITE and
@@ -789,7 +798,7 @@ function writeProfile(name, patch) {
   // Write-then-rename (flushed first), so an interrupted write cannot leave a half-written or zero-filled
   // file that parses as an empty profile and silently loses someone's edits.
   saveFlushed(profilePath(name), JSON.stringify(next, null, 2));
-  return next;
+  return withoutInstallId(next);   // #5995: the answer is handed on, sometimes to the page
 }
 
 /**
@@ -801,7 +810,7 @@ function writeProfile(name, patch) {
  * poll must never write.
  */
 function agentId(name) {
-  const p = readProfile(name);
+  const p = storedProfile(name);
   return (p.id && p.idInstall === require('./ping').installId()) ? p.id : null;
 }
 
@@ -873,7 +882,7 @@ function writeSettings(patch) {
  * that names a gone pid on this host). Its test and test-support/data-root-sandbox.js are the
  * callers; nothing in the product calls it but the store itself.
  */
-module.exports = { saveFlushed /* #5434 slice 17 */, APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, servedProfile /* #5995 */, writeProfile, profilePath /* kosmos#5635: a strict read */, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { saveFlushed /* #5434 slice 17 */, APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, profilePath /* kosmos#5635: a strict read */, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

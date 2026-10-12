@@ -14567,8 +14567,7 @@ const server = http.createServer(async (req, res) => {
            against what we are about to put in it. */
         let had = null;
         try { had = store.readProfile(name); } catch { had = null; }
-        /* #5995: the answer goes to the page, so it is the profile as a card serves it (without the install's id). */
-        const written = store.servedProfile(store.writeProfile(name, clean));
+        const written = store.writeProfile(name, clean);
         /* ⚠️ BEST-EFFORT, AND NEVER A FAILED RENAME. The record is already
            saved; a stale sentence in a file is a thing to tell somebody about,
            not a reason to report that the rename did not work -- which would
