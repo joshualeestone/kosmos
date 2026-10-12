@@ -8,7 +8,8 @@ guess. Every other state shows nothing. The row is the task, so "which task" is 
 ## Approach
 - engine/status.js: both card paths carry `waitingSince`, from the self-report's `askedAt` (#5943, Angel), only
   while the state is needs_you or blocked; `waitingSinceFrom` keeps a real time only (missing, garbage or ahead of
-  the clock is null).
+  the clock is null). A blocked card carries it too, but needsPerson does not count blocked, so no Tasks row
+  ever shows a blocked agent's age.
 - engine/tasks.js `waitingSinceOf`: the oldest `waitingSince` among the cards that make waitingOnPerson true (the
   same holders, the same project rule, #5034 members).
 - server.js Tasks route: `waitingSince` on each row while waitingOnPerson (null when only a missed repeating run is
@@ -18,7 +19,8 @@ guess. Every other state shows nothing. The row is the task, so "which task" is 
 
 ## Depends on
 #5943 (selfreport.read(name).askedAt). Until it merges, no card carries waitingSince, so no row shows an age: the
-change is inert, not wrong. Rebase onto #5943 when it lands and add a browser arm then.
+change is inert, not wrong. The browser arm (render-tasks-view-3559) and the engine tests state both halves
+explicitly (a stamped start, a forced null), so neither depends on whether #5943 has merged.
 
 ## Decided
 - Wording "Waiting on you for 12 days", agoWords with " ago" dropped, agreed with Angel so #5943's "Asked 12 days

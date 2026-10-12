@@ -863,9 +863,21 @@ function chk(ok, label, extra) {
         } finally {
           await page.unroute('**/api/tasks?view=tasks*');   // never left stamping rows for the arms after this one
         }
-        /* ⚠️ agedBack === 0 holds while no real card carries waitingSince, which is true until #5943 merges. Once it
-           does, the fixture's asking agent may carry a real start; re-aim this half then (the plan says so). */
-        const agedBack = await page.evaluate(async () => { await tskLoad(); return document.querySelectorAll('#tsk-groups .tsk-row .tsk-waiting').length; });
+        /* No known start: the same rows with waitingSince forced to null on the decision row, so this half means the
+           same before and after #5943 gives real cards a start. */
+        await page.route('**/api/tasks?view=tasks*', async (route) => {
+          const resp = await route.fetch();
+          const json = await resp.json();
+          json.tasks = json.tasks.map((t) => (t.state === 'decision' ? Object.assign({}, t, { waitingSince: null }) : t));
+          await route.fulfill({ response: resp, json });
+        });
+        let agedBack;
+        try {
+          agedBack = await page.evaluate(async () => { await tskLoad(); return document.querySelectorAll('#tsk-groups .tsk-row .tsk-waiting').length; });
+        } finally {
+          await page.unroute('**/api/tasks?view=tasks*');
+        }
+        await page.evaluate(async () => { await tskLoad(); });   // back to the route's own rows for the arms after this
         chk(aged.n === 1 && aged.shown === 1 && aged.text === 'Waiting on you for 12 days' && agedBack === 0,
           `${tag} a decision row says how long it has waited on you, and says nothing with no known start (#5942)`, JSON.stringify({ aged, agedBack }));
         await page.fill('#tsk-search', 'podcast');
