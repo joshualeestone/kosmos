@@ -1,0 +1,33 @@
+# rerunrefuse-5932: a cut refuses an exported KOSMOS_SUITE_RERUN_CMD
+
+Card kosmos#5932 (Renet Tilley, 07:5x, from the #5907 follow-up review).
+
+## Change
+- tools/release.sh step 1c, right after the #5137 notarise-seam loop: if KOSMOS_SUITE_RERUN_CMD is set (`${..+x}`,
+  so an EMPTY export counts), print "... is set in this shell (even an empty value counts) ... (#5932): unset it and
+  run again." and exit 1. Same message shape as the notarise loop, its own sentence (that loop's says "notarises").
+- KOSMOS_SUITE_RERUN_MAX (#5907, an operator setting) and KOSMOS_SUITE_RERUN_SLEEP are NOT refused.
+
+## Why its own block, not the notarise loop
+That loop's message is about notarising ("A cut always notarises the app binaries for real"); one more name in it
+would print a false reason.
+
+## Verify
+- tools/test-cut-rerun-guard.sh (already in package.json test:shell, so it is wired): new arms extract the real guard
+  from release.sh and run it:
+  - it sits before step 2's bump and before step 3's rerun use (732 < 788 < 1039);
+  - `=true` refuses with its sentence;
+  - an empty export refuses;
+  - MAX and SLEEP alone pass;
+  - a clean env passes (the control).
+- When the anchor is missing, the behaviour arms are SKIPPED with a FAIL. The first version fell back to line 1 and
+  ran the top of release.sh (it printed usage and exited, harmless, but never again).
+- Mutants:
+  - the refusal exits 0: red at the =true and the empty arm;
+  - `+x` changed to `:+x` (an empty export passes): red at the empty arm only;
+  - a reshaped guard line: red as "missing", nothing executed.
+
+## Weakest premise (the card's)
+That nothing between step 1c and step 3 re-exports the seam. Grep on release.sh: no export or assignment of
+KOSMOS_SUITE_RERUN_CMD anywhere in it. A refusal at 1c cannot be undone by a later step unless release.sh itself
+sets it, which it does not.
