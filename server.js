@@ -8673,6 +8673,9 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
           return;
         }
+        /* #5959 slice 2: the switch keeps the name, so the old provider's last-seen time would otherwise come back on a
+           switch back. Written job, so the provider has changed whether or not the restart lands. */
+        try { observed.forgetAgent(name); } catch { /* best-effort, like the forgets on remove */ }
         /* #5429: the model, written to the job the switch just wrote, BEFORE the one restart. */
         let pickedModel = null;
         let modelMiss = '';

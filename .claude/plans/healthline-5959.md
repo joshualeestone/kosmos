@@ -21,7 +21,7 @@ the pane working (a short turn between sweeps is not seen); for Codex, Gemini an
   agent Kosmos has seen work within the last hour, in a state it reads, and for sign-in only on Claude (`runner ===
   'claude'`): a Codex 401 loop reads as working
   and the other runners' sign-in report is written by the Windows supervisor alone. A clock time, not "N minutes ago",
-  which would age between polls. A provider switch clears the line until the next poll (it spoke for the old runner).
+  which would age between polls.
 
 ## Rejected
 - **On the board card itself.** #855 (Josh) cut the card's extra lines, and a sign-in or usage problem already shows
@@ -41,7 +41,8 @@ the pane working (a short turn between sweeps is not seen); for Codex, Gemini an
 - A Claude pane in its retry loop: a rate limit or a rejected sign-in classifies as such before working chrome, so it
   records no OK; a plain network retry (connection_lost) likewise. A retry shape that scrapes as WORKING would record
   one; none is known.
-- Stopped, restarting, unknown or blocked agents show only the time. Blocked because a Claude card stays blocked on
+- Stopped, restarting, unknown, blocked or connection-lost agents show only the time (connection lost: "no problem
+  showing" beside it would read as a clean bill of health). Blocked because a Claude card stays blocked on
   Claude Code's own report of a refused sign-in or a usage cap, where "no problem showing" would be false.
 - Windows: a Codex agent there is read through its rollout like any Codex agent. Whether the rollout is found on
   Windows is reasoned from source, not measured; if it is not, the line says "not seen since Kosmos started" where
@@ -49,7 +50,7 @@ the pane working (a short turn between sweeps is not seen); for Codex, Gemini an
 - The account's own Check-now verdict (Settings, AI Models) is not read here: it is about the account, which may serve
   several agents, and it has its own row. A follow-up could name it on this line.
 - A removed agent, or one created under an old name, forgets the name's last-seen time (`observed.forgetAgent`, called
-  beside `crashloop.forget` in create, remove and delete-leftover).
+  beside `crashloop.forget` in create, remove and delete-leftover), and so does a provider switch, which keeps the name.
 - In memory: after a board restart every agent reads "Last seen working: not seen since Kosmos started" until its next turn.
 - "At a glance" in the ask may mean the board card; if so, the line is one call away (`healthLine` is pure).
 

@@ -23721,10 +23721,11 @@ function agoWords(ms) {
    '' for a card with no lastWorked: no line.
    On the agent's page, not its card on the board: #855 cut the card's extra lines, and the card's state already says a
    sign-in or usage problem. */
-/* Not 'blocked': a Claude card stays blocked on Claude Code's own report of a refused sign-in or a usage cap, so
-   "no problem showing" would be false there; a blocked agent shows only the time. */
 const HEALTH_QUIET_MS = 3600e3;   // see healthLine: how recent a sighting "no problem showing" rests on
-const HEALTH_READ_STATES = new Set(['working', 'idle', 'needs_you', 'rate_limited', 'auth_failed', 'connection_lost']);
+/* Not 'blocked': a Claude card stays blocked on Claude Code's own report of a refused sign-in or a usage cap, so
+   "no problem showing" would be false there. Not 'connection_lost' either: beside a lost connection, "no problem
+   showing" reads as a clean bill of health. Such an agent shows only the time. */
+const HEALTH_READ_STATES = new Set(['working', 'idle', 'needs_you', 'rate_limited', 'auth_failed']);
 function healthLine(a, nowMs) {
   const lw = a && a.lastWorked;
   if (!lw || typeof lw !== 'object') return '';
@@ -52730,10 +52731,6 @@ async function changeProviderNow(say) {
       if (Object.prototype.hasOwnProperty.call(RUNNER, want)) CURRENT.runner = RUNNER[want];
       /* Round 4: the row carries modelName / plannedModelName (there is no `model`), and both name the OLD runner's model. */
       CURRENT.modelName = null;
-      /* #5959 slice 2: the health line spoke for the OLD runner (its last-seen time, or that its turns cannot be seen), so it
-         goes until the page is opened again. */
-      CURRENT.lastWorked = null;
-      { const dh = document.getElementById('d-health'); if (dh) { dh.textContent = ''; dh.hidden = true; } }
       // Round 5: Claude starts on its own default model, said in the server's own words (markGuide), never "Unknown Model".
       // #5429: a model picked with the switch is the one Runs on names until the live reading catches up.
       CURRENT.plannedModelName = out && out.model && out.model.label ? out.model.label : want === 'anthropic' ? 'Claude (its default model)' : null;
