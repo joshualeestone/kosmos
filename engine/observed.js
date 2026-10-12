@@ -111,6 +111,12 @@ function lastOk(provider, agent) {
   const at = okStore.get(keyOf(provider, agent));
   return typeof at === 'number' ? at : null;
 }
+/* #5959 slice 2: an agent removed, or created under a name an old agent had, never inherits that name's last-seen
+   time. Called where crashloop.forget is (create, remove, delete-leftover). */
+function forgetAgent(agent) {
+  if (typeof agent !== 'string' || agent === '') return;
+  for (const provider of PROVIDER_VALUES) okStore.delete(keyOf(provider, agent));
+}
 
 function read(provider, agent) {
   const v = store.get(keyOf(provider, agent));
@@ -216,4 +222,4 @@ function forgetDir(provider, dir) {
   dirStore.delete(keyOfDir(provider, dir));
 }
 
-module.exports = { OUTCOME, PROVIDER, saw, read, all, sawDir, readDir, forgetDir, freshMs, isFresh, verdict, lastOk, _clearForTest };
+module.exports = { OUTCOME, PROVIDER, saw, read, all, sawDir, readDir, forgetDir, freshMs, isFresh, verdict, lastOk, forgetAgent, _clearForTest };
