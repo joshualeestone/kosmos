@@ -296,7 +296,8 @@ bundle_is_ours() {
   # foreign occupant.
   # $2, the caller's purpose (an argument, not a VAR=x prefix: under /bin/sh a prefix on a function call outlives
   # the call):
-  #   anchored  a residue sweep          remove  an uninstall removing an icon
+  #   anchored  a residue sweep          remove  an uninstall removing an icon (in the shared folder a sealed
+  #             icon never gets this far: the uninstall leaves it and names it first, bundle_looks_sealed)
   #   own       "is this this install's own sealed icon?", for what the transcript says (no placement gate)
   #   (none)    replacing an icon: in the SHARED folder a sealed occupant counts only when this run places the
   #             sealed app too, or the per-install bundle built instead would leave other accounts that use this
@@ -310,7 +311,7 @@ bundle_is_ours() {
     # icon in a sandboxed icon folder qualifies (a real ~/Applications icon reads the real home's config).
     sealed_config_reaches "$1" || return 1
     case "${2:-}" in
-      remove) [ -n "${SEALED_REQ:-}" ] || return 1 ;;   # set only inside uninstall(), so this refuses elsewhere
+      remove) [ -n "${SEALED_REQ:-}" ] || return 1 ;;   # SEALED_REQ is set only inside uninstall(), so this refuses elsewhere
       *) sealed_serves_this_install || return 1 ;;
     esac
     case "${2:-}" in
@@ -1463,6 +1464,7 @@ uninstall() {
   # Only when the account's config names this install: otherwise a sealed icon here serves another install of this
   # account, and stays.
   SEALED_REQ=""
+  _sys_sealed_left=no
   if sealed_serves_this_install; then SEALED_REQ="$(sealed_requirement 2>/dev/null)" || SEALED_REQ=""; fi
   # Shared by the icon removals below: unregister BEFORE deleting (a -u on
   # an already-deleted path is likely a no-op, leaving the stale Spotlight
@@ -2139,6 +2141,7 @@ KOSMOS_SWEEP_LIST
       if bundle_looks_sealed "$SYS_APP_DIR/Kosmos.app"; then
         # #5896 slice 2: the sealed icon is the same app for every account on this Mac, and another account may be
         # using it, so a shared one is left in place and named.
+        _sys_sealed_left=yes
         info "note: the Kosmos app in $SYS_APP_DIR is a Kosmos app shared by every account on this computer, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
       # The same anchored token as resolve_app_dir: the closing `}"` keeps
       # two homes in a prefix relationship from cross-matching, because
@@ -2483,6 +2486,10 @@ KOSMOS_SWEEP_LIST
     fi
   else
     printf '\n  Kosmos is removed.\n\n'
+  fi
+  # #5896 slice 2: the closing sentence must not contradict the note above it.
+  if [ "${_sys_sealed_left:-no}" = yes ]; then
+    printf '  The shared Kosmos app in %s was left in place (see the note above).\n\n' "$SYS_APP_DIR"
   fi
   # ⚠️ Named, not removed: the install may have recorded the agent
   # permission setting in Claude Code's own config, but that file can carry
