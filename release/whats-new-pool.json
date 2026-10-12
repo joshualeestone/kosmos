@@ -279,7 +279,7 @@
     },
     {
       "title": "New tasks ask how you will know they are done",
-      "line": "New task asks \"How will you know it is done?\" before it creates a task, and a parent task says when all its subtasks are built.",
+      "line": "New task asks \"How will you know it is done?\" and Create waits for your answer; a parent task says when all its subtasks are built.",
       "icon": "tasks",
       "rank": 4,
       "since": "0.7.44",
@@ -296,7 +296,7 @@
     },
     {
       "title": "Late recurring runs say what they missed",
-      "line": "When a recurring task runs after scheduled runs that never happened, its history now says how many were missed.",
+      "line": "When a recurring task runs after scheduled runs that never happened, its activity now says how many were missed.",
       "icon": "tasks",
       "rank": 7,
       "since": "0.7.44",
@@ -309,7 +309,7 @@
       "rank": 8,
       "since": "0.7.44",
       "status": "held",
-      "why": "Held: no screen in Kosmos names a company backup yet, so a person could not tell what this means."
+      "why": "Held: no screen in Kosmos names a company backup yet. Release (set pending, rebuild) once a screen names it."
     }
   ]
 }

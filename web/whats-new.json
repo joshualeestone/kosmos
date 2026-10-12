@@ -25,12 +25,12 @@
     {
       "icon": "tasks",
       "title": "New tasks ask how you will know they are done",
-      "line": "New task asks \"How will you know it is done?\" before it creates a task, and a parent task says when all its subtasks are built."
+      "line": "New task asks \"How will you know it is done?\" and Create waits for your answer; a parent task says when all its subtasks are built."
     },
     {
       "icon": "tasks",
       "title": "Late recurring runs say what they missed",
-      "line": "When a recurring task runs after scheduled runs that never happened, its history now says how many were missed."
+      "line": "When a recurring task runs after scheduled runs that never happened, its activity now says how many were missed."
     }
   ]
 }
