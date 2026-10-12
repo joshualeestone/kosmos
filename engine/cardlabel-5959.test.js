@@ -47,3 +47,15 @@ test('#5959: the special cases agree (question, crash loop, restarting causes, r
   ];
   for (const a of cards) assert.equal(labelOf(a), pageStateCopyOf.stateCopyOf(a).label, JSON.stringify(a));
 });
+
+test('#5959 review 4: an offline card (running false) reads as the page\'s offline card does, before stateCopyOf', () => {
+  // The page's offline branch is a template, not a function, so its expressions are pinned by text.
+  assert.ok(PAGE.includes("${split ? STATE_COPY.unknown.label : 'Not running'}"), 'CONTROL: the page\'s offline label changed; update labelOf');
+  assert.ok(PAGE.includes('<b>${esc(STATE_COPY.needs_trust.label)}</b>'), 'CONTROL: the page\'s offline trust-prompt label changed');
+  assert.ok(PAGE.includes('const split = a.jobRunningUnseen === true;'), 'CONTROL: the page no longer splits on jobRunningUnseen');
+  assert.equal(labelOf({ running: false, state: 'stopped' }), 'Not running');
+  assert.equal(labelOf({ running: false, state: 'idle', jobRunningUnseen: true }), "Can't tell");
+  assert.equal(labelOf({ running: false, state: 'stopped', needsTrust: true }), 'Waiting on a trust prompt');
+  // A restarting agent is not swallowed by the offline branch (the page's own exception).
+  assert.equal(labelOf({ running: false, state: 'restarting' }), 'Restarting agent');
+});

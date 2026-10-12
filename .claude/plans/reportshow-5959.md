@@ -27,3 +27,6 @@ carries modelName (status.js); a paneless card has none, so its model-switch res
 **The age is the latest line's (review 3).** Re-reporting the same waiting state, or a line rewritten over it, starts the
 clock again, so "standing for N days" can only underestimate. A report Kosmos wrote for the agent (`by` auto: a
 permission prompt, a provider error) is not called "your own", and is cleared only "if what it was about has passed".
+The label also follows the page's OFFLINE card (running false, not restarting: a trust prompt, an unseen job's "Can't
+tell", or "Not running"), which the page decides before stateCopyOf; that branch is a template, so the test pins its
+expressions by text (review 4). A report an operator or an unknown writer left is said without naming a writer.

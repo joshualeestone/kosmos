@@ -166,3 +166,16 @@ test('#5959 review 3: a waiting report Kosmos wrote (by auto) is not called "you
     assert.match((await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } })).text, /Your own `blocked` report has been standing for 3 days\..*`kosmos report clear`/);
   });
 });
+
+test('#5959 review 4: a waiting report a person or an unknown writer left is said without naming a writer', async () => {
+  boardAuthState.on = false;
+  await withLeo(async () => {
+    const tok = sendertoken.mint(WHO).token;
+    for (const by of ['operator', null]) {
+      backdate(WHO, 'blocked', new Date(Date.now() - 3 * 24 * 3600e3).toISOString(), by);
+      const t = (await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } })).text;
+      assert.match(t, /This `blocked` report has been standing for 3 days\./, String(by) + ': ' + t);
+      assert.doesNotMatch(t, /Your own|Kosmos wrote/, String(by) + ': ' + t);
+    }
+  });
+});
