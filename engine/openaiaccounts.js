@@ -1217,8 +1217,9 @@ function chatgptLoginStatus(sessionId) {
 
 /* #5994: the sign-ins whose "Sign in again" still holds this live account dir, settled or not (a watchdog or a cancel
    that just fired leaves the hold until the child exits; it can no longer promote, so it is still only the account's
-   own hold). Only sessions still in chatgptSessions are seen: one reaped after sessionTtlMs whose child somehow still
-   lives (the force-kill fires long before) is not, and its hold then refuses as any other would. */
+   own hold). Only sessions still in chatgptSessions are seen: one reaped after sessionTtlMs whose child still lives is
+   not, and its hold then refuses as any other would. That needs forceKillMs >= sessionTtlMs or a child that survives
+   SIGKILL; the defaults are 3 s and 2 min. */
 function ownReauthsOf(dir) {
   const out = [];
   for (const [id, s] of chatgptSessions) if (s.reauthDir === dir && !s.reauthReleased && !s.holdFreed) out.push(id);
@@ -1239,6 +1240,8 @@ function releaseOwnReauth(dir) {
     cancelChatgptLogin(id);
     if (s) s.reauthReleased = true;
   }
+  // Drop the hold unless another live sign-in is staging into this same path (never expected: see isHeldByOwnReauth).
+  for (const s of chatgptSessions.values()) if (s.dir === dir && !s.holdFreed) return;
   activeChatgptDirs.delete(dir);
 }
 
