@@ -1495,10 +1495,11 @@ let revealPlatform = null;
 function setRevealPlatform(p) { revealPlatform = p || null; }
 function revealOnWindows() { return (revealPlatform || process.platform) === 'win32'; }
 /* #5881: a Linux board has no `/usr/bin/open`. A FOLDER it opens with `xdg-open` when the board's own environment names
-   a display (DISPLAY or WAYLAND_DISPLAY), as engine/remote.js opens a page; without one there is nothing to open it on,
-   and the answer says so. A board run as a systemd user service may or may not have them (a desktop session can pass
-   them into the user's services, and a lingering service can keep a stale one), so a desktop can be missed in the safe
-   direction, and a stale one ends in a failed open, which xdg-open does not report here (below).
+   a display (DISPLAY or WAYLAND_DISPLAY), as engine/remote.js opens a page; without one it cannot, and the answer says
+   so. Review 2: the board's own systemd unit (engine/linuxboard.js) sets neither, so an INSTALLED Linux board always
+   refuses, even on a desktop machine; only a board started by hand from a desktop session opens folders. Giving the
+   unit the session's display is the Linux port's to decide (#4916), not this card's. A stale display starts an
+   xdg-open that fails unseen, since it is not waited on (below).
    xdg-open is STARTED, never waited on (review 1): on a desktop it does not know it runs the file manager in the
    foreground, and waiting would hold the board's event loop until that window closed. So "ok" means it was started; a
    missing xdg-open (xdg-utils not installed) is said. The environment is injectable for tests, as the platform is. */
@@ -1507,12 +1508,12 @@ function setRevealEnv(e) { revealEnv = e || null; }
 function revealOnLinux() { return (revealPlatform || process.platform) === 'linux'; }
 function linuxEnv() { return revealEnv || process.env; }
 function linuxHasDesktop() { const e = linuxEnv(); return Boolean(e.DISPLAY || e.WAYLAND_DISPLAY); }
-const NO_DESKTOP = 'this computer has no desktop to open it on';
+const NO_DESKTOP = 'Kosmos cannot open it on this computer: it is not running in a desktop session';
 function xdgOpenPath() {
   for (const dir of String(linuxEnv().PATH || '').split(path.delimiter)) {
     if (!dir) continue;
     const f = path.join(dir, 'xdg-open');
-    try { fs.accessSync(f, fs.constants.X_OK); return f; } catch { /* not here */ }
+    try { if (fs.statSync(f).isFile()) { fs.accessSync(f, fs.constants.X_OK); return f; } } catch { /* not here */ }
   }
   return null;
 }
@@ -1522,7 +1523,14 @@ function linuxOpenFolder(folder) {
   const bin = xdgOpenPath();
   if (!bin) return { ok: false, because: 'this computer has no xdg-open to open it with (it comes with xdg-utils)' };
   try {
-    const child = spawn(bin, [folder], { detached: true, stdio: 'ignore', env: linuxEnv() });
+    /* Review 2: only what xdg-open needs to reach the desktop, never the board's own environment (its tokens) handed to
+       a file manager that may run for a long time. */
+    const e = linuxEnv();
+    const env = {};
+    for (const k of ['HOME', 'PATH', 'LANG', 'DISPLAY', 'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS']) {
+      if (e[k]) env[k] = e[k];
+    }
+    const child = spawn(bin, [folder], { detached: true, stdio: 'ignore', env });
     child.on('error', () => { /* started or not, the answer below was already sent; nothing waits on it */ });
     child.unref();
     return { ok: true };
