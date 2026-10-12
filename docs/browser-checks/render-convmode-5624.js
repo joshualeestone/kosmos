@@ -1,13 +1,15 @@
 'use strict';
 /**
  * kosmos#5624 (Josh 2026-10-08: "conversation mode ... as soon as an agent posts in a project or direct agent message
- * it plays audio"): a Read-new-messages-aloud toggle beside the mic in a conversation's box.
+ * it plays audio"): a Read-new-messages-aloud toggle in a conversation's header row, beside its search (Josh
+ * 2026-10-09 10:52: not the message box; the header is Angel's call, 2026-10-12, and Josh can move it).
  *
  * Harness: file:// with fetch answered here and speechSynthesis a recording stand-in, as render-voice-4409.js (a voice
  * cannot run in CI; what is under test is the page's half of the seam). The direct thread is drawn by the real
  * paintTalk; the project room calls the same convFollow from paintRoom (pinned at C8).
  *   C0 HELD (Josh 2026-10-09 10:49, 10:52: not in the input box): by default no toggle is drawn and a conversation stored as on reads nothing
- *   C1 the toggle is drawn beside the mic and starts off (aria-pressed false), with the mode's switch on
+ *   C1 the toggle is drawn in the header row beside the search, not in the message box, and starts off (aria-pressed
+ *      false), with the mode's switch on; the room's toggle sits in the room's header row the same way
  *   C2 with the mode OFF, a new agent message is not read (CONTROL for C4)
  *   C3 turning it on reads nothing already on screen
  *   C4 with it on, a new agent message is read, with an on-device voice, code announced not spelled
@@ -143,11 +145,15 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     // C1
     const c1 = await page.evaluate(() => {
       const b = document.getElementById('d-conv');
-      const mic = document.getElementById('d-mic');
+      const p = document.getElementById('pj-conv');
+      const box = (el) => !!el && !!el.closest('.composerbox, .dmbar, .pjbar');
       return { exists: !!b, shown: !!b && getComputedStyle(b).display !== 'none', pressed: b && b.getAttribute('aria-pressed'),
-        besideMic: !!b && !!mic && b.parentElement === mic.parentElement };
+        inHead: !!b && !!b.closest('.d-talk-caprow') && b.nextElementSibling && b.nextElementSibling.id === 'd-talk-search-wrap',
+        pjInHead: !!p && !!p.closest('.pjmidhead') && !!p.nextElementSibling && p.nextElementSibling.classList.contains('tsearch'),
+        inBox: box(b) || box(p) };
     });
-    chk(c1.exists && c1.shown && c1.pressed === 'false' && c1.besideMic, 'C1 the toggle is drawn beside the mic and starts off', JSON.stringify(c1));
+    chk(c1.exists && c1.shown && c1.pressed === 'false' && c1.inHead && c1.pjInHead && !c1.inBox,
+      'C1 the toggle is drawn in each conversation\'s header beside its search, not in the message box, and starts off', JSON.stringify(c1));
 
     // C2: mode off, a new agent message arrives: nothing is read.
     thread = [...thread, agentRow(3, 'A new thing while the mode is off.')];
