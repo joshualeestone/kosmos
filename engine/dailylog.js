@@ -380,8 +380,8 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
  *   - `readErrors` counts recognized conversation files whose bytes could not be
  *     READ (an `fs.readFileSync` throw -- EISDIR, EACCES, a transient I/O error).
  *     A file whose bytes read fine but will not parse, or hold no message
- *     list, is NOT counted here: it goes to `unknownFiles` (or, if it names an
- *     earlier file, to `continuedFiles`).
+ *     list, is NOT counted here: it goes to `unknownFiles`, and one that names
+ *     an earlier file goes to `continuedFiles` (a file can be in both).
  * The caller prunes only when the listing succeeded AND no read errored, so a
  * transient failure at either level can never be read as "no conversations" and
  * wipe the compiled history.
@@ -526,7 +526,8 @@ function compileAll(opts = {}) {
 
   /* kosmos#5866 HELD DAYS: a thread file that is not read as a conversation (`unknownFiles`) may be the only place
      some days' messages ever were. Those days have no readable rows, so nothing below rewrites them: the only thing
-     that would remove their daily file is the prune. None of that file's messages is later than `unknownThrough`,
+     that would remove their daily file is the prune. None of that file's messages should be later than `unknownThrough`
+     (taken from file times and names; the file itself is not read),
      so a daily file for that day or any EARLIER day is held: not pruned. Nothing else changes: every day that has
      readable rows is rewritten exactly as before, so no day is ever less current than it was without this.
      What it does not do: a day that has BOTH readable rows and that file's rows is rewritten without the latter,
