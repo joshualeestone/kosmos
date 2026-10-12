@@ -260,13 +260,19 @@ test('kosmos#5942 GET /api/tasks?view=tasks: a decision row carries waitingSince
   /* origin/main's self-report has no askedAt yet (#5943 adds it); the read is wrapped to carry it the way #5943 will. */
   const ASKED = '2026-10-01T10:00:00.000Z';
   const realRead = selfreport.read;
-  selfreport.read = function () {
-    const out = realRead.apply(this, arguments);
-    return out && out.found === true && out.state === 'needs_you' ? Object.assign({}, out, { askedAt: ASKED }) : out;
-  };
-  const board = fleet.install([fleet.agent('agedask', { state: 'needs_you' }), fleet.agent('agedidle', { state: 'idle' })]);
   let body;
-  try { body = await all(`?view=tasks&project=${encodeURIComponent(p.id)}`); } finally { board.restore(); selfreport.read = realRead; }
+  let board = null;
+  try {
+    selfreport.read = function () {
+      const out = realRead.apply(this, arguments);
+      return out && out.found === true && out.state === 'needs_you' ? Object.assign({}, out, { askedAt: ASKED }) : out;
+    };
+    board = fleet.install([fleet.agent('agedask', { state: 'needs_you' }), fleet.agent('agedidle', { state: 'idle' })]);
+    body = await all(`?view=tasks&project=${encodeURIComponent(p.id)}`);
+  } finally {
+    if (board) board.restore();
+    selfreport.read = realRead;   // restored even if the install throws
+  }
   const by = Object.fromEntries(body.tasks.map((t) => [t.sentence, t]));
   assert.equal(by['Aged question'].state, 'decision', 'PRE-CONTROL: ' + JSON.stringify(by['Aged question']));
   assert.equal(by['Aged question'].waitingSince, ASKED);
