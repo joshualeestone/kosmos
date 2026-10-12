@@ -1,8 +1,8 @@
 #!/bin/bash
 # Archive, export and (with --upload) upload the iOS app to App Store Connect (kosmos #4089, #718).
 #
-# Ready for the day Apple approves the Kosmos Agent Manager, Inc. developer org (#3643). Until then
-# it stops at the first check below, because there is no Team ID to sign with.
+# Signs as the team in ios/Signing.xcconfig (Stone Syndicate LLC for now, #4089; Kosmos Agent Manager,
+# Inc. after the app transfer, #3643). It stops at the first check below if that Team ID is empty.
 #
 #   ios/tools/archive.sh --build <N>            archive + export an .ipa, then check it
 #   ios/tools/archive.sh --build <N> --upload   the same, then upload that build to App Store Connect
@@ -40,7 +40,7 @@ esac
 # The value Xcode reads: the DEVELOPMENT_TEAM line, less any trailing // comment and spaces.
 team=$(sed -n 's|//.*||; s/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*//p' "$ios/Signing.xcconfig" | tr -d '[:space:]')
 if [ -z "$team" ]; then
-  echo "archive.sh: DEVELOPMENT_TEAM is empty in ios/Signing.xcconfig. Set it to the Kosmos Agent Manager, Inc. Team ID once Apple approves the org (#3643)." >&2
+  echo "archive.sh: DEVELOPMENT_TEAM is empty in ios/Signing.xcconfig. Set it to the Team ID that signs the app (see the comment in that file)." >&2
   exit 1
 fi
 if ! printf '%s' "$team" | LC_ALL=C grep -Eq '^[A-Z0-9]{10}$'; then
