@@ -174,9 +174,10 @@ test('#5883 review 2: one folder keeps ONE name across an account move, so its f
 test('#5883 review 3: `codex` names the agents\' default home for every agent, never the board\'s CODEX_HOME', (t) => {
   const create = require('./create');
   const saved = { a: process.env.AGENT_WORKFORCE_CODEX_HOME, c: process.env.CODEX_HOME };
-  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
-  process.env.CODEX_HOME = mk('board-codex-home');
   try {
+    // Inside the try (review 4): a throw here must still restore the environment for the tests after this one.
+    delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+    process.env.CODEX_HOME = mk('board-codex-home');
     const board = require('./codexupdate').defaultHome();
     const agents = create.defaultAgentCodexHome();
     if (board === agents) { t.skip('the two homes do not differ here, so there is nothing to tell apart'); return; }
@@ -188,4 +189,19 @@ test('#5883 review 3: `codex` names the agents\' default home for every agent, n
     if (saved.a === undefined) delete process.env.AGENT_WORKFORCE_CODEX_HOME; else process.env.AGENT_WORKFORCE_CODEX_HOME = saved.a;
     if (saved.c === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = saved.c;
   }
+});
+
+test('#5883 review 4: an account folder named through a link gets the same root name as its real path', () => {
+  const real = mk('home', '.codex-linked-acct');
+  const link = path.join(BASE, 'acct-link');
+  if (!fs.existsSync(link)) fs.symlinkSync(real, link);
+  const seen = [];
+  mk('workers', 'lynn');
+  const nameVia = (configDir) => {
+    seen.length = 0;
+    tick.rootsFor(tick.inputsHere({ readJob: (n) => (n === 'lynn' ? { runner: 'codex', configDir } : null), sessionsFor: (d, o) => { if (o.id === 'lynn') seen.push(...o.moreHomes); return []; } }));
+    return seen.find((h) => h.home === configDir).tag;
+  };
+  assert.equal(nameVia(link), nameVia(real));
+  assert.notEqual(nameVia(real), nameVia(mk('home', '.codex-other-acct')), 'CONTROL: another folder gets another name');
 });
