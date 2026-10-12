@@ -134,6 +134,13 @@ test('#5970: community post, edit and endorse take --body-file too', () => withS
   assert.deepEqual([seen[3].body.name, seen[3].body.stars, seen[3].body.text], ['Theo Nguyen', 5, WRITTEN]);
 }));
 
+test('#5970: a file just under the cap is sent whole (the text travels to node in the environment, under ARG_MAX)', () => withStubBoard(async (port, seen) => {
+  const text = 'x'.repeat(500 * 1024);
+  const out = await runCli(['community', 'post', '--body-file', file(text)], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(seen[0].body.body.length, text.length, 'the post did not arrive whole');
+}));
+
 test('#5970: past --, "--body-file" is words, not the flag', () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'comment', 'post-1', '--', '--body-file', 'is', 'a', 'flag'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -144,7 +151,7 @@ test('#5970: every refusal exits 2, names the problem, and sends nothing', () =>
   const good = file('Fine words.');
   const big = path.join(FILES, 'big.txt');
   fs.writeFileSync(big, '');
-  fs.truncateSync(big, 6291456 + 1);   // one byte over POST_BODY_MAX_BYTES, sparse, so the test stays fast
+  fs.truncateSync(big, 524288 + 1);   // one byte over BODY_FILE_MAX_BYTES, sparse, so the test stays fast
   const cases = [
     ['words plus file', ['community', 'comment', 'post-1', '--body-file', good, 'and', 'words'], /as words OR with --body-file, not both/],
     ['twice', ['community', 'comment', 'post-1', '--body-file', good, '--body-file', good], /given twice/],
@@ -152,11 +159,16 @@ test('#5970: every refusal exits 2, names the problem, and sends nothing', () =>
     ['no path', ['community', 'comment', 'post-1', '--body-file'], /needs the path of a file/],
     ['empty path', ['community', 'comment', 'post-1', '--body-file='], /needs the path of a file/],
     ['an option as the path', ['community', 'comment', 'post-1', '--body-file', '--reply-to'], /--body-file needs a value, and --reply-to is an option/],
+    ['-- as the path', ['community', 'comment', 'post-1', '--body-file', '--', 'words'], /needs the path of a file/],
+    ['the flag as --topic\'s value', ['community', 'post', '--topic', '--body-file', good, 'words'], /--topic needs a value, and --body-file is an option/],
+    ['the flag as --channel\'s value', ['community', 'post', '--channel', '--body-file', good], /--channel needs a value, and --body-file is an option/],
+    ['the flag as --reply-to\'s value', ['community', 'comment', '--reply-to', '--body-file', good, 'p1', 'c1'], /--reply-to needs a value, and --body-file is an option/],
+    ['the flag as edit --topic\'s value', ['community', 'edit', 'post', 'id-1', '--topic', '--body-file', good], /--topic needs a value, and --body-file is an option/],
     ['missing file', ['community', 'comment', 'post-1', '--body-file', path.join(FILES, 'nope.txt')], /Nothing was sent: there is no file Kosmos can read at/],
     ['a folder', ['community', 'comment', 'post-1', '--body-file', FILES], /there is no file Kosmos can read at/],
     ['not UTF-8', ['community', 'comment', 'post-1', '--body-file', file(Buffer.from([0x68, 0x69, 0xc3, 0x28]))], /is not UTF-8 text/],
     ['a NUL', ['community', 'comment', 'post-1', '--body-file', file(Buffer.from('a\0b'))], /is not UTF-8 text/],
-    ['over the cap', ['community', 'comment', 'post-1', '--body-file', big], /over the 6 MB the board accepts/],
+    ['over the cap', ['community', 'comment', 'post-1', '--body-file', big], /over the 512 KB Kosmos takes from a file/],
     ['empty', ['community', 'comment', 'post-1', '--body-file', file('')], /Nothing was sent: .* is empty/],
     ['blank', ['community', 'post', '--body-file', file(' \r\n\t\n')], /Nothing was posted: .* is empty/],
     ['edit, words plus file', ['community', 'edit', 'post', 'id-1', '--body-file', good, 'more'], /not both/],
@@ -200,6 +212,11 @@ test('#5970: feedback write --body-file saves the file as the report; a refusal 
   assert.equal(w.code, 0, w.both);
   const s = await runBash(['feedback', 'show'], fbEnv(h));
   assert.match(s.both, /## Did not work\n- X `y` \$z/, 'the UTF-16 report was not saved as written');
+
+  const h3 = makeHome();
+  const eq = await runBash(['feedback', 'write', `--body-file=${file('Equals spelling.')}`], fbEnv(h3));
+  assert.equal(eq.code, 0, eq.both);
+  assert.match((await runBash(['feedback', 'show'], fbEnv(h3))).both, /Equals spelling\./);
 
   const h2 = makeHome();
   const r = await runBash(['feedback', 'write', '--body-file', file('Saved?'), 'and words'], fbEnv(h2));
