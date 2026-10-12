@@ -97,7 +97,7 @@ jobs:
             grep -q '^VERDICT: PASS' "$RUNNER_TEMP/assets-$config.log"
           done
 
-      # #4089: the same archive command tools/archive.sh runs, with signing off, so a
+      # #4089: the archive command tools/archive.sh runs (less its team and bundle id settings), with signing off, so a
       # project change that breaks archiving goes red before the day of the first upload.
       - name: Device archive builds (unsigned)
         working-directory: ios

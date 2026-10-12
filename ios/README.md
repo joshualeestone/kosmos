@@ -92,13 +92,14 @@ runner, which has the runtime.
     template says an unset list refuses every app). The app logs `[Push] register failed with HTTP 400` and carries on,
     with no banner (`PushRegistrar.swift`). It still shows the notification-permission prompt.
   - Building for a real device in Xcode now signs as that team too, so Xcode provisions
-    `io.kosmos.app.preview` under Stone Syndicate for a person signed in to that team. Anyone else
-    passes their own team on the command line (`xcodebuild ... DEVELOPMENT_TEAM=<theirs>`), which still
-    builds `io.kosmos.app.preview`, under their team: picking a
-    team in Xcode's Signing pane writes it into `project.pbxproj`, which must not be committed. The build
-    registers
-    for push as `io.kosmos.app.preview`: a local or staging coordinator must list that id in
-    `KOSMOS_APNS_BUNDLE_IDS` to test push on a device.
+    `io.kosmos.app.preview` under Stone Syndicate for a person signed in to that team. A bundle id
+    belongs to one team across all of Apple, so anyone else passes their own team AND their own id
+    on the command line (`xcodebuild ... DEVELOPMENT_TEAM=<theirs> KOSMOS_BUNDLE_ID=<their own id>`).
+    Never set either in Xcode's Signing or General pane: that writes them into `project.pbxproj`,
+    which must not be committed (`tools/test-archive-config.sh` fails if the project's bundle id is
+    anything but `$(KOSMOS_BUNDLE_ID)`). A device build registers for push as its bundle id, so a
+    local or staging coordinator must list that id in `KOSMOS_APNS_BUNDLE_IDS` and hold an APNs key
+    from the same team to test push on a device.
 - `tools/archive.sh --build <N>` archives the Release app, exports it for App Store Connect with
   `tools/ExportOptions.plist` (the Team ID is added from `Signing.xcconfig`), and runs
   `tools/check-ipa-entitlements.sh` on the exported `.ipa`: `aps-environment` must be
