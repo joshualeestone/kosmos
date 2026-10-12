@@ -46,11 +46,16 @@ slice; this one makes the far-behind agent visible where agents are seen.
 
 ## Review iterations 5 and 6
 - The offline card and list row return early with no task line, so they draw the sentence themselves through the same
-  helper (rulesBehindLine): the card as a small muted line (the ameta style; not atask, which #855's card-order guard
-  keeps after the model line in card(), and not the padded note box, which would change the card's look), the list
+  helper (rulesBehindLine): the card as a small muted line in its own class (arules: .75rem, the second ink, like the
+  community line; not atask, which #855's card-order guard keeps after the model line in card(); not ameta, which is
+  the bold role line; not the padded note box, which would change the card's look), the list
   row in its existing ltask cell. Not in the "could not check" split (launchd says a process may be running).
 - Project rooms' member rows do not carry it: a room is not where an agent's rules are kept up to date; the board's
   card and list are.
 - Deferred: a per-name cache of the file path (each far-behind agent still finds its file and stats it per poll;
   measured cheap, and only far-behind agents pay), and a route-level assertion for live rows (the route spreads the
   snapshot row today; the golden card and the snapshot test cover the field).
+- Review 7: the number is the recorded gap; a hand-edited later block can make it overstate (said in rulesBehind's
+  comment). The phone's list view hides .ltask, so there only the grid card shows it, as every task-line sentence.
+  An offline card does not consult stateReason, so it shows the note beside nothing more urgent (offline cards draw no
+  crash sentence). Every test that lifts card() or lrow() was found by name and run (the first sweep missed two).

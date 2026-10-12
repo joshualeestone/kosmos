@@ -3020,6 +3020,8 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 /* `.acut` is retired: the pack dropped the rule AND the divs together, and a
    surviving rule would still draw a line under markup that no longer exists. */
 /* The role sits directly under the name as one unit (Josh's regroup). */
+/* #5957 slice 2: an offline card's far-behind note: small and muted, so the quieter offline card stays quiet. */
+.acard .arules { font-size: .75rem; color: var(--k-ink-2); line-height: 1.35; margin-top: 4px; }
 .acard .ameta { font-weight: 600; color: var(--k-ink); font-size: .8125rem; margin-top: 1px; }
 /* Josh, 2026-08-19: "a tiny bit more. Not crazy." One pixel is not a gap, it is
    the absence of one. Mona Lisa's spec (#184) is `--space-3`.
@@ -21981,7 +21983,7 @@ function card(a) {
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate ${split ? 'st-unknown' : 'st-stopped'}">${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b></div>
-    ${!split && rulesBehindLine(a) ? `<div class="ameta">${esc(rulesBehindLine(a))}</div>` : ''}
+    ${!split && rulesBehindLine(a) ? `<div class="arules">${esc(rulesBehindLine(a))}</div>` : ''}
     ${comm ? `<div class="acommunity">${esc(comm)}</div>` : ''}
   </div>`;
   }
