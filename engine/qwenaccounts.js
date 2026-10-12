@@ -62,16 +62,20 @@ function writeName(dir, name) {
 
 /**
  * Why an endpoint cannot be used, in words a person can act on, or null when it can. The same checks guard what
- * is stored and what is read back, so a hand-edited file cannot reach the launch line with a bad value.
+ * is stored and what is read back (readEndpoint), so a hand-edited file is refused before the launch line too.
  */
 function endpointProblem(ep) {
   const e = ep && typeof ep === 'object' ? ep : {};
+  const raw = String(e.baseUrl == null ? '' : e.baseUrl);
+  /* Checked on the text as written, not only on what URL makes of it: URL quietly percent-encodes or drops a quote,
+     a backslash or a tab, and the text as written is what is stored and handed to codex (review 1). */
+  if (raw !== raw.trim() || /[\s"'\\<>`\u0000-\u001f\u007f]/.test(raw)) return 'the address has a space, quote, backslash or control character in it';
   let url;
-  try { url = new URL(String(e.baseUrl || '')); } catch { return 'give the address of an OpenAI-compatible endpoint, such as ' + LOCAL.baseUrl; }
+  try { url = new URL(raw); } catch { return 'give the address of an OpenAI-compatible endpoint, such as ' + LOCAL.baseUrl; }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'the address must start with http:// or https://';
   if (url.username || url.password) return 'put the key in the key box, not in the address';
   if (url.search || url.hash) return 'the address must not have a ? or # part';
-  if (!/^[A-Za-z0-9._:/-]{1,120}$/.test(String(e.model || ''))) return 'give the model name the endpoint uses, such as ' + LOCAL.model;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/.test(String(e.model || ''))) return 'give the model name the endpoint uses, such as ' + LOCAL.model;
   const ctx = e.contextWindow;
   if (typeof ctx !== 'number' || !Number.isInteger(ctx) || ctx < MIN_CONTEXT || ctx > MAX_CONTEXT) {
     return `the context must be a whole number of tokens from ${MIN_CONTEXT} up (below that, Qwen loses the request)`;
@@ -112,10 +116,20 @@ function readEndpoint(dir) {
   return { kind: 'ok', endpoint: normalize(ep) };
 }
 
-/** True when an account home is an endpoint home (the supervisor and the status paths ask this). */
+/** True when an account home holds a regular endpoint file (lstat: a symlink there is not one, as the supervisor
+    also refuses it). */
 function isEndpointHome(dir) {
   if (!dir) return false;
-  try { return fs.statSync(endpointFile(dir)).isFile(); } catch { return false; }
+  try { return fs.lstatSync(endpointFile(dir)).isFile(); } catch { return false; }
+}
+
+/** True when an account home is a Qwen account: named like one, or holding an endpoint file. Used wherever the
+    question is "is this agent on Qwen" (jobProvider, the status exemptions), so a Qwen folder whose endpoint file
+    went missing or became a link is still Qwen (and fails closed at launch), never judged as an OpenAI home. */
+function isQwenHome(dir) {
+  if (!dir) return false;
+  if (path.basename(path.resolve(String(dir))).startsWith(DIR_PREFIX)) return true;
+  return isEndpointHome(dir);
 }
 
 /* There is no default Qwen account (every one is a named folder). Present for callers written for every keyed
@@ -205,7 +219,7 @@ function setFetcher(fn) { fetcher = typeof fn === 'function' ? fn : null; }
 async function askModels(ep) {
   const f = fetcher || (async (url, init) => {
     const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 8000);
+    const t = setTimeout(() => ctl.abort(), 5000);
     try {
       const res = await fetch(url, { ...init, signal: ctl.signal });
       let body = null;
@@ -245,15 +259,26 @@ async function validateLive(ep) {
   return { state: STATE.NONE, because: `${where} does not have the model ${want}` };
 }
 
-/** checkLive for a stored account. `_opts` is accepted for signature parity with the other providers' checkLive. */
-async function checkLive(dir, _opts) {
+/* A short-lived cache of each account's last live answer. The account list asks on every read, and one endpoint that
+   does not answer would otherwise hold the whole list for the timeout every time (review 1). Only a caller that asks
+   for it (opts.cached, as listLive does) is answered from it; a person's own check always asks the endpoint. */
+const CACHE_MS = 20000;
+const liveCache = new Map();
+
+/** checkLive for a stored account. opts.cached: answer from an answer under CACHE_MS old for the same endpoint. */
+async function checkLive(dir, opts) {
   const got = readEndpoint(dir);
   if (got.kind === 'absent') return { state: STATE.NONE, checkedLive: true, because: 'nobody has set up this Qwen account yet' };
   if (got.kind === 'unreadable') return { state: STATE.UNKNOWN, checkedLive: true, because: 'we could not read this account\'s endpoint' };
   if (got.kind === 'invalid') return { state: STATE.NONE, checkedLive: true, because: got.because };
-  const live = await validateLive(got.endpoint);
-  return { ...live, checkedLive: true };
+  const key = path.resolve(String(dir)) + '\u0000' + JSON.stringify(got.endpoint);
+  const hit = liveCache.get(key);
+  if (opts && opts.cached && hit && Date.now() - hit.at >= 0 && Date.now() - hit.at < CACHE_MS) return hit.value;
+  const value = { ...(await validateLive(got.endpoint)), checkedLive: true };
+  liveCache.set(key, { at: Date.now(), value });
+  return value;
 }
+function resetLiveCacheForTest() { liveCache.clear(); }
 
 async function listLiveNow() {
   const rows = list();
@@ -338,39 +363,52 @@ function toml(s) {
  * starting codex against OpenAI with no sign-in).
  */
 function launchArgs(dir) {
+  const refuse = (because) => ({ ok: false, because: 'this Qwen account cannot be used: ' + because });
+  /* A link at the endpoint file is refused, as storeEndpoint refuses a linked folder: the account is what Kosmos
+     wrote, never something it points at. */
+  try { if (fs.lstatSync(endpointFile(dir)).isSymbolicLink()) return refuse('its endpoint file is a link'); } catch { /* absent: below */ }
   const got = readEndpoint(dir);
   if (got.kind !== 'ok') {
-    const because = got.kind === 'invalid' ? got.because : (got.kind === 'absent' ? 'it has no endpoint set up' : 'its endpoint file could not be read');
-    return { ok: false, because: 'this Qwen account cannot be used: ' + because };
+    return refuse(got.kind === 'invalid' ? got.because : (got.kind === 'absent' ? 'it has no endpoint set up' : 'its endpoint file could not be read'));
   }
   const ep = got.endpoint;
   const p = `model_providers.${CODEX_PROVIDER_ID}`;
-  const args = [
-    '-c', `model_provider=${toml(CODEX_PROVIDER_ID)}`,
-    '-c', `${p}.name=${toml(PROVIDER_NAME)}`,
-    '-c', `${p}.base_url=${toml(ep.baseUrl)}`,
-    '-c', `${p}.wire_api=${toml('responses')}`,
-  ];
-  if (ep.key) args.push('-c', `${p}.env_key=${toml(KEY_ENV)}`);
-  args.push('-c', `model_context_window=${ep.contextWindow}`, '-c', `web_search=${toml('disabled')}`, '-m', ep.model);
-  return { ok: true, args, key: ep.key || null };
+  try {
+    const args = [
+      '-c', `model_provider=${toml(CODEX_PROVIDER_ID)}`,
+      '-c', `${p}.name=${toml(PROVIDER_NAME)}`,
+      '-c', `${p}.base_url=${toml(ep.baseUrl)}`,
+      '-c', `${p}.wire_api=${toml('responses')}`,
+    ];
+    if (ep.key) args.push('-c', `${p}.env_key=${toml(KEY_ENV)}`);
+    args.push('-c', `model_context_window=${ep.contextWindow}`, '-c', `web_search=${toml('disabled')}`, '-m', ep.model);
+    return { ok: true, args, key: ep.key || null };
+  } catch {
+    return refuse('its endpoint has a character Kosmos cannot hand to codex');
+  }
 }
 
 /* The supervisor's entry: `node qwenaccounts.js launch-args <dir>` prints the arguments NUL-separated (exit 0), or
-   the refusal sentence (exit 2); `launch-key <dir>` prints the key, if any, with no newline. */
+   the refusal sentence (exit 2); `launch-key <dir>` prints the key, if any, with no newline. Any other failure prints
+   a sentence too (exit 3), never a stack trace the supervisor would drop, leaving a blank reason (review 1). */
 if (require.main === module) {
-  const [verb, dir] = process.argv.slice(2);
-  const r = launchArgs(dir);
-  if (!r.ok) { process.stdout.write(r.because); process.exit(2); }
-  if (verb === 'launch-args') process.stdout.write(r.args.join('\0') + '\0');
-  else if (verb === 'launch-key') process.stdout.write(r.key || '');
-  else process.exit(64);
+  try {
+    const [verb, dir] = process.argv.slice(2);
+    const r = launchArgs(dir);
+    if (!r.ok) { process.stdout.write(r.because); process.exit(2); }
+    if (verb === 'launch-args') process.stdout.write(r.args.join('\0') + '\0');
+    else if (verb === 'launch-key') process.stdout.write(r.key || '');
+    else process.exit(64);
+  } catch {
+    process.stdout.write('Kosmos could not read this Qwen account');
+    process.exit(3);
+  }
 }
 
 module.exports = {
   CODEX_PROVIDER_ID, KEY_ENV, launchArgs,
   STATE, PROVIDER, PROVIDER_NAME, LOCAL, MIN_CONTEXT, DIR_PREFIX, FORGOTTEN_PREFIX, ENDPOINT_BASENAME,
-  homeDir, defaultDir, identityOf, endpointFile, endpointProblem, readEndpoint, isEndpointHome, isLocal, list,
+  homeDir, defaultDir, identityOf, endpointFile, endpointProblem, readEndpoint, isEndpointHome, isQwenHome, isLocal, list, resetLiveCacheForTest,
   cleanLabel, dirForLabel, storeEndpoint,
   setFetcher, askModels, validateLive, checkLive, listLive,
   forgetAccount, removeAccount,

@@ -69,7 +69,7 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
     const dir = job && typeof job.configDir === 'string' && job.configDir ? path.resolve(job.configDir) : null;
     if (!dir) continue;
     // #5977: a codex agent on a Qwen account has no OpenAI sign-in (no auth.json) and is not a signed-out OpenAI account.
-    if (runner === 'codex' && require('./qwenaccounts').isEndpointHome(dir)) continue;
+    if (runner === 'codex' && require('./qwenaccounts').isQwenHome(dir)) continue;
     if (!defaultPlaces.has(p.provider)) {   // once per provider, like listedPlaces
       let d = null;
       let unsure = false;   // the default could not be asked: a pinned default folder must not read "gone"

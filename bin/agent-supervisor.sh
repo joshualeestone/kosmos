@@ -1033,26 +1033,40 @@ if [ -z "$adopt" ]; then
     # turns it into codex arguments (the endpoint, its model, the 16k-or-more context, web search off), NUL-separated
     # so no value can split or inject. A file it cannot use stops the launch: starting codex against OpenAI with no
     # sign-in would only fail later, in words about OpenAI.
+    # A home named like a Qwen account is one even when its endpoint file is missing or a link (qwenaccounts
+    # isQwenHome): launch-args then refuses it with the reason, rather than this launching codex against OpenAI.
     ENDPOINT_ARGS=()
-    if [ -f "$EFFECTIVE_CODEX_HOME/kosmos-endpoint.json" ] && [ ! -L "$EFFECTIVE_CODEX_HOME/kosmos-endpoint.json" ]; then
+    _ep_qwen=0
+    case "$(basename "$EFFECTIVE_CODEX_HOME")" in .kosmos-qwen-*) _ep_qwen=1 ;; esac
+    if [ -f "$EFFECTIVE_CODEX_HOME/kosmos-endpoint.json" ] && [ ! -L "$EFFECTIVE_CODEX_HOME/kosmos-endpoint.json" ]; then _ep_qwen=1; fi
+    if [ "$_ep_qwen" -eq 1 ]; then
       _ep_file="$(mktemp)" || { say "$SESSION: could not read its Qwen endpoint; the agent was not started"; exit 1; }
       _ep_rc=0
       "$NODE_BIN" "$_eng/qwenaccounts.js" launch-args "$EFFECTIVE_CODEX_HOME" > "$_ep_file" 2>/dev/null || _ep_rc=$?
       if [ "$_ep_rc" -ne 0 ]; then
-        say "$SESSION: $(head -c 300 "$_ep_file" | tr -d '\n'); the agent was not started"
+        _ep_why="$(head -c 300 "$_ep_file" | tr -d '\n')"
+        say "$SESSION: ${_ep_why:-Kosmos could not read this Qwen account}; the agent was not started"
         rm -f -- "$_ep_file"
         exit 1
       fi
       while IFS= read -r -d '' _ep_arg; do ENDPOINT_ARGS+=("$_ep_arg"); done < "$_ep_file"
       rm -f -- "$_ep_file"
-      _ep_key="$("$NODE_BIN" "$_eng/qwenaccounts.js" launch-key "$EFFECTIVE_CODEX_HOME" 2>/dev/null || true)"
-      [ -n "$_ep_key" ] && add_launch_secret KOSMOS_ENDPOINT_KEY "$_ep_key"
-      unset _ep_file _ep_rc _ep_arg _ep_key
       if [ "${#ENDPOINT_ARGS[@]}" -eq 0 ]; then
         say "$SESSION: its Qwen endpoint gave no launch settings; the agent was not started"
         exit 1
       fi
+      # A key named in the arguments (env_key) must reach the pane, or codex starts and fails later with nothing said.
+      _ep_wants_key=0
+      for _ep_arg in "${ENDPOINT_ARGS[@]}"; do case "$_ep_arg" in *.env_key=*) _ep_wants_key=1 ;; esac; done
+      _ep_key="$("$NODE_BIN" "$_eng/qwenaccounts.js" launch-key "$EFFECTIVE_CODEX_HOME" 2>/dev/null || true)"
+      if [ "$_ep_wants_key" -eq 1 ] && [ -z "$_ep_key" ]; then
+        say "$SESSION: could not read its Qwen account's key; the agent was not started"
+        exit 1
+      fi
+      [ -n "$_ep_key" ] && add_launch_secret KOSMOS_ENDPOINT_KEY "$_ep_key"
+      unset _ep_file _ep_rc _ep_arg _ep_key _ep_why _ep_wants_key
     fi
+    unset _ep_qwen
 
     if [ -n "$_codex_runtime_home" ] && [ ! -L "$_codex_runtime_home" ] \
       && mkdir -p "$_codex_runtime_home" 2>/dev/null && chmod 700 "$_codex_runtime_home" 2>/dev/null; then

@@ -131,6 +131,11 @@ function accountProblemOf(card) {
     };
   }
   if (card.state === 'auth_failed') {
+    // #5977: a Qwen account is an endpoint, with no sign-in to renew: what fails is reaching it.
+    if (provider === 'Qwen') {
+      const qtext = `${who} cannot get answers from its Qwen endpoint, so it cannot do anything. Check that the endpoint is running (for Qwen on this computer, that Ollama is open), then restart it.`;
+      return { kind: 'signin', provider, notify: true, text: qtext, summary: qtext };
+    }
     const text = `${who}'s ${provider} sign-in has stopped working, so it cannot do anything. Open its page and choose Sign in again.`;
     return { kind: 'signin', provider, notify: true, text, summary: text };
   }

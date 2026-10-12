@@ -2814,16 +2814,25 @@ function handleQwenAccountStore(req, res) {
         ? body.label : (qwenAccounts.isLocal(ep.baseUrl) ? 'local' : 'endpoint');
       const named = qwenAccounts.dirForLabel(label);
       if (!named.ok) { sendJson(res, 400, { error: named.because }); return; }
-      let exists = false;
-      try { fs.lstatSync(named.dir); exists = true; } catch { exists = false; }
-      if (exists) {
-        sendJson(res, 409, { error: `there is already a Qwen account called ${named.label} on this computer; give this one another name` });
+      /* CLAIMED before the live check, which awaits the network: a plain mkdir (not recursive) fails on a folder that
+         is already there, so of two adds racing for one label (a double click on the default "local") exactly one
+         gets it and the other is told, never both writing (review 1). A claimed folder this add then cannot fill is
+         removed, so the label is free again. */
+      try { fs.mkdirSync(named.dir, { mode: 0o700 }); }
+      catch (err) {
+        if (err && err.code === 'EEXIST') {
+          sendJson(res, 409, { error: `there is already a Qwen account called ${named.label} on this computer; give this one another name` });
+        } else {
+          sendJson(res, 400, { error: 'we could not make a place for this Qwen account on this computer' });
+        }
         return;
       }
-      const live = await qwenAccounts.validateLive(ep);
-      if (live.state === qwenAccounts.STATE.NONE) { sendJson(res, 400, { error: live.because }); return; }
+      const giveBack = () => { try { fs.rmSync(named.dir, { recursive: true, force: true }); } catch { /* best effort */ } };
+      let live;
+      try { live = await qwenAccounts.validateLive(ep); } catch { live = { state: qwenAccounts.STATE.UNKNOWN, because: 'we could not check this endpoint just now' }; }
+      if (live.state === qwenAccounts.STATE.NONE) { giveBack(); sendJson(res, 400, { error: live.because }); return; }
       try { qwenAccounts.storeEndpoint(named.dir, ep); }
-      catch { sendJson(res, 400, { error: 'we could not save this Qwen account on this computer' }); return; }
+      catch { giveBack(); sendJson(res, 400, { error: 'we could not save this Qwen account on this computer' }); return; }
       if (typeof body.name === 'string' && body.name.trim()) qwenAccounts.writeName(named.dir, body.name);
       const account = qwenAccounts.list().find((a) => a.dir === named.dir) || null;
       const connection = { state: live.state, because: live.because };
@@ -3069,7 +3078,7 @@ function markGuide(rows, guideName) {
 function creatorRunsOn(name) {
   let job = null;
   try { job = create.readJob(name); } catch { job = null; }
-  if (job && job.runner) return { provider: create.runnerProvider(job.runner), account: job.configDir || null };
+  if (job && job.runner) return { provider: create.jobProvider(job), account: job.configDir || null };   // #5977: a Qwen agent's members are Qwen
   let provider = null;
   try { provider = store.readProfile(name).provider || null; } catch { provider = null; }
   return provider ? { provider, account: null } : null;

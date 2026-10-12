@@ -180,3 +180,46 @@ test('forget renames an account aside, and remove deletes it; both refuse what i
   assert.match(qwen.removeAccount(link, []).because, /not a Qwen account/);
   assert.equal(fs.existsSync(real), true, 'the link target is untouched');
 });
+
+test('review 1: an address with a quote, backslash, space or control character is refused as written; a model cannot start with -', () => {
+  for (const bad of ['http://localhost:11434/v1"x', 'http://localhost:11434/v1\\', ' http://localhost:11434/v1', 'http://localhost:11434/v1\t', 'http://local\nhost:11434/v1']) {
+    assert.match(qwen.endpointProblem({ ...GOOD, baseUrl: bad }), /space, quote, backslash or control character/, JSON.stringify(bad));
+  }
+  assert.match(qwen.endpointProblem({ ...GOOD, model: '--help' }), /model name/);
+  assert.equal(qwen.endpointProblem({ ...GOOD, model: 'qwen2.5:7b' }), null, 'CONTROL: an ordinary model name passes');
+});
+
+test('review 1: isQwenHome is true for a folder named like a Qwen account even with no endpoint file; isEndpointHome needs a regular file', () => {
+  const named = nodePath.join(SANDBOX, qwen.DIR_PREFIX + 'lost');
+  fs.mkdirSync(named);
+  assert.equal(qwen.isQwenHome(named), true);
+  assert.equal(qwen.isEndpointHome(named), false);
+  const other = nodePath.join(SANDBOX, '.codex-other'); fs.mkdirSync(other);
+  assert.equal(qwen.isQwenHome(other), false, 'CONTROL: an OpenAI home is not Qwen');
+  const real = account();
+  const linked = nodePath.join(SANDBOX, '.codex-linked'); fs.mkdirSync(linked);
+  fs.symlinkSync(qwen.endpointFile(real), qwen.endpointFile(linked));
+  assert.equal(qwen.isEndpointHome(linked), false, 'a link at the endpoint file is not an endpoint home');
+});
+
+test('review 1: launchArgs refuses a linked endpoint file and a missing one, with a sentence', () => {
+  const named = nodePath.join(SANDBOX, qwen.DIR_PREFIX + 'gone'); fs.mkdirSync(named);
+  assert.match(qwen.launchArgs(named).because, /no endpoint set up/);
+  const real = account();
+  const linked = nodePath.join(SANDBOX, qwen.DIR_PREFIX + 'linkfile'); fs.mkdirSync(linked);
+  fs.symlinkSync(qwen.endpointFile(real), qwen.endpointFile(linked));
+  assert.match(qwen.launchArgs(linked).because, /endpoint file is a link/);
+  assert.equal(qwen.launchArgs(real).ok, true, 'CONTROL: the real account launches');
+});
+
+test('review 1: the live check answers a listing from a recent answer, and a person\'s own check always asks', async () => {
+  qwen.resetLiveCacheForTest();
+  const dir = account();
+  let asked = 0;
+  qwen.setFetcher(async () => { asked += 1; return models(GOOD.model); });
+  await qwen.checkLive(dir, { cached: true });
+  await qwen.checkLive(dir, { cached: true });
+  assert.equal(asked, 1, 'the second listing read was answered from the first');
+  await qwen.checkLive(dir);
+  assert.equal(asked, 2, 'a check without cached asks the endpoint');
+});

@@ -87,3 +87,21 @@ test('CONTROL: an OpenAI home (auth.json, no endpoint file) launches exactly as 
   assert.match(r.argv, /-m gpt-5\.2/);
   assert.equal(/model_provider|web_search|model_context_window/.test(r.argv), false, 'no endpoint arguments');
 });
+
+test('review 1: a folder named like a Qwen account stops the launch when its endpoint file is missing or a link', () => {
+  const missing = nodePath.join(SANDBOX, '.kosmos-qwen-missing');
+  fs.mkdirSync(missing, { recursive: true });
+  let r = run(missing);
+  assert.notEqual(r.code, 0);
+  assert.equal(/new-session/.test(r.argv), false);
+  assert.match(r.out, /no endpoint set up; the agent was not started/);
+  assert.equal(/OpenAI account is not signed in/.test(r.out), false, 'never judged as an unsigned OpenAI account');
+
+  const real = home({ 'kosmos-endpoint.json': JSON.stringify(EP) });
+  const linked = nodePath.join(SANDBOX, '.kosmos-qwen-linked');
+  fs.mkdirSync(linked, { recursive: true });
+  fs.symlinkSync(nodePath.join(real, 'kosmos-endpoint.json'), nodePath.join(linked, 'kosmos-endpoint.json'));
+  r = run(linked);
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /endpoint file is a link; the agent was not started/);
+});

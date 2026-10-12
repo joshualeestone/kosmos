@@ -120,3 +120,13 @@ test('#5977: Qwen -> OpenAI switches back to an OpenAI home (the Qwen folder is 
   assert.equal(create.jobProvider(create.readJob(name)), 'openai');
   assert.equal(store.readProfile(name).provider, 'openai');
 });
+
+test('review 1: the account route does not move an OpenAI agent onto a Qwen folder (that is a provider switch)', () => {
+  const acct = qwenAccount('acctroute');
+  const name = born('qw-openai-acct', 'codex', null, 'openai');
+  const before = fs.readFileSync(jobfix.jobPath(name), 'utf8');
+  const r = create.setAccount(name, acct);
+  assert.equal(r.outcome, 'refused');
+  assert.match(r.because, /to move it to Qwen, switch its provider to Qwen/);
+  assert.equal(fs.readFileSync(jobfix.jobPath(name), 'utf8'), before);
+});

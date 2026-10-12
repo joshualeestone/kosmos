@@ -232,9 +232,14 @@ function defaultModelKeyFor(provider) {
  * asked about; Claude Code, Codex and Antigravity choose their own (it depends on the account), so no list can name it and a
  * provider with a model list refuses a model-less agent. A failure inside the policy code never blocks a create.
  */
-function policyAllows(provider, modelKey) {
+function policyAllows(provider, modelKey, accountDir) {
   try {
-    const given = modelKey == null ? '' : String(modelKey).trim();
+    let given = modelKey == null ? '' : String(modelKey).trim();
+    // #5977: a Qwen agent runs its account's model, so a policy on Qwen models is checked against that one.
+    if (provider === 'alibaba' && !given && accountDir) {
+      const got = require('./qwenaccounts').readEndpoint(accountDir);
+      if (got.kind === 'ok') given = got.endpoint.model;
+    }
     const pinned = require('./win32keyed').DEFAULT_MODEL;
     const key = given || (provider === 'google' ? pinned.gemini : provider === 'xai' ? pinned.grok : '');
     // Both names of a model in this provider's own list (modelsFor answers Claude's list for providers without one).
@@ -922,7 +927,7 @@ function runnerProvider(runner) {
    switch's "already runs on" check and the job cannot disagree. Every other runner maps one-to-one. */
 function jobProvider(job) {
   const runner = job && job.runner ? job.runner : 'claude';
-  if (runner === 'codex' && job.configDir && require('./qwenaccounts').isEndpointHome(job.configDir)) return 'alibaba';
+  if (runner === 'codex' && job && job.configDir && require('./qwenaccounts').isQwenHome(job.configDir)) return 'alibaba';
   return runnerProvider(runner);
 }
 /* #3296/#3391: the ONE "is this a non-claude runner" predicate -- the recognized set
@@ -1540,6 +1545,13 @@ function setAccount(name, dir, opts) {
   if (!job) {
     return noJobRefusal(clean, spoken, verdict, `we could not read how ${spoken} is started, so we have not changed it.`);
   }
+  /* #5977: a Qwen agent (codex on a Qwen account) moves between Qwen accounts only; an OpenAI agent never lands on a
+     Qwen folder here. Changing which provider it runs on is a provider switch (setProvider), which checks policy and
+     records the provider; letting the account route do it would leave the job and the profile disagreeing. */
+  if (job.runner === 'codex' && jobProvider(job) === 'alibaba') return setQwenAccount(clean, spoken, dir, job, platform);
+  if (job.runner === 'codex' && dir && require('./qwenaccounts').isQwenHome(dir)) {
+    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on OpenAI; to move it to Qwen, switch its provider to Qwen` };
+  }
   if (job.runner === 'codex') return setCodexAccount(clean, spoken, dir, job, platform);
   /* #3296 accounts slice: gemini accounts now exist (engine/geminiaccounts.js), so a
      gemini agent's account swap is resolved in ITS OWN world (~/.gemini* dirs), not
@@ -1757,6 +1769,25 @@ function setGeminiAccount(clean, spoken, dir, job, platform) {
  * trust writes (grok clears its own with `--trust` at launch); the per-account KEY is
  * injected by the supervisor from the account dir's key file.
  */
+/* #5977: move a Qwen agent to another Qwen account. A named, usable Qwen account only: there is no default, and an
+   OpenAI folder here is refused (that is a provider switch, see setAccount). */
+function setQwenAccount(clean, spoken, dir, job, platform) {
+  const qwen = require('./qwenaccounts');
+  if (dir === '' || dir == null) return { outcome: OUTCOME.REFUSED, because: 'pick which Qwen account it should run on, so nothing was changed' };
+  const wanted = path.resolve(String(dir));
+  if (!qwen.isQwenHome(wanted)) {
+    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on Qwen; to move it to another provider, switch its provider` };
+  }
+  const acct = qwen.list().find((a) => a.dir === wanted);
+  if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal('Qwen') };
+  if (acct.endpointProblem) return { outcome: OUTCOME.REFUSED, because: `that Qwen account cannot be used: ${acct.endpointProblem}` };
+  const unwritten = rewriteAgentJob(clean, spoken, {
+    runnerBin: job.claude, tmux: job.tmux, model: null, configDir: acct.dir, runner: 'codex',
+  }, platform);
+  if (unwritten) return unwritten;
+  return { outcome: OUTCOME.CREATED, because: null, account: acct };
+}
+
 function setGrokAccount(clean, spoken, dir, job, platform) {
   const grok = require('./grokaccounts');
   const wanted = dir === '' || dir == null ? null : path.resolve(String(dir));
@@ -1879,7 +1910,7 @@ function setProvider(name, provider, opts) {
   {
     // The model the person picked with the switch (set right after it, #5429); none picked is what the runner picks.
     const picked = opts && typeof opts.model === 'string' ? opts.model.trim() : '';
-    const allowed = policyAllows(provider, picked);
+    const allowed = policyAllows(provider, picked, opts && opts.accountDir);
     if (!allowed.ok) {
       // Gemini and Grok take no model with a switch (they start on their pinned default), so say that is what was asked.
       const pinnedNote = !picked && (provider === 'google' || provider === 'xai')
@@ -2390,6 +2421,10 @@ function setModel(name, modelKey, opts) {
      derivation, the same direction `createAgent` goes in reverse (#3296 adds the
      gemini arm). */
   const agentProvider = job.runner === 'codex' ? 'openai' : job.runner === 'gemini' ? 'google' : job.runner === 'grok' ? 'xai' : job.runner === 'antigravity' ? 'antigravity' : job.runner === 'muse' ? 'meta' : 'anthropic';
+  // #5977: a Qwen agent runs the model its account names (the supervisor ignores the job's model for it).
+  if (jobProvider(job) === 'alibaba') {
+    return { outcome: OUTCOME.REFUSED, because: `${spoken} is on Qwen, which runs the model its Qwen account names; change the model on the account instead` };
+  }
   // #3939: before the Claude arm below, which would otherwise write a Claude model into a Muse job.
   if (agentProvider === 'meta') return { outcome: OUTCOME.REFUSED, because: REFUSE_MUSE_MODEL };
   let m;
@@ -4550,7 +4585,7 @@ function createAgentInner(opts) {
   // #5534 (Enterprise E0.5): a company policy in force on this board may not allow this provider or model. Refused
   // before anything is written, with the policy's own sentence; agents already running are never stopped by it.
   {
-    const allowed = policyAllows(provider, opts && opts.model);
+    const allowed = policyAllows(provider, opts && opts.model, wantAccountDir);
     if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because, steps };
   }
   /* #3564: an Agent or a Swarm. A swarm is refused here, before anything is written,

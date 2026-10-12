@@ -124,3 +124,16 @@ test('check and delete: a live check answers; forget sets it aside; delete remov
   const notOurs = await del('/api/accounts/qwen', { dir: nodePath.join(SANDBOX, '.grok') });
   assert.equal(notOurs.status, 400);
 });
+
+test('review 1: two adds racing for one label: exactly one is stored, the other is told the name is taken', async () => {
+  qwen.setFetcher(async () => { await new Promise((r) => setTimeout(r, 300)); return hasModel(); });
+  const body = { baseUrl: 'http://localhost:11434/v1', model: MODEL, label: 'race' };
+  const [a, b] = await Promise.all([post('/api/accounts/qwen', body), post('/api/accounts/qwen', body)]);
+  const codes = [a.status, b.status].sort();
+  assert.deepEqual(codes, [200, 409], `got ${codes}`);
+  // A refused add gives its claimed folder back: a rejected endpoint leaves no folder.
+  qwen.setFetcher(async () => ({ status: 200, body: { data: [{ id: 'other' }] } }));
+  const r = await post('/api/accounts/qwen', { baseUrl: 'http://localhost:11434/v1', model: MODEL, label: 'giveback' });
+  assert.equal(r.status, 400);
+  assert.equal(fs.existsSync(nodePath.join(SANDBOX, qwen.DIR_PREFIX + 'giveback')), false);
+});
