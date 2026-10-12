@@ -41,5 +41,6 @@ escape `sed`s, a `grep` of the changed files, a `sed` of the trailers) and per t
 ## Weakest premises
 - The scan reads in the C locale; the original `grep`/`sed` read in the ambient one. On INVALID UTF-8 (a byte in the
   changed web text, or in a check file above or on its annotation line) the new gate can refuse where the old passed:
-  stricter, never looser. The 346 checks and web/index.html are valid UTF-8 today.
+  stricter, never looser; stderr differs too (the old sed printed `illegal byte sequence` and passed that check). The
+  346 checks and web/index.html are valid UTF-8 today.
 - A check file with a tab in its path would not parse (none has one).

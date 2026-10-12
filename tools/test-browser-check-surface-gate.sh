@@ -425,5 +425,20 @@ else
   fail "FALLBACK: the fallback and the scan path disagree on '$_fbtok' (or nothing was refused): scan='$(printf '%s' "$_fbn" | tail -1)' fallback='$(printf '%s' "$_fbf" | tail -1)'"
 fi
 
+# #5907: a check whose tokens did NOT change (a MISS to the scan) still prints its override line when a trailer names
+# it, in any case, as the per-check path always did; with no trailer at all it prints nothing.
+_ovchk="$(find "$_SDIR" -maxdepth 1 -type f -name '*.js' | while IFS= read -r _c; do [ -n "$(bc_surface_tokens_of "$_c")" ] && { echo "${_c##*/}"; break; }; done)"
+printf '%s\n' '--- a/web/index.html' '+++ b/web/index.html' '+<p id="zz-nothing-mapped-5907">x</p>' > "$TMP/ov.wd"; : > "$TMP/ov.files"
+_ovok=1
+for _key in 'Browser-check-surface' 'BROWSER-CHECK-SURFACE' 'browser-Check-Surface'; do
+  printf 'x\n\n%s: %s still fine\n' "$_key" "$_ovchk" > "$TMP/ov.msgs"
+  _ovout="$( (KOSMOS_BCSG_WEBDIFF="$TMP/ov.wd" KOSMOS_BCG_FILES="$TMP/ov.files" KOSMOS_BCG_MSGS="$TMP/ov.msgs" KOSMOS_BCSG_DIR="$_SDIR" kosmos_browser_check_surface_gate) 2>/dev/null)"
+  [ "$_ovout" = "browser-check surface gate: ${_ovchk} surface change overridden -- still fine" ] || { fail "OVERRIDE: a $_key trailer on an untouched check printed '$_ovout'"; _ovok=0; }
+done
+: > "$TMP/ov.msgs"
+_ovnone="$( (KOSMOS_BCSG_WEBDIFF="$TMP/ov.wd" KOSMOS_BCG_FILES="$TMP/ov.files" KOSMOS_BCG_MSGS="$TMP/ov.msgs" KOSMOS_BCSG_DIR="$_SDIR" kosmos_browser_check_surface_gate) 2>&1)"
+[ -z "$_ovnone" ] || { fail "OVERRIDE: with no trailer the gate printed '$_ovnone'"; _ovok=0; }
+[ -n "$_ovchk" ] && [ "$_ovok" -eq 1 ] && pass "OVERRIDE: an untouched check's override line prints for a trailer in any case, and nothing prints without one"
+
 echo "browser-check surface gate: $fails FAILED"
 [ "$fails" -eq 0 ]
