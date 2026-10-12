@@ -23,7 +23,7 @@
  *
  * sessionsFor(agentDir, { id, claudeRoots, geminiHome, codexHome, moreHomes? }) -> [{ name, path, optional: true, only? }]
  *   moreHomes [{ provider: 'codex'|'gemini', home, tag }]: further homes of this agent's sessions (kosmos#5883), each
- *          named sessions/<id>/<provider><tag>, tag a hyphen and lowercase letters (-runtime, -default).
+ *          named sessions/<id>/<provider><tag>, tag a hyphen and 1 to 16 lowercase letters or digits, one per FOLDER.
  *   (or { name, refused, optional: true } where a session folder is a link: the snapshot records it as skipped)
  *   id     the agent's stored name, one plain segment of lowercase letters, digits and hyphens (any other id gives
  *          nothing: the caller derives it); every name built from it must pass the snapshot's rootNameProblem, or nothing is
@@ -178,13 +178,12 @@ function sessionsFor(agentDir, opts) {
   if (g) roots.push(g);
   const c = codexRoot(agentDir, o.codexHome, o.id, belongs);
   if (c) roots.push(c);
-  // kosmos#5883: more homes the same agent's sessions can be in, each under a name for its KIND, so a name never moves
-  // between snapshots: a Codex runtime home (#4592) and the default home beside a named account's, where a backup
-  // still owes the conversations kept before a relaunch or an account move. A home that resolves to one already read
-  // is skipped (one folder, one root per agent).
+  // kosmos#5883: more homes the same agent's sessions can be in (a Codex runtime home, a named account's), each under a
+  // tag the CALLER derives from the folder itself, so one folder keeps one name across snapshots whatever the agent's
+  // account is now. A home that resolves to one already read is skipped (one folder, one root per agent).
   const seenReal = new Set(roots.filter((r) => r.path).map((r) => r.path));
   for (const x of Array.isArray(o.moreHomes) ? o.moreHomes : []) {
-    if (!x || typeof x.tag !== 'string' || !/^-[a-z]+$/.test(x.tag)) continue;
+    if (!x || typeof x.tag !== 'string' || !/^-[a-z0-9]{1,16}$/.test(x.tag)) continue;
     const r = x.provider === 'codex' ? codexRoot(agentDir, x.home, o.id, belongs, x.tag)
       : x.provider === 'gemini' ? geminiRoot(agentDir, x.home, o.id, x.tag) : null;
     if (r && (!r.path || !seenReal.has(r.path))) { roots.push(r); if (r.path) seenReal.add(r.path); }

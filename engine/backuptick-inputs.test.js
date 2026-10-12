@@ -102,12 +102,12 @@ test('#5883: a Codex agent on a named account is backed up from THAT account\'s 
   fs.writeFileSync(path.join(day, 'rollout-a.jsonl'), JSON.stringify({ type: 'session_meta', payload: { cwd: agentDir } }) + '\n');
   const readJob = (name) => (name === 'cody' ? { runner: 'codex', configDir: acct } : null);
   const { roots } = tick.rootsFor(tick.inputsHere({ readJob }));
-  const r = roots.find((x) => x.name === 'sessions/cody/codex');
+  const r = roots.find((x) => /^sessions\/cody\/codex-a[0-9a-f]{8}$/.test(x.name));
   assert.ok(r, `no transcript root for the agent on a named account: ${JSON.stringify(roots.map((x) => x.name))}`);
   assert.equal(fs.realpathSync(r.path), fs.realpathSync(path.join(acct, 'sessions')));
   assert.deepEqual(r.only, [path.join('2026', '10', '11', 'rollout-a.jsonl')]);
   // CONTROL: with no job read, the default Codex home (which holds no rollout of this agent) gives none.
-  const none = tick.rootsFor(tick.inputsHere({ readJob: () => null })).roots.find((x) => x.name === 'sessions/cody/codex');
+  const none = tick.rootsFor(tick.inputsHere({ readJob: () => null })).roots.find((x) => x.name.startsWith('sessions/cody/codex'));
   assert.equal(none, undefined);
 });
 
@@ -120,10 +120,14 @@ test('#5883: a Gemini agent\'s sessions are read from its account storage home (
   mk('workers', 'gemma');
   const input = tick.inputsHere({ readJob: (n) => (n === 'gemma' ? { runner: 'gemini', configDir: acct } : null), sessionsFor });
   tick.rootsFor(input);
-  assert.equal(seen.gemma.geminiHome, create.geminiStorageHome(acct));
+  // The default storage home as `gemini`, the account's as gemini-a<hex> (review 2: named by folder, never by role).
+  assert.equal(seen.gemma.geminiHome, create.geminiStorageHome(null));
+  const acctHome = seen.gemma.moreHomes.find((h) => h.provider === 'gemini');
+  assert.equal(acctHome.home, create.geminiStorageHome(acct));
+  assert.match(acctHome.tag, /^-a[0-9a-f]{8}$/);
   // CONTROL: an agent with no job keeps the default home, so the line above is the job's doing.
   assert.ok(seen.cody, 'CONTROL: the agent with no job was asked too');
-  assert.notEqual(seen.cody.geminiHome, seen.gemma.geminiHome);
+  assert.equal(seen.cody.moreHomes.length, 0, 'an agent with no job was given an account home');
 });
 
 function rollout(home, agentDir, name) {
@@ -142,11 +146,27 @@ test('#5883 review 1: a backup reads EVERY home an agent\'s Codex sessions can b
   const readJob = (n) => (n === 'rhea' ? { runner: 'codex', configDir: acct } : null);
   const { roots } = tick.rootsFor(tick.inputsHere({ readJob }));
   const mine = roots.filter((r) => r.name.startsWith('sessions/rhea/'));
-  assert.deepEqual(mine.map((r) => r.name).sort(), ['sessions/rhea/codex', 'sessions/rhea/codex-default', 'sessions/rhea/codex-runtime']);
+  const names = mine.map((r) => r.name).sort();
+  assert.equal(names.length, 3, JSON.stringify(names));
+  assert.deepEqual([names[0], names[2]], ['sessions/rhea/codex', 'sessions/rhea/codex-runtime']);
+  assert.match(names[1], /^sessions\/rhea\/codex-a[0-9a-f]{8}$/);
   for (const r of mine) assert.equal(r.only.length, 1, r.name);
   for (const r of mine) assert.equal(snap.rootNameProblem(r.name), null, r.name);
   // On the DEFAULT account there is no separate default root: the account home IS the default (one folder, one root).
   const d = tick.rootsFor(tick.inputsHere({ readJob: (n) => (n === 'rhea' ? { runner: 'codex', configDir: null } : null) })).roots
     .filter((r) => r.name.startsWith('sessions/rhea/')).map((r) => r.name).sort();
   assert.deepEqual(d, ['sessions/rhea/codex', 'sessions/rhea/codex-runtime']);
+});
+
+test('#5883 review 2: one folder keeps ONE name across an account move, so its files are never stored again under another', () => {
+  const agentDir = mk('workers', 'vale');
+  const acct = mk('home', '.codex-vale');
+  rollout(acct, agentDir, 'rollout-a.jsonl');
+  rollout(require('./create').defaultAgentCodexHome(), agentDir, 'rollout-d.jsonl');
+  const namesOn = (configDir) => Object.fromEntries(tick.rootsFor(tick.inputsHere({ readJob: (n) => (n === 'vale' ? { runner: 'codex', configDir } : null) })).roots
+    .filter((r) => r.name.startsWith('sessions/vale/')).map((r) => [fs.realpathSync(r.path), r.name]));
+  const before = namesOn(null);   // on the default account
+  const after = namesOn(acct);    // moved to a named account
+  for (const [folder, name] of Object.entries(before)) assert.equal(after[folder], name, `${folder} was renamed by the move`);
+  assert.equal(Object.keys(after).length, 2, 'CONTROL: after the move both homes are read');
 });
