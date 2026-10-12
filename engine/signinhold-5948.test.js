@@ -178,3 +178,13 @@ test('#5948 review 3: the same message sent again while it is held says signed o
     assert.doesNotMatch(again.because, /usage/);
   });
 });
+
+test('#5948 review 4: a Claude card is never sign-in held, even reading a reported auth_failed', async () => {
+  await withFleet(true, async (board) => {
+    const card = caseyOf(board);
+    assert.equal(card.state, status.STATE.AUTH_FAILED, 'CONTROL: not a signed-out card');
+    assert.notEqual(chat.signinHeldVerdict('casey', board.agents), null, 'CONTROL: the grok card is not held');
+    const asClaude = board.agents.map((c) => (c.sessionName === 'casey' ? { ...c, runner: 'claude' } : c));
+    assert.equal(chat.signinHeldVerdict('casey', asClaude), null);
+  });
+});
