@@ -49,7 +49,12 @@ function rootsFor(input) {
   const roots = [], left = [];
   const workers = real(input.workersDir);
   if (!workers) return { roots, left: [{ what: 'workers', why: 'the workers folder could not be found' }] };
-  const protect = (input.protect || []).map((x) => (typeof x === 'string' && path.isAbsolute(x) ? real(x) : null)).filter(Boolean);
+  // A protected entry that is not a full path fails CLOSED (review 2): no roots, said. One that does not exist protects
+  // nothing, since there is nothing there to take.
+  if ((input.protect || []).some((x) => typeof x !== 'string' || !path.isAbsolute(x))) {
+    return { roots, left: [{ what: 'everything', why: 'a folder that must never be backed up was not given as a full path' }] };
+  }
+  const protect = (input.protect || []).map(real).filter(Boolean);
   const guarded = (p) => protect.some((q) => inside(p, q) || inside(q, p));
   const GUARDED = 'it holds, or is inside, Kosmos\'s own data or a provider\'s sign-in folder';
   if (guarded(workers)) return { roots, left: [{ what: 'workers', why: GUARDED }] };
@@ -58,6 +63,8 @@ function rootsFor(input) {
     if (roots.some((r) => !r.only && inside(p, r.path))) return;
     if (inside(workers, p)) { left.push({ what, why: 'it holds the workers folder' }); return; }
     if (guarded(p)) { left.push({ what, why: GUARDED }); return; }
+    // The snapshot's own name rule (review 2): `secrets` or `aux` passes SEGMENT and is refused there, silently.
+    if (snapshotNameProblem(name)) { left.push({ what, why: 'its name cannot be a backup root name' }); return; }
     for (let i = roots.length - 1; i >= 1; i--) if (!roots[i].only && inside(roots[i].path, p)) roots.splice(i, 1);
     roots.push({ name, path: p, optional: true });
   };
@@ -83,8 +90,20 @@ function rootsFor(input) {
     try { s = input.sessions ? input.sessions(d, a.id) : []; } catch { s = []; }
     for (const r of s) roots.push(r);
   }
+  // Transcript roots (`only` lists) last, against every folder root (review 2): a provider folder may be a link, so its
+  // real path can sit inside, or hold, a root added after it was listed, and the snapshot would drop both. Inside one:
+  // its files are already covered there. Holding one: left out, and said.
+  for (let i = roots.length - 1; i >= 0; i--) {
+    const r = roots[i];
+    if (!r.only) continue;
+    const outer = roots.find((o) => !o.only && inside(r.path, o.path));
+    const holds = roots.find((o) => !o.only && inside(o.path, r.path));
+    if (outer) roots.splice(i, 1);
+    else if (holds) { roots.splice(i, 1); left.push({ what: 'an agent\'s transcripts', why: 'their folder holds another folder being backed up' }); }
+  }
   return { roots, left };
 }
+function snapshotNameProblem(name) { try { return require('./backupsnapshot').rootNameProblem(name); } catch { return 'unknown'; } }
 
 /* The start of the ISO week after `ms` (Monday 00:00 UTC), when a week's allowance is new again. */
 function nextWeekStart(ms) {
@@ -103,7 +122,13 @@ function startTick(deps) {
     try {
       if (state.running || now() < state.pausedUntil || !deps.enrolled()) return;
       // roots() gives rootsFor's { roots, left } (or a bare list). What was left out is said once per change (review 1).
-      const plan = deps.roots();
+      let plan;
+      try { plan = deps.roots(); } catch {
+        // Said once (review 2): otherwise no backup, every hour, and nothing said.
+        if (state.saidLeft !== 'threw') say('the folders to back up could not be listed on this computer');
+        state.saidLeft = 'threw';
+        return;
+      }
       const roots = Array.isArray(plan) ? plan : (plan && plan.roots) || [];
       const leftKey = JSON.stringify((plan && plan.left) || []);
       if (leftKey !== '[]' && leftKey !== state.saidLeft) say(`left out: ${plan.left.map((l) => `${l.what} (${l.why})`).join('; ')}`);
@@ -123,9 +148,9 @@ function startTick(deps) {
       } else state.blind = 0;
       if (r.refusal && r.refusal.code === 'backup_off') state.pausedUntil = now() + DAY;
       else if (r.overAllowance) state.pausedUntil = nextWeekStart(now());
-      const act = r.refusedState ? 'refusedState' : r.missing ? 'missing' : r.unreadableKeyFile ? 'unreadableKeyFile' : null;
+      const act = r.refusedState ? 'refusedState' : r.missing ? 'missing' : r.unreadableKeyFile ? 'unreadableKeyFile' : r.overAllowance ? 'overAllowance' : null;
       if (r.ok) state.said = null;
-      else if (act && state.said !== act) { state.said = act; say(r.because); }
+      else if (act && state.said !== act) { state.said = act; say(typeof r.because === 'string' && r.because ? r.because : 'it did not run, and did not say why'); }
     } catch { /* never throws; the next tick tries again */ }
   }
   const t = (deps.setInterval || setInterval)(tick, every);
@@ -135,7 +160,7 @@ function startTick(deps) {
 
 /* The inputs for rootsFor on this computer's active world. Agents: every profile, and every folder in the workers root
    (an agent whose profile write failed still has transcripts), each resolved with create.workerDir. Projects: the
-   stored list, each by its id. Claude config roots SORTED by folder name (backupsessions numbers them by position, and
+   stored list, each by its id. Claude config roots SORTED by full path (backupsessions numbers them by position, and
    status.configRoots' order is readdir's). A source that cannot be read gives nothing; never throws. */
 function inputsHere() {
   const store = require('./store');
@@ -150,7 +175,8 @@ function inputsHere() {
   let projectsDir = null;
   try { projectsDir = require('./projects').projectsRoot(); } catch { /* none */ }
   let claudeRoots = [];
-  try { claudeRoots = [...require('./status').configRoots()].sort((x, y) => path.basename(x).localeCompare(path.basename(y))); } catch { /* none */ }
+  // By full path (review 2): two roots with one basename would tie, and the -<n> names would swap between snapshots.
+  try { claudeRoots = [...require('./status').configRoots()].sort(); } catch { /* none */ }
   let geminiHome, codexHome;
   try { geminiHome = require('./geminisession').HOME(); } catch { /* none */ }
   try { codexHome = require('./codexupdate').defaultHome(); } catch { /* none */ }
