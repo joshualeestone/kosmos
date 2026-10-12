@@ -93,7 +93,8 @@ runner, which has the runtime.
     with no banner (`PushRegistrar.swift`). It still shows the notification-permission prompt.
   - Building for a real device in Xcode now signs as that team too, so Xcode provisions
     `io.kosmos.app.preview` under Stone Syndicate for a person signed in to that team. Anyone else
-    passes their own team on the command line (`xcodebuild ... DEVELOPMENT_TEAM=<theirs>`): picking a
+    passes their own team on the command line (`xcodebuild ... DEVELOPMENT_TEAM=<theirs>`), which still
+    builds `io.kosmos.app.preview`, under their team: picking a
     team in Xcode's Signing pane writes it into `project.pbxproj`, which must not be committed. The build
     registers
     for push as `io.kosmos.app.preview`: a local or staging coordinator must list that id in
@@ -106,7 +107,10 @@ runner, which has the runtime.
   (it needs an App Store Connect API key: `ASC_KEY_PATH`, `ASC_KEY_ID`, `ASC_ISSUER_ID`).
 - `--build` is required: App Store Connect refuses a build number it has already seen.
 - `archive.sh` refuses a malformed bundle id, or an empty or malformed Team ID, before it archives anything,
-  and refuses `io.kosmos.app` under the Stone Syndicate team (Apple could not transfer it back).
+  and refuses `io.kosmos.app` under the Stone Syndicate team (Apple cannot transfer a never-released
+  app). That refusal covers `archive.sh` only: an archive made from Xcode's menus or a hand-run
+  `xcodebuild` never reaches it, and the second guard is CI's `tools/test-cut-sign-preflight.sh`,
+  which fails once `Signing.xcconfig` names Stone Syndicate with any bundle id but the preview one.
   `archive.sh --check-config` runs only those checks; `tools/test-archive-config.sh` (in iOS CI) shows each
   can refuse.
 - `-scheme Kosmos` uses the shared scheme committed under `Kosmos.xcodeproj/xcshareddata/`, so
