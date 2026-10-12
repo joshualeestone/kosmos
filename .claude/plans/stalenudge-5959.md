@@ -43,6 +43,9 @@ runs `kosmos report show`; this says it without being asked. Stacked on slice 1 
   turn a reminder starts fails and writes a fresh report, so it would be reminded once a day for the outage. Review 7.
 
 ## Weakest premises
+- The screen is read, then the line is typed: a menu that opens between the two is not seen (the same window the
+  sibling sweeps have). So "nothing typed while a menu is open" holds for what the read saw, not for that instant.
+- A reminder starts a model turn, which costs tokens: once per stale report per agent.
 - The retry count is in memory, so a restart allows three more tries that reach nothing.
 - A board restart can remind every eligible agent in one sweep (about five minutes after boot), once each, since the
   record keeps it from repeating.
