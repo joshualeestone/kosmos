@@ -252,3 +252,14 @@ test('#5896: the uninstall names ANY sealed Kosmos icon in the shared folder as 
   fs.symlinkSync(icon, link);
   assert.match(run({}, `bundle_looks_sealed "${link}"; echo "rc=$?"`).out, /rc=[1-9]/, 'a link was called a sealed icon');
 });
+
+test('#5896: "own" mode answers whether a sealed icon is this install\'s without the placement gate (the transcript line uses it)', () => {
+  const home = makeHome('v1');
+  const shared = path.join(fs.mkdtempSync(path.join(SYS, 'own-')), 'Kosmos.app');
+  execFileSync('/usr/bin/ditto', [path.join(home, 'app', 'Kosmos.app'), shared]);
+  const sys = path.dirname(shared);
+  assert.match(run({ KOSMOS_HOME: home, _wic_rc: '1', SYS_APP_DIR: sys }, `bundle_is_ours "${shared}"; echo "rc=$?"`).out, /rc=[1-9]/, 'CONTROL: not placeable, it is not ours to replace');
+  assert.match(run({ KOSMOS_HOME: home, _wic_rc: '1', SYS_APP_DIR: sys }, `bundle_is_ours "${shared}" own; echo "rc=$?"`).out, /rc=0/, 'this install\'s own sealed icon was not recognised as its own');
+  assert.match(run({ KOSMOS_HOME: home, _wic_rc: '1', SYS_APP_DIR: sys, INSTALL_CONFIG_DIR: cfgFor('/elsewhere') }, `bundle_is_ours "${shared}" own; echo "rc=$?"`).out, /rc=[1-9]/, 'an icon serving another install was called this install\'s own');
+  assert.match(SETUP, /bundle_is_ours "\$SYS_APP_DIR\/Kosmos\.app" own; then APP_OWN_SEALED=yes; fi/, 'the transcript line no longer asks in own mode');
+});

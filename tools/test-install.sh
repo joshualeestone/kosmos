@@ -1262,7 +1262,7 @@ if [ "$SYS_OK_SEALED" = yes ]; then
 else
   chk "the refusal speaks a sentence" "grep -q \"in $SYS_OK could not be proven to belong to this install\" \"$SB/probe-un.log\""
 fi
-# The OWNER's uninstall takes it. Probe and stage residue are seeded first
+# The OWNER's uninstall takes a per-install icon (a sealed one is left and named, #5896). Probe and stage residue are seeded first
 # so the sweep the served header PROMISES ("--uninstall sweeps it") is
 # pinned rather than assumed, in both folders.
 # The swept residue must be PROVABLY OURS (the sweep now demands the same
@@ -1313,7 +1313,7 @@ KOSMOS_HOME="$SB/home4" "$SB/bin4/kosmos" stop > /dev/null 2>&1 || true
 RC=0; HOME="$SBH3" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYSALIAS" KOSMOS_HOME="$SB/home5" KOSMOS_BIN_DIR="$SB/bin5" sh -s -- --uninstall < "$SETUP" > "$SB/alias-un.log" 2>&1 || RC=$?
 chk "foreign uninstall exits 0 in the aliased world" "rc_ok $RC"
 chk "refused bundle survives the aliased home sweep" "[ -d \"$SYSALIAS/Kosmos.app\" ]"
-# The owner's uninstall takes it, exactly once, with no survivor note.
+# The owner's uninstall takes a per-install icon, exactly once, with no survivor note (a sealed one is left and named, #5896).
 ALIAS_SEALED=no; icon_is_sealed "$SYSALIAS/Kosmos.app" && ALIAS_SEALED=yes
 RC=0; HOME="$SBH3" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYSALIAS" sh -s -- --uninstall < "$SETUP" > "$SB/alias-un2.log" 2>&1 || RC=$?
 chk "owner uninstall exits 0 in the aliased world" "rc_ok $RC"

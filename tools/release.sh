@@ -1733,7 +1733,7 @@ for i in 1 2 3 4 5 6; do
     echo "   (attempt $i: $_bundle_cause; waiting)"; sleep 10; continue
   fi
   # `|| _m=$?` keeps this set -e safe AND captures the code the combined `&&` threw away.
-  _m=0; release_bundle_matches_tree "$_served_tgz" "$BUILD" "$TUNNEL_SHA" "$NATIVE_APP_SHA" || _m=$?
+  _m=0; release_bundle_matches_tree "$_served_tgz" "$BUILD" "$TUNNEL_SHA" "$NATIVE_APP_SHA" sealed "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[subject.OU] = \"$KOSMOS_SIGN_TEAM_ID\"" || _m=$?   # #5896, as at step 4b
   if [ "$_m" = 0 ]; then _bundle_ok=1; break; fi
   if [ "$_m" = 2 ]; then _bundle_cause="the served tarball is unreadable, malformed, or missing an app/ or bin/ member (see the reason above) - NOT a per-file content mismatch"
   else _bundle_cause="the served bundle's contents differ from the frozen tree (see the per-file diffs above)"; fi
