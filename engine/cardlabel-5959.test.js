@@ -11,7 +11,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { labelOf, cardLine, STATE_COPY } = require('./cardlabel');
+const { labelOf, cardLine, standingFor, STATE_COPY } = require('./cardlabel');
 
 const PAGE = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
 function grab(re, what) { const m = PAGE.match(re); assert.ok(m, 'CONTROL: ' + what + ' was not found in the page'); return m[0]; }
@@ -68,4 +68,10 @@ test('#5959 review 6: the report-show sentence gives "Reconnecting…" no second
   assert.equal(cardLine(labelOf({ state: 'connection_lost', reconnect: { phase: 'waiting' } })), 'Your card on the board shows: Reconnecting…');
   // CONTROL: a label with no punctuation of its own gets the full stop.
   assert.equal(cardLine(labelOf({ state: 'connection_lost', reconnect: { phase: 'gave_up' } })), 'Your card on the board shows: Connection lost.');
+});
+
+test('#5959 review 7: the age words come from the age alone, never from where the stale threshold sits', () => {
+  const h = 3600e3;
+  assert.deepEqual([1, 13, 23.9, 24, 47.9, 48, 72.5].map((x) => standingFor(x * h)),
+    ['1 hour', '13 hours', '23 hours', 'over a day', 'over a day', '2 days', '3 days']);
 });

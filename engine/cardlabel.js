@@ -56,4 +56,13 @@ function cardLine(label) {
   return 'Your card on the board shows: ' + label + (/[.…]$/.test(label) ? '' : '.');
 }
 
-module.exports = { labelOf, cardLine, STATE_COPY };
+/** How long a report has stood, in words, from its age alone (whole hours, then whole 24-hour periods), so the words
+    never depend on where the stale threshold sits. */
+function standingFor(ageMs) {
+  const hours = Math.floor(ageMs / 3600e3);
+  if (hours < 24) return hours === 1 ? '1 hour' : hours + ' hours';
+  const days = Math.floor(hours / 24);
+  return days >= 2 ? days + ' days' : 'over a day';
+}
+
+module.exports = { labelOf, cardLine, standingFor, STATE_COPY };

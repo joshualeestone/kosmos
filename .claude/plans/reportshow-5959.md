@@ -12,7 +12,7 @@ directly, and a self-reported "blocked" from 09-26 sat on a card until 10-12 wit
   ported). `engine/cardlabel-5959.test.js` lifts the page's own functions and compares answers on every state and
   special case, so the two copies cannot drift.
 - `GET /api/report`: the text arm starts "Your card on the board shows: <label>."; the JSON arm adds `card: { state,
-  label }` and `stale`. A waiting state (needs_you / blocked) standing over a day (REPORT_STALE_MS) gets one line saying
+  label }` and `stale`. A waiting state (needs_you / blocked) standing over a day (selfreport.STALE_WAIT_MS) gets one line saying
   how long and how to clear it. Both CLIs read the text arm, so no CLI change.
 
 ## Not done here

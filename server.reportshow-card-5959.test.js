@@ -103,7 +103,7 @@ test('#5959: a waiting state standing over a day is pointed out; a fresh one is 
     const tok = sendertoken.mint(WHO).token;
     backdate(WHO, 'blocked', new Date(Date.now() - 2.5 * 24 * 3600e3).toISOString());
     const old = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } });
-    assert.match(old.text, /Your own `blocked` report has been standing for 2 days\. If nobody needs to answer it any more, clear it/, old.text);
+    assert.match(old.text, /Your own `blocked` report has been standing for 2 days\. If it is no longer in your way, clear it/, old.text);
     assert.doesNotMatch(old.text, /waiting-on-a-person state/, 'two overlapping instructions: ' + old.text);
     assert.equal((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.stale, true);
     // CONTROL: the same state reported now is not stale.
