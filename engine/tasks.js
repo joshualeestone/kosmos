@@ -1740,8 +1740,12 @@ function cardsNeedingPerson(task, roster, members) {
  */
 function waitingSinceOf(task, roster, members) {
   let oldest = null;
+  const status = require('./status');
   for (const card of cardsNeedingPerson(task, roster, members)) {
-    const at = typeof card.waitingSince === 'string' ? Date.parse(card.waitingSince) : NaN;
+    /* Only a question's start is the start of this wait. A card that needs the person for another reason (a trust
+       wait, a given-up connection, a crash loop, a stuck error) may still carry an older blocked report's start, which
+       is not when it began needing the person, so it counts as unknown. */
+    const at = card.state === status.STATE.NEEDS_YOU && typeof card.waitingSince === 'string' ? Date.parse(card.waitingSince) : NaN;
     if (!Number.isFinite(at)) return null;   // one wait of unknown length: any age shown could be too short
     if (oldest === null || at < oldest) oldest = at;
   }

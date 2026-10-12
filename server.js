@@ -18179,9 +18179,9 @@ const server = http.createServer(async (req, res) => {
       return Object.assign({}, t, {
         claim,
         waitingOnPerson,
-        /* kosmos#5942: since when an agent holding it has needed the person, from the same cards (null when no card
-           knows, or when only a missed repeating run is waiting: that has its own repeat line). */
-        waitingSince: waitingOnPerson ? tasks.waitingSinceOf(t, roster, membersOf.get(t.projectId)) : null,
+        /* kosmos#5942: since when an agent holding it has needed the person, from the same cards. Null when no card
+           knows, and whenever a missed repeating run is waiting too: that wait has no start, so any age could be short. */
+        waitingSince: waitingOnPerson && !missedtell.personReviewMissed(t) ? tasks.waitingSinceOf(t, roster, membersOf.get(t.projectId)) : null,
         state: tasks.taskState(Object.assign({}, t, { claim, waitingOnPerson })),
         lastActivityAt: tasks.lastActivityOf(t.projectId, t),
         /* kosmos#4787: a repeating task's rule in words and its next run (this board's local time), worked out here so

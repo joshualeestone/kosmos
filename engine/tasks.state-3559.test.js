@@ -219,5 +219,9 @@ test('kosmos#5942 waitingSinceOf: the oldest wait among the holders that make wa
   const mixed = { projectId: p.id, number: 7, parts: [{ id: 'p1', who: a.sessionName }, { id: 'p2', who: unknown.sessionName }], closedAt: null };
   assert.equal(tasks.waitingOnPerson(mixed, [a, unknown]), true, 'PRE-CONTROL: task 7 needs the person');
   assert.equal(tasks.waitingSinceOf(mixed, [a, unknown]), null, 'one holder with no known start: no age, never a too-short one');
+  const looping = Object.assign({}, asking(p.id), { state: 'blocked', crashLoop: { looping: true }, waitingSince: '2026-09-20T10:00:00.000Z' });
+  const t8 = { projectId: p.id, number: 8, who: looping.sessionName, closedAt: null };
+  assert.equal(tasks.waitingOnPerson(t8, [looping]), true, 'PRE-CONTROL: a crash loop needs the person');
+  assert.equal(tasks.waitingSinceOf(t8, [looping]), null, 'an older blocked start is not when a crash loop began needing the person');
   assert.equal(tasks.waitingSinceOf(task, [a, b], [b.sessionName]), '2026-10-05T10:00:00.000Z', 'a holder taken off the project does not count (#5034)');
 });

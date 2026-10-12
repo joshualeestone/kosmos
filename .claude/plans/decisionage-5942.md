@@ -8,15 +8,15 @@ guess. Every other state shows nothing. The row is the task, so "which task" is 
 ## Approach
 - engine/status.js: both card paths carry `waitingSince`, from the self-report's `askedAt` (#5943, Angel), only
   while the state is needs_you or blocked; `waitingSinceFrom` keeps a real time only (missing, garbage or ahead of
-  the clock is null). A blocked card carries it too, but needsPerson does not count blocked, so no Tasks row
-  ever shows a blocked agent's age.
+  the clock is null). A blocked card carries it too; the task side counts a start only from a needs_you card, so a
+  card that needs the person for another reason (crash loop, stuck error, trust wait) makes the age unknown (null).
 - engine/tasks.js `waitingSinceOf`: the oldest `waitingSince` among the cards that make waitingOnPerson true, chosen
   by one shared rule (`cardsNeedingPerson`). If any of those cards has no known start, null: an age from the others
   could be shorter than the real wait.
 - #5943 (Angel, 12:00 CDT): askedAt's run is state + because + project, so the same words about another project
   are dated afresh.
-- server.js Tasks route: `waitingSince` on each row while waitingOnPerson (null when only a missed repeating run is
-  waiting: that has its own repeat line).
+- server.js Tasks route: `waitingSince` on each row while waitingOnPerson, and null whenever a missed repeating run is
+  waiting (that wait has no start, so any age could be short).
 - web/index.html tskRow: the "Waiting on you for ..." line.
 - docs/browser-checks/fixtures/agent-card.json: the recorded card gains `waitingSince: null` (an idle card's value).
 
