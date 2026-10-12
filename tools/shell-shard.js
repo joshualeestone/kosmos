@@ -95,29 +95,35 @@ function writeAll(fd, s, writeSync = fs.writeSync, tries = 2000) {
 // ends on a summary of its slowest commands. `write(s, fd)` and `clock` (seconds) are seams for the test.
 function runShard(list, ii, nn, stdio = 'inherit', write = (s, fd = 1) => writeAll(fd, s), clock = () => performance.now() / 1000) {
   const mine = select(list, ii, nn);
+  // The shard's own lines are diagnostics: the status comes from its commands. So a line that cannot
+  // be written is dropped, and so is every later line to that fd, rather than ending the shard.
+  const broken = new Set();
+  const say = (s, fd = 1) => {
+    if (broken.has(fd)) return;
+    try { write(s, fd); } catch { broken.add(fd); }
+  };
   // A shard with nothing to run would pass having run nothing.
   if (!mine.length) { console.error(`shell-shard ${ii}/${nn}: no commands in this shard; refusing to report green`); return 1; }
   // Written synchronously: stdout to a pipe is asynchronous on macOS, and the first command's own
   // output (inherited stdio) would otherwise land in the log before this line.
-  write(`shell-shard ${ii}/${nn}: ${mine.length} of ${list.length} test:shell commands\n`);
+  say(`shell-shard ${ii}/${nn}: ${mine.length} of ${list.length} test:shell commands\n`);
   const times = [];
   for (const [k, c] of mine.entries()) {
-    write(`shell-shard ${ii}/${nn} [${k + 1}/${mine.length}] start: ${c}\n`);
+    say(`shell-shard ${ii}/${nn} [${k + 1}/${mine.length}] start: ${c}\n`);
     const t0 = clock();
     const r = cp.spawnSync('sh', ['-c', c], { cwd: ROOT, stdio });
     const took = clock() - t0;
     times.push([c, took]);
-    write(`shell-shard ${ii}/${nn} [${k + 1}/${mine.length}] ${took.toFixed(1)} s: ${c}\n`);
+    say(`shell-shard ${ii}/${nn} [${k + 1}/${mine.length}] ${took.toFixed(1)} s: ${c}\n`);
     if (r.status !== 0) {
       const why = r.error ? `could not run: ${r.error.message}` : `exit ${r.status === null ? r.signal : r.status}`;
-      write(slowestSummary(ii, nn, times));
-      // A FAILED line that cannot be written must not replace the command's own status.
-      try { write(`shell-shard ${ii}/${nn}: FAILED (${why}): ${c} (its own output is between its [${k + 1}/${mine.length}] start and time lines)\n`, 2); } catch { /* the status below still says it */ }
+      say(slowestSummary(ii, nn, times));
+      say(`shell-shard ${ii}/${nn}: FAILED (${why}): ${c} (its own output is between its [${k + 1}/${mine.length}] start and time lines)\n`, 2);
       return r.status || 1;
     }
   }
-  write(slowestSummary(ii, nn, times));
-  write(`shell-shard ${ii}/${nn}: all ${mine.length} passed\n`);
+  say(slowestSummary(ii, nn, times));
+  say(`shell-shard ${ii}/${nn}: all ${mine.length} passed\n`);
   return 0;
 }
 

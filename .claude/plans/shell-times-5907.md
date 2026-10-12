@@ -12,8 +12,11 @@ ran `yarn -s test:shell`, one `&&` chain with no timing.
 - One local full validation (#5900, 2026-10-12): 36 min, node 486 s.
 
 ## Change
-1. `tools/shell-shard.js` `runShard`: after each command print `shell-shard i/n [k/N] <s> s: <command>`; end the shard,
-   green or red, on its total and its `SLOWEST` (10) slowest commands. `write` and `clock` are seams.
+1. `tools/shell-shard.js` `runShard`: before each command print `shell-shard i/n [k/N] start: <command>`, after it
+   `shell-shard i/n [k/N] <s> s: <command>`; end the shard, green or red, on its total and its `SLOWEST` (10) slowest
+   commands. Every line goes through `writeAll` (waits out EAGAIN, finishes partial writes, bounded) and is
+   best-effort: a line that cannot be written, and every later line to that fd, is dropped, so the status always
+   comes from the commands. `write` and `clock` are seams.
 2. `tools/run-tests.sh`: an unsharded shell part runs `node tools/shell-shard.js run 1 1` instead of `yarn -s test:shell`
    (same commands, same order, stop at the first red). Prose naming yarn as something run-tests.sh runs is corrected.
 3. `CLAUDE.md`: the Test section says run-tests.sh runs test:shell through shell-shard.js.
@@ -33,5 +36,5 @@ shell test reads `npm_*` or `node_modules/.bin` (a control on the same search hi
 ## Status
 - [x] Built, committed e2b59e1e8, pushed.
 - [x] runShard probed with a stub clock (both arms); the run-tests.sh pins proven to match the new line and refuse the old.
-- [ ] Focused test file through the queue.
+- [x] Focused test file: dropped from the queue (5 waiters ahead for a 30 s run); the final full validation runs it.
 - [ ] Challenge loop, final validation, PR.
