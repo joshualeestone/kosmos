@@ -346,10 +346,18 @@ const chk = (ok, label, extra) => {
   await q(() => document.getElementById('acct-muse-go').click()); await settle();
   await q(() => { closeAcctAdd(); openAcctAdd(); }); await settle();
   await choose('meta'); await settle();
+  const reopened = await q(() => ({ busy: document.getElementById('acct-muse-go').getAttribute('aria-disabled'), spin: document.getElementById('acct-muse-spin').textContent }));
+  chk(reopened.busy === null && /Connecting/.test(reopened.spin), '#6004: reopened mid-install, no busy mark and no Installing text are left behind', JSON.stringify(reopened));
   await q(() => document.getElementById('acct-muse-go').click()); await settle();
   const instAgain = await q(() => ({ posts: window.__installPosts, say: document.getElementById('acct-muse-say').textContent }));
   chk(instAgain.posts === 2 && /Installing Muse Code from Meta/.test(instAgain.say), '#6004: closed mid-install and reopened, Install works again (a dead button before)', JSON.stringify(instAgain));
   await q(() => { window.__releaseInstall(); window.__holdInstall = null; }); await settle();
+  // A refusal a retry cannot change: the reason gets focus, and no button offers the same dead end again.
+  await q(() => { window.__museInstalled = false; window.__installAnswer = { ok: false, error: 'Meta Muse is switched off on this computer' }; closeAcctAdd(); openAcctAdd(); }); await settle();
+  await choose('meta'); await settle();
+  await q(() => { const g = document.getElementById('acct-muse-go'); g.focus(); g.click(); }); await settle();
+  const stuck = await q(() => ({ hidden: document.getElementById('acct-muse-go').hidden, focus: document.activeElement && document.activeElement.id, say: document.getElementById('acct-muse-say').textContent }));
+  chk(stuck.hidden && stuck.focus === 'acct-muse-say' && /switched off/.test(stuck.say), '#6004: a refusal a retry cannot change hides the button and moves focus to the reason', JSON.stringify(stuck));
   // A failed install says why and offers Try again; nothing is claimed.
   await q(() => { window.__museInstalled = false; window.__installAnswer = { ok: false, error: 'Meta\'s Muse Code installer did not finish' }; closeAcctAdd(); openAcctAdd(); }); await settle();
   await choose('meta'); await settle();
