@@ -1,8 +1,8 @@
 #!/bin/bash
 # Archive, export and (with --upload) upload the iOS app to App Store Connect (kosmos #4089, #718).
 #
-# Signs as the team in ios/Signing.xcconfig (Stone Syndicate LLC for now, #4089; Kosmos Agent Manager,
-# Inc. after the app transfer, #3643). It stops at the first check below if that Team ID is empty.
+# Signs as the team in ios/Signing.xcconfig (the Stone Syndicate team for now, #4089; Kosmos Agent Manager,
+# Inc. after the app transfer, #3643). It stops at the first check below if that Team ID is empty or not 10 characters.
 #
 #   ios/tools/archive.sh --build <N>            archive + export an .ipa, then check it
 #   ios/tools/archive.sh --build <N> --upload   the same, then upload that build to App Store Connect

@@ -98,7 +98,8 @@ list waits on the approval, and development keeps testing against Kano's mock AP
 **Check:**
 - `secrets-map.sh lookup <target>` finds the APNs key (the target name is whatever `/add-secret`
   records).
-- The App ID shows Push Notifications enabled in the Kosmos Agent Manager, Inc. account.
+- The App ID shows Push Notifications enabled in the account of the team that signs the app (Kosmos
+  Agent Manager, Inc. after the transfer; the Stone Syndicate team during the interim).
 - The push-enabled provisioning profile and its signing certificate (item 4) exist in that account.
 - Josh has said yes to items 1, 2, 5 and 6.
 
@@ -139,8 +140,9 @@ the box (`deploy/deploy-coordinator.sh`: "Not #KEY= for KOSMOS_APNS_*"). Names a
    400 and nothing reaches a phone. It is set to `io.kosmos.app` in the same change as the key
    settings, never later.
    Check: the rendered env contains `KOSMOS_APNS_BUNDLE_IDS=io.kosmos.app`.
-2. **The team and the key must match.** `KOSMOS_APNS_TEAM_ID` is the Kosmos Agent Manager, Inc.
-   Team ID. `KOSMOS_APNS_KEY_ID` and the .p8 must be a key made in that same team. A mismatch gets
+2. **The team and the key must match.** `KOSMOS_APNS_TEAM_ID` is the Team ID of the team that signs
+   the app (`ios/Signing.xcconfig`): Kosmos Agent Manager, Inc. after the transfer.
+   `KOSMOS_APNS_KEY_ID` and the .p8 must be a key made in that same team. A mismatch gets
    `InvalidProviderToken` from Apple on every send.
    Check: the Key ID and the Team ID both come from the same step 1 account.
 3. **`KOSMOS_PUSH=log` forces log-only whatever the key is.** Turning it off is its own step
@@ -253,13 +255,14 @@ and tap handling on an iPhone after Step 3 allows the bundle id. It does not
 open the Mac's send lock or make Step 8's log-only coordinator send for real.
 
 **Interim, decided by Josh 2026-10-12 (kosmos #4089):** TestFlight ships now under the active
-Stone Syndicate LLC team (864QZ69GF2), internal testers only, and the app is transferred to Kosmos
-Agent Manager, Inc. once Apple approves #3643. `DEVELOPMENT_TEAM` is set to 864QZ69GF2 until then.
+Stone Syndicate team (its Team ID is in `ios/Signing.xcconfig`), internal testers only, and the app is transferred to Kosmos
+Agent Manager, Inc. once Apple approves #3643. `DEVELOPMENT_TEAM` holds that team's id until then.
 Push does not reach these builds: the coordinator has no APNs key, and when one is made it has to come
 from the team that signs the app. Before the first upload Josh does three one-time steps under Stone
 Syndicate (exact clicks on kosmos #4089): register `io.kosmos.app` with Push Notifications, create the
 App Store Connect app record, and make an Admin App Store Connect API key (the kosmos-notarize key
-can only read, and automatic signing with an API key needs Admin).
+was refused even registering the identifier, and Admin is the role that surely covers the automatic
+signing archive.sh uses).
 
 **Done now, before Apple's approval (kosmos #4089):**
 - **The Team ID has one home, `ios/Signing.xcconfig`** (`DEVELOPMENT_TEAM`, Stone Syndicate's
