@@ -601,7 +601,7 @@ function write(patch, opts) {
     to be allowed (kosmos#4737, engine/enrolment.js). Half a state dir is not enrolled. */
 /* mac_key is deliberately not listed: enrolled() asks whether the Mac can serve,
    halfRegistered() whether it holds a key the coordinator knows (#3827). */
-const { ENROL_FILES, HELD_FILE, enrolledBy } = require('./enrolment');
+const { ENROL_FILES, HELD_FILE, enrolledBy, currentMacIdBy } = require('./enrolment');
 const inState = (f) => fs.existsSync(path.join(STATE_DIR(), f));
 function enrolled() {
   return enrolledBy(inState);
@@ -2564,7 +2564,7 @@ function abandonChangedIdentity(before, addressBefore, startedAt) {
 /* kosmos#5871: the id the TUNNEL signs as, by its own rule (engine/enrolment.js currentMacIdBy): from mac_identity,
    which a registration writes first, unless an older tunnel's newer mac_id names another. Reading only mac_id let a
    register cut between the two leave the app and the tunnel naming different computers. */
-const macIdHere = () => require('./enrolment').currentMacIdBy(
+const macIdHere = () => currentMacIdBy(
   // A missing file is null; any other read failure throws, and the rule then answers no id (the tunnel errors too).
   (f) => { try { return fs.readFileSync(path.join(STATE_DIR(), f), 'utf8'); } catch (e) { if (e && e.code === 'ENOENT') return null; throw e; } },
   (f) => { try { return fs.statSync(path.join(STATE_DIR(), f)).mtimeMs; } catch { return null; } });

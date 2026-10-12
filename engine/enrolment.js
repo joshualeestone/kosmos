@@ -34,13 +34,16 @@ function enrolledBy(exists) {
    ⚠️ COUPLING, across a repo: this is the rule of kosmos-relay crates/tunnel/src/coordinator.rs
    MacState::identity_record, so the app and the tunnel always name the same computer. Change them together.
    A mac_identity without BOTH an id and a key, or one that cannot be read (read throws), is no id (null), never
-   the other file's: the tunnel refuses those too. An empty mac_id counts as no mac_id. A tie in mtime keeps
-   mac_identity. engine/enrolment-macid-5871.test.js and the tunnel's identity_rule_table hold the same cases. */
+   the other file's: the tunnel refuses those too. No mac_id file at all is no id either: the tunnel's every entry
+   point (MacState::open) refuses a folder without one, so a FIRST registration cut after its mac_identity write
+   is not a computer yet, here as there. An empty mac_id counts as no mac_id. A tie in mtime keeps mac_identity. engine/enrolment-macid-5871.test.js and the tunnel's identity_rule_table hold the same cases. */
 const IDENTITY_FILE = 'mac_identity';
 function currentMacIdBy(read, mtimeOf) {
-  let pairId; let text;
-  try { pairId = ((read('mac_id') || '').trim()) || null; text = read(IDENTITY_FILE); } catch { return null; }
+  let pairRaw; let text;
+  try { pairRaw = read('mac_id'); text = read(IDENTITY_FILE); } catch { return null; }
+  const pairId = ((pairRaw || '').trim()) || null;
   if (text === null || text === undefined) return pairId;
+  if (pairRaw === null || pairRaw === undefined) return null;   // no mac_id file: the tunnel will not open the folder
   const lines = String(text).split('\n').map((l) => l.trim());
   const id = lines[0] || null;
   if (!id || !lines[1]) return null;

@@ -32,8 +32,8 @@ test('#5871: a mac_identity with no id is no id, never the other file\'s', () =>
   assert.equal(pick({ [IDENTITY_FILE]: '\nKEY\n', mac_id: 'mac-x' }, { [IDENTITY_FILE]: 1000, mac_id: 2000 }), null);
 });
 
-test('#5871: with no mac_id file, mac_identity names the computer', () => {
-  assert.equal(pick({ [IDENTITY_FILE]: 'mac-only\nKEY\n' }), 'mac-only');
+test('#5871: with no mac_id file, nothing names the computer (the tunnel will not open such a folder)', () => {
+  assert.equal(pick({ [IDENTITY_FILE]: 'mac-only\nKEY\n' }), null);
 });
 
 /* The SAME rows as the tunnel's identity_rule_table (kosmos-relay crates/tunnel/src/coordinator.rs): change both. */
@@ -48,6 +48,8 @@ test('#5871: the rule table shared with the tunnel', () => {
     ['a blank first line', '\nK\n', 'mac-x', '=', null],
     ['CRLF lines', 'mac-n\r\nK\r\n', 'mac-n', '=', 'mac-n'],
     ['a tie in mtime', 'mac-n\nK\n', 'mac-o', '=', 'mac-n'],
+    ['mac_identity but no mac_id file', 'mac-n\nK\n', null, '=', null],
+    ['an empty mac_id and no mac_identity', null, '', '=', null],
   ];
   for (const [what, identity, pair, newer, want] of rows) {
     const files = {}; const times = {};
