@@ -193,3 +193,13 @@ test('kosmos#5956: a parent counts its built subtasks apart from its closed ones
   tasks.close(id, a.number);
   assert.deepEqual(rowOf(id, top.number).subtasks, { done: 2, built: 0, total: 2 }, 'a closed subtask counts as done, never as built too');
 });
+
+test('kosmos#5956 review 1: a built subtask the person put on hold reads held, not built', () => {
+  const id = projects.create({ name: 'Held kid ' + Math.random().toString(36).slice(2), agents: ['rex'] }).id;
+  const top = tasks.create(id, { sentence: 'Launch' });
+  const a = tasks.create(id, { sentence: 'Copy', parent: top.number, who: 'rex' });
+  assert.equal(tasks.setBuilt(id, a.number, { by: 'rex', note: 'copy is in' }).ok, true);
+  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 0, built: 1, total: 1 }, 'CONTROL: built and not held');
+  tasks.setOnHold(id, a.number, true, { viaScreen: true });
+  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 0, built: 0, total: 1 });
+});

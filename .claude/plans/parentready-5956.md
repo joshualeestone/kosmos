@@ -16,6 +16,11 @@
   name), which is engine/CLI work and changes every scripted caller's behaviour; filed as a follow-up.
 - "Lacks a capability": Kosmos has no capability model to check against; not built.
 
+- Consequence, intended: every task made in the app now carries a done-when, and an agent's `kosmos task built`
+  with no note is refused on a task with one (#5705). That is the point: the agent answers what done means. Said on
+  the card so agents and the person know.
+- A built subtask the person put on hold reads held, not built (review 1), as taskState already ranks it.
+
 ## Approach
 - engine/tasks.js treeOf progress: adds `built` (open children with builtAt).
 - web/index.html: tskRow and the project card read `built`; tkPaintSubtasks marks Built and shows #tk-subs-built;

@@ -223,3 +223,9 @@ test('kosmos#5956: Create stays down until both what needs doing and how you wil
   v.api.openNewTask('a', 'tasks');
   assert.equal(v.els['nt-go'].disabled, false, 'CONTROL: both filled');
 });
+
+test('kosmos#5956 review 1: the engine\'s done-when refusal is said in the field\'s own words, and the field says it is needed', () => {
+  assert.match(SCRIPT, /\/done-when check\/\.test\(why\)\s*\? 'How will you know it is done has to be one line of plain text, 200 characters or fewer\.'/);
+  assert.match(PAGE, /id="nt-done"[^>]*aria-required="true"[^>]*aria-describedby="nt-done-hint"/);
+  assert.match(PAGE, /<p class="fhint" id="nt-done-hint"[^>]*>Needed to create the task\. The agent checks its work against this\.<\/p>/);
+});

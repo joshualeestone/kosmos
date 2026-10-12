@@ -217,7 +217,7 @@ function treeOf(p) {
   /* kosmos#5956: `built` counts the open children marked built (builtAt), so a parent can say every subtask is built
      and waiting for the person, not only every subtask closed. Marking built already asks the agent to answer the
      task's done-when checks. */
-  const isBuilt = (t) => !progressOf(t).closed && typeof t.builtAt === 'string' && t.builtAt !== '';
+  const isBuilt = (t) => !progressOf(t).closed && !isOnHold(t) && typeof t.builtAt === 'string' && t.builtAt !== '';   // held reads held (taskState)
   const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, built: k.filter(isBuilt).length, total: k.length }; };
   return { byNum, up, under, progress };
 }

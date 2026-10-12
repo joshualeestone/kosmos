@@ -13766,7 +13766,8 @@ window.kosmosMeasureScrollbarWidth();
          answers it when it marks the task built. Required here only: agents and the CLI keep it optional. -->
     <div class="field">
       <label class="flabel tk-lab" for="nt-done">How will you know it is done?</label>
-      <input class="tk-inp" id="nt-done" type="text" maxlength="200" placeholder="The checklist fits on one page and the team has read it">
+      <input class="tk-inp" id="nt-done" type="text" maxlength="200" aria-required="true" aria-describedby="nt-done-hint" placeholder="The checklist fits on one page and the team has read it">
+      <p class="fhint" id="nt-done-hint" style="margin:8px 0 0;">Needed to create the task. The agent checks its work against this.</p>
     </div>
     <div class="field">
       <label class="flabel tk-lab" for="nt-detail">Anything they should know</label>
@@ -16946,7 +16947,7 @@ window.kosmosMeasureScrollbarWidth();
              with this task already picked as what it is part of. -->
         <h3 class="dlab" style="margin-top: var(--space-6);">Subtasks</h3>
         <div class="tksubs" id="tk-subs"></div>
-        <p class="dhint tksubs-done" id="tk-subs-built" hidden>All subtasks built. Check each one, then close it and this task.</p>
+        <p class="dhint tksubs-done" id="tk-subs-built" hidden>All subtasks are built. Check each one and close it, then close this task.</p>
         <p class="dhint tksubs-done" id="tk-subs-done" hidden><span>All subtasks done.</span><button class="linkish" type="button" id="tk-subs-close">Close this task</button></p>
         <button class="linkish" type="button" id="tk-subadd">+ Add subtask</button>
       </section>
@@ -61057,7 +61058,7 @@ function paintProjectTasks(p) {
     const sub = t.subtasks && t.subtasks.total > 0 ? t.subtasks : null;
     const subLabel = sub ? sub.done + ' of ' + sub.total + ' subtasks done' : '';
     const chip = sub ? '<span class="tsk-chip" title="' + esc(subLabel) + '">' + sub.done + '/' + sub.total
-      + (sub.done === sub.total ? ', all subtasks done' : (Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total) ? ', all subtasks built' : '<span class="vh"> subtasks done</span>') + '</span>' : '';
+      + (sub.done === sub.total ? ', all subtasks done' : (!t.closedAt && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total) ? ', all subtasks built' : '<span class="vh"> subtasks done</span>') + '</span>' : '';
     const partOf = crumb && t.parent != null
       ? '<span class="tkcard-part-of">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
     return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + (depth ? ' sub' + depth : '') + '" type="button" data-task="' + n + '">'
@@ -62184,7 +62185,7 @@ function tkPaintSubtasks(p, t, closed) {
   const kids = (p.tasks || []).filter((x) => x && x.parent === t.number)
     .sort((a, b) => Number(a.number) - Number(b.number));
   const done = (x) => (x.progress ? Boolean(x.progress.closed) : Boolean(x.closedAt));
-  const built = (x) => !done(x) && typeof x.builtAt === 'string' && x.builtAt !== '';   // kosmos#5956
+  const built = (x) => !done(x) && x.onHold !== true && typeof x.builtAt === 'string' && x.builtAt !== '';   // kosmos#5956; held reads held
   const list = document.getElementById('tk-subs');
   if (list) {
     /* Change-guarded like the project column (TK_LIST_HTML): the poll repaints this page, and an
@@ -63372,8 +63373,12 @@ document.getElementById('nt-go').addEventListener('click', async () => {
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {
-      document.getElementById('nt-msg').textContent =
-        (body && body.error) || 'we could not add that task';
+      /* kosmos#5956: the engine's done-when refusal names "done-when checks", words this dialog never shows; say it in
+         the field's own words. */
+      const why = (body && body.error) || '';
+      document.getElementById('nt-msg').textContent = /done-when check/.test(why)
+        ? 'How will you know it is done has to be one line of plain text, 200 characters or fewer.'
+        : why || 'we could not add that task';
       go.disabled = false;
       return;
     }

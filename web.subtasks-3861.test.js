@@ -150,6 +150,12 @@ test('kosmos#5956: the task page marks a built subtask Built and says when every
   new Function('document', 'esc', 'p', 't', page.liftAll(SCRIPT, ['tkPaintSubtasks']) + '\n; tkPaintSubtasks(p, t, false);')(
     { getElementById: (id) => els[id] || null }, ESC, project, project.tasks[0]);
   assert.equal(els['tk-subs-built'].hidden, true, 'CONTROL: an open, unbuilt subtask hides it');
+  project.tasks[1].builtAt = '2026-10-12T15:00:00Z';
+  project.tasks[1].onHold = true;
+  new Function('document', 'esc', 'p', 't', page.liftAll(SCRIPT, ['tkPaintSubtasks']) + '\n; tkPaintSubtasks(p, t, false);')(
+    { getElementById: (id) => els[id] || null }, ESC, project, project.tasks[0]);
+  assert.equal(els['tk-subs-built'].hidden, true, 'review 1: a held subtask is not counted as built');
+  assert.doesNotMatch(els['tk-subs'].innerHTML, /data-sub="2">[\s\S]*?<span class="tksub-s">Built<\/span>/);
 });
 
 /* #3898 (April's review of #3885): the new strings a person or an agent types (a task's sentence, its
