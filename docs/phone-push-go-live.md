@@ -261,7 +261,7 @@ preview app is retired. `io.kosmos.app` is never registered under Stone Syndicat
 reach preview builds: the coordinator has no APNs key, and `KOSMOS_APNS_BUNDLE_IDS` allows only
 `io.kosmos.app`. Before the first upload Josh does three one-time steps under Stone Syndicate (exact
 clicks on kosmos #4089): register `io.kosmos.app.preview` with Push Notifications, create its App
-Store Connect app record, and make an Admin App Store Connect API key (the kosmos-notarize key was
+Store Connect app record (named `Kosmos Preview`), and make an Admin App Store Connect API key (the kosmos-notarize key was
 refused even registering an identifier, so Admin is the safe choice for the automatic signing
 archive.sh uses).
 
