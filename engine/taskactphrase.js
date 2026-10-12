@@ -49,7 +49,7 @@ function phrase(ev, nameOfMember, opts) {
     // kosmos#4787: a recurring task's rule, and each run its owner reported (kosmos task ran).
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
-    case 'run': { const who = ev.person ? YOU : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.unchanged ? (ev.inferred ? ', the same note again' : ', nothing new') : '') + (ev.note ? ': ' + own(ev.note) : ''); }   // kosmos#5643: said, or only a repeated note
+    case 'run': { const who = ev.person ? YOU : nameOf(ev.by); const missed = Number(ev.missedBefore) >= 1 ? Number(ev.missedBefore) : 0; return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (missed ? ', after ' + (ev.missedMore === true ? 'more than ' + missed + ' missed runs' : missed === 1 ? '1 missed run' : missed + ' missed runs') : '') + (ev.unchanged ? (ev.inferred ? ', the same note again' : ', nothing new') : '') + (ev.note ? ': ' + own(ev.note) : ''); }   // kosmos#5643: said, or only a repeated note
     /* kosmos#4787 slice 3 (review 5): who reviews it, and a missed run with who was told. */
     case 'reviewer-set': return ev.person ? YOU + ' will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
     case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
