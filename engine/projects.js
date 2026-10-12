@@ -65,7 +65,7 @@ const WROTE_WHY = {
  */
 
 const fs = require('node:fs');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawn } = require('node:child_process');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -1494,23 +1494,41 @@ function setRevealRunner(f) { revealRunner = f; }
 let revealPlatform = null;
 function setRevealPlatform(p) { revealPlatform = p || null; }
 function revealOnWindows() { return (revealPlatform || process.platform) === 'win32'; }
-/* #5881: a Linux board has no `/usr/bin/open`. With a desktop (the board's own environment names a display) it opens
-   things with `xdg-open`, as engine/remote.js does; without one (a server, a board run as a systemd user service) there
-   is nothing to open them on, and the answer says so. The environment is injectable for tests, as the platform is. */
+/* #5881: a Linux board has no `/usr/bin/open`. A FOLDER it opens with `xdg-open` when the board's own environment names
+   a display (DISPLAY or WAYLAND_DISPLAY), as engine/remote.js opens a page; without one there is nothing to open it on,
+   and the answer says so. A board run as a systemd user service may or may not have them (a desktop session can pass
+   them into the user's services, and a lingering service can keep a stale one), so a desktop can be missed in the safe
+   direction, and a stale one ends in a failed open, which xdg-open does not report here (below).
+   xdg-open is STARTED, never waited on (review 1): on a desktop it does not know it runs the file manager in the
+   foreground, and waiting would hold the board's event loop until that window closed. So "ok" means it was started; a
+   missing xdg-open (xdg-utils not installed) is said. The environment is injectable for tests, as the platform is. */
 let revealEnv = null;
 function setRevealEnv(e) { revealEnv = e || null; }
 function revealOnLinux() { return (revealPlatform || process.platform) === 'linux'; }
-function linuxHasDesktop() { const e = revealEnv || process.env; return Boolean(e.DISPLAY || e.WAYLAND_DISPLAY); }
+function linuxEnv() { return revealEnv || process.env; }
+function linuxHasDesktop() { const e = linuxEnv(); return Boolean(e.DISPLAY || e.WAYLAND_DISPLAY); }
 const NO_DESKTOP = 'this computer has no desktop to open it on';
-function linuxOpen(args, failed) {
+function xdgOpenPath() {
+  for (const dir of String(linuxEnv().PATH || '').split(path.delimiter)) {
+    if (!dir) continue;
+    const f = path.join(dir, 'xdg-open');
+    try { fs.accessSync(f, fs.constants.X_OK); return f; } catch { /* not here */ }
+  }
+  return null;
+}
+function linuxOpenFolder(folder) {
   if (!linuxHasDesktop()) return { ok: false, because: NO_DESKTOP };
+  if (revealRunner) return revealRunner('xdg-open', [folder]);
+  const bin = xdgOpenPath();
+  if (!bin) return { ok: false, because: 'this computer has no xdg-open to open it with (it comes with xdg-utils)' };
   try {
-    if (revealRunner) return revealRunner('xdg-open', args);
-    execFileSync('xdg-open', args, { timeout: 5000, stdio: 'ignore' });
+    const child = spawn(bin, [folder], { detached: true, stdio: 'ignore', env: linuxEnv() });
+    child.on('error', () => { /* started or not, the answer below was already sent; nothing waits on it */ });
+    child.unref();
     return { ok: true };
   } catch (err) {
     if (err instanceof ReferenceError || err instanceof TypeError) throw err;
-    return { ok: false, because: failed };
+    return { ok: false, because: 'the folder did not open' };
   }
 }
 function revealFolder(folder) {
@@ -1518,7 +1536,7 @@ function revealFolder(folder) {
      validates the path, holds the live-execution gate and never waits on Explorer's
      exit code (it exits 1 on success). */
   if (revealOnWindows()) return win32explorer.openFolder(folder);
-  if (revealOnLinux()) return linuxOpen([folder], 'the folder did not open');   // #5881
+  if (revealOnLinux()) return linuxOpenFolder(folder);   // #5881
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', [folder]);
     execFileSync('/usr/bin/open', [folder], { timeout: 5000, stdio: 'ignore' });
@@ -1541,8 +1559,9 @@ function revealFolder(folder) {
  */
 function revealFile(file, opts) {
   if (revealOnWindows()) return win32explorer.revealFile(file, opts);   // #4997: opts.namedAs, as openFile
-  // #5881: xdg-open cannot select a file in its folder, so a Linux desktop opens the folder the file is in.
-  if (revealOnLinux()) return linuxOpen([path.dirname(String(file))], 'the folder did not open');
+  // #5881: xdg-open cannot select a file in its folder, so a Linux desktop opens the folder the file is in (opts.namedAs
+  // is Windows's, unused here).
+  if (revealOnLinux()) return linuxOpenFolder(path.dirname(String(file)));
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', ['-R', file]);
     execFileSync('/usr/bin/open', ['-R', file], { timeout: 5000, stdio: 'ignore' });
@@ -1844,12 +1863,11 @@ function openFile(folder, name, where = 'this project') {
      the project record names (review round 2), so a mapped Z:\ project opens its
      documents the same way "Open in File Explorer" opens its folder. */
   if (revealOnWindows()) return win32explorer.openFile(target, { namedAs: path.join(String(folder), given) });
-  /* #5881: on Linux the same gated target, through xdg-open; with no desktop, the person is told to download it (the page
-     offers Download on a Linux board, as it does through Kosmos+). */
-  if (revealOnLinux()) {
-    const r = linuxOpen([target], 'that file did not open');
-    return r.ok || r.because !== NO_DESKTOP ? r : { ok: false, because: NO_DESKTOP + ', so download it instead' };
-  }
+  /* #5881 (review 1): on a Linux board a file is never opened on the computer: the page downloads it instead (its file
+     rows do, on every Linux board), and xdg-open would hand an agent-written .desktop file or script to whatever the
+     desktop runs it with, a type Windows refuses (SAFETY 1). Refused after the gates, so a name the list would not show
+     is still refused for that reason first. */
+  if (revealOnLinux()) return { ok: false, because: 'on this computer Kosmos does not open files, so download it instead' };
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', [target]);
     /* ⚠️ STDERR IS CAPTURED, NOT IGNORED (#1199), and that is the whole fix.

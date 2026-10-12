@@ -37,3 +37,32 @@ test('#5881: the branch keys on the platform the board stamped on the page (CONT
   assert.equal(run('win32'), false);
   assert.equal(run(undefined), false);
 });
+
+test('#5881 review 1: run as the page runs them, the project file rows download on a Linux board and never ask to open', async () => {
+  for (const [listId, msgId] of [['docs-list', 'docs-msg'], ['pj-docs', 'pj-docs-msg'], ['pj-room', 'pj-room-msg']]) {
+    const anchor = "document.getElementById('" + listId + "').addEventListener('click', ";
+    const at = SCRIPT.indexOf(anchor);
+    assert.ok(at > -1, `the ${listId} handler moved`);
+    const body = SCRIPT.slice(at + anchor.length, SCRIPT.indexOf('\n});', at) + 2);
+    const make = (linux, seen) => new Function('document', 'fetch', 'PJ_CURRENT', 'pjSentence', 'asSentence',
+      'PJ_DOCS_VIEW_PARTIAL', 'PJ_DOCS_PARTIAL', 'PJ_DOCS_RAIL_PARTIAL', 'kplusRemote', 'filesPvOpen', 'onLinux',
+      'kplusDownload', 'kplusSayer', 'return ' + body)(
+      { getElementById: () => ({ textContent: '' }) },
+      async (url) => { seen.fetched.push(url); return { ok: true, json: async () => ({ ok: true }) }; },
+      'proj', (s) => s, (s) => s, false, 'PARTIAL NOTE', false,
+      () => false, () => false, () => linux,
+      (...args) => { seen.downloaded.push(args.slice(0, 3)); },
+      () => () => {},
+    );
+    const click = { target: { closest: () => ({ dataset: { doc: 'notes.pdf', ref: 'notes.pdf' } }) } };
+    const lx = { fetched: [], downloaded: [] };
+    await make(true, lx)(click);
+    assert.deepEqual(lx.downloaded, [['project', 'proj', 'notes.pdf']], `${listId}: a Linux board did not download`);
+    assert.ok(!lx.fetched.some((u) => /open-file/.test(String(u))), `${listId}: a Linux board asked to open the file`);
+    // CONTROL: the same handler at a Mac asks the board to open it, and downloads nothing.
+    const mac = { fetched: [], downloaded: [] };
+    await make(false, mac)(click);
+    assert.deepEqual(mac.downloaded, []);
+    assert.ok(mac.fetched.some((u) => /open-file/.test(String(u))), `${listId}: the Mac control did not ask to open`);
+  }
+});
