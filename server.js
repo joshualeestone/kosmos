@@ -22290,7 +22290,7 @@ function start(port = PORT) {
       });
       const firstreplySweep = setInterval(firstreplyTick, Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) : 60 * 1000); // the env is the test seam only
       if (firstreplySweep && typeof firstreplySweep.unref === 'function') firstreplySweep.unref();
-      /* #5959 slice 3: an agent whose own `blocked` report has stood on its card over a day is told ONCE per report (kept
+      /* #5959 slice 3: an agent whose `blocked` report has stood on its card over a day is told ONCE per report (kept
          on disk), typed into its session (engine/stalereport-nudge.js), in the words `kosmos report show` uses.
          Same gating as the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
          AGENT_WORKFORCE_STALEREPORT_NUDGE_OFF=1, own timer (a report a few minutes past a day is late by that much),

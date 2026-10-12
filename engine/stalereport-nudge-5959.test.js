@@ -78,7 +78,7 @@ test('#5959 slice 3: an agent\'s own blocked report over a day old on its card i
   const reminded = memReminded();
   const { sent } = run([casey, leo, mara, niaScreen], reports, { book, reminded });
   assert.deepEqual(sent.map((x) => x.s), [casey.sessionName], 'the wrong agents were told');
-  assert.equal(sent[0].text, 'Kosmos here, a reminder: Your own `blocked` report has been standing on your card for 3 days. '
+  assert.equal(sent[0].text, 'Kosmos here, a reminder: Your own `blocked` report has been standing for 3 days. '
     + 'If it is no longer in your way, clear it with: kosmos report clear. If it still holds, leave it. '
     + 'To see your card as the person sees it, run: kosmos report show');
   assert.equal(reminded.get(casey.sessionName), reports[casey.sessionName].at, 'the reminder was not recorded');
@@ -97,7 +97,16 @@ test('#5959 slice 3: never needs_you (a question waiting on the person); a block
     [k.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3 * DAY), by: 'auto' },
   });
   assert.deepEqual(sent.map((x) => x.s), [k.sessionName], 'typed into a question, or missed a Kosmos-written blocked');
-  assert.match(sent[0].text, /: A `blocked` report Kosmos wrote for you has been standing on your card for 3 days\. If what it was about has passed, clear it with: kosmos report clear\./);
+  assert.match(sent[0].text, /: A `blocked` report Kosmos wrote for you has been standing for 3 days\. If what it was about has passed, clear it with: kosmos report clear\./);
+});
+
+test('#5959 slice 3: a provider failure Kosmos recorded is not reminded about; another Kosmos-written blocked is', () => {
+  const [p, q] = cardsFor([['pat', 'blocked'], ['quil', 'blocked']]);
+  const { sent } = run([p, q], {
+    [p.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3 * DAY), by: 'auto', on: 'provider api (server_error)' },
+    [q.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3 * DAY), by: 'auto', on: 'waiting on the person' },
+  });
+  assert.deepEqual(sent.map((x) => x.s), [q.sessionName], 'a reminder would start a turn that fails while the provider does');
 });
 
 test('#5959 slice 3: an agent mid-turn is told at a later sweep, between turns', () => {
@@ -143,6 +152,7 @@ test('#5959 slice 3: no report, a working card, a paused swarm, a stranger: nobo
   assert.equal(run([b], { [b.sessionName]: old() }).sent.length, 0, 'told on a working card');
   assert.equal(run([c], { [c.sessionName]: old() }, { paused: true }).sent.length, 0, 'told while its swarm is switched off');
   assert.equal(run([{ ...c, isNamedOurs: false }], { [c.sessionName]: old() }).sent.length, 0, 'told a pane that is not ours');
+  assert.equal(run([{ ...c, isNamedOurs: undefined }], { [c.sessionName]: old() }).sent.length, 0, 'told a pane not known to be ours');
   assert.equal(run([c], { [c.sessionName]: old() }).sent.length, 1, 'CONTROL: the same card, unpaused and ours, is told');
 });
 
@@ -221,18 +231,20 @@ test('#5959 slice 3: the screen reader refuses a menu, a permission prompt and a
     chat.viewport = () => ({ text: null });
     assert.equal(nudge.screenOpen('x', []), 'its screen could not be read');
     // Whatever the readers say about a given text is what screenOpen says: driven through stubs of status's readers.
-    const orig = { q: status.claudeQuestionMenuUp, s: status.claudeSafeguardsMenuUp, p: status.claudePermissionPromptKind };
+    const orig = { q: status.claudeQuestionMenuUp, s: status.claudeSafeguardsMenuUp, p: status.claudePermissionPromptKind, l: status.claudeLimitMenuUp };
     try {
       chat.viewport = () => ({ text: 'anything' });
       status.claudeSafeguardsMenuUp = () => false; status.claudeQuestionMenuUp = () => false; status.claudePermissionPromptKind = () => null;
+      status.claudeLimitMenuUp = () => false;
       assert.equal(nudge.screenOpen('x', []), null, 'CONTROL: a clear prompt');
       status.claudeQuestionMenuUp = () => true; seen.push(nudge.screenOpen('x', []));
       status.claudeQuestionMenuUp = () => false; status.claudeSafeguardsMenuUp = () => true; seen.push(nudge.screenOpen('x', []));
-      status.claudeSafeguardsMenuUp = () => false; status.claudePermissionPromptKind = () => 'wording'; seen.push(nudge.screenOpen('x', []));
+      status.claudeSafeguardsMenuUp = () => false; status.claudeLimitMenuUp = () => true; seen.push(nudge.screenOpen('x', []));
+      status.claudeLimitMenuUp = () => false; status.claudePermissionPromptKind = () => 'wording'; seen.push(nudge.screenOpen('x', []));
       status.claudePermissionPromptKind = () => 'shape'; seen.push(nudge.screenOpen('x', []));
-    } finally { Object.assign(status, { claudeQuestionMenuUp: orig.q, claudeSafeguardsMenuUp: orig.s, claudePermissionPromptKind: orig.p }); }
+    } finally { Object.assign(status, { claudeQuestionMenuUp: orig.q, claudeSafeguardsMenuUp: orig.s, claudePermissionPromptKind: orig.p, claudeLimitMenuUp: orig.l }); }
   } finally { chat.viewport = real; }
-  assert.deepEqual(seen, ['a menu is open on its screen', 'a menu is open on its screen', 'a prompt is open on its screen', 'a prompt is open on its screen']);
+  assert.deepEqual(seen, ['a menu is open on its screen', 'a menu is open on its screen', 'a menu is open on its screen', 'a prompt is open on its screen', 'a prompt is open on its screen']);
 });
 
 test('#5959 slice 3: a record that could not be written is logged', () => {

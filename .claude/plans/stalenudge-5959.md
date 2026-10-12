@@ -1,4 +1,4 @@
-# stalenudge-5959: an agent is told once when its own blocked report has stood a day (#5959 slice 3)
+# stalenudge-5959: an agent is told once when its blocked report has stood a day (#5959 slice 3)
 
 Card: joshualeestone/kosmos#5959, item 4 of the Windows agents' QA report: "Point out a stale self-reported state to the
 agent after a day or two (one agent carried a 'blocked' from 09-26)." Slice 1 (`reportshow-5959`) says it when the agent
@@ -33,11 +33,14 @@ runs `kosmos report show`; this says it without being asked. Stacked on slice 1 
   a stale report for them. Reviews 4 and 6.
 - **Relying on deliverAutomatic's menu hold.** It reads the screen only for a needs_you or working card, never for the
   blocked cards this sweep types to (review 6). So the sweep reads the screen itself first (`screenOpen`: the safeguards
-  menu, a question menu, a permission prompt, or an unreadable screen, with status.js's readers) and types nothing then;
+  menu, a question menu, the usage-limit menu, a permission prompt, or an unreadable screen, with status.js's readers) and types nothing then;
   no try is spent and it is logged once per report.
 - **Inside agentnudge (the Prompter's stall nudge).** It deliberately leaves out blocked agents and is keyed on idle
   stall episodes; a stale report is a different trigger.
 - **Repeating it daily.** Once per report is what the card asks; a repeat would nag an agent that is rightly waiting.
+
+- **A provider failure Kosmos recorded** (`by: auto`, `on: provider api (<kind>)`): while the provider still fails, the
+  turn a reminder starts fails and writes a fresh report, so it would be reminded once a day for the outage. Review 7.
 
 ## Weakest premises
 - The retry count is in memory, so a restart allows three more tries that reach nothing.
@@ -51,4 +54,4 @@ runs `kosmos report show`; this says it without being asked. Stacked on slice 1 
   by:auto in its own words, mid-turn waits, "This" for other writers, the
   exact-day boundary, controls (under a day, the card not showing it, set aside by reconcile, working, paused, not
   ours), retries and give-up, unconfirmed, holds, the gate, the server wiring. Mutations checked red: card shows it,
-  once, paused, the day, needs_you (both filters), Claude-only, prune, record-log, mid-turn, the persisted record, unconfirmed, held-once.
+  once, paused, the day, needs_you (the card filter; the report filter is also backed by the state match), Claude-only, prune, record-log, mid-turn, the persisted record, unconfirmed, held-once.
