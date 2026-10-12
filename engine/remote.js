@@ -2498,8 +2498,12 @@ const DEVICE_SUFFIX = ' (Kosmos app)';
     one line, no control characters, cut to fit DEVICE_NAME's 60 UTF-16 units with
     the suffix (never splitting a surrogate pair), and a plain fallback when
     nothing usable is left. */
+/* A name as ONE line: control characters become spaces, runs of white space become one, the ends are trimmed. The
+   one derivation of that (kosmos#5995): the computer's own name and a name the person types both go through it, so
+   "the box was left as it was" can be told by comparing the two. */
+const oneLine = (raw) => String(raw == null ? '' : raw).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
 function deviceNameFrom(raw) {
-  let name = String(raw == null ? '' : raw).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  let name = oneLine(raw);
   const room = 60 - DEVICE_SUFFIX.length;
   if (name.length > room) {
     let cut = room;
@@ -2567,17 +2571,23 @@ function computerNameChoice(raw) {
     while (v.endsWith(DEVICE_SUFFIX) || v === DEVICE_SUFFIX.trim()) v = v.slice(0, -DEVICE_SUFFIX.trim().length).trim();
     return v;
   };
-  /* Characters that draw nothing go first: a name made only of them LOOKS like a cleared box and must be one, and
-     a direction override inside a name can make the account's list read as something else. Not a list of code
-     points (the first version was one, and a review found the ones it missed): Unicode's own property for
-     characters a renderer shows as nothing (zero-width and direction marks, the soft hyphen, variation selectors,
-     the Hangul fillers), plus every other format character. A half of a character pair on its own is replaced. */
-  const cleaned = raw.toWellFormed().replace(/[\p{Default_Ignorable_Code_Point}\p{Cf}]/gu, '')
-    .replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  const asTyped = oneLine(raw);
   const own = withoutSuffix(ownComputerDeviceName());
-  /* The text the box was filled with, left as it was, is "untouched" whatever it looks like (a computer named
-     "-Studio" too): compared BEFORE anything is taken off it, so what was shown is what is sent, and nothing is kept. */
-  if (cleaned === own) return { ok: true, next: null, label: ownComputerDeviceName(), box: own };
+  /* The text the box was filled with, left as it was, is "untouched" whatever it holds (a computer named "-Studio",
+     or one with an emoji in its name): compared as ONE LINE, the way the computer's own name was made, and BEFORE
+     anything else is taken off, so what was shown is what is sent, and nothing is kept. */
+  if (asTyped === own) return { ok: true, next: null, label: ownComputerDeviceName(), box: own };
+  /* From a typed name, two things only:
+     - the direction controls (embeddings, overrides, isolates, the two marks): inside a name they can make the
+       account's list read as something else, and no name needs them;
+     - half of a character pair on its own, which is replaced.
+     Everything else stays as typed. Joiners and selectors are spelling (the Persian word joiner, the joiner inside
+     an emoji of several parts, the selector that makes a heart red), so they are NOT removed: an earlier version
+     removed every character that draws nothing and changed such names. */
+  const cleaned = asTyped.toWellFormed().replace(/[؜‎‏‪-‮⁦-⁩]/g, '').trim();
+  /* A name with nothing in it that draws LOOKS like a cleared box, and so is one. Asked of what is left once
+     Unicode's own "drawn as nothing" characters and white space are set aside; the name itself is not changed. */
+  if (cleaned.replace(/[\p{Default_Ignorable_Code_Point}\p{Cf}\s]/gu, '') === '') return { ok: true, next: '', label: deviceNameFrom(''), box: '' };
   const typed = bare(cleaned);
   /* Cut to fit, then the ending is looked for once more: a longer text can be cut exactly where a typed ending ends. */
   const kept = typed ? bare(withoutSuffix(deviceNameFrom(typed))) : '';

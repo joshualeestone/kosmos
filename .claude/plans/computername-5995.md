@@ -81,6 +81,8 @@ Not taken, with the reason:
   step, and one read passed through would thread a parameter through three callers.
 
 ## Review 2 (sonnet)
+**SUPERSEDED where it describes `putBackComputerName`, `was` or `computerNameTurn`: that code was removed at Review 4
+(the name now rides the start and is kept after it). Kept as the record of how the design got there.**
 3 WARNING, 1 CONVENTION, 2 NIT, plus the four NITs of review 1 that arrived late.
 Taken:
 - a name was kept by REPAIRING remote.json whenever it read badly, including when it could not be read at all for
@@ -101,6 +103,8 @@ Not taken:
 - "read remote.json once and pass it through" (second time raised): the reason in Review 1 stands.
 
 ## Review 3 (default)
+**SUPERSEDED where it describes `putBackComputerName`, `was` or `computerNameTurn`: that code was removed at Review 4
+(the name now rides the start and is kept after it). Kept as the record of how the design got there.**
 2 WARNING, 2 CONVENTION, 6 NIT (one more was cut off in delivery and asked for again).
 Taken:
 - two overlapping starts could undo a name one of them carried (the first keeps "B" and fails late, the second
@@ -230,3 +234,21 @@ Not taken (third time): the plan's file name and the commit subjects (reasons in
 - NIT taken: the route's line about two starts said more than the engine allows (it refuses a start while a step
   is busy). Not taken: a comment about a fetch that rejects after a clear (the code beside it already says a
   read left over from a cleared sign-in is dropped).
+
+## Review 11 (default)
+3 WARNING, 2 CONVENTION, 4 NIT. Two warnings were against the Unicode-property strip I added one round earlier.
+- WARNING taken: stripping every character that draws nothing changed REAL names (the joiner inside an emoji of
+  several parts, the selector that makes a heart red, the Persian word joiner), and made an untouched box read as
+  typed on a computer whose own name holds one. Now: (1) "left as it was" is told by comparing the typed text, as
+  one line, with the computer's own name BEFORE anything is taken off; (2) only the direction controls are removed
+  from a typed name; (3) a name with nothing in it that draws is a cleared box, asked without changing the name.
+  Tested with the names that were being changed.
+- CONVENTION taken: "one line" was derived twice (in `deviceNameFrom` and in `computerNameChoice`) and the two had
+  already drifted; it is one function, `oneLine`, used by both.
+- CONVENTION taken: Reviews 2 and 3 are marked superseded where they stand.
+- WARNING, the owed verification: the runs cited at 16d4ab23e predate the rebase. What has run since, at d8aef0157
+  (the rebased head, three small commits ago): web sweep 2750 pass, guard tests 180 pass, whole
+  `engine/remote.test.js` 224 pass. Still owed at the final head: those three again, the mutants, the browser check
+  (never run), the full suite.
+- NITs not taken: a "use this computer's name" control (a feature; typing the name back does it); why the page
+  says "may" (the comment beside it says a disk failing between two writes).
