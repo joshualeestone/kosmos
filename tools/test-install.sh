@@ -1254,8 +1254,9 @@ echo "== the uninstall sweep proves ownership before deleting =="
 # REFUSE the shared one it does not own, in a sentence.
 SYS_OK_SEALED=no; icon_is_sealed "$SYS_OK/Kosmos.app" && SYS_OK_SEALED=yes
 # Not just "whichever shape it is": when the build shipped the sealed app, the shared-folder install must have placed it.
-# #5896: the uninstall below is driven with the SAME KOSMOS_HOME_APP_DIR as the fallback install above (setup.sh's
-# rule for every app-dir override: uninstall with the value you installed with), so a sealed home icon is recognised.
+# #5896: the uninstall below is driven with the SAME KOSMOS_HOME_APP_DIR as the fallback install above (the rule
+# setup.sh states for KOSMOS_SYS_APP_DIR, applied here because this pass's home icon can be the sealed one), so a
+# sealed home icon is recognised. ⚠️ This block runs only in a full yarn test:install, not at a cut's install gate.
 if [ -d "$KOS_SRC/app/Kosmos.app" ]; then
   chk "#5896: the shared-folder icon is the sealed app the build shipped" "[ \"$SYS_OK_SEALED\" = yes ]"
 fi

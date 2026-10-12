@@ -292,6 +292,7 @@ it('#5896: "own" mode answers whether a sealed icon is this install\'s without t
   assert.match(run({ KOSMOS_HOME: home, _wic_rc: '1', SYS_APP_DIR: sys }, `bundle_is_ours "${shared}" own; echo "rc=$?"`).out, /rc=0/, 'this install\'s own sealed icon was not recognised as its own');
   assert.match(run({ KOSMOS_HOME: home, _wic_rc: '1', SYS_APP_DIR: sys, INSTALL_CONFIG_DIR: cfgFor('/elsewhere') }, `bundle_is_ours "${shared}" own; echo "rc=$?"`).out, /rc=[1-9]/, 'an icon serving another install was called this install\'s own');
   assert.match(SETUP, /bundle_is_ours "\$SYS_APP_DIR\/Kosmos\.app" own; then APP_OWN_SEALED=yes; fi/, 'the transcript line no longer asks in own mode');
+  assert.match(SETUP, /elif bundle_is_ours "\$SYS_APP_DIR\/Kosmos\.app" own; then   # own:/, 'the stale-probe transcript check no longer asks in own mode');
 });
 
 // Text-only invariants: they read setup.sh and run no macOS tool, so they run on every platform (the Linux lane is
@@ -309,6 +310,7 @@ test('#5896: setup.sh ordering and mode invariants (text only, every platform)',
   assert.ok(fn.indexOf('/usr/bin/stat -f %u') !== -1 && fn.indexOf('/usr/bin/stat -f %u') < fn.indexOf('bundle_is_sealed "$1"'), 'ownership is not checked before the signature');
   assert.ok(fn.indexOf('sealed_serves_this_install') < fn.indexOf('bundle_is_sealed "$1"'), 'the config is not checked before the signature');
   assert.match(SETUP, /bundle_is_ours "\$SYS_APP_DIR\/Kosmos\.app" own; then APP_OWN_SEALED=yes; fi/, 'the transcript line no longer asks in own mode');
+  assert.match(SETUP, /elif bundle_is_ours "\$SYS_APP_DIR\/Kosmos\.app" own; then   # own:/, 'the stale-probe transcript check no longer asks in own mode');
   assert.match(SETUP, /^SEALED_REQ=""/m, 'SEALED_REQ can be inherited');
   assert.match(SETUP, /^_SEALED_SRC_OK=""/m, 'the placement cache can be inherited');
   assert.match(SETUP, /^_SEALED_REQ_RUN=""/m, 'the requirement cache can be inherited');

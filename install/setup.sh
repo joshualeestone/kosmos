@@ -500,7 +500,7 @@ resolve_app_dir() {
     /bin/rmdir "$SYS_APP_DIR/.kosmos-write-probe.$$" 2>/dev/null \
       || rm -rf "$SYS_APP_DIR/.kosmos-write-probe.$$" 2>/dev/null || true
     APP_DIR="$SYS_APP_DIR"
-  elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app"; then
+  elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" own; then   # own: this only decides what the transcript says (#5896)
     # The probe FAILED on a machine where an earlier run of this install
     # already put an icon in the system folder (admin rights since lost,
     # folder since locked). The fresh icon goes to the home folder, and
