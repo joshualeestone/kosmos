@@ -16,6 +16,10 @@
 - With no cache (a caller that passes none), reads are fresh and unfrozen, exactly as before.
 - Weakest premise: that nothing downstream mutates the parsed JSON. The guard set (986 tests) passes with every cached read frozen, which would have thrown on any mutation those tests reach.
 
+## Gaps, stated
+- The rewritten-tier bypass covers the scanning agent's OWN folder. If agent folders were ever nested (A's folder above B's), A's settings would be a cached tier for B, which A's rewrite could change mid-pass. Nothing nests agent folders, and the guard's rewrite keeps every command-bearing key, so the scan result could not change even then (review 4).
+- Two spellings of one file are read twice (the key is the resolved path, not the real one): one extra read, never a wrong answer.
+
 ## Not done (the card's related note)
 - agentevents' per-tick check still passes no accountConfigDir (its configUnsafe is not trusted; commented in route 5). A separate small change.
 
@@ -39,4 +43,7 @@ Mutations red: the cache not passed from setup-assistant (2 tests), the memo dis
   - [WARNING] FIXED (measured by the reviewer both ways). The recursive deepFreeze overflowed the stack on a config nested ~12,000 deep (JSON.parse takes it), outside every per-file try: the agent's whole scan was lost and the guard written with no script denies (fails closed, but one file's gap became every script's; the agent can write such a .mcp.json into its own folder). Uncached, only that file was named. The freeze is iterative now, and a freeze that still threw leaves the read uncached. Tested: the same files and the same named gaps with and without the cache, the deep file named; mutation (the recursive freeze back) red.
   - [NIT] FIXED: the comment no longer says a TypeError always lands in a per-config try; it says which do and that the rest lose the whole scan.
   - [NIT] PARTLY TAKEN: the review-3 test runs the cached path through startCommandScripts against the uncached one. A reader that mutates a cached object is not exercised through the scan (none exists to exercise).
+- Iteration 4 (Sonnet), on 6b997012: no BLOCKER, nothing new above NIT. CONVERGED.
+  - [WARNING, cannot bite today, no change asked] STATED (Gaps): nested agent folders would make one agent's rewritten tier a cached tier for another; the rewrite keeps every command-bearing key, so the scan result could not differ.
+  - [NIT] DUPLICATE: two spellings read twice (stated). [NIT] not taken: test 5 covers the own folder only (the nested case is the stated gap); the iterative freeze holds a wide array's values twice, transiently.
 
