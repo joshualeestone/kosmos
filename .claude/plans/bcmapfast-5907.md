@@ -19,4 +19,6 @@ Output is still `sort -u`, so order is unchanged.
 ## Weakest premises
 - The same C-locale caveat as the gate: on invalid UTF-8 the scan can find a match the ambient-locale grep misses
   (covering then lists one more check, never one fewer), and likewise in a locale whose A-Z range takes accented letters.
-- The map test now forces the fallback (a TMPDIR the scan cannot write) and asserts the same answer as the scan path.
+- The map test forces the fallback (TMPDIR pointed at a directory that does not exist, so the scan's mktemp fails) and
+  asserts the same answer as the scan path, and it checks the scan itself runs and finds the pj-parent HIT, so a scan
+  that always failed (silently slow again) goes red.
