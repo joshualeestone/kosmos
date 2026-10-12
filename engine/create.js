@@ -4551,7 +4551,8 @@ function createAgentInner(opts) {
     // front under node, and every turn it runs needs Muse Code, so an absent muse is refused here.
     if (!DRY_RUN && !runnerRunnable(museBin)) {
       // #3939: says what to do, now that most Macs (Muse on by default) reach this without Muse Code.
-      return { outcome: OUTCOME.REFUSED, because: 'Muse Code is not on this computer yet, so an agent made now would never start. Install it from Meta, then try again', steps };
+      // #6004: Settings installs it now.
+      return { outcome: OUTCOME.REFUSED, because: 'Muse Code is not on this computer yet, so an agent made now would never start. Install it in Settings, AI Models: Add a provider, then Meta', steps };
     }
   }
   if (provider === 'google') {

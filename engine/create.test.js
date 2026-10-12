@@ -5239,7 +5239,7 @@ test('#3939: a Meta create is refused when Muse Code is missing, when an account
   withMuseFlag(true, () => {
     const missing = create.createAgent({ ...BINS, museBin: '/nonexistent/muse', name: 'muse-none', role: 'pm', provider: 'meta' });
     assert.equal(missing.outcome, create.OUTCOME.REFUSED);
-    assert.match(missing.because, /Muse Code is not on this computer yet.*never start.*Install it from Meta/);   // #3939: says what to do
+    assert.match(missing.because, /Muse Code is not on this computer yet.*never start.*Install it in Settings, AI Models/);   // #6004: Settings installs it
     const acct = create.createAgent({ ...BINS, museBin: '/bin/echo', name: 'muse-acct', role: 'pm', provider: 'meta', account: '/x/.claude-y' });
     assert.equal(acct.outcome, create.OUTCOME.REFUSED);
     assert.match(acct.because, /Muse sign-in on this computer/);

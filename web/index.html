@@ -31049,7 +31049,7 @@ async function museAsk() {
     const out = r.ok ? await r.json().catch(() => null) : null;
     /* #6004: offered whenever Muse is on here, installed or not: without Muse Code, Meta's step installs it first. */
     on = !!(out && out.enabled === true);
-    MUSE_CODE_HERE = out && out.enabled === true ? out.installed === true : null;
+    if (mine === MUSE_ASK_GEN) MUSE_CODE_HERE = out && out.enabled === true ? out.installed === true : null;   // the latest read wins
   } catch { on = false; }   // a failed read keeps it "coming soon": today's screen, never a guess
   if (mine !== MUSE_ASK_GEN) return on;
   if (on) { const say = document.getElementById('acct-add-pick-say'); if (say && say.textContent === MUSE_NOT_HERE) acctAddPickSay(''); }
@@ -31134,7 +31134,8 @@ function museSigninFlow(prefix, opts) {
   }
   function finish(text) {
     // reset() hides each row through hideRow, which moves focus off a control that is going.
-    gen += 1; stopPoll(); id = null; reset();
+    // #6004: an install left behind keeps running on the board; a new press joins that same run (one shared run).
+    gen += 1; stopPoll(); id = null; installing = false; reset();
     if (text != null) say(text);
   }
   function watch(mine) {
@@ -31217,16 +31218,18 @@ function museSigninFlow(prefix, opts) {
     installing = true;
     gen += 1;
     const mine = gen;
-    const go = el('go'); if (go) go.disabled = true;
-    const spin = el('spin'); if (spin) spin.hidden = false;
+    // Not disabled (disabling a focused button drops focus to the page): marked busy, and `installing` ignores presses.
+    const go = el('go'); if (go) go.setAttribute('aria-disabled', 'true');
+    const spin = el('spin');
+    if (spin) { spin.hidden = false; spin.dataset.was = spin.dataset.was || spin.lastChild.textContent; spin.lastChild.textContent = 'Installing\u2026'; }
     say('Installing Muse Code from Meta\u2026');
     let out = null;
     try { const res = await fetch('/api/muse/install', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); out = await res.json().catch(() => null); }
     catch { out = null; }
-    installing = false;
     if (mine !== gen) return;
-    if (spin) spin.hidden = true;
-    if (go) go.disabled = false;
+    installing = false;
+    if (spin) { spin.hidden = true; if (spin.dataset.was) spin.lastChild.textContent = spin.dataset.was; }
+    if (go) go.removeAttribute('aria-disabled');
     if (!out) {
       // No answer is not a failure: the install runs on the board and may still be going. A second press shares that run.
       if (go) { go.textContent = 'Check again'; go.focus(); }
@@ -31234,7 +31237,9 @@ function museSigninFlow(prefix, opts) {
       return;
     }
     if (!out.ok) {
-      if (go) { go.textContent = 'Try again'; go.focus(); }
+      // A refusal a retry cannot change offers nothing to press (as Antigravity's goes to Check again, not Try again).
+      const stuck = /different home|switched off|not available/.test(out.error || out.because || '');
+      if (go) { if (stuck) go.hidden = true; else { go.textContent = 'Try again'; go.focus(); } }
       say(pjSentence(out.error || out.because) || 'We could not install Muse Code just now.');
       return;
     }
@@ -31374,8 +31379,9 @@ document.getElementById('fr-meta-connect').addEventListener('click', async () =>
   await frPaintMeta();
   if (FR_STEP !== step || document.getElementById('firstrun').hidden) return;   // first run moved on during the read
   if (!MUSE_CREATE || !MUSE_CREATE.on || MUSE_CREATE.ready || btn.hidden) return;
-  // #6004: without Muse Code the same panel opens on its Install step (FR_MUSE's reset reads MUSE_CREATE).
-  if (msg && msg.dataset.said === 'missing') { msg.className = 'dhint'; msg.textContent = ''; delete msg.dataset.said; }
+  // #6004: without Muse Code the same panel opens on its Install step (FR_MUSE's reset reads MUSE_CREATE). A line
+  // left under the row from an earlier state is cleared: the panel says what is happening now.
+  if (msg) { msg.className = 'dhint'; msg.textContent = ''; delete msg.dataset.said; }
   FR_MUSE.reset();
   flow.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
