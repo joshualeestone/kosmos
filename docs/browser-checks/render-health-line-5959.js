@@ -56,6 +56,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     await page.waitForSelector('[data-agent="rick"]', { timeout: 8000 });
 
     const healthOf = async (who) => {
+      if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
       await page.click('[data-agent="' + who + '"]');
       await page.waitForSelector('#panel-detail:not([hidden])');
       // The line sits under Runs on, in the AI Settings section, beside the model and account it is about.
@@ -73,7 +74,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     await page.goto(URL, { waitUntil: 'networkidle' });
     await page.waitForSelector('[data-agent="bob"]', { timeout: 8000 });
     const bob = await healthOf('bob');
-    say(/Last seen working: not since Kosmos started$/.test(bob), 'CONTROL: Bob, never seen working, says so', bob);
+    say(/Last seen working: not seen since Kosmos started$/.test(bob), 'CONTROL: Bob, never seen working, says so', bob);
     await page.goto(URL, { waitUntil: 'networkidle' });
     await page.waitForSelector('[data-agent="agy"]', { timeout: 8000 });
     const agy = await healthOf('agy');

@@ -23717,7 +23717,7 @@ function agoWords(ms) {
 /* #5959 slice 2 (the Windows agents' QA report, item 2): one health line on the agent's page: sign-in, usage, and when
    Kosmos last saw it working. Sign-in and usage come from the card's state only, hedged as the state sentence is for a
    screen reading (#215). The time is the engine's lastWorked (status.js lastWorkedOf), said as a clock time because the
-   page is painted once when it opens (the sign-in and usage words are as of then too, like the rest of the page).
+   page's poll repaints the line with the state pill but a relative time would still age between polls of an idle card.
    '' for a card with no lastWorked: no line.
    On the agent's page, not its card on the board: #855 cut the card's extra lines, and the card's state already says a
    sign-in or usage problem. */
@@ -23731,14 +23731,17 @@ function healthLine(a, nowMs) {
   let last;
   if (Number.isFinite(at)) last = seenAtWords(at, nowMs);
   else if (lw.why === 'no_source') last = 'Kosmos cannot see this agent\'s turns';
-  else last = 'not since Kosmos started';
+  else last = 'not seen since Kosmos started';
   /* A problem the state shows is always said. "No problem" is said only for a state Kosmos reads (HEALTH_READ_STATES)
      on an agent it has seen work: otherwise it would be a health claim resting only on an absence. */
   const looks = a.stateConfidence === 'scraped';
   const quiet = HEALTH_READ_STATES.has(a.state) && Number.isFinite(at);
   const parts = [];
   if (a.state === 'auth_failed') parts.push('Sign-in: ' + (looks ? 'looks like it isn\'t working' : 'isn\'t working'));
-  else if (quiet) parts.push('Sign-in: no problem showing');
+  /* Only a Claude agent's state can show a sign-in that stopped working on this computer (a Codex 401 loop reads as
+     working, and the other runners' sign-in report is written by the Windows supervisor alone), so "no problem" is said
+     only for Claude. */
+  else if (quiet && (!a.runner || a.runner === 'claude')) parts.push('Sign-in: no problem showing');
   if (a.state === 'rate_limited') parts.push('Usage: ' + (looks ? 'looks like a limit' : 'limit reached'));
   else if (quiet) parts.push('Usage: no limit showing');
   parts.push('Last seen working: ' + last);
@@ -39747,6 +39750,10 @@ function paintDetailState(card) {
      described the work, so an Idle pill beside "Its screen said: <that work>" would be the same
      split one row lower. */
   const a = workingSampleIsStale(card) ? { ...card, state: 'idle', stateEvidence: '' } : card;
+  /* #5959 slice 2: the health line follows the poll with the pill, from the same card, so the two never disagree about a
+     sign-in or usage problem. */
+  const dhealth = document.getElementById('d-health');
+  if (dhealth) { dhealth.textContent = healthLine(a, Date.now()); dhealth.hidden = !dhealth.textContent; }
   /* #3958 (review): the screen-said evidence and the re-auth button follow the poll with the
      pill. Painted FIRST, so a missing #d-task or #d-state cannot stop them. Painted only by openDetail they froze while the pill went live, so a page opened on a
      working agent that then hit auth_failed said so in the pill with no "Sign in again" beside it. */
@@ -40195,9 +40202,6 @@ function openDetail(sessionName, section, fromProject) {
       : '';
     drunWhy.hidden = !drunWhy.textContent;
   }
-  /* #5959 slice 2: the health line, repainted with the page like Runs on above, so it never shows another agent's. */
-  const dhealth = document.getElementById('d-health');
-  if (dhealth) { dhealth.textContent = healthLine(a, Date.now()); dhealth.hidden = !dhealth.textContent; }
   /* ⚠️ CLEARED BEFORE the paint's awaits, like the window box below: agent A's
      question and A's messages standing under B's name for two round-trips is
      cross-agent misattribution, and this box holds the strongest version of it
