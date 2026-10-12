@@ -79,7 +79,11 @@ Notarize and staple (slice 3, after Renet's #5137).
 
 ## Not run (and where it runs)
 - A real Developer ID build of the sealed app: needs the signing keychain; it runs at the next cut (build step 4).
-- tools/test-install.sh: needs staged dist trees and launches the app; it runs at a cut on Mortals.
+- tools/test-install.sh: needs staged dist trees and launches the app. A cut (release.sh step 4a) runs only its GATE
+  half (KOSMOS_INSTALL_GATE=1): the main install, the updates and their uninstalls, which cover the sealed icon in a
+  sandboxed app dir. The probe, alias and deep-locked worlds this branch also edited (the shared-folder and
+  home-folder sealed cases) run only in a full `yarn test:install`, so those edits are REASONED, not run; one full
+  run against a Developer ID dist is owed before they count as coverage (iteration 15).
 - A Developer ID upgrade: an icon from the previous version (another cdhash, the same team requirement) recognised
   and replaced. Every test bundle is ad-hoc, whose requirement is its exact cdhash; the first real cut and the first
   update after it are where this is seen. A local ad-hoc build (KOSMOS_CODESIGN_ID=-) never recognises an older
