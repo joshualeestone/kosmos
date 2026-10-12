@@ -140,6 +140,26 @@ function readPlistFile(file) {
   } catch { return { error: 'plutil could not convert it' }; }
 }
 
+/* #5870: the file reads, once per pass. The guard reads the same config homes, plugin records and plugin config files
+   for every agent in a pass (route 5 widened the homes to other agents' job homes), and what is read for a home does
+   not depend on the agent; only how its commands are interpreted does. So a pass's `cache` (the launchCache the guard
+   refresh and the per-tick check already share) holds each file's read result, keyed by its path. A new pass is a new
+   Map, so a change between passes is seen. What is cached is deep-frozen: a later reader that changed it would change
+   it for every agent after, so that throws instead (strict mode). */
+function deepFreeze(x) {
+  if (x && typeof x === 'object' && !Object.isFrozen(x)) { Object.freeze(x); for (const v of Object.values(x)) deepFreeze(v); }
+  return x;
+}
+function cachedReaders(cache) {
+  if (!(cache instanceof Map)) return { json: readJsonFile, plist: readPlistFile };
+  const memo = (kind, fn) => (file) => {
+    const key = `#5870 read ${kind} ${path.resolve(file)}`;
+    if (!cache.has(key)) cache.set(key, deepFreeze(fn(file)));
+    return cache.get(key);
+  };
+  return { json: memo('json', readJsonFile), plist: memo('plist', readPlistFile) };
+}
+
 /*
  * Split a command line into words, as a shell would, for finding paths. Quotes and backslashes are honoured; the
  * operators ; & | ( ) < > and newlines end a word. A variable is replaced when `vars` names it, otherwise the word is
@@ -739,14 +759,14 @@ function configSources(dir, homes, home, deps = {}) {
    be read, or an install path that is not absolute, is named in `unsafe`. */
 // #5774 route 5 review 7: `folders` are plugin folders ({ folder, home }): each home's plugins/, and a plugin cache or
 // seed folder a variable names (which takes the place of <home>/plugins).
-function installedPlugins(homes, unsafe, folders = homes.map((h) => ({ folder: path.join(h, 'plugins'), home: h }))) {
+function installedPlugins(homes, unsafe, folders = homes.map((h) => ({ folder: path.join(h, 'plugins'), home: h })), readJson = readJsonFile) {
   const out = [];
   out.sourceCommands = [];
   const seen = new Set();
   for (const { folder, home: h } of folders) {
     for (const f of ['installed_plugins.json', 'installed_plugins_v2.json']) {
       const file = path.join(folder, f);
-      const r = readJsonFile(file);
+      const r = readJson(file);
       if (r.error) { unsafe.push(`${file} (could not be read: ${r.error}), so its plugins are unknown`); continue; }
       const plugins = r.json && r.json.plugins && typeof r.json.plugins === 'object' ? r.json.plugins : null;
       if (!plugins) continue;
@@ -774,10 +794,10 @@ function installedPlugins(homes, unsafe, folders = homes.map((h) => ({ folder: p
 
 /* A plugin's config files: its manifest, the default hook, server and language-server files, and any the manifest
    points at by path. */
-function pluginConfigFiles(dir) {
+function pluginConfigFiles(dir, readJson = readJsonFile) {
   // Review 14: and its monitors (background scripts, unsandboxed like hooks): monitors/monitors.json by default.
   const files = [path.join(dir, '.claude-plugin', 'plugin.json'), path.join(dir, 'hooks', 'hooks.json'), path.join(dir, '.mcp.json'), path.join(dir, '.lsp.json'), path.join(dir, 'monitors', 'monitors.json')];
-  const manifest = readJsonFile(files[0]).json;
+  const manifest = readJson(files[0]).json;
   if (manifest && typeof manifest === 'object') {
     const experimental = manifest.experimental && typeof manifest.experimental === 'object' ? manifest.experimental : {};
     for (const k of ['hooks', 'mcpServers', 'lspServers', 'monitors']) {
@@ -816,7 +836,8 @@ function pluginVarDirs(values, agentDir, home, relativeOk, skipped = [], kinds =
  * folder; runFiles are those named where something runs), the installed plugin folders (whose own code runs, wherever they sit; never the agent folder, a folder above
  * it or the home), and what could not be worked out.
  */
-function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, managedDir: md, managedPrefsDir, covered = [], pluginVars = {} } = {}) {
+function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, managedDir: md, managedPrefsDir, covered = [], pluginVars = {}, readCache = null } = {}) {
+  const read = cachedReaders(readCache);   // #5870: once per pass
   const runnerSeen = [];   // folder runners, decided once the plugin folders are known
   const agentDir = path.resolve(dir);
   const raw = [];
@@ -825,7 +846,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   const unsafe = [];
   const sources = [];
   for (const s of configSources(agentDir, homes, home, { platform, managedDir: md, managedPrefsDir })) {
-    const r = s.failed ? { error: s.failed } : s.plist ? readPlistFile(s.file) : readJsonFile(s.file);
+    const r = s.failed ? { error: s.failed } : s.plist ? read.plist(s.file) : read.json(s.file);
     if (r.error) { if (!s.rewritten) unsafe.push(`${s.file} (could not be read: ${r.error}), so the commands in it are unknown`); }
     else if (!r.missing) sources.push({ ...s, json: r.json });
   }
@@ -917,7 +938,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
     seenFolders.add(k);
     pluginFolders.push(pf);
   }
-  const installed = installedPlugins(homes, unsafe, pluginFolders);
+  const installed = installedPlugins(homes, unsafe, pluginFolders, read.json);
   // A root is parsed for its commands here but denied (or named: too wide, the data folder, inside the agent's own, past
   // the cap) by the caller's own checks, so it is tagged and kept out of the installed plugins' list and filter.
   for (const x of envKinds.filter((k) => k.kind === 'root')) installed.push({ dir: x.dir, home: agentHome, id: path.basename(x.dir), envRoot: true });
@@ -933,22 +954,22 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   take(installed.sourceCommands, baseVars, 'the installed plugins record (sourceCommand)');
   for (const { folder } of pluginFolders) {
     const km = path.join(folder, 'known_marketplaces.json');
-    const r = readJsonFile(km);
+    const r = read.json(km);
     if (r.error) { unsafe.push(`${km} (could not be read: ${r.error}), so its marketplaces' commands are unknown`); continue; }
     if (r.missing || !r.json || typeof r.json !== 'object') continue;
     try { take(commandsIn(r.json), baseVars, km); } catch (e) { unsafe.push(`${km} (its commands could not be read: ${(e && e.message) || e})`); }
     for (const m of Object.values(r.json)) {
       if (!m || typeof m.installLocation !== 'string' || !path.isAbsolute(m.installLocation)) continue;
       const mf = path.join(m.installLocation, '.claude-plugin', 'marketplace.json');
-      const mr = readJsonFile(mf);
+      const mr = read.json(mf);
       if (mr.error) unsafe.push(`${mf} (could not be read: ${mr.error}), so its commands are unknown`);
       else if (!mr.missing) { try { take(commandsIn(mr.json), baseVars, mf); } catch (e) { unsafe.push(`${mf} (its commands could not be read: ${(e && e.message) || e})`); } }
     }
   }
   for (const p of plugins) {
     const vars = { ...baseVars, CLAUDE_PLUGIN_ROOT: p.dir, CLAUDE_PLUGIN_DATA: path.join(p.home, 'plugins', 'data', p.id.replace(/[^a-zA-Z0-9\-_]/g, '-')) };
-    for (const f of pluginConfigFiles(p.dir)) {
-      const r = readJsonFile(f);
+    for (const f of pluginConfigFiles(p.dir, read.json)) {
+      const r = read.json(f);
       if (r.error) unsafe.push(`${f} (could not be read: ${r.error}), so the commands in it are unknown`);
       // Review 15: a plugin's .mcp.json and .lsp.json hold servers (started in the project folder), with or without an
       // mcpServers key.
@@ -988,4 +1009,4 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.filter((p) => !p.envRoot).map((p) => p.dir))], envPluginDirs, unsafe: [...new Set(unsafe)] };
 }
 
-module.exports = { startCommandScripts, shellWords, pathsOfWords, commandsIn, managedDir, HELPER_KEYS, CLAUDE_GLOBAL_CONFIG_SUFFIXES, PLUGIN_VARS };
+module.exports = { startCommandScripts, shellWords, pathsOfWords, commandsIn, managedDir, HELPER_KEYS, CLAUDE_GLOBAL_CONFIG_SUFFIXES, PLUGIN_VARS, cachedReaders };
