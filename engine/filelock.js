@@ -135,6 +135,8 @@ function withFileLock(file, fn, opts = {}) {
         // means a fresh lock was substituted.
         let stolenMtime = null;
         try { stolenMtime = fs.statSync(aside).mtimeMs; } catch { stolenMtime = null; }
+        // (#5997: measuredMtime is never null here any more, since a failed stat no longer reaches a steal; the clause
+        // stays as a guard against a future path that does.)
         if (measuredMtime == null || stolenMtime == null || stolenMtime !== measuredMtime) {
           // We moved a lock we did not measure stale -- put it back and re-wait,
           // rather than proceed beside its holder. Restoring is what makes the

@@ -206,7 +206,7 @@ test('#5997: a lock that vanished at the stat is NOT treated as stale; a waiter 
   };
   let fnRan = false;
   try {
-    // Long deadline: lstat sees B's real lock here, so the waiter pauses (~165 ms under load) between the two lies.
+    // Long deadline: each failed stat pauses (~165 ms under load), and this arm needs two lies and then a real stat.
     const r = withFileLock(file, () => { fnRan = true; }, { busy: 'still held', waitMs: 1500 });
     assert.equal(statLied, 2, 'CONTROL: the stat that finds no lock was reached, twice');
     assert.deepEqual(moved, [], 'the waiter moved a live holder\'s lock aside (it read a missing lock as stale)');
@@ -247,7 +247,7 @@ test('#5997 reviews 1 and 3: a stat that fails another way (Windows delete-pendi
     // back (the #5997 window), never collect it. So it waits and answers busy, and moves nothing.
     fails = 0; failTimes = Infinity;
     // A long deadline: a 20 ms pause measured ~165 ms on a loaded Mac (load 11.5), and this arm needs two of them.
-    const r2 = withFileLock(file, () => 'ran', { busy: 'still held', waitMs: 400 });
+    const r2 = withFileLock(file, () => 'ran', { busy: 'still held', waitMs: 1000 });
     assert.ok(fails >= 2, 'CONTROL: the stat failed repeatedly (the arm under test was reached)');
     assert.deepEqual(moved, [], 'a stat that keeps failing sent the waiter to move the lock');
     assert.deepEqual(r2, { ok: false, because: 'still held' });
