@@ -83,3 +83,4 @@ Mutants after review 3 (19:10 CDT from `date`): L1 no top pair on the ok path: r
    ensureMemberKey cannot produce it (an ok answer always follows the company being known, so it always names it), and
    the run builds the manifest context from its own pair. A guard would police only stubs; 27 test calls use that shape.
    What would change my mind: a second ensureMemberKey implementation, or a wrapper that drops fields.
+Mutant after review 4 (19:12 CDT from `date`): N1 null read as malformed again: red (pass 53 fail 1).
