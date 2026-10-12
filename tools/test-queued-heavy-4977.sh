@@ -313,10 +313,10 @@ mkdir -p $S/ml5923-live/queued-heavy-lib.lock && ps -ww -o command= -p $H > $S/m
 ( run5923 live; printf '%s\n' "$o" > $S/live5923.out; echo "$rc" > $S/live5923.rc ) &
 LIVE5923=$!
 sleep 4
-live_held5923="$(lh5923 live)"
+live_held5923="$(lh5923 live)"; live_waiting5923=0; kill -0 $LIVE5923 2>/dev/null && live_waiting5923=1   # still waiting, not finished
 rm -rf $S/ml5923-live/queued-heavy-lib.lock
 wait $LIVE5923
-ok "#5923: a lib lock held by a live holder is respected (nothing moves while held), and the run moves once it is released" '[ "$live_held5923" != "$(lm5923 live)" ] && [ "$(cat $S/live5923.rc)" = 0 ] && [ "$(lh5923 live)" = "$(lm5923 live)" ] && grep -q moved $S/live5923.out'
+ok "#5923: a lib lock held by a live holder is respected (nothing moves while held), and the run moves once it is released" '[ "$live_waiting5923" = 1 ] && [ "$live_held5923" != "$(lm5923 live)" ] && [ "$(cat $S/live5923.rc)" = 0 ] && [ "$(lh5923 live)" = "$(lm5923 live)" ] && grep -q moved $S/live5923.out'
 # The REAL ps (no QH_TEST_PS): the run's own pipeline subshell keeps this script's argv and must not read as a waiter.
 # QH_TEST_PS_NAME gives the script a name no real waiter on this box carries. Control: a live process of that name blocks.
 for n in rp rpc; do qh_lib5923 $S/l5923-$n; mkdir -p $S/ml5923-$n $S/rp5923-$n; cp "$REAL_QH" $S/rp5923-$n/qh5923self-$U.sh; done

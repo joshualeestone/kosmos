@@ -39,7 +39,10 @@ Residuals, stated:
 - The lock's dead-holder takeover is check-then-act, as _qh_take's is: two joiners reading the same dead pid can
   both end up holding it (the pid is read again just before the takeover, which narrows the window but does not close
   it). A dead holder needs a joiner killed inside its check (about a second).
-- INT, TERM and HUP are ignored for the length of the checkout, so only a KILL can stop it part way. A holder
+- INT, TERM and HUP are ignored for the length of the checkout (dropped, not deferred), so only a KILL can stop it
+  part way. A signal sent in that second is lost and the run carries on.
+- The #5446 fallback is skipped when the default folder is a git checkout, so a run reading during a move cannot fall
+  back to another lib; a default checkout that really lacks cut-guard.sh exits 3 instead of falling back. A holder
   KILLed during `git checkout` leaves a half-moved tree. The next joiner reads it as local changes, does
   not move it, says so on its line, and loads it as it is. Nothing repairs it automatically; the moved line printed
   the command that puts it back.

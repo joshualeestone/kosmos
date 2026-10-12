@@ -102,7 +102,9 @@ LIB_CHECKOUT="${QUEUED_HEAVY_LIB:-$HOME/work/kosmos-bc-main-4610}"
 # heavy-gate.sh's BUSY hint looks for this marker before it names a main checkout's copy: #5446-lib-fallback
 QH_LIB_FALLBACK=""
 QH_MAIN_TRIED=""
-if [ -z "${QUEUED_HEAVY_LIB:-}" ] && [ ! -f "$LIB_CHECKOUT/tools/lib/cut-guard.sh" ]; then
+# #5923: not when the default folder is a git checkout. A #5923 move there recreates cut-guard.sh, and a run reading in
+# that instant would fall back to a different lib; such a checkout that really lacks it exits 3 at the load below.
+if [ -z "${QUEUED_HEAVY_LIB:-}" ] && [ ! -f "$LIB_CHECKOUT/tools/lib/cut-guard.sh" ] && [ ! -e "$LIB_CHECKOUT/.git" ]; then
   _qh_common="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || _qh_common=""
   case "$_qh_common" in
     */.git) if [ -f "${_qh_common%/.git}/tools/lib/cut-guard.sh" ]; then
@@ -176,7 +178,7 @@ _qh_lib_check() {
     if [ -z "$why" ]; then
       local real cw=""
       real="$(cd "$LIB_CHECKOUT" 2>/dev/null && pwd -P)" || real=""
-      cw="$(${QH_TEST_CWD:-lsof -nP -d cwd -Fn} 2>/dev/null)"
+      cw="$(${QH_TEST_CWD:-lsof -bnP -d cwd -Fn} 2>/dev/null)"
       if [ -z "$real" ] || [ -z "$cw" ]; then why="could not list working directories"
       else
         p="$(printf '%s\n' "$cw" | awk -v a="n$real" -v b="n$LIB_CHECKOUT" '
@@ -199,7 +201,8 @@ _qh_lib_check() {
     done
   fi
   if [ -z "$why" ]; then
-    # INT, TERM and HUP wait until the checkout is done (a KILL still cannot), so a half-moved tree needs a KILL.
+    # INT, TERM and HUP are IGNORED during the checkout (git inherits that, so a Ctrl-C cannot stop it part way); one
+    # arriving then is dropped, not delivered later. A KILL can still stop it.
     local mrc=0
     trap '' INT TERM HUP
     $g -c core.hooksPath=/dev/null checkout -q --detach "$main" 2>/dev/null || mrc=$?
@@ -243,7 +246,11 @@ else
       _qh_ino="$(ls -di "$QH_LIB_LOCK" 2>/dev/null)"; _qh_ino="${_qh_ino%% *}"
       [ "$_qh_ino" = "${_qh_lastino:-}" ] || _qh_empty=0
       _qh_lastino="$_qh_ino"; _qh_empty=$((_qh_empty + 1))
-      if [ "$_qh_empty" -ge 20 ]; then rm -rf "$QH_LIB_LOCK"; _qh_empty=0; fi
+      if [ "$_qh_empty" -ge 20 ]; then
+        _qh_ino2="$(ls -di "$QH_LIB_LOCK" 2>/dev/null)"
+        [ "${_qh_ino2%% *}" = "$_qh_ino" ] && [ ! -s "$QH_LIB_LOCK/pid" ] && rm -rf "$QH_LIB_LOCK"   # still that pid-less dir
+        _qh_empty=0
+      fi
     fi
     _qh_i=$((_qh_i + 1)); [ "$_qh_i" -ge 600 ] && { QH_LIB_LOCK=""; break; }
     sleep 0.5
@@ -251,7 +258,7 @@ else
   if [ -n "$QH_LIB_LOCK" ]; then
     ps -ww -o command= -p "$$" > "$QH_LIB_LOCK/cmd" 2>/dev/null; echo "$$" > "$QH_LIB_LOCK/pid"; _qh_lib_check; else
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') the lib check's lock stayed taken for 5 min (holder pid ${_qh_op:-?}); loading the lib unchecked, possibly in the middle of a move (#5923)"; fi
-  unset _qh_i _qh_op _qh_oc _qh_empty _qh_ino _qh_lastino
+  unset _qh_i _qh_op _qh_oc _qh_empty _qh_ino _qh_ino2 _qh_lastino
 fi
 . "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || {
   _qh_lib_unlock
