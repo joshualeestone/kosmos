@@ -46,3 +46,4 @@ Measured 20:13 CDT from `date` (with the #2125 test file alongside, 8 tests): P1
    desktops can use translated names (~/Dokumente); path.join(home, 'Documents') then does not exist and those agents
    are missed. Real Windows paths are reasoned here (os.homedir reads USERPROFILE there), not run.
 4. FIXED: the Tests line said "1 pass, 2 fail" without saying only this file ran: it did (3 tests then).
+Mutants after review 1 (20:17 CDT from `date`, all discover tests, 207): B1 no own budget: red. B2 a skipped root not reported: red. B3 the own budget unbounded and B4 its folders not counted: both first SURVIVED (nothing bounded or counted the own walk); a test with both trees over a budget of 5 added (visited above 5, at most 10), and both are now red.

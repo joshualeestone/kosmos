@@ -72,3 +72,13 @@ test('#5882 review 1: a deep sibling tree that spends the shared budget does not
   assert.ok(files.some((f) => String(f).includes(path.join('Downloads', 'probe.md'))), `the agent file in Downloads was starved: ${JSON.stringify(files)}`);
   assert.equal(r.bounded.dirs, true, 'CONTROL: the shared budget really was spent (the src tree is bigger than it)');
 });
+
+test('#5882 review 1: the own budget is a real bound, and its folders are counted in bounded.visited', () => {
+  for (let i = 0; i < 20; i++) fs.mkdirSync(path.join(process.env.HOME, 'Documents', `deep${i}`, 'y'), { recursive: true });
+  const max = 5;
+  const r = discover.scan({ importScan: true, platform: 'linux', tccScan: hatch(), maxDirs: max });
+  // Both trees are bigger than the budget, so each spends it: shared plus own, never more than twice the budget.
+  assert.ok(r.bounded.visited > max, `the own budget's folders were not counted: ${r.bounded.visited}`);
+  assert.ok(r.bounded.visited <= 2 * max, `the own budget was not a bound: ${r.bounded.visited} folders`);
+  assert.equal(r.bounded.dirs, true);
+});
