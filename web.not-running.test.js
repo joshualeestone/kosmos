@@ -329,7 +329,7 @@ for (const which of ['card', 'lrow']) {
     assert.ok(!render(which, offlineRow()).includes('working rules'), 'a row with no number drew the sentence');
     const html = render(which, { ...offlineRow({ strict: false }), rulesBehind: 13 });
     assert.ok(html.includes(SAID), `${which} did not draw the sentence: ${html.slice(0, 200)}`);
-    assert.ok(html.includes(which === 'card' ? '<div class="arules">' + SAID : '<div class="ltask">' + SAID), `${which} drew it outside its slot`);
+    assert.ok(html.includes(which === 'card' ? '<div class="arules">' + SAID : '<div class="ltask" title="' + SAID + '">' + SAID), `${which} drew it outside its slot`);
     assert.ok(!html.includes('Open it to update'), `${which} promised an update the page would refuse`);
     // Not when launchd says a process may be running (the "could not check" split): the update restarts it.
     // The split branch names its label from the page's STATE_COPY, which render() does not supply: given here only.
@@ -346,13 +346,14 @@ for (const which of ['card', 'lrow']) {
    apply, and points at the Remove on its page (Kosmos removes nothing itself). Not on the could-not-check split. */
 for (const which of ['card', 'lrow']) {
   test(`#5957 slice 3 ${which}: a stopped agent idle 23 days says so; the real row (null) says nothing`, () => {
-    const IDLE = 'Has not run in 23 days. If it is no longer needed, Remove is on its page.';
+    const IDLE = 'Has not run in 23 days. If it is no longer needed, remove it under Advanced on its page.';
     assert.ok(!render(which, offlineRow()).includes('Has not run'), 'a row with no number drew the sentence');
     const html = render(which, { ...offlineRow({ strict: false }), idleDays: 23 });
-    const slot = which === 'card' ? '<div class="arules">' : '<div class="ltask">';
-    assert.ok(html.includes(slot + IDLE), `${which} did not draw it in its slot: ${html.slice(0, 200)}`);
+    const slot = (text) => (which === 'card' ? '<div class="arules">' : '<div class="ltask" title="' + text + '">') + text;
+    // The list cell is nowrap with an ellipsis, so it carries the whole sentence as its title.
+    assert.ok(html.includes(slot(IDLE)), `${which} did not draw it in its slot: ${html.slice(0, 200)}`);
     const both = render(which, { ...offlineRow({ strict: false }), idleDays: 23, rulesBehind: 13 });
-    assert.ok(both.includes(slot + 'Its working rules are 13 versions behind. ' + IDLE), `${which} did not join both in order`);
+    assert.ok(both.includes(slot('Its working rules are 13 versions behind. ' + IDLE)), `${which} did not join both in order`);
     globalThis.STATE_COPY = { unknown: { label: 'Could not check' } };
     let split;
     try { split = render(which, { ...offlineRow({ strict: false }), idleDays: 23, jobRunningUnseen: true }); }

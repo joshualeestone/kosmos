@@ -39,6 +39,11 @@ test('under two weeks: null', () => {
   assert.equal(liveness.idleDays('recent', NOW), null);
 });
 
+test('a time in the future (clock skew) is null, never a large idle count', () => {
+  beatAt('ahead', NOW + 30 * DAY);
+  assert.equal(liveness.idleDays('ahead', NOW), null);
+});
+
 test('never seen is null, not "seen long ago"', () => {
   assert.equal(liveness.idleDays('never-beat', NOW), null);
 });
