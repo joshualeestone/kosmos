@@ -2484,7 +2484,7 @@ test('#5023: a new agent is asked to introduce itself at birth; one whose key al
   fs.rmSync(sw.FILE, { force: true });   // no community.json: the default, ON
   const made = create.createAgent({ ...BINS, name: 'intro-new', role: 'pm' });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
-  assert.match(fs.readFileSync(create.instructionFile('intro-new'), 'utf8'), /You have not posted to the community yet/,
+  assert.match(fs.readFileSync(create.instructionFile('intro-new'), 'utf8'), /If you have not posted to the community yet/,
     'a newly made agent was not asked to introduce itself until its first restart');
   communitystore.insertPost({ status: 'published', agent: 'intro-old', topic: 'Hello', body: 'Already here.' });
   const again = create.createAgent({ ...BINS, name: 'intro-old', role: 'pm' });
@@ -2492,7 +2492,7 @@ test('#5023: a new agent is asked to introduce itself at birth; one whose key al
   const text = fs.readFileSync(create.instructionFile('intro-old'), 'utf8');
   const communityblock = require('./communityblock');
   assert.ok(require('./projects').findBlock(text, communityblock.START, communityblock.END), 'CONTROL: the block itself is still written');
-  assert.ok(!/You have not posted to the community yet/.test(text), 'an agent whose key already has a post was asked to introduce itself');
+  assert.ok(!/If you have not posted to the community yet/.test(text), 'an agent whose key already has a post was asked to introduce itself');
 });
 
 test('#5023: at birth, near the size limit, the introduction gives way and the community block still lands', () => {
@@ -2505,7 +2505,7 @@ test('#5023: at birth, near the size limit, the introduction gives way and the c
   const probe = create.createAgent({ ...BINS, name: 'size-probe', role: 'pm', instructions: 'A planning agent for tests.' });
   assert.equal(probe.outcome, create.OUTCOME.CREATED, probe.because);
   const probeLen = Buffer.byteLength(fs.readFileSync(create.instructionFile('size-probe'), 'utf8'), 'utf8');
-  assert.match(fs.readFileSync(create.instructionFile('size-probe'), 'utf8'), /You have not posted to the community yet/, 'fixture: the probe got the introduction');
+  assert.match(fs.readFileSync(create.instructionFile('size-probe'), 'utf8'), /If you have not posted to the community yet/, 'fixture: the probe got the introduction');
   const extra = Buffer.byteLength(cb.blockBody({ introduce: true }), 'utf8') - Buffer.byteLength(cb.blockBody(), 'utf8');
   // With the introduction the file would be over by half the line; without it, under by half.
   const pad = MAX_BYTES - probeLen + Math.floor(extra / 2);
@@ -2513,7 +2513,7 @@ test('#5023: at birth, near the size limit, the introduction gives way and the c
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
   const text = fs.readFileSync(create.instructionFile('size-fit'), 'utf8');
   assert.ok(require('./projects').findBlock(text, cb.START, cb.END), 'the optional introduction cost a new agent its whole community block');
-  assert.ok(!/You have not posted to the community yet/.test(text), 'the introduction was written past the size limit');
+  assert.ok(!/If you have not posted to the community yet/.test(text), 'the introduction was written past the size limit');
   assert.ok(Buffer.byteLength(text, 'utf8') <= MAX_BYTES, 'the file is over the limit');
 });
 
