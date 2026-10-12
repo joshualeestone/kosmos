@@ -25,6 +25,13 @@ and the app reads it.
   would get an icon that opens the default install, the slice-2 gate from iteration 2 of slice 1).
 - Ours = satisfies our designated requirement. Rejected: an equal CDHash (an icon from the previous version would
   never be "ours", so it would never update); spelling the Team ID in setup.sh (forbidden by the cut preflight test).
+- A sealed bundle counts as ours only when THIS account owns it on disk (iteration 3). Another account's sealed icon
+  is theirs: replacing it would leave an aside this account cannot delete and flip the shared icon between the two
+  accounts' versions, so the icon diverts to ~/Applications as for any foreign occupant. In the shared folder it
+  also needs this run to place the sealed app (iteration 2), or the per-install fallback would leave other accounts
+  that use the icon opening this install. Residue sweeps take this account's own sealed leftovers.
+  Follow-up worth a card: another account's sealed icon already serves this account (the app reads the clicking
+  account's own config), so the divert could become "use it and say so" instead of a second icon.
 - Leave the shared sealed icon on uninstall. Rejected: removing it (strands another account that still uses it).
   Cost: an uninstall from the only account leaves an icon behind; the transcript names it.
 - The Info.plist version is the build's. Weakest premise (from the card): that the app never needs its plist version
@@ -51,3 +58,8 @@ Notarize and staple (slice 3, after Renet's #5137).
 ## Not run (and where it runs)
 - A real Developer ID build of the sealed app: needs the signing keychain; it runs at the next cut (build step 4).
 - tools/test-install.sh: needs staged dist trees and launches the app; it runs at a cut on Mortals.
+- A Developer ID upgrade: an icon from the previous version (another cdhash, the same team requirement) recognised
+  and replaced. Every test bundle is ad-hoc, whose requirement is its exact cdhash; the first real cut and the first
+  update after it are where this is seen. A local ad-hoc build (KOSMOS_CODESIGN_ID=-) never recognises an older
+  icon and diverts the upgrade.
+- Another account's sealed bundle (ownership): cannot be made without root; the rule is pinned by its text.

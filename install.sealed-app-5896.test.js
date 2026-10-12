@@ -8,6 +8,12 @@
  * against real bundles under a temporary folder, ad-hoc signed with codesign (no keychain is involved). build_app_bundle
  * is stood in by a function that leaves a marker, so the test sees which way the choice went.
  *
+ * ⚠️ LIMIT: every bundle here is ad-hoc signed, whose designated requirement is its exact cdhash, so "ours" here
+ * means "byte-identical to the shipped copy". The case the design exists for, an icon from the PREVIOUS version
+ * (another cdhash, the same Developer ID team requirement) being recognised and replaced, needs a Developer ID
+ * signature and is not exercised (the plan lists it under Not run). For the same reason a local build signed ad-hoc
+ * (KOSMOS_CODESIGN_ID=-) never recognises an older icon and diverts the upgrade.
+ *
  *   node --test install.sealed-app-5896.test.js
  */
 const test = require('node:test');
@@ -26,8 +32,11 @@ function fnSource(name) {
 }
 const FNS = ['bundle_is_ours', 'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'app_bundle_into'].map(fnSource).join('\n');
 
-let tmpRoot;
-test.before(() => { tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-sealed-5896-')); });
+let tmpRoot, SYS;   // SYS: the stand-in for the shared /Applications (setup.sh's SYS_APP_DIR)
+test.before(() => {
+  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-sealed-5896-'));
+  SYS = fs.mkdtempSync(path.join(tmpRoot, 'shared-apps-'));
+});
 test.after(() => { fs.rmSync(tmpRoot, { recursive: true, force: true }); });
 
 /** A minimal app bundle, ad-hoc signed. `tag` changes its executable, so two tags are two different signatures. */
@@ -54,7 +63,7 @@ function run(env, body) {
   try {
     // /bin/sh, the shell the installer runs under (bash in POSIX mode on macOS), where a VAR=x prefix on a function
     // call outlives the call: a test under /bin/bash could not see that.
-    return { rc: 0, out: execFileSync('/bin/sh', ['-c', script], { env: { PATH: '/usr/bin:/bin', ...env }, encoding: 'utf8' }) };
+    return { rc: 0, out: execFileSync('/bin/sh', ['-c', script], { env: { PATH: '/usr/bin:/bin', SYS_APP_DIR: SYS, ...env }, encoding: 'utf8' }) };
   } catch (e) {
     return { rc: e.status, out: String(e.stdout || '') };
   }
@@ -136,18 +145,21 @@ test('#5896: uninstall in its real order: the requirement is read, the home is d
   assert.ok(cap !== -1 && del !== -1 && cap < del, 'uninstall does not read the requirement before it deletes KOSMOS_HOME');
 });
 
-test('#5896: residue sweeps never take a sealed leftover (it could be another account\'s), and all three pass the flag', () => {
+test('#5896: residue sweeps take this account\'s own sealed leftover; a sealed proof needs this account to own the bundle', () => {
   const home = makeHome('v1');
-  const res = path.join(fs.mkdtempSync(path.join(tmpRoot, 'apps-')), '.Kosmos.app.old.123');
+  const res = path.join(SYS, '.Kosmos.app.old.123');
   execFileSync('/usr/bin/ditto', [path.join(home, 'app', 'Kosmos.app'), res]);
-  assert.match(run({ KOSMOS_HOME: home }, `bundle_is_ours "${res}" anchored; echo "rc=$?"`).out, /rc=[1-9]/);
-  assert.match(run({ KOSMOS_HOME: home }, `bundle_is_ours "${res}" remove; echo "rc=$?"`).out, /rc=0/, 'CONTROL: the same leftover is ours to an uninstall removal');
-  // The mode is an argument, so nothing outlives the call: a later plain ask still sees the sealed icon.
+  assert.match(run({ KOSMOS_HOME: home }, `bundle_is_ours "${res}" anchored; echo "rc=$?"`).out, /rc=0/, 'this account\'s own sealed aside was not cleanable');
+  // The mode is an argument, so nothing outlives the call: a later plain ask still answers for itself.
   assert.match(run({ KOSMOS_HOME: home, _wic_rc: '0' }, `bundle_is_ours "${res}" anchored; bundle_is_ours "${res}"; echo "rc=$?"`).out, /rc=0/, 'the residue mode leaked into a later call');
   const sweeps = SETUP.match(/^\s*if bundle_is_ours "\$_res"( anchored)?; then$/gm) || [];
   assert.equal(sweeps.length, 3, 'expected the three residue sweeps');
-  assert.ok(sweeps.every((l) => l.includes(' anchored;')), 'a residue sweep can delete a sealed leftover: ' + sweeps.join(' | '));
+  assert.ok(sweeps.every((l) => l.includes(' anchored;')), 'a residue sweep does not say it is one: ' + sweeps.join(' | '));
   assert.doesNotMatch(SETUP, /BUNDLE_SEALED_OK/, 'a VAR=x prefix flag came back');
+  // Another account's sealed bundle cannot be made here without root, so the ownership rule is pinned by its text.
+  const fn = fnSource('bundle_is_ours');
+  assert.match(fn, /\[ "\$\(\/usr\/bin\/stat -f %u "\$1" 2>\/dev\/null\)" = "\$\(\/usr\/bin\/id -u\)" \] \|\| return 1/, 'the sealed proof no longer requires this account to own the bundle');
+  assert.ok(fn.indexOf('/usr/bin/stat -f %u') < fn.indexOf('bundle_is_sealed "$1"'), 'ownership is not checked before the signature');
 });
 
 test('#5896: the sealed app is placed only where the app will read the config (AGENT_WORKFORCE_HOME)', () => {
@@ -180,13 +192,19 @@ test('#5896: a read-only shipped app is placed writable for its owner, and still
   }
 });
 
-test('#5896: a sealed occupant is not ours to REPLACE when this run will not place the sealed app (no clobbering another account\'s icon)', () => {
+test('#5896: a sealed occupant of the SHARED folder is not ours to replace when this run will not place the sealed app', () => {
   const home = makeHome('v1');
-  const icon = path.join(fs.mkdtempSync(path.join(tmpRoot, 'apps-')), 'Kosmos.app');
-  execFileSync('/usr/bin/ditto', [path.join(home, 'app', 'Kosmos.app'), icon]);
+  const shared = path.join(fs.mkdtempSync(path.join(SYS, 'run-')), 'Kosmos.app');
+  const sys = path.dirname(shared);
+  execFileSync('/usr/bin/ditto', [path.join(home, 'app', 'Kosmos.app'), shared]);
+  const own = path.join(fs.mkdtempSync(path.join(tmpRoot, 'homeapps-')), 'Kosmos.app');
+  execFileSync('/usr/bin/ditto', [path.join(home, 'app', 'Kosmos.app'), own]);
   for (const rc of ['1', '2']) {
-    assert.match(run({ KOSMOS_HOME: home, _wic_rc: rc }, `bundle_is_ours "${icon}"; echo "rc=$?"`).out, /rc=[1-9]/, `wic=${rc}: a sealed icon was taken while a per-install bundle would replace it`);
+    assert.match(run({ KOSMOS_HOME: home, _wic_rc: rc, SYS_APP_DIR: sys }, `bundle_is_ours "${shared}"; echo "rc=$?"`).out, /rc=[1-9]/,
+      `wic=${rc}: the shared sealed icon was taken while a per-install bundle would replace it`);
+    assert.match(run({ KOSMOS_HOME: home, _wic_rc: rc, SYS_APP_DIR: sys }, `bundle_is_ours "${own}"; echo "rc=$?"`).out, /rc=0/,
+      `wic=${rc}: this account's own sealed icon in its own folder was called foreign`);
   }
-  assert.match(run({ KOSMOS_HOME: home, _wic_rc: '0' }, `bundle_is_ours "${icon}"; echo "rc=$?"`).out, /rc=0/, 'CONTROL: placing the sealed app too, it is ours to replace');
-  assert.match(run({ KOSMOS_HOME: home, _wic_rc: '1' }, `bundle_is_ours "${icon}" remove; echo "rc=$?"`).out, /rc=0/, 'an uninstall removal does not depend on placement');
+  assert.match(run({ KOSMOS_HOME: home, _wic_rc: '0', SYS_APP_DIR: sys }, `bundle_is_ours "${shared}"; echo "rc=$?"`).out, /rc=0/, 'CONTROL: placing the sealed app too, it is ours to replace');
+  assert.match(run({ KOSMOS_HOME: home, _wic_rc: '1', SYS_APP_DIR: sys }, `bundle_is_ours "${shared}" remove; echo "rc=$?"`).out, /rc=0/, 'an uninstall removal does not depend on placement');
 });

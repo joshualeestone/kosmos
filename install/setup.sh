@@ -290,18 +290,21 @@ bundle_is_ours() {
   [ ! -L "$1/Contents/Resources/kosmos-install.json" ] || return 1
   # #5896 slice 2: the SEALED shape carries no per-install file at all (every per-install fact lives in the account's
   # own Library), so its proof is its signature instead. Only a bundle with no such file is asked for it.
+  # A sealed bundle carries nothing that names an install, so it counts as ours only when THIS account owns it on
+  # disk: another account's sealed icon or leftover is theirs (this account could not delete it anyway, and replacing
+  # it would flip the shared icon between the two accounts' versions), so it is left and the icon diverts as for any
+  # foreign occupant.
   # $2, the caller's purpose (an argument, not a VAR=x prefix: under /bin/sh a prefix on a function call outlives
   # the call):
-  #   anchored  a residue sweep: a sealed leftover could be ANOTHER account's stage or aside, so only the
-  #             per-install anchor counts, and a sealed one is left and named
-  #   remove    an uninstall removing an icon
-  #   (none)    replacing an icon: a sealed occupant counts only when THIS run places the sealed app too, or the
-  #             per-install bundle built instead would take another account's shared icon from it
+  #   anchored  a residue sweep          remove  an uninstall removing an icon
+  #   (none)    replacing an icon: in the SHARED folder a sealed occupant counts only when this run places the
+  #             sealed app too, or the per-install bundle built instead would leave other accounts that use this
+  #             icon opening this install
   if [ ! -e "$1/Contents/Resources/kosmos-install.json" ]; then
+    [ "$(/usr/bin/stat -f %u "$1" 2>/dev/null)" = "$(/usr/bin/id -u)" ] || return 1
     case "${2:-}" in
-      anchored) return 1 ;;
-      remove) ;;
-      *) sealed_placeable || return 1 ;;
+      anchored|remove) ;;
+      *) if ! sealed_placeable && [ "$(/usr/bin/dirname "$1")" -ef "$SYS_APP_DIR" ]; then return 1; fi ;;
     esac
     bundle_is_sealed "$1"
     return
@@ -321,6 +324,7 @@ sealed_requirement() {
   # An implicit requirement (the usual case, Developer ID or ad-hoc) prints as a comment: "# designated => ...".
   /usr/bin/codesign -d -r- "$ours" 2>&1 | /usr/bin/sed -n 's/^#* *designated => //p'
 }
+SEALED_REQ=""   # never inherited: it widens the proof below, which decides an rm -rf
 bundle_is_sealed() {
   # SEALED_REQ: uninstall reads it BEFORE it deletes $KOSMOS_HOME (and the shipped copy with it), then sweeps icons.
   local req="${SEALED_REQ:-}"
@@ -3597,13 +3601,14 @@ write_install_config() {
 # failed write, a tarball without the sealed app) the per-install bundle is built exactly as before.
 # Will this run place the sealed app? The account config was written (_wic_rc 0), it is where the app will look (an
 # app opened from the Finder reads the REAL home's Library, so an AGENT_WORKFORCE_HOME elsewhere qualifies only in a
-# harness whose app folder is itself a sandbox, which launches the app with that environment), and the shipped
+# harness whose icon folder is itself a sandbox (KOSMOS_APP_DIR or KOSMOS_SYS_APP_DIR; KOSMOS_HOME_APP_DIR alone
+# still leaves the real /Applications in play), which launches the app with that environment), and the shipped
 # sealed app verifies.
 sealed_placeable() {
   local src="$KOSMOS_HOME/app/Kosmos.app"
   [ "${_wic_rc:-1}" = 0 ] || return 1
   [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "$AGENT_WORKFORCE_HOME" -ef "$HOME" ] \
-    || [ -n "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ] || return 1
+    || [ -n "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}" ] || return 1
   [ -d "$src" ] && [ ! -L "$src" ] || return 1
   /usr/bin/codesign --verify --deep --strict "$src" >/dev/null 2>&1
 }
