@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: dmroll-5841
-diff_hash: 682925111f2b6c3278280b2955272eb54b6d7856e4d4d92ba60ed4ff3ffd859f
+diff_hash: 08c0e43005eb8487fd5380d4ae450610d9c1b04e8ce8009a0c121e265c628086
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-11T23:25:41Z
@@ -21,6 +21,10 @@ converged: true
 - Run 1, at 794f204cb, failed 1 test of 19190: web.owes-line (#4340) pins the tail-slice line by its spelling. The spelling is restored on both routes, and it behaves the same in every state the engine writes (see the plan). Run 2 was REPLACED by a newer head, as designed.
 - Every web*.test.js locally, with the worktree as the cwd: 349 files, 2678/2678.
 - Related suites (chat, dm-older, dm-rollover, engine.reachable, forget, dm-badge): 218/218.
+- **After the Mortals run (PR CI run 38184258270):** one arm hit ECONNRESET on CI. The test's requests now each open
+  their own connection (agent: false, asserted by a harness arm). This is a test-file-only change, so the hash
+  differs from Mortals' 682925111f2b. **The PR's full CI is the validation of this head**, and merge-on-green
+  merges only on green.
 - Main moved 51 commits after the base and merges cleanly. The only shared file is server.js, one hunk at line 6119 (#5863), far from these routes. PR CI tests the merge ref.
 
 #### Iteration 4 (sonnet)
