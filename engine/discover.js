@@ -1271,8 +1271,10 @@ function scan(opts) {
   const seenDirs = new Set();
   let visited = 0;
   /* #5882 review 1: off macOS the three import-only home folders (marked ownBudget) are walked by the engine, last. On a
-     shared budget a deep ~/src would spend it first and they would never be read, the very thing #5882 fixes. So they
-     share ONE budget of their own, as the hatch's walk of them has its own on macOS; the other roots keep theirs. */
+     shared FOLDER budget a deep ~/src would spend it first and they would never be read, the very thing #5882 fixes. So
+     they share ONE folder budget of their own, as the hatch's walk of them has on macOS; the other roots keep theirs.
+     Only the folder budget (review 2): the loose-file reads (mdReads) and the importable cap stay shared, so many agent
+     files elsewhere can still fill those first. macOS has the same shape at the hatch merge. */
   let visitedOwn = 0;
   let hitDirs = false;
   let hitCount = false;
@@ -1302,9 +1304,6 @@ function scan(opts) {
   for (const root of roots) {
     if (root && root.tcc === true) continue;   // #3/#2125: handled by the hatch merge below
     const own = !!(root && root.ownBudget === true);
-    // The shared budget is spent: this root is not read, which is a truncation and is said (hitDirs), as the old
-    // break did; own-budget roots still run (#5882).
-    if (!own && visited >= maxDirs) { hitDirs = true; continue; }
     let rootStat;
     /* 🔑 `stat`, NOT `lstat`, FOR THE ROOT: a scan root is a CURATED, TRUSTED location
        (the fixed set under $HOME, a #2414 DISCOVERED top-level $HOME folder, or an
@@ -1323,6 +1322,9 @@ function scan(opts) {
        symlink inside it (untrusted tree contents) is the correct split. */
     try { rootStat = fs.statSync(root.dir); } catch { continue; }
     if (!rootStat.isDirectory()) continue;
+    // The shared budget is spent: this root is not read, a truncation, said (hitDirs) exactly where the old
+    // `break outer` said it, after the root is known to exist (review 2); own-budget roots still run (#5882).
+    if (!own && visited >= maxDirs) { hitDirs = true; continue; }
     const maxDepth = Number.isFinite(root.maxDepth) && root.maxDepth >= 0 ? root.maxDepth : SCAN.DEEP_DEPTH;
 
     /* Iterative, with an explicit stack: depth is a real bound and a deep tree

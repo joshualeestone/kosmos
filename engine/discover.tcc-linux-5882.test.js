@@ -82,3 +82,14 @@ test('#5882 review 1: the own budget is a real bound, and its folders are counte
   assert.ok(r.bounded.visited <= 2 * max, `the own budget was not a bound: ${r.bounded.visited} folders`);
   assert.equal(r.bounded.dirs, true);
 });
+
+test('#5882 review 2: a missing root after the budget is spent exactly is not a truncation (as before); a real one is', () => {
+  const only = path.join(SB, 'one-dir');
+  fs.mkdirSync(only, { recursive: true });
+  const r = discover.scan({ roots: [{ dir: only, maxDepth: 0 }, { dir: path.join(SB, 'not-there'), maxDepth: 3 }], maxDirs: 1 });
+  assert.equal(r.bounded.dirs, false, 'a root that does not exist was counted as cut off');
+  const other = path.join(SB, 'two-dir');
+  fs.mkdirSync(other, { recursive: true });
+  const c = discover.scan({ roots: [{ dir: only, maxDepth: 0 }, { dir: other, maxDepth: 0 }], maxDirs: 1 });
+  assert.equal(c.bounded.dirs, true, 'CONTROL: a real root left unread is said');
+});

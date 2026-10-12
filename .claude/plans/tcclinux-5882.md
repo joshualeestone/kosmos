@@ -47,3 +47,12 @@ Measured 20:13 CDT from `date` (with the #2125 test file alongside, 8 tests): P1
    are missed. Real Windows paths are reasoned here (os.homedir reads USERPROFILE there), not run.
 4. FIXED: the Tests line said "1 pass, 2 fail" without saying only this file ran: it did (3 tests then).
 Mutants after review 1 (20:17 CDT from `date`, all discover tests, 207): B1 no own budget: red. B2 a skipped root not reported: red. B3 the own budget unbounded and B4 its folders not counted: both first SURVIVED (nothing bounded or counted the own walk); a test with both trees over a budget of 5 added (visited above 5, at most 10), and both are now red.
+
+## Review 2 (sonnet, blind, on 7c04b570): no must-fix; it found macOS and the auto scan unchanged but for one edge
+1. FIXED: my skip ran before the root's stat, so a MISSING or non-folder root after a budget spent exactly set hitDirs
+   where the old `break outer` (inside the while, after stat) did not: a false "there may be more", and importscan's
+   isFull then never true. Moved after the stat and isDirectory checks: the old behaviour exactly. Test with a control;
+   red on the earlier order (measured 20:18 CDT from `date`, 6 tests: 5 pass 1 fail).
+2. ACCEPTED, comment corrected: only the FOLDER budget is separate; the loose-file reads and the importable cap stay
+   shared, so many agent files elsewhere can still fill them first. macOS has the same shape at the hatch merge. The
+   comment that read as if starvation were solved now says so.
