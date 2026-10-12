@@ -307,7 +307,7 @@ bundle_is_ours() {
     # (write_install_config stands down for it), and the sealed icon serves the install the config names, not it.
     # An uninstall decides that before it deletes anything (SEALED_REQ is set only then).
     case "${2:-}" in
-      remove) [ -n "${SEALED_REQ:-}" ] || return 1 ;;
+      remove) [ -n "${SEALED_REQ:-}" ] || return 1 ;;   # set only inside uninstall(), so this refuses elsewhere
       *) sealed_serves_this_install || return 1 ;;
     esac
     case "${2:-}" in
