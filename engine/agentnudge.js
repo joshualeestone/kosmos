@@ -84,7 +84,10 @@ function openParts(session, projects) {
           if (slot !== null) {
             const latest = tr.latestAtOrBefore(t.repeat, slot, Date.now());
             const at = latest === null ? slot : latest;
-            due = { dueWords: tr.whenWords(at), ...(at > slot ? { dueEarlier: true } : {}) };
+            /* kosmos#5920: the run has until the next one is due (the doctrine's per-run deadline), named here so a
+               retry that drags on knows when to record what it has and move on. */
+            const next = tr.nextAfter(t.repeat, at);
+            due = { dueWords: tr.whenWords(at), ...(at > slot ? { dueEarlier: true } : {}), ...(next !== null ? { nextWords: tr.whenWords(next) } : {}) };
           }
         }
         out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...due });
@@ -116,7 +119,9 @@ function nudgeText(part) {
   /* #4787: a repeating task's due run, named with how to record it, so a missed run is rerun and recorded, not lost. */
   const due = typeof part.dueWords === 'string' && part.dueWords
     ? ' Its scheduled run (' + plainWords(part.dueWords, 60) + ')' + (part.dueEarlier === true ? ', and earlier ones,' : '')
-      + ' has not been reported: run it now, then record it with kosmos task ran '
+      + ' has not been reported: run it now'
+      + (typeof part.nextWords === 'string' && part.nextWords ? ' (it has until ' + plainWords(part.nextWords, 60) + ', when the next one is due; if it is still going then, record it as it stands and start the next)' : '')
+      + ', then record it with kosmos task ran '
       + (id ? id + ' ' + part.n : '<project-id> <task-number>') + ' (add --unchanged if it found nothing new).'
     : '';
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
