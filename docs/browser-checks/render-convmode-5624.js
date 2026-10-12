@@ -1,13 +1,16 @@
+// Browser-check-surface: d-conv pj-conv convbtn pjconvsearch conv-on
 'use strict';
 /**
  * kosmos#5624 (Josh 2026-10-08: "conversation mode ... as soon as an agent posts in a project or direct agent message
- * it plays audio"): a Read-new-messages-aloud toggle beside the mic in a conversation's box.
+ * it plays audio"): a Read-new-messages-aloud toggle in a conversation's header row, beside its search (Josh
+ * 2026-10-09 10:52: not the message box; the header is Angel's call, 2026-10-12, and Josh can move it).
  *
  * Harness: file:// with fetch answered here and speechSynthesis a recording stand-in, as render-voice-4409.js (a voice
  * cannot run in CI; what is under test is the page's half of the seam). The direct thread is drawn by the real
  * paintTalk; the project room calls the same convFollow from paintRoom (pinned at C8).
  *   C0 HELD (Josh 2026-10-09 10:49, 10:52: not in the input box): by default no toggle is drawn and a conversation stored as on reads nothing
- *   C1 the toggle is drawn beside the mic and starts off (aria-pressed false), with the mode's switch on
+ *   C1 the toggle is drawn in the header row beside the search, not in the message box, and starts off (aria-pressed
+ *      false), with the mode's switch on; the room's toggle sits in the room's header row the same way
  *   C2 with the mode OFF, a new agent message is not read (CONTROL for C4)
  *   C3 turning it on reads nothing already on screen
  *   C4 with it on, a new agent message is read, with an on-device voice, code announced not spelled
@@ -29,6 +32,10 @@
  *   C17 pressing the mic, through its real handler, stops a reading (review 4)
  *   C18 opening the same agent again (openDetail) reads nothing that arrived meanwhile (reviews 5, 6)
  *   C19 a real tab change away from a room and back reads nothing that arrived meanwhile (review 7)
+ *   C20 at 700px, where the room's header stacks, the room's toggle sits on the search's line, not a row of its own,
+ *       in today's look and in the new look (C20b), with nothing pushed out of the row, and at phone width (C20c);
+ *       C20d the same at desktop width, where the header is one row
+ *   C21 the direct conversation's toggle renders on its search's line, just before it (desktop; C21b at 375px)
  *   C9 no page errors
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-convmode-5624.js [shots-dir]
@@ -143,11 +150,32 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     // C1
     const c1 = await page.evaluate(() => {
       const b = document.getElementById('d-conv');
-      const mic = document.getElementById('d-mic');
+      const p = document.getElementById('pj-conv');
+      const box = (el) => !!el && !!el.closest('.composerbox, .dmbar');
       return { exists: !!b, shown: !!b && getComputedStyle(b).display !== 'none', pressed: b && b.getAttribute('aria-pressed'),
-        besideMic: !!b && !!mic && b.parentElement === mic.parentElement };
+        pjDrawnStyle: !!p && getComputedStyle(p).display !== 'none',
+        inHead: !!b && !!b.closest('.d-talk-caprow') && b.nextElementSibling && b.nextElementSibling.id === 'd-talk-search-wrap',
+        pjInHead: !!p && !!p.closest('.pjmidhead') && !!p.nextElementSibling && p.nextElementSibling.classList.contains('tsearch'),
+        inBox: box(b) || box(p) };
     });
-    chk(c1.exists && c1.shown && c1.pressed === 'false' && c1.besideMic, 'C1 the toggle is drawn beside the mic and starts off', JSON.stringify(c1));
+    chk(c1.exists && c1.shown && c1.pjDrawnStyle && c1.pressed === 'false' && c1.inHead && c1.pjInHead && !c1.inBox,
+      'C1 the toggle is drawn in each conversation\'s header beside its search, not in the message box, and starts off', JSON.stringify(c1));
+    const c21 = await page.evaluate(() => {
+      const b = document.getElementById('d-conv').getBoundingClientRect();
+      const s = document.getElementById('d-talk-search-wrap').getBoundingClientRect();
+      return { drawn: b.width > 0 && s.width > 0, dy: Math.round(Math.abs((b.top + b.height / 2) - (s.top + s.height / 2))),
+        gap: Math.round(s.left - b.right) };
+    });
+    chk(c21.drawn && c21.dy <= 6 && c21.gap >= 0 && c21.gap <= 24, 'C21 the direct conversation\'s toggle renders on its search\'s line, just before it', JSON.stringify(c21));
+    await page.setViewportSize({ width: 375, height: 800 });
+    const c21b = await page.evaluate(() => {
+      const b = document.getElementById('d-conv').getBoundingClientRect();
+      const s = document.getElementById('d-talk-search-wrap').getBoundingClientRect();
+      return { drawn: b.width > 0 && s.width > 0, dy: Math.round(Math.abs((b.top + b.height / 2) - (s.top + s.height / 2))),
+        before: b.right <= s.left + 1, inside: s.right <= document.documentElement.clientWidth + 1 };
+    });
+    await page.setViewportSize({ width: 1200, height: 800 });
+    chk(c21b.drawn && c21b.dy <= 6 && c21b.before && c21b.inside, 'C21b at 375px the direct conversation\'s toggle still sits on its search\'s line', JSON.stringify(c21b));
 
     // C2: mode off, a new agent message arrives: nothing is read.
     thread = [...thread, agentRow(3, 'A new thing while the mode is off.')];
@@ -236,6 +264,61 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     await room(rr);
     const c19 = { away: c19away, then: await spoken(page), err: await page.evaluate(() => window.__tabErr || '') };
     chk(!/another tab/.test(c19.away) && /after coming back/.test(c19.then), 'C19 a tab change and back reads nothing that arrived meanwhile, then reads again', JSON.stringify(c19));
+    // C20d: at desktop width the room's header is one row and the toggle sits just before the search.
+    const c20d = await page.evaluate(() => {
+      if (typeof placeProjectHead === 'function') placeProjectHead();
+      const mid = document.querySelector('#pj-one-view .pjmidhead');
+      const b = document.getElementById('pj-conv').getBoundingClientRect();
+      const s = mid.querySelector('.tsearch').getBoundingClientRect();
+      return { row: getComputedStyle(mid).flexDirection === 'row', drawn: b.width > 0 && s.width > 0,
+        dy: Math.round(Math.abs((b.top + b.height / 2) - (s.top + s.height / 2))), gap: Math.round(s.left - b.right),
+        inside: s.right <= mid.getBoundingClientRect().right + 1 };
+    });
+    chk(c20d.row && c20d.drawn && c20d.dy <= 6 && c20d.gap >= 0 && c20d.gap <= 24 && c20d.inside,
+      'C20d at desktop width the room toggle sits just before the search in the one-row header', JSON.stringify(c20d));
+    // C20: the stacked room header (up to 60rem) keeps the toggle beside the search.
+    await page.setViewportSize({ width: 700, height: 800 });
+    const c20 = await page.evaluate(() => {
+      if (typeof placeProjectHead === 'function') placeProjectHead();
+      const mid = document.querySelector('#pj-one-view .pjmidhead');
+      const b = document.getElementById('pj-conv').getBoundingClientRect();
+      const s = mid.querySelector('.tsearch').getBoundingClientRect();
+      return { stacked: getComputedStyle(mid).flexDirection === 'column', head: !!mid.querySelector('.pjhead'),
+        drawn: b.width > 0 && s.width > 0, dy: Math.round(Math.abs((b.top + b.height / 2) - (s.top + s.height / 2))),
+        before: b.right <= s.left + 1, inside: s.right <= mid.getBoundingClientRect().right + 1 };
+    });
+    // C20b: the same under the new look, whose header is a wrapping row with a full-line search.
+    const c20b = await page.evaluate(() => {
+      const root = document.documentElement, was = root.getAttribute('data-look');
+      root.setAttribute('data-look', 'new');
+      const cons = document.body.classList.contains('consolidated');
+      if (typeof placeLook === 'function') placeLook(cons);   // the crumb row moves into the header, as in the real look
+      const mid = document.querySelector('#pj-one-view .pjmidhead');
+      const wrap = mid.querySelector('.pjconvsearch');
+      const b = document.getElementById('pj-conv').getBoundingClientRect();
+      const s = mid.querySelector('.tsearch').getBoundingClientRect();
+      const w = wrap.getBoundingClientRect();
+      const out = { look: getComputedStyle(mid).flexWrap === 'wrap', drawn: b.width > 0 && s.width > 0,
+        dy: Math.round(Math.abs((b.top + b.height / 2) - (s.top + s.height / 2))), before: b.right <= s.left + 1,
+        inside: s.right <= w.right + 1 && s.right <= mid.getBoundingClientRect().right + 1 };
+      if (was == null) root.removeAttribute('data-look'); else root.setAttribute('data-look', was);
+      if (typeof placeLook === 'function') placeLook(cons);
+      return out;
+    });
+    // C20c: phone width, where the room's search is the taller touch size.
+    await page.setViewportSize({ width: 375, height: 800 });
+    const c20c = await page.evaluate(() => {
+      const mid = document.querySelector('#pj-one-view .pjmidhead');
+      const b = document.getElementById('pj-conv').getBoundingClientRect();
+      const s = mid.querySelector('.tsearch').getBoundingClientRect();
+      return { stacked: getComputedStyle(mid).flexDirection === 'column', drawn: b.width > 0 && s.width > 0,
+        dy: Math.round(Math.abs((b.top + b.height / 2) - (s.top + s.height / 2))),
+        before: b.right <= s.left + 1, inside: s.right <= mid.getBoundingClientRect().right + 1 };
+    });
+    await page.setViewportSize({ width: 1200, height: 800 });
+    chk(c20.stacked && c20.head && c20.drawn && c20.dy <= 6 && c20.before && c20.inside, 'C20 at 700px the room toggle sits on the search line, not a row of its own', JSON.stringify(c20));
+    chk(c20b.look && c20b.drawn && c20b.dy <= 6 && c20b.before && c20b.inside, 'C20b the same in the new look, with the search inside the row', JSON.stringify(c20b));
+    chk(c20c.stacked && c20c.drawn && c20c.dy <= 6 && c20c.before && c20c.inside, 'C20c at 375px the room toggle still sits on the search line, inside the header', JSON.stringify(c20c));
     await page.click('#pj-conv');   // off again for the room
     await page.evaluate(() => {
       PJ_CURRENT = null;
