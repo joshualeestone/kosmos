@@ -8,7 +8,8 @@
  *   projects          the projects root, when it is not inside the workers root (optional).
  *   elsewhere/<slug>  a project whose folder is outside both (optional).
  *   agents/<id>       an agent folder outside the workers root (optional).
- *   sessions/<id>/... each agent's transcripts, from backupsessions.sessionsFor (optional, `only` lists). These sit
+ *   sessions/<id>/... each agent's transcripts, from backupsessions.sessionsFor (optional, `only` lists); input.sessions
+ *                     is called (dir, rootSegment, the agent's stored name). These sit
  *                     INSIDE a protected provider home by design, so they are not put through the protection check:
  *                     their safety is backupsessions' file lists (session files only, never the sign-ins beside them).
  * Names never nest (backupsnapshot refuses `projects` beside `projects/x`), hence `elsewhere/`. A folder inside one
@@ -57,7 +58,7 @@ function inside(child, parent) {
   return rel === '' || (rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel));
 }
 
-/* input: { workersDir, agents: [{ id, dir }], projectsDir?, projects: [{ slug, folder }], sessions: (dir, id) -> roots,
+/* input: { workersDir, agents: [{ id, dir }], projectsDir?, projects: [{ slug, folder }], sessions: (dir, rootSegment, storedName) -> roots,
    protect?: [folders] }. protect: the data root and each provider's config home. A root that holds one, or sits inside
    one, is refused (review 1): the card says never credentials, and backupscan's name rules alone are the wrong place to
    rely on for a whole folder of them (the backup state itself has no name rule).
@@ -220,23 +221,31 @@ function inputsHere(deps = {}) {
   let geminiHome, codexHome;
   try { geminiHome = require('./geminisession').HOME(); } catch { /* none */ }
   try { codexHome = require('./codexupdate').defaultHome(); } catch { /* none */ }
-  // Each agent's OWN provider home (kosmos#5883), from its launch job, by the helpers the status reader uses, so a
-  // backup and the board can never read different folders: a Codex agent's private runtime home (#4592) when it
-  // exists, else its account home (CODEX_HOME), else the default; a Gemini agent's account storage home
-  // (create.geminiStorageHome). Any other agent, or one whose job cannot be read, keeps the defaults.
+  // Each agent's OWN provider homes (kosmos#5883), from its launch job, by the helpers the status reader uses. The
+  // board reads ONE home (the current session); a backup owes EVERY conversation (review 1), so it reads each home the
+  // agent's sessions can be in, each under a name for its kind: a Codex agent's account home (CODEX_HOME, or the
+  // default) as `codex`, its private runtime home (#4592) as `codex-runtime`, and the default home as `codex-default`
+  // when the account is a named one (what it kept before moving). A Gemini agent's account storage home
+  // (create.geminiStorageHome) as `gemini`, the default as `gemini-default` likewise. Every one is filtered to this
+  // agent's own files (backupsessions). Any other agent, or one whose job cannot be read, keeps the defaults.
+  // NOT covered: a move between two NAMED accounts leaves the first account's sessions unread (#5883).
   const sessions = (dir, id, name) => {
     let job = null;
     try { job = (deps.readJob || create.readJob)(name); } catch { job = null; }
     let cx = codexHome, gm = geminiHome;
+    const moreHomes = [];
     try {
       if (job && job.runner === 'codex') {
+        cx = job.configDir || create.defaultAgentCodexHome();
         const runtime = require('./codexruntime').forAgent(name);
-        cx = fs.existsSync(runtime) ? runtime : (job.configDir || create.defaultAgentCodexHome());
+        if (fs.existsSync(runtime)) moreHomes.push({ provider: 'codex', home: runtime, tag: '-runtime' });
+        if (job.configDir) moreHomes.push({ provider: 'codex', home: create.defaultAgentCodexHome(), tag: '-default' });
       } else if (job && job.runner === 'gemini') {
         gm = create.geminiStorageHome(job.configDir);
+        if (job.configDir) moreHomes.push({ provider: 'gemini', home: create.geminiStorageHome(null), tag: '-default' });
       }
     } catch { /* the defaults */ }
-    return (deps.sessionsFor || require('./backupsessions').sessionsFor)(dir, { id, claudeRoots, geminiHome: gm, codexHome: cx });
+    return (deps.sessionsFor || require('./backupsessions').sessionsFor)(dir, { id, claudeRoots, geminiHome: gm, codexHome: cx, moreHomes });
   };
   // Never inside a root, never holding one (reviews 1 and 5): Kosmos's own data, every provider's config home and every
   // ACCOUNT folder (~/.codex-<label>, ~/.gemini-<label>, ~/.grok and its accounts), and every hidden entry directly in
