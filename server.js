@@ -19681,7 +19681,10 @@ const server = http.createServer(async (req, res) => {
     let everyProject = null;
     if (tokenOnly !== null) {
       try { everyProject = projects.readAll(); } catch { everyProject = null; }
-      const stored = (everyProject || []).filter((x) => x && x.id === id);
+      /* Review 1: a projects read that failed is not "no such project" (the agent would act on that); the room read's
+         answer for the same case. */
+      if (everyProject === null) { sendJson(res, 503, { error: 'we could not read the projects just now, so this task cannot be read' }); return; }
+      const stored = everyProject.filter((x) => x && x.id === id);
       if (!stored.length) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
       if (!tokenOnly) { sendJson(res, 403, { error: 'Kosmos could not tell which agent this token belongs to, so it cannot read this task' }); return; }
       if (!stored.every((x) => tokenOnlyOnProject(x, tokenOnly))) {
@@ -19691,8 +19694,8 @@ const server = http.createServer(async (req, res) => {
     }
     const taskchat = require('./engine/taskchat');
     const events = taskchat.read(id, Number(taskActivity[2]));
-    /* #5874: `?words=1` adds each event's words as the page says them (engine/taskactphrase.js, the page's tkActPhrase),
-       names from the project's members, else the agent's card, else the session name. Without it the answer is as before. */
+    /* #5874: `?words=1` adds each event's words (engine/taskactphrase.js, the page's tkActPhrase, worded for an agent
+       reader: "The person" for the page's "You", and a message quoted). Without it the answer is as before. */
     let wantWords = false;
     try { wantWords = new URL(req.url, ROUTING_BASE).searchParams.get('words') === '1'; } catch { wantWords = false; }
     if (wantWords) {
@@ -19707,17 +19710,16 @@ const server = http.createServer(async (req, res) => {
           return;
         }
       }
-      let members = [];
-      try { const proj = projects.get(id, safeRoster()); members = (proj && proj.agents) || []; } catch { members = []; }
+      /* Names as the page shows them: a member's row is named by its card (projects.js describe), and anyone else by
+         their card too (tskAgentName), else the session name. Read from the roster here, never through projects.get,
+         whose describe() can write the registry (review 1): this READ answers an agent token. */
       const roster = safeRoster() || [];
       const nameOf = (sn) => {
-        const m = members.find((a) => a && a.sessionName === sn);
-        if (m && m.name) return m.name;
         const card = roster.find((a) => a && a.sessionName === sn);
-        return (card && card.name) || sn;   // the card's name is its display name (engine/status.js), as the page's tskAgentName reads it
+        return (card && card.name) || sn;   // the card's name is its display name (engine/status.js)
       };
       const { phrase } = require('./engine/taskactphrase');
-      sendJson(res, 200, { events: events.map((ev) => Object.assign({}, ev, { words: phrase(ev, nameOf) })), count: events.length });
+      sendJson(res, 200, { events: events.map((ev) => Object.assign({}, ev, { words: phrase(ev, nameOf, { forAgent: true }) })), count: events.length });
       return;
     }
     sendJson(res, 200, { events, count: events.length });

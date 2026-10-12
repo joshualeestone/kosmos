@@ -32,10 +32,22 @@ Card: #5874 (split out of #5842, Mona Lisa). Owner: April (night shift shard).
   them to both phrase functions; the parity test will fail until both have them, which is the point.
 - Paging or filtering the conversation.
 
+## Worded for an agent (review 1)
+The page speaks to the person: "You set what done means", "you review it". Read by an agent, "You" would name the agent,
+so the CLI words say "The person" (`phrase(ev, nameOf, { forAgent: true })`; without the option the words are the
+page's, which the parity test holds). A recorded message has no author on the board (tasks.say), so an agent's message
+and the person's are alike, and one could read "Marked done": the CLI marks and quotes it (`A message: "..."`, quote
+characters made plain as `task list` does for words Kosmos did not write). Names come from the roster cards only (what
+describe() names a member by), never projects.get, whose describe() can write the registry: this read answers a token.
+A token-only caller whose projects read failed gets 503, not a false "no such project".
+
 ## Weakest premise
 That printing a task's whole conversation to an agent on the project is fine: the page already shows it to the person,
-and the agent can already post into it (kosmos task message). An outside sender's words (a webhook task) are quoted as
-`task list` quotes them, if any event carries them.
+and the agent can already post into it (kosmos task message). No event's words carry a webhook's text today (`created`
+does not carry the sentence; a webhook sets no done-when or note), so nothing here quotes webhook text; messages are
+quoted because their author is unknown.
+The card's kept-sent and kept-dropped: they reach the output today only as their bare kind (the page's rule for a kind
+it does not know). Their words come with #5842's branch, into both phrase functions.
 
 ## Pinned tests this changes, on purpose
 server.agent-token-sender-570 (the token-route patterns and the count of narrowing call sites, now 4),
@@ -46,5 +58,6 @@ person's), tools.windows-kosmos-cli-570 and tools.windows-kosmos-cli-verbs-parit
 - engine/taskactphrase test: page and engine produce identical words for a fixture of every kind; kind sets equal.
 - Route test: token-only agent on the project reads; one not on it is refused; words=1 adds names; no token unchanged.
 - CLI tests on both, against a real sandboxed board with a real fleet card (fixture-discipline): the lines in order with
-  the member's card name, kept-sent and kept-dropped reaching the output, a task with nothing recorded, an unknown
+  the member's card name, messages through tasks.say (one imitating "Marked done") marked and quoted, the person's run as
+  "The person", kept-sent and kept-dropped reaching the output as their kind, a task with nothing recorded, an unknown
   project and task said, usage errors, the help line, and Mac and Windows printing the same lines.

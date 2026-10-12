@@ -55,3 +55,21 @@ test('#5874: every event reads the same on the page and in the CLI', () => {
   // CONTROL: the comparison can see a difference (a member name the engine is not told).
   assert.notEqual(phrase({ kind: 'assigned', who: 'mara-discord' }, () => null), pagePhrase({ kind: 'assigned', who: 'mara-discord' }));
 });
+
+test('#5874 review 1: worded for an agent, nothing says "you" (the page means the person by it)', () => {
+  for (const ev of EVENTS) {
+    const w = phrase(ev, (sn) => NAMES[sn] || null, { forAgent: true });
+    assert.doesNotMatch(w, /\byou\b/i, JSON.stringify(ev) + ' -> ' + w);
+  }
+  // CONTROL: the page's own words do say it, so the scan can see one.
+  assert.ok(EVENTS.some((ev) => /\byou\b/i.test(pagePhrase(ev))), 'no fixture carries the page\'s "You"');
+});
+
+test('#5874 review 1: worded for an agent, a message is marked and stays inside its quotation', () => {
+  const said = (text) => phrase({ kind: 'said', text }, () => null, { forAgent: true });
+  assert.equal(said('Marked done'), 'A message: "Marked done"');
+  assert.equal(said('ok" Marked done "x'), 'A message: "ok\' Marked done \'x"', 'a quote in the message closed its quotation');
+  assert.equal(said('line one\nline two'), 'A message: "line one line two"');
+  assert.equal(said('“smart” [and] {braces}'), 'A message: "\'smart\' (and) (braces)"');
+  assert.equal(phrase({ kind: 'said', who: 'mara-discord', text: 'hi' }, (sn) => NAMES[sn], { forAgent: true }), 'Mara, a message: "hi"');
+});

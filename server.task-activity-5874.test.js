@@ -41,7 +41,8 @@ test.before(async () => {
   assert.ok(a.ok, 'could not mint the agent token for the test');
   agentToken = a.token;
   assert.ok(taskchat.record('p5874', 1, { kind: 'created', who: 'reader-agent' }), 'could not record the first event');
-  assert.ok(taskchat.record('p5874', 1, { kind: 'said', who: 'reader-agent', text: 'on it' }));
+  // As the board records a message (tasks.say): no author.
+  assert.ok(taskchat.record('p5874', 1, { kind: 'said', text: 'on it' }));
   assert.ok(taskchat.record('p5874', 1, { kind: 'closed' }));
   assert.ok(taskchat.record('other5874', 1, { kind: 'said', text: 'not yours' }));
 });
@@ -82,7 +83,7 @@ test('#5874: on its own token an agent on the project reads the task, oldest fir
   const worded = JSON.parse((await call('/api/project/p5874/task/1/activity?words=1', asAgent(agentToken))).text);
   // No card for reader-agent on this board, so it is named by its session name, as the page's fallback does. A member's
   // card name is checked end to end in cli.task-activity-5874.test.js (a real fleet card).
-  assert.deepEqual(worded.events.map((e) => e.words), ['Created and given to reader-agent', 'reader-agent: on it', 'Marked done']);
+  assert.deepEqual(worded.events.map((e) => e.words), ['Created and given to reader-agent', 'A message: "on it"', 'Marked done']);
   assert.equal(worded.count, 3);
 });
 
@@ -95,6 +96,25 @@ test('#5874: on its token alone an agent not on the project is refused, and an u
   const none = await call('/api/project/nope5874/task/1/activity', asAgent(agentToken));
   assert.equal(none.code, 404);
   assert.match(none.text, /there is no project by that name/);
+});
+
+test('#5874: a token that names nobody is refused, and a projects read that failed is not "no such project"', async (t) => {
+  withProjects(t);
+  /* kosmos#5752's shape: an older key-only token whose key another name also holds names no agent. */
+  const realResolveName = sendertoken.resolveName;
+  sendertoken.resolveName = (tok) => (tok === agentToken ? { ok: true, key: 'otto5874', name: null, twins: true, instance: null } : realResolveName(tok));
+  try {
+    const nobody = await call('/api/project/p5874/task/1/activity?words=1', asAgent(agentToken));
+    assert.equal(nobody.code, 403);
+    assert.equal(JSON.parse(nobody.text).error, 'Kosmos could not tell which agent this token belongs to, so it cannot read this task');
+  } finally { sendertoken.resolveName = realResolveName; }
+  const realAll = projectsEngine.readAll;
+  projectsEngine.readAll = () => { throw new Error('disk gone'); };
+  try {
+    const blind = await call('/api/project/p5874/task/1/activity?words=1', asAgent(agentToken));
+    assert.equal(blind.code, 503, blind.text.slice(0, 160));
+    assert.doesNotMatch(blind.text, /no project by that name/);
+  } finally { projectsEngine.readAll = realAll; }
 });
 
 test('#5874: the board token (the page, the person) reads as before, any project', async (t) => {
