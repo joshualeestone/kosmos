@@ -238,3 +238,18 @@ test('round 2: a request answered after the step was put away writes nothing int
   h.release(0); await p; await flush();
   assert.doesNotMatch(h.els['acct-qwen-local-t'].textContent, /late refusal/i);   // the page capitalises a reason
 });
+
+test('UI review 3: on Windows neither intro says Qwen works, and the first-run row says it is coming there', () => {
+  const src = [slice('const ACCT_ADD_INTRO =', '\n'), slice('const ACCT_ADD_INTRO_MUSE =', '\n'), slice('function acctAddIntroWin(text)', '\n}'),
+    'return { ACCT_ADD_INTRO, ACCT_ADD_INTRO_MUSE, acctAddIntroWin };'].join('\n');
+  // eslint-disable-next-line no-new-func
+  const k = new Function(src)();
+  const plain = k.acctAddIntroWin(k.ACCT_ADD_INTRO);
+  const muse = k.acctAddIntroWin(k.ACCT_ADD_INTRO_MUSE);
+  assert.doesNotMatch(plain, /Qwen/);
+  assert.doesNotMatch(muse, /Qwen/, 'the Muse form still said Qwen works on Windows');
+  assert.match(plain, /Google Gemini and xAI Grok work today/);
+  assert.match(muse, /xAI Grok and Meta Muse work today/);
+  assert.match(k.ACCT_ADD_INTRO, /Alibaba Qwen/, 'CONTROL: off Windows the intro names Qwen');
+  assert.match(PAGE, /data-pmark="qwen"(?:(?!class="llm )[\s\S])*<span class="soon" data-win-hide>Add in Settings<\/span><span class="soon" data-win-only hidden>Coming to Windows<\/span>/);
+});
