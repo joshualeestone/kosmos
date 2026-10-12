@@ -94,3 +94,25 @@ test('#5870: a cached read is frozen, so a reader that changed it would throw ra
   const plain = startcommands.cachedReaders(null).json(RECORD);
   assert.ok(!Object.isFrozen(plain.json), 'an uncached read is not frozen');
 });
+
+test('#5870 review 1: a failed read is not cached (the next agent reads again); a marketplace record is read once per pass', () => {
+  const read = startcommands.cachedReaders(new Map());
+  const torn = path.join(SANDBOX, 'torn.json');
+  fs.writeFileSync(torn, '{"half":');   // caught mid-write
+  try {
+    assert.ok(read.json(torn).error, 'the torn read fails');
+    fs.writeFileSync(torn, '{"whole":true}');
+    const again = read.json(torn);
+    assert.deepStrictEqual(again.json, { whole: true }, 'the next read in the same pass reads the file again');
+    assert.strictEqual(read.json(torn), again, 'and a good read IS kept');
+  } finally { fs.rmSync(torn, { force: true }); }
+  // A missing file is kept too (it is an answer, not a failure).
+  const absent = path.join(SANDBOX, 'absent.json');
+  assert.strictEqual(read.json(absent), read.json(absent), 'a missing read is cached');
+  // The marketplace record of the other home is read once for a two-agent pass.
+  const km = path.join(OTHER, 'plugins', 'known_marketplaces.json');
+  writeJson(km, { m: { installLocation: path.join(SANDBOX, 'market-m') } });
+  try {
+    assert.equal(readsOf(km, () => pass(new Map(), 'pilot-i', 'pilot-j')), 1, 'known_marketplaces.json once per pass');
+  } finally { fs.rmSync(km, { force: true }); }
+});

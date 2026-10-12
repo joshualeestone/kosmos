@@ -145,7 +145,9 @@ function readPlistFile(file) {
    not depend on the agent; only how its commands are interpreted does. So a pass's `cache` (the launchCache the guard
    refresh and the per-tick check already share) holds each file's read result, keyed by its path. A new pass is a new
    Map, so a change between passes is seen. What is cached is deep-frozen: a later reader that changed it would change
-   it for every agent after, so that throws instead (strict mode). */
+   it for every agent after, so that throws instead (strict mode). Such a TypeError surfaces as an unreadable config
+   (named, so the guard says it is not whole), through the try around each config's commands or the one around this
+   scan in setup-assistant.js: look here first if a "could not be read" names a file that reads fine. */
 function deepFreeze(x) {
   if (x && typeof x === 'object' && !Object.isFrozen(x)) { Object.freeze(x); for (const v of Object.values(x)) deepFreeze(v); }
   return x;
@@ -154,8 +156,13 @@ function cachedReaders(cache) {
   if (!(cache instanceof Map)) return { json: readJsonFile, plist: readPlistFile };
   const memo = (kind, fn) => (file) => {
     const key = `#5870 read ${kind} ${path.resolve(file)}`;
-    if (!cache.has(key)) cache.set(key, deepFreeze(fn(file)));
-    return cache.get(key);
+    if (cache.has(key)) return cache.get(key);
+    const r = fn(file);
+    // Review 1: a FAILED read (a torn write, EACCES, EMFILE) is not kept: the next agent reads again. Cached, one torn
+    // read of a file Claude Code rewrites constantly (.claude.json) would make every agent in the pass not whole.
+    if (r && r.error) return r;
+    cache.set(key, deepFreeze(r));
+    return r;
   };
   return { json: memo('json', readJsonFile), plist: memo('plist', readPlistFile) };
 }
