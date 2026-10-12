@@ -112,3 +112,11 @@ jobs:
           set -o pipefail
           ios/tools/test-check-ipa-entitlements.sh | tee "$RUNNER_TEMP/ipa-check.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/ipa-check.log"
+
+      # #4089: archive.sh's signing settings checks, including that io.kosmos.app is never built under the
+      # interim Stone Syndicate team (Apple cannot transfer it back).
+      - name: Archive signing settings refuse what they should
+        run: |
+          set -o pipefail
+          ios/tools/test-archive-config.sh | tee "$RUNNER_TEMP/archive-config.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/archive-config.log"
