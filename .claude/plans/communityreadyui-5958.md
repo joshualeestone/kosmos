@@ -284,3 +284,20 @@ replaced by tests of the new one. That is a change of behaviour, not a tidy-up: 
   check reads the mark's turn after its transition; this file's not-run line carried an old date.
 - **NITs, not taken:** no live region on the status line (the two lists above have none); no dark-theme, Space-key or
   reduced-motion arm in the check (design shots are where both themes are looked at); the long unread expression.
+
+## Review 15 (2026-10-12, default model, the plain brief plus the layout line)
+- **WARNING, a duplicate:** nothing here has run in a browser.
+- **WARNING, taken:** review 13's fix changed what the AGENT is told. Its "held for your person" count had become the
+  count of the person's list, which includes a held comment on this board's own post, and the agent's sentence says
+  each "goes out only if they release it", which such a comment never does. The row now carries two counts: the
+  person's (the queue their list reads) and the agent's own (what goes out if released), and each is told its own.
+- **WARNING, taken by removing it:** review 9 added a "could not read this computer's community address" state. The
+  board's own read of the address answers no for one it cannot read, so that state could never be reached, and the
+  test for it only passed by handing in a read that throws. It is gone; an address the board does not send to is one
+  fact, tested through the real read.
+- **NITs, taken:** the held-unread line no longer depends on the newest post being readable; a doc comment had drifted
+  from its function and another described what the code no longer does; the check answers the "Check on your agents"
+  read itself from the page's first read; an opened row's lines are indented under the name; the test for the held
+  comment now shows that its row names no agent, so the shown-name fallback is what counts it.
+- **NITs, not taken:** a delete the board refuses (400) also reads the rows again and has no arm; a held local comment
+  whose shown name is another agent's session name would be counted for that agent (stated in the code).

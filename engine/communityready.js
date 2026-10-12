@@ -136,14 +136,11 @@ function rereadReader() {
   };
 }
 
-/* 'yes' | 'being_made' | 'name_held' | 'refused' | 'none' | 'unreadable': this agent's account at the community address
-   this board sends to, from that address's keys (the record communitystatus reads). Not communitysend.hasAccount: that
-   one answers a delete's confirmation, and counts an unreadable file, another address and a refused account as yes. */
 /* How many of this agent's posts and comments are held for the person, counted from the queue the page's "Waiting
    for you" list reads (communitystore.moderationQueue, held and quarantined). Not communitystatus's held items: those
    leave out a held comment on this board's own posts, which the list shows. */
 function heldCount(sessionName) { return heldReader()(sessionName); }
-/* One read of the queue, asked per agent. Null when it cannot be read. */
+/* One read of the queue, asked per agent. Null when reading it throws (a queue file that is missing reads as empty). */
 function heldReader() {
   let queue;
   try { queue = require('./communitystore').moderationQueue({ limit: Infinity }); } catch { queue = null; }
@@ -154,6 +151,9 @@ function heldReader() {
   return (sessionName) => (Array.isArray(queue) ? queue.filter((r) => mine(r, sessionName)).length : null);
 }
 
+/* 'yes' | 'being_made' | 'name_held' | 'refused' | 'none' | 'unreadable': this agent's account at the community address
+   this board sends to, from that address's keys (the record communitystatus reads). Not communitysend.hasAccount: that
+   one answers a delete's confirmation, and counts an unreadable file, another address and a refused account as yes. */
 function accountState(sessionName) { return accountReader()(sessionName); }
 /* One read of the keys, asked per agent (rowsFor reads it once for every row). */
 function accountReader() {
@@ -190,7 +190,8 @@ function isConnected(sessionName) {
  *   { session, switch: 'on'|'off'|'unreadable', addressOk, block, connected, reminders: 'on'|'off'|'unreadable',
  *     rereadOwed, account (accountState),
  *     reminder: { at, act, delivery?, heldBy?, heldFor? } | null | 'unreadable',
- *     lastPost: { title, at, state } | null | 'unreadable', held: n | null }
+ *     lastPost: { title, at, state } | null | 'unreadable', held: n | null (the queue the person's list reads),
+ *     heldToGo: n | null (the agent's own held items that go to the community if released: what it is told) }
  */
 function rowFor(sessionName, deps = {}) {
   const communitysend = require('./communitysend');
@@ -203,7 +204,7 @@ function rowFor(sessionName, deps = {}) {
   return {
     session,
     switch: safe(() => pick('switchState', () => communitysend.switchState())(), 'unreadable'),
-    addressOk: safe(() => pick('addressOk', () => communitysend.endpointAllowed())() === true, null),   // null: could not be read, which is not "refused"
+    addressOk: safe(() => pick('addressOk', () => communitysend.endpointAllowed())() === true, false),   // endpointAllowed answers false for an address it cannot read as well
     block: safe(() => pick('block', blockState)(session), 'unreadable'),
     rereadOwed: safe(() => pick('reread', rereadOwed)(session), null),
     connected: safe(() => pick('connected', isConnected)(session), null),
@@ -212,6 +213,7 @@ function rowFor(sessionName, deps = {}) {
     reminder: turns === null ? 'unreadable' : (own(turns, session) ? turns[session] : null),
     lastPost: posts === null ? 'unreadable' : (posts.length ? { title: posts[0].title, at: posts[0].at, state: posts[0].state } : null),
     held: safe(() => pick('held', heldCount)(session), null),
+    heldToGo: Array.isArray(items) ? items.filter((x) => x && x.state === 'held').length : null,
   };
 }
 
@@ -231,8 +233,7 @@ function linesFor(row) {
   const out = [];
   out.push('- The community on this computer: ' + (row.switch === 'on' ? 'on' : row.switch === 'off' ? 'off, so nothing is sent until your person turns it on'
     : 'Kosmos cannot read its switch just now, so nothing is sent; tell your person'));
-  if (row.addressOk === false) out.push('- Sending: this board\'s community address is not one Kosmos sends to, so nothing goes until that is fixed; tell your person');
-  else if (row.addressOk !== true) out.push('- Sending: Kosmos could not read this board\'s community address just now');
+  if (row.addressOk !== true) out.push('- Sending: this board\'s community address is not one Kosmos sends to, so nothing goes until that is fixed; tell your person');
   out.push('- The community section in your instructions: ' + ({
     present: 'there' + (row.rereadOwed === true ? '; it changed while you were running, and Kosmos still owes you a line asking you to read it again' : ''),
     absent: row.connected === false ? 'not there. For an agent Kosmos runs as its own, it is added when the agent next starts or when Kosmos itself next starts, while the community is on'
@@ -251,7 +252,7 @@ function linesFor(row) {
   out.push('- Your newest post: ' + (row.lastPost === 'unreadable' ? 'Kosmos could not read what it has sent just now'
     : row.lastPost === null ? 'you have not posted yet'
     : JSON.stringify(row.lastPost.title || '(no title)') + ': ' + (status.POST_WORDS[row.lastPost.state] || ('unknown (' + row.lastPost.state + ')'))));
-  if (row.held > 0) out.push('- Held for your person to look at: ' + row.held + (row.held === 1 ? ' item' : ' items') + '. Each goes out only if they release it; do not send it again');
+  if (row.heldToGo > 0) out.push('- Held for your person to look at: ' + row.heldToGo + (row.heldToGo === 1 ? ' item' : ' items') + '. Each goes out only if they release it; do not send it again');
   return out;
 }
 
@@ -266,9 +267,8 @@ function readyText(sessionName, deps) {
 }
 
 /* The owner's words for one row (#5958 slice 2, Settings): the same facts as linesFor, said about the agent to the
-   person. The newest post's state and what is held are NOT worded again here: the page's own lists already say
-   them in the person's words (communitymine, the held list, both above this list on the page), and a second vocabulary
-   would drift from the first. A line
+   person. Of the newest post it says one thing, whether it is in the community (POST_FACTS), and of what is held, how
+   many; the page's own lists above this one (communitymine, the held list) say the rest in the person's words. A line
    is { text } or { text, at, after }: `at` is a time the page writes in the person's own time zone between the two. */
 const OWNER_BLOCK = Object.freeze({
   present: 'The community section is in its instructions.',
@@ -300,8 +300,7 @@ function ownerBoardFacts(row) {
   const out = [];
   if (row.switch === 'off') out.push({ summary: 'The community is off', line: 'The community is off on this computer.' });
   else if (row.switch !== 'on') out.push({ summary: 'Kosmos cannot read the community switch', line: 'Kosmos cannot read the community switch just now.' });
-  if (row.addressOk === false) out.push({ summary: 'This computer’s community address is not one Kosmos sends to', line: 'This computer’s community address is not one Kosmos sends to.' });
-  else if (row.addressOk !== true) out.push({ summary: null, line: 'Kosmos could not read this computer’s community address just now.' });
+  if (row.addressOk !== true) out.push({ summary: 'This computer’s community address is not one Kosmos sends to', line: 'This computer’s community address is not one Kosmos sends to.' });
   if (row.reminders === 'off') out.push({ summary: '“Check on your agents” is off', line: '“Check on your agents” is off on this computer.' });
   else if (row.reminders !== 'on') out.push({ summary: null, line: 'Kosmos could not read the “Check on your agents” setting just now.' });
   return out;
@@ -365,9 +364,9 @@ function ownerView(row) {
   else if (row.lastPost === null) lines.push({ text: 'It has not posted yet.' });
   else lines.push({ text: 'Its newest post, “' + (String(row.lastPost.title || '').replace(/\s+/g, ' ').trim() || 'Untitled post') + '”, ' + POST_FACT_WORDS[posted] + '.' });
   if (row.held > 0) lines.push({ text: row.held + (row.held === 1 ? ' item it wrote is' : ' items it wrote are') + ' under Waiting for you.' });
-  else if (!Number.isInteger(row.held) && row.lastPost !== 'unreadable') lines.push({ text: 'Kosmos could not read whether anything it wrote is waiting for you just now.' });
+  else if (!Number.isInteger(row.held)) lines.push({ text: 'Kosmos could not read whether anything it wrote is waiting for you just now.' });
   /* The summary is the closed row, so it may only say "nothing found" when everything this row reads was read. */
-  const unread = row.lastPost === 'unreadable' || (row.reminders !== 'on' && row.reminders !== 'off') || (row.addressOk !== true && row.addressOk !== false) || posted === 'unread' || (row.block === 'present' && row.rereadOwed !== true && row.rereadOwed !== false)
+  const unread = (row.reminders !== 'on' && row.reminders !== 'off') || posted === 'unread' || (row.block === 'present' && row.rereadOwed !== true && row.rereadOwed !== false)
     || (row.block === 'absent' && row.connected !== true && row.connected !== false) || row.block === 'unreadable' || row.account === 'unreadable' || row.reminder === 'unreadable' || row.lastPost === 'unreadable' || !Number.isInteger(row.held)
     || !own(OWNER_BLOCK, row.block) && row.block !== 'absent' || !own(OWNER_ACCOUNT, row.account);
   /* The closed row names EVERYTHING that applies, in one fixed order, and picks no cause among them: the computer's

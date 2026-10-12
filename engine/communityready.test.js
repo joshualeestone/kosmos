@@ -314,16 +314,18 @@ test('held items are counted and said; none is not mentioned', () => {
   agentFile('ann', withBlock());
   assert.doesNotMatch(text('ann'), /Held for your person/);
   const held = (n) => Array.from({ length: n }, (_, i) => ({ kind: i ? 'comment' : 'post', id: 'h' + i, title: 't', at: '2026-10-12T00:00:0' + i + 'Z', state: 'held' }));
-  assert.match(text('ann', { held: () => 1 }), /Held for your person to look at: 1 item\./);
-  assert.match(text('ann', { held: () => 3 }), /Held for your person to look at: 3 items\./);
-  assert.equal(held(1).length, 1);
+  assert.match(text('ann', { items: () => held(1) }), /Held for your person to look at: 1 item\./);
+  assert.match(text('ann', { items: () => held(3) }), /Held for your person to look at: 3 items\./);
+  // review 15: the agent is told what goes out if released (its own held items), not the count of the person's list.
+  assert.doesNotMatch(text('ann', { held: () => 5 }), /Held for your person/);
 });
 
 test('send records that cannot be read are said as that, never as "you have not posted yet"', () => {
   agentFile('ann', withBlock());
   const row = ready.rowFor('ann', { items: () => null });
   assert.equal(row.lastPost, 'unreadable');
-  assert.equal(row.held, 0, 'what is held is read from the queue, not from the send records');
+  assert.equal(row.held, 0, 'the person\'s count is read from the queue, not from the send records');
+  assert.equal(row.heldToGo, null, 'the agent\'s own count is unknown when its items are');
   assert.equal(ready.rowFor('ann', { held: () => { throw new Error('x'); } }).held, null);
   const t = text('ann', { items: () => null });
   assert.match(t, /Your newest post: Kosmos could not read what it has sent just now/);
@@ -466,7 +468,7 @@ test('slice 2 review 7: each fact about the whole computer is one line that says
 test('slice 2 review 7: none of the consequence, cause or remedy sentences that reviews caught comes back, in any combination; no line is said twice', () => {
   const T = 5;
   const LEAK = /\bstill sent\b|\bnot reminding\b|\bis not being reminded\b|\bcannot say whether\b|\bturn (it|community) \b|\boff and on\b|\bopen its instructions\b|\bremove one\b|\btry again\b|\bso nothing\b.*\buntil\b/i;
-  for (const sw of ['on', 'off', 'unreadable']) for (const addressOk of [true, false, null]) for (const reminders of ['on', 'off', 'unreadable']) {
+  for (const sw of ['on', 'off', 'unreadable']) for (const addressOk of [true, false]) for (const reminders of ['on', 'off', 'unreadable']) {
     for (const block of ['present', 'absent', 'ambiguous', 'no_file', 'unreadable']) for (const account of Object.keys(ready.ACCOUNT_WORDS)) for (const connected of [true, false, null]) {
       const v = view({ switch: sw, addressOk, reminders, block, account, connected, reminder: { at: T, act: 'held', heldBy: 'cap' }, held: 1, rereadOwed: null });
       const t = said(v) + '\n' + v.summary;
@@ -485,17 +487,6 @@ test('slice 2 review 7: the section line says what is in the file and what Kosmo
   assert.match(said(view({ rereadOwed: true })), /in its instructions\. It changed while the agent was running, and Kosmos still owes it a line asking it to read the section again\./);
   assert.match(said(view({ rereadOwed: null })), /in its instructions\. Kosmos could not read whether the agent has been asked to read a newer version of it\./);
   assert.doesNotMatch(said(view({ block: 'ambiguous', rereadOwed: true })), /still owes/, 'a re-read was promised for a section Kosmos leaves alone');
-});
-
-test('slice 2 review 9: an address that could not be read is not "not one Kosmos sends to"', () => {
-  agentFile('ann', withBlock());
-  const boom = () => { throw new Error('unreadable'); };
-  assert.equal(ready.rowFor('ann', { addressOk: boom }).addressOk, null);
-  assert.equal(ready.rowFor('ann', { addressOk: () => false }).addressOk, false);
-  assert.equal(view({ addressOk: null }).lines[0].text, 'Kosmos could not read this computer’s community address just now.');
-  assert.match(text('ann', { addressOk: boom }), /- Sending: Kosmos could not read this board's community address just now/);
-  assert.match(text('ann', { addressOk: () => false }), /- Sending: this board's community address is not one Kosmos sends to/);
-  assert.doesNotMatch(text('ann'), /- Sending:/, 'CONTROL: a good address adds no line');
 });
 
 test('slice 2 review 9: the person is told "this computer" where the agent is told "this board"', () => {
@@ -593,7 +584,6 @@ test('slice 2 review 12: everything that applies is in the closed row, in one fi
     [{ switch: 'off' }, ['The community is off', 'Has not posted yet']],
     [{ switch: 'unreadable' }, ['Kosmos cannot read the community switch', 'Has not posted yet']],
     [{ addressOk: false }, ['This computer\u2019s community address is not one Kosmos sends to', 'Has not posted yet']],
-    [{ addressOk: null }, ['Has not posted yet', 'Kosmos could not check everything just now']],
     [{ reminders: 'off' }, ['\u201cCheck on your agents\u201d is off', 'Has not posted yet']],
     [{ reminders: 'unreadable' }, ['Has not posted yet', 'Kosmos could not check everything just now']],
     [{ block: 'absent', account: 'refused', held: 3 }, ['No community section in its instructions', 'The community has refused this agent', 'Has not posted yet', '3 waiting for you']],
@@ -611,7 +601,7 @@ test('slice 2 review 12: everything that applies is in the closed row, in one fi
 test('slice 2 review 12: when something was not read, the closed row says so and an open row says what', () => {
   const NAMES = /could not read|cannot read/;
   for (const over of [{ block: 'unreadable' }, { account: 'unreadable' }, { reminder: 'unreadable' }, { lastPost: 'unreadable' }, { held: null }, { reminders: 'unreadable' }, { reminders: undefined },
-    { block: 'something-new' }, { account: 'something-new' }, { rereadOwed: null }, { rereadOwed: undefined }, { addressOk: null }, { lastPost: { title: 't', at: '', state: 'unreadable' } },
+    { block: 'something-new' }, { account: 'something-new' }, { rereadOwed: null }, { rereadOwed: undefined }, { lastPost: { title: 't', at: '', state: 'unreadable' } },
     { block: 'unreadable', account: 'unreadable', reminder: 'unreadable', lastPost: 'unreadable', held: null }]) {
     const v = view(over);
     assert.ok(v.summary.split('. ').includes('Kosmos could not check everything just now'), JSON.stringify(over) + ' -> ' + v.summary);
@@ -680,7 +670,11 @@ test('slice 2 review 13: what waits for the person is counted from the same queu
   const after = store.moderationQueue({ limit: Infinity });
   if (after.length === q0 + 2) {
     assert.equal(require('./communitystatus').itemsFor('ann').filter((x) => x.state === 'held').length, 1, 'fixture: communitystatus now lists a held comment on a local post too');
+    const local = after.find((r) => r.entry === 'comment');
+    assert.ok(local && local.agent == null && local.author && local.author.name === 'ann', 'fixture: a held comment on a local post now names its agent; the shown-name fallback is no longer what counts it: ' + JSON.stringify(local));
     assert.equal(ready.rowFor('ann').held, 2, 'a held comment on this board\'s own post is in the list and not in the count');
+    assert.equal(ready.rowFor('ann').heldToGo, 1, 'the agent would be told a local comment goes out if released; it never does');
+    assert.match(text('ann'), /Held for your person to look at: 1 item\./);
     assert.ok(ready.rowsFor([fleetCard('ann')])[0].owner.summary.split('. ').includes('2 waiting for you'));
   } else assert.fail('fixture: could not hold a comment on a local post (' + JSON.stringify(c) + '); without it this test cannot tell the two counts apart');
   assert.equal(ready.rowFor('bea').held, 0, 'one agent\'s held item was counted for another');
@@ -700,4 +694,16 @@ test('slice 2 review 12: a row that cannot be worded costs that row, not the lis
   assert.deepEqual(rows[0].owner, { summary: 'Kosmos could not check everything just now', lines: [{ text: 'Kosmos could not put this agent\u2019s row together just now.' }] });
   assert.match(ready.ownerView(ready.rowFor('bea', { turns: () => ({ bea: { at: 5, act: 'something-new' } }) })).lines[2].after, /Kosmos has no words for what happened/);
   assert.equal(rows[1].owner.summary, 'Has not posted yet', 'the other agent\'s row was lost with it');
+});
+
+test('slice 2 review 15: an address this board does not send to is one fact, through the real read', () => {
+  agentFile('ann', withBlock());
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  assert.equal(ready.rowFor('ann').addressOk, cs.endpointAllowed(), 'the row does not say what the board\'s own read says');
+  assert.equal(ready.rowFor('ann', { addressOk: () => false }).addressOk, false);
+  assert.equal(ready.rowFor('ann', { addressOk: () => { throw new Error('x'); } }).addressOk, false, 'a read that throws is not a third state the real read can never give');
+  assert.equal(view({ addressOk: false }).lines[0].text, 'This computer\u2019s community address is not one Kosmos sends to.');
+  assert.match(text('ann', { addressOk: () => false }), /- Sending: this board's community address is not one Kosmos sends to/);
+  if (cs.endpointAllowed()) assert.doesNotMatch(text('ann'), /- Sending:/, 'CONTROL: a good address adds no line');
+  assert.equal(process.env.AGENT_WORKFORCE_COMMUNITY_URL, was);
 });

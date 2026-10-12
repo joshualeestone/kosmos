@@ -319,6 +319,14 @@ async function run() {
     // FRESH: the switch changes what every row says, so saving it must read the list again
     const p9 = await page();
     let reads = 0;
+    /* Answered here from the page's first read of it, so this arm does not lean on what an earlier check left the
+       shared board's switch at. */
+    let hbOn = true;
+    let hbPuts = 0;
+    await p9.route('**/api/heartbeat-setting', (route) => {
+      if (route.request().method() === 'PUT') { hbPuts += 1; hbOn = !hbOn; }
+      return answer({ ok: true, on: hbOn, intervalMinutes: 15 })(route);
+    });
     const OFF = { ...AVA, owner: { summary: 'The community is off', lines: [{ text: 'The community is off on this computer.' }] } };
     let onNow = false;
     await p9.route(READY, (route) => { reads += 1; return answer({ agents: [onNow ? AVA : OFF] })(route); });
@@ -338,14 +346,8 @@ async function run() {
     check('FRESH: turning the switch on reads the list again and the row stops saying it is off', reads > before && fr1.rows.length === 1 && fr1.rows[0].summary === 'Newest post is in the community', JSON.stringify([reads - before, fr1.rows.map((x) => x.summary)]));
     // the other switch the rows name
     const NOTREM = { ...AVA, owner: { summary: '“Check on your agents” is off', lines: [{ text: '“Check on your agents” is off on this computer.' }] } };
-    let hbOn = true;
-    let hbPuts = 0;
     await p9.unroute(READY);
     await p9.route(READY, (route) => { reads += 1; return answer({ agents: [hbOn ? AVA : NOTREM] })(route); });
-    await p9.route('**/api/heartbeat-setting', (route) => {
-      if (route.request().method() === 'PUT') { hbPuts += 1; hbOn = !hbOn; }
-      return answer({ ok: true, on: hbOn, intervalMinutes: 15 })(route);
-    });
     await p9.click('#s-nav button[data-go="automation"]');
     await p9.waitForFunction(() => { const t = document.getElementById('hb-toggle'); return t && !t.hidden && t.getAttribute('aria-checked') === 'true'; }, null, { timeout: 5000 }).catch(() => {});
     const hb = await p9.evaluate(() => { const t = document.getElementById('hb-toggle'); return { shown: Boolean(t) && !t.hidden, on: t ? t.getAttribute('aria-checked') : null }; });
