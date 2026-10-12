@@ -23,16 +23,6 @@ const PROVIDER_OF_RUNNER = Object.freeze({
 });
 const SHOWN_AGENTS = 3;   // a folder many agents share names the first few, then a count
 
-/**
- * @param {Array} cards the board's cards ({ sessionName, name, runner })
- * @param {{ openai: Array, google: Array, xai: Array }} listed the rows each provider's list already gives
- * @param {(sessionName: string) => ({ configDir?: string|null } | null)} readJob
- * @param {(provider: string, dir: string) => (string|null)} readName the folder's chosen name, or null
- * @param {(file: string) => boolean} [exists] whether a file is there; throws when that cannot be told
- * @param {(provider: string) => (string|null)} [defaultDirOf] the provider's default folder, which is skipped
- * @returns {Array} rows, one per missing folder: connection state 'none' when no credential file is there, and an
- *   unchecked state when one is there but its list could not read it
- */
 /* Whether a file is there. Only ENOENT is "not there": a folder Kosmos cannot read (EACCES, an unmounted volume) throws,
    so the row says it could not be checked rather than gone. fs.existsSync would answer false for both. */
 function fileThere(file) {
@@ -47,6 +37,16 @@ function samePlace(d) {
   try { return require('node:fs').realpathSync.native(d); } catch { return path.resolve(d); }
 }
 
+/**
+ * @param {Array} cards the board's cards ({ sessionName, name, runner })
+ * @param {{ openai: Array, google: Array, xai: Array }} listed the rows each provider's list already gives
+ * @param {(sessionName: string) => ({ configDir?: string|null } | null)} readJob
+ * @param {(provider: string, dir: string) => (string|null)} readName the folder's chosen name, or null
+ * @param {(file: string) => boolean} [exists] whether a file is there; throws when that cannot be told
+ * @param {(provider: string) => (string|null)} [defaultDirOf] the provider's default folder, which is skipped
+ * @returns {Array} rows, one per missing folder: connection state 'none' when no credential file is there, and an
+ *   unchecked state when one is there but its list could not read it
+ */
 function signedOutRows(cards, listed, readJob, readName, exists = fileThere, defaultDirOf = () => null) {
   const byDir = new Map();
   for (const c of Array.isArray(cards) ? cards : []) {
@@ -63,7 +63,7 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
     if (dflt && samePlace(dflt) === samePlace(dir)) continue;
     const rows = (listed && Array.isArray(listed[p.provider])) ? listed[p.provider] : [];
     if (rows.some((r) => r && typeof r.dir === 'string' && samePlace(r.dir) === samePlace(dir))) continue;
-    const key = p.provider + '\u0000' + dir;
+    const key = p.provider + '\u0000' + samePlace(dir);   // one row per folder, however its jobs spell it
     if (!byDir.has(key)) {
       let name = null;
       try { name = readName(p.provider, dir); } catch { name = null; }
@@ -87,7 +87,7 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
     return {
       ...r,
       connection: r.unreadable
-        ? { state: 'unknown', badge: 'unchecked', because: 'a sign-in or key file is in its folder, but Kosmos could not read it or does not look in that folder, and ' + who }
+        ? { state: 'unknown', badge: 'unlisted', because: 'a sign-in or key file is in its folder, but Kosmos could not read it or does not look in that folder, and ' + who }
         : { state: 'none', badge: 'signed_out', because: 'its sign-in or key is no longer on this computer, and ' + who },
     };
   });

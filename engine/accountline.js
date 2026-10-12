@@ -35,6 +35,8 @@ function accountState(a, now = Date.now()) {
   if (c.badge === 'signed_in_unverified') return 'signed in by Kosmos\'s record, not yet confirmed by a real request';
   if (c.badge === 'rejected') return 'not signed in: its last request was refused. The person signs in again in Settings > AI Models';
   if (c.badge === 'signed_out') return 'not signed in' + why;
+  // #5948: an account Kosmos does not list (its credential could not be read, or sits outside the folder it looks in).
+  if (c.badge === 'unlisted') return 'not checked by Kosmos' + why;
   if (c.badge === 'unchecked') return 'could not be checked just now' + why;
   if (c.liveCheckPending === true) return 'being checked now; run it once more in a few seconds for the answer';
   if (a.authMode === 'chatgpt' && c.state === 'unknown') return 'signed in by its own record, not yet confirmed by a real request';
