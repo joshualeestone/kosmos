@@ -5,7 +5,8 @@
  * Driven through server.js's REAL recordExternal (the one fedseats calls when a seat delivers a post): the test keeps
  * the dependencies server.js hands fedseats.configure, so the wiring itself runs, not a stand-in for it. Proves:
  *   - a held room (CONTROL: held before the post) is released by a post the relay stamps same_account and a person
- *     wrote, and the release is a reopen row naming that external post, at its time, reason own-computer;
+ *     wrote, and the release is a reopen row naming that external post, reason own-computer, at the post's own
+ *     time (pinned on the engine, since through recordExternal the two times are the same millisecond);
  *   - a stranger's post (no same_account), an agent's post from the person's other computer, a stamp that is not
  *     exactly true, and any post with KOSMOS_OWN_ROOM_NUDGE=0 all leave the room held and write no reopen.
  *
@@ -82,7 +83,6 @@ test('#5902 a person\'s post from their own other computer releases the held roo
   const re = reopensFor('ownA');
   assert.equal(re.length, 1, JSON.stringify(re));
   assert.equal(re[0].post, row.id, 'the reopen does not name the external post');
-  assert.equal(re[0].at, row.at, 'the reopen is not at the post\'s own time');
   assert.equal(re[0].reason, 'own-computer');
   assert.equal(re[0].operator, true, 'a reopen without operator: true is dropped by the reader (rowShaped)');
 });
@@ -113,4 +113,13 @@ test('#5902 KOSMOS_OWN_ROOM_NUDGE=0 turns the release off with the nudge', async
     assert.ok(messages.roomHeld('offA', Date.now()), 'the opt-out did not keep the room held');
     assert.deepEqual(reopensFor('offA'), []);
   } finally { delete process.env.KOSMOS_OWN_ROOM_NUDGE; }
+});
+
+test('#5902 engine: the reopen is at the external post\'s own time, not the time it was written', () => {
+  /* Through recordExternal both are the same millisecond, so this pins it on reopenForOwnPost directly. */
+  const at = iso(Date.now() - 3 * MIN);
+  const r = messages.reopenForOwnPost('timeA', { id: 'x-time', at });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(reopensFor('timeA')[0].at, at);
+  assert.equal(messages.reopenForOwnPost('timeA', { at }).ok, false, 'a row with no id was written');
 });
