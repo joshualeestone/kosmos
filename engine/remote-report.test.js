@@ -91,6 +91,8 @@ test('classify: each known failure kind gets its code, anything else is other, n
     ['reading /Users/j/Library/Application Support/Kosmos/remote/mac_id', 'state-file-unreadable'],
     ['reading C:\\Users\\Jo Smith\\AppData\\Roaming\\Kosmos\\remote\\mac_identity: Access is denied. (os error 5)', 'state-file-unreadable'],
     ['reading /Users/j/Library/Application Support/Kosmos/remote/not_mac_identity: Permission denied', 'other'],
+    // Review 6: anyhow's debug form, the cause on later lines.
+    ['reading /Users/j/remote/mac_identity\n\nCaused by:\n    Permission denied (os error 13)', 'state-file-unreadable'],
     // Not a state file: reading a file merely NAMED like one must not match.
     ['reading /Users/j/remote/mac_identity.md.bak2 failed', 'other'],
     ['relay refused the tunnel: bad ticket', 'relay-refused'],

@@ -94,7 +94,7 @@ const CODES = [
   // report only as a stale last failure, never live. The path comes FIRST in them and the default state dir has a
   // space in it (Application Support), so they are matched by the file name after a separator, not by a word.
   ['binary-unstartable', /^the tunnel program could not be started/i],
-  ['state-file-unreadable', /reading \S+ from|reading .*[\\/]mac_id(entity)?(:|$)|does not hold an id and a key|mac_id holds no id|pinned coordinator_pubkey|decoding mac_key|mac_key is not 32 bytes/i],
+  ['state-file-unreadable', /reading \S+ from|reading .*[\\/]mac_id(entity)?(:|\s|$)|does not hold an id and a key|mac_id holds no id|pinned coordinator_pubkey|decoding mac_key|mac_key is not 32 bytes/i],
   // The Mac's own check found the coordinator's ticket expired, by this Mac's clock: usually a Mac
   // clock that is wrong, not a bad key. The relay's refusal of an expired ticket (`relay refused
   // the tunnel: ticket refused: ticket expired ...`) points at the relay's clock instead and stays
