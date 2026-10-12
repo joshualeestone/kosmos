@@ -18,6 +18,9 @@
  *     day each counts toward the registration cap, kosmos#5736).
  *
  * state (plain, the caller persists it): { lostEpoch?, waitUntilMs?, waits? }. Every function returns a NEW state.
+ * The state belongs to ONE (org, member): ensureMemberKey honours lostEpoch only with lostFor naming that pair
+ * (kosmos#5535), so the caller's deps.ensureMemberKey adds lostFor for the pair it keeps this state under, and checks
+ * the org and member the answer carries against it.
  * waits counts the waiting answers since the last ok key, so a refusal in between (no answer, an unreadable file)
  * does not restart the backoff at an hour. A waitUntilMs more than the longest wait ahead of the clock (written under
  * a clock that was wrong, or a restored state) is read as over: it would otherwise hold the job for as long as the

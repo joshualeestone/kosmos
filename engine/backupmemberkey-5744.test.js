@@ -20,6 +20,7 @@ const backupkeys = require('./backupkeys');
 const mk = require('./backupmemberkey');
 
 const ORG = 'org1', MEMBER = 'acct1';
+const OWN = { org: ORG, member: MEMBER };   // kosmos#5535: a lostEpoch is honoured only for the pair it was recorded under
 
 /* (Its checks give the route's answers for every case these tests reach, but not in the route's own order.)
    A coordinator with the route's rules: first key is epoch 1; the same key again is a repeat; a new key only at
@@ -340,7 +341,7 @@ test('#5744 2b: lostEpoch (the job saw a grant for another epoch) treats the reg
   c.setCurrent(2, backupkeys.newMemberKey().pk.toString('base64url'));    // the member's current epoch is now 2
   const same = await mk.ensureMemberKey({ macRequest: c.macRequest });
   assert.equal(same.epoch, 1, 'CONTROL: without lostEpoch the registered key is answered from disk');
-  const r = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1 });
+  const r = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1, lostFor: OWN });
   assert.deepEqual([r.ok, r.epoch], [true, 3], JSON.stringify(r));
   assert.equal(r.publicKey.equals(first.publicKey), false);
   // The stale key is KEPT: it still opens epoch 1's backups on this computer.
@@ -349,7 +350,7 @@ test('#5744 2b: lostEpoch (the job saw a grant for another epoch) treats the reg
   assert.equal(file.keys['1'].registered, true);
   // A lostEpoch that is not this file's registered epoch changes nothing.
   const sendsBefore = c.calls.filter((x) => x.route === mk.MEMBER_KEY_ROUTE).length;
-  const other = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1 });
+  const other = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1, lostFor: OWN });
   assert.deepEqual([other.epoch, other.lostEpochIgnored], [3, true]);
   assert.equal(c.calls.filter((x) => x.route === mk.MEMBER_KEY_ROUTE).length, sendsBefore, 'an ignored lostEpoch sent a key');
 });
@@ -369,7 +370,7 @@ test('#5744 2b: a kept pair whose public half is not the private half\'s is not 
 test('#5744 2b: lostEpoch inside the day keeps the stale key and the new pending one', async () => {
   const c = fakeCoordinator({ day: false });
   const first = await mk.ensureMemberKey({ macRequest: c.macRequest });
-  const wait = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1 });
+  const wait = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1, lostFor: OWN });
   assert.deepEqual([wait.ok, wait.waiting], [false, true], JSON.stringify(wait));
   const file = JSON.parse(fs.readFileSync(keyFile(), 'utf8'));
   assert.equal(file.keys['1'].pk, first.publicKey.toString('base64url'), 'the stale key was deleted while waiting');
@@ -400,8 +401,8 @@ test('#5744 2b: lostEpoch twice inside the day sends the same pending key both t
   c.setCurrent(2, backupkeys.newMemberKey().pk.toString('base64url'));
   const sent = [];
   const watch = async (m, route, b) => { if (route === mk.MEMBER_KEY_ROUTE) sent.push(b); return c.macRequest(m, route, b); };
-  const a = await mk.ensureMemberKey({ macRequest: watch, lostEpoch: 1 });
-  const b = await mk.ensureMemberKey({ macRequest: watch, lostEpoch: 1 });
+  const a = await mk.ensureMemberKey({ macRequest: watch, lostEpoch: 1, lostFor: OWN });
+  const b = await mk.ensureMemberKey({ macRequest: watch, lostEpoch: 1, lostFor: OWN });
   assert.deepEqual([a.waiting, b.waiting], [true, true], JSON.stringify([a, b]));
   assert.equal(new Set(sent.map((x) => x.member_public)).size, 1, 'a different key was sent on the second call');
   assert.deepEqual(sent.map((x) => x.epoch), [2, 3, 3], 'the second call did not go straight to the pending epoch');
@@ -423,7 +424,7 @@ test('#5744 2b: under lostEpoch, a current epoch at or below the stale one never
   const c = fakeCoordinator();
   const first = await mk.ensureMemberKey({ macRequest: c.macRequest });   // registered at 1
   for (const currentEpoch of [0, 1]) {
-    const r = await mk.ensureMemberKey({ lostEpoch: 1, macRequest: async (m, route, b) => {
+    const r = await mk.ensureMemberKey({ lostEpoch: 1, lostFor: OWN, macRequest: async (m, route, b) => {
       if (route === mk.BACKUP_KEY_ROUTE) return c.macRequest(m, route, b);
       return { ok: false, because: 'wrong epoch', refusal: { status: 400, code: 'member_key_wrong_epoch', currentEpoch } };
     } });
@@ -436,7 +437,7 @@ test('#5744 2b: under lostEpoch, a current epoch at or below the stale one never
 test('#5744 2b: a lostEpoch that matches nothing is ignored and the answer says so', async () => {
   const c = fakeCoordinator();
   await mk.ensureMemberKey({ macRequest: c.macRequest });   // registered at 1
-  const r = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 5 });
+  const r = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 5, lostFor: OWN });
   assert.deepEqual([r.ok, r.epoch, r.lostEpochIgnored], [true, 1, true], JSON.stringify(r));
   const plain = await mk.ensureMemberKey({ macRequest: c.macRequest });
   assert.equal('lostEpochIgnored' in plain, false);
@@ -470,7 +471,7 @@ test('#5744 2b: a key file left readable by others is made owner-only when read'
 test('#5744 2b: a stale key answered from disk names a newer key still pending', async () => {
   const c = fakeCoordinator({ day: false });
   await mk.ensureMemberKey({ macRequest: c.macRequest });             // registered at 1
-  await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1 }); // a new key at 2, waiting out the day
+  await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1, lostFor: OWN }); // a new key at 2, waiting out the day
   const forgot = await mk.ensureMemberKey({ macRequest: c.macRequest }); // the job forgot lostEpoch
   assert.deepEqual([forgot.ok, forgot.epoch, forgot.pendingEpoch], [true, 1, 2], JSON.stringify(forgot));
 });
@@ -514,4 +515,43 @@ test('#5744 2b: a symlinked key file is not read', async () => {
   assert.equal(r.unreadableKeyFile, true, JSON.stringify(r));
   assert.equal(fs.lstatSync(file).isSymbolicLink(), true, 'the link was replaced');
   fs.rmSync(file); fs.renameSync(real, file);
+});
+
+test('#5535: every answer after Kosmos+ named the company carries its org and member; one before it carries neither', async () => {
+  const c = fakeCoordinator();
+  const ok = await mk.ensureMemberKey({ macRequest: c.macRequest });
+  assert.deepEqual([ok.ok, ok.org, ok.member], [true, ORG, MEMBER], JSON.stringify(ok));
+  // A refusal after the company was named (waiting out the day) names it too.
+  c.setDay(false);
+  const wait = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1, lostFor: OWN });
+  assert.deepEqual([wait.ok, wait.waiting, wait.org, wait.member], [false, true, ORG, MEMBER], JSON.stringify(wait));
+  // An unreadable key file is a frozen answer, copied: it names the pair, twice, and the shared constant is untouched.
+  fs.writeFileSync(keyFile(), '{');
+  const u1 = await mk.ensureMemberKey({ macRequest: c.macRequest });
+  const u2 = await mk.ensureMemberKey({ macRequest: c.macRequest });
+  assert.deepEqual([u1.unreadableKeyFile, u1.org, u2.unreadableKeyFile, u2.member], [true, ORG, true, MEMBER]);
+  // Before the company is known: no answer, and an answer that cannot be read.
+  const none = await mk.ensureMemberKey({ macRequest: async () => ({ ok: false, because: 'no answer' }) });
+  assert.deepEqual([none.ok, 'org' in none, 'member' in none], [false, false, false], JSON.stringify(none));
+  const bad = await mk.ensureMemberKey({ macRequest: async () => ({ ok: true, data: { org: ORG } }) });
+  assert.deepEqual([bad.ok, 'org' in bad, 'member' in bad], [false, false, false], JSON.stringify(bad));
+});
+
+test('#5535: a lostEpoch is honoured only with lostFor naming this company and member', async () => {
+  for (const [label, lostFor] of [['no lostFor', undefined], ['another org', { org: 'org2', member: MEMBER }],
+    ['another member', { org: ORG, member: 'acct2' }], ['not an object', 'org1']]) {
+    loseTheKey();
+    const c = fakeCoordinator();
+    const first = await mk.ensureMemberKey({ macRequest: c.macRequest });   // registered at 1
+    const sends = c.calls.filter((x) => x.route === mk.MEMBER_KEY_ROUTE).length;
+    const r = await mk.ensureMemberKey(Object.assign({ macRequest: c.macRequest, lostEpoch: 1 }, lostFor === undefined ? {} : { lostFor }));
+    assert.deepEqual([r.ok, r.epoch, r.lostEpochIgnored, r.publicKey.equals(first.publicKey)], [true, 1, true, true], label + ' ' + JSON.stringify(r));
+    assert.equal(c.calls.filter((x) => x.route === mk.MEMBER_KEY_ROUTE).length, sends, label + ': an unscoped lostEpoch sent a key');
+  }
+  // CONTROL, the same call scoped to this pair: the key is treated as lost and the next epoch is registered.
+  loseTheKey();
+  const c = fakeCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest });
+  const moved = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1, lostFor: OWN });
+  assert.deepEqual([moved.ok, moved.epoch], [true, 2], JSON.stringify(moved));
 });
