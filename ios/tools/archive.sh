@@ -57,10 +57,10 @@ fi
 # Each setting must be set exactly once, in plain form: a second line (xcconfig takes the last) or a
 # conditional one (KEY[sdk=...]) would make the value read here differ from the one Xcode builds with.
 for key in DEVELOPMENT_TEAM KOSMOS_BUNDLE_ID; do
-  any=$(sed 's|//.*||' "$xcconfig" | grep -cE "^[[:space:]]*${key}([^A-Za-z0-9_]|\$)")
-  plain=$(sed 's|//.*||' "$xcconfig" | grep -cE "^[[:space:]]*${key}[[:space:]]*=")
+  any=$(sed 's|//.*||' "$xcconfig" | grep -cE "^[[:space:]]*${key}([^A-Za-z0-9_]|\$)" || true)   # grep -c exits 1 on 0
+  plain=$(sed 's|//.*||' "$xcconfig" | grep -cE "^[[:space:]]*${key}[[:space:]]*=" || true)
   if [ "$any" -ne 1 ] || [ "$plain" -ne 1 ]; then
-    echo "archive.sh: $key must be set exactly once, as '$key = <value>', in ios/Signing.xcconfig (found $any)." >&2; exit 1
+    echo "archive.sh: $key must be set exactly once, as '$key = <value>', in $xcconfig (found $any)." >&2; exit 1
   fi
 done
 # The value Xcode reads: the DEVELOPMENT_TEAM line, less any trailing // comment and spaces.
@@ -68,14 +68,14 @@ team=$(sed -n 's|//.*||; s/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]
 # The bundle id the project builds with (KOSMOS_BUNDLE_ID in the same file), checked on the export.
 bundle=$(sed -n 's|//.*||; s/^[[:space:]]*KOSMOS_BUNDLE_ID[[:space:]]*=[[:space:]]*//p' "$xcconfig" | tr -d '[:space:]')
 if ! printf '%s' "$bundle" | LC_ALL=C grep -Eq '^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$'; then
-  echo "archive.sh: KOSMOS_BUNDLE_ID in ios/Signing.xcconfig is '${bundle}', not a bundle id." >&2; exit 1
+  echo "archive.sh: KOSMOS_BUNDLE_ID in $xcconfig is '${bundle}', not a bundle id." >&2; exit 1
 fi
 if [ -z "$team" ]; then
-  echo "archive.sh: DEVELOPMENT_TEAM is empty in ios/Signing.xcconfig. Set it to the Team ID that signs the app (see the comment in that file)." >&2
+  echo "archive.sh: DEVELOPMENT_TEAM is empty in $xcconfig. Set it to the Team ID that signs the app (see the comment in that file)." >&2
   exit 1
 fi
 if ! printf '%s' "$team" | LC_ALL=C grep -Eq '^[A-Z0-9]{10}$'; then
-  echo "archive.sh: DEVELOPMENT_TEAM in ios/Signing.xcconfig is '$team', not a Team ID (10 uppercase letters or digits)." >&2
+  echo "archive.sh: DEVELOPMENT_TEAM in $xcconfig is '$team', not a Team ID (10 uppercase letters or digits)." >&2
   exit 1
 fi
 # io.kosmos.app is never built under the Stone Syndicate team (#4089): Apple cannot transfer an app that was
