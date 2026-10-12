@@ -31,6 +31,8 @@ HX=4444444444444444444444444444444444444444
 # lipo -archs: the tunnel is universal (as the real one is), the app is arm64 only.
 lipo_stub() {
   case "$2" in
+    *.app|*.app/) echo "lipo: can't map input file: $2 (Is a directory)" >&2; return 1 ;;
+    */Contents/MacOS/Kosmos) echo "${LIPO_APP:-arm64}" ;;
     */kosmos-tunnel) echo "x86_64 arm64" ;;
     */notmacho) echo "lipo: can't figure out the architecture type of: $2" >&2; return 1 ;;
     *) echo arm64 ;;
@@ -47,7 +49,7 @@ cs_stub() {
     *) echo "$4: code object is not signed at all" >&2; return 1 ;;
   esac
 }
-ditto() { echo "$*" >> "$WORK/ditto.ran"; : > "${!#}"; }
+ditto() { echo "$*" >> "$WORK/ditto.ran"; [ -f "$4/Kosmos.app/Contents/MacOS/Kosmos" ] && echo bundle >> "$WORK/ditto.ran"; : > "${!#}"; }
 sm_ok()   { [ "$1" = path ] && [ "$2" = "$KOSMOS_NOTARY_SECRET_TARGET" ] && echo "$WORK/notary.p8"; }
 sm_none() { echo "secrets-map: no credential for target" >&2; return 1; }
 
@@ -175,7 +177,7 @@ left2="$(find "$WORK/tmp" -name 'kosmos-notarize.*' 2>/dev/null | wc -l | tr -d 
 
 # --- release.sh refuses to cut with the opt-out or a seam exported, before step 4 builds ---
 R="$REPO/tools/release.sh"
-guard="$(grep -n '^for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSMOS_NOTARY_LIPO_CMD KOSMOS_NOTARY_RETRY_DELAYS KOSMOS_STAPLER_CMD KOSMOS_NOTARY_SPCTL_CMD KOSMOS_NOTARY_XATTR_CMD; do$' "$R" | head -1 | cut -d: -f1)"
+guard="$(grep -n '^for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSMOS_NOTARY_LIPO_CMD KOSMOS_NOTARY_RETRY_DELAYS KOSMOS_STAPLER_CMD KOSMOS_STAPLER_RETRY_DELAYS KOSMOS_NOTARY_SPCTL_CMD KOSMOS_NOTARY_XATTR_CMD; do$' "$R" | head -1 | cut -d: -f1)"
 build="$(grep -n 'bash tools/build-kosmos-bundle.sh dist' "$R" | head -1 | cut -d: -f1)"
 [ -n "$guard" ] && [ -n "$build" ] && [ "$guard" -lt "$build" ] && ok "release.sh refuses the opt-out and every seam before step 4 ($guard < $build)" || bad "release.sh guard missing or after the build (guard=$guard build=$build)"
 GUARD_SRC="$(sed -n "${guard},\$p" "$R" | sed '/^done$/q')"
@@ -259,7 +261,9 @@ mkdir -p "$APP/Contents/MacOS"
 printf 'kosmos\n' > "$APP/Contents/MacOS/Kosmos"
 # The shape setup.sh's heredoc really has (the build copies it): key and string on ONE line. A split layout is checked below.
 printf '<plist version="1.0"><dict>\n  <key>CFBundleName</key><string>Kosmos</string>\n  <key>CFBundleExecutable</key><string>Kosmos</string>\n</dict></plist>\n' > "$APP/Contents/Info.plist"
-cs_app_stub() { if [ "$4" = "$APP" ] && [ "$3" = arm64 ]; then echo "CDHash=$HK" >&2; else cs_stub "$@"; fi; }
+HKX=6666666666666666666666666666666666666666
+cs_app_stub() { if [ "$4" = "$APP" ] && [ "$3" = arm64 ]; then echo "CDHash=$HK" >&2
+  elif [ "$4" = "$APP" ] && [ "$3" = x86_64 ]; then echo "CDHash=$HKX" >&2; else cs_stub "$@"; fi; }
 # stapler: ST_STAPLE_FAIL_TIMES makes the first N staples fail; ST_VALIDATE=fail fails validate.
 st_stub() {
   echo "$1 $2" >> "$WORK/st.ran"
@@ -271,15 +275,17 @@ st_stub() {
   esac
 }
 # spctl: SP_OUT is what it says, SP_RC its exit. It records the path, so the arm can prove it assessed the COPY.
-sp_stub() { echo "${!#}" >> "$WORK/sp.ran"; echo "${!#}: ${SP_OUT:-accepted}"; echo "source=${SP_SOURCE:-Notarized Developer ID}"; return "${SP_RC:-0}"; }
+sp_stub() { echo "${!#}" >> "$WORK/sp.ran"; echo "${!#}: ${SP_OUT:-accepted}"; echo "source=${SP_SOURCE:-Notarized Developer ID}"
+  echo "origin=${SP_ORIGIN:-Developer ID Application: Stone Syndicate LLC (864QZ69GF2)}"; return "${SP_RC:-0}"; }
 xa_stub() { echo "$*" >> "$WORK/xa.ran"; [ "${XA_FAIL:-0}" = 1 ] && return 1; return 0; }
 runapp() { rm -f "$WORK/st.ran" "$WORK/sp.ran" "$WORK/xa.ran"; run "$WORK/bin/kosmos-app" "$WORK/bin/kosmos-tunnel" "$APP"; }
-export KOSMOS_STAPLER_CMD=st_stub KOSMOS_NOTARY_SPCTL_CMD=sp_stub KOSMOS_NOTARY_XATTR_CMD=xa_stub
+export KOSMOS_STAPLER_CMD=st_stub KOSMOS_NOTARY_SPCTL_CMD=sp_stub KOSMOS_NOTARY_XATTR_CMD=xa_stub KOSMOS_STAPLER_RETRY_DELAYS="0 0"
 _cs_saved="$KOSMOS_NOTARY_CODESIGN_CMD"; export KOSMOS_NOTARY_CODESIGN_CMD=cs_app_stub
 
 unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
 NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK"; rc=$(runapp)
 [ "$rc" = 0 ] && ok "app: accepted, stapled, validated, quarantined copy accepted: passes" || bad "app should pass (rc=$rc): $(cat "$WORK/out")"
+grep -q '^bundle$' "$WORK/ditto.ran" 2>/dev/null && ok "app: the submitted zip holds the bundle itself" || bad "the bundle was not in what was zipped: $(cat "$WORK/ditto.ran" 2>/dev/null)"
 grep -q '^staple .*Kosmos.app$' "$WORK/st.ran" 2>/dev/null && grep -q '^validate .*Kosmos.app$' "$WORK/st.ran" && ok "app: the ORIGINAL bundle was stapled and validated" || bad "staple/validate did not run on the app: $(cat "$WORK/st.ran" 2>/dev/null)"
 _q="$(cat "$WORK/sp.ran" 2>/dev/null)"
 [ -n "$_q" ] && [ "$_q" != "$APP" ] && grep -q "com.apple.quarantine .*$_q\$" "$WORK/xa.ran" && ok "app: a COPY was quarantined and that copy assessed, not the shipped bundle" || bad "the assessment was not on a quarantined copy: sp=$_q xa=$(cat "$WORK/xa.ran" 2>/dev/null)"
@@ -307,6 +313,22 @@ NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" XA_FAIL=1; rc=$(runapp)
 [ "$rc" = 1 ] && ok "app: a copy that could not be quarantined refuses (an unquarantined pass proves nothing)" || bad "assessed without quarantine"
 unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
 NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK"
+unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL
+NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK $HKX" LIPO_APP="x86_64 arm64"; rc=$(runapp)
+[ "$rc" = 0 ] && ok "app: a universal app with both slices ticketed passes" || bad "universal app refused (rc=$rc): $(cat "$WORK/out")"
+NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK"; rc=$(runapp)
+[ "$rc" = 1 ] && grep -q "Kosmos.app/x86_64($HKX)" "$WORK/out" && ok "app: a universal app missing one slice's cdhash refuses, naming it" || bad "a missing x86_64 slice passed (rc=$rc)"
+unset LIPO_APP
+NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" SP_ORIGIN="Developer ID Application: Someone Else (ABCDE12345)"; rc=$(runapp)
+[ "$rc" = 1 ] && ok "app: notarised under ANOTHER team refuses" || bad "another team's notarisation passed"
+unset SP_ORIGIN
+NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" SP_SOURCE="Unnotarized Developer ID" SP_OUT="accepted source=Notarized Developer ID"; rc=$(runapp)
+[ "$rc" = 1 ] && ok "app: the words appearing inside another line (the echoed path) do not pass" || bad "a substring of the first line passed"
+NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" ST_STAPLE_FAIL_TIMES=9; rc=$(runapp)
+grep -q 'Apple accepted submission sub-1' "$WORK/out" && ok "app: a staple that never works names the accepted submission for a by-hand staple" || bad "the staple failure did not name the submission: $(cat "$WORK/out")"
+unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES SP_SOURCE SP_OUT
+NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK"; rc=$(rm -f "$WORK/st.ran" "$WORK/sp.ran" "$WORK/xa.ran"; run "$WORK/bin/kosmos-app" "$WORK/bin/kosmos-tunnel" "$APP/")
+[ "$rc" = 0 ] && grep -q '^staple .*Kosmos.app$' "$WORK/st.ran" && ok "app: a trailing slash on the bundle is the same bundle" || bad "trailing slash (rc=$rc): $(cat "$WORK/out")"
 cp "$APP/Contents/Info.plist" "$WORK/plist.oneline"
 printf '<plist><dict>\n<key>CFBundleExecutable</key>\n<string>Kosmos</string>\n</dict></plist>\n' > "$APP/Contents/Info.plist"
 rc=$(runapp)
@@ -319,7 +341,7 @@ rm -f "$APP/Contents/Info.plist"; rc=$(runapp)
 [ "$(ran submit)" = 0 ] && ok "app: and nothing was submitted for it" || bad "submitted an app with no executable"
 unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
 export KOSMOS_NOTARY_CODESIGN_CMD="$_cs_saved"
-unset KOSMOS_STAPLER_CMD KOSMOS_NOTARY_SPCTL_CMD KOSMOS_NOTARY_XATTR_CMD
+unset KOSMOS_STAPLER_CMD KOSMOS_NOTARY_SPCTL_CMD KOSMOS_NOTARY_XATTR_CMD KOSMOS_STAPLER_RETRY_DELAYS
 
 # --- the build calls it, on both binaries, after the last self-test and before packing ---
 B="$REPO/tools/build-kosmos-bundle.sh"
@@ -327,7 +349,7 @@ call="$(grep -n '^notarize_binaries "\$STAGE/app/bin/kosmos-app" "\$STAGE/app/bi
 [ -n "$call" ] && ok "build-kosmos-bundle.sh notarises both binaries and the sealed Kosmos.app (#5896), failing the build on refusal" || bad "build-kosmos-bundle.sh does not call notarize_binaries on both binaries and Kosmos.app with ||"
 sealed_sign="$(grep -n '^codesign_ts_retry .*"\$_sealed"' "$B" | head -1 | cut -d: -f1)"
 [ -n "$call" ] && [ -n "$sealed_sign" ] && [ "$call" -gt "$sealed_sign" ] && ok "the app is notarised after it is sealed ($sealed_sign < $call)" || bad "the app is not notarised after sealing (seal=$sealed_sign notarise=$call)"
-for _seam in KOSMOS_STAPLER_CMD KOSMOS_NOTARY_SPCTL_CMD KOSMOS_NOTARY_XATTR_CMD; do
+for _seam in KOSMOS_STAPLER_CMD KOSMOS_STAPLER_RETRY_DELAYS KOSMOS_NOTARY_SPCTL_CMD KOSMOS_NOTARY_XATTR_CMD; do
   grep -qE "^for _nv in .*\b$_seam\b" "$REPO/tools/release.sh" && ok "release.sh refuses to cut with $_seam set" || bad "release.sh does not refuse $_seam"
 done
 grep -qE '^\. "\$REPO/tools/lib/notarize-binaries\.sh"' "$B" && ok "build-kosmos-bundle.sh sources notarize-binaries.sh" || bad "not sourced"
@@ -340,6 +362,6 @@ pack="$(grep -n '^echo "==> packing"' "$B" | head -1 | cut -d: -f1)"
   || bad "order wrong: notarise=$call last-sign=$last_sign last-selftest=$last_selftest pack=$pack"
 
 echo "test-notarize-binaries-5137: $passes passed, $fails failed"
-EXPECTED=77   # the number of ok lines above; a skipped arm must not read as green
+EXPECTED=85   # the number of ok lines above; a skipped arm must not read as green
 [ "$passes" = "$EXPECTED" ] || echo "test-notarize-binaries-5137: $passes passes, expected $EXPECTED (an arm was skipped or added without updating EXPECTED)"
 [ "$fails" = 0 ] && [ "$passes" = "$EXPECTED" ]
