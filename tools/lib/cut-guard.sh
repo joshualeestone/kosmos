@@ -858,7 +858,7 @@ kosmos_wait_until_clear() {
   # the median, 50 of 50 over 45 min (Agent1s 09-30 to 10-12), so at 2700 s the front waiter gave up behind every one
   # and re-queued at the back. 105 min is longer than 91 of the 93 heavy runs measured; the two longer ones took 129
   # and 151 min. The ceiling below is four bounds plus one per waiter ahead, so 7 h plus 105 min per waiter: a waiter
-  # k deep in a healthy queue waits behind about k such holders, and a ceiling on the old 2700 s would cut it off.
+  # k deep in a healthy queue waits behind about k such holders, and a ceiling on the old 2700 s cut that off.
   local dflt=1200; [ "$queue" = 1 ] && dflt=6300
   local every="${KOSMOS_WAIT_EVERY_S:-30}" max="${KOSMOS_WAIT_MAX_S:-$dflt}" sleeper="${KOSMOS_WAIT_SLEEP:-sleep}"
   local ceil="${KOSMOS_WAIT_QUEUE_CEIL_S:-}" over=0
