@@ -36,7 +36,8 @@ rm -rf "$_td"
 #    #5986: the guard has to REACH the -x. It must come before it on the same line, joined to it by && (|| for
 #    the negated form), with nothing between but other bracket tests on the same path. And the command that
 #    holds it must not let the -x run without it: from where that command starts (a ; { ( ` or then/do/else/
-#    if/elif/while/until) up to the guard, no || (&& for the negated form) and no ! negating a command. That is
+#    if/elif/while/until) up to the guard, no || (&& for the negated form), and the guard itself must be a
+#    command, at that start or right after a joiner (so not an argument, and not after a !). That is
 #    stricter than the shell needs (A || B && [ -f P ] && [ -x P ] is safe and still flagged): fail-closed on
 #    purpose, so loosen it only with a control that shows the -x cannot run without the -f. A line ending in
 #    \, &&, || or | is joined to the next before it is judged (and reported at its first line). So

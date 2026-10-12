@@ -10,8 +10,9 @@ never read (test -x, -a, extra spaces). Each new rule has a control that the OLD
 
 ## Rule
 - [ -x P ] needs [ -f P ] before it on the same line, joined by && with only other bracket tests on P between.
-  From where the command starts (; { ( ` or then/do/else/if/elif/while/until) up to the -f: no || and no !
-  negating a command. Negated form mirrors it: [ ! -f P ] || ... [ ! -x P ], no && and no ! before.
+  From where the command starts (; { ( ` or then/do/else/if/elif/while/until) up to the -f: no ||, and the -f
+  must itself be a command there or right after a joiner. Negated form mirrors it: [ ! -f P ] || ... [ ! -x P ],
+  no && before.
 - Quoted text is blanked before joiners are read. The -x tests are found on the whole line; the comment is cut
   (found on the blanked line) only when looking for guards. The guard must itself be a command (which also
   refuses a ! before it); case arms and prefix assignments are flagged, fail-closed.
