@@ -95,6 +95,18 @@ const WORDS = {
   },
 };
 
+/* #5865: what a Linux board hides (the platform copy layer's data-linux-hide twin) and the one line it rewords. */
+const LINUX_HIDDEN = {
+  'Settings Dock icon picture': 'img.dockrow-i',
+  'Settings App icon box': 'section.dbox:has(#wb-row)',
+  'Settings app location row': '#set-applocation',
+  'Settings Show me where it is': '#set-reveal',
+  'Settings Accessibility sentence': '#set-a11y-say',
+  'Settings Accessibility button': '#set-a11y-open',
+  'Settings tmux box': 'section.dbox[data-win-hide]:not(:has(#wb-row))',
+};
+const LINUX_OPEN_LINE = 'If Kosmos stops, run kosmos restart in a terminal on the computer it is installed on (over SSH on a headless server).';
+
 const results = [];
 function check(name, pass, detail) {
   results.push({ name, pass: Boolean(pass), detail });
@@ -211,6 +223,39 @@ async function readConnectCard(browser) {
   return { got, errors };
 }
 
+/* #5865: the page with the served platform set to linux (or left a Mac, the control), rendered. */
+async function readLinux(browser, platform) {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  await ctx.addInitScript(stubPageFetches);
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('file://' + PAGE);
+  const got = await page.evaluate(({ platform, linuxHidden }) => {
+    if (platform === 'linux') {
+      document.querySelector('meta[name="kosmos-platform"]').setAttribute('content', 'linux');
+      applyPlatformCopy(document);
+    }
+    const hidden = {};
+    for (const [name, sel] of Object.entries(linuxHidden)) {
+      const el = document.querySelector(sel);
+      if (!el) { hidden[name] = 'missing'; continue; }
+      for (let n = el; n; n = n.parentElement) {   // the element too: the reveal button ships hidden and JS shows it
+        n.removeAttribute('hidden');
+        if (n !== el && getComputedStyle(n).display === 'none') n.style.display = 'block';
+      }
+      hidden[name] = getComputedStyle(el).display === 'none';
+    }
+    const line = document.querySelector('[data-linux-copy="settingsOpenKosmos"]');
+    return {
+      hidden, stamped: document.documentElement.getAttribute('data-kosmos-platform'),
+      openLine: line ? line.textContent.replace(/\s+/g, ' ').trim() : null,
+    };
+  }, { platform, linuxHidden: LINUX_HIDDEN });
+  await ctx.close();
+  return { got, errors };
+}
+
 (async () => {
   for (const engine of ENGINES) {
     const browser = await playwright[engine].launch({ headless: process.env.HEADED === '0' });
@@ -244,6 +289,19 @@ async function readConnectCard(browser) {
     check(`${engine}: CONTROL Mac wizard walks all nine steps`, JSON.stringify(mac.got.steps) === '[1,5,2,3,4,6,7,8,9]', JSON.stringify(mac.got.steps));
     check(`${engine}: CONTROL Mac not-signed-in panel is unchanged`, /fix itself the next/.test(mac.got.signin), mac.got.signin.slice(0, 120));
     check(`${engine}: Mac page raised no errors`, mac.errors.length === 0, mac.errors.join(' | '));
+
+    const lin = await readLinux(browser, 'linux');
+    check(`${engine}: linux stamps <html data-kosmos-platform>`, lin.got.stamped === 'linux', String(lin.got.stamped));
+    for (const [name, isHidden] of Object.entries(lin.got.hidden)) {
+      check(`${engine}: linux hides ${name}`, isHidden === true, String(isHidden));
+    }
+    check(`${engine}: linux Opening Kosmos says how to restart it`, lin.got.openLine === LINUX_OPEN_LINE, JSON.stringify(lin.got.openLine));
+    check(`${engine}: linux page raised no errors`, lin.errors.length === 0, lin.errors.join(' | '));
+    const macL = await readLinux(browser, 'darwin');
+    for (const [name, isHidden] of Object.entries(macL.got.hidden)) {
+      check(`${engine}: CONTROL a Mac page shows ${name}`, isHidden === false, String(isHidden));
+    }
+    check(`${engine}: CONTROL a Mac Opening Kosmos line still names the Dock`, /in your Dock/.test(macL.got.openLine || ''), JSON.stringify(macL.got.openLine));
 
     const card = await readConnectCard(browser);
     if (card.got.noCard) {
