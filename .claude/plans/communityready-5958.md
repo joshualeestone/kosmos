@@ -157,3 +157,19 @@ slice, before the board list.
   control; a sandboxed board's roster is not this test's subject).
 - Found by running the full-suite-only guards by hand after the BLOCKER (engine.reachable, fixture-discipline, the
   install and route guards): one test built roster rows by hand. It uses real fleet cards now.
+
+## Review 4 (2026-10-12, sonnet)
+Three WARNINGs, none taken, each read against the code:
+- **One flushed write per agent tried.** `communityturn.due` returns at most MAX_PER_PASS agents, which is 2, and a
+  pass runs every 15 minutes. That is at most two small writes a quarter hour. Batching them would add a second code
+  path for a cost that is not there.
+- **"The last time Kosmos went to remind you" for an agent stopped by the hourly limit.** That agent was due, was in
+  the pass's cut, and was not sent to because of the limit; the line says so, with the time. The reviewer's own reading
+  is that it is true. Agents outside the cut are not stamped (review 3's limit, above).
+- **A record file whose every entry is invalid reads as "none on record".** Entries are judged one at a time on
+  purpose: review 3 needed one bad time to cost one agent's record and nothing else. A file that is not a record at
+  all still reads as unreadable. A file of only bad entries holds nothing a reader could have shown.
+- **NITs, not taken:** `accountState` reads `communitysend._paths.keysFile()`, as `communitystatus` and
+  `communitymine`'s tests do; the usage line (review 2's CONVENTION again).
+
+No new finding to act on, so the loop ends here: four rounds, two models.
