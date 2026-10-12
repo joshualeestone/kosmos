@@ -30,6 +30,17 @@ test('#5686 deny-list: Kosmos credential stores in the data root are skipped by 
   }
 });
 
+test('#5871: mac_identity (mac_id and mac_key in one file) is denied like mac_key, its temp and copies too', () => {
+  for (const p of ['Kosmos/remote/mac_identity', 'worlds/w1/Kosmos/remote/mac_identity', 'remote/mac_identity',
+    'Kosmos/remote/.mac_identity.tmp.4711', 'Kosmos/remote/mac_identity copy', 'Kosmos/remote copy/mac_identity']) {
+    assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
+  }
+  // CONTROL: a person's own identity files, and the id alone (no key), are kept.
+  for (const p of ['notes/identity.md', 'projects/site/identity-service.ts', 'Kosmos/remote/mac_id', 'docs/mac_identities.md']) {
+    assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is kept`);
+  }
+});
+
 test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, whatever shape the writer names it', () => {
   for (const p of ['Kosmos/remote/install_key', 'worlds/w1/Kosmos/remote/install_key', 'Kosmos/remote/.mac_key.tmp',
     'Kosmos/remote/.install_key.tmp', 'Kosmos/remote/.tls.key.tmp', 'Kosmos/remote/.signin-device.key.tmp',
