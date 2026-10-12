@@ -29,6 +29,13 @@ expect empty-team               1 ""           io.kosmos.app.preview
 expect short-team               1 ABC          io.kosmos.app.preview
 expect bad-bundle-dots          1 "$stone"     io..kosmos
 expect bad-bundle-empty         1 "$stone"     ""
+# The project file takes its bundle id from the xcconfig, in every configuration. An id typed into Xcode's
+# General pane is written there and would win over Signing.xcconfig, out of sight of every check above.
+pbx="$here/../Kosmos.xcodeproj/project.pbxproj"
+lit=$(grep -E 'PRODUCT_BUNDLE_IDENTIFIER = ' "$pbx" | grep -vcF 'PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID)";')
+ref=$(grep -cF 'PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID)";' "$pbx")
+if [ "$lit" -eq 0 ] && [ "$ref" -ge 2 ]; then echo "PASS  project.pbxproj takes its bundle id from Signing.xcconfig ($ref configurations)"; else echo "FAIL  project.pbxproj sets a bundle id of its own ($lit literal, $ref from the xcconfig)"; fail=1; fi
+
 # The real file passes as it stands (an inherited override must not redirect it).
 unset KOSMOS_IOS_XCCONFIG
 if "$here/archive.sh" --check-config >/dev/null 2>&1; then echo "PASS  the project's own Signing.xcconfig"; else echo "FAIL  the project's own Signing.xcconfig is refused"; fail=1; fi

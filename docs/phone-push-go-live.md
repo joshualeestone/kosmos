@@ -65,7 +65,7 @@ Step 4). It is not transferred: Apple transfers only an app with a version relea
 `io.kosmos.app` is never used under Stone Syndicate. Nothing else in this list waits on the approval,
 and development keeps testing against Kano's mock APNs meanwhile. Device builds now carry the preview
 id too, so on-device push against a local or staging coordinator needs `io.kosmos.app.preview` in that
-coordinator's `KOSMOS_APNS_BUNDLE_IDS`.
+coordinator's `KOSMOS_APNS_BUNDLE_IDS`, and an APNs key from the Stone Syndicate team.
 
 1. **Apple approves the Kosmos Agent Manager, Inc. developer org.** Josh confirms it is active and
    notes its **Team ID**.
@@ -266,7 +266,8 @@ planned to allow only `io.kosmos.app` (kosmos-relay `coordinator/src/apns.rs` re
 id with HTTP 400). Before the first upload Josh does three one-time steps under Stone Syndicate (exact
 clicks on kosmos #4089): register `io.kosmos.app.preview` with Push Notifications, create its App
 Store Connect app record (named `Kosmos Preview`), and make an Admin App Store Connect API key (the kosmos-notarize key was
-refused even registering an identifier, so Admin is the safe choice for the automatic signing
+refused even registering an identifier; Admin, or App Manager with access to Certificates,
+Identifiers & Profiles, covers the automatic signing
 archive.sh uses).
 
 **Done now, before Apple's approval (kosmos #4089):**
@@ -292,7 +293,7 @@ archive.sh uses).
   [Josh supplies the id; fleet makes the change]. Two lines; signing is `Automatic`. Signing under
   any other team gives device tokens the coordinator's key cannot send to.
 - **An App Store Connect API key under the new org** for the upload (`ASC_KEY_PATH`, `ASC_KEY_ID`,
-  `ASC_ISSUER_ID`), filed with `/add-secret` [Josh creates it, with Admin access for automatic
+  `ASC_ISSUER_ID`), filed with `/add-secret` [Josh creates it, Admin or App Manager with access to Certificates, Identifiers & Profiles, for automatic
   signing]. Without one,
   `archive.sh` still exports and checks, and the checked `.ipa` goes up through Apple's Transporter
   app.
