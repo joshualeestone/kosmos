@@ -65,14 +65,16 @@ test('a .superseded file made by the REAL writer shares no row with the live fil
   assert.ok(!('id' in JSON.parse(fs.readFileSync(path.join(chatsDir, aside[0]), 'utf8')).messages[0]));
 
   const outDir = path.join(SANDBOX, 'daily-real');
-  const s = dl.compileAll({ chatsDir, outDir });
+  // one fixed day for every row, so a run that straddles midnight cannot split the headings over two daily files
+  const oneDay = { dayOf: () => '2026-09-01', timeOf: () => '09:00', now: NOW };
+  const s = dl.compileAll({ chatsDir, outDir, ...oneDay });
   assert.equal(s.refused, null);
   assert.deepEqual(s.unknownFiles, []);
   assert.equal(s.conversations, 2, 'the set-aside conversation was not read as one of its own');
   assert.equal(s.messages, 4);
   const all = dayFiles(outDir).map((n) => fs.readFileSync(path.join(outDir, n), 'utf8')).join('\n');
   for (const t of texts) assert.equal(count(all, t), 1, JSON.stringify(t) + ' is not in the daily log exactly once');
-  assert.equal(count(all, '## proj1 : agenta (an earlier project of this name, begun 2026-01-01T00:00:00.000Z)'), 1, 'the earlier conversation has no heading of its own');
+  assert.equal(count(all, '## proj1 : agenta (an earlier project of this name, begun "2026-01-01T00:00:00.000Z")'), 1, 'the earlier conversation has no heading of its own');
   assert.equal(count(all, '## proj1 : agenta\n'), 1);
   // each message sits under the right heading: the section that starts at a heading runs to the next heading
   const section = (heading) => { const from = all.indexOf(heading); const next = all.indexOf('\n## ', from + 1); return all.slice(from, next < 0 ? undefined : next); };
@@ -84,10 +86,10 @@ test('a .superseded file made by the REAL writer shares no row with the live fil
   // a THIRD project of the same name: two earlier ones now, each under its own heading, not merged into one
   assert.equal(chat.appendMessage('proj1', 'agenta', { text: 'third project one' }, '2026-09-01T00:00:00.000Z').recorded, true);
   assert.equal(fs.readdirSync(chatsDir).filter((n) => n.endsWith('.superseded')).length, 2);
-  dl.compileAll({ chatsDir, outDir });
+  dl.compileAll({ chatsDir, outDir, ...oneDay });
   const again = dayFiles(outDir).map((n) => fs.readFileSync(path.join(outDir, n), 'utf8')).join('\n');
-  assert.equal(count(again, 'begun 2026-01-01T00:00:00.000Z)'), 1);
-  assert.equal(count(again, 'begun 2026-06-01T00:00:00.000Z)'), 1);
+  assert.equal(count(again, 'begun "2026-01-01T00:00:00.000Z")'), 1);
+  assert.equal(count(again, 'begun "2026-06-01T00:00:00.000Z")'), 1);
   for (const t of [...texts, 'third project one']) assert.equal(count(again, t), 1, JSON.stringify(t));
 });
 
@@ -164,6 +166,34 @@ test('CONTROL for the above: the same folder with no .damaged file rewrites and 
   assert.match(day(outDir, 13), /thirteen/);
   // (`|| []`: this control describes the compiler from before the change too, which has no such fields)
   assert.deepEqual([s.held || [], s.unknownFiles || []], [[], []]);
+});
+
+test('KNOWN COST, pinned: a message kept late under an earlier time does not reach a held day', () => {
+  // chat.js keeps a caller's `at` (a drained reply carries its original send time), so a readable file can gain a row
+  // dated before the damage. The held day is not rewritten, so that row is missing from it. The plan gives this as
+  // the price of not dropping the damaged file's rows; this test is here so the price is not forgotten.
+  const { chatsDir, outDir } = dirs('late-row');
+  put(outDir, '2026-09-13.md', 'COMPILED 13, WITH THE DAMAGED FILE\'S ROWS');
+  put(chatsDir, DAMAGED, 'junk');
+  lastWritten(chatsDir, DAMAGED, '2026-09-14T12:00:00Z');
+  put(chatsDir, 'direct..p.json', { messages: [row(13, 'a reply kept on the 15th under its original time'), row(15, 'fifteen')] });
+  const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf, now: NOW });
+  assert.deepEqual(s.held, ['2026-09-13']);
+  assert.equal(day(outDir, 13), 'COMPILED 13, WITH THE DAMAGED FILE\'S ROWS');
+});
+
+test('when the day a set-aside file was last written cannot be worked out, every existing daily file is held', () => {
+  const { chatsDir, outDir } = dirs('no-day');
+  for (const d of [13, 20]) put(outDir, `2026-09-${d}.md`, `COMPILED ${d}`);
+  put(chatsDir, DAMAGED, 'junk');
+  lastWritten(chatsDir, DAMAGED, '2026-09-14T12:00:00Z');
+  put(chatsDir, 'direct..p.json', { messages: [row(20, 'twenty'), row(21, 'twenty-one')] });
+  // a day function that knows message times but not a file's (it returns nothing for one carrying milliseconds)
+  const partial = (at) => (typeof at === 'string' && at.length === 20 ? at.slice(0, 10) : null);
+  const s = dl.compileAll({ chatsDir, outDir, dayOf: partial, timeOf, now: NOW });
+  assert.deepEqual(s.held, ['2026-09-13', '2026-09-20'], 'not knowing where the line is dropped the hold');
+  assert.deepEqual([s.written, s.pruned], [['2026-09-21'], []]);
+  assert.equal(day(outDir, 20), 'COMPILED 20');
 });
 
 test('with several such files, the LATEST last-written time sets what is held', () => {
