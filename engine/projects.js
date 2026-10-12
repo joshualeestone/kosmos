@@ -1510,7 +1510,7 @@ function xdgOpenPath() {
   for (const dir of String(linuxEnv().PATH || '').split(path.delimiter)) {
     if (!dir || !path.isAbsolute(dir)) continue;   // never a folder relative to where the board happens to run
     const f = path.join(dir, 'xdg-open');
-    try { if (fs.statSync(f).isFile()) { fs.accessSync(f, fs.constants.X_OK); return f; } } catch { /* not here */ }
+    if (require('./runners').isRunnable(f)) return f;   // a runnable FILE, never a folder of that name (#1592)
   }
   return null;
 }

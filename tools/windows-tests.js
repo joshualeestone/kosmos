@@ -47,6 +47,7 @@ const ALSO = ['agentpermission-5406.test.js', 'platform.test.js', 'store.test.js
   'create.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js', 'personalinstr.test.js',
   'setup-assistant.winrules-4752.test.js',   // #4752: the guide's real rules, read on a Windows host
   'securewrite.fsync-5434.test.js',   // #5434: its Windows-only skips (EPERM, EISDIR) run only there
+  'projects.linuxopen-5881.test.js',   // #5881: its Windows and Mac controls run there too; the stand-in arm skips there
   'accounts.fsync-5434.test.js',   // #5434 slice 2: the account stores' saves must work on Windows too
   'store.fsync-5434.test.js',   // #5434 slice 4: store.js's profile, settings and picture saves, on Windows too
   'allowance.fsync-5434.test.js',   // #5434 slice 5: the account folder's weekly files, on Windows too
