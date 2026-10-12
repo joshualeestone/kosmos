@@ -192,10 +192,10 @@ test('#5997: a lock that vanished at the stat is NOT treated as stale; a waiter 
   fs.writeFileSync(path.join(lock, 'owner'), 'writer-B');
   const realStat = fs.statSync;
   const realRename = fs.renameSync;
-  let statLied = false;
+  let statLied = 0;   // review 1: twice in a row (heavy contention), which a retry-once rule alone would read as debris
   const moved = [];
   fs.statSync = (p, ...rest) => {
-    if (!statLied && p === lock) { statLied = true; const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; }
+    if (statLied < 2 && p === lock) { statLied += 1; const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; }
     return realStat(p, ...rest);
   };
   fs.renameSync = (from, to) => {
@@ -207,11 +207,46 @@ test('#5997: a lock that vanished at the stat is NOT treated as stale; a waiter 
   let fnRan = false;
   try {
     const r = withFileLock(file, () => { fnRan = true; }, { busy: 'still held', waitMs: 150 });
-    assert.ok(statLied, 'CONTROL: the stat that finds no lock was reached');
+    assert.equal(statLied, 2, 'CONTROL: the stat that finds no lock was reached, twice');
     assert.deepEqual(moved, [], 'the waiter moved a live holder\'s lock aside (it read a missing lock as stale)');
     assert.equal(fnRan, false);
     assert.deepEqual(r, { ok: false, because: 'still held' });
     assert.equal(fs.readFileSync(path.join(lock, 'owner'), 'utf8'), 'writer-B', 'B\'s live lock was replaced');
+  } finally {
+    fs.statSync = realStat;
+    fs.renameSync = realRename;
+    const dir = path.dirname(lock);
+    for (const f of fs.readdirSync(dir)) {
+      try { fs.rmSync(path.join(dir, f), { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  }
+});
+
+test('#5997 review 1: a stat that fails another way once (Windows delete-pending: EPERM) is retried too; only a repeated failure reads as debris', () => {
+  const file = tmpFile();
+  const lock = file + '.lock';
+  fs.mkdirSync(lock);
+  fs.writeFileSync(path.join(lock, 'owner'), 'writer-B');
+  const realStat = fs.statSync;
+  const realRename = fs.renameSync;
+  let fails = 0;
+  let failTimes = 1;
+  const moved = [];
+  fs.statSync = (p, ...rest) => {
+    if (p === lock && fails < failTimes) { fails += 1; const e = new Error('EPERM'); e.code = 'EPERM'; throw e; }
+    return realStat(p, ...rest);
+  };
+  fs.renameSync = (from, to) => { if (from === lock) moved.push(to); return realRename(from, to); };
+  try {
+    const r = withFileLock(file, () => 'ran', { busy: 'still held', waitMs: 150 });
+    assert.equal(fails, 1, 'CONTROL: the failing stat was reached');
+    assert.deepEqual(moved, [], 'one EPERM sent the waiter to move a live lock');
+    assert.deepEqual(r, { ok: false, because: 'still held' });
+    // CONTROL: the same failure every time is still read as debris (the old reading), so the change is scoped.
+    fails = 0; failTimes = Infinity;
+    // A long deadline: a 20 ms pause measured ~165 ms on a loaded Mac (load 11.5), and this arm needs two of them.
+    withFileLock(file, () => 'ran', { busy: 'still held', waitMs: 1500 });
+    assert.ok(moved.length > 0, 'CONTROL: a stat that keeps failing no longer reaches the debris path at all');
   } finally {
     fs.statSync = realStat;
     fs.renameSync = realRename;

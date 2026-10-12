@@ -30,6 +30,8 @@
  *     is itself an mtime bound, a stolen-stale lock's mtime is >LOCK_STALE_MS old
  *     while a re-acquired one's is ~now, so they cannot collide. A mismatch means we
  *     grabbed a lock we never measured stale, and we put it back and re-wait.
+ *   - A lock that VANISHES between the failed mkdir and the stat is retried, never read as stale (#5997): read
+ *     as stale it sent the waiter to steal the NEXT writer's live lock.
  *   - Staleness is by AGE, not owner liveness, so a crash between the `mkdir` and
  *     the owner write — an owner-less lock no liveness check could break — is still
  *     collected once it outlives LOCK_STALE_MS.
@@ -85,6 +87,7 @@ function withFileLock(file, fn, opts = {}) {
     waitMs = (Number.isFinite(env) && env >= 0) ? env : LOCK_WAIT_MS;
   }
   const until = Date.now() + waitMs;
+  let statFailedBefore = null;   // #5997 review 1: the code of the last stat failure, so only a repeated one reads as debris
   for (;;) {
     try { fs.mkdirSync(lock); break; }
     catch (err) {
@@ -108,9 +111,15 @@ function withFileLock(file, fn, opts = {}) {
            it back, and a third writer can mkdir in that gap, leaving two writers inside the section. All report
            success and one update is lost (one of 12 concurrent trust writes, in CI). Any other stat failure keeps the
            old reading: a lock we cannot even stat is treated as debris. */
-        if (err && err.code === 'ENOENT') continue;
+        if (err && err.code === 'ENOENT') { statFailedBefore = null; continue; }
+        /* Review 1: on Windows a lock being removed can sit delete-pending, where the stat fails EPERM or EACCES
+           rather than ENOENT, and the same steal would follow. Any other stat failure is retried once after a pause;
+           only the same failure twice in a row is debris (an unreadable leftover is still collected). */
+        const code = (err && err.code) || 'ERR';
+        if (statFailedBefore !== code) { statFailedBefore = code; pauseMs(LOCK_SPIN_MS); continue; }
         age = Infinity;
       }
+      if (age !== Infinity) statFailedBefore = null;
       if (age > LOCK_STALE_MS) {
         const aside = `${lock}.${process.pid}.${Date.now()}.stale`;
         try { fs.renameSync(lock, aside); }
@@ -146,6 +155,8 @@ function withFileLock(file, fn, opts = {}) {
           // whenever the deschedule happens; with it, a third double-entry needs the
           // deschedule AND a sub-millisecond third-process mkdir landing in the gap.
           // A conditional-rename syscall would close it, but POSIX has none.
+          // #5997: that estimate held only once a vanished lock stopped reaching here; the one way in now is a
+          // lock genuinely measured stale (over LOCK_STALE_MS).
           try { fs.renameSync(aside, lock); } catch { /* path re-occupied; leave the inert `.stale` leftover in place */ }
           pauseMs(LOCK_SPIN_MS);
           continue;
