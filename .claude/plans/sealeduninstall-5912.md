@@ -41,3 +41,11 @@ the home3 uninstall (the install the config names) takes it and the owner finds 
 where it plugs in (shared_sealed_stays).
 Weakest premise: tools/test-install.sh's changed checks have not been run anywhere (a cut runs only the gate half);
 the unit tests exercise the rule on a real sealed icon.
+
+Round 6: the harness's `main` outcome (kept for a runnable default install) is not reached by any harness world (each
+world's default home has no bin/kosmos); the node unit tests cover that branch's logic on a real sealed icon. DEFERRED
+on purpose: tools/test-install.sh has not been run anywhere, so seeding a world to reach it adds an unverified premise.
+One full `yarn test:install` against a Developer ID dist is owed (as for slice 2). Sections above that describe the
+"no other install remains" rule, login jobs, or tests that "accept removal or the named left icon" are superseded by
+the review rounds. When the shared icon is kept, this account's ~/Applications copy is still removed as usual (it is
+this install's own and nothing else opens it).
