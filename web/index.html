@@ -20996,6 +20996,12 @@ function stateReason(a, opts) {
     if (ph === 'retried') return lost + '. Kosmos has asked it to try again.';
     return lost;
   }
+  /* #5957 slice 2: its working rules are far behind, and its own page offers the update (a.rulesBehind, from
+     engine/doctrine.js rulesBehind: a number only then). Last of the general reasons, so anything more urgent above
+     wins, and a rate-limited agent keeps its usage sentence below. Plain words; the card's look is unchanged. */
+  if (a && a.state !== 'rate_limited' && Number.isSafeInteger(a.rulesBehind) && a.rulesBehind > 0) {
+    return 'Its working rules are ' + a.rulesBehind + ' versions behind. Open it to update them.';
+  }
   if (!a || a.state !== 'rate_limited') return '';
   /* #4588: an Antigravity agent paused on its account's shared Google quota carries the reset, so the card says
      when the quota comes back. The reset, not a promise: the resume (engine/agyquota.js) can be switched off and

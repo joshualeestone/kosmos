@@ -579,4 +579,38 @@ function decline(sessionName) {
   }
 }
 
-module.exports = { START, END, spanBody, clickDate, autoLine, planFor, status, refresh, refreshUnedited, refreshFleet, decline, hashOf, atBirth, birthLine, pastBlockIn, FLEET_LEAVES_REPLACE, FLEET_LEAVES_EDITED, fleetLeaves };
+/**
+ * kosmos#5957 slice 2: how many versions behind an agent's working rules are, for its CARD, or null.
+ * A number only when the agent is at least RULES_FAR_BEHIND versions behind (its recorded profile.doctrineVersion
+ * against DOCTRINE_VERSION), its own page would offer the update (status() says `refresh`, so the card and the page
+ * agree), and the person has not said Not now to this version. null for an unknown version (no record, no claim).
+ * status() reads and plans the whole file, so the answer is kept per agent and recomputed only when the instructions
+ * file (mtime, size) or the profile (updatedAt, doctrineVersion, doctrineDeclined) changes: a poll costs one stat.
+ * `profile` is the row's own read, passed in so the card does not read it twice. Never throws.
+ */
+const RULES_FAR_BEHIND = 5;
+const BEHIND_SEEN = new Map();   // sessionName -> { stamp, value }
+function rulesBehind(sessionName, profile) {
+  try {
+    const p = profile && typeof profile === 'object' ? profile : (store.readProfile(sessionName) || {});
+    const carried = Number.isFinite(p.doctrineVersion) ? p.doctrineVersion : null;
+    if (carried === null) return null;
+    const behind = defaults.DOCTRINE_VERSION - carried;
+    if (behind < RULES_FAR_BEHIND) return null;
+    if (p.doctrineDeclined === defaults.DOCTRINE_VERSION) return null;
+    const file = instructions.fileFor(sessionName);
+    if (!file) return null;
+    const st = require('node:fs').statSync(file);
+    const stamp = [st.mtimeMs, st.size, p.updatedAt || '', carried, p.doctrineDeclined == null ? '' : p.doctrineDeclined].join('|');
+    const seen = BEHIND_SEEN.get(sessionName);
+    if (seen && seen.stamp === stamp) return seen.value;
+    const s = status(sessionName);
+    const value = s && s.state === 'refresh' ? behind : null;
+    BEHIND_SEEN.set(sessionName, { stamp, value });
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { RULES_FAR_BEHIND, rulesBehind, START, END, spanBody, clickDate, autoLine, planFor, status, refresh, refreshUnedited, refreshFleet, decline, hashOf, atBirth, birthLine, pastBlockIn, FLEET_LEAVES_REPLACE, FLEET_LEAVES_EDITED, fleetLeaves };
