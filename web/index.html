@@ -6988,6 +6988,15 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dmchoice[disabled] { opacity: .5; cursor: not-allowed; }
 .dmchoice-n { color: var(--k-ink-2); font-variant-numeric: tabular-nums; }
 .dmchoices-msg { font-size: .8125rem; color: var(--k-ink-2); }
+/* #5943: under a reported question, its age and the person's own "Answered, clear this" (the .dmchoice tokens, AA). */
+.dmq-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 2px; }
+.dmq-age { font-size: .8125rem; color: var(--k-ink-2); }
+.dmq-clear { font: inherit; font-size: .8125rem; font-weight: 600; color: var(--k-ink); background: var(--k-surface);
+  border: 1px solid var(--k-optline); border-radius: 10px; padding: .3em .8em; cursor: pointer; }
+.dmq-clear:hover { border-color: var(--k-ink-2); }
+.dmq-clear:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.dmq-clear[disabled] { opacity: .5; cursor: not-allowed; }
+.dmq-msg { font-size: .8125rem; color: var(--k-ink-2); }
 /* #3134-followup (Josh 6.72): name + timestamp now live INSIDE the bubble. The agent
    name is a bold heading at the TOP; the timestamp is a small muted line at the
    bottom-RIGHT under the body. Scoped to .msg-bd so the .msg-valve inline timestamp
@@ -37604,7 +37613,7 @@ function dmRow(m, name, replyAdjacent) {
        room's own pills + hover quick bar (rxnsInner), keyed by the message's `at`
        (a DM row has no id; the react route finds the message by it). `typeof`-guarded
        because the lifted dmRow tests run without the room's reaction helpers. */
-    const rxns = (m.at && typeof rxnsInner === 'function')
+    const rxns = (m.at && m.kind !== 'question' && typeof rxnsInner === 'function')   // #5943: a dated question is not a stored message, so it takes no reaction
       ? '<div class="rxns" data-at="' + esc(String(m.at)) + '" data-speak>' + rxnsInner(m.reactions,
         typeof CURRENT === 'undefined' || !CURRENT || m.from === CURRENT.sessionName, true, m.id) + '</div>' : '';   // #4409: an agent's row, so it can be read aloud   // #4631: its id for Copy reference   // #4256: Reply on this agent's own messages (the server takes no other sender's)
     return '<div class="msg" data-mid="' + midOf(m) + '">' + av
@@ -37614,6 +37623,7 @@ function dmRow(m, name, replyAdjacent) {
       + pjRich(typeof pjDropSelfName === 'function' ? pjDropSelfName(pjWords(m), [shownFrom, m.from]) : pjWords(m))   // #4873
       + pjPreviewCard(m.preview) + pjAttachmentCards(m)
       + (typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m) : '')   // #5406 (guarded: the lifted dmRow tests run without it)
+      + (typeof dmQuestionFootHtml === 'function' ? dmQuestionFootHtml(m) : '')   // #5943 (guarded: the lifted dmRow tests run without it)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
       + '</div>' + rxns + '</div></div>';
   }
@@ -38014,6 +38024,47 @@ document.addEventListener('click', (e) => {
   const b = e.target && e.target.closest ? e.target.closest('#d-dmthread .dmchoice') : null;
   if (b && !b.disabled) dmChoicePress(b);
 });
+/* #5943 (Josh: an answered question stayed the newest bubble for 12 days, and only an Engineering-mode button cleared
+   it). Under a question the agent REPORTED: how long it has been asked ("Asked 12 days ago", agoWords, the wording
+   #5942 matches), and "Answered, clear this" for anyone. The button takes the marker off through the same route as
+   the Engineering-mode control (clear-selfreport, recorded as the person's); no message is deleted. A question read
+   off the agent's screen alone has neither: it is in front of the agent now and is answered by replying. */
+function dmQuestionFootHtml(m) {
+  if (!m || m.kind !== 'question' || m.clearable !== true) return '';
+  const asked = Date.parse(m.at || '');
+  const age = Number.isFinite(asked) && typeof agoWords === 'function' ? agoWords(Date.now() - asked) : '';
+  return '<div class="dmq-foot">'
+    // data-at so the age is refreshed in place (refreshWhens) and blanked for the repaint check (threadShape): the
+    // minute it changes must not rebuild the thread (#3966's flash).
+    + (age ? '<span class="dmq-age" data-at="' + esc(String(m.at)) + '">Asked ' + esc(age) + '</span>' : '')
+    + '<button type="button" class="dmq-clear" aria-label="This question is answered: clear it">Answered, clear this</button>'
+    + '<span class="dmq-msg" role="status" aria-live="polite"></span></div>';
+}
+async function dmQuestionClear(btn) {
+  const target = CURRENT && CURRENT.sessionName;
+  if (!target || !btn || btn.disabled) return;
+  const foot = btn.closest('.dmq-foot');
+  const say = (t) => { const el = foot && foot.querySelector('.dmq-msg'); if (el) el.textContent = t; };
+  btn.disabled = true;
+  say('');
+  let ok = false;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(target) + '/clear-selfreport', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'the person marked the question answered' }),
+    });
+    let body = {};
+    try { body = await res.json(); } catch { body = {}; }
+    ok = res.ok && body && body.ok === true;   // cleared:false (already cleared, a race) is success too
+  } catch { ok = false; }
+  if (!ok) { btn.disabled = false; say('We could not clear that just now. Try again.'); return; }
+  // The next paint has no question row, so the bubble (and this button) goes; the card's badge goes on its next tick.
+  if (CURRENT && CURRENT.sessionName === target) await paintTalk(CURRENT.sessionName, CURRENT.name);
+}
+document.addEventListener('click', (e) => {
+  const b = e.target && e.target.closest ? e.target.closest('#d-dmthread .dmq-clear') : null;
+  if (b) dmQuestionClear(b);
+});
 /**
  * kosmos#5841: a direct conversation's EARLIER messages, opened from the "older messages are still kept" line, a page
  * at a time from GET .../thread/older?before=<n>, and drawn IN the thread, before the latest 200, by the thread's own
@@ -38198,6 +38249,7 @@ function paintTalkThread(body, name) {
   for (const m of dmSession && Array.isArray(body.messages) ? body.messages : []) {   // kosmos#5841: the latest only, not earlier rows
     if (!m || m.from !== dmSession || !m.at) continue;
     if (m.kind && ROOM_NOT_SPEECH.has(m.kind)) continue;
+    if (m.kind === 'question') continue;   // #5943: a standing question, dated when it was asked, is not a new reply
     const at = Date.parse(m.at);
     if (!Number.isFinite(at)) continue;
     const seen = DM_SPOKE_AT.get(dmSession);
@@ -70149,6 +70201,7 @@ function pjWhenLive(at) {
 function threadShape(html) {
   return String(html)
     .replace(/(<span class="mwhen" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2')
+    .replace(/(<span class="dmq-age" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2')   // #5943
     .replace(/<svg class="lring"[\s\S]*?<\/svg>/g, (ring) => ring.replace(/stroke-dasharray="[^"]*"/g, 'stroke-dasharray=""'));
 }
 /** #3991: bring every memory ring arc under `root` to the one in `html`, pairing each ring with the
@@ -70183,6 +70236,12 @@ function refreshWhens(root) {
   if (!root || typeof root.querySelectorAll !== 'function') return;
   for (const el of root.querySelectorAll('.mwhen[data-at]')) {
     const said = pjWhen(el.getAttribute('data-at'));
+    if (said && el.textContent !== said) el.textContent = said;
+  }
+  // #5943: a standing question's age, the same in-place refresh (threadShape blanks it too).
+  for (const el of root.querySelectorAll('.dmq-age[data-at]')) {
+    const age = agoWords(Date.now() - Date.parse(el.getAttribute('data-at')));
+    const said = age ? 'Asked ' + age : '';
     if (said && el.textContent !== said) el.textContent = said;
   }
 }

@@ -3139,6 +3139,11 @@ cmd_report() {
       # (the note holds no quote or backslash; engine/selfreport.js BLOCKED_PERSON_NOTE).
       note=$(printf '%s' "$body" | sed -n 's/.*"note":"\([^"]*\)".*/\1/p')
       if [ -n "$note" ]; then say "$note"; fi
+      # #5943 (Josh: questions an agent could settle itself should not reach a non-technical person). Said at the
+      # moment of asking, where the agent is when it decides to ask; an automatic report (a hook) is not asking.
+      if [ "$state" = "needs_you" ] && [ "$auto" != 1 ]; then
+        say "Before a person has to answer this: can you undo it yourself, before anyone acts on it? If both are yes, decide it, tell them what you decided, and run: kosmos report clear. When they answer, wherever they answer, run: kosmos report clear."
+      fi
       ;;
     *)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')

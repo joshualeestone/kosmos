@@ -16327,8 +16327,17 @@ const server = http.createServer(async (req, res) => {
        the integration test below pins. */
     /* #3723: and Kosmos's own line while the agent is stopped by its account (out of usage or
        credits, a sign-in that stopped working), derived from the same card, so it clears itself. */
+    /* #5943: a question the agent REPORTED is dated from when it was first asked (selfreport askedAt), so it sits in
+       time instead of under every later message, and the person may clear it from the bubble (clear-selfreport, the
+       same route as the Engineering-mode control). A question only read off the screen has neither. */
+    let questionRow = question;
+    if (question && card && card.stateReported === true) {
+      let askedAt = null;
+      try { const rep = selfreport.read(card.sessionName); askedAt = rep && rep.found ? rep.askedAt : null; } catch { askedAt = null; }
+      questionRow = { ...question, clearable: true, ...(askedAt ? { at: askedAt } : {}) };
+    }
     const servedMessages = Array.isArray(messages)
-      ? chat.withAccountRow(chat.withQuestionRow(messages, (card && card.sessionName) || name, question),
+      ? chat.withAccountRow(chat.withQuestionRow(messages, (card && card.sessionName) || name, questionRow),
         (card && card.sessionName) || name, accountProblemOf(card))
       : messages;
     /* #3650: the person's reactions on the agent's messages, in the room's pill shape
@@ -16721,7 +16730,15 @@ const server = http.createServer(async (req, res) => {
         /* Not on a numbered menu answer (chat.dmNoteMayRide); the note waits for the next
            ordinary message. */
         const news = chat.dmNoteMayRide(body.text, chose) ? chat.dmReactionNews(name) : { note: '', named: {} };
-        const reactionNote = news.note;
+        /* #5943: a reported question standing while the person writes: the agent is told to decide whether this answers
+           it (clear it, or leave it open and say what it still needs). Rides with the reaction note, under the same rule
+           (never on a numbered menu answer), and never on the automatic hello, which answers nothing. Only a question
+           the agent REPORTED: one read off its screen is answered by this message going into that screen. */
+        const questionNote = (!automatic && chat.dmNoteMayRide(body.text, chose) && askingCard
+          && askingCard.state === STATE.NEEDS_YOU && askingCard.stateReported === true
+          && typeof askingCard.because === 'string' && askingCard.because !== ASKING_GENERIC)
+          ? chat.dmStandingQuestionNote(askingCard.because) : '';
+        const reactionNote = news.note + questionNote;
         /* #4256: the quote is Kosmos's framing, so it rides in the ENVELOPE, after the operator's bracket: the
            person's words reach deliver unchanged, so their length budget and the paused-agent command check see
            exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
@@ -16854,7 +16871,7 @@ const server = http.createServer(async (req, res) => {
            send (a paste that failed part-way, a pane that changed before Enter) is the case
            most likely to have lost it. Telling twice costs one extra note; not telling is
            silent. A failed mark (the thread lock busy) also just tells again next time. */
-        if (reactionNote && delivery && delivery.state === chat.DELIVERY.PLACED) {
+        if (news.note && delivery && delivery.state === chat.DELIVERY.PLACED) {   // #5943: the reactions' own part, not the question note riding with it
           chat.markDmReactionsTold(name, news.named);
         }
         const kept = chat.appendMessage(chat.DIRECT, name, {
