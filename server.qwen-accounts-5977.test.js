@@ -159,3 +159,11 @@ test('review 2: an empty claimed folder left by a crashed add is reclaimed once 
   assert.equal(k.status, 409, 'CONTROL: an old folder with something in it is never reclaimed');
   assert.ok(fs.existsSync(nodePath.join(kept, 'someone-elses.txt')));
 });
+
+test('review 5: an address typed with a trailing slash is checked as it will be stored', async () => {
+  const asked = [];
+  qwen.setFetcher(async (url) => { asked.push(url); return { status: 200, body: { data: [{ id: 'not-this-one' }] } }; });
+  const r = await post('/api/accounts/qwen', { baseUrl: 'http://localhost:11434/v1/', model: MODEL, label: 'r5slash' });
+  assert.equal(r.status, 400, 'the endpoint said it lacks the model, so nothing is stored');
+  assert.deepEqual(asked, ['http://localhost:11434/v1/models']);
+});

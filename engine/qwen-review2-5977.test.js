@@ -242,3 +242,96 @@ test('#5977 r4: the account list asks a dead endpoint briefly and remembers it f
     assert.ok(Date.now() - t0 < 500, 'a dead endpoint is remembered, not asked again on the next list');
   } finally { for (const s of sockets) s.destroy(); hang.close(); }
 });
+
+/* ---- review 5 --------------------------------------------------------------------------------------------- */
+
+test('#5977 r5: a Qwen switch and an account move record the account; a switch away clears it', () => {
+  const a = nodePath.join(HOME, qwen.DIR_PREFIX + 'r5a'); qwen.storeEndpoint(a, EP);
+  const b = nodePath.join(HOME, qwen.DIR_PREFIX + 'r5b'); qwen.storeEndpoint(b, EP);
+  const name = codexAgent('r5-rec', null, 'anthropic');
+  fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), '# brief\n');
+  const sw = create.setProvider(name, 'alibaba', { accountDir: a, codexBin: CODEX_BIN, tmuxBin: TMUX_BIN, platform: 'darwin' });
+  assert.equal(sw.outcome, 'created', sw.because);
+  assert.equal(store.readProfile(name).qwenAccount, a);
+  const mv = create.setAccount(name, b, { platform: 'darwin' });
+  assert.equal(mv.outcome, 'created', mv.because);
+  assert.equal(store.readProfile(name).qwenAccount, b);
+  const back = create.setProvider(name, 'anthropic', { claudeBin: CODEX_BIN, tmuxBin: TMUX_BIN, platform: 'darwin' });
+  assert.equal(back.outcome, 'created', back.because);
+  assert.equal(store.readProfile(name).qwenAccount, null, 'an agent no longer on Qwen keeps no Qwen account');
+});
+
+test('#5977 r5: create refuses a Qwen account whose endpoint positively says no, and not one it cannot reach', async () => {
+  const dir = nodePath.join(HOME, qwen.DIR_PREFIX + 'r5conn'); qwen.storeEndpoint(dir, EP);
+  qwen.resetLiveCacheForTest();
+  qwen.setFetcher(async () => ({ status: 401, body: null }));
+  try {
+    const no = await create.accountConnectable({ provider: 'alibaba', accountDir: dir });
+    assert.equal(no.ok, false);
+    assert.match(no.because, /did not accept the key/);
+    qwen.setFetcher(async () => { throw new Error('ECONNREFUSED'); });
+    assert.equal((await create.accountConnectable({ provider: 'alibaba', accountDir: dir })).ok, true, 'CONTROL: Ollama closed is not a refusal');
+  } finally { qwen.setFetcher(null); }
+});
+
+test('#5977 r5: a held message to a Qwen agent never mentions signing in', () => {
+  const chat = require('./chat');
+  // A card addressable() accepts (named ours, a target, the agent's own process in its pane).
+  const roster = [{ sessionName: QW, name: QW, isNamedOurs: true, target: 'r2:0.0', isAgentPane: true,
+    state: require('./status').STATE.AUTH_FAILED, stateReported: true, runner: 'codex' }];
+  const v = chat.signinHeldVerdict(QW, roster);
+  assert.ok(v, "the held verdict was not reached");
+  assert.match(v.because, /Qwen endpoint/);
+  assert.doesNotMatch(v.because, /signed/);
+  const src = fs.readFileSync(nodePath.join(__dirname, 'chat.js'), 'utf8');
+  assert.match(src, /provider === 'Qwen'   \/\/ #5977 review 5: a Qwen account has no sign-in/, 'the Qwen branch of the held sentence is gone');
+});
+
+test('#5977 r5: a slow endpoint is "did not answer in time", not "could not reach"', async () => {
+  qwen.setFetcher(async () => { const e = new Error('aborted'); e.name = 'AbortError'; throw e; });
+  try {
+    const v = await qwen.validateLive({ ...EP, baseUrl: 'https://qwen.example.com/v1' });
+    assert.match(v.because, /did not answer in time/);
+    qwen.setFetcher(async () => { throw new Error('ECONNREFUSED'); });
+    assert.match((await qwen.validateLive({ ...EP, baseUrl: 'https://qwen.example.com/v1' })).because, /could not reach/, 'CONTROL');
+  } finally { qwen.setFetcher(null); }
+});
+
+/* Last in the file: setRunner(null) leaves dry-run on, which the earlier switch tests must not inherit. */
+test('#5977 r5: Repair rebuilds a Qwen agent on its recorded Qwen account, and refuses rather than make it OpenAI', () => {
+  const register = require('./register');
+  // installJob would bootstrap with the real launchctl; stubbed, as create.installjob-gemini-grok-3296 does.
+  create.setRunner(() => ({ ok: true, stdout: '' })); create.setDryRun(false);
+  try {
+  const acct = nodePath.join(HOME, qwen.DIR_PREFIX + 'r5rep');
+  qwen.storeEndpoint(acct, EP);
+  // A Qwen agent whose job is gone, with its account recorded.
+  fs.mkdirSync(create.workerDir('r5-known'), { recursive: true });
+  fs.writeFileSync(nodePath.join(create.workerDir('r5-known'), 'AGENTS.md'), '# brief\n');
+  store.writeProfile('r5-known', { provider: 'alibaba', qwenAccount: acct });
+  fs.mkdirSync(create.workerDir('r5-unknown'), { recursive: true });
+  fs.writeFileSync(nodePath.join(create.workerDir('r5-unknown'), 'AGENTS.md'), '# brief\n');
+  store.writeProfile('r5-unknown', { provider: 'alibaba' });
+  const out = register.repair({ platform: 'darwin' });
+  const r = (out.results || []).find((x) => x.name === 'r5-known');
+  const u = (out.results || []).find((x) => x.name === 'r5-unknown');
+  assert.ok(r && u, 'repair did not see both job-less agents: ' + JSON.stringify(out));
+  const job = create.readJob('r5-known');
+  assert.ok(job, 'repair wrote no job: ' + JSON.stringify(r));
+  assert.equal(job.runner, 'codex');
+  assert.equal(job.configDir, acct, 'rebuilt without its Qwen account, it would be an OpenAI agent');
+  // One with no account recorded (an agent made before this was recorded).
+  assert.equal(u.ok, false);
+  assert.match(u.because, /switch it to Qwen again/);
+  assert.equal(create.readJob('r5-unknown'), null, 'no OpenAI job was written for a Qwen agent');
+  // installJob, the shared door (connect, backfill), refuses the same way.
+  const i = create.installJob('r5-unknown', { platform: 'darwin' });
+  assert.equal(i.ok, false);
+  assert.equal(create.readJob('r5-unknown'), null);
+  // And create records the account at birth, which is what Repair reads back.
+  const born = create.createAgent({ name: 'r5-born', role: 'pm', provider: 'alibaba', account: acct, codexBin: CODEX_BIN, claudeBin: CODEX_BIN, tmuxBin: TMUX_BIN, platform: 'darwin' });
+  assert.equal(born.outcome, 'created', born.because);
+  assert.equal(store.readProfile('r5-born').qwenAccount, acct);
+  } finally { create.setRunner(null); }
+});
+

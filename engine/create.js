@@ -1820,6 +1820,7 @@ function setQwenAccount(clean, spoken, dir, job, platform) {
     runnerBin: job.claude, tmux: job.tmux, model: null, configDir: acct.dir, runner: 'codex',
   }, platform);
   if (unwritten) return unwritten;
+  try { store.writeProfile(clean, { qwenAccount: acct.dir }); } catch { /* the job is the launch truth */ }   // #5977 review 5
   return { outcome: OUTCOME.CREATED, because: null, account: acct };
 }
 
@@ -2405,7 +2406,7 @@ function setProvider(name, provider, opts) {
     try { fs.renameSync(oldBrief, newBrief); }
     catch { /* plist is the launch truth; a same-dir rename of an existing source effectively cannot fail */ }
   }
-  try { store.writeProfile(clean, { provider }); }
+  try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null }); }   // #5977 review 5
   catch { /* the plist is the launch truth; the profile record catches up on the next write */ }
   /* #5091: the picked Claude account, through the Move path. The switch above is written (on the main account), so
      a refusal here is PARTIAL, said as such: it runs on Claude, on the main account, not the one picked. */
@@ -3856,6 +3857,13 @@ function installJob(name, opts) {
   if (wantRunner === 'antigravity' && jobPlatform === 'win32' && !win32AgyOn()) {
     return { ok: false, because: REFUSE_ANTIGRAVITY_WIN32 };
   }
+  /* #5977 review 5: a Qwen agent (its profile says alibaba) rebuilt with no Qwen account folder would be a plain
+     OpenAI agent. Only when no job is there to keep its folder: a job that exists is the truth and is re-read. */
+  if (wantRunner === 'codex' && !(opts && typeof opts.configDir === 'string' && opts.configDir) && !readJob(clean)) {
+    let prov = null;
+    try { prov = store.readProfile(clean).provider; } catch { prov = null; }
+    if (prov === 'alibaba') return { ok: false, because: `${spokenName(clean)} runs on Qwen and its Qwen account is not known here; switch it to Qwen again to pick one` };
+  }
   // #5977 review 3: a codex job on a Qwen home cannot be launched on Windows (no endpoint arguments there).
   if (wantRunner === 'codex' && jobPlatform === 'win32' && opts && typeof opts.configDir === 'string' && opts.configDir
     && require('./qwenaccounts').isQwenHome(opts.configDir)) {
@@ -4331,6 +4339,19 @@ async function accountConnectable({ provider, accountDir } = {}) {
      routing a bogus provider into the Claude arm below would surface a Claude
      sign-in error for what is really a provider mistake. */
   const prov = (provider !== undefined && provider !== null && String(provider) !== '') ? String(provider) : 'anthropic';
+  /* #5977 review 5: a Qwen account whose endpoint positively refuses (its key, or it lacks the model) is refused
+     here, as the other keyed providers are (#1315); one that cannot be reached is not (Ollama may simply be closed). */
+  if (prov === 'alibaba') {
+    if (!dir) return { ok: true };   // createAgentInner refuses a Qwen create with no account
+    try {
+      const qwen = require('./qwenaccounts');
+      const live = await qwen.checkLive(dir);
+      if (live && live.state === qwen.STATE.NONE) return { ok: false, because: `that Qwen account cannot be used: ${live.because}` };
+    } catch (err) {
+      console.error('#1916: account liveness precheck errored in qwen (failing open):', (err && err.stack) || err);
+    }
+    return { ok: true };
+  }
   if (prov !== 'anthropic' && prov !== 'openai' && prov !== 'google' && prov !== 'xai') return { ok: true };
 
   /* #3566: Gemini and Grok, now creatable from the page. A NAMED account is checked live
@@ -6381,6 +6402,9 @@ function createAgentInner(opts) {
     /* The provider, recorded at birth beside the id (#245, per the OpenAI
        outline): never inferred from what happens to be running in a pane. */
     profile.provider = provider;
+    /* #5977 review 5: which Qwen account, so Repair can rebuild the job on it (the job is the only other record, and
+       Repair runs exactly when the job is gone). */
+    if (provider === 'alibaba') profile.qwenAccount = configDir;
     /* #3564: a swarm's kind and settings, from birth (engine/swarm.js). */
     if (kind === 'swarm') Object.assign(profile, require('./swarm').birthProfile({ maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit, dailyAllowancePct: opts.dailyAllowancePct }));
     /* Which revision of the working rules this agent was born with (#539),
