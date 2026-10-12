@@ -20,9 +20,14 @@ say is better gone).
 ## Done when
 - frStepSequence on a Linux board is [1, 5, 6, 8, 9]; every Next hop and a deep link to a skipped step land inside it;
   progress counts only those steps. Mac and Windows are unchanged (controls).
-- The five kept panes, read as the person sees them, name no Mac thing (Dock, Applications folder, Finder, macOS,
-  "this Mac", System Settings, Keychain, sleep); a control proves the reader finds them in panes 3 and 7.
-- web.firstrun-linux-5877.test.js fails on main's page (3 of 5; the 2 controls pass there by design).
+- The five kept panes' served markup (each read to its own closing div, so pane 9 does not run into the Create
+  panel) names no Mac thing (Dock, Applications folder, Finder, macOS, Mac, System Settings, Keychain, Spotlight,
+  Launchpad, menu bar, sleep, in any case, and the app name "Terminal"); a control proves the reader finds them in panes
+  3 and 7. Text painted at run time is not rendered by the test; the one Linux-specific painter arm, pane 5's sign-in
+  hatch (#5449), is read from source and holds none. The other painters in the kept panes (frPaintYou, frPaintFleet)
+  were read by hand in review 1 and hold none (review 1).
+- web.firstrun-linux-5877.test.js fails on main's page (the Linux sequence, deep-link and kept-pane tests; the controls
+  and the pane-9 boundary and hatch checks pass there by design).
 
 ## Not in this change
 - The card's item 3, walking it on a real Linux board (the #4916 box). That needs the Linux board; the card stays open
