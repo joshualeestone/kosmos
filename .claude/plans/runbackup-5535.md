@@ -42,3 +42,15 @@ week: red. R5 no one-at-a-time chain: red. R6 the job's state not kept: red. R7 
 "ran" sentence: red. R8 otherPair ignored: red. R9 pointer not written: red. R10 the chunk Map leaks to the caller: red.
 R11 an unguarded throw: red. R4 (the i === 0 guard removed) SURVIVES and is equivalent: the loop's bound of two already
 makes a third snapshot impossible, which the newPeriod test asserts (exactly two calls).
+
+## Review 1 (opus, blind, on 02f7bd59): two must-fix, four nits, all fixed
+1. MUST-FIX: a failed write AFTER the run said "the backup ran" on every path and dropped the run's flags. FIXED: the
+   run's answer stands with stateNotKept / stateBecause / stateRetry beside it; "ran" only when a snapshot was taken.
+2. MUST-FIX: no test for my own Rejected case (lost pointer, live file); a restart that skipped reading state survived.
+   FIXED: test added (kept naming key and index reused).
+3. NIT: a first run whose key step refused restarted and sent the same request again (a registration inside a
+   rotation wait). FIXED: it keeps the pair and that answer's job state (only into a file with none of its own) and stops.
+4. NIT: header silent on a first run whose answer names no pair. FIXED.
+5. NIT: the never-throws test never reached runNow's own catch (R11 was killed by other tests). FIXED: a pointer path
+   that is a folder makes writePointer throw inside runNow.
+6. NIT: the granted week's write-before was unproven. FIXED: asserted on the second call, and both slots kept.
