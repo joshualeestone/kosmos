@@ -2852,7 +2852,9 @@ function handleQwenAccountStore(req, res) {
       }
       const giveBack = () => { try { fs.rmSync(named.dir, { recursive: true, force: true }); } catch { /* best effort */ } };
       let live;
-      try { live = await qwenAccounts.validateLive(ep); } catch { live = { state: qwenAccounts.STATE.UNKNOWN, because: 'we could not check this endpoint just now' }; }
+      /* Review 5: check the address as it will be stored (no trailing slash), or ".../v1/" is asked ".../v1//models",
+         answers 404 (UNKNOWN), and a wrong model or refused key is stored unseen. */
+      try { live = await qwenAccounts.validateLive({ ...ep, baseUrl: ep.baseUrl.replace(/\/+$/, '') }); } catch { live = { state: qwenAccounts.STATE.UNKNOWN, because: 'we could not check this endpoint just now' }; }
       if (live.state === qwenAccounts.STATE.NONE) { giveBack(); sendJson(res, 400, { error: live.because }); return; }
       try { qwenAccounts.storeEndpoint(named.dir, ep); }
       catch { giveBack(); sendJson(res, 400, { error: 'we could not save this Qwen account on this computer' }); return; }

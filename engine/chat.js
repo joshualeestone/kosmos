@@ -1987,7 +1987,9 @@ function signinHeldVerdict(sessionName, roster, now = Date.now()) {
   return {
     state: DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldFor: 'signin',
     heldUntil: new Date(now + LIMIT_RELOOK_MS).toISOString(), limitReset: new Date(now).toISOString(),
-    because: 'held: it is signed out of ' + provider + '; Kosmos sends it once it is signed in again',
+    because: provider === 'Qwen'   // #5977 review 5: a Qwen account has no sign-in
+      ? 'held: it cannot get answers from its Qwen endpoint; Kosmos sends it once the endpoint answers again'
+      : 'held: it is signed out of ' + provider + '; Kosmos sends it once it is signed in again',
     at: new Date(now).toISOString(), paneState: null, paneNote: null,
   };
 }

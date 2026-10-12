@@ -253,8 +253,9 @@ async function askModels(ep, timeoutMs) {
   const headers = ep.key ? { authorization: 'Bearer ' + ep.key } : {};
   try {
     return await f(ep.baseUrl + '/models', { method: 'GET', headers }, timeoutMs);
-  } catch {
-    return { status: 0, body: null, unreachable: true };
+  } catch (err) {
+    // Review 5: a request cut off by the time limit was reached but slow, which is not "could not reach".
+    return { status: 0, body: null, unreachable: true, timedOut: !!(err && err.name === 'AbortError') };
   }
 }
 
@@ -266,6 +267,7 @@ async function askModels(ep, timeoutMs) {
 async function validateLive(ep, opts) {
   const where = isLocal(ep.baseUrl) ? 'Qwen on this computer (Ollama)' : 'the Qwen endpoint';
   const r = await askModels(ep, opts && opts.timeoutMs);
+  if (r.unreachable && r.timedOut) return { state: STATE.UNKNOWN, because: where + ' did not answer in time' };
   if (r.unreachable) {
     return { state: STATE.UNKNOWN, because: isLocal(ep.baseUrl) ? 'we could not reach Ollama on this computer; is it running?' : 'we could not reach the Qwen endpoint' };
   }
