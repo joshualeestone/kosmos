@@ -11003,6 +11003,7 @@ const server = http.createServer(async (req, res) => {
         /* #5948: an account an agent uses whose sign-in or key is gone is not in the lists above (they list a folder only
            when it holds a credential). Sent apart, so no account picker offers it; `kosmos accounts` prints it. */
         let unlistedAccounts = [];
+        let unlistedComplete = true;
         try {
           const readers = { openai: openaiAccounts, google: geminiAccounts, xai: grokAccounts };
           // The account walk's names (knownAgentNames): the roster's cards, then known profiles not on it. Its `complete` is
@@ -11015,8 +11016,8 @@ const server = http.createServer(async (req, res) => {
             undefined, (p) => readers[p].defaultDir(),
             // The secrets/env door a launch falls back to when a folder's own key is missing (tokendoor.fileFor).
             (v) => { try { return fs.readFileSync(require('./engine/tokendoor').fileFor(v), 'utf8').trim() !== ''; } catch (e) { if (e && e.code === 'ENOENT') return false; throw e; } });   // any other fault: unsure, never "gone"
-        } catch { unlistedAccounts = []; }
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub], unlistedAccounts });
+        } catch { unlistedAccounts = []; unlistedComplete = false; }
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub], unlistedAccounts, unlistedComplete });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;

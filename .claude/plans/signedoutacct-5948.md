@@ -21,6 +21,8 @@ of reading signed out.
 - A gemini/grok folder whose own key is gone while this computer's secrets/env door holds that provider's key
   (GEMINI_API_KEY / XAI_API_KEY, the fallback a launch uses) is also `unlisted`: the agent may still be working on the
   shared key, so "not signed in" would be confidently wrong (review 9). A door that cannot be read counts as unsure.
+- When Kosmos could not look (a locked folder, an unread door), the row says that, never that a file or a shared key
+  is there (review 13). A failed check sends `unlistedComplete: false`, and the CLI then does not say "none set up".
 - A signed-out row says how to fix it: add the key or sign in again in Settings > AI Models. It does not name a folder
   to re-add under: whether a name lands in the same folder depends on env overrides and label cleaning (review 11).
 - The agents walked are the same set the account guard walks (`knownAgentNames`, factored out of
@@ -49,6 +51,10 @@ of reading signed out.
 - A stopped agent whose job predates the `runner` field (no runner on job or card) is skipped.
 
 ## Weakest premise
+**A key the launch inherits from its own environment is not seen (review 13).** The shared-key check reads Kosmos's
+secrets/env door only. An `XAI_API_KEY` / `GEMINI_API_KEY` inherited by the launching process would let an agent run
+while its row says "not signed in". Not measured how often a launch inherits one.
+
 **A logged-out credential file may read "not checked", not "not signed in" (review 5).** "Unlisted" is decided by a
 credential file with content being THERE (an empty or whitespace-only one counts as gone, reviews 10, 11), not by the provider recognising it. If
 a CLI's logout leaves auth.json with content but no usable entry (e.g. no auth.x.ai key) rather than deleting it, the row says Kosmos could not check it, which is the cautious

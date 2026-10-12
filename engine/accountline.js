@@ -35,7 +35,8 @@ function accountState(a, now = Date.now()) {
   if (c.badge === 'signed_in_unverified') return 'signed in by Kosmos\'s record, not yet confirmed by a real request';
   if (c.badge === 'rejected') return 'not signed in: its last request was refused. The person signs in again in Settings > AI Models';
   if (c.badge === 'signed_out') return 'not signed in' + why;
-  // #5948: an account Kosmos does not list (its credential could not be read, or sits outside the folder it looks in).
+  // #5948: an account Kosmos does not list and cannot call signed out: its credential could not be read or sits outside
+  // the folder Kosmos looks in, its folder could not be looked into, or a shared key may stand in for it.
   if (c.badge === 'unlisted') return 'not checked by Kosmos' + why;
   if (c.badge === 'unchecked') return 'could not be checked just now' + why;
   if (c.liveCheckPending === true) return 'being checked now; run it once more in a few seconds for the answer';
@@ -65,6 +66,10 @@ function answer(status, json, now = Date.now()) {
   if (!json || !Array.isArray(json.accounts)) return { fail: 'Kosmos gave an answer we could not read about its accounts.' };
   // #5948: accounts an agent uses whose sign-in or key is gone, sent apart from `accounts` so no picker offers them.
   const gone = (Array.isArray(json.unlistedAccounts) ? json.unlistedAccounts : []).filter((a) => a && typeof a === 'object');
+  // #5948: the unlisted check failed, so "none set up" is not something Kosmos can say.
+  if (!json.accounts.length && !gone.length && json.unlistedComplete === false) {
+    return { lines: ['No provider accounts are listed, and Kosmos could not check the accounts its agents use just now. Try again in a minute.'] };
+  }
   if (!json.accounts.length && !gone.length) return { lines: ['No provider accounts are set up on this board yet. The person adds one in Settings > AI Models.'] };
   return { lines: [...json.accounts, ...gone].filter((a) => a && typeof a === 'object').map((a) => accountLine(a, now)) };
 }

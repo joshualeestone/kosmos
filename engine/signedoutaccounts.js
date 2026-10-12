@@ -84,16 +84,18 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
       const base = path.basename(dir);
       let unreadable = false;
       // A look that fails counts as "there but unreadable": "could not be checked", never a confident "gone".
-      try { unreadable = p.files.some((f) => exists(path.join(dir, f))); } catch { unreadable = true; }
+      let folderUnsure = false;   // the look itself failed: nobody saw a file, so the words must not say one is there
+      try { unreadable = p.files.some((f) => exists(path.join(dir, f))); } catch { unreadable = true; folderUnsure = true; }
       byDir.set(key, {
         provider: p.provider, providerName: p.providerName, dir,
         label: base.startsWith(p.prefix) ? base.slice(p.prefix.length) : base,
         name: name || null, isDefault: false, email: null, authMode: null, keyTail: null,
-        signedOut: false, unreadable, sharedKey: false, usedBy: [],
+        signedOut: false, unreadable, folderUnsure, sharedKey: false, sharedKeyUnsure: false, usedBy: [],
       });
       const row = byDir.get(key);
       if (!unreadable && p.sharedKey) {
-        try { row.sharedKey = hasSharedKey(p.sharedKey) === true; } catch { row.sharedKey = true; }   // unsure: never "gone"
+        // A door that cannot be read is unsure: never "gone", and never said to hold a key nobody saw.
+        try { row.sharedKey = hasSharedKey(p.sharedKey) === true; } catch { row.sharedKey = true; row.sharedKeyUnsure = true; }
       }
       row.signedOut = !row.unreadable && !row.sharedKey;
     }
@@ -106,11 +108,15 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
     const fix = ' To fix it, add the key or sign in again in Settings > AI Models.';
     return {
       ...r,
-      connection: r.unreadable
-        ? { state: 'unknown', badge: 'unlisted', because: 'a sign-in or key file is in its folder, but Kosmos could not read it or does not look in that folder, and ' + who + '.' }
-        : r.sharedKey
-          ? { state: 'unknown', badge: 'unlisted', because: 'its own sign-in or key is gone from its folder, but this computer\'s shared ' + r.providerName + ' key can stand in for it, and ' + who + '.' + fix }
-          : { state: 'none', badge: 'signed_out', because: 'its sign-in or key is no longer on this computer, and ' + who + '.' + fix },
+      connection: r.folderUnsure
+        ? { state: 'unknown', badge: 'unlisted', because: 'Kosmos could not look in its folder, and ' + who + '.' }
+        : r.unreadable
+          ? { state: 'unknown', badge: 'unlisted', because: 'a sign-in or key file is in its folder, but Kosmos could not read it or does not look in that folder, and ' + who + '.' }
+          : r.sharedKeyUnsure
+            ? { state: 'unknown', badge: 'unlisted', because: 'its own sign-in or key is gone from its folder, Kosmos could not read this computer\'s shared ' + r.providerName + ' key to tell whether one stands in, and ' + who + '.' }
+            : r.sharedKey
+              ? { state: 'unknown', badge: 'unlisted', because: 'its own sign-in or key is gone from its folder, but this computer\'s shared ' + r.providerName + ' key can stand in for it, and ' + who + '.' + fix }
+              : { state: 'none', badge: 'signed_out', because: 'its sign-in or key is no longer on this computer, and ' + who + '.' + fix },
     };
   });
 }

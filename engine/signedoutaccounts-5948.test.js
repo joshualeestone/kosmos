@@ -51,7 +51,9 @@ test('#5948 CONTROLS: a listed folder, a default-account agent, a Claude agent a
   assert.deepEqual(signedOutRows([card('gk', 'grok')], { xai: [{ dir: '/h/.grok-work' }] }, readJob, readName), [],
     'a folder the list already shows was added again');
   assert.deepEqual(signedOutRows([card('cx', 'codex')], { openai: [] }, readJob, readName), [], 'a default-account agent was read as signed out');
-  assert.deepEqual(signedOutRows([card('cl', 'claude'), card('cl', 'muse')], {}, readJob, readName), []);
+  assert.deepEqual(signedOutRows([card('cl', 'claude')], {}, readJob, readName), []);
+  // An unknown runner, read where the module reads it (the job first): no row.
+  assert.deepEqual(signedOutRows([card('cl')], {}, () => ({ configDir: '/h/.muse-x', runner: 'muse' }), readName), []);
   assert.deepEqual(signedOutRows([card('nobody', 'grok')], { xai: [] }, readJob, readName), [], 'an agent with no job');
   // The provider is matched too: a gemini folder is not answered by a grok row of the same path.
   assert.equal(signedOutRows([card('gm', 'gemini')], { xai: [{ dir: '/h/.gemini-x' }], google: [] }, readJob, readName).length, 1);
@@ -126,6 +128,9 @@ test('#5948 review 3: on a real disk, a folder Kosmos cannot read reads unchecke
     const jobsHere = { l: { configDir: locked, runner: 'grok' }, m: { configDir: path.join(root, '.grok-missing'), runner: 'grok' } };
     const [l] = signedOutRows([card('l', 'grok')], { xai: [] }, (n) => jobsHere[n], () => null);
     assert.deepEqual([l.unreadable, l.connection.badge], [true, 'unlisted'], JSON.stringify(l));
+    // review 13: nobody saw a file in a folder Kosmos could not look into, so the words do not say one is there.
+    assert.match(l.connection.because, /^Kosmos could not look in its folder/);
+    assert.doesNotMatch(l.connection.because, /file is in its folder/);
     const [m] = signedOutRows([card('m', 'grok')], { xai: [] }, (n) => jobsHere[n], () => null);
     assert.deepEqual([m.unreadable, m.connection.badge], [false, 'signed_out'], 'CONTROL: ' + JSON.stringify(m));
   } finally { fs.chmodSync(locked, 0o700); fs.rmSync(root, { recursive: true, force: true }); }
@@ -167,6 +172,9 @@ test('#5948 review 9: a gemini/grok folder whose own key is gone, with a shared 
   // A door that cannot be read is unsure, never "gone".
   const [u] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => null, () => { throw new Error('x'); });
   assert.equal(u.connection.badge, 'unlisted');
+  // review 13: an unread door is not said to hold a key.
+  assert.match(u.connection.because, /could not read this computer's shared Grok key to tell whether one stands in/);
+  assert.doesNotMatch(u.connection.because, /can stand in for it/);
   // CONTROLS: no shared key reads signed out; codex has no shared door, so it is never asked.
   const [g] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => null, () => false);
   assert.equal(g.connection.badge, 'signed_out');
@@ -199,4 +207,12 @@ test('#5948 review 10: on a real disk, an EMPTY credential file holds no credent
     const [f] = signedOutRows([card('e', 'grok')], { xai: [] }, (n) => jobsHere[n === 'e' ? 'f' : n], () => null);
     assert.equal(f.connection.badge, 'unlisted', 'CONTROL: ' + JSON.stringify(f));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('#5948 review 13: when the board could not check its agents\' accounts, kosmos accounts does not say none are set up', () => {
+  assert.deepEqual(answer(200, { accounts: [], unlistedAccounts: [], unlistedComplete: false }).lines,
+    ['No provider accounts are listed, and Kosmos could not check the accounts its agents use just now. Try again in a minute.']);
+  // CONTROL: a completed check with nothing to say keeps the old sentence.
+  assert.deepEqual(answer(200, { accounts: [], unlistedAccounts: [], unlistedComplete: true }).lines,
+    ['No provider accounts are set up on this board yet. The person adds one in Settings > AI Models.']);
 });
