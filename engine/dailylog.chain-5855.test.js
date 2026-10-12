@@ -373,6 +373,7 @@ test('a thread file with no project date that rolls over under one compiles whol
   const cur = JSON.parse(fs.readFileSync(path.join(chatsDir, base), 'utf8'));
   assert.ok(cur.projectBornAt, 'precondition: the fresh file carries the project date');
   assert.equal(fromChat[0].messages.length, MAX);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(chatsDir, fromChat[0].name), 'utf8')).projectBornAt, undefined, 'precondition: the full file has no project date');
   const mine = dl.followChain(chatsDir, base, 'agentm', cur);
   assert.equal(mine.complete, true);
   assert.deepEqual(mine.earlier, fromChat);
@@ -391,10 +392,11 @@ test('a dated full file behind an undated one is not followed: after the first u
   fs.writeFileSync(path.join(dir, base + '.b.full'), JSON.stringify({ project: 'chain', agent: 'agentp', continues: base + '.a.full', carried: 0, messages: rows('middle') }));
   const cur = { project: 'chain', agent: 'agentp', projectBornAt: BORN, continues: base + '.b.full', carried: 0, messages: rows('newest') };
   fs.writeFileSync(path.join(dir, base), JSON.stringify(cur));
-  const got = dl.followChain(dir, base, 'agentp', cur);
-  assert.equal(got.complete, false);
-  assert.deepEqual(got.earlier.map((e) => e.name), [base + '.b.full']);
-  fs.rmSync(dir, { recursive: true, force: true });
+  try {
+    const got = dl.followChain(dir, base, 'agentp', cur);
+    assert.equal(got.complete, false);
+    assert.deepEqual(got.earlier.map((e) => e.name), [base + '.b.full']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('a direct conversation that rolled over compiles whole', () => {
