@@ -98,7 +98,7 @@ _notarize_staple_app() {
     sleep "$d" || :
     try=$((try + 1))
   done
-  [ "$rc" = 0 ] || { echo "notarize: could not staple the notarisation ticket to $app (stapler rc=$rc). Apple accepted submission $sub; it can be stapled by hand later with: xcrun stapler staple <the app>" >&2; return 1; }
+  [ "$rc" = 0 ] || { echo "notarize: could not staple the notarisation ticket to $app (stapler rc=$rc). Apple accepted submission $sub, but nothing was packed: re-run the cut, which submits again" >&2; return 1; }
   rc=0; out="$(_stapler validate "$app" 2>&1)" || rc=$?
   printf '%s\n' "$out" | sed 's/^/    /'
   [ "$rc" = 0 ] || { echo "notarize: the staple on $app did not validate (stapler validate rc=$rc)" >&2; return 1; }

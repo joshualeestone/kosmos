@@ -311,8 +311,6 @@ NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" SP_SOURCE="Developer ID"; rc=$(ru
 unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
 NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" XA_FAIL=1; rc=$(runapp)
 [ "$rc" = 1 ] && ok "app: a copy that could not be quarantined refuses (an unquarantined pass proves nothing)" || bad "assessed without quarantine"
-unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
-NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK"
 unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL
 NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK $HKX" LIPO_APP="x86_64 arm64"; rc=$(runapp)
 [ "$rc" = 0 ] && ok "app: a universal app with both slices ticketed passes" || bad "universal app refused (rc=$rc): $(cat "$WORK/out")"
