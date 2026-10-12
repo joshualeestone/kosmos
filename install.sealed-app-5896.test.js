@@ -23,6 +23,10 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
+// macOS only: codesign, ditto and stat -f run below. The Linux lane runs every root test file, so the whole file
+// skips there rather than failing on a missing tool.
+const MAC = process.platform === 'darwin' || 'macOS codesign, ditto and stat -f';
+const it = (name, fn) => test(name, { skip: MAC === true ? false : MAC }, fn);
 const SETUP = fs.readFileSync(path.join(__dirname, 'install', 'setup.sh'), 'utf8');
 function fnSource(name) {
   const at = SETUP.indexOf('\n' + name + '() {\n');
@@ -67,6 +71,7 @@ function cfgFor(home) {
 const REMOVE = 'SEALED_REQ="$(sealed_requirement)"; ';   // what uninstall() sets before it deletes anything
 
 function run(env, body) {
+  env = { _SEALED_SRC_OK: '', ...env };
   if (env.KOSMOS_HOME && !('INSTALL_CONFIG_DIR' in env)) env = { ...env, INSTALL_CONFIG_DIR: cfgFor(env.KOSMOS_HOME) };
   const script = ['set -u', 'build_app_bundle() { /bin/mkdir -p "$1/Contents"; : > "$1/Contents/BUILT"; }', FNS, body].join('\n');
   try {
@@ -80,7 +85,7 @@ function run(env, body) {
 const stageOf = () => { const st = path.join(fs.mkdtempSync(path.join(tmpRoot, 'apps-')), '.Kosmos.app.stage.1'); fs.mkdirSync(st); return st; };
 const built = (st) => fs.existsSync(path.join(st, 'Contents', 'BUILT'));
 
-test('#5896: with the account config written (0), the shipped sealed app is copied in and still verifies', () => {
+it('#5896: with the account config written (0), the shipped sealed app is copied in and still verifies', () => {
   const home = makeHome('v1');
   const st = stageOf();
   const r = run({ KOSMOS_HOME: home, _wic_rc: '0' }, `app_bundle_into "${st}"; echo "rc=$?"`);
@@ -89,7 +94,7 @@ test('#5896: with the account config written (0), the shipped sealed app is copi
   execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', st]);
 });
 
-test('#5896: with the config not written (2 sandbox, 1 failed) or no sealed app shipped, the bundle is built as before', () => {
+it('#5896: with the config not written (2 sandbox, 1 failed) or no sealed app shipped, the bundle is built as before', () => {
   for (const [rc, tag] of [['2', 'v1'], ['1', 'v1'], ['0', null]]) {
     const st = stageOf();
     const r = run({ KOSMOS_HOME: makeHome(tag), _wic_rc: rc }, `app_bundle_into "${st}"; echo "rc=$?"`);
@@ -98,7 +103,7 @@ test('#5896: with the config not written (2 sandbox, 1 failed) or no sealed app 
   }
 });
 
-test('#5896: a shipped sealed app that does not verify is not copied (the bundle is built instead)', () => {
+it('#5896: a shipped sealed app that does not verify is not copied (the bundle is built instead)', () => {
   const home = makeHome('v1');
   fs.appendFileSync(path.join(home, 'app', 'Kosmos.app', 'Contents', 'Info.plist'), '<!-- changed after signing -->\n');
   const st = stageOf();
@@ -106,7 +111,7 @@ test('#5896: a shipped sealed app that does not verify is not copied (the bundle
   assert.equal(built(st), true);
 });
 
-test('#5896: bundle_is_ours proves a sealed icon by our own copy\'s signature, and nothing else', () => {
+it('#5896: bundle_is_ours proves a sealed icon by our own copy\'s signature, and nothing else', () => {
   const home = makeHome('v1');
   const icon = path.join(fs.mkdtempSync(path.join(tmpRoot, 'apps-')), 'Kosmos.app');
   execFileSync('/usr/bin/ditto', [path.join(home, 'app', 'Kosmos.app'), icon]);
@@ -119,7 +124,7 @@ test('#5896: bundle_is_ours proves a sealed icon by our own copy\'s signature, a
   assert.match(ask(home, icon), /rc=[1-9]/, 'a sealed icon changed after signing was called ours');
 });
 
-test('#5896: a bundle that carries a per-install file is still judged by it, never by a signature', () => {
+it('#5896: a bundle that carries a per-install file is still judged by it, never by a signature', () => {
   const home = makeHome('v1');
   const icon = path.join(fs.mkdtempSync(path.join(tmpRoot, 'apps-')), 'Kosmos.app');
   execFileSync('/usr/bin/ditto', [path.join(home, 'app', 'Kosmos.app'), icon]);
@@ -128,15 +133,16 @@ test('#5896: a bundle that carries a per-install file is still judged by it, nev
   assert.match(run({ KOSMOS_HOME: home }, `bundle_is_ours "${icon}"; echo "rc=$?"`).out, /rc=[1-9]/, 'another install\'s per-install bundle was called ours');
 });
 
-test('#5896: uninstall checks for the shared sealed icon BEFORE the branch that removes it', () => {
+it('#5896: uninstall checks for the shared sealed icon BEFORE the branch that removes it', () => {
   const at = SETUP.indexOf('if bundle_looks_sealed "$SYS_APP_DIR/Kosmos.app"; then');
   assert.notEqual(at, -1, 'the uninstall no longer asks whether the shared icon is the sealed one');
   const rm = SETUP.indexOf('elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then', at);
-  assert.ok(rm > at && rm - at < 600, 'the sealed check is not directly before the removal branch');
-  assert.doesNotMatch(SETUP.slice(at, rm), /rm -rf/, 'the sealed branch removes something');
+  assert.ok(rm > at && rm - at < 900, 'the sealed check is not directly before the removal branch');
+  const code = SETUP.slice(at, rm).split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');   // comments may say rm -rf
+  assert.doesNotMatch(code, /rm -rf/, 'the sealed branch removes something');
 });
 
-test('#5896: uninstall in its real order: the requirement is read, the home is deleted, and the icon is still proven ours', () => {
+it('#5896: uninstall in its real order: the requirement is read, the home is deleted, and the icon is still proven ours', () => {
   const home = makeHome('v1');
   const icon = path.join(fs.mkdtempSync(path.join(tmpRoot, 'apps-')), 'Kosmos.app');
   execFileSync('/usr/bin/ditto', [path.join(home, 'app', 'Kosmos.app'), icon]);
@@ -154,7 +160,7 @@ test('#5896: uninstall in its real order: the requirement is read, the home is d
   assert.ok(cap !== -1 && del !== -1 && cap < del, 'uninstall does not read the requirement before it deletes KOSMOS_HOME');
 });
 
-test('#5896: residue sweeps take this account\'s own sealed leftover; a sealed proof needs this account to own the bundle', () => {
+it('#5896: residue sweeps take this account\'s own sealed leftover; a sealed proof needs this account to own the bundle', () => {
   const home = makeHome('v1');
   const res = path.join(SYS, '.Kosmos.app.old.123');
   execFileSync('/usr/bin/ditto', [path.join(home, 'app', 'Kosmos.app'), res]);
@@ -171,7 +177,7 @@ test('#5896: residue sweeps take this account\'s own sealed leftover; a sealed p
   assert.ok(fn.indexOf('/usr/bin/stat -f %u') < fn.indexOf('bundle_is_sealed "$1"'), 'ownership is not checked before the signature');
 });
 
-test('#5896: the sealed app is placed only where the app will read the config (AGENT_WORKFORCE_HOME)', () => {
+it('#5896: the sealed app is placed only where the app will read the config (AGENT_WORKFORCE_HOME)', () => {
   const realHome = fs.mkdtempSync(path.join(tmpRoot, 'realhome-'));
   const elsewhere = fs.mkdtempSync(path.join(tmpRoot, 'awh-'));
   const cases = [
@@ -187,7 +193,7 @@ test('#5896: the sealed app is placed only where the app will read the config (A
   }
 });
 
-test('#5896: a read-only shipped app is placed writable for its owner, and still verifies', () => {
+it('#5896: a read-only shipped app is placed writable for its owner, and still verifies', () => {
   const home = makeHome('v1');
   execFileSync('/bin/chmod', ['-R', 'a-w', path.join(home, 'app', 'Kosmos.app')]);
   const st = stageOf();
@@ -201,7 +207,7 @@ test('#5896: a read-only shipped app is placed writable for its owner, and still
   }
 });
 
-test('#5896: a sealed occupant of the SHARED folder is not ours to replace when this run will not place the sealed app', () => {
+it('#5896: a sealed occupant of the SHARED folder is not ours to replace when this run will not place the sealed app', () => {
   const home = makeHome('v1');
   const shared = path.join(fs.mkdtempSync(path.join(SYS, 'run-')), 'Kosmos.app');
   const sys = path.dirname(shared);
@@ -218,7 +224,7 @@ test('#5896: a sealed occupant of the SHARED folder is not ours to replace when 
   assert.match(run({ KOSMOS_HOME: home, _wic_rc: '1', SYS_APP_DIR: sys }, `${REMOVE}bundle_is_ours "${shared}" remove; echo "rc=$?"`).out, /rc=0/, 'an uninstall removal does not depend on placement');
 });
 
-test('#5896: a sealed icon serves the install the account config names: a second install of this account never takes it', () => {
+it('#5896: a sealed icon serves the install the account config names: a second install of this account never takes it', () => {
   const home = makeHome('v1');
   const icon = path.join(fs.mkdtempSync(path.join(tmpRoot, 'homeapps-')), 'Kosmos.app');
   execFileSync('/usr/bin/ditto', [path.join(home, 'app', 'Kosmos.app'), icon]);
@@ -240,7 +246,7 @@ test('#5896: a sealed icon serves the install the account config names: a second
     'uninstall does not decide whether the sealed icon serves this install before it deletes anything');
 });
 
-test('#5896: the uninstall names ANY sealed Kosmos icon in the shared folder as left in place, whoever it serves', () => {
+it('#5896: the uninstall names ANY sealed Kosmos icon in the shared folder as left in place, whoever it serves', () => {
   const icon = makeBundle(path.join(fs.mkdtempSync(path.join(tmpRoot, 'apps-')), 'Kosmos.app'), 'another install');
   assert.match(run({}, `bundle_looks_sealed "${icon}"; echo "rc=$?"`).out, /rc=0/);
   const legacy = path.join(fs.mkdtempSync(path.join(tmpRoot, 'apps-')), 'Kosmos.app');
@@ -253,7 +259,7 @@ test('#5896: the uninstall names ANY sealed Kosmos icon in the shared folder as 
   assert.match(run({}, `bundle_looks_sealed "${link}"; echo "rc=$?"`).out, /rc=[1-9]/, 'a link was called a sealed icon');
 });
 
-test('#5896: "own" mode answers whether a sealed icon is this install\'s without the placement gate (the transcript line uses it)', () => {
+it('#5896: "own" mode answers whether a sealed icon is this install\'s without the placement gate (the transcript line uses it)', () => {
   const home = makeHome('v1');
   const shared = path.join(fs.mkdtempSync(path.join(SYS, 'own-')), 'Kosmos.app');
   execFileSync('/usr/bin/ditto', [path.join(home, 'app', 'Kosmos.app'), shared]);

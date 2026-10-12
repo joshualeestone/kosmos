@@ -347,6 +347,7 @@ bundle_looks_sealed() {
     && /usr/bin/codesign --verify --deep --strict '-R=identifier "com.chaoskosmos.kosmos"' "$1" >/dev/null 2>&1
 }
 SEALED_REQ=""   # never inherited: it widens the proof below, which decides an rm -rf
+_SEALED_SRC_OK=""   # sealed_placeable's once-per-run verify of the shipped copy; never inherited either
 bundle_is_sealed() {
   # SEALED_REQ: uninstall reads it BEFORE it deletes $KOSMOS_HOME (and the shipped copy with it), then sweeps icons.
   local req="${SEALED_REQ:-}"
@@ -2115,13 +2116,13 @@ KOSMOS_SWEEP_LIST
     # (Ownership cannot be proven through a dangling link, so the refusal
     # note prints; that is honest, and the note names the survivor.)
     if [ -e "$SYS_APP_DIR/Kosmos.app" ] || [ -L "$SYS_APP_DIR/Kosmos.app" ]; then
-      # The same anchored token as resolve_app_dir: the closing `}"` keeps
-      # two homes in a prefix relationship from cross-matching, because
-      # this grep is the sole gate on an rm -rf in a shared folder.
       if bundle_looks_sealed "$SYS_APP_DIR/Kosmos.app"; then
         # #5896 slice 2: the sealed icon is the same app for every account on this Mac, and another account may be
         # using it, so a shared one is left in place and named.
-        info "note: the Kosmos app in $SYS_APP_DIR is the one every account on this computer opens, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
+        info "note: the Kosmos app in $SYS_APP_DIR is a Kosmos app shared by every account on this computer, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
+      # The same anchored token as resolve_app_dir: the closing `}"` keeps
+      # two homes in a prefix relationship from cross-matching, because
+      # this grep is the sole gate on an rm -rf in a shared folder.
       elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then
         info "removing the Kosmos app from $SYS_APP_DIR"
         # A standard user cannot always delete from /Applications; an icon
@@ -3635,7 +3636,11 @@ sealed_placeable() {
   [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "$AGENT_WORKFORCE_HOME" -ef "$HOME" ] \
     || [ -n "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}" ] || return 1
   [ -d "$src" ] && [ ! -L "$src" ] || return 1
-  /usr/bin/codesign --verify --deep --strict "$src" >/dev/null 2>&1
+  # Verified once per run: a deep verify of the whole app is slow, and the shipped copy does not change mid-run.
+  if [ -z "$_SEALED_SRC_OK" ]; then
+    if /usr/bin/codesign --verify --deep --strict "$src" >/dev/null 2>&1; then _SEALED_SRC_OK=yes; else _SEALED_SRC_OK=no; fi
+  fi
+  [ "$_SEALED_SRC_OK" = yes ]
 }
 
 # #5896 slice 2: the sealed, signed Kosmos.app the build shipped, copied as it is, when this install wrote the
@@ -3958,8 +3963,8 @@ if [ "$APP_MADE" = "yes" ]; then
       # app carrying the name, where "another account has Kosmos" would
       # assert something never established.
       if [ "${APP_OWN_SEALED:-no}" = yes ]; then
-        info "your Kosmos icon is already in Applications, but this install cannot use it, so this install's icon"
-        info "went to the Applications folder inside your home folder, as Kosmos"
+        info "your Kosmos icon is already in Applications and this install could not refresh it, so a copy went to"
+        info "the Applications folder inside your home folder, as Kosmos"
       else
         info "something else already has the Kosmos spot in Applications, so yours went to the"
         info "Applications folder inside your home folder, as Kosmos (or type Kosmos into Spotlight)"

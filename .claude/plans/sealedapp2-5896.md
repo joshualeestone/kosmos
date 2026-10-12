@@ -52,6 +52,10 @@ and the app reads it.
   with the identifier `kosmos-app`; the sealed app is signed as `com.chaoskosmos.kosmos`. So after the first update
   that places the sealed app, expect Kosmos to ask ONCE more for the microphone, speech recognition and permission
   to control Terminal. Worth a line in that release's notes.
+- macOS App Management (macOS 13+) protects signed apps from being changed by other code. Replacing or removing a
+  whole team-signed bundle from Terminal or sh may raise "Terminal would like to manage apps" or be refused (an
+  update's rename and removal of the old copy, an uninstall from ~/Applications). A refusal fails safe (named, swept
+  later). Not measured; check at the first cut and update (iteration 9).
 - On a Mac where this account's config could not be saved where the app looks, and its own sealed icon already
   sits in /Applications, the install says so and puts this install's icon in ~/Applications (iteration 5).
 
