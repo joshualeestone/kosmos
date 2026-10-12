@@ -59,3 +59,17 @@ It names the other agent by display name and handle, as `ambiguousNote` does, so
   file still saved. Each with a control that the free name still works.
 - The existing mention tests must stay green (same key).
 - Mutants: break the key (case-sensitive), drop `except`, and make the create check a no-op; each must turn a named test red.
+
+## As built (changes from the plan above)
+
+- **The fleet source is wired at the top of `start()`, not beside `setCreatedSource`.** That one sits under
+  `require.main === module`, so a board started by a test (or any caller of `start()`) never had it, and the first run
+  of the server test showed every refusal passing. `start()` is what every board, real or test, runs.
+- **"Could not check" is untagged** (no `field`), as #2606 asks for system refusals: the name may be fine.
+- **The create test calls `create.createAgent`** with the board's wiring live. Through POST /api/agents the sandbox
+  refuses first for having no Claude account signed in, which says nothing about names.
+- **Connect checks both** the display name its instructions give and the handle.
+- Measured: engine/agentnames.test.js 6/6, server.dupname-5957.test.js 5/5. Mutants, each restored by
+  `git checkout` on a clean tree: a case-sensitive key 5 fail, no `except` 4 fail, a no-op create check 1 fail. The
+  nearest existing files (mentions, create, rename x3, connect, team x3, setup guide, CLI create, inline errors,
+  messages): 538 tests, 0 fail.
