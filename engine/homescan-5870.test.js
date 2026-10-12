@@ -126,3 +126,18 @@ test('#5870 review 2: an agent folder\'s own settings (which the guard rewrites 
   // Control: the other home's settings ARE cached in the same pass (so the check above can see a key).
   assert.ok([...cache.keys()].some((k) => k.startsWith('#5870 read json') && k.endsWith(path.join(OTHER, 'settings.json'))), 'control: a home tier is cached');
 });
+
+test('#5870 review 3: a config nested very deep gives the same scan with and without the cache (one file named, every script still found)', () => {
+  const d = agentDir('pilot-deep');
+  // 12,000 levels: JSON.parse takes it; a recursive freeze would overflow the stack.
+  fs.writeFileSync(path.join(d, '.mcp.json'), '{"a":' + '['.repeat(12000) + ']'.repeat(12000) + '}');
+  const homeHook = path.join(SANDBOX, 'deep-home');
+  writeJson(path.join(homeHook, 'settings.json'), { hooks: { SessionStart: [{ hooks: [{ type: 'command', command: `bash ${path.join(SANDBOX, 'scripts', 'deep-start.sh')}` }] }] } });
+  const opts = { homes: [homeHook], home: HOME, platform: 'darwin', managedDir: MANAGED, managedPrefsDir: null };
+  const plain = startcommands.startCommandScripts(d, { ...opts, readCache: null });
+  const cached = startcommands.startCommandScripts(d, { ...opts, readCache: new Map() });
+  assert.ok(plain.files.some((f) => f.endsWith('deep-start.sh')), 'control: the home hook is found without the cache');
+  assert.deepStrictEqual(cached.files, plain.files, 'the same scripts with the cache');
+  assert.deepStrictEqual(cached.unsafe, plain.unsafe, 'the same named gaps with the cache');
+  assert.ok(cached.unsafe.some((u) => u.includes('nested too deep')), 'the deep file is named');
+});

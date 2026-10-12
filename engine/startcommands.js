@@ -145,11 +145,19 @@ function readPlistFile(file) {
    not depend on the agent; only how its commands are interpreted does. So a pass's `cache` (the launchCache the guard
    refresh and the per-tick check already share) holds each file's read result, keyed by its path. A new pass is a new
    Map, so a change between passes is seen. What is cached is deep-frozen: a later reader that changed it would change
-   it for every agent after, so that throws instead (strict mode). Such a TypeError surfaces as an unreadable config
-   (named, so the guard says it is not whole), through the try around each config's commands or the one around this
-   scan in setup-assistant.js: look here first if a "could not be read" names a file that reads fine. */
+   it for every agent after, so that throws instead (strict mode). Where such a TypeError lands depends on where the
+   write is: inside one config's commands (take, commandsIn) it names that config; anywhere else (installedPlugins,
+   pluginConfigFiles, the loops here) it reaches the catch around this whole scan in setup-assistant.js, which loses
+   EVERY script for that agent (the guard says it is not whole, with the error text). Look here first if either names
+   a file that reads fine. */
+// Review 3: iterative, not recursive. JSON.parse takes a file nested ~12,000 deep; a recursive freeze overflowed the
+// stack there, outside every per-file try, and the agent's whole scan was lost (one file's gap became every script's).
 function deepFreeze(x) {
-  if (x && typeof x === 'object' && !Object.isFrozen(x)) { Object.freeze(x); for (const v of Object.values(x)) deepFreeze(v); }
+  const stack = [x];
+  while (stack.length) {
+    const v = stack.pop();
+    if (v && typeof v === 'object' && !Object.isFrozen(v)) { Object.freeze(v); for (const c of Object.values(v)) stack.push(c); }
+  }
   return x;
 }
 function cachedReaders(cache) {
@@ -161,7 +169,9 @@ function cachedReaders(cache) {
     // Review 1: a FAILED read (a torn write, EACCES, EMFILE) is not kept: the next agent reads again. Cached, one torn
     // read of a file Claude Code rewrites constantly (.claude.json) would make every agent in the pass not whole.
     if (r && r.error) return r;
-    cache.set(key, deepFreeze(r));
+    // Anything the freeze still cannot take (it should not happen) leaves this read fresh and uncached, never thrown.
+    try { deepFreeze(r); } catch { return r; }
+    cache.set(key, r);
     return r;
   };
   return { json: memo('json', readJsonFile), plist: memo('plist', readPlistFile) };
