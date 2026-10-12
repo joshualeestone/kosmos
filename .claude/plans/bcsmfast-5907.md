@@ -27,12 +27,15 @@ was its slowest file at 193 s.
   for the environment, and the per-line reset.
 - A check that the real table holds one COMPLETE row (both counts) per distinct plain declared token, so a broken parse (every token on the
   slow grep again) goes red instead of silently slow.
+- A spot check of the table's VALUES on the real page: every 40th plain token (22 today) against token_web_scan.
+  Mutation: a counter that counts only every other line goes red on 19 of them.
 - Temp files now go in one directory the trap removes; the old per-file list was appended in a subshell and removed
   nothing (a fix to a leak older than this change).
 
 ## Proof
 - The test's full output (1,083 lines) is byte-identical before and after (`diff` clean).
-- Interleaved on the same load: the original 340 s and 205 s, the new one 13 s and 12 s.
+- Interleaved on the same load: the original 340 s and 205 s, the new one 13 s and 12 s (load-dependent figures,
+  not a contract).
 
 ## Rejected
 - **Rewriting the per-file loop in awk.** It would also remove the per-token lookup process, but changes how PASS/FAIL
