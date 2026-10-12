@@ -38,13 +38,13 @@ function cardsFor(specs) {
     return specs.map(([name, state]) => {
       const c = board.agents.find((x) => x.name === name || (x.sessionName || '').startsWith(name));
       assert.ok(c, 'CONTROL: no card for ' + name);
-      return { ...c, state, stateReported: true };   // the card shows the agent's report, as reconcile marks it
+      return { ...c, state, stateReported: true };   // the card shows the agent's report, as reconcile marks it; runner as the board says
     });
   } finally { board.restore(); }
 }
 
 /* An in-memory stand-in for the on-disk reminded record, so tests do not share it; the file itself has its own test. */
-function memReminded() { const m = new Map(); return { get: (k) => (m.has(k) ? m.get(k) : null), set: (k, v) => m.set(k, v), m }; }
+function memReminded() { const m = new Map(); return { get: (k) => (m.has(k) ? m.get(k) : null), set: (k, v) => { m.set(k, v); return true; }, m }; }
 
 function run(cards, reports, opts = {}) {
   const sent = [];
@@ -96,6 +96,16 @@ test('#5959 slice 3: never needs_you (a question waiting on the person) and neve
     [k.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3 * DAY), by: 'auto' },
   });
   assert.deepEqual(sent, [], 'typed into a question, or about a report the reminder\'s own turn can clear');
+});
+
+test('#5959 slice 3: Claude cards only (the menu hold that keeps a line out of an open ask is Claude-only)', () => {
+  const [c] = cardsFor([['cora', 'blocked']]);
+  assert.equal(c.runner, 'claude', 'CONTROL: the fleet card is a Claude card');
+  const reports = { [c.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 2 * DAY), by: 'agent' } };
+  for (const runner of ['codex', 'gemini', 'grok', 'antigravity', 'muse']) {
+    assert.equal(run([{ ...c, runner }], reports).sent.length, 0, 'typed into a ' + runner + ' agent');
+  }
+  assert.equal(run([c], reports).sent.length, 1, 'CONTROL: the Claude card is told');
 });
 
 test('#5959 slice 3: a report written by someone else, or with no writer, is not called the agent\'s own', () => {
@@ -168,6 +178,18 @@ test('#5959 slice 3: the reminded record is kept on disk under the data root and
   fs.writeFileSync(file, 'not json');
   sweep();
   assert.equal(sent.length, 2);
+  // Kept to the sessions on the board: an agent no longer there is dropped at the next write.
+  fs.writeFileSync(file, JSON.stringify({ gone: '2026-01-01T00:00:00.000Z' }));
+  sweep();
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8'))), [h.sessionName], 'a session not on the board was kept');
+});
+
+test('#5959 slice 3: a record that could not be written is logged', () => {
+  const [i] = cardsFor([['ida', 'blocked']]);
+  const logged = [];
+  run([i], { [i.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 2 * DAY), by: 'agent' } },
+    { reminded: { get: () => null, set: () => false }, log: (r) => logged.push(r) });
+  assert.ok(logged.some((r) => r.act === 'record' && /could not be written/.test(r.because)), JSON.stringify(logged));
 });
 
 test('#5959 slice 3: the sweep runs only with live execution allowed and the brake off', () => {
@@ -189,7 +211,9 @@ test('#5959 slice 3: the server runs the sweep on its own timer, typing through 
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const at = src.indexOf("require('./engine/stalereport-nudge').makeTick({");
   assert.ok(at > 0, 'the server does not make the stale-report tick');
-  const block = src.slice(at, at + 900);
+  const end = src.indexOf('stalereportSweep.unref();', at);
+  assert.ok(end > at, 'CONTROL: the stale-report timer was not found after its tick');
+  const block = src.slice(at, end);
   assert.match(block, /allowed: \(\) => liveExecution\.liveExecutionAllowed\(\),/, 'not gated on live execution');
   assert.match(block, /deliver: \(session, text, r\) => chat\.deliverAutomatic\(/, 'not typed through deliverAutomatic');
   assert.match(block, /setInterval\(stalereportTick, /, 'no timer runs the tick');

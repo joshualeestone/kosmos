@@ -9,7 +9,9 @@
  *  - its latest report (selfreport.read) is `blocked`, written by anyone but Kosmos (not by: auto), over
  *    STALE_WAIT_MS ago (selfreport.STALE_WAIT_MS, with the comparison `kosmos report show` uses);
  *  - its card shows that report (stateReported, and the same state: the board's reconcile can set a report aside);
- *  - its card is ours and not a switched-off swarm.
+ *  - its card is ours, a Claude agent, and not a switched-off swarm.
+ * Claude only: deliverAutomatic's menu hold (the one thing that keeps a typed line out of an open question or menu) is
+ * Claude-only, and an agent on another runner can report blocked while an ask is open on its screen.
  * Not needs_you: that is a question waiting on the person, and for a runner other than Claude nothing holds a typed
  * line out of an open question (chat's menu hold is Claude-only), so the reminder would answer it. Not a report Kosmos
  * wrote: the turn the reminder starts can clear it, so "if it still holds, leave it" could not be true.
@@ -39,14 +41,19 @@ function fileReminded() {
   try { const v = JSON.parse(fs.readFileSync(file, 'utf8')); if (v && typeof v === 'object' && !Array.isArray(v)) map = v; } catch { map = {}; }
   return {
     get: (session) => (typeof map[session] === 'string' ? map[session] : null),
-    set: (session, at) => {
-      map = { ...map, [session]: at };
+    /* Kept to the sessions on the board now (`live`), so the file does not grow with every agent ever reminded. Returns
+       false when the write failed: the caller logs it, since this record is what stops a repeat after a restart. */
+    set: (session, at, live) => {
+      const next = {};
+      for (const k of Object.keys(map)) if (!live || live.has(k)) next[k] = map[k];
+      map = { ...next, [session]: at };
       try {
         fs.mkdirSync(require('node:path').dirname(file), { recursive: true });
         const tmp = file + '.' + process.pid + '.tmp';
         fs.writeFileSync(tmp, JSON.stringify(map, null, 2) + '\n', { mode: 0o600 });
         fs.renameSync(tmp, file);
-      } catch { /* best-effort: the in-memory book still stops a repeat this run */ }
+        return true;
+      } catch { return false; }   // the in-memory book still stops a repeat this run
     },
   };
 }
@@ -97,7 +104,7 @@ function sweepOnce(o) {
     const say = (r) => { if (log) { try { log(r); } catch { /* never breaks a sweep */ } } };
     for (const card of o.roster) {
       const session = card && card.sessionName;
-      if (!session || card.isNamedOurs === false) continue;
+      if (!session || card.isNamedOurs === false || card.runner !== 'claude') continue;
       if (card.state !== REMINDED_STATE) continue;   // read a report only for a card that could be reminded
       let rep = null;
       try { rep = readReport(session); } catch { rep = null; }
@@ -132,7 +139,11 @@ function sweepOnce(o) {
       const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);
       const tries = ((entry && entry.forAt === rep.at && Number.isInteger(entry.tries)) ? entry.tries : 0) + 1;
       book.set(session, { forAt: rep.at, nudgedAt: mayHaveReached ? now : null, tries, delivery: state, heldSaidFor: entry && entry.heldSaidFor });
-      if (mayHaveReached) { try { reminded.set(session, rep.at); } catch { /* the in-memory book still holds it */ } }
+      if (mayHaveReached) {
+        let kept = false;
+        try { kept = reminded.set(session, rep.at, new Set(o.roster.map((c) => c && c.sessionName).filter(Boolean))) !== false; } catch { kept = false; }
+        if (!kept) say({ name: display, session, act: 'record', delivered, delivery: state, because: 'reminded, but the record of it could not be written, so a board restart may remind it again' });
+      }
       const because = (!mayHaveReached && tries >= MAX_TRIES) ? p.because + '; nothing reached the pane in ' + tries + ' tries, so this report is left alone' : p.because;
       results.push({ session, name: display, act: 'nudge', delivered, delivery: state, because });
       if (mayHaveReached || tries === 1 || tries >= MAX_TRIES) say({ name: display, session, act: 'nudge', delivered, delivery: state, because });
