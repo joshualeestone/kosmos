@@ -114,7 +114,9 @@ _team_all="$(grep -rlIF --exclude-dir=.git --exclude-dir=node_modules --exclude-
 if ! printf '%s\n' "$_team_all" | grep -q '/tools/lib/signing-identity.sh$'; then
   bad "CONTROL: the team sweep did not even find lib/signing-identity.sh, so it cannot see anything"
 else
-  _team_hits="$(printf '%s\n' "$_team_all" | grep -v '/tools/lib/signing-identity.sh$' | grep -v '/tools/test-' | grep -v '\.test\.js$' || true)"
+  # ios/Signing.xcconfig is the iOS app's own one place for its team (#4089: Stone Syndicate signs the iOS app until
+  # its App Store transfer). Xcode reads it there literally, so it cannot come from this lib.
+  _team_hits="$(printf '%s\n' "$_team_all" | grep -v '/tools/lib/signing-identity.sh$' | grep -v '/ios/Signing.xcconfig$' | grep -v '/tools/test-' | grep -v '\.test\.js$' || true)"
   [ -z "$_team_hits" ] && ok "only lib/signing-identity.sh names the signing team or its notary key" || bad "the signing team or notary key is named outside lib/signing-identity.sh: $_team_hits"
 fi
 # The sweep above looks for the CURRENT values, so right after a team switch it would be blind to a
@@ -124,7 +126,7 @@ fi
 _inline="$(grep -nE '^[[:space:]]*[A-Z_]+=.*[[:space:]]#' "$REPO/tools/lib/signing-identity.sh" || true)"
 [ -z "$_inline" ] && ok "no value line in lib/signing-identity.sh carries an inline comment (it would be hashed)" || bad "an inline comment on a value line in lib/signing-identity.sh would force a pkg rebuild: $_inline"
 _retired="864QZ""69GF2"; _retired_name="Stone Syndicate"" LLC"; _retired_key="43F2HU""5BT8"; _retired_iss="69a6de7f-a03e-47e3-""e053-5b8c7c11a4d1"
-_ret_hits="$(grep -rlIF --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.claude -e "$_retired" -e "$_retired_name" -e "$_retired_key" -e "$_retired_iss" "$REPO" | grep -v '/tools/lib/signing-identity.sh$' || true)"
+_ret_hits="$(grep -rlIF --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.claude -e "$_retired" -e "$_retired_name" -e "$_retired_key" -e "$_retired_iss" "$REPO" | grep -v '/tools/lib/signing-identity.sh$' | grep -v '/ios/Signing.xcconfig$' || true)"   # the iOS exception, as above
 [ -z "$_ret_hits" ] && ok "the Stone Syndicate team id, name and notary key appear nowhere but the lib, tests included" || bad "the Stone Syndicate team id is named outside lib/signing-identity.sh: $_ret_hits"
 # And KOSMOS_CODESIGN_ID reaches the probe, as it reaches step 4.
 KOSMOS_CODESIGN_ID="Some Other Identity" KOSMOS_CODESIGN_BIN=cs_args kosmos_sign_preflight >/dev/null 2>&1

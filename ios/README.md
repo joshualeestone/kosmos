@@ -82,7 +82,7 @@ runner, which has the runtime.
 ## Signing, archive and upload (#4089)
 
 - **The Team ID lives in one place: `Signing.xcconfig`** (`DEVELOPMENT_TEAM`), the app target's
-  base configuration. It is Stone Syndicate LLC's (864QZ69GF2) for now (Josh, 2026-10-12): TestFlight
+  base configuration. It is the Stone Syndicate team's for now (Josh, 2026-10-12): TestFlight
   ships under it, and the app is transferred to Kosmos Agent Manager, Inc. once Apple approves #3643,
   when this becomes that org's Team ID (docs/phone-push-go-live.md, "Interim").
 - `tools/archive.sh --build <N>` archives the Release app, exports it for App Store Connect with

@@ -5,7 +5,8 @@
 ## The call (Josh via Splinter, 2026-10-12)
 Ship TestFlight now under the active Stone Syndicate LLC team, internal testers only, and transfer the app to Kosmos
 Agent Manager, Inc. after Apple approves #3643. Rejected: waiting on #3643 (pending since September). An App Store
-app transfer keeps the bundle id, builds and testers.
+app transfer moves the record, the bundle id and the builds; testers are added again after it, and Josh confirms
+Apple's transfer conditions (agreements accepted, nothing that blocks a transfer) before relying on it.
 
 ## Change
 - `ios/Signing.xcconfig`: `DEVELOPMENT_TEAM = 864QZ69GF2`, with a comment saying it is interim and why.
@@ -21,7 +22,15 @@ That push can be added later: an APNs key has to come from the team that signs. 
 Stone Syndicate APNs key until the transfer, then a new key from the new team. Push is not live today in any case
 (the coordinator has no APNs key).
 
+## The cut-sign sweep (review 2)
+tools/test-cut-sign-preflight.sh allows the Stone Syndicate team id, name and notary key only in
+tools/lib/signing-identity.sh. Xcode reads the iOS team literally from ios/Signing.xcconfig, so that file is the
+sweep's one named exception (both sweeps); the docs name the team only as "the Stone Syndicate team" and point at the
+file. Proven both ways: without the exception the test fails twice on Signing.xcconfig; a planted id in ios/README.md
+fails both sweeps.
+
 ## Checks
 - archive.sh reads 864QZ69GF2 from the file (its own sed, run by hand).
 - ios/tools/test-check-ipa-entitlements.sh: VERDICT PASS.
 - iOS CI builds with CODE_SIGNING_ALLOWED=NO, so a team in the file changes nothing there.
+- tools/test-cut-sign-preflight.sh: 42 passed, 0 failed.
