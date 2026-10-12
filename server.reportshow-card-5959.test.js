@@ -104,7 +104,7 @@ test('#5959: a waiting state standing over a day is pointed out; a fresh one is 
     const tok = sendertoken.mint(WHO).token;
     backdate(WHO, 'blocked', new Date(Date.now() - 2.5 * 24 * 3600e3).toISOString());
     const old = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } });
-    assert.match(old.text, /This `blocked` report has been standing for 2 days\. If nobody needs to answer it any more, clear it/, old.text);
+    assert.match(old.text, /Your own `blocked` report has been standing for 2 days\. If nobody needs to answer it any more, clear it/, old.text);
     assert.doesNotMatch(old.text, /waiting-on-a-person state/, 'two overlapping instructions: ' + old.text);
     assert.equal((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.stale, true);
     // CONTROL: the same state reported now is not stale.
@@ -136,8 +136,20 @@ test('#5959 review 1: the stale boundary is a day, and between one and two days 
     assert.equal((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.stale, false, '23 hours read stale');
     backdate(WHO, 'needs_you', at(25));
     const t = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } });
-    assert.match(t.text, /This `needs_you` report has been standing for over a day\./, t.text);
+    assert.match(t.text, /Your own `needs_you` report has been standing for over a day\./, t.text);
     backdate(WHO, 'needs_you', at(36));
     assert.match((await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } })).text, /for over a day\./);
+  });
+});
+
+test('#5959 review 2: a report time in the future, or one that cannot be read, is never called stale', async () => {
+  boardAuthState.on = false;
+  await withLeo(async () => {
+    const tok = sendertoken.mint(WHO).token;
+    backdate(WHO, 'blocked', new Date(Date.now() + 3 * 24 * 3600e3).toISOString());
+    assert.equal((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.stale, false, 'a future time read stale');
+    backdate(WHO, 'blocked', 'not a time');
+    const j = await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } });
+    assert.equal(j.json.stale, false, JSON.stringify(j.json));
   });
 });
