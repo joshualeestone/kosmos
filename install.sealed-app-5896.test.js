@@ -34,7 +34,7 @@ function fnSource(name) {
   const end = SETUP.indexOf('\n}\n', at);
   return SETUP.slice(at + 1, end + 3);
 }
-const FNS = ['bundle_is_ours', 'shared_sealed_stays', 'other_board_installs', 'sealed_config_reaches', 'bundle_looks_sealed', 'sealed_serves_this_install', 'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'app_bundle_into'].map(fnSource).join('\n');
+const FNS = ['bundle_is_ours', 'shared_sealed_stays', 'sealed_opens_another', 'sealed_config_reaches', 'bundle_looks_sealed', 'sealed_serves_this_install', 'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'app_bundle_into'].map(fnSource).join('\n');
 
 let tmpRoot, SYS;   // SYS: the stand-in for the shared /Applications (setup.sh's SYS_APP_DIR)
 test.before(() => {
@@ -344,38 +344,37 @@ it('#5896: a sealed copy that does not come out whole falls back to building the
   assert.equal(built(st), true, 'the per-install bundle was not built after the failed copy');
 });
 
-// #5912: on a one-account Mac the shared sealed icon goes when no other install of this account remains.
-test('#5912: other_board_installs counts other boards of this account, never this install\'s own or a watchdog', () => {
+// #5912 (review): after this uninstall the sealed icon can open only the DEFAULT install (the config naming this one is
+// removed), so it stays only when this install is not the default and the default's board login job remains.
+test('#5912: sealed_opens_another: only the default install, still present, can open the icon afterwards', () => {
   const la = fs.mkdtempSync(path.join(tmpRoot || os.tmpdir(), 'launchagents-'));
-  const ask = (self) => {
-    const script = ['set -u', fnSource('other_board_installs'), `other_board_installs "${self}"; echo "rc=$?"`].join('\n');
-    return execFileSync('/bin/sh', ['-c', script], { env: { PATH: '/usr/bin:/bin', HOME: la, AGENT_WORKFORCE_LAUNCH: la }, encoding: 'utf8' });
+  const ask = (self, dir) => {
+    const script = ['set -u', fnSource('sealed_opens_another'), `sealed_opens_another "${self}"; echo "rc=$?"`].join('\n');
+    return execFileSync('/bin/sh', ['-c', script], { env: { PATH: '/usr/bin:/bin', HOME: la, AGENT_WORKFORCE_LAUNCH: dir || la }, encoding: 'utf8' });
   };
-  assert.match(ask('com.kosmos.board'), /rc=1/, 'an empty folder reported another install');
-  fs.writeFileSync(path.join(la, 'com.kosmos.board.watchdog.plist'), '');
-  fs.writeFileSync(path.join(la, 'com.kosmos.board.watchdog.0a1b2c3d.plist'), '');
-  fs.writeFileSync(path.join(la, 'com.kosmos.board.plist.bak-20260921T140335'), '');
-  fs.writeFileSync(path.join(la, 'com.kosmos.agent.echo.plist'), '');
-  assert.match(ask('com.kosmos.board'), /rc=1/, 'a watchdog, a backup or an agent job was counted as another install');
-  fs.writeFileSync(path.join(la, 'com.kosmos.board.plist'), '');
-  assert.match(ask('com.kosmos.board'), /rc=1/, 'this install\'s own board was counted as another install');
-  assert.match(ask('com.kosmos.board.0a1b2c3d'), /rc=0/, 'the default install\'s board was not seen from a custom-home install');
+  assert.match(ask('com.kosmos.board.0a1b2c3d'), /rc=1/, 'an empty folder kept the icon for nobody');
   fs.writeFileSync(path.join(la, 'com.kosmos.board.9f8e7d6c.plist'), '');
-  assert.match(ask('com.kosmos.board'), /rc=0/, 'a custom-home install\'s board was not seen from the default install');
+  fs.writeFileSync(path.join(la, 'com.kosmos.board.watchdog.plist'), '');
+  assert.match(ask('com.kosmos.board.0a1b2c3d'), /rc=1/, 'another CUSTOM-home install (which cannot open it) or a watchdog kept it');
+  fs.writeFileSync(path.join(la, 'com.kosmos.board.plist'), '');
+  assert.match(ask('com.kosmos.board.0a1b2c3d'), /rc=0/, 'the default install, still present, was not counted');
+  assert.match(ask('com.kosmos.board'), /rc=1/, 'removing the DEFAULT install kept an icon nothing can open afterwards');
+  assert.match(ask('com.kosmos.board.0a1b2c3d', path.join(la, 'no-such-folder')), /rc=0/, 'a missing folder did not keep the icon (fail closed)');
 });
 
-it('#5912: shared_sealed_stays: removed on a one-install account, kept when another install or account may open it', () => {
+it('#5912: shared_sealed_stays: removed unless the default install, still present, can open it; kept when not proven this install\'s', () => {
   const home = makeHome('v1');
   const S = fs.mkdtempSync(path.join(tmpRoot, 'sysdir-'));
   const icon = path.join(S, 'Kosmos.app');
   execFileSync('/usr/bin/ditto', [path.join(home, 'app', 'Kosmos.app'), icon]);
   const la = fs.mkdtempSync(path.join(tmpRoot, 'launchagents-'));
   const env = { KOSMOS_HOME: home, SYS_APP_DIR: S, AGENT_WORKFORCE_LAUNCH: la };
-  const stays = (extra, req) => run({ ...env, ...extra }, `${req === false ? 'SEALED_REQ=""; ' : REMOVE}shared_sealed_stays "${icon}" com.kosmos.board; echo "rc=$?"`).out;
+  const stays = (extra, req, label = 'com.kosmos.board') => run({ ...env, ...extra }, `${req === false ? 'SEALED_REQ=""; ' : REMOVE}shared_sealed_stays "${icon}" ${label}; echo "rc=$?"`).out;
   fs.writeFileSync(path.join(la, 'com.kosmos.board.plist'), '');   // this install's own: does not count
   assert.match(stays({}), /rc=1/, 'on a one-install account this install\'s own sealed icon was kept');
   fs.writeFileSync(path.join(la, 'com.kosmos.board.0a1b2c3d.plist'), '');
-  assert.match(stays({}), /rc=0/, 'another install of this account remains, and its icon was not kept');
+  assert.match(stays({}), /rc=1/, 'removing the default install kept the icon for a custom-home install that cannot open it');
+  assert.match(stays({}, true, 'com.kosmos.board.0a1b2c3d'), /rc=0/, 'removing a custom-home install removed the icon the default install still opens');
   fs.rmSync(path.join(la, 'com.kosmos.board.0a1b2c3d.plist'));
   assert.match(stays({}, false), /rc=0/, 'an icon not proven this install\'s (config named another) was not kept');
   // As uninstall() captures it: the requirement is read only when the config names this install.

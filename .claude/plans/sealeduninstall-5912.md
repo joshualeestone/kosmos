@@ -26,3 +26,16 @@ setup run puts it back. Interaction with #5913 noted on both cards.
 - tools/test-install.sh: the owner-uninstall checks in the probe, alias and deep worlds accept removal or the named
   left icon (which one depends on which other boards remain in the harness's shared LaunchAgents folder). These run
   only in a full yarn test:install, not at a cut.
+
+
+## Review round (2026-10-12 11:4x CDT, after the rebase): the rule changed
+A fresh review found that keeping the icon "for another install of this account" kept a BROKEN icon: the sealed app
+opens the install the account config names, or the default home when there is none, and this uninstall removes the
+config when it names this install, so afterwards the icon can open only the DEFAULT install. New rule
+(`sealed_opens_another`, replacing other_board_installs): keep it only when this install is not the default and the
+default install's board login job remains; a missing or unreadable login-job folder keeps it (fail closed). The note
+for a kept icon now says it still opens this account's main Kosmos install. tools/test-install.sh's three owner-
+uninstall checks assert ONE outcome (sealed_icon_must_go) instead of "removed or named". #5913's contract is named
+where it plugs in (shared_sealed_stays).
+Weakest premise: tools/test-install.sh's changed checks have not been run anywhere (a cut runs only the gate half);
+the unit tests exercise the rule on a real sealed icon.
