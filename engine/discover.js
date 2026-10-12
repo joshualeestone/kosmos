@@ -1025,7 +1025,7 @@ function defaultScanRoots(opts) {
      Downloads/Desktop are import-only (loose FILES only; nobody RUNS an agent
      there), which is why they carry importOnly + the shallow DROP_DEPTH. */
   if (importScan) {
-    // #3/#2125: these three are the TCC-protected roots. `tcc: true` marks them so scan()
+    // #3/#2125: on macOS these three are the TCC-protected roots. `tcc: true` marks them so scan()
     // routes their walk through the app-identity hatch (--kosmos-app-scan) instead of walking
     // them in the engine (a different TCC subject, which re-prompts). The in-engine walk seeds
     // its stack from the NON-tcc roots only; the tcc roots are handled by the hatch merge.
@@ -1296,10 +1296,11 @@ function scan(opts) {
   let mdReads = 0;
   let hitImportable = false;
 
-  /* #3/#2125: the TCC-protected roots (Documents/Downloads/Desktop, marked tcc:true by
+  /* #3/#2125: on macOS the TCC-protected roots (Documents/Downloads/Desktop, marked tcc:true by
      defaultScanRoots under importScan) are walked by the app-identity hatch, NOT the engine --
      an engine walk of them is a different TCC subject and re-prompts. Partition them out of the
-     in-engine walk and merge them from the hatch after the walk. */
+     in-engine walk and merge them from the hatch after the walk. Off macOS they are not marked tcc
+     (#5882): they carry ownBudget and the engine walks them below, on a folder budget of their own. */
   const tccRoots = roots.filter((r) => r && r.tcc === true);
 
   outer:
@@ -2239,6 +2240,6 @@ module.exports = { alreadyIn, folderTakenBy,
   declined, decline, undecline, DECLINED_FILE,
   // #2125: exposed so a test can assert the AUTO scan roots exclude the
   // TCC-protected home folders (Documents/Downloads/Desktop) while the import
-  // scan (defaultScanRoots({importScan:true})) includes them, without walking the
-  // operator's real home. Building the list touches no filesystem.
+  // scan (defaultScanRoots({importScan:true})) includes them (tcc on macOS, ownBudget elsewhere,
+  // #5882), without walking the operator's real home. Building the list touches no filesystem.
   defaultScanRoots };

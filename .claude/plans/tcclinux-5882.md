@@ -64,3 +64,11 @@ Mutants after review 1 (20:17 CDT from `date`, all discover tests, 207): B1 no o
 2. FIXED: with the folder budget and the candidate cap both full, the new skip said dirs where main said count. The
    skip now checks the candidate cap first, as the old loop did. Test.
 Mutants after review 3 (20:21 CDT from `date`, all discover tests, 211): O1 Documents first everywhere: red. O2 no candidate check in the skip: red (my first pattern matched two identical lines in the file, so it was rerun with its comment line to be unique).
+
+## Review 4 (sonnet, blind, on 2634a6cd): no must-fix; no behaviour change on macOS or the auto scan. Nits:
+- FIXED: three comments (the tcc partition in scan, the importScan block, the export note) said the three are always
+  hatch-walked; each now says macOS, and ownBudget elsewhere.
+- FIXED: the tests shared fixtures made by earlier tests. Each now makes its own (idempotent helpers); every test passes
+  ALONE (--test-name-pattern, 1 ran each) as well as in the file.
+- NO CHANGE, reasoned: "visited at most twice the budget" does bound the own walk, because in that test the shared
+  budget is spent, so the shared count is exactly the budget.
