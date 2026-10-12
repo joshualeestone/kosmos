@@ -692,11 +692,10 @@ test('#2570: stopped plus PARTIAL does not tell you to go and stop the partial y
    it, so a stopAgents request against an account with a sign-in in flight
    stopped every agent and only then refused.
 
-   ⚠️ ASSERTED ON THE SOURCE, and the reason is worth stating rather than hiding:
-   reserving a reauth dir means driving `startChatgptLogin`, which launches a real
-   sign-in. A behavioural arm is the better test and is not worth a live login in
-   this suite, so this pins the ORDER instead and says so. It goes red if anybody
-   moves either guard back. */
+   ⚠️ ASSERTED ON THE SOURCE. Since #5994 the account's OWN reauth is no longer such a
+   refusal, and the last test in this file drives one through this route with a mock
+   codex. This pin stays for every other hold, which still refuses ahead of the agents
+   guard. It goes red if anybody moves either guard back. */
 test('#2570: every OpenAI refusal that ignores the agents runs BEFORE the agents guard', () => {
   const src = fs.readFileSync(nodePath.join(__dirname, 'engine', 'openaiaccounts.js'), 'utf8');
   for (const fn of ['function forgetAccount(dir, usedBy) {', 'function removeAccount(dir, usedBy) {']) {
