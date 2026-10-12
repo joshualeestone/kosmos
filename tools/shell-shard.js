@@ -73,9 +73,8 @@ function slowestSummary(ii, nn, times) {
 
 // Run a shard's commands in order, stopping at the first that fails, and return its exit status
 // (a signal is 1). `list` is the whole test:shell list, so the count in the first line is honest.
-// #5907: every command's own time is printed after it, with its place in the shard, so a log (or a
-// person watching a long run) can tell which file the time went to; and the shard ends on a summary
-// of its slowest commands. `write` and `clock` (seconds) are seams for the test.
+// #5907: each command's place is printed before it starts and its time after it ends, and the shard
+// ends on a summary of its slowest commands. `write` and `clock` (seconds) are seams for the test.
 function runShard(list, ii, nn, stdio = 'inherit', write = (s) => fs.writeSync(1, s), clock = () => performance.now() / 1000) {
   const mine = select(list, ii, nn);
   // A shard with nothing to run would pass having run nothing.
@@ -85,6 +84,7 @@ function runShard(list, ii, nn, stdio = 'inherit', write = (s) => fs.writeSync(1
   write(`shell-shard ${ii}/${nn}: ${mine.length} of ${list.length} test:shell commands\n`);
   const times = [];
   for (const [k, c] of mine.entries()) {
+    write(`shell-shard ${ii}/${nn} [${k + 1}/${mine.length}] start: ${c}\n`);
     const t0 = clock();
     const r = cp.spawnSync('sh', ['-c', c], { cwd: ROOT, stdio });
     const took = clock() - t0;

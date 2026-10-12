@@ -44,7 +44,7 @@ printf '%s\n' "$RT_CODE" | grep -qE 'launchagent_leak_check' \
   || fail "run-tests.sh never calls launchagent_leak_check (guard cannot fire)"
 
 # The snapshot must precede the node suite -- the FIRST test invocation, so it also
-# precedes `yarn -s test:shell` which runs after it. Pin the node pattern to the real
+# precedes test:shell (through tools/shell-shard.js), which runs after it. Pin the node pattern to the real
 # invocation so a comment mentioning `node --test` cannot false-pass this.
 # `^[[:space:]]*[^#[:space:]]` skips full-line comments (the first non-space char must not
 # be `#`), so a commented-out snapshot line cannot set the ordering line number.
