@@ -30,7 +30,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --build) [ $# -ge 2 ] || { echo "archive.sh: --build needs a number" >&2; exit 2; }; build="$2"; shift 2 ;;
     --upload) upload=1; shift ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^[^#]/p' "$0" | sed '$d'; exit 0 ;;   # the whole header, however long
     *) echo "archive.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
