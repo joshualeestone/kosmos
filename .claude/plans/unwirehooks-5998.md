@@ -22,9 +22,12 @@ from its own realpath. An event with nothing of ours is left exactly as it was. 
 failure (that cleanup is defensive and untested: reaching it needs a write to fail after the file opened). The program
 ends its output with a done line; whenever that line is missing (no node, a node that crashed or cannot run here, no
 temp file) the shell names every settings file that still holds THIS install's hook path (given or real, right after a
-quote) instead. A JSON file that is not an object but names this install is named too. The later status-line notice no longer claims a surviving status line records nothing: it
+quote) instead. A JSON file that is not an object but names this install is named too. When the folder is already
+gone (an uninstall from before this change left the hooks), a re-run still names those files. The notice prints
+the real folder too when the install was reached through a symlink, since that is what the hooks name. The later status-line notice no longer claims a surviving status line records nothing: it
 may be another install's.
-Node writes its list to a temp file (a heredoc inside $( ) does not parse in bash here).
+Node writes its list to a temp file: this heredoc inside $( ) did not parse under bash 3.2 (an apostrophe in a heredoc
+nested in $( ) is a known bash 3.2 parse bug; the BOARDEOF block in the same function works because it has none).
 
 ## Rejected
 - Calling an unwire function in engine/reporthook.js: `sh -s -- --uninstall` runs the NEWEST setup.sh against the

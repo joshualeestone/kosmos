@@ -1479,6 +1479,34 @@ _kosmos_data_root() {
 }
 
 
+# #5998: the Claude settings files that still hold the report hook of the install at $1 (its path as given, and $2
+# its real path when that differs), one per line. Matched right after a quote, as the hook command and args write
+# it, so another install whose folder merely ends in this one's path is not named. Used when no node could take
+# the hooks out, and when an earlier uninstall already removed the folder but left them.
+hook_settings_left() {
+  local _hg="${1%/}" _hr="${2%/}" _hf
+  [ -n "$_hr" ] || _hr="$_hg"
+  for _hf in "${AGENT_WORKFORCE_HOME:-$HOME}/.claude/settings.json" "${AGENT_WORKFORCE_HOME:-$HOME}"/.claude-*/settings.json; do
+    [ -f "$_hf" ] && grep -qF -e "\"$_hg/app/bin/kosmos-report-hook" -e "\"$_hr/app/bin/kosmos-report-hook" "$_hf" 2>/dev/null \
+      && printf '%s\n' "$_hf"
+  done
+  return 0
+}
+
+# #5998: say which settings files still hold Kosmos's entries for the install at $2 (real path $3), listed in $1.
+say_hooks_left() {
+  [ -n "$1" ] || return 0
+  info "note: Kosmos's entries could not be taken out of these Claude settings files, so Claude Code there will"
+  info "report a hook error until they are gone; delete the entries naming kosmos-report-hook or"
+  if [ -n "$3" ] && [ "${3%/}" != "${2%/}" ]; then
+    info "kosmos-statusline.js inside $2 (also written as $3):"
+  else
+    info "kosmos-statusline.js inside $2:"
+  fi
+  printf '%s\n' "$1" | while IFS= read -r _sf; do [ -n "$_sf" ] && info "  $_sf"; done
+  return 0
+}
+
 uninstall() {
   step "Removing Kosmos."
   # #5896 slice 2: the sealed icon is proven against this install's shipped copy, which the removal below deletes
@@ -2085,6 +2113,7 @@ KOSMOS_SWEEP_LIST
       # else in the file is kept, and a file that cannot be read or saved is named below, never rewritten wrong.
       _unwire_left=""
       _unwire_done=""
+      _kh_real="$(cd -P "$KOSMOS_HOME" 2>/dev/null && pwd)" || _kh_real=""
       _unwire_out="$(mktemp "${TMPDIR:-/tmp}/kosmos-unwire.XXXXXX" 2>/dev/null)" || _unwire_out=""
       if [ -n "$_unwire_out" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ]; then
         "$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" "${AGENT_WORKFORCE_HOME:-$HOME}" <<'UNWIREEOF' >"$_unwire_out" 2>/dev/null || true
@@ -2176,22 +2205,10 @@ UNWIREEOF
       if [ -z "$_unwire_done" ]; then
         # No node that ran to the end (a partial install, a node that crashed or cannot run here) or no temp file:
         # name every settings file that still points at this install's hook, rather than leaving it silently.
-        # The path right after a quote, as the hook command and args write it, so another install whose folder merely
-        # ends in this one's path is not named.
-        _kh_given="${KOSMOS_HOME%/}"
-        _kh_real="$(cd -P "$KOSMOS_HOME" 2>/dev/null && pwd)" || _kh_real="$_kh_given"
-        for _uf in "${AGENT_WORKFORCE_HOME:-$HOME}/.claude/settings.json" "${AGENT_WORKFORCE_HOME:-$HOME}"/.claude-*/settings.json; do
-          [ -f "$_uf" ] && grep -qF -e "\"$_kh_given/app/bin/kosmos-report-hook" -e "\"$_kh_real/app/bin/kosmos-report-hook" "$_uf" 2>/dev/null \
-            && _unwire_left="${_unwire_left:+$_unwire_left
-}$_uf"
-        done
+        _unwire_left="$(hook_settings_left "$KOSMOS_HOME" "$_kh_real")"
       fi
       [ -z "$_unwire_out" ] || rm -f "$_unwire_out"
-      if [ -n "$_unwire_left" ]; then
-        info "note: Kosmos's agent hooks could not be taken out of these Claude settings files; delete the"
-        info "entries there naming kosmos-report-hook or kosmos-statusline.js inside $KOSMOS_HOME:"
-        printf '%s\n' "$_unwire_left" | while IFS= read -r _uf; do info "  $_uf"; done
-      fi
+      say_hooks_left "$_unwire_left" "$KOSMOS_HOME" "$_kh_real"
       # 🔑 RETIRE THIS MAC AT THE COORDINATOR WHILE IT CAN STILL SPEAK (#793).
       # The Mac's key lives in the support folder's remote/ dir and the
       # connector in the app tree about to go; after either is gone only a
@@ -2215,6 +2232,10 @@ UNWIREEOF
     else
       info "note: $KOSMOS_HOME does not look like a Kosmos install, so it was left alone."
     fi
+  else
+    # #5998: the folder is already gone (an earlier uninstall, from before the hooks were taken out): there is no
+    # node to edit the settings with, but the hooks it left can still be named.
+    say_hooks_left "$(hook_settings_left "$KOSMOS_HOME" "")" "$KOSMOS_HOME" ""
   fi
   # The icon goes too, or uninstall leaves a dead app that opens nothing.
   # BOTH default locations are swept -- installs before 2026-08-13 wrote
