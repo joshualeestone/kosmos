@@ -105,3 +105,7 @@ tunnel that cannot reach the coordinator fails the sign-in step, loudly.
   says); the 23:23 run's 7a quote above (that run predates reviews 1 to 3, and the measurement for this head is the
   next run); the accept-path NOTE wording (7a's FAIL is printed right before it, so it cannot be read as a pass).
   Rewording comments now would only regenerate findings on the comments themselves.
+
+## Measured on the final head (2026-10-12)
+- Harness on dfe527fe4 (03:55 CDT): VERDICT PASS 49/49, 47 s; 7a "verify 409 reason other-account, join null".
+- Full suite on Mortals, hash dcc51ada6bdb: clean, 19356 tests, 0 fail.
