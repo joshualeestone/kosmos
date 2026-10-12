@@ -585,7 +585,8 @@ function decline(sessionName) {
  * against DOCTRINE_VERSION), its own page would offer the update (status() says `refresh`, so the card and the page
  * agree), and the person has not said Not now to this version. null for an unknown version (no record, no claim).
  * status() reads and plans the whole file, so the answer is kept per agent and recomputed only when the instructions
- * file (mtime, size) or the profile (updatedAt, doctrineVersion, doctrineDeclined) changes. An agent not far behind
+ * file (path, mtime, size) or what status() reads from the profile (doctrineVersion, doctrineDeclined) changes; an
+ * unrelated profile write (a role, a picture) keeps the answer. An agent not far behind
  * returns before any file is touched; a far-behind one costs finding its file (fileFor reads its job record) and one
  * stat per poll. Entries are not pruned when an agent is removed: one small entry per name, and a re-created agent of
  * the same name has a new file and profile, so it is recomputed.
@@ -604,7 +605,7 @@ function rulesBehind(sessionName, profile) {
     const file = instructions.fileFor(sessionName);
     if (!file) return null;
     const st = require('node:fs').statSync(file);
-    const stamp = [file, st.mtimeMs, st.size, p.updatedAt || '', carried, p.doctrineDeclined == null ? '' : p.doctrineDeclined].join('|');
+    const stamp = [file, st.mtimeMs, st.size, carried, p.doctrineDeclined == null ? '' : p.doctrineDeclined].join('|');
     const seen = BEHIND_SEEN.get(sessionName);
     if (seen && seen.stamp === stamp) return seen.value;
     const s = status(sessionName);

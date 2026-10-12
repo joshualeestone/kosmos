@@ -8203,6 +8203,8 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     // changes the org node's URL and defeats its identical-repaint skip.
     avatarVer: store.avatarVersion(key),
     profile: store.readProfile(key),
+    /* kosmos#5957 slice 2: as the pane row, so a paneless card can say its working rules are far behind. */
+    rulesBehind: require('./doctrine').rulesBehind(key),
   };
 }
 
