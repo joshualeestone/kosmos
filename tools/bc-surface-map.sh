@@ -65,7 +65,7 @@ _bcm_map() {
 }
 
 _bcm_covering() {
-  local dir changed base toks tok tab
+  local dir changed base toks tab
   dir="$1"
   tab="$(printf '\t')"
   changed="$(cat)"                                   # stdin
@@ -99,9 +99,9 @@ _bcm_covering() {
   # #5907: every check in one pass (bc_surface_scan_checks, the gate's own scan): a HIT is covering, a MISS is not, and
   # only a SLOW check (a non-plain token first, or a key line the scan's C-locale match refuses) is read the original
   # way, token by token. If the scan cannot run, every check is read that way, as before.
-  local scan verdict hit ann
+  local scan verdict _hit ann   # _hit: the scan's token, not needed here
   if scan="$(bc_surface_scan_checks "$dir" "$changed")"; then
-    while IFS="$tab" read -r ann verdict hit; do
+    while IFS="$tab" read -r ann verdict _hit; do
       [ -n "$ann" ] || continue
       case "$verdict" in
         HIT) printf '%s\n' "${ann##*/}" ;;
