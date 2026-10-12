@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Test for tools/lib/notarize-binaries.sh (#5137): the bundle's signed binaries are notarised,
+# and the build refuses unless Apple's ticket lists each binary's own cdhash.
+# Stubs are shell FUNCTIONS (as in test-cut-sign-preflight.sh), so no fresh executable is exec'd
+# and the test runs on any box, CI's Linux included (ditto is stubbed too). Each stub records
+# that it ran, so a pass cannot come from a path that never submitted anything.
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "$HERE/.." && pwd)"
+. "$REPO/tools/lib/notarize-binaries.sh"
+
+fails=0
+passes=0
+ok()  { echo "  PASS  $1"; passes=$((passes + 1)); }
+bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+unset KOSMOS_NOTARIZE KOSMOS_NOTARY_KEY_ID KOSMOS_NOTARY_ISSUER   # an operator's export must not change the arms
+
+HA=1111111111111111111111111111111111111111
+HT=2222222222222222222222222222222222222222
+mkdir -p "$WORK/bin"
+printf 'app\n' > "$WORK/bin/kosmos-app"
+printf 'tunnel\n' > "$WORK/bin/kosmos-tunnel"
+printf 'unsigned\n' > "$WORK/bin/unsigned"
+printf 'key\n' > "$WORK/notary.p8"
+
+# codesign -dvvv: a cdhash per file, none for the unsigned one. Real codesign prints to stderr.
+cs_stub() {
+  case "$2" in
+    */kosmos-app) echo "CDHash=$HA" >&2 ;;
+    */kosmos-tunnel) echo "CDHash=$HT" >&2 ;;
+    *) echo "$2: code object is not signed at all" >&2; return 1 ;;
+  esac
+}
+ditto() { echo "$*" >> "$WORK/ditto.ran"; : > "${!#}"; }
+sm_ok()   { [ "$1" = path ] && [ "$2" = "$KOSMOS_NOTARY_SECRET_TARGET" ] && echo "$WORK/notary.p8"; }
+sm_none() { echo "secrets-map: no credential for target" >&2; return 1; }
+
+# notarytool: NT_STATUS for submit, NT_HASHES for the log's ticketContents.
+nt_stub() {
+  echo "$1" >> "$WORK/nt.ran"
+  case "$1" in
+    submit) printf '%s\n' "$*" > "$WORK/submit.argv"
+            echo "{\"status\":\"$NT_STATUS\",\"id\":\"sub-1\",\"message\":\"${NT_MESSAGE:-Processing complete}\"}" ;;
+    log)    printf '{"jobId":"sub-1","status":"%s","ticketContents":[' "$NT_STATUS"
+            local h sep=""; for h in $NT_HASHES; do printf '%s{"cdhash":"%s"}' "$sep" "$h"; sep=,; done; echo ']}' ;;
+  esac
+}
+export KOSMOS_NOTARY_CODESIGN_CMD=cs_stub KOSMOS_NOTARYTOOL_CMD=nt_stub KOSMOS_SECRETS_MAP_BIN=sm_ok
+
+run() { rm -f "$WORK/nt.ran" "$WORK/ditto.ran" "$WORK/submit.argv"; notarize_binaries "$@" > "$WORK/out" 2>&1; echo $?; }
+ran() { grep -c "^$1\$" "$WORK/nt.ran" 2>/dev/null || echo 0; }
+
+# --- Accepted, and the ticket lists both cdhashes: passes, having really submitted ---
+NT_STATUS=Accepted NT_HASHES="$HA $HT"; rc=$(run "$WORK/bin/kosmos-app" "$WORK/bin/kosmos-tunnel")
+[ "$rc" = 0 ] && ok "accepted + both cdhashes ticketed passes" || bad "should pass (rc=$rc): $(cat "$WORK/out")"
+[ "$(ran submit)" = 1 ] && ok "the pass came from a real submit" || bad "submit ran $(ran submit) times"
+[ "$(grep -c '^==> notarised: ' "$WORK/out")" = 2 ] && ok "both binaries reported notarised" || bad "notarised lines: $(cat "$WORK/out")"
+grep -q -- "--key $WORK/notary.p8 --key-id $KOSMOS_NOTARY_KEY_ID_DEFAULT --issuer $KOSMOS_NOTARY_ISSUER_DEFAULT --wait" "$WORK/submit.argv" \
+  && ok "submit carries the key, key id, issuer and --wait" || bad "submit argv: $(cat "$WORK/submit.argv" 2>/dev/null)"
+[ -s "$WORK/ditto.ran" ] && ok "the binaries were zipped" || bad "ditto never ran"
+
+# --- Accepted, but the ticket covers other bytes: refuses and names the one missing ---
+NT_STATUS=Accepted NT_HASHES="$HA 3333333333333333333333333333333333333333"; rc=$(run "$WORK/bin/kosmos-app" "$WORK/bin/kosmos-tunnel")
+[ "$rc" = 1 ] && ok "a ticket missing a binary's cdhash refuses" || bad "should refuse (rc=$rc): $(cat "$WORK/out")"
+grep -q "kosmos-tunnel($HT)" "$WORK/out" && ok "it names the binary the ticket does not cover" || bad "no name: $(cat "$WORK/out")"
+grep -q "kosmos-app($HA)" "$WORK/out" && bad "it blamed the covered binary too" || ok "it does not blame the covered binary"
+
+# --- Invalid: refuses, and prints Apple's log ---
+NT_STATUS=Invalid NT_HASHES=""; rc=$(run "$WORK/bin/kosmos-app")
+[ "$rc" = 1 ] && ok "an Invalid submission refuses" || bad "Invalid should refuse (rc=$rc)"
+[ "$(ran log)" = 1 ] && ok "it fetched Apple's log to show why" || bad "log ran $(ran log) times"
+grep -q "status 'Invalid'" "$WORK/out" && ok "it says which status came back" || bad "status not named: $(cat "$WORK/out")"
+
+# --- the word Accepted elsewhere in the answer is not acceptance ---
+NT_STATUS=Invalid NT_MESSAGE="Accepted by nobody" NT_HASHES="$HA"; rc=$(run "$WORK/bin/kosmos-app")
+[ "$rc" = 1 ] && ok "\"Accepted\" in the message does not pass an Invalid status" || bad "a message mentioning Accepted passed (rc=$rc)"
+unset NT_MESSAGE
+
+# --- no key: refuses before submitting ---
+NT_STATUS=Accepted NT_HASHES="$HA"; rc=$(KOSMOS_SECRETS_MAP_BIN=sm_none run "$WORK/bin/kosmos-app")
+[ "$rc" = 1 ] && ok "no notary key refuses" || bad "no key should refuse (rc=$rc)"
+[ "$(ran submit)" = 0 ] && ok "nothing was submitted without a key" || bad "submitted without a key"
+grep -q 'KOSMOS_NOTARIZE=0' "$WORK/out" && ok "it names the test-build opt-out" || bad "no opt-out named: $(cat "$WORK/out")"
+
+# --- an unsigned binary: refuses before submitting ---
+rc=$(run "$WORK/bin/kosmos-app" "$WORK/bin/unsigned")
+[ "$rc" = 1 ] && ok "an unsigned binary refuses" || bad "unsigned should refuse (rc=$rc)"
+[ "$(ran submit)" = 0 ] && ok "nothing was submitted for an unsigned binary" || bad "submitted an unsigned binary"
+
+# --- KOSMOS_NOTARIZE=0: skips, loudly, and submits nothing ---
+rc=$(KOSMOS_NOTARIZE=0 run "$WORK/bin/kosmos-app")
+[ "$rc" = 0 ] && ok "KOSMOS_NOTARIZE=0 skips" || bad "the opt-out failed (rc=$rc)"
+grep -q 'NOT NOTARISED' "$WORK/out" && ok "the skip says so" || bad "a silent skip: $(cat "$WORK/out")"
+[ "$(ran submit)" = 0 ] && ok "the skip submitted nothing" || bad "the skip submitted"
+
+# --- the build calls it, on both binaries, after the last self-test and before packing ---
+B="$REPO/tools/build-kosmos-bundle.sh"
+call="$(grep -n '^notarize_binaries "\$STAGE/app/bin/kosmos-app" "\$STAGE/app/bin/kosmos-tunnel" ||' "$B" | head -1 | cut -d: -f1)"
+[ -n "$call" ] && ok "build-kosmos-bundle.sh notarises both binaries, failing the build on refusal" || bad "build-kosmos-bundle.sh does not call notarize_binaries on both binaries with ||"
+grep -qE '^\. "\$REPO/tools/lib/notarize-binaries\.sh"' "$B" && ok "build-kosmos-bundle.sh sources notarize-binaries.sh" || bad "not sourced"
+last_selftest="$(grep -n 'kosmos-app" --kosmos-app-' "$B" | tail -1 | cut -d: -f1)"
+last_sign="$(grep -n '^codesign_ts_retry ' "$B" | tail -1 | cut -d: -f1)"
+pack="$(grep -n '^echo "==> packing"' "$B" | head -1 | cut -d: -f1)"
+[ -n "$call" ] && [ -n "$last_selftest" ] && [ -n "$last_sign" ] && [ -n "$pack" ] \
+  && [ "$call" -gt "$last_selftest" ] && [ "$call" -gt "$last_sign" ] && [ "$call" -lt "$pack" ] \
+  && ok "it notarises after the last sign and self-test ($last_sign, $last_selftest) and before packing ($pack)" \
+  || bad "order wrong: notarise=$call last-sign=$last_sign last-selftest=$last_selftest pack=$pack"
+
+echo "test-notarize-binaries-5137: $passes passed, $fails failed"
+[ "$fails" = 0 ] && [ "$passes" = 23 ]
