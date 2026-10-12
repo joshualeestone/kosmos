@@ -17,7 +17,9 @@ const projects = require('./projects');
 const DIR = path.join(SANDBOX, 'docs');
 fs.mkdirSync(DIR, { recursive: true });
 fs.writeFileSync(path.join(DIR, 'notes.txt'), 'x');
-const REAL = fs.realpathSync.native(DIR);   // the engine's own resolution: on Windows it expands an 8.3 short name (RUNNER~1)
+const REAL = fs.realpathSync.native(DIR);
+// The folder xdg-open is given: resolved with fs.realpathSync, as linuxOpenFolder resolves it (links followed).
+const FOLDER = fs.realpathSync(DIR);   // the engine's own resolution: on Windows it expands an 8.3 short name (RUNNER~1)
 
 function on(t, platform, env) {
   const calls = [];
@@ -34,11 +36,19 @@ test('#5881: a Linux board with a desktop opens the folder and the file\'s folde
   assert.deepEqual(projects.revealFile(path.join(DIR, 'notes.txt')), { ok: true });
   // Review 1: a file is not opened on the computer (an agent-written .desktop file or script could run); download it.
   assert.deepEqual(projects.openFile(DIR, 'notes.txt'), { ok: false, because: 'on this computer Kosmos does not open files, so download it instead' });
-  assert.deepEqual(calls, [['xdg-open', DIR], ['xdg-open', DIR]], 'the file reached the opener');
+  assert.deepEqual(calls, [['xdg-open', FOLDER], ['xdg-open', FOLDER]], 'the file reached the opener');
+  // A link to a folder is resolved first: xdg-open gets the folder's real path, never the link (review 10).
+  const toDir = path.join(SANDBOX, 'link-to-docs');
+  try { fs.symlinkSync(DIR, toDir); } catch { /* no symlinks here */ }
+  if (fs.existsSync(toDir)) {
+    calls.length = 0;
+    assert.deepEqual(projects.revealFolder(toDir), { ok: true });
+    assert.deepEqual(calls, [['xdg-open', FOLDER]], 'the link, not its folder, reached the opener');
+  }
   // Wayland names its display in its own variable.
   const w = on(t, 'linux', { WAYLAND_DISPLAY: 'wayland-0' });
   assert.deepEqual(projects.revealFolder(DIR), { ok: true });
-  assert.deepEqual(w, [['xdg-open', DIR]]);
+  assert.deepEqual(w, [['xdg-open', FOLDER]]);
 });
 
 test('#5881: a Linux board with no desktop opens nothing and says why; a file says to download it', (t) => {
@@ -68,7 +78,7 @@ test('#5881: the real xdg-open line is started with the folder, and a missing xd
   assert.deepEqual(projects.revealFolder(DIR), { ok: true });
   for (let i = 0; i < 250 && !fs.existsSync(log); i++) await new Promise((r) => setTimeout(r, 20));
   assert.ok(fs.existsSync(log), 'the stand-in xdg-open left no record within 5 s: it was not started');
-  assert.equal(fs.readFileSync(log, 'utf8'), DIR + '||:0|/run/user/1000/gdm/Xauthority',
+  assert.equal(fs.readFileSync(log, 'utf8'), FOLDER + '||:0|/run/user/1000/gdm/Xauthority',
     'xdg-open was not started with the folder, the display and its X cookie, and never the board\'s token (reviews 2, 3)');
   // A path that is not absolute never reaches xdg-open (an argument starting with "-" would be read as an option).
   assert.deepEqual(projects.revealFolder('-x'), { ok: false, because: 'the folder did not open' });
