@@ -172,8 +172,10 @@ const P = {};
 test.before(() => {
   parkedId = projects.create({ name: 'Parked' }).id;
   projects.mutate(parkedId, (p) => ({ ...p, agents: ['mara'] }));
-  for (const k of ['pbuilt', 'popen']) P[k] = tasks.create(parkedId, { sentence: 'Task ' + k, who: 'mara' }).number;
+  for (const k of ['pbuilt', 'popen', 'pheld']) P[k] = tasks.create(parkedId, { sentence: 'Task ' + k, who: 'mara' }).number;
   assert.ok(tasks.setBuilt(parkedId, P.pbuilt, { by: 'mara' }).ok);
+  assert.ok(tasks.setBuilt(parkedId, P.pheld, { by: 'mara' }).ok);
+  tasks.setOnHold(parkedId, P.pheld, true);   // built AND on its own hold: held, [on hold] [built], no paused note
   projects.edit(parkedId, { paused: true });
 });
 const parked = async (q) => (await (await fetch(`${base}/api/tasks?project=${encodeURIComponent(parkedId)}${q}`)).json()).tasks;
@@ -182,11 +184,13 @@ const parkedMarks = (out) => {
   assert.match(l('pbuilt'), /^\[\d+\] \[built\] \[project paused\] /, out);
   assert.doesNotMatch(l('pbuilt'), /\[on hold\]/, out);
   assert.match(l('popen'), /^\[\d+\] \[on hold\] /, out);
+  assert.match(l('pheld'), /^\[\d+\] \[on hold\] \[built\] /, out);
+  assert.doesNotMatch(l('pheld'), /\[project paused\]/, out);
 };
 test('#5864 route: in a paused project the built task is in built, not held; the unbuilt one is held', async () => {
-  assert.deepEqual(names(await parked('&order=state')), ['pbuilt', 'popen']);
+  assert.deepEqual(names(await parked('&order=state')), ['pbuilt', 'pheld', 'popen']);
   assert.deepEqual(names(await parked('&state=built')), ['pbuilt']);
-  assert.deepEqual(names(await parked('&state=held')), ['popen']);
+  assert.deepEqual(names(await parked('&state=held')), ['pheld', 'popen']);
 });
 test('#5864 Windows: a built task in a paused project prints [built] [project paused]', async () => {
   const r = await win(['task', 'list', parkedId]);
