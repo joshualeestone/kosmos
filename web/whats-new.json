@@ -30,7 +30,7 @@
     {
       "icon": "shield",
       "title": "Removing an account works mid sign-in",
-      "line": "If you left a Sign in again unfinished on a ChatGPT account, you can now remove that account instead of waiting for it to time out."
+      "line": "If you left a Sign in again unfinished on an OpenAI account, you can now remove that account instead of waiting for it to time out."
     }
   ]
 }
