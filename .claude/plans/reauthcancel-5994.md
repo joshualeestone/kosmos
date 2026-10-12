@@ -31,11 +31,10 @@ the live folder, and goes ahead. Any other hold still refuses with the old sente
 Grok has the same refusal (engine/grokaccounts.js forget/remove while its own reauth runs): carded as #6000, to
 port this once it merges so the two stay the same shape.
 
-## Deliberate trade
-If `rmSync` deletes part of the folder and then throws, the remove returns ok:false and the reauth stays live (a
-failed call cancels nothing). A sign-in then finished could promote a fresh auth.json into the half-deleted folder.
-Before #5994 the hold refused the remove up front. Accepted: the folder is still there, the route offers Restore, and
-cancelling on a failure would break the rule the #2570 pre-flight relies on.
+## A delete that fails part way (review 8)
+If `rmSync` throws after it has already taken auth.json, the folder is no longer an account, so its own sign-in is
+cancelled too (it must not finish into the remains). If it throws with the account still whole, nothing is cancelled,
+like any failed call. Neither path is reachable from the #2570 pre-flight, which stops at the agents guard.
 
 ## Weakest premise
 That a live account folder is never also a sign-in's staging folder. It holds an auth.json, and
@@ -60,8 +59,10 @@ cancel a reauth while a staging sign-in still writes into the folder.
 - a rename or delete that THROWS (home made read-only) cancels nothing (review 7: the free-name test returns earlier).
 - every sign-in a test starts is cancelled after it, so a failing assertion leaves no child; the sandbox is removed
   when the file ends (it was left behind on every run, 62 found on this Mac).
+- a delete that fails part way after auth.json is gone cancels; one that fails with the account whole does not
+  (read-only account folder); a failed forget (read-only home) does not. Both read-only tests skip as root.
 - Mutants, all red: no release in remove (3 fail); late exit ignores the flag (1); any hold counted as own (1);
   release before the agents guard (2); release before the move (1); settled reauths filtered out (1); no release
   when already gone (2); own reauth never counted (the route test, 1); kill without settling the session (4); release moved to just before
-  the rename/delete (1).
+  the rename/delete (1); no cancel on a partial delete (1); cancel on any failed delete (1).
 - Wide run: 31 files (openaiaccounts*, server account/disconnect/openai/chatgpt, engine.reachable) 359 pass 0 fail.

@@ -72,8 +72,8 @@ async function waitFor(sessionId, pred, ms = 4000) {
     describe: (s) => `last state=${s.state} error=${s.error}`,
   });
 }
-// #5994: no test leaks a mock mode into the next one, even when it fails.
-// and no sign-in a test started outlives it, even when an assertion failed before the test's own cancel.
+// #5994: no test leaks a mock mode into the next one, and no sign-in a test started outlives it, even when an
+// assertion failed before the test's own cancel.
 const STARTED = [];
 test.afterEach(() => {
   for (const k of ['FAKE_CODEX_SLEEP', 'FAKE_CODEX_IGNORE_TERM', 'FAKE_CODEX_FAIL', 'FAKE_CODEX_WRITE_ON_TERM']) delete process.env[k];
@@ -357,20 +357,35 @@ test('#5994: an account already gone from the disk still has its own unfinished 
   await eventuallyTrue(() => workSlots().length === 0, 'the staging slot was never freed');
 });
 
-test('#5994: a rename or delete that THROWS (home not writable) cancels nothing', async () => {
+// Skipped as root, which ignores the read-only mode (review 8).
+test('#5994: a rename or delete that THROWS (home not writable) cancels nothing', { skip: typeof process.getuid === 'function' && process.getuid() === 0 }, async () => {
   const { dir, sessionId } = await startHeldReauth('.codex-ro11', 'ro11@example.com');
-  fs.chmodSync(SANDBOX, 0o555);   // nothing can be renamed out of, or deleted from, the home
   let f; let rm;
-  try {
-    f = openai.forgetAccount(dir, []);
-    rm = openai.removeAccount(dir, []);
-  } finally { fs.chmodSync(SANDBOX, 0o755); }
+  fs.chmodSync(SANDBOX, 0o555);   // the home cannot be renamed out of: the forget's move throws, the account whole
+  try { f = openai.forgetAccount(dir, []); } finally { fs.chmodSync(SANDBOX, 0o755); }
+  fs.chmodSync(dir, 0o555);       // nothing inside it can be deleted: the remove throws on its first file, the account whole
+  try { rm = openai.removeAccount(dir, []); } finally { fs.chmodSync(dir, 0o755); }
+  assert.equal(fs.existsSync(nodePath.join(dir, 'auth.json')), true, 'fixture: the account was not left whole');
   assert.equal(f.ok, false);
   assert.match(f.because, /could not move/);
   assert.equal(rm.ok, false);
   assert.match(rm.because, /could not delete/);
   const st = openai.chatgptLoginStatus(sessionId).state;
   assert.ok(st !== 'cancelled' && st !== 'error', 'a failed rename or delete cancelled the sign-in: ' + st);
+});
+
+test('#5994: a delete that fails PART WAY, after auth.json is gone, cancels the sign-in so it cannot finish into the remains', { skip: typeof process.getuid === 'function' && process.getuid() === 0 }, async () => {
+  const { dir, sessionId } = await startHeldReauth('.codex-half12', 'half12@example.com');
+  const stuck = nodePath.join(dir, 'sessions');
+  fs.mkdirSync(stuck, { recursive: true });
+  fs.writeFileSync(nodePath.join(stuck, 'kept.jsonl'), '{}');
+  fs.chmodSync(stuck, 0o555);   // its file cannot be deleted, so rmSync throws after the rest is gone
+  let rm;
+  try { rm = openai.removeAccount(dir, []); } finally { fs.chmodSync(stuck, 0o755); }
+  assert.equal(rm.ok, false);
+  assert.match(rm.because, /could not delete/);
+  assert.equal(fs.existsSync(nodePath.join(dir, 'auth.json')), false, 'fixture: auth.json survived, so this is the whole-account case');
+  assert.equal(openai.chatgptLoginStatus(sessionId).state, 'cancelled', 'the sign-in was left to finish into a half-deleted folder');
 });
 
 test('#5994: a reauth cancelled a moment ago (its child still exiting) does not refuse the remove', async () => {

@@ -512,7 +512,12 @@ function removeAccount(dir, usedBy) {
     return { ok: false, removed: false, because: 'that is not an OpenAI account on this computer' };
   }
   try { fs.rmSync(clean, { recursive: true, force: true }); }
-  catch { return { ok: false, removed: false, because: 'we could not delete that account from this computer' }; }
+  catch {
+    /* #5994: a delete that failed part way may already have taken auth.json. Then the folder is no longer an account,
+       and its own sign-in must not finish into it: cancel it. While the account is still whole, cancel nothing. */
+    if (ownReauth && !identityOf(clean)) releaseOwnReauth(clean);
+    return { ok: false, removed: false, because: 'we could not delete that account from this computer' };
+  }
   if (ownReauth) releaseOwnReauth(clean);   // #5994: only once the delete happened, so a failed call cancels nothing
   /* #2684: wasDefault so the caller's history messaging matches forgetAccount's.
      Env-aware, matching the `defaultDir()` comparison the refusal used to make. */
