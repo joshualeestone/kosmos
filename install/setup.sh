@@ -2166,9 +2166,12 @@ UNWIREEOF
       else
         # No node to edit JSON with (a partial install) or no temp file: name every settings file that still points
         # at this install's hook, rather than leaving it silently.
-        _kh_real="$(cd -P "$KOSMOS_HOME" 2>/dev/null && pwd)" || _kh_real="$KOSMOS_HOME"
+        # The path right after a quote, as the hook command and args write it, so another install whose folder merely
+        # ends in this one's path is not named.
+        _kh_given="${KOSMOS_HOME%/}"
+        _kh_real="$(cd -P "$KOSMOS_HOME" 2>/dev/null && pwd)" || _kh_real="$_kh_given"
         for _uf in "${AGENT_WORKFORCE_HOME:-$HOME}/.claude/settings.json" "${AGENT_WORKFORCE_HOME:-$HOME}"/.claude-*/settings.json; do
-          [ -f "$_uf" ] && grep -qF -e "$KOSMOS_HOME/app/bin/kosmos-report-hook" -e "$_kh_real/app/bin/kosmos-report-hook" "$_uf" 2>/dev/null \
+          [ -f "$_uf" ] && grep -qF -e "\"$_kh_given/app/bin/kosmos-report-hook" -e "\"$_kh_real/app/bin/kosmos-report-hook" "$_uf" 2>/dev/null \
             && _unwire_left="${_unwire_left:+$_unwire_left
 }$_uf"
         done
@@ -2643,9 +2646,10 @@ UNWIREEOF
     printf '  (Claude switches to another model when Opus safeguards flag a message).\n'
     printf '  Set it to false there if you want to be asked instead.\n\n'
   fi
-  # #3946: the status line Kosmos adds to record weekly usage is ours by its marker. #5998 removes this install's
-  # own before the home goes; one still here belongs to another install, or sat in a file that could not be
-  # saved, and the bundled Node that could edit the JSON is gone by now, so it is NAMED, as the header's rule asks. Left in place it points at files this uninstall removed,
+  # #3946: the status line Kosmos adds to record weekly usage is ours by its marker. #5998 removes this
+  # install's own before the home goes; one still here belongs to another install, or sat in a file that
+  # could not be saved, and the bundled Node that could edit the JSON is gone by now, so it is NAMED, as the
+  # header's rule asks. Left in place it points at files this uninstall removed,
   # so it records nothing any more, and it keeps the one status-line slot.
   # Every account Kosmos wires, not only the default: account folders are kept by this
   # uninstall, so their entries would otherwise be left unnamed.

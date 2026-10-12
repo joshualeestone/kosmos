@@ -55,8 +55,9 @@ function sandbox({ linkHome = false, noNode = false } = {}) {
   // The default account, wired by the REAL writers, then the person's own hook beside ours and one sharing our entry.
   const mainFile = path.join(home, '.claude', 'settings.json');
   fs.mkdirSync(path.dirname(mainFile), { recursive: true });
-  fs.writeFileSync(mainFile, JSON.stringify({ skipDangerousModePermissionPrompt: true, model: 'opus' }) + '\n', { mode: 0o600 });
-  fs.chmodSync(mainFile, 0o600);
+  // 0664: a mode the umask would change, so keeping it proves the save restores the file's mode.
+  fs.writeFileSync(mainFile, JSON.stringify({ skipDangerousModePermissionPrompt: true, model: 'opus' }) + '\n');
+  fs.chmodSync(mainFile, 0o664);
   const wired = reporthook.ensureWired(mainFile, script, { platform: 'darwin' });
   assert.equal(wired.wired, true, 'control: the real writer did not wire the hooks: ' + JSON.stringify(wired));
   const sl = allowance.ensureStatusLine(mainFile, { platform: 'darwin', script: path.join(real, 'app', 'engine', 'kosmos-statusline.js'),
@@ -67,20 +68,27 @@ function sandbox({ linkHome = false, noNode = false } = {}) {
   main.hooks.Stop[0].hooks.push({ type: 'command', command: 'say done' });
   main.hooks.Unrelated = [];
   fs.writeFileSync(mainFile, JSON.stringify(main, null, 2) + '\n');
-  fs.chmodSync(mainFile, 0o600);
+  fs.chmodSync(mainFile, 0o664);
 
   // A second account, through a symlink: ANOTHER Kosmos install's hooks (must stay) and this install's status line.
   const other = path.join(root, 'other-kosmos');
   const dot = path.join(root, 'dotfiles', 'acct-settings.json');
   fs.mkdirSync(path.dirname(dot), { recursive: true });
-  fs.writeFileSync(dot, JSON.stringify({ hooks: { Stop: [{ matcher: '', hooks: [ourHook(other)] }] }, statusLine: main.statusLine }, null, 2) + '\n');
+  // nested: an install whose folder path merely CONTAINS this one's (it must not match, the anchoring rule).
+  const nested = path.join(root, 'n') + kh;
+  fs.writeFileSync(dot, JSON.stringify({ hooks: { Stop: [{ matcher: '', hooks: [ourHook(other)] }],
+    SessionEnd: [{ matcher: '', hooks: [ourHook(nested)] }] }, statusLine: main.statusLine }, null, 2) + '\n');
+  // A fourth account carrying only ANOTHER install's status line: it must stay.
+  const otherStatus = { type: 'command', command: '"' + path.join(other, 'runtime', 'bin', 'node') + '" "' + path.join(other, 'app', 'engine', 'kosmos-statusline.js') + '"' };
+  fs.mkdirSync(path.join(home, '.claude-other'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude-other', 'settings.json'), JSON.stringify({ statusLine: otherStatus }, null, 2) + '\n');
   fs.mkdirSync(path.join(home, '.claude-work'), { recursive: true });
   fs.symlinkSync(dot, path.join(home, '.claude-work', 'settings.json'));
 
   // A third account whose file is not JSON but names this install's hook: named, never rewritten.
   fs.mkdirSync(path.join(home, '.claude-broken'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude-broken', 'settings.json'), '{ "hooks": "bash \\"' + script + '\\"\n');
-  return { root, kh, real, home, other, dot, mainFile };
+  return { root, kh, real, home, other, nested, dot, mainFile, otherStatus };
 }
 
 function runUninstall(sb) {
@@ -122,7 +130,7 @@ function checkCleaned(sb, out) {
   assert.deepEqual(main.hooks.Unrelated, [], 'an empty event that was never ours was removed');
   assert.equal(main.skipDangerousModePermissionPrompt, true, 'an unrelated setting was lost');
   assert.equal(main.model, 'opus', 'an unrelated setting was lost');
-  assert.equal(fs.statSync(sb.mainFile).mode & 0o777, 0o600, 'the settings file lost its mode');
+  assert.equal(fs.statSync(sb.mainFile).mode & 0o777, 0o664, 'the settings file lost its mode');
   assert.deepEqual(fs.readdirSync(path.dirname(sb.mainFile)).filter((f) => f.includes('kosmos-unwire')), [], 'a temp file was left beside the settings');
 
   const acct = path.join(sb.home, '.claude-work', 'settings.json');
@@ -131,6 +139,10 @@ function checkCleaned(sb, out) {
   assert.equal(acctData.statusLine, undefined, 'this install\'s status line was left in the second account');
   assert.ok(mentions(acctData, path.join(sb.other, 'app', 'bin', 'kosmos-report-hook.sh')),
     'ANOTHER Kosmos install\'s hook was removed: only this install\'s may go');
+  assert.ok(mentions(acctData, path.join(sb.nested, 'app', 'bin', 'kosmos-report-hook.sh')),
+    'an install whose folder path merely contains this one\'s was removed: the match is not anchored');
+  assert.deepEqual(read(path.join(sb.home, '.claude-other', 'settings.json')).statusLine, sb.otherStatus,
+    'ANOTHER install\'s status line was removed');
 
   assert.ok(fs.readFileSync(path.join(sb.home, '.claude-broken', 'settings.json'), 'utf8').startsWith('{ "hooks": "bash'),
     'a settings file that is not JSON was rewritten');
