@@ -17,24 +17,22 @@ converged: true
 **Hand-written:** this proof is written from the branch's own ledger, the commit messages "address challenge-loop iteration N findings". Which model ran each review is not recorded on the branch, so it is not stated here.
 
 ## Findings and dispositions, by iteration
-### rulesbehind-5957 -- address challenge-loop iteration 1 findings
+#### Iteration 1
 - The sentence is for CARDS only (card() and lrow() pass card: true; the agent's own page has the update note) and calm
   states only (idle, working, stopped): never in the slot a needs-you or question card is read by (#986/#2833).
 - Test: unchanged polls read the instructions file once (the cache saves work, not only invalidates).
 - Comments say the real cost and why entries are not pruned; taskLine's list of speaking states names #5957.
 
-### rulesbehind-5957 -- address challenge-loop iteration 2 findings
+#### Iteration 2
 - Test: status.snapshot() carries rulesBehind on a real fleet card (13 far behind, null recent).
 - Plan: the Not now condition, the real per-poll cost, and the card-only calm-state rule.
 
-### rulesbehind-5957 -- address challenge-loop iteration 3 findings
+#### Iteration 3
 - Only idle or stopped cards say it: the update restarts the agent, so a working agent is not pointed at it mid-task.
 - Test: the profile alone moving recomputes (13 behind becomes 6), then the file changing does.
 - The cache key includes the file's path (CLAUDE.md or AGENTS.md by runner).
 
-### rulesbehind-5957 -- plan: idle or stopped only
-
-### rulesbehind-5957 -- address challenge-loop iteration 4 findings
+#### Iteration 4
 - A STOPPED agent (the offline row server.js builds) and a paneless card carry rulesBehind too: the likeliest stale agent
   is one that is not running. Test through the real /api/status route (13 far behind, null recent).
 - The cache key drops updatedAt (status() reads only the version and Not now from the profile), so an unrelated profile
@@ -42,7 +40,7 @@ converged: true
 
 ### rulesbehind-5957 -- plan: tests as built, with the mutants run
 
-### rulesbehind-5957 -- address challenge-loop iteration 5 finding (the offline card and row draw it)
+#### Iteration 5
 The offline row carried rulesBehind but card() and lrow() return early for a not-running agent with no task line, so the
 likeliest stale agent still said nothing. One helper (rulesBehindLine) now says it: stateReason on a running card, the
 offline card's atask line (only when there is something to say) and the offline list row's ltask cell. Test through
@@ -50,24 +48,24 @@ the real renderers with the route's own offline row.
 
 ### rulesbehind-5957 -- the offline card's line uses the note class (as the needs-trust offline card), so #855's card order holds; the #5314 test lifts the new helper
 
-### rulesbehind-5957 -- address challenge-loop iteration 6 findings
+#### Iteration 6
 - The offline card's line is the small muted ameta style, not the padded note box, so the card's look is unchanged.
 - Not on the could-not-check split (a process may be running; the update restarts it), card or list row; tested.
 - panelessCard passes its own profile read. Plan: the real cache key, rooms not covered, two deferrals with reasons.
 
-### rulesbehind-5957 -- address challenge-loop iteration 7 findings
+#### Iteration 7
 - Two more tests lift card()/lrow() and threw on the new helper (trust-wait-card-3013, socket-split): they lift it now;
   every test that lifts a renderer was found by name and run, 650 pass.
 - The offline card's note has its own small muted class (arules), not ameta, which is the bold role line.
 - rulesBehind's comment says the number is the recorded gap and can overstate after a hand edit. Plan: phone list, offline.
 
-### rulesbehind-5957 -- address challenge-loop iteration 8 finding: a running card and list row draw it, through the real renderers
+#### Iteration 8
 Mutant: card: true dropped at both call sites turns both cases red (0 pass 2 fail).
 
-### rulesbehind-5957 -- address challenge-loop iteration 9 findings
+#### Iteration 9
 - The not-running card and row state the fact only: the page's update is refused for an agent not in the roster (a
   stopped Windows agent or a leftover), so they promise no action. A stopped Mac agent (panelessCard) keeps the full line.
 - Test: panelessCard (a created agent with no pane) carries it, 13 and null.
 
-### Iteration 10
+#### Iteration 10
 No new findings. Converged.
