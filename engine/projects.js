@@ -1496,10 +1496,7 @@ function setRevealPlatform(p) { revealPlatform = p || null; }
 function revealOnWindows() { return (revealPlatform || process.platform) === 'win32'; }
 /* #5881: a Linux board has no `/usr/bin/open`. A FOLDER it opens with `xdg-open` when the board's own environment names
    a display (DISPLAY or WAYLAND_DISPLAY), as engine/remote.js opens a page; without one it cannot, and the answer says
-   so. Review 2: the board's own systemd unit (engine/linuxboard.js) sets neither, so an INSTALLED Linux board always
-   refuses, even on a desktop machine; only a board started by hand from a desktop session opens folders. Giving the
-   unit the session's display is the Linux port's to decide (#4916), not this card's. A stale display starts an
-   xdg-open that fails unseen, since it is not waited on (below).
+   so. A stale display starts an xdg-open that fails unseen, since it is not waited on (below).
    xdg-open is STARTED, never waited on (review 1): on a desktop it does not know it runs the file manager in the
    foreground, and waiting would hold the board's event loop until that window closed. So "ok" means it was started; a
    missing xdg-open (xdg-utils not installed) is said. The environment is injectable for tests, as the platform is. */
@@ -1527,7 +1524,8 @@ function linuxOpenFolder(folder) {
        a file manager that may run for a long time. */
     const e = linuxEnv();
     const env = {};
-    for (const k of ['HOME', 'PATH', 'LANG', 'DISPLAY', 'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS']) {
+    for (const k of ['HOME', 'PATH', 'LANG', 'DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS',
+      'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'XDG_DATA_DIRS']) {
       if (e[k]) env[k] = e[k];
     }
     const child = spawn(bin, [folder], { detached: true, stdio: 'ignore', env });
