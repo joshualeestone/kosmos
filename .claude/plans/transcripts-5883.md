@@ -75,3 +75,5 @@ Tests 37 -> 38.
 The header's "data root not covered" now names its one exception (each Codex agent's runtime rollouts); its gap list
 names all three (Grok, Antigravity, a move between named accounts); the plan's What and Weakest premise describe the
 current design, not the first one.
+
+## Review 6 (sonnet, blind, on 2bc24b09): NO NEW ISSUES. Converged at 6.
