@@ -54,7 +54,7 @@ test('each agent gets only its own conversations, as consistent copies in the st
   } finally { t.done(); }
 });
 
-test('a conversation two agents claim is ONE staged file named by both; a linked database is never copied', async () => {
+test('a conversation two agents claim is LEFT OUT (review 1: one shared file would drop both agents\' whole roots); a linked database is never copied', async () => {
   const t = home();
   try {
     const ann = t.mk('workers', 'ann'), bob = t.mk('workers', 'bob');
@@ -65,8 +65,12 @@ test('a conversation two agents claim is ONE staged file named by both; a linked
     fs.symlinkSync(path.join(t.base, 'outside.db'), real);
     const stage = path.join(t.base, 'stage');
     const roots = await agy.stageAgy({ home: t.h, stageDir: stage, agents: [{ dir: ann, seg: 'ann' }, { dir: bob, seg: 'bob' }] });
-    const by = Object.fromEntries(roots.map((r) => [r.name, r.only]));
-    assert.deepEqual(by, { 'sessions/ann/agy': ['c-shared.db'], 'sessions/bob/agy': ['c-shared.db'] });
+    t.add('c-ann-own', [ann]);
+    const again = await agy.stageAgy({ home: t.h, stageDir: stage, agents: [{ dir: ann, seg: 'ann' }, { dir: bob, seg: 'bob' }] });
+    const by = Object.fromEntries(again.map((r) => [r.name, r.only]));
+    assert.deepEqual(by, { 'sessions/ann/agy': ['c-ann-own.db'] }, 'a shared conversation was staged, or an own one lost');
+    assert.ok(!fs.existsSync(path.join(stage, 'c-shared.db')));
+    void roots;
     assert.ok(!fs.existsSync(path.join(stage, 'c-linked.db')), 'a linked conversation database was copied');
   } finally { t.done(); }
 });
@@ -111,5 +115,49 @@ test('an id that walks out of conversations/ never stages that file (the summari
     const roots = await agy.stageAgy({ home: t.h, stageDir: stage, agents: [{ dir: ann, seg: 'ann' }] });
     assert.deepEqual(roots, []);
     assert.equal(fs.existsSync(stage) && fs.readdirSync(stage).length, false, 'something was staged');
+  } finally { t.done(); }
+});
+
+test('review 1: on an IDLE event loop (nothing else scheduled, as on a quiet board) staging still finishes', () => {
+  const t = home();
+  try {
+    const ann = t.mk('workers', 'ann');
+    t.add('c-idle-1', [ann], 200); t.add('c-idle-2', [ann], 200);
+    const script = `const agy=require(${JSON.stringify(path.join(__dirname, 'backupagy.js'))});
+      agy.stageAgy({ home: ${JSON.stringify(t.h)}, stageDir: ${JSON.stringify(path.join(t.base, 'idle-stage'))}, agents: [{ dir: ${JSON.stringify(ann)}, seg: 'ann' }] })
+        .then((r) => { process.stdout.write(JSON.stringify(r.map((x) => x.only))); });`;
+    const started = Date.now();
+    const out = require('node:child_process').spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 10000 });
+    assert.equal(out.signal, null, `staging never finished on an idle loop (killed after ${Date.now() - started} ms)`);
+    assert.deepEqual(JSON.parse(out.stdout), [['c-idle-1.db', 'c-idle-2.db']]);
+  } finally { t.done(); }
+});
+
+test('review 1: the staging folder and every copy are owner-only, even when the folder was left looser', async () => {
+  const t = home();
+  try {
+    const ann = t.mk('workers', 'ann');
+    t.add('c-mode', [ann]);
+    const stage = path.join(t.base, 'stage');
+    fs.mkdirSync(stage, { mode: 0o755 });
+    fs.chmodSync(stage, 0o755);
+    await agy.stageAgy({ home: t.h, stageDir: stage, agents: [{ dir: ann, seg: 'ann' }] });
+    assert.equal(fs.statSync(stage).mode & 0o777, 0o700);
+    assert.equal(fs.statSync(path.join(stage, 'c-mode.db')).mode & 0o777, 0o600);
+  } finally { t.done(); }
+});
+
+test('review 1: a stale copy left in the staging folder is replaced, never backed up as it is', async () => {
+  const t = home();
+  try {
+    const ann = t.mk('workers', 'ann');
+    t.add('c-fresh', [ann], 7);
+    const stage = path.join(t.base, 'stage');
+    fs.mkdirSync(stage, { recursive: true });
+    fs.writeFileSync(path.join(stage, 'c-fresh.db'), 'a stale or foreign file');
+    await agy.stageAgy({ home: t.h, stageDir: stage, agents: [{ dir: ann, seg: 'ann' }] });
+    const copy = new DatabaseSync(path.join(stage, 'c-fresh.db'), { readOnly: true });
+    assert.equal(copy.prepare('SELECT count(*) AS n FROM steps').get().n, 7);
+    copy.close();
   } finally { t.done(); }
 });

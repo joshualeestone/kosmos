@@ -310,23 +310,27 @@ function mayBackUp() {
    board's log. RESIDUAL: the gate is asked when a run starts; a Leave during a run does not stop that run's uploads (a
    rollup re-asks per batch). A run is bounded by the week's allowance and is one an hour at most. */
 function startHere() {
-  // kosmos#5883 slice 3: Antigravity conversations are live SQLite files, staged as consistent copies before the run
-  // (engine/backupagy.js) under Kosmos's own data, and the staging folder is cleared after every run.
+  // kosmos#5883 slice 3: Antigravity conversations are live SQLite files, copied whole into a staging folder under
+  // Kosmos's own data (engine/backupagy.js). Staged INSIDE the run (review 1): a copy exists only for a run that
+  // happens, and is cleared after it, whatever happened. roots() keeps the agents it listed for the run to use.
   const stageDir = () => path.join(require('./store').ROOT, 'backupstage', 'agy');
   const agy = require('./backupagy');
+  let lastAgents = [];
   return startTick({
     runBackup: async (input) => {
-      try { return await require('./backuprun').runBackup(input); } finally { agy.clearStage(stageDir()); }
-    },
-    roots: async () => {
-      const input = inputsHere();
-      const plan = rootsFor(input);
       agy.clearStage(stageDir());   // a run that died left copies behind
-      let home = null;
-      try { home = require('./agytrust').agyHome(); } catch { /* none */ }
-      const agents = (input.agents || []).map((a) => ({ dir: a.dir, seg: rootSegment(a.id) })).filter((a) => a.seg);
-      try { plan.roots.push(...await agy.stageAgy({ home, stageDir: stageDir(), agents })); } catch { /* none */ }
-      return plan;
+      try {
+        let home = null;
+        try { home = require('./agytrust').agyHome(); } catch { /* none */ }
+        let extra = [];
+        try { extra = await agy.stageAgy({ home, stageDir: stageDir(), agents: lastAgents }); } catch { extra = []; }
+        return await require('./backuprun').runBackup(Object.assign({}, input, { roots: input.roots.concat(extra) }));
+      } finally { agy.clearStage(stageDir()); }
+    },
+    roots: () => {
+      const input = inputsHere();
+      lastAgents = (input.agents || []).map((a) => ({ dir: a.dir, seg: rootSegment(a.id) })).filter((a) => a.seg);
+      return rootsFor(input);
     },
     enrolled: mayBackUp,
     say: (text) => console.error(text),
