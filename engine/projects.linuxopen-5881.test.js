@@ -66,14 +66,18 @@ test('#5881: the real xdg-open line is started with the folder, and a missing xd
   t.after(() => { projects.setRevealPlatform(null); projects.setRevealEnv(null); });
   projects.setRevealEnv({ DISPLAY: ':0', XAUTHORITY: '/run/user/1000/gdm/Xauthority', PATH: bin, KOSMOS_BOARD_TOKEN: 'secret-5881' });
   assert.deepEqual(projects.revealFolder(DIR), { ok: true });
-  for (let i = 0; i < 100 && !fs.existsSync(log); i++) await new Promise((r) => setTimeout(r, 20));
+  for (let i = 0; i < 250 && !fs.existsSync(log); i++) await new Promise((r) => setTimeout(r, 20));
+  assert.ok(fs.existsSync(log), 'the stand-in xdg-open left no record within 5 s: it was not started');
   assert.equal(fs.readFileSync(log, 'utf8'), DIR + '||:0|/run/user/1000/gdm/Xauthority',
     'xdg-open was not started with the folder, the display and its X cookie, and never the board\'s token (reviews 2, 3)');
   // A path that is not absolute never reaches xdg-open (an argument starting with "-" would be read as an option).
   assert.deepEqual(projects.revealFolder('-x'), { ok: false, because: 'the folder did not open' });
   // CONTROL: the same call with no xdg-open on PATH says so, rather than claiming it opened.
   projects.setRevealEnv({ DISPLAY: ':0', PATH: path.join(SANDBOX, 'no-such-bin') });
-  assert.deepEqual(projects.revealFolder(DIR), { ok: false, because: 'this computer has no xdg-open to open it with (it comes with xdg-utils)' });
+  assert.deepEqual(projects.revealFolder(DIR), { ok: false, because: 'this computer has no program installed for opening folders' });
+  // A relative PATH entry is never searched (it would name a folder relative to where the board runs).
+  projects.setRevealEnv({ DISPLAY: ':0', PATH: path.relative(process.cwd(), bin) || '.' });
+  assert.deepEqual(projects.revealFolder(DIR), { ok: false, because: 'this computer has no program installed for opening folders' });
 });
 
 test('#5881 CONTROL: the Mac opener and the Windows arm are unchanged, whatever the environment says', (t) => {

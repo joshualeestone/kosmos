@@ -12,7 +12,8 @@ Card: #5881 (Angel, found building #5865). Owner: April (night shift shard).
 - engine/agysignin.js, engine/agystatus.js: Antigravity sign-in. Antigravity has no Linux package (engine/runners.js lists
   none), so a Linux board never reaches them.
 - engine/remote.js already uses `xdg-open` off macOS and Windows (the company sign-in page).
-- The page's three callers of POST .../open-file (web/index.html) already offer Download through Kosmos+ (kplusRemote,
+- The page's four file-row handlers (web/index.html: an agent's Files, and three that call POST .../open-file) already
+  offer Download through Kosmos+ (kplusRemote,
   #5165), because the file is not on the viewing device.
 
 ## Decided, per route
@@ -21,8 +22,8 @@ Card: #5881 (Angel, found building #5865). Owner: April (night shift shard).
    on a desktop it does not know, it runs the file manager in the foreground, and waiting would hold the board's event
    loop until that window closed). "ok" means started; a missing xdg-open (no xdg-utils) is said. It is given only what it
    needs to reach the desktop (HOME, PATH, LANG, the display and its X cookie XAUTHORITY, XDG_RUNTIME_DIR, the session
-   bus, the desktop's identity (XDG_CURRENT_DESKTOP, XDG_SESSION_TYPE, DESKTOP_SESSION, KDE_FULL_SESSION,
-   GNOME_DESKTOP_SESSION_ID) and where its choices live (XDG_DATA_DIRS, XDG_CONFIG_HOME, XDG_CONFIG_DIRS), so xdg-open
+   bus, the desktop's identity (XDG_CURRENT_DESKTOP, XDG_SESSION_TYPE, DESKTOP_SESSION, XDG_SESSION_DESKTOP,
+   KDE_FULL_SESSION, KDE_SESSION_VERSION (Plasma's opener depends on it), GNOME_DESKTOP_SESSION_ID) and where its choices live (XDG_DATA_DIRS, XDG_CONFIG_HOME, XDG_CONFIG_DIRS), so xdg-open
    finds the desktop's file manager rather than a browser), never the board's own environment and its tokens. Only an
    absolute path reaches it: xdg-open reads a leading "-" as an option and takes no "--". No desktop: refused, "Kosmos cannot open it on this computer: it is not running
    in a desktop session". Whether an INSTALLED board has a display depends on when its service started (review 3): its
@@ -44,6 +45,7 @@ every Linux board (a Linux desktop can open a folder, and opening a folder runs 
 
 ## Not here
 machine.js (#5877), Antigravity (no Linux package), the buttons #5865 hides.
+engine/remote.js's company sign-in opener, which hands xdg-open the board's whole environment: follow-up #5889.
 
 ## Weakest premise
 That a refusal is the right answer whenever the board's environment has no display (it is true then: the board is not in
