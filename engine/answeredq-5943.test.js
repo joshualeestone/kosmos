@@ -128,3 +128,17 @@ test('#5943 the agent instructions tie needs_you to the reversibility test and t
   assert.match(b, /### Before you do something you cannot take back/);
   assert.ok(defaults.DOCTRINE_VERSION >= 29);
 });
+
+test('#5943 (Josh 09:34) a NEW session retires the question its previous session reported', () => {
+  // The previous run asked; the restart's own `started` (written by the hook, auto) is a one-time transition and lands
+  // over it, so the board no longer reads the old question as standing.
+  assert.equal(selfreport.record('restarter', { state: 'needs_you', because: 'Old run question?' }).recorded, true);
+  assert.equal(selfreport.read('restarter').state, 'needs_you');
+  // CONTROL: an automatic `working` (every command) is refused over it, so the question is NOT cleared by mere activity.
+  assert.equal(selfreport.record('restarter', { state: 'working', auto: true }).recorded, false);
+  assert.equal(selfreport.read('restarter').state, 'needs_you', 'activity alone must not erase an unanswered question');
+  assert.equal(selfreport.record('restarter', { state: 'started', auto: true }).recorded, true);
+  const r = selfreport.read('restarter');
+  assert.equal(r.state, 'started', 'the new session retired the old question');
+  assert.equal(r.askedAt, null);
+});
