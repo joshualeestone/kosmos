@@ -20,8 +20,8 @@
  * backed up (under workers or agents/<id>); only the provider's record of the conversation is missing.
  * `left` names what was not added and why (an id or slug a root name cannot carry), never a path.
  *
- * startTick(deps) -> stop(). Every `everyMs` (an hour): only while deps.enrolled() is true (this Kosmos is enrolled
- * with a company), and never while a run is still going (a tick then is skipped, not queued). Pauses:
+ * startTick(deps) -> stop(). Every `everyMs` (an hour): only while deps.enrolled() is true (the board passes mayBackUp:
+ * enrolled with a company AND its words accepted here), and never while a run is still going (a tick then is skipped, not queued). Pauses:
  *   backup_off (Kosmos+ answers 404 backup_off while company backup is off) -> no request for a day;
  *   overAllowance -> none until the next week starts (the allowance is per week).
  * A reason a person must act on (refusedState, missing, unreadableKeyFile, overAllowance) is said once (deps.say) until
@@ -164,7 +164,8 @@ function startTick(deps) {
       if (r.refusal && r.refusal.code === 'backup_off') state.pausedUntil = now() + DAY;
       else if (r.overAllowance) state.pausedUntil = nextWeekStart(now());
       const act = r.refusedState ? 'refusedState' : r.missing ? 'missing' : r.unreadableKeyFile ? 'unreadableKeyFile' : r.overAllowance ? 'overAllowance' : null;
-      if (r.ok) state.said = null;
+      // Cleared by any run that ends without a reason a person acts on (review 7), so one that comes back is said again.
+      if (r.ok || !act) state.said = null;
       else if (act && state.said !== act) { state.said = act; say(typeof r.because === 'string' && r.because ? r.because : 'it did not run, and did not say why'); }
     } catch { /* never throws; the next tick tries again */ }
   }
@@ -215,15 +216,24 @@ function inputsHere() {
   return { workersDir: create.WORKERS_DIR, projectsDir, agents, projects, sessions, protect };
 }
 
-/* The board's own tick: enrolled here (orgenroll.isEnrolledHere, the check /api/org uses), the roots of this world, the
-   real run. say: one console line, which reaches the board's log. */
+/* May this computer back up to its company now? orgenroll.mayReport, the gate orgenroll names for EVERY sender, E0.6
+   backup included (review 7): enrolled here AND the company's words accepted here (a consentHash on the record). NOT
+   isEnrolledHere: a record re-adopted after a move that could not be written, or rebuilt after a last-admin refusal,
+   is enrolled with no consent, and nothing may be sent under it. */
+function mayBackUp() {
+  try { return require('./orgenroll').mayReport() === true; } catch { return false; }
+}
+
+/* The board's own tick: mayBackUp, the roots of this world, the real run. say: one console line, which reaches the
+   board's log. RESIDUAL: the gate is asked when a run starts; a Leave during a run does not stop that run's uploads (a
+   rollup re-asks per batch). A run is bounded by the week's allowance and is one an hour at most. */
 function startHere() {
   return startTick({
     runBackup: (input) => require('./backuprun').runBackup(input),
     roots: () => rootsFor(inputsHere()),
-    enrolled: () => { try { return require('./orgenroll').isEnrolledHere() === true; } catch { return false; } },
+    enrolled: mayBackUp,
     say: (text) => console.error(text),
   });
 }
 
-module.exports = { rootsFor, startTick, nextWeekStart, inputsHere, startHere };
+module.exports = { rootsFor, startTick, nextWeekStart, inputsHere, startHere, mayBackUp };

@@ -21753,9 +21753,10 @@ function start(port = PORT) {
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
   try { filepreview.sweep(); } catch { /* best effort */ }
   setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
-  /* #5535 E0.6 slice (d): the company backup tick, hourly and only while this Kosmos is enrolled with a company. The
-     first run is an hour after start, never at boot. Kosmos+ answers backup_off while company backup is off, and the
-     tick then asks again a day later (engine/backuptick.js). Best effort: never a reason not to start. */
+  /* #5535 E0.6 slice (d): the company backup tick, hourly and only while orgenroll.mayReport (enrolled here AND the
+     company's words accepted here). The first run is an hour after start, never at boot. Kosmos+ answers backup_off
+     while company backup is off, and the tick then asks again a day later (engine/backuptick.js). Best effort: never a
+     reason not to start. */
   try { require('./engine/backuptick').startHere(); } catch { /* best effort */ }
   /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
      running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
