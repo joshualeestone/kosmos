@@ -23,7 +23,11 @@ function providerOf(card) {
      (create.jobProvider, the one every other Qwen decision reads; review 2: the profile is written best-effort and an
      older agent has none, so it is only the fallback). Any failure to read either keeps the runner's name. */
   if (card && card.runner === 'codex' && card.sessionName) {
-    try { if (require('./create').agentProvider(card.sessionName, 'codex') === 'alibaba') return 'Qwen'; } catch { /* no job */ }
+    /* Review 3: a job that was read is the answer either way (a stale 'alibaba' profile after a switch to OpenAI must
+       not win); the profile speaks only when there is no job to read. */
+    let job = null;
+    try { job = require('./create').readJob(card.sessionName); } catch { job = null; }
+    if (job) return require('./create').jobProvider({ ...job, runner: 'codex' }) === 'alibaba' ? 'Qwen' : 'OpenAI';
     try { if (require('./store').readProfile(card.sessionName).provider === 'alibaba') return 'Qwen'; } catch { /* no profile */ }
   }
   return PROVIDER_NAME[card && card.runner] || 'Claude';

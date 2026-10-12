@@ -77,8 +77,7 @@ function endpointProblem(ep) {
   if (url.search || url.hash) return 'the address must not have a ? or # part';
   /* Review 2: a link-local host (169.254.x.x, fe80::) is a cloud's metadata service or a cable between two machines,
      never a model endpoint, and the add route would otherwise ask it for /models. */
-  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  if (/^169\.254\./.test(host) || /^fe[89ab][0-9a-f]:/.test(host)) return 'that is a link-local address, not a model endpoint';
+  if (isLinkLocal(url.hostname)) return 'that is a link-local address, not a model endpoint';
   if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/.test(String(e.model || ''))) return 'give the model name the endpoint uses, such as ' + LOCAL.model;
   const ctx = e.contextWindow;
   if (typeof ctx !== 'number' || !Number.isInteger(ctx) || ctx < MIN_CONTEXT || ctx > MAX_CONTEXT) {
@@ -86,13 +85,29 @@ function endpointProblem(ep) {
   }
   if (e.key != null && e.key !== '') {
     const k = String(e.key);
-    if (/\s/.test(k)) return 'that does not look like a key: a key has no spaces or line breaks in it';
+    if (/[\s\u0000-\u001f\u007f]/.test(k)) return 'that does not look like a key: a key has no spaces, line breaks or control characters in it';   // review 3: control characters too
     if (k.length > 4096) return 'that key is too long';
     /* Review 2: the key travels with every check and every turn. Over plain http to another machine anyone on the
        way can read it, so a key needs https, unless the endpoint is on this computer. */
     if (url.protocol === 'http:' && !isLocal(raw)) return 'a key is sent with every request, so an address on another computer needs https:// to carry one';
   }
   return null;
+}
+
+/* Review 3: an IPv4 address written inside IPv6 (::ffff:a9fe:a9fe, the NAT64 64:ff9b::a9fe:a9fe) is that IPv4 address;
+   URL rewrites the dotted form to hex, so both are decoded before the link-local test. A name that resolves to a
+   link-local address is not caught here (no DNS lookup); the live check refuses to follow redirects (askModels). */
+function isLinkLocal(hostname) {
+  let host = String(hostname || '').replace(/^\[|\]$/g, '').toLowerCase();
+  const mapped = host.match(/^(?:::ffff:|64:ff9b::)(?:([0-9a-f]{1,4}):([0-9a-f]{1,4})|(\d+\.\d+\.\d+\.\d+))$/);
+  if (mapped) {
+    if (mapped[3]) host = mapped[3];
+    else {
+      const a = parseInt(mapped[1], 16); const b = parseInt(mapped[2], 16);
+      host = [a >> 8, a & 255, b >> 8, b & 255].join('.');
+    }
+  }
+  return /^169\.254\./.test(host) || /^fe[89ab][0-9a-f]:/.test(host);
 }
 
 /** The endpoint as stored, normalized: baseUrl without a trailing slash, key only when non-empty. */
@@ -228,7 +243,8 @@ async function askModels(ep) {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 5000);
     try {
-      const res = await fetch(url, { ...init, signal: ctl.signal });
+      // Review 3: never follow a redirect (an endpoint could send the check to a link-local address); a 3xx is UNKNOWN.
+      const res = await fetch(url, { ...init, redirect: 'manual', signal: ctl.signal });
       let body = null;
       try { body = await res.json(); } catch { body = null; }
       return { status: res.status, body };
