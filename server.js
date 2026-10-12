@@ -15137,16 +15137,16 @@ const server = http.createServer(async (req, res) => {
           if (rep.until) detail.push('until ' + rep.until);
           line = 'You are currently: ' + rep.state + (detail.length ? ' (' + detail.join(', ') + ')' : '') + '.';
           if (rep.at) line += ' Set ' + rep.at + '.';
-          if (selfreport.WAITING_ON_A_PERSON.includes(rep.state)) {
+          if (selfreport.WAITING_ON_A_PERSON.includes(rep.state) && stale) {
+            // #5959: a waiting state standing over a day says so in the same sentence, not a second one.
+            const days = Math.floor(ageMs / (24 * 3600 * 1000));
+            line += ' This `' + rep.state + '` report has been standing for ' + (days >= 2 ? days + ' days' : 'over a day')
+              + '. If nobody needs to answer it any more, clear it with a fresh report (e.g. `kosmos report working ...`).';
+          } else if (selfreport.WAITING_ON_A_PERSON.includes(rep.state)) {
             line += ' This is a waiting-on-a-person state; clear it with a fresh report (e.g. `kosmos report working ...`) once you have been answered.';
           }
         }
         line = 'Your card on the board shows: ' + cardLabel + '.\n' + line;
-        if (stale) {
-          const days = Math.floor(ageMs / (24 * 3600 * 1000));
-          line += '\nThis ' + rep.state + ' has been standing for ' + (days >= 2 ? days + ' days' : 'over a day')
-            + '. If nobody needs to answer it any more, clear it with a fresh report (for example `kosmos report working ...`).';
-        }
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
         res.end(line + '\n');
         return;

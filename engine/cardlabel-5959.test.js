@@ -1,7 +1,8 @@
 'use strict';
 /**
  * #5959: engine/cardlabel.js is a second copy of the card's word. This lifts the page's own STATE_COPY, restartingLabel
- * and stateCopyOf out of web/index.html and compares their answer with labelOf's on every state and special case, so a
+ * and stateCopyOf out of web/index.html and compares their answer with labelOf's on every state and special case (a
+ * state named like an Object member is not one: there labelOf says "Can't tell" and the page has no word), so a
  * word changed in one place and not the other goes red here.
  *
  *   node --test engine/cardlabel-5959.test.js
