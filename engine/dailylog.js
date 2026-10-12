@@ -86,14 +86,28 @@ const PROJECT_THREAD_FILE = /^([^.]+)\.(.+)\.json$/;
 const ROLLED_OVER_SUFFIX = 'full';
 /* How a thread file's name ends, as DIRECT_THREAD_FILE and PROJECT_THREAD_FILE above require. */
 const THREAD_FILE_END = '.json';
-function isRolledOverFileName(filename) {
-  if (typeof filename !== 'string' || !filename.endsWith('.' + ROLLED_OVER_SUFFIX)) return false;
+/* The thread a set-aside file belongs to, or null: `<thread file's name>.<anything>.<suffix>` (or with nothing between). */
+function asideThread(filename, suffix) {
+  if (typeof filename !== 'string' || !filename.endsWith('.' + suffix)) return null;
   // Any ".json." may be where the thread file's name ends: a key may itself be "json" (`p.json.json`), so each is tried.
   for (let cut = filename.indexOf(THREAD_FILE_END + '.'); cut >= 0; cut = filename.indexOf(THREAD_FILE_END + '.', cut + 1)) {
-    if (parseChatFileName(filename.slice(0, cut + THREAD_FILE_END.length)) !== null) return true;
+    const desc = parseChatFileName(filename.slice(0, cut + THREAD_FILE_END.length));
+    if (desc !== null) return desc;
   }
-  return false;
+  return null;
 }
+function isRolledOverFileName(filename) {
+  return asideThread(filename, ROLLED_OVER_SUFFIX) !== null;
+}
+/* kosmos#5866: the two other kinds of file engine/chat.js sets aside beside a thread file, under the same naming.
+   `.superseded` is a WHOLE conversation: the thread file of an earlier project of the same name, renamed aside when
+   the first message of the later one arrived, whose own file then starts empty. So the two share no rows, and the
+   set-aside one is read as a conversation of its own.
+   `.damaged` is a thread file that would not parse, renamed aside. Its messages cannot be known. */
+const SUPERSEDED_SUFFIX = 'superseded';
+const DAMAGED_SUFFIX = 'damaged';
+/* `unknownThrough` when a set-aside file with unknown messages cannot be dated: every day may hold some of them. */
+const UNKNOWN_THROUGH_ALL = 'all';
 /* The second sign in a file that will not parse: `"continues"` followed by a non-empty string,
    anywhere in the raw text (wider than the parsed read, which takes the top-level field only). */
 const NAMES_AN_EARLIER_FILE = /"continues"\s*:\s*"[^"]/;
@@ -126,8 +140,9 @@ function parseChatFileName(filename) {
 /** A short human label for a conversation, used as the section heading. */
 function conversationLabel(desc) {
   if (!desc) return 'Conversation';
-  if (desc.kind === 'direct') return `Direct: ${desc.key}`;
-  return `${desc.projectId} : ${desc.key}`;
+  const label = desc.kind === 'direct' ? `Direct: ${desc.key}` : `${desc.projectId} : ${desc.key}`;
+  // kosmos#5866: a set-aside conversation gets a heading of its own, never the live conversation's.
+  return desc.earlier ? `${label} (an earlier project of this name)` : label;
 }
 
 /* Default day/time derivation is LOCAL, which is what a person means by "daily".
@@ -333,6 +348,11 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
  *     after the folder was listed.
  *   - `rolledOverFiles` and `continuedFiles` are the file names behind those two
  *     counts, each sorted, for the refusal to show.
+ *   - `unknownFiles` (kosmos#5866) are set-aside files whose messages cannot be
+ *     known: every `.damaged` file, and a `.superseded` file that will not parse.
+ *     `unknownThrough` is the latest moment any of them was last written (an ISO
+ *     string): none of their messages can be later than that. It is null when
+ *     there are none, and `UNKNOWN_THROUGH_ALL` when one of them cannot be dated.
  *   - `readable` is true ONLY if the directory LISTING succeeded. A failed
  *     listing (permissions, a transient error, a wrong root, the dir absent)
  *     means "could not read the source", which is NOT "the source is empty".
@@ -348,16 +368,49 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
 function readConversations(chatsDir) {
   let names;
   try { names = fs.readdirSync(chatsDir); }
-  catch { return { conversations: [], readable: false, readErrors: 0, rolledOver: 0, continued: 0, rolledOverFiles: [], continuedFiles: [] }; }
+  catch {
+    return {
+      conversations: [], readable: false, readErrors: 0, rolledOver: 0, continued: 0, rolledOverFiles: [], continuedFiles: [],
+      unknownFiles: [], unknownThrough: null,
+    };
+  }
   const out = [];
   let readErrors = 0;
   const rolledOverFiles = [];
   const continuedFiles = [];
+  const unknownFiles = [];
+  let unknownThrough = null;
+  // A set-aside file whose messages cannot be known: remember it, and the latest moment one was last written.
+  const unknown = (name) => {
+    unknownFiles.push(name);
+    if (unknownThrough === UNKNOWN_THROUGH_ALL) return;
+    let when = null;
+    try { when = fs.statSync(path.join(chatsDir, name)).mtime.toISOString(); } catch { when = null; }
+    if (when === null) unknownThrough = UNKNOWN_THROUGH_ALL;
+    else if (unknownThrough === null || when > unknownThrough) unknownThrough = when;
+  };
+  const isFolder = (name) => { try { return fs.statSync(path.join(chatsDir, name)).isDirectory(); } catch { return false; } };
   for (const name of names) {
     if (isRolledOverFileName(name)) {
       let isDir = false;
       try { isDir = fs.statSync(path.join(chatsDir, name)).isDirectory(); } catch { /* cannot tell: count it, the safe way */ }
       if (!isDir) rolledOverFiles.push(name);
+      continue;
+    }
+    if (asideThread(name, DAMAGED_SUFFIX) !== null) {
+      if (!isFolder(name)) unknown(name);
+      continue;
+    }
+    const earlier = asideThread(name, SUPERSEDED_SUFFIX);
+    if (earlier !== null) {
+      if (isFolder(name)) continue;
+      let asideRaw;
+      try { asideRaw = fs.readFileSync(path.join(chatsDir, name), 'utf8'); }
+      catch { readErrors += 1; continue; }
+      let asideParsed = null;
+      try { asideParsed = JSON.parse(asideRaw); } catch { asideParsed = null; }
+      if (!asideParsed || !Array.isArray(asideParsed.messages)) { unknown(name); continue; }
+      out.push({ desc: { ...earlier, earlier: true }, parsed: asideParsed });
       continue;
     }
     const desc = parseChatFileName(name);
@@ -374,9 +427,11 @@ function readConversations(chatsDir) {
   }
   rolledOverFiles.sort();
   continuedFiles.sort();
+  unknownFiles.sort();
   return {
     conversations: out, readable: true, readErrors,
     rolledOver: rolledOverFiles.length, continued: continuedFiles.length, rolledOverFiles, continuedFiles,
+    unknownFiles, unknownThrough,
   };
 }
 
@@ -384,7 +439,10 @@ function readConversations(chatsDir) {
  * Compile the daily logs. Reads `chatsDir`, writes one `<day>.md` per day into
  * `outDir` (created if absent). Returns a summary. A run can be REFUSED
  * (kosmos#5855): then `refused` says why, `rolledOver`, `continued` and the two
- * `...Files` lists say what was seen, and nothing was written or pruned. `onlyDay` restricts the write
+ * `...Files` lists say what was seen, and nothing was written or pruned.
+ * `held` (kosmos#5866) lists the days whose existing daily file this run left as
+ * it was, neither rewritten nor pruned, because some messages could not be known
+ * (`readErrors`, or the set-aside files in `unknownFiles`). `onlyDay` restricts the write
  * to a single day (a targeted run); by default every day found is written.
  * `dayOf`/`timeOf`/`misrouteCountForDay` are injectable for deterministic tests
  * (`misrouteCountForDay(dayStr)` -> the per-day #3224 count, default derives the
@@ -406,7 +464,9 @@ function compileAll(opts = {}) {
   const misrouteCountForDay = opts.misrouteCountForDay || defaultMisrouteCountForDay;
   const confirmedNewCountForDay = opts.confirmedNewCountForDay || defaultConfirmedNewCountForDay;
 
-  const { conversations, readable, readErrors, rolledOver, continued, rolledOverFiles, continuedFiles } = readConversations(chatsDir);
+  const {
+    conversations, readable, readErrors, rolledOver, continued, rolledOverFiles, continuedFiles, unknownFiles, unknownThrough,
+  } = readConversations(chatsDir);
 
   /* 🛑 kosmos#5855 FAIL CLOSED: this compiler does not read `.full` files. From the current files alone it would
      REWRITE a day that straddles a rollover with only the rows the fresh file carried, and PRUNE every day whose rows
@@ -416,13 +476,35 @@ function compileAll(opts = {}) {
   if (rolledOver > 0 || continued > 0) {
     return {
       conversations: conversations.length, messages: 0, days: 0, written: [], pruned: [], undated: 0,
-      readable, readErrors, rolledOver, continued, rolledOverFiles, continuedFiles, refused: REFUSED_ROLLED_OVER,
-      chatsDir, outDir,
+      readable, readErrors, rolledOver, continued, rolledOverFiles, continuedFiles, unknownFiles, held: [],
+      refused: REFUSED_ROLLED_OVER, chatsDir, outDir,
     };
   }
 
   const { rows, undated } = flattenMessages(conversations, dayOf);
   const byDay = groupByDay(rows);
+
+  /* kosmos#5866 HELD DAYS: when some messages cannot be known, a daily file that already exists may hold rows this
+     run cannot see, so it is neither rewritten nor pruned. Two sources of that:
+       - a conversation file that could not be READ this run (`readErrors`): nothing bounds what it holds, so every
+         existing daily file is held;
+       - a set-aside file with unknown messages (`unknownFiles`): none of its messages is later than the moment it
+         was last written, so only daily files for that day and earlier are held.
+     A day with no daily file yet is still written: nothing compiled is lost by that, and a later run with every
+     source readable rewrites it in full. */
+  const holdAll = readErrors > 0 || unknownThrough === UNKNOWN_THROUGH_ALL;
+  const heldThroughDay = (!holdAll && unknownThrough) ? dayOf(unknownThrough) : null;
+  // A set-aside file whose moment gives no day (an odd clock) holds everything too.
+  const holdEvery = holdAll || (unknownFiles.length > 0 && !heldThroughDay);
+  const isHeld = (day) => holdEvery || (heldThroughDay !== null && day <= heldThroughDay);
+  const anyHeld = holdEvery || heldThroughDay !== null;
+  const compiledDays = new Set();
+  if (anyHeld) {
+    let listed = [];
+    try { listed = fs.readdirSync(outDir); } catch { listed = []; }
+    for (const name of listed) { const d = dayFromFileName(name); if (d) compiledDays.add(d); }
+  }
+  const held = [];
 
   const written = [];
   if (byDay.size) {
@@ -430,6 +512,7 @@ function compileAll(opts = {}) {
   }
   for (const [day, dayRows] of byDay) {
     if (onlyDay && day !== onlyDay) continue;
+    if (compiledDays.has(day) && isHeld(day)) { held.push(day); continue; }
     const md = renderDay(day, dayRows, timeOf, misrouteCountForDay(day), confirmedNewCountForDay(day));
     fs.writeFileSync(path.join(outDir, dayFileName(day)), md);
     written.push(day);
@@ -454,7 +537,8 @@ function compileAll(opts = {}) {
      daily file is stale. (A file that read fine but is not valid JSON is stable
      junk, not a read failure, and does not block pruning -- see readConversations.) */
   const pruned = [];
-  if (prune && !onlyDay && readable && readErrors === 0) {
+  // A read error holds every day (isHeld above), so it needs no test of its own here.
+  if (prune && !onlyDay && readable) {
     const keep = new Set(written);
     let existing = [];
     try { existing = fs.readdirSync(outDir); } catch { existing = []; }
@@ -462,10 +546,13 @@ function compileAll(opts = {}) {
       const day = dayFromFileName(name);
       if (!day) continue;
       if (keep.has(day)) continue;
+      // kosmos#5866: a held day with no readable rows left may still hold rows this run could not see; it is kept.
+      if (isHeld(day)) { held.push(day); continue; }
       try { fs.rmSync(path.join(outDir, name)); pruned.push(day); } catch { /* leave it rather than fail the run */ }
     }
     pruned.sort();
   }
+  held.sort();
 
   return {
     conversations: conversations.length,
@@ -480,6 +567,8 @@ function compileAll(opts = {}) {
     continued,
     rolledOverFiles,
     continuedFiles,
+    unknownFiles,
+    held,
     refused: null,
     chatsDir,
     outDir,
@@ -502,6 +591,7 @@ module.exports = {
   renderDay,
   readConversations,
   shownName,
+  UNKNOWN_THROUGH_ALL,
   compileAll,
 };
 
@@ -571,5 +661,12 @@ if (require.main === module) {
       + '\n',
     );
     if (summary.written.length) process.stdout.write(`dailylog: wrote ${summary.written.join(', ')}\n`);
+    // kosmos#5866: what was left alone, and the fact it rests on. No advice: the tool cannot tell why a file is unreadable.
+    if (summary.held.length) {
+      process.stdout.write(`dailylog: left ${summary.held.length} daily file(s) already there as they were `
+        + `(${summary.held[0]}${summary.held.length > 1 ? ' to ' + summary.held[summary.held.length - 1] : ''}), because `
+        + `${summary.readErrors + summary.unknownFiles.length} file(s) in the chats folder could not be read as `
+        + 'conversations and may hold messages from those days\n');
+    }
   }
 }
