@@ -132,7 +132,7 @@ test('#5874: the board token (the page, the person) reads as before, any project
   // The CLIs ask with words, and to them an unknown task or project is said (#4891 N6), for every caller.
   const noTask = await call('/api/project/p5874/task/9/activity?words=1', asBoard);
   assert.equal(noTask.code, 404);
-  assert.equal(JSON.parse(noTask.text).error, 'there is no task 9 on that project');
+  assert.equal(JSON.parse(noTask.text).error, 'there is no task by that number on this project');
   const noProject = await call('/api/project/nope5874/task/1/activity?words=1', asBoard);
   assert.equal(noProject.code, 404);
   assert.match(noProject.text, /there is no project by that name/);

@@ -40,6 +40,7 @@ const AGENT_VERBS = [
   [['whoami'], '/api/whoami'],
   [['room', 'p4491'], '/api/project/p4491/room?as=text'],
   [['task', 'list', 'p4491'], '/api/tasks?project=p4491&order=state'],
+  [['task', 'activity', 'p4491', '1'], '/api/project/p4491/task/1/activity?words=1'],   // #5874
   [['task', 'add', 'p4491', 'write the docs'], '/api/project/p4491/tasks'],
   [['task', 'close', 'p4491', '1'], '/api/project/p4491/task/1/close'],
   [['task', 'message', 'p4491', '1', 'hello'], '/api/project/p4491/task/1/message'],
