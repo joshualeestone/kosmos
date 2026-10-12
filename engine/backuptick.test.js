@@ -271,3 +271,21 @@ test('review 3: a protected folder spelled in another case is still protected (c
     assert.deepEqual(c.roots.map((x) => x.name), ['workers', 'elsewhere/far']);
   } finally { s.done(); }
 });
+
+test('review 4: a runBackup that throws is said once; transcripts are looked up by the folder as Kosmos recorded it', async () => {
+  const said = [];
+  const stop = tick.startTick({ runBackup: async () => { throw new Error('/secret'); }, roots: () => ({ roots: [{ name: 'workers', path: '/w' }], left: [] }),
+    enrolled: () => true, say: (x) => said.push(x), now: () => 0, setInterval: () => ({ unref() {} }), clearInterval: () => {} });
+  await stop.tick(); await stop.tick();
+  assert.deepEqual(said, ['company backup: the backup stopped on an unexpected error on this computer']);
+  assert.equal(stop.state.running, false);
+  const s = sandbox();
+  try {
+    const w = s.mk('w');
+    const given = path.join(s.base, 'w', '.', 'ann');   // a spelling that is not the resolved one
+    s.mk('w', 'ann');
+    const seen = [];
+    tick.rootsFor({ workersDir: w, agents: [{ id: 'ann', dir: given }], sessions: (dir) => { seen.push(dir); return []; } });
+    assert.deepEqual(seen, [given]);
+  } finally { s.done(); }
+});
