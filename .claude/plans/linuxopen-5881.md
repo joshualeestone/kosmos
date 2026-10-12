@@ -44,6 +44,8 @@ telling the page whether there is a desktop (more surface for a case the downloa
 every Linux board (a Linux desktop can open a folder, and opening a folder runs nothing).
 
 ## Not here
+The attachment reveal (`/api/attachment/<id>/reveal`) opens the attachments' shared folder on Linux, since xdg-open cannot
+select one file. It exposes nothing new: on a Mac `open -R` shows the same folder with the file selected.
 machine.js (#5877), Antigravity (no Linux package), the buttons #5865 hides.
 engine/remote.js's company sign-in opener, which hands xdg-open the board's whole environment: follow-up #5889.
 
