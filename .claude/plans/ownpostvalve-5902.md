@@ -73,3 +73,9 @@ held.
 - **SHOULD-FIX, taken:** two sibling comments (the gate's #2710 note and reopenRoom's) still said no agent can mint a
   reopen; both now name reopenForOwnPost and its caveat.
 - **NITs, taken:** the ordering arm resets #5732's nudge gap in its finally; the tick comment is scoped.
+
+## Review 4 (sonnet, 2026-10-12 01:17): CONVERGED, no blocker or should-fix
+- **NIT, taken:** a garbled sentence in the gate's #2710 comment, rewritten. Comment only; review 5 checks it.
+- **NITs, not taken:** logging in the catch around the reopen (a throw there leaves the room held, exactly as before
+  this change, and the seat's data handler must never throw); the regex and the first arm's unasserted nudge (decided
+  in reviews 1 and 2; the ordering arm asserts the nudge).

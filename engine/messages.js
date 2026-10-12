@@ -2068,9 +2068,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      the arrival budget to the moment they happened; neither can be minted by
      an agent (operator posts ride the operator route, reopen rows the
      board-token-gated reopen route). #5902 adds one more writer: a post the
-     relay stamps as this account's own and that is marked a person's
-     (reopenForOwnPost); an agent's post a modified or older client on the
-     person's other computer does not mark as an agent's would also write one. */
+     relay stamps as this account's own and that is not marked an agent's
+     (reopenForOwnPost). A modified or older client on the person's other
+     computer could send an agent's post unmarked, and it would write one too. */
   const lastOperatorAt = log.reduce((mark, m) => {
     if (!m || m.project !== projectId) return mark;
     const isOperatorPost = m.kind === 'post' && m.operator === true;
