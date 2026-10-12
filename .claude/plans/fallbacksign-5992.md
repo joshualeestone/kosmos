@@ -8,8 +8,10 @@ program's hardened runtime flag and entitlements, and a test that runs the REAL 
 it, with a control showing the same bundle without the signing step does not verify.
 
 ## Change
-install/setup.sh build_app_bundle, last step: `codesign --force --sign - --preserve-metadata=entitlements,flags "$app"`,
-then verify; either failing returns 1 (every step in this function carries its own return 1).
+install/setup.sh build_app_bundle, last step: clear extended attributes (`xattr -cr`: codesign refuses Finder info,
+and a copied quarantine flag would make Gatekeeper refuse the ad-hoc bundle), then
+`codesign --force --sign - --preserve-metadata=entitlements,flags "$app"`, then verify; either failing returns 1 (every
+step in this function carries its own return 1), and a signing failure says codesign's last line in the transcript.
 New test install.fallbacksign-5992.test.js (macOS only, like install.sealed-app-5896).
 
 ## Checked, unaffected
@@ -27,5 +29,7 @@ New test install.fallbacksign-5992.test.js (macOS only, like install.sealed-app-
 ## Weakest premise
 That an ad-hoc signed bundle with no quarantine flag opens with no dialog on macOS 27. Standard behaviour; being
 measured on Agent1s, whose 0.7.38 copy was repaired the same way at 15:05.
-Reasoned, not measured: macOS may ask for the microphone again after each update, since an ad-hoc identity is
-tied to the exact bytes (the old broken bundle never had a stable identity either).
+Reasoned, not measured: on this fallback path macOS may ask again for the microphone, speech and Automation after
+each update, and a fallback icon beside the sealed one (same bundle id, different requirement) can overwrite the
+other's grant: an ad-hoc identity is tied to the exact bytes. Still strictly better than an app that will not open;
+the Info.plist comment says so. If the fallback stays long-lived, that deserves its own card.

@@ -3770,7 +3770,9 @@ build_app_bundle() {
        Terminal"), which is exactly what every agent hit after 0.6.56. This string
        is the text the one-time "Kosmos wants to control Terminal" prompt shows;
        once the person allows it, the grant persists for this Developer ID
-       signature across updates.
+       signature across updates. That holds for the sealed app; a per-install
+       bundle is signed ad hoc (#5992), an identity tied to its exact bytes, so
+       macOS may ask again after each update there.
        #3113: this ONE NSAppleEventsUsageDescription is SHARED (macOS allows only
        one per bundle) and serves the RUNTIME automation paths: Open Terminal
        (control Terminal) AND an agent driving Terminal/System Events under its
@@ -3832,11 +3834,17 @@ PLIST
   [ -f "$KOSMOS_HOME/app/assets/Kosmos.icns" ] && cp "$KOSMOS_HOME/app/assets/Kosmos.icns" "$target/Resources/Kosmos.icns" \
     && chmod 644 "$target/Resources/Kosmos.icns" || true   # best effort, like the copy it follows
 
-  # #5992: seal the bundle, last, after every file in it is written. kosmos-app is signed as a bundle's program, so
-  # its signature expects a sealed bundle around it; a folder assembled here has none (no _CodeSignature), and macOS
-  # calls that "damaged" even without a quarantine flag. An ad-hoc signature over the whole bundle seals it, keeping
-  # the program's entitlements (the microphone) and flags (hardened runtime).
-  /usr/bin/codesign --force --sign - --preserve-metadata=entitlements,flags "$app" >/dev/null 2>&1 || return 1
+  # #5992: seal the bundle, last, after every file in it is written. A folder assembled around the signed kosmos-app
+  # has no _CodeSignature, so the bundle as a whole does not verify ("code has no resources but signature indicates
+  # they must be present") and macOS calls it "damaged" even without a quarantine flag. An ad-hoc signature over the
+  # whole bundle seals it, keeping the program's entitlements (the microphone) and flags (hardened runtime).
+  # Extended attributes go first: codesign refuses a bundle holding Finder info or similar on any file (an icon
+  # copied with one would otherwise cost the whole icon), and a quarantine flag copied from the program would make
+  # Gatekeeper refuse the ad-hoc bundle.
+  local _cs_err
+  /usr/bin/xattr -cr "$app" 2>/dev/null || true
+  _cs_err="$(/usr/bin/codesign --force --sign - --preserve-metadata=entitlements,flags "$app" 2>&1 >/dev/null)" || {
+    info "note: Kosmos could not sign its app icon: $(printf '%s\n' "$_cs_err" | /usr/bin/tail -1)"; return 1; }
   /usr/bin/codesign --verify --deep --strict "$app" >/dev/null 2>&1 || return 1
   return 0
 }
