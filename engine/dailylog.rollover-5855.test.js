@@ -193,16 +193,25 @@ test('a rolled-over name this compiler cannot look at (a link to nowhere) is cou
   assert.equal(s.rolledOver, 1);
 });
 
-test('the states an interrupted rollover can leave are refused too', () => {
-  // (1) the rollover hard-links the full file aside and stopped before writing the fresh one: both names, same bytes
+test('the states an interrupted rollover can leave: two names for the same bytes compile, a full file alone is refused', () => {
+  // (1) the rollover hard-links the full file aside and stopped before writing the fresh one: both names, same bytes.
+  // Every row of the full file was read from the thread file, so nothing is unread and the run goes ahead.
   const a = rolledOver('linked', null, { names: false });
   fs.writeFileSync(a.file, JSON.stringify({ messages: WHOLE }));
   // a filesystem that cannot hard-link gets a copy: to this compiler the two are the same state, two names, same bytes
   try { fs.linkSync(a.file, path.join(a.chatsDir, ASIDE)); } catch { fs.copyFileSync(a.file, path.join(a.chatsDir, ASIDE)); }
   const s1 = dl.compileAll({ chatsDir: a.chatsDir, outDir: a.outDir, dayOf, timeOf });
-  assert.equal(s1.refused, 'rolled-over');
-  assert.deepEqual([s1.rolledOver, s1.continued], [1, 0]);
+  assert.equal(s1.refused, null);
+  assert.deepEqual([s1.rolledOver, s1.continued, s1.chainFiles], [0, 0, [ASIDE]]);
+  assert.equal(s1.messages, WHOLE.length, 'the second name\'s rows were compiled a second time');
   assert.deepEqual(dayFiles(a.outDir), ['2026-09-13.md', '2026-09-14.md', '2026-09-15.md']);
+  for (const d of Object.keys(a.before)) assert.equal(fs.readFileSync(path.join(a.outDir, d + '.md'), 'utf8'), a.before[d], d + ' changed');
+  // the same name over different bytes is a file whose rows were not read: refused
+  fs.rmSync(path.join(a.chatsDir, ASIDE));
+  fs.writeFileSync(path.join(a.chatsDir, ASIDE), JSON.stringify({ messages: WHOLE.slice(0, 3) }));
+  const s1b = dl.compileAll({ chatsDir: a.chatsDir, outDir: a.outDir, dayOf, timeOf });
+  assert.equal(s1b.refused, 'rolled-over');
+  assert.deepEqual([s1b.rolledOver, s1b.continued], [1, 0]);
   // (2) where it renames instead, and stopped there: the full file aside and NO current file at all
   const b = rolledOver('renamed', ASIDE);
   fs.rmSync(b.file);
@@ -249,7 +258,7 @@ test('the command says what it found and exits non-zero, so a scheduled run cann
   // saying so: the tool cannot tell which case it is.
   assert.equal(no.stderr, 'dailylog: not compiled. Nothing was written or removed.\n'
     + 'Found in ' + dl.shownName(chatsDir) + ':\n'
-    + 'Files whose names end in .full after a conversation file\'s name, which no conversation file led this tool to:\n'
+    + 'Files whose names end in .full after a conversation file\'s name, which this tool did not read as part of a conversation:\n'
     + '  ' + JSON.stringify(ASIDE) + '\n'
     + CLOSING);
   assert.equal(no.stdout, '', 'a refused run printed a success line');

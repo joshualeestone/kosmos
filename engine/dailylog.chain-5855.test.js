@@ -6,8 +6,8 @@
  * refused as before (dailylog.rollover-5855.test.js).
  *
  * Every rollover here is made by engine/chat.js's own writer (appendMessage on a full thread file), in Kosmos's own
- * chats folder inside this test's sandbox, and then moved to a folder of its own so one test's broken chain cannot
- * refuse another's run.
+ * chats folder inside this test's sandbox, and then moved to a folder of its own, so that a chain one test breaks
+ * is not in the folder another test compiles.
  *
  *   tools/run-tests.sh --only engine/dailylog.chain-5855.test.js
  */
@@ -288,6 +288,75 @@ test('a rollover interrupted after the full file was set aside leaves a second n
   const no = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
   assert.equal(no.refused, 'rolled-over');
   assert.deepEqual(no.rolledOverFiles, [other]);
+});
+
+test('an interrupted rollover, then a later project of the same name: the second name for the earlier file does not refuse the run', () => {
+  // the interruption: the hard link under the aside name exists, the fresh file was never written
+  const file = fullThread('chain', 'agentq', 'again');
+  const twin = path.basename(file) + '.20260801T000000000Z.999.1791000000000.full';
+  fs.linkSync(file, path.join(path.dirname(file), twin));
+  // then the first message of a LATER project: the writer sets the full thread file aside as .superseded
+  const later = '2026-10-01T00:00:00.000Z';
+  assert.equal(chat.appendMessage('chain', 'agentq', { text: 'later project', at: '2026-10-02T09:00:00Z' }, later).recorded, true);
+  const { chatsDir, outDir, base } = isolate('again', 'chain', 'agentq');
+  const names = fs.readdirSync(chatsDir);
+  assert.deepEqual([names.length, names.filter((n) => n.endsWith('.superseded')).length, names.includes(twin), names.includes(base)], [3, 1, true, true], names.join(' '));
+  const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
+  assert.equal(s.refused, null, 'a second name for a conversation file that was read refused the run');
+  assert.deepEqual(s.chainFiles, [twin]);
+  assert.equal(s.messages, MAX + 1);
+  assert.deepEqual(timesEach(outDir, 'again', MAX), []);
+});
+
+test('a full file that was there to follow but not in the folder listing refuses the run', (t) => {
+  // a rollover that lands after the folder was listed: the name is in `continues`, the file can be read, and the
+  // listing this run took does not have it
+  const { chatsDir, outDir, aside, base } = rolled('late', 'agentr');
+  const real = fs.readdirSync;
+  t.after(() => { fs.readdirSync = real; });
+  fs.readdirSync = (dir, ...rest) => {
+    const got = real(dir, ...rest);
+    return dir === chatsDir ? got.filter((n) => n !== aside) : got;
+  };
+  const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
+  fs.readdirSync = real;
+  assert.equal(s.refused, 'rolled-over');
+  assert.deepEqual([s.continuedFiles, s.rolledOverFiles, s.chainFiles], [[base], [], []]);
+});
+
+test('rows that are not messages, and a carried count out of bounds, are read as engine/chat.js reads them', () => {
+  // two rollovers, so the second full file carries rows from the first; then things only a hand could put there
+  fullThread('chain', 'agents', 'odd');
+  const firstAside = rollOver('chain', 'agents', 'odd message ' + MAX, '2026-09-16T09:00:00Z');
+  const file = chat.threadFile('chain', 'agents');
+  const cur = JSON.parse(fs.readFileSync(file, 'utf8'));
+  for (let i = MAX + 1; cur.messages.length < MAX; i += 1) cur.messages.push(row('odd', i, '2026-09-17'));
+  fs.writeFileSync(file, JSON.stringify(cur));
+  const secondAside = rollOver('chain', 'agents', 'odd after the second', '2026-09-18T09:00:00Z');
+  const dir = path.dirname(file);
+  // non-rows at the head of the second full file, inside the rows it carried from the first
+  const second = JSON.parse(fs.readFileSync(path.join(dir, secondAside), 'utf8'));
+  assert.equal(second.carried, 200, 'precondition');
+  second.messages.unshift(null, { text: 7, at: '2026-09-15T09:00:00Z' }, 'a string');
+  fs.writeFileSync(path.join(dir, secondAside), JSON.stringify(second));
+  const check = (label, carried, expected) => {
+    const now = JSON.parse(fs.readFileSync(file, 'utf8'));
+    fs.writeFileSync(file, JSON.stringify({ ...now, carried }));
+    const fromChat = chat.asideChain('chain', 'agents', true);
+    assert.deepEqual(fromChat.map((a) => a.name), [firstAside, secondAside], label + ': precondition, chat.js follows both');
+    const thread = chat.readThread('chain', 'agents', BORN);
+    const served = chat.chainRows(fromChat, thread.messages, thread.carried);
+    const base = path.basename(file);
+    assert.deepEqual(dl.followChain(dir, base, 'agents', JSON.parse(fs.readFileSync(file, 'utf8'))).earlier, fromChat, label);
+    const mine = dl.readConversations(dir).conversations.find((c) => c.desc.key === 'agents');
+    assert.deepEqual(mine.parsed.messages, served, label + ': not the rows engine/chat.js serves');
+    assert.equal(served.length, expected, label);
+  };
+  const all = MAX + (MAX - 200) + 1;   // the first file, the second file's own rows, and the last message
+  check('as written', 200, all);
+  check('a carried count larger than the file', 5000, all + 200);
+  check('a negative carried count', -1, all + 200);
+  isolate('odd', 'chain', 'agents');
 });
 
 test('a thread file with no project date that rolls over under one is refused: chat.js does not follow it either', () => {
