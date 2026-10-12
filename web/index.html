@@ -39597,7 +39597,7 @@ function paintDetailState(card) {
   const dhealth = document.getElementById('d-health');
   if (dhealth) { dhealth.textContent = healthLine(a, Date.now()); dhealth.hidden = !dhealth.textContent; }
   /* #3958 (review): the screen-said evidence and the re-auth button follow the poll with the
-     pill. Painted FIRST, so a missing #d-task or #d-state cannot stop them. Painted only by openDetail they froze while the pill went live, so a page opened on a
+     pill. Painted before #d-task and #d-state, so a missing #d-task or #d-state cannot stop them. Painted only by openDetail they froze while the pill went live, so a page opened on a
      working agent that then hit auth_failed said so in the pill with no "Sign in again" beside it. */
   /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
      somebody's terminal, on its way to a product surface. `textContent` is the

@@ -988,7 +988,9 @@ test('#3939: a Meta Muse pane (Kosmos\'s front under node) keeps its runner, is 
 test('#3939: the pane sweep never reads a Claude transcript for a Muse pane (SOURCE pin, as #4039 pins agy)', () => {
   /* The sweep needs a live pane to drive, which no fixture here provides, so the routing is pinned in source. */
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'status.js'), 'utf8');
-  assert.match(src, /const isMusePane = pane\.runner === 'muse';/);
+  // #5959 slice 2: the predicate lives in paneObservedKinds, which the sweep reads as isMusePane.
+  assert.match(src, /muse: pane\.runner === 'muse',/);
+  assert.match(src, /const isMusePane = kinds\.muse;/);
   // #4416: the model is chosen per runner; a Muse pane has its own arm before the Claude reader, which only the last arm
   // reaches. #4603 N12: that arm reads the model the Muse front kept (museSess), still never the Claude transcript.
   assert.match(src, /: isMusePane \? \{ model: sessModel\(museSess\) \}/, 'a Muse pane reaches the Claude model reader');

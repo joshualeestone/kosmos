@@ -151,7 +151,7 @@ function readDir(provider, dir) {
   return v ? { outcome: v.outcome, at: v.at } : null;
 }
 
-// Test-only: reset both in-memory records between cases.
+// Test-only: reset every in-memory record between cases.
 function _clearForTest() { store.clear(); dirStore.clear(); okStore.clear(); }
 
 /*

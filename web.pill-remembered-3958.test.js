@@ -84,6 +84,11 @@ function pillFor(card, spokeLearnedAt, lastAt) {
     'const glyphOf = () => "";',
     'const taskLine = () => "";',
     pageFnSource('workingSampleIsStale'),
+    // #5959 slice 2: paintDetailState paints the health line, so its pieces come along.
+    RAW.match(/^const HEALTH_QUIET_MS = [^\n]*/m)[0],
+    RAW.match(/^const HEALTH_READ_STATES = [^\n]*/m)[0],
+    pageFnSource('seenAtWords'),
+    pageFnSource('healthLine'),
     pageFnSource('paintDetailState'),
     'return paintDetailState;',
   ].join('\n'))(doc, new Map(spokeLearnedAt === null ? [] : [[card.sessionName, { at: 1, learnedAt: spokeLearnedAt }]]), lastAt);
