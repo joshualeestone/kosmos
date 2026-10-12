@@ -1441,17 +1441,27 @@ function companyOpenCommand(url) {
     : process.platform === 'darwin' ? ['/usr/bin/open', [url]] : ['xdg-open', [url]];
 }
 let companyOpenCommandForTests = null;
+let companyOpenSourceForTests = null;   // { platform, env }: the platform and environment the opener is judged by
 /* Review 2: "opened" only when the opener says so: its exit 0. A missing opener (an 'error') or a refusal (a non-zero
    exit, e.g. no default browser) is a failure the page then words as "use the link". One still running after a few
    seconds has launched the browser. */
 function runCompanyOpener(url) {
+  /* kosmos#5889: on macOS and Linux the opener gets only what a desktop needs (engine/childenv.js), never the board's
+     whole environment (its tokens among it), since the child can be a browser that runs for a long time. On Linux with
+     no display it cannot show anything, so it is not started (the answer is "use the link" at once). Windows keeps the
+     environment as it was: rundll32 needs Windows' own variables (SystemRoot and others), and a list for it is not
+     checked on a Windows machine here (said on #5889). */
+  const src = companyOpenSourceForTests || { platform: process.platform, env: process.env };
+  const childenv = require('./childenv');
+  if (src.platform === 'linux' && !childenv.hasDesktop(src.env)) return Promise.resolve(false);
+  const env = src.platform === 'win32' ? undefined : childenv.openerEnv(src.env);
   return new Promise((resolve) => {
     const [cmd, args] = companyOpenCommand(url);
     let done = false;
     const end = (ok) => { if (!done) { done = true; clearTimeout(t); resolve(ok); } };
     const t = setTimeout(() => end(true), 5000);
     let ch;
-    try { ch = spawn(cmd, args, { stdio: 'ignore' }); } catch { end(false); return; }
+    try { ch = spawn(cmd, args, env ? { stdio: 'ignore', env } : { stdio: 'ignore' }); } catch { end(false); return; }
     ch.on('error', () => end(false));
     ch.on('exit', (code) => end(code === 0));
   });
@@ -3188,7 +3198,7 @@ module.exports = { macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, 
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
   bumpSelfEpochForTests: () => { selfEpoch += 1; },
-  resetForTests: () => { vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; stopChild(); },
+  resetForTests: () => { vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; stopChild(); },
   vouchTickForTests: () => vouchTick(),
   vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
   vouchOpenedUrlForTests: () => vouchOpenedUrl,
@@ -3196,6 +3206,7 @@ module.exports = { macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, 
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },
   setCompanyOpenCommandForTests: (argv) => { companyOpenCommandForTests = argv || null; },
+  setCompanyOpenSourceForTests: (src) => { companyOpenSourceForTests = src || null; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,
   /* test seam: the live child's pid, or null. spawn() sets the handle

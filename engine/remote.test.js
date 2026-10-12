@@ -4143,7 +4143,7 @@ test('kosmos#5628 slice 2b-ui reviews 1 and 2: opened only when the opener exits
   assert.equal((await remote.companyOpen()).ok, false, 'opened with no setup');
   assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
   // A real spawn of a command that exits 0, then one that exits 1, then one that does not exist.
-  remote.setCompanyOpenCommandForTests(['/usr/bin/true']);
+  remote.setCompanyOpenSourceForTests({ platform: process.platform, env: Object.assign({}, process.env, { DISPLAY: ':0' }) }); remote.setCompanyOpenCommandForTests(['/usr/bin/true']);
   assert.deepEqual(await remote.companyOpen(), { ok: true, because: null });
   assert.match((await remote.companyOpen()).because, /just opened/, 'a second open a moment later opened another tab');
   // Review 4: a NEW setup's page opens at once (the limit is per setup).
@@ -4151,15 +4151,15 @@ test('kosmos#5628 slice 2b-ui reviews 1 and 2: opened only when the opener exits
   assert.deepEqual(await remote.companyOpen(), { ok: true, because: null }, 'a new setup was refused as just opened');
   remote.resetForTests();
   assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
-  remote.setCompanyOpenCommandForTests(['/usr/bin/false']);
+  remote.setCompanyOpenSourceForTests({ platform: process.platform, env: Object.assign({}, process.env, { DISPLAY: ':0' }) }); remote.setCompanyOpenCommandForTests(['/usr/bin/false']);
   assert.match((await remote.companyOpen()).because, /could not open your browser/, 'a refusing opener was called opened');
   remote.resetForTests();
   assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
-  remote.setCompanyOpenCommandForTests(['/nonexistent/opener-5628']);
+  remote.setCompanyOpenSourceForTests({ platform: process.platform, env: Object.assign({}, process.env, { DISPLAY: ':0' }) }); remote.setCompanyOpenCommandForTests(['/nonexistent/opener-5628']);
   assert.match((await remote.companyOpen()).because, /could not open your browser/, 'a missing opener was called opened');
   remote.signinCancel();
   assert.equal((await remote.companyOpen()).ok, false, 'opened after the setup was dropped');
-  remote.setCompanyOpenCommandForTests(null);
+  remote.setCompanyOpenSourceForTests({ platform: process.platform, env: Object.assign({}, process.env, { DISPLAY: ':0' }) }); remote.setCompanyOpenCommandForTests(null);
 });
 
 test('kosmos#5651: the second-step text goes through the tunnel with the secret on stdin; an older tunnel is unsupported', async () => {
@@ -4711,4 +4711,43 @@ test('#5786 (b): a second sign-in while a refused Not me waits on its allow does
     await until(() => removes() >= 1, 'the device to be taken back out once the old allow answered');
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
   remote.setOn(false);
+});
+
+/* kosmos#5889: the company opener's child gets only what a desktop needs, never the board's whole environment. The child
+   here is node itself, writing the environment it was given. */
+test('kosmos#5889: the company sign-in opener passes only the desktop allowlist; a board token never reaches the browser', async () => {
+  const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'opener-5889-')), 'env.json');
+  const writer = [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify(process.env))`];
+  const src = { HOME: '/home/ann', PATH: process.env.PATH, LANG: 'en_US.UTF-8', DISPLAY: ':0', XAUTHORITY: '/home/ann/.Xauthority',
+    KOSMOS_BOARD_TOKEN: 'secret-board-token', GITHUB_TOKEN: 'ghp_secret' };
+  for (const platform of ['darwin', 'linux']) {
+    remote.resetForTests();
+    assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+    remote.setCompanyOpenSourceForTests({ platform, env: src });
+    remote.setCompanyOpenCommandForTests(writer);
+    assert.deepEqual(await remote.companyOpen(), { ok: true, because: null }, platform);
+    const got = JSON.parse(fs.readFileSync(out, 'utf8'));
+    for (const k of ['HOME', 'PATH', 'LANG', 'DISPLAY', 'XAUTHORITY']) assert.equal(got[k], src[k], `${platform}: ${k} did not reach the opener`);
+    assert.equal(got.KOSMOS_BOARD_TOKEN, undefined, `${platform}: a board token reached the opener`);
+    assert.equal(got.GITHUB_TOKEN, undefined, `${platform}: a token reached the opener`);
+    fs.rmSync(out, { force: true });
+  }
+  // Linux with no display: nothing is started, and the answer is "use the link" at once.
+  remote.resetForTests();
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  remote.setCompanyOpenSourceForTests({ platform: 'linux', env: { PATH: process.env.PATH, HOME: '/home/ann' } });
+  remote.setCompanyOpenCommandForTests(writer);
+  assert.match((await remote.companyOpen()).because, /could not open your browser/);
+  assert.equal(fs.existsSync(out), false, 'an opener was started on a Linux board with no display');
+  // Windows keeps the environment (rundll32 needs Windows' own variables; see remote.js): the board's own reaches it.
+  remote.resetForTests();
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.KOSMOS_5889_PROBE = 'inherited';
+  try {
+    remote.setCompanyOpenSourceForTests({ platform: 'win32', env: { PATH: process.env.PATH } });
+    remote.setCompanyOpenCommandForTests(writer);
+    assert.deepEqual(await remote.companyOpen(), { ok: true, because: null });
+    assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).KOSMOS_5889_PROBE, 'inherited');
+  } finally { delete process.env.KOSMOS_5889_PROBE; remote.resetForTests(); }
 });
