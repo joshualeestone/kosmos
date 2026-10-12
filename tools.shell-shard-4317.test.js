@@ -78,6 +78,57 @@ test('a shard runs its commands in order and stops at the first failure, with it
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('#5907: shard 1 of 1 is the whole list, in the order test:shell lists it', () => {
+  const all = sh.commands();
+  assert.deepEqual(sh.select(all, 1, 1), all);
+});
+
+/* #5907: a runShard whose clock and output are seams. The clock is read once before and once after
+   each command, so it moves by that command's step on every second read, and the order of the
+   summary is known before the run. */
+function timedRun(list, steps) {
+  const out = [];
+  let now = 0; let reads = 0; let k = 0;
+  const clock = () => { reads += 1; if (reads % 2 === 0) now += steps[k++]; return now; };
+  const code = sh.runShard(list, 1, 1, 'ignore', (s) => out.push(s), clock);
+  return { code, text: out.join('') };
+}
+
+test('#5907: each command prints its place and its time, and the shard ends on its slowest, slowest first', () => {
+  const steps = [3, 50, 0.25, 12];
+  const { code, text } = timedRun(['true', 'true # b', 'true # c', 'true # d'], steps);
+  assert.equal(code, 0);
+  assert.match(text, /^shell-shard 1\/1: 4 of 4 test:shell commands\n/);
+  assert.match(text, /shell-shard 1\/1 \[1\/4\] 3\.0 s: true\n/);
+  assert.match(text, /shell-shard 1\/1 \[2\/4\] 50\.0 s: true # b\n/);
+  assert.match(text, /shell-shard 1\/1 \[3\/4\] 0\.3 s: true # c\n/);
+  assert.match(text, /shell-shard 1\/1 \[4\/4\] 12\.0 s: true # d\n/);
+  assert.match(text, /4 commands took 65\.3 s; the slowest:\n\s+50\.0 s  true # b\n\s+12\.0 s  true # d\n\s+3\.0 s  true\n\s+0\.3 s  true # c\nshell-shard 1\/1: all 4 passed\n$/);
+});
+
+test('#5907: the summary names only the slowest SLOWEST, and a red shard still prints it before it stops', () => {
+  const n = sh.SLOWEST + 3;
+  const list = Array.from({ length: n }, (_, i) => `true # c${i}`);
+  const { text } = timedRun(list, Array.from({ length: n }, (_, i) => i + 1));
+  const named = text.split('the slowest:\n')[1].split('\n').filter((l) => /^\s+\d/.test(l));
+  assert.equal(named.length, sh.SLOWEST);
+  assert.match(named[0], /# c12$/, 'the slowest is first');
+  assert.ok(!named.some((l) => /# c[012]$/.test(l)), 'the three fastest are not named');
+  const red = timedRun(['true # a', 'exit 4', 'true # never'], [2, 9, 1]);
+  assert.equal(red.code, 4);
+  assert.match(red.text, /\[2\/3\] 9\.0 s: exit 4\n/);
+  assert.match(red.text, /2 commands took 11\.0 s; the slowest:\n\s+9\.0 s  exit 4\n\s+2\.0 s  true # a\n$/);
+  assert.doesNotMatch(red.text, /# never|all \d+ passed/);
+});
+
+test('#5907: the real clock: a command that sleeps is timed at least as long as it slept', () => {
+  const out = [];
+  assert.equal(sh.runShard(['sleep 0.3'], 1, 1, 'ignore', (s) => out.push(s)), 0);
+  const m = out.join('').match(/\[1\/1\] (\d+\.\d) s: sleep 0\.3/);
+  assert.ok(m, out.join(''));
+  assert.ok(Number(m[1]) >= 0.3, `timed ${m[1]} s`);
+});
+
 test('a bad shard is refused, not read as a subset', () => {
   for (const [i, n] of [[0, 2], [3, 2], ['x', 2], [1, 0], [1.5, 2]]) assert.throws(() => sh.parseShard(i, n), /shard must be/);
   assert.deepEqual(sh.parseShard('2', '2'), [2, 2]);
@@ -194,7 +245,9 @@ test('run-tests.sh: the default part is all, so `yarn test` still runs the node 
   assert.match(src, /if \[ "\$NODE_STATUS" -eq 0 \] && \[ "\$KOSMOS_TEST_PART" != node \]; then\n\s+if \[ -n "\$\{KOSMOS_SHELL_SHARD:-\}" \]/, 'the shell half runs for every part but node, so the default all runs it');
   assert.match(src, /\*\) echo "run-tests: KOSMOS_TEST_PART must be all, node or shell/);
   assert.match(src, /if \[ "\$KOSMOS_TEST_PART" != shell \]; then\nnode --test --require/, 'the node --test line must stay flush left (three guards find it by ^node --test)');
-  assert.match(src, /else\n\s+yarn -s test:shell\n\s+fi/);
+  // #5907: an unsharded run is the whole list as shard 1 of 1, through the runner that times each command.
+  assert.match(src, /else\n(\s+#.*\n)*\s+node "\$REPO\/tools\/shell-shard\.js" run 1 1\n\s+fi/, 'an unsharded run must run the whole list as shard 1 of 1');
+  assert.doesNotMatch(src, /^\s*yarn\b/m, 'no line of run-tests.sh may run yarn: the shell part goes through shell-shard.js');
   assert.match(src, /if \[ -n "\$\{KOSMOS_SHELL_SHARD:-\}" \]; then\n\s+node "\$REPO\/tools\/shell-shard\.js" run "\$\{KOSMOS_SHELL_SHARD%\/\*\}" "\$\{KOSMOS_SHELL_SHARD#\*\/\}"/, 'the shard arm must RUN its shard');
   assert.match(src, /grep -Eq '\^\[0-9\]\+\/\[0-9\]\+\$'/, 'a shard that is not i/n is refused');
   assert.match(src, /\[ "\$KOSMOS_TEST_PART" != shell \] \|\|/, 'a shard outside a shell-only run is refused');

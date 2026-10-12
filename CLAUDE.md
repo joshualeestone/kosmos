@@ -22,7 +22,9 @@ explicitly to learn the repo's pre-PR commands and conventions.
 - `yarn test` runs `bash tools/run-tests.sh` (the canonical runner). Do NOT invoke
   `node --test` with a bare glob directly (see Repo-Specific Conventions below).
 - `yarn test:shell` runs the large shell-and-tooling suite (`bash -n` syntax checks plus
-  focused tool tests); `run-tests.sh` invokes it.
+  focused tool tests). `run-tests.sh` runs the same list through `tools/shell-shard.js` (the
+  whole list as shard 1 of 1 locally, #5907), which prints each command's time and the slowest
+  ones at the end.
 - `yarn test:install` / `test:install-gate` exercise the installer.
 - The `windows` CI job (#1777) runs the Windows test files on a real Windows runner:
   `node tools/windows-tests.js`, which says what it selects and how it judges. A red there is
@@ -30,12 +32,10 @@ explicitly to learn the repo's pre-PR commands and conventions.
   Its lists, each entry with its card or reason: `KNOWN_RED` (tests expected to fail), `FLAKY`
   (not judged), `ALL_SKIP_OK` (may skip everything on the runner) and `HOST_BRANCH_EXCLUDED`
   (Windows-branching files left out).
-- **Use yarn, not npm.** The scripts are also npm-runnable, but `tools/run-tests.sh` itself
-  shells out to `yarn` (`yarn -s test:shell`, in its default `all` part, which is what `yarn test`
-  runs locally, and in an unsharded `shell` part; CI runs sharded parts through
-  tools/shell-shard.js, #4317), and its own coverage-mismatch message names
-  `yarn test` the canonical helper, so yarn must be present locally. There is no
-  committed lockfile or `packageManager` pin.
+- **Use yarn, not npm.** The scripts are also npm-runnable, and `tools/run-tests.sh` itself
+  runs test:shell through tools/shell-shard.js rather than through yarn (#4317 for CI's shards,
+  #5907 for the local whole list), but its own coverage-mismatch message names `yarn test` the
+  canonical helper, so use yarn. There is no committed lockfile or `packageManager` pin.
 
 ### Build / Lint
 
