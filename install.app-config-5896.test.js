@@ -104,7 +104,8 @@ test('#5896: a write that cannot happen returns non-zero and leaves no file behi
     KOSMOS_HOME: '/sb/kosmos', PORT: '17001' }, 'write_install_config; echo "rc=$?"');
   assert.match(r.out, /rc=1/);
   assert.deepEqual(fs.readdirSync(path.join(awh, 'Library')), ['Application Support']);
-  // A folder that exists but cannot be written to: the temporary file cannot be made either.
+  // A folder that exists but cannot be written to: the temporary file cannot be made either. Root writes anyway.
+  if (process.getuid() === 0) return;
   const awh2 = fs.mkdtempSync(path.join(tmpRoot, 'sandboxhome-'));
   const dir = path.dirname(cfgFile(awh2));
   fs.mkdirSync(dir, { recursive: true });
@@ -131,8 +132,9 @@ test('#5896: uninstall removes the account config only when it names THIS instal
   run({ ...env, KOSMOS_HOME: '/sb/other' }, 'write_install_config');
   run({ ...env, KOSMOS_HOME: '/sb/kosmos' }, UNINSTALL_BLOCK);
   assert.equal(JSON.parse(fs.readFileSync(cfgFile(awh), 'utf8')).kosmosHome, '/sb/other', 'it removed another install\'s config');
-  // This install's own file goes, and the empty folder with it.
+  // This install's own file goes, and the folder with it, even with an interrupted write's temporary file inside.
   run({ ...env, KOSMOS_HOME: '/sb/kosmos' }, 'write_install_config');
+  fs.writeFileSync(path.join(path.dirname(cfgFile(awh)), '.kosmos-install.json.Ab3dE9'), '{');
   run({ ...env, KOSMOS_HOME: '/sb/kosmos' }, UNINSTALL_BLOCK);
   assert.equal(fs.existsSync(cfgFile(awh)), false, 'this install\'s config survived its uninstall');
   assert.equal(fs.existsSync(path.dirname(cfgFile(awh))), false, 'the empty folder was left');
@@ -142,5 +144,5 @@ test('#5896: the step writes the config before the icon, and a write failure is 
   const at = SETUP.indexOf('step "Adding Kosmos to your Applications."');
   const next = SETUP.slice(at, at + 600);
   assert.match(next, /_wic_rc=0; write_install_config \|\| _wic_rc=\$\?/);
-  assert.ok(next.indexOf('write_install_config') < next.indexOf('resolve_app_dir'), 'the config is written after the icon is decided');
+  assert.ok(next.indexOf('write_install_config') < next.indexOf('resolve_app_dir'), 'the config is no longer written before the icon is decided');
 });
