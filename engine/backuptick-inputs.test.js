@@ -205,3 +205,16 @@ test('#5883 review 4: an account folder named through a link gets the same root 
   assert.equal(nameVia(link), nameVia(real));
   assert.notEqual(nameVia(real), nameVia(mk('home', '.codex-other-acct')), 'CONTROL: another folder gets another name');
 });
+
+test('#5883 slice 2: a Grok agent on a named account is backed up from that account, under the folder\'s own name', () => {
+  const agentDir = mk('workers', 'gwen');
+  const acct = mk('home', '.grok-two');
+  const sid = path.join(acct, 'sessions', encodeURIComponent(agentDir), 'sid1');
+  fs.mkdirSync(sid, { recursive: true });
+  fs.writeFileSync(path.join(sid, 'chat_history.jsonl'), '{}\n');
+  const { roots } = tick.rootsFor(tick.inputsHere({ readJob: (n) => (n === 'gwen' ? { runner: 'grok', configDir: acct } : null) }));
+  const g = roots.find((r) => /^sessions\/gwen\/grok-a[0-9a-f]{8}$/.test(r.name));
+  assert.ok(g, JSON.stringify(roots.map((r) => r.name)));
+  assert.deepEqual(g.only, ['sid1/chat_history.jsonl']);
+  assert.equal(snap.rootNameProblem(g.name), null);
+});
