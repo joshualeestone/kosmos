@@ -15141,7 +15141,7 @@ const server = http.createServer(async (req, res) => {
           if (rep.at) line += ' Set ' + rep.at + '.';
           if (selfreport.WAITING_ON_A_PERSON.includes(rep.state) && stale) {
             // #5959: a waiting state standing over a day says so in the same sentence, not a second one.
-            const days = Math.floor(ageMs / (24 * 3600 * 1000));
+            const days = Math.floor(ageMs / (24 * 3600 * 1000));   // calendar days for the words; the threshold is STALE_WAIT_MS
             const age = (days >= 2 ? days + ' days' : 'over a day');
             // Who wrote it: the agent ("your own"), Kosmos for it (a permission prompt, a provider error), or someone
             // else / unknown (an operator, a legacy line), which is said without naming a writer.
@@ -15157,13 +15157,13 @@ const server = http.createServer(async (req, res) => {
             line += ' This is a waiting-on-a-person state; clear it with a fresh report (e.g. `kosmos report working ...`) once you have been answered.';
           }
         }
-        line = 'Your card on the board shows: ' + cardLabel + '.\n' + line;
+        line = 'Your card on the board shows: ' + cardLabel + (/[.…]$/.test(cardLabel) ? '' : '.') + '\n' + line;
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
         res.end(line + '\n');
         return;
       }
       // #5959: `card` is what the board shows (its raw state and the page's word for it, which can differ: "Question"),
-      // and `stale` says the agent's own waiting report has stood over a day.
+      // and `stale` says the standing waiting report (whoever wrote it) has stood over a day.
       sendJson(res, 200, { ok: true, report: rep, card: { state: sender.card.state || null, label: cardLabel }, stale });
     } catch (err) {
       fail(500, String((err && err.message) || 'we could not read your report right now'));
