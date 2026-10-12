@@ -106,3 +106,4 @@ Mutants after review 4 (19:30 CDT from `date`), each tests 18 pass 17 fail 1: W1
    under (`pair`), set in one place (runNow over runPaired), never the key step's own copy.
 2. NIT: the key step's `pair` leaked through stripState undocumented and inconsistently. FIXED by 1 (replaced or
    removed in one place) and documented. Tests 18 -> 19.
+Mutants after review 6 (19:35 CDT from `date`): X1 no pair on results: red. X2 pair not moved on otherPair: red. X3 the key step's pair not removed: SURVIVES, equivalent (a result can carry the key step's pair only after it set seen.pair, which then overwrites it).
