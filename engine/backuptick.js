@@ -21,8 +21,8 @@
  * with a company), and never while a run is still going (a tick then is skipped, not queued). Pauses:
  *   backup_off (Kosmos+ answers 404 backup_off while company backup is off) -> no request for a day;
  *   overAllowance -> none until the next week starts (the allowance is per week).
- * A reason a person must act on (refusedState, missing, unreadableKeyFile) is said once (deps.say) until it changes or
- * a run succeeds, never every hour. Never throws.
+ * A reason a person must act on (refusedState, missing, unreadableKeyFile, overAllowance) is said once (deps.say) until
+ * it changes or a run succeeds, never every hour. Never throws.
  */
 const path = require('path');
 const fs = require('fs');
@@ -31,7 +31,10 @@ const SEGMENT = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
-function real(p) { try { return fs.realpathSync(p); } catch { return null; } }
+/* The folder as the disk spells it (review 3): plain realpathSync keeps the case it was given, and macOS volumes are
+   case-insensitive, so /users/me/library and /Users/me/Library are one folder that a string comparison calls two. The
+   native form returns the true spelling, so every comparison here (protection, nesting) is between true spellings. */
+function real(p) { try { return fs.realpathSync.native(p); } catch { return null; } }
 function inside(child, parent) {
   if (!child || !parent) return false;
   const rel = path.relative(parent, child);
@@ -93,11 +96,14 @@ function rootsFor(input) {
   // Transcript roots (`only` lists) last, against every folder root (review 2): a provider folder may be a link, so its
   // real path can sit inside, or hold, a root added after it was listed, and the snapshot would drop both. Inside one:
   // its files are already covered there. Holding one: left out, and said.
+  // Their `path` stays as backupsessions gave it (the snapshot requires it to equal its plain realpath); compared here
+  // by its true spelling, as everything else is.
   for (let i = roots.length - 1; i >= 0; i--) {
     const r = roots[i];
     if (!r.only) continue;
-    const outer = roots.find((o) => !o.only && inside(r.path, o.path));
-    const holds = roots.find((o) => !o.only && inside(o.path, r.path));
+    const rp = real(r.path) || r.path;
+    const outer = roots.find((o) => !o.only && inside(rp, o.path));
+    const holds = roots.find((o) => !o.only && inside(o.path, rp));
     if (outer) roots.splice(i, 1);
     else if (holds) { roots.splice(i, 1); left.push({ what: 'an agent\'s transcripts', why: 'their folder holds another folder being backed up' }); }
   }

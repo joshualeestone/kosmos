@@ -71,3 +71,13 @@ Mutants after review 1 (19:53 CDT from `date`), each tests 13 pass 12 fail 1: Y1
 8. FIXED: config roots sorted by full path, not basename (ties would swap the -<n> names).
 Tests 13 -> 16 (+3).
 Mutants after review 2 (19:56 CDT from `date`): Z1 no transcript pass, Z2 no snapshot name rule, Z3 relative protect fails open, Z4 a throwing roots() silent, Z5 overAllowance silent, Z6 because printed raw: all red (15/1). Z7 basename sort: SURVIVES, NOT equivalent. Untested: configRoots reads the real ~/.claude* unless AGENT_WORKFORCE_CONFIG_ROOT pins ONE root, so no sandbox here has two to order, and a test-only sort export would trip engine.reachable. A known uncovered line, said here.
+
+## Review 3 (opus, blind, on f4dcb3bf): one must-fix, two nits
+1. MUST-FIX, FIXED: protection and nesting compared paths as spelled. plain realpathSync keeps the case it is given
+   (measured: /users/agent1/LIBRARY stays so; .native gives /Users/agent1/Library), and macOS volumes are
+   case-insensitive, so a project at /users/me/library would hold the data root unguarded. Now every comparison is
+   between native (true) spellings; transcript roots keep backupsessions' path (the snapshot requires it equal its plain
+   realpath) and are compared by their native form. Test with a control; red on the old code on this Mac.
+2. NIT, MEASURED, not changed: hpkeSeal's excuse is stale, but it is engine/hpke.js's, predates this branch, and was
+   never in my "7" (those are all backup*.js). createChunker's IS needed: printed orphan list with both removed shows it.
+3. NIT, FIXED: the header now names overAllowance among the reasons said once.
