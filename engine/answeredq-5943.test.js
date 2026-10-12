@@ -189,3 +189,17 @@ test('#5943 (#5942): the same words about ANOTHER project are a new ask; a repor
   ]);
   assert.equal(selfreport.read('carried').askedAt, '2026-10-01T00:00:00.000Z', 'CONTROL: a re-report naming no project is the same ask (project carried)');
 });
+
+test('#5943 (#5942): a run that may have begun before the read tail is NOT KNOWN, never dated too recent', () => {
+  const pad = 'x'.repeat(200);
+  const same = (i) => ({ state: 'needs_you', because: 'Long-standing question ' + pad, at: new Date(Date.UTC(2026, 8, 1) + i * 60000).toISOString() });
+  const many = [];
+  for (let i = 0; i < 400; i += 1) many.push(same(i));   // well past TAIL_BYTES: the first lines are not read
+  writeReports('longrun', many);
+  assert.equal(selfreport.read('longrun').state, 'needs_you');
+  assert.equal(selfreport.read('longrun').askedAt, null, 'a run reaching the cut edge was given a date');
+  // CONTROL: the same long file with a different line inside the tail before the run: its start is seen and dated.
+  const tail = [{ state: 'working', at: '2026-09-30T00:00:00.000Z' }, same(1000), same(1001)];
+  writeReports('longrun2', many.concat(tail));
+  assert.equal(selfreport.read('longrun2').askedAt, same(1000).at);
+});

@@ -387,9 +387,11 @@ function read(sessionName) {
     return { found: false, because: NO_READING.UNREADABLE };
   }
   let text;
+  let cut = false;   // #5943: the tail began after the file's start, so lines before it are not seen
   try {
     const size = fs.fstatSync(fd).size;
     const start = Math.max(0, size - TAIL_BYTES);
+    cut = start > 0;
     const buf = Buffer.alloc(size - start);
     fs.readSync(fd, buf, 0, buf.length, start);
     text = buf.toString('utf8');
@@ -418,6 +420,8 @@ function read(sessionName) {
      different one (or the same words about another project) does. */
   let runKey = null;
   let runAt = null;
+  let parsed = 0;
+  let runFromFirst = false;   // the run began at the first line read: when the tail is cut, its start is unknown
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let row;
@@ -451,7 +455,8 @@ function read(sessionName) {
        generic sentence filed about project A and later about project B is two asks, not one 10 days old. */
     {
       const key = row.state + '\u0000' + (typeof row.because === 'string' ? row.because : '') + '\u0000' + (project || '');
-      if (key !== runKey) { runKey = key; runAt = typeof row.at === 'string' ? row.at : null; }
+      if (key !== runKey) { runKey = key; runAt = typeof row.at === 'string' ? row.at : null; runFromFirst = parsed === 0; }
+      parsed += 1;
     }
   }
   if (!latest) return { found: false, because: NO_READING.NEVER_REPORTED };
@@ -466,7 +471,9 @@ function read(sessionName) {
     until: latest.until || null,
     at: latest.at || null,
     // #5943: null unless the latest report waits on a person (see the loop above).
-    askedAt: WAITING_ON_A_PERSON.includes(latest.state) && runAt && Number.isFinite(Date.parse(runAt)) ? runAt : null,
+    // Not known (null) rather than too recent: a run that begins at the first line of a CUT tail began earlier (Mona Lisa).
+    askedAt: WAITING_ON_A_PERSON.includes(latest.state) && runAt && Number.isFinite(Date.parse(runAt))
+      && !(cut && runFromFirst) ? runAt : null,
     /* Null for a pane-derived report, which is most of them: the pane arm has
        no notion of a run. Null means "not known", never "only one run". */
     instance: latest.instance || null,
