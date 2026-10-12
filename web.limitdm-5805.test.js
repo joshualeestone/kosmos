@@ -96,7 +96,7 @@ test('#5948 review 1: a wake or handoff hello held because the agent is signed o
   const line = lift('wakeHeldLine', { quotaResetWords: () => 'later today' });
   const now = new Date().toISOString();
   const signin = line('Say hello yourself.', { held: true, heldBy: 'limit', heldFor: 'signin', limitReset: now, heldUntil: now });
-  assert.equal(signin, 'Say hello yourself. It is signed out, so Kosmos sent nothing. Sign it in again and Kosmos sends it then.');
+  assert.equal(signin, 'Say hello yourself. It is signed out, so Kosmos sent nothing. Sign it in again first.');   // a held hello is not kept: no promise to send it later
   // CONTROL: the same hold without heldFor is the usage-limit sentence (limitReset now reads as passed).
   assert.match(line('Say hello yourself.', { held: true, heldBy: 'limit', limitReset: now, heldUntil: now }), /usage has reset/);
 });
