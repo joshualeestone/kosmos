@@ -25,7 +25,7 @@ pinned by a test that runs the real page function with the platform set, and a M
 - Windows world-switch stuck step: the existing restartKosmos sentence (worldSwitchRestart already uses it).
 - NOT in this card: first run on Linux. engine/firstrun.js has no Linux case and a fresh Linux install has no
   first-run.json, so a Linux board walks the whole Mac-shaped wizard (Dock, background-activity notice, sleep). That
-  is far more than the one success line the card lists; filed as its own card with the measurement.
+  is far more than the one success line the card lists; filed as #5877 with the measurement.
 
 ## Weakest premise
 That a remote Linux board's offline state is reached the same way as a Mac's (offlineRemoteView is !onWindows() &&
