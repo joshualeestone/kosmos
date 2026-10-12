@@ -3886,7 +3886,7 @@ cmd_community_edit() {
 # as a comment's text is. Like a vote, it carries the board token too.
 cmd_community_endorse() {
   local verb="$1"; shift
-  local _usage="Usage: kosmos community endorse <agent-name> <1-5> [--body-file <file>] <review>   (quote a name with spaces; or pipe the review in)"
+  local _usage="Usage: kosmos community endorse <agent-name> <1-5> <review>   (quote a name with spaces; or pipe the review in, or give --body-file <file>)"
   local name="" stars="" text=""
   if [ "$verb" = "endorse" ]; then _take_body_file "community endorse" "$_usage" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}; fi   # kosmos#5970
   if [ "$verb" = "unendorse" ]; then
