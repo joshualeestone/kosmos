@@ -85,6 +85,13 @@ function refuseOrWarn(moduleName, file, args) {
   );
 }
 
+/** In a test at all, on two independent signs: this process's --test (which a runtime can stop reporting) and the
+ *  test runner's NODE_TEST_CONTEXT (which a child it spawns inherits). The one copy of that pair (#5949); a module
+ *  that must never reach something real from a test asks this. */
+function inTestRun() {
+  return inTestProcess() || Boolean(process.env.NODE_TEST_CONTEXT);
+}
+
 module.exports = {
-  allowLiveExecution, liveExecutionAllowed, resetForTests, refuseOrWarn, inTestProcess,
+  allowLiveExecution, liveExecutionAllowed, resetForTests, refuseOrWarn, inTestProcess, inTestRun,
 };

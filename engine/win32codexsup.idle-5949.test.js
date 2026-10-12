@@ -2,11 +2,13 @@
 /**
  * #5949 (root cause): every non-Claude Windows agent (Codex, Grok, Gemini, Antigravity) read "Can't tell" five
  * minutes after each turn. Its last report was the automatic "working" from the turn's start; its supervisor wrote
- * idle to its state file when the turn ended, but sent no idle report, and the board, once the working report went
+ * idle to its state file when the turn ended, but no idle report landed (Codex has no turn-end hook; the Gemini, Grok
+ * and Antigravity bridges' own idle did not land on Josh's machine), and the board, once the working report went
  * stale, ignored the state file's idle for "we could not check".
  *
  * Pinned here:
- *   1. a normal turn end sends ONE automatic idle report (nothing on a failed turn, nothing while a message is queued)
+ *   1. a normal turn end sends ONE automatic idle report (nothing on a failed turn, nothing while a message is queued,
+ *      nothing when the agent's own hook already said idle during the turn)
  *   2. the real default sender posts `report idle --auto` to /api/report with the run's own token, proved in a child
  *      process (not --test) against a fake board on a random port, with a throwaway store root
  *   3. the board reads a Windows idle token over a stale working report (end to end through status.snapshot), and a
@@ -55,24 +57,51 @@ function opts(over) {
     supervisorPid: 4242,
     env: { CODEX_HOME: '/acct', KOSMOS_AGENT_TOKEN: 'abc123' },
     onEvent: () => {},
+    lastReport: () => ({ found: false }),
   }, over || {});
 }
 const settle = () => new Promise((r) => setImmediate(r));
 
-for (const runner of ['codex', 'gemini', 'grok', 'antigravity']) {
-  test('#5949 a ' + runner + ' turn that ends normally sends one automatic idle report, after its state file says idle', async () => {
-    const stream = fakeStream();
-    const sent = [];
-    const h = superviseCodexStreaming({ name: 'coder', cwd: 'C:/w', runner },
-      opts({ stream, runTurn: async () => ({ ok: true }), reportIdle: (env) => { sent.push({ env, at: stream.calls.length }); } }));
-    h.send('hello');
-    await settle(); await settle();
-    assert.equal(sent.length, 1, 'one idle report for one turn');
-    assert.deepEqual(stream.calls[sent[0].at - 1], ['event', 'result'], 'the state file went idle first');
-    assert.equal(sent[0].env.KOSMOS_AGENT_TOKEN, 'abc123', 'sent with this run\'s own token (the turn environment)');
-    h.stop();
-  });
-}
+test('#5949 a turn that ends normally sends one automatic idle report, after its state file says idle', async () => {
+  const stream = fakeStream();
+  const sent = [];
+  const h = superviseCodexStreaming({ name: 'coder', cwd: 'C:/w', runner: 'codex' },
+    opts({ stream, runTurn: async () => ({ ok: true }), reportIdle: (env) => { sent.push({ env, at: stream.calls.length }); } }));
+  h.send('hello');
+  await settle(); await settle();
+  assert.equal(sent.length, 1, 'one idle report for one turn');
+  assert.deepEqual(stream.calls[sent[0].at - 1], ['event', 'result'], 'the state file went idle first');
+  assert.equal(sent[0].env.KOSMOS_AGENT_TOKEN, 'abc123', 'sent with this run\'s own token (the turn environment)');
+  h.stop();
+});
+
+test('#5949 when the agent\'s own hook already said idle during the turn, the supervisor does not say it again', async () => {
+  const sent = [];
+  let said = { found: false };
+  const runTurn = async () => {
+    said = { found: true, state: 'idle', at: new Date(Date.now() + 5).toISOString(), because: 'its own last words' };
+    return { ok: true };
+  };
+  const h = superviseCodexStreaming({ name: 'coder', cwd: 'C:/w', runner: 'gemini' },
+    opts({ runTurn, lastReport: () => said, reportIdle: () => sent.push(1) }));
+  h.send('hello');
+  await settle(); await settle();
+  assert.equal(sent.length, 0, 'the bridge\'s idle (with its last words) stands');
+  /* An idle from BEFORE this turn is not this turn's: then the supervisor says it. */
+  said = { found: true, state: 'idle', at: '2026-01-01T00:00:00Z', because: 'old' };
+  const h2 = superviseCodexStreaming({ name: 'coder', cwd: 'C:/w', runner: 'gemini' },
+    opts({ runTurn: async () => ({ ok: true }), lastReport: () => said, reportIdle: () => sent.push(2) }));
+  h2.send('hello');
+  await settle(); await settle();
+  assert.deepEqual(sent, [2]);
+  /* A report it cannot read is not a reason to stay quiet. */
+  const h3 = superviseCodexStreaming({ name: 'coder', cwd: 'C:/w', runner: 'grok' },
+    opts({ runTurn: async () => ({ ok: true }), lastReport: () => { throw new Error('torn'); }, reportIdle: () => sent.push(3) }));
+  h3.send('hello');
+  await settle(); await settle();
+  assert.deepEqual(sent, [2, 3]);
+  h.stop(); h2.stop(); h3.stop();
+});
 
 test('#5949 a failed turn sends no idle report (its own report is #5948\'s)', async () => {
   const sent = [];
@@ -221,6 +250,29 @@ test('#5949 END TO END: a Windows agent whose state file says idle reads Idle on
   assert.equal(busy.state, status.STATE.WORKING, 'CONTROL: a busy state file still reads working');
 });
 
+test('#5949 a Windows CLAUDE agent reading idle is not taken as idle over a stale working report (it reads idle while waiting)', () => {
+  const claudeRecord = { read: () => ({ 'sid-k': { name: 'kai', runner: 'claude' } }) };
+  const row = { pid: 7, cwd: '/w', kind: 'interactive', startedAt: 1, sessionId: 'sid-k', name: 'kai', status: 'idle' };
+  const r = selfreport.record('kai', { state: 'working', because: 'answering a prompt', auto: true });
+  assert.equal(r.recorded, true);
+  const file = selfreport.fileFor('kai');
+  const lines = fs.readFileSync(file, 'utf8').trim().split('\n');
+  const last = JSON.parse(lines[lines.length - 1]);
+  last.at = new Date(Date.now() - status.REPORT_WORKING_DECAY_MS - 60 * 1000).toISOString();
+  lines[lines.length - 1] = JSON.stringify(last);
+  fs.writeFileSync(file, lines.join('\n') + '\n');
+  status.setPaneSource(win32roster.make({ run: () => [row], record: claudeRecord, codexLive: () => [] }));
+  status.setPaneCapture(win32capture.make({ run: () => [row], record: claudeRecord }));
+  try {
+    const a = status.snapshot().agents.find((x) => x.sessionName === 'kai');
+    assert.ok(a, 'the claude agent is on the board');
+    assert.equal(a.state, status.STATE.UNKNOWN, 'unchanged for Claude');
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+});
+
 test('#5949 a Mac pane that only LOOKS idle still says it cannot tell over a stale working report', () => {
   const stale = { found: true, state: 'working', at: new Date(Date.now() - 10 * 60 * 1000).toISOString(), because: 'x' };
   const screenIdle = { state: status.STATE.IDLE, confidence: status.CONFIDENCE.SCRAPED, because: 'it is sitting at its prompt' };
@@ -229,6 +281,7 @@ test('#5949 a Mac pane that only LOOKS idle still says it cannot tell over a sta
     'CONTROL: the same report over a Windows idle token reads idle');
 });
 
+/* An existing selfreport rule, pinned here because #5948 relies on it and this change adds a sender of automatic idle. */
 test('#5949 an automatic idle never clears a standing blocked (it composes with #5948\'s sign-in report)', () => {
   const b = selfreport.record('coder', { state: 'blocked', because: 'signed out of its account', on: 'sign-in', owner: 'person' });
   assert.equal(b.recorded, true, 'CONTROL: the blocked report was recorded (' + JSON.stringify(b) + ')');
