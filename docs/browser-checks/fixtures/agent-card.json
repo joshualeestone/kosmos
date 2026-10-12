@@ -57,8 +57,7 @@
       "because": "example-because"
     },
     "updatedAt": "2026-09-03T00:00:00.000Z",
-    "id": "000000000000",
-    "idInstall": "00000000-0000-4000-8000-000000000000"
+    "id": "000000000000"
   },
   "swarm": null,
   "crashLoop": null
