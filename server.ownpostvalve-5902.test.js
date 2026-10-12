@@ -153,7 +153,13 @@ test('#5902 through server.js: when the deferred nudge runs, the room is already
   const realGet = projects.get;
   const realNudge = messages.nudgeOwnComputerPost;
   const seen = [];
-  projects.get = (id) => (id === 'orderA' ? { name: 'Plans', agents: [{ sessionName: 'casey' }] } : realGet(id));
+  /* A real board card from test-support/fleet (fixture-discipline: never a hand-built one); the fleet is restored
+     before the wrappers go in, so no pane seam is left installed. */
+  const fleet = require('./test-support/fleet');
+  const installed = fleet.install([fleet.agent('casey')], { strict: false });
+  let members;
+  try { members = installed.agents.slice(); } finally { installed.restore(); }
+  projects.get = (id) => (id === 'orderA' ? { name: 'Plans', agents: members } : realGet(id));
   messages.nudgeOwnComputerPost = (id, ...rest) => { seen.push({ id, held: messages.roomHeld(id, Date.now()) }); return realNudge(id, ...rest); };
   try {
     wiredDeps.recordExternal('orderA', { from: 'Josh', fromKind: 'person', text: 'from my laptop', sameAccount: true });
