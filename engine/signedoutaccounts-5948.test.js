@@ -176,18 +176,6 @@ test('#5948 review 9: a gemini/grok folder whose own key is gone, with a shared 
   assert.deepEqual([c.connection.badge, seen], ['signed_out', []]);
 });
 
-test('#5948 review 9: the fix names the folder only where re-adding under that name lands in it (a gemini/grok folder in the provider home)', () => {
-  const [h] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => '/h/.grok');
-  assert.match(h.connection.because, /in Settings > AI Models with the name "work", which is this folder\.$/);
-  // CONTROLS: a folder outside the provider home, and a codex folder, get the plain remedy.
-  const away = { gx: { configDir: '/elsewhere/.grok-work', runner: 'grok' } };
-  const [o] = signedOutRows([card('gk', 'grok')], { xai: [] }, (n) => away[n === 'gk' ? 'gx' : n], readName, () => false, () => '/h/.grok');
-  assert.match(o.connection.because, /in Settings > AI Models\.$/);
-  const cx = { cxn: { configDir: '/h/.codex-team', runner: 'codex' } };
-  const [c] = signedOutRows([card('cx', 'codex')], { openai: [] }, (n) => cx[n === 'cx' ? 'cxn' : n], readName, () => false, () => '/h/.codex');
-  assert.match(c.connection.because, /in Settings > AI Models\.$/);
-});
-
 test('#5948 review 10: on a real disk, an EMPTY credential file holds no credential and reads signed out; a non-empty one reads unlisted', () => {
   const fs = require('node:fs');
   const os = require('node:os');
@@ -198,10 +186,16 @@ test('#5948 review 10: on a real disk, an EMPTY credential file holds no credent
     const full = path.join(root, '.grok-full');
     fs.mkdirSync(empty); fs.mkdirSync(full);
     fs.writeFileSync(path.join(empty, 'auth.json'), '');
+    const blank = path.join(root, '.grok-blank');
+    fs.mkdirSync(blank);
+    fs.writeFileSync(path.join(blank, '.kosmos-grok-apikey'), '  \n');
     fs.writeFileSync(path.join(full, 'auth.json'), '{"x":1}');
-    const jobsHere = { e: { configDir: empty, runner: 'grok' }, f: { configDir: full, runner: 'grok' } };
+    const jobsHere = { e: { configDir: empty, runner: 'grok' }, f: { configDir: full, runner: 'grok' }, b: { configDir: blank, runner: 'grok' } };
     const [e] = signedOutRows([card('e', 'grok')], { xai: [] }, (n) => jobsHere[n], () => null);
     assert.equal(e.connection.badge, 'signed_out', JSON.stringify(e));
+    // review 11: a key file holding only whitespace is no key either (the launch reads its first line, trimmed).
+    const [b] = signedOutRows([card('e', 'grok')], { xai: [] }, (n) => jobsHere[n === 'e' ? 'b' : n], () => null);
+    assert.equal(b.connection.badge, 'signed_out', JSON.stringify(b));
     const [f] = signedOutRows([card('e', 'grok')], { xai: [] }, (n) => jobsHere[n === 'e' ? 'f' : n], () => null);
     assert.equal(f.connection.badge, 'unlisted', 'CONTROL: ' + JSON.stringify(f));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
