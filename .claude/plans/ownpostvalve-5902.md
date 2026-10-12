@@ -38,12 +38,15 @@ held.
 ## Verify
 - server.ownpostvalve-5902.test.js, through server.js's REAL recordExternal (the test keeps the deps server.js hands
   fedseats.configure): CONTROL held before; released by a same-account person post, with a reopen naming it;
-  stranger, same-account agent, a non-boolean stamp, a missing fromKind, and the opt-out all stay held with no reopen;
-  the reopen's time is the post's (engine arm).
+  stranger, same-account agent, a non-boolean stamp, and the opt-out all stay held with no reopen (a missing fromKind
+  is NOT among them: fedseats makes it 'person', so it releases; see Weakest premise); the reopen's time is the post's,
+  and a future time is written as now (engine arms); #5732's nudge stops held and goes ahead after a reopen (engine);
+  through server.js, the deferred nudge finds the room already released.
 - Mutants, each red at its own arm: no server call; operator false (the reader drops it); reopen for every external
   post (the four stay-held arms); now instead of the post's time (the engine arm, added after this mutant first
   PASSED: through recordExternal both times are one millisecond).
-- Related suites 410/410: engine.reachable, messages, room-held-5800, ownroomnudge-5732, fedmsg-3311, fedseats, this file.
+- Related suites (engine.reachable, messages, room-held-5800, ownroomnudge-5732, fedmsg-3311, fedseats, this file):
+  412/412 at the review 3 head.
 
 ## Review 1 (opus, 2026-10-12 01:13)
 - **SHOULD-FIX, taken:** the "no fromKind" arm certified the opposite of what ships (fedseats maps a missing kind to
@@ -63,3 +66,10 @@ held.
 - **NIT, taken:** the clamp's comment says it guards a hand-built row (externalPost always stamps now).
 - **NITs, not taken:** the project-id regex (decided in review 1); an arm for the try/catch around the reopen (it only
   keeps a throw from reaching the seat's data handler, and nothing in reopenForOwnPost throws on a recorded row).
+
+## Review 3 (opus, 2026-10-12 01:15)
+- **SHOULD-FIX, taken:** Verify still listed the removed missing-fromKind arm; corrected, and the related count
+  re-measured on this head.
+- **SHOULD-FIX, taken:** two sibling comments (the gate's #2710 note and reopenRoom's) still said no agent can mint a
+  reopen; both now name reopenForOwnPost and its caveat.
+- **NITs, taken:** the ordering arm resets #5732's nudge gap in its finally; the tick comment is scoped.

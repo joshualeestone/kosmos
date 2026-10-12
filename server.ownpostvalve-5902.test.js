@@ -70,7 +70,7 @@ function reopensFor(project) {
   return fs.readFileSync(messages.LOG, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
     .filter((r) => r.kind === 'reopen' && r.project === project);
 }
-const tick = () => new Promise((r) => setImmediate(r));   // the deferred nudge runs, and finds no project: harmless
+const tick = () => new Promise((r) => setImmediate(r));   // the deferred nudge runs (it finds no project, except where a test stubs one)
 
 test('the dependencies under test are the ones server.js wires', () => {
   assert.ok(wiredDeps && typeof wiredDeps.recordExternal === 'function', 'server.js did not hand fedseats a recordExternal');
@@ -158,7 +158,7 @@ test('#5902 through server.js: when the deferred nudge runs, the room is already
   try {
     wiredDeps.recordExternal('orderA', { from: 'Josh', fromKind: 'person', text: 'from my laptop', sameAccount: true });
     await tick();
-  } finally { projects.get = realGet; messages.nudgeOwnComputerPost = realNudge; }
+  } finally { projects.get = realGet; messages.nudgeOwnComputerPost = realNudge; messages._resetOwnPostNudgesForTests(); }
   assert.equal(seen.length, 1, 'the deferred nudge did not run (the wrappers were not reached): ' + JSON.stringify(seen));
   assert.equal(seen[0].held, null, 'the nudge ran while the room was still held');
 });

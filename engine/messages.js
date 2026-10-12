@@ -2067,7 +2067,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      without having to type a content post into the room to do it. Both reset
      the arrival budget to the moment they happened; neither can be minted by
      an agent (operator posts ride the operator route, reopen rows the
-     board-token-gated reopen route). */
+     board-token-gated reopen route). #5902 adds one more writer: a post the
+     relay stamps as this account's own and that is marked a person's
+     (reopenForOwnPost); an agent's post a modified or older client on the
+     person's other computer does not mark as an agent's would also write one. */
   const lastOperatorAt = log.reduce((mark, m) => {
     if (!m || m.project !== projectId) return mark;
     const isOperatorPost = m.kind === 'post' && m.operator === true;
@@ -3085,7 +3088,9 @@ function react({ project, of, emoji, from, operator, members }) {
    OPERATOR SURFACE. The row is always operator: true, and the only route that
    reaches this is board-token gated -- the same posture as an operator post.
    An agent cannot reopen a room it is looping in, and even if it could, the
-   valve simply re-fires once the budget is spent again. */
+   valve simply re-fires once the budget is spent again. (#5902's
+   reopenForOwnPost is the one other writer, with the caveat at its own
+   comment.) */
 function reopenRoom(project, at) {
   const projectId = String(project == null ? '' : project).trim();
   if (!projectId) return { ok: false, because: 'say which project room to reopen' };
