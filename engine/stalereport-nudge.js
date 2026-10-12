@@ -80,7 +80,7 @@ function nudgeText(rep, ageMs) {
     : rep.by === 'auto' ? 'A `' + rep.state + '` report Kosmos wrote for you'
       : 'This `' + rep.state + '` report';
   const todo = rep.by === 'auto' ? 'If what it was about has passed' : 'If it is no longer in your way';
-  return 'Kosmos here, a reminder: ' + whose + ' has been standing on your card for ' + age + '. '
+  return 'Kosmos here, a reminder: ' + whose + ' has been standing for ' + age + '. '
     + todo + ', clear it with: kosmos report clear. If it still holds, leave it. '
     + 'To see your card as the person sees it, run: kosmos report show';
 }
@@ -88,6 +88,9 @@ function nudgeText(rep, ageMs) {
 function plan(card, rep, entry, now, remindedAt) {
   if (!card || !rep || rep.found !== true) return { act: 'none', because: 'no report' };
   if (rep.state !== REMINDED_STATE) return { act: 'none', because: 'its report is not ' + REMINDED_STATE };
+  /* A provider failure Kosmos recorded (the StopFailure hook's "provider api (<kind>)"): while the provider still fails,
+     the turn a reminder starts fails too and writes a fresh one, so it would be reminded once a day for the outage. */
+  if (rep.by === 'auto' && /^provider api\b/.test(String(rep.on || ''))) return { act: 'none', because: 'its report is a provider failure Kosmos recorded' };
   /* The card shows THE REPORT, not only its state: reconcile can show a screen reading of the same state over a report
      it set aside, and then stateReported is false. */
   if (card.stateReported !== true || card.state !== rep.state) return { act: 'none', because: 'its card does not show that report' };
@@ -103,13 +106,16 @@ function plan(card, rep, entry, now, remindedAt) {
 }
 
 /* Why a line typed now could land in something open on the agent's screen, or null when its prompt is clear: Claude
-   Code's safeguards menu, a question menu, or a permission prompt (status.js's readers, the ones chat's menu hold uses),
+   Code's safeguards menu, a question menu, its usage-limit menu, or a permission prompt (status.js's readers, the ones
+   chat's menu and limit holds use),
    or a screen that could not be read at all. */
 function screenOpen(session, roster) {
   const status = require('./status');
   const view = require('./chat').viewport(session, roster);
   if (!view || typeof view.text !== 'string') return 'its screen could not be read';
-  if (status.claudeSafeguardsMenuUp(view.text) || status.claudeQuestionMenuUp(view.text)) return 'a menu is open on its screen';
+  if (status.claudeSafeguardsMenuUp(view.text) || status.claudeQuestionMenuUp(view.text) || status.claudeLimitMenuUp(view.text)) {
+    return 'a menu is open on its screen';   // the usage-limit menu too: chat holds it only for a rate_limited card
+  }
   if (status.claudePermissionPromptKind(view.text)) return 'a prompt is open on its screen';
   return null;
 }
@@ -132,7 +138,7 @@ function sweepOnce(o) {
     const say = (r) => { if (log) { try { log(r); } catch { /* never breaks a sweep */ } } };
     for (const card of o.roster) {
       const session = card && card.sessionName;
-      if (!session || card.isNamedOurs === false || card.runner !== 'claude' || card.reachedByChannel === true) continue;
+      if (!session || card.isNamedOurs !== true || card.runner !== 'claude' || card.reachedByChannel === true) continue;
       if (card.activeWhileWaiting === true) continue;   // mid-turn: a later sweep tells it, between turns
       if (card.state !== REMINDED_STATE) continue;   // read a report only for a card that could be reminded
       let rep = null;
