@@ -398,6 +398,8 @@ test('#5994: a delete that fails PART WAY, after auth.json is gone, cancels the 
 test('#5994: a reauth cancelled a moment ago (its child still exiting) does not refuse the remove', async () => {
   openai.setChatgptTimers({ forceKill: 4000 });   // the TERM-ignoring child lives until this SIGKILL
   let r = null;
+  const slotsBefore = new Set(workSlots());
+  const mySlot = () => workSlots().filter((n) => !slotsBefore.has(n));   // this sign-in's own staging slot
   try {
     const dir = writeChatgptAccount('.codex-late8', 'late8@example.com');
     process.env.FAKE_CODEX_IGNORE_TERM = '1';
@@ -408,13 +410,17 @@ test('#5994: a reauth cancelled a moment ago (its child still exiting) does not 
     await waitFor(r.sessionId, (x) => x.state === 'awaiting-browser');   // printed only after the trap
     assert.equal(openai.cancelChatgptLogin(r.sessionId).cancelled, true);   // the person pressed cancel...
     await new Promise((res) => setTimeout(res, 300));
-    assert.ok(workSlots().length > 0, 'fixture: the child died on SIGTERM, so the window under test never opened');
+    assert.equal(mySlot().length, 1, 'fixture: the child died on SIGTERM, so the window under test never opened');
     const rm = openai.removeAccount(dir, []);   // ...and then Remove, while the child is still exiting
     assert.equal(rm.ok, true, rm.because);
     assert.equal(rm.removed, true);
-    await eventuallyTrue(() => workSlots().length === 0, 'the SIGKILLed child never freed its slot', 10000);
+    await eventuallyTrue(() => mySlot().length === 0, 'the SIGKILLed child never freed its slot', 10000);
   } finally {
     if (r && r.ok) openai.cancelChatgptLogin(r.sessionId);   // arms the SIGKILL even if an early step failed
+    // The SIGKILL timer is unref'd, so on a failing path the file could end first and orphan a TERM-ignoring child:
+    // wait for it here (no-op on the passing path, whose slot is already gone).
+    const end = Date.now() + 10000;
+    while (Date.now() < end && mySlot().length) await new Promise((res) => setTimeout(res, 50));
     delete process.env.FAKE_CODEX_IGNORE_TERM;
     openai.setChatgptTimers({ forceKill: 3000 });   // the module's default
   }

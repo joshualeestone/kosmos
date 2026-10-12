@@ -446,8 +446,8 @@ function forgetAccount(dir, usedBy) {
  * history), an OpenAI account's identity + config live inside its own `.codex` dir
  * with no cross-account sharing, and disconnect already renames the whole default
  * dir aside -- so delete is the same whole-dir rmSync for the default as for a
- * secondary, gated by the same running-agents / sign-in-in-flight / arbitrary-path
- * guards. Only the final step differs from
+ * secondary, gated by the same running-agents / another-sign-in-holds-it / arbitrary-path
+ * guards (the account's own Sign in again is cancelled after the delete, #5994). Only the final step differs from
  * forget: rmSync instead of renameSync. Irreversible on purpose; the UI asks
  * with a destructive confirm.
  */
