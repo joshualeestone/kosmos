@@ -150,9 +150,27 @@ test('#5907: writeAll finishes a partial write, waits out EAGAIN, and gives up a
   assert.throws(() => sh.writeAll(1, 'x', () => { const e = new Error('EPIPE'); e.code = 'EPIPE'; throw e; }), (e) => e.code === 'EPIPE');
 });
 
-test('#5907: a FAILED line that cannot be written still returns the failing command\'s own status', () => {
-  const brokenStderr = (s, fd = 1) => { if (fd === 2) { const e = new Error('EPIPE'); e.code = 'EPIPE'; throw e; } };
-  assert.equal(sh.runShard(['true', 'exit 127'], 1, 1, 'ignore', brokenStderr), 127);
+test('#5907: a shard line that cannot be written never changes the status or stops the commands', () => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'shard-5907-'));
+  try {
+    for (const badFd of [1, 2]) {
+      for (const [list, want] of [[['true', 'exit 127'], 127], [['true', 'true'], 0]]) {
+        const ran = path.join(dir, `ran-${badFd}-${want}`);
+        const calls = { 1: 0, 2: 0 };
+        const broken = (s, fd = 1) => {
+          calls[fd] += 1;
+          if (fd === badFd) { const e = new Error('EPIPE'); e.code = 'EPIPE'; throw e; }
+        };
+        const code = sh.runShard([`touch '${ran}'`, ...list], 1, 1, 'ignore', broken);
+        const label = `fd ${badFd} broken, want ${want}`;
+        assert.equal(code, want, label);
+        assert.ok(fs.existsSync(ran), `${label}: the commands still ran`);
+        // fd 2 is written only on a red, so a broken fd 2 on a green shard is never touched.
+        assert.ok(calls[badFd] <= 1, `${label}: ${calls[badFd]} writes to a broken fd; one failure must stop them`);
+        if (badFd === 2) assert.ok(calls[1] > 3, `${label}: stdout lines stopped with stderr`);
+      }
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('#5907: the real clock: a command that sleeps is timed at least as long as it slept', () => {
