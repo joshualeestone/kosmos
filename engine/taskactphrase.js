@@ -10,7 +10,8 @@
  * would name the agent, so it says "The person". And words a person or an agent wrote are QUOTED, as `kosmos task list`
  * quotes words Kosmos did not write: a message (`said`, which carries no author on the board, tasks.say, so it is
  * marked too), a part's sentence, the done-when checks, and a run's or a built mark's note. None can then pass for one
- * of the lines Kosmos writes about the task. A repeat's words are Kosmos's own (from the schedule) and are not quoted. Without opts the words are the page's, which
+ * of the lines Kosmos writes about the task. A repeat's words are Kosmos's own (from the schedule) and are not quoted.
+ * Names are not quoted either: they are the agents' card names, as the page shows them. Without opts the words are the page's, which
  * taskactphrase.test.js holds them to.
  */
 /* Quote characters inside a message become a plain apostrophe (and brackets plain ones), so a message cannot close its
@@ -54,11 +55,7 @@ function phrase(ev, nameOfMember, opts) {
       const who = nameOf(ev.told) || 'its reviewer';
       return runs + (ev.reached === false ? '; Kosmos could not reach ' + who : '; ' + who + ' was told');
     }
-    // #768: a free-text message recorded via the composer. `who` is optional (a
-    // message typed on the board carries none today; the field is honoured now so
-    // an authored message reads correctly when two-way delivery lands later). The
-    // whole return is esc()'d once at the render site, like every other phrase.
-    case 'said': { const who = nameOf(ev.who); if (agent) return (who ? who + ', a message: ' : 'A message: ') + quoted(ev.text || ''); return (who ? who + ': ' : '') + (ev.text || ''); }
+    case 'said': { const who = nameOf(ev.who); if (agent) return (who ? 'A message from ' + who + ': ' : 'A message: ') + quoted(ev.text || ''); return (who ? who + ': ' : '') + (ev.text || ''); }
     case 'closed': return 'Marked done';
     case 'undone': return ev.files === 1 ? 'One file’s changes undone' : 'File changes undone (' + (Number(ev.files) || 0) + ' files)';   // #5153 slice 4
     case 'reopened': return 'Put back';

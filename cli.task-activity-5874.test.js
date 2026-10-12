@@ -61,10 +61,10 @@ test.before(async () => {
   assert.ok(taskchat.record(projectId, num, { kind: 'kept-sent', who: 'mara' }));
   assert.ok(taskchat.record(projectId, num, { kind: 'kept-dropped', who: 'mara' }));
   assert.ok(taskchat.record(projectId, num, { kind: 'closed' }));
-  /* A task with nothing in its conversation: stored on its project, with no events file (as a task from before
-     the conversation was recorded). */
   /* mara on the board as a real card, so the words name her as the page does (her card's name), not by her session. */
   board = fleet.install([fleet.agent('mara', { state: 'idle', ours: 'claim', displayName: 'Mara Lane' })]);
+  /* A task with nothing in its conversation: stored on its project, with no events file (as a task from before
+     the conversation was recorded). */
   quiet = projects.create({ name: 'Quiet' }).id;
   projects.mutate(quiet, (p) => ({ ...p, tasks: [{ number: 4, sentence: 'An old task', state: 'open' }] }));
   quietNum = 4;
@@ -112,7 +112,7 @@ test('#5874 Windows: task activity prints the conversation oldest first, one lin
   assert.equal(nosuch.err, 'Kosmos refused that: there is no project by that name.');
   const notask = await win(['task', 'activity', projectId, '99']);
   assert.equal(notask.code, 1);
-  assert.equal(notask.err, 'Kosmos refused that: there is no task 99 on that project.');
+  assert.equal(notask.err, 'Kosmos refused that: there is no task by that number on this project.');
 });
 
 // ── Mac: install/kosmos (bash 3.2) ─────────────────────────────────────────
@@ -143,7 +143,7 @@ test('#5874 Mac: task activity prints the same lines as Windows', async () => {
   assert.match(nosuch.out, /Kosmos refused that: there is no project by that name\./);
   const notask = await mac(['task', 'activity', projectId, '99']);
   assert.equal(notask.code, 1);
-  assert.match(notask.out, /Kosmos refused that: there is no task 99 on that project\./);
+  assert.match(notask.out, /Kosmos refused that: there is no task by that number on this project\./);
   const bad = await mac(['task', 'activity', projectId, 'one']);
   assert.equal(bad.code, 2);
   assert.match(bad.out, /The task number must be a number/);

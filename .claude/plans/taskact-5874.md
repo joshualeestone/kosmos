@@ -29,7 +29,8 @@ Card: #5874 (split out of #5842, Mona Lisa). Owner: April (night shift shard).
 
 ## Not here
 - #5842's kept-sent / kept-dropped words: on Mona Lisa's branch (tkdrop-5842), not on main. Whoever lands second adds
-  them to both phrase functions; the parity test will fail until both have them, which is the point.
+  them to both phrase functions; the parity test will fail until both have them, which is the point. Told on #5842
+  (review 3). #5874 stays OPEN after this merges, for those words: done-condition 4 is met only as bare kinds until then.
 - Paging or filtering the conversation.
 
 ## Worded for an agent (review 1)

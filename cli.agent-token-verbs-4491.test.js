@@ -62,6 +62,7 @@ const ANSWERS = {
 const READ_ANSWERS = {
   '/api/project/p4491/room': 'nothing here yet\n',
   '/api/tasks': JSON.stringify({ tasks: [], count: 0 }),
+  '/api/project/p4491/task/1/activity': JSON.stringify({ events: [], count: 0 }),   // #5874
   '/api/roles': JSON.stringify({ roles: [{ key: 'builder', label: 'Builder' }], own: { instructions: 'You are {{NAME}}.' } }),
   // Slice 7: the reads its token-only list adds.
   '/api/report': 'working: on it\n',
@@ -104,6 +105,7 @@ const VERBS = [
   // Slice 4, the reads (two-word verbs are named by both words in the test titles below).
   ['/api/project/p4491/room', ['room', 'p4491']],
   ['/api/tasks', ['task', 'list', 'p4491']],
+  ['/api/project/p4491/task/1/activity', ['task', 'activity', 'p4491', '1']],   // #5874: a READ, sent with the agent's own token
   ['/api/roles', ['agent', 'roles']],
   ['/api/roles', ['agent', 'role-draft']],
   // Slice 5, the two task writes.

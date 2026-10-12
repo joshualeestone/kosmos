@@ -31,6 +31,7 @@ const ROLES = { roles: [{ key: 'builder', label: 'Builder' }], own: { instructio
 const READS = [
   [['room', 'p4491'], '/api/project/p4491/room?as=text', { body: 'nothing here yet\n' }],
   [['task', 'list', 'p4491'], '/api/tasks?project=p4491&order=state', { body: { tasks: [], count: 0 } }],
+  [['task', 'activity', 'p4491', '1'], '/api/project/p4491/task/1/activity?words=1', { body: { events: [], count: 0 } }],   // #5874
   [['agent', 'roles'], '/api/roles?catalogue=1', { body: ROLES }],
   [['agent', 'role-draft'], '/api/roles', { body: ROLES }],
 ];
