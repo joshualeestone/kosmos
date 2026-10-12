@@ -17,9 +17,12 @@ const projects = require('./projects');
 const DIR = path.join(SANDBOX, 'docs');
 fs.mkdirSync(DIR, { recursive: true });
 fs.writeFileSync(path.join(DIR, 'notes.txt'), 'x');
+// A listed file's target as openFile resolves it (resolveListedFile, realpathSync.native): on a Windows runner the native
+// call expands the temp folder's 8.3 short name (RUNNER~1), which the JS realpathSync keeps, so the two are not the same.
 const REAL = fs.realpathSync.native(DIR);
-// The folder xdg-open is given: resolved with fs.realpathSync, as linuxOpenFolder resolves it (links followed).
-const FOLDER = fs.realpathSync(DIR);   // the engine's own resolution: on Windows it expands an 8.3 short name (RUNNER~1)
+// The folder xdg-open is given: resolved with the JS fs.realpathSync (links followed, a short name kept), exactly as
+// linuxOpenFolder resolves it, so the two match on every host.
+const FOLDER = fs.realpathSync(DIR);
 
 function on(t, platform, env) {
   const calls = [];
