@@ -276,6 +276,38 @@
       "rank": 1.5,
       "since": "0.7.43",
       "status": "pending"
+    },
+    {
+      "title": "New tasks ask how you will know they are done",
+      "line": "New task asks How will you know it is done?, and a parent task says when all its subtasks are built, ready for you to check.",
+      "icon": "tasks",
+      "rank": 4,
+      "since": "0.7.44",
+      "status": "pending"
+    },
+    {
+      "title": "Removing an account works mid sign-in",
+      "line": "If you left a Sign in again unfinished on an OpenAI account, removing or disconnecting that account now works straight away.",
+      "icon": "shield",
+      "rank": 6,
+      "since": "0.7.44",
+      "status": "pending"
+    },
+    {
+      "title": "A late recurring run keeps the next one",
+      "line": "When a recurring task's run is late, the next scheduled run still happens, and the task says how many runs were missed.",
+      "icon": "tasks",
+      "rank": 7,
+      "since": "0.7.44",
+      "status": "pending"
+    },
+    {
+      "title": "Company backup keeps Grok conversations",
+      "line": "The company backup now includes the conversations of Grok agents.",
+      "icon": "shield",
+      "rank": 8,
+      "since": "0.7.44",
+      "status": "pending"
     }
   ]
 }
