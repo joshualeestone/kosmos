@@ -312,8 +312,8 @@ function forgetAccount(dir, usedBy) {
      `server.disconnect-stop-2570.test.js` pins this ordering. */
   /* #5994: the account's OWN unfinished "Sign in again" no longer refuses. A person who abandoned it had no cancel
      they could reach and was refused for up to the watchdog's limit; wanting the account gone overrides finishing a
-     sign-in into it. It is cancelled below, after the move succeeds, so a refused or failed call (the #2570
-     pre-flight) cancels nothing. Any other hold still refuses here. */
+     sign-in into it. It is cancelled below, after the move succeeds, so a refused call (the #2570 pre-flight) or a
+     failed move cancels nothing. Any other hold still refuses here. */
   const ownReauth = isHeldByOwnReauth(clean);
   if (activeChatgptDirs.has(clean) && !ownReauth) {
     return { ok: false, forgotten: false, because: 'a sign-in is in progress for this account; finish or cancel it first.' };
@@ -392,7 +392,7 @@ function forgetAccount(dir, usedBy) {
   }
   try { fs.renameSync(clean, target); }
   catch { return { ok: false, forgotten: false, because: 'we could not move that account out of the way' }; }
-  if (ownReauth) releaseOwnReauth(clean);   // #5994: only once the move happened, so a failed call cancels nothing
+  if (ownReauth) releaseOwnReauth(clean);   // #5994: the move happened
 
   return {
     ok: true,
@@ -447,7 +447,7 @@ function forgetAccount(dir, usedBy) {
  * with no cross-account sharing, and disconnect already renames the whole default
  * dir aside -- so delete is the same whole-dir rmSync for the default as for a
  * secondary, gated by the same running-agents / another-sign-in-holds-it / arbitrary-path
- * guards (the account's own Sign in again is cancelled after the delete, #5994). Only the final step differs from
+ * guards (the account's own Sign in again is cancelled once the account is gone, #5994). Only the final step differs from
  * forget: rmSync instead of renameSync. Irreversible on purpose; the UI asks
  * with a destructive confirm.
  */
@@ -518,7 +518,7 @@ function removeAccount(dir, usedBy) {
     if (ownReauth && !fs.existsSync(authFile(clean))) releaseOwnReauth(clean);
     return { ok: false, removed: false, because: 'we could not delete that account from this computer' };
   }
-  if (ownReauth) releaseOwnReauth(clean);   // #5994: only once the delete happened, so a failed call cancels nothing
+  if (ownReauth) releaseOwnReauth(clean);   // #5994: the delete happened
   /* #2684: wasDefault so the caller's history messaging matches forgetAccount's.
      Env-aware, matching the `defaultDir()` comparison the refusal used to make. */
   return { ok: true, removed: true, wasDefault: clean === path.resolve(defaultDir()), because: null };
@@ -1242,9 +1242,8 @@ function isHeldByOwnReauth(dir) {
    afterwards. */
 function releaseOwnReauth(dir) {
   for (const id of ownReauthsOf(dir)) {
-    const s = chatgptSessions.get(id);
     cancelChatgptLogin(id);
-    if (s) s.reauthReleased = true;
+    chatgptSessions.get(id).reauthReleased = true;   // still in the Map: the reap is a timer
   }
   // Drop the hold unless another live sign-in is staging into this same path. Defence only: isHeldByOwnReauth's premise
   // says that cannot happen, and no test can reach this branch.

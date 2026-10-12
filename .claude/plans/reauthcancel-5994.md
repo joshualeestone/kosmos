@@ -12,7 +12,8 @@ Windows device-code sign-in). Measured: refused while abandoned, removed:true on
 A remove or forget that passes EVERY other guard cancels the account's own unsettled reauth(s), drops their hold on
 the live folder, and goes ahead. Any other hold still refuses with the old sentence.
 - The cancel happens AFTER the move or delete succeeds (review 1: before it, a failed rename/rm returned ok:false
-  with the sign-in already cancelled), so a refused or failed call cancels nothing. That keeps #2570's pre-flight (a call with agents on the account, which must change nothing) safe.
+  with the sign-in already cancelled), so a refused call, or a failed one that leaves the account whole, cancels
+  nothing (a delete that already took auth.json is the one exception, below). That keeps #2570's pre-flight (a call with agents on the account, which must change nothing) safe.
 - Cancelling settles the session (state cancelled), and the exit handler promotes only an unsettled session, so the
   dying child can never write into the folder that is being removed.
 - The staging slot stays reserved until the child exits, as on any cancel.
