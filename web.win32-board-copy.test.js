@@ -284,9 +284,9 @@ test('one CSS rule hides the Mac-only surfaces, and it is on each one the audits
     // the app's (data-gate="tmux"), pinned just above; the caption now reads "switch Kosmos to On".
     'S7 Dock drawing': /<div class="s7-dock-wrap" id="fr-success" data-win-hide>/,
     'Settings Dock icon': /<img class="dockrow-i" data-win-hide /,
-    'Settings Accessibility sentence': /<p class="dhint" id="set-a11y-say"[^>]*data-win-hide>/,
-    'Settings Accessibility button': /<button class="btn" id="set-a11y-open" type="button" data-win-hide>/,
-    'Settings tmux box': /<section class="dbox" data-win-hide>\s*<!-- The tmux permission box/,
+    'Settings Accessibility sentence': /<p class="dhint" id="set-a11y-say"[^>]*data-win-hide[ >]/,
+    'Settings Accessibility button': /<button class="btn" id="set-a11y-open" type="button" data-win-hide[ >]/,
+    'Settings tmux box': /<section class="dbox" data-win-hide[^>]*>\s*<!-- The tmux permission box/,
     'Update Kosmos automatically (P0-5)': /<div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide>/,
     'its status line': /<p class="dhint" id="auto-msg"[^>]*data-win-hide>/,
     'Open Terminal (W-18)': /<div class="field" data-win-hide>\s*<button class="btn" id="d-open-terminal"/,
@@ -723,10 +723,24 @@ test('#5865: a Linux board seen from elsewhere is "the computer running Kosmos",
   }
 });
 
-test('#5865: Settings on Linux has no Dock line or App icon box, and says how Kosmos starts again', () => {
+test('#5865: Settings on Linux has no Dock line, app icon, Accessibility or tmux box, and says how Kosmos starts again', () => {
   assert.match(PAGE, /html\[data-kosmos-platform="linux"\] \[data-linux-hide\] \{ display: none !important; \}/, 'the Linux hide rule is gone');
-  assert.match(PAGE, /<img class="dockrow-i" data-win-hide data-linux-hide /, 'the Dock icon picture shows on Linux');
-  assert.match(PAGE, /<section class="dbox" data-win-hide data-linux-hide>\s*<h3 class="dlab">App icon<\/h3>/, 'the App icon box shows on Linux');
+  const HIDDEN_ON_LINUX = {
+    'Dock icon picture': /<img class="dockrow-i" data-win-hide data-linux-hide /,
+    'App icon box': /<section class="dbox" data-win-hide data-linux-hide>\s*<h3 class="dlab">App icon<\/h3>/,
+    // The engine looks for Kosmos.app (engine/machine.js appLocationCheck has no Linux arm), so on Linux this row
+    // would be a warning that it "could not find the Kosmos icon" (review 1).
+    'app location row': /<div id="set-applocation" data-linux-hide>/,
+    'Show me where it is': /id="set-reveal" [^>]*data-linux-hide>/,
+    'its message': /id="set-reveal-msg" [^>]*data-linux-hide>/,
+    'Accessibility sentence': /id="set-a11y-say" [^>]*data-linux-hide>/,
+    'Open Accessibility settings': /id="set-a11y-open" type="button" data-win-hide data-linux-hide>/,
+    'tmux permission box': /<section class="dbox" data-win-hide data-linux-hide>\s*<!-- The tmux permission box/,
+  };
+  for (const [name, re] of Object.entries(HIDDEN_ON_LINUX)) assert.match(PAGE, re, name + ' shows on Linux');
+  const markup = PAGE.replace(/<script\b[\s\S]*?<\/script>/g, '').replace(/<style\b[\s\S]*?<\/style>/g, '').replace(/<!--[\s\S]*?-->/g, '');
+  assert.equal((markup.match(/\sdata-linux-hide[\s>]/g) || []).length, Object.keys(HIDDEN_ON_LINUX).length,
+    'a data-linux-hide element is not on this list (add it, with what it hides)');
   assert.match(PAGE, /<p class="dhint" style="margin:0;" data-win-copy="settingsOpenKosmos" data-linux-copy="settingsOpenKosmos">/);
   // The real applyPlatformCopy, on a stub root holding that line: Linux stamps the page and swaps the words.
   const run = (platform) => {
@@ -739,8 +753,8 @@ test('#5865: Settings on Linux has no Dock line or App icon box, and says how Ko
   };
   const linux = run('linux');
   assert.equal(linux.stamp, 'linux');
-  assert.equal(linux.text, 'Kosmos runs in the background on the computer it is installed on. If it stops, run '
-    + '<b>kosmos restart</b> in a terminal on that computer (over SSH on a headless server).');
+  assert.equal(linux.text, 'If Kosmos stops, run <b>kosmos restart</b> in a terminal on the computer it is installed on '
+    + '(over SSH on a headless server).');
   assert.doesNotMatch(linux.text, /Dock|Applications|Kosmos\.exe/);
   // CONTROLS: a Mac is untouched; Windows still gets its own copy.
   assert.deepEqual(run('darwin'), { text: 'Kosmos is already in your Dock.', stamp: undefined });

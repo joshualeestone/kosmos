@@ -35,3 +35,10 @@ kplusRemote(), so yes by code; not walked on a real Linux board).
 web.win32-board-copy.test.js pattern (platform set via the served meta stub) for each arm + Mac control. Kitty's
 warning: web.engine-restart-screen-4408 and web.firstrun-choice-4356 lift functions with hand-written stub lists;
 run every web*.test.js from the worktree as cwd.
+
+## Review 1 (blind, opus) changed the scope
+- Settings "Opening Kosmos" also paints the engine's app-location row; engine/machine.js appLocationCheck has no Linux
+  arm, so on Linux it warned "We could not find the Kosmos icon". Hidden on Linux with its reveal button and message.
+- The Accessibility line and button and the tmux permission box (macOS TCC) are hidden on Linux too.
+- A Linux arm in docs/browser-checks/render-win32-board-copy.js checks the hiding by computed style in chromium and
+  webkit, with a Mac control; the unit test counts every data-linux-hide element against a named list.

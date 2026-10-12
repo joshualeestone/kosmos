@@ -9959,8 +9959,8 @@ html:has(> body > #fr-choice:not([hidden])) { overflow: hidden; scrollbar-gutter
           border-radius: 8px; padding: var(--space-4) var(--space-5);
           margin: var(--space-4) 0; overflow-x: auto;
           white-space: pre-wrap; overflow-wrap: anywhere; }
-/* win32-board-copy: the platform copy layer's one hiding rule. applyPlatformCopy()
-   stamps data-kosmos-platform on <html> only on Windows, so on a Mac nothing matches. */
+/* win32-board-copy: the platform copy layer's hiding rules. applyPlatformCopy() stamps data-kosmos-platform on <html>
+   on Windows (win32) and, since #5865, on Linux (linux); on a Mac it stamps nothing, so neither rule matches. */
 html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
 html[data-kosmos-platform="linux"] [data-linux-hide] { display: none !important; }   /* #5865 */
 /* #3443 (Josh, Windows QA 2026-09-22, raised several times): Windows renders wide
@@ -18079,13 +18079,13 @@ window.kosmosMeasureScrollbarWidth();
   <section class="dsec" id="s-sec-mac" data-sec="mac" tabindex="-1" aria-label="Computer" hidden>
     <section class="dbox">
       <h3 class="dlab">Opening Kosmos</h3>
-      <div id="set-applocation"><p class="dhint">Checking where the app is…</p></div>
+      <div id="set-applocation" data-linux-hide><p class="dhint">Checking where the app is…</p></div>
       <div class="dstack">
         <!-- Quiet and its own width (#371): a convenience, not the page's main
              action. The same size as "Open sleep settings" two rows down. -->
-        <button class="btn-quiet" type="button" id="set-reveal" hidden style="font-size:.875rem;" data-win-copy="settingsRevealButton">Show me where it is</button>
+        <button class="btn-quiet" type="button" id="set-reveal" hidden style="font-size:.875rem;" data-win-copy="settingsRevealButton" data-linux-hide>Show me where it is</button>
       </div>
-      <p class="dhint" id="set-reveal-msg" style="margin:12px 0 0;" hidden></p>
+      <p class="dhint" id="set-reveal-msg" style="margin:12px 0 0;" hidden data-linux-hide></p>
       <!-- 🔑 THE ICON STANDS BESIDE THE SENTENCE THAT NAMES IT (kosmos#1212).
            Josh: "I'd like to include a picture of the icon to remind people that
            they can add it to their desktop... It doesn't have to be huge, just
@@ -18172,8 +18172,8 @@ window.kosmosMeasureScrollbarWidth();
            relayed 2026-08-28 and honoured by #1214 in the box above: agents
            acting in your other applications IS the feature. "Work in your other
            applications" is the plain version, not the reassuring one. -->
-      <p class="dhint" id="set-a11y-say" style="margin:14px 0 6px;" data-win-hide>Turning on accessibility lets Kosmos agents work in your other applications on this computer.</p>
-      <button class="btn" id="set-a11y-open" type="button" data-win-hide>Open Accessibility settings</button>
+      <p class="dhint" id="set-a11y-say" style="margin:14px 0 6px;" data-win-hide data-linux-hide>Turning on accessibility lets Kosmos agents work in your other applications on this computer.</p>
+      <button class="btn" id="set-a11y-open" type="button" data-win-hide data-linux-hide>Open Accessibility settings</button>
       <!-- #734: the board's honesty line, at home. When the machine's window
            list has lines the board cannot read, the Agents count is a floor
            (the + on it) and THIS is where the fact is said in full, with the
@@ -18194,7 +18194,7 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" style="margin:12px 0 0;">Kosmos runs in the background. Closing this window does not stop your agents.</p>
     </section>
 
-    <section class="dbox" data-win-hide>
+    <section class="dbox" data-win-hide data-linux-hide>
       <!-- The tmux permission box, explained where a worried person looks
            (#219). macOS attributes an agent's reach outside its folder to the
            responsible process, which is tmux, a word no Kosmos user has met.
@@ -19632,7 +19632,8 @@ window.kosmosMeasureScrollbarWidth();
    and in the markup. A Windows arm asks onWindows() and reads windowsCopy(key); static
    markup names its key in data-win-copy, and data-win-hide hides a Mac-only element
    through one CSS rule that only matches once applyPlatformCopy() has stamped
-   <html data-kosmos-platform="win32">.
+   <html data-kosmos-platform="win32">. #5865: Linux has the twin pair, data-linux-hide and
+   data-linux-copy (linuxCopy(key)), under <html data-kosmos-platform="linux">.
 
    📌 THE FACT IS THE SERVER'S PLATFORM, because that is the machine every button acts
    on. server.js stamps it into <meta name="kosmos-platform"> per request, from the same
@@ -19678,8 +19679,8 @@ function hostMachine(platform) {
 function linuxCopyTable() {
   return {
     /* Settings can be read from a phone through Kosmos+, so not "this computer". */
-    settingsOpenKosmos: 'Kosmos runs in the background on the computer it is installed on. If it stops, run '
-      + '<b>kosmos restart</b> in a terminal on that computer (over SSH on a headless server).',
+    settingsOpenKosmos: 'If Kosmos stops, run <b>kosmos restart</b> in a terminal on the computer it is installed on '
+      + '(over SSH on a headless server).',
   };
 }
 function linuxCopy(key) {
@@ -19814,7 +19815,8 @@ function platformHides(el) {
 }
 function applyPlatformCopy(root) {
   if (onLinux() && root && typeof root.querySelectorAll === 'function') {
-    /* #5865: the Linux twin of the Windows pass below: data-linux-hide (CSS keyed on this stamp) and data-linux-copy. */
+    /* #5865: the Linux twin of the Windows pass below: data-linux-hide (CSS keyed on this stamp) and data-linux-copy.
+       It returns before the Windows pass on purpose: data-win-only stays hidden and data-win-aria-label is not applied. */
     document.documentElement.setAttribute('data-kosmos-platform', 'linux');
     root.querySelectorAll('[data-linux-copy]').forEach((el) => { el.innerHTML = linuxCopy(el.getAttribute('data-linux-copy')); });
     return;
