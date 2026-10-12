@@ -1534,17 +1534,18 @@ function recordTaskLineOutcome(entry, v, dropped) {
   // `behind`: kept behind earlier messages rather than for a usage reset, so the page does not speak of a reset.
   // `person`: the person sent it from the screen. An empty `from` alone is not that: an agent the route could not name
   // also arrives with none.
-  const behind = { ...(entry.behind === true ? { behind: true } : {}), ...(entry.person === true ? { person: true } : {}) };
+  const flags = { ...(entry.behind === true ? { behind: true } : {}), ...(entry.person === true ? { person: true } : {}) };
   return require('./taskchat').record(entry.projectId, entry.task, dropped
-    ? { kind: 'kept-dropped', to: String(entry.to || ''), from: String(entry.from || ''), ...behind }
-    : { kind: 'kept-sent', to: String(entry.to || ''), from: String(entry.from || ''), state: String((v && v.state) || ''), ...behind });
+    ? { kind: 'kept-dropped', to: String(entry.to || ''), from: String(entry.from || ''), ...flags }
+    : { kind: 'kept-sent', to: String(entry.to || ''), from: String(entry.from || ''), state: String((v && v.state) || ''), ...flags });
 }
 /* A kept task line dropped a day past its reset: the agent that sent it is told in its own pane, and (#5842) the task's
    conversation records it, which is where the person sees it. */
 async function tellTaskLineDropped(entry, roster) {
   try { recordTaskLineOutcome(entry, null, true); } catch { /* the record never stops the sender being told */ }
   let v = null;
-  let told = 'nobody (the person sent it)';
+  // An empty `from` is the person only when the route marked it so (#5842); otherwise an agent it could not name.
+  let told = entry.person === true ? 'nobody (the person sent it)' : 'nobody (no sender named)';
   if (entry.from) {
     const line = '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it'
       + ' for a day while ' + entry.to + ' was out of usage and could not type it. Send it again if it still matters.';

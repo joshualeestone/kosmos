@@ -73,8 +73,10 @@ function addOrWhy(name, entry) {
       // A task message's line: typed as it is, and on a drop its sender is told which task it was in. #5842: the task
       // itself (project id and number), so its conversation records the line sent or dropped; absent on older entries.
       ...(entry.kind === TASK_KIND ? { kind: TASK_KIND, about: String(entry.about || ''),
+        // Whether the person sent it from the screen: an empty `from` alone is not that (an unnamed agent has none too).
+        ...(entry.person === true ? { person: true } : {}),
         ...(typeof entry.projectId === 'string' && entry.projectId && Number.isSafeInteger(entry.task) && entry.task > 0
-          ? { projectId: entry.projectId, task: entry.task, ...(entry.person === true ? { person: true } : {}) } : {}) } : {}) });
+          ? { projectId: entry.projectId, task: entry.task } : {}) } : {}) });
     return write(name, now) ? '' : 'store';
   } catch { return 'store'; }
 }
@@ -223,7 +225,7 @@ function retryRows(chat) {
 /* The board's minute sweep, wired: `kosmos msg` messages (slice 2a) and a person's own messages (slice 2b, kind 'dm')
    are typed through the automatic gate, each as its own route types it, once chat.limitQueueReleased; a typed or
    dropped message is recorded where its sender looks (the message log and its sender's pane, or the person's
-   conversation row). */
+   conversation row), and a task message's in its task's conversation (#5842). */
 function sweepHooks({ chat, messages }) {
   retryRows(chat);
   return {
