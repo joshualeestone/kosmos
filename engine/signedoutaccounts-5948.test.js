@@ -168,6 +168,7 @@ test('#5948 review 9: a gemini/grok folder whose own key is gone, with a shared 
   const [r] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => null, shared);
   assert.deepEqual([r.signedOut, r.sharedKey, r.connection.badge], [false, true, 'unlisted']);
   assert.match(r.connection.because, /gone from its folder, but this computer's shared Grok key can stand in for it/);
+  assert.doesNotMatch(r.connection.because, /To fix it/, 'a row that may be working was told to fix itself');
   assert.deepEqual(asked, ['XAI_API_KEY']);
   // A door that cannot be read is unsure, never "gone".
   const [u] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => null, () => { throw new Error('x'); });
@@ -243,4 +244,10 @@ test('#5948 review 17: every provider\'s shared key is a name the supervisor act
     if (p.sharedKey) assert.ok(line.includes('"' + p.sharedKey + '"'), runner + ': ' + p.sharedKey + ' is not on the supervisor\'s door allowlist');
   }
   assert.ok(!line.includes('"OPENAI_API_KEY"'), 'the allowlist now carries OPENAI_API_KEY: give codex its sharedKey');
+});
+
+test('#5948 review 19: a runner named like an Object member is not a provider', () => {
+  for (const runner of ['constructor', 'toString', '__proto__']) {
+    assert.deepEqual(signedOutRows([card('gk')], { xai: [] }, () => ({ configDir: '/h/.grok-work', runner }), readName), [], runner);
+  }
 });
