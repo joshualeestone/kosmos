@@ -27,11 +27,19 @@ on the live folder, and goes ahead. Any other hold still refuses with the old se
   waiting would idle the card. If #5994 changes in review, mirror the change here. Rebase onto main after it lands.
 - The default ~/.grok stays refused before any of this (Grok's own divergence from OpenAI: it is the machine's CLI
   home), so this changes nothing for it.
-
 - A sign-in the reaper has already dropped from grokSessions while its child still lives is not seen as the
   account's own, so its hold refuses as before. Accepted as #5994 does: it needs grokForceKillMs >= grokSessionTtlMs
   (defaults 3 s and 2 min) or a child that survives SIGKILL; no guard in setGrokTimers, which only tests call.
 - The test file's finally blocks reset forceKill to the literal 3000, as #5994's suite does.
+
+- MERGE ORDER: this merges only AFTER #5994 has merged, and after one more sync of its final engine diff
+  (`git diff <last synced sha> origin/main -- engine/openaiaccounts.js`), then a rebase. Until then it waits as an
+  open PR, so the two engines never carry different cancel rules on main.
+- The part-way-delete check looks at auth.json only, as #5994 does. A Grok API-key account keeps its key in another
+  file, but such an account has no Sign in again (reauthTarget requires a subscription identity), so it never has an
+  own reauth to cancel. If reauthTarget ever allows key accounts, use holdsCredentials there.
+- Mutants are reproducible with a script that swaps one line at a time and runs this test file with a 60 s cap per run
+  (a timeout counts as red); the eight swaps are listed under Tests.
 
 ## Weakest premise
 That a live account folder is never also a sign-in's staging folder. resolveFreshGrokDir refuses a named dir that
