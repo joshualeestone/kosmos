@@ -13336,7 +13336,7 @@ window.kosmosMeasureScrollbarWidth();
        this region kept aria-label "Terminal" to
        match its own content (the "This agent's Terminal" heading + Open Terminal controls) -- same
        convention as d-sec-model staying "Model" under the "AI Settings" pill (data-go="model"). -->
-  <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab" data-tied="1" hidden>
+  <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab" data-linux-aria-label="terminalTab" data-tied="1" hidden>
 
   <!-- #5 insurance + terminal-window actions (Josh 0.6.44). These sit ABOVE the window
        box (which hides when the capture cannot land) on purpose: an agent stuck at the
@@ -16955,8 +16955,9 @@ window.kosmosMeasureScrollbarWidth();
              (<data>/task-chats), so a button framed as "this task's" would promise a
              per-task destination the storage does not give. The hint discloses the shape.
              Same disable/say-nothing/ask/report shape as pjs-chats-reveal. -->
-        <button class="btn" id="tk-chats-reveal" type="button" style="margin-top:12px;">Show me where the task conversations live</button>
-        <p class="fhint" style="margin:6px 0 0;">One folder, with a file for each task's conversation.</p>
+        <!-- #5865: this button and its hint are hidden on Linux, where revealFolder runs /usr/bin/open (not there). -->
+        <button class="btn" id="tk-chats-reveal" type="button" style="margin-top:12px;" data-linux-hide>Show me where the task conversations live</button>
+        <p class="fhint" style="margin:6px 0 0;" data-linux-hide>One folder, with a file for each task's conversation.</p>
         <p class="fmsg" id="tk-chats-msg" aria-live="polite"></p>
       </section>
 
@@ -17187,7 +17188,7 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <!-- Outside the form: the form hides once the folder is there again, and the sentence saying so must stay seen. -->
       <p class="fmsg" id="pjs-move-msg" aria-live="polite"></p>
-      <button class="btn" id="pjs-reveal" type="button">Show me where it is</button>
+      <button class="btn" id="pjs-reveal" type="button" data-linux-hide>Show me where it is</button>
       <p class="fmsg" id="pjs-reveal-msg" aria-live="polite"></p>
       <!-- 🛑 THE COMPANION SAYS "EVERY PROJECT" AND THE BUTTON ABOVE SAYS "IT"
            (kosmos#969, Josh 2026-08-26). Every room's thread lives in ONE
@@ -17197,8 +17198,8 @@ window.kosmosMeasureScrollbarWidth();
            screen answering a narrower question than it was asked.
            ⚠️ The word is "conversations", not "dialogue": his phrasing was
            "stored dialogue", and dialogue is our word for it, not a reader's. -->
-      <button class="btn" id="pjs-chats-reveal" type="button">Show me where the conversations live</button>
-      <p class="fhint" style="margin:6px 0 0;">One folder for every project, with a file for each conversation.</p>
+      <button class="btn" id="pjs-chats-reveal" type="button" data-linux-hide>Show me where the conversations live</button>
+      <p class="fhint" style="margin:6px 0 0;" data-linux-hide>One folder for every project, with a file for each conversation.</p>
       <p class="fmsg" id="pjs-chats-msg" aria-live="polite"></p>
     </div>
 
@@ -19684,6 +19685,7 @@ function linuxCopyTable() {
   return {
     /* Settings can be read from a phone through Kosmos+, so not "this computer". */
     terminalBoxTitle: 'Start-up and restart',   // its Terminal button is hidden on Linux, as on Windows
+    terminalTab: 'Start-up and restart',   // the section's accessible name says what its heading says
     trustRestartHint: 'Approves this agent&rsquo;s folder so it can start without asking each time.',
     settingsOpenKosmos: 'If Kosmos stops, run <b>kosmos restart</b> in a terminal on the computer it is installed on '
       + '(over SSH on a headless server).',
@@ -19826,6 +19828,7 @@ function applyPlatformCopy(root) {
        It returns before the Windows pass on purpose: data-win-only stays hidden and data-win-aria-label is not applied. */
     document.documentElement.setAttribute('data-kosmos-platform', 'linux');
     root.querySelectorAll('[data-linux-copy]').forEach((el) => { el.innerHTML = linuxCopy(el.getAttribute('data-linux-copy')); });
+    root.querySelectorAll('[data-linux-aria-label]').forEach((el) => { el.setAttribute('aria-label', linuxCopy(el.getAttribute('data-linux-aria-label'))); });
     return;
   }
   if (!onWindows() || !root || typeof root.querySelectorAll !== 'function') return;

@@ -173,7 +173,7 @@ test('BUG a11y (review round 1): the agent\'s Terminal section is NAMED what its
   // carries the key now; the section's own accessible name still reads it, and no stale pill may.
   assert.doesNotMatch(PAGE, /<button type="button" data-go="term"/, 'an Advanced pill is back; #4550 folds Terminal into AI Settings');
   assert.doesNotMatch(PAGE, /data-win-copy="terminalTab">Advanced</, 'a stale Advanced label still carries the terminalTab key');
-  assert.match(PAGE, /<section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab" data-tied="1" hidden>/,
+  assert.match(PAGE, /<section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab"( data-linux-aria-label="terminalTab")? data-tied="1" hidden>/,
     'the Terminal section is not named from the same key as its tab');
   assert.match(page.lift(SCRIPT, 'applyPlatformCopy'),
     /querySelectorAll\('\[data-win-aria-label\]'\)\.forEach\(\(el\) => \{ el\.setAttribute\('aria-label', windowsCopy\(el\.getAttribute\('data-win-aria-label'\)\)\); \}\)/);
@@ -747,6 +747,12 @@ test('#5865: Settings on Linux has no Dock line, app icon, Accessibility or tmux
     // engine/projects.js revealFolder runs /usr/bin/open, which a Linux board does not have.
     'agent Files: Open in Finder': /id="d-files-finder" type="button" data-win-copy="docsOpenFolder" data-linux-hide>/,
     'project docs: Open this folder in Finder': /id="docs-finder" type="button" data-win-copy="docsOpenFolder" data-linux-hide>/,
+    // The same revealFolder route, reached from project settings and the task page (review 5).
+    'project: Show me where it is': /id="pjs-reveal" type="button" data-linux-hide>/,
+    'project: Show me where the conversations live': /id="pjs-chats-reveal" type="button" data-linux-hide>/,
+    'its hint': /data-linux-hide>One folder for every project, with a file for each conversation\./,
+    'task: Show me where the task conversations live': /id="tk-chats-reveal" type="button" style="margin-top:12px;" data-linux-hide>/,
+    'its hint (task)': /data-linux-hide>One folder, with a file for each task's conversation\./,
   };
   for (const [name, re] of Object.entries(HIDDEN_ON_LINUX)) assert.match(PAGE, re, name + ' shows on Linux');
   const markup = PAGE.replace(/<script\b[\s\S]*?<\/script>/g, '').replace(/<style\b[\s\S]*?<\/style>/g, '').replace(/<!--[\s\S]*?-->/g, '');
@@ -775,6 +781,10 @@ test('#5865: Settings on Linux has no Dock line, app icon, Accessibility or tmux
 test('#5865: every data-linux-copy key has a Linux string, the agent page drops "Terminal" and "macOS", and platformHides knows Linux', () => {
   const keys = [...new Set((PAGE.match(/data-linux-copy="([^"]+)"/g) || []).map((m) => m.slice(17, -1)))].sort();
   assert.deepEqual(keys, ['settingsOpenKosmos', 'terminalBoxTitle', 'trustRestartHint']);
+  const ariaKeys = [...new Set((PAGE.match(/data-linux-aria-label="([^"]+)"/g) || []).map((m) => m.slice(23, -1)))].sort();
+  assert.deepEqual(ariaKeys, ['terminalTab']);
+  assert.equal(runPage('linux', [], "linuxCopy('terminalTab')"), runPage('linux', [], "linuxCopy('terminalBoxTitle')"),
+    'the Terminal section is named differently from its heading on Linux');
   for (const k of keys) assert.equal(typeof runPage('linux', [], 'linuxCopy(' + JSON.stringify(k) + ')'), 'string', k);
   assert.equal(runPage('linux', [], "linuxCopy('terminalBoxTitle')"), 'Start-up and restart');
   assert.doesNotMatch(runPage('linux', [], "linuxCopy('trustRestartHint')"), /macOS/);
