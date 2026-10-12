@@ -16,10 +16,13 @@
  * already covered is not added again. Every root but `workers` is optional, so one folder that cannot be read is left
  * out and named in the snapshot's skipped list rather than failing the backup.
  * NOT covered, on purpose: the data root (keys, the backup state itself, pairing, codex-homes). Its credentials are what
- * the card says never to take, and what is left is Kosmos's own state, not the person's work.
- * Transcripts are read from each agent's OWN Codex or Gemini home, from its launch job (kosmos#5883 slice 1: named
- * accounts and Codex runtime homes). KNOWN GAP still open on #5883: backupsessions has no Grok case, so Grok agents'
- * transcripts are NOT backed up. Their agent FOLDERS are (under workers or agents/<id>).
+ * the card says never to take, and what is left is Kosmos's own state, not the person's work. The ONE exception: each
+ * Codex agent's rollout files in its runtime home (<data root>/codex-homes/<key>/sessions), taken by name as
+ * sessions/<id>/codex-runtime (#5883), never anything beside them.
+ * Transcripts are read from every home an agent's Codex or Gemini sessions can be in, from its launch job (kosmos#5883
+ * slice 1). KNOWN GAPS still open on #5883, each leaving that agent's FOLDER backed up but not its transcripts: Grok
+ * (no session reader), Antigravity (Gemini on a Google subscription), and a move between two NAMED accounts (the first
+ * account's sessions stay unread).
  * `left` names what was not added and why (an id or slug a root name cannot carry), never a path.
  *
  * startTick(deps) -> stop(). Every `everyMs` (an hour): only while deps.enrolled() is true (the board passes mayBackUp:
