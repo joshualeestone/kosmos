@@ -1033,11 +1033,13 @@ function defaultScanRoots(opts) {
     // and no native app to answer the hatch, so marking them sent all three to TCC_UNAVAILABLE and
     // they were never read; there the engine walks them like any other root. opts.platform: tests.
     // Off macOS they carry ownBudget instead: walked last, on a budget of their own (scan()).
-    const mark = require('./platform').hasFolderPermission(opts && opts.platform) ? { tcc: true } : { ownBudget: true };
-    roots.push(Object.assign({ dir: path.join(home, 'Documents'), maxDepth: SCAN.DEEP_DEPTH }, mark));
-    for (const name of ['Downloads', 'Desktop']) {
-      roots.push(Object.assign({ dir: path.join(home, name), maxDepth: SCAN.DROP_DEPTH, importOnly: true }, mark));
-    }
+    // Off macOS the two shallow drop folders go BEFORE Documents (review 3): they share the one own budget, and a deep
+    // ~/Documents walked first could spend it before them. On macOS the order is the hatch's, unchanged.
+    const mac = require('./platform').hasFolderPermission(opts && opts.platform);
+    const mark = mac ? { tcc: true } : { ownBudget: true };
+    const docs = Object.assign({ dir: path.join(home, 'Documents'), maxDepth: SCAN.DEEP_DEPTH }, mark);
+    const drops = ['Downloads', 'Desktop'].map((name) => Object.assign({ dir: path.join(home, name), maxDepth: SCAN.DROP_DEPTH, importOnly: true }, mark));
+    if (mac) roots.push(docs, ...drops); else roots.push(...drops, docs);
   }
   return roots;
 }
@@ -1324,7 +1326,11 @@ function scan(opts) {
     if (!rootStat.isDirectory()) continue;
     // The shared budget is spent: this root is not read, a truncation, said (hitDirs) exactly where the old
     // `break outer` said it, after the root is known to exist (review 2); own-budget roots still run (#5882).
-    if (!own && visited >= maxDirs) { hitDirs = true; continue; }
+    if (!own && visited >= maxDirs) {
+      // The candidate cap first, as the old loop checked it first (review 3): the same flags as before when both are full.
+      if (byDir.size >= maxCandidates) { hitCount = true; break; }
+      hitDirs = true; continue;
+    }
     const maxDepth = Number.isFinite(root.maxDepth) && root.maxDepth >= 0 ? root.maxDepth : SCAN.DEEP_DEPTH;
 
     /* Iterative, with an explicit stack: depth is a real bound and a deep tree
