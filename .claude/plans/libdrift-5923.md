@@ -26,9 +26,20 @@ fetches). Nothing is fetched by the script.
 ## Weakest premise
 A waiter is recognised in ps only as `<shell> <path>/queued-heavy.sh ...` or a direct exec of it. A queued-heavy.sh
 started some other way is not seen as live, and a move could then mix generations. Stale markers err the other way
-(no move, said on the line).
+(no move, said on the line). The run itself and its direct children are excluded by pid and ppid: the subshell of the
+ps pipeline keeps this script's argv, so without the ppid exclusion every real run counted itself and never moved
+(challenge iteration 1; caught only once a test arm used the real ps).
+
+Residuals, stated:
+- A copy of the script older than #5923 takes no lib lock, so one that STARTS during a move is not held off by it.
+  The installed copy is replaced by this version on merge, which closes that window.
+- The lock's dead-holder takeover is check-then-act, as _qh_take's is: two joiners reading the same dead pid can
+  both end up holding it. A dead holder needs a joiner killed inside its check (about a second).
+- Past about 5 minutes on the lock a run loads the lib unchecked rather than wait without bound.
 
 ## Tests
-tools/test-queued-heavy-4977.sh: seven #5923 arms (moved; then matches; marker blocks; live waiter blocks; CONTROL:
+tools/test-queued-heavy-4977.sh: nine #5923 arms. Two use the REAL ps under a private script name (QH_TEST_PS_NAME):
+the run does not count itself (perturbed by removing the ppid exclusion: that arm goes red), and CONTROL, a live
+process of that name blocks the move. The other seven (moved; then matches; marker blocks; live waiter blocks; CONTROL:
 caller shell and grep are not waiters, move happens; QUEUED_HEAVY_LIB set is report-only; local changes block and are
 kept). QH_TEST_PS seam replaces ps so real waiters on the box cannot sway the arms.

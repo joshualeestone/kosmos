@@ -251,10 +251,10 @@ ok "#5923: once at origin/main the next join says the queue files match and move
 mkdir -p $S/ml5923-mk && : > $S/ml5923-mk/suitewait.999999
 run5923 mk
 ok "#5923: a queue marker present: NOT moved, says which, joins on the old lib and runs" '[ "$rc" = 0 ] && [ -e $S/l5923-mk-ran ] && [ "$(lh5923 mk)" != "$(lm5923 mk)" ] && [[ "$o" == *"is BEHIND"*"not moved (a queue marker is present (suitewait.999999))"* ]]'
-printf '4242 /bin/bash /x/queued-heavy.sh --queued-args /tmp/queued-heavy-args.x\n' > $S/ps5923-ps
+printf '4242 1 /bin/bash /x/queued-heavy.sh --queued-args /tmp/queued-heavy-args.x\n' > $S/ps5923-ps
 run5923 ps
 ok "#5923: another queued-heavy.sh live (a waiter after its re-exec): NOT moved, names its pid" '[ "$rc" = 0 ] && [ "$(lh5923 ps)" != "$(lm5923 ps)" ] && [[ "$o" == *"another queued-heavy.sh is live (pid 4242)"* ]]'
-printf '4243 zsh -c bash /x/queued-heavy.sh "x" true\n4244 grep queued-heavy.sh\n' > $S/ps5923-sh
+printf '4243 1 zsh -c bash /x/queued-heavy.sh "x" true\n4244 1 grep queued-heavy.sh\n4245 1 /bin/bash /x/not-queued-heavy.sh\n' > $S/ps5923-sh
 run5923 sh
 ok "#5923 CONTROL: a shell of the CALLER or a grep naming queued-heavy.sh is not a waiter, so the move happens" '[ "$rc" = 0 ] && [ "$(lh5923 sh)" = "$(lm5923 sh)" ] && [[ "$o" == *moved* ]]'
 mkdir -p $S/ml5923-set; o=$(HOME=$S/nowhere KOSMOS_RUN_MARKER_DIR=$S/ml5923-set QH_TEST_PS="cat $S/ps5923-set" QUEUED_HEAVY_LIB=$S/l5923-set/work/kosmos-bc-main-4610 perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$REAL_QH" "lib-set" true 2>&1); rc=$?
@@ -262,6 +262,17 @@ ok "#5923: a checkout named by QUEUED_HEAVY_LIB is reported, never moved" '[ "$r
 echo '# local' >> $S/l5923-dirty/work/kosmos-bc-main-4610/tools/lib/process-fixture.sh
 run5923 dirty
 ok "#5923: a checkout with local changes is not moved and keeps them" '[ "$rc" = 0 ] && [ "$(lh5923 dirty)" != "$(lm5923 dirty)" ] && [[ "$o" == *"not moved (it has local changes)"* ]] && tail -1 $S/l5923-dirty/work/kosmos-bc-main-4610/tools/lib/process-fixture.sh | grep -q local'
+# The REAL ps (no QH_TEST_PS): the run's own pipeline subshell keeps this script's argv and must not read as a waiter.
+# QH_TEST_PS_NAME gives the script a name no real waiter on this box carries. Control: a live process of that name blocks.
+for n in rp rpc; do qh_lib5923 $S/l5923-$n; mkdir -p $S/ml5923-$n $S/rp5923-$n; cp "$REAL_QH" $S/rp5923-$n/qh5923self.sh; done
+o=$(env -u QUEUED_HEAVY_LIB -u QH_TEST_PS HOME=$S/l5923-rp KOSMOS_RUN_MARKER_DIR=$S/ml5923-rp QH_TEST_PS_NAME=qh5923self.sh perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/rp5923-rp/qh5923self.sh "lib-rp" true 2>&1); rc=$?
+ok "#5923: with the real ps, the run does not count itself or its own subshell, so the move happens" '[ "$rc" = 0 ] && [ "$(lh5923 rp)" = "$(lm5923 rp)" ] && [[ "$o" == *moved* ]]'
+mkdir -p $S/rp5923-other && printf '#!/bin/bash\nwhile :; do sleep 1; done\n' > $S/rp5923-other/qh5923self.sh && chmod +x $S/rp5923-other/qh5923self.sh
+/bin/bash $S/rp5923-other/qh5923self.sh </dev/null >/dev/null 2>&1 & RP5923=$!
+until_true 5 '[[ "$(ps -ww -o command= -p $RP5923)" == *qh5923self.sh* ]]'
+o=$(env -u QUEUED_HEAVY_LIB -u QH_TEST_PS HOME=$S/l5923-rpc KOSMOS_RUN_MARKER_DIR=$S/ml5923-rpc QH_TEST_PS_NAME=qh5923self.sh perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/rp5923-rpc/qh5923self.sh "lib-rpc" true 2>&1); rc=$?
+kill $RP5923 2>/dev/null   # its one-second sleep ends on its own
+ok "#5923 CONTROL: with the real ps, another live process of that name blocks the move and is named" '[ "$rc" = 0 ] && [ "$(lh5923 rpc)" != "$(lm5923 rpc)" ] && [[ "$o" == *"another queued-heavy.sh is live (pid $RP5923)"* ]]'
 # The shim itself can fail: a run with the marker dir outside this test's dir is refused before the wrapper starts.
 o=$(KOSMOS_RUN_MARKER_DIR=/tmp/not-this-test /bin/bash $QH "escape" true 2>&1); rc=$?
 ok "CONTROL: the shim refuses a marker dir outside this test" '[ "$rc" = 99 ] && [[ "$o" == *TEST-REFUSED* ]]'
@@ -404,7 +415,7 @@ sed 's|  exec /bin/bash "${BASH_SOURCE\[0\]}" --queued-args "$_qh_af"|  exec /no
 mkdir -p $S/tmpx; o=$(TMPDIR=$S/tmpx KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash $S/qh-noexec.sh "noexec" true 2>&1); r=$?
 ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"could not restart itself"* ]] && [ -z "$(ls $S/tmpx)" ] && grep -q /nonexistent/bash $S/qh-noexec.sh'
 
-EXPECTED=112   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, seven #5923 lib-drift arms
+EXPECTED=114   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, nine #5923 lib-drift arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
