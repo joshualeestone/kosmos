@@ -13,19 +13,20 @@ sign-in) are separate branches.
   id" over `engine/*.js`, `server.js`, `docs/*.md`, `web/index.html`, `README.md`: the two comments and nothing else).
 
 ## Change
-- `engine/ping.js`, where the id is made, now lists where it goes, one line per file. Its header had the same fault
-  as the two comments, in other words: it said the id stays on the Mac except for the feedback report, and that the
-  profile's copy never leaves; it left out the created beacon, and the profile is served to the board's own pages.
-- The two comments point at that list and say only that a coordinator, and the community, are not on it.
+- `engine/ping.js`, where the id is made, lists WHO sends or keeps it, one line per file, and says each file tells for
+  itself when and how. Its header had the same fault as the two comments (it said the id stays on the Mac except for
+  the feedback report, and left out the created beacon).
+- The two comments are pointers: "this file does not send that one; engine/ping.js lists the files that do".
 - Two stale lines said a notifier reuses the install id (`feedback.js`, `store.js`); the notifier has its own id.
-- `engine/installid-senders-5995.test.js` holds the list to the source:
-  - the shipped files that MENTION the install id by name are exactly a listed eight (in code or a comment);
-  - the same for the profile's copy, `idInstall`;
-  - the created beacon's payload carries this install's id; the feedback send puts it in its payload;
-  - in the two modules that talk to a coordinator and to the community, every mention is a comment, bar one field
-    that is named `installId` and carries the notifier's own id;
-  - the wordings found so far for "it never leaves" are in no shipped file, with controls;
-  - `engine/ping.js`'s list names every engine file that uses the id.
+- `engine/installid-senders-5995.test.js` holds, over every file git tracks or would track (bar tests, docs, plans,
+  fixtures and files that are not text), four exact sets:
+  - the files that hold the identifier `installId`;
+  - the files that hold the profile's copy, `idInstall`;
+  - the files that load `engine/ping.js`, under any path and any way of loading;
+  - the files that name the id's own file, `ping.json`.
+  And: both senders carry this install's id in what they send (run in a sandbox, not read); in the two modules that
+  talk to a coordinator and to the community every mention is a comment, bar one field named `installId` that carries
+  the notifier's own id; `engine/ping.js`'s list has a line for every engine file that uses the id.
 
 ## Rejected
 - **Only fix the comments.** A corrected comment is a claim nothing checks, which is how the wrong one stood. The test
@@ -33,21 +34,19 @@ sign-in) are separate branches.
 - **Stop sending the id.** Not this card: the install ping is Josh's ruling (09-14) and the card says so.
 
 ## Verify
-- `node --test engine/installid-senders-5995.test.js`: 9 pass, about a fifth of a second.
-- Mutants, each run on 2026-10-12 after review 3, each red at the named test, each restored and compared byte for byte:
-  - the old promise back in a `phonenotify.js` comment: red at the wording test;
-  - a Swift file starts holding the identifier: red at the identifier list;
-  - the beacon sends a fixed string: red at the senders test;
-  - `feedbacksend.js` sends another value under the same local name: red at the senders test;
-  - `phonenotify.js` reads the id in code: red at the comment-only test and at the list of files that load `ping.js`;
-  - `engine/ping.js`'s list drops the beacon: red at the list test;
-  - the page reads the profile's copy: red at the `idInstall` list;
-  - `server.js` loads `ping.js` without naming the id: red at the list of files that load it.
+- `node --test engine/installid-senders-5995.test.js`: 8 pass, about a fifth of a second.
+- Mutants run on 2026-10-12 after review 5, each red at the named test, each restored and compared byte for byte:
+  - a tool loads `ping.js` by its `../engine/` path and reads the whole record: red at the list of files that load it;
+  - `server.js` reads the id's file by name: red at the `ping.json` list;
+  - `engine/ping.js`'s list drops the feedback send: red at the list test;
+  - the beacon sends a fixed string: red at the senders test.
+  And after review 3 (still in the test): a Swift file holding the identifier, the page reading the profile's copy,
+  `phonenotify.js` reading the id in code, `feedbacksend.js` sending another value.
 - NOT RUN: the full suite.
 
 ## Weakest premise
-That a mention by name is the right thing to hold. A value handed on by one of the listed files, under another name,
-is not seen. And the "never leaves" wordings are a list, so a new wording passes until someone adds it.
+That holding the names is enough. The test does not read what a comment SAYS, so a new false sentence in a listed
+file would pass; and a value handed on under another name is not seen.
 
 ## What would change this
 The install id reaching a third place by being passed along. Then the thing to hold is where the two payloads go, not
@@ -115,3 +114,20 @@ is its own branch. Written on the card.
 - **NITs, not taken:** the id's file is left in place by an uninstall, so the id outlives one (true, and not about
   where it is sent; a line for the card's delete-path item, not for this list); the shell file's entry is the one
   most likely to drift.
+
+## Review 5 (2026-10-12, default model)
+The wording check drew findings in three rounds running, in both directions, so it is gone rather than patched:
+- **WARNING, taken by removing it:** it flagged true sentences ("is never sent to the community", which is what the
+  corrected comments exist to say) and passed real promises worded another way. A list of phrasings cannot be both
+  wide and exact. The comments were cut down to pointers so there is less for prose to get wrong, and the header says
+  the test does not read what comments say.
+- **WARNING, taken:** "loads `ping.js`" matched one spelling of the path. Any path and any way of loading now counts,
+  with controls for eight spellings and four near-misses.
+- **WARNING, taken:** nothing held a read of the id's file by name. A fourth exact set does.
+- **CONVENTION, taken by saying less:** the list's lines said when each file sends (and were incomplete: a third
+  trigger for the beacon, creates with no form). They now say who, and that each file says when for itself. The line
+  for the profile's copy names `engine/status.js`, which serves it. The two comments say "this file does not send
+  that one", not that a whole class of service never carries it.
+- **NITs, taken:** titles say "files git tracks or would track"; this file's Change list has all four sets.
+- **NITs, not taken:** a clearer message when there is no git checkout (the sibling sweeps have none); `docs/` is left
+  out whole, runnable harness code included.

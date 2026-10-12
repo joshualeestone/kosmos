@@ -27,14 +27,14 @@
  * computer across reinstalls and across products. Random means it identifies an
  * INSTALL and nothing else.
  *
- * Where it goes (kosmos#5995; engine/installid-senders-5995.test.js holds this list):
- *   ping.json                 kept here, in this Kosmos's data root (each Kosmos on a computer has its own)
- *   engine/createdbeacon.js   sent to the install endpoint on every board start (no off switch), and when an agent
- *                             is made (the create form's checkbox)
- *   engine/feedbacksend.js    sent with the daily feedback report, DEFAULT-ON, off in Settings > Automation (#2013/#2957)
- *   engine/feedback.js        written into the report file on this computer
- *   engine/store.js           kept in each agent's profile as `idInstall`; the board serves the profile in each
- *                             agent's card to its own pages, wherever they are open (a phone over Kosmos+ too)
+ * Where it goes (kosmos#5995; engine/installid-senders-5995.test.js holds this list of files to the source). Each
+ * file says for itself when and how; this is only who:
+ *   ping.json                 kept here, in this Kosmos's data root
+ *   engine/createdbeacon.js   sends it to the install endpoint
+ *   engine/feedbacksend.js    sends it with the daily feedback report
+ *   engine/feedback.js        writes it into the report file on this computer
+ *   engine/store.js           keeps it in each agent's profile as `idInstall` (engine/status.js serves the profile
+ *                             in each agent's card)
  */
 
 const fs = require('node:fs');

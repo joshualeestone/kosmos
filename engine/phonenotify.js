@@ -11,8 +11,8 @@
  * deleted in #2623 (#2631): that sent to our own endpoint by default with the
  * install id. This sends only to the coordinator the Mac is already connected
  * to, only after a person asks, and with its own random id (`notifyId`), never
- * ping.installId() (kosmos#5995: engine/ping.js lists where that one goes, and a
- * coordinator is not on the list).
+ * ping.installId() (kosmos#5995: this file does not send that one; engine/ping.js
+ * lists the files that do).
  *
  * What leaves the Mac per event is exactly `payload()` below: the kind, the
  * agent's shown name, its session name, the project name when there is one, an
