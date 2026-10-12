@@ -26475,12 +26475,12 @@ function paintMuseOption(sel, current) {
      installed), or coming soon (not switched on here). */
   const pending = !on && creating && !!MUSE_CREATE && MUSE_CREATE.on === true;   // switched on, not usable yet
   const signIn = pending && MUSE_CREATE.installed === true;   // installed, only the sign-in is missing
-  // #3939: the team step is a plain select, so its words carry the instruction too.
-  opt.textContent = on ? 'Meta Muse' : signIn ? 'Meta Muse \u00b7 sign in first' : pending ? 'Meta Muse \u00b7 install Muse Code first' : 'Meta Muse \u00b7 coming soon';
+  // #3939: the team step is a plain select, so its words carry the instruction too. #6004: Settings installs it.
+  opt.textContent = on ? 'Meta Muse' : signIn ? 'Meta Muse \u00b7 sign in first' : pending ? 'Meta Muse \u00b7 set up in Settings' : 'Meta Muse \u00b7 coming soon';
   // The logo list's pill.
-  // #3939: switched on and not installed (signIn above is installed but signed out); Settings cannot install it either.
+  // #6004: Settings installs Muse Code now, so a Mac without it is pointed there, as one not signed in is.
   if (signIn) opt.dataset.off = 'Sign in to Meta Muse first';
-  else if (pending) opt.dataset.off = 'Install Muse Code from Meta';
+  else if (pending) opt.dataset.off = 'Set up in Settings, AI Models';
   else delete opt.dataset.off;
   if (typeof swarmProviderGate === 'function') swarmProviderGate(sel, { fresh: true });   // a Swarm keeps non-Claude providers greyed
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
@@ -31028,6 +31028,10 @@ document.getElementById('acct-grok-sub-cancel').addEventListener('click', () => 
    OWN start answered, never one read back from the poll (another tab's start replaces the sign-in, and
    this screen then says so rather than driving the other one). */
 const MUSE_NOT_HERE = 'Meta Muse is not available on this computer just now.';
+/* #6004: what the Muse step says before its Install press (the press is the confirm, as Antigravity's is). */
+const MUSE_INSTALL_INTRO = 'Meta Muse runs on Meta\'s Muse Code, which is not on this computer yet. Kosmos can install it for you: it is a download from Meta.';
+// #6004: whether Muse Code is on this computer, from Add a provider's last read (null: not read yet).
+let MUSE_CODE_HERE = null;
 const MUSE_BUSY = 'Finish or stop the Claude sign-in first, then sign in to Meta again.';   // round 9: say which
 const MUSE_SAY = {
   starting: 'Starting Muse Code\'s sign-in\u2026',
@@ -31039,25 +31043,23 @@ function museMetaOption() { return document.querySelector('#acct-provider-pick o
 let MUSE_ASK_GEN = 0;   // the latest read wins (round 4: two quick opens could answer out of order)
 async function museAsk() {
   const mine = ++MUSE_ASK_GEN;
-  let on = false; let missing = false;
+  let on = false;
   try {
     const r = await fetch('/api/muse', { cache: 'no-store' });
     const out = r.ok ? await r.json().catch(() => null) : null;
-    /* Offered only when Muse Code is on this computer too (round 2: as Gemini's and Grok's rows wait
-       until they are ready); turned on but not installed says so on the row instead of "Coming soon". */
-    on = !!(out && out.enabled === true && out.installed === true);
-    missing = !!(out && out.enabled === true && out.installed === false);   // its pill is a fixed short sentence
+    /* #6004: offered whenever Muse is on here, installed or not: without Muse Code, Meta's step installs it first. */
+    on = !!(out && out.enabled === true);
+    MUSE_CODE_HERE = out && out.enabled === true ? out.installed === true : null;
   } catch { on = false; }   // a failed read keeps it "coming soon": today's screen, never a guess
   if (mine !== MUSE_ASK_GEN) return on;
   if (on) { const say = document.getElementById('acct-add-pick-say'); if (say && say.textContent === MUSE_NOT_HERE) acctAddPickSay(''); }
   /* The logo combobox re-reads `disabled` on open (syncOpts) and drops its pill; its row name is fixed at build. The
-     option's words are set too (#5316), for a plain select: usable, not on this computer yet, or coming soon. */
+     option's words are set too (#5316), for a plain select: usable, or coming soon. */
   const opt = museMetaOption();
   if (opt) {
     opt.disabled = !on;
-    opt.textContent = on ? 'Meta Muse' : missing ? 'Meta Muse \u00b7 install Muse Code first' : 'Meta Muse \u00b7 coming soon';   // #3939: as the create forms say
-    // #3939: a short pill (the logo list's pill cannot shrink); the engine's full sentence is in its refusals.
-    if (missing) opt.dataset.off = 'Install Muse Code from Meta'; else delete opt.dataset.off;
+    opt.textContent = on ? 'Meta Muse' : 'Meta Muse \u00b7 coming soon';
+    delete opt.dataset.off;
     // An open logo list re-reads its options (round 3), as paintAgyOption and paintKeyedProviderOptions do.
     const sel = opt.parentElement;
     if (sel && sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
@@ -31077,7 +31079,9 @@ function museOffered() {
    Meta row (fr-muse-*). `prefix` names its elements; `opts.onDone` repaints that place after a sign-in. Only one
    place is usable at a time (first run makes the rest of the page inert), and each stops its own sign-in by id. */
 function museSigninFlow(prefix, opts) {
-  let id = null; let poll = null; let gen = 0; let retrying = false;
+  let id = null; let poll = null; let gen = 0; let retrying = false; let installing = false;
+  // #6004: true while this place knows Muse Code is not on this computer (its own read decides).
+  const needsInstall = () => !!(opts && opts.needsInstall && opts.needsInstall());
   const el = (x) => document.getElementById(prefix + x);
   const say = (t) => { const m = el('say'); if (m) m.textContent = t; };   // named 'say': the surface gate maps the usual name to other checks
   const stopPoll = () => { if (poll) { clearInterval(poll); poll = null; } };
@@ -31108,7 +31112,9 @@ function museSigninFlow(prefix, opts) {
     const g = el('go'); if (g) { g.hidden = false; g.disabled = false; }
     const sp = el('spin'); if (sp) sp.hidden = true;
     const dn = el('done'); if (dn) dn.hidden = true;
-    if (g) g.textContent = 'Sign in with Meta';   // a reopened step starts fresh (review round 1); a failure relabels after
+    // A reopened step starts fresh (review round 1); a failure relabels after. #6004: no Muse Code here, install first.
+    if (g) g.textContent = needsInstall() ? 'Install Muse Code' : 'Sign in with Meta';
+    if (needsInstall()) say(MUSE_INSTALL_INTRO);
     if (opts && opts.onReset) opts.onReset();
   }
   /* #4569: a sign-in that failed or ended offers Try again on the same button. */
@@ -31204,17 +31210,52 @@ function museSigninFlow(prefix, opts) {
     hideRow('retry-row');
     say(MUSE_SAY.starting);
   }
+  /* #6004: Install Muse Code with Meta's own installer, on this press (the press is the confirm: the step has just
+     said it is a download from Meta). Installed, the same button becomes Sign in with Meta. */
+  async function install() {
+    if (installing || id) return;
+    installing = true;
+    gen += 1;
+    const mine = gen;
+    const go = el('go'); if (go) go.disabled = true;
+    const spin = el('spin'); if (spin) spin.hidden = false;
+    say('Installing Muse Code from Meta\u2026');
+    let out = null;
+    try { const res = await fetch('/api/muse/install', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); out = await res.json().catch(() => null); }
+    catch { out = null; }
+    installing = false;
+    if (mine !== gen) return;
+    if (spin) spin.hidden = true;
+    if (go) go.disabled = false;
+    if (!out) {
+      // No answer is not a failure: the install runs on the board and may still be going. A second press shares that run.
+      if (go) { go.textContent = 'Check again'; go.focus(); }
+      say('Muse Code may still be installing. Press Check again in a moment.');
+      return;
+    }
+    if (!out.ok) {
+      if (go) { go.textContent = 'Try again'; go.focus(); }
+      say(pjSentence(out.error || out.because) || 'We could not install Muse Code just now.');
+      return;
+    }
+    if (opts && opts.onInstalled) { try { opts.onInstalled(); } catch { /* the place repaints on its next read */ } }
+    if (go) { go.textContent = 'Sign in with Meta'; go.focus(); }
+    say('Muse Code is installed. Now sign in with your Meta account.');
+  }
+  /* The one button: install first while Muse Code is missing here, then the sign-in. */
+  function press() { if (needsInstall()) install(); else start(); }
   function leave() {
     const was = id;
     finish(null); say('');
+    if (needsInstall()) say(MUSE_INSTALL_INTRO);
     if (was) post('stop', { id: was }).catch(() => { /* the engine's own limit ends it regardless */ });
   }
-  return { start, retry, leave, reset, get active() { return !!id; } };
+  return { start, retry, leave, reset, install, press, get active() { return !!id; } };
 }
 /* The three buttons of one place, wired to its controller. */
 function museSigninWire(flow, prefix) {
   const el = (x) => document.getElementById(prefix + x);
-  el('go').addEventListener('click', () => flow.start());
+  el('go').addEventListener('click', () => flow.press());   // #6004: installs Muse Code first where it is missing
   el('retry').addEventListener('click', () => flow.retry());
   el('cancel').addEventListener('click', () => {
     flow.leave();
@@ -31223,6 +31264,8 @@ function museSigninWire(flow, prefix) {
   });
 }
 const ACCT_MUSE = museSigninFlow('acct-muse-', {
+  needsInstall: () => MUSE_CODE_HERE === false,
+  onInstalled: () => { MUSE_CODE_HERE = true; },
   onDone: () => paintAccounts(),
   /* #4569 (Josh): once signed in, Close is the thing to press. */
   onSuccess: () => { const c = document.getElementById('acct-add-close'); if (c) { c.classList.add('uprime'); c.setAttribute('aria-describedby', 'acct-muse-done'); c.focus(); } },
@@ -31246,7 +31289,10 @@ museSigninWire(ACCT_MUSE, 'acct-muse-');
    on here (the Create form's read, museCreateAsk / MUSE_CREATE); then it offers Connect, which opens the same
    sign-in as Add a provider under the row, or says Muse Code is not on this computer (Kosmos does not install
    it). Signed in, the row reads Connected with the gold box, like Gemini's and Grok's. */
-const FR_MUSE = museSigninFlow('fr-muse-', { onDone: async () => {
+const FR_MUSE = museSigninFlow('fr-muse-', {
+  needsInstall: () => !!(MUSE_CREATE && MUSE_CREATE.on && MUSE_CREATE.installed === false),
+  onInstalled: () => { if (MUSE_CREATE) MUSE_CREATE.installed = true; },
+  onDone: async () => {
   await frPaintMeta({ fresh: true });
   if (MUSE_CREATE && MUSE_CREATE.ready) return;
   /* The sign-in finished but the read after it did not confirm it (it failed, or answered before Muse
@@ -31328,10 +31374,9 @@ document.getElementById('fr-meta-connect').addEventListener('click', async () =>
   await frPaintMeta();
   if (FR_STEP !== step || document.getElementById('firstrun').hidden) return;   // first run moved on during the read
   if (!MUSE_CREATE || !MUSE_CREATE.on || MUSE_CREATE.ready || btn.hidden) return;
-  if (!MUSE_CREATE.installed) {
-    if (msg) { msg.className = 'dhint'; msg.textContent = 'Muse Code is not on this computer yet. Install it from Meta, then come back to this step.'; msg.dataset.said = 'missing'; }
-    return;
-  }
+  // #6004: without Muse Code the same panel opens on its Install step (FR_MUSE's reset reads MUSE_CREATE).
+  if (msg && msg.dataset.said === 'missing') { msg.className = 'dhint'; msg.textContent = ''; delete msg.dataset.said; }
+  FR_MUSE.reset();
   flow.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
   document.getElementById('fr-muse-go').focus();
@@ -52082,7 +52127,7 @@ function enhanceProviderSelect(selectId) {
     li.setAttribute('aria-selected', o.selected && !disabled ? 'true' : 'false');
     // The bare provider name: the <option> text carries " · coming soon" (or #5316's " · sign in first" or
     // " · set up first"); strip it, the widget shows a pill instead.
-    const label = o.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first|install Muse Code first)\s*$/i, '').trim();
+    const label = o.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first|install Muse Code first|set up in Settings)\s*$/i, '').trim();
     const mark = providerMarkNode(o.value, label);
     mark.classList.add('pcombo-mark');
     if (disabled) mark.classList.add('dim');
@@ -52139,7 +52184,7 @@ function enhanceProviderSelect(selectId) {
        for an unrecognised provider, leaving selectedIndex -1 / a blank native select), the
        trigger must show blank too, not silently present the first option as selected. */
     const cur = opts.find((o) => o.value === select.value) || null;
-    const label = cur ? cur.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first|install Muse Code first)\s*$/i, '').trim() : '';
+    const label = cur ? cur.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first|install Muse Code first|set up in Settings)\s*$/i, '').trim() : '';
     trigger.textContent = '';
     if (cur) {
       const mark = providerMarkNode(cur.value, label);

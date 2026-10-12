@@ -11172,6 +11172,15 @@ const server = http.createServer(async (req, res) => {
     } catch { sendJson(res, 500, { error: 'we could not check Muse Code just now' }); }
     return;
   }
+  /* #6004: install Muse Code with Meta's own installer, on a Confirm press (as Kosmos installs every provider's
+     terminal agent); a person is never told to open a Terminal (#996). Concurrent presses share one run. */
+  if (pathname === '/api/muse/install' && req.method === 'POST') {
+    req.resume();
+    require('./engine/museinstall').install()
+      .then((r) => sendJson(res, r.ok ? 200 : 400, r.ok ? r : { ...r, error: r.because }))
+      .catch(() => sendJson(res, 500, { ok: false, error: 'we could not install Muse Code just now' }));
+    return;
+  }
   if (pathname === '/api/muse/signin' || pathname === '/api/muse/signin/retry' || pathname === '/api/muse/signin/stop') {
     const signin = require('./engine/musesignin');
     const sub = pathname.slice('/api/muse/signin'.length);
