@@ -39,13 +39,12 @@ const OTHER = 'helperbot';
 const BROKEN = 'brokenbot';   // a rolled-over conversation whose newest full file goes missing
 const CAP = chat.MAX_MESSAGES;
 let base;
+let CONNECTIONS = 0;
+let REQUESTS = 0;
 test.before(async () => {
   await start(0);
-  /* Several arms append ~1000 rows synchronously between two requests. Held longer than the server's keep-alive (5 s by
-     default), the event loop lets fetch reuse a socket the server is closing: ECONNRESET on a slow runner (piece 1's CI
-     run 38158076792). This server is the test's own, so its idle sockets are kept past any such gap. */
-  server.keepAliveTimeout = 120000;
   base = `http://127.0.0.1:${server.address().port}`;
+  server.on('connection', () => { CONNECTIONS += 1; });
   fleet.install([fleet.agent(AGENT, { state: 'idle' }), fleet.agent(OTHER, { state: 'idle' }), fleet.agent(BROKEN, { state: 'idle' })]);
 });
 test.after(() => {
@@ -53,15 +52,32 @@ test.after(() => {
   fs.rmSync(SANDBOX, { recursive: true, force: true });
 });
 
-const get = async (p) => {
-  const res = await fetch(base + p);
-  return { status: res.status, json: await res.json().catch(() => null) };
-};
+/* A NEW connection for every request (agent: false), never a pooled one. Several arms append ~1000 rows
+   synchronously between two requests, and on CI a pooled socket reused after that gap came back ECONNRESET twice
+   (piece 1's run 38158076792; this file's run 38184258270, after the server's keep-alive had already been raised to
+   120 s, so that timer was not the whole cause). With no reuse there is no idle socket for any timer to close. */
+const http = require('node:http');
+const request = (method, p, body) => new Promise((resolve, reject) => {
+  REQUESTS += 1;
+  const data = body === undefined ? null : JSON.stringify(body);
+  const headers = data === null ? {} : { 'content-type': 'application/json', origin: base, 'content-length': Buffer.byteLength(data) };
+  const r = http.request(base + p, { method, agent: false, headers }, (res) => {
+    let buf = '';
+    res.setEncoding('utf8');
+    res.on('data', (c) => { buf += c; });
+    res.on('end', () => {
+      let json = null;
+      try { json = JSON.parse(buf); } catch { json = null; }
+      resolve({ status: res.statusCode, json });
+    });
+  });
+  r.on('error', reject);
+  if (data !== null) r.write(data);
+  r.end();
+});
+const get = (p) => request('GET', p);
 const texts = (j) => (j && Array.isArray(j.messages) ? j.messages.map((m) => m.text) : null);
-const post = async (p, body) => {
-  const res = await fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json', origin: base }, body: JSON.stringify(body || {}) });
-  return { status: res.status, json: await res.json().catch(() => null) };
-};
+const post = (p, body) => request('POST', p, body || {});
 const fill = (who, n, from) => {
   for (let i = 0; i < n; i += 1) {
     const r = chat.appendMessage(chat.DIRECT, who, { text: 'message ' + (from + i) });
@@ -429,4 +445,9 @@ test('#5841 an earlier file the page cannot read just now refuses the page, rath
   try { r = await get(`/api/agent/${AGENT}/thread/older?before=${before}`); } finally { fs.readFileSync = realRead; }
   assert.equal(r.status, 503, 'a page was served although an earlier file could not be read: ' + JSON.stringify(r.json));
   assert.match(r.json.error, /could not read all of the earlier messages/);
+});
+
+test('#5841 harness: every request opened its own connection, so none reused a socket after a long gap', () => {
+  assert.ok(REQUESTS > 20, 'premise: the arms above made requests (' + REQUESTS + ')');
+  assert.equal(CONNECTIONS, REQUESTS, 'a request reused a pooled connection, which is what came back ECONNRESET on CI');
 });

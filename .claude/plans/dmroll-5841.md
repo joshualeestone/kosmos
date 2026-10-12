@@ -189,3 +189,14 @@ engine writes one, but a person could.
   olderCount > 0 whenever the file holds more than 200 rows, and slice(-TAIL) is a no-op at 200 or fewer.
 - **My miss:** my "related suites" list held no web test, and web tests pin server.js lines too. The full
   web*.test.js sweep now passes: 349 files, 2678 of 2678. Run 2 is queued at dbe4a7325.
+
+## PR #5875 CI (run 38184258270): suite (node) failed 1, ECONNRESET again
+- The failing test was "when the newest full file is gone". It hit `fetch failed` / ECONNRESET after 35 s on CI, with
+  the server still up. That happened although `server.keepAliveTimeout` was already 120 s here, so my keep-alive
+  explanation (piece 1) was at best incomplete.
+- **Fix:** removed the shared mechanism rather than chase the timer. Every test request now opens its OWN connection
+  (`http.request` with `agent: false`), so no pooled socket is ever reused after a synchronous gap.
+- A harness arm asserts that connections == requests, so pooling cannot quietly come back.
+- 21/21 locally. Not reproducible locally (it never was), so CI on the PR is the real check.
+- This changes the diff after the Mortals run. The proof records the new hash and says the PR's full CI is the
+  validation of this head.
