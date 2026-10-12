@@ -33,6 +33,14 @@ function hatch() {
   return fn;
 }
 const dirsOf = (r) => ((r && r.candidates) || []).map((c) => c.dir);
+/* Fixtures each test makes for itself (review 4), so any one runs alone; making one twice is a no-op. */
+function deepSrc() { for (let i = 0; i < 40; i++) fs.mkdirSync(path.join(process.env.HOME, 'src', `d${i}`, 'x'), { recursive: true }); }
+function deepDocs() { for (let i = 0; i < 20; i++) fs.mkdirSync(path.join(process.env.HOME, 'Documents', `deep${i}`, 'y'), { recursive: true }); }
+function dropFile() {
+  const drop = path.join(process.env.HOME, 'Downloads');
+  fs.mkdirSync(drop, { recursive: true });
+  fs.writeFileSync(path.join(drop, 'probe.md'), 'You are **Dropped**, a planner.\n\nMore text so the head reads.\n');
+}
 
 test('#5882: only macOS has the folder permission', () => {
   assert.equal(platform.hasFolderPermission('darwin'), true);
@@ -63,10 +71,7 @@ test('#5882: a Linux import scan FINDS an agent in ~/Documents and hands nothing
 });
 
 test('#5882 review 1: a deep sibling tree that spends the shared budget does not starve Downloads (own budget off macOS)', () => {
-  for (let i = 0; i < 40; i++) fs.mkdirSync(path.join(process.env.HOME, 'src', `d${i}`, 'x'), { recursive: true });
-  const drop = path.join(process.env.HOME, 'Downloads');
-  fs.mkdirSync(drop, { recursive: true });
-  fs.writeFileSync(path.join(drop, 'probe.md'), 'You are **Dropped**, a planner.\n\nMore text so the head reads.\n');
+  deepSrc(); dropFile();
   const r = discover.scan({ importScan: true, platform: 'linux', tccScan: hatch(), maxDirs: 30 });
   const files = ((r && r.importable) || []).map((x) => x.file || x.path || x.dir || '');
   assert.ok(files.some((f) => String(f).includes(path.join('Downloads', 'probe.md'))), `the agent file in Downloads was starved: ${JSON.stringify(files)}`);
@@ -74,7 +79,7 @@ test('#5882 review 1: a deep sibling tree that spends the shared budget does not
 });
 
 test('#5882 review 1: the own budget is a real bound, and its folders are counted in bounded.visited', () => {
-  for (let i = 0; i < 20; i++) fs.mkdirSync(path.join(process.env.HOME, 'Documents', `deep${i}`, 'y'), { recursive: true });
+  deepSrc(); deepDocs();
   const max = 5;
   const r = discover.scan({ importScan: true, platform: 'linux', tccScan: hatch(), maxDirs: max });
   // Both trees are bigger than the budget, so each spends it: shared plus own, never more than twice the budget.
@@ -99,7 +104,8 @@ test('#5882 review 3: off macOS the drop folders come before Documents, so a dee
   assert.deepEqual(roots.map((r) => path.basename(r.dir)), ['Downloads', 'Desktop', 'Documents']);
   const mac = discover.defaultScanRoots({ importScan: true, platform: 'darwin' }).filter((r) => r.tcc);
   assert.deepEqual(mac.map((r) => path.basename(r.dir)), ['Documents', 'Downloads', 'Desktop'], 'CONTROL: macOS order unchanged');
-  // Documents (20+ folders from an earlier test) on an own budget of 3: the Downloads file is still read.
+  // A deep Documents on an own budget of 3: the Downloads file is still read.
+  deepDocs(); dropFile();
   const r = discover.scan({ importScan: true, platform: 'linux', tccScan: hatch(), maxDirs: 3 });
   const files = ((r && r.importable) || []).map((x) => String(x.file || x.path || x.dir || ''));
   assert.ok(files.some((f) => f.includes(path.join('Downloads', 'probe.md'))), JSON.stringify(files));
