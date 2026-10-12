@@ -20999,10 +20999,11 @@ function stateReason(a, opts) {
   }
   /* #5957 slice 2: its working rules are far behind, and its own page offers the update (a.rulesBehind, from
      engine/doctrine.js rulesBehind: a number only then). Only on a CARD (opts.card: the agent's own page has the
-     update note itself, and "Open it" makes no sense there) and only in a calm state: never in the slot a person reads
+     update note itself, and "Open it" makes no sense there) and only when it is idle or stopped: the update restarts
+     it, so a working agent is not pointed at it mid-task, and it is never in the slot a person reads
      as what a needs-you, question or blocked agent is stuck on (#986/#2833), and never over a sign-in, connection or
      usage problem. Last of the general reasons; plain words; the card's look is unchanged. */
-  if (a && opts && opts.card === true && (a.state === 'idle' || a.state === 'working' || a.state === 'stopped')
+  if (a && opts && opts.card === true && (a.state === 'idle' || a.state === 'stopped')
       && Number.isSafeInteger(a.rulesBehind) && a.rulesBehind > 0) {
     return 'Its working rules are ' + a.rulesBehind + ' versions behind. Open it to update them.';
   }

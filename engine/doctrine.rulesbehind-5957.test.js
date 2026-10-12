@@ -70,6 +70,20 @@ test('kept between polls, and recomputed when the file changes', () => {
   assert.equal(doctrine.rulesBehind('moving'), null, 'a stale answer outlived the file change');
 });
 
+test('the profile alone moving recomputes, as does the file changing', () => {
+  const file = agent('parts', { doctrineVersion: DV - 13 }, OLD_FILE('Parts'));
+  assert.equal(doctrine.rulesBehind('parts'), 13);
+  // The profile alone moves (the file untouched): the new number, not the kept one.
+  store.writeProfile('parts', { doctrineVersion: DV - 6 });
+  assert.equal(doctrine.rulesBehind('parts'), 6, 'a profile change kept the old answer');
+  // Then the file changes (the rules arrive): recomputed, and nothing is said.
+  const current = doctrine.atBirth(OLD_FILE('Parts'), NOW);
+  fs.writeFileSync(file, current);
+  const t1 = new Date(Date.now() + 10000);
+  fs.utimesSync(file, t1, t1);
+  assert.equal(doctrine.rulesBehind('parts'), null);
+});
+
 test('the cache saves work: unchanged polls read the instructions file once', (t) => {
   agent('steady', { doctrineVersion: DV - 13 }, OLD_FILE('Steady'));
   const real = instructions.read;

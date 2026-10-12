@@ -26,8 +26,8 @@ test('#5957: not on the agent\'s own page (the detail header passes no card flag
   assert.equal(reasonOf({ state: 'idle', rulesBehind: 13 }), '');
 });
 
-test('#5957: never in the slot a needs-you, question or blocked agent is read by (#986/#2833), nor over a sign-in or connection problem', () => {
-  for (const state of ['needs_you', 'question', 'blocked', 'auth_failed', 'connection_lost', 'restarting', 'unknown']) {
+test('#5957: never on a working card (the update restarts it), in the slot a needs-you, question or blocked agent is read by (#986/#2833), nor over a sign-in or connection problem', () => {
+  for (const state of ['working', 'needs_you', 'question', 'blocked', 'auth_failed', 'connection_lost', 'restarting', 'unknown']) {
     assert.doesNotMatch(String(reasonOf({ state, rulesBehind: 13 }, CARD)), /working rules/, state);
   }
 });
