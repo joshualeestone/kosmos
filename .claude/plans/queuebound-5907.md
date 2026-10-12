@@ -13,7 +13,8 @@ Tail: over 90 min, 3 browser-check runs (99.4, 99.9, 129.4) and 1 validation (15
 
 ## Change
 - `tools/lib/cut-guard.sh` `kosmos_wait_until_clear`: queue default 2700 -> 6300 s (105 min), with the measurement beside it.
-  The ceiling (four bounds plus one per waiter ahead) derives from it and scales with it.
+  The ceiling (four bounds plus one per waiter ahead) derives from it: 7 h plus 105 min per waiter. Kept scaling on
+  purpose: a waiter k deep in a healthy queue waits about k holders of ~75 min, which 45 x (4+k) cuts off from k = 3.
 - The queue note: the 14-26 sentence is gone; it states 105 minutes and the history.
 - `KOSMOS_QUEUE_STARVE_S` stays 2700: it is the aging line at which a heavy waiter passes light ones, a different
   question. Only its comment changes (it no longer says it is the queue's bound).
