@@ -45,7 +45,7 @@ function projectWithFile(dirName, fileName) {
   return dir;
 }
 
-test('a file kind nothing on this computer opens says so, and says the file is fine', { skip: process.platform !== 'darwin' && 'these are the Mac /usr/bin/open failures; Linux refuses to open a file on purpose (#5881, download it instead) and Windows has its own opener' }, () => {
+test('a file kind nothing on this computer opens says so, and says the file is fine', { skip: process.platform !== 'darwin' && 'the suite pins the Mac opener (setRevealPlatform darwin) and runs the real /usr/bin/open, which only a Mac has' }, () => {
   // ⚠️ NO INJECTED RUNNER. The real `open` exits 1 on an extension no
   // application claims, with its reason on stderr, and no window appears.
   // Measured on this Mac: rc=1 in 0.02s, "No application knows how to open
