@@ -110,6 +110,9 @@ const LINUX_HIDDEN = {
   'project: Show me where it is': '#pjs-reveal',
   'project: Show me where the conversations live': '#pjs-chats-reveal',
   'task: Show me where the task conversations live': '#tk-chats-reveal',
+  'Settings reveal message': '#set-reveal-msg',
+  'project conversations hint': '#pjs-chats-reveal + p.fhint',
+  'task conversations hint': '#tk-chats-reveal + p.fhint',
 };
 const LINUX_OPEN_LINE = 'If Kosmos stops, run kosmos restart in a terminal on the computer it is installed on (over SSH on a headless server).';
 

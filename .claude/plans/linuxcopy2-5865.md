@@ -67,3 +67,9 @@ run every web*.test.js from the worktree as cwd.
   live" and the task page's "Show me where the task conversations live": hidden on Linux with their hints.
 - The agent's Terminal section is named "Start-up and restart" on Linux (data-linux-aria-label, applied by
   applyPlatformCopy), matching its heading; browser-checked with a Mac control.
+
+## Review 6 (blind, sonnet)
+- Settings > Computer's machine rows come from engine/machine.js, which has no Linux arm (pmset sleep, Kosmos.app
+  location, macOS pane URLs). DEFERRED to #5877 (comment 6115721162): an engine change, and first run reads the same
+  sleepGate, so it is decided with that card.
+- The browser check covers every data-linux-hide element now; the sentence block says it needs PLATFORM_COPY_FNS.

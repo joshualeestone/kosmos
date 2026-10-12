@@ -36215,7 +36215,8 @@ function deviceOffline() {
 }
 /* #718 state 2: what a phone or remote computer is told when the Mac behind Kosmos+ does not answer. */
 /* #5865: a Linux board is often a server: not asleep, but off or with Kosmos stopped, and the step is #5862's. Chosen at
-   load from the served platform meta, which is in <head> before this script runs. */
+   load from the served platform meta, which is in <head> before this script runs. These four sentences call the
+   platform helpers (onLinux, hostMachine, hostMachineCap), so a test that lifts one needs page.PLATFORM_COPY_FNS. */
 const MAC_ASLEEP_SENTENCE = onLinux()   // per platform since #5865, the name kept for its callers
   ? 'It may be turned off, or Kosmos may have stopped on it. Make sure it is on, then run kosmos restart in a terminal on it, and this page asks again by itself. If it is running, check this phone or computer\'s own connection.'
   : 'It may be asleep or turned off. Wake it and make sure Kosmos is open on it, and this page asks again by itself. If ' + hostMachine() + ' is on, check this phone or computer\'s own connection.';
