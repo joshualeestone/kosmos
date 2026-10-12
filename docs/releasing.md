@@ -82,7 +82,7 @@ improvement it gained would have died with the session that wrote it.
    cut detached (nohup) into another. The preflight prints these commands when it
    finds the lock.
    Since #3647, 1c also checks the two credentials that step 3c's pkg rebuild
-   would need, on every cut (it does not contact Apple's notary service): that
+   would need, on every cut: that
    `security find-identity -v` lists the **Developer ID Installer** identity
    (missing or expired refuses), and that the notary key's secrets-map target
    (`KOSMOS_NOTARY_SECRET_TARGET` in `tools/lib/signing-identity.sh`, today
@@ -90,10 +90,20 @@ improvement it gained would have died with the session that wrote it.
    1c, naming every missing credential and its fix, instead of dying at 3c after
    the suite. Mortals holds all three signing credentials (app, installer, notary
    key).
+   Since #5137, step 4 notarises the app binaries on every cut, so 1c also
+   refuses a cut while `KOSMOS_NOTARIZE`, `KOSMOS_NOTARYTOOL_CMD`,
+   `KOSMOS_NOTARY_CODESIGN_CMD`, `KOSMOS_NOTARY_LIPO_CMD` or
+   `KOSMOS_NOTARY_RETRY_DELAYS` is exported (even empty), and then makes one
+   authenticated `notarytool history` request to Apple with the notary key, so a
+   bad key or an outage refuses before the bump is pushed.
 2. **Bump `package.json`.** One place. `engine/update.js` compares this against
    the served `latest.json`, numerically rather than lexically.
 3. **The whole suite**, on the tree that ships.
 4. **Build**, then copy the bundle, `.sha256` and `latest.json` to the site.
+   The build notarises `kosmos-app` and `kosmos-tunnel` with Apple just before
+   packing (#5137) and refuses unless Apple's ticket lists every architecture
+   slice's cdhash. That waits on Apple: usually minutes, at most two 30-minute
+   waits plus the submit retries, and a failure there comes after the bump.
    ⚠️ The tarball and `latest.json` must land in the **same deploy**: shipping
    one without the other tells every installed copy to update to a version the
    download does not contain.
