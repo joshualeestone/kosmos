@@ -31,7 +31,8 @@
  *   C17 pressing the mic, through its real handler, stops a reading (review 4)
  *   C18 opening the same agent again (openDetail) reads nothing that arrived meanwhile (reviews 5, 6)
  *   C19 a real tab change away from a room and back reads nothing that arrived meanwhile (review 7)
- *   C20 at 700px, where the room's header stacks, the room's toggle sits on the search's line, not a row of its own
+ *   C20 at 700px, where the room's header stacks, the room's toggle sits on the search's line, not a row of its own,
+ *       in today's look and in the new look (C20b), with nothing pushed out of the row
  *   C9 no page errors
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-convmode-5624.js [shots-dir]
@@ -254,8 +255,24 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
         drawn: b.width > 0 && s.width > 0, dy: Math.round(Math.abs((b.top + b.height / 2) - (s.top + s.height / 2))),
         before: b.right <= s.left + 1 };
     });
+    // C20b: the same under the new look, whose header is a wrapping row with a full-line search.
+    const c20b = await page.evaluate(() => {
+      const root = document.documentElement, was = root.getAttribute('data-look');
+      root.setAttribute('data-look', 'new');
+      const mid = document.querySelector('#pj-one-view .pjmidhead');
+      const wrap = mid.querySelector('.pjconvsearch');
+      const b = document.getElementById('pj-conv').getBoundingClientRect();
+      const s = mid.querySelector('.tsearch').getBoundingClientRect();
+      const w = wrap.getBoundingClientRect();
+      const out = { look: getComputedStyle(mid).flexWrap === 'wrap', drawn: b.width > 0 && s.width > 0,
+        dy: Math.round(Math.abs((b.top + b.height / 2) - (s.top + s.height / 2))), before: b.right <= s.left + 1,
+        inside: s.right <= w.right + 1 && s.right <= mid.getBoundingClientRect().right + 1 };
+      if (was == null) root.removeAttribute('data-look'); else root.setAttribute('data-look', was);
+      return out;
+    });
     await page.setViewportSize({ width: 1200, height: 800 });
     chk(c20.stacked && c20.head && c20.drawn && c20.dy <= 6 && c20.before, 'C20 at 700px the room toggle sits on the search line, not a row of its own', JSON.stringify(c20));
+    chk(c20b.look && c20b.drawn && c20b.dy <= 6 && c20b.before && c20b.inside, 'C20b the same in the new look, with the search inside the row', JSON.stringify(c20b));
     await page.click('#pj-conv');   // off again for the room
     await page.evaluate(() => {
       PJ_CURRENT = null;
