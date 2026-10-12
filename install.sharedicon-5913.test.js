@@ -29,7 +29,7 @@ function fnSource(name) {
 }
 const FNS = ['file_owner_uid', 'bundle_is_ours', 'sealed_config_reaches', 'bundle_looks_sealed', 'sealed_serves_this_install',
   'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'sealed_icon_reusable', 'sealed_icon_other_users',
-  'sealed_icon_mark_reuse', 'sealed_icon_unmark', 'resolve_app_dir'].map(fnSource).join('\n');
+  'sealed_icon_mark_reuse', 'sealed_icon_unmark', 'sealed_reuse_drop_second_icon', 'resolve_app_dir'].map(fnSource).join('\n');
 const ME = String(process.getuid());
 
 let tmpRoot;
@@ -63,7 +63,7 @@ const occupy = (w) => execFileSync('/usr/bin/ditto', [path.join(w.home, 'app', '
 /** Run `body` with the real functions; OTHER names the one path whose owner reads as another account (uid 999). */
 function run(w, body, { other = '', wic = '0', extraEnv = {} } = {}) {
   const standIn = `file_owner_uid() { if [ -n "$OTHER" ] && [ "$1" = "$OTHER" ]; then echo 999; else /usr/bin/stat -f %u "$1" 2>/dev/null; fi; }`;
-  const script = ['set -u', FNS, standIn,
+  const script = ['set -u', 'info() { echo "INFO $*"; }', FNS, standIn,
     'APP_OTHER_OWNER=no; APP_SKIP_ICON=no; APP_SKIP_REASON=""; APP_SYS_STALE=no; APP_OWN_SEALED=no', body].join('\n');
   const env = { PATH: '/usr/bin:/bin', KOSMOS_HOME: w.home, INSTALL_CONFIG_DIR: w.cfg, SYS_APP_DIR: w.sys,
     HOME_APP_DIR: w.homeApps, SEALED_USERS_DIR: w.users, OTHER: other, _wic_rc: wic, _SEALED_SRC_OK: '', _SEALED_REQ_RUN: '', ...extraEnv };
@@ -105,7 +105,7 @@ it('#5913/#5912 reader: exit 1 only when no OTHER account has a marker; every fa
   const w = world();
   const ask = () => run(w, `sealed_icon_other_users ${ME}; echo "rc=$?"`).out;
   assert.match(ask(), /rc=1/, 'folder absent must read "no other user" (a Mac with no reuse behaves as today)');
-  fs.mkdirSync(w.users);
+  fs.mkdirSync(w.users); fs.chmodSync(w.users, 0o1777);   // the contract trusts only a sticky folder
   assert.match(ask(), /rc=1/, 'an empty folder must read "no other user"');
   fs.writeFileSync(path.join(w.users, ME), '');
   assert.match(ask(), /rc=1/, 'only the owner\'s own marker must read "no other user"');
@@ -134,6 +134,102 @@ it('#5913: the reuse marker is written in a sticky shared folder, and the uninst
   fs.writeFileSync(mine, '');
   assert.match(run(w, 'sealed_icon_unmark; echo "rc=$?"', { other: mine }).out, /rc=0/);
   assert.ok(fs.existsSync(mine), 'a marker owned by another account was removed');
+});
+
+/** An old-shape per-install icon whose launcher names `home` (what bundle_is_ours proves with its anchored token). */
+function ownHomeIcon(dir, home) {
+  fs.mkdirSync(path.join(dir, 'Contents', 'MacOS'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'Contents', 'MacOS', 'Kosmos'), `#!/bin/sh\nKOSMOS_HOME="\${KOSMOS_HOME:-${home}}"\n`, { mode: 0o755 });
+  return dir;
+}
+
+it('#5913 review 1: the earlier second icon goes only when proven ours, in a different folder, on an unsandboxed run', () => {
+  const w = world(); const icon = path.join(w.homeApps, 'Kosmos.app');
+  ownHomeIcon(icon, w.home);
+  const r = run(w, 'sealed_reuse_drop_second_icon; echo "rc=$?"');
+  assert.ok(!fs.existsSync(icon), 'this install\'s own second icon was not removed: ' + r.out);
+  assert.match(r.out, /second Kosmos icon .* was removed/, 'the removal was not said');
+  // Not ours (another home): kept.
+  ownHomeIcon(icon, path.join(w.root, 'someone-else'));
+  run(w, 'sealed_reuse_drop_second_icon');
+  assert.ok(fs.existsSync(icon), 'an icon that is not this install\'s was removed');
+  fs.rmSync(icon, { recursive: true });
+  // A link at the home icon: kept, and its target untouched.
+  const target = ownHomeIcon(path.join(w.root, 'real-icon', 'Kosmos.app'), w.home);
+  fs.symlinkSync(target, icon);
+  run(w, 'sealed_reuse_drop_second_icon');
+  assert.ok(fs.lstatSync(icon).isSymbolicLink() && fs.existsSync(target), 'a link at the home icon, or its target, was removed');
+  fs.unlinkSync(icon);
+  // A sandboxed run that leaves the home folder real: kept (#226's gate).
+  ownHomeIcon(icon, w.home);
+  run(w, 'sealed_reuse_drop_second_icon', { extraEnv: { KOSMOS_SYS_APP_DIR: w.sys } });
+  assert.ok(fs.existsSync(icon), 'a run sandboxed by KOSMOS_SYS_APP_DIR alone removed a home icon');
+  // CONTROL: the same run naming the home folder as its sandbox gets the removal back.
+  run(w, 'sealed_reuse_drop_second_icon', { extraEnv: { KOSMOS_SYS_APP_DIR: w.sys, KOSMOS_HOME_APP_DIR: w.homeApps } });
+  assert.ok(!fs.existsSync(icon), 'naming the home folder as the sandbox did not get the removal back');
+});
+
+it('#5913 review 1: an aliased home Applications folder never loses the shared icon', () => {
+  const w = world(); occupy(w);
+  const alias = path.join(w.root, 'home-apps-alias');
+  fs.symlinkSync(w.sys, alias);   // ~/Applications -> /Applications
+  run(w, 'HOME_APP_DIR="' + alias + '"; sealed_reuse_drop_second_icon');
+  assert.ok(fs.existsSync(w.shared), 'the shared icon was removed through an aliased home folder');
+});
+
+it('#5913 review 1: the reader keeps the icon on a folder it cannot judge', () => {
+  const w = world();
+  const ask = () => run(w, `sealed_icon_other_users ${ME}; echo "rc=$?"`).out;
+  fs.mkdirSync(w.users, { mode: 0o755 }); fs.chmodSync(w.users, 0o755);
+  assert.match(ask(), /rc=0/, 'a folder that is not sticky (1777) was trusted');
+  fs.chmodSync(w.users, 0o1777);
+  assert.match(ask(), /rc=1/, 'CONTROL: an empty sticky folder reads "no other user"');
+  fs.rmSync(w.users, { recursive: true });
+  const real = path.join(w.root, 'real-users'); fs.mkdirSync(real); fs.chmodSync(real, 0o1777);
+  fs.symlinkSync(real, w.users);
+  assert.match(ask(), /rc=0/, 'a folder reached through a link was trusted');
+  fs.unlinkSync(w.users);
+  // An absent folder under a parent this account cannot search is "cannot judge", not "absent".
+  const locked = path.join(w.root, 'locked'); fs.mkdirSync(locked);
+  const hidden = path.join(locked, 'users');
+  fs.chmodSync(locked, 0o000);
+  try {
+    assert.match(run({ ...w, users: hidden }, `sealed_icon_other_users ${ME}; echo "rc=$?"`).out, /rc=0/, 'a folder hidden by an unsearchable parent read as absent');
+  } finally { fs.chmodSync(locked, 0o755); }
+});
+
+it('#5913 review 1: the marker write never follows or truncates an entry someone else put at its name', () => {
+  const w = world();
+  fs.mkdirSync(w.users); fs.chmodSync(w.users, 0o1777);
+  const victim = path.join(w.root, 'victim.txt'); fs.writeFileSync(victim, 'keep me');
+  fs.symlinkSync(victim, path.join(w.users, ME));
+  assert.match(run(w, 'sealed_icon_mark_reuse; echo "rc=$?"').out, /rc=[1-9]/, 'a marker was "written" through a link');
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'keep me', 'the link target was truncated');
+  fs.unlinkSync(path.join(w.users, ME));
+  assert.match(run(w, 'sealed_icon_mark_reuse; echo "rc=$?"').out, /rc=0/, 'CONTROL: a clean name is written');
+  assert.match(run(w, 'sealed_icon_mark_reuse; echo "rc=$?"').out, /rc=0/, 'a second reuse (marker already there) was refused');
+  // A fresh folder is created sticky with a 755 parent, whatever the umask.
+  const w2 = world(); const parent = path.dirname(w2.users);
+  const r = run(w2, 'umask 077; sealed_icon_mark_reuse; echo "rc=$?"', { extraEnv: { SEALED_USERS_DIR: path.join(parent, 'p', 'users') } });
+  assert.match(r.out, /rc=0/);
+  assert.equal(fs.statSync(path.join(parent, 'p')).mode & 0o777, 0o755, 'the parent took the umask');
+  assert.equal(fs.statSync(path.join(parent, 'p', 'users')).mode & 0o7777, 0o1777, 'the folder took the umask');
+});
+
+test('#5913 review 1: a bundle carrying a per-install file is never reused (text only, by design)', () => {
+  // A per-install bundle opens its own baked home, never the clicking account's. The behaviour cannot be shown with
+  // ad-hoc signing: putting that file into a signed bundle breaks its signature, so bundle_is_sealed already refuses
+  // it, and a mutant dropping this check survives a behavioural test for the wrong reason (measured). The check is
+  // defense in depth for a Developer ID per-install bundle, pinned by its text and its order.
+  const fn = fnSource('sealed_icon_reusable');
+  const pin = fn.indexOf('[ ! -e "$1/Contents/Resources/kosmos-install.json" ]');
+  assert.ok(pin !== -1 && pin < fn.indexOf('bundle_is_sealed "$1"'), 'the per-install refusal is gone or comes after the signature check');
+});
+
+test('#5913 review 1: every sandbox signal keeps the marker folder inside the sandbox (text only)', () => {
+  for (const v of ['KOSMOS_SYS_APP_DIR', 'KOSMOS_HOME_APP_DIR', 'KOSMOS_APP_DIR']) {
+    assert.match(SETUP, new RegExp('elif \\[ -n "\\$\\{' + v + ':-\\}" \\]; then SEALED_USERS_DIR="\\$' + v + '/\\.kosmos-sealed-icon-users"'), v + ' does not keep the marker folder in its sandbox');
+  }
 });
 
 test('#5913: setup.sh wiring (text only, every platform)', () => {

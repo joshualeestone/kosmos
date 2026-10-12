@@ -382,13 +382,15 @@ file_owner_uid() {
 }
 
 # #5913: can this install REUSE the sealed icon at $1 instead of making a second icon in ~/Applications? Only a real
-# bundle (never a link) that is a sealed Kosmos app we built (bundle_is_sealed), owned by ANOTHER account, and only
-# when this run would place the sealed app itself (sealed_placeable: this account's config is written where that
-# app reads it). The sealed app reads the CLICKING account's own config, so the icon already there opens this
-# install. Its version does not gate reuse: every sealed app (slice 2 onward) reads that config, and asks the board
-# for everything else.
+# bundle (never a link) that is a sealed Kosmos app we built (no per-install file, and bundle_is_sealed), owned by
+# ANOTHER account, and only when this run would place the sealed app itself (sealed_placeable: this account's config
+# is written where that app reads it). The sealed app reads the CLICKING account's own config, so the icon already
+# there opens this install. Its version does not gate reuse: every sealed app (slice 2 onward) reads that config, and
+# asks the board for everything else.
 sealed_icon_reusable() {
   [ -d "$1" ] && [ ! -L "$1" ] || return 1
+  # Review 1: a per-install bundle opens its own baked home, never the clicking account's, so it is never reused.
+  [ ! -e "$1/Contents/Resources/kosmos-install.json" ] && [ ! -L "$1/Contents/Resources/kosmos-install.json" ] || return 1
   local owner
   owner="$(file_owner_uid "$1")" || return 1
   [ -n "$owner" ] && [ "$owner" != "$(/usr/bin/id -u)" ] || return 1
@@ -397,14 +399,22 @@ sealed_icon_reusable() {
 }
 
 # #5913 / #5912 contract (agreed with Angel 2026-10-12). Exit 0 = KEEP the shared sealed icon: another account's
-# marker is there, or the folder exists but cannot be read. Exit 1 = no other user: the folder is absent, or readable
-# with no marker but $1's (the icon owner's uid). #5912's uninstall removes the shared icon only on exit 1, so every
-# failure keeps it. POSIX sh, the uid as an argument (a VAR=x prefix on a function call outlives it under /bin/sh).
+# marker is there, or the folder cannot be judged. Exit 1 = no other user: the folder is absent, or a readable, sticky
+# folder with no marker but $1's (the icon owner's uid). #5912's uninstall removes the shared icon only on exit 1, so
+# every failure keeps it. POSIX sh, the uid as an argument (a VAR=x prefix on a function call outlives it under
+# /bin/sh). Review 1: an absent folder means "no reuse" only when its parent could be searched (a parent this account
+# cannot enter hides a folder that may exist), and a folder that is not sticky (1777) is not trusted at all.
 sealed_icon_other_users() {
-  [ -e "$SEALED_USERS_DIR" ] || [ -L "$SEALED_USERS_DIR" ] || return 1
-  [ -d "$SEALED_USERS_DIR" ] && [ -r "$SEALED_USERS_DIR" ] && [ -x "$SEALED_USERS_DIR" ] || return 0
+  if [ ! -e "$SEALED_USERS_DIR" ] && [ ! -L "$SEALED_USERS_DIR" ]; then
+    local parent
+    parent="$(/usr/bin/dirname "$SEALED_USERS_DIR")"
+    { [ ! -e "$parent" ] || [ -x "$parent" ]; } || return 0
+    return 1
+  fi
+  [ -d "$SEALED_USERS_DIR" ] && [ ! -L "$SEALED_USERS_DIR" ] && [ -r "$SEALED_USERS_DIR" ] && [ -x "$SEALED_USERS_DIR" ] || return 0
+  [ "$(/usr/bin/stat -f %Mp%Lp "$SEALED_USERS_DIR" 2>/dev/null)" = 1777 ] || return 0   # %Lp alone drops the sticky bit (measured)
   local f
-  for f in "$SEALED_USERS_DIR"/* "$SEALED_USERS_DIR"/.[!.]*; do
+  for f in "$SEALED_USERS_DIR"/* "$SEALED_USERS_DIR"/.??* "$SEALED_USERS_DIR"/..?*; do
     [ -e "$f" ] || [ -L "$f" ] || continue
     [ "$(/usr/bin/basename "$f")" = "$1" ] && continue
     return 0
@@ -413,17 +423,22 @@ sealed_icon_other_users() {
 }
 
 # #5913: record that THIS account reuses another account's sealed icon. Best effort and said: a marker that could
-# not be written leaves #5912 unaware, so the transcript names it. The folder is made sticky world-writable only
-# when this account creates it; a folder someone else made is used as it is.
+# not be written leaves #5912 unaware, so the transcript names it, and the earlier second icon is then kept. Review 1:
+# the parent is made 755 and the folder 1777 explicitly (mkdir -m ignores the umask), and the marker is created with
+# noclobber (set -C) in a subshell, so an entry someone else put at that name, a link included, is never followed or
+# truncated; an existing regular file this account owns already says it.
 sealed_icon_mark_reuse() {
-  local me
+  local me parent f
   me="$(/usr/bin/id -u)"
+  parent="$(/usr/bin/dirname "$SEALED_USERS_DIR")"
+  [ -d "$parent" ] || /bin/mkdir -m 755 "$parent" 2>/dev/null || [ -d "$parent" ] || return 1
   if [ ! -d "$SEALED_USERS_DIR" ]; then
-    /bin/mkdir -p "$SEALED_USERS_DIR" 2>/dev/null || return 1
-    /bin/chmod 1777 "$SEALED_USERS_DIR" 2>/dev/null || return 1
+    /bin/mkdir -m 1777 "$SEALED_USERS_DIR" 2>/dev/null || [ -d "$SEALED_USERS_DIR" ] || return 1
   fi
-  [ -L "$SEALED_USERS_DIR/$me" ] && return 1
-  : > "$SEALED_USERS_DIR/$me" 2>/dev/null
+  [ ! -L "$SEALED_USERS_DIR" ] || return 1
+  f="$SEALED_USERS_DIR/$me"
+  if [ -f "$f" ] && [ ! -L "$f" ] && [ "$(file_owner_uid "$f")" = "$me" ]; then return 0; fi
+  ( set -C; : > "$f" ) 2>/dev/null
 }
 
 # #5913: this account's uninstall takes back ITS OWN marker, first, and only a regular file it owns.
@@ -433,6 +448,25 @@ sealed_icon_unmark() {
   f="$SEALED_USERS_DIR/$me"
   [ -f "$f" ] && [ ! -L "$f" ] && [ "$(file_owner_uid "$f")" = "$me" ] || return 0
   rm -f "$f" 2>/dev/null || return 1
+}
+
+# #5913: with the shared icon reused (and its marker written), a second icon this install made earlier in the home
+# Applications folder is this install's own leftover and goes: the proven ownership check (anchored), never through a
+# link, only when the home folder is really a different folder, and (review 1) never on a sandboxed run unless the
+# home Applications folder itself is the sandboxed one (#721: a harness that names that folder gets its block back).
+# No lsregister: _lsreg_u lives inside uninstall(); a removed bundle's stale Spotlight record clears on its own.
+sealed_reuse_drop_second_icon() {
+  if [ -n "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}" ] && [ -z "${KOSMOS_HOME_APP_DIR:-}" ]; then return 0; fi
+  local hp sp
+  hp="$(cd "$HOME_APP_DIR" 2>/dev/null && pwd -P)" || hp=""
+  sp="$(cd "$SYS_APP_DIR" 2>/dev/null && pwd -P)" || sp=""
+  [ -n "$hp" ] && [ -n "$sp" ] && [ "$hp" != "$sp" ] || return 0
+  [ ! -L "$HOME_APP_DIR/Kosmos.app" ] && bundle_is_ours "$HOME_APP_DIR/Kosmos.app" anchored || return 0
+  if rm -rf "$HOME_APP_DIR/Kosmos.app" 2>/dev/null; then
+    info "(the second Kosmos icon in the Applications folder inside your home folder was removed)"
+  else
+    info "(a second Kosmos icon is still in the Applications folder inside your home folder; drag it to the Trash)"
+  fi
 }
 
 # SYS_APP_DIR is overridable ONLY so the harness can drive the probe AND its
@@ -448,8 +482,12 @@ SYS_APP_DIR="${KOSMOS_SYS_APP_DIR:-/Applications}"
 # account's uninstall (#5912) never removes an icon someone else still opens. Shared by every account, so mode 1777
 # (sticky: each account can remove only its own file). A run sandboxed by KOSMOS_SYS_APP_DIR keeps it beside that
 # sandboxed folder and never touches the real /Users/Shared; KOSMOS_SEALED_USERS_DIR names it outright (tests).
+# Review 1: EVERY sandbox signal keeps it in the sandbox (KOSMOS_HOME_APP_DIR and KOSMOS_APP_DIR are sandbox signals
+# too, #945), never only KOSMOS_SYS_APP_DIR.
 if [ -n "${KOSMOS_SEALED_USERS_DIR:-}" ]; then SEALED_USERS_DIR="$KOSMOS_SEALED_USERS_DIR"
 elif [ -n "${KOSMOS_SYS_APP_DIR:-}" ]; then SEALED_USERS_DIR="$KOSMOS_SYS_APP_DIR/.kosmos-sealed-icon-users"
+elif [ -n "${KOSMOS_HOME_APP_DIR:-}" ]; then SEALED_USERS_DIR="$KOSMOS_HOME_APP_DIR/.kosmos-sealed-icon-users"
+elif [ -n "${KOSMOS_APP_DIR:-}" ]; then SEALED_USERS_DIR="$KOSMOS_APP_DIR/.kosmos-sealed-icon-users"
 else SEALED_USERS_DIR="/Users/Shared/Kosmos/sealed-icon-users"; fi
 # 🔑 THE ONE NAME FOR THE PERSON'S APPLICATIONS FOLDER (#721). Every reach the
 # installer makes into ~/Applications goes through this: the icon write when
@@ -4124,21 +4162,12 @@ elif [ "$APP_SKIP_ICON" = "yes" ]; then
   if [ "$APP_SKIP_REASON" = "shared-sealed" ]; then
     # #5913: another account's sealed Kosmos icon opens this install too, so none is made here.
     info "Kosmos is already in Applications for every account on this computer; it opens your Kosmos too."
-    sealed_icon_mark_reuse \
-      || info "(this computer could not note that your account uses that icon, so if its owner uninstalls Kosmos, run this installer again)"
-    # A second icon this install made earlier (before #5913) is this install's own leftover: the proven ownership
-    # check, never through a link, and only when the home folder is really a different folder.
-    _home_apps_phys="$(cd "$HOME_APP_DIR" 2>/dev/null && pwd -P)" || _home_apps_phys=""
-    _sys_apps_phys="$(cd "$SYS_APP_DIR" 2>/dev/null && pwd -P)" || _sys_apps_phys=""
-    if [ -n "$_home_apps_phys" ] && [ -n "$_sys_apps_phys" ] && [ "$_home_apps_phys" != "$_sys_apps_phys" ] \
-       && [ ! -L "$HOME_APP_DIR/Kosmos.app" ] && bundle_is_ours "$HOME_APP_DIR/Kosmos.app" anchored; then
-      # (No lsregister here: _lsreg_u lives inside uninstall() and does not exist on the install path; a removed
-      # bundle's stale Spotlight record is cleared by macOS on its own.)
-      if rm -rf "$HOME_APP_DIR/Kosmos.app" 2>/dev/null; then
-        info "(the second Kosmos icon in the Applications folder inside your home folder was removed)"
-      else
-        info "(a second Kosmos icon is still in the Applications folder inside your home folder; drag it to the Trash)"
-      fi
+    # Review 1: the earlier second icon goes ONLY once the marker is written, or a later uninstall by the icon's
+    # owner would leave this account with no icon at all.
+    if sealed_icon_mark_reuse; then
+      sealed_reuse_drop_second_icon
+    else
+      info "(this computer could not note that your account uses that icon, so if its owner uninstalls Kosmos, run this installer again)"
     fi
   elif [ "$APP_SKIP_REASON" = "same" ]; then
     info "something else already has the Kosmos spot in Applications, and this computer's home"
@@ -4195,8 +4224,14 @@ fi
 # app" as a remedy -- it is measured-unreliable. Gated to updates (a fresh
 # install has no previous bundle to be stale, and its own open already fired).
 if [ "$(uname -s)" != "Linux" ] && [ "$FRESH_INSTALL" = "no" ] && [ "$APP_MADE" != "yes" ]; then
-  info "note: this update did not refresh the Kosmos app itself. If the app opens to an"
-  info "empty dashboard, open the Kosmos app from your Applications folder, or run: kosmos open"
+  if [ "${APP_SKIP_REASON:-}" = "shared-sealed" ]; then
+    # #5913 review 1: the icon in use is another account's copy, which this update never refreshes; same remedy.
+    info "note: the Kosmos app in Applications is another account's copy, so this update did not refresh it."
+    info "If it opens to an empty dashboard, run: kosmos open"
+  else
+    info "note: this update did not refresh the Kosmos app itself. If the app opens to an"
+    info "empty dashboard, open the Kosmos app from your Applications folder, or run: kosmos open"
+  fi
 fi
 
 # ---- the permission acceptance (#46, Josh's ruling 2026-08-17) --------------
