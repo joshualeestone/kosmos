@@ -14,12 +14,20 @@ Tail: over 90 min, 3 browser-check runs (99.4, 99.9, 129.4) and 1 validation (15
 ## Change
 - `tools/lib/cut-guard.sh` `kosmos_wait_until_clear`: queue default 2700 -> 6300 s (105 min), with the measurement beside it.
   The ceiling (four bounds plus one per waiter ahead) derives from it: 7 h plus 105 min per waiter. Kept scaling on
-  purpose: a waiter k deep in a healthy queue waits about k holders of ~75 min, which 45 x (4+k) cuts off from k = 3.
+  purpose: a waiter k deep in a healthy queue waits about k holders; with 81-min holders (the p90) 45 x (4+k) cuts it
+  off from k = 3, with 75-min holders from k = 4.
 - The queue note: the 14-26 sentence is gone; it states 105 minutes and the history.
 - `KOSMOS_QUEUE_STARVE_S` stays 2700: it is the aging line at which a heavy waiter passes light ones, a different
   question. Only its comment changes (it no longer says it is the queue's bound).
 - `tools/run-tests.sh`: its description says 105 minutes.
 - `tools/test-cut-guard.sh`: the default-bound pin is 211 calls (210 waits of 30 s), was 91.
+
+## Delivery (merging is not enough)
+queued-heavy.sh loads cut-guard.sh from the shared LIB_CHECKOUT (~/work/kosmos-bc-main-4610), not from the run's tree.
+On 10-12 it sat at ed6b6e2e0 (10-07), 2,058 commits behind main, so queued-heavy waiters, the ones that refused,
+would keep the 2700 s bound after this merges. After merge: confirm the checkout is clean and unused, move it with
+`git -C ~/work/kosmos-bc-main-4610 checkout --detach origin/main` (reversible: back to ed6b6e2e0), then confirm a live
+queued-heavy waiter's "waiting for it" line names the bound 6300s. The drift itself is #5923.
 
 ## Cost
 Behind a genuinely hung holder the waiter k deep gives up at about (k+1) x 105 min, not (k+1) x 45 (the #4574 note).
