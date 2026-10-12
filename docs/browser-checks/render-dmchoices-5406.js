@@ -171,7 +171,9 @@ async function run() {
           await page.waitForTimeout(200);
           const after = await page.evaluate(() => ({ cleared: window.__cleared || 0,
             question: [...document.querySelectorAll('#d-dmthread .msg')].some((m) => /Which fruit/.test(m.textContent)),
-            answer: [...document.querySelectorAll('#d-dmthread *')].some((m) => m.children.length === 0 && /Apple, please/.test(m.textContent)) }));
+            // The thread's own text: the answer and the later message are still there (no conversation deleted).
+            answer: /Apple, please\./.test(document.getElementById('d-dmthread').textContent)
+              && /Noted\./.test(document.getElementById('d-dmthread').textContent) }));
           check(`[${theme}] answered: pressing it clears through the route and the question goes, the conversation stays`,
             after.cleared === 1 && !after.question && after.answer, JSON.stringify(after));
         } else {
