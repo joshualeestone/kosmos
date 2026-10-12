@@ -56,6 +56,7 @@ if [ "$rc" -eq 1 ] && has "$out" "could not tell"; then pass "a probe that canno
 sleep 30 & mpid=$!
 # #5914: wait for the exec. Until then ps shows this script's own command, and a marker recording that reads as stale.
 for _ in $(seq 1 30); do case "$(ps -ww -o command= -p "$mpid")" in sleep*) break ;; esac; sleep 0.1; done
+case "$(ps -ww -o command= -p "$mpid")" in sleep*) ;; *) fail "FIXTURE: stand-in process $mpid never showed as sleep, so the marker arms after it cannot be trusted" ;; esac
 { printf 'test-cookie-2271\n'; ps -ww -o command= -p "$mpid"; } > "$T/markers/browser.$mpid"
 out="$(KOSMOS_BC_PROBE="$T/probe-quiet" kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "marked"; then pass "a live marker refuses even under a quiet process probe (#2271)"; else fail "marker not detected (rc=$rc, out=$out)"; fi
