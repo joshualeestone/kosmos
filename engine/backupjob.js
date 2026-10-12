@@ -69,10 +69,11 @@ async function memberKeyFor(state, deps) {
   const now = (deps && deps.now) || Date.now;
   const ensure = deps && deps.ensureMemberKey;
   if (typeof ensure !== 'function') return { ok: false, because: 'no member key step', state: st };
-  // Only an ABSENT deps.pair means a first run. One given but malformed is refused (badPair, review 3): read as absent,
-  // it would switch off the otherPair check and let another pair's answer be sealed under and recorded here.
-  if (deps.pair !== undefined && !isPair(deps.pair)) return { ok: false, badPair: true, because: 'the backup state names its company and member in a form this computer does not know', state: st };
-  const pair = deps.pair === undefined ? null : { org: deps.pair.org, member: deps.pair.member };
+  // Only an ABSENT deps.pair (undefined or null) means a first run. One given but malformed is refused (badPair,
+  // review 3): read as absent, it would switch off the otherPair check and let another pair's answer be sealed under
+  // and recorded here. null is absent, not malformed (review 4): `state.pair || null` is how a caller says none.
+  if (deps.pair != null && !isPair(deps.pair)) return { ok: false, badPair: true, because: 'the backup state names its company and member in a form this computer does not know', state: st };
+  const pair = deps.pair == null ? null : { org: deps.pair.org, member: deps.pair.member };
   // needsPair: a caller mistake (the state was read from its pair's file, so the pair is known), refused loudly.
   if (st.lostEpoch && !pair) return { ok: false, needsPair: true, because: 'the backup state does not say which company and member it is for', state: st };
   if (st.waitUntilMs && now() < st.waitUntilMs && st.waitUntilMs - now() <= BACKOFF_MAX_MS) {

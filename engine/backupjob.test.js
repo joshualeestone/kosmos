@@ -274,14 +274,16 @@ test('#5535 review 3: runOnce puts the named pair at the top on every path; a ma
   }
   const unnamed = await job.runOnce({}, { ensureMemberKey: ensurer({ ok: false, because: 'no answer' }), snapshot: snapper({ ok: true }) });
   assert.strictEqual('pair' in unnamed, false);
-  for (const bad of [null, {}, { org: 'o1', memberId: 'm1' }, 'o1', { org: 'o1', member: '' }]) {
+  for (const bad of [{}, { org: 'o1', memberId: 'm1' }, 'o1', { org: 'o1', member: '' }]) {
     const ensure = ensurer({ ok: true, epoch: 1, publicKey: PK, org: 'o2', member: 'm2' });
     const snapshot = snapper({ ok: true });
     const r = await job.runOnce({}, { ensureMemberKey: ensure, snapshot, pair: bad });
     assert.deepStrictEqual([r.result.ok, r.result.badPair, ensure.calls.length, snapshot.calls.length], [false, true, 0, 0], JSON.stringify(bad));
   }
-  // CONTROL: absent is a first run, and proceeds.
-  const s = snapper({ ok: true });
-  await job.runOnce({}, { ensureMemberKey: ensurer({ ok: true, epoch: 1, publicKey: PK, ...PAIR }), snapshot: s });
-  assert.strictEqual(s.calls.length, 1);
+  // CONTROL: absent (undefined, or null, review 4) is a first run, and proceeds.
+  for (const none of [undefined, null]) {
+    const s = snapper({ ok: true });
+    await job.runOnce({}, { ensureMemberKey: ensurer({ ok: true, epoch: 1, publicKey: PK, ...PAIR }), snapshot: s, pair: none });
+    assert.strictEqual(s.calls.length, 1, String(none));
+  }
 });

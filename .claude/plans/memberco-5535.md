@@ -75,3 +75,11 @@ fresh object, the frozen UNREADABLE included via its spread copy), so the spread
 2. A present but malformed deps.pair was read as absent, switching off the otherPair check. FIXED: badPair refusal
    before any call; only undefined means a first run.
 Mutants after review 3 (19:10 CDT from `date`): L1 no top pair on the ok path: red. L2 none on the refusal path: red. L3 malformed pair read as absent: red.
+
+## Review 4 (sonnet, blind, on 456016bd): no must-fix, two nits
+1. FIXED: a null deps.pair was refused as badPair, so a caller writing `state.pair || null` on a first run would be
+   refused forever. null is absent now, like undefined; only a present malformed pair is badPair.
+2. ACCEPTED, not changed: with deps.pair set, an ok answer that names no pair skips the otherPair check. The real
+   ensureMemberKey cannot produce it (an ok answer always follows the company being known, so it always names it), and
+   the run builds the manifest context from its own pair. A guard would police only stubs; 27 test calls use that shape.
+   What would change my mind: a second ensureMemberKey implementation, or a wrapper that drops fields.
