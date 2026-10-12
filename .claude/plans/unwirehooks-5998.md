@@ -15,7 +15,13 @@ path) over those files. A hook item is ours when it carries the kosmos-report-ho
 KOSMOS_HOME (given or realpath); the status line when it names kosmos-statusline.js inside it. An entry left with no
 hooks is dropped, an event left with no entries is dropped, `hooks` is dropped only if this run emptied it. Written
 through the realpath (a symlinked dotfile stays a link), keeping the mode, by temp file and rename. A file that
-cannot be parsed or saved but carries our marker is named in the uninstall output; nothing is guessed at.
+cannot be parsed or saved but names this install is named in the uninstall output; nothing is guessed at.
+"Inside this home" is anchored: the root must start the string or follow a quote or space (so /var/x never matches
+/private/var/x by accident); both the given KOSMOS_HOME and its realpath count, since the engine writes hook paths
+from its own realpath. An event with nothing of ours is left exactly as it was. Saved with fsync, temp removed on
+failure. With no node (a partial install) or no temp file, every settings file that still names THIS install's hook
+path is named instead. The later status-line notice no longer claims a surviving status line records nothing: it
+may be another install's.
 Node writes its list to a temp file (a heredoc inside $( ) does not parse in bash here).
 
 ## Rejected
