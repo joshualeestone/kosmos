@@ -90,7 +90,9 @@ function rootsFor(input) {
     }
     if (!idOk) { left.push({ what: 'an agent\'s transcripts', why: 'its name cannot be a backup root name' }); continue; }
     let s = [];
-    try { s = input.sessions ? input.sessions(d, a.id) : []; } catch { s = []; }
+    // As Kosmos recorded the folder, not its true spelling (review 4): a transcript records the folder its agent was
+    // started in, and backupsessions matches by that.
+    try { s = input.sessions ? input.sessions(a.dir, a.id) : []; } catch { s = []; }
     for (const r of s) roots.push(r);
   }
   // Transcript roots (`only` lists) last, against every folder root (review 2): a provider folder may be a link, so its
@@ -143,7 +145,11 @@ function startTick(deps) {
       if (!roots.some((r) => r && r.name === 'workers')) return;
       state.running = true;
       let r;
-      try { r = await deps.runBackup({ roots }); } finally { state.running = false; }
+      try { r = await deps.runBackup({ roots }); } catch {
+        // runBackup never throws by contract; one that does is said once (review 4), not swallowed every hour.
+        if (state.said !== 'threw') { state.said = 'threw'; say('the backup stopped on an unexpected error on this computer'); }
+        return;
+      } finally { state.running = false; }
       if (!r || typeof r !== 'object') return;
       // Refused before Kosmos+ named the company (no pair): Kosmos+ is unreachable, refuses, or an older connector will
       // not sign and so gives no refusal code (review 1). Backed off, doubling to a day, so an enrolled Mac does not
