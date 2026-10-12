@@ -73,17 +73,19 @@ struct KosmosInstallConfig: Codable {
     }
 
     /// The LAST candidate is the bundle's copy whenever there is more than one (installConfigCandidates). Order:
-    /// a bundle copy that is THIS account's own (ownerUid == uid); else the first config whose install folder can be
-    /// seen; else the bundle's copy, then whatever else reads. Pinned by the "disk" rows of --kosmos-app-mode-selftest.
+    /// a bundle copy that is THIS account's own (ownerUid == uid); else the first config whose install is usable (its
+    /// bin/kosmos is executable, the #664 test); else the bundle's copy, then whatever else reads. Pinned by the "disk"
+    /// rows of --kosmos-app-mode-selftest.
     static func load(from paths: [String], uid: UInt32,
-                     homeExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> KosmosInstallConfig? {
+                     isInstalled: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0 + "/bin/kosmos") })
+        -> KosmosInstallConfig? {
         let read = paths.map { path -> KosmosInstallConfig? in
             guard let data = FileManager.default.contents(atPath: path) else { return nil }
             return try? JSONDecoder().decode(KosmosInstallConfig.self, from: data)
         }
         if let last = read.last, let bundled = last, bundled.ownerUid == uid { return bundled }
         let decoded = read.compactMap { $0 }
-        return decoded.first { homeExists($0.kosmosHome) } ?? decoded.last
+        return decoded.first { isInstalled($0.kosmosHome) } ?? decoded.last
     }
 }
 
@@ -184,7 +186,7 @@ func resolveInstall(config: KosmosInstallConfig?) throws -> ResolvedInstall {
     // shared icon gets ITS OWN true home this same way, with no override
     // needed -- this seam exists only so a test harness can simulate that
     // without provisioning a second real account.
-    let realHome = ProcessInfo.processInfo.environment["KOSMOS_APP_TEST_HOME"] ?? NSHomeDirectory()
+    let realHome = testHomeOverride() ?? NSHomeDirectory()
     let defaultHome = realHome + "/.local/share/kosmos"
     // An explicit KOSMOS_HOME in the environment names the copy to open
     // outright (a self-host layout, or a harness pointing at a disposable
@@ -1005,8 +1007,13 @@ func resolveBundledTmux(kosmosHome: String) -> String? {
 // NSHomeDirectory() is resolved against the REAL running identity and does NOT honor an inherited/
 // spoofable $HOME, and KOSMOS_APP_TEST_HOME is the same testing-only override resolveInstall uses.
 // One named place chooses "the real home" for #3188 so it cannot diverge from resolveInstall's copy.
+/// KOSMOS_APP_TEST_HOME, with an empty value treated as unset, as installConfigCandidates treats it.
+func testHomeOverride() -> String? {
+    ProcessInfo.processInfo.environment["KOSMOS_APP_TEST_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+}
+
 func realUserHome() -> URL {
-    let path = ProcessInfo.processInfo.environment["KOSMOS_APP_TEST_HOME"] ?? NSHomeDirectory()
+    let path = testHomeOverride() ?? NSHomeDirectory()
     return URL(fileURLWithPath: path)
 }
 
@@ -6864,22 +6871,32 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     let own = cdir.appendingPathComponent("own.json").path, bundled = cdir.appendingPathComponent("bundled.json").path
     FileManager.default.createFile(atPath: bundled, contents: Data(#"{"kosmosHome":"/b","ownerUid":502,"port":16200}"#.utf8))
     FileManager.default.createFile(atPath: own, contents: Data(#"{"kosmosHome":"/a","ownerUid":501,"port":16180}"#.utf8))
-    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, homeExists: { _ in true })?.kosmosHome == "/a", "the account's own config wins over a bundle copy written for another account")
+    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/a", "the account's own config wins over a bundle copy written for another account")
     let bundledOurs = cdir.appendingPathComponent("bundled-ours.json").path
     FileManager.default.createFile(atPath: bundledOurs, contents: Data(#"{"kosmosHome":"/c","ownerUid":501,"port":16180}"#.utf8))
-    disk(KosmosInstallConfig.load(from: [own, bundledOurs], uid: 501, homeExists: { _ in true })?.kosmosHome == "/c",
+    disk(KosmosInstallConfig.load(from: [own, bundledOurs], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/c",
          "a bundle copy that is THIS account's own wins over an account file naming another of its installs")
-    disk(KosmosInstallConfig.load(from: [own, cdir.appendingPathComponent("absent.json").path], uid: 502, homeExists: { _ in false })?.kosmosHome == "/a",
-         "no bundle copy: the account file is read even when it names another uid and its folder is gone")
-    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, homeExists: { $0 == "/b" })?.kosmosHome == "/b",
-         "an account file whose install folder is gone yields to another account's bundle copy (the #664 path)")
-    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, homeExists: { _ in false })?.kosmosHome == "/b",
-         "no install folder can be seen: the bundle's copy, not this account's file")
+    disk(KosmosInstallConfig.load(from: [own, cdir.appendingPathComponent("absent.json").path], uid: 502, isInstalled: { _ in false })?.kosmosHome == "/a",
+         "no bundle copy: the account file is read even when it names another uid and its install is gone")
+    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { $0 == "/b" })?.kosmosHome == "/b",
+         "an account file whose install is gone (no runnable bin/kosmos) yields to another account's bundle copy (the #664 path)")
+    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in false })?.kosmosHome == "/b",
+         "no usable install can be seen: the bundle's copy, not this account's file")
+    // The default test, on real folders: a half-removed install (folder there, no bin/kosmos) is not usable.
+    let half = cdir.appendingPathComponent("half").path, whole = cdir.appendingPathComponent("whole").path
+    try? FileManager.default.createDirectory(atPath: half, withIntermediateDirectories: true)
+    try? FileManager.default.createDirectory(atPath: whole + "/bin", withIntermediateDirectories: true)
+    FileManager.default.createFile(atPath: whole + "/bin/kosmos", contents: Data("#!/bin/sh\n".utf8), attributes: [.posixPermissions: 0o755])
+    let ownHalf = cdir.appendingPathComponent("own-half.json").path, foreignWhole = cdir.appendingPathComponent("foreign-whole.json").path
+    FileManager.default.createFile(atPath: ownHalf, contents: Data(#"{"kosmosHome":"\#(half)","ownerUid":501,"port":16180}"#.utf8))
+    FileManager.default.createFile(atPath: foreignWhole, contents: Data(#"{"kosmosHome":"\#(whole)","ownerUid":502,"port":16200}"#.utf8))
+    disk(KosmosInstallConfig.load(from: [ownHalf, foreignWhole], uid: 501)?.kosmosHome == whole,
+         "a half-removed install (folder there, no runnable bin/kosmos) yields to another account's usable one")
     FileManager.default.createFile(atPath: own, contents: Data("not json".utf8))
-    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, homeExists: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
+    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
     try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 111   // #5896: +13 (7 config-order rows, 6 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 112   // #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
