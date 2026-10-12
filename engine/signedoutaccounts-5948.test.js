@@ -64,17 +64,19 @@ test('#5948 review 1: a credential file that is there but was not listed reads "
   const there = (f) => f === '/h/.grok-work/.kosmos-grok-apikey';
   const [r] = signedOutRows([card('gk', 'grok', 'Gk')], { xai: [] }, readJob, readName, there);
   assert.deepEqual([r.signedOut, r.unreadable, r.connection.state, r.connection.badge], [false, true, 'unknown', 'unchecked']);
-  assert.match(r.connection.because, /there but Kosmos could not read it/);
+  assert.match(r.connection.because, /is in its folder, but Kosmos could not read it or does not look in that folder/);
   assert.doesNotMatch(r.connection.because, /no longer/);
   // CONTROL: the same folder with no credential file reads gone.
   const [g] = signedOutRows([card('gk', 'grok', 'Gk')], { xai: [] }, readJob, readName, () => false);
   assert.deepEqual([g.signedOut, g.connection.badge], [true, 'signed_out']);
 });
 
-test('#5948 review 1: a job pinned to the provider\'s default home is the default account, not a ".grok" label; many agents are counted, not all named', () => {
-  const pinned = { d: { configDir: '/h/.grok', runner: 'grok' } };
-  const [d] = signedOutRows([card('d', 'grok')], { xai: [] }, (n) => pinned[n], readName, () => false);
-  assert.deepEqual([d.isDefault, d.label], [true, null]);
+test('#5948 review 1/3: the provider\'s default folder is skipped; many agents are counted, not all named', () => {
+  // The default folder (as the provider module names it) is skipped, named or not: it may run on the computer's own key.
+  const pinned = { d: { configDir: '/h/.grok', runner: 'grok' }, e: { configDir: '/h/.grok-e', runner: 'grok' } };
+  assert.deepEqual(signedOutRows([card('d', 'grok')], { xai: [] }, (n) => pinned[n], readName, () => false, () => '/h/.grok'), []);
+  // CONTROL: a named folder beside it is still reported, so the skip is the default folder's alone.
+  assert.equal(signedOutRows([card('e', 'grok')], { xai: [] }, (n) => pinned[n], readName, () => false, () => '/h/.grok').length, 1);
   const many = {};
   const cards = [];
   for (let i = 1; i <= 5; i++) { many['a' + i] = { configDir: '/h/.grok-team', runner: 'grok' }; cards.push(card('a' + i, 'grok', 'A' + i)); }
@@ -90,4 +92,21 @@ test('#5948 review 2: each provider\'s credential file names are the ones its ow
   assert.deepEqual(PROVIDER_OF_RUNNER.codex.files, [base(require('./openaiaccounts').authFile)]);
   assert.deepEqual(PROVIDER_OF_RUNNER.gemini.files, [base(require('./geminiaccounts').keyFile)]);
   assert.deepEqual(PROVIDER_OF_RUNNER.grok.files, [base(require('./grokaccounts').keyFile), base(require('./grokaccounts').authFile)]);
+});
+
+test('#5948 review 3: on a real disk, a folder Kosmos cannot read reads unchecked, never gone; a missing folder reads gone', { skip: process.getuid && process.getuid() === 0 }, () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-so-5948-'));
+  const locked = path.join(root, '.grok-locked');
+  fs.mkdirSync(locked);
+  fs.chmodSync(locked, 0o000);
+  try {
+    const jobsHere = { l: { configDir: locked, runner: 'grok' }, m: { configDir: path.join(root, '.grok-missing'), runner: 'grok' } };
+    const [l] = signedOutRows([card('l', 'grok')], { xai: [] }, (n) => jobsHere[n], () => null);
+    assert.deepEqual([l.unreadable, l.connection.badge], [true, 'unchecked'], JSON.stringify(l));
+    const [m] = signedOutRows([card('m', 'grok')], { xai: [] }, (n) => jobsHere[n], () => null);
+    assert.deepEqual([m.unreadable, m.connection.badge], [false, 'signed_out'], 'CONTROL: ' + JSON.stringify(m));
+  } finally { fs.chmodSync(locked, 0o700); fs.rmSync(root, { recursive: true, force: true }); }
 });

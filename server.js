@@ -11005,12 +11005,14 @@ const server = http.createServer(async (req, res) => {
         let signedOutAccounts = [];
         try {
           const readers = { openai: openaiAccounts, google: geminiAccounts, xai: grokAccounts };
-          // One set of names with the account walk (knownAgentNames): the roster's cards, then known profiles not on it.
+          // The account walk's names (knownAgentNames): the roster's cards, then known profiles not on it. Its `complete` is
+          // not used: this is a read-only listing, and a name it could not read only leaves a row out.
           const known = knownAgentNames();
           const onRoster = new Set((known.roster || []).map((c) => c && c.sessionName));
           const cards = [...(known.roster || []), ...[...known.names].filter((n) => !onRoster.has(n)).map((n) => ({ sessionName: n, name: n }))];
           signedOutAccounts = require('./engine/signedoutaccounts').signedOutRows(cards,
-            { openai: openaiRows, google: geminiRows, xai: grokRows }, (n) => create.readJob(n), (p, d) => readers[p].readName(d));
+            { openai: openaiRows, google: geminiRows, xai: grokRows }, (n) => create.readJob(n), (p, d) => readers[p].readName(d),
+            undefined, (p) => readers[p].defaultDir());
         } catch { signedOutAccounts = []; }
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub], signedOutAccounts });
       })
