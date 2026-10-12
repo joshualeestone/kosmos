@@ -31,6 +31,10 @@ signed in or not, quota, last successful turn time."
 - The Claude arm records an OK on every tick a pane reads WORKING (streaming), so for Claude "last worked" is the
   last time Kosmos saw it streaming, not the end of a completed turn. Codex/Gemini/Grok record the completion time,
   and only when that completion was fresh at a sweep, so a turn that ended before the board started is not seen.
+- A Claude pane in its retry loop: a rate limit or a rejected sign-in classifies as such before working chrome, so it
+  records no OK; a plain network retry (connection_lost) likewise. A retry shape that scrapes as WORKING would record
+  one; none is known.
+- Stopped, restarting or unknown agents show only the time: Kosmos sees nothing of their sign-in or usage.
 - In memory: after a board restart every agent reads "Last seen working: not since Kosmos started" until its next turn.
 - "At a glance" in the ask may mean the board card; if so, the line is one call away (`healthLine` is pure).
 

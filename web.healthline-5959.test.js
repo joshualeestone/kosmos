@@ -14,7 +14,7 @@ function src(name) {
   assert.ok(m, 'CONTROL: ' + name + ' was not found in the page');
   return m[0];
 }
-const { healthLine, seenAtWords } = new Function(src('seenAtWords') + src('healthLine') + '\nreturn { healthLine, seenAtWords };')();
+const { healthLine, seenAtWords } = new Function(src('seenAtWords') + PAGE.match(/\nconst HEALTH_READ_STATES = [^\n]*\n/)[0] + src('healthLine') + '\nreturn { healthLine, seenAtWords };')();
 const NOW = Date.parse('2026-10-12T17:00:00Z');
 const ago = (ms) => new Date(NOW - ms).toISOString();
 
@@ -34,6 +34,10 @@ test('#5959 slice 2: the health line says sign-in, usage and when Kosmos last sa
     /· Usage: limit reached · /);
   assert.match(healthLine({ state: 'working', lastWorked: { at: null, why: 'no_source' } }, NOW),
     /Last seen working: Kosmos cannot see this agent's turns$/);
+  // Stopped, restarting or unreadable: Kosmos sees nothing of its sign-in or usage, so only the time is said.
+  for (const state of ['stopped', 'restarting', 'unknown']) {
+    assert.equal(healthLine({ state, lastWorked: { at: null, why: 'not_seen' } }, NOW), 'Last seen working: not since Kosmos started', state);
+  }
   // A clock time, not "N minutes ago": the page is painted once, so a relative time would go stale while it is open.
   // Not today: the weekday too; over six days: the date.
   const day = 86400e3;

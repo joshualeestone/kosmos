@@ -23673,20 +23673,24 @@ function agoWords(ms) {
 /* #5959 slice 2 (the Windows agents' QA report, item 2): one health line on the agent's page: sign-in, usage, and when
    Kosmos last saw it working. Sign-in and usage come from the card's state only, hedged as the state sentence is for a
    screen reading (#215). The time is the engine's lastWorked (status.js lastWorkedOf), said as a clock time because the
-   page is painted once when it opens. '' for a card with no lastWorked: no line.
+   page is painted once when it opens (the sign-in and usage words are as of then too, like the rest of the page).
+   '' for a card with no lastWorked: no line.
    On the agent's page, not its card on the board: #855 cut the card's extra lines, and the card's state already says a
    sign-in or usage problem. */
+const HEALTH_READ_STATES = new Set(['working', 'idle', 'needs_you', 'blocked', 'rate_limited', 'auth_failed', 'connection_lost']);
 function healthLine(a, nowMs) {
   const lw = a && a.lastWorked;
   if (!lw || typeof lw !== 'object') return '';
-  const looks = a.stateConfidence === 'scraped';
-  const signin = a.state === 'auth_failed' ? (looks ? 'looks like it isn\'t working' : 'isn\'t working') : 'no problem showing';
-  const usage = a.state === 'rate_limited' ? (looks ? 'looks like a limit' : 'limit reached') : 'no limit showing';
   const at = typeof lw.at === 'string' ? Date.parse(lw.at) : NaN;
   let last;
   if (Number.isFinite(at)) last = seenAtWords(at, nowMs);
   else if (lw.why === 'no_source') last = 'Kosmos cannot see this agent\'s turns';
   else last = 'not since Kosmos started';
+  // A stopped, restarting or unreadable agent shows Kosmos nothing about its sign-in or usage, so only the time is said.
+  if (!HEALTH_READ_STATES.has(a.state)) return 'Last seen working: ' + last;
+  const looks = a.stateConfidence === 'scraped';
+  const signin = a.state === 'auth_failed' ? (looks ? 'looks like it isn\'t working' : 'isn\'t working') : 'no problem showing';
+  const usage = a.state === 'rate_limited' ? (looks ? 'looks like a limit' : 'limit reached') : 'no limit showing';
   return 'Sign-in: ' + signin + ' · Usage: ' + usage + ' · Last seen working: ' + last;
 }
 /* #5959 slice 2: a past time as this computer's clock reads it, with the weekday when it was not today's, and the date
