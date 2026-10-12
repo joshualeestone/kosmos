@@ -525,8 +525,7 @@ test('#5535: every answer after Kosmos+ named the company carries its org and me
   c.setDay(false);
   const wait = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1, lostFor: OWN });
   assert.deepEqual([wait.ok, wait.waiting, wait.org, wait.member], [false, true, ORG, MEMBER], JSON.stringify(wait));
-  // An unreadable key file: the answer is a copy of a frozen constant, so it can name the pair, twice (tagging the
-  // constant itself would throw, and the call would reject).
+  // An unreadable key file (a frozen constant, copied before it is tagged): it names the pair, on every call.
   fs.writeFileSync(keyFile(), '{');
   const u1 = await mk.ensureMemberKey({ macRequest: c.macRequest });
   const u2 = await mk.ensureMemberKey({ macRequest: c.macRequest });

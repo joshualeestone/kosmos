@@ -231,3 +231,32 @@ test('#5535: an answer naming another pair is refused as otherPair, never sealed
   await job.runOnce({}, { ensureMemberKey: ensurer({ ok: true, epoch: 1, publicKey: PK, ...other }), snapshot: s2 });
   assert.deepStrictEqual(s2.calls, [{ memberPk: PK, epoch: '1', org: 'o2', member: 'm1' }]);
 });
+
+test('#5535 review 2: a first run (no pair) that records a lostEpoch says which pair it is for, and the next run with it proceeds', async () => {
+  for (const [what, answer] of [
+    ['a newer key pending', { ok: true, epoch: 2, publicKey: PK, pendingEpoch: 3, ...PAIR }],
+    ['a refused grant for a later epoch', null],
+  ]) {
+    let r1;
+    if (answer) r1 = await job.memberKeyFor({}, { ensureMemberKey: ensurer(answer) });
+    else {
+      const run = await job.runOnce({}, { ensureMemberKey: ensurer({ ok: true, epoch: 2, publicKey: PK, ...PAIR }), snapshot: snapper({ ok: false, otherEpoch: 3 }) });
+      r1 = { state: run.state, pair: run.key && { org: run.key.org, member: run.key.member } };
+    }
+    assert.deepStrictEqual([r1.state.lostEpoch, r1.pair], [2, PAIR], `${what}: ${JSON.stringify(r1)}`);
+    // The next run, given that pair, asks scoped instead of refusing as needsPair.
+    const ensure = ensurer({ ok: true, epoch: 3, publicKey: PK, ...PAIR });
+    const r2 = await job.memberKeyFor(r1.state, { ensureMemberKey: ensure, pair: r1.pair });
+    assert.deepStrictEqual([r2.ok, ensure.calls], [true, [{ lostEpoch: 2, lostFor: PAIR }]], what);
+  }
+  // Refusals after a named answer carry it too (a wait, a plain refusal); one before it (no answer) does not.
+  const w = await job.memberKeyFor({}, { ensureMemberKey: ensurer({ ok: false, waiting: true, because: 'wait', ...PAIR }), now: () => 0 });
+  assert.deepStrictEqual(w.pair, PAIR);
+  const f = await job.memberKeyFor({}, { ensureMemberKey: ensurer({ ok: false, because: 'no', ...PAIR }) });
+  assert.deepStrictEqual(f.pair, PAIR);
+  const n = await job.memberKeyFor({}, { ensureMemberKey: ensurer({ ok: false, because: 'no answer' }) });
+  assert.strictEqual('pair' in n, false);
+  // The no-pair refusal is flagged, so a caller can tell it from every other refusal.
+  const np = await job.memberKeyFor({ lostEpoch: 2 }, { ensureMemberKey: ensurer({ ok: true, epoch: 3, publicKey: PK }) });
+  assert.deepStrictEqual([np.ok, np.needsPair], [false, true]);
+});

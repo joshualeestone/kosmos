@@ -49,3 +49,17 @@ Mutants after review 1 (19:06 CDT from `date`, engine/backupjob.test.js, node --
 guard removed: red. J2 lostEpoch sent without lostFor: red. J3 otherPair check removed: red. J4 member not compared:
 red. J5 pair not passed to the snapshot: red. J7 otherPair checked only on ok answers (so another pair's WAIT backs
 off this state): red. (A cruder J6 that broke every wait also went red; it proved less than J7, so J7 is the one cited.)
+
+## Review 2 (sonnet, blind, on f73b50c3): two must-fix, four nits
+1. MUST-FIX: a first run (no deps.pair) whose answer led to a recorded lostEpoch (a pending key, an older key) returned
+   no pair, so the caller could not know which file to keep it in and the next run refused forever. FIXED: every result
+   after an answer that named its pair carries `pair`, ok or not (wrapper over fromAnswer; body not re-indented).
+2. MUST-FIX: the no-pair refusal had no flag. FIXED: needsPair: true.
+3. NIT, accepted and not changed: a wait is not tied to a pair. The caller keeps one state per pair's file, so a wait is
+   only ever read under its own pair; another pair's waiting answer is dropped (otherPair) and the caller switches, at
+   most one extra backup-key round trip per run. Stated cost.
+4. NIT: test gap for 1. FIXED: a first-run test for both lostEpoch paths, then a second run with the returned pair,
+   plus pair on refusals and needsPair.
+5. NIT: ensureMemberKey mutated the inner result. FIXED: a spread copy (and the test comment that described the old
+   throw is reworded).
+6. NIT: runOnce's header did not name otherPair. FIXED.

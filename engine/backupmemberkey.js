@@ -130,7 +130,7 @@ function ensureMemberKey(opts = {}) {
   // kosmos#5535: every answer given once the company is known names the company and member it is for, so the backup
   // job can keep its state per (org, member) and scope the lostEpoch it sends (lostFor, below).
   const seen = {};
-  const run = chain.then(() => ensureNow(opts, seen)).then((r) => (seen.company ? Object.assign(r, { org: seen.company.org, member: seen.company.member }) : r));
+  const run = chain.then(() => ensureNow(opts, seen)).then((r) => (seen.company ? { ...r, org: seen.company.org, member: seen.company.member } : r));
   chain = run.catch(() => {});
   return run;
 }
