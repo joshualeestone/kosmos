@@ -30,9 +30,16 @@ to update them." Plain words, no new badge or colour: the card's look is unchang
 A Settings list of every agent's rules version, last run and summary freshness (the card's last sentence) is a later
 slice; this one makes the far-behind agent visible where agents are seen.
 
-## Tests (planned)
-- engine: the cache answers the same as doctrine.status, and recomputes after the file or profile changes; null for an
-  unknown version.
-- page (lifted stateReason): the sentence for behind >= 5 and `refresh`; nothing for 4 behind, for `current`, or when a
-  more urgent reason applies.
-- Mutants: threshold off by one; the refresh condition dropped; the cache never invalidating.
+## Tests (as built)
+- engine/doctrine.rulesbehind-5957.test.js: far behind and offered gives the number; the threshold edge (5 counts, 4 does
+  not); no record and Not now give null; rules already current in the file give null (the card agrees with the page);
+  the file changing, the profile alone changing and a later Not now each recompute; five unchanged polls read the file
+  once; no file is null.
+- engine/status.rulesbehind-5957.test.js: status.snapshot() carries it on a real fleet card (13, and null as control).
+- server.world-offline-rows-1704.test.js: a STOPPED agent's offline row from /api/status carries it (13, null control).
+- web.rulesbehind-5957.test.js: an idle or stopped CARD says it; the agent's own page header does not; working,
+  needs-you, question, blocked, sign-in, connection, restarting and unknown do not; anything more urgent wins; only a
+  whole positive number is said.
+- Mutants, each red then restored on a clean tree: threshold off by one; the refresh condition dropped; the cache never
+  invalidating; no cache at all; the card flag ignored; the row field dropped.
+- The golden agent card (#2519) carries the new key; nearby files (279) green, 6130 pass.
