@@ -160,9 +160,13 @@ function startTick(deps) {
   async function tick() {
     try {
       if (state.running || now() < state.pausedUntil || !deps.enrolled()) return;
+      // Running from here, BEFORE anything is awaited (#5883: roots() is async now, and a second tick in that gap
+      // would start a second run). Cleared on every path, in the finally below.
+      state.running = true;
+      try {
       // roots() gives rootsFor's { roots, left } (or a bare list). What was left out is said once per change (review 1).
       let plan;
-      try { plan = deps.roots(); } catch {
+      try { plan = await deps.roots(); } catch {
         // Said once (review 2): otherwise no backup, every hour, and nothing said.
         if (state.saidLeft !== 'threw') say('the folders to back up could not be listed on this computer');
         state.saidLeft = 'threw';
@@ -174,13 +178,12 @@ function startTick(deps) {
       state.saidLeft = leftKey;
       // No workers root, no backup and no request: the run would only ask Kosmos+ for a key to refuse afterwards.
       if (!roots.some((r) => r && r.name === 'workers')) return;
-      state.running = true;
       let r;
       try { r = await deps.runBackup({ roots }); } catch {
         // runBackup never throws by contract; one that does is said once (review 4), not swallowed every hour.
         if (state.said !== 'threw') { state.said = 'threw'; say('the backup stopped on an unexpected error on this computer'); }
         return;
-      } finally { state.running = false; }
+      }
       if (!r || typeof r !== 'object') return;
       // Refused before Kosmos+ named the company (no pair): Kosmos+ is unreachable, refuses, or an older connector will
       // not sign and so gives no refusal code (review 1). Backed off, doubling to a day, so an enrolled Mac does not
@@ -195,6 +198,7 @@ function startTick(deps) {
       // Cleared by any run that ends without a reason a person acts on (review 7), so one that comes back is said again.
       if (r.ok || !act) state.said = null;
       else if (act && state.said !== act) { state.said = act; say(typeof r.because === 'string' && r.because ? r.because : 'it did not run, and did not say why'); }
+      } finally { state.running = false; }
     } catch { /* never throws; the next tick tries again */ }
   }
   const t = (deps.setInterval || setInterval)(tick, every);
@@ -306,9 +310,24 @@ function mayBackUp() {
    board's log. RESIDUAL: the gate is asked when a run starts; a Leave during a run does not stop that run's uploads (a
    rollup re-asks per batch). A run is bounded by the week's allowance and is one an hour at most. */
 function startHere() {
+  // kosmos#5883 slice 3: Antigravity conversations are live SQLite files, staged as consistent copies before the run
+  // (engine/backupagy.js) under Kosmos's own data, and the staging folder is cleared after every run.
+  const stageDir = () => path.join(require('./store').ROOT, 'backupstage', 'agy');
+  const agy = require('./backupagy');
   return startTick({
-    runBackup: (input) => require('./backuprun').runBackup(input),
-    roots: () => rootsFor(inputsHere()),
+    runBackup: async (input) => {
+      try { return await require('./backuprun').runBackup(input); } finally { agy.clearStage(stageDir()); }
+    },
+    roots: async () => {
+      const input = inputsHere();
+      const plan = rootsFor(input);
+      agy.clearStage(stageDir());   // a run that died left copies behind
+      let home = null;
+      try { home = require('./agytrust').agyHome(); } catch { /* none */ }
+      const agents = (input.agents || []).map((a) => ({ dir: a.dir, seg: rootSegment(a.id) })).filter((a) => a.seg);
+      try { plan.roots.push(...await agy.stageAgy({ home, stageDir: stageDir(), agents })); } catch { /* none */ }
+      return plan;
+    },
     enrolled: mayBackUp,
     say: (text) => console.error(text),
   });
