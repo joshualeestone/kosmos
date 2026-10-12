@@ -368,19 +368,18 @@ shared_sealed_stays() {
   return 0
 }
 # #5912 review: would a sealed icon this account owns still open an install of THIS account after this uninstall?
-# The sealed app opens the install the account config names, or the default home when there is none, and this
-# uninstall removes the config when it names this install. So afterwards it can open only the DEFAULT install: yes
-# only when this install ($1, its board label) is not the default (com.kosmos.board) and the default install's board
-# login job remains. A custom-home install's board (com.kosmos.board.<hash>) cannot open it, so it does not count.
-# A login-job folder that is missing or cannot be read answers yes (keep the icon: the safe direction).
+# The sealed app opens the install the account config names, or the default home when there is none
+# (native-app/main.swift resolveInstall: it opens a home whose bin/kosmos it can run), and this uninstall removes the
+# config when it names this install. So afterwards it can open only the DEFAULT install: yes only when this install
+# ($1, its board label) is not the default (com.kosmos.board) and the default home's bin/kosmos is runnable, the same
+# test the app makes. A board login job is not that test (a default install can have none, and a stale one outlives
+# its home).
 sealed_opens_another() {
-  local d="${AGENT_WORKFORCE_LAUNCH:-$HOME/Library/LaunchAgents}"
-  [ -d "$d" ] && [ -r "$d" ] || return 0
   [ "$1" = "com.kosmos.board" ] && return 1
-  [ -e "$d/com.kosmos.board.plist" ] || [ -L "$d/com.kosmos.board.plist" ]
+  [ -x "$_kosmos_home_default/bin/kosmos" ]
 }
 # A sealed Kosmos icon of ANY install (no per-install file, a valid signature with our identifier). Weaker than
-# bundle_is_sealed and used only where the answer LEAVES an icon in place and names it, never to delete one.
+# bundle_is_sealed: a yes here can only KEEP an icon (shared_sealed_stays); a removal needs bundle_is_ours as well.
 bundle_looks_sealed() {
   [ ! -L "$1" ] && [ ! -e "$1/Contents/Resources/kosmos-install.json" ] \
     && /usr/bin/codesign --verify --deep --strict '-R=identifier "com.chaoskosmos.kosmos"' "$1" >/dev/null 2>&1
