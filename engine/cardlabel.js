@@ -51,4 +51,9 @@ function labelOf(a) {
   return STATE_COPY[s];
 }
 
-module.exports = { labelOf, STATE_COPY };
+/** The sentence `kosmos report show` leads with; a label that already ends in punctuation gets no second. */
+function cardLine(label) {
+  return 'Your card on the board shows: ' + label + (/[.…]$/.test(label) ? '' : '.');
+}
+
+module.exports = { labelOf, cardLine, STATE_COPY };

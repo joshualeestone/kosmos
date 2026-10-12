@@ -30,3 +30,6 @@ permission prompt, a provider error) is not called "your own", and is cleared on
 The label also follows the page's OFFLINE card (running false, not restarting: a trust prompt, an unseen job's "Can't
 tell", or "Not running"), which the page decides before stateCopyOf; that branch is a template, so the test pins its
 expressions by text (review 4). A report an operator or an unknown writer left is said without naming a writer.
+Deferred (review 6): no route-level test of a crash-looping or reconnecting card. The route's card is safeRoster's,
+which adds crashLoop and reconnect with the same expressions /api/status uses; stateReportedBy is covered end to end
+("Question"); the labels themselves are pinned by the parity test.

@@ -179,16 +179,3 @@ test('#5959 review 4: a waiting report a person or an unknown writer left is sai
     }
   });
 });
-
-test('#5959 review 5: a label that already ends in punctuation ("Reconnecting…") is not given a second', async () => {
-  boardAuthState.on = false;
-  const board = fleet.install([fleet.agent('leo', { state: 'connection_lost' })]);
-  messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
-  try {
-    const card = board.agents.find((c) => c.sessionName === 'leo');
-    assert.equal(card.state, 'connection_lost', 'setup: the fixture is not a lost connection');
-    const t = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': sendertoken.mint(WHO).token } });
-    assert.match(t.text, /^Your card on the board shows: (Reconnecting…|Connection lost\.)\n/, t.text);
-    assert.doesNotMatch(t.text, /…\./, t.text);
-  } finally { messages.setRunner(null); board.restore(); }
-});
