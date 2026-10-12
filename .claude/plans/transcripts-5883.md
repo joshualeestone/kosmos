@@ -28,3 +28,17 @@ backuptick-inputs.test.js: a Codex agent on a named account is backed up from th
 the real sessionsFor), control with no job; a Gemini agent is given geminiStorageHome of its account, control.
 ## Mutants
 Measured 20:34 CDT from `date`: T1 Codex home always the default: red. T2 Gemini home always the default: red. (T1's first run never happened: its pattern held '||', which my '|'-split broke; rerun alone.)
+
+## Review 1 (opus, blind, on 68fa0b4a): one must-fix, three nits, all fixed
+1. MUST-FIX: I copied the BOARD's choice of one Codex home, but the board needs the current session and a backup owes
+   every one. Once a runtime home existed, the account or default home's earlier rollouts dropped out of new snapshots
+   (the old code had read the default home). FIXED in backupsessions: sessionsFor takes moreHomes, each named by KIND so a
+   name never moves between snapshots: codex (account home), codex-runtime, codex-default (beside a named account: what
+   it kept before moving); gemini and gemini-default likewise. All filtered to this agent's own files. Stated residual:
+   a move between two NAMED accounts leaves the first account's sessions unread (#5883 stays open for it and Grok).
+2. FIXED: the Gemini test's control depended on a folder an earlier test made; it makes its own and passes alone.
+3. FIXED: the runtime branch is tested (account, runtime and default homes, each one root with its own file).
+4. FIXED: the input doc names the new call shape (dir, rootSegment, storedName).
+Mutants (20:37 CDT from `date`): R1 no runtime home: red. R2 no default home: red. R3 the one-folder check in
+sessionsFor removed: SURVIVES, equivalent today: inputsHere never passes a home that resolves to one already read (the
+default is added only beside a named account).
