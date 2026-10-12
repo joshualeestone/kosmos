@@ -87,8 +87,17 @@ test('#5995: servedProfile copies, and passes on a profile that is not there', (
    new place that keeps writeProfile's answer is the moment to ask where it goes, so the count is held too. */
 test('#5995: the answer to a profile save is the served profile, and nothing else keeps a whole saved record', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const kept = src.match(/[=(:,]\s*(?:await\s+)?store\.writeProfile\(/g) || [];
-  assert.equal(kept.length, 1, 'server.js keeps the answer of store.writeProfile in ' + kept.length + ' places; this test knows one');
+  const kept = src.split('\n').filter((l) => /(?:[=(:,>]|\breturn)\s*(?:await\s+)?store\.writeProfile\(/.test(l)).map((l) => l.trim());
+  assert.deepEqual(kept, [
+    // Handed to engine/swarm.js twice as the way to save; it calls them and drops the answer (checked below).
+    'writeProfile: (n, patch) => store.writeProfile(n, patch),',
+    'writeProfile: (n, patch) => store.writeProfile(n, patch),',
+    'const written = store.servedProfile(store.writeProfile(name, clean));',
+  ], 'server.js keeps or passes on the answer of store.writeProfile somewhere this test does not know');
+  const swarmSrc = fs.readFileSync(path.join(__dirname, 'swarm.js'), 'utf8');
+  const swarmCalls = swarmSrc.split('\n').filter((l) => /writeProfile\(/.test(l));
+  assert.ok(swarmCalls.length > 0, 'CONTROL: engine/swarm.js no longer saves through writeProfile, so this reads the wrong file');
+  for (const l of swarmCalls) assert.match(l, /^\s*deps\.writeProfile\(/, 'engine/swarm.js keeps the answer of a save: ' + l.trim());
   assert.match(src, /const written = store\.servedProfile\(store\.writeProfile\(name, clean\)\);/, 'the save route keeps the whole stored record');
   assert.match(src, /sendJson\(res, 200, \{ \.\.\.written,/, 'CONTROL: the save route no longer answers with that record, so this test reads the wrong line');
   const written = store.writeProfile('mara', { role: 'researcher' });

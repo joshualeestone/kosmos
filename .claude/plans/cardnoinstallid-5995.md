@@ -35,7 +35,7 @@ Addresses #5995 (the fifth finding, comment 6132409431). Found while fixing item
 - Not storing the copy at all. `store.agentId` and the copied-profile check both compare it.
 
 ## Verify
-- `node --test engine/status.cardnoinstallid-5995.test.js`: 4 pass.
+- `node --test engine/status.cardnoinstallid-5995.test.js`: 5 pass (4 before review 1 added the save route's test).
 - Mutants, each applied and confirmed applied, then restored byte for byte: the pane site reverted -> the pane test
   red by name (and the no-pane test, whose whole-snapshot sweep sees the pane card); the no-pane site reverted -> the
   no-pane test red, the pane test green.
@@ -68,3 +68,14 @@ sentences that say `engine/status.js` serves the profile's copy (`engine/ping.js
 - **NIT, taken:** the file list in "What was measured" left out two comments in a browser check. Recounted.
 - **NIT, taken:** the no-pane test leaned on the pane test's leftover profile; it seeds its own now.
 - **NIT, taken:** a stored value that is an array is passed on as it is, not turned into an object.
+
+## Review 2 (2026-10-12, sonnet)
+No blocker, no warning. The reviewer read every non-test caller of `readProfile` and `writeProfile` and found no
+other path that hands a whole profile to a client.
+- **NIT, taken:** Verify said 4 pass; it is 5.
+- **NIT, taken:** the check on who keeps a saved record did not see `return store.writeProfile(...)` or an arrow
+  that returns it. Widened, and it found two: `server.js` hands `engine/swarm.js` a save function twice. The test now
+  holds all three lines by their text, and holds that `engine/swarm.js` only ever calls that function as a statement,
+  so its answer goes nowhere.
+- **CONVENTION, not a change to make:** no proof file yet. It is the loop's last output, after the full validation.
+
