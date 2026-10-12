@@ -106,8 +106,8 @@ token_web_scan() {
 # #5907: one pass per half counts every PLAIN token (only [A-Za-z0-9_-], the boundary class) at once. A line splits into
 # maximal runs of that class, and a plain token sits between boundaries exactly when it is one of those runs, so this is
 # token_web_scan's match; a line counts once per token, as grep -c counts lines. Prints "token count" for each wanted
-# token. (On invalid UTF-8 next to a token the C-locale split and the ambient-locale grep can differ; web/index.html is
-# valid UTF-8.) Calling token_web_scan per token cost two full-file greps for each of ~1,000 tokens (most of this test's time).
+# token. (The split is C-locale and the grep runs in the ambient locale: on invalid UTF-8 next to a token, or in a locale
+# whose A-Z range takes accented letters, they can differ. web/index.html is valid UTF-8, and macOS ranges are ASCII.) Calling token_web_scan per token cost two full-file greps for each of ~1,000 tokens (most of this test's time).
 count_plain_tokens() {   # $1: file of tokens, one per line; $2: the half to count in
   # FILENAME == ARGV[1], not NR == FNR: an empty token file must not turn the half's own lines into wanted tokens.
   LC_ALL=C awk 'FILENAME == ARGV[1] { if ($0 != "") want[$0]=1; next }
@@ -152,8 +152,8 @@ count_table "$ALL_TOKS" "$WEB_CODE" "$WEB_CMT" > "$COUNTS"
 # The fast path is really taken: one table row per distinct plain declared token. If the parse above broke, every token
 # would fall back to the grep, still right but slow again (#5907), and nothing else would say so.
 _nplain="$(LC_ALL=C grep -E '^[A-Za-z0-9_-]+$' "$ALL_TOKS" | LC_ALL=C sort -u | wc -l | tr -d ' ')"
-_nrows="$(wc -l < "$COUNTS" | tr -d ' ')"
-if [ "$_nplain" -ge 1 ] && [ "$_nrows" = "$_nplain" ]; then ok "the counted table holds all $_nrows plain tokens (the fast path is taken)"
+_nrows="$(awk 'NF == 3' "$COUNTS" | wc -l | tr -d ' ')"   # complete rows only: a row missing a count is not counted
+if [ "$_nrows" = "$_nplain" ]; then ok "the counted table holds all $_nrows plain tokens (the fast path is taken)"
 else bad "the counted table holds $_nrows rows for $_nplain plain tokens: the fast path is not taken"; fi
 
 annotated=0
@@ -236,7 +236,7 @@ while IFS= read -r t; do
   got="$(token_counts "$t" "$_ptab" /dev/null /dev/null)"
   [ "$got" = "$want" ] || { bad "PARITY: the counted path says '$got' for $t, token_web_scan says '$want'"; _pbad=1; }
 done < "$_ptoks"
-[ "$(wc -l < "$_ptab" | tr -d ' ')" = "$(wc -l < "$_ptoks" | tr -d ' ')" ] || { bad "PARITY: the table did not count every plain token"; _pbad=1; }
+[ "$(awk 'NF == 3' "$_ptab" | wc -l | tr -d ' ')" = "$(wc -l < "$_ptoks" | tr -d ' ')" ] || { bad "PARITY: the table did not count every plain token"; _pbad=1; }
 printf 'A 7 7\n' >> "$_ptab"
 [ "$(token_counts "$_pesc" "$_ptab" "$_pfc" "$_pfm")" = "$(token_web_scan "$_pesc" "$_pfc" "$_pfm")" ] \
   || { bad "PARITY: a backslash token took another token's row"; _pbad=1; }
