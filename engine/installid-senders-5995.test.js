@@ -11,6 +11,8 @@
  *   - in the two modules that talk to a coordinator and to the community, every mention is a comment;
  *   - engine/ping.js's own list has a line for every engine file that uses the id.
  * What it does not hold: a value handed on by one of the listed files under another name, and what any comment SAYS.
+ * The largest case of the first: a profile carries `idInstall`, so whatever passes a whole profile on passes the id
+ * on without naming it, and no set here sees that. engine/status.js does so today, in every agent's card.
  * A check of wording was tried and taken out: a list of ways to say "it never leaves" missed real ones and flagged
  * true ones ("is never sent to the community"). The comments were reduced to pointers at engine/ping.js instead.
  *
@@ -32,9 +34,10 @@ const ROOT = path.join(__dirname, '..');
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 /* Every file git tracks, and every new file it would track (not yet added, not ignored), whatever its kind or folder
-   (a Swift file, a script with no extension, a hook), bar tests, docs, plans, test fixtures and files that are not
-   text. Asked of git so no folder can be forgotten; like the repo's other sweeps, it needs a checkout to run in. */
-const NOT_SOURCE = /(\.test\.(js|mjs)$|^docs\/|^\.claude\/|^test-support\/|(^|\/)node_modules\/)/;
+   (a Swift file, a script with no extension, a hook, a browser check under docs/), bar tests, the prose under docs/
+   and .claude/ (.md), test support and files that are not text. Asked of git so no folder can be forgotten; like the
+   repo's other sweeps, it needs a checkout to run in. */
+const NOT_SOURCE = /(\.test\.(js|mjs)$|^(docs|\.claude)\/.*\.md$|^test-support\/|(^|\/)node_modules\/)/;
 const NOT_TEXT = /\.(png|jpe?g|gif|icns|ico|woff2?|ttf|otf|zip|gz|tgz|pdf|mp3|mp4|mov|webp|car|nib|bin|dmg|pkg|exe|dll)$/i;
 function tracked() {
   const out = execFileSync('git', ['-C', ROOT, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
@@ -55,7 +58,8 @@ const LOADS_PING = /(require\(|\bfrom|\bimport\()\s*[`'"][^`'"]*\/ping(\.js)?[`'
 /* The id's own file, by name. `ping.json(` is a fetch answer on the page, not the file. */
 const ID_FILE = /ping\.json(?!\()/;
 
-/* `listed`: engine/ping.js's "Where it goes" list must have a line for it. */
+/* `listed`: engine/ping.js's "Where it goes" list must have a line for it. The descriptions are for the reader:
+   nothing checks them. */
 const HOLD_ID = Object.freeze({
   'engine/communitysend.js': { what: 'a comment: the community is given its own id, never this one', listed: false },
   'engine/createdbeacon.js': { what: 'sends it to the install endpoint, on a board start and when an agent is made', listed: true },
@@ -67,6 +71,8 @@ const HOLD_ID = Object.freeze({
   'tools/test-install.sh': { what: 'a comment about the file the id is kept in', listed: false },
 });
 const HOLD_PROFILE_COPY = Object.freeze({
+  'docs/browser-checks/fixtures/agent-card.json': 'a captured card, with the id blanked',
+  'docs/browser-checks/render-talk.js': 'a comment about the capture that blanks it',
   'engine/agentfile.js': 'a comment: an exported agent file does not carry it',
   'engine/ping.js': 'the list of where the install id goes names it',
   'engine/store.js': 'writes it, and compares it to tell a profile copied from another install',
@@ -85,13 +91,13 @@ const LOAD_PING = Object.freeze({
   'engine/updating.js': 'asks whether it is under test; does not read the id',
 });
 
-test('fixture: git lists the files, of every kind and folder, and not tests, docs or fixtures', () => {
-  for (const f of ['engine/ping.js', 'server.js', 'web/index.html', 'install/kosmos', 'tools/windows/kosmos-cli.js', 'tools/test-install.sh', 'native-app/main.swift', 'install/pkg-scripts/postinstall']) {
+test('fixture: git lists the files, of every kind and folder, and not tests or prose', () => {
+  for (const f of ['engine/ping.js', 'server.js', 'web/index.html', 'install/kosmos', 'tools/windows/kosmos-cli.js', 'tools/test-install.sh', 'native-app/main.swift', 'install/pkg-scripts/postinstall', 'docs/browser-checks/render-talk.js']) {
     if (!fs.existsSync(path.join(ROOT, f))) continue;   // a file that is gone is not this test's subject
     assert.ok(FILES.includes(f), 'the scan does not read ' + f);
   }
   assert.ok(FILES.length > 500, 'git listed only ' + FILES.length + ' files');
-  assert.ok(!FILES.some((f) => NOT_SOURCE.test(f)), 'the scan reads a test, a doc, a plan or a fixture');
+  assert.ok(!FILES.some((f) => NOT_SOURCE.test(f)), 'the scan reads a test, a prose file or test support');
 });
 
 test('#5995: the files git tracks or would track that hold the identifier installId are exactly the ones listed here', () => {

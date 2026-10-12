@@ -18,8 +18,8 @@ sign-in) are separate branches.
   the feedback report, and left out the created beacon).
 - The two comments are pointers: "this file does not send that one; engine/ping.js lists the files that do".
 - Two stale lines said a notifier reuses the install id (`feedback.js`, `store.js`); the notifier has its own id.
-- `engine/installid-senders-5995.test.js` holds, over every file git tracks or would track (bar tests, docs, plans,
-  fixtures and files that are not text), four exact sets:
+- `engine/installid-senders-5995.test.js` holds, over every file git tracks or would track (bar tests, the
+  prose under `docs/` and `.claude/`, test support and files that are not text), four exact sets:
   - the files that hold the identifier `installId`;
   - the files that hold the profile's copy, `idInstall`;
   - the files that load `engine/ping.js`, under any path and any way of loading;
@@ -46,7 +46,9 @@ sign-in) are separate branches.
 
 ## Weakest premise
 That holding the names is enough. The test does not read what a comment SAYS, so a new false sentence in a listed
-file would pass; and a value handed on under another name is not seen.
+file would pass; and a value handed on under another name is not seen. The largest case of that: a profile carries
+`idInstall`, so anything that passes a whole profile on passes the id on unnamed. `engine/status.js` does, in every
+agent's card, and no set here would see a second one do it.
 
 ## What would change this
 The install id reaching a third place by being passed along. Then the thing to hold is where the two payloads go, not
@@ -131,3 +133,25 @@ The wording check drew findings in three rounds running, in both directions, so 
 - **NITs, taken:** titles say "files git tracks or would track"; this file's Change list has all four sets.
 - **NITs, not taken:** a clearer message when there is no git checkout (the sibling sweeps have none); `docs/` is left
   out whole, runnable harness code included.
+
+## Review 6 (2026-10-12, sonnet)
+No blocker. 8 pass before and after.
+- **WARNING, taken by saying it, not by a fifth set:** nothing holds what a profile reader does with the whole record,
+  and that is how the id reaches the card. The test's header and Weakest premise now name it. A held set of the files
+  that call `readProfile` was rejected: `server.js` alone calls it sixteen times, so the set would be one long entry
+  that never changes when a new serializer is added inside a listed file. The guard that fits is on the served card
+  itself (no `idInstall` in it), and it belongs with the change that strips the id from the card (the fifth finding
+  on the card, its own branch).
+- **WARNING, taken:** the scan left out `docs/` and `.claude/` whole, runnable browser checks included (review 5 left
+  this as a NIT). Only the prose there (`.md`) is left out now. Two more files hold `idInstall` and are listed: a
+  captured card fixture with the id blanked, and a comment in the check that reads it. Proven: a file planted under
+  `docs/browser-checks/` that loads `engine/ping.js` and posts the id turned two tests red by name (the identifier
+  set and the loader set, 6 pass 2 fail); the same words planted in a `.md` under `docs/` left all 8 green.
+- **CONVENTION, not taken:** count only files already added to git, and warn on the rest. Review 4 asked for the
+  opposite and it was taken then: a new sender is untracked until someone adds it, and the suite is run before that.
+  A scratch file that reddens one checkout says so in the failure message. Two rounds, two directions: the rule is
+  that the scan reads what git would track, and it stays.
+- **NIT, not taken:** a word boundary before `installId`. Without it a longer word is over-counted and the exact set
+  fails loudly; with it `_installId` would be missed quietly. The loud direction is the one to keep.
+- **NIT, taken:** the descriptions beside each listed file are for the reader and nothing checks them; the test says so.
+- **NIT, not taken:** no timestamp in this file's name (weighed in review 3).
