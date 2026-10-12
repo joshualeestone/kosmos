@@ -59,26 +59,30 @@ These have to exist before anything else. None of them is something an agent can
 
 **Apple.** Everything Apple for Kosmos comes from a new Apple Developer organisation,
 **Kosmos Agent Manager, Inc.** (the Kosmos legal entity), which is waiting for Apple's approval
-(Liu Kang, from Splinter and Josh, 2026-09-24). None of it comes from the Stone Syndicate team. That
-covers the team, the App ID, the provisioning profile and the .p8. Nothing else in this list waits
-on the approval, and development keeps testing against Kano's mock APNs meanwhile.
+(Liu Kang, from Splinter and Josh, 2026-09-24). **Interim (Josh, 2026-10-12):** until then the app is
+signed under the Stone Syndicate team for internal TestFlight (see "Interim" in Step 4), and the app,
+its bundle id and its builds move to the new org by an App Store app transfer. Nothing else in this
+list waits on the approval, and development keeps testing against Kano's mock APNs meanwhile.
 
 1. **Apple approves the Kosmos Agent Manager, Inc. developer org.** Josh confirms it is active and
    notes its **Team ID**.
-2. **Register the App ID `io.kosmos.app` under that org, with Push Notifications turned on.**
+2. **The App ID `io.kosmos.app`, with Push Notifications turned on, under that org.** Registered under
+   Stone Syndicate first for the interim TestFlight, it arrives with the app transfer; do not register it
+   again.
    - The bundle id is fixed in `ios/Kosmos.xcodeproj/project.pbxproj`
      (`PRODUCT_BUNDLE_IDENTIFIER = io.kosmos.app`), and it is what `KOSMOS_APNS_BUNDLE_IDS` allows
      (step 2).
-   - It becomes permanent once an App Store Connect app record exists. Josh creates that record
-     under the same org. The seller name on it can be set only once.
+   - It becomes permanent once an App Store Connect app record exists. The interim record is
+     Stone Syndicate's; the transfer moves it to the new org.
 3. **Create the APNs authentication key (.p8) under that org.** Note its **Key ID**. The Team ID is
    the org's, from item 1.
    - It is filed with `/add-secret` by Liu Kang and read by lookup target only, never pasted
      (kosmos-relay `.claude/plans/apns-718.md`).
    - These values go into the coordinator's `KOSMOS_APNS_KEY_ID`, `KOSMOS_APNS_TEAM_ID` and
      `KOSMOS_APNS_KEY_PATH` in steps 2 and 3.
-4. **Create a push-enabled provisioning profile for `io.kosmos.app` under that org**, plus the
-   signing certificate it needs. The team's id is what step 4 sets as `DEVELOPMENT_TEAM`.
+4. **A push-enabled provisioning profile for `io.kosmos.app` under that org**, plus the signing
+   certificate it needs (automatic signing makes both). The team's id is what step 4 sets as
+   `DEVELOPMENT_TEAM`.
 
 **Google**
 
@@ -252,10 +256,14 @@ open the Mac's send lock or make Step 8's log-only coordinator send for real.
 Stone Syndicate LLC team (864QZ69GF2), internal testers only, and the app is transferred to Kosmos
 Agent Manager, Inc. once Apple approves #3643. `DEVELOPMENT_TEAM` is set to 864QZ69GF2 until then.
 Push does not reach these builds: the coordinator has no APNs key, and when one is made it has to come
-from the team that signs the app.
+from the team that signs the app. Before the first upload Josh does three one-time steps under Stone
+Syndicate (exact clicks on kosmos #4089): register `io.kosmos.app` with Push Notifications, create the
+App Store Connect app record, and make an Admin App Store Connect API key (the kosmos-notarize key
+can only read, and automatic signing with an API key needs Admin).
 
 **Done now, before Apple's approval (kosmos #4089):**
-- **The Team ID has one home, `ios/Signing.xcconfig`** (`DEVELOPMENT_TEAM`, Stone Syndicate's for now). The Xcode
+- **The Team ID has one home, `ios/Signing.xcconfig`** (`DEVELOPMENT_TEAM`, Stone Syndicate's
+  for now). The Xcode
   project and the archive script both read it from there.
 - **`ios/tools/archive.sh --build <N>`** archives, exports for App Store Connect
   (`ios/tools/ExportOptions.plist`) and checks the exported `.ipa`. `--upload` then sends that same
@@ -269,13 +277,14 @@ from the team that signs the app.
   there (`xcodebuild -downloadPlatform iOS`), which matters only for building on that Mac.
 
 **Waits on Apple approving the org (#3643):**
+- **Transfer the app** (App Store Connect, App Information, Transfer App) from Stone Syndicate to the
+  new org [Josh]. The record, the bundle id and the builds move with it.
 - **Change `DEVELOPMENT_TEAM` in `ios/Signing.xcconfig`** to the Kosmos Agent Manager, Inc. Team ID
   [Josh supplies the id; fleet makes the change]. One line; signing is `Automatic`. Signing under
   any other team gives device tokens the coordinator's key cannot send to.
-- **The App Store Connect app record** for `io.kosmos.app`, under that org [Josh: the seller name
-  is permanent, Step 1 item 2].
-- **An App Store Connect API key** for the upload (`ASC_KEY_PATH`, `ASC_KEY_ID`, `ASC_ISSUER_ID`),
-  filed with `/add-secret` [Josh creates it; it can upload builds under his org]. Without one,
+- **An App Store Connect API key under the new org** for the upload (`ASC_KEY_PATH`, `ASC_KEY_ID`,
+  `ASC_ISSUER_ID`), filed with `/add-secret` [Josh creates it, with Admin access for automatic
+  signing]. Without one,
   `archive.sh` still exports and checks, and the checked `.ipa` goes up through Apple's Transporter
   app.
 

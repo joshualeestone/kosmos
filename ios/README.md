@@ -82,8 +82,9 @@ runner, which has the runtime.
 ## Signing, archive and upload (#4089)
 
 - **The Team ID lives in one place: `Signing.xcconfig`** (`DEVELOPMENT_TEAM`), the app target's
-  base configuration. It is empty until Apple approves Kosmos Agent Manager, Inc. (#3643); then it
-  is set to that org's Team ID and nothing else changes.
+  base configuration. It is Stone Syndicate LLC's (864QZ69GF2) for now (Josh, 2026-10-12): TestFlight
+  ships under it, and the app is transferred to Kosmos Agent Manager, Inc. once Apple approves #3643,
+  when this becomes that org's Team ID (docs/phone-push-go-live.md, "Interim").
 - `tools/archive.sh --build <N>` archives the Release app, exports it for App Store Connect with
   `tools/ExportOptions.plist` (the Team ID is added from `Signing.xcconfig`), and runs
   `tools/check-ipa-entitlements.sh` on the exported `.ipa`: `aps-environment` must be
@@ -91,7 +92,7 @@ runner, which has the runtime.
   `Signing.xcconfig` (app identifier `<team>.io.kosmos.app`, team identifier `<team>`). `--upload` then sends that same checked `.ipa` to App Store Connect
   (it needs an App Store Connect API key: `ASC_KEY_PATH`, `ASC_KEY_ID`, `ASC_ISSUER_ID`).
 - `--build` is required: App Store Connect refuses a build number it has already seen.
-- Until the Team ID is set, `archive.sh` stops at that first check and says so.
+- `archive.sh` refuses an empty or malformed Team ID before it archives anything.
 - `-scheme Kosmos` uses the shared scheme committed under `Kosmos.xcodeproj/xcshareddata/`, so
   archiving does not depend on Xcode creating one.
 - iOS CI builds an unsigned archive with the same command, and runs
