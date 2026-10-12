@@ -63,3 +63,6 @@ off this state): red. (A cruder J6 that broke every wait also went red; it prove
 5. NIT: ensureMemberKey mutated the inner result. FIXED: a spread copy (and the test comment that described the old
    throw is reworded).
 6. NIT: runOnce's header did not name otherPair. FIXED.
+Mutants after review 2 (19:08 CDT from `date`): K1 no pair on results: red. K2 pair only on ok results: red. K3 no
+needsPair flag: red. K4 back to mutating the inner result: SURVIVES, and is equivalent today (every inner return is a
+fresh object, the frozen UNREADABLE included via its spread copy), so the spread is robustness with nothing to observe.
