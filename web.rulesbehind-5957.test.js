@@ -9,7 +9,7 @@ const page = require('./test-support/page');
 
 const SCRIPT = page.scriptOf(fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8'));
 const reasonOf = (a, opts) => new Function('a', 'opts',
-  `${page.lift(SCRIPT, 'quotaResetWords')}\n${page.lift(SCRIPT, 'waitingLine')}\n${page.lift(SCRIPT, 'stateReason')}\nreturn stateReason(a, opts);`)(a, opts);
+  `${page.lift(SCRIPT, 'quotaResetWords')}\n${page.lift(SCRIPT, 'waitingLine')}\n${page.lift(SCRIPT, 'rulesBehindLine')}\n${page.lift(SCRIPT, 'stateReason')}\nreturn stateReason(a, opts);`)(a, opts);
 const SAID = 'Its working rules are 13 versions behind. Open it to update them.';
 
 const CARD = { noQuote: true, card: true };   // what card() and lrow() pass
