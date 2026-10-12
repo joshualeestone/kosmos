@@ -2536,7 +2536,10 @@ const withoutSuffix = (label) => (label.endsWith(DEVICE_SUFFIX) ? label.slice(0,
     the " (Kosmos app)" ending. `fromComputer` says whether it is the computer's own name or one the person gave. */
 function computerNameShown() {
   const chosen = read().computer_name;
-  return { name: withoutSuffix(thisComputerDeviceName()), fromComputer: typeof chosen !== 'string' };
+  /* A cleared choice shows as an EMPTY field (its placeholder says what goes), the same thing computerNameChoice
+     answers as `box` for it: shown as the text "This computer", one press would turn the cleared choice into that
+     typed name. */
+  return { name: chosen === '' ? '' : withoutSuffix(thisComputerDeviceName()), fromComputer: typeof chosen !== 'string' };
 }
 /** What the text left in that field MEANS, with nothing read from or written to remote.json:
     `next`  what would be kept: null for the computer's own name (so an untouched field goes on following the
@@ -2547,9 +2550,16 @@ function computerNameShown() {
     One derivation, so the name a start sends and the name kept after it cannot differ. */
 function computerNameChoice(raw) {
   if (typeof raw !== 'string') return { ok: false, because: 'that is not a name' };
-  let typed = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
-  while (typed.endsWith(DEVICE_SUFFIX) || typed === DEVICE_SUFFIX.trim()) typed = typed.slice(0, -DEVICE_SUFFIX.trim().length).trim();
-  const kept = typed ? withoutSuffix(deviceNameFrom(typed)) : '';
+  /* Leading hyphens go: the name is handed to the tunnel as the value after --device-name, and a value that
+     starts with "-" reads as another option there (the hazard the --phone guard below names). */
+  const bare = (t) => {
+    let v = t.replace(/^[-\s]+/, '').trim();
+    while (v.endsWith(DEVICE_SUFFIX) || v === DEVICE_SUFFIX.trim()) v = v.slice(0, -DEVICE_SUFFIX.trim().length).trim();
+    return v;
+  };
+  const typed = bare(raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim());
+  /* Cut to fit, then the ending is looked for once more: a longer text can be cut exactly where a typed ending ends. */
+  const kept = typed ? bare(withoutSuffix(deviceNameFrom(typed))) : '';
   const own = withoutSuffix(ownComputerDeviceName());
   const next = kept === own ? null : kept;
   return { ok: true, next, label: next === null ? ownComputerDeviceName() : deviceNameFrom(next), box: next === null ? own : next };
@@ -2561,15 +2571,24 @@ function computerNameChoice(raw) {
     One that could not be read AT ALL just now (the disk, a permission, too many open files) is refused: the file
     may be whole, and a repair would rewrite it from nothing for the sake of a name.
     The server calls this only AFTER a sign-in start carried the name, so a name is never kept for a start that did
-    not go out, and there is nothing to put back. */
-function setComputerName(raw) {
+    not go out, and there is nothing to put back. It asks canKeepComputerName() BEFORE that start. */
+/** Whether setComputerName(raw) could keep this choice right now, without writing anything: yes when there is
+    nothing to write, or when remote.json can be read or repaired; no for something that is not a name, and for a
+    file that cannot be read at all. Asked before the start, so a code is not emailed for a name that cannot be kept. */
+function canKeepComputerName(raw) {
   const choice = computerNameChoice(raw);
   if (!choice.ok) return choice;
   const current = read();
-  if (current.computer_name === choice.next) return { ok: true, name: withoutSuffix(thisComputerDeviceName()) };
-  if (current.ok === false) {
-    try { fs.readFileSync(FILE, 'utf8'); } catch { return { ok: false, because: 'we could not keep that name just now' }; }
-  }
+  if (current.computer_name === choice.next || current.ok !== false) return { ok: true };
+  try { fs.readFileSync(FILE, 'utf8'); return { ok: true }; }
+  catch (err) { return err && err.code === 'ENOENT' ? { ok: true } : { ok: false, because: 'we could not keep that name just now' }; }
+}
+function setComputerName(raw) {
+  const choice = computerNameChoice(raw);
+  if (!choice.ok) return choice;
+  const able = canKeepComputerName(raw);
+  if (!able.ok) return able;
+  if (read().computer_name === choice.next) return { ok: true, name: withoutSuffix(thisComputerDeviceName()) };
   const wrote = write({ computer_name: choice.next }, { repair: true });
   if (!wrote || wrote.ok === false) return { ok: false, because: (wrote && wrote.because) || 'we could not keep that name' };
   return { ok: true, name: withoutSuffix(thisComputerDeviceName()) };
@@ -3186,7 +3205,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { computerNameShown, computerNameChoice, setComputerName /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { computerNameShown, computerNameChoice, canKeepComputerName, setComputerName /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   ownDeviceIds,

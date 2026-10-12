@@ -49170,7 +49170,7 @@ function plusSiShow(step) {
   plusSiMeasure();
   // kosmos#5628 slice 2b-ui: the company button follows the profile (a cached read in the engine).
   if (step === 'plus-si-email' && typeof plusCompanyManaged === 'function') plusCompanyManaged();
-  if (step === 'plus-si-email') plusSiComputerName(true);   // #5995: the name is on screen before the start can send it
+  if (step === 'plus-si-email') plusSiComputerName(true);   // #5995: the name is read as the step opens, so it is on screen before the button is
 }
 /* #3796 (Josh, 14:00): the wizard card is centred VERTICALLY in the settings content area on
    every step. That area is only as tall as its content, so CSS alone has nothing to centre in:
@@ -49736,7 +49736,8 @@ async function plusSiRequestCode(btn) {
   plusSiMsg(PLUS_CODE_WORDS.asking(email));
   plusSetBusy(btn, true);
   /* #5995: a read of the computer's name still on its way is waited for (it is local and quick), so a fast Enter in
-     the email box cannot send the name before it was on screen. */
+     the email box cannot send a name that was never read. On that fast path the box appears as the start goes, so
+     the name was not SEEN first: it is the computer's own, the one sent before this change, and nothing is kept. */
   const asked = PLUS_SI_EPOCH;
   await plusSiComputerName();
   if (PLUS_SI_EPOCH !== asked) return;   // Start over or Sign out during that wait: this ask is over (they free the buttons)

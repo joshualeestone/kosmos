@@ -11,7 +11,7 @@
  *    (dark at desktop width, and light at phone width);
  *  - left alone, the start sends exactly that name, and nothing is kept;
  *  - a typed name is sent (Enter in the box asks for the code), kept, and shown again on the next sign-in;
- *  - a cleared box sends "This computer", and the next sign-in shows that;
+ *  - a cleared box sends "This computer", and the next sign-in shows the box still empty;
  *  - when the name cannot be read, the box and its words stay off the screen and the start sends what it sent
  *    before this change;
  *  - the page throws nothing.
@@ -222,7 +222,15 @@ async function codeStep(page) {
     }
     {
       const page = await openWizard(browser, BASE, errs);
-      chk((await shownName(page)) === 'This computer', 'the next sign-in shows the plain name, and the computer\'s own name has not come back', JSON.stringify((await valueOf(page, 'plus-si-computer')) === 'This computer'));
+      const again = await shownName(page);
+      chk(!!(await box(page, '#plus-si-computer')) && again === '', 'the next sign-in shows the box still empty (its placeholder says what goes), and the computer\'s own name has not come back', 'on screen: ' + !!(await box(page, '#plus-si-computer')) + ', length ' + again.length);
+      // Left alone there, it stays a cleared choice: the plain name goes again and nothing else is kept.
+      await page.fill('#plus-signin-email', 'person@example.com');
+      const before = sentNames().length;
+      await page.click('#plus-signin-code');
+      chk(await codeStep(page), 'the cleared box left alone: the sign-in moves on to the code step');
+      const sent = sentNames().slice(before);
+      chk(sent.length === 1 && sent[0] === 'This computer' + ENDING && remote.read().computer_name === '', 'and it sends the plain name again and is still a cleared choice', 'starts: ' + sent.length + ', ' + about(sent[0], 'This computer' + ENDING));
       await page.close();
     }
     // ---- 4. The name cannot be read: nothing about it is on screen, and the start is what it was before. ----

@@ -4880,6 +4880,7 @@ test('#5995: a cleared name field is a choice: the plain name is sent, and it st
     assert.deepEqual(remote.setComputerName('   '), { ok: true, name: 'This computer' });
     assert.equal(remote.read().computer_name, '', 'a cleared field was not kept as a choice');
     assert.equal(remote.computerNameShown().fromComputer, false, 'a cleared field reads as the computer\'s own name');
+    assert.equal(remote.computerNameShown().name, '', 'a cleared choice is shown as text, which one press would turn into a typed name');
     assert.equal(remote.thisComputerDeviceName(), 'This computer (Kosmos app)');
     const from = recorded().length;
     await remote.signinStart('her@example.com');
@@ -4946,6 +4947,14 @@ test('#5995: a typed " (Kosmos app)" ending is not doubled, and one derivation s
     assert.equal(remote.setComputerName('Den (Kosmos app) (Kosmos app)').name, 'Den');
     // Only a real ending is taken off: glued to a word it is part of the name.
     assert.equal(remote.computerNameChoice('Sam(Kosmos app)').next, 'Sam(Kosmos app)');
+    // A longer text cut exactly where a typed ending ends is not kept with that ending.
+    const cutAtEnding = remote.computerNameChoice('M'.repeat(34) + ' (Kosmos app) and more');
+    assert.equal(cutAtEnding.next, 'M'.repeat(34), 'the cut left a typed ending on the kept name');
+    assert.equal(cutAtEnding.label, 'M'.repeat(34) + ' (Kosmos app)');
+    // A leading hyphen would read as another option to the tunnel: it is not part of the kept name.
+    assert.deepEqual(remote.computerNameChoice('--relay evil'), { ok: true, next: 'relay evil', label: 'relay evil (Kosmos app)', box: 'relay evil' });
+    assert.equal(remote.computerNameChoice(' - -x').next, 'x');
+    assert.equal(remote.computerNameChoice('---').next, '');
     assert.deepEqual(remote.computerNameChoice('(Kosmos app)'), { ok: true, next: '', label: 'This computer (Kosmos app)', box: '' });
   } finally { remote.setComputerName(own); }
   // The choice itself reads and writes nothing, and what it says is sent is what keeping it then sends.

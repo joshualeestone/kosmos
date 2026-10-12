@@ -11964,8 +11964,8 @@ test('#4756: GET /api/remote/signin-addresses needs the held sign-in, answers th
 
 /* kosmos#5995 item 4: the sign-in's "Name for this computer" field. The page reads the name before anything is sent
    (GET /api/remote/computer-name) and posts what the person left in the field with the start (computer_name), which
-   the engine keeps and sends. */
-test('#5995: the name this computer is sent under can be read first, is kept from the start, and is refused to another website', async () => {
+   names that start and is kept once the start has gone out. */
+test('#5995: the name this computer is sent under can be read first, rides the start and is kept after it, and is refused to another website', async () => {
   const sb = fs.realpathSync(mkTemp('computer-name-'));
   const fakeBin = nodePath.join(sb, 'fake-tunnel');
   const argvLog = nodePath.join(sb, 'argv.jsonl');
@@ -12006,7 +12006,7 @@ test('#5995: the name this computer is sent under can be read first, is kept fro
     const plain = await start({});
     assert.equal(plain.status, 200, 'the start failed: ' + plain.body);
     assert.equal(remoteEngine.read().computer_name, null, 'a start that named nothing kept a name');
-    // The person typed one: kept before the code is asked for, sent, and shown next time.
+    // The person typed one: this start sends it, it is kept once the start went out, and it is shown next time.
     const typed = await start({ computer_name: ' Studio Mac ' });
     assert.equal(typed.status, 200);
     assert.equal(JSON.parse(typed.body).computer_name, 'Studio Mac', 'the start does not answer with the name as kept');
@@ -12017,7 +12017,7 @@ test('#5995: the name this computer is sent under can be read first, is kept fro
     const cleared = await start({ computer_name: '' });
     assert.equal(cleared.status, 200);
     assert.equal(JSON.parse(cleared.body).computer_name, '', 'a cleared box is told to show a name');
-    assert.deepEqual(await shown(), { ok: true, name: 'This computer', fromComputer: false });
+    assert.deepEqual(await shown(), { ok: true, name: '', fromComputer: false }, 'a cleared choice is not shown as an empty box');
     // Not text: ignored, as an absent field is.
     assert.equal((await start({ computer_name: 7 })).status, 200);
     // Compared as "own" or the literal, so a failing line never prints this computer's real name.
@@ -12042,6 +12042,21 @@ test('#5995: the name this computer is sent under can be read first, is kept fro
     delete process.env.FAKE_NAME_FAIL_ONCE;
     assert.deepEqual([slowFail.status, second.status].sort(), [200, 400], 'CONTROL: one of the two starts did not fail and one go out');
     assert.equal(remoteEngine.read().computer_name, 'Two Tabs', 'a start that failed undid the name another start carried');
+    /* A settings file that cannot be read at all: the name could not be kept, so the start is refused BEFORE it goes
+       out (no code is emailed for it), while a start that names nothing new still goes. */
+    if (process.platform !== 'win32' && !(process.getuid && process.getuid() === 0)) {
+      const whole = fs.readFileSync(remoteEngine.FILE, 'utf8');
+      const sentBefore = sentNames().length;
+      fs.chmodSync(remoteEngine.FILE, 0o000);
+      try {
+        const refused = await start({ computer_name: 'Cannot Keep' });
+        assert.equal(refused.status, 400, refused.body);
+        assert.match(JSON.parse(refused.body).error, /could not keep that name just now/);
+        assert.equal(sentNames().length, sentBefore, 'a start went out (a code was emailed) for a name that could not be kept');
+        assert.equal((await start({})).status, 200, 'CONTROL: on the same unreadable file, a start that names nothing was refused too');
+      } finally { fs.chmodSync(remoteEngine.FILE, 0o600); }
+      assert.equal(fs.readFileSync(remoteEngine.FILE, 'utf8'), whole, 'the unreadable settings file was rewritten');
+    }
     // Leaving the computer's own name in the field goes back to following the computer.
     assert.equal((await start({ computer_name: first.name })).status, 200);
     assert.equal(remoteEngine.read().computer_name, null, 'the computer\'s own name was kept as a choice');

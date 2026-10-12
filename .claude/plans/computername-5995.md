@@ -48,17 +48,19 @@ does not make anyone read it. Second: a phone reached through the relay can read
 the person's own allowed device, and the same name is already in their device list.
 
 ## Verify (what ran, and on which head; the full suite is not in this list)
-- At 3d3cd7842 (after review 2): every `web*.test.js` 2743 pass, 0 fail; the whole `engine/remote.test.js`: see
-  `REMOTE_EXIT` in the review 3 commit's note below.
-- At the head of the review 3 commit: `--test-name-pattern='#5995|#3831' engine/remote.test.js` 10 pass;
+- At 16d4ab23e (the review 4 redesign): every `web*.test.js` 2744 pass, 0 fail (ick-5995-cn-r4fix.log).
+- At 16d4ab23e, 18 mutants, each red by name in a throwaway worktree at that head: the chosen name ignored by the
+  later paths; the computer's own name kept as a choice; the quiet approval naming the computer itself; the
+  choice's label differing from what keeping it sends; a glued ending stripped; an unreadable file repaired for a
+  name; an untouched box writing; the start sent without the typed name; the name kept BEFORE the start; the name
+  never kept after it; a cleared box told to show a name; another website reading the name; the start retrying a
+  failed read; no give-up on the read; the box shown though the read failed; the start not waiting for the read;
+  the start not sending the name; the box not updated to the kept name.
+- At the head of the review 5 commit: `--test-name-pattern='#5995|#3831' engine/remote.test.js` 10 pass;
   `--test-name-pattern='#5995' server.test.js` 1 pass; `web.computer-name-5995.test.js` and `web.code-box.test.js`
-  12 pass. The page changed again in that commit (four lines), so the web sweep is owed once more before the proof.
-- Mutants at 25357d9df (before the reviews), each red by name: the chosen name ignored; the computer's own name kept
-  as a choice; the quiet approval and the start/verify naming the computer itself; the start not keeping the name;
-  another website reading the name; the start not sending the name. They are owed again at the final head, with
-  the new ones (the put-back removed; the starts not serialised; the read's give-up removed).
-- NOT yet, and each is owed before the proof: the browser check (queued; it has never run), the full suite, a look by
-  a person or a design review of the new box.
+  12 pass. The web sweep, the whole `engine/remote.test.js` and the mutants are owed again at the final head.
+- NOT yet, and each is owed before the proof: the browser check (queued since 16:35; it has NEVER run, so its
+  layout, contrast and real-route lines are unproven), the full suite, a look by a person or a design review.
 
 ## Review 1 (default model)
 4 WARNING, 3 CONVENTION, 3 NIT (the last NIT and anything after it were cut off in delivery and asked
@@ -138,3 +140,20 @@ shows; the server passes its label to the start and calls `setComputerName()` af
 - Not taken: "typing the computer's own name follows the computer" is the design (Decided, first line).
 Earlier sections of this plan that mention `putBackComputerName`, `was` or `computerNameTurn` (Reviews 2 and 3)
 describe code that no longer exists.
+
+## Review 5 (default), the first on the name-rides-the-start design
+4 WARNING, 2 CONVENTION, 4 NIT.
+Taken:
+- a start could go out (a code emailed) and then be answered as a failure because the name could not be kept, and
+  for a settings file that cannot be read at all that happened on every try: `canKeepComputerName()` is asked
+  BEFORE the start. The gap that is left (the save failing all the same) now says a code was sent.
+- "two starts cannot undo each other" was only true of a failing one, and only tested with one name: the comment
+  says what holds (a failed start changes nothing) and what does not (two different names at once keep the last
+  saved).
+- a typed name starting with "-" was handed to the tunnel as an option's value: leading hyphens are dropped.
+- the Verify section described code that no longer exists (rewritten above).
+- a test title and two comments still described keep-first.
+- a cleared choice was shown as the text "This computer" at the next sign-in, and one press turned it into a typed
+  name: it is shown as an empty box now, in the engine, the server test and the browser check.
+- the ending is looked for again after the cut; the fast-Enter comment says what is true of it.
+Not taken (third time): the plan's file name and the commit subjects (reasons in Review 1 and 3).
