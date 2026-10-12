@@ -959,8 +959,9 @@ async function taskActivity(ctx, args) {
       : '(no time)';
   };
   for (const e of r.json.events) {
-    const w = typeof e.words === 'string' ? e.words : String(e.kind);
-    ctx.out(when(e.at) + '  ' + w.replace(/\s+/g, ' ').trim());
+    const w = typeof e.words === 'string' ? e.words : String(e.kind || 'event');
+    // One line, with control and format characters taken out (review 4: an escape sequence must not reach the terminal).
+    ctx.out(when(e.at) + '  ' + w.replace(/\s+/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '').trim());
   }
   return 0;
 }

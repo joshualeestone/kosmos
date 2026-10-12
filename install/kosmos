@@ -4828,10 +4828,11 @@ cmd_task() {
       # One line per event, oldest first: when (this computer's local time), then the words. A newline inside an
       # event's words would print a line of its own, so each event is made one line. An older board sends no words:
       # the event's bare kind stands in, as the page shows an unknown kind.
+      # Review 4: with no node, say so in one line rather than print the raw answer, whose free text is unquoted.
       if [ -f "$NODE" ] && [ -x "$NODE" ]; then
-        printf '%s' "$body" | KOSMOS_TASK_NUM="$num" "$NODE" -e 'const d=JSON.parse(require("fs").readFileSync(0));const ev=Array.isArray(d.events)?d.events:[];if(!ev.length){console.log("Nothing recorded on task "+process.env.KOSMOS_TASK_NUM+" yet.");process.exit(0)}const two=(n)=>String(n).padStart(2,"0");const when=(s)=>{const t=new Date(s);return Number.isFinite(t.getTime())?t.getFullYear()+"-"+two(t.getMonth()+1)+"-"+two(t.getDate())+" "+two(t.getHours())+":"+two(t.getMinutes()):"(no time)"};for(const e of ev){const w=typeof e.words==="string"?e.words:String(e.kind);console.log(when(e.at)+"  "+w.replace(/\s+/g," ").trim())}' 2>/dev/null || printf '%s\n' "$body"
+        printf '%s' "$body" | KOSMOS_TASK_NUM="$num" "$NODE" -e 'const d=JSON.parse(require("fs").readFileSync(0));const ev=Array.isArray(d.events)?d.events:[];if(!ev.length){console.log("Nothing recorded on task "+process.env.KOSMOS_TASK_NUM+" yet.");process.exit(0)}const two=(n)=>String(n).padStart(2,"0");const when=(s)=>{const t=new Date(s);return Number.isFinite(t.getTime())?t.getFullYear()+"-"+two(t.getMonth()+1)+"-"+two(t.getDate())+" "+two(t.getHours())+":"+two(t.getMinutes()):"(no time)"};for(const e of ev){const w=typeof e.words==="string"?e.words:String(e.kind||"event");console.log(when(e.at)+"  "+w.replace(/\s+/g," ").replace(/[\p{Cc}\p{Cf}]/gu,"").trim())}' 2>/dev/null || { say "Kosmos could not show this task's conversation here: its own node did not run."; exit 1; }
       else
-        printf '%s\n' "$body"
+        say "Kosmos could not show this task's conversation here: its own node is missing."; exit 1
       fi
       ;;
     close)
