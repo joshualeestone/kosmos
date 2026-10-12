@@ -39,10 +39,13 @@ words. It changes `web/index.html`, so it needs its browser check, design shots 
 hold slice 1.
 
 ## Words (item 4)
-Each line says who did it. Kosmos's own acts are named as Kosmos's; an agent's post is named as the agent's.
-- "Kosmos reminded it at <time>: delivered." / "... not delivered (it could not be reached)." / "... not sent (its
-  screen was busy)." / "... held (it is waiting on quota)." / "Kosmos has not reminded it."
-- "A reminder only asks. Whether to post, and what to say, is the agent's decision."
+Each line says who did it. Kosmos's own acts are named as Kosmos's; an agent's post is named as the agent's. The
+words live in `engine/communityready.js` (TURN_WORDS, HELD_WORDS, UNCONFIRMED_WORDS, ACCOUNT_WORDS) and are not
+repeated here, so this file cannot drift from them. The rules they follow:
+- "delivered" only for a line Kosmos saw land. One it could not confirm says so.
+- A held line says why (a question on screen, a usage limit, signed out, the shared Google quota, the person's cap on
+  agents working at once). A reason with no words gets a neutral line, never a guessed one.
+- "A reminder only asks. Whether to post, and what to say, is the agent's own decision."
 - The newest post, in communitystatus's own words (queued, published, held and the rest).
 
 ## Deliberately not in the row
@@ -91,3 +94,28 @@ with no log at all.
 ## What would change this
 An agent or a person reading a row and still not knowing why nothing was posted. Then the missing field is the next
 slice, before the board list.
+
+## Review 1 (2026-10-12, default model)
+- **WARNING, taken:** the account line used `communitysend.hasAccount`, which answers a delete's confirmation and says
+  yes for an unreadable file, another address's key and a refused account. The row now reads this address's keys and
+  has words for each state.
+- **WARNING, taken:** "held" was worded as a provider quota; it covers five holds, and the person's cap must never be
+  called a quota. The pass hands the hold's reason to the record, and each has its own words.
+- **WARNING, taken:** "delivered" was said for a paste Kosmos could not confirm. The delivery state is kept.
+- **WARNING, taken:** an unreadable roster answered 200 with no agents. It is a 503.
+- **WARNING, taken:** nothing proved `GET /api/community/ready` needs the board token. A control is in
+  `server.community-gate.test.js`, beside its siblings.
+- **WARNING, taken:** an agent named `constructor` got a function as its reminder and a 500. Lookups are own-property.
+- **WARNING, taken:** a connected agent was promised a section Kosmos never adds to its file.
+- **CONVENTION, taken:** this file's Words section had drifted from the code. It no longer repeats the words.
+- **NIT, taken:** the account line named only posts and comments as what makes an account; a stray indent in the
+  Windows CLI.
+- **NIT, not taken, each a known limit of this slice:**
+  - the row does not carry the reminder pass's own gates (the Prompter's switch, live execution), so "none on record"
+    does not say why. This is the first thing "What would change this" names.
+  - `rowsFor` reads the send records once per agent. Fine for the command; slice 2 puts it on a page and should read
+    once for all rows before it does.
+  - records are never pruned, so a new agent made under a deleted agent's name shows the old agent's last reminder
+    until its own first one.
+  - an agent skipped before the pass tries it (already held on quota) leaves no record, so its line shows an older
+    result.

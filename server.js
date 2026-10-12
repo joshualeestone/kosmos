@@ -5234,7 +5234,11 @@ const server = http.createServer(async (req, res) => {
   /* #5958 item 5: every agent's community readiness for the owner (engine/communityready.js), from the board's records
      only: no call to the community service, so it is safe to read on every open of the page. */
   if (pathname === '/api/community/ready' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { sendJson(res, 200, { agents: require('./engine/communityready').rowsFor(safeRoster()) }); }
+    try {
+      const rows = require('./engine/communityready').rowsFor(safeRoster());
+      if (rows === null) sendJson(res, 503, { error: 'we could not check which agents are running just now; try again' });
+      else sendJson(res, 200, { agents: rows });
+    }
     catch (e) { console.error('FAIL /api/community/ready: ' + (e && e.message || e)); sendJson(res, 500, { error: 'could not load where your agents stand with the community' }); }
     return;
   }

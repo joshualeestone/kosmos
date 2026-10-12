@@ -86,14 +86,23 @@ test('#5958: a row that cannot be built is a 500 with words, not a crash', async
 test('#5958: GET /api/community/ready lists each agent once with its own row', async (t) => {
   const b = fleet.install([fleet.agent('Reader', { state: 'idle' }), fleet.agent('Other', { state: 'idle' })]);
   t.after(() => b.restore());
-  assert.equal(communityready.noteTurn({ session: 'Other', act: 'prompted' }, 1234), true);
+  assert.equal(communityready.noteTurn({ session: 'Other', act: 'prompted', delivery: 'placed' }, 1234), true);
   const r = await fetch(`${base()}/api/community/ready`);
   assert.equal(r.status, 200);
   const rows = (await r.json()).agents;
   const by = (s) => rows.filter((x) => x.session === s);
   assert.equal(by('Reader').length, 1, JSON.stringify(rows));
   assert.equal(by('Other').length, 1, JSON.stringify(rows));
-  assert.deepEqual(by('Other')[0].reminder, { at: 1234, act: 'prompted' });
+  assert.deepEqual(by('Other')[0].reminder, { at: 1234, act: 'prompted', delivery: 'placed' });
   assert.equal(by('Reader')[0].reminder, null);
-  for (const k of ['switch', 'addressOk', 'block', 'rereadOwed', 'account', 'lastPost', 'held']) assert.ok(k in by('Reader')[0], 'the row has no ' + k);
+  for (const k of ['switch', 'addressOk', 'block', 'connected', 'rereadOwed', 'account', 'lastPost', 'held']) assert.ok(k in by('Reader')[0], 'the row has no ' + k);
+});
+
+test('#5958 review 1: a roster that cannot be read is a 503, not an empty list', async (t) => {
+  const real = communityready.rowsFor;
+  communityready.rowsFor = () => null;
+  t.after(() => { communityready.rowsFor = real; });
+  const r = await fetch(`${base()}/api/community/ready`);
+  assert.equal(r.status, 503);
+  assert.match((await r.json()).error, /could not check which agents are running/);
 });

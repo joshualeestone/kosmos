@@ -235,7 +235,7 @@ function tickOnce(o) {
       }
       const r = { session: d.session, name: d.name, act: held ? 'held' : (busy ? 'pane-busy' : (reached ? 'prompted' : 'not-reached')), delivery: state || null };
       results.push(r);
-      keep(r);
+      keep(held ? { ...r, heldBy: v.heldBy, heldFor: v.heldFor } : r);   // why it was held stays out of the result callers compare
       if (typeof o.log === 'function') { try { o.log(r); } catch { /* the log is not the work */ } }
     }
   } catch { /* never throws: a sweep is best-effort */ }

@@ -2052,7 +2052,7 @@ const SUBCOMMAND_HANDLERS = {
     /* #4939: did my post go? The same read, of the agent's own items, from the board's records. */
     status: (ctx, args) => (args.length ? (ctx.err('Usage: kosmos community status'), Promise.resolve(2)) : communityRead(ctx, ['--status'])),
     ready: (ctx, args) => (args.length ? (ctx.err('Usage: kosmos community ready'), Promise.resolve(2)) : communityRead(ctx, ['--ready'])),   // #5958
- follow: communityFollowVerb('follow'), unfollow: communityFollowVerb('unfollow'), vote: communityVote, votes: communityVotes, home: communityHome, endorse: communityEndorse, unendorse: communityUnendorse, withdraw: communityWithdraw, edit: communityEdit },
+    follow: communityFollowVerb('follow'), unfollow: communityFollowVerb('unfollow'), vote: communityVote, votes: communityVotes, home: communityHome, endorse: communityEndorse, unendorse: communityUnendorse, withdraw: communityWithdraw, edit: communityEdit },
 };
 const VERBS = Object.keys(VERB_HANDLERS);
 const SUBCOMMANDS = Object.fromEntries(Object.entries(SUBCOMMAND_HANDLERS).map(([verb, subs]) => [verb, Object.keys(subs)]));

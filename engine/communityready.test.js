@@ -97,11 +97,89 @@ test('the switch: on, off and unreadable are three different lines', () => {
 
 test('an account: none before anything is sent, yes once a key is kept', () => {
   agentFile('ann', withBlock());
-  assert.equal(ready.rowFor('ann').account, false);
-  assert.match(text('ann'), /A community account: not yet\. Kosmos makes one when your first post or comment goes out/);
+  assert.equal(ready.rowFor('ann').account, 'none');
+  assert.match(text('ann'), /A community account: not yet\. Kosmos makes one the first time something of yours goes to the community/);
   writeJson(cs._paths.keysFile(), { ann: { apiKey: 'k', token: 't', registeredAt: new Date().toISOString() } });
-  assert.equal(ready.rowFor('ann').account, true);
-  assert.equal(ready.rowFor('bea').account, false, 'one agent\'s key was read as another\'s account');
+  assert.equal(ready.rowFor('ann').account, 'yes');
+  assert.match(text('ann'), /A community account: yes\n/);
+  assert.equal(ready.rowFor('bea').account, 'none', 'one agent\'s key was read as another\'s account');
+});
+
+test('review 1: an account that cannot be used is never called an account', () => {
+  agentFile('ann', withBlock());
+  const say = (keys) => { writeJson(cs._paths.keysFile(), keys); return [ready.rowFor('ann').account, text('ann')]; };
+  let [st, t] = say({ ann: { apiKey: 'k', refused: true } });
+  assert.equal(st, 'refused');
+  assert.match(t, /A community account: the community has refused this agent/);
+  [st, t] = say({ ann: { registering: { at: 1 } } });
+  assert.equal(st, 'being_made');
+  assert.match(t, /A community account: being made/);
+  [st, t] = say({ ann: { registering: { at: 1, taken: true } } });
+  assert.equal(st, 'name_held');
+  assert.match(t, /an earlier try made one under your name and Kosmos never received its key/);
+  fs.writeFileSync(cs._paths.keysFile(), '{ not json');
+  assert.equal(ready.rowFor('ann').account, 'unreadable');
+  assert.match(text('ann'), /A community account: Kosmos cannot read its record of accounts just now/);
+  assert.doesNotMatch(text('ann'), /A community account: yes/, 'an unreadable record was read as an account');
+  // An account at another community address is not one at this board's address (communitysend.hasAccount counts it).
+  fs.rmSync(cs._paths.keysFile());
+  const elsewhere = path.join(path.dirname(path.dirname(cs._paths.keysFile())), 'some-other-address', 'keys.json');
+  writeJson(elsewhere, { ann: { apiKey: 'k' } });
+  assert.equal(cs.hasAccount('ann'), true, 'fixture: the other address\'s key is not where hasAccount looks');
+  assert.equal(ready.rowFor('ann').account, 'none');
+});
+
+test('review 1: an agent named like a built-in gets its own answers, not the built-in', () => {
+  for (const name of ['constructor', 'toString', '__proto__']) {
+    agentFile(name, withBlock());
+    writeJson(cs._paths.keysFile(), { other: { apiKey: 'k' } });
+    const r = ready.readyText(name);
+    assert.equal(r.ok, true, name);
+    assert.equal(r.row.reminder, null, name);
+    assert.equal(r.row.account, 'none', name);
+    assert.equal(r.row.rereadOwed, false, name);
+    assert.match(r.text, /The last reminder from Kosmos: none on record/, name);
+  }
+  assert.equal(ready.noteTurn({ session: 'constructor', act: 'prompted', delivery: 'placed' }, 7), true);
+  assert.deepEqual(ready.rowFor('constructor').reminder, { at: 7, act: 'prompted', delivery: 'placed' });
+});
+
+test('review 1: why a line was held is said, and a reason Kosmos has no words for is not guessed at', () => {
+  agentFile('ann', withBlock());
+  const said = (r) => { assert.equal(ready.noteTurn({ session: 'ann', act: 'held', ...r }, 0), true); return text('ann'); };
+  assert.match(said({ heldBy: 'menu' }), /not sent: a question on its screen was waiting for an answer/);
+  assert.match(said({ heldBy: 'limit' }), /not sent: it had reached its provider's usage limit/);
+  assert.match(said({ heldBy: 'limit', heldFor: 'signin' }), /not sent: it was signed out of its provider/);
+  assert.match(said({ heldBy: 'quota' }), /not sent: the Google quota its provider shares was used up/);
+  const cap = said({ heldBy: 'cap' });
+  assert.match(cap, /not sent: your person's limit on how many agents work at once was reached/);
+  assert.doesNotMatch(cap, /quota/, 'the cap was called a quota');
+  for (const r of [{}, { heldBy: 'something-new' }]) {
+    const t = said(r);
+    assert.ok(t.includes(ready.TURN_WORDS.held), JSON.stringify(r));
+    assert.doesNotMatch(t, /quota|usage limit|signed out|question on its screen/, JSON.stringify(r));
+  }
+});
+
+test('review 1: a reminder Kosmos could not confirm is not called delivered', () => {
+  agentFile('ann', withBlock());
+  ready.noteTurn({ session: 'ann', act: 'prompted', delivery: 'unconfirmed' }, 0);
+  assert.ok(text('ann').includes('1970-01-01 00:00 UTC, ' + ready.UNCONFIRMED_WORDS));
+  ready.noteTurn({ session: 'ann', act: 'prompted' }, 0);
+  assert.ok(text('ann').includes(ready.UNCONFIRMED_WORDS), 'a reminder with no delivery state was called delivered');
+  ready.noteTurn({ session: 'ann', act: 'prompted', delivery: 'placed' }, 0);
+  assert.ok(text('ann').includes('1970-01-01 00:00 UTC, delivered'), 'CONTROL: a placed line is delivered');
+  assert.doesNotMatch(text('ann'), /could not confirm/);
+});
+
+test('review 1: a connected agent is not promised a section Kosmos never adds there', () => {
+  agentFile('bea', '# Agent\n');
+  assert.equal(ready.rowFor('bea').connected, false, 'fixture: an agent in the workers folder read as connected');
+  assert.match(text('bea'), /not there\. Kosmos adds it when you next start, or when Kosmos itself next starts, while the community is on/);
+  const own = text('bea', { connected: () => true });
+  assert.match(own, /not there\. You work in your person's own folder, and Kosmos does not add this section to instructions there/);
+  assert.doesNotMatch(own, /Kosmos adds it/);
+  assert.doesNotMatch(text('bea', { connected: () => null }), /Kosmos adds it|own folder/);
 });
 
 test('noteTurn keeps the newest result per agent, and each result has its own words', () => {
@@ -109,8 +187,9 @@ test('noteTurn keeps the newest result per agent, and each result has its own wo
   assert.match(text('ann'), /The last reminder from Kosmos: none on record/);
   const at = Date.parse('2026-10-12T15:04:00Z');
   for (const [act, words] of Object.entries(ready.TURN_WORDS)) {
-    assert.equal(ready.noteTurn({ session: 'ann', name: 'Ann', act }, at), true, act);
-    assert.deepEqual(ready.rowFor('ann').reminder, { at, act });
+    const extra = act === 'prompted' ? { delivery: 'placed' } : {};
+    assert.equal(ready.noteTurn({ session: 'ann', name: 'Ann', act, ...extra }, at), true, act);
+    assert.deepEqual(ready.rowFor('ann').reminder, { at, act, ...extra });
     assert.ok(text('ann').includes('The last reminder from Kosmos: 2026-10-12 15:04 UTC, ' + words), act + ': ' + text('ann'));
   }
   assert.equal(ready.rowFor('bea').reminder, null, 'one agent\'s reminder was shown to another');
@@ -121,7 +200,7 @@ test('noteTurn refuses a result it has no words for, and a result with no agent'
   assert.equal(ready.noteTurn({ session: 'ann', act: 'something-new' }), false);
   assert.equal(ready.noteTurn({ act: 'prompted' }), false);
   assert.equal(ready.noteTurn(null), false);
-  assert.deepEqual(ready.readTurns(), {});
+  assert.deepEqual({ ...ready.readTurns() }, {});
 });
 
 test('a reminder record that cannot be read is said as that, and is not replaced', () => {
@@ -149,10 +228,12 @@ test('the real turn pass records what each reminder did, with no help from its c
     readLimit: () => ({ on: true, perHour: 20 }),
     inCommunity: () => true, postTimes: () => [new Date(NOW - 6 * H).toISOString()], idleSince: () => NOW - H, idleSeen: new Set(['ann', 'bea']),
     history: () => [{ state: 'idle', at: NOW - 30 * H }, { state: 'idle', at: NOW - 2 * H }, { state: 'working', at: NOW - 0.5 * H }, { state: 'idle', at: NOW - 0.4 * H }],
-    deliver: (s) => ({ state: s === 'ann' ? D.PLACED : D.COULD_NOT }), DELIVERY: D,
+    deliver: (s) => (s === 'ann' ? { state: D.PLACED } : { state: D.COULD_NOT, held: true, heldBy: 'cap' }), DELIVERY: D,
   });
-  assert.deepEqual(done.map((r) => [r.session, r.act]).sort(), [['ann', 'prompted'], ['bea', 'not-reached']], 'fixture: the pass did not try both agents');
-  assert.deepEqual(ready.readTurns(), { ann: { at: NOW, act: 'prompted' }, bea: { at: NOW, act: 'not-reached' } });
+  assert.deepEqual(done.map((r) => [r.session, r.act]).sort(), [['ann', 'prompted'], ['bea', 'held']], 'fixture: the pass did not try both agents');
+  assert.ok(done.every((r) => !('heldBy' in r)), 'the hold\'s reason leaked into the result the pass returns');
+  assert.deepEqual({ ...ready.readTurns() }, { ann: { at: NOW, act: 'prompted', delivery: 'placed' }, bea: { at: NOW, act: 'held', heldBy: 'cap' } });
+  assert.deepEqual(D, { PLACED: require('./chat').DELIVERY.PLACED, UNCONFIRMED: require('./chat').DELIVERY.UNCONFIRMED, COULD_NOT: require('./chat').DELIVERY.COULD_NOT }, 'the states this test uses are not chat\'s own');
 });
 
 test('the newest post and its state, in communitystatus\'s own words; a comment is not a post', () => {
@@ -198,7 +279,8 @@ test('readyText refuses an empty name; rowsFor gives one row per agent with its 
   assert.equal(ready.readyText(undefined).ok, false);
   agentFile('ann', withBlock());
   agentFile('bea', '# Agent\n');
-  ready.noteTurn({ session: 'ann', act: 'prompted' }, 5);
+  ready.noteTurn({ session: 'ann', act: 'prompted', delivery: 'placed' }, 5);
+  assert.equal(ready.rowsFor(null), null, 'an unreadable roster read as no agents');
   const rows = ready.rowsFor([{ sessionName: 'ann', name: 'Ann' }, { sessionName: 'bea' }, { sessionName: 'ann', name: 'Ann again' }, { name: 'no session' }, null]);
   assert.deepEqual(rows.map((r) => [r.session, r.name, r.block, r.reminder && r.reminder.act]), [['ann', 'Ann', 'present', 'prompted'], ['bea', 'bea', 'absent', null]]);
 });
