@@ -191,3 +191,15 @@ Not taken (third time): the plan's file name and the commit subjects (reasons in
 - Not taken (fourth time): commit subjects; the PR is squash-merged under a conforming title.
 - Owed, unchanged: the full suite, the browser check (never run), a design look. The branch is rebased onto main
   after this commit.
+
+## Review 8 (sonnet), the first after the rebase onto main
+3 WARNING, 3 NIT. The reviewer called one "probably acceptable", one "not a blocker", one "no defect".
+- WARNING, recorded in Review 7, now stated in the code and pinned by a test: while remote.json cannot be read,
+  the box shows the computer's own name and every path sends it.
+- WARNING taken as a sentence: the question asked before the start is not a promise about after it (another
+  request can change the file while the start is out); the comment on the one gap now says so.
+- WARNING, "no defect": the late-read guard on the page compares the read with itself where the rest of the flow
+  uses an epoch. Left: it is the smaller of the two and tested.
+- NITs taken: the choice and the read are worked out once per call (third time raised); a test that a typed name
+  always passes the tunnel's rule for a name, so it is never swapped for the plain one. Not taken: an unreachable
+  refusal branch in the route (harmless, and it is what makes a later change to the engine's refusals safe).

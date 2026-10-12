@@ -9926,7 +9926,8 @@ const server = http.createServer(async (req, res) => {
            Absent (an older page, a script): nothing changes, and `device_name` keeps its meaning. A request
            with both is naming THIS computer: computer_name takes device_name's place.
            The one gap, stated: the start went out and the save then fails all the same (a disk that fails
-           between the two). The code was emailed and works, so the answer is still the code step, with
+           between the two, or another request changing the settings file while the start was out: the question
+           asked before the start is not a promise about after it). The code was emailed and works, so the answer is still the code step, with
            computer_name_kept: false for the page to say so; it is not an error the person must start over from. */
         let choice = null;
         if (typeof body.computer_name === 'string') {

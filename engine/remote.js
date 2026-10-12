@@ -2542,7 +2542,11 @@ function computerNameShown() {
   const chosen = read().computer_name;
   /* A cleared choice shows as an EMPTY field (its placeholder says what goes), the same thing computerNameChoice
      answers as `box` for it: shown as the text "This computer", one press would turn the cleared choice into that
-     typed name. */
+     typed name.
+     While remote.json cannot be read (damaged, or not readable at all) there is no kept choice to show: read()
+     answers none, so this is the computer's own name with fromComputer true, and every path that names this
+     computer sends that same name at that time. A choice still in the file comes back when the file reads again.
+     Stated and pinned in remote.test.js; not an accident of the blank read. */
   return { name: chosen === '' ? '' : withoutSuffix(thisComputerDeviceName()), fromComputer: typeof chosen !== 'string' };
 }
 /** What the text left in that field MEANS, with nothing read from or written to remote.json:
@@ -2578,8 +2582,11 @@ function computerNameChoice(raw) {
     file that cannot be read at all. Asked before the start, so a code is not emailed for a name that cannot be kept. */
 function canKeepComputerName(raw) {
   const choice = computerNameChoice(raw);
-  if (!choice.ok) return choice;
-  const current = read();
+  return choice.ok ? ableToKeep(choice, read()) : choice;
+}
+/* The one answer both functions give, for a choice already worked out and a read already made (so neither is
+   derived twice within one call). */
+function ableToKeep(choice, current) {
   if (current.computer_name === choice.next || current.ok !== false) return { ok: true };
   try { fs.readFileSync(FILE, 'utf8'); return { ok: true }; }
   catch (err) { return err && err.code === 'ENOENT' ? { ok: true } : { ok: false, because: 'we could not keep that name just now' }; }
@@ -2595,9 +2602,10 @@ function canKeepComputerName(raw) {
 function setComputerName(raw) {
   const choice = computerNameChoice(raw);
   if (!choice.ok) return choice;
-  const able = canKeepComputerName(raw);
+  const current = read();
+  const able = ableToKeep(choice, current);
   if (!able.ok) return able;
-  if (read().computer_name === choice.next) return { ok: true, name: withoutSuffix(thisComputerDeviceName()) };
+  if (current.computer_name === choice.next) return { ok: true, name: withoutSuffix(thisComputerDeviceName()) };
   const wrote = write({ computer_name: choice.next }, { repair: true });
   if (!wrote || wrote.ok === false) return { ok: false, because: (wrote && wrote.because) || 'we could not keep that name' };
   return { ok: true, name: withoutSuffix(thisComputerDeviceName()) };

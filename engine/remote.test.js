@@ -4918,6 +4918,10 @@ test('#5995: an untouched name field writes nothing: no remote.json is created, 
     assert.equal(remote.read().computer_name, null);
     assert.deepEqual(remote.setComputerName(own), { ok: true, name: own }, 'an untouched field was refused on a damaged file, which would block the sign-in');
     assert.equal(fs.readFileSync(remote.FILE, 'utf8'), '{ this is not valid json', 'an untouched field rewrote a damaged file');
+    // While the file cannot be read there is no kept choice to show: the box gets the computer's own name, as the
+    // computer's own, and that is the name every path sends at that time.
+    assert.deepEqual(remote.computerNameShown(), { name: own, fromComputer: true });
+    assert.equal(remote.thisComputerDeviceName(), own + ' (Kosmos app)');
     // A real choice on the damaged file is kept, repairing the file as the sign-in's other writes do.
     assert.deepEqual(remote.setComputerName('Work Mac'), { ok: true, name: 'Work Mac' });
     assert.equal(remote.read().ok, true);
@@ -4955,6 +4959,12 @@ test('#5995: a typed " (Kosmos app)" ending is not doubled, and one derivation s
     assert.deepEqual(remote.computerNameChoice('--relay evil'), { ok: true, next: 'relay evil', label: 'relay evil (Kosmos app)', box: 'relay evil' });
     assert.equal(remote.computerNameChoice(' - -x').next, 'x');
     assert.equal(remote.computerNameChoice('---').next, '');
+    // Whatever is typed, the cleaned name passes the tunnel's own rule for a name (one line, 1 to 60 characters), so
+    // a typed name is never swapped for the plain one behind the person's back.
+    for (const odd of ['\t\ttabs\tinside\t', 'emoji \u{1F600} name', 'x'.repeat(200), 'a\u0000b\u007fc']) {
+      const c = remote.computerNameChoice(odd);
+      assert.ok(c.next.length > 0 && /^[^\n\r]{1,60}$/.test(c.label) && c.label === c.next + ' (Kosmos app)', 'a typed name was replaced or left unsendable: ' + JSON.stringify(c));
+    }
     // Typing the computer's own name is "untouched" as it stands, before anything is taken off it.
     assert.deepEqual(remote.computerNameChoice(own), { ok: true, next: null, label: own + ' (Kosmos app)', box: own });
     assert.deepEqual(remote.computerNameChoice('(Kosmos app)'), { ok: true, next: '', label: 'This computer (Kosmos app)', box: '' });
