@@ -27,8 +27,9 @@ ios=$(cd "$here/.." && pwd)
 build=""
 upload=0
 check_only=0
-# The signing settings this run reads. Overridable only so ios/tools/test-archive-config.sh can point the
-# checks below at a scratch copy; a real archive reads the project's own file.
+# The signing settings this run reads: the project's own file. ios/tools/test-archive-config.sh points the
+# checks at a scratch copy with KOSMOS_IOS_XCCONFIG, which is refused below unless --check-config is given,
+# so a real archive can never check one file while xcodebuild builds from another.
 xcconfig="${KOSMOS_IOS_XCCONFIG:-$ios/Signing.xcconfig}"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -39,6 +40,9 @@ while [ $# -gt 0 ]; do
     *) echo "archive.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
+if [ "$check_only" -eq 0 ] && [ -n "${KOSMOS_IOS_XCCONFIG:-}" ]; then
+  echo "archive.sh: KOSMOS_IOS_XCCONFIG is for --check-config only; unset it to archive (xcodebuild reads ios/Signing.xcconfig)." >&2; exit 2
+fi
 if [ "$check_only" -eq 0 ]; then
   case "$build" in
     ''|*[!0-9]*) echo "archive.sh: --build <N> is required, a whole number higher than any build already uploaded" >&2; exit 2 ;;
