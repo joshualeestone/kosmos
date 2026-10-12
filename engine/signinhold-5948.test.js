@@ -169,3 +169,12 @@ test('#5948 review 2: a screen-read auth_failed (no report) is not held, as befo
     assert.equal(chat.signinHeldVerdict('casey', board.agents), null);
   } finally { chat.resetForTests(); board.restore(); }
 });
+
+test('#5948 review 3: the same message sent again while it is held says signed out, as the first send did', async () => {
+  await withFleet(true, async (board) => {
+    const a = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'go ahead' }, board.agents);
+    const again = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'go ahead' }, board.agents);
+    assert.deepEqual([again.id, again.duplicate, again.heldFor], [a.id, true, 'signin'], JSON.stringify(again));
+    assert.doesNotMatch(again.because, /usage/);
+  });
+});

@@ -1284,7 +1284,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     const typed = log.find((r) => r && r.kind === 'held-delivered' && r.of === sameMsg.id);
     const keptCopy = typed ? null : require('./limitqueue').list(qName).find((e) => e.id === sameMsg.id);
     if (keptCopy) {
-      return heldReceipt(toName, sameMsg.id, sameMsg.at, Date.parse(sameMsg.heldUntil) > Date.parse(at) ? sameMsg.heldUntil : null, true, keptCopy.behind === true);
+      return heldReceipt(toName, sameMsg.id, sameMsg.at, Date.parse(sameMsg.heldUntil) > Date.parse(at) ? sameMsg.heldUntil : null, true, keptCopy.behind === true, keptCopy.signin === true);
     }
     // Typed after the reset: the same send again is that delivery. Dropped: nothing reached them, so it goes as new.
     // As the fold below: only while the two have not spoken since (#4580); after that the same words are a new message.
@@ -1306,7 +1306,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     const typedRow = log.find((r) => r && r.kind === 'held-delivered' && r.of === keptEarly.id);
     if (typedRow) return { state: typedRow.state, because: null, id: keptEarly.id, at: keptEarly.at, duplicate: true };
   } else if (keptEarly) {
-    return heldReceipt(toName, keptEarly.id, keptEarly.at, !keptEarly.behind && Date.parse(keptEarly.reset) > Date.parse(at) ? keptEarly.reset : null, true, keptEarly.behind === true);
+    return heldReceipt(toName, keptEarly.id, keptEarly.at, !keptEarly.behind && Date.parse(keptEarly.reset) > Date.parse(at) ? keptEarly.reset : null, true, keptEarly.behind === true, keptEarly.signin === true);
   }
 
   /* THE VALVE, split per the person's control (limits.js): crossing the
@@ -1401,7 +1401,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
         : limitHold.heldFor === 'signin' ? 'is signed out' : 'is out of usage';   // #5948
       return refuse(toName, toName + ' ' + situation + ', and Kosmos ' + (why === 'sender-cap'
         ? 'is already keeping ' + limitqueue.MAX_PER_SENDER + ' messages from you for it; wait for those to arrive before sending more'
-        : why === 'agent-cap' ? 'is already keeping ' + limitqueue.MAX_KEPT + ' messages for it; try again after its reset'
+        : why === 'agent-cap' ? 'is already keeping ' + limitqueue.MAX_KEPT + ' messages for it; try again ' + (limitHold.heldFor === 'signin' ? 'once it is signed in again' : 'after its reset')
           : 'could not keep this one for it (its queue could not be read or written); try again in a minute'));
     }
     // The printed reset while it is ahead; past it (the card still reads capped) no time is promised.

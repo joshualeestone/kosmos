@@ -20553,7 +20553,8 @@ const server = http.createServer(async (req, res) => {
             catch (e) { outcome = { state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: String((e && e.message) || 'we could not reach that agent') }; }
           }
           delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because,
-            ...(outcome && outcome.state === messages.HELD_STATE ? { heldUntil: outcome.heldUntil || null } : {}) });
+            ...(outcome && outcome.state === messages.HELD_STATE ? { heldUntil: outcome.heldUntil || null } : {}),
+            ...(outcome && outcome.heldFor === 'signin' ? { heldFor: 'signin' } : {}) });
         }
         if (!viaScreen) taskMessageValveRecord();
         sendJson(res, 200, { ok: true, delivered, summary: taskMessageSummary(delivered, named.length) });

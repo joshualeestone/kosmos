@@ -49,7 +49,8 @@ const LIMIT_SCREEN = '❯ hello\n'
 async function sendTask(caseyState, headers) {
   const board = fleet.install([
     fleet.agent('mara', { state: 'idle' }),
-    fleet.agent('casey', caseyState === 'rate_limited' ? { state: 'rate_limited', runner: 'claude', command: 'claude', screen: LIMIT_SCREEN } : { state: 'idle' }),
+    fleet.agent('casey', caseyState === 'rate_limited' ? { state: 'rate_limited', runner: 'claude', command: 'claude', screen: LIMIT_SCREEN }
+      : caseyState === 'signed_out' ? { state: null, runner: 'grok', command: 'grok', screen: '' } : { state: 'idle' }),   // #5948: signed_out reads its state from the report
   ]);
   const calls = [];
   chat.setRunner((args) => {
@@ -120,4 +121,20 @@ test('#5842: the route keeps a task line with its task (project id and number), 
   const fromMara = a.kept.find((e) => e.from === 'mara');
   assert.ok(fromMara, 'the agent\'s line was not kept');
   assert.deepEqual([fromMara.projectId, fromMara.task, fromMara.person], ['p5805', 7, undefined]);
+});
+
+test('#5948 review 3: an assignee whose sign-in stopped working is kept, and the route says signed out (heldFor), not out of usage', async () => {
+  const selfreport = require('./engine/selfreport');
+  // The report is keyed by the board name; casey's card is casey.
+  assert.equal(selfreport.record('casey', { state: 'blocked', auto: true, on: 'provider api (authentication_failed)', owner: 'provider', because: 'Not signed in.' }).recorded, true);
+  try {
+    const r = await sendTask('signed_out', { 'sec-fetch-site': 'same-origin' });
+    assert.equal(r.code, 200, JSON.stringify(r.json));
+    const casey = r.json.delivered.find((d) => d.agent === 'casey');
+    assert.equal(casey.state, messages.HELD_STATE, JSON.stringify(r.json.delivered));
+    assert.equal(casey.heldFor, 'signin', JSON.stringify(casey));
+    assert.doesNotMatch(r.json.summary, /usage/, r.json.summary);
+    assert.equal(r.kept.length, 1);
+    assert.equal(r.kept[0].signin, true);
+  } finally { fs.rmSync(selfreport.DIR, { recursive: true, force: true }); }
 });
