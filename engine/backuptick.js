@@ -244,8 +244,7 @@ function inputsHere(deps = {}) {
   // change), the runtime home (#4592) `codex-runtime`, and a named account's home `codex-a<8 hex of its path>` /
   // `gemini-a<...>`. Every one is filtered to this agent's own files (backupsessions). The homes come from the helpers
   // the board's readers use (create.defaultAgentCodexHome, create.geminiStorageHome). An agent whose job cannot be
-  // read keeps the plain defaults. NOT covered: a move between two NAMED accounts leaves the first account's sessions
-  // unread (#5883).
+  // read keeps the plain defaults.
   // Hashed on the folder's TRUE path (review 4): a job naming the account through a link or another spelling gets the
   // same name, so its rollouts are not stored again. A folder that does not resolve hashes as given.
   const acctTag = (home) => {
@@ -253,6 +252,11 @@ function inputsHere(deps = {}) {
     try { p = fs.realpathSync.native(p); } catch { /* as given */ }
     return '-a' + require('crypto').createHash('sha256').update(p).digest('hex').slice(0, 8);
   };
+  // Each provider's account list read ONCE per call (review 1 of slice 4), not once per agent.
+  const accountRows = {};
+  for (const m of ['openaiaccounts', 'geminiaccounts', 'grokaccounts']) {
+    try { accountRows[m] = (deps.accountsOf || ((x) => require(`./${x}`).list()))(m) || []; } catch { accountRows[m] = []; }
+  }
   const sessions = (dir, id, name) => {
     let job = null;
     try { job = (deps.readJob || create.readJob)(name); } catch { job = null; }
@@ -279,9 +283,14 @@ function inputsHere(deps = {}) {
     const each = { codex: ['openaiaccounts', (d) => d], gemini: ['geminiaccounts', (d) => create.geminiStorageHome(d)], grok: ['grokaccounts', (d) => d] }[job && job.runner];
     if (each) {
       try {
-        for (const row of (deps.accountsOf || ((m) => require(`./${m}`).list()))(each[0])) {
+        for (const row of accountRows[each[0]]) {
           if (!row || typeof row.dir !== 'string' || row.isDefault) continue;
-          moreHomes.push({ provider: job.runner, home: each[1](row.dir), tag: acctTag(row.dir) });
+          const tag = acctTag(row.dir);
+          // The current account is already there (by its job): never twice under one name (review 1 of slice 4: a
+          // linked sessions folder gives a refused root with no path, which the one-folder rule cannot catch, and a
+          // repeated root name fails EVERY backup).
+          if (moreHomes.some((h) => h.tag === tag)) continue;
+          moreHomes.push({ provider: job.runner, home: each[1](row.dir), tag });
         }
       } catch { /* the current account is still read */ }
     }
