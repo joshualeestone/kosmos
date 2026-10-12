@@ -205,6 +205,11 @@ NT_STATUS=Accepted NT_HASHES="" NT_RAWLOG="{\"ticketContents\":[{\"cdhash\":\"$H
 [ "$rc" = 1 ] && ok "a hash that is not under a cdhash key does not count" || bad "a non-cdhash value counted (rc=$rc)"
 unset NT_RAWLOG
 
+# --- an EMPTY retry list means one try, and survives set -u (an empty array under bash 3.2) ---
+NT_STATUS=Accepted NT_HASHES="$HA" NT_NOID_TIMES=9; rc=$( (set -u; KOSMOS_NOTARY_RETRY_DELAYS="" run "$WORK/bin/kosmos-app") )
+[ "$rc" = 1 ] && [ "$(ran submit)" = 1 ] && grep -q 'no submission id after 1 tries' "$WORK/out" && ok "an empty retry list makes exactly one try under set -u" || bad "empty retry list (rc=$rc, submits=$(ran submit)): $(cat "$WORK/out")"
+unset NT_NOID_TIMES
+
 # --- step 1c's probe: Apple's answer decides, not notarytool's exit status ---
 out="$(notarize_probe_credentials 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(ran history)" -ge 1 ] && ok "the probe passes on an answer carrying history" || bad "probe pass (rc=$rc): $out"
@@ -234,6 +239,6 @@ pack="$(grep -n '^echo "==> packing"' "$B" | head -1 | cut -d: -f1)"
   || bad "order wrong: notarise=$call last-sign=$last_sign last-selftest=$last_selftest pack=$pack"
 
 echo "test-notarize-binaries-5137: $passes passed, $fails failed"
-EXPECTED=51   # the number of ok lines above; a skipped arm must not read as green
+EXPECTED=52   # the number of ok lines above; a skipped arm must not read as green
 [ "$passes" = "$EXPECTED" ] || echo "test-notarize-binaries-5137: $passes passes, expected $EXPECTED (an arm was skipped or added without updating EXPECTED)"
 [ "$fails" = 0 ] && [ "$passes" = "$EXPECTED" ]
