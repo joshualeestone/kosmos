@@ -414,7 +414,8 @@ function read(sessionName) {
      or stopped report forgets it, like the project. */
   let final = null;
   /* #5943: when the standing question was first asked. The `at` of the FIRST line of the trailing run of identical
-     reports (same state, same words), so re-reporting the same question does not re-date it, and a different one does. */
+     reports (same state, same words, same project), so re-reporting the same question does not re-date it, and a
+     different one (or the same words about another project) does. */
   let runKey = null;
   let runAt = null;
   for (const line of text.split('\n')) {
@@ -430,10 +431,6 @@ function read(sessionName) {
        logic for "latest", but it matters that it REPLACES rather than
        merges: nothing from the previous run may leak into this one. */
     latest = row;
-    {
-      const key = row.state + '\u0000' + (typeof row.because === 'string' ? row.because : '');
-      if (key !== runKey) { runKey = key; runAt = typeof row.at === 'string' ? row.at : null; }
-    }
     /* stopped ends a run; started begins one (a crash leaves no stopped row, so
        a new run must not inherit the old run's project and light it on the
        first question). The cost: the hook reports started on every session
@@ -450,6 +447,12 @@ function read(sessionName) {
        names the project again. Both are accepted residuals, in the #5034 plan. */
     if (typeof row.left === 'string' && row.left && row.left === project) project = null;
     if (typeof row.project === 'string' && row.project) project = row.project;
+    /* #5943 (with #5942, Mona Lisa): a run is the same state, the same words AND the same project (as carried), so one
+       generic sentence filed about project A and later about project B is two asks, not one 10 days old. */
+    {
+      const key = row.state + '\u0000' + (typeof row.because === 'string' ? row.because : '') + '\u0000' + (project || '');
+      if (key !== runKey) { runKey = key; runAt = typeof row.at === 'string' ? row.at : null; }
+    }
   }
   if (!latest) return { found: false, because: NO_READING.NEVER_REPORTED };
   return {

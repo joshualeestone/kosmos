@@ -176,3 +176,16 @@ test('#5943 review 2: the agent typing its own question keeps the age and the cl
   // CONTROL: a dated question that is not clearable (a permission wait) carries nothing onto the typed row.
   assert.equal(chat.withQuestionRow(list, 'x', { text: 'Q?', at: '2026-10-02T00:00:10.000Z' })[0].questionClearable, undefined);
 });
+
+test('#5943 (#5942): the same words about ANOTHER project are a new ask; a report naming no project keeps the carried one', () => {
+  writeReports('twoproj', [
+    { state: 'needs_you', because: 'Need your OK', project: 'a', at: '2026-10-01T00:00:00.000Z' },
+    { state: 'needs_you', because: 'Need your OK', project: 'b', at: '2026-10-10T00:00:00.000Z' },
+  ]);
+  assert.equal(selfreport.read('twoproj').askedAt, '2026-10-10T00:00:00.000Z', 'project B\'s ask was dated from project A\'s');
+  writeReports('carried', [
+    { state: 'needs_you', because: 'Need your OK', project: 'a', at: '2026-10-01T00:00:00.000Z' },
+    { state: 'needs_you', because: 'Need your OK', at: '2026-10-10T00:00:00.000Z' },
+  ]);
+  assert.equal(selfreport.read('carried').askedAt, '2026-10-01T00:00:00.000Z', 'CONTROL: a re-report naming no project is the same ask (project carried)');
+});
