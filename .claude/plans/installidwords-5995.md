@@ -11,6 +11,8 @@ sign-in) are separate branches.
 - `engine/ping.js`, where the id is made, already says it leaves by those two routes. Only the two comments were wrong.
 - No doc, page or brief in this repo repeats the promise (query: the "never leave / stays on" phrases beside "install
   id" over `engine/*.js`, `server.js`, `docs/*.md`, `web/index.html`, `README.md`: the two comments and nothing else).
+  That query left out `tools/` and was wrong to: `tools/test-install.sh` said the id "only leaves the Mac via the
+  opt-out feedback report" (review 7). It is a third comment, and it is a pointer now.
 
 ## Change
 - `engine/ping.js`, where the id is made, lists WHO sends or keeps it, one line per file, and says each file tells for
@@ -34,7 +36,7 @@ sign-in) are separate branches.
 - **Stop sending the id.** Not this card: the install ping is Josh's ruling (09-14) and the card says so.
 
 ## Verify
-- `node --test engine/installid-senders-5995.test.js`: 8 pass, about a fifth of a second.
+- `node --test engine/installid-senders-5995.test.js`: 8 pass.
 - Mutants run on 2026-10-12 after review 5, each red at the named test, each restored and compared byte for byte:
   - a tool loads `ping.js` by its `../engine/` path and reads the whole record: red at the list of files that load it;
   - `server.js` reads the id's file by name: red at the `ping.json` list;
@@ -155,3 +157,21 @@ No blocker. 8 pass before and after.
   fails loudly; with it `_installId` would be missed quietly. The loud direction is the one to keep.
 - **NIT, taken:** the descriptions beside each listed file are for the reader and nothing checks them; the test says so.
 - **NIT, not taken:** no timestamp in this file's name (weighed in review 3).
+
+## Review 7 (2026-10-12, default model)
+No blocker. 8 pass before and after.
+- **WARNING, taken:** a third comment made the same false promise, in `tools/test-install.sh`, a file the test already
+  listed by name without anyone reading its sentence. Reduced to a pointer like the other two. The first search for
+  the promise had not looked under `tools/`; the reviewer's wider search (every file bar tests, plans and prose) found
+  this one and no other.
+- **WARNING, taken:** the loader set saw only a literal path inside `require`, `from` or `import(`, and loading an
+  engine module through `path.join` is common outside `engine/`. It now holds any quoted word that is `ping` or
+  `ping.js`, alone or ending a path. That brings in two files that use the word for something else (a comment in
+  `engine/guidestate.js`, a message type in `engine/win32channel.js`); both are listed with what the word is there.
+  Proven: the reviewer's plant (a tool that loads it through `path.join` and posts the whole record) turned that test
+  red by name, 7 pass 1 fail. A name built from pieces of the word is still not seen, and the comment says so.
+- **NIT, taken:** "one machine's reports" in `engine/feedback.js` is "one install's".
+- **NIT, taken in part:** the rule stays that the scan reads what git would track (reviews 4 and 6). The data folders
+  a test board makes at the top of the repo (`.aw-*`) are left out, so a board that mints an id there while the suite
+  runs cannot redden this test. Checked: a `ping.json` planted in such a folder left all 8 green.
+- **NIT, taken by saying less:** the run time is gone from Verify.

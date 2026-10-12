@@ -164,7 +164,7 @@ function write(body, opts) {
   const date = o.date ? assertDate(o.date) : today();
   const key = writerKey(o.from);
   // installId is this install's own random id (engine/ping.js). It lets a later
-  // send de-duplicate one machine's reports.
+  // send de-duplicate one install's reports.
   let install = null;
   try { install = require('./ping').installId(); } catch { install = null; }
   const header = [

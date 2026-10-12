@@ -35,9 +35,10 @@ test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 /* Every file git tracks, and every new file it would track (not yet added, not ignored), whatever its kind or folder
    (a Swift file, a script with no extension, a hook, a browser check under docs/), bar tests, the prose under docs/
-   and .claude/ (.md), test support and files that are not text. Asked of git so no folder can be forgotten; like the
+   and .claude/ (.md), the data folders a test board makes at the top of the repo (.aw-*), test support and files that
+   are not text. Asked of git so no folder can be forgotten; like the
    repo's other sweeps, it needs a checkout to run in. */
-const NOT_SOURCE = /(\.test\.(js|mjs)$|^(docs|\.claude)\/.*\.md$|^test-support\/|(^|\/)node_modules\/)/;
+const NOT_SOURCE = /(\.test\.(js|mjs)$|^(docs|\.claude)\/.*\.md$|^\.aw-|^test-support\/|(^|\/)node_modules\/)/;
 const NOT_TEXT = /\.(png|jpe?g|gif|icns|ico|woff2?|ttf|otf|zip|gz|tgz|pdf|mp3|mp4|mov|webp|car|nib|bin|dmg|pkg|exe|dll)$/i;
 function tracked() {
   const out = execFileSync('git', ['-C', ROOT, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
@@ -52,9 +53,11 @@ const holding = (re) => FILES.filter((f) => re.test(read(f)));
 const ID = /installId/;
 /* The profile's copy. A word of its own, so `midInstall` (server.js, about an install in progress) is not one. */
 const PROFILE_COPY = /\bidInstall\b/;
-/* Loading the module that keeps the id, by any path and any way of loading (require, import), or naming its file
-   through it. */
-const LOADS_PING = /(require\(|\bfrom|\bimport\()\s*[`'"][^`'"]*\/ping(\.js)?[`'"]|\bping\.FILE\b/;
+/* Naming the module that keeps the id: any quoted word that is `ping` or `ping.js`, alone or at the end of a path,
+   or its file through it. A quoted word, not a call, so a path put together from parts (path.join(..., 'ping')) is
+   seen too; the price is two files that use the word for something else, listed below with what it is there. A name
+   built from pieces of the word is not seen. */
+const LOADS_PING = /[`'"]([^`'"]*\/)?ping(\.js)?[`'"]|\bping\.FILE\b/;
 /* The id's own file, by name. `ping.json(` is a fetch answer on the page, not the file. */
 const ID_FILE = /ping\.json(?!\()/;
 
@@ -87,8 +90,10 @@ const LOAD_PING = Object.freeze({
   'engine/createdbeacon.js': 'reads the id to send it',
   'engine/feedback.js': 'reads the id to write it into the report',
   'engine/feedbacksend.js': 'reads the id to send it',
+  'engine/guidestate.js': 'a comment about an injected function of that name; does not load the module',
   'engine/store.js': 'reads the id to keep it in a profile',
   'engine/updating.js': 'asks whether it is under test; does not read the id',
+  'engine/win32channel.js': 'a message type of that name; does not load the module',
 });
 
 test('fixture: git lists the files, of every kind and folder, and not tests or prose', () => {
@@ -110,9 +115,9 @@ test('#5995: the files that hold the profile\'s copy (idInstall) are exactly the
   assert.ok(/midInstall/.test(read('server.js')) && !PROFILE_COPY.test(read('server.js')), 'CONTROL: server.js\'s midInstall is a different word, and the pattern must not count it');
 });
 
-test('#5995: the files that load engine/ping.js, under any path, are exactly the ones listed here', () => {
-  assert.deepEqual(holding(LOADS_PING), Object.keys(LOAD_PING).sort(), 'a file loads engine/ping.js and is not listed (or a listed one no longer does)');
-  for (const line of ["require('./ping')", "require('./engine/ping')", "require('../engine/ping')", "require('../../engine/ping.js')", 'require(`./ping`)', "import ping from '../engine/ping.js'", "await import('./ping')", 'fs.readFileSync(ping.FILE)']) {
+test('#5995: the files that name engine/ping.js in a quoted word are exactly the ones listed here', () => {
+  assert.deepEqual(holding(LOADS_PING), Object.keys(LOAD_PING).sort(), 'a file names engine/ping.js and is not listed (or a listed one no longer does)');
+  for (const line of ["require('./ping')", "require('./engine/ping')", "require('../engine/ping')", "require('../../engine/ping.js')", 'require(`./ping`)', "import ping from '../engine/ping.js'", "await import('./ping')", 'fs.readFileSync(ping.FILE)', "require(path.join(__dirname, '..', 'engine', 'ping'))", "require.resolve('./ping')", "import './ping.js'", "require('./engine/' + 'ping')"]) {
     assert.match(line, LOADS_PING, 'CONTROL: this way of loading it is not seen: ' + line);
   }
   for (const line of ["require('./pinger')", "require('./shipping')", "require('./ping-pong')", 'const ping = await fetch(url)']) assert.doesNotMatch(line, LOADS_PING, 'CONTROL: this is not loading it: ' + line);
