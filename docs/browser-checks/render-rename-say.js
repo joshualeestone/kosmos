@@ -77,21 +77,11 @@ const KEPT = 'The name was not changed: there is already an agent called Gemini 
   });
   /* #5957: the instructions Save, answered as the server answers a line naming a taken name: the text saved, the
      rename did not, and nameKept says so. Intercepted here too, so no file is written. */
-  /* This sandbox's agent has an instructions file the board reports as not editable, and the status poll disables the
-     editor for that (on purpose). The poll is answered from the REAL response with only that flag set, so the
-     instructions Save case below exercises the page's handling of the save's answer, not the sandbox's file. */
-  await page.route(/\/api\/status(\?|$)/, async (r) => {
-    const resp = await r.fetch();
-    let body;
-    try { body = await resp.json(); } catch { r.fulfill({ response: resp }); return; }
-    for (const a of (body && body.agents) || []) if (a && a.instructions) a.instructions.editable = true;
-    r.fulfill({ response: resp, json: body });
-  });
   /* The load is answered too, with a fixture, so the editor is ready whatever this sandbox's agent has on disk (a Save
      before the load lands is refused by the page on purpose). A regex, so the load's ?t= query matches and the
      /instructions/previous route does not. */
   await page.route(/\/api\/agent\/[^/]+\/instructions(\?|$)/, (r) => {
-    if (r.request().method() === 'GET') { r.fulfill({ json: { text: '# Fixture\n\nYou are **Fixture**, a tester.\n', version: 'v-fixture' } }); return; }
+    if (r.request().method() === 'GET') { r.fulfill({ json: { exists: true, editable: true, text: '# Fixture\n\nYou are **Fixture**, a tester.\n', version: 'v-fixture' } }); return; }
     if (r.request().method() !== 'PUT') { r.continue(); return; }
     r.fulfill({ json: { ok: true, version: 'v-check', nameKept: KEPT } });
   });
