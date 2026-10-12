@@ -18955,6 +18955,15 @@ window.kosmosMeasureScrollbarWidth();
           <input type="email" id="plus-signin-email" class="tk-inp plus-si-wide" maxlength="120" autocomplete="email"
             placeholder="you@example.com">
         </div>
+        <!-- kosmos#5995 item 4: the name this computer is sent under, shown BEFORE it is sent. Prefilled from the
+             computer (plusSiComputerName); the person can keep it, change it or clear it. 47 is what fits before
+             the " (Kosmos app)" ending the engine adds. -->
+        <div class="field" id="plus-si-computer-field">
+          <label class="flabel" for="plus-si-computer">Name for this computer</label>
+          <p class="fhint" id="plus-si-computer-hint">Your Kosmos+ account lists this computer under this name. Change it if you like. An empty box sends "This computer".</p>
+          <input type="text" id="plus-si-computer" class="tk-inp plus-si-wide" maxlength="47" autocomplete="off" spellcheck="false"
+            placeholder="This computer" aria-describedby="plus-si-computer-hint">
+        </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-signin-code">Email me a code</button>
           <!-- kosmos#5628 slice 2b-ui: shown only on a computer whose company installed the Kosmos profile. -->
@@ -49102,6 +49111,26 @@ function plusSiKStop() {
   const card = document.getElementById('plus-state2'); if (card) card.classList.remove('plus-si-busy');
   const note = document.getElementById('plus-si-k-note'); if (note) note.textContent = '';
 }
+/* kosmos#5995 item 4: "Name for this computer" on the email step. The box is filled with the name that would be sent
+   (the computer's own, or the one the person gave before), read from this computer and never from the coordinator.
+   `loaded` and `touched` decide what the start sends: the box's text once it has shown a name or the person typed in
+   it, and nothing at all before that (an empty box that never loaded is not a person clearing it). A read that
+   answers after the person started typing is dropped. */
+const PLUS_SI_COMPUTER = { loaded: false, touched: false };
+async function plusSiComputerName() {
+  const el = document.getElementById('plus-si-computer');
+  if (!el || PLUS_SI_COMPUTER.touched || PLUS_SI_COMPUTER.loaded) return;
+  let r = null;
+  try { const res = await fetch('/api/remote/computer-name', { cache: 'no-store' }); r = res.ok ? await res.json() : null; } catch { r = null; }
+  if (!r || typeof r.name !== 'string' || PLUS_SI_COMPUTER.touched || PLUS_SI_COMPUTER.loaded) return;
+  el.value = r.name;
+  PLUS_SI_COMPUTER.loaded = true;
+}
+/** What the start sends for the name: { computer_name } once the box means something, {} before. */
+function plusSiComputerSent() {
+  const el = document.getElementById('plus-si-computer');
+  return el && (PLUS_SI_COMPUTER.loaded || PLUS_SI_COMPUTER.touched) ? { computer_name: el.value } : {};
+}
 function plusSiShow(step) {
   for (const id of PLUS_SI_STEPS) {
     const el = document.getElementById(id);
@@ -49120,6 +49149,7 @@ function plusSiShow(step) {
   plusSiMeasure();
   // kosmos#5628 slice 2b-ui: the company button follows the profile (a cached read in the engine).
   if (step === 'plus-si-email' && typeof plusCompanyManaged === 'function') plusCompanyManaged();
+  if (step === 'plus-si-email') plusSiComputerName();   // #5995: the name is on screen before the start can send it
 }
 /* #3796 (Josh, 14:00): the wizard card is centred VERTICALLY in the settings content area on
    every step. That area is only as tall as its content, so CSS alone has nothing to centre in:
@@ -49267,6 +49297,9 @@ function plusSiClear() {
     if (el) el.value = '';
   }
   const to = document.getElementById('plus-si-code-to'); if (to) to.textContent = '';
+  /* #5995: the computer's name is read again for the next sign-in (a name typed and never sent is not carried over;
+     one that was sent is kept by the engine, so it comes back). */
+  { const cn = document.getElementById('plus-si-computer'); if (cn) cn.value = ''; if (typeof PLUS_SI_COMPUTER !== 'undefined') { PLUS_SI_COMPUTER.loaded = false; PLUS_SI_COMPUTER.touched = false; } }
   const sug = document.getElementById('plus-si-name-suggested'); if (sug) sug.hidden = true;   // #3842: a fresh one next time
   plusSiKStop();   // #5785 review 1: a Sign out during a connect ends the loader (a hidden canvas would keep drawing)
   /* A request abandoned by Sign out returns without re-enabling its button, and a cooldown is
@@ -49676,7 +49709,7 @@ async function plusSiRequestCode(btn) {
   const noNewCode = () => { if (verify) verify.disabled = false; };
   plusSiMsg(PLUS_CODE_WORDS.asking(email));
   plusSetBusy(btn, true);
-  const r = await plusSiPost('/api/remote/signin-start', { email });
+  const r = await plusSiPost('/api/remote/signin-start', Object.assign({ email }, plusSiComputerSent()));
   if (r.stale) return;
   if (!r.ok) {
     const m = !r.timeout && /in (\d+) seconds?/.exec(r.because);   // a timeout is not a cooldown
@@ -49701,6 +49734,7 @@ async function plusSiRequestCode(btn) {
   plusSiStage(r.data.stage, r.data);
 }
 document.getElementById('plus-signin-code').addEventListener('click', () => plusSiRequestCode(document.getElementById('plus-signin-code')));
+{ const cn = document.getElementById('plus-si-computer'); if (cn) cn.addEventListener('input', () => { PLUS_SI_COMPUTER.touched = true; }); }   // #5995
 document.getElementById('plus-si-code-resend').addEventListener('click', (e) => {
   e.preventDefault();
   if (e.currentTarget.getAttribute('aria-disabled') === 'true') return;
@@ -50340,6 +50374,7 @@ document.getElementById('plus-si-company-resend').addEventListener('click', () =
    click guard (a code already refused is not sent again) sees the press like any other. */
 const PLUS_ENTER_GO = {
   'plus-signin-email': 'plus-signin-code',
+  'plus-si-computer': 'plus-signin-code',   // #5995
   'plus-si-code-in': 'plus-si-code-go',
   'plus-si-second-in': 'plus-si-second-go',
   'plus-si-phone': 'plus-si-phone-go',
