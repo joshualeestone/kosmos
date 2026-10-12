@@ -38,4 +38,6 @@ nested in $( ) is a known bash 3.2 parse bug; the BOARDEOF block in the same fun
 ## Weakest premise
 That every hook Kosmos wrote names a path inside KOSMOS_HOME. ensureWired writes app/bin/kosmos-report-hook.sh from
 the installed engine, and the status line names app/engine/kosmos-statusline.js, both inside it; a hand-placed copy
-elsewhere (the #1467 case) is not ours to remove and is left (and still named by the status-line notice).
+elsewhere (the #1467 case) is not ours to remove and is left: a hand-placed status line is still named by the
+status-line notice, a hand-placed hook is named by nothing (it points at a script that still exists, so it does not
+error).

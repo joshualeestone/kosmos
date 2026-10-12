@@ -1496,8 +1496,8 @@ hook_settings_left() {
 # #5998: say which settings files still hold Kosmos's entries for the install at $2 (real path $3), listed in $1.
 say_hooks_left() {
   [ -n "$1" ] || return 0
-  info "note: Kosmos's entries could not be taken out of these Claude settings files, so Claude Code there will"
-  info "report a hook error until they are gone; delete the entries naming kosmos-report-hook or"
+  info "note: Kosmos's entries could not be taken out of these Claude settings files, and Claude Code may show"
+  info "errors there until they are gone; delete the entries naming kosmos-report-hook or"
   if [ -n "$3" ] && [ "${3%/}" != "${2%/}" ]; then
     info "kosmos-statusline.js inside $2 (also written as $3):"
   else
