@@ -18,6 +18,5 @@ Output is still `sort -u`, so order is unchanged.
 
 ## Weakest premises
 - The same C-locale caveat as the gate: on invalid UTF-8 the scan can find a match the ambient-locale grep misses
-  (covering then lists one more check, never one fewer).
-- The scan path and the fallback are each covered by the map test's own arms only as far as they exercise covering; the
-  fallback path is the original code.
+  (covering then lists one more check, never one fewer), and likewise in a locale whose A-Z range takes accented letters.
+- The map test now forces the fallback (a TMPDIR the scan cannot write) and asserts the same answer as the scan path.

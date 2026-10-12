@@ -192,5 +192,16 @@ else
   echo "SKIP  zsh not available"
 fi
 
+# #5907: covering's fallback (the scan cannot run, so every check is read token by token) answers exactly as the scan
+# path does: forced by a TMPDIR the scan cannot write, on the pj-parent diff and on a plain id list of two tokens.
+printf '%s\n' pj-parent tsk-crumb > "$TMP/ids-two"
+_fbok=1
+for _in in "$TMP/wd-parent" "$TMP/ids-two"; do
+  _scan="$(bash "$BCM" covering < "$_in" 2>&1; echo "rc=$?")"
+  _fall="$(TMPDIR="$TMP/no-such-dir" bash "$BCM" covering < "$_in" 2>&1; echo "rc=$?")"
+  [ "$_scan" = "$_fall" ] && [ "$_scan" != "rc=0" ] || { fail "covering: the fallback answered '$_fall' where the scan path answered '$_scan' (${_in##*/})"; _fbok=0; }
+done
+[ "$_fbok" -eq 1 ] && pass "covering: the fallback (scan unable to run) answers exactly as the scan path, on a diff and an id list"
+
 echo "bc-surface-map: $fails FAILED"
 [ "$fails" -eq 0 ]
