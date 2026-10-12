@@ -712,6 +712,8 @@ deregister_kosmos_app
 chk "launcher passes its own account and starts the board" "[ -s \"$SB/launcher.log\" ] && grep -qx 'start' \"$SB/launcher.log\""
 chk "the launcher's baked port travels with it" "grep -q '\"port\":'\"$PORT\"'[,}]' \"$SB/apps/Kosmos.app/Contents/Resources/kosmos-install.json\""
 # #5896: the app's config also lives in the account's own Library (AGENT_WORKFORCE_HOME here), where the app reads first.
+# Here that Library sits inside KOSMOS_HOME, so the --uninstall below cannot show the file's own removal; that is
+# covered only by install.app-config-5896.test.js.
 chk "#5896: the account's own copy of the app config names this install" "grep -qF '\"kosmosHome\":\"$SB/home\"' \"$SB/home/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json\""
 # The NEGATIVE control: the refusal is the guard's whole purpose, and
 # without this the entire uid block could be deleted while the suite

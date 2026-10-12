@@ -23,8 +23,8 @@ for, one the installer can write without touching the bundle.
   folder can be seen (another account's home may not be readable), the bundle's copy wins (iteration 5).
 - The app reads the account file from KOSMOS_APP_TEST_HOME, else AGENT_WORKFORCE_HOME, else the real home, the same
   base the installer writes under (iteration 5).
-- A sandboxed launch of the app must set KOSMOS_APP_CONFIG or KOSMOS_APP_TEST_HOME (main.swift header), since the app
-  now reads the real account's Library first.
+- A sandboxed launch of the app stays off the real account's Library through KOSMOS_APP_CONFIG, KOSMOS_APP_TEST_HOME
+  or AGENT_WORKFORCE_HOME (empty counts as unset), or through its own same-uid bundle copy.
 - The account file path uses the app's bundle identifier as its folder name.
 - setup.sh writes under `${AGENT_WORKFORCE_HOME:-$HOME}`, like its other Library writes, so harnesses that sandbox
   AGENT_WORKFORCE_HOME keep it in the sandbox.
@@ -50,10 +50,10 @@ resolves through the config's ownerUid == getuid() path, so it gets the generic 
 #664 fallback's "your Kosmos". Cosmetic, and slice 2 (the bundle copy goes away) is where that branch is reshaped.
 
 ## Tests
-- native-app/main.swift --kosmos-app-mode-selftest: 11 new rows (5 order: account then bundle, no bundle, override,
-  another account, AGENT_WORKFORCE_HOME; 6 disk: own file beats a foreign bundle copy, an own bundle copy beats the
+- native-app/main.swift --kosmos-app-mode-selftest: 13 new rows (7 order: account then bundle, no bundle, override,
+  another account, AGENT_WORKFORCE_HOME, KOSMOS_APP_TEST_HOME outranks it, empty overrides unset; 6 disk: own file beats a foreign bundle copy, an own bundle copy beats the
   account file, no bundle copy, a gone install folder yields to a foreign bundle copy, no folder visible picks the
-  bundle copy, damaged file falls back); expected 98 -> 109, pinned in
+  bundle copy, damaged file falls back); expected 98 -> 111, pinned in
   native-app.computer-mode-4356 and native-app.download-5167. Perturbing the order fails the two order rows; removing
   the own-bundle preference or the folder-exists rule fails its row.
 - install.app-config-5896.test.js: lifts write_install_config and the uninstall block from setup.sh and runs them in

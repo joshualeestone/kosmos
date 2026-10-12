@@ -96,7 +96,8 @@ let installConfigDirName = "com.chaoskosmos.kosmos"
 func installConfigCandidates(env: [String: String], home: String, resourcePath: String?) -> [String] {
     if let only = env["KOSMOS_APP_CONFIG"] { return [only] }
     // The installer writes under ${AGENT_WORKFORCE_HOME:-$HOME} (install/setup.sh INSTALL_CONFIG_DIR).
-    let base = env["KOSMOS_APP_TEST_HOME"] ?? env["AGENT_WORKFORCE_HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? home
+    let set = { (k: String) in env[k].flatMap { $0.isEmpty ? nil : $0 } }
+    let base = set("KOSMOS_APP_TEST_HOME") ?? set("AGENT_WORKFORCE_HOME") ?? home
     var out = [base + "/Library/Application Support/" + installConfigDirName + "/kosmos-install.json"]
     if let r = resourcePath { out.append(r + "/kosmos-install.json") }
     return out
@@ -6854,6 +6855,10 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         ["/Users/b/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json"], "another account reads ITS OWN Library, never the installer's")
     cfg(installConfigCandidates(env: ["AGENT_WORKFORCE_HOME": "/sb"], home: "/Users/a", resourcePath: nil),
         ["/sb/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json"], "AGENT_WORKFORCE_HOME moves the account file, as it moves the installer's write")
+    cfg(installConfigCandidates(env: ["KOSMOS_APP_TEST_HOME": "/t", "AGENT_WORKFORCE_HOME": "/sb"], home: "/Users/a", resourcePath: nil),
+        ["/t/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json"], "KOSMOS_APP_TEST_HOME outranks AGENT_WORKFORCE_HOME")
+    cfg(installConfigCandidates(env: ["KOSMOS_APP_TEST_HOME": "", "AGENT_WORKFORCE_HOME": ""], home: "/Users/a", resourcePath: nil),
+        [acct], "empty overrides are unset, never the machine-wide /Library")
     let cdir = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-cfg-selftest-\(getpid())")
     try? FileManager.default.createDirectory(at: cdir, withIntermediateDirectories: true)
     let own = cdir.appendingPathComponent("own.json").path, bundled = cdir.appendingPathComponent("bundled.json").path
@@ -6874,7 +6879,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, homeExists: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
     try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 109   // #5896: +11 (5 config-order rows, 6 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 111   // #5896: +13 (7 config-order rows, 6 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

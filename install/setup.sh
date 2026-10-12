@@ -3525,9 +3525,8 @@ make_app() {
 write_install_config() {
   local owner_uid tmp
   # 🛑 A SANDBOXED INSTALL NEVER WRITES THE REAL ACCOUNT'S FILE. The app reads this file FIRST, so a harness that moved
-  # KOSMOS_HOME but not AGENT_WORKFORCE_HOME would point the real Kosmos.app on this Mac at the sandbox. Same rule as
-  # uninstall's refusal for the real Application Support folder: a non-default KOSMOS_HOME with the real home is a
-  # sandbox here. (A self-host install with a custom KOSMOS_HOME therefore keeps relying on the bundle's copy.)
+  # KOSMOS_HOME but not AGENT_WORKFORCE_HOME would point the real Kosmos.app on this Mac at the sandbox. So a
+  # non-default KOSMOS_HOME (compared as a string, like the rest of this file) with the real home is a sandbox here. (A self-host install with a custom KOSMOS_HOME therefore keeps relying on the bundle's copy.)
   # 🔑 `-ef` (same directory), NOT a string compare: /System/Volumes/Data/Users/<u> and a doubled or trailing slash all
   # name the real home, and each passed a string compare (tools/release.sh uses -ef for the same reason).
   if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ] && [ "${AGENT_WORKFORCE_HOME:-$HOME}" -ef "$HOME" ]; then
