@@ -146,6 +146,18 @@ test('the chain this compiler follows is the one engine/chat.js follows, and the
   assert.equal(conversations[0].parsed.messages.length, MAX + 1);
 });
 
+test('followChain never follows a name with a path separator in it, even one that resolves to the real full file', () => {
+  const { chatsDir, base, aside } = rolled('sep', 'agentp');
+  const parsed = JSON.parse(fs.readFileSync(path.join(chatsDir, base), 'utf8'));
+  assert.equal(dl.followChain(chatsDir, base, 'agentp', parsed).earlier.length, 1, 'precondition: the name itself is followed');
+  fs.mkdirSync(path.join(chatsDir, base + '.d'));
+  for (const sep of ['/', '\\']) {
+    const sneaky = `${base}.d${sep}..${sep}${aside}`;
+    assert.ok(sneaky.startsWith(base + '.') && sneaky.endsWith('.full'), 'precondition: only the separator stops it');
+    assert.deepEqual(dl.followChain(chatsDir, base, 'agentp', { ...parsed, continues: sneaky }), { complete: false, earlier: [] }, sneaky);
+  }
+});
+
 test('two rollovers: both full files are followed, oldest first, and every message is in the days once', () => {
   fullThread('chain', 'agentd', 'twice');
   const firstAside = rollOver('chain', 'agentd', 'twice message ' + MAX, '2026-09-16T09:00:00Z');

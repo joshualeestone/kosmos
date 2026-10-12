@@ -150,8 +150,8 @@ function followChain(chatsDir, base, key, parsed) {
     earlier.unshift({ name: next, carried, messages: rows });
     next = cont;
   }
-  // `next` is null only when the last file read names no earlier one. An empty `continues` there is not that: it is
-  // a name that cannot be followed.
+  // `next` is null only when the last file read names no earlier one (its `continues` is absent or not a string, as
+  // asideChain reads it). An empty `continues` there is not that: it is a name that cannot be followed.
   return { complete: earlier.length > 0 && next === null, earlier };
 }
 /* kosmos#5866: the two other kinds of file engine/chat.js sets aside beside a thread file, under the same naming.
@@ -568,7 +568,8 @@ function readConversations(chatsDir, now = new Date()) {
     const own = followed.filter((f) => name.startsWith(f.base + '.'));
     if (!own.length) continue;
     const mine = bytes(name);
-    if (mine !== null && own.some((f) => { const theirs = bytes(f.name); return theirs !== null && mine.equals(theirs); })) chainFiles.push(name);
+    if (mine === null) continue;
+    if (own.some((f) => { const theirs = bytes(f.name); return theirs !== null && mine.equals(theirs); })) chainFiles.push(name);
   }
   const read = new Set(chainFiles);
   for (let i = rolledOverFiles.length - 1; i >= 0; i -= 1) if (read.has(rolledOverFiles[i])) rolledOverFiles.splice(i, 1);
@@ -620,9 +621,10 @@ function compileAll(opts = {}) {
   /* 🛑 kosmos#5855 FAIL CLOSED: a `.full` file no thread file led to (`rolledOver`), or a thread file whose earlier
      files could not all be followed (`continued`), means rows this run did not read. Without them it would REWRITE a
      day that straddles a rollover with only the rows the fresh file carried, and PRUNE every day whose rows are only
-     in a `.full` file. So on either the run writes nothing and prunes nothing, and says why (`refused`). A chain that
-     was followed whole (`chainFiles`) is in `conversations` and refuses nothing. An `onlyDay` run too: that day may be the straddling one. `messages` and `undated` are 0 here
-     because nothing was flattened, not because there are none. */
+     in a `.full` file. So on either the run writes nothing and prunes nothing, and says why (`refused`), an
+     `onlyDay` run too: that day may be the straddling one. `messages` and `undated` are 0 here because nothing was
+     flattened, not because there are none. A chain that was followed whole (`chainFiles`) is in `conversations`
+     and refuses nothing. */
   if (rolledOver > 0 || continued > 0) {
     return {
       conversations: conversations.length, messages: 0, days: 0, written: [], pruned: [], undated: 0,
@@ -789,8 +791,12 @@ if (require.main === module) {
     // which case it is, so nothing here asserts one.
     process.stderr.write('dailylog: not compiled. Nothing was written or removed.\n'
       + `Found in ${shownName(summary.chatsDir)}:\n`
-      + (earlier.length ? 'Files whose names end in .full after a conversation file\'s name, which no conversation file led this tool to:\n' + list(earlier) : '')
-      + (pointing.length ? 'Conversation files that refer to an earlier file this tool could not follow all the way back:\n' + list(pointing) : '')
+      + (earlier.length
+        ? 'Files whose names end in .full after a conversation file\'s name, which no conversation file led this tool to:\n' + list(earlier)
+        : '')
+      + (pointing.length
+        ? 'Conversation files that refer to an earlier file this tool could not follow all the way back:\n' + list(pointing)
+        : '')
       + 'This tool does not compile while a file listed here is present, and it changes none of them. It compiles a '
       + 'conversation that reached its message limit only when it can follow every earlier file from the '
       + 'conversation\'s own file. They can be Kosmos\'s own files, so do not move or delete one unless you know '
