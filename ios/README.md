@@ -87,7 +87,7 @@ runner, which has the runtime.
   app is created fresh as `io.kosmos.app` under Kosmos Agent Manager, Inc. once Apple approves
   #3643, and both lines change then (docs/phone-push-go-live.md, "Interim").
   - A preview build's push registration is refused by the coordinator (its `KOSMOS_APNS_BUNDLE_IDS`
-    allows only `io.kosmos.app`). The app logs `[Push] register failed with HTTP 400` and carries on,
+    is unset today, and is planned to allow only `io.kosmos.app`). The app logs `[Push] register failed with HTTP 400` and carries on,
     with no banner (`PushRegistrar.swift`). It still shows the notification-permission prompt.
   - Building for a real device in Xcode now signs as that team too, so Xcode provisions
     `io.kosmos.app.preview` under Stone Syndicate for the person building.
