@@ -61639,9 +61639,8 @@ function tskRow(t, at) {
     : notReported && t.claim.about
       ? '<div class="why">' + esc(tskAgentName(t.claim.about)) + ' ' + notReported + '.</div>'
       : t.claim.because ? '<div class="why">We cannot tell whether it started: ' + esc(t.claim.because) + '.</div>' : '';
-  /* kosmos#5942: a decision row says how long it has waited on the person, so a stale one stands out. agoWords is the
-     page's one age source (Angel's #5943 dates the question bubble with it too); its " ago" is dropped for "for". No
-     known start (the agent never said when, or only a missed repeating run is waiting) shows no age, never a guess. */
+  /* kosmos#5942: a decision row says how long it has waited on the person. agoWords gives the age; its " ago" is
+     dropped for "for". When the route sends no start (nothing knows it), the row shows no age. */
   const waitWords = t.state === 'decision' && typeof t.waitingSince === 'string'
     ? agoWords(Date.now() - Date.parse(t.waitingSince)) : '';
   const waitLine = !waitWords ? ''
