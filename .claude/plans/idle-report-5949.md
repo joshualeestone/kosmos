@@ -9,7 +9,11 @@ reason "it said it was working and has not said anything since; we could not che
 supervisor (engine/win32codexsup.js) wrote idle to the agent's win32-state file when the turn ended, but sent no idle
 report, and the board, once the working report was older than REPORT_WORKING_DECAY_MS (5 min), ignored the state
 file's idle (classify's win32 arm reads it as scraped IDLE) and fell to UNKNOWN. Claude agents are unaffected: their
-Stop hook reports idle.
+Stop hook reports idle. Codex has no turn-end hook at all. Gemini, Grok and Antigravity DO have hook bridges that report
+idle at turn end (bin/gemini-report-bridge.js AfterAgent, bin/grok-report-bridge.js Stop, bin/agy-report-bridge.js Stop),
+yet on Josh's machine their idle did not land either. Why is not found here (this box has no such agent); the likeliest
+is the hook dying with the turn's process tree when the turn ends. Finding that is a follow-up; this change does not
+depend on it, because the supervisor itself knows the turn ended.
 
 ## Change
 1. engine/win32codexsup.js (two insertions, no existing line changed): when a turn ends normally (`r.ok`) with nothing
@@ -17,10 +21,14 @@ Stop hook reports idle.
    Windows (engine/kosmos-report-hook.js `main` with a `Stop` event: `report idle --auto "finished responding"` to
    /api/report, with this run's own agent token from the turn environment). Nothing on a failed or thrown turn (that
    is #5948's to report) and nothing while a message is queued (the next turn starts at once). Never awaited, never
-   throws. The default sends nothing inside a test process (live-execution.inTestProcess or NODE_TEST_CONTEXT), so no
-   suite can post to a real board; `opts.reportIdle` is the seam.
-2. engine/status.js: classify's win32 arm marks its idle as `liveToken: true` (a direct reading: Claude's own status,
-   or the supervisor's state file). In reconcileReport, a stale working report over a `liveToken` idle reads IDLE
+   throws. It is skipped when the agent's own hook already reported idle during this turn (its latest report is idle
+   and newer than the turn's start), so a bridge's idle with the agent's last words is not replaced by "finished
+   responding". The default sends nothing inside a test (live-execution.inTestRun, the one copy of the --test /
+   NODE_TEST_CONTEXT pair, now also used by win32job.js and agystatus.js); `opts.reportIdle` and `opts.lastReport` are
+   the seams.
+2. engine/status.js: classify's win32 arm marks its idle as `liveToken: true` only for a per-turn runner
+   (win32codexlive.PER_TURN: codex, gemini, grok, antigravity), whose idle is the supervisor's own record that no turn
+   is running. Not for a Windows Claude agent: `claude agents --json` also reads idle while a session waits (#570). In reconcileReport, a stale working report over a `liveToken` idle reads IDLE
    instead of "we could not check". A Mac screen that merely looks idle still falls through to the honest unknown.
    This is the backstop for an idle report that did not land (board restarting, a refused send).
 
@@ -28,19 +36,21 @@ Stop hook reports idle.
 #5948 (another agent, same supervisor) writes a blocked self-report on a sign-in failure and a non-automatic
 working/idle when a turn succeeds after being signed out. This sends only an automatic idle, only on a normal end, and
 selfreport refuses an automatic idle over a standing blocked (pinned in the new test), so the two merge in either order.
-Lines touched in win32codexsup.js: an insertion after `const supervisorPid = ...` (the `reportIdle` seam) and an
-insertion between `turning = false;` and `pump();` in the turn's `.then`.
+Lines touched in win32codexsup.js (insertions only, no existing line changed): after `const supervisorPid = ...` (the
+`reportIdle` and `lastReport` seams), one line after `stream.wrote();` in pump (`const turnAt = Date.now();`), and
+between `turning = false;` and `pump();` in the turn's `.then`.
 
 ## Tests
-engine/win32codexsup.idle-5949.test.js (13; selected for the Windows CI job by its name): one idle report per normal
-turn for each of codex, gemini, grok, antigravity (after the state file went idle, with the run token); none on a
+engine/win32codexsup.idle-5949.test.js (12; selected for the Windows CI job by its name): one idle report per normal
+turn (after the state file went idle, with the run token); none when the agent's own hook already said idle this turn
+(but yes for an idle from before the turn, or an unreadable report); none on a
 failed or thrown turn; none between two queued turns; a throwing or rejecting sender never stops the supervisor; the
 REAL default sender, in a child process that is not a test, posts `{state:'idle', auto:true}` to /api/report on a fake
 board with the agent token, store root a throwaway folder; under a test the default sends nothing; end to end through
 status.snapshot a codex agent with a stale working report and an idle state file reads Idle (busy still Working); a
-Mac-shaped idle screen still reads unknown; an automatic idle is refused over a standing blocked. 8 of 13 fail on
-origin/main; the 5 that pass there are the guards (nothing sent on failure, a throwing sender, the test guard, the
-blocked rule).
+Windows Claude agent reading idle and a Mac-shaped idle screen still read unknown (the Claude one fails if liveToken is
+set for every runner, checked); an automatic idle is refused over a standing blocked (an existing selfreport rule,
+pinned because #5948 relies on it).
 
 Validation: targeted preloaded node tests only (the full suite is not run on this box without the schtasks preload):
 the files above plus win32codexsup, status, win32capture, win32roster, win32codexlive, kosmos-report-hook, selfreport,

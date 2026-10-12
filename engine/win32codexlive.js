@@ -85,4 +85,4 @@ function liveSessions(opts) {
   return out;
 }
 
-module.exports = { liveSessions };
+module.exports = { liveSessions, PER_TURN };

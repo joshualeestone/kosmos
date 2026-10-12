@@ -149,7 +149,7 @@ const REFUSED_IN_TEST = 'schtasks is never run from a test process that has inst
  * injected runner; a runner seam is always allowed.
  */
 function schtasksMayRunInThisProcess() {
-  return !(liveExec.inTestProcess() || process.env.NODE_TEST_CONTEXT);
+  return !liveExec.inTestRun();
 }
 
 function run(args) {
