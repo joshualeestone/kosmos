@@ -34,22 +34,40 @@ rm -rf "$_td"
 #      [ -x P ]     (P = "quoted" or an unquoted /path)  needs  [ -f P ]
 #      [ ! -x P ]   (the negated form: a +x dir reads as executable there too)
 #                                                        needs  [ ! -f P ]
-#    or, for a test of whether a FOLDER can be entered (#5913), [ -d P ] before it on the line,
-#    joined by && alone.
+#    or, for a test of whether a FOLDER can be entered (#5913), [ -d P ] gating it (see dgated).
 #    Any missing guard is a directory-accepting site. Red if any is added.
 _scan='
+# #5913: a SEARCH test on a folder (can this account enter it) is not the class, but only when a folder test
+# gates THIS -x: an un-negated [ -d P ] earlier on the line, and between the two nothing but " && " joining
+# bracket tests on the same P (for example [ ! -L P ] or [ -r P ]). Then a path that is not a folder never
+# reaches the -x. Anything else between them (||, ;, a pipe, &, a string, a subshell, another path) is not
+# read as a gate: a folder test written another way is flagged, which is the safe direction (review 7).
+function dgated(line, p, xi,    pre, d, from, k, di, t, tail) {
+  pre = substr(line, 1, xi - 1); d = "[ -d " p " ]"; tail = p " ]"; from = 1
+  while ((k = index(substr(pre, from), d)) > 0) {
+    di = from + k - 1; from = di + 1
+    if (substr(line, 1, di - 1) ~ /![ \t]*$/) continue
+    t = substr(pre, di + length(d))
+    while (t != " && ") {
+      if (substr(t, 1, 6) != " && [ ") break
+      t = substr(t, 7)
+      if (substr(t, 1, 2) == "! ") t = substr(t, 3)
+      if (t !~ /^-[a-zA-Z] /) break
+      t = substr(t, 4)
+      if (substr(t, 1, length(tail)) != tail) break
+      t = substr(t, length(tail) + 1)
+    }
+    if (t == " && ") return 1
+  }
+  return 0
+}
 {
   line = $0
-  s = line
+  s = line; off = 0
   while (match(s, /\[ -x ("[^"]+"|[^] ]+) \]/)) {
     p = substr(s, RSTART, RLENGTH); sub(/^\[ -x /, "", p); sub(/ \]$/, "", p)
-    # #5913: a SEARCH test on a folder (can this account enter it) is not the class, but only when the folder test
-    # gates it: [ -d P ] earlier on the line, joined to [ -x P ] by && alone (no || and no ; between).
-    # Then a path that is not a folder never reaches the -x, so it cannot be taken for an installed program.
-    # (A -d in a trailing comment always comes after the code, so the order rule refuses it too.)
-    xi = index(line, "[ -x " p " ]"); di = index(line, "[ -d " p " ]")
-    dgate = (di > 0 && xi > di && substr(line, di, xi - di) !~ /\|\||;/)
-    if (index(line, "[ -f " p " ]") == 0 && !dgate)
+    xi = off + RSTART; off = off + RSTART + RLENGTH - 1
+    if (index(line, "[ -f " p " ]") == 0 && !dgated(line, p, xi))
       printf "%s:%d: bare [ -x %s ] (a directory passes)\n", FILENAME, FNR, p
     s = substr(s, RSTART + RLENGTH)
   }
@@ -90,18 +108,24 @@ else fail "the scan flagged a folder search test guarded by -d on the same path"
 printf '  [ -d "$S" ] && [ ! -L "$S" ] && [ -r "$S" ] && [ -x "$S" ] || return 0\n' > "$_ctl"
 if [ -z "$(awk "$_scan" "$_ctl" 2>/dev/null)" ]; then pass "a folder search test with other && tests between is not flagged"
 else fail "the scan flagged a folder search test joined by && through other tests"; fi
-# Each of these lets a path that is NOT a folder reach the -x, so each must still be flagged (review 6).
+# Each of these lets a path that is NOT a folder reach an -x, so each must be flagged exactly once (reviews 6, 7).
 _n=0
 for _l in '  [ -d "$OTHER" ] && [ -x "$DIR" ] || return 0' \
           '  [ -d "$P" ] || [ -x "$P" ] && run "$P"' \
           '  [ -d "$P" ] && mkdir y; [ -x "$P" ] && "$P" --version' \
           '  [ -x "$P" ] && run "$P"   # was [ -d "$P" ] before' \
-          '  [ -x "$P" ] && [ -d "$P" ] && run "$P"'; do
+          '  [ -x "$P" ] && [ -d "$P" ] && run "$P"' \
+          '  ! [ -d "$P" ] && [ -x "$P" ] && run "$P"' \
+          '  [ -d "$P" ] && [ -x "$P" ] || [ -x "$P" ]' \
+          '  [ -d "$P" ] && [ -x "$P" ]; [ -x "$P" ] && run' \
+          '  [ -d "$P" ] | [ -x "$P" ] && run' \
+          '  [ -d "$P" ] & [ -x "$P" ] && run' \
+          '  echo "[ -d "$P" ]" && [ -x "$P" ] && run'; do
   printf '%s\n' "$_l" > "$_ctl"
   if [ "$(awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -eq 1 ]; then _n=$((_n + 1))
   else fail "a -d that does not gate the -x excused it: $_l"; fi
 done
-[ "$_n" -eq 5 ] && pass "a -d on another path, across || or ;, in a comment, or after the -x excuses nothing (5 controls)"
+[ "$_n" -eq 11 ] && pass "a -d that does not gate the -x excuses nothing: another path, ||, ;, a comment, after it, negated, a second -x, a pipe, &, a string (11 controls)"
 rm -f "$_ctl"
 
 echo "installer runnable-guard: $fails failures"
