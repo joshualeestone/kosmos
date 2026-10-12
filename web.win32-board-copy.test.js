@@ -289,7 +289,7 @@ test('one CSS rule hides the Mac-only surfaces, and it is on each one the audits
     'Settings tmux box': /<section class="dbox" data-win-hide[^>]*>\s*<!-- The tmux permission box/,
     'Update Kosmos automatically (P0-5)': /<div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide>/,
     'its status line': /<p class="dhint" id="auto-msg"[^>]*data-win-hide>/,
-    'Open Terminal (W-18)': /<div class="field" data-win-hide>\s*<button class="btn" id="d-open-terminal"/,
+    'Open Terminal (W-18)': /<div class="field" data-win-hide[^>]*>\s*<button class="btn" id="d-open-terminal"/,
     // #4025: the App icon switch, until a Windows taskbar count exists to switch.
     'Settings App icon box': /<section class="dbox" data-win-hide data-linux-hide>\s*<h3 class="dlab">App icon<\/h3>/,
   };
@@ -714,6 +714,11 @@ test('#5865: a Linux board seen from elsewhere is "the computer running Kosmos",
   assert.match(sentence('linux', 'OFFLINE_SENTENCE'), /cannot reach the computer running Kosmos\./);
   assert.match(sentence('linux', 'SIGNED_OUT_SENTENCE'), /The computer running Kosmos and your agents are fine\./);
   assert.match(sentence('linux', 'ORG_SIGNED_OUT_SENTENCE'), /The computer running Kosmos and your agents are fine\./);
+  // A Windows board seen from a phone is a PC (review 2: it fell into the Mac's words).
+  for (const name of ['OFFLINE_SENTENCE', 'SIGNED_OUT_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE']) {
+    assert.doesNotMatch(sentence('win32', name), /\bMac\b/, name + ' told a Windows board about a Mac');
+  }
+  assert.match(sentence('win32', 'SIGNED_OUT_SENTENCE'), /Your PC and your agents are fine\./);
   // CONTROL: the same source on a Mac says "your Mac", as before.
   assert.ok(remoteNote('darwin', false).includes('<b>Your Mac is not answering</b>'));
   assert.ok(remoteNote('darwin', true).includes('so it cannot reach your Mac.</small>'));
@@ -736,6 +741,9 @@ test('#5865: Settings on Linux has no Dock line, app icon, Accessibility or tmux
     'Accessibility sentence': /id="set-a11y-say" [^>]*data-linux-hide>/,
     'Open Accessibility settings': /id="set-a11y-open" type="button" data-win-hide data-linux-hide>/,
     'tmux permission box': /<section class="dbox" data-win-hide data-linux-hide>\s*<!-- The tmux permission box/,
+    // engine/terminal.js opens Terminal.app with osascript. (Update Kosmos automatically stays: a Linux install has the
+    // Mac's runtime/bin/node layout, so engine/update.js installedRoot finds it and auto-install runs.)
+    'Open Terminal': /<div class="field" data-win-hide data-linux-hide>\s*<button class="btn" id="d-open-terminal"/,
   };
   for (const [name, re] of Object.entries(HIDDEN_ON_LINUX)) assert.match(PAGE, re, name + ' shows on Linux');
   const markup = PAGE.replace(/<script\b[\s\S]*?<\/script>/g, '').replace(/<style\b[\s\S]*?<\/style>/g, '').replace(/<!--[\s\S]*?-->/g, '');
