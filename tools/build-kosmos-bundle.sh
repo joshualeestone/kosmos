@@ -760,7 +760,8 @@ if grep -q '\$' "$_sealed/Contents/Info.plist"; then
   echo "the sealed app's Info.plist still holds an unfilled \$ value (#5896): setup.sh's heredoc gained a variable this build does not fill" >&2; exit 1
 fi
 plutil -lint "$_sealed/Contents/Info.plist" >/dev/null || { echo "the sealed app's Info.plist is not a valid plist (#5896)" >&2; exit 1; }
-if [ -f "$STAGE/app/assets/Kosmos.icns" ]; then cp "$STAGE/app/assets/Kosmos.icns" "$_sealed/Contents/Resources/Kosmos.icns"; fi
+if [ -f "$STAGE/app/assets/Kosmos.icns" ]; then cp "$STAGE/app/assets/Kosmos.icns" "$_sealed/Contents/Resources/Kosmos.icns"
+else echo "==> note: no app/assets/Kosmos.icns staged, so the sealed Kosmos.app ships without its icon"; fi
 # Signing the BUNDLE re-signs its executable with the bundle's Info.plist and resources sealed in. The same identity,
 # hardened runtime, timestamp and entitlements as the binary above (#4409: the mic needs the entitlement here too).
 codesign_ts_retry --force --options runtime --timestamp --entitlements "$REPO/native-app/kosmos-app.entitlements" -s "$_codesign_id" "$_sealed" || {
