@@ -89,3 +89,4 @@ against a plain realpath (the only equality check is for `only` roots, which kee
 1. FIXED: a runBackup that throws (it never should) is said once, not swallowed every hour.
 2. FIXED: transcripts are looked up by the agent folder as Kosmos recorded it, not its true spelling, since a
    transcript records the folder its agent started in. Tests 17 -> 18.
+Mutants after review 4 (20:01 CDT from `date`): D1 a thrown run silent: red. D2 transcripts by the native folder: first SURVIVED, because my test's second spelling (path.join with '.') was normalised to the same string, so the test was vacuous. Rewritten with a symlink and a control that the spellings differ; D2 now red (16/15/1 in that file).
