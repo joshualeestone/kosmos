@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: sealeduninstall-5912
-diff_hash: dd7b29c78794e86282780c6d3400484f47a9eda708e61669a6adc9f3cbda7558
-validation: pending (Mortals run sealeduninstall-5912-final5 queued at 4db8e914d; PR CI runs the full suite; tools/test-install.sh harness checks are UNRUN anywhere)
+diff_hash: 1e74f3fe07668b54058913911da84ea99bd11035ac3f6ad7b5b81832a2f90aae
+validation: pending (PR CI runs the full suite on the final head; tools/test-install.sh harness checks are UNRUN anywhere)
 subdir_audit: passed
-timestamp: 2026-10-12T18:01:40Z
+timestamp: 2026-10-12T18:05:42Z
 iterations: 6
 converged: true
 ---
@@ -46,3 +46,6 @@ converged: true
 
 ## Contract with #5913
 PigeonPete's sealed_icon_other_users <owner-uid> joins shared_sealed_stays later; exit 0 keeps. Whoever lands second wires it.
+
+## After convergence: rebase and one CI-found fix
+PR CI (test-linux-setup) failed on main's #1716 runnable guard: sealed_opens_another used a bare [ -x ] on the default bin/kosmos, which a directory passes. Rebased onto main, changed it to [ -f ] && [ -x ], and added a test arm (a directory named bin/kosmos keeps nothing), perturbed: with the bare [ -x ] restored that arm fails. Note: the app itself uses isExecutableFile, which would accept a directory; the installer is now stricter only in that case, where there is no runnable install anyway. After the fix: install.sealed-app-5896 21/21; the four test-linux-setup shell checks pass; file-scanning guards 116/116.
