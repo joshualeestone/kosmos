@@ -1488,15 +1488,15 @@ function cleanDescription(text) {
  */
 let revealRunner = null;
 function setRevealRunner(f) { revealRunner = f; }
-/* win32-board-copy: which platform's opener runs. Production reads process.platform;
-   a suite states the arm it asserts, so the Mac contract below stays pinned to
-   `/usr/bin/open` on a Windows box and the Windows arm is assertable from a Mac. */
+/* win32-board-copy: which platform's opener runs (the Mac's `/usr/bin/open`, Windows's File Explorer, and since #5881
+   Linux's xdg-open). Production reads process.platform; a suite states the arm it asserts, so the Mac contract below
+   stays pinned to `/usr/bin/open` on a Windows or Linux box and the other arms are assertable from a Mac. */
 let revealPlatform = null;
 function setRevealPlatform(p) { revealPlatform = p || null; }
 function revealOnWindows() { return (revealPlatform || process.platform) === 'win32'; }
 /* #5881: a Linux board has no `/usr/bin/open`. A FOLDER it opens with `xdg-open` when the board's own environment names
-   a display (DISPLAY or WAYLAND_DISPLAY), as engine/remote.js opens a page; without one it cannot, and the answer says
-   so. A stale display starts an xdg-open that fails unseen, since it is not waited on (below).
+   a display (DISPLAY or WAYLAND_DISPLAY); without one it cannot, and the answer says so. (engine/remote.js also uses
+   xdg-open, for the company sign-in page, but checks no display and waits on it.) A stale display starts an xdg-open that fails unseen, since it is not waited on (below).
    xdg-open is STARTED, never waited on (review 1): on a desktop it does not know it runs the file manager in the
    foreground, and waiting would hold the board's event loop until that window closed. So "ok" means it was started; a
    missing xdg-open (xdg-utils not installed) is said. The environment is injectable for tests, as the platform is. */
@@ -1508,7 +1508,7 @@ function linuxHasDesktop() { const e = linuxEnv(); return Boolean(e.DISPLAY || e
 const NO_DESKTOP = 'Kosmos cannot open it on this computer: it is not running in a desktop session';
 function xdgOpenPath() {
   for (const dir of String(linuxEnv().PATH || '').split(path.delimiter)) {
-    if (!dir) continue;
+    if (!dir || !path.isAbsolute(dir)) continue;   // never a folder relative to where the board happens to run
     const f = path.join(dir, 'xdg-open');
     try { if (fs.statSync(f).isFile()) { fs.accessSync(f, fs.constants.X_OK); return f; } } catch { /* not here */ }
   }
@@ -1521,7 +1521,7 @@ function linuxOpenFolder(folder) {
   if (!path.isAbsolute(String(folder))) return { ok: false, because: 'the folder did not open' };
   if (revealRunner) return revealRunner('xdg-open', [folder]);
   const bin = xdgOpenPath();
-  if (!bin) return { ok: false, because: 'this computer has no xdg-open to open it with (it comes with xdg-utils)' };
+  if (!bin) return { ok: false, because: 'this computer has no program installed for opening folders' };   // xdg-open, from xdg-utils
   try {
     /* Review 2: only what xdg-open needs to reach the desktop, never the board's own environment (its tokens) handed to
        a file manager that may run for a long time. */
@@ -1529,7 +1529,7 @@ function linuxOpenFolder(folder) {
     const env = {};
     for (const k of ['HOME', 'PATH', 'LANG', 'DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS',
       'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'XDG_DATA_DIRS', 'XDG_CONFIG_HOME', 'XDG_CONFIG_DIRS',
-      'DESKTOP_SESSION', 'KDE_FULL_SESSION', 'GNOME_DESKTOP_SESSION_ID']) {
+      'DESKTOP_SESSION', 'XDG_SESSION_DESKTOP', 'KDE_FULL_SESSION', 'KDE_SESSION_VERSION', 'GNOME_DESKTOP_SESSION_ID']) {
       if (e[k]) env[k] = e[k];
     }
     const child = spawn(bin, [folder], { detached: true, stdio: 'ignore', env });
