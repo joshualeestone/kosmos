@@ -1,8 +1,9 @@
 'use strict';
 /**
- * kosmos#5855: the daily-log compiler does not read a rolled-over conversation (earlier rows in a `.full` file beside
- * the thread file; the fresh thread file names it in `continues`). On either sign it refuses the run: nothing
- * written, nothing pruned, and the summary says so (`refused`).
+ * kosmos#5855: when the daily-log compiler cannot follow a rolled-over conversation whole (earlier rows in a `.full`
+ * file beside the thread file; the fresh thread file names it in `continues`), it refuses the run: nothing written,
+ * nothing pruned, and the summary says so (`refused`). The files here are hand-made and carry no `agent`, which is
+ * one of the things that stops a chain being followed. The chains it does follow are in dailylog.chain-5855.test.js.
  *
  *   tools/run-tests.sh --only engine/dailylog.rollover-5855.test.js
  */
@@ -27,7 +28,7 @@ const timeOf = (at) => (typeof at === 'string' && at.length >= 16 ? at.slice(11,
 const ASIDE = 'direct..p.json.20261011T180000Z.4242.1791741600000.full';
 // The refusal's last line: three sentences that hold whatever the listed files are.
 const CLOSING = 'This tool does not compile while a file listed here is present, and it changes none of them. '
-  + 'If they come from a conversation that reached its message limit, this is expected: this version of the tool cannot compile such a conversation. '
+  + 'It compiles a conversation that reached its message limit only when it can follow every earlier file from the conversation\'s own file. '
   + 'They can be Kosmos\'s own files, so do not move or delete one unless you know that it is not Kosmos\'s.\n';
 const WHOLE = [
   { at: '2026-09-13T09:00:00Z', text: 'day13 only in the full file', from: null },
@@ -248,7 +249,7 @@ test('the command says what it found and exits non-zero, so a scheduled run cann
   // saying so: the tool cannot tell which case it is.
   assert.equal(no.stderr, 'dailylog: not compiled. Nothing was written or removed.\n'
     + 'Found in ' + dl.shownName(chatsDir) + ':\n'
-    + 'Files whose names end in .full after a conversation file\'s name:\n'
+    + 'Files whose names end in .full after a conversation file\'s name, which no conversation file led this tool to:\n'
     + '  ' + JSON.stringify(ASIDE) + '\n'
     + CLOSING);
   assert.equal(no.stdout, '', 'a refused run printed a success line');
@@ -268,7 +269,7 @@ test('the command says what it found and exits non-zero, so a scheduled run cann
   // the two kinds are listed apart: the live conversation file is never in the list of .full files
   fs.writeFileSync(path.join(chatsDir, 'direct..p.json'), JSON.stringify({ continues: ASIDE, carried: 1, messages: [WHOLE[3]] }));
   const both = run();
-  const [first, second] = both.stderr.split('Conversation files that refer to an earlier file:\n');
+  const [first, second] = both.stderr.split('Conversation files that refer to an earlier file this tool could not follow all the way back:\n');
   assert.ok(second !== undefined, 'the conversation that refers to an earlier file is not listed apart: ' + both.stderr);
   assert.ok(!first.includes('"direct..p.json"'), 'the live conversation file is in the list of .full files');
   assert.ok(second.startsWith('  "direct..p.json"\n'));
@@ -278,7 +279,7 @@ test('the command says what it found and exits non-zero, so a scheduled run cann
   assert.equal(only.status, 3);
   assert.equal(only.stderr, 'dailylog: not compiled. Nothing was written or removed.\n'
     + 'Found in ' + dl.shownName(chatsDir) + ':\n'
-    + 'Conversation files that refer to an earlier file:\n'
+    + 'Conversation files that refer to an earlier file this tool could not follow all the way back:\n'
     + '  "direct..p.json"\n'
     + CLOSING);
   // a file name is somebody's bytes: whatever it holds, what is printed is printable ASCII, on one line
@@ -336,26 +337,21 @@ test('the two lists come back sorted, whatever order the folder is listed in', (
   assert.deepEqual(r.rolledOverFiles, ['direct..a.json.x.full', 'direct..b.json.x.full', 'direct..c.json.x.full']);
 });
 
-test('pin (convention 5): where chat.js puts an aside, and, once the rollover is in the tree, the signs it writes and follows', () => {
+test('pin (convention 5): where chat.js puts an aside, and the signs its rollover writes and follows', () => {
   const src = fs.readFileSync(path.join(__dirname, 'chat.js'), 'utf8');
   // WHERE and HOW an aside is named, for every kind: beside the thread file, the file's own name first, the kind last.
   // This holds before and after the rollover lands (supersede builds every aside), so it is asserted either way.
   assert.ok(src.includes('const stem = `${file}.${stamp}.${process.pid}.${Date.now()}`;'), 'engine/chat.js no longer builds an aside name from the thread file\'s own path: check where rolled-over files live');
   assert.ok(src.includes('let aside = `${stem}.${suffix}`;'), 'engine/chat.js no longer ends an aside name with its kind');
+  // the rollover (kosmos#5841 piece 2): its suffix, its rule for following a file, and the field a fresh file names
+  // its predecessor in must be the ones this compiler reads
   const kind = /^const ROLL_KIND = '([^']+)';$/m.exec(src);
-  if (kind) {
-    // the rollover (kosmos#5841 piece 2) is in this tree: its suffix, its rule for following a file, and the field a
-    // fresh file names its predecessor in must be the ones this compiler reads
-    assert.equal(kind[1], 'full');
-    assert.equal(dl.isRolledOverFileName('direct..p.json.x.' + kind[1]), true);
-    assert.ok(src.includes("n.startsWith(base + '.') && n.endsWith('.' + ROLL_KIND)"), 'engine/chat.js follows a rolled-over file by a different rule now');
-    assert.ok(src.includes("continues: typeof parsed.continues === 'string' && parsed.continues ? parsed.continues : null"), 'engine/chat.js reads `continues` differently now');
-    assert.ok(src.includes('continues: path.basename(moved.aside)'), 'engine/chat.js no longer writes the file it rolled over from into `continues`');
-    assert.ok(src.includes('...(existing.continues ? { continues: existing.continues } : {}),'), 'engine/chat.js no longer keeps `continues` on a later write');
-    assert.ok(src.includes("if (!n.startsWith(base + '.') || !n.endsWith('.' + ROLL_KIND)) continue;"), 'engine/chat.js finds a thread\'s own newest rolled-over file by a different rule now');
-  } else {
-    // it is not in this tree yet: chat.js must still be refusing at the cap, or this pin has gone blind
-    assert.match(src, /this conversation has reached the \$\{MAX_MESSAGES\} messages Kosmos keeps, so we did not add to it/,
-      'engine/chat.js neither rolls over under ROLL_KIND nor refuses at the cap: update this pin to the new rollover naming');
-  }
+  assert.ok(kind, 'engine/chat.js no longer names the rollover kind in ROLL_KIND: update this pin to the new rollover naming');
+  assert.equal(kind[1], 'full');
+  assert.equal(dl.isRolledOverFileName('direct..p.json.x.' + kind[1]), true);
+  assert.ok(src.includes("n.startsWith(base + '.') && n.endsWith('.' + ROLL_KIND)"), 'engine/chat.js follows a rolled-over file by a different rule now');
+  assert.ok(src.includes("continues: typeof parsed.continues === 'string' && parsed.continues ? parsed.continues : null"), 'engine/chat.js reads `continues` differently now');
+  assert.ok(src.includes('continues: path.basename(moved.aside)'), 'engine/chat.js no longer writes the file it rolled over from into `continues`');
+  assert.ok(src.includes('...(existing.continues ? { continues: existing.continues } : {}),'), 'engine/chat.js no longer keeps `continues` on a later write');
+  assert.ok(src.includes("if (!n.startsWith(base + '.') || !n.endsWith('.' + ROLL_KIND)) continue;"), 'engine/chat.js finds a thread\'s own newest rolled-over file by a different rule now');
 });
