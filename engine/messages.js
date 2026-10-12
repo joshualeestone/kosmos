@@ -1555,7 +1555,7 @@ async function tellTaskLineDropped(entry, roster) {
   if (entry.from) {
     // The task page's words (engine/taskactphrase.js): a line kept behind earlier messages names no usage limit.
     const line = '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it '
-      + (entry.behind === true ? 'behind earlier messages' : 'while ' + entry.to + ' was out of usage')
+      + (entry.behind === true ? 'behind earlier messages' : 'while ' + entry.to + (entry.signin === true ? ' was signed out' : ' was out of usage'))
       + ' and could not send it within a day. Send it again if it still matters.';
     try { v = await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { v = null; }
     told = entry.from + ', delivery=' + ((v && v.state) || 'could_not');

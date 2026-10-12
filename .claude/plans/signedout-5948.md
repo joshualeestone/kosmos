@@ -27,6 +27,12 @@ verified on the Windows box). The seam between them is decided and pinned here.
   CLIs (both), the page's held row, the typed note, and the three nudge logs.
 
 ## Weakest premise
+**The release is circular unless the supervisor checks on its own (review 5).** Every route holds while the card reads
+signed out, so no message can be the turn that proves the sign-in works. The Windows half must therefore check the
+sign-in itself while signed out (a periodic probe, or on noticing the account's credential change) and write the
+clearing report when it works. Without that, a person who signs in again outside Kosmos still waits for Send now
+anyway, a restart, or the one-day drop. This is in Homer's spec on the card.
+
 The release depends on the Windows supervisor clearing the line (a non-auto report after a turn that works, or a
 restart's `started`). If Homer's half never clears it, a reconnected agent's messages stay held until a restart, Send
 now anyway, or the queue's one-day drop. Only a REPORTED auth_failed holds (`card.stateReported`): a screen-read one has

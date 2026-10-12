@@ -374,3 +374,18 @@ test('#5842: a dropped line with no sender named and no person mark is not logge
     assert.match(line, /told nobody \(no sender named\)$/, line);
   });
 });
+
+test('#5948: a dropped line kept while its agent was signed out tells the sender so, naming no usage limit', async () => {
+  const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
+  limitqueue.add('casey', { id: 'k5948', kind: 'task', from: 'leo', envelope: LINE, about: ABOUT, at: old, reset: old, signin: true });
+  await withFleet(undefined, 'idle', async (board, tmux) => {
+    const out = captureStdout();
+    try {
+      await limitqueue.flush(board.agents, limitqueue.sweepHooks({ chat, messages }));
+      await until(() => out.lines.some((l) => l.includes('task line k5948')));
+    } finally { out.restore(); }
+    const told = tmux.pastedTo('leo');
+    assert.equal(told.length, 1, 'the sender was not told');
+    assert.match(told[0], /never reached casey: Kosmos kept it while casey was signed out and could not send it within a day\./);
+  });
+});

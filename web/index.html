@@ -58517,7 +58517,7 @@ function wakeHeldLine(manualText, delivery) {
   }
   // #5948: held because its sign-in stopped working (heldBy stays 'limit'; heldFor says why). No reset to name.
   if (delivery && delivery.heldFor === 'signin') {
-    return manualText + ' It is signed out, so Kosmos sent nothing. Sign it in again and Kosmos sends it then.';
+    return manualText + ' It is signed out, so Kosmos sent nothing. Sign it in again first.';
   }
   /* #5805: held because this Claude agent is out of usage. The time is the printed reset (limitReset) while it is
      ahead; heldUntil may be only the next look after it, so it is not used here. */

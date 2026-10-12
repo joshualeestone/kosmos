@@ -7474,6 +7474,10 @@ function providerLimitReport(reported) {
   return !!reported && reported.state === 'blocked' && reported.by === 'auto'
     && /^provider api \(rate_limit\)$/.test(String(reported.on || ''));
 }
+/* The runner a pane's card shows (#5948: one derivation, read by the card and by reconcileReport's sign-in rule). */
+function cardRunnerOf(pane) {
+  return (pane.runner === 'codex' || (!pane.runner && isCodexCommand(pane.command))) ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : pane.runner === 'muse' ? 'muse' : 'claude';
+}
 /* #5948: the automatic report of a turn its provider refused for the sign-in (see the blocked rule in reconcileReport). */
 function providerAuthReport(reported) {
   return !!reported && reported.state === 'blocked' && reported.by === 'auto'
@@ -8513,7 +8517,7 @@ function snapshot() {
     }
     const status = reconcileReport(
       isNamedOurs(pane) ? selfreport.read(pane.name) : { found: false },
-      scrapedStatus, now, liveAuth, disruptionRec, codexLiveAuth, activityFresh, pane.runner || null);
+      scrapedStatus, now, liveAuth, disruptionRec, codexLiveAuth, activityFresh, cardRunnerOf(pane));   // #5948: the card's own runner
     /* #2019 forward self-heal (challenge iter 2): a disruption record on file
        but a reconciled state that is a confident LIVE reading means the restart
        COMPLETED -- drop the record now rather than waiting out the window. This
@@ -8852,7 +8856,7 @@ function snapshot() {
       // #3568: an agy pane read before its runner tag lands is still antigravity (as isAgyPane says).
       // #4589 round 2: and an UNTAGGED native codex pane is codex (the startup window the hook dialog lives in); a pane
       // whose tag says otherwise keeps its tag (round 3).
-      runner: (pane.runner === 'codex' || (!pane.runner && isCodexCommand(pane.command))) ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : pane.runner === 'muse' ? 'muse' : 'claude',
+      runner: cardRunnerOf(pane),
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,
