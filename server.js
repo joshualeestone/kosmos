@@ -12170,8 +12170,8 @@ const server = http.createServer(async (req, res) => {
              claimed it in the UNSAFE direction ("every refusal that does not
              depend on the agents comes BEFORE the agents guard"). Two refusals
              precede the agents guard and are therefore visible here: the path
-             guard and the OpenAI sign-in-in-progress guard, for any hold but the account's own Sign in again
-             (#5994 cancels that one after the operation succeeds) (#2684 removed the
+             guard and the OpenAI sign-in-in-progress guard. That guard no longer covers the account's own
+             Sign in again, which #5994 cancels after the operation succeeds. (#2684 removed the
              default-account guard; the default is agents-gated like any row now). The IDENTITY refusal ("that is not a
              Claude/OpenAI account on this computer") does NOT, in any of the
              four, and it cannot be hoisted: `engine/accounts.js` states why at

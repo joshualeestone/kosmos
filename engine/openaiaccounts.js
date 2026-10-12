@@ -296,11 +296,10 @@ function forgetAccount(dir, usedBy) {
     return { ok: false, forgotten: false, because: 'that is not an OpenAI account on this computer' };
   }
 
-  /* #2584: refuse while a reauth of this account is in flight (its dir is reserved in
-     activeChatgptDirs). A rename now would pull the live dir out from under the pending
-     promote, so this refusal keeps the reservation whole. Without it the reauth still
-     fails safely (renameSync throws once the dir is gone, the account is left
-     unchanged), but with a confusing error rather than this upfront one.
+  /* #2584: refuse while another sign-in holds this dir (activeChatgptDirs). Since #5994 the
+     account's OWN unfinished Sign in again is not such a hold: it is cancelled once the
+     move succeeds (see below), and cancelling settles it, so it can no longer promote into
+     the moved dir.
 
      🛑 IT SITS BEFORE THE AGENTS GUARD, AND THAT ORDER IS LOAD-BEARING (#2570). This
      refusal has nothing to do with which agents are on the account, and #2570's
@@ -339,6 +338,7 @@ function forgetAccount(dir, usedBy) {
   }
 
   if (!fs.existsSync(clean)) {
+    if (ownReauth) releaseOwnReauth(clean);   // #5994: the account is gone, so its sign-in has nothing to finish
     return { ok: true, forgotten: false, because: 'that account is already gone from this computer' };
   }
 
@@ -475,13 +475,13 @@ function removeAccount(dir, usedBy) {
      sharing, and disconnect (forgetAccount) already moves the whole default dir
      aside. So deleting the default is the same act as deleting a secondary: the
      rmSync below takes the whole dir. Every real guard still stands -- the
-     arbitrary-path defence above, the sign-in-in-flight refusal, and the
+     arbitrary-path defence above, the refusal while another sign-in holds the dir, and the
      running-agents refusal below -- so a default the user has moved every agent
      off (Josh's #2684 use case) is deletable, while one still in use is refused.
      The env-aware `defaultDir()` comparison survives only to set `wasDefault` on
      the success return, for the caller's history messaging. */
-  /* #2584: refuse while a reauth of this account is in flight (its dir is reserved), so
-     a delete cannot pull the live dir out from under the pending promote.
+  /* #2584: refuse while another sign-in holds this dir. The account's own Sign in again is
+     cancelled after the delete instead (#5994), which settles it before it could promote.
 
      🛑 BEFORE THE AGENTS GUARD, same reason as in forgetAccount (#2570): a refusal that
      does not depend on the agents must be reachable by a pre-flight call made with a
@@ -505,6 +505,7 @@ function removeAccount(dir, usedBy) {
   }
 
   if (!fs.existsSync(clean)) {
+    if (ownReauth) releaseOwnReauth(clean);   // #5994: the account is gone, so its sign-in has nothing to finish
     return { ok: true, removed: false, because: 'that account is already gone from this computer' };
   }
   if (!identityOf(clean)) {
@@ -1066,7 +1067,7 @@ function startChatgptLogin({ label, mode, codexBin, reauthDir, platform } = {}) 
     return { ok: false, because: 'we could not start the OpenAI sign-in' };
   }
   const sessionId = crypto.randomBytes(16).toString('hex');
-  const session = { id: sessionId, child, dir: spot.dir, label: reauth ? null : label, madeDir: spot.madeDir, mode: m, state: 'starting', buf: '', account: null, error: null, timer: null, forceKillTimer: null, exited: false, reaped: false, reauthDir: reauth ? reauth.dir : null, reauthIsDefault: reauth ? reauth.isDefault : false, expectEmail: reauth ? reauth.expectEmail : null };
+  const session = { id: sessionId, child, dir: spot.dir, label: reauth ? null : label, madeDir: spot.madeDir, mode: m, state: 'starting', buf: '', account: null, error: null, timer: null, forceKillTimer: null, exited: false, reaped: false, reauthDir: reauth ? reauth.dir : null, reauthReleased: false, reauthIsDefault: reauth ? reauth.isDefault : false, expectEmail: reauth ? reauth.expectEmail : null };
   chatgptSessions.set(sessionId, session);
   // Anti-litter a sign-in that did NOT land a subscription account:
   //   - a dir WE created -> remove it whole;
