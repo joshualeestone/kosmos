@@ -280,11 +280,11 @@ test('#4947: agents post at least once a day and at most six (Josh 10-02 14:45),
 test('#5023: the introduction is asked for only when Kosmos says the agent has never posted, with its limit right under it', () => {
   const cb = require('./communityblock');
   const intro = cb.blockBody({ introduce: true }), plain = cb.blockBody();
-  assert.match(intro, /^  You have not posted to the community yet, so make your first post an introduction: what kind of agent you\n  are, in general terms \(a coding agent, a research agent\), in your own words\. Never say what your work is for\n  or who it is for\. Post it with --channel introductions\.$/m,   // kosmos#5171
+  assert.match(intro, /^  If you have not posted to the community yet \(kosmos community status lists what you have sent\), make your\n  first post an introduction: what kind of agent you are, in general terms \(a coding agent, a research agent\),\n  in your own words\. Never say what your work is for or who it is for\. Post it with --channel introductions\.$/m,   // kosmos#5171
     'the introduction, or the limit that keeps it general, is gone or came apart');
-  assert.ok(!/You have not posted to the community yet/.test(plain), 'CONTROL: an agent that has posted is still asked to introduce itself');
+  assert.ok(!/If you have not posted to the community yet/.test(plain), 'CONTROL: an agent that has posted is still asked to introduce itself');
   assert.equal(cb.blockBody({ introduce: false }), plain, 'the default is no introduction');
-  const at = intro.indexOf('  You have not posted'), cadence = intro.indexOf('5. Posts, last. Post at least once a day'), how = intro.indexOf('  Post with (a short title');   // kosmos#5211
+  const at = intro.indexOf('  If you have not posted'), cadence = intro.indexOf('5. Posts, last. Post at least once a day'), how = intro.indexOf('  Post with (a short title');   // kosmos#5211
   assert.ok(cadence >= 0 && at > cadence && at < how, 'the introduction should follow the daily cadence and come before how to post');
 });
 
@@ -293,7 +293,7 @@ test('#5023: tellAgent asks for the introduction until the agent has a post here
   const f = agentFile('cia', '# Cia\n');
   assert.equal(communitystore.postedBy('cia'), false, 'fixture: cia has no post yet');
   cb.tellAgent('cia', true);
-  assert.match(fs.readFileSync(f, 'utf8'), /You have not posted to the community yet/, 'an agent with no post was not asked to introduce itself');
+  assert.match(fs.readFileSync(f, 'utf8'), /If you have not posted to the community yet/, 'an agent with no post was not asked to introduce itself');
   communitystore.insertPost({ status: 'held', agent: 'Cia', topic: 'Hello', body: 'I am a coding agent.' });   // case differs on purpose
   assert.equal(communitystore.postedBy('cia'), true, 'a held post, under the same key in another case, did not count');
   assert.equal(communitystore.postedBy('dee'), false, 'CONTROL: another agent\'s post counted for an agent with none');
@@ -302,7 +302,7 @@ test('#5023: tellAgent asks for the introduction until the agent has a post here
   const r = cb.tellAgent('cia', true);
   assert.equal(r.changed, true, 'the next tell after a first post did not rewrite the block');
   const after = fs.readFileSync(f, 'utf8');
-  assert.ok(!/You have not posted to the community yet/.test(after), 'an agent that has posted is still asked to introduce itself');
+  assert.ok(!/If you have not posted to the community yet/.test(after), 'an agent that has posted is still asked to introduce itself');
   assert.equal(count(after, cb.START), 1, 'the rewrite left more than one block');
 });
 
@@ -346,7 +346,7 @@ test('#5023: at the size limit the introduction gives way, so the agent still ge
   assert.equal(r.state, projects.TOLD.TOLD, 'an agent near the limit lost the whole block to the optional introduction: ' + r.because);
   const text = fs.readFileSync(f, 'utf8');
   assert.equal(count(text, cb.START), 1, 'no block was written');
-  assert.ok(!/You have not posted to the community yet/.test(text), 'the introduction was written past the size limit');
+  assert.ok(!/If you have not posted to the community yet/.test(text), 'the introduction was written past the size limit');
   assert.ok(Buffer.byteLength(text, 'utf8') <= instructions.MAX_BYTES, 'the file is over the limit');
 });
 
@@ -534,6 +534,52 @@ test('#5297 refreshEveryone: an unreadable roster says so', () => {
   const r = cb.refreshEveryone(null, true);
   assert.equal(r.length, 1);
   assert.equal(r[0].state, projects.TOLD.COULD_NOT);
+});
+
+/* #5958 (the Windows agents' 0.7.38 QA, Josh 10-12): an agent holds the copy of its instructions it read at start, so
+   a line that states "you have not posted" as a fact is false in that copy after its first post. */
+test('#5958: the introduction is a condition the agent can check, never a statement that it has not posted', () => {
+  const intro = cb.INTRO_LINES.join('\n');
+  assert.match(intro, /^  If you have not posted to the community yet \(kosmos community status lists what you have sent\)/);
+  assert.ok(!/(^|[.:]) *You have not posted/m.test(cb.blockBody({ introduce: true })), 'the block states that the agent has not posted');
+  assert.ok(/(^|[.:]) *You have not posted/m.test(cb.INTRO_LINES_BEFORE_5958.join('\n')), 'CONTROL: the rule no longer matches the wording it replaced');
+  // The command the line points at is the one that answers it.
+  assert.equal(typeof require('./communitystatus').statusText, 'function');
+});
+
+test('#5958: a file carrying the earlier wording gets the new one at the refresh, and that is not sent as a change of rules', () => {
+  const fleet = require('../test-support/fleet');
+  const status = require('./status');
+  const board = fleet.install([fleet.agent('vic', { state: 'idle' })]);
+  let roster;
+  try { roster = status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
+  const cs = require('./communitystore');
+  const real = cs.postTimesAll;
+  const earlier = cb.blockBody({ introduce: true }).replace(cb.INTRO_LINES.join('\n'), cb.INTRO_LINES_BEFORE_5958.join('\n'));
+  assert.ok(earlier.includes(cb.INTRO_LINES_BEFORE_5958[0]) && !earlier.includes(cb.INTRO_LINES[0]), 'fixture: the earlier wording is not in the block');
+  const write = () => agentFile('vic', '# Vic\n\n' + cb.START + '\n' + earlier + '\n' + cb.END + '\n');
+  try {
+    // No post yet: the earlier wording is replaced by the new one, and nobody is told.
+    let f = write();
+    cs.postTimesAll = () => new Map();
+    let r = cb.refreshEveryone(roster, true);
+    assert.deepEqual(r.map((t) => [t.agent, t.changed, t.rulesChanged]), [['vic', true, false]]);
+    let text = fs.readFileSync(f, 'utf8');
+    assert.ok(text.includes(cb.INTRO_LINES[0]) && !text.includes(cb.INTRO_LINES_BEFORE_5958[0]), 'the earlier wording was not replaced');
+    // The store cannot say: an agent that was being asked is still asked, in the new words.
+    f = write();
+    cs.postTimesAll = () => null;
+    r = cb.refreshEveryone(roster, true);
+    assert.deepEqual(r.map((t) => [t.agent, t.changed, t.rulesChanged]), [['vic', true, false]]);
+    text = fs.readFileSync(f, 'utf8');
+    assert.ok(text.includes(cb.INTRO_LINES[0]) && !text.includes(cb.INTRO_LINES_BEFORE_5958[0]), 'an unreadable store dropped the introduction of an agent that was being asked');
+    // It has posted: the earlier wording goes and nothing replaces it.
+    f = write();
+    cs.postTimesAll = () => new Map([['vic', ['2026-10-12T15:00:00.000Z']]]);
+    r = cb.refreshEveryone(roster, true);
+    assert.deepEqual(r.map((t) => [t.agent, t.changed, t.rulesChanged]), [['vic', true, false]]);
+    assert.ok(!/have not posted to the community yet/.test(fs.readFileSync(f, 'utf8')));
+  } finally { cs.postTimesAll = real; }
 });
 
 test('#5297 review 1: the introduction line coming or going is never a change of rules, and an unknown post store keeps it', () => {
