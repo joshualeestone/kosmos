@@ -1975,7 +1975,9 @@ function connect(dir, opts) {
      excepted, as in registerOnly: the checks above already refused an agent under this handle. */
   {
     const agentnames = require('./agentnames');
-    const nameTaken = agentnames.refusalFor(displayName) || agentnames.refusalFor(name);
+    let agents;
+    try { agents = agentnames.fleet(); } catch { return { ok: false, because: agentnames.COULD_NOT_CHECK }; }   // one read, both names
+    const nameTaken = agentnames.refusalFor(displayName, { agents }) || agentnames.refusalFor(name, { agents });
     if (nameTaken) return { ok: false, because: nameTaken };
   }
   /* #5534: connecting a folder starts a new agent, so a company policy that does not allow its provider (or the

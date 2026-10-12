@@ -180,3 +180,28 @@ test('#5957: an agent that already shares its name (made before this check) can 
   const changed = await send('PUT', '/api/agent/other/profile', { displayName: shared.toUpperCase() });
   assert.equal(changed.status, 400);
 });
+
+test('#5957: the profile route answers a malformed request in a sentence (the page now shows it)', async () => {
+  const res = await fetch(base + '/api/agent/other/profile', {
+    method: 'PUT', headers: { 'content-type': 'application/json', origin: base }, body: '{"displayName":',
+  });
+  assert.equal(res.status, 400);
+  const { error } = await res.json();
+  assert.equal(error, 'we could not read that request; send it as JSON');
+});
+
+test('#5957: an instructions line moving BACK to the name already on record is not called a clash', async (t) => {
+  /* other's record already shares gemini's name (made before this check); its file line says something else. */
+  const before = shownOf('gemini');
+  const shared = shownOf('other');
+  store.writeProfile('gemini', { displayName: shared });
+  t.after(() => store.writeProfile('gemini', { displayName: before }));
+  const fileNow = fs.readFileSync(briefOf('other'), 'utf8').replace(/You are \*\*[^*]+\*\*/, 'You are **Zed**');
+  fs.writeFileSync(briefOf('other'), fileNow);
+
+  const got = await (await fetch(base + '/api/agent/other/instructions')).json();
+  const text = String(got.text).replace(/You are \*\*[^*]+\*\*/, `You are **${shared}**`);
+  const body = await (await send('PUT', '/api/agent/other/instructions', { text, version: got.version })).json();
+  assert.equal(body.nameKept, undefined, 'a save that changes no record was told the name was taken: ' + body.nameKept);
+  assert.equal(shownOf('other'), shared);
+});

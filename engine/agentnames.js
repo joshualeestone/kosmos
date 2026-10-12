@@ -68,4 +68,4 @@ function refusalFor(wanted, opts) {
   return clash ? takenSentence(clash) : null;
 }
 
-module.exports = { nameKey, setFleetSource, clashFor, refusalFor, takenSentence, COULD_NOT_CHECK };
+module.exports = { nameKey, setFleetSource, fleet, clashFor, refusalFor, takenSentence, COULD_NOT_CHECK };
