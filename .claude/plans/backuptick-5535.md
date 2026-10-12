@@ -70,3 +70,4 @@ Mutants after review 1 (19:53 CDT from `date`), each tests 13 pass 12 fail 1: Y1
 7. FIXED: the inputs test now asserts the Codex home is protected too.
 8. FIXED: config roots sorted by full path, not basename (ties would swap the -<n> names).
 Tests 13 -> 16 (+3).
+Mutants after review 2 (19:56 CDT from `date`): Z1 no transcript pass, Z2 no snapshot name rule, Z3 relative protect fails open, Z4 a throwing roots() silent, Z5 overAllowance silent, Z6 because printed raw: all red (15/1). Z7 basename sort: SURVIVES, NOT equivalent. Untested: configRoots reads the real ~/.claude* unless AGENT_WORKFORCE_CONFIG_ROOT pins ONE root, so no sandbox here has two to order, and a test-only sort export would trip engine.reachable. A known uncovered line, said here.
