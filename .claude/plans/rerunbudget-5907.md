@@ -12,7 +12,8 @@ Every cut log on Agent1s that reached this path (grep for "isolation-rerun: re-r
 cut-0708, cut-0723 stayed red on attempts 1, 2 and 3. **Attempts 2 and 3 changed no verdict**; each real red paid two
 extra suites.
 Also ~/.claude/logs/cut-suite-runs.log (last written 09-27; found by review iteration 7, counted here): five more
-whole-suite reruns, all "still red alone" on attempts 1/3, 2/3 and 3/3, zero passes (some may be retries of one version). Eleven cut runs in all: 3 passed on
+whole-suite reruns, all "still red alone" on attempts 1/3, 2/3 and 3/3, zero passes (some may be retries of one
+version). Eleven cut runs in all: 3 passed on
 attempt 1, 8 real reds paid two extra suites each, no attempt 2 or 3 ever passed.
 
 ## Change
@@ -28,4 +29,7 @@ A command red on its first run and green after: this branch, rc 1 after 1 run; o
 ## Weakest premise
 Six cuts. The leniency given up is real: contention that clears on a second attempt now aborts the cut, and a re-cut
 costs more than one suite. None of the logged cut runs showed it; every real red paid two wasted suites. What would change
-my mind: a cut log where attempt 2 or 3 passed.
+my mind: a cut log where attempt 2 or 3 passed. **That evidence stops arriving with this change**: at the default
+budget attempts 2 and 3 never run, so silence afterwards is not confirmation. The cost of being wrong shows up only as
+re-cuts after a contention abort (the abort line names the override), and a cut run with KOSMOS_SUITE_RERUN_MAX=2 is
+the way to collect it again.
