@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: answeredq-5943
-diff_hash: 9b4570eb938c74eeeb82a043b764fa5bea4721484f9990858ef56a0f8f589854
+diff_hash: 8b91b524c522ebc13d10d270cd1cd58b8e87ca31785d5de277d490f8e0a00bae
 validation: pending (Mortals run queued; PR CI runs the full suite and the browser checks)
 subdir_audit: passed
-timestamp: 2026-10-12T18:03:28Z
+timestamp: 2026-10-12T18:55:48Z
 iterations: 4
 converged: true
 ---
@@ -51,3 +51,6 @@ converged: true
 
 ## Rebase onto main (after convergence)
 PR #5979 was CONFLICTING (no CI ran). Rebased onto main: one conflict in server.js, the held-DM block, where main's #5948 added a sign-in hold. Resolved by keeping main's signin and until lines and this branch's trailer (no question note in a held message). Focused after rebase: the four #5943 suites, defaults, the #5805 limit suites, both #5948 suites, doctrine: 119/119. File-scanning guards (fixture-discipline, no-brand-refs, no-name-refs, engine.reachable, install.reachable, the three Windows guards): 116/116.
+
+## PR CI found two existing tests asserting the old behaviour
+suite (node) on #5979 failed two tests outside the focused set: server.blocked-owner-person-5318 asserted needs_you gets no note (this branch deliberately returns the asking reminder), and web.thread-shape-3966's stub accepted only the .mwhen selector (refreshWhens now also refreshes .dmq-age). Both updated to the new behaviour: the #5318 arm still proves needs_you never gets the blocked-owner note, and the #3966 stub records both selectors. Then every test file mentioning refreshWhens, threadShape, needs_you, report clear, dmq-, askedAt or .note was run: 126 files, 3099/3099.
