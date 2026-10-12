@@ -24,7 +24,11 @@ expect empty-team               1 ""           io.kosmos.app.preview
 expect short-team               1 ABC          io.kosmos.app.preview
 expect bad-bundle-dots          1 "$stone"     io..kosmos
 expect bad-bundle-empty         1 "$stone"     ""
-# The real file passes as it stands.
+# The real file passes as it stands (an inherited override must not redirect it).
+unset KOSMOS_IOS_XCCONFIG
 if "$here/archive.sh" --check-config >/dev/null 2>&1; then echo "PASS  the project's own Signing.xcconfig"; else echo "FAIL  the project's own Signing.xcconfig is refused"; fail=1; fi
+# The override is refused on a real (non --check-config) run, before anything is built.
+out=$(KOSMOS_IOS_XCCONFIG="$work/preview-under-stone.xcconfig" "$here/archive.sh" --build 1 2>&1); rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'for --check-config only'; then echo "PASS  the override is refused on a real archive (rc=$rc)"; else echo "FAIL  the override was not refused on a real archive (rc=$rc): $out"; fail=1; fi
 [ "$fail" -eq 0 ] && echo "VERDICT: PASS" || echo "VERDICT: FAIL"
 exit "$fail"
