@@ -14513,7 +14513,11 @@ const server = http.createServer(async (req, res) => {
           /* kosmos#5957: a name another agent answers to is refused before anything is written; the agent's own
              names never clash with it (a change of capitals is a rename to itself). */
           const agentnames = require('./engine/agentnames');
-          const taken = agentnames.refusalFor(clean.displayName, { except: name });
+          /* Only a CHANGE is checked: a client resending the name it already has (beside a role edit) must not be
+             refused because an older duplicate exists. */
+          let stored = null;
+          try { stored = store.readProfile(name).displayName; } catch { stored = null; }
+          const taken = clean.displayName === stored ? null : agentnames.refusalFor(clean.displayName, { except: name });
           if (taken) {
             const body = { error: taken };
             if (taken !== agentnames.COULD_NOT_CHECK) body.field = 'displayName';

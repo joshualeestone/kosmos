@@ -73,3 +73,17 @@ It names the other agent by display name and handle, as `ambiguousNote` does, so
   `git checkout` on a clean tree: a case-sensitive key 5 fail, no `except` 4 fail, a no-op create check 1 fail. The
   nearest existing files (mentions, create, rename x3, connect, team x3, setup guide, CLI create, inline errors,
   messages): 538 tests, 0 fail.
+
+## Accepted, deliberately (review iteration 2)
+
+- **Create checks the display name, not the handle separately.** A handle must match NAME_RE (ASCII letters, digits,
+  `_` and `-`) and is the typed name lower-cased with spaces and dots hyphenated, so its key always equals the
+  display name's key. Connect does check both, because there the handle comes from a folder name and need not derive
+  from the display name.
+- **Check-then-write is not atomic.** Two renames to one name in the same instant could both pass. A board is
+  driven by one person, and the result is a duplicate this check would then refuse to make worse; a lock across
+  create, rename and connect is not worth its cost here.
+- **Names written only in non-Latin letters are not compared.** Their key is empty, as it is for @-mentions, which
+  ignore them too. Known gap, said on the card.
+- **An unchanged name is not re-checked** on the profile route, so an agent that already shares its name (Josh's two
+  Geminis, made before this check) can still save a role. Renaming either one now works only to a free name.

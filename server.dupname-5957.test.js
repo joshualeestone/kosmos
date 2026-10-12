@@ -164,3 +164,19 @@ test('#5957: connecting a folder under a name another agent has is refused, on b
   const r3 = discover.connect(bare, { name: 'freshname' });
   assert.doesNotMatch(String(r3.because || ''), /already an agent called/);
 });
+
+test('#5957: an agent that already shares its name (made before this check) can still save other things', async (t) => {
+  /* Josh's two Geminis exist today. Make gemini and other share a name the way they would have, by the record. */
+  const before = shownOf('gemini');
+  const shared = shownOf('other');
+  store.writeProfile('gemini', { displayName: shared });
+  t.after(() => store.writeProfile('gemini', { displayName: before }));
+
+  const res = await send('PUT', '/api/agent/other/profile', { displayName: shared, role: 'Analyst' });
+  assert.equal(res.status, 200, 'resending an unchanged name was refused: ' + JSON.stringify(await res.clone().json()));
+  assert.equal(store.readProfile('other').role, 'Analyst');
+
+  // Control: a CHANGE into that same clash is still refused (here only the capitals change).
+  const changed = await send('PUT', '/api/agent/other/profile', { displayName: shared.toUpperCase() });
+  assert.equal(changed.status, 400);
+});
