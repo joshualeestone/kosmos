@@ -2172,7 +2172,7 @@ KOSMOS_SWEEP_LIST
       if shared_sealed_stays "$SYS_APP_DIR/Kosmos.app" "$_board_label"; then
         _sys_sealed_left=yes
         if bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then
-          info "note: the Kosmos app in $SYS_APP_DIR is still used by another Kosmos install on this account, so it was left in place."
+          info "note: the Kosmos app in $SYS_APP_DIR may still be used by another Kosmos install on this account, so it was left in place."
         else
           info "note: the Kosmos app in $SYS_APP_DIR may be used by another account or install on this computer, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
         fi
