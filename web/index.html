@@ -27360,7 +27360,9 @@ async function paintAccounts(opts) {
              Claude row. Here it is true of the default alone, since `codexsession`
              reads transcripts out of `defaultHome()` only. */
           + 'title="Takes this account off the list. '
-          + ((isOpenai || a.authMode === 'subscription') ? 'Its sign-in file stays on this computer' : 'Its key is set aside on this computer')
+          + ((isOpenai || a.authMode === 'subscription') ? 'Its sign-in file stays on this computer'
+            : acctProvider(a) === 'alibaba' ? 'Its endpoint setting is set aside on this computer'   // #5977
+            : 'Its key is set aside on this computer')
           + ', so nothing is deleted.'
           + (a.isDefault && isOpenai ? ' Kosmos stops looking inside it, so any history kept only '
             + 'there will not appear any more.' : '')
@@ -52503,7 +52505,7 @@ async function changeProviderNow(say) {
     if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting, provName, 'Switched to ' + provName);
     /* #4008 (round 3): Runs on names the provider it moved to now, in modelLine's own words for a runner
        with no transcript yet (the same line the next open would draw once the runner is recorded). */
-    const runsOnWord = { openai: 'OpenAI Codex', google: 'Gemini', xai: 'Grok', antigravity: 'Gemini (Google subscription)', anthropic: 'Claude' }[want];
+    const runsOnWord = { openai: 'OpenAI Codex', google: 'Gemini', xai: 'Grok', antigravity: 'Gemini (Google subscription)', anthropic: 'Claude', alibaba: 'Qwen' }[want];   // #5977
     /* #5091 round 2: a partial (switched to Claude, but not onto the picked account) DID change the provider and is
        starting again, so "Runs on" says so too; only the wake hello is skipped for it. */
     const moved = restarted || (out.outcome === 'partial' && out.provider === want && out.restarted === true);
@@ -52512,7 +52514,7 @@ async function changeProviderNow(say) {
        repaints an open panel, so the open agent takes the runner (and the Claude account) the switch just confirmed, and
        the account and model rows are repainted from it, as Move does after its own success. */
     if (moved && CURRENT && CURRENT.sessionName === forAgent) {
-      const RUNNER = { openai: 'codex', google: 'gemini', xai: 'grok', antigravity: 'antigravity', meta: 'muse', anthropic: '' };
+      const RUNNER = { openai: 'codex', google: 'gemini', xai: 'grok', antigravity: 'antigravity', meta: 'muse', anthropic: '', alibaba: 'codex' };   // #5977: Qwen runs on codex
       if (Object.prototype.hasOwnProperty.call(RUNNER, want)) CURRENT.runner = RUNNER[want];
       /* Round 4: the row carries modelName / plannedModelName (there is no `model`), and both name the OLD runner's model. */
       CURRENT.modelName = null;
