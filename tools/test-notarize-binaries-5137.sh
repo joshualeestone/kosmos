@@ -234,7 +234,17 @@ out="$(KOSMOS_NOTARY_PROBE_BIN=false notarize_probe_credentials 2>&1)"; rc=$?
 [ "$rc" = 1 ] && ok "a failing probe seam refuses" || bad "failing probe seam passed"
 probe="$(grep -n '^notarize_probe_credentials || exit 1$' "$REPO/tools/release.sh" | head -1 | cut -d: -f1)"
 [ -n "$probe" ] && [ -n "$guard" ] && [ "$probe" -gt "$guard" ] && [ "$probe" -lt "$build" ] && ok "release.sh probes the notary key after the guard and before step 4 ($guard < $probe < $build)" || bad "probe call missing or misplaced (guard=$guard probe=$probe build=$build)"
-grep -q 'KOSMOS_NOTARY_PROBE_BIN' "$REPO/tools/lib/notarize-binaries.sh" && ! sed -n '/^notarize_binaries() (/,$p' "$REPO/tools/lib/notarize-binaries.sh" | grep -q 'KOSMOS_NOTARY_PROBE_BIN' && ok "step 4's notarize_binaries never reads the probe seam" || bad "the probe seam reaches notarize_binaries"
+# Every non-comment line that names the probe seam must sit inside notarize_probe_credentials, so
+# no helper notarize_binaries calls can read it either.
+_lib="$REPO/tools/lib/notarize-binaries.sh"
+_all="$(grep -v '^[[:space:]]*#' "$_lib" | grep -c 'KOSMOS_NOTARY_PROBE_BIN')"
+_inprobe="$(sed -n '/^notarize_probe_credentials() (/,/^)$/p' "$_lib" | grep -v '^[[:space:]]*#' | grep -c 'KOSMOS_NOTARY_PROBE_BIN')"
+[ "$_all" -gt 0 ] && [ "$_all" = "$_inprobe" ] && ok "only notarize_probe_credentials reads the probe seam ($_inprobe lines)" || bad "the probe seam is read outside the probe ($_all lines in all, $_inprobe in the probe)"
+# The build checks the key before it stages anything, so a keyless build fails in seconds.
+_B="$REPO/tools/build-kosmos-bundle.sh"
+_early="$(grep -n '_notarize_key >/dev/null ||' "$_B" | head -1 | cut -d: -f1)"
+_stage="$(grep -n '^echo "==> staging the app"' "$_B" | head -1 | cut -d: -f1)"
+[ -n "$_early" ] && [ -n "$_stage" ] && [ "$_early" -lt "$_stage" ] && ok "the build checks the notary key before staging ($_early < $_stage)" || bad "no early key check before staging (key=$_early stage=$_stage)"
 
 # --- the build calls it, on both binaries, after the last self-test and before packing ---
 B="$REPO/tools/build-kosmos-bundle.sh"
@@ -250,6 +260,6 @@ pack="$(grep -n '^echo "==> packing"' "$B" | head -1 | cut -d: -f1)"
   || bad "order wrong: notarise=$call last-sign=$last_sign last-selftest=$last_selftest pack=$pack"
 
 echo "test-notarize-binaries-5137: $passes passed, $fails failed"
-EXPECTED=55   # the number of ok lines above; a skipped arm must not read as green
+EXPECTED=56   # the number of ok lines above; a skipped arm must not read as green
 [ "$passes" = "$EXPECTED" ] || echo "test-notarize-binaries-5137: $passes passes, expected $EXPECTED (an arm was skipped or added without updating EXPECTED)"
 [ "$fails" = 0 ] && [ "$passes" = "$EXPECTED" ]

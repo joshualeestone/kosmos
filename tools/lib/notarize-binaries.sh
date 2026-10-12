@@ -18,9 +18,9 @@
 # ticketContents of Apple's log for that submission. "Accepted" alone would pass for
 # a zip that held other bytes.
 #
-# A submission that comes back with no submission id (the upload or Apple's service
-# failed before a job existed) is tried again after each delay in
-# KOSMOS_NOTARY_RETRY_DELAYS (seconds, default "30 120": three tries). A submission
+# A submission that comes back with no submission id is tried again after each delay in
+# KOSMOS_NOTARY_RETRY_DELAYS (seconds, default "30 120": three tries), so one upload can
+# reach Apple twice; only the id this function holds is waited on and checked. A submission
 # with an id is never resubmitted: it is waited on instead.
 #
 # Usage: notarize_binaries <binary>...   returns non-zero on any failure, after

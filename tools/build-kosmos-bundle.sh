@@ -45,6 +45,13 @@ ARCH="$(uname -m)"
 STAGE="$OUT/kosmos-bundle"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# #5137: the binaries are notarised just before packing, so check the notary key resolves HERE, in
+# seconds, rather than after the whole build. KOSMOS_NOTARIZE=0 skips both for a local test build.
+. "$REPO/tools/lib/notarize-binaries.sh"
+if [ "${KOSMOS_NOTARIZE:-1}" != 0 ]; then
+  _notarize_key >/dev/null || { echo "this build notarises with Apple before packing (#5137); set KOSMOS_NOTARIZE=0 for a local test build" >&2; exit 1; }
+fi
+
 rm -rf "$STAGE"
 mkdir -p "$STAGE/bin" "$STAGE/app" "$STAGE/runtime/bin"
 
@@ -953,7 +960,6 @@ fi
 # Gatekeeper rejects them the moment anything quarantines them. Then both shas are checked
 # against the ones taken after signing, since those are what the logs and manifest describe.
 # KOSMOS_NOTARIZE=0 skips it for a local test build only (it says so loudly).
-. "$REPO/tools/lib/notarize-binaries.sh"
 notarize_binaries "$STAGE/app/bin/kosmos-app" "$STAGE/app/bin/kosmos-tunnel" || {
   echo "could not notarise the native app and the Plus connector (#5137). NOT shipping binaries Gatekeeper rejects." >&2; exit 1; }
 [ "$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')" = "$_app_bin_sha" ] \
