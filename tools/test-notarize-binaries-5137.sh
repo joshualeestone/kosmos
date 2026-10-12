@@ -175,7 +175,7 @@ left2="$(find "$WORK/tmp" -name 'kosmos-notarize.*' 2>/dev/null | wc -l | tr -d 
 
 # --- release.sh refuses to cut with the opt-out or a seam exported, before step 4 builds ---
 R="$REPO/tools/release.sh"
-guard="$(grep -n '^for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSMOS_NOTARY_LIPO_CMD KOSMOS_NOTARY_RETRY_DELAYS; do$' "$R" | head -1 | cut -d: -f1)"
+guard="$(grep -n '^for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSMOS_NOTARY_LIPO_CMD KOSMOS_NOTARY_RETRY_DELAYS KOSMOS_STAPLER_CMD KOSMOS_NOTARY_SPCTL_CMD KOSMOS_NOTARY_XATTR_CMD; do$' "$R" | head -1 | cut -d: -f1)"
 build="$(grep -n 'bash tools/build-kosmos-bundle.sh dist' "$R" | head -1 | cut -d: -f1)"
 [ -n "$guard" ] && [ -n "$build" ] && [ "$guard" -lt "$build" ] && ok "release.sh refuses the opt-out and every seam before step 4 ($guard < $build)" || bad "release.sh guard missing or after the build (guard=$guard build=$build)"
 GUARD_SRC="$(sed -n "${guard},\$p" "$R" | sed '/^done$/q')"
@@ -252,10 +252,76 @@ _early="$(grep -n '_notarize_key >/dev/null ||' "$_B" | head -1 | cut -d: -f1)"
 _stage="$(grep -n '^echo "==> staging the app"' "$_B" | head -1 | cut -d: -f1)"
 [ -n "$_early" ] && [ -n "$_stage" ] && [ "$_early" -lt "$_stage" ] && ok "the build checks the notary key before staging ($_early < $_stage)" || bad "no early key check before staging (key=$_early stage=$_stage)"
 
+# --- #5896 slice 3: the sealed Kosmos.app is submitted whole, stapled, validated, and a QUARANTINED copy assessed ---
+HK=5555555555555555555555555555555555555555
+APP="$WORK/apps/Kosmos.app"
+mkdir -p "$APP/Contents/MacOS"
+printf 'kosmos\n' > "$APP/Contents/MacOS/Kosmos"
+printf '<plist><dict>\n<key>CFBundleExecutable</key>\n<string>Kosmos</string>\n</dict></plist>\n' > "$APP/Contents/Info.plist"
+cs_app_stub() { if [ "$4" = "$APP" ] && [ "$3" = arm64 ]; then echo "CDHash=$HK" >&2; else cs_stub "$@"; fi; }
+# stapler: ST_STAPLE_FAIL_TIMES makes the first N staples fail; ST_VALIDATE=fail fails validate.
+st_stub() {
+  echo "$1 $2" >> "$WORK/st.ran"
+  case "$1" in
+    staple) [ "$(grep -c '^staple ' "$WORK/st.ran")" -le "${ST_STAPLE_FAIL_TIMES:-0}" ] && { echo "Could not validate ticket" >&2; return 65; }
+            echo "The staple and validate action worked!" ;;
+    validate) [ "${ST_VALIDATE:-ok}" = fail ] && { echo "does not have a ticket stapled to it" >&2; return 65; }
+              echo "The validate action worked!" ;;
+  esac
+}
+# spctl: SP_OUT is what it says, SP_RC its exit. It records the path, so the arm can prove it assessed the COPY.
+sp_stub() { echo "${!#}" >> "$WORK/sp.ran"; echo "${!#}: ${SP_OUT:-accepted}"; echo "source=${SP_SOURCE:-Notarized Developer ID}"; return "${SP_RC:-0}"; }
+xa_stub() { echo "$*" >> "$WORK/xa.ran"; [ "${XA_FAIL:-0}" = 1 ] && return 1; return 0; }
+runapp() { rm -f "$WORK/st.ran" "$WORK/sp.ran" "$WORK/xa.ran"; run "$WORK/bin/kosmos-app" "$WORK/bin/kosmos-tunnel" "$APP"; }
+export KOSMOS_STAPLER_CMD=st_stub KOSMOS_NOTARY_SPCTL_CMD=sp_stub KOSMOS_NOTARY_XATTR_CMD=xa_stub
+_cs_saved="$KOSMOS_NOTARY_CODESIGN_CMD"; export KOSMOS_NOTARY_CODESIGN_CMD=cs_app_stub
+
+unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
+NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK"; rc=$(runapp)
+[ "$rc" = 0 ] && ok "app: accepted, stapled, validated, quarantined copy accepted: passes" || bad "app should pass (rc=$rc): $(cat "$WORK/out")"
+grep -q '^staple .*Kosmos.app$' "$WORK/st.ran" 2>/dev/null && grep -q '^validate .*Kosmos.app$' "$WORK/st.ran" && ok "app: the ORIGINAL bundle was stapled and validated" || bad "staple/validate did not run on the app: $(cat "$WORK/st.ran" 2>/dev/null)"
+_q="$(cat "$WORK/sp.ran" 2>/dev/null)"
+[ -n "$_q" ] && [ "$_q" != "$APP" ] && grep -q "com.apple.quarantine .*$_q\$" "$WORK/xa.ran" && ok "app: a COPY was quarantined and that copy assessed, not the shipped bundle" || bad "the assessment was not on a quarantined copy: sp=$_q xa=$(cat "$WORK/xa.ran" 2>/dev/null)"
+unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
+NT_STATUS=Accepted NT_HASHES="$HA $HT $HX"; rc=$(runapp)
+[ "$rc" = 1 ] && ok "app: a ticket without the app's cdhash refuses" || bad "a ticket missing the app passed"
+[ ! -s "$WORK/st.ran" ] && ok "app: nothing is stapled when the ticket does not cover the app" || bad "stapled a bundle the ticket does not cover"
+unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
+NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" ST_STAPLE_FAIL_TIMES=1; rc=$(runapp)
+[ "$rc" = 0 ] && [ "$(grep -c '^staple ' "$WORK/st.ran")" = 2 ] && ok "app: a staple that lags acceptance is tried again" || bad "a lagging staple was not retried (rc=$rc)"
+unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
+NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" ST_STAPLE_FAIL_TIMES=9; rc=$(runapp)
+[ "$rc" = 1 ] && grep -q 'could not staple' "$WORK/out" && ok "app: a staple that never works refuses" || bad "an unstapled app passed (rc=$rc)"
+unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
+NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" ST_VALIDATE=fail; rc=$(runapp)
+[ "$rc" = 1 ] && ok "app: a staple that does not validate refuses" || bad "an invalid staple passed"
+unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
+NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" SP_RC=3 SP_OUT=rejected SP_SOURCE="Unnotarized Developer ID"; rc=$(runapp)
+[ "$rc" = 1 ] && grep -q 'told it is damaged' "$WORK/out" && ok "app: a quarantined copy Gatekeeper rejects refuses the build" || bad "a rejected quarantined copy passed (rc=$rc)"
+unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
+NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" SP_SOURCE="Developer ID"; rc=$(runapp)
+[ "$rc" = 1 ] && ok "app: accepted but not as Notarized Developer ID refuses" || bad "a non-notarised acceptance passed"
+unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
+NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" XA_FAIL=1; rc=$(runapp)
+[ "$rc" = 1 ] && ok "app: a copy that could not be quarantined refuses (an unquarantined pass proves nothing)" || bad "assessed without quarantine"
+unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
+NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK"
+rm -f "$APP/Contents/Info.plist"; rc=$(runapp)
+[ "$rc" = 1 ] && grep -q 'main executable' "$WORK/out" && ok "app: a bundle with no readable main executable refuses before submitting" || bad "an app with no executable passed (rc=$rc)"
+[ "$(ran submit)" = 0 ] && ok "app: and nothing was submitted for it" || bad "submitted an app with no executable"
+unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
+export KOSMOS_NOTARY_CODESIGN_CMD="$_cs_saved"
+unset KOSMOS_STAPLER_CMD KOSMOS_NOTARY_SPCTL_CMD KOSMOS_NOTARY_XATTR_CMD
+
 # --- the build calls it, on both binaries, after the last self-test and before packing ---
 B="$REPO/tools/build-kosmos-bundle.sh"
-call="$(grep -n '^notarize_binaries "\$STAGE/app/bin/kosmos-app" "\$STAGE/app/bin/kosmos-tunnel" ||' "$B" | head -1 | cut -d: -f1)"
-[ -n "$call" ] && ok "build-kosmos-bundle.sh notarises both binaries, failing the build on refusal" || bad "build-kosmos-bundle.sh does not call notarize_binaries on both binaries with ||"
+call="$(grep -n '^notarize_binaries "\$STAGE/app/bin/kosmos-app" "\$STAGE/app/bin/kosmos-tunnel" "\$STAGE/app/Kosmos.app" ||' "$B" | head -1 | cut -d: -f1)"
+[ -n "$call" ] && ok "build-kosmos-bundle.sh notarises both binaries and the sealed Kosmos.app (#5896), failing the build on refusal" || bad "build-kosmos-bundle.sh does not call notarize_binaries on both binaries and Kosmos.app with ||"
+sealed_sign="$(grep -n '^codesign_ts_retry .*"\$_sealed"' "$B" | head -1 | cut -d: -f1)"
+[ -n "$call" ] && [ -n "$sealed_sign" ] && [ "$call" -gt "$sealed_sign" ] && ok "the app is notarised after it is sealed ($sealed_sign < $call)" || bad "the app is not notarised after sealing (seal=$sealed_sign notarise=$call)"
+for _seam in KOSMOS_STAPLER_CMD KOSMOS_NOTARY_SPCTL_CMD KOSMOS_NOTARY_XATTR_CMD; do
+  grep -qE "^for _nv in .*\b$_seam\b" "$REPO/tools/release.sh" && ok "release.sh refuses to cut with $_seam set" || bad "release.sh does not refuse $_seam"
+done
 grep -qE '^\. "\$REPO/tools/lib/notarize-binaries\.sh"' "$B" && ok "build-kosmos-bundle.sh sources notarize-binaries.sh" || bad "not sourced"
 last_selftest="$(grep -n 'kosmos-app" --kosmos-app-' "$B" | tail -1 | cut -d: -f1)"
 last_sign="$(grep -n '^codesign_ts_retry ' "$B" | tail -1 | cut -d: -f1)"
@@ -266,6 +332,6 @@ pack="$(grep -n '^echo "==> packing"' "$B" | head -1 | cut -d: -f1)"
   || bad "order wrong: notarise=$call last-sign=$last_sign last-selftest=$last_selftest pack=$pack"
 
 echo "test-notarize-binaries-5137: $passes passed, $fails failed"
-EXPECTED=58   # the number of ok lines above; a skipped arm must not read as green
+EXPECTED=75   # the number of ok lines above; a skipped arm must not read as green
 [ "$passes" = "$EXPECTED" ] || echo "test-notarize-binaries-5137: $passes passes, expected $EXPECTED (an arm was skipped or added without updating EXPECTED)"
 [ "$fails" = 0 ] && [ "$passes" = "$EXPECTED" ]
