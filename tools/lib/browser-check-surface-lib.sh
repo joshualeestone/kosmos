@@ -1,6 +1,7 @@
 #!/bin/bash
 # kosmos#2518 follow-up: the SINGLE SOURCE OF TRUTH for the two browser-check SURFACE-MAP
-# primitives -- the annotation parse and the whole-token boundary match.
+# primitives -- the annotation parse and the whole-token boundary match -- plus (#5907) the gate's
+# one-pass scan built on the same rules (bc_surface_scan_checks, below).
 #
 # WHY THIS EXISTS. Both consumers -- tools/lib/browser-check-surface-gate.sh (the PR gate)
 # and tools/bc-surface-map.sh (the CI-integration query helper) -- must read the co-located
