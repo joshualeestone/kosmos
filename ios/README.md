@@ -87,8 +87,9 @@ runner, which has the runtime.
   app is created fresh as `io.kosmos.app` under Kosmos Agent Manager, Inc. once Apple approves
   #3643, and both lines change then (docs/phone-push-go-live.md, "Interim").
   - A preview build's push registration is refused by the coordinator (its `KOSMOS_APNS_BUNDLE_IDS`
-    allows only `io.kosmos.app`). The app logs `[Push] register failed with HTTP 400` and carries on:
-    no banner and no retry loop (`PushRegistrar.swift`).
+    allows only `io.kosmos.app`). The app logs `[Push] register failed with HTTP 400` and carries on,
+    with no banner; it asks again on the next signed-in page load (`PushRegistrar.swift`). It still shows
+    the notification-permission prompt.
   - Building for a real device in Xcode now signs as that team too, so Xcode provisions
     `io.kosmos.app.preview` under Stone Syndicate for the person building.
 - `tools/archive.sh --build <N>` archives the Release app, exports it for App Store Connect with
@@ -98,7 +99,7 @@ runner, which has the runtime.
   `Signing.xcconfig` (app identifier `<team>.<KOSMOS_BUNDLE_ID>`, team identifier `<team>`). `--upload` then sends that same checked `.ipa` to App Store Connect
   (it needs an App Store Connect API key: `ASC_KEY_PATH`, `ASC_KEY_ID`, `ASC_ISSUER_ID`).
 - `--build` is required: App Store Connect refuses a build number it has already seen.
-- `archive.sh` refuses an empty or malformed Team ID before it archives anything.
+- `archive.sh` refuses a malformed bundle id, or an empty or malformed Team ID, before it archives anything.
 - `-scheme Kosmos` uses the shared scheme committed under `Kosmos.xcodeproj/xcshareddata/`, so
   archiving does not depend on Xcode creating one.
 - iOS CI builds an unsigned archive with the same command, and runs
