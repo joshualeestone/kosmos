@@ -30,8 +30,13 @@ left open. Chosen: the conversation's header row, beside search.
   writing; the sideways phone with an idle search), the toggle collapses with it. Accepted: the person turned the
   mode on in this conversation and is in it, and the alternative costs a conversation that has 57 to 90 px. The
   stated reason above ("always in view") holds wherever the header itself is shown.
+- Accepted (iteration 3): in a direct conversation on a phone under the new look, the caption row wraps and the
+  search takes its own line, so the toggle ends the Back row instead of sitting beside the search. It stays in the
+  header and in view. The room got a wrapper because its stacked header would otherwise give the toggle a row of
+  its own; giving the direct conversation one too would touch a dozen phone rules on that row for a held feature.
 
 ## Tests
 docs/browser-checks/render-convmode-5624.js C1 now asserts each toggle is in its header row immediately before the
 search, and inside no message box. C20 (new) asserts that at 700px the room's toggle sits on the search's line.
-All other arms are unchanged. Not covered by a check: the sideways-phone collapse (hover: none media).
+C21 (new) measures the direct conversation's toggle on its search's line at desktop width. All other arms are
+unchanged. Not covered by a check: the sideways-phone collapse (hover: none media).
