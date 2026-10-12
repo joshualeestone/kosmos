@@ -300,3 +300,28 @@ test('review 7: a reason that comes back after runs that failed for other reason
   for (let i = 0; i < 3; i++) { d.stop.state.pausedUntil = 0; await d.stop.tick(); }
   assert.deepEqual(d.said, [`company backup: ${missing.because}`, `company backup: ${missing.because}`]);
 });
+
+test('review 8: a folder named ..x inside a protected folder is inside it; protection that cannot be checked fails closed', { skip: process.getuid?.() === 0 && 'root reads anything' }, () => {
+  const s = sandbox();
+  try {
+    const workers = s.mk('w');
+    const ssh = s.mk('home', '.ssh');
+    const dotdot = s.mk('home', '.ssh', '..x');
+    const r = tick.rootsFor({ workersDir: workers, protect: [ssh], projects: [{ slug: 'odd', folder: dotdot }] });
+    assert.deepEqual(r.roots.map((x) => x.name), ['workers'], 'a ..x folder inside a protected folder was added');
+    // A protected folder that exists but cannot be resolved (its parent unreadable): no roots, said.
+    const locked = s.mk('locked');
+    const inner = s.mk('locked', 'data');
+    fs.chmodSync(locked, 0o000);
+    try {
+      const c = tick.rootsFor({ workersDir: workers, protect: [inner], projects: [{ slug: 'far', folder: s.mk('far') }] });
+      assert.deepEqual([c.roots.length, c.left[0].what], [0, 'everything'], JSON.stringify(c));
+    } finally { fs.chmodSync(locked, 0o700); }
+    // inputsHere's flag: a home it could not list.
+    const f = tick.rootsFor({ workersDir: workers, protectIncomplete: true });
+    assert.deepEqual([f.roots.length, f.left[0].what], [0, 'everything']);
+    // CONTROL: a protected folder that does not exist protects nothing and blocks nothing.
+    const ok = tick.rootsFor({ workersDir: workers, protect: [path.join(s.base, 'never-made')], projects: [{ slug: 'far', folder: s.mk('far2') }] });
+    assert.deepEqual(ok.roots.map((x) => x.name), ['workers', 'elsewhere/far']);
+  } finally { s.done(); }
+});

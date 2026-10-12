@@ -120,3 +120,14 @@ Mutant after review 6 (20:06 CDT from `date`): K1 one home only: red (21/20/1).
 2. NIT: `said` reset only on success, so a reason that came back after other failures was never said again. FIXED.
 Tests 21 -> 23.
 Mutants after review 7 (20:09 CDT from `date`): G1 gate back to isEnrolledHere: red. G2 said reset on success only: red (23/22/1 each).
+
+## Review 8 (sonnet, blind, on 99807647): no must-fix; it found no send without mayReport. Five nits:
+1. FIXED: inside() read a child named "..x" as outside its parent (startsWith('..')), so ~/.ssh/..x escaped protection.
+2. FIXED: protection that could not be checked was dropped silently (a protected folder that exists but does not
+   resolve, a home folder that cannot be listed). Now fails CLOSED, said; a protected folder that does not exist still
+   protects nothing (control).
+3. ACCEPTED: overAllowance's sentence carries Kosmos+'s own refusal text to the board log. It holds no path or name
+   from this computer.
+4. FIXED (header): transcript roots sit inside a protected provider home by design and skip the protection check;
+   their safety is backupsessions' session-file lists. Said in the header.
+Tests 23 -> 24.
