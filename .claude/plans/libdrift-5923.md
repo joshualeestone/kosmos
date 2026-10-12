@@ -49,6 +49,10 @@ Residuals, stated:
   lock and the working-directory gate make such an edit unlikely). If the checkout back fails too but HEAD is still
   the old commit and no tracked file differs from it, the line says the checkout is unchanged rather than MIXED.
   git runs off the terminal (stdin and stdout /dev/null), so it cannot be stopped by job control and hang the wait.
+- A move needs an idle queue: any suitewait.* marker blocks it, and run-tests.sh suites write those too (they load
+  the lib from their own worktree, not this checkout). On a busy box the move may seldom fire; it never fails
+  silently, since every join prints DIFFERS and why. If it stays behind in practice, a follow-up can count only
+  markers written by queued-heavy.sh runs.
 - The QH_TEST_* seams are ignored when HOME is the user's real home, so a leaked export cannot reach the shared
   checkout. No arm covers that branch: exercising it means running against the real home and the real checkout.
 - The #5446 fallback is skipped when the default folder is a git checkout, so a run reading during a move cannot fall

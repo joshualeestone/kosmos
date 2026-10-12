@@ -139,14 +139,17 @@ fi
 # All five are ignored when HOME is this user's real home (every test arm runs under a scratch HOME), so one left
 # exported in a shell cannot swap out a safety probe or append to the shared lib.
 QH_LIB_LOCK=""
-# The functions this script calls unguarded from the lib (checked again after the load, below).
+# The functions this script calls unguarded from the lib (checked again after the load, below). Before a move they
+# are looked for in origin/main's cut-guard.sh only, as `name()` or `function name()` at the start of a line: one moved
+# to process-fixture.sh, or indented, would refuse every move (safely, and the line names it) until this check follows.
 QH_NEED_BASE="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_suite_waiting kosmos_refuse_if_earlier_suite_waiter _kosmos_suite_waiter_file kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
 _qh_libgit() { env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git -C "$LIB_CHECKOUT" "$@"; }
 _qh_lib_check() {
   # The files the queue loads: cut-guard.sh and what it sources itself (process-fixture.sh, at its top).
   local files="tools/lib/cut-guard.sh tools/lib/process-fixture.sh" f head main diff="" why="" p="" g=_qh_libgit
-  local rh; rh="$(eval "printf '%s' ~$(id -un)" 2>/dev/null)"
-  if [ -z "$rh" ] || [ "${HOME:-}" = "$rh" ]; then   # the real home (or unknown): no test seams
+  local rh; rh="$(eval "printf '%s' ~$(id -un)" 2>/dev/null)"   # the account's home, by name (not $HOME)
+  rh="$(CDPATH= cd -- "$rh" 2>/dev/null && pwd -P)"   # both resolved, so a trailing slash or a symlinked spelling still matches
+  if [ -z "$rh" ] || [ "$(CDPATH= cd -- "${HOME:-/}" 2>/dev/null && pwd -P)" = "$rh" ]; then   # the real home (or unknown): no test seams
     local QH_TEST_PS="" QH_TEST_CWD="" QH_TEST_PS_NAME="" QH_TEST_MOVE_FAIL="" QH_TEST_RESTORE_FAIL=""
   fi
   head="$($g rev-parse --verify -q HEAD 2>/dev/null)" || return 0   # not a git checkout (a test fixture): nothing to say
@@ -196,8 +199,8 @@ _qh_lib_check() {
       fi
     fi
   fi
-  # Origin/main's lib must still define every function this copy calls unguarded (QH_NEED_BASE), or the move would make every later join exit 3
-  # until this copy (the installed one, say) is updated too.
+  # Origin/main's lib must still define every function this copy calls unguarded (QH_NEED_BASE), or the move would
+  # make every later join exit 3 until this copy (the installed one, say) is updated too.
   if [ -z "$why" ]; then
     local fn tgt need="$QH_NEED_BASE"; tgt="$($g show "$main:tools/lib/cut-guard.sh" 2>/dev/null)"
     # And the side lane's, which the load below requires when the lib offers side turns. Matched as `name()` or
@@ -326,7 +329,7 @@ if [ -n "$QH_INHERITED_MAIN" ]; then
   if command -v kosmos_holds_machine_claim >/dev/null && kosmos_holds_machine_claim; then
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') $WHAT runs now, inside the turn that already holds the box (it claims and releases nothing)"
     # Review 13: the same clean command environment an ordinary turn gives (no queue controls, no side labels).
-    unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S QH_TEST_PS QH_TEST_PS_NAME QH_TEST_CWD QH_TEST_MOVE_FAIL 2>/dev/null
+    unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S QH_TEST_PS QH_TEST_PS_NAME QH_TEST_CWD QH_TEST_MOVE_FAIL QH_TEST_RESTORE_FAIL 2>/dev/null
     exec "$@"
   fi
   unset KOSMOS_MACHINE_CLAIM_COOKIE   # a cookie whose claim is gone names nothing; this run takes its own
@@ -612,7 +615,7 @@ fi
 # Review 4: the queue's own wait settings were for THIS script's wait; the command (a page layer, say) must wait on a
 # side turn on its own terms, not inherit KOSMOS_NO_WAIT and refuse beside one. The lib names them.
 unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} 2>/dev/null
-unset KOSMOS_WAIT_KEEP_MARK KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S QH_TEST_PS QH_TEST_PS_NAME QH_TEST_CWD QH_TEST_MOVE_FAIL   # review 5: a command that queues on its own must not claim to be one of these
+unset KOSMOS_WAIT_KEEP_MARK KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S QH_TEST_PS QH_TEST_PS_NAME QH_TEST_CWD QH_TEST_MOVE_FAIL QH_TEST_RESTORE_FAIL   # review 5: a command that queues on its own must not claim to be one of these
 if [ "$LANE" = side ]; then
   # Round 20 (Opus): the stop file and the descendants list exist BEFORE the command starts, so a full disk refuses the
   # turn before anything ran, and a stop is recorded by WRITING to a file that exists (an empty file: not stopped).
