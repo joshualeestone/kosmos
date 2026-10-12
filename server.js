@@ -15157,7 +15157,7 @@ const server = http.createServer(async (req, res) => {
             line += ' This is a waiting-on-a-person state; clear it with a fresh report (e.g. `kosmos report working ...`) once you have been answered.';
           }
         }
-        line = 'Your card on the board shows: ' + cardLabel + (/[.…]$/.test(cardLabel) ? '' : '.') + '\n' + line;
+        line = cardlabel.cardLine(cardLabel) + '\n' + line;
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
         res.end(line + '\n');
         return;

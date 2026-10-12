@@ -11,7 +11,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { labelOf, STATE_COPY } = require('./cardlabel');
+const { labelOf, cardLine, STATE_COPY } = require('./cardlabel');
 
 const PAGE = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
 function grab(re, what) { const m = PAGE.match(re); assert.ok(m, 'CONTROL: ' + what + ' was not found in the page'); return m[0]; }
@@ -62,4 +62,10 @@ test('#5959 review 4: an offline card (running false) reads as the page\'s offli
 
 test('#5959 review 5: a state named like an Object member reads "Can\'t tell" (where the page has no word)', () => {
   for (const state of ['constructor', 'toString', '__proto__']) assert.equal(labelOf({ state }), "Can't tell", state);
+});
+
+test('#5959 review 6: the report-show sentence gives "Reconnecting…" no second stop, and every other label one', () => {
+  assert.equal(cardLine(labelOf({ state: 'connection_lost', reconnect: { phase: 'waiting' } })), 'Your card on the board shows: Reconnecting…');
+  // CONTROL: a label with no punctuation of its own gets the full stop.
+  assert.equal(cardLine(labelOf({ state: 'connection_lost', reconnect: { phase: 'gave_up' } })), 'Your card on the board shows: Connection lost.');
 });
