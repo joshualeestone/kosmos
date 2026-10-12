@@ -84,11 +84,10 @@ function openParts(session, projects) {
           if (slot !== null) {
             const latest = tr.latestAtOrBefore(t.repeat, slot, Date.now());
             const at = latest === null ? slot : latest;
-            /* kosmos#5920: the doctrine's per-run deadline, named so a retry that drags on knows when to record what it
-               has and move on: the next slot LESS the miss grace, because a run recorded inside that grace answers the
-               next slot early (taskrepeat.answersEarly), which would count this one as missed. */
-            const next = tr.nextAfter(t.repeat, at);
-            due = { dueWords: tr.whenWords(at), ...(at > slot ? { dueEarlier: true } : {}), ...(next !== null ? { byWords: tr.whenWords(next - tr.missGraceFor(t.repeat)) } : {}) };
+            /* kosmos#5920: the doctrine's per-run deadline for the latest due run, named so a retry that drags on knows
+               when to record what it has and move on (taskrepeat.recordBy; none when it has already passed). */
+            const by = tr.recordBy(t.repeat, at);
+            due = { dueWords: tr.whenWords(at), ...(at > slot ? { dueEarlier: true } : {}), ...(by !== null ? { byWords: tr.whenWords(by) } : {}) };
           }
         }
         out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...due });
@@ -121,7 +120,7 @@ function nudgeText(part) {
   const due = typeof part.dueWords === 'string' && part.dueWords
     ? ' Its scheduled run (' + plainWords(part.dueWords, 60) + ')' + (part.dueEarlier === true ? ', and earlier ones,' : '')
       + ' has not been reported: run it now'
-      + (typeof part.byWords === 'string' && part.byWords ? ' (record it by ' + plainWords(part.byWords, 60) + ', before the next one is due; if it is still going then, stop it, record it as it stands with what stopped it, and start the next)' : '')
+      + (typeof part.byWords === 'string' && part.byWords ? ' (record it before ' + plainWords(part.byWords, 60) + ', ahead of the next one; if it is still going then, stop it, record it as it stands with what stopped it, and start the next)' : '')
       + ', then record it with kosmos task ran '
       + (id ? id + ' ' + part.n : '<project-id> <task-number>') + ' (add --unchanged if it found nothing new).'
     : '';

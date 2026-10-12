@@ -22,8 +22,8 @@ vanished from the count and the history, leaving one "late" row.
 - Weakest premise: an agent deep in a retry notices the time. If not, the misses now show instead of vanishing.
 
 ## Doctrine
-v29 pinned (fingerprint fad5f367610465f9, after review 1 reworded the deadline; the first wording, 63b704431e8076d5,
-was never released and keeps its row as any branch block does). engine/doctrine-past.js gains rows only:
+v29 pinned (fingerprint 52783dd7981ce771, after reviews 1 and 2 reworded the deadline; the earlier wordings,
+63b704431e8076d5 and fad5f367610465f9, were never released and keep their rows as any branch block does). engine/doctrine-past.js gains rows only:
 tools/doctrine-past.js also dropped two interim v21 rows and an old section hash that this worktree's history cannot
 see, so those rows were kept.
 
@@ -41,3 +41,12 @@ see, so those rows were kept.
   run answers, which its row calls late.
 - NITs: the nudge uses the doctrine's words for the overrun step; lastRunRecovered.to is documented as the last slot
   counted (the cap's slot when `more`).
+
+## Review 2 (sonnet, blind, on b1ce4697): 0 blockers, 2 warnings, 1 convention, 2 nits. FIXED
+- W: the doctrine promised "the reminder Kosmos sends names the time", but an agent stuck in a retry is never nudged.
+  It now states the rule an agent can apply alone: record while more than 15 minutes (or a quarter of the time between
+  runs, if shorter) remain before the next is due, which is exactly the miss grace; a reminder names the exact time.
+- W: the nudge could name a deadline already past (nudged inside the last grace before the next slot). The deadline is
+  now one function, taskrepeat.recordBy, which returns null once it has passed; then the nudge names none.
+- C: an uneven pair (09:00 and 09:30) gives 09:22:30, which "by 9:22am" overstated. recordBy rounds DOWN to the minute
+  and the nudge says "before". Tests cover hourly, daily, an uneven daily pair and weekly at the boundary.

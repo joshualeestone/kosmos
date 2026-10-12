@@ -320,6 +320,18 @@ function skippedBefore(t, at) {
   return count ? { count, more: skipped(slot), firstAt: first, lastAt: last } : null;
 }
 
+/* kosmos#5920 reviews 1 and 2: the time a run due at `at` must be recorded BEFORE so it answers `at`: the next slot less
+   the miss grace (a record inside that grace answers the next slot early, which would count this run as missed),
+   rounded down to the minute, so "before 9:22am" can be read to the minute and is never past the real limit (09:22:30
+   for runs at 09:00 and 09:30). null with no next slot, and null when that time has already passed at `now`: then no
+   deadline is named, since none is left to meet. */
+function recordBy(rule, at, now = Date.now()) {
+  const next = nextAfter(rule, at);
+  if (next === null) return null;
+  const by = Math.floor((next - missGraceFor(rule)) / 60000) * 60000;
+  return by > now && by > at ? by : null;
+}
+
 /* kosmos#4787 slice 1b: the fields a screen shows for a repeating task (its rule in words, its next run in this board's
    own time), one derivation for every route that hands tasks to the page (/api/tasks and the projects list). A closed
    task has no next run. */
@@ -338,4 +350,4 @@ function fieldsOf(t, now = Date.now()) {
   return out;
 }
 
-module.exports = { VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, missGraceFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
+module.exports = { VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };

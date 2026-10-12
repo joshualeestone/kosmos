@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: 'a440157c2d9efd2d', 27: '72f53800599edd5c', 28: '2d83463db37f9c28', 29: 'fad5f367610465f9' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: 'a440157c2d9efd2d', 27: '72f53800599edd5c', 28: '2d83463db37f9c28', 29: '52783dd7981ce771' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -641,7 +641,8 @@ test('#4787: the block teaches a repeating task: the exact repeat and ran comman
    and the agent records it as it stands and moves on. */
 test('#5920: the repeating-work paragraph has each run recorded a little before the next one is due', () => {
   const b = defaults.block();
-  assert.match(b, /Record each run a\s+little before the next one is due\*\*/, 'the per-run deadline is gone');
+  assert.match(b, /Record each run while\s+more than 15 minutes remain before the next one is due\*\*/, 'the per-run deadline is gone');
+  assert.match(b, /or a quarter of the\s+time between runs, if that is shorter/, 'the deadline for short gaps is gone');
   assert.match(b, /record it as it\s+stands with what stopped it, and start the next\s+run/, 'what to do when a run runs over is gone');
-  assert.ok(b.indexOf('Record each run a') < b.indexOf('`kosmos task ran <project-id> <task-number> "what this run found"`'), 'the deadline is not in the repeating-work paragraph');
+  assert.ok(b.indexOf('Record each run while') < b.indexOf('`kosmos task ran <project-id> <task-number> "what this run found"`'), 'the deadline is not in the repeating-work paragraph');
 });

@@ -51,6 +51,27 @@ test('#5920 review 1: a run recorded by the nudge\'s deadline (the next slot les
   assert.equal(taskrepeat.skippedBefore(t, D('09:50')).count, 1);
 });
 
+test('#5920 review 2: recordBy is before the next slot by more than the grace, on the minute, and none once passed', () => {
+  const rules = [HOURLY, { every: 'day', at: '09:00' }, { every: 'day', at: ['09:00', '09:30'] }, { every: 'week', day: 1, at: '09:00' }];
+  for (const rule of rules) {
+    const r = taskrepeat.normalise(rule);
+    const setAt = new Date(2026, 9, 1, 8, 0).getTime();
+    const at = taskrepeat.nextAfter(r, setAt);
+    const by = taskrepeat.recordBy(r, at, at);
+    assert.ok(by !== null && by > at, JSON.stringify(rule) + ': no deadline after the due slot');
+    assert.equal(by % 60000, 0, JSON.stringify(rule) + ': not on the minute');
+    // A record a second before the named time answers the due slot itself: neither skipped nor answering the next.
+    assert.equal(taskrepeat.answeredSlot(r, at, by - 1000), at, JSON.stringify(rule) + ': a record just before the deadline did not answer its own slot');
+    const t = { repeat: r, repeatSetAt: new Date(setAt).toISOString() };
+    assert.equal(taskrepeat.skippedBefore(t, by - 1000), null, JSON.stringify(rule) + ': an obedient record read as after a missed run');
+    assert.equal(taskrepeat.recordBy(r, at, by), null, JSON.stringify(rule) + ': a deadline already reached is still named');
+  }
+  // The uneven pair rounds DOWN: 09:30 less 7.5 minutes is 09:22:30, named as 09:22.
+  const pair = taskrepeat.normalise({ every: 'day', at: ['09:00', '09:30'] });
+  const nine = taskrepeat.nextAfter(pair, new Date(2026, 9, 1, 8, 0).getTime());
+  assert.equal(taskrepeat.recordBy(pair, nine, nine), nine + 22 * 60000);
+});
+
 test('#5920: an early run for the next slot still names the slots before it that never ran', () => {
   // Last ran 09:00; nothing at 10:00 or 11:00; a run at 11:50 answers 12:00 early, so 10:00 and 11:00 were skipped.
   const got = taskrepeat.skippedBefore(hourly('2026-10-12T09:00:00Z'), D('11:50'));

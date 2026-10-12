@@ -499,14 +499,20 @@ test('#4787: a due repeating task is nudged with its due run and the record verb
   const t3 = proj({ number: 3, sentence: 'Hourly check', who: 'ag', repeat: { every: 'hour', minute: 0 }, repeatSetAt: hourAgo, createdAt: hourAgo })[0].tasks[0];
   const latest = tr.latestAtOrBefore(t3.repeat, tr.dueSlot(t3), Date.now());
   assert.equal(due[0].dueWords, tr.whenWords(latest), 'the line does not name the latest due run');
-  assert.match(text, /has not been reported: run it now \(record it by [^,]+, before the next one is due; if it is still going then, stop it, record it as it stands with what stopped it, and start the next\), then record it with kosmos task ran rp4787 3 \(add --unchanged if it found nothing new\)\./);
-  // kosmos#5920: the deadline is the next slot less the miss grace (inside the grace a record answers the next slot).
+  // kosmos#5920: the deadline (taskrepeat.recordBy) is named when one is left to meet; the task is due at the top of an
+  // hour and the test may run late in the hour, past the deadline, so both shapes are checked against recordBy itself.
   const dueAt = tr.latestAtOrBefore(t3.repeat, tr.dueSlot(t3), Date.now());
-  const by = tr.nextAfter(t3.repeat, dueAt) - tr.missGraceFor(t3.repeat);
-  assert.equal(due[0].byWords, tr.whenWords(by));
-  assert.equal(tr.answeredSlot(t3.repeat, tr.nextAfter(t3.repeat, Date.parse(t3.repeatSetAt)), by - 1000), dueAt, 'a record a second before the deadline answers the due run, not the next');
-  // CONTROL: a part with no deadline named says nothing about one.
-  assert.doesNotMatch(nudge.nudgeText({ ...due[0], byWords: undefined }), /record it by/);
+  const by = tr.recordBy(t3.repeat, dueAt);
+  if (by === null) {
+    assert.equal('byWords' in due[0], false, 'a deadline already past is not named');
+    assert.match(text, /has not been reported: run it now, then record it with kosmos task ran rp4787 3 \(add --unchanged if it found nothing new\)\./);
+  } else {
+    assert.equal(due[0].byWords, tr.whenWords(by));
+    assert.match(text, /has not been reported: run it now \(record it before [^,]+, ahead of the next one; if it is still going then, stop it, record it as it stands with what stopped it, and start the next\), then record it with kosmos task ran rp4787 3 \(add --unchanged if it found nothing new\)\./);
+  }
+  // CONTROL: a part with no deadline named says nothing about one, and one with a deadline says it.
+  assert.doesNotMatch(nudge.nudgeText({ ...due[0], byWords: undefined }), /record it before/);
+  assert.match(nudge.nudgeText({ ...due[0], byWords: 'today at 9:44am' }), /\(record it before today at 9:44am, ahead of the next one;/);
   // Review 1: after a long gap, the LATEST due run, with "and earlier ones" (the reviewer's line names the latest too).
   const longAgo = new Date(now - 72 * 3600 * 1000).toISOString();
   const gap = { number: 6, sentence: 'Long gap', who: 'ag', repeat: { every: 'hour', minute: 0 }, repeatSetAt: longAgo, createdAt: longAgo, lastRunAt: longAgo };
