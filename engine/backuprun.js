@@ -1,0 +1,170 @@
+'use strict';
+/**
+ * kosmos#5535 E0.6 slice (c), second half: ONE backup run, composed from the reviewed parts.
+ *
+ *   engine/backupjob.js        the member-key duties (runOnce: the key step, then a snapshot only under an ok key)
+ *   engine/backupstate.js      what one run keeps for the next, per (org, member): the job's state and two periods
+ *   engine/backupdevicekey.js  the key the manifest is signed with (the connector's mac_key)
+ *   engine/backupsnapshot.js   the snapshot itself
+ *
+ * Nothing schedules this yet (slice (d), the hourly tick, and production backup is off at Kosmos+). The caller gives
+ * the roots (backupsnapshot's `roots`); which folders those are is the tick's business, not the run's.
+ *
+ * The pair. The state file is per (org, member), and only Kosmos+'s backup-key answer names them. So this computer
+ * keeps a pointer, `current.json` beside the state files: the pair the last answer named (not a secret). A run reads
+ * that pair's state and passes the pair to backupjob, which sends a lost epoch only for it and refuses an answer for
+ * another pair (otherPair). With no pointer (the first run, or a pointer that does not read), or on otherPair, the
+ * pointer is set to the pair the answer named and the run starts again ONCE under it, before any snapshot: one more
+ * backup-key request, never a snapshot under a pair whose state was not read. A second change inside one run stops it.
+ *
+ * The caller duties backupstate.js names, kept here:
+ *   - the period's naming key is written BEFORE the snapshot (withPeriod, then writeState), so a run that dies keeps it;
+ *   - the state is written after the snapshot (withRun), the job's state with it;
+ *   - one run at a time: runs are chained in this process (one board process per data root, as backupmemberkey
+ *     assumes);
+ *   - this clock's week first (periodOf(now)); on newPeriod WITH grantedPeriod, once more in that week; never a loop.
+ * A state file that does not read is NOT discarded here: the run stops and says so (refusedState), or (retry) asks the
+ * caller to try later. Setting a file aside is a decision the caller makes, once, and says to the person.
+ *
+ * runBackup({ roots }, deps?) -> { ok, because?, ...flags }. Never throws. Flags:
+ *   the snapshot's own (manifestKey, files, uploaded, reused, retryLater, newPeriod, staleIndex, overAllowance ...);
+ *   the key step's (waiting, pendingEpoch, unreadableKeyFile, refusal ...) when no snapshot was taken;
+ *   refusedState (the state file is not this computer's; the caller may discardState it), retry (a passing error),
+ *   pairChanged (Kosmos+ named another pair twice in one run). leftOut: index rows withRun could not keep (a bug shows).
+ * deps (tests): ensureMemberKey, takeSnapshot, deviceKey, macRequest, now, snapshotId.
+ */
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const store = require('./store');
+const backupkeys = require('./backupkeys');
+const backupstate = require('./backupstate');
+const job = require('./backupjob');
+
+const ID = backupkeys.ID_RE;
+
+function pointerFile() { return path.join(store.ROOT, 'backupstate', 'current.json'); }
+
+/* The pair the last answer named, or null (missing, a link, or not this module's): a null pointer is learned again. */
+function readPointer() {
+  const f = pointerFile();
+  try {
+    if (fs.lstatSync(f).isSymbolicLink()) return null;
+    const got = JSON.parse(fs.readFileSync(f, 'utf8'));
+    if (got && got.v === 1 && typeof got.org === 'string' && ID.test(got.org) && typeof got.member === 'string' && ID.test(got.member)) {
+      return { org: got.org, member: got.member };
+    }
+  } catch { /* missing or malformed: learned again */ }
+  return null;
+}
+function writePointer(pair) {
+  fs.mkdirSync(path.dirname(pointerFile()), { recursive: true, mode: 0o700 });
+  require('./securewrite').writeSecret(pointerFile(), JSON.stringify({ v: 1, org: pair.org, member: pair.member }), 0o600, { atomicOnly: true });
+}
+
+/* A snapshot id: the UTC time (sortable) and 4 random bytes, inside the manifest context's alphabet. */
+function newSnapshotId(ms) {
+  return new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z') + '-' + crypto.randomBytes(4).toString('hex');
+}
+
+const fixed = (err) => (err && typeof err.code === 'string' && /^[A-Z0-9_]{1,32}$/.test(err.code) && err.code !== 'refused' ? ' (' + err.code + ')' : '');
+
+let chain = Promise.resolve();
+function runBackup(input, deps) {
+  const run = chain.then(() => runNow(input || {}, deps || {}));
+  chain = run.catch(() => {});
+  return run;
+}
+
+async function runNow(input, deps) {
+  try {
+    const now = deps.now || Date.now;
+    let pair = readPointer();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let state;
+      if (pair) {
+        const read = backupstate.readState(pair.org, pair.member);
+        if (!read.ok) return Object.assign({ ok: false, because: read.because }, read.retry ? { retry: true } : { refusedState: true });
+        state = read.state;
+      } else {
+        state = { job: {}, periods: [] };
+      }
+      const ref = { state, leftOut: 0, unwritable: false };
+      const known = pair;
+      const r = await job.runOnce(state.job, {
+        ensureMemberKey: deps.ensureMemberKey || require('./backupmemberkey').ensureMemberKey,
+        pair: known,
+        now,
+        // Under no known pair nothing is snapshotted: the pair is learned first and the run starts again under it.
+        snapshot: (k) => (known ? snapshotStep(known, k, ref, input, deps, now) : { ok: false, learnPair: true, because: 'this computer learned its company and member; it starts again' }),
+      });
+      const next = r.result && r.result.otherPair ? r.result.otherPair : (!known && r.pair ? r.pair : null);
+      if (next) {
+        writePointer(next);
+        pair = next;
+        continue;
+      }
+      if (!known) return Object.assign({ ok: false }, stripState(r.result));
+      // The snapshot step could not write the state, so no snapshot was taken: its own answer says why, and writing
+      // again would only fail again under a sentence claiming the backup ran.
+      if (ref.unwritable) return stripState(r.result);
+      ref.state = Object.assign({}, ref.state, { job: r.state });
+      try { backupstate.writeState(known.org, known.member, ref.state); } catch (err) {
+        return Object.assign({ ok: false, because: 'the backup ran, but this computer could not keep what it needs for the next one' + fixed(err) }, err && err.retry ? { retry: true } : {}, err && err.code === 'refused' && !err.retry ? { refusedState: true } : {});
+      }
+      return Object.assign(stripState(r.result), ref.leftOut ? { leftOut: ref.leftOut } : {});
+    }
+    return { ok: false, pairChanged: true, because: 'Kosmos+ named another company or member twice in one run; this computer tries again next time' };
+  } catch (err) {
+    return { ok: false, because: 'the backup could not run on this computer' + fixed(err) };
+  }
+}
+
+/* The result as the caller sees it: `added` (a Map of every chunk stored) is the state's business, already kept. */
+function stripState(result) {
+  const { added, ...rest } = result || {};
+  return rest;
+}
+
+/* The snapshot under an ok key for `pair`: this clock's week, and once more in a granted week. ref.state is kept
+   current, so the job's state is written over the latest periods. */
+async function snapshotStep(pair, k, ref, input, deps, now) {
+  const snapshotsMod = require('./backupsnapshot');
+  const take = deps.takeSnapshot || snapshotsMod.takeSnapshot;
+  const memberKeyId = snapshotsMod.memberKeyIdOf(k.memberPk);
+  let label = snapshotsMod.periodOf(now());
+  let result;
+  for (let i = 0; i < 2; i++) {
+    let p;
+    try { p = backupstate.forPeriod(ref.state, label, { memberKeyId, nowMs: now() }); } catch {
+      // Only the granted week can be malformed here (periodOf writes the first): the first run's answer stands.
+      if (i > 0) break;
+      throw new Error('backuprun: periodOf gave a period backupstate does not read');
+    }
+    ref.state = backupstate.withPeriod(ref.state, p);
+    try { backupstate.writeState(pair.org, pair.member, ref.state); } catch (err) {
+      ref.unwritable = true;
+      return Object.assign({ ok: false, because: 'this computer could not keep the backup state, so no backup was taken' + fixed(err) }, err && err.retry ? { retry: true } : {}, err && err.code === 'refused' && !err.retry ? { refusedState: true } : {});
+    }
+    const dk = (deps.deviceKey || require('./backupdevicekey').deviceKey)();
+    if (!dk || !dk.ok) return Object.assign({ ok: false, because: (dk && dk.because) || 'the device key could not be read' }, dk && dk.retry ? { retry: true } : {});
+    result = await take({
+      roots: input.roots, memberPk: k.memberPk, namingKey: p.namingKey, namingKeyId: backupkeys.namingKeyId(p.namingKey),
+      deviceKey: dk.privateKey, index: p.index, bucket: p.bucket,
+      ctx: { org: pair.org, member: pair.member, epoch: k.epoch, period: label, snapshot: (deps.snapshotId || newSnapshotId)(now()) },
+    }, deps.macRequest ? { macRequest: deps.macRequest } : { macRequest: (m, r, b) => require('./remote').macRequest(m, r, b) });
+    if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };
+    const after = backupstate.withRun(ref.state, p, result);
+    ref.leftOut += after.leftOut || 0;
+    const { leftOut, ...kept } = after;
+    ref.state = kept;
+    if (i === 0 && result.newPeriod && typeof result.grantedPeriod === 'string' && result.grantedPeriod !== label) {
+      label = result.grantedPeriod;
+      continue;
+    }
+    break;
+  }
+  return result;
+}
+
+module.exports = { runBackup, readPointer, newSnapshotId };
