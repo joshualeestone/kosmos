@@ -4818,3 +4818,88 @@ test('kosmos#5889: the company sign-in opener passes only the desktop allowlist;
     assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).KOSMOS_5889_PROBE, 'inherited');
   } finally { delete process.env.KOSMOS_5889_PROBE; remote.resetForTests(); }
 });
+
+/* kosmos#5995 item 4: the Kosmos+ sign-in shows the name this computer will be sent under, and the person can keep it,
+   change it or clear it. Three paths send a name for this computer (the sign-in's start, its verify, and the quiet
+   approval of this computer's own sign-in), and all three ask thisComputerDeviceName(), which reads the kept choice. */
+const NAME_5995 = (args, flag) => args[args.indexOf(flag) + 1];
+const signinCalls5995 = (from) => recorded().slice(from).filter((c) => c[0] === 'signin' && (c[1] === 'start' || c[1] === 'verify'));
+const ownAllows5995 = (from) => recorded().slice(from).filter((a) => a[0] === 'devices' && a[1] === 'allow');
+
+test('#5995: an untouched name field keeps nothing and sends what was sent before', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const shown = remote.computerNameShown();
+  assert.equal(shown.fromComputer, true, 'a name was already kept before this test: ' + JSON.stringify(shown));
+  assert.equal(shown.name + ' (Kosmos app)', remote.thisComputerDeviceName(), 'the field does not show the name that is sent');
+  assert.deepEqual(remote.setComputerName(shown.name), { ok: true, name: shown.name });
+  assert.equal(remote.read().computer_name, null, 'the computer\'s own name was kept as if the person had typed it');
+  const from = recorded().length;
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const calls = signinCalls5995(from);
+  assert.equal(calls.length, 2, 'CONTROL: the start and the verify were not both recorded');
+  for (const c of calls) assert.equal(NAME_5995(c, '--device-name'), shown.name + ' (Kosmos app)', c[1] + ' sent another name');
+  remote.setOn(false);
+});
+
+test('#5995: a typed name is kept, shown again, and sent by the start, the verify and the quiet approval of this computer', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const own = remote.computerNameShown().name;
+  try {
+    assert.deepEqual(remote.setComputerName('  Kitchen\niMac  '), { ok: true, name: 'Kitchen iMac' }, 'the name was not cleaned to one line');
+    assert.equal(remote.read().computer_name, 'Kitchen iMac');
+    assert.deepEqual(remote.computerNameShown(), { name: 'Kitchen iMac', fromComputer: false });
+    assert.notEqual('Kitchen iMac', own, 'CONTROL: this computer happens to have the test\'s name, so nothing below is told apart');
+    const from = recorded().length;
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const calls = signinCalls5995(from);
+    assert.equal(calls.length, 2, 'CONTROL: the start and the verify were not both recorded');
+    for (const c of calls) assert.equal(NAME_5995(c, '--device-name'), 'Kitchen iMac (Kosmos app)', c[1] + ' did not send the typed name');
+    const reg = await remote.signinRegister('namedmac');
+    assert.equal(reg.ok, true, reg.because);
+    const self = remote.read().device_id;
+    await until(() => ownAllows5995(from).some((a) => a.includes(self)), 'the quiet approval of this computer\'s own sign-in');
+    const allow = ownAllows5995(from).find((a) => a.includes(self));
+    assert.equal(NAME_5995(allow, '--name'), 'Kitchen iMac (Kosmos app)', 'the quiet approval named this computer something else: ' + JSON.stringify(allow));
+    /* A caller's own label still names some OTHER device and is sent as it is (the rule before this change). */
+    const from2 = recorded().length;
+    await remote.signinStart('her@example.com', 'Her phone');
+    assert.equal(NAME_5995(signinCalls5995(from2)[0], '--device-name'), 'Her phone');
+  } finally {
+    remote.setComputerName(own);
+    remote.setOn(false);
+  }
+  assert.equal(remote.read().computer_name, null, 'putting the computer\'s own name back did not drop the kept one');
+});
+
+test('#5995: a cleared name field is a choice: the plain name is sent, and it stays cleared', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const own = remote.computerNameShown().name;
+  try {
+    assert.deepEqual(remote.setComputerName('   '), { ok: true, name: 'This computer' });
+    assert.equal(remote.read().computer_name, '', 'a cleared field was not kept as a choice');
+    assert.equal(remote.computerNameShown().fromComputer, own === 'This computer' ? remote.computerNameShown().fromComputer : false);
+    assert.equal(remote.thisComputerDeviceName(), 'This computer (Kosmos app)');
+    const from = recorded().length;
+    await remote.signinStart('her@example.com');
+    assert.equal(NAME_5995(signinCalls5995(from)[0], '--device-name'), 'This computer (Kosmos app)');
+  } finally {
+    remote.setComputerName(own);
+    remote.setOn(false);
+  }
+});
+
+test('#5995: a name that is too long is cut to fit, and something that is not a name changes nothing', () => {
+  const own = remote.computerNameShown().name;
+  try {
+    const long = remote.setComputerName('M'.repeat(90));
+    assert.equal(long.ok, true);
+    assert.ok((long.name + ' (Kosmos app)').length <= 60, 'the kept name does not fit with its ending: ' + long.name.length);
+    assert.equal(remote.thisComputerDeviceName(), long.name + ' (Kosmos app)', 'what is kept is not what is sent');
+    for (const bad of [undefined, null, 7, {}, ['x']]) {
+      assert.equal(remote.setComputerName(bad).ok, false, 'accepted ' + JSON.stringify(bad));
+      assert.equal(remote.read().computer_name, long.name, 'a refused name changed what was kept');
+    }
+  } finally { remote.setComputerName(own); }
+});

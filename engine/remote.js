@@ -249,6 +249,10 @@ function read() {
     /* kosmos#5786 (b): devices this computer allowed because the browser it opened proved itself (vouchTick), as
        { <device_id>: { at: <seconds>, name } }, for the "connected" notice and the "on this computer" label. */
     vouched: parsed.vouched && typeof parsed.vouched === 'object' && !Array.isArray(parsed.vouched) ? parsed.vouched : {},
+    /* kosmos#5995: the name the person gave this computer at the Kosmos+ sign-in, when they changed what the field
+       showed or cleared it ('' is a choice: send no name of theirs). null when they never did, and then the name comes
+       from the computer. Read by thisComputerDeviceName(), the one place every path that names this computer asks. */
+    computer_name: typeof parsed.computer_name === 'string' ? parsed.computer_name : null,
     ok: true,
   };
 }
@@ -2501,10 +2505,12 @@ function deviceNameFrom(raw) {
   // "this computer", never "this Mac", on every platform (Josh, kosmos#1004).
   return 'This computer' + DEVICE_SUFFIX;
 }
-/* Read once per process (a computer's name does not change under a running
-   sign-in). scutil is synchronous but local and bounded at 2 seconds, once. */
+/* The computer's own name, read once per process (it does not change under a running
+   sign-in). scutil is synchronous but local and bounded at 2 seconds, once. Only this
+   is kept: the person's own choice is read from remote.json each time, so a name
+   typed at the sign-in is the one every later path sends. */
 let thisComputerNameCache = null;
-function thisComputerDeviceName() {
+function ownComputerDeviceName() {
   if (thisComputerNameCache !== null) return thisComputerNameCache;
   let raw = '';
   if (process.platform === 'darwin') {
@@ -2513,6 +2519,34 @@ function thisComputerDeviceName() {
   if (!String(raw).trim()) { try { raw = os.hostname().replace(/\.local$/i, ''); } catch { raw = ''; } }
   thisComputerNameCache = deviceNameFrom(raw);
   return thisComputerNameCache;
+}
+/* kosmos#5995: the name this computer is sent under, on EVERY path that sends one (the sign-in's start and verify
+   with no caller's label, and the quiet re-approval of this computer later). The person's choice when they made one
+   at the sign-in, the computer's own name when they did not. A cleared field is a choice and sends the plain name. */
+function thisComputerDeviceName() {
+  const chosen = read().computer_name;
+  return typeof chosen === 'string' ? deviceNameFrom(chosen) : ownComputerDeviceName();
+}
+const withoutSuffix = (label) => (label.endsWith(DEVICE_SUFFIX) ? label.slice(0, -DEVICE_SUFFIX.length) : label);
+/** What the sign-in's "Name for this computer" field shows before anything is sent: the name that would go, without
+    the " (Kosmos app)" ending. `fromComputer` says whether it is the computer's own name or one the person gave. */
+function computerNameShown() {
+  const chosen = read().computer_name;
+  return { name: withoutSuffix(thisComputerDeviceName()), fromComputer: typeof chosen !== 'string' };
+}
+/** Keep what the person left in that field. The name the computer has is not kept (so an untouched field goes on
+    following the computer if it is renamed); anything else is, an empty field included. The stored name is the
+    cleaned one (one line, no control characters, cut to fit), so what is shown next time is what was sent. */
+function setComputerName(raw) {
+  if (typeof raw !== 'string') return { ok: false, because: 'that is not a name' };
+  const typed = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  const kept = typed ? withoutSuffix(deviceNameFrom(typed)) : '';
+  const own = withoutSuffix(ownComputerDeviceName());
+  const next = kept === own ? null : kept;
+  if (read().computer_name === next) return { ok: true, name: withoutSuffix(thisComputerDeviceName()) };
+  const wrote = write({ computer_name: next });
+  if (!wrote || wrote.ok === false) return { ok: false, because: (wrote && wrote.because) || 'we could not keep that name' };
+  return { ok: true, name: withoutSuffix(thisComputerDeviceName()) };
 }
 
 /** Append --device-name. A caller's label goes through only when clean (trimmed
@@ -3126,7 +3160,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { computerNameShown, setComputerName /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   ownDeviceIds,
