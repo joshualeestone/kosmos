@@ -10,7 +10,8 @@
 #
 # ⚠️ NOT part of plain `yarn test`, deliberately: it needs the staged trees
 # in dist/ (build them first: tools/build-tmux-bundle.sh and
-# tools/build-kosmos-bundle.sh, KOSMOS_ALLOW_MINOS=1 for a dev machine),
+# tools/build-kosmos-bundle.sh, KOSMOS_ALLOW_MINOS=1 for a dev machine, and
+# KOSMOS_NOTARIZE=0 unless it holds the notary key),
 # it binds a TCP port, and it starts and stops real processes. Run it as
 # `yarn test:install` before shipping installer changes.
 #
@@ -49,7 +50,7 @@ KOS_SRC="$HERE/dist/kosmos-bundle"
 if [ ! -d "$TMUX_SRC" ] || [ ! -d "$KOS_SRC" ]; then
   echo "SKIP: dist/ staged trees missing. Build them first:" >&2
   echo "  KOSMOS_ALLOW_MINOS=1 tools/build-tmux-bundle.sh dist" >&2
-  echo "  KOSMOS_ALLOW_MINOS=1 tools/build-kosmos-bundle.sh dist" >&2
+  echo "  KOSMOS_ALLOW_MINOS=1 KOSMOS_NOTARIZE=0 tools/build-kosmos-bundle.sh dist   (KOSMOS_NOTARIZE=0: skip Apple's notary, #5137)" >&2
   exit 1
 fi
 

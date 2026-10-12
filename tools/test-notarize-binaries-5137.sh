@@ -16,7 +16,7 @@ bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-unset KOSMOS_NOTARIZE KOSMOS_NOTARY_KEY_ID KOSMOS_NOTARY_ISSUER KOSMOS_NOTARY_PROBE_BIN NT_HISTORY NT_TAIL NT_NOID_TIMES NT_LOG_FAIL NT_ISSUE_HASH NT_MESSAGE   # an operator's export must not change the arms
+unset KOSMOS_NOTARIZE KOSMOS_NOTARY_KEY_ID KOSMOS_NOTARY_ISSUER KOSMOS_NOTARY_PROBE_BIN NT_HISTORY NT_TAIL NT_WAIT_STATUS NT_RAWLOG NT_NOID_TIMES NT_LOG_FAIL NT_ISSUE_HASH NT_MESSAGE   # an operator's export must not change the arms
 
 HA=1111111111111111111111111111111111111111
 HT=2222222222222222222222222222222222222222
@@ -61,8 +61,10 @@ nt_stub() {
             if [ "$(grep -c '^submit$' "$WORK/nt.ran")" -le "${NT_NOID_TIMES:-0}" ]; then
               echo "Error: HTTP status code: 503. Service Unavailable" >&2; return 1; fi
             echo "{\"status\":\"$NT_STATUS\",\"id\":\"sub-1\",\"message\":\"${NT_MESSAGE:-Processing complete}\"${NT_TAIL:-}}" ;;
+    wait)   echo "{\"status\":\"${NT_WAIT_STATUS:-In Progress}\",\"id\":\"$2\"}" ;;
     history) echo "${NT_HISTORY:-{\"history\":[]\}}" ;;
     log)    [ "${NT_LOG_FAIL:-0}" = 1 ] && { echo "Error: log unavailable" >&2; return 1; }
+            [ -n "${NT_RAWLOG:-}" ] && { printf '%s\n' "$NT_RAWLOG"; return 0; }
             printf '{\n  "jobId": "sub-1",\n  "status": "%s",\n  "ticketContents": [\n' "$NT_STATUS"
             local h sep=""; for h in $NT_HASHES; do printf '%s    {\n      "cdhash": "%s"\n    }' "$sep" "$h"; sep=$',\n'; done
             printf '\n  ],\n  "issues": [%s]\n}\n' "${NT_ISSUE_HASH:+{\"cdhash\": \"$NT_ISSUE_HASH\"\}}" ;;
@@ -72,7 +74,8 @@ export KOSMOS_NOTARY_CODESIGN_CMD=cs_stub KOSMOS_NOTARYTOOL_CMD=nt_stub KOSMOS_S
 export KOSMOS_NOTARY_RETRY_DELAYS="0 0"
 
 run() { rm -f "$WORK/nt.ran" "$WORK/ditto.ran" "$WORK/submit.argv"; notarize_binaries "$@" > "$WORK/out" 2>&1; echo $?; }
-ran() { grep -c "^$1\$" "$WORK/nt.ran" 2>/dev/null || echo 0; }
+# grep -c prints 0 AND exits 1 on no match, so a `|| echo 0` fallback would print a second 0.
+ran() { local n; n="$(grep -c "^$1\$" "$WORK/nt.ran" 2>/dev/null)"; echo "${n:-0}"; }
 
 # --- Accepted, and the ticket lists both cdhashes: passes, having really submitted ---
 NT_STATUS=Accepted NT_HASHES="$HA $HT $HX"; rc=$(run "$WORK/bin/kosmos-app" "$WORK/bin/kosmos-tunnel")
@@ -147,25 +150,43 @@ rc=$(run "$WORK/bin/no-such-binary"); [ "$rc" = 1 ] && [ "$(ran submit)" = 0 ] &
 rc=$(run "$WORK/bin/notmacho"); [ "$rc" = 1 ] && [ "$(ran submit)" = 0 ] && ok "a non-Mach-O file refuses before submitting" || bad "non-Mach-O (rc=$rc)"
 
 # --- no scratch copies are left behind ---
-before="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'kosmos-notarize.*' 2>/dev/null | wc -l | tr -d ' ')"
-NT_STATUS=Invalid NT_HASHES=""; rc=$(run "$WORK/bin/kosmos-app")
-after="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'kosmos-notarize.*' 2>/dev/null | wc -l | tr -d ' ')"
-[ "$after" -le "$before" ] && ok "the scratch copy is removed on a refusal" || bad "scratch dirs grew $before -> $after"
+mkdir -p "$WORK/tmp"   # its own TMPDIR, so another notarisation on the box cannot move the count
+NT_STATUS=Invalid NT_HASHES=""; rc=$(TMPDIR="$WORK/tmp" run "$WORK/bin/kosmos-app")
+left="$(find "$WORK/tmp" -name 'kosmos-notarize.*' 2>/dev/null | wc -l | tr -d ' ')"
+NT_STATUS=Accepted NT_HASHES="$HA"; rc2=$(TMPDIR="$WORK/tmp" run "$WORK/bin/kosmos-app")
+left2="$(find "$WORK/tmp" -name 'kosmos-notarize.*' 2>/dev/null | wc -l | tr -d ' ')"
+[ "$rc" = 1 ] && [ "$rc2" = 0 ] && [ "$left" = 0 ] && [ "$left2" = 0 ] && ok "the scratch copy is removed on a refusal and on a pass" || bad "scratch left: refusal rc=$rc left=$left, pass rc=$rc2 left=$left2"
 
 # --- release.sh refuses to cut with the opt-out or a seam exported, before step 4 builds ---
 R="$REPO/tools/release.sh"
 guard="$(grep -n '^for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSMOS_NOTARY_LIPO_CMD KOSMOS_NOTARY_RETRY_DELAYS; do$' "$R" | head -1 | cut -d: -f1)"
 build="$(grep -n 'bash tools/build-kosmos-bundle.sh dist' "$R" | head -1 | cut -d: -f1)"
 [ -n "$guard" ] && [ -n "$build" ] && [ "$guard" -lt "$build" ] && ok "release.sh refuses the opt-out and every seam before step 4 ($guard < $build)" || bad "release.sh guard missing or after the build (guard=$guard build=$build)"
-out="$(KOSMOS_NOTARIZE=0 bash -c "$(sed -n "${guard},$((guard + 4))p" "$R")" 2>&1)"; rc=$?
+GUARD_SRC="$(sed -n "${guard},\$p" "$R" | sed '/^done$/q')"
+case "$GUARD_SRC" in *done) ok "the guard loop was extracted whole, through its done" ;; *) bad "the guard loop has no done line to extract through" ;; esac
+out="$(KOSMOS_NOTARIZE=0 bash -c "$GUARD_SRC" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && case "$out" in *"KOSMOS_NOTARIZE is set"*) true ;; *) false ;; esac && ok "the release.sh guard really refuses an exported KOSMOS_NOTARIZE" || bad "guard did not refuse (rc=$rc): $out"
-out="$(env -u KOSMOS_NOTARIZE -u KOSMOS_NOTARYTOOL_CMD -u KOSMOS_NOTARY_CODESIGN_CMD -u KOSMOS_NOTARY_LIPO_CMD -u KOSMOS_NOTARY_RETRY_DELAYS bash -c "$(sed -n "${guard},$((guard + 4))p" "$R")" 2>&1)"; rc=$?
+out="$(env -u KOSMOS_NOTARIZE -u KOSMOS_NOTARYTOOL_CMD -u KOSMOS_NOTARY_CODESIGN_CMD -u KOSMOS_NOTARY_LIPO_CMD -u KOSMOS_NOTARY_RETRY_DELAYS bash -c "$GUARD_SRC" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && ok "the guard passes a clean environment (control)" || bad "guard refused a clean env (rc=$rc): $out"
 
 # --- the submission id is the FIRST one in the answer, not a later nested one ---
 NT_STATUS=Accepted NT_HASHES="$HA" NT_TAIL=',"extra":{"id":"other-job"}'; rc=$(run "$WORK/bin/kosmos-app")
 [ "$rc" = 0 ] && grep -q 'submission sub-1)' "$WORK/out" && ok "a later nested id does not replace the submission id" || bad "id parse (rc=$rc): $(cat "$WORK/out")"
 unset NT_TAIL
+
+# --- an id whose status is not final is waited on, not refused and not resubmitted ---
+NT_STATUS="In Progress" NT_WAIT_STATUS=Accepted NT_HASHES="$HA"; rc=$(run "$WORK/bin/kosmos-app")
+[ "$rc" = 0 ] && [ "$(ran wait)" = 1 ] && [ "$(ran submit)" = 1 ] && ok "an unfinished submission is waited on once and then passes" || bad "in-progress wait (rc=$rc, wait=$(ran wait), submit=$(ran submit)): $(cat "$WORK/out")"
+NT_STATUS="In Progress" NT_WAIT_STATUS="In Progress" NT_HASHES="$HA"; rc=$(run "$WORK/bin/kosmos-app")
+[ "$rc" = 1 ] && [ "$(ran log)" = 0 ] && ok "still unfinished after the wait refuses, without fetching a log that cannot exist yet" || bad "unfinished refusal (rc=$rc, log=$(ran log))"
+NT_STATUS=Invalid NT_HASHES=""; rc=$(run "$WORK/bin/kosmos-app")
+[ "$(ran wait)" = 0 ] && ok "a final status is not waited on" || bad "waited on a final status"
+unset NT_WAIT_STATUS
+
+# --- a log whose ticketContents cannot be read is a parse failure, not "other bytes" ---
+NT_STATUS=Accepted NT_HASHES="$HA" NT_RAWLOG='{"status":"Accepted","ticketContents":[]}'; rc=$(run "$WORK/bin/kosmos-app")
+[ "$rc" = 1 ] && grep -q 'could not read any cdhash from ticketContents' "$WORK/out" && ok "a ticket with no cdhash in it refuses as a parse failure" || bad "ticket parse (rc=$rc): $(cat "$WORK/out")"
+unset NT_RAWLOG
 
 # --- step 1c's probe: Apple's answer decides, not notarytool's exit status ---
 out="$(notarize_probe_credentials 2>&1)"; rc=$?
@@ -196,6 +217,6 @@ pack="$(grep -n '^echo "==> packing"' "$B" | head -1 | cut -d: -f1)"
   || bad "order wrong: notarise=$call last-sign=$last_sign last-selftest=$last_selftest pack=$pack"
 
 echo "test-notarize-binaries-5137: $passes passed, $fails failed"
-EXPECTED=43   # the number of ok lines above; a skipped arm must not read as green
+EXPECTED=48   # the number of ok lines above; a skipped arm must not read as green
 [ "$passes" = "$EXPECTED" ] || echo "test-notarize-binaries-5137: $passes passes, expected $EXPECTED (an arm was skipped or added without updating EXPECTED)"
 [ "$fails" = 0 ] && [ "$passes" = "$EXPECTED" ]

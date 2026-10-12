@@ -150,9 +150,23 @@ notarize_binaries() (
   # The status VALUE, read from its own key: a glob for "Accepted" anywhere would pass an answer
   # whose message merely mentions the word.
   status="$(_notarize_json_first status "$out")"
+  # An id whose status is not final (the --wait poll lost its connection, or hit its timeout) is
+  # not an answer yet. Wait on that same submission once more rather than refusing or resubmitting.
+  if [ -n "$id" ]; then
+    case "$status" in
+      Accepted|Invalid|Rejected) ;;
+      *)
+        echo "==> submission $id is not finished (status '${status:-none}'); waiting on it (#5137)"
+        rc=0
+        out="$(_notarytool wait "$id" --key "$key" --key-id "$key_id" --issuer "$issuer" \
+                 --timeout 30m --output-format json 2>&1)" || rc=$?
+        printf '%s\n' "$out" | sed 's/^/    /'
+        status="$(_notarize_json_first status "$out")" ;;
+    esac
+  fi
   if [ "$status" != Accepted ]; then
     echo "notarize: Apple did not accept the binaries (status '${status:-none}', notarytool rc=$rc)." >&2
-    if [ -n "$id" ]; then
+    if [ -n "$id" ] && { [ "$status" = Invalid ] || [ "$status" = Rejected ]; }; then
       echo "notarize: Apple's log for $id:" >&2
       _notarytool log "$id" --key "$key" --key-id "$key_id" --issuer "$issuer" 2>&1 | sed 's/^/    /' >&2 || :
     fi
@@ -163,7 +177,13 @@ notarize_binaries() (
   log="$(_notarytool log "$id" --key "$key" --key-id "$key_id" --issuer "$issuer" 2>&1)" || {
     printf '%s\n' "$log" | sed 's/^/    /' >&2; echo "notarize: could not fetch Apple's log for $id" >&2; exit 1; }
   # Only the ticketContents array counts: a hash named in issues[] is not a ticket.
+  # Read up to the array's first "]".
   ticket="$(printf '%s' "$log" | tr -d '\n' | sed -n 's/.*"ticketContents"[[:space:]]*:[[:space:]]*\[\([^]]*\)\].*/\1/p')"
+  case "$ticket" in
+    *cdhash*) ;;
+    *) printf '%s\n' "$log" | sed 's/^/    /' >&2
+       echo "notarize: could not read any cdhash from ticketContents in Apple's log for $id (above), so the ticket cannot be checked" >&2; exit 1 ;;
+  esac
 
   missing=""
   while read -r name a h; do

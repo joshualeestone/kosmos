@@ -18,7 +18,7 @@ Card: joshualeestone/kosmos#5137 (the app the .pkg installs is signed but not no
 
 ## Out of scope (filed separately)
 - The unsealed Kosmos.app setup.sh assembles: measured still refused when quarantined even around a notarized
-  binary ("code has no resources"). Needs a prebuilt signed+stapled bundle; its own card.
+  binary ("code has no resources"). Needs a prebuilt signed+stapled bundle; filed as #5896.
 
 ## Proof
 - Real run of the lib against Apple on the served 0.7.38 binaries: Accepted, cdhashes matched; spctl verdict

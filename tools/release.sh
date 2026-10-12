@@ -718,6 +718,8 @@ kosmos_sign_preflight || exit 1
 # #5137: step 4 notarises kosmos-app and kosmos-tunnel. The local-test opt-out and the test seams for
 # notarytool and codesign must not reach a cut: a leftover export would ship binaries Gatekeeper
 # rejects, or "notarise" through a stub that never contacted Apple, and print one line about it.
+# KOSMOS_NOTARY_PROBE_BIN is deliberately NOT refused: like KOSMOS_CODESIGN_BIN it replaces only
+# the 1c probe below, says "not probed" when set, and tools.release-gate.test.js needs it.
 for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSMOS_NOTARY_LIPO_CMD KOSMOS_NOTARY_RETRY_DELAYS; do
   if [ -n "${!_nv+x}" ]; then
     echo "$_nv is set in this shell. A cut always notarises the app binaries for real (#5137): unset it and run again."; exit 1
