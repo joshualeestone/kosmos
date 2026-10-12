@@ -74,6 +74,11 @@ test('#5959 slice 2: the health line says sign-in, usage and when Kosmos last sa
   assert.equal(seenAtWords(NOW - 2 * day, NOW), new Date(NOW - 2 * day).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }));
   assert.equal(seenAtWords(NOW - 9 * day, NOW), new Date(NOW - 9 * day).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }));
   assert.equal(seenAtWords(at5, NOW), clock(at5), 'CONTROL: today is the time alone');
+  // Ahead of this computer's clock (skew in a Kosmos+ view), even across midnight: the time alone, not a weekday that
+  // would read as last week.
+  const ahead = new Date(2026, 9, 12, 23, 58, 0).getTime();
+  const tomorrow = new Date(2026, 9, 13, 0, 3, 0).getTime();
+  assert.equal(seenAtWords(tomorrow, ahead), clock(tomorrow));
 });
 
 test('#5959 slice 2: no line for a card with no lastWorked, and the page paints it into its own element', () => {

@@ -23714,7 +23714,8 @@ function healthLine(a, nowMs) {
    when it was over six days ago. */
 function seenAtWords(atMs, nowMs) {
   const age = nowMs - atMs;
-  const when = age > 6 * 86400e3 ? { month: 'short', day: 'numeric' }
+  // A time ahead of now (the two computers' clocks disagree, in a Kosmos+ view) is said as the time alone, never a weekday.
+  const when = age <= 0 ? {} : age > 6 * 86400e3 ? { month: 'short', day: 'numeric' }
     : new Date(atMs).toDateString() !== new Date(nowMs).toDateString() ? { weekday: 'short' } : {};
   return new Date(atMs).toLocaleString([], { ...when, hour: 'numeric', minute: '2-digit' });
 }
