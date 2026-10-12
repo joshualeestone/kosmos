@@ -28,8 +28,13 @@ runs `kosmos report show`; this says it without being asked. Stacked on slice 1 
 - **needs_you.** It is a question waiting on the person. For a runner other than Claude nothing holds a typed line out
   of an open question (chat's menu hold is Claude-only), so the reminder would be taken as its answer (an Antigravity
   agent reports needs_you from a live ask_question). Review 3.
-- **Runners other than Claude.** deliverAutomatic's menu hold is Claude-only, and an agent on another runner can report
-  blocked while an ask is open on its screen. Review 4. `kosmos report show` still names a stale report for them.
+- **Runners other than Claude, and agents reached through a channel (Windows).** The screen check below knows Claude
+  Code's screens only, and a channel-reached agent's screen cannot be read from here. `kosmos report show` still names
+  a stale report for them. Reviews 4 and 6.
+- **Relying on deliverAutomatic's menu hold.** It reads the screen only for a needs_you or working card, never for the
+  blocked cards this sweep types to (review 6). So the sweep reads the screen itself first (`screenOpen`: the safeguards
+  menu, a question menu, a permission prompt, or an unreadable screen, with status.js's readers) and types nothing then;
+  no try is spent and it is logged once per report.
 - **Inside agentnudge (the Prompter's stall nudge).** It deliberately leaves out blocked agents and is keyed on idle
   stall episodes; a stale report is a different trigger.
 - **Repeating it daily.** Once per report is what the card asks; a repeat would nag an agent that is rightly waiting.

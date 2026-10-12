@@ -12,8 +12,10 @@
  *  - its card shows that report (stateReported, and the same state: the board's reconcile can set a report aside);
  *  - its card is ours, a Claude agent, not mid-turn (activeWhileWaiting: a later sweep tells it), and not a switched-off
  *    swarm.
- * Claude only: deliverAutomatic's menu hold (the one thing that keeps a typed line out of an open question or menu) is
- * Claude-only, and an agent on another runner can report blocked while an ask is open on its screen.
+ * Its screen is read first (screenOpen), and nothing is typed while a menu or a prompt is open there or the screen
+ * cannot be read: deliverAutomatic's own menu hold reads the screen only for a needs_you or working card, never for the
+ * blocked cards this sweep types to. So Claude only (those readers know Claude Code's screens), and never an agent
+ * reached through a channel (a Windows agent, whose screen this computer cannot read).
  * Not needs_you: that is a question waiting on the person, and for a runner other than Claude nothing holds a typed
  * line out of an open question (chat's menu hold is Claude-only), so the reminder would answer it.
  *
@@ -100,6 +102,18 @@ function plan(card, rep, entry, now, remindedAt) {
   return { act: 'nudge', ageMs: now - at, because: 'its ' + rep.state + ' report has stood ' + cardlabel.standingFor(now - at) };
 }
 
+/* Why a line typed now could land in something open on the agent's screen, or null when its prompt is clear: Claude
+   Code's safeguards menu, a question menu, or a permission prompt (status.js's readers, the ones chat's menu hold uses),
+   or a screen that could not be read at all. */
+function screenOpen(session, roster) {
+  const status = require('./status');
+  const view = require('./chat').viewport(session, roster);
+  if (!view || typeof view.text !== 'string') return 'its screen could not be read';
+  if (status.claudeSafeguardsMenuUp(view.text) || status.claudeQuestionMenuUp(view.text)) return 'a menu is open on its screen';
+  if (status.claudePermissionPromptKind(view.text)) return 'a prompt is open on its screen';
+  return null;
+}
+
 function pauseNow(session) {
   return require('./swarm').pauseOf(require('./store').readProfile(session));
 }
@@ -112,12 +126,13 @@ function sweepOnce(o) {
     const now = Number.isFinite(o.now) ? o.now : Date.now();
     const readReport = typeof o.report === 'function' ? o.report : (s) => selfreport.read(s);
     const reminded = o.reminded && typeof o.reminded.get === 'function' ? o.reminded : fileReminded();
+    const screenFor = typeof o.screen === 'function' ? o.screen : screenOpen;
     const pauseFor = typeof o.paused === 'function' ? o.paused : pauseNow;
     const log = typeof o.log === 'function' ? o.log : null;
     const say = (r) => { if (log) { try { log(r); } catch { /* never breaks a sweep */ } } };
     for (const card of o.roster) {
       const session = card && card.sessionName;
-      if (!session || card.isNamedOurs === false || card.runner !== 'claude') continue;
+      if (!session || card.isNamedOurs === false || card.runner !== 'claude' || card.reachedByChannel === true) continue;
       if (card.activeWhileWaiting === true) continue;   // mid-turn: a later sweep tells it, between turns
       if (card.state !== REMINDED_STATE) continue;   // read a report only for a card that could be reminded
       let rep = null;
@@ -131,6 +146,19 @@ function sweepOnce(o) {
       try { pz = pauseFor(session); } catch { pz = null; }
       if (pz && pz.paused === true) continue;
       const display = card.name || session;
+      /* Something open on its screen (or no screen to read): nothing typed, no try spent, said once per report in the
+         log, and a later sweep looks again. */
+      let open = null;
+      try { open = screenFor(session, o.roster); } catch { open = 'its screen could not be read'; }
+      if (open) {
+        const why = p.because + '; not typed, ' + open;
+        results.push({ session, name: display, act: 'screen', delivered: false, delivery: null, because: why });
+        if (!entry || entry.screenSaidFor !== rep.at) {
+          book.set(session, { ...(entry && entry.forAt === rep.at ? entry : {}), forAt: rep.at, screenSaidFor: rep.at });
+          say({ name: display, session, act: 'screen', delivered: false, delivery: null, because: why });
+        }
+        continue;
+      }
       let state = null;
       let held = false;
       let heldBy = null;
@@ -152,7 +180,7 @@ function sweepOnce(o) {
       const delivered = D.PLACED != null && state === D.PLACED;
       const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);
       const tries = ((entry && entry.forAt === rep.at && Number.isInteger(entry.tries)) ? entry.tries : 0) + 1;
-      book.set(session, { forAt: rep.at, nudgedAt: mayHaveReached ? now : null, tries, delivery: state, heldSaidFor: entry && entry.heldSaidFor });
+      book.set(session, { forAt: rep.at, nudgedAt: mayHaveReached ? now : null, tries, delivery: state, heldSaidFor: entry && entry.heldSaidFor, screenSaidFor: entry && entry.screenSaidFor });
       if (mayHaveReached) {
         let kept = false;
         try { kept = reminded.set(session, rep.at, new Set(o.roster.map((c) => c && c.sessionName).filter(Boolean)), now) !== false; } catch { kept = false; }
@@ -180,10 +208,10 @@ function makeTick(deps) {
       if (!Array.isArray(roster)) return null;
       return sweepOnce({
         roster, book: deps.book, now: deps.now ? deps.now() : Date.now(),
-        report: deps.report, paused: deps.paused, reminded: deps.reminded, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
+        report: deps.report, paused: deps.paused, reminded: deps.reminded, screen: deps.screen, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
       });
     } catch { return null; }
   };
 }
 
-module.exports = { plan, nudgeText, sweepOnce, makeTick, nudgeEnabled, remindedFile, MAX_TRIES, REMINDED_STATE, PRUNE_MS };
+module.exports = { plan, nudgeText, sweepOnce, makeTick, nudgeEnabled, remindedFile, screenOpen, MAX_TRIES, REMINDED_STATE, PRUNE_MS };
