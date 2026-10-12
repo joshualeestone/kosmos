@@ -4903,3 +4903,37 @@ test('#5995: a name that is too long is cut to fit, and something that is not a 
     }
   } finally { remote.setComputerName(own); }
 });
+
+test('#5995: an untouched name field writes nothing: no remote.json is created, and a damaged one is left alone and not refused', () => {
+  const own = remote.computerNameShown().name;
+  const had = fs.existsSync(remote.FILE) ? fs.readFileSync(remote.FILE, 'utf8') : null;
+  try {
+    fs.rmSync(remote.FILE, { force: true });
+    assert.equal(remote.read().computer_name, null, 'a missing file does not read as "no name kept"');
+    assert.deepEqual(remote.setComputerName(own), { ok: true, name: own });
+    assert.equal(fs.existsSync(remote.FILE), false, 'an untouched field created remote.json');
+    fs.writeFileSync(remote.FILE, '{ this is not valid json');
+    assert.equal(remote.read().ok, false, 'CONTROL: the damaged file read as fine');
+    assert.equal(remote.read().computer_name, null);
+    assert.deepEqual(remote.setComputerName(own), { ok: true, name: own }, 'an untouched field was refused on a damaged file, which would block the sign-in');
+    assert.equal(fs.readFileSync(remote.FILE, 'utf8'), '{ this is not valid json', 'an untouched field rewrote a damaged file');
+    // A real choice on the damaged file is kept, repairing the file as the sign-in's other writes do.
+    assert.deepEqual(remote.setComputerName('Work Mac'), { ok: true, name: 'Work Mac' });
+    assert.equal(remote.read().ok, true);
+    assert.equal(remote.read().computer_name, 'Work Mac');
+  } finally {
+    if (had === null) fs.rmSync(remote.FILE, { force: true }); else fs.writeFileSync(remote.FILE, had);
+  }
+});
+
+test('#5995: forgetting this computer keeps the chosen name, so it is what the next sign-in shows', async () => {
+  const own = remote.computerNameShown().name;
+  try {
+    assert.equal(remote.setComputerName('Kept Through Forget').ok, true);
+    const got = await remote.forget();
+    assert.ok(got && typeof got === 'object', 'CONTROL: the forget did not answer');
+    assert.equal(remote.read().on, false, 'CONTROL: the forget did not run');
+    assert.equal(remote.read().computer_name, 'Kept Through Forget', 'a forget dropped the name the person chose');
+    assert.deepEqual(remote.computerNameShown(), { name: 'Kept Through Forget', fromComputer: false });
+  } finally { remote.setComputerName(own); }
+});

@@ -18955,10 +18955,11 @@ window.kosmosMeasureScrollbarWidth();
           <input type="email" id="plus-signin-email" class="tk-inp plus-si-wide" maxlength="120" autocomplete="email"
             placeholder="you@example.com">
         </div>
-        <!-- kosmos#5995 item 4: the name this computer is sent under, shown BEFORE it is sent. Prefilled from the
-             computer (plusSiComputerName); the person can keep it, change it or clear it. 47 is what fits before
-             the " (Kosmos app)" ending the engine adds. -->
-        <div class="field" id="plus-si-computer-field">
+        <!-- kosmos#5995 item 4: the name this computer is sent under, shown BEFORE it is sent. Filled from the
+             computer (plusSiComputerName); the person can keep it, change it or clear it. Hidden until the name
+             has been read: its words ("An empty box sends...") are only true of a box that showed a name. 47 is
+             what fits before the " (Kosmos app)" ending the engine adds. -->
+        <div class="field" id="plus-si-computer-field" hidden>
           <label class="flabel" for="plus-si-computer">Name for this computer</label>
           <p class="fhint" id="plus-si-computer-hint">Your Kosmos+ account lists this computer under this name. Change it if you like. An empty box sends "This computer".</p>
           <input type="text" id="plus-si-computer" class="tk-inp plus-si-wide" maxlength="47" autocomplete="off" spellcheck="false"
@@ -49113,23 +49114,33 @@ function plusSiKStop() {
 }
 /* kosmos#5995 item 4: "Name for this computer" on the email step. The box is filled with the name that would be sent
    (the computer's own, or the one the person gave before), read from this computer and never from the coordinator.
-   `loaded` and `touched` decide what the start sends: the box's text once it has shown a name or the person typed in
-   it, and nothing at all before that (an empty box that never loaded is not a person clearing it). A read that
-   answers after the person started typing is dropped. */
-const PLUS_SI_COMPUTER = { loaded: false, touched: false };
-async function plusSiComputerName() {
+   The box stays hidden until that read has answered, so its words are never on screen beside a box that showed no
+   name. `loaded` decides what the start sends: the box's text once it has shown a name, and nothing at all before
+   (the start then behaves as it did before this box existed). One read at a time; a read left over from a sign-in
+   that was since cleared is dropped. */
+const PLUS_SI_COMPUTER = { loaded: false, reading: null };
+function plusSiComputerName() {
   const el = document.getElementById('plus-si-computer');
-  if (!el || PLUS_SI_COMPUTER.touched || PLUS_SI_COMPUTER.loaded) return;
-  let r = null;
-  try { const res = await fetch('/api/remote/computer-name', { cache: 'no-store' }); r = res.ok ? await res.json() : null; } catch { r = null; }
-  if (!r || typeof r.name !== 'string' || PLUS_SI_COMPUTER.touched || PLUS_SI_COMPUTER.loaded) return;
-  el.value = r.name;
-  PLUS_SI_COMPUTER.loaded = true;
+  if (!el || PLUS_SI_COMPUTER.loaded) return Promise.resolve();
+  if (PLUS_SI_COMPUTER.reading) return PLUS_SI_COMPUTER.reading;
+  const mine = (async () => {
+    let r = null;
+    try { const res = await fetch('/api/remote/computer-name', { cache: 'no-store' }); r = res.ok ? await res.json() : null; } catch { r = null; }
+    if (PLUS_SI_COMPUTER.reading !== mine) return;   // cleared meanwhile: that sign-in is over
+    PLUS_SI_COMPUTER.reading = null;
+    if (!r || typeof r.name !== 'string') return;
+    el.value = r.name;
+    PLUS_SI_COMPUTER.loaded = true;
+    const field = document.getElementById('plus-si-computer-field'); if (field) field.hidden = false;
+    if (typeof plusSiMeasure === 'function') plusSiMeasure();   // the card grew by one field
+  })();
+  PLUS_SI_COMPUTER.reading = mine;
+  return mine;
 }
-/** What the start sends for the name: { computer_name } once the box means something, {} before. */
+/** What the start sends for the name: { computer_name } once the box has shown a name, {} before. */
 function plusSiComputerSent() {
   const el = document.getElementById('plus-si-computer');
-  return el && (PLUS_SI_COMPUTER.loaded || PLUS_SI_COMPUTER.touched) ? { computer_name: el.value } : {};
+  return el && PLUS_SI_COMPUTER.loaded ? { computer_name: el.value } : {};
 }
 function plusSiShow(step) {
   for (const id of PLUS_SI_STEPS) {
@@ -49299,7 +49310,11 @@ function plusSiClear() {
   const to = document.getElementById('plus-si-code-to'); if (to) to.textContent = '';
   /* #5995: the computer's name is read again for the next sign-in (a name typed and never sent is not carried over;
      one that was sent is kept by the engine, so it comes back). */
-  { const cn = document.getElementById('plus-si-computer'); if (cn) cn.value = ''; if (typeof PLUS_SI_COMPUTER !== 'undefined') { PLUS_SI_COMPUTER.loaded = false; PLUS_SI_COMPUTER.touched = false; } }
+  {
+    const cn = document.getElementById('plus-si-computer'); if (cn) cn.value = '';
+    const cf = document.getElementById('plus-si-computer-field'); if (cf) cf.hidden = true;
+    if (typeof PLUS_SI_COMPUTER !== 'undefined') { PLUS_SI_COMPUTER.loaded = false; PLUS_SI_COMPUTER.reading = null; }
+  }
   const sug = document.getElementById('plus-si-name-suggested'); if (sug) sug.hidden = true;   // #3842: a fresh one next time
   plusSiKStop();   // #5785 review 1: a Sign out during a connect ends the loader (a hidden canvas would keep drawing)
   /* A request abandoned by Sign out returns without re-enabling its button, and a cooldown is
@@ -49709,6 +49724,11 @@ async function plusSiRequestCode(btn) {
   const noNewCode = () => { if (verify) verify.disabled = false; };
   plusSiMsg(PLUS_CODE_WORDS.asking(email));
   plusSetBusy(btn, true);
+  /* #5995: a read of the computer's name still on its way is waited for (it is local and quick), so a fast Enter in
+     the email box cannot send the name before it was on screen. */
+  const asked = PLUS_SI_EPOCH;
+  await plusSiComputerName();
+  if (PLUS_SI_EPOCH !== asked) return;   // Start over or Sign out during that wait: this ask is over (they free the buttons)
   const r = await plusSiPost('/api/remote/signin-start', Object.assign({ email }, plusSiComputerSent()));
   if (r.stale) return;
   if (!r.ok) {
@@ -49734,7 +49754,6 @@ async function plusSiRequestCode(btn) {
   plusSiStage(r.data.stage, r.data);
 }
 document.getElementById('plus-signin-code').addEventListener('click', () => plusSiRequestCode(document.getElementById('plus-signin-code')));
-{ const cn = document.getElementById('plus-si-computer'); if (cn) cn.addEventListener('input', () => { PLUS_SI_COMPUTER.touched = true; }); }   // #5995
 document.getElementById('plus-si-code-resend').addEventListener('click', (e) => {
   e.preventDefault();
   if (e.currentTarget.getAttribute('aria-disabled') === 'true') return;

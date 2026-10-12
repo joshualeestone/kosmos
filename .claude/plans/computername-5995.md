@@ -15,8 +15,9 @@ sent, let the person change or clear it, and use the chosen name on every path t
 - `server.js`: `GET /api/remote/computer-name` (refused to another website) and `computer_name` on
   `POST /api/remote/signin-start`, kept BEFORE the code is asked for. A name that cannot be kept refuses
   the start. `device_name` keeps its meaning (a caller naming some OTHER device).
-- `web/index.html`: a "Name for this computer" box on the email step, filled from the route, sent with
-  the start once it has shown a name or been typed in. Enter in it asks for the code.
+- `web/index.html`: a "Name for this computer" box on the email step. It is hidden until the route has
+  answered, then shown filled; the start waits for that read and sends the box's text. Enter in it asks
+  for the code.
 - Tests: 4 in `engine/remote.test.js`, 1 in `server.test.js`, `web.computer-name-5995.test.js` (4),
   `web.code-box.test.js` loads the real name function. Browser check
   `docs/browser-checks/render-plus-computer-name-5995.js` drives the real page and the real routes.
@@ -27,9 +28,17 @@ sent, let the person change or clear it, and use the chosen name on every path t
   name at the first sign-in for everyone who never touched the box).
 - **A small local GET, not a field on the remote status.** The status travels to every page poll.
   Rejected: adding the name to `/api/remote`.
-- **The box sends nothing until it has shown a name or been typed in.** An empty box whose read failed
-  is not a person clearing it; the start then behaves as before this change.
-- **Forgetting this computer keeps the chosen name.** It is shown again before it is sent again.
+- **The box is not on screen until its name has been read, and sends nothing until then.** Its words
+  ("An empty box sends This computer") are only true of a box that showed a name, so a failed read
+  shows no box at all and the start behaves as before this change (review 1: the first version showed
+  the box and its words either way). The cost, stated: when the read fails, the name goes unseen, as
+  it always did. The read is local; it fails when the board itself is failing.
+- **Nothing is written when nothing changes.** An untouched box creates no remote.json and is not
+  refused on a damaged one (review 1 measured both going wrong). A real choice repairs a damaged file,
+  as the sign-in's other writes do.
+- **Forgetting this computer keeps the chosen name.** It is shown again before it is sent again. Pinned
+  by a test. NOT kept: a Forget on a DAMAGED remote.json, whose first write starts from the defaults;
+  the next sign-in then shows the computer's own name in the box, where the person can change it.
 - **A cleared box sends "This computer"** (the card's call), shown as the box's placeholder.
 - **The company sign-in is unchanged.** It has its own name box (#5628) and its own request.
 
@@ -39,14 +48,32 @@ does not make anyone read it. Second: a phone reached through the relay can read
 the person's own allowed device, and the same name is already in their device list.
 
 ## Verify (each run on the branch; the full suite is not in this list)
-- `node --test --test-name-pattern='#5995|#3831' engine/remote.test.js`: 6 pass.
+- `node --test --test-name-pattern='#5995|#3831' engine/remote.test.js`: 8 pass. The whole file at
+  25357d9df: 220 pass.
 - `node --test --test-name-pattern='#5995' server.test.js`: 1 pass.
 - `node --test web.computer-name-5995.test.js web.code-box.test.js`: 10 pass.
-- every `web*.test.js` (page head 25357d9df, before the limit assertion was added): 2742 pass, 0 fail.
-- Mutants, each red by name in a throwaway worktree at the same head: the chosen name ignored; the
+- every `web*.test.js`: see the line added with the review 1 commit below.
+- Mutants at 25357d9df, each red by name in a throwaway worktree: the chosen name ignored; the
   computer's own name kept as a choice; the quiet approval naming the computer itself; start and verify
-  naming the computer itself; the start not keeping the name; another website reading the name; an
-  unread box sent as cleared; a late read typing over the person; the start not sending the name.
-  One mutant first read green because it never fired (it looked for a function name in a stack);
-  aimed at the call site, it reds.
+  naming the computer itself; the start not keeping the name; another website reading the name; the
+  start not sending the name. One mutant first read green because it never fired (it looked for a
+  function name in a stack); aimed at the call site, it reds.
 - NOT yet: the browser check (queued), the full suite, any look by a person.
+
+## Review 1 (default model)
+4 WARNING, 3 CONVENTION, 3 NIT (the last NIT and anything after it were cut off in delivery and asked
+for again).
+Taken: a damaged remote.json blocked the sign-in start, and an untouched box wrote a file (read()'s
+early returns now carry `computer_name: null`, nothing is written when nothing changes, a real choice
+repairs); the page said "An empty box sends This computer" beside a box that had read no name (the
+box is hidden until read, and the start waits for the read); the Forget decision had no test (added,
+and the damaged-file case stated above); the server comment now says a refused start keeps the name;
+the browser check printed names on a failing line (it prints matches and lengths).
+Not taken, with the reason:
+- "the plan file needs a timestamp": every plan in `.claude/plans/` is `<branch>.md`.
+- "commit subjects should be `<branch> -- <message>`": the PR is squash-merged under its title, which
+  will use that form.
+- "CLAUDE.md Where to Find Things gets no entry": that table is for moved files, changed commands and
+  new directories; the sibling route `signin-addresses` has no row either.
+- "`thisComputerDeviceName()` reads remote.json on every call": two or three small reads per sign-in
+  step, and one read passed through would thread a parameter through three callers.

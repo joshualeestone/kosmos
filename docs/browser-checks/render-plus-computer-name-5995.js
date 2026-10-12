@@ -11,8 +11,10 @@
  *  - left alone, the start sends exactly that name, and nothing is kept;
  *  - a typed name is sent (Enter in the box asks for the code), kept, and shown again on the next sign-in;
  *  - a cleared box sends "This computer", and the next sign-in shows that;
+ *  - when the name cannot be read, the box and its words stay off the screen and the start sends what it sent
+ *    before this change;
  *  - the page throws nothing.
- * The computer's own name is never printed: only whether it matched.
+ * The computer's own name is never printed: only whether it matched, and lengths.
  *
  * Without the page change the box does not exist and the first check fails; without the server change the typed name
  * never reaches the tunnel.
@@ -72,7 +74,7 @@ const box = (page, sel) => page.evaluate((s) => {
 const valueOf = (page, id) => page.evaluate((i) => document.getElementById(i).value, id);
 
 /** A fresh page on the email step of the sign-in. Only the board's own status and device list are answered here. */
-async function openWizard(browser, BASE, errs) {
+async function openWizard(browser, BASE, errs, before) {
   const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: 'dark' });
   page.on('pageerror', (e) => errs.push(e.message));
   await page.addInitScript(() => { window.__kosmosRestartHoldMs = 0; });
@@ -82,6 +84,7 @@ async function openWizard(browser, BASE, errs) {
     else route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
   });
   await page.route('**/api/remote/devices**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ allowed: [], pending: [] }) }));
+  if (before) await before(page);
   await page.goto(BASE, { waitUntil: 'networkidle' });
   if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
   await page.evaluate(() => showTab('settings'));
@@ -91,11 +94,13 @@ async function openWizard(browser, BASE, errs) {
   await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
   return page;
 }
-/** Wait for the box to show a name (the read is asynchronous), then answer what it shows. */
+/** Wait for the box to come on screen with a name (the read is asynchronous), then answer what it shows. */
 async function shownName(page) {
-  await page.waitForFunction(() => document.getElementById('plus-si-computer') && document.getElementById('plus-si-computer').value !== '', null, { timeout: 5000 }).catch(() => {});
+  await page.waitForFunction(() => { const f = document.getElementById('plus-si-computer-field'); return f && !f.hidden; }, null, { timeout: 5000 }).catch(() => {});
   return valueOf(page, 'plus-si-computer');
 }
+/* What a failing check may say about a name: never the name. */
+const about = (got, want) => 'matched: ' + (got === want) + ', length ' + String(got == null ? 0 : got.length);
 async function codeStep(page) {
   await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 8000 }).catch(() => {});
   return !!(await box(page, '#plus-si-code'));
@@ -116,7 +121,7 @@ async function codeStep(page) {
     {
       const page = await openWizard(browser, BASE, errs);
       const shown = await shownName(page);
-      chk(shown === own.name, 'the box is filled with the name this computer would be sent under', 'matched: ' + (shown === own.name) + ', length ' + shown.length);
+      chk(shown === own.name, 'the box comes on screen filled with the name this computer would be sent under', about(shown, own.name));
       const email = await box(page, '#plus-signin-email');
       const name = await box(page, '#plus-si-computer');
       const label = await box(page, 'label[for="plus-si-computer"]');
@@ -140,7 +145,7 @@ async function codeStep(page) {
       await page.click('#plus-signin-code');
       chk(await codeStep(page), 'an untouched box: the sign-in moves on to the code step');
       const sent = sentNames().slice(before);
-      chk(sent.length === 1 && sent[0] === own.name + ENDING, 'an untouched box sends exactly the computer\'s name, as before this change', 'starts: ' + sent.length + ', matched: ' + (sent[0] === own.name + ENDING));
+      chk(sent.length === 1 && sent[0] === own.name + ENDING, 'an untouched box sends exactly the computer\'s name, as before this change', 'starts: ' + sent.length + ', ' + about(sent[0], own.name + ENDING));
       chk(remote.read().computer_name === null, 'and nothing is kept, so a renamed computer is still followed', JSON.stringify(remote.read().computer_name === null));
       await page.close();
     }
@@ -156,13 +161,14 @@ async function codeStep(page) {
       await page.keyboard.press('Enter');
       chk(await codeStep(page), 'Enter in the name box asks for the code');
       const sent = sentNames().slice(before);
-      chk(sent.length === 1 && sent[0] === 'Studio Mac' + ENDING, 'the typed name is the one sent', JSON.stringify(sent));
-      chk(remote.read().computer_name === 'Studio Mac', 'and it is kept for the later paths that name this computer', JSON.stringify(remote.read().computer_name));
+      chk(sent.length === 1 && sent[0] === 'Studio Mac' + ENDING, 'the typed name is the one sent', 'starts: ' + sent.length + ', ' + about(sent[0], 'Studio Mac' + ENDING));
+      chk(remote.read().computer_name === 'Studio Mac', 'and it is kept for the later paths that name this computer', about(remote.read().computer_name, 'Studio Mac'));
       await page.close();
     }
     {
       const page = await openWizard(browser, BASE, errs);
-      chk((await shownName(page)) === 'Studio Mac', 'the next sign-in shows the kept name, not the computer\'s', JSON.stringify(await valueOf(page, 'plus-si-computer')));
+      const kept = await shownName(page);
+      chk(kept === 'Studio Mac', 'the next sign-in shows the kept name, not the computer\'s', about(kept, 'Studio Mac'));
       await page.screenshot({ path: path.join(OUT, 'computer-name-kept.png') });
 
       // ---- 3. Cleared: "This computer" goes, and that is what the next sign-in shows. ----
@@ -174,12 +180,29 @@ async function codeStep(page) {
       await page.click('#plus-signin-code');
       chk(await codeStep(page), 'a cleared box: the sign-in moves on to the code step');
       const sent = sentNames().slice(before);
-      chk(sent.length === 1 && sent[0] === 'This computer' + ENDING, 'a cleared box sends the plain name', JSON.stringify(sent));
+      chk(sent.length === 1 && sent[0] === 'This computer' + ENDING, 'a cleared box sends the plain name', 'starts: ' + sent.length + ', ' + about(sent[0], 'This computer' + ENDING));
       await page.close();
     }
     {
       const page = await openWizard(browser, BASE, errs);
       chk((await shownName(page)) === 'This computer', 'the next sign-in shows the plain name, and the computer\'s own name has not come back', JSON.stringify((await valueOf(page, 'plus-si-computer')) === 'This computer'));
+      await page.close();
+    }
+    // ---- 4. The name cannot be read: nothing about it is on screen, and the start is what it was before. ----
+    {
+      remote.setComputerName(own.name);   // back to following the computer, so "before this change" has one meaning
+      chk(remote.read().computer_name === null, 'CONTROL: nothing is kept going into the unread arm');
+      const page = await openWizard(browser, BASE, errs, (pg) => pg.route('**/api/remote/computer-name', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"no"}' })));
+      await page.waitForTimeout(600);
+      chk((await box(page, '#plus-si-computer')) === null && (await box(page, '#plus-si-computer-hint')) === null, 'with the name unread, the box and its "An empty box sends..." line are not on screen');
+      await page.fill('#plus-signin-email', 'person@example.com');
+      const before = sentNames().length;
+      await page.focus('#plus-signin-email');
+      await page.keyboard.press('Enter');
+      chk(await codeStep(page), 'with the name unread, the sign-in still moves on to the code step');
+      const sent = sentNames().slice(before);
+      chk(sent.length === 1 && sent[0] === own.name + ENDING, 'and the start sends what it sent before this change', 'starts: ' + sent.length + ', ' + about(sent[0], own.name + ENDING));
+      chk(remote.read().computer_name === null, 'and keeps nothing');
       await page.close();
     }
     chk(errs.length === 0, 'no page errors', errs.join(' | '));

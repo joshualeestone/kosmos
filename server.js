@@ -9917,7 +9917,9 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#5995 item 4: what the person left in "Name for this computer" is kept BEFORE the code is asked for,
            so start, verify and every later re-approval of this computer send the one name they saw. A name that
            could not be kept refuses the start: sending the computer's own name after showing another would be the
-           thing this field exists to stop. Absent (an older page, a script): nothing changes. */
+           thing this field exists to stop. Absent (an older page, a script): nothing changes. A start the engine
+           then refuses (busy, the tunnel failing) has still kept the name: it is the person's choice either way,
+           and the next start sends it. */
         if (typeof body.computer_name === 'string') {
           const kept = remote.setComputerName(body.computer_name);
           if (!kept.ok) { sendJson(res, 400, { error: kept.because }); return; }
