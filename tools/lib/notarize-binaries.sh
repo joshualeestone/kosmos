@@ -28,7 +28,8 @@
 # as `notarize_binaries ... || exit 1`.
 #
 # KOSMOS_NOTARIZE=0 skips it, LOUDLY, for a local test build that has no notary
-# key. release.sh refuses to cut while it, any seam below, or KOSMOS_NOTARY_RETRY_DELAYS is set.
+# key. release.sh refuses to cut while KOSMOS_NOTARIZE, KOSMOS_NOTARYTOOL_CMD,
+# KOSMOS_NOTARY_CODESIGN_CMD, KOSMOS_NOTARY_LIPO_CMD or KOSMOS_NOTARY_RETRY_DELAYS is set.
 #
 # Seams (tests only): KOSMOS_NOTARYTOOL_CMD replaces `xcrun notarytool`,
 # KOSMOS_NOTARY_CODESIGN_CMD replaces codesign, KOSMOS_NOTARY_LIPO_CMD replaces lipo,
@@ -174,8 +175,19 @@ notarize_binaries() (
     exit 1
   fi
 
-  log="$(_notarytool log "$id" --key "$key" --key-id "$key_id" --issuer "$issuer" 2>&1)" || {
-    printf '%s\n' "$log" | sed 's/^/    /' >&2; echo "notarize: could not fetch Apple's log for $id" >&2; exit 1; }
+  # Fetched with the same tries and delays as the submit: the submission is already accepted, so
+  # one dropped connection here must not cost the cut.
+  try=1
+  while :; do
+    rc=0
+    log="$(_notarytool log "$id" --key "$key" --key-id "$key_id" --issuer "$issuer" 2>&1)" || rc=$?
+    [ "$rc" != 0 ] && [ "$try" -lt "$tries" ] || break
+    d="${delays[$((try - 1))]:-0}"
+    echo "==> could not fetch Apple's log for $id (rc=$rc); trying again in ${d}s (#5137)" >&2
+    sleep "$d" || :
+    try=$((try + 1))
+  done
+  [ "$rc" = 0 ] || { printf '%s\n' "$log" | sed 's/^/    /' >&2; echo "notarize: could not fetch Apple's log for $id after $tries tries" >&2; exit 1; }
   # Only the ticketContents array counts: a hash named in issues[] is not a ticket.
   # Read up to the array's first "]", with whitespace removed so a match can name the key.
   # A nested array inside an entry cuts it short, which can only drop hashes, never add them

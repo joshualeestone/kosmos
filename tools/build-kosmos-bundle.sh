@@ -28,6 +28,8 @@
 # release bundle is built from the official binary, always.
 #
 # Usage:  tools/build-kosmos-bundle.sh [output-dir]
+#         Notarises kosmos-app and kosmos-tunnel with Apple before packing (#5137), so it
+#         needs the notary key; KOSMOS_NOTARIZE=0 skips that for a local test build.
 # Output: <out>/kosmos-<arch>.tar.gz plus the staged tree it was made from.
 
 set -euo pipefail

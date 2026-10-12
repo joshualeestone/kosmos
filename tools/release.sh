@@ -727,7 +727,8 @@ for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSM
 done
 # One authenticated request to Apple with the notary key, so a bad key or an outage refuses here,
 # before the bump is pushed. Step 4 can still fail at Apple after the bump (a notary outage that
-# starts mid-cut, or a submission past its 30-minute wait), the same exposure the build already has.
+# starts mid-cut, or a submission still unfinished after its two 30-minute waits), the same exposure
+# the build already has.
 notarize_probe_credentials || exit 1
 
 step "== 1d. the Plus connector is current with kosmos-relay main (#3884) =="
