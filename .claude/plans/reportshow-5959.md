@@ -21,5 +21,5 @@ directly, and a self-reported "blocked" from 09-26 sat on a card until 10-12 wit
 
 ## Weakest premise
 That the roster card the route reads carries every field the page's label uses (stateReportedBy, crashLoop,
-reconnect, disruption, modelName). safeRoster adds crashLoop and reconnect as /api/status does; modelName is not
-checked here, so a restart for a model switch may read "Switching model" where the page names the model.
+reconnect, disruption, modelName). safeRoster adds crashLoop and reconnect as /api/status does, and a pane card
+carries modelName (status.js); a paneless card has none, so its model-switch restart reads "Switching model".
