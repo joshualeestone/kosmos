@@ -8,7 +8,9 @@
  *   projects          the projects root, when it is not inside the workers root (optional).
  *   elsewhere/<slug>  a project whose folder is outside both (optional).
  *   agents/<id>       an agent folder outside the workers root (optional).
- *   sessions/<id>/... each agent's transcripts, from backupsessions.sessionsFor (optional, `only` lists).
+ *   sessions/<id>/... each agent's transcripts, from backupsessions.sessionsFor (optional, `only` lists). These sit
+ *                     INSIDE a protected provider home by design, so they are not put through the protection check:
+ *                     their safety is backupsessions' file lists (session files only, never the sign-ins beside them).
  * Names never nest (backupsnapshot refuses `projects` beside `projects/x`), hence `elsewhere/`. A folder inside one
  * already covered is not added again. Every root but `workers` is optional, so one folder that cannot be read is left
  * out and named in the snapshot's skipped list rather than failing the backup.
@@ -41,7 +43,8 @@ function real(p) { try { return fs.realpathSync.native(p); } catch { return null
 function inside(child, parent) {
   if (!child || !parent) return false;
   const rel = path.relative(parent, child);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  // '..' as a path PART, never a name that starts with it (review 8: ~/.ssh/..x is inside ~/.ssh).
+  return rel === '' || (rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel));
 }
 
 /* input: { workersDir, agents: [{ id, dir }], projectsDir?, projects: [{ slug, folder }], sessions: (dir, id) -> roots,
@@ -60,7 +63,15 @@ function rootsFor(input) {
   if ((input.protect || []).some((x) => typeof x !== 'string' || !path.isAbsolute(x))) {
     return { roots, left: [{ what: 'everything', why: 'a folder that must never be backed up was not given as a full path' }] };
   }
-  const protect = (input.protect || []).map(real).filter(Boolean);
+  // Fails closed when protection is incomplete (review 8): a protected folder that exists but cannot be resolved, or a
+  // home folder inputsHere could not list. One that does not exist protects nothing and is dropped.
+  const protect = [];
+  for (const x of input.protect || []) {
+    try { protect.push(fs.realpathSync.native(x)); } catch (err) {
+      if (!err || err.code !== 'ENOENT') return { roots, left: [{ what: 'everything', why: 'a folder that must never be backed up could not be checked' }] };
+    }
+  }
+  if (input.protectIncomplete) return { roots, left: [{ what: 'everything', why: 'a folder that must never be backed up could not be checked' }] };
   const guarded = (p) => protect.some((q) => inside(p, q) || inside(q, p));
   const GUARDED = 'it holds, or is inside, Kosmos\'s own data, a provider\'s sign-in folder, or a hidden folder in the home folder';
   if (guarded(workers)) return { roots, left: [{ what: 'workers', why: GUARDED }] };
@@ -208,12 +219,15 @@ function inputsHere() {
   try { accountDirs.push(require('./grokaccounts').defaultDir()); } catch { /* the home rule still holds */ }
   // Both homes when they differ (review 6): the providers and workers use AGENT_WORKFORCE_HOME, projectsRoot the real one.
   const hidden = [];
+  let protectIncomplete = false;
   for (const home of new Set([process.env.AGENT_WORKFORCE_HOME, require('os').homedir()].filter(Boolean))) {
-    try { for (const n of fs.readdirSync(home)) if (n.startsWith('.') && n !== '.' && n !== '..') hidden.push(path.join(home, n)); } catch { /* none */ }
+    try { for (const n of fs.readdirSync(home)) if (n.startsWith('.') && n !== '.' && n !== '..') hidden.push(path.join(home, n)); } catch (err) {
+      if (!err || err.code !== 'ENOENT') protectIncomplete = true;   // fail closed in rootsFor (review 8)
+    }
   }
   const protect = [store.ROOT, ...claudeRoots, geminiHome, codexHome, ...accountDirs, ...hidden]
     .filter((x) => typeof x === 'string' && x).map((x) => path.resolve(x));
-  return { workersDir: create.WORKERS_DIR, projectsDir, agents, projects, sessions, protect };
+  return { workersDir: create.WORKERS_DIR, projectsDir, agents, projects, sessions, protect, protectIncomplete };
 }
 
 /* May this computer back up to its company now? orgenroll.mayReport, the gate orgenroll names for EVERY sender, E0.6
