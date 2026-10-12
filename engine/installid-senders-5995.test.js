@@ -74,7 +74,7 @@ const HOLD_ID = Object.freeze({
   'tools/test-install.sh': { what: 'a comment about the file the id is kept in', listed: false },
 });
 const HOLD_PROFILE_COPY = Object.freeze({
-  'docs/browser-checks/fixtures/agent-card.json': 'a captured card, with the id blanked',
+  'docs/browser-checks/fixtures/agent-card.json': 'a captured card, with the id replaced by a fixed zero uuid',
   'docs/browser-checks/render-talk.js': 'a comment about the capture that blanks it',
   'engine/agentfile.js': 'a comment: an exported agent file does not carry it',
   'engine/ping.js': 'the list of where the install id goes names it',

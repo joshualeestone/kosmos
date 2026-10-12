@@ -175,3 +175,11 @@ No blocker. 8 pass before and after.
   a test board makes at the top of the repo (`.aw-*`) are left out, so a board that mints an id there while the suite
   runs cannot redden this test. Checked: a `ping.json` planted in such a folder left all 8 green.
 - **NIT, taken by saying less:** the run time is gone from Verify.
+
+## Review 8 (2026-10-12, sonnet): converged
+No blocker, no warning, no convention finding. 8 pass.
+- **NIT, taken:** the recorded card's id is replaced by a fixed zero uuid, not blanked; the description says so.
+- **NIT, not taken:** the parser of `engine/ping.js`'s list would read a rewrapped continuation line that starts with
+  a file path as a new entry. It fails loudly, with the two lists printed.
+- **NIT, noted:** no proof file yet. It is written after the full validation, last.
+
