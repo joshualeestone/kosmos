@@ -29,7 +29,8 @@
  *             also name.
  *             Deleting a post, and finishing a release or a discard, read it again too: the rows name the newest
  *             post and what waits.
- *   PHONE     at 390 px wide, nothing in the list is wider than the screen and each summary is at least 44 px tall
+ *   PHONE     at 390 px wide, nothing in the list is wider than the screen, the words beside a short, a middling and a
+ *             very long name keep a readable width, the mark stays with the name, and each summary is at least 44 px tall
  *             (the page's tap-target size; the arm reads the size, so the number is here and in the style sheet).
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
@@ -77,7 +78,9 @@ function readList(pg) {
         open: d ? d.open : null,
         name: sum && sum.querySelector('b') ? sum.querySelector('b').textContent : null,
         read: sum ? sum.textContent : null,
-        summary: sum && sum.querySelector('span') ? sum.querySelector('span').textContent : null,
+        summary: sum && sum.querySelector('.community-ready-words') ? sum.querySelector('.community-ready-words').textContent : null,
+        wordsWidth: sum && sum.querySelector('.community-ready-words') ? Math.round(sum.querySelector('.community-ready-words').getBoundingClientRect().width) : 0,
+        markBesideName: (() => { const m = sum && sum.querySelector('svg'); const b = sum && sum.querySelector('b'); if (!m || !b) return null; const mb = m.getBoundingClientRect(); const bb = b.getBoundingClientRect(); return mb.bottom > bb.top && mb.top < bb.bottom; })(),
         lines: d ? [...d.querySelectorAll(':scope > p')].map((p) => p.textContent) : [],
         times: d ? [...d.querySelectorAll('time')].map((t) => ({ dt: t.getAttribute('datetime'), text: t.textContent })) : [],
         elements: li.querySelectorAll('img, script, a, button, input, iframe').length,
@@ -179,7 +182,7 @@ async function run() {
     await p1.unroute(READY);
     await p1.route(READY, answer({ agents: [AVA, BO, { ...CY, owner: { ...CY.owner, summary: 'Nothing found in its way' } }] }));
     await p1.click('#s-nav button[data-go="automation"]');
-    await p1.waitForFunction(() => { const d = document.querySelector('#community-ready-list details[data-session="cy"] summary span'); return d && d.textContent === 'Nothing found in its way'; }, null, { timeout: 5000 }).catch(() => {});
+    await p1.waitForFunction(() => { const d = document.querySelector('#community-ready-list details[data-session="cy"] summary .community-ready-words'); return d && d.textContent === 'Nothing found in its way'; }, null, { timeout: 5000 }).catch(() => {});
     const k = await readList(p1);
     check('KEPT CONTROL: the list was painted again from the new answer', k.rows.length === 3 && k.rows[2].summary === 'Nothing found in its way', JSON.stringify(k.rows.map((x) => x.summary)));
     check('KEPT: the opened row is still open, and the others still closed', k.rows.length === 3 && k.rows[2].open === true && k.rows[0].open === false && k.rows[1].open === false, JSON.stringify(k.rows.map((x) => x.open)));
@@ -216,7 +219,7 @@ async function run() {
     await p2.unroute(READY);
     await p2.route(READY, answer({ agents: [AVA, { ...BO, owner: { ...BO.owner, summary: 'Painted again' } }] }));
     await p2.evaluate(() => refreshCommunityReady());
-    await p2.waitForFunction(() => { const d = document.querySelector('#community-ready-list details[data-session="bo"] summary span'); return d && d.textContent === 'Painted again'; }, null, { timeout: 5000 }).catch(() => {});
+    await p2.waitForFunction(() => { const d = document.querySelector('#community-ready-list details[data-session="bo"] summary .community-ready-words'); return d && d.textContent === 'Painted again'; }, null, { timeout: 5000 }).catch(() => {});
     const f4 = await readList(p2);
     check('KEPT CONTROL: the list was painted again under the keyboard', f4.rows.length === 2 && f4.rows[1].summary === 'Painted again', JSON.stringify(f4.rows.map((x) => x.summary)));
     check('KEPT: a repaint leaves the keyboard on the same row\'s summary', f4.focusIsSummary && f4.focusSession === 'bo' && f4.rows[1].open === true, JSON.stringify([f4.focusIsSummary, f4.focusSession, f4.rows.map((x) => x.open)]));
@@ -262,7 +265,7 @@ async function run() {
     await openAutomation(p4);
     await p4.waitForTimeout(300);
     const h = await readList(p4);
-    check('HOSTILE: markup in a name, summary and line is shown as text', h.rows.length === 1 && h.rows[0].name === X && h.rows[0].summary === X && h.rows[0].lines[0] === X, JSON.stringify(h.rows[0]));
+    check('HOSTILE: markup in a name, summary and line is shown as text, after a time too', h.rows.length === 1 && h.rows[0].name === X && h.rows[0].summary === X && h.rows[0].lines[0] === X && h.rows[0].lines[1].startsWith(X) && h.rows[0].lines[1].endsWith(X), JSON.stringify(h.rows[0]));
     check('HOSTILE: nothing in it became an element or ran', h.rows[0].elements === 0 && h.injected === false, JSON.stringify([h.rows[0].elements, h.injected]));
     await p4.close();
 
@@ -316,7 +319,7 @@ async function run() {
     const toggle = await p9.evaluate(() => { const t = document.getElementById('community-toggle'); return { shown: Boolean(t) && !t.hidden, on: t ? t.getAttribute('aria-checked') : null }; });
     check('FRESH CONTROL: the community switch is there to press, and reads off', toggle.shown && toggle.on === 'false', JSON.stringify(toggle));
     await p9.click('#community-toggle');
-    await p9.waitForFunction(() => { const d = document.querySelector('#community-ready-list summary span'); return d && d.textContent === 'Nothing found in its way'; }, null, { timeout: 5000 }).catch(() => {});
+    await p9.waitForFunction(() => { const d = document.querySelector('#community-ready-list summary .community-ready-words'); return d && d.textContent === 'Nothing found in its way'; }, null, { timeout: 5000 }).catch(() => {});
     const fr1 = await readList(p9);
     check('FRESH: turning the switch on reads the list again and the row stops saying it is off', reads > before && fr1.rows.length === 1 && fr1.rows[0].summary === 'Nothing found in its way', JSON.stringify([reads - before, fr1.rows.map((x) => x.summary)]));
     // the other switch the rows name
@@ -335,7 +338,7 @@ async function run() {
     check('FRESH CONTROL: "Check on your agents" is there to press, and reads on', hb.shown && hb.on === 'true', JSON.stringify(hb));
     const beforeHb = reads;
     await p9.click('#hb-toggle');
-    await p9.waitForFunction(() => { const d = document.querySelector('#community-ready-list summary span'); return d && /Check on your agents/.test(d.textContent); }, null, { timeout: 5000 }).catch(() => {});
+    await p9.waitForFunction(() => { const d = document.querySelector('#community-ready-list summary .community-ready-words'); return d && /Check on your agents/.test(d.textContent); }, null, { timeout: 5000 }).catch(() => {});
     const fr2 = await readList(p9);
     check('FRESH CONTROL: pressing it saved the setting', hbPuts === 1, String(hbPuts));
     check('FRESH: turning "Check on your agents" off reads the list again and the row says that switch is off', reads > beforeHb && fr2.rows.length === 1 && fr2.rows[0].summary === '“Check on your agents” is off', JSON.stringify([reads - beforeHb, fr2.rows.map((x) => x.summary)]));
@@ -372,12 +375,15 @@ async function run() {
       { text: 'An earlier try made a community account under its name and Kosmos never received the key, so it waits rather than make a second.' },
       { text: 'Its newest post, “' + 'averyveryverylongunbrokenwordthatcannotwrapanywhereonitsown'.repeat(3) + '”, is not in the community.' },
     ] });
-    await p8.route(READY, answer({ agents: [LONG, CY] }));
+    const MID = agent('mid', 'Quartermaster of the northern depot', { summary: 'No community section in its instructions', lines: [{ text: 'No community section in its instructions.' }] });
+    await p8.route(READY, answer({ agents: [LONG, CY, MID] }));
     await openAutomation(p8);
     await p8.evaluate(() => document.querySelectorAll('#community-ready-list details').forEach((d) => { d.open = true; }));
     await p8.evaluate(() => document.getElementById('community-ready-head').scrollIntoView());
     const ph = await readList(p8);
-    check('PHONE CONTROL: the rows are painted at 390 px', ph.viewport === 390 && ph.rows.length === 2 && ph.rows[0].lines.length === 2, JSON.stringify([ph.viewport, ph.rows.length]));
+    check('PHONE CONTROL: the rows are painted at 390 px', ph.viewport === 390 && ph.rows.length === 3 && ph.rows[0].lines.length === 2, JSON.stringify([ph.viewport, ph.rows.length]));
+    check('PHONE: beside a name of any length the words keep a readable width (a line of their own when the name leaves too little)', ph.rows.every((x) => x.wordsWidth >= 120), JSON.stringify(ph.rows.map((x) => [x.name.length, x.wordsWidth])));
+    check('PHONE: the mark stays on the name\'s line, never alone above it', ph.rows.every((x) => x.markBesideName === true), JSON.stringify(ph.rows.map((x) => x.markBesideName)));
     check('PHONE: no row is wider than the screen or scrolls sideways', ph.rows.every((x) => x.right <= ph.viewport && !x.scrollWide) && !ph.pageWide, JSON.stringify(ph.rows.map((x) => [x.right, x.scrollWide]).concat([ph.pageWide])));
     check('PHONE: each summary is at least 44 px tall', ph.rows.every((x) => x.sumHeight >= 44), JSON.stringify(ph.rows.map((x) => x.sumHeight)));
     await p8.close();

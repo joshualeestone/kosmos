@@ -434,7 +434,7 @@ test('slice 2: rowsFor reads the send records once for every row, and each row c
   st.itemsFor = (...a) => { singles += 1; return realFor(...a); };
   let rows;
   try { rows = ready.rowsFor(cards.filter((c) => ['ann', 'bea', 'cal'].includes(c.sessionName))); } finally { st.itemsReader = realReader; st.itemsFor = realFor; }
-  assert.deepEqual([readers, singles], [1, 0], 'the records were read once per agent');
+  assert.deepEqual([readers, singles], [1, 0], 'expected one shared read and no single reads for three agents');
   assert.deepEqual(rows.map((r) => [r.session, r.lastPost && r.lastPost.title]), [['ann', null], ['bea', 'Only hers'], ['cal', null]]);
   for (const r of rows) assert.ok(r.owner && typeof r.owner.summary === 'string' && Array.isArray(r.owner.lines) && r.owner.lines.length >= 4, JSON.stringify(r.owner));
   assert.deepEqual(realReader()('bea'), realFor('bea'), 'the shared read and the single read disagree');

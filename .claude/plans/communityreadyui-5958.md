@@ -221,3 +221,17 @@ replaced by tests of the new one. That is a change of behaviour, not a tidy-up: 
 - **NITs, not taken:** the note above the list and a row can both say the community is off (a row is read on its
   own, which is why each says it).
 - **CONVENTION, a duplicate:** not run in a browser yet.
+
+## Review 11 (2026-10-12, default model, the plain brief)
+- **WARNING, a duplicate:** the page code has never run. True, and the only cover for the page is the browser check.
+- **WARNING, taken, and NOT SEEN IN A BROWSER:** beside a middling-long name the summary words were squeezed into a
+  sliver, a few letters a line. The mark and the name are one group now, and the words take what is left or, when
+  that is under a readable width, a line of their own. This is reasoned from the layout rules, like the finding. The
+  check's PHONE arm now measures the words' width beside a short, a middling and a very long name, and that the mark
+  stays on the name's line; until it runs, neither the fault nor the fix has been looked at.
+- **NITs, taken:** the focus ring sits inside the row as the Connections rows' does (an outside ring can be clipped);
+  the hostile arm checks the words after a time too; a test message named the wrong failure.
+- **NITs, not taken:** "Its newest post is not in the community" also shows for a post the person deleted themselves
+  (it is true, and picking which reasons count is the cause-picking the rule at the top forbids); no live region, as
+  the neighbours; the check's phone arm goes through the Settings nav at 390 px, which no sibling check does, so a
+  red there may be the nav and not this list.

@@ -9127,10 +9127,14 @@ svg { display: block; }
 .community-ready-row { padding: 8px 0; border-top: 1px solid var(--k-rule); }
 .community-ready-row > details > summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 44px; overflow-wrap: anywhere; list-style: none; }
 .community-ready-row > details > summary::-webkit-details-marker { display: none; }
-.community-ready-row > details > summary > .dhint { margin: 0; flex: 1; min-width: 0; }
+.community-ready-row .community-ready-name { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+.community-ready-row .community-ready-name > svg { flex: none; }
+.community-ready-row .community-ready-name > b { min-width: 0; overflow-wrap: anywhere; }
+/* The words take what is left beside the name, and a line of their own when that is less than a readable width. */
+.community-ready-row > details > summary > .community-ready-words { margin: 0; flex: 1 1 16ch; min-width: 0; }
 .community-ready-row .community-ready-chev { color: var(--label-2); transition: transform .12s ease; }
 .community-ready-row > details[open] .community-ready-chev { transform: rotate(90deg); }
-.community-ready-row > details > summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.community-ready-row > details > summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 @media (prefers-reduced-motion: reduce) { .community-ready-row .community-ready-chev { transition: none; } }
 .community-ready-row > details > p { margin: 4px 0 0; overflow-wrap: anywhere; }
 /* #4525: the held list reuses the row above. The person is deciding whether to publish these
@@ -33479,9 +33483,12 @@ function communityReadyPaint(rows) {
     const name = document.createElement('b');
     name.textContent = typeof r.name === 'string' && r.name ? r.name : r.session;
     const word = document.createElement('span');
-    word.className = 'dhint';
+    word.className = 'dhint community-ready-words';
     word.textContent = typeof view.summary === 'string' ? view.summary : '';
-    sum.append(chev, name, ' ', word);   // a space in the row's text between the name and its words
+    const who = document.createElement('span');   // the mark and the name stay together; the words wrap as one piece
+    who.className = 'community-ready-name';
+    who.append(chev, name);
+    sum.append(who, ' ', word);   // a space in the row's text between the name and its words
     d.append(sum);
     for (const l of view.lines) { const p = communityReadyLine(l); if (p) d.append(p); }
     li.append(d);
