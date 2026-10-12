@@ -31,3 +31,4 @@ handing all three to the hatch and not walking Documents. On main's discover.js:
 pass; platform tests 15/15; engine.reachable 7/7, #1732 8/8, #1777 23/23.
 
 ## Mutants
+Measured 20:13 CDT from `date` (with the #2125 test file alongside, 8 tests): P1 permission everywhere: red. P2 nowhere: red. P3 opts.platform ignored (this Mac is darwin, so linux arms go to the hatch): red. P4 Documents always tcc: red.
