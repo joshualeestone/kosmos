@@ -79,3 +79,9 @@ held.
 - **NITs, not taken:** logging in the catch around the reopen (a throw there leaves the room held, exactly as before
   this change, and the seat's data handler must never throw); the regex and the first arm's unasserted nudge (decided
   in reviews 1 and 2; the ordering arm asserts the nudge).
+
+## Review 5 (opus, 2026-10-12 01:18): CONVERGED, no blocker or should-fix
+- Confirmed the rewritten #2710 sentence matches the code.
+- **NITs, not taken:** the id regex (decided in review 1; ids come from fedseats); `from: 'you'` on the reopen row (it
+  is never rendered, and `reason: 'own-computer'` tells the two apart in the log).
+- NEXT: once #5732 (ownroomnudge-on-5732) merges, rebase onto main, full suite, proof, PR.
