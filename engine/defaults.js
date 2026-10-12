@@ -1065,7 +1065,7 @@ function block() {
  *     stood until a person cleared it by hand). `kosmos report needs_you` says the
  *     test back when an agent asks. No new heading: the text sits in an existing
  *     section, so an agent's EDITED copy is not re-offered it (missingFrom matches
- *     by heading); the CLI line reaches every agent regardless.
+ *     by heading); the board's report answer carries the same reminder (both CLIs print its note).
  *     WEAKEST PREMISE, NAMED: that wording plus the echo lowers how often agents
  *     ask. Not measured; the board's needs_you count per agent-day before and after
  *     is the measure.

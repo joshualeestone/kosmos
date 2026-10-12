@@ -173,6 +173,6 @@ test('#5943 review 2: the agent typing its own question keeps the age and the cl
   assert.equal(out[0].questionClearable, true, 'the agent\'s own message carries the clear button');
   assert.equal(out[0].questionAt, '2026-10-02T00:00:10.000Z');
   assert.equal(list[0].questionClearable, undefined, 'the stored row is not mutated');
-  // CONTROL: an undated (screen) question carries nothing onto the typed row.
+  // CONTROL: a dated question that is not clearable (a permission wait) carries nothing onto the typed row.
   assert.equal(chat.withQuestionRow(list, 'x', { text: 'Q?', at: '2026-10-02T00:00:10.000Z' })[0].questionClearable, undefined);
 });

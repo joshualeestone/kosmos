@@ -14,7 +14,8 @@
  *   REPORTED  a question the agent reported in its own words (no live menu): no buttons (CONTROL), and with no
  *             `clearable` from the server, no "Answered, clear this" either (CONTROL for the next arm).
  *   ANSWERED  #5943 (Josh: an answered question stayed the newest bubble for 12 days): a reported question dated 12
- *             days back, the person's answer after it, then a later message. The question is drawn ABOVE the answer,
+ *             days back, the person's answer after it, then a later message, as the server now serves them (the placement itself
+ *             is pinned in server.answeredq-5943.test.js); the page keeps that order,
  *             says "Asked 12 days ago", and its "Answered, clear this" is a focusable button that POSTs the agent's
  *             clear-selfreport route and repaints the thread without the question. SHOT_5943=<file.png> saves it.
  *
@@ -161,7 +162,7 @@ async function run() {
               focusable: !!(btn && btn.tabIndex >= 0 && !btn.disabled), choices: document.querySelectorAll('#d-dmthread .dmchoice').length,
               overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
           });
-          check(`[${theme}] answered: the question is drawn ABOVE the person's answer and the later message`,
+          check(`[${theme}] answered: the page keeps the served order (the dated question above the answer; the server places it, server.answeredq-5943.test.js)`,
             a.qAt >= 0 && a.answerAt > a.qAt && a.laterAt > a.answerAt, JSON.stringify(a));
           check(`[${theme}] answered: it says how long it has been asked`, a.age === 'Asked 12 days ago', JSON.stringify(a.age));
           check(`[${theme}] answered: "Answered, clear this" is a focusable button on the bubble`, a.btn === 'Answered, clear this' && a.focusable, JSON.stringify(a));
