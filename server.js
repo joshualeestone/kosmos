@@ -2518,7 +2518,10 @@ function safeRoster() {
    `runner` scopes the walk to ONE provider's agents (a codex account is never held
    by a gemini agent). This is the exact logic the OpenAI DELETE route grew inline;
    that route now calls this so the four providers cannot drift. */
-function enumerateAgentsOnAccount(dir, isDefault, runner) {
+/* The agents an account walk looks at: the roster's cards, plus every profile Kosmos knows that is not removed.
+   { names, complete, roster }; `complete` is false whenever any source could not be read (see below). #5948: shared
+   with GET /api/accounts' signed-out rows, so the two walks read one set of names. */
+function knownAgentNames() {
   const roster = safeRoster();
   let complete = roster !== null;
   // register.known() separates "nothing was ever written" (ok, empty) from "we
@@ -2539,6 +2542,12 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
       if (!goneNames.has(n)) names.add(n);
     }
   }
+  return { names, complete, roster };
+}
+function enumerateAgentsOnAccount(dir, isDefault, runner) {
+  const known = knownAgentNames();
+  let complete = known.complete;
+  const names = known.names;
   const usedBy = [];
   for (const sessionName of names) {
     let job = null;
@@ -10996,7 +11005,11 @@ const server = http.createServer(async (req, res) => {
         let signedOutAccounts = [];
         try {
           const readers = { openai: openaiAccounts, google: geminiAccounts, xai: grokAccounts };
-          signedOutAccounts = require('./engine/signedoutaccounts').signedOutRows(safeRoster(),
+          // One set of names with the account walk (knownAgentNames): the roster's cards, then known profiles not on it.
+          const known = knownAgentNames();
+          const onRoster = new Set((known.roster || []).map((c) => c && c.sessionName));
+          const cards = [...(known.roster || []), ...[...known.names].filter((n) => !onRoster.has(n)).map((n) => ({ sessionName: n, name: n }))];
+          signedOutAccounts = require('./engine/signedoutaccounts').signedOutRows(cards,
             { openai: openaiRows, google: geminiRows, xai: grokRows }, (n) => create.readJob(n), (p, d) => readers[p].readName(d));
         } catch { signedOutAccounts = []; }
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub], signedOutAccounts });
