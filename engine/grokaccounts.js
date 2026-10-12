@@ -699,8 +699,8 @@ function setGrokTimers({ timeout, ttl, forceKill } = {}) {
   if (Number.isFinite(ttl)) grokSessionTtlMs = ttl;
   if (Number.isFinite(forceKill)) grokForceKillMs = forceKill;
 }
-// Dirs a sign-in holds until its child exits. Forget/remove refuse them, except the account's own Sign in again,
-// which they cancel (#6000).
+// Dirs a sign-in holds, normally until its child exits. Forget/remove refuse them, except the account's own Sign in
+// again, which they cancel, dropping its hold on the live dir at once (#6000).
 const activeGrokDirs = new Set();
 const GROK_TERMINAL = new Set(['connected', 'error', 'cancelled']);
 function grokIsTerminal(session) { return GROK_TERMINAL.has(session.state); }

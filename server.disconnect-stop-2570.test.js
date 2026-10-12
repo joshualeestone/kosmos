@@ -944,11 +944,11 @@ test('#6000: the Grok route deletes an account with its own unfinished Sign in a
   fs.chmodSync(mock, 0o755);
   const started = grok.startGrokLogin({ grokBin: mock, reauthDir: dir });
   assert.equal(started.ok, true, started.because);
-  const t0 = Date.now();   // the sign-in is under way (its code printed) before the first request
-  while (Date.now() - t0 < 4000 && !grok.grokLoginStatus(started.sessionId).userCode) await new Promise((res) => setTimeout(res, 25));
-  assert.ok(grok.grokLoginStatus(started.sessionId).userCode, 'the mock sign-in never printed its code');
-  registeredNotRunning('reauth6000', dir, 'grok');
-  try {
+  try {   // from here, so a setup failure still cancels the sign-in and removes the agent (as #5994's route test)
+    const t0 = Date.now();   // the sign-in is under way (its code printed) before the first request
+    while (Date.now() - t0 < 4000 && !grok.grokLoginStatus(started.sessionId).userCode) await new Promise((res) => setTimeout(res, 25));
+    assert.ok(grok.grokLoginStatus(started.sessionId).userCode, 'the mock sign-in never printed its code');
+    registeredNotRunning('reauth6000', dir, 'grok');
     // CONTROL: an agent on the account, so the request is refused, names it, and the sign-in is NOT cancelled.
     const refused = await del('grok', { dir, remove: true });
     assert.equal(refused.code, 400, JSON.stringify(refused.json));
@@ -965,6 +965,10 @@ test('#6000: the Grok route deletes an account with its own unfinished Sign in a
     assert.equal(grok.grokLoginStatus(started.sessionId).state, 'cancelled');
   } finally {
     grok.cancelGrokLogin(started.sessionId);
+    fs.rmSync(jobfix.jobPath('reauth6000'), { force: true });
+    fs.rmSync(nodePath.join(DATA, store.APP, 'profiles', 'reauth6000.json'), { force: true });
+    fs.rmSync(nodePath.join(WORKERS, 'reauth6000'), { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
   }
   const end = Date.now() + 4000;   // let the killed child exit so nothing outlives this test
   while (Date.now() < end && ourSlots().length) await new Promise((res) => setTimeout(res, 25));
