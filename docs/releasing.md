@@ -92,10 +92,16 @@ improvement it gained would have died with the session that wrote it.
    key).
    Since #5137, step 4 notarises the app binaries on every cut, so 1c also
    refuses a cut while `KOSMOS_NOTARIZE`, `KOSMOS_NOTARYTOOL_CMD`,
-   `KOSMOS_NOTARY_CODESIGN_CMD`, `KOSMOS_NOTARY_LIPO_CMD` or
-   `KOSMOS_NOTARY_RETRY_DELAYS` is exported (even empty), and then makes one
+   `KOSMOS_NOTARY_CODESIGN_CMD`, `KOSMOS_NOTARY_LIPO_CMD`,
+   `KOSMOS_NOTARY_RETRY_DELAYS`, or (since #5896 slice 3) `KOSMOS_STAPLER_CMD`,
+   `KOSMOS_STAPLER_RETRY_DELAYS`, `KOSMOS_NOTARY_SPCTL_CMD` or
+   `KOSMOS_NOTARY_XATTR_CMD` is exported (even empty), and then makes one
    authenticated `notarytool history` request to Apple with the notary key, so a
-   bad key or an outage refuses before the bump is pushed. `KOSMOS_NOTARY_PROBE_BIN`
+   bad key or an outage refuses before the bump is pushed. Since #5896 slice 3,
+   step 4 also submits the sealed `app/Kosmos.app` in the same submission,
+   staples its ticket, and refuses unless a quarantined copy is accepted by
+   `spctl -a -t exec -vv` as "Notarized Developer ID" of our team (Josh, 0.7.42:
+   "Kosmos is damaged"). `KOSMOS_NOTARY_PROBE_BIN`
    is deliberately not refused: like `KOSMOS_CODESIGN_BIN` it replaces only that
    probe (the release-gate tests set it), says "not probed" when set, and step 4
    still notarises for real.

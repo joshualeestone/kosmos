@@ -36,7 +36,7 @@
 # KOSMOS_NOTARIZE=0 skips it, LOUDLY, for a local test build that has no notary
 # key. release.sh refuses to cut while KOSMOS_NOTARIZE, KOSMOS_NOTARYTOOL_CMD,
 # KOSMOS_NOTARY_CODESIGN_CMD, KOSMOS_NOTARY_LIPO_CMD, KOSMOS_NOTARY_RETRY_DELAYS, KOSMOS_STAPLER_CMD,
-# KOSMOS_NOTARY_SPCTL_CMD or KOSMOS_NOTARY_XATTR_CMD is set.
+# KOSMOS_STAPLER_RETRY_DELAYS, KOSMOS_NOTARY_SPCTL_CMD or KOSMOS_NOTARY_XATTR_CMD is set.
 #
 # Seams (tests only): KOSMOS_NOTARYTOOL_CMD replaces `xcrun notarytool`,
 # KOSMOS_NOTARY_CODESIGN_CMD replaces codesign, KOSMOS_NOTARY_LIPO_CMD replaces lipo,
@@ -77,15 +77,17 @@ _notarize_app_exe() {
   [ -n "$name" ] && [ -f "$1/Contents/MacOS/$name" ] && printf '%s\n' "$1/Contents/MacOS/$name"
 }
 
-# #5896 slice 3: after Apple accepted the submission holding <app>, staple its ticket to it (so Gatekeeper finds it
-# offline, on any Mac), validate the staple, then assess a QUARANTINED copy: that is the case that showed Josh "Kosmos is
-# damaged" on 0.7.42 (a quarantined app whose bundle was never sealed), and an unquarantined assessment would pass a
-# bundle that a download, AirDrop or zip then refuses. <scratch> is a folder the copy may be made in. Stapling can lag
-# acceptance by a little, so it is tried after each of KOSMOS_NOTARY_RETRY_DELAYS.
+# #5896 slice 3: after Apple accepted submission <id> holding <app>, staple its ticket to it (so Gatekeeper finds it
+# offline, on any Mac), validate the staple, then assess a copy carrying a quarantine flag, as a download, AirDrop or
+# zip would leave it: the case that showed Josh "Kosmos is damaged" on 0.7.42. (spctl -a assesses signature,
+# notarisation and staple with or without the flag; the flag makes the copy what a user actually opens.) <scratch> is a
+# folder the copy may be made in. A ticket can reach the staple service a while after acceptance, and a cut that fails
+# here has already pushed its version bump, so stapling has its OWN, longer schedule (KOSMOS_STAPLER_RETRY_DELAYS,
+# default 30 60 120 300 seconds, refused at a cut like the other seams), and a final failure names the submission.
 _notarize_staple_app() {
-  local app="$1" scratch="$2" out rc try=1 tries d q
+  local app="$1" scratch="$2" sub="$3" out rc try=1 tries d q
   local -a delays
-  read -r -a delays <<< "${KOSMOS_NOTARY_RETRY_DELAYS-30 120}"
+  read -r -a delays <<< "${KOSMOS_STAPLER_RETRY_DELAYS-30 60 120 300}"
   tries=$(( ${#delays[@]} + 1 ))
   while :; do
     rc=0; out="$(_stapler staple "$app" 2>&1)" || rc=$?
@@ -96,7 +98,7 @@ _notarize_staple_app() {
     sleep "$d" || :
     try=$((try + 1))
   done
-  [ "$rc" = 0 ] || { echo "notarize: could not staple the notarisation ticket to $app (stapler rc=$rc)" >&2; return 1; }
+  [ "$rc" = 0 ] || { echo "notarize: could not staple the notarisation ticket to $app (stapler rc=$rc). Apple accepted submission $sub; it can be stapled by hand later with: xcrun stapler staple <the app>" >&2; return 1; }
   rc=0; out="$(_stapler validate "$app" 2>&1)" || rc=$?
   printf '%s\n' "$out" | sed 's/^/    /'
   [ "$rc" = 0 ] || { echo "notarize: the staple on $app did not validate (stapler validate rc=$rc)" >&2; return 1; }
@@ -107,10 +109,14 @@ _notarize_staple_app() {
     || { echo "notarize: could not quarantine the copy of $app, so it cannot be assessed as a download is" >&2; return 1; }
   rc=0; out="$(_notarize_spctl -a -t exec -vv "$q" 2>&1)" || rc=$?
   printf '%s\n' "$out" | sed 's/^/    /'
-  case "$rc:$out" in
-    0:*'source=Notarized Developer ID'*) echo "==> stapled and assessed quarantined: ${app##*/} is accepted as Notarized Developer ID (#5896)" ;;
-    *) echo "notarize: a quarantined copy of $app is not accepted as Notarized Developer ID (spctl rc=$rc, above). A user who downloads it would be told it is damaged." >&2; return 1 ;;
-  esac
+  # Whole lines, not a substring: spctl's first line echoes the path assessed. And the origin must be OUR team.
+  if [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -qx 'source=Notarized Developer ID' \
+     && printf '%s\n' "$out" | grep -q "^origin=Developer ID Application: .*($KOSMOS_SIGN_TEAM_ID)\$"; then
+    echo "==> stapled and assessed quarantined: ${app##*/} is accepted as Notarized Developer ID, team $KOSMOS_SIGN_TEAM_ID (#5896)"
+  else
+    echo "notarize: a quarantined copy of $app is not accepted as Notarized Developer ID of team $KOSMOS_SIGN_TEAM_ID (spctl rc=$rc, above). A user who downloads it would be told it is damaged or cannot be checked." >&2
+    return 1
+  fi
 }
 
 # Prints the value of the FIRST "<key>": "<value>" pair in notarytool's JSON, or nothing.
@@ -173,6 +179,9 @@ notarize_binaries() (
   trap 'exit 130' INT TERM
 
   key="$(_notarize_key)" || exit 1
+
+  # A trailing slash ("Kosmos.app/") names the same bundle; taken off once here, so every branch below sees ".app".
+  _args=(); for b in "$@"; do _args+=("${b%/}"); done; set -- "${_args[@]}"
 
   # Every slice's cdhash, read BEFORE submitting: an unsigned binary cannot be notarised, and
   # finding that out after a several-minute wait is waste. One "name arch cdhash" line each.
@@ -291,7 +300,7 @@ EOF
   fi
   # #5896: a bundle carries its ticket (a bare binary cannot), and is proven against a quarantined copy.
   for b in "$@"; do
-    case "$b" in *.app) _notarize_staple_app "$b" "$dir" || exit 1 ;; esac
+    case "$b" in *.app) _notarize_staple_app "$b" "$dir" "$id" || exit 1 ;; esac
   done
   exit 0
 )
