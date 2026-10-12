@@ -265,6 +265,17 @@
       "rank": 13.5,
       "since": "0.7.40",
       "status": "pending"
+    },
+    {
+      "title": "Kosmos opens after you download it",
+      "line": "The Kosmos app is now signed and notarized by Apple as a whole, so a Mac opens a downloaded copy instead of calling it damaged.",
+      "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 1.5,
+      "since": "0.7.43",
+      "status": "pending"
     }
   ]
 }
