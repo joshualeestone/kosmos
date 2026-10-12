@@ -125,7 +125,10 @@ const CHAIN_MAX = 1000;
  * Kosmos's own chats folder and this compiler is given a folder: the name is this thread file's name, a dot, and
  * `.full` at the end, with no path separator; the file parses, holds a message list, its `agent` is `key`, and its
  * `projectBornAt` is the one `parsed` carries, or it has none (kosmos#5900: a file from before conversations were
- * dated; every file before it must then have none either). A test compares the two on files the real writer made.
+ * dated; every file before it must then have none either). That reading has the cost asideChain states: a project
+ * from before dates, deleted and re-created under its name, reaches the old one's undated files, so that folder,
+ * refused before kosmos#5900, now compiles with the old project's rows under the live one's heading, as chat.js
+ * shows them. A test compares the two on files the real writer made.
  *
  * Returns `{ complete, earlier }`: `earlier` is [{ name, carried, messages }] as asideChain(..., true) gives it, and
  * `complete` is true only when the walk reached a file that names no earlier one. asideChain keeps what it read when

@@ -361,7 +361,8 @@ test('rows that are not messages, and a carried count out of bounds, are read as
 
 test('a thread file with no project date that rolls over under one compiles whole, as chat.js follows it (kosmos#5900)', () => {
   // The fresh file is stamped with the project's date and the full file has none. Since kosmos#5900 engine/chat.js
-  // follows that link, so this compiler does too, by the same rule. If the two ever part, the comparison below fails.
+  // follows that link, so this compiler does too, by the same rule. The comparison below covers this one shape (a dated
+  // current file, one undated full file); the test after it checks the other half of the rule without chat.js.
   const file = chat.threadFile('chain', 'agentm');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ project: 'chain', agent: 'agentm', messages: Array.from({ length: MAX }, (_, i) => row('undated', i)) }));
