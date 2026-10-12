@@ -107,7 +107,7 @@ token_web_scan() {
 # token. Calling token_web_scan per token cost two full-file greps for each of ~1,000 tokens (most of this test's time).
 count_plain_tokens() {   # $1: file of tokens, one per line; $2: the half to count in
   # FILENAME == ARGV[1], not NR == FNR: an empty token file must not turn the half's own lines into wanted tokens.
-  awk 'FILENAME == ARGV[1] { if ($0 != "") want[$0]=1; next }
+  LC_ALL=C awk 'FILENAME == ARGV[1] { if ($0 != "") want[$0]=1; next }
        { split("", seen); n=split($0, w, /[^A-Za-z0-9_-]+/)
          for (k=1; k<=n; k++) if (w[k] != "" && (w[k] in want) && !(w[k] in seen)) { seen[w[k]]=1; c[w[k]]++ } }
        END { for (t in want) print t, ((t in c) ? c[t] : 0) }' "$1" "$2"
@@ -127,7 +127,9 @@ count_table() {   # $1: tokens, one per line; $2, $3: the code and comment halve
 # so a numeric-looking token never matches another's row), else token_web_scan over halves $3 and $4. A token the table
 # lacks, for whatever reason, costs the grep's time, never a different answer.
 token_counts() {
-  local got; got="$(awk -v t="$1" '($1 "") == (t "") { printf "%s %s", $2, $3; exit }' "$2")"
+  # The token through the environment, not -v: -v interprets backslash escapes, so \101 would read as A. A row missing a
+  # count (a failed pass) falls back too.
+  local got; got="$(T="$1" awk '($1 "") == (ENVIRON["T"] "") { if ($2 != "" && $3 != "") printf "%s %s", $2, $3; exit }' "$2")"
   if [ -n "$got" ]; then printf '%s' "$got"; else token_web_scan "$1" "$3" "$4"; fi
 }
 
@@ -135,7 +137,7 @@ WEB_CODE="$(_mktmp)"; WEB_CMT="$(_mktmp)"
 split_halves "$WEB" "$WEB_CODE" "$WEB_CMT"
 
 # Each check's annotation, parsed once ("path<TAB>tokens", in find's order), so the table and the loop below read the same
-# tokens.
+# tokens. A path is read up to its first tab, so a check file with a tab in its name would not parse (none has one).
 ANNOT="$(_mktmp)"; ALL_TOKS="$(_mktmp)"; COUNTS="$(_mktmp)"
 while IFS= read -r f; do
   [ -n "$f" ] || continue
@@ -202,16 +204,20 @@ _chk tok-strcmt "0 1" "a // line comment right after a string quote is comment, 
 _chk 'tok.dot' "0 0" "a token with an ERE metachar is escaped, so tok.dot does NOT match tokXdot" "metachar-escaped"
 _chk tok-absent "0 0" "an absent token is neither functional nor comment"                  "absent"
 # #5907: the counted path (count_table + token_counts, as the loop above uses it) agrees with token_web_scan on its own
-# fixture: a token twice on one line (a line counts once), a token inside a longer run (not a match), one in a comment,
+# fixture: a token twice on one line (a line counts once) and again on another line (lines add up), a token inside a
+# longer run (not a match), one in a comment,
 # a numeric-looking pair (1e3 present, 1000 absent: compared as strings), and an absent one. Names any token that drifts.
 _pf="$(_mktmp)"
 printf '%s\n' \
   '<div id="tok-dup">a</div> <span class="tok-dup">b</span>' \
   '<div id="tok-dup-long">c</div>' \
   '<!-- tok-dup in a comment -->' \
-  '<i id="1e3"></i>' > "$_pf"
+  '<i id="1e3"></i>' \
+  '<p class="tok-dup">e</p>' > "$_pf"
 _pfc="$(_mktmp)"; _pfm="$(_mktmp)"; split_halves "$_pf" "$_pfc" "$_pfm"
 _ptoks="$(_mktmp)"; printf '%s\n' tok-dup tok-dup-long tok 1e3 1000 tok-absent > "$_ptoks"
+# And a backslash token that is not plain, so it is not in the table: it must take the grep, never A's row.
+_pesc='\101'
 _ptab="$(_mktmp)"; count_table "$_ptoks" "$_pfc" "$_pfm" > "$_ptab"
 _pbad=0
 while IFS= read -r t; do
@@ -220,6 +226,9 @@ while IFS= read -r t; do
   [ "$got" = "$want" ] || { bad "PARITY: the counted path says '$got' for $t, token_web_scan says '$want'"; _pbad=1; }
 done < "$_ptoks"
 [ "$(wc -l < "$_ptab" | tr -d ' ')" = "$(wc -l < "$_ptoks" | tr -d ' ')" ] || { bad "PARITY: the table did not count every plain token"; _pbad=1; }
+printf 'A 7 7\n' >> "$_ptab"
+[ "$(token_counts "$_pesc" "$_ptab" "$_pfc" "$_pfm")" = "$(token_web_scan "$_pesc" "$_pfc" "$_pfm")" ] \
+  || { bad "PARITY: a backslash token took another token's row"; _pbad=1; }
 [ "$_pbad" -eq 0 ] && ok "PARITY: the counted path matches token_web_scan on all $(wc -l < "$_ptoks" | tr -d ' ') parity tokens"
 
 [ "$FAILS" -eq 0 ] && echo "browser-check surface map: all arms passed" || echo "browser-check surface map: $FAILS FAILED"
