@@ -51,3 +51,10 @@ test('#5943 the question row is not the agent speaking, takes no reactions, and 
   assert.match(clear, /paintTalk\(CURRENT\.sessionName, CURRENT\.name\)/, 'repaints so the bubble goes at once');
   assert.match(SCRIPT, /closest\('#d-dmthread \.dmq-clear'\)/, 'the click is delegated inside the DM thread only');
 });
+
+test('#5943 review 2: the agent\'s own message that IS the question shows the age and the button', () => {
+  const html = fns.dmQuestionFootHtml({ from: 'x', text: 'Q?', at: asked(2 * DAY), questionClearable: true, questionAt: asked(3 * DAY) });
+  assert.match(html, /Asked 3 days ago/, 'the age is the ask time, not the message time');
+  assert.match(html, /Answered, clear this/);
+  assert.equal(fns.dmQuestionFootHtml({ from: 'x', text: 'Q?', at: asked(DAY) }), '', 'control: an ordinary message has no footer');
+});

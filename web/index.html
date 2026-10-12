@@ -38030,13 +38030,16 @@ document.addEventListener('click', (e) => {
    the Engineering-mode control (clear-selfreport, recorded as the person's); no message is deleted. A question read
    off the agent's screen alone has neither: it is in front of the agent now and is answered by replying. */
 function dmQuestionFootHtml(m) {
-  if (!m || m.kind !== 'question' || m.clearable !== true) return '';
-  const asked = Date.parse(m.at || '');
+  // The question row itself, or (review 2) the agent's own message that IS the question, carrying its ask time.
+  const own = Boolean(m && m.kind !== 'question' && m.questionClearable === true);
+  if (!m || (!own && (m.kind !== 'question' || m.clearable !== true))) return '';
+  const askedIso = own ? m.questionAt : m.at;
+  const asked = Date.parse(askedIso || '');
   const age = Number.isFinite(asked) && typeof agoWords === 'function' ? agoWords(Date.now() - asked) : '';
   return '<div class="dmq-foot">'
     // data-at so the age is refreshed in place (refreshWhens) and blanked for the repaint check (threadShape): the
     // minute it changes must not rebuild the thread (#3966's flash).
-    + (age ? '<span class="dmq-age" data-at="' + esc(String(m.at)) + '">Asked ' + esc(age) + '</span>' : '')
+    + (age ? '<span class="dmq-age" data-at="' + esc(String(askedIso)) + '">Asked ' + esc(age) + '</span>' : '')
     + '<button type="button" class="dmq-clear" aria-label="This question is answered: clear it">Answered, clear this</button>'
     + '<span class="dmq-msg" role="status" aria-live="polite"></span></div>';
 }

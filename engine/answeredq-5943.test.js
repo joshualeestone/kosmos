@@ -155,3 +155,24 @@ test('#5943 review 1: the note is told once per ask', () => {
   assert.equal(chat.dmQuestionTold('teller', '2026-10-01T00:00:00.000Z'), true);
   assert.equal(chat.dmQuestionTold('teller', '2026-10-02T00:00:00.000Z'), false, 'a new ask is told again');
 });
+
+test('#5943 review 2: a note spent on a non-answer is told again after six hours', () => {
+  const t0 = Date.parse('2026-10-12T09:05:00.000Z');
+  chat.markDmQuestionTold('renote', '2026-10-12T09:00:00.000Z', t0);
+  assert.equal(chat.dmQuestionTold('renote', '2026-10-12T09:00:00.000Z', t0 + 60 * 60 * 1000), true, 'an hour later: not again');
+  assert.equal(chat.dmQuestionTold('renote', '2026-10-12T09:00:00.000Z', t0 + 7 * 60 * 60 * 1000), false, 'seven hours later: again');
+});
+
+test('#5943 review 2: the agent typing its own question keeps the age and the clear button, on its own message', () => {
+  const list = [
+    { at: '2026-10-02T00:00:00.000Z', text: 'Q?', from: 'x' },
+    { at: '2026-10-03T00:00:00.000Z', text: 'answer', from: null },
+  ];
+  const out = chat.withQuestionRow(list, 'x', { text: 'Q?', reported: true, clearable: true, at: '2026-10-02T00:00:10.000Z' });
+  assert.equal(out.length, 2, 'not drawn twice');
+  assert.equal(out[0].questionClearable, true, 'the agent\'s own message carries the clear button');
+  assert.equal(out[0].questionAt, '2026-10-02T00:00:10.000Z');
+  assert.equal(list[0].questionClearable, undefined, 'the stored row is not mutated');
+  // CONTROL: an undated (screen) question carries nothing onto the typed row.
+  assert.equal(chat.withQuestionRow(list, 'x', { text: 'Q?', at: '2026-10-02T00:00:10.000Z' })[0].questionClearable, undefined);
+});
