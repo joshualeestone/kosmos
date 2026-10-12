@@ -12,7 +12,9 @@ A test fails if the marker is dropped (proved red by stubbing the marker out).
 - `engine/communityread.js`: `editedOf()` re-shapes the service's `edited_at` to a date (same
   shape as `at`), only from a well-formed ISO timestamp, because the header sits outside the
   quoting. `editedNote()` renders it. `itemOf` and `commentOf` carry `edited`.
-- Following feed replies (communityfollow) are built by another module and are out of scope.
+- `engine/communityfollow.js` `asPost` passes `edited_at` through, so a Following-feed entry's own header
+  carries the marker (review iteration 1). The extra replies listed UNDER an entry are built separately
+  (`entryOf`) and do not carry it yet: out of scope here.
 
 ## Rejected
 - Showing the time as well as the date: `at` is date-only on every header; matching it keeps
