@@ -535,7 +535,7 @@ function forgetAccount(dir, usedBy) {
   /* #6000 (the #5994 shape): the account's OWN unfinished "Sign in again" no longer refuses. A person who walked away
      from it had no cancel they could reach and was refused until the watchdog ended it (grokLoginTimeoutMs, 5
      minutes); wanting the account gone overrides finishing a sign-in into it. It is cancelled below, after the move
-     succeeds, so a refused or failed call (the #2570 pre-flight) cancels nothing. Any other hold still refuses. */
+     succeeds, so a refused call (the #2570 pre-flight) or a failed move cancels nothing. Any other hold still refuses. */
   const ownReauth = isHeldByOwnReauth(clean);
   if (activeGrokDirs.has(clean) && !ownReauth) {
     return { ok: false, forgotten: false, because: 'a sign-in for that account is still in progress; finish or cancel it first' };
@@ -579,7 +579,7 @@ function forgetAccount(dir, usedBy) {
   }
   try { fs.renameSync(clean, target); }
   catch { return { ok: false, forgotten: false, because: 'we could not move that account out of the way' }; }
-  if (ownReauth) releaseOwnReauth(clean);   // #6000: only once the move happened, so a failed call cancels nothing
+  if (ownReauth) releaseOwnReauth(clean);   // #6000: the move happened
   return { ok: true, forgotten: true, movedTo: target, wasDefault: false, because: null };
 }
 
@@ -588,7 +588,7 @@ function forgetAccount(dir, usedBy) {
  * forgetAccount renames aside (reversible); this rmSync's the dir, so the key is
  * gone from this computer. Every guard forgetAccount has (same-home + name shape,
  * another sign-in holding it, the running-agents gate, the identity guard); the account's
- * own Sign in again is cancelled after the delete instead (#6000). Irreversible on purpose; the UI
+ * own Sign in again is cancelled once the account is gone (#6000). Irreversible on purpose; the UI
  * asks with a destructive confirm.
  */
 function removeAccount(dir, usedBy) {
@@ -643,7 +643,7 @@ function removeAccount(dir, usedBy) {
     if (ownReauth && !fs.existsSync(authFile(clean))) releaseOwnReauth(clean);
     return { ok: false, removed: false, because: 'we could not delete that account from this computer' };
   }
-  if (ownReauth) releaseOwnReauth(clean);   // #6000: only once the delete happened, so a failed call cancels nothing
+  if (ownReauth) releaseOwnReauth(clean);   // #6000: the delete happened
   return { ok: true, removed: true, wasDefault: false, because: null };
 }
 
@@ -1054,9 +1054,8 @@ function isHeldByOwnReauth(dir) {
    afterwards. */
 function releaseOwnReauth(dir) {
   for (const id of ownReauthsOf(dir)) {
-    const s = grokSessions.get(id);
     cancelGrokLogin(id);
-    if (s) s.reauthReleased = true;
+    grokSessions.get(id).reauthReleased = true;   // still in the Map: the reap is a timer
   }
   // Drop the hold unless another live sign-in is staging into this same path. Defence only: isHeldByOwnReauth's premise
   // says that cannot happen, and no test can reach this branch.

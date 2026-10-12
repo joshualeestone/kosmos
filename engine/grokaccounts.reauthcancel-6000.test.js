@@ -1,8 +1,8 @@
 'use strict';
 /**
  * #6000 (the #5994 shape, on Grok): removing or forgetting a Grok account cancels the account's OWN unfinished
- * "Sign in again" instead of refusing until the watchdog ends it. Any other hold still refuses, a refused or failed
- * call cancels nothing, and the cancelled sign-in's late exit cannot release a hold a new sign-in takes on the path.
+ * "Sign in again" instead of refusing until the watchdog ends it. Any other hold still refuses, a refused call (or a
+ * failed one that leaves the account whole) cancels nothing, and the cancelled sign-in's late exit cannot release a hold a new sign-in takes on the path.
  * Driven against a FAKE grok that hangs (exec sleep, so a kill reaches it) or ignores SIGTERM.
  *
  *   node --test engine/grokaccounts.reauthcancel-6000.test.js

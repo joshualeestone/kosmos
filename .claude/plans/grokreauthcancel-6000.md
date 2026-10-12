@@ -1,6 +1,6 @@
 # #6000: removing a Grok account cancels its own unfinished "Sign in again" (the #5994 shape)
 
-**Branch:** `grokreauthcancel-6000` · **Card:** kosmos#6000 · **Mirrors:** #5994 (branch reauthcancel-5994 at 28ff774e, not yet merged; first ported from 3a5e59a2, synced in challenge iteration 1)
+**Branch:** `grokreauthcancel-6000` · **Card:** kosmos#6000 · **Mirrors:** #5994 (branch reauthcancel-5994 at d3be57c8, not yet merged; first ported from 3a5e59a2, synced through d3be57c8)
 
 ## The defect
 Pressing Sign in again on a Grok subscription account reserves the account's folder (`activeGrokDirs`). While
@@ -11,8 +11,9 @@ refused until the watchdog ended it (`grokLoginTimeoutMs`, 5 minutes).
 ## The rule (the same as #5994's for OpenAI)
 A remove or forget that passes every other guard cancels the account's own reauth(s), settled or not, drops their hold
 on the live folder, and goes ahead. Any other hold still refuses with the old sentence.
-- The cancel happens AFTER the move or delete succeeds, and in the already-gone branch, so a refused or failed call
-  (the #2570 pre-flight with agents on the account, no free name, a rename that fails) cancels nothing.
+- The cancel happens AFTER the move or delete succeeds, and in the already-gone branch, so a refused call, or a
+  failed one that leaves the account whole (the #2570 pre-flight with agents on the account, no free name, a rename
+  that fails), cancels nothing (a delete that already took auth.json is the one exception, below).
 - Cancelling settles the session, and the exit handler promotes only an unsettled session, so the dying child cannot
   write into the folder being removed.
 - The staging slot stays reserved until the child exits, as on any cancel.
