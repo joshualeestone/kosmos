@@ -119,3 +119,4 @@ Mutant after review 6 (20:06 CDT from `date`): K1 one home only: red (21/20/1).
    mayBackUp() = mayReport(); test with a control that the consent-less record reads as enrolled here. Residual stated.
 2. NIT: `said` reset only on success, so a reason that came back after other failures was never said again. FIXED.
 Tests 21 -> 23.
+Mutants after review 7 (20:09 CDT from `date`): G1 gate back to isEnrolledHere: red. G2 said reset on success only: red (23/22/1 each).
