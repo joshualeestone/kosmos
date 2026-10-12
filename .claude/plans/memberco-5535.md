@@ -74,3 +74,4 @@ fresh object, the frozen UNREADABLE included via its spread copy), so the spread
    now reads it there.
 2. A present but malformed deps.pair was read as absent, switching off the otherPair check. FIXED: badPair refusal
    before any call; only undefined means a first run.
+Mutants after review 3 (19:10 CDT from `date`): L1 no top pair on the ok path: red. L2 none on the refusal path: red. L3 malformed pair read as absent: red.
