@@ -57,15 +57,18 @@ test('#5881: a Linux board with no desktop opens nothing and says why; a file sa
 test('#5881: the real xdg-open line is started with the folder, and a missing xdg-open is said', { skip: process.platform === 'win32' && 'a shell script stands in for xdg-open' }, async (t) => {
   const bin = fs.mkdtempSync(path.join(SANDBOX, 'bin-'));
   const log = path.join(SANDBOX, 'xdg-args.txt');
-  // It records its argument, whether the board's token reached it, and the display it was given.
-  fs.writeFileSync(path.join(bin, 'xdg-open'), '#!/bin/sh\nprintf "%s|%s|%s" "$1" "$KOSMOS_BOARD_TOKEN" "$DISPLAY" > "' + log + '"\n', { mode: 0o755 });
+  /* It records its argument, a variable outside the allowlist (KOSMOS_BOARD_TOKEN, a name made up here: any variable not
+     on the list stands in for the board's own secrets), the display and the X cookie it was given. It writes a temp file
+     and moves it into place (/bin/mv: its PATH is only this folder), so the test never reads a half-written record. */
+  fs.writeFileSync(path.join(bin, 'xdg-open'), '#!/bin/sh\nprintf "%s|%s|%s|%s" "$1" "$KOSMOS_BOARD_TOKEN" "$DISPLAY" "$XAUTHORITY" > "' + log + '.tmp" && /bin/mv "' + log + '.tmp" "' + log + '"\n', { mode: 0o755 });
   projects.setRevealPlatform('linux');
   projects.setRevealRunner(null);
   t.after(() => { projects.setRevealPlatform(null); projects.setRevealEnv(null); });
-  projects.setRevealEnv({ DISPLAY: ':0', PATH: bin, KOSMOS_BOARD_TOKEN: 'secret-5881' });
+  projects.setRevealEnv({ DISPLAY: ':0', XAUTHORITY: '/run/user/1000/gdm/Xauthority', PATH: bin, KOSMOS_BOARD_TOKEN: 'secret-5881' });
   assert.deepEqual(projects.revealFolder(DIR), { ok: true });
   for (let i = 0; i < 100 && !fs.existsSync(log); i++) await new Promise((r) => setTimeout(r, 20));
-  assert.equal(fs.readFileSync(log, 'utf8'), DIR + '||:0', 'xdg-open was not started with the folder and the display alone (review 2: never the board\'s token)');
+  assert.equal(fs.readFileSync(log, 'utf8'), DIR + '||:0|/run/user/1000/gdm/Xauthority',
+    'xdg-open was not started with the folder, the display and its X cookie, and never the board\'s token (reviews 2, 3)');
   // CONTROL: the same call with no xdg-open on PATH says so, rather than claiming it opened.
   projects.setRevealEnv({ DISPLAY: ':0', PATH: path.join(SANDBOX, 'no-such-bin') });
   assert.deepEqual(projects.revealFolder(DIR), { ok: false, because: 'this computer has no xdg-open to open it with (it comes with xdg-utils)' });

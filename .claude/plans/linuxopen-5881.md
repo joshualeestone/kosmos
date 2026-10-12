@@ -20,11 +20,14 @@ Card: #5881 (Angel, found building #5865). Owner: April (night shift shard).
    (the board's own environment has DISPLAY or WAYLAND_DISPLAY) `xdg-open` is STARTED, detached, never waited on (review 1:
    on a desktop it does not know, it runs the file manager in the foreground, and waiting would hold the board's event
    loop until that window closed). "ok" means started; a missing xdg-open (no xdg-utils) is said. It is given only what it
-   needs to reach the desktop (HOME, PATH, LANG, the display, XDG_RUNTIME_DIR, the session bus), never the board's own
-   environment and its tokens (review 2). No desktop: refused, "Kosmos cannot open it on this computer: it is not running
-   in a desktop session". Review 2: the board's own systemd unit sets no display, so an INSTALLED Linux board always
-   takes this refusal, even on a desktop machine; only a board started by hand from a desktop opens folders. Giving the
-   unit the session's display is the Linux port's call (#4916); suggested there.
+   needs to reach the desktop (HOME, PATH, LANG, the display and its X cookie XAUTHORITY, XDG_RUNTIME_DIR, the session
+   bus, and XDG_CURRENT_DESKTOP / XDG_SESSION_TYPE / XDG_DATA_DIRS so xdg-open picks the desktop's file manager rather
+   than a browser: review 3), never the board's own environment and its tokens (review 2). No desktop: refused, "Kosmos cannot open it on this computer: it is not running
+   in a desktop session". Whether an INSTALLED board has a display depends on when its service started (review 3): its
+   unit sets none itself, but GNOME and KDE pass the session's display into the user's services at login, so a board
+   started or restarted after the person logged in to a desktop has one, and one started before does not. The same
+   machine can therefore refuse before a restart and open after one. Making that reliable is the Linux port's call
+   (#4916); suggested there.
 2. A FILE (openFile) is never opened on a Linux board (review 1): xdg-open would hand an agent-written .desktop file or
    script to whatever the desktop runs it with, a type Windows refuses (SAFETY 1); and the page downloads files there
    anyway. Refused after resolveListedFile's gates, with "download it instead".
@@ -39,9 +42,9 @@ every Linux board (a Linux desktop can open a folder, and opening a folder runs 
 machine.js (#5877), Antigravity (no Linux package), the buttons #5865 hides.
 
 ## Weakest premise
-That a refusal is the right answer for an installed board on a desktop machine (it is true there: the service is not in
-the desktop session, and the sentence says exactly that), until #4916 decides whether the service gets the display. A
-stale display starts an xdg-open that fails unseen, because it is not waited on.
+That a refusal is the right answer whenever the board's environment has no display (it is true then: the board is not in
+a desktop session, and the sentence says exactly that). Unseen failures, because xdg-open is started and not waited on:
+a stale display, and a binary that vanished between the lookup and the start. "ok" means started.
 
 ## Tests
 engine (projects): each route on linux with and without a desktop through the runner seam; the PRODUCTION xdg-open line
