@@ -25,9 +25,10 @@ function providerOf(card) {
   if (card && card.runner === 'codex' && card.sessionName) {
     /* Review 3: a job that was read is the answer either way (a stale 'alibaba' profile after a switch to OpenAI must
        not win); the profile speaks only when there is no job to read. */
-    let job = null;
-    try { job = require('./create').readJob(card.sessionName); } catch { job = null; }
-    if (job) return require('./create').jobProvider({ ...job, runner: 'codex' }) === 'alibaba' ? 'Qwen' : 'OpenAI';
+    // Review 6: through create's memo (this runs for every card on every notify sweep).
+    let fromJob = null;
+    try { fromJob = require('./create').codexJobProvider(card.sessionName); } catch { fromJob = null; }
+    if (fromJob) return fromJob === 'alibaba' ? 'Qwen' : 'OpenAI';
     try { if (require('./store').readProfile(card.sessionName).provider === 'alibaba') return 'Qwen'; } catch { /* no profile */ }
   }
   return PROVIDER_NAME[card && card.runner] || 'Claude';
