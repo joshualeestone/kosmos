@@ -792,9 +792,14 @@ test('#5865: every data-linux-copy key has a Linux string, the agent page drops 
   assert.equal(runPage('darwin', [], 'platformHides(e)', { e: el('data-linux-hide') }), false, 'CONTROL: a Mac hid a Linux-only element');
 });
 
-test('#5865: on Linux the file preview does not offer Finder', () => {
-  const pv = page.lift(SCRIPT, 'pvOpen');
-  assert.match(pv, /\} else if \(kplusRemote\(\) \|\| onLinux\(\)\) \{[^\n]*\n\s*const dl = document\.createElement\('a'\)/, 'the preview offers Finder on Linux');
+test('#5865: on Linux the file preview offers Download, not Finder', () => {
+  const offers = (platform, host) => runPage(platform, ['kplusRemote', 'pvOffersDownload'], 'pvOffersDownload()',
+    { location: { hostname: host } });
+  assert.equal(offers('linux', '127.0.0.1'), true, 'a Linux board at the computer was offered a Finder reveal');
+  assert.equal(offers('darwin', '127.0.0.1'), false, 'CONTROL: a Mac at the computer reveals in Finder');
+  assert.equal(offers('win32', '127.0.0.1'), false, 'CONTROL: Windows reveals in File Explorer');
+  assert.equal(offers('darwin', 'box.kosmosplus.com'), true, 'CONTROL: through Kosmos+ it was already Download');
+  assert.match(page.lift(SCRIPT, 'pvOpen'), /\} else if \(pvOffersDownload\(\)\) \{/, 'pvOpen no longer asks pvOffersDownload');
 });
 
 test('#5865: after a folder move on Linux the keyboard lands on the sentence, not the hidden reveal button', () => {

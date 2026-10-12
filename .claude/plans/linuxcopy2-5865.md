@@ -83,3 +83,14 @@ run every web*.test.js from the worktree as cwd.
 - REVERTED (iteration 5's own change): the Linux aria-label rename of the agent's Terminal section. On Linux that
   section still holds the live window box, so "Terminal" is right; only the box title (h3) takes Windows' words.
 - The Files overflow line is tested by running paintAgentFilesAll with onLinux true, Mac as the control.
+
+## Review 8 (blind, sonnet)
+- The preview's Download-vs-reveal choice is pvOffersDownload(), run in tests on all three platforms and remotely.
+- DEFERRED: excluding Linux from the PDF preview (as Windows is). A file the preview declines falls back to opening
+  on the computer, which on Linux also runs /usr/bin/open, so it would be worse; today a Linux PDF falls back to the
+  file card, which now offers Download. Known gap, same class, not built here: opening a file "on the computer"
+  from a Linux board.
+
+## Final state of the agent's Terminal section on Linux
+Section name stays "Terminal" (it holds the live window box); the box heading reads "Start-up and restart" and its
+Open Terminal button is hidden.
