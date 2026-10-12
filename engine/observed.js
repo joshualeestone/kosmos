@@ -112,8 +112,8 @@ function lastOk(provider, agent) {
   return typeof at === 'number' ? at : null;
 }
 /* #5959 slice 2: an agent removed, or created under a name an old agent had, never inherits that name's last-seen
-   time. Called where crashloop.forget is (create, remove, delete-leftover) and on a provider switch. Only the last-seen
-   times: the latest readings in `store` are freshness-gated by verdict, so an old one never speaks for a new agent. */
+   time. Called where crashloop.forget is (create, remove, delete-leftover) and on a provider or account switch. Only the
+   last-seen times; `store` is left as it was. */
 function forgetAgent(agent) {
   if (typeof agent !== 'string' || agent === '') return;
   for (const provider of PROVIDER_VALUES) okStore.delete(keyOf(provider, agent));
