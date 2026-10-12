@@ -216,11 +216,12 @@ _qh_lib_check() {
     # The checkout runs as its own process group (job control on for this one start), so a Ctrl-C at the terminal
     # does not reach git; bash ignores INT, TERM and HUP while it waits. git sets its own handlers, so a signal sent
     # to git itself still stops it part way: then the old commit is checked out again, by force, and the line says so.
-    local mrc=0 gp gerr
+    local mrc=0 gp gerr qtraps
     gerr="$(mktemp "${TMPDIR:-/tmp}/qh-libmove.XXXXXX" 2>/dev/null || mktemp /tmp/qh-libmove.XXXXXX)" || gerr=/dev/null
-    # No trap is set yet at this point (the EXIT and signal traps come later), so the reset below drops nothing; a trap
-    # added earlier in the script would be wiped by it and must be restored here instead. The ignored signals are
-    # inherited by git, which installs its own handlers, so a signal sent to git itself still stops it.
+    # Whatever INT, TERM and HUP traps are set now (none today: the EXIT and signal traps come later) are saved and
+    # put back after. The ignored signals are inherited by git, which installs its own handlers, so a signal sent to
+    # git itself still stops it.
+    qtraps="$(trap -p INT TERM HUP)"
     trap '' INT TERM HUP
     if [ "${QH_TEST_MOVE_FAIL:-}" = nochange ]; then mrc=128   # test seam: a checkout that failed before changing anything
     elif [ -n "${QH_TEST_MOVE_FAIL:-}" ]; then
@@ -233,6 +234,7 @@ _qh_lib_check() {
       wait "$gp" || mrc=$?
     fi
     trap - INT TERM HUP
+    [ -n "$qtraps" ] && eval "$qtraps"
     if [ "$mrc" = 0 ]; then
       [ "$gerr" = /dev/null ] || rm -f "$gerr"   # never remove /dev/null (the fallback when mktemp fails)
       echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT moved ${head:0:9} -> origin/main ${main:0:9}: ${diff} differed and no queue waiter, claim or process inside it was live (#5923; back with: git -C '$LIB_CHECKOUT' checkout --detach $head)"
