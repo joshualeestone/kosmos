@@ -235,7 +235,7 @@ async function codeStep(page) {
     }
     // ---- 4. The name cannot be read: nothing about it is on screen, and the start is what it was before. ----
     {
-      remote.setComputerName(own.name);   // back to following the computer, so "before this change" has one meaning
+      remote.keepComputerNameChoice(remote.computerNameChoice(own.name));   // back to following the computer, so "before this change" has one meaning
       chk(remote.read().computer_name === null, 'CONTROL: nothing is kept going into the unread arm');
       const page = await openWizard(browser, BASE, errs, (pg) => pg.route('**/api/remote/computer-name', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"no"}' })));
       await page.waitForTimeout(600);

@@ -2594,11 +2594,9 @@ function computerNameChoice(raw) {
   const next = kept === own ? null : kept;
   return { ok: true, next, label: next === null ? ownComputerDeviceName() : deviceNameFrom(next), box: next === null ? own : next };
 }
-/** Whether setComputerName(raw) could keep this choice right now, without writing anything: yes when there is
+/** Whether keepComputerNameChoice(choice) could keep this choice right now, without writing anything: yes when there is
     nothing to write, or when remote.json can be read or repaired; no for something that is not a name, and for a
     file that cannot be read at all. Asked before the start, so a code is not emailed for a name that cannot be kept. */
-function canKeepComputerName(raw) { return canKeepComputerNameChoice(computerNameChoice(raw)); }
-/** The same question for a choice already worked out (the server holds one from before the start). */
 function canKeepComputerNameChoice(choice) { return choice && choice.ok ? ableToKeep(choice, read()) : choice; }
 /* The one answer both functions give, for a choice already worked out and a read already made (so neither is
    derived twice within one call). */
@@ -2614,9 +2612,8 @@ function ableToKeep(choice, current) {
     One that could not be read AT ALL just now (the disk, a permission, too many open files) is refused: the file
     may be whole, and a repair would rewrite it from nothing for the sake of a name.
     The server calls this only AFTER a sign-in start carried the name, so a name is never kept for a start that did
-    not go out, and there is nothing to put back. It asks canKeepComputerName() BEFORE that start. */
-function setComputerName(raw) { return keepComputerNameChoice(computerNameChoice(raw)); }
-/** Keep a choice already worked out: the very one whose `label` the start sent, so the name sent IS the name kept. */
+    not go out, and there is nothing to put back. It asks canKeepComputerNameChoice() BEFORE that start.
+    The choice kept is the very one whose `label` the start sent, so the name sent IS the name kept. */
 function keepComputerNameChoice(choice) {
   if (!choice || !choice.ok) return choice;
   const current = read();
@@ -3239,7 +3236,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { computerNameShown, computerNameChoice, canKeepComputerName, canKeepComputerNameChoice, setComputerName, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   ownDeviceIds,

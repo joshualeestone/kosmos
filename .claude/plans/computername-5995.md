@@ -282,3 +282,12 @@ reading the name; and on the page: the start retrying a failed read, no give-up 
 the read failed, the start not waiting for the read, not sending the name, the box not updated to the kept name,
 nothing said when the name was not kept.
 The one line added to `engine/remote.test.js` after review 12 is the only change no reviewer has seen.
+
+## After convergence, second finding by a guard: two wrappers nobody but tests called
+The reachability guard (`engine.reachable.test.js`), run at 2d417473b with the other guard tests, went red:
+`setComputerName` was exported and tested and reached from no screen, because since Review 9 the server calls
+`keepComputerNameChoice` and `canKeepComputerNameChoice`. Review 12 had noted the same as a NIT. Both wrappers
+(`setComputerName`, `canKeepComputerName`) are removed; the tests keep a name the way the server does, through
+the two functions the server calls. So the tests no longer exercise a path the product does not have.
+Earlier sections of this plan that say `setComputerName()` mean `keepComputerNameChoice(computerNameChoice(text))`.
+This is a code change after the round that converged, so one more blind round follows it.

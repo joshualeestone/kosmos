@@ -12086,7 +12086,7 @@ test('#5995: the name this computer is sent under can be read first, rides the s
     assert.equal((await start({ computer_name: first.name })).status, 200);
     assert.equal(remoteEngine.read().computer_name, null, 'the computer\'s own name was kept as a choice');
   } finally {
-    if (ownName !== null) remoteEngine.setComputerName(ownName);   // the computer's own name keeps nothing
+    if (ownName !== null) remoteEngine.keepComputerNameChoice(remoteEngine.computerNameChoice(ownName));   // the computer's own name keeps nothing
     await postJson('/api/remote/signin-cancel', {});
     for (const k of keys) { if (prev[k] === undefined) delete process.env[k]; else process.env[k] = prev[k]; }
   }
