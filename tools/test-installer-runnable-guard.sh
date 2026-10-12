@@ -40,7 +40,9 @@ _scan='
   s = line
   while (match(s, /\[ -x ("[^"]+"|[^] ]+) \]/)) {
     p = substr(s, RSTART, RLENGTH); sub(/^\[ -x /, "", p); sub(/ \]$/, "", p)
-    if (index(line, "[ -f " p " ]") == 0)
+    # #5913: [ -d P ] on the same line makes it a SEARCH test on a folder (can this account enter it), which is
+    # not the class: a path that must be a directory cannot be mistaken for an installed program.
+    if (index(line, "[ -f " p " ]") == 0 && index(line, "[ -d " p " ]") == 0)
       printf "%s:%d: bare [ -x %s ] (a directory passes)\n", FILENAME, FNR, p
     s = substr(s, RSTART + RLENGTH)
   }
@@ -71,6 +73,16 @@ _ctl="$(mktemp)"
 _hits="$(awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)"
 if [ "$_hits" -eq 2 ]; then pass "the scan flags both a planted unquoted [ -x ] and a planted [ ! -x ] (not vacuous)"
 else fail "the scan missed a planted bare form (flagged $_hits of 2), so it is vacuous for some form"; fi
+rm -f "$_ctl"
+
+# 4. #5913: a folder SEARCH test, [ -d P ] && [ -x P ] on one path, is accepted; a -d on a DIFFERENT path is not a guard.
+_ctl="$(mktemp)"
+printf '  [ -d "$DIR" ] && [ -x "$DIR" ] || return 0\n' > "$_ctl"
+if [ -z "$(awk "$_scan" "$_ctl" 2>/dev/null)" ]; then pass "a folder search test ([ -d P ] && [ -x P ]) is not flagged"
+else fail "the scan flagged a folder search test guarded by -d on the same path"; fi
+printf '  [ -d "$OTHER" ] && [ -x "$DIR" ] || return 0\n' > "$_ctl"
+if [ "$(awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -eq 1 ]; then pass "a -d on a different path does not excuse a bare [ -x ] (control)"
+else fail "a -d on another path excused a bare [ -x ]"; fi
 rm -f "$_ctl"
 
 echo "installer runnable-guard: $fails failures"
