@@ -862,7 +862,8 @@ const SCAN_SKIP = new Set([
   // at all fires the macOS Documents-access prompt on a fresh install. It is kept
   // off both discovery (isScanSkip filters it out of the promoted roots) and the
   // child-descent skip, not just dropped from SCAN_DEEP_NAMES. It re-enters a scan
-  // only via the explicit importScan TCC hatch.
+  // only as an explicit importScan root: through the TCC hatch on macOS, walked by
+  // the engine on its own budget elsewhere (#5882).
   'Public', 'Desktop', 'Documents', 'Photos Library.photoslibrary',
 ]);
 
@@ -1012,8 +1013,9 @@ function defaultScanRoots(opts) {
      so a brand-new user is not bombarded with macOS Documents/Downloads/Desktop
      prompts before doing anything (and denying the Documents one no longer breaks
      the scan). The USER-TRIGGERED import scan (Renet's #1652 GET /api/scan-import,
-     calling scan({importScan:true})) DOES add them: a TCC prompt is expected and
-     contextual there because the person just asked to find their agent files. This
+     calling scan({importScan:true})) DOES add them: on macOS a TCC prompt is expected and
+     contextual there because the person just asked to find their agent files (elsewhere
+     there is no prompt, and the engine walks them, #5882). This
      re-adds exactly the roots #1938 (Documents, deep) and #1652 (Downloads/Desktop,
      import-only) contributed, but gated behind the explicit action.
      ⚠️ ~/Documents is added as an explicit ROOT even though it is in SCAN_SKIP:
@@ -1030,10 +1032,11 @@ function defaultScanRoots(opts) {
     // #5882: ONLY where a folder permission exists (macOS). On Linux and Windows there is no prompt
     // and no native app to answer the hatch, so marking them sent all three to TCC_UNAVAILABLE and
     // they were never read; there the engine walks them like any other root. opts.platform: tests.
-    const tcc = require('./platform').hasFolderPermission(opts && opts.platform);
-    roots.push(Object.assign({ dir: path.join(home, 'Documents'), maxDepth: SCAN.DEEP_DEPTH }, tcc ? { tcc: true } : {}));
+    // Off macOS they carry ownBudget instead: walked last, on a budget of their own (scan()).
+    const mark = require('./platform').hasFolderPermission(opts && opts.platform) ? { tcc: true } : { ownBudget: true };
+    roots.push(Object.assign({ dir: path.join(home, 'Documents'), maxDepth: SCAN.DEEP_DEPTH }, mark));
     for (const name of ['Downloads', 'Desktop']) {
-      roots.push(Object.assign({ dir: path.join(home, name), maxDepth: SCAN.DROP_DEPTH, importOnly: true }, tcc ? { tcc: true } : {}));
+      roots.push(Object.assign({ dir: path.join(home, name), maxDepth: SCAN.DROP_DEPTH, importOnly: true }, mark));
     }
   }
   return roots;
@@ -1267,6 +1270,10 @@ function scan(opts) {
      (TOCTOU, the dir just vanished), the dir is skipped -- it cannot be walked anyway. */
   const seenDirs = new Set();
   let visited = 0;
+  /* #5882 review 1: off macOS the three import-only home folders (marked ownBudget) are walked by the engine, last. On a
+     shared budget a deep ~/src would spend it first and they would never be read, the very thing #5882 fixes. So they
+     share ONE budget of their own, as the hatch's walk of them has its own on macOS; the other roots keep theirs. */
+  let visitedOwn = 0;
   let hitDirs = false;
   let hitCount = false;
   let hitDepth = false;
@@ -1294,6 +1301,10 @@ function scan(opts) {
   outer:
   for (const root of roots) {
     if (root && root.tcc === true) continue;   // #3/#2125: handled by the hatch merge below
+    const own = !!(root && root.ownBudget === true);
+    // The shared budget is spent: this root is not read, which is a truncation and is said (hitDirs), as the old
+    // break did; own-budget roots still run (#5882).
+    if (!own && visited >= maxDirs) { hitDirs = true; continue; }
     let rootStat;
     /* 🔑 `stat`, NOT `lstat`, FOR THE ROOT: a scan root is a CURATED, TRUSTED location
        (the fixed set under $HOME, a #2414 DISCOVERED top-level $HOME folder, or an
@@ -1319,7 +1330,7 @@ function scan(opts) {
     const stack = [{ dir: root.dir, depth: 0, importOnly: root.importOnly === true }];
     while (stack.length) {
       if (byDir.size >= maxCandidates) { hitCount = true; break outer; }
-      if (visited >= maxDirs) { hitDirs = true; break outer; }
+      if ((own ? visitedOwn : visited) >= maxDirs) { hitDirs = true; break; }   // this root; the next is checked above
       const cur = stack.pop();
       /* #2408: key on the physical-directory identity (dev+ino), NOT realpathSync -- see
          the seenDirs comment. statSync follows a symlinked dir to its target's inode; a
@@ -1331,7 +1342,7 @@ function scan(opts) {
       try { const st = fs.statSync(cur.dir, { bigint: true }); idkey = st.dev.toString() + ':' + st.ino.toString(); } catch { continue; }
       if (seenDirs.has(idkey)) continue;   // already read via an earlier root, a case variant, or a symlink alias
       seenDirs.add(idkey);
-      visited += 1;
+      if (own) visitedOwn += 1; else visited += 1;
 
       let names;
       try { names = fs.readdirSync(cur.dir); } catch { continue; }
@@ -1550,7 +1561,7 @@ function scan(opts) {
        is gated on the two that signal a real early stop. `importable` is the #1652
        loose-file-read wall, surfaced like the others so the screen can say "and there may
        be more files". */
-    bounded: { depth: hitDepth, dirs: hitDirs, count: hitCount, visited, importable: hitImportable, tccUnavailable },
+    bounded: { depth: hitDepth, dirs: hitDirs, count: hitCount, visited: visited + visitedOwn, importable: hitImportable, tccUnavailable },
     /* #3/#2125: true only when a TCC-root hatch result is not ready yet -- the caller (the
        /api/scan-import route + getImportScan cache) treats a scanning:true result as PARTIAL
        (non-TCC rows only) and does NOT cache it, so a retry shortly after picks up the TCC rows

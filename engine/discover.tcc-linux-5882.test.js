@@ -61,3 +61,14 @@ test('#5882: a Linux import scan FINDS an agent in ~/Documents and hands nothing
   assert.deepEqual(h.calls.flat().sort(), ['Desktop', 'Documents', 'Downloads'], 'CONTROL: macOS hands the three to the hatch');
   assert.ok(!dirsOf(mac).includes(docsAgent), 'CONTROL: on macOS the engine itself does not walk Documents');
 });
+
+test('#5882 review 1: a deep sibling tree that spends the shared budget does not starve Downloads (own budget off macOS)', () => {
+  for (let i = 0; i < 40; i++) fs.mkdirSync(path.join(process.env.HOME, 'src', `d${i}`, 'x'), { recursive: true });
+  const drop = path.join(process.env.HOME, 'Downloads');
+  fs.mkdirSync(drop, { recursive: true });
+  fs.writeFileSync(path.join(drop, 'probe.md'), 'You are **Dropped**, a planner.\n\nMore text so the head reads.\n');
+  const r = discover.scan({ importScan: true, platform: 'linux', tccScan: hatch(), maxDirs: 30 });
+  const files = ((r && r.importable) || []).map((x) => x.file || x.path || x.dir || '');
+  assert.ok(files.some((f) => String(f).includes(path.join('Downloads', 'probe.md'))), `the agent file in Downloads was starved: ${JSON.stringify(files)}`);
+  assert.equal(r.bounded.dirs, true, 'CONTROL: the shared budget really was spent (the src tree is bigger than it)');
+});

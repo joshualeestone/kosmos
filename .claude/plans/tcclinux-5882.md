@@ -32,3 +32,17 @@ pass; platform tests 15/15; engine.reachable 7/7, #1732 8/8, #1777 23/23.
 
 ## Mutants
 Measured 20:13 CDT from `date` (with the #2125 test file alongside, 8 tests): P1 permission everywhere: red. P2 nowhere: red. P3 opts.platform ignored (this Mac is darwin, so linux arms go to the hatch): red. P4 Documents always tcc: red.
+
+## Review 1 (opus, blind, on 027b72da): one must-fix, three nits
+1. MUST-FIX, FIXED: off macOS the three folders were walked LAST on the SHARED folder budget, so a deep ~/src spent it
+   first and they were never read (measured by the reviewer: maxDirs 30, 40 folders under ~/src, the Downloads agent
+   never found). Not "put them first": a large ~/Documents would then starve the curated agent folders (~/work). Instead
+   they carry ownBudget off macOS and share ONE budget of their own, as the hatch's walk has on macOS. A spent shared
+   budget now skips only shared roots, and says so (hitDirs; my first cut forgot that and the #2414 "never starved"
+   test caught it). Reported `visited` is both counts, as the hatch's is added on macOS. Test: the reviewer's scenario
+   with a control that the shared budget really was spent; red without the own budget.
+2. FIXED: two comments still said the three re-enter only through the TCC hatch.
+3. NOTED, out of scope (true before this branch): Windows often redirects Documents and Desktop into OneDrive, and Linux
+   desktops can use translated names (~/Dokumente); path.join(home, 'Documents') then does not exist and those agents
+   are missed. Real Windows paths are reasoned here (os.homedir reads USERPROFILE there), not run.
+4. FIXED: the Tests line said "1 pass, 2 fail" without saying only this file ran: it did (3 tests then).
