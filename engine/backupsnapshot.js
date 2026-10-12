@@ -831,7 +831,11 @@ async function snapshotInner(input, deps, added, state, fail) {
   }
   if (!chunks.length) return fail('there is nothing to back up: no file with content (empty files alone make no snapshot, since a manifest must name at least one chunk)');
   const manifest = {
-    format: FORMAT, takenAt: new Date(t).toISOString(), namingKeyId,   // t: the reading already checked
+    // namingKey (#5535): the period's naming key itself, so a restore has it from the sealed, device-signed manifest
+    // rather than from a stored wrap, which is unauthenticated (engine/backupkeys.js) and kept nowhere. The manifest is
+    // sealed to the member public key, as a wrap would be. The 1024 bytes the estimate starts at cover it (the fixed
+    // fields come to about 270 with it).
+    format: FORMAT, takenAt: new Date(t).toISOString(), namingKeyId, namingKey: namingKey.toString('base64'),   // t: the reading already checked
     files, objects, redacted, skipped, skippedNotListed: skippedExtra,
   };
   // A period boundary passed during the run: NO manifest grant is asked for. The manifest is sealed with

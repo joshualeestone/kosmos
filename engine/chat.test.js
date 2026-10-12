@@ -1048,7 +1048,7 @@ test('a thread filed under a different agent is refused rather than rendered as 
   assert.throws(() => chat.readThread('mixed', 'casey'), (err) => err.code === 'UNPARSEABLE');
 });
 
-test('a full thread REFUSES to record rather than dropping the oldest thing the person wrote', () => {
+test('a full thread ROLLS OVER (kosmos#5841): the next message is kept, and nothing the person wrote is dropped', () => {
   const file = chat.threadFile('full', 'casey');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const many = Array.from({ length: chat.MAX_MESSAGES }, (_, i) => ({
@@ -1056,11 +1056,18 @@ test('a full thread REFUSES to record rather than dropping the oldest thing the 
   }));
   fs.writeFileSync(file, JSON.stringify({ project: 'full', agent: 'casey', messages: many }));
   const kept = chat.appendMessage('full', 'casey', { text: 'one more', delivery: { state: chat.DELIVERY.PLACED } });
-  assert.equal(kept.recorded, false);
-  assert.match(kept.because, /1000 messages/);
-  // Nothing of the person's was deleted to make room.
-  assert.equal(chat.readThread('full', 'casey').messages.length, chat.MAX_MESSAGES);
-  assert.equal(chat.readThread('full', 'casey').messages[0].text, 'm0');
+  assert.equal(kept.recorded, true, 'a full thread refused the next message: ' + kept.because);
+  const now = chat.readThread('full', 'casey');
+  // The new file carries a COPY of the full file's last 200 rows (`carried`), then the new message.
+  assert.equal(now.carried, 200, 'the new file does not say how many rows it carried');
+  assert.deepEqual([now.messages.length, now.messages[0].text, now.messages[199].text, now.messages[200].text],
+    [201, 'm' + (chat.MAX_MESSAGES - 200), 'm' + (chat.MAX_MESSAGES - 1), 'one more'], 'the carried rows, then the new message');
+  assert.ok(now.continues, 'the new file does not name the full one it continues');
+  // Nothing of the person's was deleted to make room: the full file is set aside whole, oldest first.
+  const aside = JSON.parse(fs.readFileSync(path.join(path.dirname(file), now.continues), 'utf8'));
+  assert.equal(aside.messages.length, chat.MAX_MESSAGES);
+  assert.equal(aside.messages[0].text, 'm0');
+  assert.deepEqual(chat.asideChain('full', 'casey', false).map((a) => a.count), [chat.MAX_MESSAGES], 'the chain reaches it');
 });
 
 test('a recording failure NEVER throws, so a delivered message cannot come back looking undelivered', () => {

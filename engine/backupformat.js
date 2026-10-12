@@ -266,6 +266,9 @@ function verifyManifestSignature(devicePub, ctx, object) {
     return crypto.verify(null, signedBytes(sealed, ctx), devicePub, sig);
   } catch { return false; }
 }
+// The opened manifest holds a SECRET since #5535: namingKey, the period's naming key. With it and the store's chunk names,
+// anyone can test guessed content without the member key. A consumer (the content view, restore) picks the fields it
+// needs and never passes the opened object on, logs it or returns it whole.
 /** Verify the device signature, then open the manifest. Returns the parsed manifest, or null on ANY failure. */
 function openManifest(memberSk, devicePub, ctx, object) {
   try {

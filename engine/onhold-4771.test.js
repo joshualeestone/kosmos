@@ -148,18 +148,41 @@ test('#4771 review: an agent\'s own instructions list held work marked, so it do
   assert.doesNotMatch(line('Live', 2), /on hold/, 'control: a task not held is marked held');
 });
 
-test('#4771 review: in a paused project a task marked built reads held (held is checked first, by design); resumed, it reads built again', () => {
+test('#5864: in a paused project a task marked built reads BUILT (waiting for review), not held; not built, it reads held', () => {
   const w = world('holdbuilt' + seq, true);
   try {
-    tasks.setBuilt(w.pid, w.n, { by: w.who, note: 'waiting on the release' });
     const row = () => tasks.allTasks().find((t) => t.projectId === w.pid && t.number === w.n);
-    assert.equal(tasks.taskState(row()), 'built', 'control: the built mark did not read built');
     projects.edit(w.pid, { paused: true });
-    assert.equal(tasks.taskState(row()), 'held');
-    assert.ok(row().builtAt, 'pausing lost the built mark');
+    assert.equal(tasks.taskState(row()), 'held', 'control: a paused project\'s unbuilt task does not read held');
+    tasks.setBuilt(w.pid, w.n, { by: w.who, note: 'waiting on the release' });
+    assert.equal(row().projectPaused, true, 'the row no longer says its project is paused');
+    assert.equal(tasks.taskState(row()), 'built', 'a built task in a paused project read as stalled (held)');
+    assert.equal(tasks.listGroup(row()), 'built', 'kosmos task list grouped it differently from the board');
     projects.edit(w.pid, { paused: false });
-    assert.equal(tasks.taskState(row()), 'built', 'resuming did not bring the built state back');
+    assert.equal(tasks.taskState(row()), 'built', 'resuming changed the built state');
   } finally { w.restore(); }
+});
+
+test('#5864: the task\'s OWN hold still wins over built, paused project or not', () => {
+  const w = world('ownhold' + seq, true);
+  try {
+    const row = () => tasks.allTasks().find((t) => t.projectId === w.pid && t.number === w.n);
+    tasks.setBuilt(w.pid, w.n, { by: w.who });
+    tasks.setOnHold(w.pid, w.n, true);
+    assert.equal(tasks.taskState(row()), 'held', 'a built task the person put on hold did not read held');
+    assert.equal(tasks.listGroup(row()), 'held');
+    projects.edit(w.pid, { paused: true });
+    assert.equal(tasks.taskState(row()), 'held', 'held and in a paused project, it did not read held');
+  } finally { w.restore(); }
+});
+
+test('#5864: an agent is still told not to start a built task in a paused project', () => {
+  const task = (number, extra) => Object.assign({ number, sentence: 'task ' + number, who: 'ada' }, extra);
+  const body = projects.blockBody([
+    { id: 'parked', name: 'Parked', folder: '/tmp/parked', paused: true, tasks: [task(1, { builtAt: '2026-10-11T00:00:00Z', builtBy: 'ada' })] },
+  ], 'ada');
+  const line = body.split('\n').find((l) => l.includes('task 1 of Parked:')) || '';
+  assert.match(line, /\[on hold:[^\]]*do not start it/, 'a built task in a paused project lost its on-hold mark: ' + body);
 });
 
 test('#4771 review: a project whose only open task is on hold is not empty, so its goal is not asked (control: the same project with no tasks is)', () => {

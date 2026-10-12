@@ -352,7 +352,7 @@ test('only these two writes opened: every neighbour stays behind the board token
     ['POST', '/api/project/p4491/task/1/reopen'], ['POST', '/api/project/p4491/task/1/due'], ['POST', '/api/project/p4491/task/1/close/'],
     ['POST', '/api/project/p4491/task/x/close'], ['POST', '/api/project/a/b/tasks'], ['POST', '/api/project/p4491/tasks/'],
     ['PUT', '/api/project/p4491/tasks'], ['DELETE', '/api/project/p4491/tasks'], ['GET', '/api/project/p4491/tasks'],
-    ['POST', '/api/tasks/close'], ['POST', '/api/projects'], ['POST', '/api/project/p4491/room/reopen'], ['GET', '/api/project/p4491/task/1/activity'],
+    ['POST', '/api/tasks/close'], ['POST', '/api/projects'], ['POST', '/api/project/p4491/room/reopen'], ['GET', '/api/project/p4491/task/1/receipt'],   // #5874 opened the activity READ (kosmos task activity); the receipt stays the person's
   ];
   for (const [method, p] of closed) {
     const r = await call(method, p, { headers: asAgent(w.mara), body: method === 'GET' ? undefined : {} });

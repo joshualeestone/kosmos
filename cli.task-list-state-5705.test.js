@@ -54,7 +54,7 @@ test.before(async () => {
   assert.ok(tasks.setBuilt(projectId, N.built, { by: 'mara' }).ok);
   assert.ok(tasks.setBuilt(projectId, N.heldbuilt, { by: 'mara' }).ok);
   tasks.setOnHold(projectId, N.held, true);
-  tasks.setOnHold(projectId, N.heldbuilt, true);   // on hold AND built: held, as its [on hold] mark prints first
+  tasks.setOnHold(projectId, N.heldbuilt, true);   // its OWN hold AND built: held, as its [on hold] mark prints first
   tasks.close(projectId, N.done);
 });
 test.after(() => {
@@ -70,10 +70,12 @@ const names = (rows) => rows.map((t) => t.sentence.replace('Task ', ''));
 /* Newest first within a group, as allTasks orders them. */
 const WANT = ['open2', 'open1', 'built', 'heldbuilt', 'held', 'done'];
 
-test('engine: each task is in one group, and the marks decide it (done, then on hold, then built)', () => {
+test('engine: each task is in one group, and the marks decide it (done, then the task\'s own hold, then built, then a paused project)', () => {
   assert.deepEqual(tasks.LIST_GROUPS, ['open', 'built', 'held', 'done']);
   assert.equal(tasks.listGroup({ isClosed: true, builtAt: 'x', onHold: true }), 'done');
-  assert.equal(tasks.listGroup({ builtAt: '2026-10-09T00:00:00Z', projectPaused: true }), 'held');
+  assert.equal(tasks.listGroup({ builtAt: '2026-10-09T00:00:00Z', projectPaused: true }), 'built');   // #5864: a pause does not hide finished work
+  assert.equal(tasks.listGroup({ projectPaused: true }), 'held');   // #5864 control: not built, a paused project's task is held
+  assert.equal(tasks.listGroup({ builtAt: '2026-10-09T00:00:00Z', onHold: true, projectPaused: true }), 'held');   // its own hold still wins
   assert.equal(tasks.listGroup({ builtAt: '2026-10-09T00:00:00Z' }), 'built');
   assert.equal(tasks.listGroup({ builtAt: '' }), 'open');
   assert.equal(tasks.listGroup({}), 'open');
@@ -163,6 +165,39 @@ test('Windows: task list prints open first, then built, on hold, done; --state k
   } finally { old.close(); }
 });
 
+// #5864: a PAUSED project with a built and an unbuilt task. Built groups as built and prints [built] [project paused];
+// not built, it is on hold. The route and both CLIs agree, so --state held never contradicts the printed marks.
+let parkedId;
+const P = {};
+test.before(() => {
+  parkedId = projects.create({ name: 'Parked' }).id;
+  projects.mutate(parkedId, (p) => ({ ...p, agents: ['mara'] }));
+  for (const k of ['pbuilt', 'popen', 'pheld']) P[k] = tasks.create(parkedId, { sentence: 'Task ' + k, who: 'mara' }).number;
+  assert.ok(tasks.setBuilt(parkedId, P.pbuilt, { by: 'mara' }).ok);
+  assert.ok(tasks.setBuilt(parkedId, P.pheld, { by: 'mara' }).ok);
+  tasks.setOnHold(parkedId, P.pheld, true);   // built AND on its own hold: held, [on hold] [built], no paused note
+  projects.edit(parkedId, { paused: true });
+});
+const parked = async (q) => (await (await fetch(`${base}/api/tasks?project=${encodeURIComponent(parkedId)}${q}`)).json()).tasks;
+const parkedMarks = (out) => {
+  const l = (k) => out.split('\n').find((x) => x.includes('Task ' + k)) || '';
+  assert.match(l('pbuilt'), /^\[\d+\] \[built\] \[project paused\] /, out);
+  assert.doesNotMatch(l('pbuilt'), /\[on hold\]/, out);
+  assert.match(l('popen'), /^\[\d+\] \[on hold\] /, out);
+  assert.match(l('pheld'), /^\[\d+\] \[on hold\] \[built\] /, out);
+  assert.doesNotMatch(l('pheld'), /\[project paused\]/, out);
+};
+test('#5864 route: in a paused project the built task is in built, not held; the unbuilt one is held', async () => {
+  assert.deepEqual(names(await parked('&order=state')), ['pbuilt', 'pheld', 'popen']);
+  assert.deepEqual(names(await parked('&state=built')), ['pbuilt']);
+  assert.deepEqual(names(await parked('&state=held')), ['pheld', 'popen']);
+});
+test('#5864 Windows: a built task in a paused project prints [built] [project paused]', async () => {
+  const r = await win(['task', 'list', parkedId]);
+  assert.equal(r.code, 0, r.err);
+  parkedMarks(r.out);
+});
+
 // ── Mac: install/kosmos (bash 3.2) ─────────────────────────────────────────
 const MAC_HOME = path.join(SANDBOX, 'kosmos-home');
 fs.mkdirSync(path.join(MAC_HOME, 'runtime', 'bin'), { recursive: true });
@@ -200,4 +235,10 @@ test('Mac: task list prints open first, then built, on hold, done; --state keeps
     const plain = await mac(['task', 'list', 'p1'], old.address().port);
     assert.equal(plain.code, 0, 'CONTROL: without --state an older board still lists: ' + plain.out);
   } finally { old.close(); }
+});
+
+test('#5864 Mac: a built task in a paused project prints [built] [project paused]', async () => {
+  const r = await mac(['task', 'list', parkedId]);
+  assert.equal(r.code, 0, r.out);
+  parkedMarks(r.out);
 });

@@ -340,7 +340,7 @@ test('#4356: the restart screen, run for real: it hides a waiting first screen, 
   const ctx = {
     document: doc, location: { protocol: 'http:', host: '127.0.0.1:1' }, Date: { now: () => now }, console: { info() {} },
     MutationObserver: undefined,
-    offlineRemoteView: () => false, bakedVersion: () => '0.0.0', platformCopy: (k, mac) => mac, restartHowMac: () => '',
+    offlineRemoteView: () => false, bakedVersion: () => '0.0.0', restartHowText: () => '',   // #5862: the screen's one step (per platform) is its own function now
     asSentence: (s) => s, startKLoader() {},
   };
   vm.createContext(ctx);

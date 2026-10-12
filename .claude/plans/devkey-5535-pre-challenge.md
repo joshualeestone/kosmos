@@ -1,0 +1,113 @@
+---
+pre_challenge: true
+method: challenge-loop
+branch: devkey-5535
+diff_hash: 9ff6ee0fea9e0ca365f073dff9e7b49f6c7090791eda1bdab18c79ce5d749fc9
+validation: passed (Mortals full suite at 4e10e0d66, 19241 tests, 18998 pass, 0 fail, 0 cancelled, 2026-10-11 21:23 CDT; local helper skipped on that clean entry, hash 9ff6ee0fea9e)
+subdir_audit: passed
+timestamp: 2026-10-12T02:24:10Z
+iterations: 6
+converged: true
+---
+
+## [CHALLENGE-LOOP] Summary
+
+**Iterations:** 6 blind reviews: Sonnet, Opus, Sonnet, Opus, Sonnet, Opus.
+**Converged:** Yes, at iteration 6 (Opus): CONVERGED, NITs only. The design changed at review 4: the reader claims no identity (the connector writes mac_key and mac_id non-atomically, kosmos#5871).
+**Findings:** every review's findings and dispositions are below, from the plan's Review sections.
+**Asked (awaiting user):** 0
+
+### Per-Iteration Breakdown
+
+#### Iteration 1
+**Reviewer model:** sonnet (blind, on 73c63c941; NOT CONVERGED)
+- Checked and held: domain separation (the only Rust mac_key signers, coordinator.rs:219 and assistant.rs:292, both sign
+  `{ts}\n...` with ts a u64, first byte a digit; the manifest side signs from the tag, first byte `k`; both pure Ed25519,
+  no prehash or context; no Node mac_key signer; pairing.rs only hashes the bytes). Base64 parsing agrees with
+  URL_SAFE_NO_PAD's canonical rule.
+- FIXED (WARNING): JS trim() strips a BOM that Rust keeps, so a file the connector refuses read here as a key nobody
+  enrolled. Now trimmed with Rust's exact set (\p{White_Space}). Tests: a BOM refused, U+0085 and U+00A0 trimmed; the
+  JS-trim mutant red.
+- FIXED (NIT): where O_NOFOLLOW is 0 the lstat was by name; it must now name the opened file (same dev and inode).
+  Not testable on this Mac (O_NOFOLLOW is set); stated as a residual for Windows tests.
+- FIXED (NIT): key buffers are wiped in finally on every path; the comment says the string and KeyObject cannot be.
+- FIXED (NIT): an empty, relative or non-string stateDir is refused, never the live default. Test; mutant red.
+- FIXED (NIT): a FIFO case (refused as not a plain file, without blocking).
+- NO CHANGE (NIT): the "no path, no key bytes" assertions cannot fail today (fixed sentences); kept as regression guards.
+
+#### Iteration 2
+**Reviewer model:** opus (blind, on 38af31862; NOT CONVERGED)
+- Checked and held: \p{White_Space} in Node is exactly the 25 White_Space code points Rust trims (enumerated); base64
+  0.22 URL_SAFE_NO_PAD agrees; domain separation; link/FIFO ordering; torn writes refuse rather than misread.
+- FIXED (WARNING): mac_key is replaced with mac_id on every registration (setup.rs write_identity; renewal never touches
+  either). mac_id is now read before and after the key and a change refuses ("registered again"); the result names
+  macId so slice (c) can record which identity signed. CONTRACT for restore (#5536) and the content view (#5686): keep
+  retired device keys, since a manifest verifies only against the identity that signed it (posted on #5535).
+- FIXED (WARNING): a folder with mac_key and no mac_id (write_identity writes mac_key first; a cut-off registration) was
+  read as a key. Now missing, as MacState::open and remote.holdsKey treat it.
+- FIXED (NIT): "a renewed key is picked up" was wrong (renewal is the TLS certificate); the header now says what changes it.
+- FIXED (NIT): the BOM and NBSP test literals were raw invisible characters; now escapes.
+- Tests: 8. Mutants red: the identity compare, macId dropped, the mac_id form check, JS trim. The first read's missing
+  check survives alone (the second read refuses the same missing file); with both reads' missing checks removed: red.
+- Real files (17:5x, only ok/type/length printed): two connector-written state folders read ok, ed25519, a 32-char macId.
+
+#### Iteration 3
+**Reviewer model:** sonnet (blind, on 4eab0bc7c; NOT CONVERGED)
+- FIXED (BLOCKER): write_identity rewrites mac_key, then mac_id, in place (std::fs::write), under a file lock Node
+  cannot take, so the id-key-id reads could return the NEW key with the OLD id. A key written in the last 10 minutes
+  and newer than the id is now refused with retry. Only recent: an older pair in that order is not a live
+  registration (a cut-off one signs as the wrong id, so Kosmos+ refuses its grants and no backup uploads), and
+  refusing it would stop backups for good. Measured: in both connector-written folders on this Mac the key is 76 and
+  100 microseconds OLDER than the id. A third folder that first looked like a counterexample turned out not to hold a
+  connector key at all (a test fixture). Tests: caught mid-write refused; then the id lands and it reads; an old
+  reversed pair reads. Mutants red (the check removed; the age bound removed).
+- FIXED (WARNING): an empty file during the truncation is now refused with retry. Mutant red.
+- FIXED (WARNING): the test models the undetectable interleaving now, and a same-text id rewrite mid-read (time
+  changed): both refused. The time-equality mutant, which first survived, now red.
+- FIXED (CONVENTION): the header no longer says "a Forget" (the connector has none that deletes these; each
+  registration replaces both). macId is documented as a HINT: consumers verify against the identity the coordinator
+  recorded for the upload, then the member's other device keys.
+- Filed kosmos#5871: the connector writing its identity atomically, the real fix.
+- NO CHANGE (NIT): MAC_ID_RE is wider than the coordinator's 32-hex ids; it accepts them all.
+
+#### Iteration 4
+**Reviewer model:** opus (blind, on 22bc03434; NOT CONVERGED; the design is changed)
+- BLOCKER, reproduced by the reviewer: the key's time came from the fstat BEFORE the read, so a key write landing
+  between them passed every check and returned the new key with the old id. Plus: the time test fails on a clock set
+  back, on 1-second filesystems, and on a forward clock jump; and its only test used a future time.
+- DECIDED: stop claiming an identity at all. Reviews 2 to 4 each found an interleaving that one more check could not
+  close: two in-place writes under a lock Node cannot take cannot be read consistently from outside (kosmos#5871 asks
+  for an atomic write). deviceKey now returns the key alone (no macId), and the identity pair checks and file-time
+  heuristics are removed. Harmless by contract: consumers verify against the identity Kosmos+ recorded for the upload,
+  then the member's other device keys (never a manifest's own word); a mid-registration key is the new identity's,
+  enrolled when it finishes; one whose registration never finishes uploads nothing. REVERSES review 2's "returns macId so
+  slice (c) can record it" (the #5535 comment is corrected).
+- Kept: mac_id must exist (missing, a first registration cut off after the key); an empty file is retry; a file held by
+  another program (EBUSY, EAGAIN, EPERM, EACCES, a vanish between steps) is retry; a wrong form is never retry.
+- FIXED (WARNING): the test file now runs on Windows (tools/windows-tests.js ALSO); link and FIFO cases skip there.
+- FIXED (NIT): the folder must be absolute whether given or from AGENT_WORKFORCE_TUNNEL_STATE.
+- Tests: 7. Mutants, each red: mac_id existence, the empty-file retry, the transient retry, the absolute-path check,
+  JS trim, the canonical check, isFile. (Three of my first mutant runs were a split multi-line pattern that no longer
+  parsed; node --check caught them; redone as a one-line swap: red.)
+
+#### Iteration 5
+**Reviewer model:** sonnet (blind, on 19d62fe4d; NOT CONVERGED)
+- FIXED (WARNING): the contract named something that does not exist: Kosmos+ records an upload by org and account only
+  (backup.rs member_of; backup_manifests has no device column). Now: a manifest is checked against EVERY device key the
+  account has had, current and retired, so Kosmos+ must keep retired device public keys (posted on #5535).
+- FIXED (WARNING): EPERM/EACCES were retry everywhere; on macOS and Linux they are a lasting misconfiguration, so
+  retry only on Windows (sharing violations). Mutant red.
+- FIXED (WARNING): existsSync(mac_id) read an unreadable folder as "never set up", which would send the person to
+  register over a good identity. statSync; only ENOENT is missing. Mutant red.
+- FIXED (WARNING): the Windows-only lines ran nowhere (POSIX reaches ELOOP first). Stub tests reach the lstat link check,
+  the dev/ino mismatch and the oversize read on any OS; the folder case runs on Windows too. Each line's mutant red.
+- FIXED (NIT): the header says when ENOENT is retry (between the open and the lstat).
+
+#### Iteration 6
+**Reviewer model:** opus (blind, on ac9f83f72; CONVERGED, NITs only)
+- Checked: every stub reaches the line it claims (fs is called through the object); Windows behaviour of every test;
+  the connector and coordinator claims (write_identity, MacState::open, holdsKey, no device column, retired macs rows
+  kept, member_of requiring the enrolled Mac, so a key beside an old mac_id cannot upload); no secret exposure; the
+  scheduler classification.
+- FIXED (NITs): null options return instead of throwing (test); a failure to load remote.js has its own sentence; the
+  header names a partial-key read as a known unclassified case and the connector's non-signature use of the seed.

@@ -1574,7 +1574,8 @@ function allTasks(everyProject) {
         projectName: p.name,
         /* #3559: the Tasks view leaves archived projects' tasks out, as the rails tuck them away. */
         projectArchived: p.archived === true,
-        /* #4771: a paused project's tasks read as on hold on the Tasks view. */
+        /* #4771: whether the task's project is paused. taskState and listGroup decide what that means: on hold, unless
+           the task is built (#5864). */
         projectPaused: p.paused === true,
         whoNames: whoOf(t),
         /* Named on the row rather than inferred by the screen: `progressOf`
@@ -1613,14 +1614,17 @@ function allTasks(everyProject) {
 
 /* #5705 (user feedback, 2026-10-09): `kosmos task list` was one flat list of every task in every state. The list
    groups by what the agent reading it acts on: open work first, then built and waiting, then on hold, then done,
-   each keeping allTasks' order (newest first). The same marks the list prints decide the group, so a row's group and
-   its [built] / [on hold] / [done] mark cannot disagree: done wins, then on hold, then built. */
+   each keeping allTasks' order (newest first). The FIRST mark the list prints names the group, so a row's group and
+   its marks cannot disagree: done wins, then the task's own hold, then built, then a paused project. #5864 (feedback,
+   2026-10-11): built work in a paused project is finished and waiting for review, so it groups as built and prints
+   [built] [project paused] (both CLIs), not [on hold]: a paused project whose work is done reads as waiting, not stuck. */
 const LIST_GROUPS = ['open', 'built', 'held', 'done'];
 function listGroup(t) {
   if (!t) return 'open';
   if (t.isClosed === true || progressOf(t).closed) return 'done';
-  if (isOnHold(t) || t.projectPaused === true) return 'held';
+  if (isOnHold(t)) return 'held';
   if (typeof t.builtAt === 'string' && t.builtAt) return 'built';
+  if (t.projectPaused === true) return 'held';
   return 'open';
 }
 /* Rows in group order (stable within a group); `only` keeps one group. An unknown `only` is the caller's to refuse. */
@@ -1651,6 +1655,8 @@ function inListOrder(rows, only = null) {
  *   'decision' (#3949) open, and the agent holding it needs the person right now
  *              (`waitingOnPerson`, set by the Tasks route from the roster); it
  *              wins over working and assigned, so each open task is in one group
+ *   'held'     (#4771, #5864) the task's own hold (before built), or a paused project (after built, so a built task in a
+ *              paused project reads built)
  *   'built'    (#3951) open, and marked built (`builtAt`, by `kosmos task built`): Josh's "Built but waiting". After
  *              decision (an agent needing the person is still the one to act on), before nobody, working and
  *              assigned (a built task whose agent was since taken off is still built).
@@ -1662,9 +1668,14 @@ function taskState(task) {
   if (!task) return 'nobody';
   if (progressOf(task).closed) return 'closed';
   if (task.waitingOnPerson === true && whoOf(task).length > 0) return 'decision';
-  /* #4771: held by the person (the task, or its paused project): after a decision, which the person still acts on. */
-  if (isOnHold(task) || task.projectPaused === true) return 'held';
+  /* #4771: held by the person (the task, or its paused project): after a decision, which the person still acts on.
+     #5864 (feedback, 2026-10-11): a project pause does not hide FINISHED work. A built task in a paused project reads
+     built ("Built but waiting"), not held, so a paused project with its work done reads as waiting for review rather
+     than stalled. The task's own hold still wins over built: that is the person parking this one task. The pause
+     itself is unchanged (the Assigner and nudger still skip the task; an agent's list still marks it on hold). */
+  if (isOnHold(task)) return 'held';
   if (typeof task.builtAt === 'string' && task.builtAt) return 'built';
+  if (task.projectPaused === true) return 'held';
   if (whoOf(task).length === 0) return task.repeat ? 'scheduled' : 'nobody';   // #5456
   return (task.claim && task.claim.claimed === true) ? 'working' : 'assigned';
 }

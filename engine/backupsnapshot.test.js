@@ -1648,3 +1648,20 @@ test('#5744 slice 3: a grant for another key epoch reaches the snapshot result a
     assert.equal(r3.ok, false); assert.equal('otherEpoch' in r3, false);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('#5535: a snapshot carries its naming key, and restores with no naming key given', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, true, r.because);
+    const bytes = st.manifests[0].bytes;
+    const opened = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, bytes);
+    assert.equal(opened.namingKey, k.nk.toString('base64'));
+    assert.equal(opened.namingKeyId, k.nkId);
+    const sink = memorySink();
+    const out = await br.restoreSnapshot({ memberSk: k.member.sk, devicePubAtSnapshot: k.dev.publicKey, ctx: k.ctx, manifestObject: bytes,
+      fetchChunk: (name) => st.objects.get(opened.objects[name]) || null, sink, maxTotalBytes: 2 ** 40 });
+    assert.ok(out && out.restored.length > 0, JSON.stringify(out));
+    assert.equal(out.failed.length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});

@@ -1,4 +1,4 @@
-// Browser-check-surface: tsk-groups tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
+// Browser-check-surface: tsk-paused tsk-groups tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
 'use strict';
 /**
  * On hold and paused, on the screen (kosmos#4771).
@@ -54,8 +54,15 @@ function chk(ok, label, extra) {
   tasks.create(launch.id, { sentence: 'Order proofs', who: 'ada' });      // 2: the control, never on hold
   tasks.create(launch.id, { sentence: 'Old checklist' });                 // 3: closed, so nothing to hold
   tasks.close(launch.id, 3);
+  tasks.create(launch.id, { sentence: 'Proof the index', who: 'ada' });   // 4: #5864 control, built in a running project
+  tasks.setBuilt(launch.id, 4, { by: 'ada' });
   const winter = projects.create({ name: 'Winter catalog' });
   tasks.create(winter.id, { sentence: 'Draft the plan' });                // 1: held by pausing its project
+  // #5864: ada builds task 2 here. Making her a project agent cannot get task 1 handed to her mid-check: the board
+  // here never runs live execution, and the Assigner ticks only when it is allowed (server.js, assigner.tick).
+  projects.addAgent(winter.id, 'ada', null);
+  tasks.create(winter.id, { sentence: 'Finish the cover', who: 'ada' });  // 2: #5864, built, so pausing leaves it built
+  tasks.setBuilt(winter.id, 2, { by: 'ada' });
   const summer = projects.create({ name: 'Summer list' });                // paused by an agent, before the page loads
   projects.edit(summer.id, { paused: true });
   /* #5456: a repeating task with nobody on it is run by a schedule: "On a schedule", never Unassigned. */
@@ -165,6 +172,17 @@ function chk(ok, label, extra) {
       chk(await heldCount(page, '2') === '2', `${tag} a paused project's task counts under On hold`, await text(page, '#tsk-tiles [data-tile="held"] .num'));
       const held2 = await heldRows(page);
       chk(held2.includes('Draft the plan') && !held2.includes('Order proofs'), `${tag} On hold shows the paused project's task, and still not the control`, JSON.stringify(held2));
+      // #5864: the paused project's BUILT task is waiting for review, not stalled: under Built but waiting, not On hold.
+      chk(!held2.includes('Finish the cover'), `${tag} a built task in a paused project is not under On hold`, JSON.stringify(held2));
+      const built2 = await tileRows(page, 'built');
+      chk(built2.includes('Finish the cover'), `${tag} a built task in a paused project is under Built but waiting`, JSON.stringify(built2));
+      const pausedNote = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row')]
+        .map((r) => [(r.querySelector('.tl') || {}).textContent, !!r.querySelector('.tsk-paused')]));
+      chk(pausedNote.some(([s, has]) => s === 'Finish the cover' && has), `${tag} its row says the project is paused`, JSON.stringify(pausedNote));
+      chk(pausedNote.some(([s, has]) => s === 'Order proofs' && !has), `${tag} a task in a project that is not paused carries no paused note (control)`, JSON.stringify(pausedNote));
+      // One control per half of the row's condition: built, AND in a paused project.
+      chk(pausedNote.some(([s, has]) => s === 'Draft the plan' && !has), `${tag} an unbuilt task in a paused project carries no paused note (its On hold group says it)`, JSON.stringify(pausedNote));
+      chk(pausedNote.some(([s, has]) => s === 'Proof the index' && !has), `${tag} a built task in a project that is not paused carries no paused note`, JSON.stringify(pausedNote));
       await openTask(page, winter.id, 1);
       chk(/This project is paused/.test(await text(page, '#tk-hold-hint') || ''), `${tag} a paused project's task says its project is paused`, await text(page, '#tk-hold-hint'));
 
