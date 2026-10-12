@@ -108,3 +108,4 @@ so the hidden-folder rule refuses none of them.
    real one). Test.
 2. FIXED: the refusal now says "or a hidden folder in the home folder", true for a folder that is merely hidden.
 Tests 20 -> 21.
+Mutant after review 6 (20:06 CDT from `date`): K1 one home only: red (21/20/1).
