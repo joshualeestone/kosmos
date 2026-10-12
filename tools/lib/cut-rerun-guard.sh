@@ -79,14 +79,17 @@ kosmos_failing_test_files() {
 # (which DOES remove cross-file concurrency) owns the fail>0 case. Node self-
 # contention on the rerun would red -> abort, the SAFE direction.
 #
-# COST: `max` shares the caller's budget with the file-by-file path, but each attempt
-# here is a full ~2-min `yarn test` (not a single file), so a genuinely-red fail-0
-# burns ~max x 2 min before aborting where the pre-#2006 code aborted at once. Safe-
-# direction and bounded; if the file path is ever given a higher `max`, split them.
+# COST, and #5907's split: each attempt here is a full `yarn test` (30 to 36 min by
+# 10-12, not the ~2 min this was written for), run while the cut holds the box. So
+# this path no longer shares the file-by-file `max`; it has its own budget,
+# KOSMOS_SUITE_RERUN_MAX, default 1. Measured over the six cuts whose logs reached
+# this path (10-07 to 10-08): three passed on attempt 1 and three stayed red on all
+# three, so attempts 2 and 3 changed no verdict and cost two suites per real red.
 #
 # SEAMS (so the test proves both verdicts without a real 2-minute suite):
 #   KOSMOS_SUITE_RERUN_CMD   the command run in $repo (default `yarn test`)
 #   KOSMOS_SUITE_RERUN_SLEEP seconds to pause between attempts (default 5; 0 in tests)
+#   KOSMOS_SUITE_RERUN_MAX   attempts for this path (default 1; the tests set 2 and 3)
 # Written errexit-safe (release.sh sources this under set -euo pipefail): the rerun
 # runs in an `if ( ... )` subshell so its non-zero does not abort, and the
 # inter-attempt pause is guarded by an `if` (a bare `&&` list could trip errexit).
@@ -175,7 +178,8 @@ kosmos_isolation_rerun_verdict() {
     # coverage mismatch has no tally and aborted above). A tally of 0 is not proof
     # node passed, so re-run the whole `yarn test` gate the cut ran: a green
     # reproduces nothing, proving the red was contention in whatever stage.
-    if kosmos_whole_suite_rerun_verdict "$repo" "$max"; then return 0; else return 1; fi
+    # #5907: its own budget, not the file-by-file "$max" (see COST above).
+    if kosmos_whole_suite_rerun_verdict "$repo" "${KOSMOS_SUITE_RERUN_MAX:-1}"; then return 0; else return 1; fi
   fi
 
   files=()
