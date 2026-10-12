@@ -44,9 +44,9 @@ of reading signed out.
   from the Windows job (POSIX fixture paths).
 
 ## Weakest premise
-**An emptied credential file reads "not checked", not "not signed in" (review 5).** "Unlisted" is decided by a
-credential file being THERE, not by the provider recognising it. If a CLI's logout empties auth.json (or leaves it
-with no auth.x.ai entry) rather than deleting it, the row says Kosmos could not check it, which is the cautious
+**A logged-out credential file may read "not checked", not "not signed in" (review 5).** "Unlisted" is decided by a
+non-empty credential file being THERE (an EMPTY one counts as gone, review 10), not by the provider recognising it. If
+a CLI's logout leaves auth.json with content but no usable entry (e.g. no auth.x.ai key) rather than deleting it, the row says Kosmos could not check it, which is the cautious
 side of the line but not the words Josh needed. Not measured: what `grok logout` / `codex logout` leave on disk.
 
 That the lapsed account's folder still exists and the job still names it. If the folder itself was removed, the row

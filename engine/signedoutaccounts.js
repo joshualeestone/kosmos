@@ -24,10 +24,11 @@ const PROVIDER_OF_RUNNER = Object.freeze({
 });
 const SHOWN_AGENTS = 3;   // a folder many agents share names the first few, then a count
 
-/* Whether a file is there. Only ENOENT is "not there": a folder Kosmos cannot read (EACCES) throws,
+/* Whether a file with something in it is there (an empty credential file holds no credential). Only ENOENT is "not
+   there": a folder Kosmos cannot read (EACCES) throws,
    so the row says it could not be checked rather than gone. fs.existsSync would answer false for both. */
 function fileThere(file) {
-  try { require('node:fs').statSync(file); return true; } catch (e) {
+  try { return require('node:fs').statSync(file).size > 0; } catch (e) {
     if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return false;
     throw e;
   }
@@ -52,6 +53,7 @@ function samePlace(d) {
 function signedOutRows(cards, listed, readJob, readName, exists = fileThere, defaultDirOf = () => null, hasSharedKey = () => false) {
   const byDir = new Map();
   const listedPlaces = new Map();
+  const defaultPlaces = new Map();
   for (const c of Array.isArray(cards) ? cards : []) {
     if (!c || !c.sessionName) continue;
     let job = null;
@@ -61,9 +63,14 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
     if (!p) continue;
     const dir = job && typeof job.configDir === 'string' && job.configDir ? path.resolve(job.configDir) : null;
     if (!dir) continue;
-    let dflt = null;
-    try { dflt = defaultDirOf(p.provider); } catch { dflt = null; }
-    if (dflt && samePlace(dflt) === samePlace(dir)) continue;
+    if (!defaultPlaces.has(p.provider)) {   // once per provider, like listedPlaces
+      let d = null;
+      try { d = defaultDirOf(p.provider); } catch { d = null; }
+      defaultPlaces.set(p.provider, d ? { dir: path.resolve(d), place: samePlace(d) } : null);
+    }
+    const dfltRec = defaultPlaces.get(p.provider);
+    const dflt = dfltRec ? dfltRec.dir : null;
+    if (dfltRec && dfltRec.place === samePlace(dir)) continue;
     if (!listedPlaces.has(p.provider)) {   // each provider's listed folders resolved once, not once per card
       const rows = (listed && Array.isArray(listed[p.provider])) ? listed[p.provider] : [];
       listedPlaces.set(p.provider, new Set(rows.filter((r) => r && typeof r.dir === 'string').map((r) => samePlace(r.dir))));
