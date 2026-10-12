@@ -52,6 +52,7 @@ function signedOutRows(cards, listed, readJob, readName, exists = (f) => require
       const base = path.basename(dir);
       const isDefault = base === p.prefix.slice(0, -1);   // the provider's default home, pinned by its job
       let unreadable = false;
+      // A look that fails counts as "there but unreadable": "could not be checked", never a confident "gone".
       try { unreadable = p.files.some((f) => exists(path.join(dir, f))); } catch { unreadable = true; }
       byDir.set(key, {
         provider: p.provider, providerName: p.providerName, dir,
