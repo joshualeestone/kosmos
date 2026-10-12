@@ -95,7 +95,10 @@ improvement it gained would have died with the session that wrote it.
    `KOSMOS_NOTARY_CODESIGN_CMD`, `KOSMOS_NOTARY_LIPO_CMD` or
    `KOSMOS_NOTARY_RETRY_DELAYS` is exported (even empty), and then makes one
    authenticated `notarytool history` request to Apple with the notary key, so a
-   bad key or an outage refuses before the bump is pushed.
+   bad key or an outage refuses before the bump is pushed. `KOSMOS_NOTARY_PROBE_BIN`
+   is deliberately not refused: like `KOSMOS_CODESIGN_BIN` it replaces only that
+   probe (the release-gate tests set it), says "not probed" when set, and step 4
+   still notarises for real.
 2. **Bump `package.json`.** One place. `engine/update.js` compares this against
    the served `latest.json`, numerically rather than lexically.
 3. **The whole suite**, on the tree that ships.

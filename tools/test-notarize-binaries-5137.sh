@@ -66,7 +66,8 @@ nt_stub() {
             if [ -n "${NT_FIRST_WAIT:-}" ] && [ "$(grep -c '^wait$' "$WORK/nt.ran")" = 1 ]; then
               echo "{\"status\":\"$NT_FIRST_WAIT\",\"id\":\"$2\"}"
             else echo "{\"status\":\"$NT_STATUS\",\"id\":\"$2\",\"message\":\"${NT_MESSAGE:-Processing complete}\"}"; fi ;;
-    history) echo "${NT_HISTORY:-{\"history\":[]\}}" ;;
+    history) if [ -n "${NT_HISTORY:-}" ]; then echo "$NT_HISTORY"
+             else echo '{"message":"Successfully received submission history.","history":[{"id":"x","status":"Accepted"}]}'; fi ;;
     log)    [ "${NT_LOG_FAIL:-0}" = 1 ] && { echo "Error: log unavailable" >&2; return 1; }
             [ "$(grep -c '^log$' "$WORK/nt.ran")" -le "${NT_LOG_FAIL_TIMES:-0}" ] && { echo "Error: connection reset" >&2; return 1; }
             [ -n "${NT_RAWLOG:-}" ] && { printf '%s\n' "$NT_RAWLOG"; return 0; }
@@ -219,6 +220,8 @@ out="$(notarize_probe_credentials 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(ran history)" -ge 1 ] && ok "the probe passes on an answer carrying history" || bad "probe pass (rc=$rc): $out"
 out="$(NT_HISTORY='Error: invalidPEMDocument' notarize_probe_credentials 2>&1)"; rc=$?
 [ "$rc" = 1 ] && case "$out" in *invalidPEMDocument*) true ;; *) false ;; esac && ok "the probe refuses an error answer, even with exit 0, and shows it" || bad "probe error (rc=$rc): $out"
+out="$(NT_HISTORY='{"error":"unauthorized","resource":"history"}' notarize_probe_credentials 2>&1)"; rc=$?
+[ "$rc" = 1 ] && ok "an error that merely mentions history does not pass the probe" || bad "a history-mentioning error passed the probe (rc=$rc): $out"
 out="$(KOSMOS_SECRETS_MAP_BIN=sm_none notarize_probe_credentials 2>&1)"; rc=$?
 [ "$rc" = 1 ] && ok "the probe refuses with no key" || bad "probe no key (rc=$rc)"
 out="$(KOSMOS_NOTARY_PROBE_BIN=true notarize_probe_credentials 2>&1)"; rc=$?
@@ -243,6 +246,6 @@ pack="$(grep -n '^echo "==> packing"' "$B" | head -1 | cut -d: -f1)"
   || bad "order wrong: notarise=$call last-sign=$last_sign last-selftest=$last_selftest pack=$pack"
 
 echo "test-notarize-binaries-5137: $passes passed, $fails failed"
-EXPECTED=53   # the number of ok lines above; a skipped arm must not read as green
+EXPECTED=54   # the number of ok lines above; a skipped arm must not read as green
 [ "$passes" = "$EXPECTED" ] || echo "test-notarize-binaries-5137: $passes passes, expected $EXPECTED (an arm was skipped or added without updating EXPECTED)"
 [ "$fails" = 0 ] && [ "$passes" = "$EXPECTED" ]

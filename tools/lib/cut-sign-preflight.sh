@@ -15,7 +15,8 @@
 # the Developer ID INSTALLER identity is listed as valid (missing or expired refuses) and
 # that the notary .p8 resolves; step 3c needs both whenever the pkg is rebuilt, and step 4 needs the
 # .p8 on every cut, to notarise kosmos-app and kosmos-tunnel (#5137). It does
-# not contact Apple's timestamp or notary services, and it does not detect two Installer
+# not contact Apple's timestamp or notary services (release.sh's 1c then contacts the notary
+# service once, through notarize_probe_credentials in lib/notarize-binaries.sh, #5137), and it does not detect two Installer
 # identities matching the same name (3c's own check does not either; productsign would).
 #
 # Sourced by release.sh under `set -euo pipefail`; called as `kosmos_sign_preflight ||
