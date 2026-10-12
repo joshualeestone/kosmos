@@ -21884,7 +21884,7 @@ function start(port = PORT) {
       try { shown = status.readIdentity(key).displayName || key; } catch { /* the handle still counts */ }
       named.set(key, shown);
     }
-    return [...named].map(([sessionName, shown]) => ({ sessionName, shown }));
+    return [...named].map(([handle, shown]) => ({ handle, shown }));
   });
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */

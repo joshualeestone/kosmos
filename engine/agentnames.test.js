@@ -9,9 +9,9 @@ const assert = require('node:assert/strict');
 const agentnames = require('./agentnames');
 
 const FLEET = [
-  { sessionName: 'gemini', shown: 'Gemini' },
-  { sessionName: 'subzero', shown: 'Sub-Zero' },
-  { sessionName: 'kano', shown: 'kano' },
+  { handle: 'gemini', shown: 'Gemini' },
+  { handle: 'subzero', shown: 'Sub-Zero' },
+  { handle: 'kano', shown: 'kano' },
 ];
 
 test('the key is the @-mention key: case, spaces, punctuation and accents do not make a new name', () => {
@@ -19,34 +19,31 @@ test('the key is the @-mention key: case, spaces, punctuation and accents do not
     assert.equal(agentnames.nameKey(s), 'gemini', s);
   }
   assert.equal(agentnames.nameKey(null), '');
-  // The SAME function mentionedMembers uses, so the two cannot drift.
-  const { mentionedMembers } = require('./messages');
-  const got = mentionedMembers('hi @GE-MINI', ['gemini'], [{ sessionName: 'gemini', name: 'Gemini' }]);
-  assert.deepEqual([...got.mentioned], ['gemini']);
+  // mentionedMembers (engine/messages.js) calls this same function, so its own tests (messages.mention-4642) hold it.
 });
 
 test('a display name another agent has is taken, and the sentence names it by name and handle', () => {
   const c = agentnames.clashFor('gemini', { agents: FLEET });
-  assert.deepEqual(c, { sessionName: 'gemini', shown: 'Gemini' });
+  assert.deepEqual(c, { handle: 'gemini', shown: 'Gemini' });
   assert.equal(agentnames.refusalFor('Sub Zero', { agents: FLEET }),
     'there is already an agent called Sub-Zero (@subzero). Pick another name, or rename that one first.');
 });
 
 test('another agent\'s HANDLE is taken too, even when its display name differs', () => {
-  const c = agentnames.clashFor('SubZero', { agents: [{ sessionName: 'subzero', shown: 'Frost' }] });
-  assert.equal(c && c.sessionName, 'subzero');
+  const c = agentnames.clashFor('SubZero', { agents: [{ handle: 'subzero', shown: 'Frost' }] });
+  assert.equal(c && c.handle, 'subzero');
 });
 
 test('a free name is free (control), and a key under two characters never clashes', () => {
   assert.equal(agentnames.clashFor('Gemini Two', { agents: FLEET }), null);
   assert.equal(agentnames.refusalFor('Liu Kang', { agents: FLEET }), null);
-  assert.equal(agentnames.clashFor('k', { agents: [{ sessionName: 'k', shown: 'K' }] }), null);
+  assert.equal(agentnames.clashFor('k', { agents: [{ handle: 'k', shown: 'K' }] }), null);
 });
 
 test('the agent being renamed never clashes with its own names (except)', () => {
   assert.equal(agentnames.clashFor('GEMINI', { agents: FLEET, except: 'gemini' }), null);
   // ...but still clashes with everyone else (control: except is not "skip the check").
-  assert.equal(agentnames.clashFor('Sub-Zero', { agents: FLEET, except: 'gemini' }).sessionName, 'subzero');
+  assert.equal(agentnames.clashFor('Sub-Zero', { agents: FLEET, except: 'gemini' }).handle, 'subzero');
 });
 
 test('the wired source: none wired is no clash; a source that throws or answers junk refuses', (t) => {
