@@ -2529,7 +2529,9 @@ function ownComputerDeviceName() {
 }
 /* kosmos#5995: the name this computer is sent under, on EVERY path that sends one (the sign-in's start and verify
    with no caller's label, and the quiet re-approval of this computer later). The person's choice when they made one
-   at the sign-in, the computer's own name when they did not. A cleared field is a choice and sends the plain name. */
+   at the sign-in, the computer's own name when they did not. A cleared field is a choice and sends the plain name.
+   It reads remote.json each time (the choice is not cached, so one typed at the sign-in is what every later path
+   sends): fine for its three callers, which run once per sign-in step, and not something to call in a loop. */
 function thisComputerDeviceName() {
   const chosen = read().computer_name;
   return typeof chosen === 'string' ? deviceNameFrom(chosen) : ownComputerDeviceName();
@@ -2565,10 +2567,12 @@ function computerNameChoice(raw) {
     while (v.endsWith(DEVICE_SUFFIX) || v === DEVICE_SUFFIX.trim()) v = v.slice(0, -DEVICE_SUFFIX.trim().length).trim();
     return v;
   };
-  /* Characters nobody can see go first (zero-width and direction marks, the soft hyphen, the byte-order mark): a
-     name made only of them LOOKS like a cleared box and must be one, and a direction override inside a name can
-     make the account's list read as something else. A half of a character pair on its own is replaced. */
-  const cleaned = raw.toWellFormed().replace(/[­؜​-‏‪-‮⁠-⁤⁦-⁩﻿]/g, '')
+  /* Characters that draw nothing go first: a name made only of them LOOKS like a cleared box and must be one, and
+     a direction override inside a name can make the account's list read as something else. Not a list of code
+     points (the first version was one, and a review found the ones it missed): Unicode's own property for
+     characters a renderer shows as nothing (zero-width and direction marks, the soft hyphen, variation selectors,
+     the Hangul fillers), plus every other format character. A half of a character pair on its own is replaced. */
+  const cleaned = raw.toWellFormed().replace(/[\p{Default_Ignorable_Code_Point}\p{Cf}]/gu, '')
     .replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
   const own = withoutSuffix(ownComputerDeviceName());
   /* The text the box was filled with, left as it was, is "untouched" whatever it looks like (a computer named

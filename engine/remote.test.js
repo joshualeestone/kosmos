@@ -4962,6 +4962,14 @@ test('#5995: a typed " (Kosmos app)" ending is not doubled, and one derivation s
     // Characters nobody can see: a name made only of them is a cleared box, and none of them stays inside a name.
     assert.deepEqual(remote.computerNameChoice('​‍﻿'), { ok: true, next: '', label: 'This computer (Kosmos app)', box: '' });
     assert.equal(remote.computerNameChoice('Sam‮elif‬ Mac­').next, 'Samelif Mac');
+    // Not a list of code points: anything Unicode says draws nothing. The Hangul fillers and a variation selector
+    // are not white space and were missed by a list; alone they are a cleared box, inside a name they are gone.
+    for (const blank of ['ㅤ', 'ᅟᅠ', 'ﾠ', '️︀', 'ㅤ ​️']) {
+      assert.deepEqual(remote.computerNameChoice(blank), { ok: true, next: '', label: 'This computer (Kosmos app)', box: '' }, 'a name that draws nothing was kept: ' + JSON.stringify(blank));
+    }
+    assert.equal(remote.computerNameChoice('DenㅤMac️').next, 'DenMac');
+    // CONTROL: ordinary letters from other scripts, and an emoji, are names.
+    for (const real of ['한글 Mac', 'Büro', '\u{1F600}']) assert.equal(remote.computerNameChoice(real).next, real);
     // Half of a character pair on its own (a script can send one; a page cannot) is not handed on as it is.
     assert.equal(remote.computerNameChoice('A\ud83d').next, 'A�');
     // What the server does: one choice asked, and kept, is the same as doing both from the text.

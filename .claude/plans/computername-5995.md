@@ -18,7 +18,7 @@ sent, let the person change or clear it, and use the chosen name on every path t
 - `web/index.html`: a "Name for this computer" box on the email step. It is hidden until the route has
   answered, then shown filled; the start waits for that read and sends the box's text. Enter in it asks
   for the code.
-- Tests named `#5995`: 10 in `engine/remote.test.js`, 1 in `server.test.js`, 5 in
+- Tests named `#5995`: 8 in `engine/remote.test.js`, 1 in `server.test.js`, 5 in
   `web.computer-name-5995.test.js`, 2 in `web.code-box.test.js` (which also loads the real name function). Browser check
   `docs/browser-checks/render-plus-computer-name-5995.js` drives the real page and the real routes.
 
@@ -219,3 +219,14 @@ Not taken (third time): the plan's file name and the commit subjects (reasons in
   ROUTE, which now holds one choice and passes it to `canKeepComputerNameChoice` and `keepComputerNameChoice`.
 - CONVENTION, not taken (fifth time): the plan's file name and the commit subjects.
 - NITs taken: two stale "shows the plain name" comments; a test that `computer_name` wins over `device_name`.
+
+## Review 10 (sonnet)
+2 WARNING, 3 NIT.
+- WARNING taken, as a rule and not as more entries: the list of invisible characters I wrote in round 9 missed the
+  Hangul fillers and the variation selectors. It is now Unicode's own property for characters that draw nothing
+  (`Default_Ignorable_Code_Point`) plus every format character, so there is no list to be short. Tested with the
+  ones the list missed, and with a control that Korean letters, an umlaut and an emoji are still names.
+- WARNING taken as a sentence: `thisComputerDeviceName()` reads the settings file on each call; the comment says so.
+- NIT taken: the route's line about two starts said more than the engine allows (it refuses a start while a step
+  is busy). Not taken: a comment about a fetch that rejects after a clear (the code beside it already says a
+  read left over from a cleared sign-in is dropped).
