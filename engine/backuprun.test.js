@@ -166,6 +166,9 @@ test('no device key: no snapshot, and the period\'s naming key is still kept', a
   const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, deviceKey: () => ({ ok: false, retry: true, because: 'the device key could not be read just now' }) }));
   assert.deepEqual([r.ok, r.retry, take.calls.length], [false, true, 0]);
   assert.equal(backupstate.readState(A.org, A.member).state.periods[0].label, WEEK);
+  // Review 3: never set up is said as that, apart from a retry.
+  const m = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, deviceKey: () => ({ ok: false, missing: true, because: 'remote access is not set up on this computer' }) }));
+  assert.deepEqual([m.ok, m.missing, 'retry' in m, take.calls.length], [false, true, false, 0]);
 });
 
 test('a state that cannot be written before the snapshot: no snapshot, and the answer never claims the backup ran', async () => {
@@ -263,4 +266,48 @@ test('review 2: lostEpochIgnored and leftOut reach the caller', async () => {
   await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: taker({ ok: true }) }));
   const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(Object.assign(okKey(A), { lostEpochIgnored: true })), takeSnapshot: taker({ ok: true, added: bad, bucket: 'b1' }) }));
   assert.deepEqual([r.ok, r.lostEpochIgnored, r.leftOut], [true, true, 1], JSON.stringify(r));
+});
+
+test('end to end: a run through the REAL snapshot is restored by the real restore with nothing but the member key and the device key', async () => {
+  const bf = require('./backupformat');
+  const br = require('./backuprestore');
+  const { hpkeKeyPair } = require('./hpke');
+  const member = hpkeKeyPair();
+  const dev = crypto.generateKeyPairSync('ed25519');
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-backuprun-e2e-')));
+  const root = path.join(base, 'kosmos');
+  fs.mkdirSync(path.join(root, 'agents', 'a'), { recursive: true });
+  const files = { 'agents/a/notes.md': Buffer.from('plain notes\n'), 'readme.txt': Buffer.from('hello'),
+    'agents/a/long.md': Buffer.from(Array.from({ length: 20000 }, (_, i) => `line ${i} of a long file\n`).join('')) };
+  for (const [rel, b] of Object.entries(files)) fs.writeFileSync(path.join(root, rel), b);
+  // A store standing in for both uploaders, handing out keys in the run's week, under the run's pair and epoch.
+  const objects = new Map(), manifests = [];
+  let n = 0;
+  const LOCKED = Date.parse('2026-11-11T00:15:00Z');
+  const uploadChunks = async (d, batch) => {
+    const keys = new Map(), lockedUntil = new Map();
+    for (const { name, object } of batch) { const key = `${A.org}/${A.member}/1/${WEEK}/k${++n}`; objects.set(key, Buffer.from(object)); keys.set(name, key); lockedUntil.set(name, LOCKED); }
+    return { ok: true, keys, lockedUntil, bucket: 'bucket/' };
+  };
+  const uploadManifest = async (d, bytes) => { manifests.push(bytes); return { ok: true, key: `${A.org}/${A.member}/1/${WEEK}/m${manifests.length}`, lockedUntilMs: LOCKED }; };
+  let sealedCtx;   // the context the run gave the snapshot (the snapshot id is the run's own)
+  const takeSnapshot = (input) => { sealedCtx = input.ctx; return snap.takeSnapshot(input, { now: () => NOW, uploadChunks, uploadManifest }); };
+  try {
+    const ensure = ensurer({ ok: true, epoch: 1, publicKey: member.pk, ...A });
+    const r = await run.runBackup({ roots: [{ name: 'work', path: root }] }, deps({ ensureMemberKey: ensure, takeSnapshot, deviceKey: () => ({ ok: true, privateKey: dev.privateKey }) }));
+    assert.equal(r.ok, true, r.because);
+    assert.equal(manifests.length, 1);
+    // The restore side knows its member key, the device's public key and the context. It is given NO naming key: the
+    // manifest carries it (slice (a)), and nothing else stores one.
+    const kept = backupstate.readState(A.org, A.member).state;
+    const committed = new Map();
+    const sink = { begin(p) { const parts = []; return { write(b) { parts.push(Buffer.from(b)); }, commit() { committed.set(p, Buffer.concat(parts)); }, abort() {} }; } };
+    const opened = bf.openManifest(member.sk, dev.publicKey, sealedCtx, manifests[0]);
+    assert.ok(opened, 'the manifest opens with the device key and the run\'s context');
+    const rr = await br.restoreSnapshot({ memberSk: member.sk, devicePubAtSnapshot: dev.publicKey, ctx: sealedCtx, manifestObject: manifests[0],
+      fetchChunk: (name) => objects.get(opened.objects[name]) || null, sink, maxTotalBytes: 2 ** 40 });
+    assert.equal(rr.failed.length, 0, JSON.stringify(rr.failed));
+    for (const [rel, b] of Object.entries(files)) assert.ok(committed.get('work/' + rel) && committed.get('work/' + rel).equals(b), rel);
+    assert.equal(kept.periods[0].index.size, Object.keys(opened.objects).length, 'every stored chunk is in the kept index');
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
