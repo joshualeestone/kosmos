@@ -142,7 +142,7 @@ printf 'DEVELOPMENT_TEAM = %s\nKOSMOS_BUNDLE_ID = io.kosmos.app\n' "$_retired" >
 ios_xcconfig_may_name_stone "$WORK/ios-preview.xcconfig" && ok "the preview iOS app may be signed by Stone Syndicate" || bad "the preview iOS xcconfig was not allowed its interim team"
 ios_xcconfig_may_name_stone "$WORK/ios-real.xcconfig" && bad "an io.kosmos.app xcconfig was allowed to name Stone Syndicate (a leftover after the iOS move)" || ok "an io.kosmos.app xcconfig may not name Stone Syndicate"
 _ret_hits="$(grep -rlIF --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.claude -e "$_retired" -e "$_retired_name" -e "$_retired_key" -e "$_retired_iss" "$REPO" | grep -v '/tools/lib/signing-identity.sh$' | grep -v "$_ios_skip" || true)"
-[ -z "$_ret_hits" ] && ok "the Stone Syndicate team id, name and notary key appear nowhere but the lib (and the iOS team file), tests included" || bad "the Stone Syndicate team id is named outside lib/signing-identity.sh: $_ret_hits"
+[ -z "$_ret_hits" ] && ok "the Stone Syndicate team id, name and notary key appear nowhere but the lib (and the iOS team file), tests included" || bad "the Stone Syndicate team id is named outside lib/signing-identity.sh: $_ret_hits (ios/Signing.xcconfig may name it only while its KOSMOS_BUNDLE_ID is io.kosmos.app.preview)"
 # The iOS exception admits the TEAM only: a notary key id or issuer there is still refused (#4089).
 _ios_keys="$(grep -nF -e "$KOSMOS_NOTARY_KEY_ID_DEFAULT" -e "$KOSMOS_NOTARY_ISSUER_DEFAULT" -e "$_retired_key" -e "$_retired_iss" "$REPO/ios/Signing.xcconfig" 2>/dev/null || true)"
 [ -z "$_ios_keys" ] && ok "ios/Signing.xcconfig carries no notary key id or issuer" || bad "ios/Signing.xcconfig names a notary key or issuer: $_ios_keys"
