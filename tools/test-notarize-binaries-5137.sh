@@ -16,7 +16,7 @@ bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-unset KOSMOS_NOTARIZE KOSMOS_NOTARY_KEY_ID KOSMOS_NOTARY_ISSUER   # an operator's export must not change the arms
+unset KOSMOS_NOTARIZE KOSMOS_NOTARY_KEY_ID KOSMOS_NOTARY_ISSUER NT_NOID_TIMES NT_LOG_FAIL NT_ISSUE_HASH NT_MESSAGE   # an operator's export must not change the arms
 
 HA=1111111111111111111111111111111111111111
 HT=2222222222222222222222222222222222222222
@@ -24,49 +24,69 @@ mkdir -p "$WORK/bin"
 printf 'app\n' > "$WORK/bin/kosmos-app"
 printf 'tunnel\n' > "$WORK/bin/kosmos-tunnel"
 printf 'unsigned\n' > "$WORK/bin/unsigned"
+printf 'text\n' > "$WORK/bin/notmacho"
 printf 'key\n' > "$WORK/notary.p8"
 
-# codesign -dvvv: a cdhash per file, none for the unsigned one. Real codesign prints to stderr.
-cs_stub() {
+HX=4444444444444444444444444444444444444444
+# lipo -archs: the tunnel is universal (as the real one is), the app is arm64 only.
+lipo_stub() {
   case "$2" in
-    */kosmos-app) echo "CDHash=$HA" >&2 ;;
-    */kosmos-tunnel) echo "CDHash=$HT" >&2 ;;
-    *) echo "$2: code object is not signed at all" >&2; return 1 ;;
+    */kosmos-tunnel) echo "x86_64 arm64" ;;
+    */notmacho) echo "lipo: can't figure out the architecture type of: $2" >&2; return 1 ;;
+    *) echo arm64 ;;
+  esac
+}
+# codesign -dvvv --arch <a> <file>: a cdhash per slice, none for the unsigned file.
+# Real codesign prints to stderr.
+cs_stub() {
+  [ "$1" = -dvvv ] && [ "$2" = --arch ] || { echo "stub: wanted -dvvv --arch, got '$*'" >&2; return 2; }
+  case "$4:$3" in
+    */kosmos-app:arm64) echo "CDHash=$HA" >&2 ;;
+    */kosmos-tunnel:arm64) echo "CDHash=$HT" >&2 ;;
+    */kosmos-tunnel:x86_64) echo "CDHash=$HX" >&2 ;;
+    *) echo "$4: code object is not signed at all" >&2; return 1 ;;
   esac
 }
 ditto() { echo "$*" >> "$WORK/ditto.ran"; : > "${!#}"; }
 sm_ok()   { [ "$1" = path ] && [ "$2" = "$KOSMOS_NOTARY_SECRET_TARGET" ] && echo "$WORK/notary.p8"; }
 sm_none() { echo "secrets-map: no credential for target" >&2; return 1; }
 
-# notarytool: NT_STATUS for submit, NT_HASHES for the log's ticketContents.
+# notarytool: NT_STATUS for submit, NT_HASHES for the log's ticketContents, NT_ISSUE_HASH for a
+# hash named only in issues[]. NT_NOID_TIMES makes the first N submits come back with no id.
+# NT_LOG_FAIL=1 makes `log` fail. The log is pretty-printed over several lines, as Apple's is.
 nt_stub() {
   echo "$1" >> "$WORK/nt.ran"
   case "$1" in
     submit) printf '%s\n' "$*" > "$WORK/submit.argv"
+            if [ "$(grep -c '^submit$' "$WORK/nt.ran")" -le "${NT_NOID_TIMES:-0}" ]; then
+              echo "Error: HTTP status code: 503. Service Unavailable" >&2; return 1; fi
             echo "{\"status\":\"$NT_STATUS\",\"id\":\"sub-1\",\"message\":\"${NT_MESSAGE:-Processing complete}\"}" ;;
-    log)    printf '{"jobId":"sub-1","status":"%s","ticketContents":[' "$NT_STATUS"
-            local h sep=""; for h in $NT_HASHES; do printf '%s{"cdhash":"%s"}' "$sep" "$h"; sep=,; done; echo ']}' ;;
+    log)    [ "${NT_LOG_FAIL:-0}" = 1 ] && { echo "Error: log unavailable" >&2; return 1; }
+            printf '{\n  "jobId": "sub-1",\n  "status": "%s",\n  "ticketContents": [\n' "$NT_STATUS"
+            local h sep=""; for h in $NT_HASHES; do printf '%s    {\n      "cdhash": "%s"\n    }' "$sep" "$h"; sep=$',\n'; done
+            printf '\n  ],\n  "issues": [%s]\n}\n' "${NT_ISSUE_HASH:+{\"cdhash\": \"$NT_ISSUE_HASH\"\}}" ;;
   esac
 }
-export KOSMOS_NOTARY_CODESIGN_CMD=cs_stub KOSMOS_NOTARYTOOL_CMD=nt_stub KOSMOS_SECRETS_MAP_BIN=sm_ok
+export KOSMOS_NOTARY_CODESIGN_CMD=cs_stub KOSMOS_NOTARYTOOL_CMD=nt_stub KOSMOS_SECRETS_MAP_BIN=sm_ok KOSMOS_NOTARY_LIPO_CMD=lipo_stub
+export KOSMOS_NOTARY_RETRY_DELAYS="0 0"
 
 run() { rm -f "$WORK/nt.ran" "$WORK/ditto.ran" "$WORK/submit.argv"; notarize_binaries "$@" > "$WORK/out" 2>&1; echo $?; }
 ran() { grep -c "^$1\$" "$WORK/nt.ran" 2>/dev/null || echo 0; }
 
 # --- Accepted, and the ticket lists both cdhashes: passes, having really submitted ---
-NT_STATUS=Accepted NT_HASHES="$HA $HT"; rc=$(run "$WORK/bin/kosmos-app" "$WORK/bin/kosmos-tunnel")
+NT_STATUS=Accepted NT_HASHES="$HA $HT $HX"; rc=$(run "$WORK/bin/kosmos-app" "$WORK/bin/kosmos-tunnel")
 [ "$rc" = 0 ] && ok "accepted + both cdhashes ticketed passes" || bad "should pass (rc=$rc): $(cat "$WORK/out")"
 [ "$(ran submit)" = 1 ] && ok "the pass came from a real submit" || bad "submit ran $(ran submit) times"
-[ "$(grep -c '^==> notarised: ' "$WORK/out")" = 2 ] && ok "both binaries reported notarised" || bad "notarised lines: $(cat "$WORK/out")"
-grep -q -- "--key $WORK/notary.p8 --key-id $KOSMOS_NOTARY_KEY_ID_DEFAULT --issuer $KOSMOS_NOTARY_ISSUER_DEFAULT --wait" "$WORK/submit.argv" \
-  && ok "submit carries the key, key id, issuer and --wait" || bad "submit argv: $(cat "$WORK/submit.argv" 2>/dev/null)"
+[ "$(grep -c '^==> notarised: ' "$WORK/out")" = 3 ] && ok "all three slices reported notarised (the tunnel is universal)" || bad "notarised lines: $(cat "$WORK/out")"
+grep -q -- "--key $WORK/notary.p8 --key-id $KOSMOS_NOTARY_KEY_ID_DEFAULT --issuer $KOSMOS_NOTARY_ISSUER_DEFAULT --wait --timeout 30m --output-format json" "$WORK/submit.argv" \
+  && ok "submit carries the key, key id, issuer, --wait, its timeout and json output" || bad "submit argv: $(cat "$WORK/submit.argv" 2>/dev/null)"
 [ -s "$WORK/ditto.ran" ] && ok "the binaries were zipped" || bad "ditto never ran"
 
 # --- Accepted, but the ticket covers other bytes: refuses and names the one missing ---
-NT_STATUS=Accepted NT_HASHES="$HA 3333333333333333333333333333333333333333"; rc=$(run "$WORK/bin/kosmos-app" "$WORK/bin/kosmos-tunnel")
+NT_STATUS=Accepted NT_HASHES="$HA $HX 3333333333333333333333333333333333333333"; rc=$(run "$WORK/bin/kosmos-app" "$WORK/bin/kosmos-tunnel")
 [ "$rc" = 1 ] && ok "a ticket missing a binary's cdhash refuses" || bad "should refuse (rc=$rc): $(cat "$WORK/out")"
-grep -q "kosmos-tunnel($HT)" "$WORK/out" && ok "it names the binary the ticket does not cover" || bad "no name: $(cat "$WORK/out")"
-grep -q "kosmos-app($HA)" "$WORK/out" && bad "it blamed the covered binary too" || ok "it does not blame the covered binary"
+grep -q "kosmos-tunnel/arm64($HT)" "$WORK/out" && ok "it names the binary the ticket does not cover" || bad "no name: $(cat "$WORK/out")"
+grep -q "kosmos-app/arm64($HA)" "$WORK/out" && bad "it blamed the covered binary too" || ok "it does not blame the covered binary"
 
 # --- Invalid: refuses, and prints Apple's log ---
 NT_STATUS=Invalid NT_HASHES=""; rc=$(run "$WORK/bin/kosmos-app")
@@ -96,6 +116,51 @@ rc=$(KOSMOS_NOTARIZE=0 run "$WORK/bin/kosmos-app")
 grep -q 'NOT NOTARISED' "$WORK/out" && ok "the skip says so" || bad "a silent skip: $(cat "$WORK/out")"
 [ "$(ran submit)" = 0 ] && ok "the skip submitted nothing" || bad "the skip submitted"
 
+# --- a universal binary: the slice that is NOT the host's is checked too ---
+NT_STATUS=Accepted NT_HASHES="$HA $HT"; rc=$(run "$WORK/bin/kosmos-app" "$WORK/bin/kosmos-tunnel")
+[ "$rc" = 1 ] && grep -q "kosmos-tunnel/x86_64($HX)" "$WORK/out" && ok "a ticket missing the x86_64 slice refuses and names it" || bad "x86_64 slice unchecked (rc=$rc): $(cat "$WORK/out")"
+
+# --- a hash named only in issues[] is not a ticket ---
+NT_STATUS=Accepted NT_HASHES="$HA" NT_ISSUE_HASH="$HT"; rc=$(run "$WORK/bin/kosmos-app" "$WORK/bin/kosmos-tunnel")
+[ "$rc" = 1 ] && grep -q "kosmos-tunnel/arm64($HT)" "$WORK/out" && ok "a cdhash only in issues[] does not count as ticketed" || bad "issues[] counted as a ticket (rc=$rc): $(cat "$WORK/out")"
+unset NT_ISSUE_HASH
+
+# --- no submission id (a 503): tried again, and the second try's answer stands ---
+NT_STATUS=Accepted NT_HASHES="$HA" NT_NOID_TIMES=1; rc=$(run "$WORK/bin/kosmos-app")
+[ "$rc" = 0 ] && [ "$(ran submit)" = 2 ] && ok "a submit with no id is tried again, and passes on the retry" || bad "retry (rc=$rc, submits=$(ran submit)): $(cat "$WORK/out")"
+NT_STATUS=Accepted NT_HASHES="$HA" NT_NOID_TIMES=9; rc=$(run "$WORK/bin/kosmos-app")
+[ "$rc" = 1 ] && [ "$(ran submit)" = 3 ] && ok "three submits with no id refuse, after exactly three tries" || bad "exhausted retry (rc=$rc, submits=$(ran submit))"
+unset NT_NOID_TIMES
+
+# --- an answer with an id is never resubmitted ---
+NT_STATUS=Invalid NT_HASHES=""; rc=$(run "$WORK/bin/kosmos-app")
+[ "$(ran submit)" = 1 ] && ok "an Invalid answer is not resubmitted" || bad "an Invalid answer was resubmitted $(ran submit) times"
+
+# --- the log cannot be fetched after Accepted: refuses ---
+NT_STATUS=Accepted NT_HASHES="$HA" NT_LOG_FAIL=1; rc=$(run "$WORK/bin/kosmos-app")
+[ "$rc" = 1 ] && grep -q 'could not fetch' "$WORK/out" && ok "an unfetchable log refuses" || bad "log failure passed (rc=$rc)"
+unset NT_LOG_FAIL
+
+# --- a missing binary and a non-Mach-O file refuse before submitting ---
+rc=$(run "$WORK/bin/no-such-binary"); [ "$rc" = 1 ] && [ "$(ran submit)" = 0 ] && ok "a missing binary refuses before submitting" || bad "missing binary (rc=$rc)"
+rc=$(run "$WORK/bin/notmacho"); [ "$rc" = 1 ] && [ "$(ran submit)" = 0 ] && ok "a non-Mach-O file refuses before submitting" || bad "non-Mach-O (rc=$rc)"
+
+# --- no scratch copies are left behind ---
+before="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'kosmos-notarize.*' 2>/dev/null | wc -l | tr -d ' ')"
+NT_STATUS=Invalid NT_HASHES=""; rc=$(run "$WORK/bin/kosmos-app")
+after="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'kosmos-notarize.*' 2>/dev/null | wc -l | tr -d ' ')"
+[ "$after" -le "$before" ] && ok "the scratch copy is removed on a refusal" || bad "scratch dirs grew $before -> $after"
+
+# --- release.sh refuses to cut with the opt-out or a seam exported, before step 4 builds ---
+R="$REPO/tools/release.sh"
+guard="$(grep -n '^for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSMOS_NOTARY_LIPO_CMD; do$' "$R" | head -1 | cut -d: -f1)"
+build="$(grep -n 'bash tools/build-kosmos-bundle.sh dist' "$R" | head -1 | cut -d: -f1)"
+[ -n "$guard" ] && [ -n "$build" ] && [ "$guard" -lt "$build" ] && ok "release.sh refuses the opt-out and every seam before step 4 ($guard < $build)" || bad "release.sh guard missing or after the build (guard=$guard build=$build)"
+out="$(KOSMOS_NOTARIZE=0 bash -c "$(sed -n "${guard},$((guard + 4))p" "$R")" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && case "$out" in *"KOSMOS_NOTARIZE is set"*) true ;; *) false ;; esac && ok "the release.sh guard really refuses an exported KOSMOS_NOTARIZE" || bad "guard did not refuse (rc=$rc): $out"
+out="$(env -u KOSMOS_NOTARIZE -u KOSMOS_NOTARYTOOL_CMD -u KOSMOS_NOTARY_CODESIGN_CMD -u KOSMOS_NOTARY_LIPO_CMD bash -c "$(sed -n "${guard},$((guard + 4))p" "$R")" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && ok "the guard passes a clean environment (control)" || bad "guard refused a clean env (rc=$rc): $out"
+
 # --- the build calls it, on both binaries, after the last self-test and before packing ---
 B="$REPO/tools/build-kosmos-bundle.sh"
 call="$(grep -n '^notarize_binaries "\$STAGE/app/bin/kosmos-app" "\$STAGE/app/bin/kosmos-tunnel" ||' "$B" | head -1 | cut -d: -f1)"
@@ -110,4 +175,4 @@ pack="$(grep -n '^echo "==> packing"' "$B" | head -1 | cut -d: -f1)"
   || bad "order wrong: notarise=$call last-sign=$last_sign last-selftest=$last_selftest pack=$pack"
 
 echo "test-notarize-binaries-5137: $passes passed, $fails failed"
-[ "$fails" = 0 ] && [ "$passes" = 23 ]
+[ "$fails" = 0 ] && [ "$passes" = 35 ]
