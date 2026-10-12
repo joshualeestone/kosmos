@@ -72,3 +72,8 @@ Mutants after review 3 (20:21 CDT from `date`, all discover tests, 211): O1 Docu
   ALONE (--test-name-pattern, 1 ran each) as well as in the file.
 - NO CHANGE, reasoned: "visited at most twice the budget" does bound the own walk, because in that test the shared
   budget is spent, so the shared count is exactly the budget.
+
+## Review 5 (opus, blind, on 315b204d): no must-fix; one nit in a file this branch had not touched, FIXED
+discover.acceptance-1329.test.js claims to prove the hatch ("via grant") merge, but passed no platform: on the Linux
+and Windows CI runners this branch would make the engine walk Documents itself, so the hatch path silently stopped
+being tested there. Pinned platform: 'darwin' and the comment says why. It re-ran under a forced Linux platform too.

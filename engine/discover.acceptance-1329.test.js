@@ -470,7 +470,8 @@ test('#1329/#2125 LOCATION: a seed agent in ~/Documents is NOT ambushed by the a
   assert.ok(!impByBase(auto, path.basename(inDocs)), 'the auto scan reached ~/Documents (TCC ambush, #2125)');
 
   // ✅ Reached only via the GRANTED import scan: importScan adds Documents/Downloads/Desktop as
-  // tcc:true roots, walked by the app-identity hatch (tccScan), NOT the engine. The stub stands in
+  // tcc:true roots on macOS (platform pinned: elsewhere the engine walks them, #5882), walked by the
+  // app-identity hatch (tccScan), NOT the engine. The stub stands in
   // for a granted hatch that read the folder and returns the seed agent's loose row - so asserting
   // it surfaces proves scan() MERGES a granted-TCC find into the import list (the "via grant" path).
   const head = fs.readFileSync(inDocs, 'utf8');
@@ -479,7 +480,7 @@ test('#1329/#2125 LOCATION: a seed agent in ~/Documents is NOT ambushed by the a
     assert.ok(tccRoots.every((rt) => rt.tcc === true), 'a non-tcc root was routed to the hatch');
     return { dirs: [], loose: [{ file: inDocs, head }], bounded: { dirs: false, importable: false, visited: 1 } };
   };
-  const granted = withHome(HOME, () => withNoGeminiHome(() => discover.scan({ importScan: true, tccScan: stub })));
+  const granted = withHome(HOME, () => withNoGeminiHome(() => discover.scan({ importScan: true, platform: 'darwin', tccScan: stub })));
   const row = impByBase(granted, path.basename(inDocs));
   assert.ok(row, 'the seed agent in ~/Documents was not found even via a granted TCC scan');
   assert.equal(row.name, 'Fixture Nova', 'the granted-TCC seed agent surfaced under the wrong name');
