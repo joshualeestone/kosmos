@@ -81,6 +81,13 @@ test('classify: each known failure kind gets its code, anything else is other, n
     // enrolled() requires), so it has no code of its own and must not leak.
     ['/Volumes/Josh Stone/x does not look like a Mac state dir (no mac_id)', 'other'],
     ['reading mac_key from /Users/j/remote: No such file', 'state-file-unreadable'],
+    // kosmos#5871: the tunnel's identity record, as anyhow prints it (cause after a colon) and bare.
+    ['reading /Users/j/remote/mac_identity: Permission denied (os error 13)', 'state-file-unreadable'],
+    ['reading /Users/j/remote/mac_id', 'state-file-unreadable'],
+    ['/Users/j/remote/mac_identity does not hold an id and a key', 'state-file-unreadable'],
+    ['/Users/j/remote/mac_id holds no id', 'state-file-unreadable'],
+    // Not a state file: reading a file merely NAMED like one must not match.
+    ['reading /Users/j/remote/mac_identity.md.bak2 failed', 'other'],
     ['relay refused the tunnel: bad ticket', 'relay-refused'],
     ['relay said go away: replaced', 'relay-dropped'],
     ['Kosmos+ refused this Mac: standing lapsed (HTTP 401 on /v1/mac/relay-ticket)', 'coordinator-refused'],
