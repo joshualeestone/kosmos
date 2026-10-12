@@ -40,9 +40,16 @@ happens later to a message kept for an agent out of usage (#5805, #5848).
 - Rejected: telling the person in a direct message (a second place to look); recording only drops (the person also
   wants to know a kept message did go, which was Baron's third ask).
 
+## After merging main (#5874 landed while this was in review)
+- #5874 added the CLI reader, engine/taskactphrase.js, a copy of the page's tkActPhrase held to it word for word by
+  taskactphrase.test.js. CI on #5890 went red there: the page knew kept-sent and kept-dropped and the engine did not.
+  The engine now has both, in the page's words; worded for an agent, the person's own message is "the person's
+  message" (as that file already turns "You" into "The person"). Fixtures for every branch were added to the parity
+  test, and cli.task-activity-5874.test.js's kept fixtures (written ahead with a guessed shape) now use the real one and
+  expect the words, not the bare kind.
+
 ## Not in this slice
-- Reading a task's conversation from the command line. No `kosmos task` command reads it today, so an agent cannot see
-  these records either. That needs a new command on both the Mac and Windows CLIs; filed as #5874.
+- Reading a task's conversation from the command line: #5874, now on main (see above).
 - tellTaskLineDropped still tells an agent sender in its pane, unchanged.
 
 ## Deferred

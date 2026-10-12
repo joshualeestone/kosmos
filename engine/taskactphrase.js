@@ -60,6 +60,20 @@ function phrase(ev, nameOfMember, opts) {
       return runs + (ev.reached === false ? '; Kosmos could not reach ' + who : '; ' + who + ' was told');
     }
     case 'said': { const who = nameOf(ev.who); if (agent) return (who ? 'A message from ' + who + ': ' : 'A message: ') + quoted(ev.text || ''); return (who ? who + ': ' : '') + (ev.text || ''); }
+    /* #5842: a message kept for an agent out of usage, sent once it could be, or dropped a day later (the page's words;
+       worded for an agent, the person's own message is "the person's message", as "You" is "The person" above). */
+    case 'kept-sent': case 'kept-dropped': {
+      const to = nameOf(ev.to) || 'an agent';
+      const subject = ev.person === true ? (agent ? 'the person\u2019s message' : 'your message') : ev.from ? 'the message from ' + nameOf(ev.from) : 'a message';
+      const Subject = ev.person === true ? (agent ? 'The person\u2019s message' : 'Your message') : ev.from ? 'A message from ' + nameOf(ev.from) : 'A message';
+      const behind = ev.behind === true;
+      if (ev.kind === 'kept-dropped') return Subject + ' to ' + to + ' was never sent: '
+        + 'Kosmos kept it ' + (behind ? 'behind earlier messages' : 'while ' + to + ' was out of usage') + ' and could not send it within a day';
+      const kept = behind ? ', kept behind earlier messages, ' : ', kept while ' + to + ' was out of usage, ';
+      const when = behind ? 'once the messages ahead of it had gone' : 'once ' + to + ' was back';
+      return ev.state === 'unconfirmed'
+        ? 'Kosmos tried to send ' + subject + ' to ' + to + ' ' + when + ', but could not confirm ' + to + ' got it'
+        : Subject + ' to ' + to + kept + 'was sent ' + when; }
     case 'closed': return 'Marked done';
     case 'undone': return ev.files === 1 ? 'One file’s changes undone' : 'File changes undone (' + (Number(ev.files) || 0) + ' files)';   // #5153 slice 4
     case 'reopened': return 'Put back';
