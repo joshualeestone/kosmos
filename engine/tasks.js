@@ -1711,12 +1711,19 @@ function waitingOnPerson(task, roster, members) {
      "cannot be checked against this task"; this is the same rule for the red). It covers every reason the holder
      needs the person, a trust wait or a connection given up on too: those are about the agent, and the person meets
      them on the agent, not on a project it has left. Omitted: every holder, as before. */
+  return cardsNeedingPerson(task, roster, members).length > 0;
+}
+
+/* kosmos#5942 review 5: the ONE rule for which cards make a task wait on the person, shared by waitingOnPerson (any)
+   and waitingSinceOf (the oldest start), so the red and the age can never come from different cards. */
+function cardsNeedingPerson(task, roster, members) {
+  if (!task || progressOf(task).closed || !Array.isArray(roster)) return [];
   const onProject = Array.isArray(members) ? new Set(members) : null;
   const holders = new Set(partsOf(task).filter((x) => x && x.who && !x.closedAt && (!onProject || onProject.has(x.who))).map((x) => x.who));
-  if (!holders.size) return false;
+  if (!holders.size) return [];
   // Required here rather than at the top, as projects.js does: status is loaded lazily from this layer.
   const status = require('./status');
-  return roster.some((card) => card && holders.has(card.sessionName) && card.isNamedOurs === true
+  return roster.filter((card) => card && holders.has(card.sessionName) && card.isNamedOurs === true
     && status.needsPerson(card)
     /* Only a question names a project. A trust wait or a connection given up on is about the agent itself,
        so it counts on every task the agent holds, as it does on the project page (#3726). */
@@ -1727,19 +1734,12 @@ function waitingOnPerson(task, roster, members) {
  * kosmos#5942: since when this open task has needed the person, for the task list's "Waiting on you for 12 days": the OLDEST
  * `waitingSince` among the cards that make waitingOnPerson true (the same holders and the same project rule), as an
  * ISO string, or null when none of them knows when its wait began. Null is shown as no age, never as "just now".
- * A LOWER BOUND when holders disagree: a holder that never said when it began waiting adds nothing, so if it has
- * waited longer the row reads younger than the truth, never older.
+ * A holder that never said when it began waiting adds nothing, so when it has waited longer the row reads younger
+ * than that holder's wait. The start itself is the self-report's askedAt (#5943), dated per run of identical reports.
  */
 function waitingSinceOf(task, roster, members) {
-  if (!task || progressOf(task).closed || !Array.isArray(roster)) return null;
-  const onProject = Array.isArray(members) ? new Set(members) : null;
-  const holders = new Set(partsOf(task).filter((x) => x && x.who && !x.closedAt && (!onProject || onProject.has(x.who))).map((x) => x.who));
-  if (!holders.size) return null;
-  const status = require('./status');
   let oldest = null;
-  for (const card of roster) {
-    if (!card || !holders.has(card.sessionName) || card.isNamedOurs !== true || !status.needsPerson(card)) continue;
-    if (card.state === status.STATE.NEEDS_YOU && card.stateProject !== task.projectId) continue;
+  for (const card of cardsNeedingPerson(task, roster, members)) {
     const at = typeof card.waitingSince === 'string' ? Date.parse(card.waitingSince) : NaN;
     if (Number.isFinite(at) && (oldest === null || at < oldest)) oldest = at;
   }
