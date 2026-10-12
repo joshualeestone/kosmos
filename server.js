@@ -18295,9 +18295,7 @@ const server = http.createServer(async (req, res) => {
         if (federationLinked) fedseats.ensure(made.id).catch(() => {});
         let project = null;
         try { project = projects.get(made.id, roster); } catch { project = null; }
-        // #4583: made with two coordinators already on it: the same warning as adding the second one.
-        const coordinators = project ? projects.coordinatorWarning(project, null) : null;
-        sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked, ...(coordinators ? { coordinators } : {}) });
+        sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked });
       })
       .catch((err) => sendJson(res, (err && err.code === 'UNREADABLE') ? 500 : 400,
         { error: String((err && err.message) || 'we could not read that request'), ...(err && err.code === 'FOLDER_TAKEN' ? { code: 'folder_taken' } : {}) }));
@@ -20829,9 +20827,7 @@ const server = http.createServer(async (req, res) => {
     if (moved && project) {
       said = await projects.speakOfMembershipAsync(name, project, req.method === 'POST' ? 'joined' : 'left', roster);
     }
-    // #4583: a second coordinator joining is warned about, never refused.
-    const coordinators = (req.method === 'POST' && moved && project) ? projects.coordinatorWarning(project, name) : null;
-    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null, ...(coordinators ? { coordinators } : {}), ...(leftBehind ? { leftBehind } : {}) });
+    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null, ...(leftBehind ? { leftBehind } : {}) });
     return;
   }
 

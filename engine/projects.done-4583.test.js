@@ -1,12 +1,11 @@
 'use strict';
 
 /**
- * #4583 (#4580 items 3 and 4): a project asks what done looks like at creation, and warns when two agents with a
- * coordinating role are on it.
+ * #4583 (#4580 item 3): a project asks what done looks like at creation. (Item 4, a warning to the person when two
+ * agents had a coordinating role, was removed in #5951.)
  *
  * Engine half: the create form's `done` reaches BRIEF.md; a blank one leaves a "Not set yet" placeholder that
- * doneIsPending reads (and so do briefs written before #4583); the project read carries doneSet and the current
- * coordinator warning. The routes are covered in server.projects-done-4583.test.js.
+ * doneIsPending reads (and so do briefs written before #4583); the project read carries doneSet. The routes are covered in server.projects-done-4583.test.js.
  */
 
 const os = require('node:os');
@@ -27,18 +26,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const projects = require('./projects');
 const store = require('./store');
-const fleet = require('../test-support/fleet');
-
-/* Real board cards from test-support/fleet (fixture-discipline: never a hand-built card). Each spec is a name, or
-   [name, { displayName, role }] for a card whose pane is tied to a name and carries a live role. The fleet is
-   restored before this returns, so no test leaves the pane seams installed. The board orders its cards itself, so the
-   warning's names are asserted as a set, never as the order a test happened to list them in. */
-const bothHave = (text, a, b) => typeof text === 'string'
-  && (text.startsWith(a + ' and ' + b + ' both have') || text.startsWith(b + ' and ' + a + ' both have'));
-function cards(...specs) {
-  const f = fleet.install(specs.map((x) => (Array.isArray(x) ? fleet.agent(x[0], x[1]) : fleet.agent(x))), { strict: false });
-  try { return f.agents.slice(); } finally { f.restore(); }
-}
 
 let seq = 0;
 function folder(sub) {
@@ -138,60 +125,18 @@ test('#4583: done is one line, capped at 1000 characters, and must be words; the
   assert.equal(fs.existsSync(path.join(dir, projects.BRIEF_STUB_FILENAME)), false, 'a refused create wrote a brief');
 });
 
-/* roles: { machineName: role } or { machineName: [role, savedName] }. */
-function withProfiles(roles, fn) {
-  for (const [name, r] of Object.entries(roles)) store.writeProfile(name, Array.isArray(r) ? { role: r[0], name: r[1] } : { role: r });
-  try { return fn(); } finally { for (const name of Object.keys(roles)) store.writeProfile(name, { role: null, name: null }); }
-}
-
-test('#4583: two coordinators warn, naming both and the split; one coordinator, or none, does not (control)', () => {
-  withProfiles({ pm1: ['Project Manager', 'Ada'], pm2: ['Project Manager', 'Bo'], dev: 'Developer' }, () => {
-    const two = projects.coordinatorWarning({ agents: cards(['pm1', { displayName: 'Stranger' }], 'pm2', 'dev') }, null);
-    assert.ok(bothHave(two, 'Ada', 'Bo') && two.includes('both have a coordinating role'), two);
-    assert.ok(!two.includes('Stranger'), 'a saved role was paired with the read\'s card name, which an untied pane supplies: ' + two);
-    assert.ok(two.includes('one owns the brief (BRIEF.md) and the other owns the task queue'), two);
-    assert.equal(projects.coordinatorWarning({ agents: cards('pm1', 'dev') }, null), null);
-    assert.equal(projects.coordinatorWarning({ agents: [] }, null), null);
-  });
-});
-
-test('#4583: a live role is used before the saved profile; the joiner filter warns only when a coordinator joined', () => {
-  withProfiles({ pm1: 'Project Manager', dev: 'Developer' }, () => {
-    const agents = cards(['pm1', { displayName: 'Ada' }], ['dev', { displayName: 'Cy', role: 'Project Manager' }]);
-    assert.ok(projects.coordinatorWarning({ agents }, null), 'the live role (Project Manager) was not read');
-    assert.ok(projects.coordinatorWarning({ agents }, 'dev'), 'a coordinator joining must warn');
-    const withDev = cards(['pm1', { displayName: 'Ada' }], ['dev', { displayName: 'Cy', role: 'Project Manager' }], ['ed', { displayName: 'Ed', role: 'Designer' }]);
-    assert.equal(projects.coordinatorWarning({ agents: withDev }, 'ed'), null, 'a non-coordinator joining must not re-warn');
-  });
-});
-
-test('#4583: the project read carries the current warning from saved roles (members not running)', () => {
-  reset();
-  withProfiles({ pm1: 'Project Manager', pm2: 'Project Manager' }, () => {
-    const made = projects.create({ name: 'Two PMs', folder: folder('pms'), agents: ['pm1', 'pm2'], roster: [] });
-    const read = projects.get(made.id, []);
-    assert.ok(read.coordinators && read.coordinators.includes('coordinating role'), JSON.stringify(read.coordinators));
-    const one = projects.create({ name: 'One PM', folder: folder('pm'), agents: ['pm1'], roster: [] });
-    assert.equal(projects.get(one.id, []).coordinators, null);
-  });
-});
-
-test('#4583 round 1: only a role that coordinates the PROJECT counts, not any "Manager" or "Lead"', () => {
-  withProfiles({ mk: 'Marketing Manager', sm: 'Social Media Manager', tl: 'Tech Lead', ld: 'Lead Developer', rc: 'Recruiting Coordinator', pm: 'Project Manager', pg: 'Program Manager (PM)' }, () => {
-    const warn = (...names) => projects.coordinatorWarning({ agents: cards(...names) }, null);
-    assert.equal(warn('mk', 'sm'), null, 'two marketing roles are not two project coordinators');
-    assert.equal(warn('tl', 'ld', 'rc'), null, 'leads and a recruiting coordinator are not project coordinators');
-    assert.ok(warn('pm', 'pg'), 'CONTROL: a Project Manager and a Program Manager are');
-    assert.ok(bothHave(warn('pm', 'pg', 'mk'), 'pm', 'pg'), warn('pm', 'pg', 'mk'));
-  });
-});
-
-test('#4583 round 1: three coordinators read "all have"', () => {
-  withProfiles({ a: 'Project Manager', b: 'Project Manager', c: 'Project Lead' }, () => {
-    const three = projects.coordinatorWarning({ agents: cards('a', 'b', 'c') }, null);
-    const m = /^(\w+), (\w+) and (\w+) all have/.exec(three || '');
-    assert.deepEqual(m && [m[1], m[2], m[3]].sort(), ['a', 'b', 'c'], three);
-  });
+test('#5951: the project read carries no coordinator warning, and the engine exports none', () => {
+  store.writeProfile('pm1', { role: 'Project Manager' });
+  store.writeProfile('pm2', { role: 'Project Manager' });
+  try {
+    const two = projects.create({ name: 'Two PMs', folder: folder('twopm'), agents: ['pm1', 'pm2'] });
+    const read = projects.get(two.id, []);
+    assert.equal(read.agents.length, 2, 'CONTROL: both members are on the project that was read');
+    assert.equal(Object.prototype.hasOwnProperty.call(read, 'coordinators'), false, 'the read still carries the warning');
+    assert.equal(projects.coordinatorWarning, undefined);
+  } finally {
+    for (const n of ['pm1', 'pm2']) store.writeProfile(n, { role: null, name: null });
+  }
 });
 
 test('#4583 round 1: a project whose folder has no BRIEF.md says nothing about done (null), not "Done not set"', () => {
@@ -419,12 +364,6 @@ test('#4583 round 2: a BRIEF.md that is a symlink or too big is not read or writ
   const madeBig = projects.create({ name: 'Big', folder: big });
   fs.writeFileSync(path.join(big, projects.BRIEF_STUB_FILENAME), projects.BRIEF_DONE_PLACEHOLDER + '\n' + 'x'.repeat(300 * 1024));
   assert.equal(projects.get(madeBig.id, []).doneSet, null);
-});
-
-test('#4583 round 2: "PM" counts only as a whole role word; spelled-out forms count', () => {
-  const r = projects.PROJECT_COORDINATOR;
-  for (const yes of ['PM', 'Senior PM', 'Project Management Lead', 'Project-Manager', 'Program Manager', 'PM (delivery)']) assert.ok(r.test(yes), yes);
-  for (const no of ['AM/PM Shift Lead', 'Post-PM Analyst', 'Marketing Manager', 'Product Manager', 'Tech Lead']) assert.ok(!r.test(no), no);
 });
 
 test('#4583 round 5: the create form routes EXACTLY cleanDone\'s refusals to the done box (coupled to the engine)', () => {
