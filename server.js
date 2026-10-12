@@ -12147,7 +12147,7 @@ const server = http.createServer(async (req, res) => {
              `forgetAccount` renames it aside, both AFTER the agents check. What
              both share as PRE-agents refusals is the path guard and the
              sign-in-in-progress guard (any hold but the account's own Sign in again,
-             which #5994 cancels once the operation succeeds). So without this, a request
+             which #5994 cancels once the account is gone). So without this, a request
              naming the default account stopped every agent on it, for real, wrote
              each to the removed list, and then answered 400 with a refusal that
              never mentioned the stop. Deterministic, not a race. The default row renders live
@@ -12172,8 +12172,8 @@ const server = http.createServer(async (req, res) => {
              precede the agents guard and are therefore visible here: the path
              guard and the OpenAI sign-in-in-progress guard (#2684 removed the
              default-account guard; the default is agents-gated like any row now). Since #5994 that guard
-             no longer covers the account's own Sign in again, which is cancelled after the operation
-             succeeds. The IDENTITY refusal ("that is not a
+             no longer covers the account's own Sign in again, which is cancelled once the account is gone.
+             The IDENTITY refusal ("that is not a
              Claude/OpenAI account on this computer") does NOT, in any of the
              four, and it cannot be hoisted: `engine/accounts.js` states why at
              the guard itself, that `identityOf` answers null for a missing
