@@ -56,6 +56,7 @@ function chk(ok, label, extra) {
   tasks.close(launch.id, 3);
   const winter = projects.create({ name: 'Winter catalog' });
   tasks.create(winter.id, { sentence: 'Draft the plan' });                // 1: held by pausing its project
+  projects.addAgent(winter.id, 'ada', null);                            // #5864: ada builds task 2 here
   tasks.create(winter.id, { sentence: 'Finish the cover', who: 'ada' });  // 2: #5864, built, so pausing leaves it built
   tasks.setBuilt(winter.id, 2, { by: 'ada' });
   const summer = projects.create({ name: 'Summer list' });                // paused by an agent, before the page loads
