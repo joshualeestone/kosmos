@@ -356,18 +356,25 @@ test('the direct/project filename convention still matches engine/chat.js (pin, 
   assert.ok(chatSrc.includes('${id}.${key}.json'), 'chat.js project-thread naming changed; re-sync dailylog PROJECT_THREAD_FILE');
 });
 
-test('compileAll: invalid JSON is stable junk and does NOT block pruning', () => {
+test('compileAll: invalid JSON is not a read error, and blocks pruning only for days before it was last written (kosmos#5866)', () => {
+  // Was: "invalid JSON is stable junk and does NOT block pruning". kosmos#5866 refines it: a thread file that will not
+  // parse may have put rows in daily files compiled while it still parsed, so days BEFORE its last write are held.
+  // A stale day from its last write on is still pruned, which is what the earlier rule was protecting.
   const chatsDir = path.join(SANDBOX, 'chats-junk');
   const outDir = path.join(SANDBOX, 'chats-daily-junk');
   fs.mkdirSync(chatsDir, { recursive: true });
   fs.mkdirSync(outDir, { recursive: true });
-  fs.writeFileSync(path.join(outDir, '2020-01-01.md'), 'stale, should be pruned');
+  fs.writeFileSync(path.join(outDir, '2020-01-01.md'), 'from before the junk file was last written: kept');
+  fs.writeFileSync(path.join(outDir, '2026-09-10.md'), 'stale, should be pruned');
   fs.writeFileSync(path.join(chatsDir, 'direct..ok.json'), JSON.stringify({ messages: [
     { at: '2026-09-14T09:00:00Z', text: 'today', from: null },
   ] }));
   fs.writeFileSync(path.join(chatsDir, 'proj.bad.json'), '{ not valid json');
+  const lastWrite = new Date('2026-09-01T12:00:00Z');
+  fs.utimesSync(path.join(chatsDir, 'proj.bad.json'), lastWrite, lastWrite);
 
-  const summary = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
+  const summary = dl.compileAll({ chatsDir, outDir, dayOf, timeOf, now: new Date('2026-09-14T12:00:00Z') });
   assert.equal(summary.readErrors, 0, 'invalid JSON is junk, not a read error');
-  assert.deepEqual(summary.pruned, ['2020-01-01'], 'junk must not block pruning of a genuinely stale day');
+  assert.deepEqual(summary.pruned, ['2026-09-10'], 'junk must not block pruning of a genuinely stale day after its last write');
+  assert.deepEqual(summary.held, ['2020-01-01'], 'a day from before the junk file was last written may hold its rows');
 });

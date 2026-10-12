@@ -37,10 +37,11 @@ const dirs = (label) => {
 };
 const put = (dir, name, body) => fs.writeFileSync(path.join(dir, name), typeof body === 'string' ? body : JSON.stringify(body));
 const day = (outDir, d) => fs.readFileSync(path.join(outDir, `2026-09-${d}.md`), 'utf8');
-const NOW = new Date('2026-09-30T12:00:00Z');   // the run's clock, injected: later than every date below
+const NOW = new Date('2026-09-30T12:00:00Z');   // the run's clock, injected: later than every message date below
 const dayFiles = (outDir) => fs.readdirSync(outDir).filter((n) => n.endsWith('.md')).sort();
 const count = (hay, needle) => hay.split(needle).length - 1;
 const SUPERSEDED = 'proj1.a.json.2026-01-01T000000000Z.4242.1791741600000.superseded';
+// the <ms> in a set-aside name is when it was set aside; these two say 2026-10-11, later than NOW, so they bound nothing
 const DAMAGED = 'direct..p.json.earlier.4242.1791741600000.damaged';
 // The moment a set-aside file was last written: none of its messages can be later.
 const lastWritten = (dir, name, iso) => { const t = new Date(iso); fs.utimesSync(path.join(dir, name), t, t); };
@@ -236,6 +237,55 @@ test('a last-written time in the future, or one that cannot be read, counts as n
   assert.match(day(outDir, 30), /thirty, today/);
 });
 
+test('the set-aside time in a file\'s own name bounds it too: a file time in the future does not move the line day by day', () => {
+  // A reviewer's sequence: a .damaged file whose time is far in the future, and one run a day. Bounded by "now" alone,
+  // the line would move forward each day and freeze every yesterday at its last compile. The name says when it was
+  // set aside (2026-09-10 here), and nothing in it is later than that.
+  const { chatsDir, outDir } = dirs('name-bound');
+  const setAside = new Date('2026-09-10T08:00:00Z').getTime();
+  const name = `direct..p.json.earlier.4242.${setAside}.damaged`;
+  put(chatsDir, name, 'junk');
+  lastWritten(chatsDir, name, '2099-01-01T00:00:00Z');
+  for (const d of [9, 20]) put(outDir, `2026-09-${String(d).padStart(2, '0')}.md`, `COMPILED ${d}`);
+  put(chatsDir, 'proj1.b.json', { messages: [{ at: '2026-09-20T07:00:00Z', text: 'twentieth, morning', from: null }, { at: '2026-09-20T15:00:00Z', text: 'twentieth, afternoon', from: null }] });
+  for (const now of ['2026-09-21T08:00:00Z', '2026-09-25T08:00:00Z']) {
+    const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf, now: new Date(now) });
+    assert.deepEqual(s.held, ['2026-09-09'], 'run at ' + now + ': the line moved with the clock');
+    assert.match(day(outDir, 20), /twentieth, afternoon/, 'run at ' + now + ': a day after it was set aside is frozen');
+  }
+  // a counter after the <ms> (a second aside in the same millisecond) is read the same way
+  fs.renameSync(path.join(chatsDir, name), path.join(chatsDir, `direct..p.json.earlier.4242.${setAside}.2.damaged`));
+  assert.deepEqual(dl.compileAll({ chatsDir, outDir, dayOf, timeOf, now: NOW }).held, ['2026-09-09']);
+});
+
+test('a LIVE thread file that will not parse holds the same days, before chat.js has set it aside', () => {
+  // The likely order of events: a file is damaged, the nightly compile runs, and only the next message sets it aside.
+  // Skipped as junk in between, its days were pruned before the hold could begin.
+  const { chatsDir, outDir } = dirs('live-bad');
+  for (const d of [10, 11]) put(outDir, `2026-09-${d}.md`, `COMPILED ${d}, WITH ITS ROWS`);
+  put(chatsDir, 'direct..p.json', '{"messages":[{"at":"2026-09-10T09:00:00Z","text":"cut sh');
+  lastWritten(chatsDir, 'direct..p.json', '2026-09-12T09:00:00Z');
+  put(chatsDir, 'proj1.b.json', { messages: [row(11, 'eleven, another conversation'), row(13, 'thirteen')] });
+  const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf, now: NOW });
+  assert.equal(s.readErrors, 0);
+  assert.deepEqual(s.unknownFiles, ['direct..p.json']);
+  assert.deepEqual(s.held, ['2026-09-10', '2026-09-11']);
+  assert.deepEqual(s.pruned, []);
+  assert.equal(day(outDir, 11), 'COMPILED 11, WITH ITS ROWS');
+  assert.deepEqual(s.written, ['2026-09-13']);
+  // then the next message arrives: the file is set aside (same bytes, same time) and a fresh one starts. Nothing changes.
+  fs.renameSync(path.join(chatsDir, 'direct..p.json'), path.join(chatsDir, DAMAGED));
+  put(chatsDir, 'direct..p.json', { messages: [row(14, 'fourteen, after')] });
+  const s2 = dl.compileAll({ chatsDir, outDir, dayOf, timeOf, now: NOW });
+  assert.deepEqual(s2.held, ['2026-09-10', '2026-09-11']);
+  assert.equal(day(outDir, 10), 'COMPILED 10, WITH ITS ROWS');
+  // a thread-named file that parses but is not a conversation is still just skipped: it is not a damaged one
+  const c = dirs('live-other');
+  put(c.outDir, '2026-09-10.md', 'STALE');
+  put(c.chatsDir, 'proj1.b.json', { cursor: 1 });
+  assert.deepEqual(dl.compileAll({ chatsDir: c.chatsDir, outDir: c.outDir, dayOf, timeOf, now: NOW }).pruned, ['2026-09-10']);
+});
+
 test('a .superseded file that will not parse, or holds no message list, is held like a damaged one, not skipped as junk', () => {
   const { chatsDir, outDir } = dirs('sup-bad');
   put(outDir, '2026-09-13.md', 'COMPILED 13');
@@ -321,6 +371,11 @@ test('a rolled-over conversation still refuses the whole run, whatever else is i
   // the summary has the same keys refused, held, and plain; so has readConversations on both its returns
   const plain = dl.compileAll({ chatsDir: path.join(SANDBOX, 'no-such-folder'), outDir, dayOf, timeOf, now: NOW });
   assert.deepEqual(Object.keys(s).sort(), Object.keys(plain).sort());
+  fs.rmSync(path.join(chatsDir, 'direct..p.json.x.full'));
+  lastWritten(chatsDir, DAMAGED, '2026-09-20T12:00:00Z');
+  const heldRun = dl.compileAll({ chatsDir, outDir, dayOf, timeOf, now: NOW });
+  assert.deepEqual(heldRun.held, ['2026-09-13'], 'precondition: this is a run that held a day');
+  assert.deepEqual(Object.keys(heldRun).sort(), Object.keys(plain).sort());
   assert.deepEqual(Object.keys(dl.readConversations(path.join(SANDBOX, 'no-such-folder'))).sort(), Object.keys(dl.readConversations(chatsDir)).sort());
 });
 
@@ -346,7 +401,7 @@ test('the command says which daily files it left alone and why, and still exits 
   const held = run();
   assert.equal(held.status, 0, held.stderr);
   assert.equal(held.stderr, '');
-  assert.ok(held.stdout.includes(`dailylog: left 3 daily file(s) already there as they were (${made[0]} to ${made[2]}), because 2 set-aside file(s) in the chats folder could not be read as conversations and may hold messages from those days\n`), held.stdout);
+  assert.ok(held.stdout.includes(`dailylog: left 3 daily file(s) already there as they were (${made[0]} to ${made[2]}), because 2 file(s) in the chats folder could not be read as conversations and may hold messages from those days\n`), held.stdout);
 });
 
 test('pin (convention 5): what this compiler assumes about the two kinds is what engine/chat.js does', () => {

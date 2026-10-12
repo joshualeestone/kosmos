@@ -23,11 +23,10 @@
  * file beside its thread file. While there is any sign of one the whole run is
  * refused and nothing is written or pruned (kosmos#5855; see compileAll).
  *
- * EXCEPT (kosmos#5866): a daily file for a day before a set-aside file that is
- * not read as a conversation (`.damaged`, or a `.superseded` one that will not
- * parse) was last written is left as it is, neither overwritten nor pruned,
- * because it may hold that file's messages, which cannot be compiled again (see
- * compileAll).
+ * EXCEPT (kosmos#5866): a daily file for a day before a thread file that is not
+ * read as a conversation (a `.damaged` or unparseable one) was last written is
+ * left as it is, neither overwritten nor pruned, because it may hold that file's
+ * messages, which cannot be compiled again (see compileAll).
  *
  * Why a sibling directory, not inside chats/: `engine/forget.js` enumerates
  * `chats/` as "conversations", and a reader (or a future removal sweep) must
@@ -112,6 +111,15 @@ function isRolledOverFileName(filename) {
    `.damaged` is a thread file chat.js could not use as a conversation, renamed aside. It is never read here. */
 const SUPERSEDED_SUFFIX = 'superseded';
 const DAMAGED_SUFFIX = 'damaged';
+/* When a set-aside file was set aside, read from its own name (`<thread file>.<stamp>.<pid>.<ms>[.<n>].<kind>`: the
+   `<ms>` chat.js's supersede puts there), as an ISO string, or null when the name carries none. */
+const SET_ASIDE_MS = /\.(\d{12,14})(?:\.\d{1,2})?\.[a-z]+$/;
+function setAsideAt(filename) {
+  const m = SET_ASIDE_MS.exec(String(filename));
+  if (!m) return null;
+  const d = new Date(Number(m[1]));
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
 /* The words that mark a set-aside conversation's heading apart from the live one's. */
 const EARLIER_PROJECT_NOTE = 'an earlier project of this name';
 /* The second sign in a file that will not parse: `"continues"` followed by a non-empty string,
@@ -148,7 +156,7 @@ function conversationLabel(desc) {
   if (!desc) return 'Conversation';
   const label = desc.kind === 'direct' ? `Direct: ${desc.key}` : `${desc.projectId} : ${desc.key}`;
   // kosmos#5866: a set-aside conversation gets a heading of its own: never the live conversation's, and never another
-  // set-aside one's (`earlier` is what tells two earlier projects of one name apart).
+  // set-aside one's unless the two began at the same moment (`earlier` says when the project began).
   return desc.earlier ? `${label} (${EARLIER_PROJECT_NOTE}, ${desc.earlier})` : label;
 }
 
@@ -356,12 +364,11 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
  *     after the folder was listed.
  *   - `rolledOverFiles` and `continuedFiles` are the file names behind those two
  *     counts, each sorted, for the refusal to show.
- *   - `unknownFiles` (kosmos#5866) are set-aside files this function does not
- *     read as conversations: every `.damaged` file, and a `.superseded` file
- *     that will not parse or holds no message list. `unknownThrough` is the
- *     latest moment any of them was last written (an ISO string, never later
- *     than `now`): a message is in a file only once the file has been written
- *     with it, so none of THEIR messages is later than that. It is null when
+ *   - `unknownFiles` (kosmos#5866) are thread files this function does not read
+ *     as conversations: every `.damaged` file, a `.superseded` file that will
+ *     not parse or holds no message list, and a live thread file that will not
+ *     parse. `unknownThrough` is the latest moment any of them could last have
+ *     gained a message (an ISO string, never later than `now`). It is null when
  *     there are none.
  *   - `readable` is true ONLY if the directory LISTING succeeded. A failed
  *     listing (permissions, a transient error, a wrong root, the dir absent)
@@ -369,8 +376,8 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
  *   - `readErrors` counts recognized conversation files whose bytes could not be
  *     READ (an `fs.readFileSync` throw -- EISDIR, EACCES, a transient I/O error).
  *     A file whose bytes read fine but are not valid JSON, or are not a
- *     conversation shape, is stable junk and is skipped WITHOUT counting: it is
- *     "this is not a conversation", not "I could not read a conversation".
+ *     conversation shape, is skipped WITHOUT counting here: it is not "I could
+ *     not read a conversation" (one that is not valid JSON goes to `unknownFiles`).
  * The caller prunes only when the listing succeeded AND no read errored, so a
  * transient failure at either level can never be read as "no conversations" and
  * wipe the compiled history.
@@ -390,14 +397,16 @@ function readConversations(chatsDir, now = new Date()) {
   const continuedFiles = [];
   const unknownFiles = [];
   let unknownThrough = null;
-  // A set-aside file not read as a conversation: remember it, and the latest moment one was last written. A time
-  // that cannot be read, or one later than now, counts as now: the file exists, so it was written by now.
+  // A file not read as a conversation: remember it, and the latest moment one could last have gained a message.
+  // That is the earliest of: when the file was last written, when its name says it was set aside, and now. Each is an
+  // upper bound on its own, so a file time in the future (or one that cannot be read) does not move the line.
   const nowIso = now.toISOString();
   const unknown = (name) => {
     unknownFiles.push(name);
     let when = nowIso;
-    try { when = fs.statSync(path.join(chatsDir, name)).mtime.toISOString(); } catch { /* unreadable: now, as set above */ }
-    if (!(when < nowIso)) when = nowIso;
+    try { const m = fs.statSync(path.join(chatsDir, name)).mtime.toISOString(); if (m < when) when = m; } catch { /* unreadable: the other bounds */ }
+    const aside = setAsideAt(name);
+    if (aside !== null && aside < when) when = aside;
     if (unknownThrough === null || when > unknownThrough) unknownThrough = when;
   };
   const isFolder = (name) => { try { return fs.statSync(path.join(chatsDir, name)).isDirectory(); } catch { return false; } };
@@ -436,7 +445,13 @@ function readConversations(chatsDir, now = new Date()) {
     catch { readErrors += 1; continue; }
     let parsed;
     try { parsed = JSON.parse(raw); }
-    catch { if (NAMES_AN_EARLIER_FILE.test(raw)) continuedFiles.push(name); continue; }
+    catch {
+      // Will not parse. If it names an earlier file it is a rolled-over conversation (kosmos#5855). Otherwise it is a
+      // damaged thread file chat.js has not set aside yet (it does so at the next message): the same unknown rows as
+      // a `.damaged` file, held from now and not only from then (kosmos#5866).
+      if (NAMES_AN_EARLIER_FILE.test(raw)) continuedFiles.push(name); else unknown(name);
+      continue;
+    }
     if (parsed && typeof parsed.continues === 'string' && parsed.continues) continuedFiles.push(name);
     if (!parsed || !Array.isArray(parsed.messages)) continue;
     out.push({ desc, parsed });
@@ -500,11 +515,11 @@ function compileAll(opts = {}) {
   const { rows, undated } = flattenMessages(conversations, dayOf);
   const byDay = groupByDay(rows);
 
-  /* kosmos#5866 HELD DAYS: a set-aside file that is not read as a conversation (`unknownFiles`) may have put rows in
-     daily files compiled before it was set aside, and those rows cannot be compiled again. None of ITS messages is
-     later than the moment it was last written, so a daily file for a day BEFORE that day is held: neither rewritten
-     nor pruned. The day it was last written, and every later day, are compiled as usual: holding them would freeze
-     days that are still gaining messages at their first compile.
+  /* kosmos#5866 HELD DAYS: a thread file that is not read as a conversation (`unknownFiles`) may have put rows in
+     daily files compiled while it could still be read, and those rows cannot be compiled again. None of ITS
+     messages is later than `unknownThrough`, so a daily file for a day BEFORE that day is held: neither rewritten
+     nor pruned. That day, and every later day, are compiled as usual: holding them would freeze days that are
+     still gaining messages at their first compile.
      What a held day costs: a later change to that day in a file that CAN be read is not picked up. That is an edit
      or a deletion, or a message kept late under its original time (a drained reply).
      If the day of that moment cannot be worked out (an injected `dayOf` that returns nothing for it), every existing
@@ -615,7 +630,7 @@ module.exports = {
 if (require.main === module) {
   const USAGE = 'usage: node engine/dailylog.js [--all | --day YYYY-MM-DD] [--out <dir>]\n'
     + '  the default run prunes stale day files in the rollup dir; --out disables pruning\n'
-    + '  daily files from before a set-aside file that cannot be read as a conversation was last written are left as they are\n'
+    + '  daily files from before a conversation file that cannot be read as one was last written are left as they are\n'
     + `  exits ${EXIT_REFUSED}, having written and removed nothing, while the chats folder holds a file named as\n`
     + '  the earlier part of a conversation (ending .full) or a conversation file that refers to an earlier file\n';
   const die = (msg) => { process.stderr.write(`dailylog: ${msg}\n` + USAGE); process.exit(2); };
@@ -681,7 +696,7 @@ if (require.main === module) {
       const n = summary.unknownFiles.length;
       process.stdout.write(`dailylog: left ${summary.held.length} daily file(s) already there as they were `
         + `(${summary.held[0]}${summary.held.length > 1 ? ' to ' + summary.held[summary.held.length - 1] : ''}), because `
-        + `${n} set-aside file(s) in the chats folder could not be read as conversations and may hold messages from those days\n`);
+        + `${n} file(s) in the chats folder could not be read as conversations and may hold messages from those days\n`);
     }
   }
 }
