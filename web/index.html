@@ -26462,7 +26462,7 @@ function paintMuseOption(sel, current) {
   opt.disabled = !on;
   /* #5316 (Josh 11:06: "Muse is disabled in the team builder"): this code enables the option, but its static text
      still said "coming soon", and a plain select (the team step's) shows that text as it is. The words follow the
-     same state as `disabled`: usable, sign in first (installed, not signed in), set up first (switched on, not
+     same state as `disabled`: usable, sign in first (installed, not signed in), install Muse Code first (#3939; switched on, not
      installed), or coming soon (not switched on here). */
   const pending = !on && creating && !!MUSE_CREATE && MUSE_CREATE.on === true;   // switched on, not usable yet
   const signIn = pending && MUSE_CREATE.installed === true;   // installed, only the sign-in is missing
