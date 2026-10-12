@@ -2068,7 +2068,7 @@ KOSMOS_SWEEP_LIST
       if bundle_is_sealed "$SYS_APP_DIR/Kosmos.app"; then
         # #5896 slice 2: the sealed icon is the same app for every account on this Mac, and another account may be
         # using it, so a shared one is left in place and named.
-        info "note: the Kosmos app in $SYS_APP_DIR is the one every account on this Mac opens, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
+        info "note: the Kosmos app in $SYS_APP_DIR is the one every account on this computer opens, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
       elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app"; then
         info "removing the Kosmos app from $SYS_APP_DIR"
         # A standard user cannot always delete from /Applications; an icon
