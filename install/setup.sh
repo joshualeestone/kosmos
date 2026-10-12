@@ -297,7 +297,7 @@ bundle_is_ours() {
   # $2, the caller's purpose (an argument, not a VAR=x prefix: under /bin/sh a prefix on a function call outlives
   # the call):
   #   anchored  a residue sweep          remove  an uninstall removing an icon (in the shared folder a sealed
-  #             icon never gets this far: the uninstall leaves it and names it first, bundle_looks_sealed)
+  #             icon gets this far only when no other install of this account remains, shared_sealed_stays)
   #   own       "is this this install's own sealed icon?", for what the transcript says (no placement gate)
   #   (none)    replacing an icon: in the SHARED folder a sealed occupant counts only when this run places the
   #             sealed app too, or the per-install bundle built instead would leave other accounts that use this
@@ -329,8 +329,8 @@ bundle_is_ours() {
 # THIS install's own shipped copy ($KOSMOS_HOME/app/Kosmos.app), which carries the identifier and the signing team,
 # so the Team ID is never spelled here. Every account's sealed icon is the same app, so this proves "a Kosmos we
 # built", not "this install's". bundle_is_ours adds what makes it this install's (this account owns it on disk, and
-# the account's config names this install). Even then an uninstall leaves a sealed icon in the SHARED folder and
-# names it; residue this account left there, and its icon in its own ~/Applications, are removed.
+# the account's config names this install). An uninstall removes such an icon in the SHARED folder only when no other
+# install of this account remains (shared_sealed_stays, #5912); residue and ~/Applications icons as usual.
 # /usr/bin/codesign by absolute path, as /usr/bin/grep above.
 sealed_requirement() {
   local ours="$KOSMOS_HOME/app/Kosmos.app"
@@ -356,16 +356,27 @@ sealed_config_reaches() {
     || { [ -n "${KOSMOS_SYS_APP_DIR:-}" ] && [ "$d" -ef "$SYS_APP_DIR" ]; } \
     || { [ -n "${KOSMOS_HOME_APP_DIR:-}" ] && [ "$d" -ef "$HOME_APP_DIR" ]; }
 }
+# #5912: does the sealed icon at $1 stay on uninstall? Yes unless it is this install's (bundle_is_ours ... remove:
+# this account owns it, the account's config named this install when the uninstall began) and no other install of
+# this account remains (other_board_installs, given this install's board label as $2). Another account is routed to
+# its own icon (it treats one this account owns as foreign), so at worst it loses a Dock or Spotlight entry that
+# pointed here, never an install. Not sealed: no (the per-install proof decides, below it).
+shared_sealed_stays() {
+  bundle_looks_sealed "$1" || return 1
+  bundle_is_ours "$1" remove && ! other_board_installs "$2" && return 1
+  return 0
+}
 # #5912: does another Kosmos install of THIS account remain? Each install has its own board login job,
-# com.kosmos.board (the default home) or com.kosmos.board.<hash of its home>; any one other than $1 (this install's,
-# which the uninstall removes before it sweeps icons) counts.
+# com.kosmos.board (the default home) or com.kosmos.board.<hash of its home>; any one other than $1 counts ($1 is
+# excluded by name, so this does not depend on when the uninstall removes this install's own).
 other_board_installs() {
   local f n
   for f in "${AGENT_WORKFORCE_LAUNCH:-$HOME/Library/LaunchAgents}"/com.kosmos.board.plist \
            "${AGENT_WORKFORCE_LAUNCH:-$HOME/Library/LaunchAgents}"/com.kosmos.board.*.plist; do
     [ -e "$f" ] || [ -L "$f" ] || continue   # an unmatched glob stays literal under /bin/sh
     n="${f##*/}"; n="${n%.plist}"
-    # A board's own label only: com.kosmos.board.watchdog[.<hash>] (the watchdog) also matches the glob.
+    # A board's own label only: com.kosmos.board.watchdog[.<hash>] (the watchdog) also matches the glob, and is
+    # excluded because "watchdog" is not 8 lowercase hex characters.
     case "$n" in
       com.kosmos.board|com.kosmos.board.[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
       *) continue ;;
@@ -2156,15 +2167,15 @@ KOSMOS_SWEEP_LIST
     # (Ownership cannot be proven through a dangling link, so the refusal
     # note prints; that is honest, and the note names the survivor.)
     if [ -e "$SYS_APP_DIR/Kosmos.app" ] || [ -L "$SYS_APP_DIR/Kosmos.app" ]; then
-      # #5912: a sealed icon is removed like any other when it is this install's (this account owns it, and the
-      # account's config named this install when the uninstall began) and no other install of this account remains:
-      # another account never opens an icon this account owns (it treats it as foreign and gets its own).
-      if bundle_looks_sealed "$SYS_APP_DIR/Kosmos.app" \
-         && ! { bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove && ! other_board_installs "$_board_label"; }; then
-        # #5896 slice 2: otherwise the sealed icon is the same app for every install that may still open it, so it
-        # is left in place and named.
+      # #5912: a sealed icon stays only when another install may still open it (shared_sealed_stays); otherwise it is
+      # removed like any other icon of this install, by the branch below.
+      if shared_sealed_stays "$SYS_APP_DIR/Kosmos.app" "$_board_label"; then
         _sys_sealed_left=yes
-        info "note: the Kosmos app in $SYS_APP_DIR is a Kosmos app shared by every account on this computer, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
+        if bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then
+          info "note: the Kosmos app in $SYS_APP_DIR is still used by another Kosmos install on this account, so it was left in place."
+        else
+          info "note: the Kosmos app in $SYS_APP_DIR may be used by another account or install on this computer, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
+        fi
       # The same anchored token as resolve_app_dir: the closing `}"` keeps
       # two homes in a prefix relationship from cross-matching, because
       # this grep is the sole gate on an rm -rf in a shared folder.

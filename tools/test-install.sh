@@ -1265,7 +1265,7 @@ chk "sweep uninstall exits 0" "rc_ok $RC"
 chk "home-folder icon swept" "[ ! -d \"$SBH/Applications/Kosmos.app\" ]"
 chk "another install's system icon left alone" "[ -d \"$SYS_OK/Kosmos.app\" ]"
 if [ "$SYS_OK_SEALED" = yes ]; then
-  chk "#5896: the shared sealed icon is named as left in place" "grep -q 'shared by every account on this computer, so it was left in place' \"$SB/probe-un.log\""
+  chk "#5896: the shared sealed icon is named as left in place" "grep -q 'so it was left in place' \"$SB/probe-un.log\""
 else
   chk "the refusal speaks a sentence" "grep -q \"in $SYS_OK could not be proven to belong to this install\" \"$SB/probe-un.log\""
 fi
@@ -1288,7 +1288,7 @@ RC=0; HOME="$SBH" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" sh -s -- --uninst
 chk "owner uninstall exits 0" "rc_ok $RC"
 if [ "$SYS_OK_SEALED" = yes ]; then
   # #5912: removed when no other install of this account (no other board login job) remains, else left and named.
-  chk "#5896/#5912: the owner's uninstall removes the shared sealed icon, or leaves it and names it" "[ ! -d \"$SYS_OK/Kosmos.app\" ] || grep -q 'shared by every account on this computer, so it was left in place' \"$SB/probe-un2.log\""
+  chk "#5896/#5912: the owner's uninstall removes the shared sealed icon, or leaves it and names it" "[ ! -d \"$SYS_OK/Kosmos.app\" ] || grep -q 'so it was left in place' \"$SB/probe-un2.log\""
 else
   chk "system-folder icon swept by its owner" "[ ! -d \"$SYS_OK/Kosmos.app\" ]"
 fi
@@ -1326,7 +1326,7 @@ ALIAS_SEALED=no; icon_is_sealed "$SYSALIAS/Kosmos.app" && ALIAS_SEALED=yes
 RC=0; HOME="$SBH3" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYSALIAS" sh -s -- --uninstall < "$SETUP" > "$SB/alias-un2.log" 2>&1 || RC=$?
 chk "owner uninstall exits 0 in the aliased world" "rc_ok $RC"
 if [ "$ALIAS_SEALED" = yes ]; then
-  chk "#5896/#5912: the aliased shared sealed icon is removed, or left in place and named" "[ ! -d \"$SYSALIAS/Kosmos.app\" ] || grep -q 'shared by every account on this computer, so it was left in place' \"$SB/alias-un2.log\""
+  chk "#5896/#5912: the aliased shared sealed icon is removed, or left in place and named" "[ ! -d \"$SYSALIAS/Kosmos.app\" ] || grep -q 'so it was left in place' \"$SB/alias-un2.log\""
 else
   chk "aliased bundle removed by its owner" "[ ! -d \"$SYSALIAS/Kosmos.app\" ]"
 fi
@@ -1480,7 +1480,7 @@ else
   RC=0; HOME="$SBH17" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_DEEP" sh -s -- --uninstall < "$SETUP" > "$SB/deep-un.log" 2>&1 || RC=$?
   chk "deep-world uninstall exits 0" "rc_ok $RC"
   if [ "$DEEP_SEALED" = yes ]; then
-    chk "#5896/#5912: the deep-world shared sealed icon is removed, or left in place and named" "[ ! -e \"$SYS_DEEP/Kosmos.app\" ] || grep -q 'shared by every account on this computer, so it was left in place' \"$SB/deep-un.log\""
+    chk "#5896/#5912: the deep-world shared sealed icon is removed, or left in place and named" "[ ! -e \"$SYS_DEEP/Kosmos.app\" ] || grep -q 'so it was left in place' \"$SB/deep-un.log\""
   else
     chk "deep-world slot fully cleared" "[ ! -e \"$SYS_DEEP/Kosmos.app\" ]"
   fi
