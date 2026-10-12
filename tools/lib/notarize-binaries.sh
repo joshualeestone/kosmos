@@ -81,8 +81,9 @@ _notarize_app_exe() {
 
 # #5896 slice 3: after Apple accepted submission <id> holding <app>, staple its ticket to it (so Gatekeeper finds it
 # offline, on any Mac), validate the staple, then assess a copy carrying a quarantine flag, as a download, AirDrop or
-# zip would leave it, which Gatekeeper refuses when it is not notarised (measured; see the file header). (spctl -a assesses signature,
-# notarisation and staple with or without the flag; the flag makes the copy what a user actually opens.) <scratch> is a
+# zip would leave it, which spctl rejects when it is not notarised (measured; see the file header). (spctl -a
+# assesses signature, notarisation and staple with or without the flag; the flag makes the copy what a user actually
+# opens.) <scratch> is a
 # folder the copy may be made in. A ticket can reach the staple service a while after acceptance, and a cut that fails
 # here has already pushed its version bump, so stapling has its OWN, longer schedule (KOSMOS_STAPLER_RETRY_DELAYS,
 # default 30 60 120 300 seconds, refused at a cut like the other seams), and a final failure names the submission.
@@ -116,7 +117,7 @@ _notarize_staple_app() {
      && printf '%s\n' "$out" | grep -q "^origin=Developer ID Application: .*($KOSMOS_SIGN_TEAM_ID)\$"; then
     echo "==> stapled and assessed quarantined: ${app##*/} is accepted as Notarized Developer ID, team $KOSMOS_SIGN_TEAM_ID (#5896)"
   else
-    echo "notarize: a quarantined copy of $app is not accepted as Notarized Developer ID of team $KOSMOS_SIGN_TEAM_ID (spctl rc=$rc, above). macOS would refuse to open a downloaded copy." >&2
+    echo "notarize: a quarantined copy of $app is not accepted as Notarized Developer ID of team $KOSMOS_SIGN_TEAM_ID (spctl rc=$rc, above). Gatekeeper (spctl) rejects a quarantined copy of it." >&2
     return 1
   fi
 }
