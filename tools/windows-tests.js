@@ -58,6 +58,7 @@ const ALSO = ['agentpermission-5406.test.js', 'backupdevicekey-5535.test.js', 'p
   'setupsettings.fsync-5434.test.js',   // #5434 slice 11: the guard's Claude Code settings saves, on Windows too
   'instructions.fsync-5434.test.js',   // #5434 slice 12: an agent's brief and its kept previous version, on Windows too
   'undo.fsync-5434.test.js',   // #5434 slice 13: Undo's restore, saved-aside copy and kept copies, on Windows too
+  'backupstate-5535.test.js',   // #5535 E0.6: the backup state file; a rename refused while a scanner holds it must read as retry on Windows
   'boardauth.fsync-5434.test.js',   // #5434 slice 14: board.token flushed, a zero-filled one healed, on Windows too
   'secrets.fsync-5434.test.js',   // #5434 slice 15: world id, applied policy and phone-notify state saves, on Windows too
   'create.supfsync-5434.test.js',   // #5434 slice 16: the supervisor and report bridges install, on Windows too
