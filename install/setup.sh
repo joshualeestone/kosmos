@@ -3537,6 +3537,10 @@ write_install_config() {
   case "$owner_uid" in
     ''|*[!0-9]*) return 1 ;;
   esac
+  # The JSON below is not escaped, so a home it could not carry intact is refused rather than written wrong.
+  case "$KOSMOS_HOME" in
+    *'"'*|*'\'*|*[[:cntrl:]]*) return 1 ;;
+  esac
   mkdir -p "$INSTALL_CONFIG_DIR" 2>/dev/null || return 1
   tmp="$(/usr/bin/mktemp "$INSTALL_CONFIG_DIR/.kosmos-install.json.XXXXXX" 2>/dev/null)" || return 1
   printf '{"kosmosHome":"%s","ownerUid":%s,"port":%s}' \

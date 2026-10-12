@@ -118,6 +118,16 @@ test('#5896: a write that cannot happen returns non-zero and leaves no file behi
   } finally { fs.chmodSync(dir, 0o700); }
 });
 
+test('#5896: a home the JSON cannot carry intact is refused, not written wrong', () => {
+  for (const bad of ['/sb/a"b', '/sb/a\\b', '/sb/a\tb']) {
+    const awh = fs.mkdtempSync(path.join(tmpRoot, 'sandboxhome-'));
+    const r = run({ HOME: fs.mkdtempSync(path.join(tmpRoot, 'realhome-')), AGENT_WORKFORCE_HOME: awh,
+      KOSMOS_HOME: bad, PORT: '17001' }, 'write_install_config; echo "rc=$?"');
+    assert.match(r.out, /rc=1/, JSON.stringify(bad) + ' was written');
+    assert.equal(fs.existsSync(cfgFile(awh)), false);
+  }
+});
+
 test('#5896: CONTROL, a real install (default KOSMOS_HOME, real home) writes the account file', () => {
   const home = fs.mkdtempSync(path.join(tmpRoot, 'realhome-'));
   const r = run({ HOME: home, KOSMOS_HOME: home + '/.local/share/kosmos', PORT: '16180' }, 'write_install_config; echo "rc=$?"');

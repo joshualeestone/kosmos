@@ -47,12 +47,14 @@ resolves through the config's ownerUid == getuid() path, so it gets the generic 
 #664 fallback's "your Kosmos". Cosmetic, and slice 2 (the bundle copy goes away) is where that branch is reshaped.
 
 ## Tests
-- native-app/main.swift --kosmos-app-mode-selftest: 8 new rows (order, override, another account, own file beats a
-  foreign bundle copy, an own bundle copy beats the account file, no bundle copy, damaged file falls back); expected
-  98 -> 106, pinned in native-app.computer-mode-4356 and native-app.download-5167. Perturbing the order fails the two
-  order rows; removing the own-bundle preference fails its row.
+- native-app/main.swift --kosmos-app-mode-selftest: 9 new rows (4 order: account then bundle, no bundle, override,
+  another account; 5 disk: own file beats a foreign bundle copy, an own bundle copy beats the account file, no bundle
+  copy, a gone install folder yields to a foreign bundle copy, damaged file falls back); expected 98 -> 107, pinned in
+  native-app.computer-mode-4356 and native-app.download-5167. Perturbing the order fails the two order rows; removing
+  the own-bundle preference or the folder-exists rule fails its row.
 - install.app-config-5896.test.js: lifts write_install_config and the uninstall block from setup.sh and runs them in
   bash under temp folders (sandboxed write, the sandbox guard, the real home spelled two other ways, a failed write,
+  a home with a quote, backslash or tab refused,
   a real install control, uninstall keeps another install's file and removes its own). The spelling case fails
   against the old string compare.
 - tools/test-install.sh: one chk that a real sandboxed install wrote the account copy.
