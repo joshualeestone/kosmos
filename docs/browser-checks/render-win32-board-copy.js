@@ -105,6 +105,8 @@ const LINUX_HIDDEN = {
   'Settings Accessibility button': '#set-a11y-open',
   'Settings tmux box': 'section.dbox[data-win-hide]:not(:has(#wb-row))',
   'Open Terminal': '.field:has(> #d-open-terminal)',
+  'agent Files: Open in Finder': '#d-files-finder',
+  'project docs: Open this folder in Finder': '#docs-finder',
 };
 const LINUX_OPEN_LINE = 'If Kosmos stops, run kosmos restart in a terminal on the computer it is installed on (over SSH on a headless server).';
 
