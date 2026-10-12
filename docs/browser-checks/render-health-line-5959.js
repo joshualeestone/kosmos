@@ -27,7 +27,12 @@ process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-h
 process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-hl-projects-'));
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
-const { chromium } = require('playwright');
+let chromium;
+try { ({ chromium } = require('playwright')); }
+catch {
+  console.log('render-health-line-5959: playwright is not on NODE_PATH - SKIPPED, not passed.');
+  process.exit(0);
+}
 const fleet = require('../../test-support/fleet');
 const observed = require('../../engine/observed');
 const srv = require('../../server.js');

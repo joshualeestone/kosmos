@@ -8664,6 +8664,8 @@ const server = http.createServer(async (req, res) => {
         let back;
         try { back = removal.restart(name, 'provider'); }
         catch (err) { back = { outcome: 'partial', because: String(err && err.message || err), steps: [] }; }
+        // #5959 slice 2: again after it, since the old pane can be seen working until the restart replaces it.
+        try { observed.forgetAgent(name); } catch { /* best-effort, as above */ }
         const ok = back.outcome === removal.OUTCOME.RESTARTED;
         /* #3296/#3391: the vendor word, keyed on the provider the switch landed on.
            google/xai were previously mislabelled "Claude" here.

@@ -40,8 +40,9 @@ the pane working (a short turn between sweeps is not seen); for Codex, Gemini an
   last time Kosmos saw it streaming, not the end of a completed turn. Codex/Gemini/Grok record the completion time,
   and only when that completion was fresh at a sweep, so a turn that ended before the board started is not seen.
 - A Claude pane in its retry loop: a rate limit or a rejected sign-in classifies as such before working chrome, so it
-  records no OK; a plain network retry (connection_lost) likewise. A retry shape that scrapes as WORKING would record
-  one; none is known.
+  records no OK. A network retry does not: Claude Code draws working chrome while it retries (status.js STATE
+  comment), so the pane reads working and records OKs until the retries run out and it reads connection_lost. In that
+  window the line says it was seen working; sign-in and usage are not what is failing there.
 - Stopped, restarting, unknown, blocked or connection-lost agents show only the time (connection lost: "no problem
   showing" beside it would read as a clean bill of health). Blocked because a Claude card stays blocked on
   Claude Code's own report of a refused sign-in or a usage cap, where "no problem showing" would be false.
@@ -51,7 +52,7 @@ the pane working (a short turn between sweeps is not seen); for Codex, Gemini an
 - The account's own Check-now verdict (Settings, AI Models) is not read here: it is about the account, which may serve
   several agents, and it has its own row. A follow-up could name it on this line.
 - A removed agent, or one created under an old name, forgets the name's last-seen time (`observed.forgetAgent`, called
-  beside `crashloop.forget` in create, remove and delete-leftover), and so does a provider switch, which keeps the name.
+  beside `crashloop.forget` in create, remove and delete-leftover), and so does a provider switch, which keeps the name (before and after its restart).
 - The time is in the viewer's clock and zone: in a Kosmos+ view of another computer, the viewer's own.
 - In memory: after a board restart every agent reads "Last seen working: not seen since Kosmos started" until its next turn.
 - "At a glance" in the ask may mean the board card; if so, the line is one call away (`healthLine` is pure).

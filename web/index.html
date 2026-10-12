@@ -23690,7 +23690,8 @@ function healthLine(a, nowMs) {
   if (Number.isFinite(at)) last = seenAtWords(at, nowMs);
   else if (lw.why === 'no_source') last = 'Kosmos cannot see this agent\'s turns';
   else last = 'not seen since Kosmos started';
-  /* A problem the state shows is always said. "No problem" is said only for a state Kosmos reads (HEALTH_READ_STATES)
+  /* auth_failed and rate_limited are always said (a blocked card says neither: see HEALTH_READ_STATES). "No problem" is
+     said only for a state Kosmos reads (HEALTH_READ_STATES)
      on an agent it has seen work within the last hour (HEALTH_QUIET_MS): otherwise it would be a health claim resting
      on an absence, or on a sighting old enough for a sign-in to have lapsed since. */
   const looks = a.stateConfidence === 'scraped';
