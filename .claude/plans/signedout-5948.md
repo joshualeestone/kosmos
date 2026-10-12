@@ -29,10 +29,14 @@ verified on the Windows box). The seam between them is decided and pinned here.
 ## Weakest premise
 The release depends on the Windows supervisor clearing the line (a non-auto report after a turn that works, or a
 restart's `started`). If Homer's half never clears it, a reconnected agent's messages stay held until a restart, Send
-now anyway, or the queue's one-day drop. A scraped auth_failed (Claude, screen-read) also holds now; #1930's live
-probe still governs that read. The first batch on Windows (sent before the board knows) depends on Homer's half.
+now anyway, or the queue's one-day drop. Only a REPORTED auth_failed holds (`card.stateReported`): a screen-read one has
+no clearing writer on most runners, so it is typed as before. The first batch on Windows (sent before the board knows)
+depends on Homer's half.
 
 ## Known gaps, stated
+- A room post held for a signed-out member is recorded with the room's limit note (reset = now); the minute retry only
+  looks at limit-held Claude members, so (review 2's reading, not measured here) those asks go out at the member's next
+  wake or arrival rather than the next minute. Before this change they were placed and, on Windows, lost.
 - The "behind" sentence ("kept from while it was out of usage") is unchanged: it is pinned in both CLIs and five tests,
   and a backlog can mix causes. A signed-out backlog's typed note does say signed out.
 - A kept task line's recorded outcome (#5842, `kept-sent` / `kept-dropped`) still says "while X was out of usage".

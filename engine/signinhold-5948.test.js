@@ -146,3 +146,26 @@ test('#5948 review 1: a Claude agent\'s own sign-in StopFailure line does not ho
     assert.equal(tmux.pastedTo('casey').length, 1, 'a Claude agent was held on its own sign-in report');
   }, 'claude');
 });
+
+test('#5948 review 2: a second message during the same sign-out is held as signed out too, not "behind"', async () => {
+  await withFleet(true, async (board) => {
+    const a = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'first' }, board.agents);
+    const b = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'second' }, board.agents);
+    for (const v of [a, b]) {
+      assert.equal(v.heldFor, 'signin', JSON.stringify(v));
+      assert.notEqual(v.behind, true, JSON.stringify(v));
+      assert.doesNotMatch(v.because, /usage/);
+    }
+    assert.deepEqual(limitqueue.list('casey').map((e) => e.signin), [true, true]);
+  });
+});
+
+test('#5948 review 2: a screen-read auth_failed (no report) is not held, as before this change', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'auth_failed', runner: 'claude' })]);
+  try {
+    const card = caseyOf(board);
+    assert.equal(card.state, status.STATE.AUTH_FAILED, 'CONTROL: the fixture is not a signed-out screen');
+    assert.notEqual(card.stateReported, true);
+    assert.equal(chat.signinHeldVerdict('casey', board.agents), null);
+  } finally { chat.resetForTests(); board.restore(); }
+});
