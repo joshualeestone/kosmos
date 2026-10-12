@@ -328,15 +328,28 @@ const chk = (ok, label, extra) => {
   chk(ask.flow && ask.go === 'Install Muse Code' && /download from Meta/.test(ask.say), '#6004: the step says Muse Code is a download from Meta and offers Install Muse Code (the press is the confirm)', JSON.stringify(ask));
   const signinsBefore = await q(() => window.__posts.length);
   await q(() => { window.__holdInstall = new Promise((r) => { window.__releaseInstall = r; }); });
-  await q(() => { document.getElementById('acct-muse-go').click(); document.getElementById('acct-muse-go').click(); }); await settle();
-  const instBusy = await q(() => ({ go: document.getElementById('acct-muse-go').disabled, say: document.getElementById('acct-muse-say').textContent }));
-  chk(instBusy.go && /Installing Muse Code from Meta/.test(instBusy.say), '#6004: while installing, the button is off and the step says so', JSON.stringify(instBusy));
+  await q(() => { const g = document.getElementById('acct-muse-go'); g.focus(); g.click(); g.click(); }); await settle();
+  const instBusy = await q(() => ({ busy: document.getElementById('acct-muse-go').getAttribute('aria-disabled'), disabled: document.getElementById('acct-muse-go').disabled,
+    focus: document.activeElement && document.activeElement.id, spin: document.getElementById('acct-muse-spin').textContent, say: document.getElementById('acct-muse-say').textContent }));
+  chk(instBusy.busy === 'true' && !instBusy.disabled && instBusy.focus === 'acct-muse-go' && /Installing/.test(instBusy.spin) && /Installing Muse Code from Meta/.test(instBusy.say),
+    '#6004: while installing, the button is marked busy but keeps focus (never disabled under focus), and the spinner and step say Installing', JSON.stringify(instBusy));
   await q(() => { window.__releaseInstall(); window.__holdInstall = null; }); await settle();
   const instDone = await q(() => ({ posts: window.__installPosts, go: document.getElementById('acct-muse-go').textContent, focus: document.activeElement && document.activeElement.id,
     say: document.getElementById('acct-muse-say').textContent }));
   chk(instDone.posts === 1, '#6004: a double press of Install sends one install', JSON.stringify(instDone));
   chk(instDone.go === 'Sign in with Meta' && instDone.focus === 'acct-muse-go' && /installed\. Now sign in/.test(instDone.say), '#6004: installed, the same button becomes Sign in with Meta, with focus on it', JSON.stringify(instDone));
   chk(await q((n) => window.__posts.length === n, signinsBefore), '#6004: installing starts no sign-in by itself');
+  // Closed mid-install and reopened: the Install press works again (it joins the board's one run), never a dead button.
+  await q(() => { window.__museInstalled = false; window.__installPosts = 0; window.__installAnswer = null; closeAcctAdd(); openAcctAdd(); }); await settle();
+  await choose('meta'); await settle();
+  await q(() => { window.__holdInstall = new Promise((r) => { window.__releaseInstall = r; }); });
+  await q(() => document.getElementById('acct-muse-go').click()); await settle();
+  await q(() => { closeAcctAdd(); openAcctAdd(); }); await settle();
+  await choose('meta'); await settle();
+  await q(() => document.getElementById('acct-muse-go').click()); await settle();
+  const instAgain = await q(() => ({ posts: window.__installPosts, say: document.getElementById('acct-muse-say').textContent }));
+  chk(instAgain.posts === 2 && /Installing Muse Code from Meta/.test(instAgain.say), '#6004: closed mid-install and reopened, Install works again (a dead button before)', JSON.stringify(instAgain));
+  await q(() => { window.__releaseInstall(); window.__holdInstall = null; }); await settle();
   // A failed install says why and offers Try again; nothing is claimed.
   await q(() => { window.__museInstalled = false; window.__installAnswer = { ok: false, error: 'Meta\'s Muse Code installer did not finish' }; closeAcctAdd(); openAcctAdd(); }); await settle();
   await choose('meta'); await settle();
@@ -852,7 +865,7 @@ const chk = (ok, label, extra) => {
   await q(() => document.getElementById('fr-meta-connect').click()); await settle();
   fm = await frMeta();
   const frGoText = await q(() => document.getElementById('fr-muse-go').textContent);
-  chk(fm.flow && frGoText === 'Install Muse Code' && !/not on this computer yet\. Install it from Meta/.test(fm.msg), '#6004: first run, Muse Code missing: Connect opens the panel on Install Muse Code', JSON.stringify(fm) + ' ' + frGoText);
+  chk(fm.flow && frGoText === 'Install Muse Code' && fm.msg === '', '#6004: first run, Muse Code missing: Connect opens the panel on Install Muse Code, with no stale line under the row', JSON.stringify(fm) + ' ' + frGoText);
   await q(() => document.getElementById('fr-muse-go').click()); await settle();
   const frDone = await q(() => ({ posts: window.__installPosts, go: document.getElementById('fr-muse-go').textContent }));
   chk(frDone.posts === 1 && frDone.go === 'Sign in with Meta', '#6004: first run, Install Muse Code installs, then offers Sign in with Meta', JSON.stringify(frDone));
