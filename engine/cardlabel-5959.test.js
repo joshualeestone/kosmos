@@ -75,3 +75,10 @@ test('#5959 review 7: the age words come from the age alone, never from where th
   assert.deepEqual([1, 13, 23.9, 24, 47.9, 48, 72.5].map((x) => standingFor(x * h)),
     ['1 hour', '13 hours', '23 hours', 'over a day', 'over a day', '2 days', '3 days']);
 });
+
+test('#5959 review 8: an offline card that is also crash-looping reads as the offline card, as the card render decides it first', () => {
+  // The card render's `a.running === false` branch returns before stateCopyOf (whose first case is the crash loop).
+  assert.equal(labelOf({ running: false, state: 'stopped', crashLoop: { looping: true } }), 'Not running');
+  // CONTROL: a running crash-looping card is stateCopyOf's "Keeps stopping", as the page says.
+  assert.equal(labelOf({ state: 'working', crashLoop: { looping: true } }), pageStateCopyOf.stateCopyOf({ state: 'working', crashLoop: { looping: true } }).label);
+});
