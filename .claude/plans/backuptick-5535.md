@@ -13,7 +13,9 @@ startHere (the board's tick). server.js start(): startHere, beside the hourly fi
   never to take, and Kosmos's own state rather than the person's work.
 - Known gap, stated in the header and filed as kosmos#5883 (review 5 widened it): transcripts of agents on named Codex
   or Gemini accounts, per-session Codex homes, and every Grok agent. Their folders are backed up; their transcripts are not.
-- Gate: orgenroll.isEnrolledHere(), the check /api/org uses. First run an hour after start, never at boot.
+- Gate: orgenroll.mayReport() (enrolled here AND the company's words accepted here), the gate orgenroll names for
+  every sender, E0.6 included. CORRECTED in review 7: this first said isEnrolledHere. First run an hour after start, never at boot.
+  Residual: asked when a run starts; a Leave during a run does not stop that run (a rollup re-asks per batch).
 - backup_off pauses a day (Kosmos+ answers 404 backup_off on backup-key while backup is off, coordinator plan
   orgescrow-5535). overAllowance pauses to the next Monday 00:00 UTC. A tick during a run is skipped.
 - A reason a person acts on (refusedState, missing, unreadableKeyFile) is said once, on the board's log, until it
@@ -109,3 +111,11 @@ so the hidden-folder rule refuses none of them.
 2. FIXED: the refusal now says "or a hidden folder in the home folder", true for a folder that is merely hidden.
 Tests 20 -> 21.
 Mutant after review 6 (20:06 CDT from `date`): K1 one home only: red (21/20/1).
+
+## Review 7 (opus, blind, on ba08ce63): one must-fix, one nit, both fixed
+1. MUST-FIX: the gate was isEnrolledHere. orgenroll's own comment names mayReport as the gate for EVERY sender, E0.6
+   backup by name: a record re-adopted after an unwritten move, or rebuilt after a last-admin refusal, is enrolled with
+   no consent, and the tick would have uploaded the person's work under it. Nothing downstream asks mayReport. FIXED:
+   mayBackUp() = mayReport(); test with a control that the consent-less record reads as enrolled here. Residual stated.
+2. NIT: `said` reset only on success, so a reason that came back after other failures was never said again. FIXED.
+Tests 21 -> 23.

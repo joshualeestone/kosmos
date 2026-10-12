@@ -79,3 +79,15 @@ test('review 6: the real home\'s hidden folders are protected too when AGENT_WOR
   if (!realHidden.length) return;   // a home with no hidden entry: nothing to check
   assert.ok(realHidden.every((d) => input.protect.includes(d)), 'a hidden folder of the real home was not protected');
 });
+
+test('review 7: the gate is consent, not enrolment alone: a record with no consentHash gives no backup', () => {
+  const world = 'a'.repeat(32);
+  fs.writeFileSync(path.join(store.ROOT, 'org-world-id'), world + '\n');
+  const rec = { at: new Date().toISOString(), world, org: { id: 'org1', name: 'Co', slug: 'co' }, role: 'member' };
+  fs.writeFileSync(path.join(store.ROOT, 'org-enrollment.json'), JSON.stringify(rec));
+  const oe = require('./orgenroll');
+  assert.equal(oe.isEnrolledHere(), true, 'CONTROL: the record reads as enrolled here');
+  assert.equal(tick.mayBackUp(), false, 'enrolled with no consent recorded here must not back up');
+  fs.writeFileSync(path.join(store.ROOT, 'org-enrollment.json'), JSON.stringify(Object.assign({}, rec, { consentHash: 'b'.repeat(64) })));
+  assert.equal(tick.mayBackUp(), true, 'with the words accepted here it may');
+});
