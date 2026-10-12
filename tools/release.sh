@@ -733,6 +733,13 @@ done
 if [ -n "${KOSMOS_SUITE_RERUN_CMD+x}" ]; then
   echo "KOSMOS_SUITE_RERUN_CMD is set in this shell (even an empty value counts). A cut's contention rerun always runs the real suite (#5932): unset it and run again."; exit 1
 fi
+# #5934: run-tests.sh runs only the node or shell part when KOSMOS_TEST_PART says so, honoured outside CI only with
+# KOSMOS_TEST_PART_LOCAL=1 (#4317). Step 3's `yarn test` inherits this shell, so both left exported would let a cut
+# pass on half a suite, said only on stderr in a log nobody reads while the cut is green. KOSMOS_TEST_PART=all (the
+# whole suite) is allowed; anything else, an empty value included, is refused, and so is KOSMOS_TEST_PART_LOCAL.
+if { [ -n "${KOSMOS_TEST_PART+x}" ] && [ "$KOSMOS_TEST_PART" != all ]; } || [ -n "${KOSMOS_TEST_PART_LOCAL+x}" ]; then
+  echo "KOSMOS_TEST_PART or KOSMOS_TEST_PART_LOCAL is set in this shell (part '${KOSMOS_TEST_PART-}', local '${KOSMOS_TEST_PART_LOCAL-}'). A cut always tests the whole suite (#5934): unset them and run again."; exit 1
+fi
 # One authenticated request to Apple with the notary key, so a bad key or an outage refuses here,
 # before the bump is pushed. Step 4 can still fail at Apple after the bump (a notary outage that
 # starts mid-cut, or a submission still unfinished after its two 30-minute waits), the same exposure
