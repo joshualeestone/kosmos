@@ -23,17 +23,25 @@ test('#5959 slice 2: the health line says sign-in, usage and when Kosmos last sa
   const at5 = NOW - 5 * 60e3;
   assert.equal(healthLine({ state: 'idle', lastWorked: { at: new Date(at5).toISOString(), why: null } }, NOW),
     'Sign-in: no problem showing · Usage: no limit showing · Last seen working: ' + clock(at5));
+  const seen = { at: new Date(at5).toISOString(), why: null };
+  const never = { at: null, why: 'not_seen' };
   // A screen reading is hedged, as the state sentence is (#215); the agent's own report is not.
-  assert.match(healthLine({ state: 'auth_failed', stateConfidence: 'scraped', lastWorked: { at: null, why: 'not_seen' } }, NOW),
-    /^Sign-in: looks like it isn't working · Usage: no limit showing · /);
-  assert.match(healthLine({ state: 'auth_failed', stateConfidence: 'structured', lastWorked: { at: null, why: 'not_seen' } }, NOW),
-    /^Sign-in: isn't working · /);
-  assert.match(healthLine({ state: 'rate_limited', stateConfidence: 'scraped', lastWorked: { at: null, why: 'not_seen' } }, NOW),
-    /· Usage: looks like a limit · Last seen working: not since Kosmos started$/);
-  assert.match(healthLine({ state: 'rate_limited', stateConfidence: 'structured', lastWorked: { at: null, why: 'not_seen' } }, NOW),
-    /· Usage: limit reached · /);
-  assert.match(healthLine({ state: 'working', lastWorked: { at: null, why: 'no_source' } }, NOW),
-    /Last seen working: Kosmos cannot see this agent's turns$/);
+  assert.equal(healthLine({ state: 'auth_failed', stateConfidence: 'scraped', lastWorked: seen }, NOW),
+    'Sign-in: looks like it isn\'t working · Usage: no limit showing · Last seen working: ' + clock(at5));
+  assert.equal(healthLine({ state: 'auth_failed', stateConfidence: 'structured', lastWorked: seen }, NOW),
+    'Sign-in: isn\'t working · Usage: no limit showing · Last seen working: ' + clock(at5));
+  assert.equal(healthLine({ state: 'rate_limited', stateConfidence: 'scraped', lastWorked: seen }, NOW),
+    'Sign-in: no problem showing · Usage: looks like a limit · Last seen working: ' + clock(at5));
+  assert.equal(healthLine({ state: 'rate_limited', stateConfidence: 'structured', lastWorked: seen }, NOW),
+    'Sign-in: no problem showing · Usage: limit reached · Last seen working: ' + clock(at5));
+  // Never seen working: a problem the state shows is still said, but "no problem" is not (it would rest on an absence).
+  assert.equal(healthLine({ state: 'auth_failed', stateConfidence: 'scraped', lastWorked: never }, NOW),
+    'Sign-in: looks like it isn\'t working · Last seen working: not since Kosmos started');
+  assert.equal(healthLine({ state: 'rate_limited', stateConfidence: 'structured', lastWorked: never }, NOW),
+    'Usage: limit reached · Last seen working: not since Kosmos started');
+  assert.equal(healthLine({ state: 'idle', lastWorked: never }, NOW), 'Last seen working: not since Kosmos started');
+  assert.equal(healthLine({ state: 'working', lastWorked: { at: null, why: 'no_source' } }, NOW),
+    'Last seen working: Kosmos cannot see this agent\'s turns');
   // Stopped, restarting or unreadable: Kosmos sees nothing of its sign-in or usage, so only the time is said. Blocked
   // too: a Claude card stays blocked on Claude Code's own report of a refused sign-in or a usage cap.
   for (const state of ['stopped', 'restarting', 'unknown', 'blocked']) {

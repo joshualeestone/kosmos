@@ -5120,6 +5120,7 @@ function createAgentInner(opts) {
      hides nothing; while a create that ends PARTIAL leaves a launch file (so a card), which must not inherit it. */
   try { require('./disruption').clear(name); } catch { /* best-effort */ }
   try { require('./crashloop').forget(name); } catch { /* #5154: a new agent never inherits an old loop */ }
+  try { require('./observed').forgetAgent(name); } catch { /* #5959 slice 2: nor the old name's last-seen time */ }
   try { require('./stuckterminal').forget(name); } catch { /* #5154 slice C: nor an old stuck-terminal episode's clock */ }
   const priorTokens = sendertoken.revoke(name);
   if (priorTokens.ok !== true) {

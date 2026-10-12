@@ -23732,12 +23732,17 @@ function healthLine(a, nowMs) {
   if (Number.isFinite(at)) last = seenAtWords(at, nowMs);
   else if (lw.why === 'no_source') last = 'Kosmos cannot see this agent\'s turns';
   else last = 'not since Kosmos started';
-  // Stopped, restarting, unreadable or blocked: only the time is said (see HEALTH_READ_STATES).
-  if (!HEALTH_READ_STATES.has(a.state)) return 'Last seen working: ' + last;
+  /* A problem the state shows is always said. "No problem" is said only for a state Kosmos reads (HEALTH_READ_STATES)
+     on an agent it has seen work: otherwise it would be a health claim resting only on an absence. */
   const looks = a.stateConfidence === 'scraped';
-  const signin = a.state === 'auth_failed' ? (looks ? 'looks like it isn\'t working' : 'isn\'t working') : 'no problem showing';
-  const usage = a.state === 'rate_limited' ? (looks ? 'looks like a limit' : 'limit reached') : 'no limit showing';
-  return 'Sign-in: ' + signin + ' · Usage: ' + usage + ' · Last seen working: ' + last;
+  const quiet = HEALTH_READ_STATES.has(a.state) && Number.isFinite(at);
+  const parts = [];
+  if (a.state === 'auth_failed') parts.push('Sign-in: ' + (looks ? 'looks like it isn\'t working' : 'isn\'t working'));
+  else if (quiet) parts.push('Sign-in: no problem showing');
+  if (a.state === 'rate_limited') parts.push('Usage: ' + (looks ? 'looks like a limit' : 'limit reached'));
+  else if (quiet) parts.push('Usage: no limit showing');
+  parts.push('Last seen working: ' + last);
+  return parts.join(' · ');
 }
 /* #5959 slice 2: a past time as this computer's clock reads it, with the weekday when it was not today's, and the date
    when it was over six days ago. */

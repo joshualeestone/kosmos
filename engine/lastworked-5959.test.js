@@ -37,8 +37,24 @@ test('#5959 slice 2: lastOk keeps the newest OK through a later rejection, and n
   // Keyed by provider and agent: another agent and another provider are untouched.
   assert.equal(observed.lastOk(P, 'kim'), null);
   assert.equal(observed.lastOk(observed.PROVIDER.OPENAI, 'casey'), null);
+  // An agent removed, or created again under the same name, does not inherit the old time, under any provider.
+  observed.saw(observed.PROVIDER.OPENAI, 'casey', observed.OUTCOME.OK, 4000);
+  observed.saw(P, 'kim', observed.OUTCOME.OK, 4000);
+  observed.forgetAgent('casey');
+  assert.equal(observed.lastOk(P, 'casey'), null, 'forgetAgent left the Claude time');
+  assert.equal(observed.lastOk(observed.PROVIDER.OPENAI, 'casey'), null, 'forgetAgent left the OpenAI time');
+  assert.equal(observed.lastOk(P, 'kim'), 4000, 'CONTROL: another agent kept its time');
+  observed.saw(P, 'casey', observed.OUTCOME.OK, 1000);
   observed._clearForTest();
   assert.equal(observed.lastOk(P, 'casey'), null, 'the test reset left it');
+});
+
+test('#5959 slice 2: create, remove and delete-leftover forget the name, beside crashloop', () => {
+  const fs2 = require('node:fs');
+  for (const [file, v] of [['create.js', 'name'], ['remove.js', 'clean'], ['delete-leftover.js', 'p.name']]) {
+    const src = fs2.readFileSync(path.join(__dirname, file), 'utf8');
+    assert.ok(src.includes("require('./observed').forgetAgent(" + v + ')'), file + ' does not forget the name\'s last-seen time');
+  }
 });
 
 test('#5959 slice 2: the card says when it last worked, per runner, and why when it cannot', () => {
