@@ -103,3 +103,15 @@ is its own branch. Written on the card.
 - **NITs, taken:** a comment that opens on the same line counts as a comment; a loop that could not fail on its own
   is gone; the list test reads an explicit flag, not the wording of a description; the files that load `ping.js` are
   held too (the gap "reads the id's file without the identifier", as far as loading the module goes).
+
+## Review 4 (2026-10-12, sonnet)
+- **WARNING, taken:** a new file not yet added to git was not scanned, so the test only went red once the file was
+  tracked. The scan includes files git would track. Checked with an untracked file holding the identifier: red at the
+  identifier list; the file was then removed.
+- **WARNING, not taken:** the test needs a git checkout, and fails with git's own error in a tree without one. Six
+  other sweeps in this repo list files the same way (`no-brand-refs-1881`, `no-name-refs-3071`, `fixture-discipline`,
+  `tools.no-phone-home-4253`, `bundle.execbit-4134`, two under `engine/`) and the suite runs in a checkout. A skip
+  would be worse: on this fleet a skipped guard reads as a passed one.
+- **NITs, not taken:** the id's file is left in place by an uninstall, so the id outlives one (true, and not about
+  where it is sent; a line for the card's delete-path item, not for this list); the shell file's entry is the one
+  most likely to drift.

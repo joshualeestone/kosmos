@@ -31,12 +31,13 @@ const assert = require('node:assert/strict');
 const ROOT = path.join(__dirname, '..');
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
-/* Every file git tracks, whatever its kind or folder (a Swift file, a script with no extension, a hook), bar tests,
-   docs, plans, test fixtures and files that are not text. Asked of git so no folder can be forgotten. */
+/* Every file git tracks, and every new file it would track (not yet added, not ignored), whatever its kind or folder
+   (a Swift file, a script with no extension, a hook), bar tests, docs, plans, test fixtures and files that are not
+   text. Asked of git so no folder can be forgotten; like the repo's other sweeps, it needs a checkout to run in. */
 const NOT_SOURCE = /(\.test\.(js|mjs)$|^docs\/|^\.claude\/|^test-support\/|(^|\/)node_modules\/)/;
 const NOT_TEXT = /\.(png|jpe?g|gif|icns|ico|woff2?|ttf|otf|zip|gz|tgz|pdf|mp3|mp4|mov|webp|car|nib|bin|dmg|pkg|exe|dll)$/i;
 function tracked() {
-  const out = execFileSync('git', ['-C', ROOT, 'ls-files', '-z'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const out = execFileSync('git', ['-C', ROOT, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   return out.split('\0').filter((f) => f && !NOT_SOURCE.test(f) && !NOT_TEXT.test(f)).sort();
 }
 const read = (rel) => { try { return fs.readFileSync(path.join(ROOT, rel), 'utf8'); } catch { return ''; } };
