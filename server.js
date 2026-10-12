@@ -1037,6 +1037,7 @@ const claudeAccounts = require('./engine/claudeaccounts');
 const geminiAccounts = require('./engine/geminiaccounts'); // #3296 accounts slice
 const grokAccounts = require('./engine/grokaccounts');     // #3391 accounts slice
 const qwenAccounts = require('./engine/qwenaccounts');     // #5977
+const qwenLocal = require('./engine/qwenlocal');         // #5977 slice 3
 const codexupdate = require('./engine/codexupdate');
 const runners = require('./engine/runners');
 const github = require('./engine/github');
@@ -11497,6 +11498,40 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { state: c.state, because: c.because });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not check that Qwen account' }));
+    return;
+  }
+  /* #5977 slice 3: Qwen on this computer. GET says what is missing (Ollama, the qwen2.5:7b download, Kosmos's 16k
+     model) and how a download is going; POST .../model makes the 16k model (seconds, no download); POST
+     .../download starts the download only with { confirm: true }, the person's own yes to about 4.7 GB, and makes
+     the 16k model when it finishes. A status read never changes anything. */
+  if (pathname === '/api/accounts/qwen/local' && req.method === 'GET') {
+    qwenLocal.status()
+      .then((s) => sendJson(res, 200, { state: s.state, because: s.because, model: qwenAccounts.LOCAL.model, download: qwenLocal.pullProgress() }))
+      .catch(() => sendJson(res, 200, { state: qwenLocal.STATE.UNKNOWN, because: 'we could not check Ollama just now', download: qwenLocal.pullProgress() }));
+    return;
+  }
+  if (pathname === '/api/accounts/qwen/local/model' && req.method === 'POST') {
+    (async () => {
+      const s = await qwenLocal.status();
+      if (s.state === qwenLocal.STATE.READY) { sendJson(res, 200, { ok: true, because: s.because }); return; }
+      if (s.state !== qwenLocal.STATE.NEEDS_MODEL) { sendJson(res, 409, { ok: false, state: s.state, because: s.because }); return; }
+      const made = await qwenLocal.makeModel();
+      sendJson(res, made.ok ? 200 : 400, { ok: made.ok, because: made.because });
+    })().catch(() => sendJson(res, 400, { ok: false, because: 'we could not set Qwen up just now' }));
+    return;
+  }
+  if (pathname === '/api/accounts/qwen/local/download' && req.method === 'POST') {
+    readBody(req)
+      .then(async (raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || body.confirm !== true) { sendJson(res, 400, { started: false, because: 'a download starts only when the person says yes to it' }); return; }
+        const s = await qwenLocal.status();
+        if (s.state !== qwenLocal.STATE.NEEDS_DOWNLOAD) { sendJson(res, 409, { started: false, state: s.state, because: s.because }); return; }
+        const out = qwenLocal.startDownload();
+        sendJson(res, out.started ? 202 : 409, out);
+      })
+      .catch(() => sendJson(res, 400, { started: false, because: 'we could not start the download' }));
     return;
   }
   /* #3391: connect a Grok account with a SUBSCRIPTION (device sign-in, no key). The

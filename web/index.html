@@ -14111,6 +14111,15 @@ window.kosmosMeasureScrollbarWidth();
         <input type="text" id="acct-qwen-name" autocomplete="off" maxlength="40" aria-label="A name for this account (optional)" placeholder="A name, if you want one">
       </div>
       <p class="dhint" style="margin:6px 0 0;">For Qwen on this computer, keep the address and model as they are. Qwen answers questions and runs commands well; check the files it edits.</p>
+      <!-- #5977 slice 3: Qwen on this computer, set up from here. Shown only for the local address and Kosmos's own
+           model. The download asks first (about 4.7 GB); making the 16k model needs no download. -->
+      <div id="acct-qwen-local" hidden style="margin-top:8px;">
+        <p class="dhint" id="acct-qwen-local-t" role="status" aria-live="polite" style="margin:0;"></p>
+        <div class="frow" id="acct-qwen-local-row" hidden style="margin-top:8px;">
+          <button class="btn" id="acct-qwen-local-go" type="button"></button>
+          <button class="btn" id="acct-qwen-local-no" type="button" hidden>Not now</button>
+        </div>
+      </div>
       <div class="frow" style="margin-top:12px;">
         <button class="btn uprime" id="acct-qwen-go" type="button">Add</button>
       </div>
@@ -30797,6 +30806,90 @@ function acctQwenShow(on) {
   flow.hidden = !on;
   const go = document.getElementById('acct-qwen-go'); if (go) go.disabled = false;
   const m = document.getElementById('acct-qwen-msg'); if (m) m.textContent = '';
+  if (on) acctQwenLocalPaint(); else { const l = document.getElementById('acct-qwen-local'); if (l) l.hidden = true; }
+}
+/* #5977 slice 3: what this computer is missing for Qwen, and the one step that fixes it. Only for the local address
+   with Kosmos's own model; a server the person names is theirs to set up. `ACCT_QWEN_LOCAL_ASK` holds the step the
+   button takes; a download needs a second press (the confirm), naming its size first. */
+const QWEN_LOCAL_MODEL = 'kosmos-qwen2.5-7b-16k:latest';
+let ACCT_QWEN_LOCAL_ASK = '';
+function acctQwenIsLocalSetup() {
+  const u = (document.getElementById('acct-qwen-url') || {}).value || '';
+  const m = ((document.getElementById('acct-qwen-model') || {}).value || '').trim();
+  let host = '';
+  try { host = new URL(u.trim()).hostname; } catch { host = ''; }
+  return (host === 'localhost' || host === '127.0.0.1') && m === QWEN_LOCAL_MODEL;
+}
+function acctQwenGb(n) { return (n / 1e9).toFixed(1); }
+async function acctQwenLocalPaint() {
+  const box = document.getElementById('acct-qwen-local');
+  const t = document.getElementById('acct-qwen-local-t');
+  const row = document.getElementById('acct-qwen-local-row');
+  const btn = document.getElementById('acct-qwen-local-go');
+  const no = document.getElementById('acct-qwen-local-no');
+  if (!box || !t || !row || !btn || !no) return;
+  if (!acctQwenIsLocalSetup()) { box.hidden = true; ACCT_QWEN_LOCAL_ASK = ''; return; }
+  const mine = ACCT_QWEN_GEN;
+  let s = null;
+  try { const r = await fetch('/api/accounts/qwen/local', { cache: 'no-store' }); s = r.ok ? await r.json() : null; } catch { s = null; }
+  if (ACCT_QWEN_GEN !== mine || document.getElementById('acct-qwen-flow').hidden) return;
+  box.hidden = false;
+  no.hidden = true;
+  btn.disabled = false;
+  const d = s && s.download;
+  if (d && d.running) {
+    t.textContent = d.total > 0
+      ? 'Downloading Qwen: ' + Math.floor((100 * d.completed) / d.total) + '% (' + acctQwenGb(d.completed) + ' of ' + acctQwenGb(d.total) + ' GB). You can leave this page; it carries on.'
+      : 'Downloading Qwen…';
+    row.hidden = true; ACCT_QWEN_LOCAL_ASK = '';
+    setTimeout(() => { if (ACCT_QWEN_GEN === mine) acctQwenLocalPaint(); }, 2000);
+    return;
+  }
+  const lastFailed = d && d.ok === false ? d.because.charAt(0).toUpperCase() + d.because.slice(1) + '. ' : '';
+  const state = s ? s.state : 'unknown';
+  if (state === 'ready') { t.textContent = 'Qwen is set up on this computer.'; row.hidden = true; ACCT_QWEN_LOCAL_ASK = ''; return; }
+  if (state === 'needs_model') {
+    t.textContent = lastFailed + 'Ollama has Qwen. Kosmos makes a copy of it that holds a longer conversation, for its agents. Nothing is downloaded.';
+    btn.textContent = 'Set up Qwen'; row.hidden = false; ACCT_QWEN_LOCAL_ASK = 'model'; return;
+  }
+  if (state === 'needs_download') {
+    t.textContent = lastFailed + 'Qwen is not on this computer yet. Kosmos can download it through Ollama.';
+    btn.textContent = 'Download Qwen'; row.hidden = false; ACCT_QWEN_LOCAL_ASK = 'download-ask'; return;
+  }
+  t.textContent = (s && s.because) || 'We could not check Ollama just now.';
+  row.hidden = true; ACCT_QWEN_LOCAL_ASK = '';
+}
+document.getElementById('acct-qwen-local-go').addEventListener('click', async () => {
+  const t = document.getElementById('acct-qwen-local-t');
+  const btn = document.getElementById('acct-qwen-local-go');
+  const no = document.getElementById('acct-qwen-local-no');
+  const ask = ACCT_QWEN_LOCAL_ASK;
+  if (ask === 'download-ask') {
+    t.textContent = 'This downloads about 4.7 GB from Ollama, which can take a while. Start it?';
+    btn.textContent = 'Start the download'; no.hidden = false; ACCT_QWEN_LOCAL_ASK = 'download';
+    return;
+  }
+  if (ask !== 'model' && ask !== 'download') return;
+  btn.disabled = true; no.hidden = true;
+  t.textContent = ask === 'model' ? 'Setting Qwen up…' : 'Starting the download…';
+  let out = null;
+  try {
+    const r = await fetch(ask === 'model' ? '/api/accounts/qwen/local/model' : '/api/accounts/qwen/local/download', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(ask === 'download' ? { confirm: true } : {}),
+    });
+    out = await r.json().catch(() => null);
+    if (!r.ok) {
+      const why = out && typeof out.because === 'string' && out.because ? out.because : 'that did not work just now';
+      t.textContent = why.charAt(0).toUpperCase() + why.slice(1) + (/[.)]$/.test(why) ? '' : '.');
+    }
+  } catch { t.textContent = 'We could not reach Kosmos just now.'; }
+  if (out && (out.ok || out.started)) acctQwenLocalPaint();
+  else btn.disabled = false;
+});
+document.getElementById('acct-qwen-local-no').addEventListener('click', () => { acctQwenLocalPaint(); });
+for (const id of ['acct-qwen-url', 'acct-qwen-model']) {
+  const f = document.getElementById(id);
+  if (f) f.addEventListener('change', () => acctQwenLocalPaint());
 }
 document.getElementById('acct-qwen-go').addEventListener('click', async () => {
   const urlField = document.getElementById('acct-qwen-url');
