@@ -23,7 +23,10 @@
  * file beside its thread file. While there is any sign of one the whole run is
  * refused and nothing is written or pruned (kosmos#5855; see compileAll).
  *
- * EXCEPT the prune (kosmos#5866): a daily file with no readable messages left,
+ * A `.superseded` file beside a thread file is an earlier project's whole
+ * conversation and is compiled as one (kosmos#5866).
+ *
+ * ONE LIMIT ON THE PRUNE (kosmos#5866): a daily file with no readable messages left,
  * for a day no later than a thread file that is not read as a conversation (a
  * `.damaged` or unparseable one) could last have gained a message, is kept. Its messages may
  * be that file's, which cannot be compiled again (see compileAll).
@@ -112,10 +115,10 @@ function isRolledOverFileName(filename) {
 const SUPERSEDED_SUFFIX = 'superseded';
 const DAMAGED_SUFFIX = 'damaged';
 /* When a set-aside file was set aside, read from its own name (`<thread file>.<stamp>.<pid>.<ms>[.<n>].<kind>`: the
-   `<ms>` chat.js's supersede puts there), as an ISO string, or null when the name carries none. */
-/* Only under a suffix chat.js sets a file aside with, so the digits in a live file's key are never read as a time. The
-   count is 13 digits until the year 2286. */
-const SET_ASIDE_MS = /\.(\d{12,14})(?:\.\d{1,2})?\.(?:superseded|damaged|full)$/;
+   `<ms>` is the Date.now() chat.js's supersede puts there), as an ISO string, or null when the name carries none.
+   Only 13 digits (what Date.now() gives until the year 2286) and only under a set-aside kind, so neither a live
+   file's key nor a date someone typed into a name is read as that time. */
+const SET_ASIDE_MS = new RegExp(`\\.(\\d{13})(?:\\.\\d{1,2})?\\.(?:${SUPERSEDED_SUFFIX}|${DAMAGED_SUFFIX}|${ROLLED_OVER_SUFFIX})$`);
 function setAsideAt(filename) {
   const m = SET_ASIDE_MS.exec(String(filename));
   if (!m) return null;
@@ -367,9 +370,8 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
  *   - `rolledOverFiles` and `continuedFiles` are the file names behind those two
  *     counts, each sorted, for the refusal to show.
  *   - `unknownFiles` (kosmos#5866) are thread files this function does not read
- *     as conversations: every `.damaged` file, a `.superseded` file that will
- *     not parse or holds no message list, and a live thread file that will not
- *     parse. `unknownThrough` is the latest moment any of them could last have
+ *     as conversations: every `.damaged` file, and a `.superseded` or live
+ *     thread file that will not parse or holds no message list. `unknownThrough` is the latest moment any of them could last have
  *     gained a message (an ISO string, never later than `now`). It is null when
  *     there are none.
  *   - `readable` is true ONLY if the directory LISTING succeeded. A failed
@@ -377,9 +379,9 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
  *     means "could not read the source", which is NOT "the source is empty".
  *   - `readErrors` counts recognized conversation files whose bytes could not be
  *     READ (an `fs.readFileSync` throw -- EISDIR, EACCES, a transient I/O error).
- *     A file whose bytes read fine but are not valid JSON, or are not a
- *     conversation shape, is skipped WITHOUT counting here: it is not "I could
- *     not read a conversation" (one that is not valid JSON goes to `unknownFiles`).
+ *     A file whose bytes read fine but will not parse, or hold no message
+ *     list, is NOT counted here: it goes to `unknownFiles` (or, if it names an
+ *     earlier file, to `continuedFiles`).
  * The caller prunes only when the listing succeeded AND no read errored, so a
  * transient failure at either level can never be read as "no conversations" and
  * wipe the compiled history.
@@ -434,9 +436,10 @@ function readConversations(chatsDir, now = new Date()) {
         // will not parse: if it names an earlier file it had rolled over (kosmos#5855), as a live file in this state
         if (NAMES_AN_EARLIER_FILE.test(asideRaw)) { continuedFiles.push(name); continue; }
       }
+      // An earlier project's file can itself have rolled over: the same second sign as a live file's (kosmos#5855),
+      // read before anything else about it, as for a live file.
+      if (asideParsed && typeof asideParsed.continues === 'string' && asideParsed.continues) continuedFiles.push(name);
       if (!asideParsed || !Array.isArray(asideParsed.messages)) { unknown(name); continue; }
-      // An earlier project's file can itself have rolled over: the same second sign as a live file's (kosmos#5855).
-      if (typeof asideParsed.continues === 'string' && asideParsed.continues) continuedFiles.push(name);
       // What tells this earlier project from another of the same name: when it began, else the file's own stamp.
       const born = typeof asideParsed.projectBornAt === 'string' && asideParsed.projectBornAt
         ? `begun ${shownName(asideParsed.projectBornAt)}` : `set aside as ${shownName(name)}`;

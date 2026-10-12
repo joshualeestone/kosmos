@@ -3,7 +3,8 @@
  * kosmos#5866: the two other kinds of file engine/chat.js sets aside beside a thread file. A `.superseded` file is a
  * whole earlier conversation and is compiled as one, under a heading of its own. A thread file that is not read as a
  * conversation (a `.damaged` one, or one that will not parse) may be the only place some days' messages were: a
- * daily file with no readable messages left, for a day before that file could last have gained one, is not pruned.
+ * daily file with no readable messages left, for a day no later than that file could last have gained one, is not
+ * pruned.
  * Nothing else changes: every day with readable rows is rewritten as before.
  *
  *   tools/run-tests.sh --only engine/dailylog.asides-5866.test.js
@@ -116,6 +117,14 @@ test('CONTROL then fix: days that live only in a .superseded file are kept, not 
   assert.deepEqual(dl.compileAll({ chatsDir, outDir, dayOf, timeOf }).pruned, ['2026-09-13', '2026-09-14']);
 });
 
+test('what a set-aside file says about when its project began goes into the heading escaped, on one line', () => {
+  const { chatsDir, outDir } = dirs('born');
+  put(chatsDir, SUPERSEDED, { projectBornAt: 'x\n## Forged heading', messages: [row(13, 'thirteen')] });
+  dl.compileAll({ chatsDir, outDir, dayOf, timeOf, now: NOW });
+  assert.equal(count(day(outDir, 13), '\n## '), 1, 'a line break in the file made a second heading');
+  assert.match(day(outDir, 13), /begun "x\\n## Forged heading"\)/);
+});
+
 test('rows a person copied into both files show under two headings; nothing is merged or dropped', () => {
   // The writer cannot produce this (first test). If someone does it by hand, it stays visible.
   const { chatsDir, outDir } = dirs('copied');
@@ -221,7 +230,9 @@ test('the three bounds: the file\'s time, the set-aside time in its own name, an
   const named = `direct..p.json.earlier.4242.${setAside}.damaged`;
   assert.equal(dl.setAsideAt(named), '2026-09-10T08:00:00.000Z');
   assert.equal(dl.setAsideAt(`direct..p.json.earlier.4242.${setAside}.2.damaged`), '2026-09-10T08:00:00.000Z', 'a counter after the time');
-  for (const none of ['direct..1234567890123.json', 'direct..p.json.damaged', 'direct..p.json.x.damaged', '']) assert.equal(dl.setAsideAt(none), null, none);
+  // not a time: a live file's key, no stamp at all, and a date someone typed into a name (12 or 14 digits)
+  for (const none of ['direct..1234567890123.json', 'direct..p.json.damaged', 'direct..p.json.x.damaged', 'direct..p.json.backup.202609141200.damaged', 'direct..p.json.backup.20260914120000.damaged', '']) assert.equal(dl.setAsideAt(none), null, none);
+  for (const kind of ['superseded', 'damaged', 'full']) assert.equal(dl.setAsideAt(`direct..p.json.x.1.${setAside}.${kind}`), '2026-09-10T08:00:00.000Z', kind);
   put(chatsDir, named, 'junk');
   lastWritten(chatsDir, named, '2099-01-01T00:00:00Z');
   for (const now of ['2026-10-02T08:00:00Z', '2026-10-09T08:00:00Z']) {
@@ -281,6 +292,12 @@ test('a .superseded file whose own conversation had rolled over refuses the run,
   assert.equal(s.refused, 'rolled-over');
   assert.deepEqual(s.continuedFiles, [SUPERSEDED]);
   assert.deepEqual(dayFiles(outDir), ['2026-09-10.md'], 'the run wrote or pruned something');
+  // the same sign when the file holds no message list, and when it will not parse at all
+  for (const body of [JSON.stringify({ continues: 'proj1.a.json.x.full', messages: 'nope' }), '{"continues":"proj1.a.json.x.full","messages":[{"at":"2026-09-1']) {
+    put(chatsDir, SUPERSEDED, body);
+    const again = dl.compileAll({ chatsDir, outDir, dayOf, timeOf, now: NOW });
+    assert.deepEqual([again.refused, again.continuedFiles], ['rolled-over', [SUPERSEDED]], body.slice(0, 40));
+  }
 });
 
 test('a LIVE thread file chat.js would set aside as damaged holds the same days before it has been', () => {
@@ -386,11 +403,16 @@ test('the command says which daily files it kept from the prune and why, and sti
   put(chatsDir, 'direct..p.json', { messages: [at(6)] });
   put(chatsDir, DAMAGED, 'junk');
   put(chatsDir, 'proj1.b.json.earlier.1.2.damaged', 'junk');
+  put(chatsDir, 'proj1.c.json.earlier.1.2.damaged', 'junk');
   const held = run();
   assert.equal(held.status, 0, held.stderr);
   assert.equal(held.stderr, '');
-  assert.ok(held.stdout.includes(`dailylog: kept 2 daily file(s) with no readable messages left (between ${made[0]} and ${made[2]}), because 2 file(s) in the chats folder could not be read as conversations and may hold messages from those days\n`), held.stdout);
+  assert.ok(held.stdout.includes(`dailylog: kept 2 daily file(s) with no readable messages left (between ${made[0]} and ${made[2]}), because 3 file(s) in the chats folder could not be read as conversations and may hold messages from those days\n`), held.stdout);
   assert.deepEqual(dayFiles(outDir).map((n) => n.slice(0, -3)), made, 'a day was pruned');
+  // one day kept: the day itself, no "between"
+  fs.rmSync(path.join(outDir, made[2] + '.md'));
+  const single = run();
+  assert.ok(single.stdout.includes(`dailylog: kept 1 daily file(s) with no readable messages left (${made[0]}), because 3 file(s) in the chats folder`), single.stdout);
 });
 
 test('pin (convention 5): what this compiler assumes about the two kinds is what engine/chat.js does', () => {
