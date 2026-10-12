@@ -22,7 +22,7 @@ computer tells no agent on the agents Mac. For tomorrow, Splinter checks the roo
   switch not `0`. It never throws into the seat's data handler.
 - **engine/messages.js:** `nudgeOwnComputerPost(projectId, projectName, postId, members, roster, now)`.
   - It types ONE line into each member agent's pane through `chat.deliverAutomatic`, the #185 nudge's path:
-    `[a new post from your other computer is in the room <name>; read it with: kosmos room <id>]`.
+    `[a new post from the person's other computer is in the room <name>; read it with: kosmos room <id>]` ("the person's": typed to an agent, "your" could read as its own other instance; review 3).
   - The line carries NO post text. The words still arrive only when the agent reads the room, marked external.
   - Removed agents get nothing, and an unreadable removed list tells nobody (`_roomMembers`, the post gate's
     fail-closed rule).
@@ -41,6 +41,12 @@ computer tells no agent on the agents Mac. For tomorrow, Splinter checks the roo
 - **Only a person's own post nudges** (review 1): an agent's post relayed from the other computer arrives stamped too,
   and nudging on it would set two computers' agents telling each other to read the room. Trusting the sender's `kind`
   is fine here because the sender is this same account.
+- **A paused or archived project nudges nobody** (review 3), as agentnudge, missedtell and replynudge skip them.
+- **Decided, a held room** (review 3): a person's post from the other computer is stored as an external row, which does
+  not release the room's valve the way an operator post typed on this computer does, and the nudge is skipped. So the
+  post reaches no agent until the room reopens. The person sees the held room's own notice and Reopen on the board
+  (#5800). Treating a stamped person post as releasing the valve is a separate change to how the valve counts, filed as
+  its own card (#5902) rather than folded in here.
 - **Deferred off the seat's data handler** (review 2): server.js runs the nudge in setImmediate, so the handler returns
   first. The typing stays synchronous (chat.deliverAutomatic, as the #185 sweep), one member at a time, each in its own
   try so one failing pane does not skip the rest.
@@ -50,7 +56,7 @@ computer tells no agent on the agents Mac. For tomorrow, Splinter checks the roo
   unreadable record reads as not held), so at worst the nudge goes out as it would have before.
 - **No post text in the nudge.** That is how it stays inside the substance of #3311 even for an own post.
 - **The weakest premise:** that the relay sets `same_account` only when the poster really is this account. That is the
-  relay's job (crates/relay/src/federation.rs `same_account`, from verified tickets), not re-checked here.
+  relay's job (kosmos-relay repo, crates/relay/src/federation.rs `same_account`, from verified tickets), not re-checked here.
 - **Not done:** an own post from another computer that was then removed from the project. The relay stops delivering
   from it, and that is not re-checked here either.
 

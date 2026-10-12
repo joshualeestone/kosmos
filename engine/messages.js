@@ -3292,8 +3292,10 @@ function projectOfPost(id) {
  *
  * At most one line per agent per room per OWN_POST_NUDGE_GAP_MS, so a burst of posts is one prompt to read.
  * Removed agents get nothing, and an unreadable removed list tells nobody (the post gate's fail-closed rule).
- * An agent switched off in this project (#3564) is not woken, as a room post does not wake it. A room the valve
- * holds (roomHeld) nudges nobody, since an agent told to read it could not post a reply there.
+ * An agent switched off in this project (#3564) is not woken, as a room post does not wake it (an unreadable project
+ * store reads as none switched off, as the room post's own check does). A paused or archived project nudges nobody, as
+ * every other automatic nudge skips them. A room the valve holds (roomHeld) nudges nobody, since an agent told to read
+ * it could not post a reply there.
  * Recorded as a `nudge` row naming the external post, so what was typed is checkable from the store.
  * Whether a post nudges at all is ownPostNudges (server.js asks it).
  */
@@ -3315,10 +3317,15 @@ function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, n
   try { held = roomHeld(projectId, now); } catch { held = null; }
   if (held) return { ok: true, nudged: [], held: true };
   let offHere = new Set();
-  try { offHere = require('./projects').swarmOffSet(projectId); } catch { offHere = new Set(); }
+  try {
+    const projectsMod = require('./projects');
+    const rec = projectsMod.readAll().find((x) => x && x.id === projectId);
+    if (rec && (rec.archived === true || projectsMod.isPaused(rec))) return { ok: true, nudged: [], paused: true };
+    offHere = projectsMod.swarmOffSet(projectId);
+  } catch { offHere = new Set(); }
   const rawName = String(projectName == null ? '' : projectName).trim();
   const shown = (rawName && /^[A-Za-z0-9._ -]+$/.test(rawName)) ? rawName : projectId;
-  const line = '[a new post from your other computer is in the room ' + shown + '; read it with: kosmos room ' + projectId + ']';
+  const line = '[a new post from the person\u2019s other computer is in the room ' + shown + '; read it with: kosmos room ' + projectId + ']';
   const nudged = [];
   for (const name of room.members) {
     if (offHere.has(String(name))) continue;   // #3564: switched off in this project, so not woken
