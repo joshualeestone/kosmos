@@ -172,6 +172,7 @@ printf '#!/bin/sh\n' > "$T/bundle/app/Kosmos.app/Contents/MacOS/Kosmos"; chmod 7
 codesign --force -s - "$T/bundle/app/Kosmos.app" >/dev/null 2>&1 || bad "could not ad-hoc sign the sealed-app fixture"
 bundle sealed.tgz
 release_bundle_matches_tree "$T/sealed.tgz" "$BUILD" "" "" sealed >/dev/null && ok "#5896: a sealed app that verifies passes, and its files are not sought in the tree" || bad "#5896: a verifying sealed app was rejected"
+release_bundle_matches_tree "$T/sealed.tgz" "$BUILD" "" "" sealed "anchor apple generic" >/dev/null && bad "#5896: an ad-hoc sealed app passed a requirement for an Apple-anchored signature" || ok "#5896: the requirement a real cut passes (an Apple-anchored, team-signed app) refuses an ad-hoc one"
 printf 'changed after signing\n' >> "$T/bundle/app/Kosmos.app/Contents/Info.plist"; bundle sealedbad.tgz
 out="$(release_bundle_matches_tree "$T/sealedbad.tgz" "$BUILD" "" "" sealed)" && bad "#5896: a sealed app changed after signing was called matching" || { case "$out" in *"signature does not verify"*) ok "#5896: a sealed app changed after signing is caught by its signature" ;; *) bad "#5896: a tampered sealed app failed for another reason: $out" ;; esac; }
 /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.example.other' "$T/bundle/app/Kosmos.app/Contents/Info.plist" >/dev/null 2>&1
