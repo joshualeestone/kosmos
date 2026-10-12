@@ -144,3 +144,21 @@ test('#5902 engine: a post time in the future is written as now, so it cannot pu
   const at = Date.parse(reopensFor('futA')[0].at);
   assert.ok(at >= t0 && at <= Date.now(), 'a future post time was written as is: ' + iso(at));
 });
+
+test('#5902 through server.js: when the deferred nudge runs, the room is already released', async () => {
+  holdRoom('orderA', Date.now());
+  /* Wrap the two calls the deferred nudge makes (property lookups, so server.js reaches the wrappers), and read the
+     valve at the moment the nudge is called. */
+  const projects = require('./engine/projects');
+  const realGet = projects.get;
+  const realNudge = messages.nudgeOwnComputerPost;
+  const seen = [];
+  projects.get = (id) => (id === 'orderA' ? { name: 'Plans', agents: [{ sessionName: 'casey' }] } : realGet(id));
+  messages.nudgeOwnComputerPost = (id, ...rest) => { seen.push({ id, held: messages.roomHeld(id, Date.now()) }); return realNudge(id, ...rest); };
+  try {
+    wiredDeps.recordExternal('orderA', { from: 'Josh', fromKind: 'person', text: 'from my laptop', sameAccount: true });
+    await tick();
+  } finally { projects.get = realGet; messages.nudgeOwnComputerPost = realNudge; }
+  assert.equal(seen.length, 1, 'the deferred nudge did not run (the wrappers were not reached): ' + JSON.stringify(seen));
+  assert.equal(seen[0].held, null, 'the nudge ran while the room was still held');
+});

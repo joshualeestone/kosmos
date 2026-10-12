@@ -55,3 +55,11 @@ held.
 - **NIT, taken:** the plan and comment say the reopen is written for every such post, held or not.
 - **NITs, not taken:** aligning the project-id regex with reopenRoom's and #5732's (unreachable: the id is the board's
   own project id from the seat, and #5732 owns the other regex); line numbers in a comment (they rot).
+
+## Review 2 (sonnet, 2026-10-12 01:14)
+- **SHOULD-FIX, taken:** the order (reopen written before #5732's deferred nudge) was argued, not tested through
+  server.js. New arm wraps projects.get and messages.nudgeOwnComputerPost (server.js reaches both by property) and reads
+  the valve when the nudge is called: released. Mutant (reopen moved into the closure after the nudge): red at that arm.
+- **NIT, taken:** the clamp's comment says it guards a hand-built row (externalPost always stamps now).
+- **NITs, not taken:** the project-id regex (decided in review 1); an arm for the try/catch around the reopen (it only
+  keeps a throw from reaching the seat's data handler, and nothing in reopenForOwnPost throws on a recorded row).

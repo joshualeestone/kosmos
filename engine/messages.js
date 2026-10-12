@@ -3114,7 +3114,8 @@ function reopenRoom(project, at) {
 function reopenForOwnPost(projectId, row) {
   const id = String(projectId == null ? '' : projectId).trim();
   if (!id || !/^[A-Za-z0-9._ -]+$/.test(id) || !row || typeof row.id !== 'string' || !row.id) return { ok: false };
-  /* Never later than now: a future time would move the valve's window start ahead and stop it counting until then. */
+  /* Never later than now (externalPost stamps now, so this guards a hand-built row): a future time would move the
+     valve's window start ahead and stop it counting until then. */
   const t = typeof row.at === 'string' ? Date.parse(row.at) : NaN;
   const when = Number.isFinite(t) && t <= Date.now() ? row.at : new Date().toISOString();
   appendLog({ kind: 'reopen', from: 'you', to: id, project: id, operator: true, at: when, post: row.id, reason: 'own-computer' });
