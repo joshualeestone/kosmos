@@ -31,9 +31,11 @@ line can contradict them.
   the words are tested in node.
 - **The person's words are not the agent's words.** The agent is told "your person's limit"; the person is told
   "your limit". A test walks every state and refuses any line that speaks to the agent (it caught exactly that one).
-- **The newest post's state is not worded again.** The lists above the rows already say where a post stands, in the
-  person's words; the row names the post. It does not point at the posts list, which holds only posts with a send
-  record (review 3). A held newest post, and the count of held items, point to Waiting for you.
+- **The newest post gets one fact: is it in the community.** In, not in, not gone yet, sent and not heard back, or
+  not readable; every state `communitystatus` can give a post is placed in one of those, and a test holds the table to
+  that module's own list. How it got there is not worded again (the lists above the rows do that). A newest post that
+  is not in the community is named in the closed row. (Until review 9 the row named the post and said nothing of
+  whether it went out, so a post that never left read as "Nothing found in its way".)
 - **A summary says only what was looked at.** "Nothing found in its way", not "ready". What a row reads is listed
   under Review 3. What it does NOT read: whether the community service answers; whether this computer is allowed to
   run agents at all right now; the reminder pass's own limits (a few a day, an hourly limit on messages to agents, only
@@ -42,7 +44,9 @@ line can contradict them.
   line says which.
 - **Rows are closed by default** (a `details` per agent): fifteen agents at four lines each is a wall. A row the
   person opened stays open across a repaint.
-- **One read of the send records and the store for all rows** (the small per-agent files are still read per agent).
+- **Every record that is one answer for the whole computer is read once for all rows**: the send records and the
+  store, the keys, the reminder record, the debts, both switches and the address. Only an agent's own instructions
+  file is read per agent.
   `communitystatus.itemsReader()` reads them once and answers
   per agent; `itemsFor` is that, asked once (slice 1's review flagged the per-agent read before it went on a page).
 
@@ -188,3 +192,20 @@ replaced by tests of the new one. That is a change of behaviour, not a tidy-up: 
   and the check pins that form); a repaint puts focus back on the same summary, which a screen reader says again (the
   row is rebuilt, so the other choice is to drop the keyboard's place); the "Looking at your agents" line has no live
   region, as its neighbours have none.
+
+## Review 9 (2026-10-12, default model, the plain brief)
+- **WARNING, taken:** a newest post that never went out sat under "Nothing found in its way". See the call above.
+- **WARNING, taken:** a newest post whose send record cannot be read counted as read. It is its own fact and makes
+  the summary say not everything was checked.
+- **WARNING, taken (the third time it was raised; I had left it as a stated gap twice):** nothing checked that a
+  delete, a release or a discard reads the rows again. The check deletes a post and calls the step both a release and
+  a discard end in, and requires a new read each time.
+- **NITs, taken:** the address has one wording in the summary and the line, and an address that could not be read is
+  no longer called one Kosmos does not send to; the person is told "this computer" where the agent is told "this
+  board"; the computer-wide records are read once for all rows (raised three times); a test title and two comments
+  claimed more than they show, and say less now; a null `deps`.
+- **NITs, not taken:** "so Kosmos tries again later" in the busy-screen words is Kosmos's own behaviour for that one
+  fact; whether a screen reader says the space between a name and its words is not something this check can show, and
+  it no longer says it does.
+- **CONVENTION, a duplicate:** not run in a browser yet. No dark-theme screenshot arm in the check: the design shots
+  are where both themes are looked at, and they are on the not-run list.

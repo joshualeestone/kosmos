@@ -27,6 +27,8 @@
  *   FRESH     turning the community switch on or off reads the list again, so a row never keeps saying the community
  *             is off beside a switch that is on; so does turning "Check on your agents" on or off, which the rows
  *             also name.
+ *             Deleting a post, and finishing a release or a discard, read it again too: the rows name the newest
+ *             post and what waits.
  *   PHONE     at 390 px wide, nothing in the list is wider than the screen and each summary is at least 44 px tall
  *             (the page's tap-target size; the arm reads the size, so the number is here and in the style sheet).
  *
@@ -119,7 +121,7 @@ const AVA = agent('ava', 'Ava', { summary: 'Nothing found in its way', lines: [
   { text: 'The community section is in its instructions.' },
   { text: 'It has a community account.' },
   { text: 'Kosmos last went to remind it on ', at: T1, after: '. Delivered.' },
-  { text: 'Its newest post is “Weekly ops”.' },
+  { text: 'Its newest post, “Weekly ops”, is in the community.' },
 ] });
 const BO = agent('bo', 'Bo', { summary: 'No community section in its instructions', lines: [
   { text: 'No community section in its instructions. It works in a folder of your own, and Kosmos does not add the section to instructions there.' },
@@ -151,7 +153,7 @@ async function run() {
     check('ROWS: the heading sits below the posts-and-comments heading', r.belowMine, JSON.stringify(r.belowMine));
     check('ROWS: three rows, each with its name and summary, all closed', r.listHidden === false && r.emptyHidden === true && r.rows.length === 3
       && JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])) === JSON.stringify([['ava', 'Ava', 'Nothing found in its way', false], ['bo', 'Bo', 'No community section in its instructions', false], ['cy', 'Cy', '2 waiting for you', false]]), JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])));
-    check('ROWS: a name and its words are read as two things, with a space between', r.rows[0].read === 'Ava Nothing found in its way', JSON.stringify(r.rows[0].read));
+    check('ROWS: the row\'s text has a space between the name and its words', r.rows[0].read === 'Ava Nothing found in its way', JSON.stringify(r.rows[0].read));
     check('ROWS: the note says a reminder only asks and the agent decides', /^Kosmos may remind an agent that has gone quiet to post, and only while the community and .Check on your agents. are both on\./.test(r.note) && /A reminder only asks: whether to post, and what to say, is the agent[’']s own decision\./.test(r.note), r.note);
 
     // OPEN
@@ -338,11 +340,36 @@ async function run() {
     check('FRESH: turning "Check on your agents" off reads the list again and the row says that switch is off', reads > beforeHb && fr2.rows.length === 1 && fr2.rows[0].summary === '“Check on your agents” is off', JSON.stringify([reads - beforeHb, fr2.rows.map((x) => x.summary)]));
     await p9.close();
 
+    // FRESH: deleting a post reads the rows again (they name the newest post)
+    const p10 = await page();
+    let readsD = 0;
+    await p10.route(READY, (route) => { readsD += 1; return answer({ agents: [AVA] })(route); });
+    await p10.route('**/api/community/mine', answer({ posts: [{ id: 'p1', title: 'Weekly ops', agent: 'Ava', postedAt: new Date().toISOString(), state: 'sent', deleteRequested: false, takenDown: false, takeDownReason: null, agentRefused: false, canDelete: true }], comments: [] }));
+    let deletes = 0;
+    await p10.route('**/api/community/delete', (route) => { deletes += 1; return answer({ ok: true, state: 'sent' })(route); });
+    await openAutomation(p10);
+    await p10.waitForSelector('#community-mine-list .community-mine-start', { timeout: 5000 }).catch(() => {});
+    const beforeD = readsD;
+    await p10.click('#community-mine-list .community-mine-start').catch(() => {});
+    await p10.click('#community-mine-list .community-mine-del').catch(() => {});
+    await p10.waitForFunction(() => !document.querySelector('#community-mine-list .community-mine-ask'), null, { timeout: 5000 }).catch(() => {});   // the ask closes once the delete is answered
+    await p10.waitForTimeout(500);   // and the repaint that follows it
+    check('FRESH CONTROL: the delete was asked for', deletes === 1, String(deletes));
+    check('FRESH: deleting a post reads the rows again', readsD > beforeD, JSON.stringify([beforeD, readsD]));
+    // and finishing a release or a discard (the handler both of them end in)
+    const beforeH = readsD;
+    const hasDone = await p10.evaluate(() => typeof communityHeldDone === 'function');
+    check('FRESH CONTROL: the held list\'s finishing step is there to call', hasDone, String(hasDone));
+    await p10.evaluate(() => communityHeldDone());
+    await p10.waitForTimeout(800);
+    check('FRESH: finishing a release or a discard reads the rows again', readsD > beforeH, JSON.stringify([beforeH, readsD]));
+    await p10.close();
+
     // PHONE
     const p8 = await page({ width: 390, height: 844 });
     const LONG = agent('long', 'An agent with a very long name that has no reason to fit on one line of a phone', { summary: 'Its community account is waiting on an earlier try', lines: [
       { text: 'An earlier try made a community account under its name and Kosmos never received the key, so it waits rather than make a second.' },
-      { text: 'Its newest post is “' + 'averyveryverylongunbrokenwordthatcannotwrapanywhereonitsown'.repeat(3) + '”.' },
+      { text: 'Its newest post, “' + 'averyveryverylongunbrokenwordthatcannotwrapanywhereonitsown'.repeat(3) + '”, is not in the community.' },
     ] });
     await p8.route(READY, answer({ agents: [LONG, CY] }));
     await openAutomation(p8);

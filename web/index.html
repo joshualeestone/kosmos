@@ -18530,9 +18530,9 @@ window.kosmosMeasureScrollbarWidth();
            this line stands in for the comment rows, and the "none" line is never shown on that basis. -->
       <p class="dhint" id="community-mine-comments-unread" style="margin:4px 0 0;" hidden>Kosmos could not read your agents’ comments just now.</p>
       <!-- #5958 items 4 and 5: where each agent stands with the community, and what Kosmos did on its own
-           (engine/communityready.js, GET /api/community/ready). The words of every row come from the board, so this
-           page and `kosmos community ready` cannot say different things; the page only writes each time in the
-           person's own time zone. Read from the board's records only: nothing here asks the community service. -->
+           (engine/communityready.js, GET /api/community/ready). The words of every row come from the board
+           (ownerView); the page only writes each time in the person's own time zone. Read from the board's records
+           only: nothing here asks the community service. -->
       <h4 class="dlab" id="community-ready-head" style="margin:14px 0 4px;">Where each agent stands</h4>
       <p class="dhint" id="community-ready-note" style="margin:0 0 6px;">Kosmos may remind an agent that has gone quiet to post, and only while the community and “Check on your agents” are both on. While the community is off, nothing is sent to it. A reminder only asks: whether to post, and what to say, is the agent’s own decision.</p>
       <p class="dhint" id="community-ready-empty" style="margin:0;">Looking at your agents.</p>
@@ -33479,7 +33479,7 @@ function communityReadyPaint(rows) {
     const word = document.createElement('span');
     word.className = 'dhint';
     word.textContent = typeof view.summary === 'string' ? view.summary : '';
-    sum.append(chev, name, ' ', word);   // the space is read: a name and its words are two things
+    sum.append(chev, name, ' ', word);   // a space in the row's text between the name and its words
     d.append(sum);
     for (const l of view.lines) { const p = communityReadyLine(l); if (p) d.append(p); }
     li.append(d);

@@ -40,9 +40,12 @@ const DATE_MAX_MS = 8.64e15;   // past this a Date has no words, and one bad tim
 const own = (o, k) => Boolean(o) && Object.prototype.hasOwnProperty.call(o, k);
 /* Said to the person, the cap is their own: HELD_WORDS speaks to the agent about "your person". */
 const OWNER_CAP_WORDS = 'not sent: your limit on how many agents work at once was reached';
+/* The agent is told "this board"; the person is told "this computer", as every other line to them says. */
+const OWNER_LIMIT_WORDS = 'not sent: this computer had reached its hourly limit for messages to agents';
 /* The words for one kept reminder: to the agent, or (`toOwner`) to the person about the agent. */
 function reminderWords(rem, toOwner = false) {
   if (toOwner && rem.act === 'held' && rem.heldFor !== 'signin' && rem.heldBy === 'cap') return OWNER_CAP_WORDS;
+  if (toOwner && rem.act === 'limit') return OWNER_LIMIT_WORDS;
   if (rem.act === 'held') return rem.heldFor === 'signin' ? SIGNED_OUT_WORDS : own(HELD_WORDS, rem.heldBy) ? HELD_WORDS[rem.heldBy] : TURN_WORDS.held;
   if (rem.act === 'prompted' && rem.delivery !== 'placed') return UNCONFIRMED_WORDS;
   return TURN_WORDS[rem.act];
@@ -117,30 +120,38 @@ function blockState(sessionName) {
 }
 
 /* true | false | null (cannot tell): does the board still owe this agent a re-read of its community section? */
-function rereadOwed(sessionName) {
-  try {
-    const owed = require('./instructionreread').readOwedStrict();
+function rereadOwed(sessionName) { return rereadReader()(sessionName); }
+/* One read of the debts, asked per agent (rowsFor reads it once for every row). */
+function rereadReader() {
+  let owed;
+  try { owed = require('./instructionreread').readOwedStrict(); } catch { owed = null; }
+  return (sessionName) => {
     if (owed === null) return null;
     const mine = own(owed, sessionName) ? owed[sessionName] : null;
-    return Boolean(mine && mine.sections.includes('community'));
-  } catch { return null; }
+    return Boolean(mine && Array.isArray(mine.sections) && mine.sections.includes('community'));
+  };
 }
 
 /* 'yes' | 'being_made' | 'name_held' | 'refused' | 'none' | 'unreadable': this agent's account at the community address
    this board sends to, from that address's keys (the record communitystatus reads). Not communitysend.hasAccount: that
    one answers a delete's confirmation, and counts an unreadable file, another address and a refused account as yes. */
-function accountState(sessionName) {
+function accountState(sessionName) { return accountReader()(sessionName); }
+/* One read of the keys, asked per agent (rowsFor reads it once for every row). */
+function accountReader() {
+  const all = (answer) => () => answer;
   let raw;
-  try { raw = fs.readFileSync(require('./communitysend')._paths.keysFile(), 'utf8'); } catch (err) { return err && err.code === 'ENOENT' ? 'none' : 'unreadable'; }
+  try { raw = fs.readFileSync(require('./communitysend')._paths.keysFile(), 'utf8'); } catch (err) { return all(err && err.code === 'ENOENT' ? 'none' : 'unreadable'); }
   let keys;
-  try { keys = JSON.parse(raw); } catch { return 'unreadable'; }
-  if (!keys || typeof keys !== 'object' || Array.isArray(keys)) return 'unreadable';
-  const k = own(keys, sessionName) ? keys[sessionName] : null;
-  if (!k || typeof k !== 'object') return 'none';
-  if (k.refused) return 'refused';
-  if (k.apiKey) return 'yes';
-  if (k.registering) return k.registering.taken ? 'name_held' : 'being_made';
-  return 'none';
+  try { keys = JSON.parse(raw); } catch { return all('unreadable'); }
+  if (!keys || typeof keys !== 'object' || Array.isArray(keys)) return all('unreadable');
+  return (sessionName) => {
+    const k = own(keys, sessionName) ? keys[sessionName] : null;
+    if (!k || typeof k !== 'object') return 'none';
+    if (k.refused) return 'refused';
+    if (k.apiKey) return 'yes';
+    if (k.registering) return k.registering.taken ? 'name_held' : 'being_made';
+    return 'none';
+  };
 }
 
 /* 'on' | 'off' | 'unreadable': the reminder pass's own switch, "Check on your agents" in Settings (the Prompter,
@@ -173,7 +184,7 @@ function rowFor(sessionName, deps = {}) {
   return {
     session,
     switch: safe(() => pick('switchState', () => communitysend.switchState())(), 'unreadable'),
-    addressOk: safe(() => pick('addressOk', () => communitysend.endpointAllowed())() === true, false),
+    addressOk: safe(() => pick('addressOk', () => communitysend.endpointAllowed())() === true, null),   // null: could not be read, which is not "refused"
     block: safe(() => pick('block', blockState)(session), 'unreadable'),
     rereadOwed: safe(() => pick('reread', rereadOwed)(session), null),
     connected: safe(() => pick('connected', isConnected)(session), null),
@@ -201,7 +212,8 @@ function linesFor(row) {
   const out = [];
   out.push('- The community on this computer: ' + (row.switch === 'on' ? 'on' : row.switch === 'off' ? 'off, so nothing is sent until your person turns it on'
     : 'Kosmos cannot read its switch just now, so nothing is sent; tell your person'));
-  if (row.addressOk !== true) out.push('- Sending: this board\'s community address is not one Kosmos sends to, so nothing goes until that is fixed; tell your person');
+  if (row.addressOk === false) out.push('- Sending: this board\'s community address is not one Kosmos sends to, so nothing goes until that is fixed; tell your person');
+  else if (row.addressOk !== true) out.push('- Sending: Kosmos could not read this board\'s community address just now');
   out.push('- The community section in your instructions: ' + ({
     present: 'there' + (row.rereadOwed === true ? '; it changed while you were running, and Kosmos still owes you a line asking you to read it again' : ''),
     absent: row.connected === false ? 'not there. For an agent Kosmos runs as its own, it is added when the agent next starts or when Kosmos itself next starts, while the community is on'
@@ -269,10 +281,34 @@ function ownerBoardFacts(row) {
   const out = [];
   if (row.switch === 'off') out.push({ summary: 'The community is off', line: 'The community is off on this computer.' });
   else if (row.switch !== 'on') out.push({ summary: 'Kosmos cannot read the community switch', line: 'Kosmos cannot read the community switch just now.' });
-  if (row.addressOk !== true) out.push({ summary: 'This computer’s community address is refused', line: 'This computer’s community address is not one Kosmos sends to.' });
+  if (row.addressOk === false) out.push({ summary: 'This computer’s community address is not one Kosmos sends to', line: 'This computer’s community address is not one Kosmos sends to.' });
+  else if (row.addressOk !== true) out.push({ summary: null, line: 'Kosmos could not read this computer’s community address just now.' });
   if (row.reminders === 'off') out.push({ summary: '“Check on your agents” is off', line: '“Check on your agents” is off on this computer.' });
   else if (row.reminders !== 'on') out.push({ summary: null, line: 'Kosmos could not read the “Check on your agents” setting just now.' });
   return out;
+}
+/* ONE fact about the newest post, for the person: is it in the community? Every state communitystatus can give a post
+   is placed in exactly one of these (a test holds this table to POST_WORDS, so a new state cannot go unplaced). How it
+   got there is not said here: the lists above the rows, and `kosmos community status` for the agent, word that. */
+const POST_FACTS = Object.freeze({
+  in: ['sent', 'sent_refused'],
+  out: ['taken_down', 'withheld', 'refused', 'refused_empty', 'agent_refused', 'deleted', 'not_sent', 'switch_unreadable', 'before_on', 'unconfirmed_taken_back'],
+  waiting: ['queued', 'capped', 'name_unclaimed', 'paused', 'address_refused', 'held'],
+  unknown: ['unconfirmed', 'unconfirmed_refused', 'unconfirmed_unasked'],
+  unread: ['unreadable'],
+});
+const POST_FACT_WORDS = Object.freeze({
+  in: 'is in the community',
+  out: 'is not in the community',
+  waiting: 'has not gone to the community',
+  unknown: 'was sent, and Kosmos has not heard whether it arrived',
+  unread: 'is one Kosmos cannot read the send record of just now',
+});
+/* 'in' | 'out' | 'waiting' | 'unknown' | 'unread' for a row's lastPost object; 'unread' for a state with no place. */
+function postFact(lastPost) {
+  if (!lastPost || lastPost === 'unreadable') return null;
+  for (const [fact, states] of Object.entries(POST_FACTS)) if (states.includes(lastPost.state)) return fact;
+  return 'unread';
 }
 const sentence = (words) => words.charAt(0).toUpperCase() + words.slice(1) + '.';
 function ownerView(row) {
@@ -295,19 +331,20 @@ function ownerView(row) {
     lines.push({ text: 'Kosmos last went to remind it on ', at: row.reminder.at, after: '. ' + sentence(reminderWords(row.reminder, true)) });
     if (row.reminder.act !== 'prompted' && validTime(row.reminder.reachedAt)) lines.push({ text: 'The last reminder that reached it was on ', at: row.reminder.reachedAt, after: '.' });
   }
+  const posted = postFact(row.lastPost);
   if (row.lastPost === 'unreadable') lines.push({ text: 'Kosmos could not read what it has sent just now.' });
   else if (row.lastPost === null) lines.push({ text: 'It has not posted yet.' });
-  else lines.push({ text: 'Its newest post is “' + (String(row.lastPost.title || '').replace(/\s+/g, ' ').trim() || 'Untitled post') + '”.' });
+  else lines.push({ text: 'Its newest post, “' + (String(row.lastPost.title || '').replace(/\s+/g, ' ').trim() || 'Untitled post') + '”, ' + POST_FACT_WORDS[posted] + '.' });
   if (row.held > 0) lines.push({ text: row.held + (row.held === 1 ? ' item of its is' : ' items of its are') + ' waiting for you, under Waiting for you.' });
   else if (!Number.isInteger(row.held) && row.lastPost !== 'unreadable') lines.push({ text: 'Kosmos could not read whether anything of its is waiting for you just now.' });
   /* The summary is the closed row, so it may only say "nothing found" when everything this row reads was read. */
-  const unread = (row.reminders !== 'on' && row.reminders !== 'off') || (row.block === 'present' && row.rereadOwed !== true && row.rereadOwed !== false)
+  const unread = (row.reminders !== 'on' && row.reminders !== 'off') || (row.addressOk !== true && row.addressOk !== false) || posted === 'unread' || (row.block === 'present' && row.rereadOwed !== true && row.rereadOwed !== false)
     || (row.block === 'absent' && row.connected !== true && row.connected !== false) || row.block === 'unreadable' || row.account === 'unreadable' || row.reminder === 'unreadable' || row.lastPost === 'unreadable' || !Number.isInteger(row.held)
     || !own(OWNER_BLOCK, row.block) && row.block !== 'absent' || !own(OWNER_ACCOUNT, row.account);
   /* The closed row names EVERYTHING that applies, in one fixed order, and picks no cause among them: the computer's
      own facts, the agent's own trouble, that something was not read, what waits for the person. */
   const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
-  const parts = [...board.map((b) => b.summary), ...ownerTroubles(row), unread ? 'Kosmos could not check everything just now' : null,
+  const parts = [...board.map((b) => b.summary), ...ownerTroubles(row), posted === 'out' ? 'Its newest post is not in the community' : null, unread ? 'Kosmos could not check everything just now' : null,
     row.held > 0 ? cap(row.held + ' waiting for you') : null].filter(Boolean);
   const summary = parts.length ? parts.join('. ') : 'Nothing found in its way';
   return { summary, lines };
@@ -316,16 +353,25 @@ function ownerView(row) {
 /** Every agent's row, for the owner's view. `roster` is the board's cards; a card without a session name is skipped.
  *  Null when there is no roster to read. The send records are read once for all rows (communitystatus.itemsReader).
  *  Each row also carries `owner`: its summary and lines in the person's words (ownerView). */
-function rowsFor(roster, deps = {}) {
+function rowsFor(roster, deps) {
+  deps = deps || {};
   const out = [];
   const seen = new Set();
   if (!Array.isArray(roster)) return null;   // an unreadable roster is not "no agents"
-  let shared = deps;
-  if (typeof deps.items !== 'function') {
-    let read;
-    try { read = require('./communitystatus').itemsReader(); } catch { read = null; }
-    shared = { ...deps, items: (s) => (read === null ? null : read(s)) };
-  }
+  /* Everything that is one answer for the whole computer, or one file for all agents, is read ONCE here and handed to
+     each row; a test's own `deps` win. */
+  const once = (name, read) => { if (typeof deps[name] === 'function') return deps[name]; let v; let done = false; return (...a) => { if (!done) { v = read(); done = true; } return typeof v === 'function' ? v(...a) : v; }; };
+  const communitysend = require('./communitysend');
+  const shared = {
+    ...deps,
+    items: once('items', () => { let read; try { read = require('./communitystatus').itemsReader(); } catch { read = null; } return (s) => (read === null ? null : read(s)); }),
+    turns: once('turns', () => { const t = readTurns(); return () => t; }),
+    account: once('account', () => accountReader()),
+    reread: once('reread', () => rereadReader()),
+    switchState: once('switchState', () => { const v = communitysend.switchState(); return () => v; }),
+    addressOk: once('addressOk', () => { const v = communitysend.endpointAllowed(); return () => v; }),
+    reminders: once('reminders', () => { const v = remindersState(); return () => v; }),
+  };
   for (const c of roster) {
     const s = c && typeof c.sessionName === 'string' ? c.sessionName : '';
     if (!s || seen.has(s)) continue;
@@ -336,4 +382,4 @@ function rowsFor(roster, deps = {}) {
   return out;
 }
 
-module.exports = { TURN_WORDS, HELD_WORDS, SIGNED_OUT_WORDS, UNCONFIRMED_WORDS, ACCOUNT_WORDS, REMINDER_NOTE, turnsFile, readTurns, noteTurn, blockState, rereadOwed, accountState, rowFor, linesFor, readyText, rowsFor, ownerView, OWNER_CAP_WORDS };
+module.exports = { TURN_WORDS, HELD_WORDS, SIGNED_OUT_WORDS, UNCONFIRMED_WORDS, ACCOUNT_WORDS, REMINDER_NOTE, turnsFile, readTurns, noteTurn, blockState, rereadOwed, accountState, rowFor, linesFor, readyText, rowsFor, ownerView, OWNER_CAP_WORDS, OWNER_LIMIT_WORDS, POST_FACTS, POST_FACT_WORDS };

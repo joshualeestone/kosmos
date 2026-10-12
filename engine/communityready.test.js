@@ -402,21 +402,6 @@ test('slice 2: a reminder is a time the page writes, between the same words the 
   assert.doesNotMatch(said(view({ reminder: 'unreadable' })), /no record of going/);
 });
 
-test('slice 2: the newest post is named and its state left to the list that already words it; held items point up the page', () => {
-  const v = view({ lastPost: { title: 'Weekly "ops"\n  two', at: '2026-10-12T00:00:00Z', state: 'refused' }, held: 1 });
-  assert.ok(said(v).includes('Its newest post is “Weekly "ops" two”.\n'), said(v));
-  assert.ok(said(view({ lastPost: { title: '  ', at: '', state: 'sent' } })).includes('Its newest post is “Untitled post”.'));
-  assert.doesNotMatch(said(v), /refused|not sent|in the list of posts/, 'the row worded the post\'s state, or pointed at a list that may not hold it');
-  // review 3 and 4: a held post is not in the list of posts and comments; the count line says where it is, once.
-  const heldOne = said(view({ lastPost: { title: 'Held one', at: '', state: 'held' }, held: 1 }));
-  assert.ok(heldOne.includes('Its newest post is “Held one”.\n1 item of its is waiting for you, under Waiting for you.'), heldOne);
-  assert.equal(heldOne.split('Waiting for you').length - 1, 1, 'where it waits was said twice');
-  assert.match(said(v), /1 item of its is waiting for you, under Waiting for you\./);
-  assert.match(said(view({ held: 4 })), /4 items of its are waiting for you/);
-  assert.match(said(view({ lastPost: 'unreadable' })), /Kosmos could not read what it has sent just now\./);
-  assert.doesNotMatch(said(view({ lastPost: 'unreadable' })), /has not posted yet/);
-});
-
 test('slice 2: no line of the person\'s words speaks to the agent, and none has an em dash', () => {
   const T = 5;
   for (const block of ['present', 'absent', 'ambiguous', 'no_file', 'unreadable', 'something-new']) {
@@ -492,14 +477,19 @@ test('slice 2 review 7: the summary names everything that applies, in one fixed 
     [{ held: 2 }, '2 waiting for you'],
     [{ switch: 'off' }, 'The community is off'],
     [{ switch: 'unreadable' }, 'Kosmos cannot read the community switch'],
-    [{ addressOk: false }, 'This computer’s community address is refused'],
+    [{ addressOk: false }, 'This computer’s community address is not one Kosmos sends to'],
+    [{ addressOk: null }, 'Kosmos could not check everything just now'],
+    [{ lastPost: { title: 't', at: '', state: 'refused' } }, 'Its newest post is not in the community'],
+    [{ lastPost: { title: 't', at: '', state: 'sent' } }, 'Nothing found in its way'],
+    [{ lastPost: { title: 't', at: '', state: 'queued' } }, 'Nothing found in its way'],
+    [{ lastPost: { title: 't', at: '', state: 'unreadable' } }, 'Kosmos could not check everything just now'],
     [{ reminders: 'off' }, '“Check on your agents” is off'],
     [{ reminders: 'unreadable' }, 'Kosmos could not check everything just now'],
     [{ block: 'absent', account: 'refused', held: 3 }, 'No community section in its instructions. The community has refused this agent. 3 waiting for you'],
     [{ switch: 'off', block: 'absent', connected: true }, 'The community is off. No community section in its instructions'],
     [{ switch: 'off', block: 'absent', connected: false }, 'The community is off. No community section in its instructions'],
-    [{ switch: 'off', addressOk: false, reminders: 'off', held: 1 }, 'The community is off. This computer’s community address is refused. “Check on your agents” is off. 1 waiting for you'],
-    [{ addressOk: false, reminders: 'off' }, 'This computer’s community address is refused. “Check on your agents” is off'],
+    [{ switch: 'off', addressOk: false, reminders: 'off', held: 1 }, 'The community is off. This computer’s community address is not one Kosmos sends to. “Check on your agents” is off. 1 waiting for you'],
+    [{ addressOk: false, reminders: 'off' }, 'This computer’s community address is not one Kosmos sends to. “Check on your agents” is off'],
     [{ block: 'unreadable', held: 2 }, 'Kosmos could not check everything just now. 2 waiting for you'],
     [{ account: 'refused', reminder: 'unreadable' }, 'The community has refused this agent. Kosmos could not check everything just now'],
   ]) assert.equal(view(over).summary, summary, JSON.stringify(over));
@@ -528,10 +518,10 @@ test('slice 2 review 7: each fact about the whole computer is one line that says
   assert.equal(view({ switch: 'off', addressOk: false, reminders: 'off' }).lines.length, 7, 'the agent\'s own four lines are still there');
 });
 
-test('slice 2 review 7: no line says what follows from another, why, or what to do; so no two lines of a row can disagree', () => {
+test('slice 2 review 7: none of the consequence, cause or remedy sentences that reviews caught comes back, in any combination; no line is said twice', () => {
   const T = 5;
   const LEAK = /\bstill sent\b|\bnot reminding\b|\bis not being reminded\b|\bcannot say whether\b|\bturn (it|community) \b|\boff and on\b|\bopen its instructions\b|\bremove one\b|\btry again\b|\bso nothing\b.*\buntil\b/i;
-  for (const sw of ['on', 'off', 'unreadable']) for (const addressOk of [true, false]) for (const reminders of ['on', 'off', 'unreadable']) {
+  for (const sw of ['on', 'off', 'unreadable']) for (const addressOk of [true, false, null]) for (const reminders of ['on', 'off', 'unreadable']) {
     for (const block of ['present', 'absent', 'ambiguous', 'no_file', 'unreadable']) for (const account of Object.keys(ready.ACCOUNT_WORDS)) for (const connected of [true, false, null]) {
       const v = view({ switch: sw, addressOk, reminders, block, account, connected, reminder: { at: T, act: 'held', heldBy: 'cap' }, held: 1, rereadOwed: null });
       const t = said(v) + '\n' + v.summary;
@@ -566,4 +556,82 @@ test('slice 2 review 7: the reminder switch through the real setting file, in th
   fs.writeFileSync(hs.FILE, '{ not json');
   assert.equal(ready.rowFor('ann').reminders, 'unreadable');
   assert.doesNotMatch(text('ann'), /Reminders are switched off/, 'an unreadable setting was told to the agent as off');
+});
+
+test('slice 2 review 9: the newest post gets one fact, whether it is in the community, and every state has a place', () => {
+  const st = require('./communitystatus');
+  const placed = Object.values(ready.POST_FACTS).flat();
+  assert.deepEqual([...placed].sort(), Object.keys(st.POST_WORDS).sort(), 'a state communitystatus can give a post has no place (or a place names a state that is gone)');
+  assert.equal(new Set(placed).size, placed.length, 'a state is placed twice');
+  assert.deepEqual(Object.keys(ready.POST_FACTS).sort(), Object.keys(ready.POST_FACT_WORDS).sort());
+  const line = (state) => view({ lastPost: { title: 'Weekly "ops"\n  two', at: '', state } }).lines[3].text;
+  assert.equal(line('sent'), 'Its newest post, “Weekly "ops" two”, is in the community.');
+  assert.equal(line('before_on'), 'Its newest post, “Weekly "ops" two”, is not in the community.');
+  assert.equal(line('not_sent'), 'Its newest post, “Weekly "ops" two”, is not in the community.');
+  assert.equal(line('held'), 'Its newest post, “Weekly "ops" two”, has not gone to the community.');
+  assert.equal(line('unconfirmed'), 'Its newest post, “Weekly "ops" two”, was sent, and Kosmos has not heard whether it arrived.');
+  assert.equal(line('unreadable'), 'Its newest post, “Weekly "ops" two”, is one Kosmos cannot read the send record of just now.');
+  assert.equal(line('a-state-from-the-future'), line('unreadable'), 'a state with no place was given a fact');
+  assert.equal(view({ lastPost: { title: '  ', at: '', state: 'sent' } }).lines[3].text, 'Its newest post, “Untitled post”, is in the community.');
+  // review 9: a post that did not go out is never under "Nothing found in its way".
+  for (const state of ready.POST_FACTS.out) assert.equal(view({ lastPost: { title: 't', at: '', state } }).summary, 'Its newest post is not in the community', state);
+  for (const state of [...ready.POST_FACTS.in, ...ready.POST_FACTS.waiting, ...ready.POST_FACTS.unknown]) assert.equal(view({ lastPost: { title: 't', at: '', state } }).summary, 'Nothing found in its way', 'CONTROL: ' + state);
+  // held items still point up the page, once
+  const held = said(view({ lastPost: { title: 'Held one', at: '', state: 'held' }, held: 1 }));
+  assert.ok(held.includes('Its newest post, “Held one”, has not gone to the community.\n1 item of its is waiting for you, under Waiting for you.'), held);
+  assert.match(said(view({ held: 4 })), /4 items of its are waiting for you/);
+  assert.match(said(view({ lastPost: 'unreadable' })), /Kosmos could not read what it has sent just now\./);
+  assert.doesNotMatch(said(view({ lastPost: 'unreadable' })), /has not posted yet/);
+});
+
+test('slice 2 review 9: an address that could not be read is not "not one Kosmos sends to"', () => {
+  agentFile('ann', withBlock());
+  const boom = () => { throw new Error('unreadable'); };
+  assert.equal(ready.rowFor('ann', { addressOk: boom }).addressOk, null);
+  assert.equal(ready.rowFor('ann', { addressOk: () => false }).addressOk, false);
+  assert.equal(view({ addressOk: null }).lines[0].text, 'Kosmos could not read this computer’s community address just now.');
+  assert.match(text('ann', { addressOk: boom }), /- Sending: Kosmos could not read this board's community address just now/);
+  assert.match(text('ann', { addressOk: () => false }), /- Sending: this board's community address is not one Kosmos sends to/);
+  assert.doesNotMatch(text('ann'), /- Sending:/, 'CONTROL: a good address adds no line');
+});
+
+test('slice 2 review 9: the person is told "this computer" where the agent is told "this board"', () => {
+  const v = view({ reminder: { at: 5, act: 'limit' } });
+  assert.equal(v.lines[2].after, '. Not sent: this computer had reached its hourly limit for messages to agents.');
+  agentFile('ann', withBlock());
+  ready.noteTurn({ session: 'ann', act: 'limit' }, 5);
+  assert.match(text('ann'), /not sent: this board had reached its hourly limit/);
+  for (const act of Object.keys(ready.TURN_WORDS)) assert.doesNotMatch(said(view({ reminder: { at: 5, act, delivery: 'placed' } })), /\bthis board\b/, act);
+});
+
+test('slice 2 review 9: rowsFor reads each computer-wide record once, however many agents there are', () => {
+  const cards = ['ann', 'bea', 'cal'].map((n) => fleetCard(n));
+  for (const n of ['ann', 'bea', 'cal']) agentFile(n, withBlock());
+  writeJson(cs._paths.keysFile(), { bea: { apiKey: 'k' } });
+  ready.noteTurn({ session: 'cal', act: 'prompted', delivery: 'placed' }, 5);
+  reread.oweNow('ann', 'community');
+  const realRead = fs.readFileSync;
+  const watched = { keys: cs._paths.keysFile(), turns: ready.turnsFile(), owed: reread.file(), prompter: require('./heartbeat-setting').FILE };
+  /* How many times each record is opened while `fn` runs. Other modules open some of these too (the shared read of the
+     send records opens the keys), so the claim is not "once" but "the same for one agent as for three". */
+  const counting = (fn) => {
+    const counts = { keys: 0, turns: 0, owed: 0, prompter: 0 };
+    fs.readFileSync = function (file, ...rest) {
+      for (const [k, f] of Object.entries(watched)) if (String(file) === f) counts[k] += 1;
+      return realRead.call(fs, file, ...rest);
+    };
+    let out;
+    try { out = fn(); } finally { fs.readFileSync = realRead; }
+    return { counts, out };
+  };
+  const three = counting(() => ready.rowsFor(cards));
+  const one = counting(() => ready.rowsFor(cards.slice(0, 1)));
+  assert.deepEqual(three.out.map((r) => [r.session, r.account, r.reminder && r.reminder.act, r.rereadOwed]), [['ann', 'none', null, true], ['bea', 'yes', null, false], ['cal', 'none', 'prompted', false]], 'the shared reads gave an agent another\'s answer');
+  assert.deepEqual(three.counts, one.counts, 'a record is opened more often for three agents than for one');
+  assert.ok(one.counts.keys >= 1 && one.counts.turns >= 1 && one.counts.owed >= 1 && one.counts.prompter >= 1, 'the counter does not see these records opened: ' + JSON.stringify(one.counts));
+  // CONTROL: asked one agent at a time, the same records are opened once per agent, so the counter can tell.
+  const each = counting(() => cards.map((c) => ready.rowFor(c.sessionName)));
+  for (const k of ['turns', 'prompter']) assert.equal(each.counts[k], 3 * one.counts[k], 'CONTROL ' + k + ': ' + JSON.stringify([each.counts, one.counts]));
+  assert.ok(each.counts.keys > three.counts.keys && each.counts.owed > three.counts.owed, 'CONTROL: ' + JSON.stringify([each.counts, three.counts]));
+  assert.equal(ready.rowsFor(cards, null).length, 3, 'a null deps threw');
 });
