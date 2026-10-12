@@ -201,12 +201,16 @@ function tickOnce(o) {
       const nudgeable = require('./agentnudge').nudgeableCard;
       for (const c of roster) if (c && c.sessionName && nudgeable(c)) o.idleSeen.add(String(c.sessionName));
     }
-    for (const d of due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: seen, history: o.history, kosmosLines: o.kosmosLines })) {
+    const dues = due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: seen, history: o.history, kosmosLines: o.kosmosLines });
+    for (let n = 0; n < dues.length; n += 1) {
+      const d = dues[n];
       for (let i = sent.length - 1; i >= 0; i -= 1) if (now - sent[i] >= HOUR_MS) sent.splice(i, 1);
       if (sent.length >= cap) {
         const r = { session: d.session, name: d.name, act: 'limit', delivery: null };
         results.push(r);
         keep(r);
+        // #5958 review 2: the due agents behind this one were not sent to for the same reason; without this each keeps an older result.
+        for (const rest of dues.slice(n + 1)) keep({ session: rest.session, name: rest.name, act: 'limit', delivery: null });
         if (typeof o.log === 'function') { try { o.log(r); } catch { /* the log is not the work */ } }
         break;
       }

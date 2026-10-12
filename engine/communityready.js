@@ -47,14 +47,16 @@ const REMINDER_NOTE = 'A reminder only asks. Whether to post, and what to say, i
 
 function turnsFile() { return path.join(require('./store').ROOT, 'community-turn-last.json'); }
 
-/* { session: { at: ms, act } }, or null when the file is there and cannot be read (a writer must not replace it, and a
-   reader must not say "never reminded"). No file is an empty record. */
-function readTurns() {
+/* { session: { at: ms, act } }, or null when the file is there and cannot be read or is not a record (a reader must not
+   say "never reminded"). No file is an empty record. `why`, when given, is told which: 'io' (the file could not be
+   opened) or 'content' (it opened and holds something else). */
+function readTurns(why) {
+  const say = (w) => { if (typeof why === 'function') why(w); return null; };
   let raw;
-  try { raw = fs.readFileSync(turnsFile(), 'utf8'); } catch (err) { return err && err.code === 'ENOENT' ? {} : null; }
+  try { raw = fs.readFileSync(turnsFile(), 'utf8'); } catch (err) { return err && err.code === 'ENOENT' ? Object.create(null) : say('io'); }
   let d;
-  try { d = JSON.parse(raw); } catch { return null; }
-  if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+  try { d = JSON.parse(raw); } catch { return say('content'); }
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return say('content');
   const out = Object.create(null);   // an agent may be named "constructor": only its own record is ever its reminder
   for (const [k, v] of Object.entries(d)) {
     if (!k || !v || typeof v !== 'object' || !Number.isFinite(v.at) || !own(TURN_WORDS, v.act)) continue;
@@ -73,8 +75,12 @@ function readTurns() {
 function noteTurn(r, now = Date.now()) {
   try {
     if (!r || typeof r.session !== 'string' || !r.session || !Object.prototype.hasOwnProperty.call(TURN_WORDS, r.act)) return false;
-    const cur = readTurns();
-    if (cur === null) return false;
+    let bad = null;
+    let cur = readTurns((w) => { bad = w; });
+    /* A file that opens and is not a record is replaced: it holds only each agent's newest result, so nothing in it can
+       be recovered, and refusing would leave every later result unrecorded until someone deleted it by hand. One that
+       cannot be opened is left alone. */
+    if (cur === null) { if (bad !== 'content') return false; cur = Object.create(null); }
     cur[r.session] = { at: Number.isFinite(now) ? now : Date.now(), act: r.act,
       ...(DELIVERIES.includes(r.delivery) ? { delivery: r.delivery } : {}),
       ...(own(HELD_WORDS, r.heldBy) ? { heldBy: r.heldBy } : {}),
@@ -174,7 +180,7 @@ function linesFor(row) {
   const out = [];
   out.push('- The community on this computer: ' + (row.switch === 'on' ? 'on' : row.switch === 'off' ? 'off, so nothing is sent until your person turns it on'
     : 'Kosmos cannot read its switch just now, so nothing is sent; tell your person'));
-  if (row.addressOk !== true) out.push('- Sending: this board\'s community address is not one Kosmos sends to, so nothing goes until that is fixed');
+  if (row.addressOk !== true) out.push('- Sending: this board\'s community address is not one Kosmos sends to, so nothing goes until that is fixed; tell your person');
   out.push('- The community section in your instructions: ' + ({
     present: 'there' + (row.rereadOwed === true ? '; it changed while you were running, and Kosmos still owes you a line asking you to read it again' : ''),
     absent: row.connected === false ? 'not there. Kosmos adds it when you next start, or when Kosmos itself next starts, while the community is on'

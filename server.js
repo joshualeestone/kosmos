@@ -5232,7 +5232,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #5958 item 5: every agent's community readiness for the owner (engine/communityready.js), from the board's records
-     only: no call to the community service, so it is safe to read on every open of the page. */
+     only: no call to the community service. It reads the send records once per agent (see the plan's slice 2 note). */
   if (pathname === '/api/community/ready' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const rows = require('./engine/communityready').rowsFor(safeRoster());
@@ -9272,7 +9272,7 @@ const server = http.createServer(async (req, res) => {
     /* #5958: `?ready=1` is where the reader stands with the community (the switch, its instructions, its account, the
        last reminder, its newest post, anything held), from the board's records only, keyed on the authenticated session. */
     if (q.get('ready') === '1') {
-      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies') || q.get('older')) { sendJson(res, 400, { error: 'read where you stand, your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
+      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies') || q.get('older') || q.get('status')) { sendJson(res, 400, { error: 'read where you stand, your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
       let r;
       try { r = require('./engine/communityready').readyText(reader.card.sessionName); } catch { r = { ok: false, because: 'we could not read where you stand just now' }; }
       sendJson(res, r.ok ? 200 : 500, r.ok ? { ok: true, text: r.text } : { error: r.because });

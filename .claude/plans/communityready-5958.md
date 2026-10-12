@@ -119,3 +119,19 @@ slice, before the board list.
     until its own first one.
   - an agent skipped before the pass tries it (already held on quota) leaves no record, so its line shows an older
     result.
+
+## Review 2 (2026-10-12, sonnet)
+- **WARNING, taken:** at the hourly limit the pass stops, and the due agents behind the one it stopped at kept an
+  older result. Each is now recorded as not sent for the limit.
+- **WARNING, taken:** a new hold reason in `chat.js` would get the neutral line with nothing failing. A test reads
+  chat's hold reasons from its source and requires words for each.
+- **WARNING, taken:** a reminder record that was not a record refused every later write until someone deleted it. It
+  holds only newest results, so the next write replaces it. A file that cannot be opened is still left alone.
+- **NIT, taken:** the address line now says to tell the person; the route's comment no longer calls the read cheap;
+  the ready branch refuses `status` itself. That last one cannot be shown by a test: the status branch runs first and
+  refuses the pair already (a mutant that removes it stays green), so it is there for a future reorder only.
+- **CONVENTION, not taken:** the `kosmos community read` usage line names neither `--ready` nor `--status`. Both are
+  reached by their own verbs, which the usage does list; the flags are how the verbs are carried, not something to type.
+- Mutants added, each red by name and restored: the limit's remaining agents not kept; a non-record not replaced; a
+  file that cannot be opened replaced; the cap's words removed; the hold's reason dropped by the pass; a refused
+  account read as yes.

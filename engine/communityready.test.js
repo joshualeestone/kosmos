@@ -211,8 +211,67 @@ test('a reminder record that cannot be read is said as that, and is not replaced
   assert.equal(ready.rowFor('ann').reminder, 'unreadable');
   assert.match(text('ann'), /Kosmos cannot read its record of reminders just now/);
   assert.doesNotMatch(text('ann'), /none on record/, 'an unreadable record was read as "never reminded"');
-  assert.equal(ready.noteTurn({ session: 'ann', act: 'prompted' }), false);
-  assert.equal(fs.readFileSync(ready.turnsFile(), 'utf8'), '{ not json', 'the unreadable record was overwritten');
+});
+
+test('review 2: a reminder record that is not a record is replaced by the next result; one that cannot be opened is left alone', () => {
+  fs.mkdirSync(path.dirname(ready.turnsFile()), { recursive: true });
+  for (const junk of ['{ not json', '[1,2]', '"text"', 'null']) {
+    fs.writeFileSync(ready.turnsFile(), junk);
+    assert.equal(ready.readTurns(), null, junk);
+    assert.equal(ready.noteTurn({ session: 'ann', act: 'prompted', delivery: 'placed' }, 9), true, junk);
+    assert.deepEqual({ ...ready.readTurns() }, { ann: { at: 9, act: 'prompted', delivery: 'placed' } }, junk);
+  }
+  // A directory where the file should be: it cannot be opened, and it is not a file to replace.
+  fs.rmSync(ready.turnsFile());
+  fs.mkdirSync(ready.turnsFile());
+  assert.equal(ready.readTurns(), null);
+  assert.equal(ready.noteTurn({ session: 'ann', act: 'prompted', delivery: 'placed' }, 9), false);
+  assert.equal(fs.statSync(ready.turnsFile()).isDirectory(), true, 'what could not be opened was replaced');
+  // A file this process may not read (a directory would refuse the write whatever the rule said, so it proves less).
+  fs.rmdirSync(ready.turnsFile());
+  fs.writeFileSync(ready.turnsFile(), 'SOMEONE ELSE\'S BYTES');
+  fs.chmodSync(ready.turnsFile(), 0o000);
+  try {
+    let readable = true;
+    try { fs.readFileSync(ready.turnsFile()); } catch { readable = false; }
+    if (readable) return;   // running as root: every file opens, so this arm has nothing to show
+    assert.equal(ready.noteTurn({ session: 'ann', act: 'prompted', delivery: 'placed' }, 9), false);
+    fs.chmodSync(ready.turnsFile(), 0o600);
+    assert.equal(fs.readFileSync(ready.turnsFile(), 'utf8'), 'SOMEONE ELSE\'S BYTES', 'a file that could not be opened was replaced');
+  } finally { try { fs.chmodSync(ready.turnsFile(), 0o600); } catch { /* already gone */ } }
+});
+
+test('review 2: every reason chat can hold a line for has its own words here', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'chat.js'), 'utf8');
+  const by = [...src.matchAll(/heldBy(?::| =) '([a-z]+)'/g)].map((m) => m[1]);
+  const forWhat = [...src.matchAll(/heldFor(?::| =) '([a-z]+)'/g)].map((m) => m[1]);
+  assert.ok(by.includes('menu') && by.includes('limit') && by.includes('cap') && by.includes('quota'), 'the scan no longer finds chat\'s hold reasons: ' + by);
+  for (const r of new Set(by)) assert.ok(Object.prototype.hasOwnProperty.call(ready.HELD_WORDS, r), 'chat holds a line for "' + r + '" and the ready line has no words for it');
+  assert.deepEqual([...new Set(forWhat)], ['signin'], 'chat has a heldFor the ready line does not word');
+});
+
+test('review 2: at the hourly limit, every due agent left unsent is recorded as that, not left with an older result', () => {
+  const board = fleet.install([fleet.agent('ann', { state: 'idle' }), fleet.agent('bea', { state: 'idle' })]);
+  let cards;
+  try { cards = status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
+  const NOW = Date.parse('2026-10-02T19:30:00Z');
+  const H = 3600e3;
+  const D = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
+  ready.noteTurn({ session: 'bea', act: 'prompted', delivery: 'placed' }, NOW - 5 * H);
+  const sentTo = [];
+  const done = ct.tickOnce({
+    allowed: () => true, env: {}, switchOn: () => true, prompterOn: () => true,
+    roster: () => cards.filter((c) => c.sessionName === 'ann' || c.sessionName === 'bea'), readProjects: () => [], now: NOW, book: new Map(),
+    sent: [NOW - 1000], readLimit: () => ({ on: true, perHour: 1 }),
+    inCommunity: () => true, postTimes: () => [new Date(NOW - 6 * H).toISOString()], idleSince: () => NOW - H, idleSeen: new Set(['ann', 'bea']),
+    history: () => [{ state: 'idle', at: NOW - 30 * H }, { state: 'idle', at: NOW - 2 * H }, { state: 'working', at: NOW - 0.5 * H }, { state: 'idle', at: NOW - 0.4 * H }],
+    deliver: (s) => { sentTo.push(s); return { state: D.PLACED }; }, DELIVERY: D,
+  });
+  assert.deepEqual(sentTo, [], 'fixture: the limit did not stop the pass');
+  assert.equal(done.length, 1, 'the pass now returns more than its one limit result');
+  const kept = { ...ready.readTurns() };
+  assert.deepEqual([kept.ann && kept.ann.act, kept.bea && kept.bea.act], ['limit', 'limit'], JSON.stringify(kept));
+  assert.equal(kept.bea.at, NOW, 'the agent behind the limit kept its older result');
 });
 
 test('the real turn pass records what each reminder did, with no help from its caller', () => {
