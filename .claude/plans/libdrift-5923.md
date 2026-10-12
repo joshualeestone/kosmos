@@ -9,8 +9,8 @@ Nothing kept it at origin/main or said when it was not; on 10-12 it sat 2,058 co
 ## Call (Renet's proposal on the card, both halves)
 In queued-heavy.sh, before it sources the lib, under a lock (queued-heavy-lib.lock in the marker dir) held until the
 lib is loaded:
-1. Say it: compare the blobs of tools/lib/cut-guard.sh and tools/lib/process-fixture.sh (the two files loaded) at
-   HEAD with origin/main's, and print one QUEUED-HEAVY line: match, moved, or BEHIND and not moved (with why).
+1. Say it: compare tools/lib/cut-guard.sh and tools/lib/process-fixture.sh (the two files loaded) as they are on
+   disk with origin/main's, and print one QUEUED-HEAVY line: match, moved, or DIFFERS and not moved (with why).
 2. Move it only when safe: the DEFAULT checkout only (QUEUED_HEAVY_LIB unset, no #5446 fallback), detached, clean,
    no queue marker (suitewait.*, machine-claim, light-side-claim), and no other queued-heavy.sh process. Then
    `git checkout --detach origin/main`. Otherwise join on the lib as it is (one generation per queue, #4977).
@@ -36,6 +36,11 @@ Residuals, stated:
 - The lock's dead-holder takeover is check-then-act, as _qh_take's is: two joiners reading the same dead pid can
   both end up holding it. A dead holder needs a joiner killed inside its check (about a second).
 - Past about 5 minutes on the lock a run loads the lib unchecked rather than wait without bound.
+- The ps match is split on spaces: shell options before the path, `env bash`, or a path with a space is not seen.
+  A ps that fails or prints nothing blocks the move ("could not list processes").
+- The lock holds off only queued-heavy.sh joiners. Anything else sourcing cut-guard.sh from this checkout during the
+  milliseconds of a checkout could read a file mid-rewrite.
+- kill -0 on a live holder owned by another user fails (EPERM) and reads as dead; every agent here is one user.
 
 ## Tests
 tools/test-queued-heavy-4977.sh: nine #5923 arms. Two use the REAL ps under a private script name (QH_TEST_PS_NAME):

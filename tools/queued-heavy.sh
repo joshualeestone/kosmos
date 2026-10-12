@@ -114,7 +114,8 @@ if [ -z "${QUEUED_HEAVY_LIB:-}" ] && [ ! -f "$LIB_CHECKOUT/tools/lib/cut-guard.s
   unset _qh_common
 fi
 # #5923: that shared checkout sat five days and 2,058 commits behind main, and nothing said so. On every join, compare
-# the two files the queue loads (cut-guard.sh and the process-fixture.sh it sources) with origin/main's, by BLOB:
+# the two files the queue loads (cut-guard.sh and the process-fixture.sh it sources), as they are on disk, with
+# origin/main's:
 # commit distance is the wrong measure (2,058 commits behind and both files unchanged). origin/main is read from the
 # checkout's own refs; on Agent1s it is a worktree of ~/work/kosmos, whose refs every agent fetches. Nothing is fetched.
 # Only the DEFAULT checkout (QUEUED_HEAVY_LIB unset, no #5446 fallback) is ever moved, and only when moving it cannot
@@ -123,7 +124,8 @@ fi
 # line says why and this run joins on the lib as it is. The check, the move and the load below are one step under a
 # lock, so a joiner never loads the lib halfway through another's move.
 # Weakest premise: a process is matched only as `<shell> <path>/queued-heavy.sh ...` or a direct exec of it (what a
-# waiter shows, before and after its #5467 re-exec); a queued-heavy.sh started some other way is not seen as a waiter.
+# waiter shows, before and after its #5467 re-exec), split on spaces; a queued-heavy.sh started some other way (shell
+# options before the path, `env bash`, a path with a space) is not seen as a waiter.
 # This run and its direct children (the subshell of the ps pipeline below keeps this script's argv) are not counted.
 # A copy of this script older than #5923 takes no lock here, so one that STARTS during a move is not held off by it.
 # Test seams, never set in production: QH_TEST_PS names a command printing "pid ppid command" lines in place of ps;
@@ -152,10 +154,14 @@ _qh_lib_check() {
       [ -e "$m" ] && { why="a queue marker is present (${m##*/})"; break; }
     done
     if [ -z "$why" ]; then
-      local p
-      p="$(${QH_TEST_PS:-ps -axww -o pid= -o ppid= -o command=} 2>/dev/null | awk -v me="$$" -v nm="${QH_TEST_PS_NAME:-queued-heavy.sh}" '
+      local p out
+      # A ps that fails or prints nothing must not read as "nothing live": it always lists at least this run.
+      out="$(${QH_TEST_PS:-ps -axww -o pid= -o ppid= -o command=} 2>/dev/null)" || out=""
+      if [ -z "$out" ]; then why="could not list processes"; else
+      p="$(printf '%s\n' "$out" | awk -v me="$$" -v nm="${QH_TEST_PS_NAME:-queued-heavy.sh}" '
         function isq(w) { return w == nm || (length(w) > length(nm) && substr(w, length(w) - length(nm)) == "/" nm) }
         $1 != me && $2 != me && (isq($3) || ($3 ~ /(^|\/)(ba|z|da|k)?sh$/ && isq($4))) { print $1; exit }')"
+      fi
       [ -n "$p" ] && why="another queued-heavy.sh is live (pid $p)"
     fi
   fi
@@ -166,7 +172,7 @@ _qh_lib_check() {
     fi
     why="git checkout failed"
   fi
-  echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9} is BEHIND: its${diff} differ from origin/main ${main:0:9}; not moved ($why), so this run joins on the lib as it is (#5923)"
+  echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9} DIFFERS: its${diff} differ from origin/main ${main:0:9}; not moved ($why), so this run joins on the lib as it is (#5923)"
 }
 # The marker dir as the lib names it (_kosmos_marker_dir), needed before the lib is loaded.
 _qh_marker_dir_raw() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cache/kosmos-run-markers}"; }
