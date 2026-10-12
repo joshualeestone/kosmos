@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: answeredq-5943
-diff_hash: 8b91b524c522ebc13d10d270cd1cd58b8e87ca31785d5de277d490f8e0a00bae
+diff_hash: bb5722937ccdfe117a1629b37b514d3b0c75311b985b75cf56b5a537d584903e
 validation: pending (Mortals run queued; PR CI runs the full suite and the browser checks)
 subdir_audit: passed
-timestamp: 2026-10-12T18:55:48Z
+timestamp: 2026-10-12T21:19:48Z
 iterations: 4
 converged: true
 ---
@@ -54,3 +54,6 @@ PR #5979 was CONFLICTING (no CI ran). Rebased onto main: one conflict in server.
 
 ## PR CI found two existing tests asserting the old behaviour
 suite (node) on #5979 failed two tests outside the focused set: server.blocked-owner-person-5318 asserted needs_you gets no note (this branch deliberately returns the asking reminder), and web.thread-shape-3966's stub accepted only the .mwhen selector (refreshWhens now also refreshes .dmq-age). Both updated to the new behaviour: the #5318 arm still proves needs_you never gets the blocked-owner note, and the #3966 stub records both selectors. Then every test file mentioning refreshWhens, threadShape, needs_you, report clear, dmq-, askedAt or .note was run: 126 files, 3099/3099.
+
+## Second rebase (16:1x CDT): doctrine renumbered to v30
+Main gained #5920's doctrine v29 while this branch also claimed v29, so the PR went CONFLICTING. Rebased: kept #5920's log entry 29, this branch's entry is now 30 and DOCTRINE_VERSION 30; engine/doctrine-past.js is main's table plus the new v30 row and its one new section hash (the generator, run on this branch, would have dropped rows main holds, so the union was taken instead); defaults.test.js pins v29 (main's) and v30. Related tests 3526/3526 (135 files plus the file-scanning guards); doctrine suites 116/116. The Mortals run that ended red at 16:16 tested a3e64b9d8 and failed only the two tests already fixed here.
