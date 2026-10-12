@@ -117,3 +117,88 @@ test('#5977 r2: a key needs https off this computer, a link-local address is ref
   assert.equal(rows.find((r) => r.dir === shortDir).keyTail, null);
   assert.equal(rows.find((r) => r.dir === longDir).keyTail, '9876', 'CONTROL: a long key still names its last four');
 });
+
+/* ---- review 3 --------------------------------------------------------------------------------------------- */
+
+test('#5977 r3: Windows refuses a Qwen agent everywhere (its codex launch has no endpoint), and says why', () => {
+  const acct = nodePath.join(HOME, qwen.DIR_PREFIX + 'r3win');
+  qwen.storeEndpoint(acct, EP);
+  const name = codexAgent('r3-win-claude', null, 'anthropic');
+  const sw = create.setProvider(name, 'alibaba', { accountDir: acct, platform: 'win32', codexBin: CODEX_BIN, tmuxBin: TMUX_BIN });
+  assert.equal(sw.outcome, 'refused');
+  assert.match(sw.because, /Qwen agent on Windows/);
+  // (setAccount's win32 guard is defence only: a Windows job is read through Task Scheduler first, and no Qwen job
+  // can exist there once create and switch refuse, so a test process cannot reach it.)
+  const made = create.createAgent({ name: 'r3-win-new', role: 'pm', provider: 'alibaba', account: acct, platform: 'win32', codexBin: CODEX_BIN, tmuxBin: TMUX_BIN });
+  assert.equal(made.outcome, 'refused');
+  assert.match(made.because, /Qwen agent on Windows/);
+});
+
+test('#5977 r3: moving a Qwen agent to an account whose model the policy forbids is refused; the codex trust entry goes into the new home', () => {
+  const orgpolicy = require('./orgpolicy');
+  const okDir = nodePath.join(HOME, qwen.DIR_PREFIX + 'r3ok');
+  qwen.storeEndpoint(okDir, EP);
+  const badDir = nodePath.join(HOME, qwen.DIR_PREFIX + 'r3bad');
+  qwen.storeEndpoint(badDir, { ...EP, model: 'some-other-model' });
+  const name = codexAgent('r3-mover', QWEN_HOME, 'alibaba');
+  fs.mkdirSync(nodePath.dirname(orgpolicy.APPLIED()), { recursive: true });
+  fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 1, applied_at: 1,
+    policy: { providers_allowed: ['alibaba'], models_allowed: { alibaba: [EP.model] } } }));
+  try {
+    const bad = create.setAccount(name, badDir, { platform: 'darwin' });
+    assert.equal(bad.outcome, 'refused');
+    assert.match(bad.because, /policy/);
+    assert.equal(create.readJob(name).configDir, QWEN_HOME, 'the job was not rewritten');
+    const ok = create.setAccount(name, okDir, { platform: 'darwin' });
+    assert.equal(ok.outcome, 'created', 'CONTROL: an allowed model moves: ' + ok.because);
+    assert.equal(create.readJob(name).configDir, okDir);
+    const toml = fs.readFileSync(nodePath.join(okDir, 'config.toml'), 'utf8');
+    assert.ok(toml.includes(create.workerDir(name)) || toml.includes(fs.realpathSync(create.workerDir(name))), 'no folder-trust entry in the new Qwen home');
+    assert.equal(fs.existsSync(nodePath.join(okDir, '.claude.json')), false, 'a Claude config was written into a Qwen home');
+  } finally {
+    fs.rmSync(orgpolicy.APPLIED(), { force: true });
+  }
+});
+
+test('#5977 r3: a message to a signed-out Qwen agent names Qwen, not an OpenAI sign-in', () => {
+  const chat = require('./chat');
+  const AUTH = require('./status').STATE.AUTH_FAILED;
+  const q = chat.waitingNote(AUTH, 'unconfirmed', 'codex', false, QW);
+  assert.match(q, /Qwen sign-in/);
+  assert.match(chat.waitingNote(AUTH, 'unconfirmed', 'codex', false, OA), /OpenAI sign-in/, 'CONTROL');
+});
+
+test('#5977 r3: a job that says OpenAI wins over a stale Qwen profile; the profile speaks only with no job', () => {
+  const { providerOf } = require('./accountproblem');
+  const stale = codexAgent('r3-stale', OPENAI_HOME, 'alibaba');
+  assert.equal(providerOf({ runner: 'codex', sessionName: stale }), 'OpenAI');
+  store.writeProfile('r3-nojob', { provider: 'alibaba' });
+  assert.equal(providerOf({ runner: 'codex', sessionName: 'r3-nojob' }), 'Qwen', 'CONTROL: with no job the profile answers');
+});
+
+test('#5977 r3: IPv4 written inside IPv6 is decoded before the link-local test; a key with a control character is refused', () => {
+  const ep = (o) => ({ ...EP, ...o });
+  for (const u of ['http://[::ffff:169.254.169.254]/v1', 'http://[::ffff:a9fe:a9fe]/v1', 'http://[64:ff9b::169.254.169.254]/v1']) {
+    assert.match(String(qwen.endpointProblem(ep({ baseUrl: u }))), /link-local/, u);
+  }
+  assert.equal(qwen.endpointProblem(ep({ baseUrl: 'http://[::ffff:10.0.0.1]/v1' })), null, 'CONTROL: a mapped private address is not link-local');
+  assert.match(String(qwen.endpointProblem(ep({ key: 'abcdefghij\u0000klmnopqrst' }))), /control characters/);
+});
+
+test('#5977 r3: the live check never follows a redirect', async () => {
+  const http = require('node:http');
+  let followed = 0;
+  const target = http.createServer((req, res) => { followed += 1; res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ data: [{ id: EP.model }] })); });
+  await new Promise((r) => target.listen(0, '127.0.0.1', r));
+  const tp = target.address().port;
+  const hop = http.createServer((req, res) => { res.writeHead(302, { location: `http://127.0.0.1:${tp}/v1/models` }); res.end(); });
+  await new Promise((r) => hop.listen(0, '127.0.0.1', r));
+  try {
+    qwen.setFetcher(null);
+    const v = await qwen.validateLive({ ...EP, baseUrl: `http://127.0.0.1:${hop.address().port}/v1` });
+    assert.equal(followed, 0, 'the redirect was followed');
+    assert.notEqual(v.state, qwen.STATE.CONNECTED);
+    const direct = await qwen.validateLive({ ...EP, baseUrl: `http://127.0.0.1:${tp}/v1` });
+    assert.equal(direct.state, qwen.STATE.CONNECTED, 'CONTROL: the target answers when asked directly');
+  } finally { hop.close(); target.close(); }
+});

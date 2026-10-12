@@ -971,7 +971,7 @@ function verifyAtSend(card) {
    unlanded one takes position 4. Both were written as "the third parameter"
    independently, which is exactly how a positional API collides silently:
    the types are compatible, so a caller passing the wrong one still runs. */
-function waitingNote(state, outcome, runner, backgroundWait) {
+function waitingNote(state, outcome, runner, backgroundWait, sessionName) {
   const unsure = outcome === DELIVERY.UNCONFIRMED;
   // #2093/#2107: name the PROVIDER the sign-in belongs to, not a hardcoded "Claude".
   // Before #2093 a codex pane never reached AUTH_FAILED here, so the literal was
@@ -993,7 +993,8 @@ function waitingNote(state, outcome, runner, backgroundWait) {
   // provider copy class). Product name 'Gemini', matching create.js's create/model copy.
   // #3391: grok names Grok for the same reason -- an auth-failed grok agent points at its
   // own XAI_API_KEY/sign-in, not Claude's. Product name 'Grok', matching create.js.
-  const provider = runner === 'codex' ? 'OpenAI' : runner === 'gemini' ? 'Gemini' : runner === 'grok' ? 'Grok' : runner === 'antigravity' ? 'Google' : runner === 'muse' ? 'Meta' : 'Claude';   // #3568: its sign-in is Google's; #3939: Muse's is Meta's
+  // #5977 review 3: accountproblem's map (the same words), which also reads a codex agent's job, so Qwen says Qwen.
+  const provider = require('./accountproblem').providerOf({ runner, sessionName });   // #3568: its sign-in is Google's; #3939: Muse's is Meta's
   /* 🛑 #1889. ONE `working` MEANS THE OPPOSITE OF THE OTHER, FOR THIS SENTENCE.
      A pane whose screen says it is waiting on a BACKGROUND agent classifies
      `working`, but its own turn has ENDED and its REPL is at its prompt, so the
@@ -1597,7 +1598,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   // and the verdict is not known until the sends have answered — so it is built
   // at each return rather than once up front.
   const paneBackgroundWait = allowed.card.stateBackgroundWait === true;
-  const noteFor = (outcome) => waitingNote(paneState, outcome, allowed.card.runner, paneBackgroundWait);
+  const noteFor = (outcome) => waitingNote(paneState, outcome, allowed.card.runner, paneBackgroundWait, allowed.card.sessionName);
 
   /**
    * 🔑 A WINDOWS AGENT IS REACHED THROUGH ITS SUPERVISOR, NOT A PANE (#570 7c-4).

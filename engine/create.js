@@ -185,6 +185,9 @@ const MODELS = [
 const REFUSE_NAME = 'that is not a name we can act on';
 const REFUSE_PROVIDER = 'pick a provider from the list';
 const REFUSE_ANTIGRAVITY_WIN32 = 'Kosmos cannot start an Antigravity agent on Windows yet'; // #3568
+/* #5977 review 3: the Windows codex launch (win32codexsup) has no endpoint arguments, so a Qwen agent there would start
+   codex against OpenAI. Refused until it reads qwenaccounts.launchArgs. */
+const REFUSE_QWEN_WIN32 = 'Kosmos cannot start a Qwen agent on Windows yet';
 const REFUSE_ACCOUNT = 'we do not know that account on this computer';
 
 function modelsFor(provider) {
@@ -1558,7 +1561,10 @@ function setAccount(name, dir, opts) {
   /* #5977: a Qwen agent (codex on a Qwen account) moves between Qwen accounts only; an OpenAI agent never lands on a
      Qwen folder here. Changing which provider it runs on is a provider switch (setProvider), which checks policy and
      records the provider; letting the account route do it would leave the job and the profile disagreeing. */
-  if (job.runner === 'codex' && jobProvider(job) === 'alibaba') return setQwenAccount(clean, spoken, dir, job, platform);
+  if (job.runner === 'codex' && jobProvider(job) === 'alibaba') {
+    if ((platform || process.platform) === 'win32') return { outcome: OUTCOME.REFUSED, because: REFUSE_QWEN_WIN32 };   // #5977 review 3
+    return setQwenAccount(clean, spoken, dir, job, platform);
+  }
   if (job.runner === 'codex' && dir && require('./qwenaccounts').isQwenHome(dir)) {
     return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on OpenAI; to move it to Qwen, switch its provider to Qwen` };
   }
@@ -1791,6 +1797,12 @@ function setQwenAccount(clean, spoken, dir, job, platform) {
   const acct = qwen.list().find((a) => a.dir === wanted);
   if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal('Qwen') };
   if (acct.endpointProblem) return { outcome: OUTCOME.REFUSED, because: `that Qwen account cannot be used: ${acct.endpointProblem}` };
+  /* Review 3: the account names the model, so a move is a model change and the company policy holds here too. */
+  const allowed = policyAllows('alibaba', '', acct.dir);
+  if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because };
+  // Review 3: the new home is a fresh CODEX_HOME, so it needs the folder-trust entry too.
+  try { trustCodexFolder(workerDir(clean), acct.dir, false); }
+  catch { return { outcome: OUTCOME.REFUSED, because: 'we could not let Codex work in its folder, so nothing was changed' }; }
   const unwritten = rewriteAgentJob(clean, spoken, {
     runnerBin: job.claude, tmux: job.tmux, model: null, configDir: acct.dir, runner: 'codex',
   }, platform);
@@ -1941,6 +1953,7 @@ function setProvider(name, provider, opts) {
   if (provider === 'antigravity' && (platform || process.platform) === 'win32' && !win32AgyOn()) {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_ANTIGRAVITY_WIN32 };
   }
+  if (provider === 'alibaba' && (platform || process.platform) === 'win32') return { outcome: OUTCOME.REFUSED, because: REFUSE_QWEN_WIN32 };   // #5977 review 3
   const verdict = readJobVerdict(clean, undefined, platform);
   const job = verdict.job;
   if (!job) {
@@ -2255,6 +2268,10 @@ function setProvider(name, provider, opts) {
     if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal('Qwen') };
     if (acct.endpointProblem) return { outcome: OUTCOME.REFUSED, because: `that Qwen account cannot be used (${acct.endpointProblem}), so nothing was changed` };
     switchAccount = { ...acct, chosen: opts.pickedByPerson === true };
+    /* Review 3: codex asks "trust this folder?" on its first interactive start and nothing answers it, so the entry
+       goes into the Qwen home codex will run in, as the OpenAI arm writes its own. */
+    try { trustCodexFolder(workerDir(clean), acct.dir, false); }
+    catch { return { outcome: OUTCOME.REFUSED, because: 'we could not let Codex work in its folder, so nothing was changed' }; }
   }
   if ((runner === 'gemini' || runner === 'grok') && !DRY_RUN) {
     const mod = runner === 'gemini' ? require('./geminiaccounts') : require('./grokaccounts');
@@ -3825,6 +3842,11 @@ function installJob(name, opts) {
   if (wantRunner === 'antigravity' && jobPlatform === 'win32' && !win32AgyOn()) {
     return { ok: false, because: REFUSE_ANTIGRAVITY_WIN32 };
   }
+  // #5977 review 3: a codex job on a Qwen home cannot be launched on Windows (no endpoint arguments there).
+  if (wantRunner === 'codex' && jobPlatform === 'win32' && opts && typeof opts.configDir === 'string' && opts.configDir
+    && require('./qwenaccounts').isQwenHome(opts.configDir)) {
+    return { ok: false, because: REFUSE_QWEN_WIN32 };
+  }
   // #3939: the Muse flag holds here too (connect, repair and backfill all reach installJob).
   if (wantRunner === 'muse' && !museEnabled(jobPlatform)) {
     return { ok: false, because: `${spokenName(clean)} runs on Meta Muse, which is not switched on on this computer, so it cannot be set up here` };
@@ -4647,6 +4669,8 @@ function createAgentInner(opts) {
   /* #5977: Qwen runs on codex, against the account's endpoint. The account is required (there is no default Qwen
      account) and checked in the account block below; the runner is checked here, as for OpenAI. */
   if (provider === 'alibaba') {
+    // #5977 review 3: Windows first, as for Antigravity: its codex launch has no endpoint arguments.
+    if ((opts && opts.platform ? opts.platform : process.platform) === 'win32') return { outcome: OUTCOME.REFUSED, because: REFUSE_QWEN_WIN32, steps };
     if (!DRY_RUN && !runnerRunnable(codexBin)) {
       return { outcome: OUTCOME.REFUSED, because: 'we could not find Codex, the runner Qwen agents use, on this computer, so an agent made now would never start', steps };
     }
@@ -5926,8 +5950,8 @@ function createAgentInner(opts) {
    * the agent IS that consent: the folder is ours, made three steps up.
    * Append-only, once, into the same CODEX_HOME codexsession.js reads.
    */
-  const trustedFolder = provider !== 'openai'
-    || ((wroteInstructions && installedSupervisor) && step('let the OpenAI runner work in its folder', () => {
+  const trustedFolder = (provider !== 'openai' && provider !== 'alibaba')   // review 3: a Qwen home is a CODEX_HOME too
+    || ((wroteInstructions && installedSupervisor) && step(provider === 'alibaba' ? 'let Codex work in its folder' : 'let the OpenAI runner work in its folder', () => {
       if (DRY_RUN) return true;
       trustCodexFolder(workerDir(name), configDir, !configDir);
       /* Same moment, same home, same reason: a first-run prompt nothing will
@@ -6071,7 +6095,7 @@ function createAgentInner(opts) {
        agent with `--trust` at launch (agent-supervisor.sh), and their birth writes go
        to their own config branches below, so running a claude trust write for a
        gemini/grok worker folder would write into the wrong tool's config. */
-    if (provider !== 'google' && provider !== 'xai' && provider !== 'antigravity' && provider !== 'meta') { // #3568, #3939: not a Claude Code folder either
+    if (provider !== 'google' && provider !== 'xai' && provider !== 'antigravity' && provider !== 'meta' && provider !== 'alibaba') { // #3568, #3939, #5977 review 3: not a Claude Code folder either
       try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir, createIfAbsent: provider !== 'openai', agentDefaultAccount: provider !== 'openai' && !configDir }); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
     }
