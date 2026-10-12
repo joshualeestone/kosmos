@@ -7793,8 +7793,9 @@ html.kosmos-keyboard-up .pj-held-why { display: block; max-height: 4.4em; overfl
 .micbtn { display: none; touch-action: manipulation; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 html.has-voice .micbtn { display: grid; }
-/* #5624: conversation mode, beside the mic in a conversation's box: shown where the page can speak (html.has-speak)
-   AND the mode is switched on (html.conv-on; held off by Josh 2026-10-09 10:49, see CONV_ENABLED). */
+/* #5624: conversation mode, in a conversation's header row beside its search (not the message box: Josh 2026-10-09
+   10:52), shown where the page can speak (html.has-speak) AND the mode is switched on (html.conv-on; held, see
+   CONV_ENABLED). */
 .convbtn { display: none; touch-action: manipulation; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 html.has-speak.conv-on .convbtn { display: grid; }
@@ -12697,6 +12698,7 @@ window.kosmosMeasureScrollbarWidth();
       <button class="pj-back d-crumb-back" id="d-crumb-back" type="button" aria-label="Back to All agents"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
       <span class="d-crumb-rootwrap"><button class="linkish d-crumb-root" id="d-crumb-root" type="button" tabindex="-1" aria-hidden="true">All agents</button><span class="pj-crumb-sep" aria-hidden="true">/</span></span>
       <h3 id="d-talk-label"></h3>
+      <button class="convbtn" id="d-conv" type="button" data-conv-for="dm" aria-pressed="false" aria-label="Read new messages aloud as they arrive" title="Read new messages aloud"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
       <div class="tsearch" id="d-talk-search-wrap">
         <span class="tsearch-i" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -12780,7 +12782,7 @@ window.kosmosMeasureScrollbarWidth();
            grey smiley and panel, driven by the same code (EMOJI_AT below), so there is one list
            of emoji and one behaviour. The panel sits inside this box, which is its anchor. -->
       <!-- #4409: the mic. Drawn only where a voice bridge exists (html.has-voice): the Mac app, or a phone (slice 3). -->
-      <button class="micbtn" id="d-mic" type="button" data-voice-for="d-say" data-voice-msg="d-say-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button><button class="convbtn" id="d-conv" type="button" data-conv-for="dm" aria-pressed="false" aria-label="Read new messages aloud as they arrive" title="Read new messages aloud"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
+      <button class="micbtn" id="d-mic" type="button" data-voice-for="d-say" data-voice-msg="d-say-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
       <button class="emojibtn" id="d-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="d-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
             <button class="btn uprime cpost" id="d-send" type="button">Post</button>
       <div class="emojipanel" id="d-emoji" role="group" aria-label="Pick an emoji" hidden></div>
@@ -16593,6 +16595,7 @@ window.kosmosMeasureScrollbarWidth();
 
     <section class="pjcol pjmid">
       <div class="pjmidhead"><h3 class="dlab">Conversation</h3>
+        <button class="convbtn" id="pj-conv" type="button" data-conv-for="pj" aria-pressed="false" aria-label="Read new messages aloud as they arrive" title="Read new messages aloud"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
         <div class="tsearch">
           <span class="tsearch-i" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -16677,7 +16680,7 @@ window.kosmosMeasureScrollbarWidth();
                app: "the yellow post button", match the pack. So Post and the
                agent page's Send wear `.uprime`, the build's gold. The
                argument above stays as the record of what it cost. -->
-                    <button class="micbtn" id="pj-mic" type="button" data-voice-for="pj-post" data-voice-msg="pj-room-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button><button class="convbtn" id="pj-conv" type="button" data-conv-for="pj" aria-pressed="false" aria-label="Read new messages aloud as they arrive" title="Read new messages aloud"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
+                    <button class="micbtn" id="pj-mic" type="button" data-voice-for="pj-post" data-voice-msg="pj-room-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
                     <button class="emojibtn" id="pj-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="pj-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
                     <button class="btn uprime cpost" id="pj-post-go" type="button">Post</button>
         </div>
