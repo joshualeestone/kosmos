@@ -178,3 +178,46 @@ test('a non-EEXIST acquire failure is REPORTED, not thrown (opts.cannotAccess)',
   const r = withFileLock(file, () => 'unreached', { cannotAccess: 'NO ACCESS' });
   assert.deepEqual(r, { ok: false, because: 'NO ACCESS' });
 });
+
+test('#5997: a lock that vanished at the stat is NOT treated as stale; a waiter never moves a live holder\'s lock', () => {
+  // The interleave behind a lost trust write (#5997): a waiter's mkdir meets EEXIST, the holder releases, the waiter's
+  // stat finds nothing (ENOENT), and writer B re-acquires a fresh lock. A waiter that reads the missing lock as
+  // infinitely stale renames B's LIVE lock aside; the identity check notices and tries to put it back, but a third
+  // writer C can mkdir the lock in that gap, the restore fails, and B and C are both inside the section: every writer
+  // reports success and one update is lost. Reproduced deterministically: statSync throws ENOENT once while B's live
+  // lock stands at the path, and C's mkdir is placed in the gap before any restore.
+  const file = tmpFile();
+  const lock = file + '.lock';
+  fs.mkdirSync(lock);                                              // B's live lock, fresh mtime
+  fs.writeFileSync(path.join(lock, 'owner'), 'writer-B');
+  const realStat = fs.statSync;
+  const realRename = fs.renameSync;
+  let statLied = false;
+  const moved = [];
+  fs.statSync = (p, ...rest) => {
+    if (!statLied && p === lock) { statLied = true; const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; }
+    return realStat(p, ...rest);
+  };
+  fs.renameSync = (from, to) => {
+    if (from === lock) moved.push(to);
+    // C takes the lock in the gap before any restore of B's lock.
+    if (to === lock && !fs.existsSync(lock)) { fs.mkdirSync(lock); fs.writeFileSync(path.join(lock, 'owner'), 'writer-C'); }
+    return realRename(from, to);
+  };
+  let fnRan = false;
+  try {
+    const r = withFileLock(file, () => { fnRan = true; }, { busy: 'still held', waitMs: 150 });
+    assert.ok(statLied, 'CONTROL: the stat that finds no lock was reached');
+    assert.deepEqual(moved, [], 'the waiter moved a live holder\'s lock aside (it read a missing lock as stale)');
+    assert.equal(fnRan, false);
+    assert.deepEqual(r, { ok: false, because: 'still held' });
+    assert.equal(fs.readFileSync(path.join(lock, 'owner'), 'utf8'), 'writer-B', 'B\'s live lock was replaced');
+  } finally {
+    fs.statSync = realStat;
+    fs.renameSync = realRename;
+    const dir = path.dirname(lock);
+    for (const f of fs.readdirSync(dir)) {
+      try { fs.rmSync(path.join(dir, f), { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  }
+});

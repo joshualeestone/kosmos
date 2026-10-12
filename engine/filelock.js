@@ -100,7 +100,17 @@ function withFileLock(file, fn, opts = {}) {
       // Capture the lock's MTIME alongside its age, from the SAME stat, so the
       // steal below can prove it moved the same dir it measured (kosmos#1991).
       let measuredMtime = null;
-      try { const st = fs.statSync(lock); measuredMtime = st.mtimeMs; age = Date.now() - st.mtimeMs; } catch { age = Infinity; }
+      try { const st = fs.statSync(lock); measuredMtime = st.mtimeMs; age = Date.now() - st.mtimeMs; }
+      catch (err) {
+        /* #5997: the lock VANISHED between our mkdir and this stat (its holder released). That is not a stale lock, so
+           try the mkdir again at once. Read as infinitely stale, it sent us to steal whatever stood at the path next,
+           which under contention is a live writer's fresh lock: the identity check below then moves it aside and puts
+           it back, and a third writer can mkdir in that gap, leaving two writers inside the section. All report
+           success and one update is lost (one of 12 concurrent trust writes, in CI). Any other stat failure keeps the
+           old reading: a lock we cannot even stat is treated as debris. */
+        if (err && err.code === 'ENOENT') continue;
+        age = Infinity;
+      }
       if (age > LOCK_STALE_MS) {
         const aside = `${lock}.${process.pid}.${Date.now()}.stale`;
         try { fs.renameSync(lock, aside); }
