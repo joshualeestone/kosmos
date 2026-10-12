@@ -174,7 +174,7 @@ test('#3939 round 1: an Enter that did not move Muse on is sent once more', { sk
 
 test('#3939: with the flag off, nothing starts', { timeout: 5000 }, () => {
   signin.resetForTests();
-  delete process.env.AGENT_WORKFORCE_MUSE;
+  process.env.AGENT_WORKFORCE_MUSE = '0';   // the one way off since Muse is on by default on a Mac
   let ran = false;
   signin.setForTests({ tmux: () => { ran = true; return ''; }, museBin: () => ({ installed: true, bin: '/nowhere/muse' }) });
   const r = signin.start();

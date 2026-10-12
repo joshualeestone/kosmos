@@ -375,28 +375,20 @@ test('#3939 3c-1 round 7: a failed save blocks an older sign-in but does not con
   clean();
 }));
 
-/* #3939: the preview switch. The environment variable does not survive the installer rewriting the
-   board's launchd job, so a marker file in the board's data folder turns Muse on for one computer. */
-test('#3939: the preview marker turns Muse on (a Mac), and removing it turns it off, no restart', () => {
+/* #3939 (Muse Wonder, 2026-10-12): Meta Muse is on by default on a Mac. AGENT_WORKFORCE_MUSE=0 is the one way off,
+   and the old preview marker file is no longer read (one left in a data folder changes nothing). */
+test('#3939: Muse is on by default on a Mac, off with AGENT_WORKFORCE_MUSE=0, never off a Mac', () => {
   const was = process.env.AGENT_WORKFORCE_MUSE;
-  delete process.env.AGENT_WORKFORCE_MUSE;
   try {
-    const marker = muse.previewMarker();
-    assert.ok(marker.startsWith(SANDBOX), 'the marker must live in the sandboxed data folder: ' + marker);
-    assert.equal(path.basename(marker), muse.PREVIEW_MARKER);
-    assert.equal(muse.PREVIEW_MARKER, 'muse-preview-on', 'the name Josh\'s one line creates');
-    fs.rmSync(marker, { force: true });
-    assert.equal(muse.enabled('darwin'), false, 'CONTROL: no marker, no variable: off');
-    fs.mkdirSync(path.dirname(marker), { recursive: true });
-    fs.writeFileSync(marker, '');
-    assert.equal(muse.enabled('darwin'), true, 'the marker alone turns it on');
-    assert.equal(muse.enabled('win32'), false, 'still a Mac only');
-    fs.rmSync(marker);
-    assert.equal(muse.enabled('darwin'), false, 'removing the marker turns it off again');
-    process.env.AGENT_WORKFORCE_MUSE = '1';
-    assert.equal(muse.enabled('darwin'), true, 'the variable still turns it on without the marker');
+    delete process.env.AGENT_WORKFORCE_MUSE;
+    assert.equal(muse.enabled('darwin'), true, 'not on by default on a Mac');
+    assert.equal(muse.enabled('win32'), false, 'on off a Mac, where no runner exists');
+    assert.equal(muse.enabled('linux'), false, 'on off a Mac, where no runner exists');
     process.env.AGENT_WORKFORCE_MUSE = '0';
-    assert.equal(muse.enabled('darwin'), false, 'any other value of the variable is not on');
+    assert.equal(muse.enabled('darwin'), false, 'AGENT_WORKFORCE_MUSE=0 did not turn it off');
+    process.env.AGENT_WORKFORCE_MUSE = '1';
+    assert.equal(muse.enabled('darwin'), true, 'the old on value no longer works');
+    assert.equal(muse.previewMarker, undefined, 'the preview marker is still exported, so something may still read it');
   } finally {
     if (was === undefined) delete process.env.AGENT_WORKFORCE_MUSE; else process.env.AGENT_WORKFORCE_MUSE = was;
   }

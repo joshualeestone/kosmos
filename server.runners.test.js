@@ -335,7 +335,7 @@ test('#3939 slice 3: /api/muse is off without the flag; with it, the sign-in sta
   const bin = path.join(dir, 'muse');
   fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   process.env.AGENT_WORKFORCE_MUSE_BIN = bin;
-  delete process.env.AGENT_WORKFORCE_MUSE;
+  process.env.AGENT_WORKFORCE_MUSE = '0';   // off is =0 since Muse is on by default on a Mac
   const signin = require('./engine/musesignin');
   const calls = [];
   signin.setForTests({ tmux: (args) => { calls.push(args.join(' ')); if (args[0] === 'capture-pane') throw new Error('none'); return ''; } });
@@ -373,7 +373,7 @@ test('#3939 3c-2 / #4569: /api/accounts lists Meta Muse only when it is on and i
   const clean = () => { fs.rmSync(musestatus.signedInMarker(), { force: true }); fs.rmSync(musestatus.eventsFolder(), { recursive: true, force: true }); };
   const xdg = process.env.XDG_CONFIG_HOME; delete process.env.XDG_CONFIG_HOME;   // Muse's own file from the sandbox home only
   process.env.AGENT_WORKFORCE_MUSE_BIN = bin;
-  delete process.env.AGENT_WORKFORCE_MUSE;
+  process.env.AGENT_WORKFORCE_MUSE = '0';   // off is =0 since Muse is on by default on a Mac
   try {
     clean();
     const t = Date.now() - 60000;

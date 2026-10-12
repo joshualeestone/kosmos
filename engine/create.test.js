@@ -5186,7 +5186,7 @@ test('#3568: the supervisor launches agy with its documented auto-approve flag, 
 const MUSE_ONLY_MAC = { skip: process.platform !== 'darwin' && 'Meta Muse agents are Mac only' };
 function withMuseFlag(on, fn) {
   const was = process.env.AGENT_WORKFORCE_MUSE;
-  if (on) process.env.AGENT_WORKFORCE_MUSE = '1'; else delete process.env.AGENT_WORKFORCE_MUSE;
+  process.env.AGENT_WORKFORCE_MUSE = on ? '1' : '0';   // off is =0 since Muse is on by default on a Mac
   try { return fn(); } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_MUSE; else process.env.AGENT_WORKFORCE_MUSE = was; }
 }
 test('#3939: with the Muse flag off, a Meta create is refused as an unknown provider, exactly as before', MUSE_ONLY_MAC, () => {
