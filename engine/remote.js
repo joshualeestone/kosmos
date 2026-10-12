@@ -2554,17 +2554,22 @@ function computerNameShown() {
     One derivation, so the name a start sends and the name kept after it cannot differ. */
 function computerNameChoice(raw) {
   if (typeof raw !== 'string') return { ok: false, because: 'that is not a name' };
-  /* Leading hyphens go: the name is handed to the tunnel as the value after --device-name, and a value that
-     starts with "-" reads as another option there (the hazard the --phone guard below names). */
+  /* Leading hyphens go from a name the person TYPED: it is handed to the tunnel as the value after --device-name,
+     and a value that starts with "-" reads as another option there (the hazard the --phone guard below names).
+     Only the typed path: the computer's own name is sent as it was before this change. */
   const bare = (t) => {
     let v = t.replace(/^[-\s]+/, '').trim();
     while (v.endsWith(DEVICE_SUFFIX) || v === DEVICE_SUFFIX.trim()) v = v.slice(0, -DEVICE_SUFFIX.trim().length).trim();
     return v;
   };
-  const typed = bare(raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim());
+  const cleaned = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  const own = withoutSuffix(ownComputerDeviceName());
+  /* The text the box was filled with, left as it was, is "untouched" whatever it looks like (a computer named
+     "-Studio" too): compared BEFORE anything is taken off it, so what was shown is what is sent, and nothing is kept. */
+  if (cleaned === own) return { ok: true, next: null, label: ownComputerDeviceName(), box: own };
+  const typed = bare(cleaned);
   /* Cut to fit, then the ending is looked for once more: a longer text can be cut exactly where a typed ending ends. */
   const kept = typed ? bare(withoutSuffix(deviceNameFrom(typed))) : '';
-  const own = withoutSuffix(ownComputerDeviceName());
   const next = kept === own ? null : kept;
   return { ok: true, next, label: next === null ? ownComputerDeviceName() : deviceNameFrom(next), box: next === null ? own : next };
 }

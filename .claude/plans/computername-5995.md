@@ -169,3 +169,25 @@ Not taken (third time): the plan's file name and the commit subjects (reasons in
 - NIT taken: the comment says `computer_name` takes `device_name`'s place when both are sent.
 - NITs not taken: passing a precomputed choice around (the derivation is pure and one function); a test for the
   fast-Enter path beyond the wiring assertion (the comment states what it does).
+
+## Review 7 (default)
+1 BLOCKER, 3 WARNING, 4 CONVENTION, and it is the round that showed what the unrun full suite was hiding.
+- BLOCKER taken: two of my new tests compared `process.platform` with 'win32', which reddens the suite guard
+  `engine/windows-tests-1777.test.js`. Both now PROBE (make the file mode 0; skip if this host still reads it),
+  which also covers an administrator. I then ran every guard test that scans sources or the browser-checks folder
+  (157 tests) and it found a SECOND miss of the same kind: the new browser check was not in
+  `docs/browser-checks/gated.txt`, so `tools.browser-checks-wired.test.js` failed. Wired. Both would have been
+  caught by the full suite, which is still owed.
+- WARNING taken (third time raised): in the stated gap (the start went out, the save failed) the answer is now the
+  code step with `computer_name_kept: false`, and the page says the name was not saved; the code that was emailed
+  works. It was a 400 that told the person to ask again.
+- WARNING, recorded, not changed: while remote.json cannot be read at all, every path (start, verify, the quiet
+  approval) sends the computer's own name, because all three ask the same function at that time; a choice kept
+  in the file comes back when the file reads again. That is the engine's behaviour for an unreadable file, not
+  something this branch can decide from a blank read.
+- CONVENTION taken: the leading-hyphen comment claimed more than the code does (only a TYPED name is stripped);
+  an untouched box on a computer whose own name starts with "-" is now untouched (compared before anything is
+  taken off); the fast-Enter comment said "the computer's own" where a kept choice is also possible.
+- Not taken (fourth time): commit subjects; the PR is squash-merged under a conforming title.
+- Owed, unchanged: the full suite, the browser check (never run), a design look. The branch is rebased onto main
+  after this commit.

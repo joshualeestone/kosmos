@@ -9926,7 +9926,8 @@ const server = http.createServer(async (req, res) => {
            Absent (an older page, a script): nothing changes, and `device_name` keeps its meaning. A request
            with both is naming THIS computer: computer_name takes device_name's place.
            The one gap, stated: the start went out and the save then fails all the same (a disk that fails
-           between the two). The answer says a code was sent and the name was not kept. */
+           between the two). The code was emailed and works, so the answer is still the code step, with
+           computer_name_kept: false for the page to say so; it is not an error the person must start over from. */
         let choice = null;
         if (typeof body.computer_name === 'string') {
           choice = remote.computerNameChoice(body.computer_name);
@@ -9938,7 +9939,7 @@ const server = http.createServer(async (req, res) => {
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         if (choice) {
           const kept = remote.setComputerName(body.computer_name);
-          if (!kept.ok) { sendJson(res, 400, { error: 'a code was sent, but ' + kept.because + '; ask for a new code' }); return; }
+          if (!kept.ok) { sendJson(res, 200, { ok: true, stage: got.data.stage, computer_name_kept: false }); return; }
           // computer_name: what the box shows for the name as kept (one line, cut to fit; '' for a cleared box).
           sendJson(res, 200, { ok: true, stage: got.data.stage, computer_name: choice.box });
           return;

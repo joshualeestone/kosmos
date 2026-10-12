@@ -64,6 +64,21 @@ test('#5995: after a start that carried a name, the name box shows the name as i
   assert.equal(o.el('plus-si-computer').value, 'typed');
 });
 
+test('#5995: a start whose name could not be kept still goes to the code step, and says so there', async () => {
+  const w = boxWorld(async () => ({ ok: true, json: async () => ({ stage: 'code_sent', computer_name_kept: false }) }));
+  w.el('plus-signin-email').value = 'her@example.com';
+  w.el('plus-si-computer').value = 'Studio Mac';
+  await w.click();
+  assert.deepEqual(w.staged.map((s) => s[0]), ['code_sent']);
+  assert.match(w.line(), /^We sent the code\. We could not save the name you gave this computer/);
+  assert.equal(w.el('plus-si-computer').value, 'Studio Mac', 'the box was changed though no name came back');
+  // CONTROL: an ordinary good ask leaves that line empty.
+  const ok = boxWorld(async () => ({ ok: true, json: async () => ({ stage: 'code_sent', computer_name: 'Studio Mac' }) }));
+  ok.el('plus-signin-email').value = 'her@example.com';
+  await ok.click();
+  assert.equal(ok.line(), '');
+});
+
 test('a good ask goes to the code step, naming the address the code went to', async () => {
   const asked = [];
   const w = boxWorld(async (path, init) => { asked.push([path, JSON.parse(init.body)]); return { ok: true, json: async () => ({ stage: 'code_sent' }) }; });

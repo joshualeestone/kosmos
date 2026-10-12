@@ -4955,6 +4955,8 @@ test('#5995: a typed " (Kosmos app)" ending is not doubled, and one derivation s
     assert.deepEqual(remote.computerNameChoice('--relay evil'), { ok: true, next: 'relay evil', label: 'relay evil (Kosmos app)', box: 'relay evil' });
     assert.equal(remote.computerNameChoice(' - -x').next, 'x');
     assert.equal(remote.computerNameChoice('---').next, '');
+    // Typing the computer's own name is "untouched" as it stands, before anything is taken off it.
+    assert.deepEqual(remote.computerNameChoice(own), { ok: true, next: null, label: own + ' (Kosmos app)', box: own });
     assert.deepEqual(remote.computerNameChoice('(Kosmos app)'), { ok: true, next: '', label: 'This computer (Kosmos app)', box: '' });
   } finally { remote.setComputerName(own); }
   // The choice itself reads and writes nothing, and what it says is sent is what keeping it then sends.
@@ -4974,13 +4976,18 @@ test('#5995: a typed " (Kosmos app)" ending is not doubled, and one derivation s
   } finally { remote.setComputerName(own); }
 });
 
-test('#5995: a remote.json that cannot be read at all is not rewritten for the sake of a name', { skip: process.platform === 'win32' || (process.getuid && process.getuid() === 0) }, () => {
+test('#5995: a remote.json that cannot be read at all is not rewritten for the sake of a name', (t) => {
   const own = remote.computerNameShown().name;
   const had = fs.existsSync(remote.FILE) ? fs.readFileSync(remote.FILE, 'utf8') : null;
   const whole = JSON.stringify({ on: true, email: 'her@example.com', relay: 'relay.example:443' });
   try {
     fs.writeFileSync(remote.FILE, whole);
     fs.chmodSync(remote.FILE, 0o000);
+    /* Probed, not assumed from the platform: a host that still reads a mode-0 file (an administrator, a file system
+       with no modes) cannot make this state, and says so. */
+    let stillReads = true;
+    try { fs.readFileSync(remote.FILE, 'utf8'); } catch { stillReads = false; }
+    if (stillReads) { t.skip('this host reads a file with no permissions, so the state cannot be made here'); return; }
     assert.equal(remote.read().ok, false, 'CONTROL: the unreadable file read as fine');
     const got = remote.setComputerName('Work Mac');
     assert.equal(got.ok, false, 'a name was kept by rewriting a file that could not be read');

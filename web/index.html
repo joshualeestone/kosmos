@@ -49121,6 +49121,7 @@ function plusSiKStop() {
    by the start: on a board that never answers, each press would otherwise wait the whole give-up time again. */
 const PLUS_SI_COMPUTER = { loaded: false, reading: null, failed: false };
 const PLUS_SI_COMPUTER_WAIT_MS = 3000;
+const PLUS_SI_NAME_NOT_KEPT = 'We sent the code. We could not save the name you gave this computer, so your account may list it under the name it had before.';
 function plusSiComputerName(again) {
   const el = document.getElementById('plus-si-computer');
   if (!el || PLUS_SI_COMPUTER.loaded) return Promise.resolve();
@@ -49737,7 +49738,8 @@ async function plusSiRequestCode(btn) {
   plusSetBusy(btn, true);
   /* #5995: a read of the computer's name still on its way is waited for (it is local and quick), so a fast Enter in
      the email box cannot send a name that was never read. On that fast path the box appears as the start goes, so
-     the name was not SEEN first: it is the computer's own, the one sent before this change, and nothing is kept. */
+     the name was not SEEN first: it is the one this computer was already being sent under (its own, or a choice
+     kept from an earlier sign-in), and nothing new is kept. */
   const asked = PLUS_SI_EPOCH;
   await plusSiComputerName();
   if (PLUS_SI_EPOCH !== asked) return;   // Start over or Sign out during that wait: this ask is over (they free the buttons)
@@ -49767,6 +49769,9 @@ async function plusSiRequestCode(btn) {
     if (verify) verify.disabled = false;   // the boxes are empty now, for the new code
   }
   plusSiStage(r.data.stage, r.data);
+  /* #5995: the code went out, but the name could not be kept (the board says so; it takes a disk failing between
+     the two). Said on the code step, where the person now is; the code they were sent still works. */
+  if (r.data && r.data.computer_name_kept === false) plusSiMsg(PLUS_SI_NAME_NOT_KEPT);
 }
 document.getElementById('plus-signin-code').addEventListener('click', () => plusSiRequestCode(document.getElementById('plus-signin-code')));
 document.getElementById('plus-si-code-resend').addEventListener('click', (e) => {

@@ -12046,7 +12046,13 @@ test('#5995: the name this computer is sent under can be read first, rides the s
     assert.equal(remoteEngine.read().computer_name, 'Two Tabs', 'a start that failed undid the name another start carried');
     /* A settings file that cannot be read at all: the name could not be kept, so the start is refused BEFORE it goes
        out (no code is emailed for it), while a start that names nothing new still goes. */
-    if (process.platform !== 'win32' && !(process.getuid && process.getuid() === 0)) {
+    /* Whether this host can make that state is probed, not assumed from the platform: one that still reads a
+       mode-0 file (an administrator, a file system with no modes) skips these two arms. */
+    fs.chmodSync(remoteEngine.FILE, 0o000);
+    let modeZeroReads = true;
+    try { fs.readFileSync(remoteEngine.FILE, 'utf8'); } catch { modeZeroReads = false; }
+    fs.chmodSync(remoteEngine.FILE, 0o600);
+    if (!modeZeroReads) {
       const whole = fs.readFileSync(remoteEngine.FILE, 'utf8');
       const sentBefore = sentNames().length;
       fs.chmodSync(remoteEngine.FILE, 0o000);
@@ -12067,9 +12073,9 @@ test('#5995: the name this computer is sent under can be read first, rides the s
       try { gap = await start({ computer_name: 'Lost In The Gap' }); }
       finally { delete process.env.FAKE_NAME_LOCK; fs.chmodSync(remoteEngine.FILE, 0o600); }
       assert.equal(sentNames().length, sentGap + 1, 'CONTROL: the start in the gap arm did not go out');
-      assert.equal(gap.status, 400, gap.body);
-      assert.match(JSON.parse(gap.body).error, /^a code was sent, but we could not keep that name just now; ask for a new code$/);
-      assert.equal(JSON.parse(gap.body).computer_name, undefined, 'the answer claims the typed name was kept');
+      // The code was emailed and works: the answer is the code step, saying the name was not kept.
+      assert.equal(gap.status, 200, gap.body);
+      assert.deepEqual(JSON.parse(gap.body), { ok: true, stage: 'code_sent', computer_name_kept: false });
       assert.equal(remoteEngine.read().computer_name, keptBefore, 'the name that could not be saved reads as kept');
     }
     // Leaving the computer's own name in the field goes back to following the computer.
