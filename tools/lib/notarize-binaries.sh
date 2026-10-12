@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Notarise the bare Mach-O binaries the bundle ships (#5137).
+# Notarise the bare Mach-O binaries the bundle ships (#5137), and the sealed Kosmos.app with its ticket stapled (#5896).
 #
 # kosmos-app and kosmos-tunnel are Developer ID signed with hardened runtime by
 # build-kosmos-bundle.sh, but until #5137 they were never NOTARISED, so
@@ -72,7 +72,7 @@ _notarize_xattr() { "${KOSMOS_NOTARY_XATTR_CMD:-xattr}" "$@"; }
 _notarize_app_exe() {
   local name
   # Flattened first: setup.sh's plist (which the build copies) has the key and its string on ONE line; others split them.
-  name="$(tr -d '\n\r' < "$1/Contents/Info.plist" 2>/dev/null \
+  name="$({ tr -d '\n\r' < "$1/Contents/Info.plist"; } 2>/dev/null \
     | sed -n 's/.*<key>CFBundleExecutable<\/key>[[:space:]]*<string>\([^<]*\)<\/string>.*/\1/p' | head -1)" || name=""
   [ -n "$name" ] && [ -f "$1/Contents/MacOS/$name" ] && printf '%s\n' "$1/Contents/MacOS/$name"
 }
@@ -159,7 +159,7 @@ notarize_probe_credentials() (
   case "$rc:$_flat" in
     0:*'"history":['*) echo "notary preflight: Apple answered an authenticated request with the notary key ($KOSMOS_NOTARY_SECRET_TARGET, key id $key_id)"; exit 0 ;;
   esac
-  echo "notary preflight: Apple's notary service did not answer an authenticated request with the notary key (notarytool rc=$rc). Step 4 notarises the app binaries with it (#5137), after the version bump is pushed. What it said:"
+  echo "notary preflight: Apple's notary service did not answer an authenticated request with the notary key (notarytool rc=$rc). Step 4 notarises the app binaries and the sealed Kosmos.app with it (#5137, #5896), after the version bump is pushed. What it said:"
   printf '%s\n' "$out" | sed 's/^/    /'
   exit 1
 )

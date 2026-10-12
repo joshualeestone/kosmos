@@ -286,7 +286,7 @@ unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURC
 NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK"; rc=$(runapp)
 [ "$rc" = 0 ] && ok "app: accepted, stapled, validated, quarantined copy accepted: passes" || bad "app should pass (rc=$rc): $(cat "$WORK/out")"
 grep -q '^bundle$' "$WORK/ditto.ran" 2>/dev/null && ok "app: the submitted zip holds the bundle itself" || bad "the bundle was not in what was zipped: $(cat "$WORK/ditto.ran" 2>/dev/null)"
-grep -q '^staple .*Kosmos.app$' "$WORK/st.ran" 2>/dev/null && grep -q '^validate .*Kosmos.app$' "$WORK/st.ran" && ok "app: the ORIGINAL bundle was stapled and validated" || bad "staple/validate did not run on the app: $(cat "$WORK/st.ran" 2>/dev/null)"
+grep -qx "staple $APP" "$WORK/st.ran" 2>/dev/null && grep -qx "validate $APP" "$WORK/st.ran" && ok "app: the ORIGINAL bundle was stapled and validated" || bad "staple/validate did not run on the app: $(cat "$WORK/st.ran" 2>/dev/null)"
 _q="$(cat "$WORK/sp.ran" 2>/dev/null)"
 [ -n "$_q" ] && [ "$_q" != "$APP" ] && grep -q "com.apple.quarantine .*$_q\$" "$WORK/xa.ran" && ok "app: a COPY was quarantined and that copy assessed, not the shipped bundle" || bad "the assessment was not on a quarantined copy: sp=$_q xa=$(cat "$WORK/xa.ran" 2>/dev/null)"
 unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
@@ -328,7 +328,7 @@ NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" ST_STAPLE_FAIL_TIMES=9; rc=$(runa
 grep -q 'Apple accepted submission sub-1' "$WORK/out" && ok "app: a staple that never works names the accepted submission for a by-hand staple" || bad "the staple failure did not name the submission: $(cat "$WORK/out")"
 unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES SP_SOURCE SP_OUT
 NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK"; rc=$(rm -f "$WORK/st.ran" "$WORK/sp.ran" "$WORK/xa.ran"; run "$WORK/bin/kosmos-app" "$WORK/bin/kosmos-tunnel" "$APP/")
-[ "$rc" = 0 ] && grep -q '^staple .*Kosmos.app$' "$WORK/st.ran" && ok "app: a trailing slash on the bundle is the same bundle" || bad "trailing slash (rc=$rc): $(cat "$WORK/out")"
+[ "$rc" = 0 ] && grep -qx "staple $APP" "$WORK/st.ran" && ok "app: a trailing slash on the bundle is the same bundle" || bad "trailing slash (rc=$rc): $(cat "$WORK/out")"
 cp "$APP/Contents/Info.plist" "$WORK/plist.oneline"
 printf '<plist><dict>\n<key>CFBundleExecutable</key>\n<string>Kosmos</string>\n</dict></plist>\n' > "$APP/Contents/Info.plist"
 rc=$(runapp)
