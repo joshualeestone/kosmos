@@ -1,7 +1,7 @@
 'use strict';
 /**
- * kosmos#5866: the two other kinds of file engine/chat.js sets aside beside a thread file. A `.superseded` file is a
- * whole earlier conversation and is compiled as one, under a heading of its own. A thread file that is not read as a
+ * kosmos#5866: the two other kinds of file engine/chat.js sets aside beside a thread file. A `.superseded` file is an
+ * earlier project's thread file and is compiled as a conversation, under a heading of its own. A thread file that is not read as a
  * conversation (a `.damaged` one, or one that will not parse) may be the only place some days' messages were: a
  * daily file with no readable messages left, for a day no later than that file could last have gained one, is not
  * pruned.

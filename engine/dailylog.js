@@ -23,8 +23,8 @@
  * file beside its thread file. While there is any sign of one the whole run is
  * refused and nothing is written or pruned (kosmos#5855; see compileAll).
  *
- * A `.superseded` file beside a thread file is an earlier project's whole
- * conversation and is compiled as one (kosmos#5866).
+ * A `.superseded` file beside a thread file is an earlier project's thread
+ * file and is compiled as a conversation of its own (kosmos#5866).
  *
  * ONE LIMIT ON THE PRUNE (kosmos#5866): a daily file with no readable messages left,
  * for a day no later than a thread file that is not read as a conversation (a
@@ -108,7 +108,7 @@ function isRolledOverFileName(filename) {
   return asideThread(filename, ROLLED_OVER_SUFFIX) !== null;
 }
 /* kosmos#5866: the two other kinds of file engine/chat.js sets aside beside a thread file, under the same naming.
-   `.superseded` is a WHOLE conversation: the thread file of an earlier project of the same name, renamed aside when
+   `.superseded` is a WHOLE thread file: that of an earlier project of the same name, renamed aside when
    the first message of the later one arrived, whose own file then starts empty. So the two share no rows, and the
    set-aside one is read as a conversation of its own.
    `.damaged` is a thread file chat.js could not use as a conversation, renamed aside. It is never read here. */

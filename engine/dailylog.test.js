@@ -164,7 +164,7 @@ test('renderDay: a message that starts like a heading cannot hijack the structur
   assert.doesNotMatch(md, /^--- not a rule/m, 'a message body must not render as a horizontal rule');
 });
 
-test('compileAll: end to end, writes per-day files, leaves originals unchanged, idempotent, skips junk', () => {
+test('compileAll: end to end, writes per-day files, leaves originals unchanged, idempotent, compiles nothing from junk', () => {
   const chatsDir = path.join(SANDBOX, 'chats');
   const outDir = path.join(SANDBOX, 'chats-daily');
   fs.mkdirSync(chatsDir, { recursive: true });
@@ -178,7 +178,8 @@ test('compileAll: end to end, writes per-day files, leaves originals unchanged, 
   fs.writeFileSync(path.join(chatsDir, 'proj1.agentB.json'), JSON.stringify({ agent: 'agentB', messages: [
     { at: '2026-09-13T10:00:00Z', text: 'in a project', from: null },
   ] }));
-  // Junk that must be ignored: a seen-cursor and a dotfile and an unparseable file.
+  // Junk nothing is compiled from: a seen-cursor and a dotfile and an unparseable file (which, as a thread file that
+  // will not parse, can keep older daily files from the prune: kosmos#5866).
   fs.writeFileSync(path.join(chatsDir, 'room-seen.json'), JSON.stringify({ cursor: 1 }));
   fs.writeFileSync(path.join(chatsDir, '.DS_Store'), 'x');
   fs.writeFileSync(path.join(chatsDir, 'proj2.bad.json'), '{ not valid json');
