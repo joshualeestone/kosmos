@@ -587,7 +587,8 @@ function forgetAccount(dir, usedBy) {
  * DELETE and remove a Grok account -- the destructive sibling of forgetAccount.
  * forgetAccount renames aside (reversible); this rmSync's the dir, so the key is
  * gone from this computer. Every guard forgetAccount has (same-home + name shape,
- * the running-agents gate, the identity guard). Irreversible on purpose; the UI
+ * another sign-in holding it, the running-agents gate, the identity guard); the account's
+ * own Sign in again is cancelled after the delete instead (#6000). Irreversible on purpose; the UI
  * asks with a destructive confirm.
  */
 function removeAccount(dir, usedBy) {
@@ -637,7 +638,8 @@ function removeAccount(dir, usedBy) {
     /* #6000 (as #5994): a delete that failed part way may already have taken auth.json. Then the folder is no longer
        an account, and its own sign-in must not finish into it: cancel it. While the account is still whole, cancel
        nothing. */
-    if (ownReauth && !identityOf(clean)) releaseOwnReauth(clean);
+    // Decided on the FILE, not on identityOf (see holdsCredentials): an auth.json we cannot read is still the account.
+    if (ownReauth && !fs.existsSync(authFile(clean))) releaseOwnReauth(clean);
     return { ok: false, removed: false, because: 'we could not delete that account from this computer' };
   }
   if (ownReauth) releaseOwnReauth(clean);   // #6000: only once the delete happened, so a failed call cancels nothing
@@ -1055,7 +1057,8 @@ function releaseOwnReauth(dir) {
     cancelGrokLogin(id);
     if (s) s.reauthReleased = true;
   }
-  // Drop the hold unless another live sign-in is staging into this same path (never expected: see isHeldByOwnReauth).
+  // Drop the hold unless another live sign-in is staging into this same path. Defence only: isHeldByOwnReauth's premise
+  // says that cannot happen, and no test can reach this branch.
   for (const s of grokSessions.values()) if (s.dir === dir && !s.holdFreed) return;
   activeGrokDirs.delete(dir);
 }

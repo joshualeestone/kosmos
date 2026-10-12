@@ -47,12 +47,19 @@ const state = (id) => grok.grokLoginStatus(id).state;
 function waitFor(pred, msg, ms = 15000) {
   return eventually(() => Boolean(pred()), (v) => v === true, { timeoutMs: ms, stepMs: 25, describe: () => msg });
 }
-test.afterEach(() => { delete process.env.FAKE_MODE; });
+// No test leaks a fake mode into the next one, and no sign-in a test started outlives it, even when an assertion failed
+// before the test's own cancel (as #5994's suite).
+const STARTED = [];
+test.afterEach(() => {
+  delete process.env.FAKE_MODE;
+  while (STARTED.length) grok.cancelGrokLogin(STARTED.pop());
+});
 
 async function startHeldReauth(name, email) {
   const dir = account(name, email);
   const r = grok.startGrokLogin({ grokBin: FAKE, reauthDir: dir });
   assert.equal(r.ok, true, r.because);
+  STARTED.push(r.sessionId);
   await waitFor(() => grok.grokLoginStatus(r.sessionId).userCode, 'the sign-in again never showed its code');
   return { dir, sessionId: r.sessionId };
 }
@@ -127,10 +134,12 @@ test('#6000: the cancelled sign-in\'s late exit does not release a hold a NEW si
     // A new sign-in with the removed account's name reserves that same path while the old child is still dying.
     const fresh = grok.startGrokLogin({ grokBin: FAKE, label: 'busy4' });
     assert.equal(fresh.ok, true, fresh.because);
+    STARTED.push(fresh.sessionId);
     assert.ok(workSlots().length > 0, 'fixture: the old child already exited, so the window under test never opened');
     await waitFor(() => state(sessionId) === 'cancelled' && workSlots().length === 0, 'the old sign-in never finished exiting', 8000);
     // The old exit has run. The new sign-in's hold must still stand, so a second one under that name is refused.
     const second = grok.startGrokLogin({ grokBin: FAKE, label: 'busy4' });
+    if (second.ok) STARTED.push(second.sessionId);
     assert.equal(second.ok, false, 'the old exit released the new sign-in\'s hold');
     assert.match(second.because, /already in progress/);
     grok.cancelGrokLogin(fresh.sessionId);
@@ -244,6 +253,7 @@ test('#6000: a sign-in again cancelled a moment ago (its child still exiting) do
 test('#6000: any OTHER hold still refuses (a new sign-in staging into that name)', async () => {
   const r = grok.startGrokLogin({ grokBin: FAKE, label: 'staging5' });
   assert.equal(r.ok, true, r.because);
+  STARTED.push(r.sessionId);
   await waitFor(() => grok.grokLoginStatus(r.sessionId).userCode, 'the new sign-in never showed its code');
   const dir = nodePath.join(SANDBOX, '.grok-staging5');
   const rm = grok.removeAccount(dir, []);
