@@ -105,8 +105,11 @@ improvement it gained would have died with the session that wrote it.
 4. **Build**, then copy the bundle, `.sha256` and `latest.json` to the site.
    The build notarises `kosmos-app` and `kosmos-tunnel` with Apple just before
    packing (#5137) and refuses unless Apple's ticket lists every architecture
-   slice's cdhash. That waits on Apple: usually minutes, at most two 30-minute
-   waits plus the submit retries, and a failure there comes after the bump.
+   slice's cdhash. That waits on Apple: usually minutes, and past an hour when
+   Apple is slow (each wait gives up at 30 minutes and is tried twice, and the
+   upload and log fetch retry). A failure there comes after the bump. It counts
+   toward the cut's duration `D`, so a hand-stamped page (option (b) under the
+   versions entry below) has less room than it did before #5137.
    ⚠️ The tarball and `latest.json` must land in the **same deploy**: shipping
    one without the other tells every installed copy to update to a version the
    download does not contain.
@@ -339,7 +342,9 @@ Ctrl-C ends that wait safely.
    re-stamping repeatedly to chase it, stop: re-stamping cannot succeed.** The
    fix is to shorten the cut, or to widen `KOSMOS_LATE_PAST_BOUND` deliberately,
    never to keep guessing at the stamp. Nothing in the code pins `D <= 40`; it
-   is a property of the machine on the night.
+   is a property of the machine on the night. Since #5137 `D` includes step 4's
+   wait on Apple's notary service, which a slow night at Apple alone can push
+   past 40 minutes; prefer option (a) when Apple is slow.
 
    ⚠️ **AND IF STEP 1 SAYS "IN THE PAST" ON AN ENTRY YOU JUST WROTE, CHECK THAT
    YOU STAMPED IN CENTRAL.** The gate reads the stamp as an America/Chicago
