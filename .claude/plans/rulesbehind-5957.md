@@ -59,3 +59,8 @@ slice; this one makes the far-behind agent visible where agents are seen.
   comment). The phone's list view hides .ltask, so there only the grid card shows it, as every task-line sentence.
   An offline card does not consult stateReason, so it shows the note beside nothing more urgent (offline cards draw no
   crash sentence). Every test that lifts card() or lrow() was found by name and run (the first sweep missed two).
+- Review 9: the not-running (offline) row is mostly a stopped WINDOWS agent or a leftover, which is not in the roster,
+  and the page's update (doctrine.refresh with safeRoster) is refused for it. So the offline card and row state the fact
+  only ("Its working rules are N versions behind.") and promise no action; a stopped Mac agent comes through
+  panelessCard (running, state stopped), is in the roster, and keeps "Open it to update them". Follow-up: let the
+  refresh route accept a known offline agent, so a stopped Windows agent can be updated too. panelessCard is tested.
