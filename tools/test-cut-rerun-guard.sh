@@ -76,6 +76,7 @@ printf '%s\n' "$out" | grep -q "real failure" && ok "narration names it a real f
 # A stray 'test at' line is present to prove this branch never reads the node file
 # list. ---
 export KOSMOS_SUITE_RERUN_SLEEP=0
+unset KOSMOS_SUITE_RERUN_MAX   # #5907: the arms below set it themselves; an inherited one would change their counts
 log_shellred="$WORK/log-shellred"
 { tally 100 100 0; echo "test at pass.test.js:2:1"; echo "some later stage then failed"; } > "$log_shellred"
 

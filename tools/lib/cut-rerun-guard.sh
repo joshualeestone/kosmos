@@ -67,9 +67,9 @@ kosmos_failing_test_files() {
 # REDS, never false greens, so a single GREEN re-run proves the red was starvation.
 # Re-running through run-tests.sh is safe from inside the cut: its #1962 machine-claim
 # consult is cookie-excluded, so the cut's OWN `yarn test` self-excludes and runs
-# rather than refusing (run-tests.sh:54-62). Up to `max` attempts (a cut passes
-# KOSMOS_SUITE_RERUN_MAX, default 1, so one), with a short pause between any extra
-# ones; dismiss ONLY on a green, abort on a persistent red. Returns 0 (contention, dismiss) or 1 (real red, abort).
+# rather than refusing (run-tests.sh:54-62). Up to `max` attempts (default 1; a cut
+# passes KOSMOS_SUITE_RERUN_MAX), with a short pause between any extra ones;
+# dismiss ONLY on a green, abort on a persistent red. Returns 0 (contention, dismiss) or 1 (real red, abort).
 #
 # ISOLATION SCOPE, and how it differs from the file-by-file path: this re-runs the
 # WHOLE suite with node's internal file-parallelism INTACT, so it isolates only
@@ -94,7 +94,7 @@ kosmos_failing_test_files() {
 # runs in an `if ( ... )` subshell so its non-zero does not abort, and the
 # inter-attempt pause is guarded by an `if` (a bare `&&` list could trip errexit).
 kosmos_whole_suite_rerun_verdict() {
-  local repo="$1" max="${2:-3}" attempt rc
+  local repo="$1" max="${2:-1}" attempt rc
   local cmd="${KOSMOS_SUITE_RERUN_CMD:-yarn test}"
   local sleep_s="${KOSMOS_SUITE_RERUN_SLEEP:-5}"
   echo "isolation-rerun: node reported 0 failing tests, so the red is not an isolable node test file (a node process-error with no failing test, the shell stage, or the browser-check gate). Re-running the WHOLE 'yarn test' gate alone reproduces a real red in any of those stages; a tally of 0 is not proof node passed, so guessing the stage is unsafe."
