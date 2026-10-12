@@ -84,6 +84,11 @@ async function stageAgy(opts) {
     let st;
     try { st = fs.lstatSync(src); } catch { continue; }
     if (!st.isFile()) continue;
+    // Larger than the snapshot takes one file (its own MAX_FILE): it would be copied and then refused, so it is not
+    // copied (review 2). The WAL's rows count too.
+    let wal = 0;
+    try { wal = fs.statSync(`${src}-wal`).size; } catch { /* none */ }
+    if (st.size + wal > require('./backupsnapshot').MAX_FILE) continue;
     const dest = path.join(o.stageDir, `${conv.id}.db`);
     try {
       // Owner-only every time (review 1: mkdir's mode applies only to a folder it creates), and never a stale copy.
