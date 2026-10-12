@@ -1974,6 +1974,7 @@ function signinHeldVerdict(sessionName, roster, now = Date.now()) {
   const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
   // The REPORTED state only (the seam line): a screen-read auth_failed has no clearing writer on most runners.
   if (!card || card.isNamedOurs !== true || card.state !== status.STATE.AUTH_FAILED || card.stateReported !== true) return null;
+  if (String(card.runner || 'claude') === 'claude') return null;   // the seam's own scope (status.reconcileReport)
   if (addressable(sessionName, roster).ok !== true) return null;
   const provider = require('./accountproblem').providerOf(card);
   return {

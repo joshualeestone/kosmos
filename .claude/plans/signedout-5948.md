@@ -40,3 +40,5 @@ depends on Homer's half.
 - The "behind" sentence ("kept from while it was out of usage") is unchanged: it is pinned in both CLIs and five tests,
   and a backlog can mix causes. A signed-out backlog's typed note does say signed out.
 - A kept task line's recorded outcome (#5842, `kept-sent` / `kept-dropped`) still says "while X was out of usage".
+- A PANELESS card (no pane at all) is out of scope: `panelessCard` passes no runner, so its sign-in line stays
+  `blocked`. The Windows supervisor's agents are panes (win32roster), which is the case this branch is for.
