@@ -43,7 +43,7 @@ const cp = require('node:child_process');
 // Files without "win32" in their name that still speak about Windows behaviour. The engine ones
 // are named bare; root ones carry no prefix. Every test file that branches on a win32 HOST must
 // be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
-const ALSO = ['agentpermission-5406.test.js', 'platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js',
+const ALSO = ['agentpermission-5406.test.js', 'backupdevicekey-5535.test.js', 'platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js',
   'create.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js', 'personalinstr.test.js',
   'setup-assistant.winrules-4752.test.js',   // #4752: the guide's real rules, read on a Windows host
   'securewrite.fsync-5434.test.js',   // #5434: its Windows-only skips (EPERM, EISDIR) run only there
@@ -58,6 +58,7 @@ const ALSO = ['agentpermission-5406.test.js', 'platform.test.js', 'store.test.js
   'setupsettings.fsync-5434.test.js',   // #5434 slice 11: the guard's Claude Code settings saves, on Windows too
   'instructions.fsync-5434.test.js',   // #5434 slice 12: an agent's brief and its kept previous version, on Windows too
   'undo.fsync-5434.test.js',   // #5434 slice 13: Undo's restore, saved-aside copy and kept copies, on Windows too
+  'backupstate-5535.test.js',   // #5535 E0.6: the backup state file; a rename refused while a scanner holds it must read as retry on Windows
   'boardauth.fsync-5434.test.js',   // #5434 slice 14: board.token flushed, a zero-filled one healed, on Windows too
   'secrets.fsync-5434.test.js',   // #5434 slice 15: world id, applied policy and phone-notify state saves, on Windows too
   'create.supfsync-5434.test.js',   // #5434 slice 16: the supervisor and report bridges install, on Windows too

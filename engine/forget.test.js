@@ -57,6 +57,13 @@ test('the summary counts what is there, per kind', () => {
   assert.deepEqual(sum.parts.map((p) => p.label), ['conversations', 'reports']);
 });
 
+test('kosmos#5841: a conversation\'s rolled-over .full file is part of it, not one more conversation', () => {
+  seed();
+  fs.writeFileSync(nodePath.join(store.ROOT, 'chats', 'april.json.earlier.1.1791000000000.full'), '{}');
+  const byKey = Object.fromEntries(forget.summary().parts.map((p) => [p.key, p.count]));
+  assert.equal(byKey.chats, 2, 'the .full file was counted as another conversation');
+});
+
 test('an empty store reads as zero, not as unreadable', () => {
   seed();
   fs.rmSync(nodePath.join(store.ROOT, 'chats'), { recursive: true, force: true });

@@ -383,6 +383,7 @@
 .pjs-hook-confirm { margin-top: 8px; font-size: .875rem; }
 .tkcard-from { display: block; font-size: .75rem; color: var(--k-ink-2); margin-top: 2px; }
 /* .tsk-from sits in a Tasks row's meta line and takes that line's span style on purpose. */
+/* .tsk-paused (#5864) sits in the same meta line and takes the same span style on purpose. */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -9958,9 +9959,10 @@ html:has(> body > #fr-choice:not([hidden])) { overflow: hidden; scrollbar-gutter
           border-radius: 8px; padding: var(--space-4) var(--space-5);
           margin: var(--space-4) 0; overflow-x: auto;
           white-space: pre-wrap; overflow-wrap: anywhere; }
-/* win32-board-copy: the platform copy layer's one hiding rule. applyPlatformCopy()
-   stamps data-kosmos-platform on <html> only on Windows, so on a Mac nothing matches. */
+/* win32-board-copy: the platform copy layer's hiding rules. applyPlatformCopy() stamps data-kosmos-platform on <html>
+   on Windows (win32) and, since #5865, on Linux (linux); on a Mac it stamps nothing, so neither rule matches. */
 html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
+html[data-kosmos-platform="linux"] [data-linux-hide] { display: none !important; }   /* #5865 */
 /* #3443 (Josh, Windows QA 2026-09-22, raised several times): Windows renders wide
    light-gray native scrollbars on scrollable panes (agent nav, conversation, the
    Members/Files/Tasks panels), which clash with the dark UI. Replace them with a thin,
@@ -13346,20 +13348,21 @@ window.kosmosMeasureScrollbarWidth();
        menu. "Open Terminal" (added with Pete's second route) opens the real window.
        Copy: Mona Lisa. -->
   <section class="dbox" id="d-term-actions">
-    <h3 class="dlab" data-win-copy="terminalBoxTitle">This agent&rsquo;s Terminal</h3>
+    <h3 class="dlab" data-win-copy="terminalBoxTitle" data-linux-copy="terminalBoxTitle">This agent&rsquo;s Terminal</h3>
     <!-- Two grouped actions. "Open Terminal" first: it is the lighter, read-only one (it
          only attaches a viewer to the live tmux session; it does NOT restart the agent).
          "Trust & Restart" is the heavier one (it restarts). Each carries its own hint +
          receipt line so the association is unambiguous. -->
     <!-- win32-board-copy (W-18): hidden on Windows, where an agent runs headless and there is no Terminal window to attach. -->
-    <div class="field" data-win-hide>
+    <!-- #5865: and on Linux, where it would drive Terminal.app through osascript (engine/terminal.js), which is not there. -->
+    <div class="field" data-win-hide data-linux-hide>
       <button class="btn" id="d-open-terminal" type="button">Open Terminal</button>
       <p class="fhint" id="d-open-terminal-hint" style="margin-top:8px;">Opens this agent&rsquo;s Terminal window on this computer.</p>
       <p class="fmsg" id="d-open-terminal-msg" role="status" aria-live="polite"></p>
     </div>
     <div class="field" style="margin-top:14px;">
       <button class="btn" id="d-trust-restart" type="button">Trust &amp; Restart</button>
-      <p class="fhint" id="d-trust-restart-hint" style="margin-top:8px;" data-win-copy="trustRestartHint">Approves this agent's folder so it can start without the macOS permission prompt each time.</p>
+      <p class="fhint" id="d-trust-restart-hint" style="margin-top:8px;" data-win-copy="trustRestartHint" data-linux-copy="trustRestartHint">Approves this agent's folder so it can start without the macOS permission prompt each time.</p>
       <p class="fmsg" id="d-trust-restart-msg" role="status" aria-live="polite"></p>
     </div>
   </section>
@@ -13465,7 +13468,7 @@ window.kosmosMeasureScrollbarWidth();
     <button class="back" id="d-files-back" type="button">&larr; Direct Message</button>
     <div class="dfiles-head dfiles-screen-head">
       <h2 class="dfiles-title" id="d-filesall-h">Files</h2>
-      <button class="btn" id="d-files-finder" type="button" data-win-copy="docsOpenFolder">Open in Finder</button>
+      <button class="btn" id="d-files-finder" type="button" data-win-copy="docsOpenFolder" data-linux-hide>Open in Finder</button>
     </div>
     <p class="dhint" id="d-filesall-msg" role="status"></p>
     <div class="pj-docs" id="d-filesall-list"></div>
@@ -16953,8 +16956,9 @@ window.kosmosMeasureScrollbarWidth();
              (<data>/task-chats), so a button framed as "this task's" would promise a
              per-task destination the storage does not give. The hint discloses the shape.
              Same disable/say-nothing/ask/report shape as pjs-chats-reveal. -->
-        <button class="btn" id="tk-chats-reveal" type="button" style="margin-top:12px;">Show me where the task conversations live</button>
-        <p class="fhint" style="margin:6px 0 0;">One folder, with a file for each task's conversation.</p>
+        <!-- #5865: this button and its hint are hidden on Linux, where revealFolder runs /usr/bin/open (not there). -->
+        <button class="btn" id="tk-chats-reveal" type="button" style="margin-top:12px;" data-linux-hide>Show me where the task conversations live</button>
+        <p class="fhint" style="margin:6px 0 0;" data-linux-hide>One folder, with a file for each task's conversation.</p>
         <p class="fmsg" id="tk-chats-msg" aria-live="polite"></p>
       </section>
 
@@ -17041,7 +17045,8 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <!-- #3504 (Josh, 2026-09-23): a plain text link read as passive; make it the gold
            primary button so "Open this folder in Finder" reads as an easy, obvious action. -->
-      <button class="btn uprime" id="docs-finder" type="button" data-win-copy="docsOpenFolder">Open this folder in Finder</button>
+      <!-- #5865: hidden on Linux, where engine/projects.js revealFolder runs /usr/bin/open, which is not there. -->
+      <button class="btn uprime" id="docs-finder" type="button" data-win-copy="docsOpenFolder" data-linux-hide>Open this folder in Finder</button>
     </div>
     <!-- Two sources, said apart (#131, Josh's 08-20 ruling): files from the
          CONVERSATION live in the attachment store, not the folder, so a
@@ -17184,7 +17189,7 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <!-- Outside the form: the form hides once the folder is there again, and the sentence saying so must stay seen. -->
       <p class="fmsg" id="pjs-move-msg" aria-live="polite"></p>
-      <button class="btn" id="pjs-reveal" type="button">Show me where it is</button>
+      <button class="btn" id="pjs-reveal" type="button" data-linux-hide>Show me where it is</button>
       <p class="fmsg" id="pjs-reveal-msg" aria-live="polite"></p>
       <!-- 🛑 THE COMPANION SAYS "EVERY PROJECT" AND THE BUTTON ABOVE SAYS "IT"
            (kosmos#969, Josh 2026-08-26). Every room's thread lives in ONE
@@ -17194,8 +17199,8 @@ window.kosmosMeasureScrollbarWidth();
            screen answering a narrower question than it was asked.
            ⚠️ The word is "conversations", not "dialogue": his phrasing was
            "stored dialogue", and dialogue is our word for it, not a reader's. -->
-      <button class="btn" id="pjs-chats-reveal" type="button">Show me where the conversations live</button>
-      <p class="fhint" style="margin:6px 0 0;">One folder for every project, with a file for each conversation.</p>
+      <button class="btn" id="pjs-chats-reveal" type="button" data-linux-hide>Show me where the conversations live</button>
+      <p class="fhint" style="margin:6px 0 0;" data-linux-hide>One folder for every project, with a file for each conversation.</p>
       <p class="fmsg" id="pjs-chats-msg" aria-live="polite"></p>
     </div>
 
@@ -18077,13 +18082,13 @@ window.kosmosMeasureScrollbarWidth();
   <section class="dsec" id="s-sec-mac" data-sec="mac" tabindex="-1" aria-label="Computer" hidden>
     <section class="dbox">
       <h3 class="dlab">Opening Kosmos</h3>
-      <div id="set-applocation"><p class="dhint">Checking where the app is…</p></div>
+      <div id="set-applocation" data-linux-hide><p class="dhint">Checking where the app is…</p></div>
       <div class="dstack">
         <!-- Quiet and its own width (#371): a convenience, not the page's main
              action. The same size as "Open sleep settings" two rows down. -->
-        <button class="btn-quiet" type="button" id="set-reveal" hidden style="font-size:.875rem;" data-win-copy="settingsRevealButton">Show me where it is</button>
+        <button class="btn-quiet" type="button" id="set-reveal" hidden style="font-size:.875rem;" data-win-copy="settingsRevealButton" data-linux-hide>Show me where it is</button>
       </div>
-      <p class="dhint" id="set-reveal-msg" style="margin:12px 0 0;" hidden></p>
+      <p class="dhint" id="set-reveal-msg" style="margin:12px 0 0;" hidden data-linux-hide></p>
       <!-- 🔑 THE ICON STANDS BESIDE THE SENTENCE THAT NAMES IT (kosmos#1212).
            Josh: "I'd like to include a picture of the icon to remind people that
            they can add it to their desktop... It doesn't have to be huge, just
@@ -18102,9 +18107,9 @@ window.kosmosMeasureScrollbarWidth();
            Six sizes already ship, so this is a reference, not new artwork, and it
            cannot drift from the real icon. -->
       <div class="dockrow">
-        <img class="dockrow-i" data-win-hide src="/icons/kosmos-180.png" width="44" height="44"
+        <img class="dockrow-i" data-win-hide data-linux-hide src="/icons/kosmos-180.png" width="44" height="44"
              alt="The Kosmos app icon" decoding="async">
-        <p class="dhint" style="margin:0;" data-win-copy="settingsOpenKosmos">
+        <p class="dhint" style="margin:0;" data-win-copy="settingsOpenKosmos" data-linux-copy="settingsOpenKosmos">
           Kosmos is already in your Dock. Drag it to the far left so it stays handy.
         </p>
       </div>
@@ -18170,8 +18175,8 @@ window.kosmosMeasureScrollbarWidth();
            relayed 2026-08-28 and honoured by #1214 in the box above: agents
            acting in your other applications IS the feature. "Work in your other
            applications" is the plain version, not the reassuring one. -->
-      <p class="dhint" id="set-a11y-say" style="margin:14px 0 6px;" data-win-hide>Turning on accessibility lets Kosmos agents work in your other applications on this computer.</p>
-      <button class="btn" id="set-a11y-open" type="button" data-win-hide>Open Accessibility settings</button>
+      <p class="dhint" id="set-a11y-say" style="margin:14px 0 6px;" data-win-hide data-linux-hide>Turning on accessibility lets Kosmos agents work in your other applications on this computer.</p>
+      <button class="btn" id="set-a11y-open" type="button" data-win-hide data-linux-hide>Open Accessibility settings</button>
       <!-- #734: the board's honesty line, at home. When the machine's window
            list has lines the board cannot read, the Agents count is a floor
            (the + on it) and THIS is where the fact is said in full, with the
@@ -18192,7 +18197,7 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" style="margin:12px 0 0;">Kosmos runs in the background. Closing this window does not stop your agents.</p>
     </section>
 
-    <section class="dbox" data-win-hide>
+    <section class="dbox" data-win-hide data-linux-hide>
       <!-- The tmux permission box, explained where a worried person looks
            (#219). macOS attributes an agent's reach outside its folder to the
            responsible process, which is tmux, a word no Kosmos user has met.
@@ -18282,7 +18287,7 @@ window.kosmosMeasureScrollbarWidth();
          browser, because the app reads the count from the board even with no page open. Ships hidden
          and unclickable until the setting has loaded (paintSwitch), the auto-handoff pattern. Above
          Sounds (#3138 keeps Sounds last). Hidden on Windows until its taskbar count ships (Homer). -->
-    <section class="dbox" data-win-hide>
+    <section class="dbox" data-win-hide data-linux-hide>
       <h3 class="dlab">App icon</h3>
       <div class="setrow" id="wb-row" style="margin-top:14px;">
         <div><b>Show the waiting count on the Kosmos icon</b>
@@ -19630,7 +19635,8 @@ window.kosmosMeasureScrollbarWidth();
    and in the markup. A Windows arm asks onWindows() and reads windowsCopy(key); static
    markup names its key in data-win-copy, and data-win-hide hides a Mac-only element
    through one CSS rule that only matches once applyPlatformCopy() has stamped
-   <html data-kosmos-platform="win32">.
+   <html data-kosmos-platform="win32">. #5865: Linux has the twin pair, data-linux-hide and
+   data-linux-copy (linuxCopy(key)), under <html data-kosmos-platform="linux">.
 
    📌 THE FACT IS THE SERVER'S PLATFORM, because that is the machine every button acts
    on. server.js stamps it into <meta name="kosmos-platform"> per request, from the same
@@ -19667,6 +19673,28 @@ function onWindows(platform) {
 function onLinux(platform) {
   const known = typeof platform === 'string' && platform ? platform : servedPlatform();
   return known === 'linux';
+}
+/* #5865: what the person calls the machine Kosmos runs on, in words shown from elsewhere (a phone through Kosmos+).
+   A Linux board is often a headless server, and a Windows board is a PC, so neither is "your Mac". */
+function hostMachine(platform) {
+  return onLinux(platform) ? 'the computer running Kosmos' : onWindows(platform) ? 'your PC' : 'your Mac';
+}
+function hostMachineCap(platform) {   // the same words opening a sentence
+  return onLinux(platform) ? 'The computer running Kosmos' : onWindows(platform) ? 'Your PC' : 'Your Mac';
+}
+function linuxCopyTable() {
+  return {
+    terminalBoxTitle: 'Start-up and restart',   // its Terminal button is hidden on Linux, as on Windows
+    trustRestartHint: 'Approves this agent&rsquo;s folder so it can start without asking each time.',
+    // Settings can be read from a phone through Kosmos+, so "the computer it is installed on", not "this computer".
+    settingsOpenKosmos: 'If Kosmos stops, run <b>kosmos restart</b> in a terminal on the computer it is installed on '
+      + '(over SSH on a headless server).',
+  };
+}
+function linuxCopy(key) {
+  const v = linuxCopyTable()[key];
+  if (typeof v !== 'string') throw new Error('no Linux copy for ' + key);
+  return v;
 }
 function windowsCopyTable() {
   const restartKosmos = 'restart Kosmos by double-clicking Kosmos.exe in your Kosmos folder, or by signing out of Windows and signing back in.';
@@ -19753,6 +19781,7 @@ function windowsCopyTable() {
       + 'was holding the update, so the next one can finish. Your agents keep working, they do not live in this window.',
     /* %NAME% is the Kosmos being switched to, filled in by the caller. */
     worldSwitchRestart: 'Kosmos could not restart itself. To finish switching to %NAME%, ' + restartKosmos,
+    worldswStuck: 'close the Kosmos window, then open Kosmos again from the Start menu.',   // #5865, restartHow's step
     /* The Copy button beside a command a person must paste (W-14). */
     copyLabel: 'Copy',
     copyDone: 'Copied',
@@ -19790,9 +19819,17 @@ function platformCopy(key, macCopy, platform) {
 /* Whether an element is one this platform hides, for code that reads the DOM rather
    than looking at it (the first-run gate poll must not wait on a hidden Mac gate). */
 function platformHides(el) {
-  return onWindows() && Boolean(el && typeof el.closest === 'function' && el.closest('[data-win-hide]'));
+  if (!el || typeof el.closest !== 'function') return false;
+  return (onWindows() && Boolean(el.closest('[data-win-hide]'))) || (onLinux() && Boolean(el.closest('[data-linux-hide]')));   // #5865
 }
 function applyPlatformCopy(root) {
+  if (onLinux() && root && typeof root.querySelectorAll === 'function') {
+    /* #5865: the Linux twin of the Windows pass below: data-linux-hide (CSS keyed on this stamp) and data-linux-copy.
+       It returns before the Windows pass on purpose: data-win-only stays hidden and data-win-aria-label is not applied. */
+    document.documentElement.setAttribute('data-kosmos-platform', 'linux');
+    root.querySelectorAll('[data-linux-copy]').forEach((el) => { el.innerHTML = linuxCopy(el.getAttribute('data-linux-copy')); });
+    return;
+  }
   if (!onWindows() || !root || typeof root.querySelectorAll !== 'function') return;
   document.documentElement.setAttribute('data-kosmos-platform', 'win32');
   if (typeof window !== 'undefined' && typeof window.kosmosMeasureScrollbarWidth === 'function') window.kosmosMeasureScrollbarWidth();
@@ -23688,7 +23725,7 @@ function paintOfflineNote(down, deviceIsOffline) {
     slot.innerHTML = '<div class="utoast stale" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
       + '<div class="utxt"><b>You are offline</b>'
-      + '<small>This phone or computer is not connected to the internet, so it cannot reach your Mac.</small>'
+      + '<small>This phone or computer is not connected to the internet, so it cannot reach ' + hostMachine() + '.</small>'
       + '</div></div>';
     return;
   }
@@ -23704,7 +23741,7 @@ function paintOfflineNote(down, deviceIsOffline) {
     catch { /* no location: the sentence stands on its own */ }
     slot.innerHTML = '<div class="utoast stale" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt"><b>Your Mac is not answering</b>'
+      + '<div class="utxt"><b>' + hostMachineCap() + ' is not answering</b>'
       + '<small>' + MAC_ASLEEP_SENTENCE + at + '</small>'
       + '</div></div>';
     return;
@@ -28983,10 +29020,12 @@ async function worldswSwitch(id, name, agents) {
    verdict). The reload-on-flip behaviour is unchanged. */
 /* What to do when a world switch's self-restart does not come back. #5862: a Linux server has no window, and this is
    reached only after the board began restarting itself, which on Linux means an installed board, so the installed
-   `kosmos restart` is the true step there. Elsewhere it stays the Mac's words, as it was. */
+   `kosmos restart` is the true step there. #5865: Windows takes its restartHow step (worldswStuck); the Mac keeps
+   "quit and reopen". */
 function worldswStuckStep() {
   return onLinux()
     ? 'run kosmos restart in a terminal on the computer running Kosmos (over SSH on a headless server).'
+    : onWindows() ? windowsCopy('worldswStuck')   // #5865: Windows has no "quit and reopen"
     : 'quit and reopen Kosmos.';
 }
 async function worldswReconnect(switchedId, switchedName, say, switchStart) {
@@ -32794,7 +32833,8 @@ function feedbackPaint(r) {
   const unread = !r || typeof r.on !== 'boolean' || (r.ok !== true && !damaged);
   paintSwitch('feedback-toggle', unread ? null : (damaged ? false : r.on === true));
   document.getElementById('feedback-msg').textContent = unread
-    ? 'We could not check this setting here. Open Kosmos from its icon and you can change it.'
+    ? (onLinux() ? 'We could not check this setting here. Open Kosmos on the computer running it and you can change it.'
+      : 'We could not check this setting here. Open Kosmos from its icon and you can change it.')
     : (damaged ? 'Your Daily report setting could not be read, so no report is being sent. Turn it on to set it again.' : '');
 }
 async function refreshFeedback() {
@@ -36159,7 +36199,7 @@ let BOARD_SIGNED_OUT = false;
 function relaySignedOut(status, body) {
   return status === 401 && !!body && body.signed_out === true;
 }
-const ORG_SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos. Your Mac and your agents are fine.';
+const ORG_SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos. ' + hostMachineCap() + ' and your agents are fine.';
 const DEVICE_SIGNIN_BUTTON = '<button class="btn" type="button" data-device-signin>Sign in</button>';
 /* #718 state 1: a read that got no answer, from a phone or computer reaching the Mac through
    Kosmos+, while the browser says it has no network. Then the thing that is offline is the
@@ -36174,15 +36214,20 @@ function deviceOffline() {
   return kplusRemote() && typeof navigator !== 'undefined' && navigator.onLine === false;
 }
 /* #718 state 2: what a phone or remote computer is told when the Mac behind Kosmos+ does not answer. */
-const MAC_ASLEEP_SENTENCE = 'It may be asleep or turned off. Wake it and make sure Kosmos is open on it, and this page asks again by itself. If your Mac is on, check this phone or computer\'s own connection.';
-const OFFLINE_SENTENCE = 'This phone or computer is not connected to the internet, so it cannot reach your Mac. The board tries again by itself when you are online again.';
+/* #5865: a Linux board is often a server: not asleep, but off or with Kosmos stopped, and the step is #5862's. Chosen at
+   load from the served platform meta, which is in <head> before this script runs. These four sentences call the
+   platform helpers (onLinux, hostMachine, hostMachineCap), so a test that lifts one needs page.PLATFORM_COPY_FNS. */
+const MAC_ASLEEP_SENTENCE = onLinux()   // per platform since #5865, the name kept for its callers
+  ? 'It may be turned off, or Kosmos may have stopped on it. Make sure it is on, then run kosmos restart in a terminal on it, and this page asks again by itself. If it is running, check this phone or computer\'s own connection.'
+  : 'It may be asleep or turned off. Wake it and make sure Kosmos is open on it, and this page asks again by itself. If ' + hostMachine() + ' is on, check this phone or computer\'s own connection.';
+const OFFLINE_SENTENCE = 'This phone or computer is not connected to the internet, so it cannot reach ' + hostMachine() + '. The board tries again by itself when you are online again.';
 function deviceOfflineHtml() {
   return '<div class="pj-empty boardfail">'
     + '<p><b>You are offline.</b><br>' + OFFLINE_SENTENCE + '</p>'
     + '<button class="btn" type="button" data-board-retry>Try again</button>'
     + '</div>';
 }
-const SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos, so it cannot see your agents or projects. Your Mac and your agents are fine. Sign in again from the Agents or Projects page.';
+const SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos, so it cannot see your agents or projects. ' + hostMachineCap() + ' and your agents are fine. Sign in again from the Agents or Projects page.';
 function deviceSignedOutHtml(what) {
   return '<div class="pj-empty boardfail">'
     + '<p><b>Sign in again to see your ' + (what === 'projects' ? 'projects' : 'agents') + '.</b><br>'
@@ -36247,7 +36292,7 @@ function boardEmpty() {
     return '<div class="pj-empty boardfail">'
       + '<p><b>We cannot read your agents right now.</b><br>'
       + 'This is not the same as having none. Something on '
-      + (!onWindows() && kplusRemote() ? 'your Mac' : 'this computer') // #718 state 2: through Kosmos+, "this computer" is the phone
+      + (!onWindows() && kplusRemote() ? hostMachine() : 'this computer') // #718 state 2: through Kosmos+, "this computer" is the phone
       + ' did not answer, so we are not telling you the board is empty. ('
       + esc(BOARD_LOOK_FAILED) + ')</p>'
       /* #274: the moment a person most needs to look for themselves is the
@@ -39390,7 +39435,9 @@ async function paintAgentFilesAll(sessionName) {
   const rest = Number(body.total) - files.length;
   if (more && rest > 0) {
     // #5165: over Kosmos+ the folder button cannot show them on this device, so it is not offered as the way.
-    more.textContent = 'And ' + rest + ' more in the folder.' + (kplusRemote() ? '' : ' Open in Finder shows them all.');
+    // #5865: and on Linux, where the Finder button is hidden (revealFolder runs /usr/bin/open).
+    more.textContent = 'And ' + rest + ' more in the folder.'
+      + (kplusRemote() || onLinux() ? '' : ' ' + platformCopy('docsOpenFolder', 'Open in Finder') + ' shows them all.');   // the button's own words
     more.hidden = false;
   }
 }
@@ -60953,7 +61000,7 @@ function paintProjectTasks(p) {
     let who;
     if (!assigned.length) {
       /* #5456: a repeating task with nobody on it reads as the Tasks view says it, not as ownerless work. */
-      // Held (the task, or its paused project) wins, as in the Tasks view (tasks.taskState).
+      // A task on hold, or in a paused project, does not say On a schedule (built or not: this card does not show built).
       who = '<span class="tkcard-who"><span class="tkcard-who-b">' + (t.repeat && t.onHold !== true && p.paused !== true ? 'On a schedule' : 'Nobody yet') + '</span></span>';
     } else if (parts.length > 1) {
       /* #761 item 8: "Multiple assignees, as the pack drew." One face+name
@@ -61066,15 +61113,15 @@ const TSK_GROUPS = [
   /* #3951: the fifth of Josh's six tiles. An agent marked the task built (`kosmos task built`); the person closes it once it is
      live, which clears the mark. */
   { k: 'built', l: 'Built but waiting', c: 'var(--tsk-built)',
-    why: 'An agent marked these built. They are waiting to be released or checked; close each one once it is live.' },
+    why: 'An agent marked these built. They are waiting to be released or checked, even in a paused project; close each one once it is live.' },
   /* #5456: a repeating task with nobody on it (the engine's `scheduled` state): a schedule runs it, so it is not waiting
      for anyone and is not counted as unassigned. After Josh's five open groups and before On hold (decided, overridable). */
   { k: 'scheduled', l: 'On a schedule', c: 'var(--tsk-scheduled)',
     why: 'Repeating tasks with nobody named on them. If a scheduler of yours runs them, nothing is needed; if an agent should, give one to an agent.' },
-  /* #4771: on hold, the task or its whole project (the engine's `held` state): Kosmos neither nudges nor hands these out.
+  /* #4771: on hold: the task, or its whole project when the task is not built (#5864); the engine's `held` state: Kosmos neither nudges nor hands these out.
      Placed after Josh's own five open groups and before Completed, so his order is unchanged (decided, overridable). */
   { k: 'held', l: 'On hold', c: 'var(--tsk-held)',
-    why: 'On hold, or in a paused project. Kosmos does not nudge anyone about them or hand them out.' },
+    why: 'On hold, or not yet built in a paused project. Kosmos does not nudge anyone about them or hand them out.' },
   { k: 'closed', l: 'Completed', c: 'var(--tsk-closed)', why: 'Finished and closed.' },
 ];
 /* #4053 (option C v2, approved): one line icon per tile, drawn in a tinted badge beside the number. */
@@ -61370,6 +61417,9 @@ function tskRow(t, at) {
     + '<div class="t">' + partOf + '<span class="n">#' + Number(t.number) + '</span>'
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
     + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
+    /* #5864: a BUILT task in a paused project sits in Built but waiting, so its row says the project is paused (the CLI
+       prints [project paused]); a held row needs no note, its group already says it. */
+    + (t.projectPaused === true && t.state === 'built' ? '<span class="tsk-paused">project paused</span>' : '')
     + (added ? '<span>added ' + esc(added) + '</span>' : '')
     /* #1307: inline for the same reason as the task card's tkcard-from line. */
     + (t.addedVia === 'webhook' ? '<span class="tsk-from">' + (t.addedBy ? 'From ' + esc(t.addedBy) + ' (a webhook)' : 'From a webhook') + '</span>' : '')
@@ -65527,6 +65577,9 @@ const PV_HTML = '<div class="rm-back pv-back" id="pv-preview">'
   + '<div class="pv-bar"><span id="pv-act"></span><span class="pv-name" id="pv-name"></span><span class="pv-msg" id="pv-msg" role="status"></span></div>'
   + '</div></div>';
 function pvRevealWord() { return onWindows() ? 'Show in File Explorer' : 'Open in Finder'; }
+/* The preview's action is Download, not a reveal, through Kosmos+ (the file is not on this device) and, #5865, on
+   Linux (revealFolder runs /usr/bin/open, which a Linux board does not have). */
+function pvOffersDownload() { return kplusRemote() || onLinux(); }
 function pvOpen(id, from) {
   const a = PV_ATTS.get(id);
   if (!a) return false;
@@ -65572,7 +65625,7 @@ function pvOpen(id, from) {
     b.type = 'button'; b.className = 'pv-btn'; b.id = 'pv-do'; b.textContent = 'Download';
     b.addEventListener('click', () => a.download());
     act.replaceWith(b);
-  } else if (kplusRemote()) {
+  } else if (pvOffersDownload()) {
     const dl = document.createElement('a');
     dl.className = 'pv-btn'; dl.id = 'pv-do'; dl.href = a.url; dl.setAttribute('download', a.name); dl.textContent = 'Download';
     act.replaceWith(dl);
@@ -72935,6 +72988,14 @@ document.getElementById('pj-head-pause').addEventListener('click', () => pjToggl
 // (which drops the membership list and cannot be undone by re-adding the
 // folder), archiving keeps everything and Restore is one click away in the
 // disclosure this returns you to.
+/* After a folder move the form hides, so the keyboard goes to the next control: "Show me where it is". #5865: on Linux
+   that button is hidden and focus() on it does nothing, so the sentence saying it was done takes the keyboard. */
+function pjsMoveDoneFocus(said) {
+  const next = document.getElementById('pjs-reveal');
+  if (next && !platformHides(next)) { next.focus(); return; }
+  said.tabIndex = -1;
+  said.focus();
+}
 /* kosmos#5340: point a project whose folder moved at its new place. The board checks the path as it checks a new
    project's folder (there, a folder, readable, not a temporary folder, not another project's) and tells the members. */
 document.getElementById('pjs-move-btn').addEventListener('click', async () => {
@@ -72974,7 +73035,7 @@ document.getElementById('pjs-move-btn').addEventListener('click', async () => {
     else line = head + ' Kosmos now uses the new location. Told ' + reached + ' of ' + agents(total) + ' on this project; the others will see it when they next start.';   // Mona Lisa's wording
     said.textContent = line;
     // The form hides now that the folder is there: the keyboard goes to the next control, not the page.
-    if (document.activeElement === document.body || document.activeElement === btn) document.getElementById('pjs-reveal').focus();
+    if (document.activeElement === document.body || document.activeElement === btn) pjsMoveDoneFocus(said);
   } catch (e) {
     if (PJ_CURRENT !== p.id) return;   // review 5: a late refusal stays with its project too
     const t = String((e && e.message) || 'we could not move it');
@@ -74265,7 +74326,8 @@ const FR_STEPS = 9;
 const FR_STEP_YOU = 8;
 /* win32-board-copy (W-10, W-12): the steps THIS computer's wizard walks, in order. S2
    (a macOS folder-permission dialog) and S4 (a macOS background-activity notice) show
-   Windows something Windows never asks, so a Windows wizard skips them. The pane ids
+   Windows something Windows never asks, so a Windows wizard skips them. #5877: a Linux board
+   skips S2, S3, S4 and S7 (see below). The pane ids
    stay put, because browser checks find panes by identity (lib-firstrun-steps.js);
    only the hops between them and the progress follow this list. #3112 sets the DISPLAY order
    below (Model shown second), so on a Mac the list is [1,5,2,3,4,6,7,8,9], not ascending
@@ -74279,6 +74341,13 @@ function frStepSequence() {
   // ORDER changes here, not the numbering. Windows still drops Access(2) + Notifications(4)
   // by pane NUMBER, unaffected by the reorder.
   const order = [1, 5, 2, 3, 4, 6, 7, 8, 9];   // Welcome, Model, Access, Automation, Notifications, Self-improving, Success, About-you, Your-agents
+  /* #5877: a Linux board (a server reached in a browser) walks only the steps that are not about a desktop Mac: no
+     folder-access dialog (2) or Accessibility/sleep grant (3), permissions a server does not have (their rows would
+     sit on "Checking..." then "Not activated" with a Turn On that opens nothing there); no macOS background-activity
+     notice (4); and no Success screen (7), which shows the Dock and the Applications folder. Welcome, Model, Help make
+     Kosmos better, About you and Your agents stay. A deep link to 2, 3 or 4 lands on Model (the next walked pane by
+     NUMBER, as frStepAfter falls back on Windows too), which sits earlier in the display order. */
+  if (onLinux()) return order.filter((s) => s !== 2 && s !== 3 && s !== 4 && s !== 7);
   return onWindows() ? order.filter((s) => s !== 2 && s !== 4) : order;
 }
 function frStepAfter(step) {
@@ -74782,7 +74851,7 @@ function frGo(step) {
   } else if (step === 5) {
     // S5 Model: the existing model-connect UI (reused). Its painters set their
     // own primary (Next / Skip) and advance via frStepAfter(5) (Access on macOS,
-    // Automation on Windows, since #3112 shows Model second); a connect flow already
+    // Automation on Windows, Help make Kosmos better on Linux (#5877), since #3112 shows Model second); a connect flow already
     // running server-side is repainted by frConnResume once its answer arrives.
     frPaintSubscription();
     frPaintOpenai();

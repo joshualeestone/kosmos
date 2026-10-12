@@ -139,13 +139,17 @@ const DELIVERY = {
 const MAX_TEXT = 10000;
 
 /**
- * Ceiling on how many of the person's messages one thread keeps.
+ * Ceiling on how many messages one thread FILE keeps.
  *
- * ⚠️ REFUSES rather than rotates. Dropping the oldest entries would delete
- * something the person wrote, and "nothing of the user's is ever deleted" is
- * this codebase's rule on every other write path. So a full thread stops
- * RECORDING and says so, while delivery is unaffected — the two are separate
- * acts and separate sentences (see `appendMessage`).
+ * ⚠️ NEVER rotates by dropping the oldest entries: that would delete something
+ * the person wrote, and "nothing of the user's is ever deleted" is this
+ * codebase's rule on every write path. kosmos#5841: at the cap the thread
+ * ROLLS OVER instead. The full file is set aside whole (`.full`, ROLL_KIND),
+ * and a new file carries its last ROLL_CARRY rows and names it (`continues`),
+ * so the conversation keeps recording and its earlier messages stay readable
+ * (asideChain, the older route). Before #5841 a full thread stopped recording
+ * for good. It still refuses, saying why, only when the full file cannot be
+ * set aside; delivery is unaffected either way (see `appendMessage`).
  */
 const MAX_MESSAGES = 1000;
 
@@ -2817,6 +2821,10 @@ function readThread(projectId, agent, bornAt) {
     agent: String(agent),
     messages: parsed.messages,
     projectBornAt: parsed.projectBornAt || null,
+    // kosmos#5841: the name of the full file this one continues (a rollover at MAX_MESSAGES), or null.
+    continues: typeof parsed.continues === 'string' && parsed.continues ? parsed.continues : null,
+    // kosmos#5841: how many leading rows are COPIES of the end of the file it continues (carried at a rollover).
+    carried: parsed.continues && Number.isInteger(parsed.carried) && parsed.carried >= 0 && parsed.carried <= parsed.messages.length ? parsed.carried : 0,
   };
 }
 
@@ -3071,6 +3079,8 @@ function keptAttachment(a) {
 function appendLocked(projectId, agent, entry, bornAt) {
   let existing;
   let supersededBecause = null;
+  let otherProject = false;   // kosmos#5841
+  let rolledAside = null;   // kosmos#5841: the rollover's set-aside ({ aside, linked }), undone if the write then fails
   try {
     existing = readThread(projectId, agent, bornAt);
   } catch (err) {
@@ -3094,6 +3104,7 @@ function appendLocked(projectId, agent, entry, bornAt) {
       }
       existing = { messages: [] };
       supersededBecause = 'an earlier project had this name; its messages have been kept aside.';
+      otherProject = true;   // kosmos#5841: a new conversation, never reattached to the old one's full files
     } else if (err && err.code === 'UNPARSEABLE') {
       /**
        * ⚠️ A DAMAGED FILE LOCKED RECORDING OUT FOREVER, and the argument
@@ -3135,13 +3146,32 @@ function appendLocked(projectId, agent, entry, bornAt) {
     }
   }
   if (existing.messages.length >= MAX_MESSAGES) {
-    // See MAX_MESSAGES: refusing keeps every word the person wrote. Rotating
-    // would delete the oldest of them to make room, which nothing else in this
-    // product does to anybody's data.
-    return {
-      recorded: false,
-      because: `this conversation has reached the ${MAX_MESSAGES} messages Kosmos keeps, so we did not add to it`,
-    };
+    /* kosmos#5841: ROLL OVER rather than stop. The full file is SET ASIDE (`supersede`, kind 'full': hard-linked under
+       the aside name and the new file written over the original, or renamed where a link cannot be made; nothing is
+       deleted, so "nothing of the user's is ever deleted" still holds) and the conversation goes on in a fresh file
+       that names it (`continues`), so the earlier messages stay reachable (asideChain, the older route). Before this,
+       a full thread refused every later send for good. If the move aside fails, it refuses as before, saying why. */
+    const moved = supersede(projectId, agent, ROLL_KIND, true);
+    if (!moved.ok) {
+      return {
+        recorded: false,
+        because: `this conversation has reached the ${MAX_MESSAGES} messages Kosmos keeps in one file, and ${moved.because}`,
+      };
+    }
+    /* The last ROLL_CARRY rows are COPIED into the new file (`carried` says how many), so every reader of recent rows
+       in the current file (the first-reply nudge, reactions, replies, held deliveries, the agent's inbox, the view's
+       tail) keeps working unchanged. The full file keeps them too; the chain skips the overlap, so nothing doubles. */
+    const carry = existing.messages.slice(-ROLL_CARRY);
+    existing = { messages: carry, projectBornAt: existing.projectBornAt || null, continues: path.basename(moved.aside), carried: carry.length };
+    rolledAside = moved;
+    ASIDE_META.delete(path.basename(moved.aside));
+  } else if (!existing.continues && !existing.messages.length && !otherProject) {
+    /* An EMPTY current file with this conversation's own full files on disk (a crash between a rollover's rename and
+       its write, or a DAMAGED current file set aside): continue from the newest, so the earlier messages are not
+       orphaned. Never when the file was just set aside for ANOTHER project: that is a new conversation. And only a
+       file of THIS conversation (same projectBornAt). */
+    const newest = newestOwnAside(projectId, agent, existing.projectBornAt || (bornAt ? String(bornAt) : null));
+    if (newest) existing = { ...existing, continues: newest };
   }
   const record = {
     project: String(projectId),
@@ -3150,6 +3180,9 @@ function appendLocked(projectId, agent, entry, bornAt) {
     // messages. Carried forward when the record already had one, so an existing
     // conversation is not re-stamped by a read that happened to know the date.
     projectBornAt: existing.projectBornAt || (bornAt ? String(bornAt) : null),
+    // kosmos#5841: kept on every write, so the chain to the earlier files is never dropped.
+    ...(existing.continues ? { continues: existing.continues } : {}),
+    ...(existing.continues && existing.carried ? { carried: existing.carried } : {}),
     messages: [...existing.messages, {
       at: (entry && entry.at) || new Date().toISOString(),
       // #1927: store the paragraph-preserving shape. `deliver` still flattens
@@ -3252,6 +3285,22 @@ function appendLocked(projectId, agent, entry, bornAt) {
     // #5434 slice 18: store.saveFlushed (flushed before the rename, the folder after on POSIX; a unique temp), so a crash cannot leave the thread at full length but zero-filled (#5431), which parses as no messages.
     store.saveFlushed(file, JSON.stringify(record, null, 2));
   } catch {
+    /* kosmos#5841: a rollover set the full file aside and the write of the new one failed: undo it, so the conversation
+       is as it was (it was not written; nothing is lost either way). */
+    if (rolledAside) {
+      try {
+        const tf = threadFile(projectId, agent);
+        /* Linked: the full file is still in place, so only the extra name goes, and ONLY while both names are still
+           the same file. Had the save replaced the original before it threw, the aside would be the full file's only
+           name, and removing it would delete the rows that were not carried. Renamed: move it back. */
+        if (rolledAside.linked) {
+          // bigint: a Windows (NTFS) file id can pass 2^53, where a plain number could make two files compare equal.
+          const a = fs.statSync(rolledAside.aside, { bigint: true }); const c = fs.statSync(tf, { bigint: true });
+          if (a.ino === c.ino && a.dev === c.dev) fs.unlinkSync(rolledAside.aside);
+        }
+        else if (!fs.existsSync(tf)) fs.renameSync(rolledAside.aside, tf);
+      } catch { /* the reattach covers it on the next send */ }
+    }
     /**
      * ⚠️ OUR SENTENCE, NOT THE ERRNO. Forwarding `err.message` put
      * "EISDIR: illegal operation on a directory, open '/var/folders/rn/…/
@@ -3276,6 +3325,111 @@ function appendLocked(projectId, agent, entry, bornAt) {
   return { recorded: true, because: null, messages: record.messages, supersededBecause };
 }
 
+/** kosmos#5841: the kind a rolled-over full thread file is set aside under. */
+const ROLL_KIND = 'full';
+/** kosmos#5841: rows copied into the new file at a rollover (the view's tail is 200). */
+const ROLL_CARRY = 200;
+/* A rolled-over file's count and the name it continues, by name. A `.full` aside is never written again, so what is
+   read once stays true: the 5 s poll re-reads only the CURRENT file, not the earlier ones. */
+const ASIDE_META = new Map();
+
+/**
+ * kosmos#5841: the files a conversation CONTINUES, oldest first: each is a thread file set aside full at
+ * MAX_MESSAGES (`continues` names the one before). Returns [{ name, carried, messages }] when `withRows` (ALL its rows;
+ * `chainRows` merges them), else [{ name, carried, count }] where count is its OWN rows (length minus the rows it
+ * carried from the file before it). A name is followed ONLY if it is this thread's own `.full` aside (the same
+ * directory, the thread file's name as its prefix, no separator, the ROLL_KIND suffix) AND it belongs to the same
+ * conversation: the same agent and the same `projectBornAt` (a project deleted and re-created under its name must not
+ * inherit the old one's messages, which is what bornAt guards everywhere else). A cycle or a broken link ends the
+ * chain where it is: what was read is kept, nothing is invented. A count is taken from the cache only while its file
+ * has the same size and modification time.
+ */
+function asideChain(projectId, agent, withRows, from, bornAt) {
+  const file = threadFile(projectId, agent);
+  const dir = path.dirname(file);
+  const base = path.basename(file);
+  const ok = (n) => typeof n === 'string' && n.startsWith(base + '.') && n.endsWith('.' + ROLL_KIND)
+    && !n.includes('/') && !n.includes('\\') && n.length < 300;
+  // `from`/`bornAt`: what the caller already read with the current file (one read, so a rollover in between cannot
+  // double the rows); otherwise read them here.
+  let next = from;
+  let born = bornAt === undefined ? undefined : (bornAt || null);
+  if (next === undefined || born === undefined) {
+    try { const cur = readThread(projectId, agent); if (next === undefined) next = cur.continues; if (born === undefined) born = cur.projectBornAt || null; }
+    catch { return []; }
+  }
+  const out = [];
+  const seen = new Set();
+  while (ok(next) && !seen.has(next) && out.length < 1000) {
+    seen.add(next);
+    const known = ASIDE_META.get(next);
+    let st = null; try { st = fs.statSync(path.join(dir, next)); } catch { st = null; }
+    if (known && !withRows && known.born === born && st && st.size === known.size && st.mtimeMs === known.mtime) {
+      out.unshift({ name: next, carried: known.carried, count: known.count });
+      next = known.continues;
+      continue;
+    }
+    let rec;
+    try { rec = JSON.parse(fs.readFileSync(path.join(dir, next), 'utf8')); } catch { break; }
+    if (!rec || rec.agent !== String(agent) || !Array.isArray(rec.messages)) break;
+    if ((rec.projectBornAt || null) !== born) break;   // another conversation's file: never part of this chain
+    const cont = typeof rec.continues === 'string' ? rec.continues : null;
+    const rows = rec.messages.filter((m) => m && typeof m === 'object' && typeof m.text === 'string');
+    const carried = cont && Number.isInteger(rec.carried) && rec.carried > 0 ? Math.min(rec.carried, rows.length) : 0;
+    ASIDE_META.set(next, { count: rows.length - carried, carried, continues: cont, born, size: st ? st.size : -1, mtime: st ? st.mtimeMs : -1 });
+    out.unshift(withRows ? { name: next, carried, messages: rows } : { name: next, carried, count: rows.length - carried });
+    next = cont;
+  }
+  return out;
+}
+
+/**
+ * kosmos#5841: the whole conversation, oldest first, from `asideChain(..., true)` plus the current file. Each file's
+ * first `carried` rows COPY the end of the file before it; the overlap is served from the NEWER copy (the later file,
+ * the current one last), because only the newest copy gets edits made after the rollover (a reaction, a delivery
+ * state). Position of a row is its index here, the same as the thread route's count.
+ */
+function chainRows(earlier, currentRows, currentCarried) {
+  const out = [];
+  const add = (rows, carried) => {
+    if (!carried) { out.push(...rows); return; }
+    // The first file read may itself have carried rows from a file the walk could not follow: those positions are
+    // dropped here as the counts drop them (count = own rows), so both routes agree on every position.
+    if (!out.length) { out.push(...rows.slice(carried)); return; }
+    out.splice(Math.max(0, out.length - carried), carried);
+    out.push(...rows);
+  };
+  for (const a of earlier) add(a.messages, a.carried);
+  add(Array.isArray(currentRows) ? currentRows : [], earlier.length ? (currentCarried || 0) : 0);
+  return out;
+}
+
+/* kosmos#5841: this thread's own newest `.full` file on disk (by the rename time in its name), or null. */
+function newestOwnAside(projectId, agent, born) {
+  let file;
+  try { file = threadFile(projectId, agent); } catch { return null; }
+  const dir = path.dirname(file); const base = path.basename(file);
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { return null; }
+  const found = [];
+  for (const n of names) {
+    if (!n.startsWith(base + '.') || !n.endsWith('.' + ROLL_KIND)) continue;
+    /* Ordered by the time IN THE NAME (supersede stamps the rename's millisecond: <file>.<stamp>.<pid>.<ms>[.<n>].full),
+       not the file's mtime, which a backup, a copy or a restore can move. */
+    const ms = (n.slice(base.length).match(/\.(\d{13})(?:\.\d+)?\.[a-z]+$/) || [])[1];
+    found.push({ n, at: ms ? Number(ms) : -1 });
+  }
+  found.sort((a, b) => b.at - a.at);
+  for (const { n } of found) {
+    // Only a file of THIS conversation: the same agent and the same projectBornAt.
+    try {
+      const rec = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
+      if (rec && rec.agent === String(agent) && (rec.projectBornAt || null) === (born || null)) return n;
+    } catch { /* unreadable: not this one */ }
+  }
+  return null;
+}
+
 /**
  * Move an earlier project's thread out of the way, keeping every word of it.
  *
@@ -3286,7 +3440,7 @@ function appendLocked(projectId, agent, entry, bornAt) {
  * the person's is lost, and clobbering the file we are rescuing would be the
  * one way to fail at that.
  */
-function supersede(projectId, agent, kind) {
+function supersede(projectId, agent, kind, keepInPlace) {
   let file;
   try { file = threadFile(projectId, agent); }
   catch (err) { return { ok: false, because: String((err && err.message) || 'we could not find that conversation') }; }
@@ -3326,6 +3480,16 @@ function supersede(projectId, agent, kind) {
     // millisecond. Refusing beats overwriting the file we are rescuing.
     return { ok: false, because: cannotMoveAside(kind) };
   }
+  /* kosmos#5841: a rollover asks to KEEP the file in place: a hard link puts it under the aside name and the caller then
+     writes the new file over the original atomically, so a reader without the lock never finds the thread missing (a
+     rename left no file between it and the write: an empty conversation, a reply refused as gone). A filesystem that
+     cannot link falls back to the rename. */
+  if (keepInPlace) {
+    try { fs.linkSync(file, aside); return { ok: true, aside, linked: true }; } catch (err) {
+      // The name appeared since the check above: a rename would OVERWRITE that file, so refuse rather than fall back.
+      if (err && err.code === 'EEXIST') return { ok: false, because: cannotMoveAside(kind) };
+    }
+  }
   try {
     fs.renameSync(file, aside);
     return { ok: true, aside };
@@ -3344,6 +3508,7 @@ function supersede(projectId, agent, kind) {
  * they never made.
  */
 function cannotMoveAside(kind) {
+  if (kind === ROLL_KIND) return 'we could not move the full file aside to start a new one, so we did not add to it';
   return kind === 'damaged'
     ? 'we could not move the damaged file aside, so we did not add to it'
     : 'we could not move an earlier project’s messages aside, so we did not add to them';
@@ -3666,7 +3831,14 @@ function reactDirect(agent, at, emoji) {
       catch (err) { return { ok: false, because: String((err && err.message) || 'we cannot read this conversation right now') }; }
       const hits = [];
       thread.messages.forEach((m, i) => { if (m && m.at === when && m.from === name) hits.push(i); });
-      if (!hits.length) return { ok: false, because: 'there is no message from this agent at that time to react to' };
+      if (!hits.length) {
+        // kosmos#5841: a row older than the latest carried rows lives only in an earlier file, which is kept as it was.
+        const earlier = thread.continues ? asideChain(DIRECT, name, true, thread.continues, thread.projectBornAt) : [];
+        if (earlier.some((a) => a.messages.some((m) => m && m.at === when && m.from === name))) {
+          return { ok: false, because: 'that message is in an earlier part of this conversation, which is kept as it was, so it cannot be reacted to' };
+        }
+        return { ok: false, because: 'there is no message from this agent at that time to react to' };
+      }
       if (hits.length > 1) return { ok: false, because: 'two of this agent\'s messages share that time, so we could not tell which one you meant' };
       const m = thread.messages[hits[0]];
       const cur = dmReactions(m);
@@ -3817,7 +3989,7 @@ module.exports = {
   deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
-  threadFile, readThread, appendMessage, supersede, withThreadLock,
+  threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,
   defaultAgentFor, looksLikeManager,
   dmSeenRead, markDmSeen, dmSummaryAll, dmUnreadAll, dmUnread, DM_SEEN,
   setRunner, setDryRun, setPauser, setChannel, resetForTests, CODEX_ENTER_GAP_MS,

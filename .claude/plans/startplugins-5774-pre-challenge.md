@@ -1,0 +1,288 @@
+---
+pre_challenge: true
+method: challenge-loop
+branch: startplugins-5774
+diff_hash: 91833e2f159729b891304b59ba96e0b98194d68599f92bdd6365bbff6ce6b22b
+validation: passed
+subdir_audit: passed
+timestamp: 2026-10-12T00:00:51Z
+iterations: 22
+converged: true
+---
+
+## [CHALLENGE-LOOP] Summary
+
+**Iterations:** 22 blind reviews, alternating Opus and Sonnet.
+**Converged:** Yes, at iteration 22 (Sonnet): no BLOCKER, nothing new above NIT (its WARNINGs were a misreading of a shell rule, an accurate message, a stated gap, and a confirmation). Real defects were fixed at every earlier iteration; iterations 13 to 21 each found warnings (dangling homes, indented and prefix assignments, per-run and read-only and Cellar folders, the projects folder, odd job files on both platforms), all fixed with tests or stated with a card (#5870).
+**Findings:** every review's findings, fixes, decisions and mutation results are below, one section per review, taken from the plan's "Challenge loop notes" written as each review closed. Each fix was checked with a mutation that turned its test red; mutations that stayed green were sharpened until red, and the notes say which.
+**Asked (awaiting user):** 0
+
+### Per-Iteration Breakdown
+
+#### Iteration 1
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 3 WARNINGs (as recorded in the plan)
+- Iteration 1 (Opus), on b7d167941:
+- [WARNING] FIXED in part, the rest stated. The variables were read from the board's environment, but the agent's Claude Code inherits the tmux server's, which carries shell exports: the home's startup files are now read for them (a value with another variable in it is named). The tmux server's own environment is a stated gap. Tested (a startup-file export denied, an unknown value named); two mutations red. The first startup-file mutation did not apply (its anchor matched part 2's identical loop too); re-anchored, red.
+- [WARNING] FIXED. The job-file test wrote a plist, which Linux's job reader never reads: it would have gone red on the Linux CI. It uses test-support/jobfixture.js and sets AGENT_WORKFORCE_SYSTEMD_DIR.
+- [WARNING] FIXED in part. Other accounts' homes fed this agent's plugin-variable values: a relative cache or seed from another home was resolved under THIS agent's folder. Other homes' values are now kept apart and only their absolute ones count. Tested; two mutations red. NOT taken, decided: the hooks' agreed values from every tier. I first narrowed them to this agent's tiers; part 1's own test showed why that is wrong (a hook in a home expands with that home's env, so this agent's agreed value could be the wrong one, a silent miss). Reverted; stated under Gaps as fail-closed.
+- [NIT] TAKEN. "Too wide" also covers a folder holding the temp folder or Kosmos's data (a sandbox deny there would quietly break the shell). Tested with an injected temp folder (deps.tmpDir): the test's real temp folder holds its home, so the first mutation stayed GREEN, named by the home check; now red.
+- [NIT] TAKEN. `~\` on Windows (stated as unmeasured).
+- [NIT] TAKEN. The wording for a job home the rules cannot carry ("a config home an agent's job names", which may be the agent's own).
+- [NIT] TAKEN. An agents' folder that cannot be read is named. Tested; mutation red.
+- [NIT] STATED under Gaps: a job home is listed whether or not it exists.
+- [NIT] TAKEN: tests for the runner filter (a codex job's home is not a Claude config home), an uncarriable job home, and a linked plugin folder (its target in both layers). Two mutations red.
+
+#### Iteration 2
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 5 WARNINGs (as recorded in the plan)
+- Iteration 2 (Sonnet), on 5ae061684 (rebased onto main after #5837):
+- [WARNING] FIXED. `export CLAUDE_CODE_PLUGIN_DIRS="$HOME/a:$HOME/b"` kept the second $HOME and was named: a false not-whole. $HOME is now replaced at the start of each delimiter-separated part. Tested; mutation red.
+- [WARNING] FIXED. The plugin folders the variables name were counted as covered only AFTER the start-command scan judged its folder runners, so a package runner inside such a folder (a dev plugin checkout's node_modules/.bin tool named by a hook) was named: a false not-whole. The variables are now gathered first (environment and startup files) and parsed inside the scan (startcommands.pluginVarDirs) with the settings tiers' values, and those folders are covered for its runners. Tested; mutation red.
+- [WARNING] FIXED. The job homes were read once per agent per refresh (N agents, N job files each). They are read once per pass, kept in the pass's launchCache (both the board-start refresh and the per-tick check pass one). Past 50 homes outside ~/.claude* the rest are named (each adds its members to the profile).
+- [WARNING] FIXED. A failure reading the job homes is named, not swallowed.
+- [WARNING] STATED under Gaps: fish and nushell syntax, and indented or conditional exports. The startup files are now part 2's own list (the home's and each ZDOTDIR's zsh and bash files), so the two cannot drift.
+- [NIT] TAKEN: a file is checked for the variable's name before it is parsed.
+- [NIT] TAKEN: a plugin folder that is or holds a config home (which Claude Code writes) is too wide. Tested; mutation red.
+- [NIT] TAKEN: a relative job configDir is skipped.
+- [NIT] not taken: ownHome. When it is not passed the agent is on the default account, whose home is ~/.claude (the fallback).
+- [NIT] not taken: the $ check after assignmentsIn rejects single-quoted values is a harmless double filter.
+
+#### Iteration 3
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 4 WARNINGs (as recorded in the plan)
+- Iteration 3 (Opus), on b3184807a:
+- [WARNING] FIXED (reproduced by the reviewer). The append idiom (`export K="$K:$HOME/x"`, and `${K:+$K:}...`) was named: a false not-whole on a harmless setup. A part that only refers back to the variable is dropped (every earlier value is already gathered and covered). Tested, both spellings; two mutations red.
+- [WARNING] FIXED (reproduced). A backtick command substitution passed silently (only $ was checked). It is now named. Tested; mutation red.
+- [WARNING] FIXED (reproduced). The home folder's ~/.claude/settings.json is ALSO read as a folder-above tier (an agents' folder inside the home), and that entry carried no home, so its relative cache counted as every non-default agent's own. A folder-above tier whose .claude is a config home is now tagged as that home's, by either spelling (the first fix matched the given spelling only, and the /var link hid it: the test went red until both were compared). Tested with an agents' folder inside the home; two mutations red. My earlier test could not see this: its home was not above its agents' folder.
+- [WARNING] STATED under Gaps: variable-named plugin folders are never pruned.
+- [NIT] TAKEN: $HOME is matched with balanced braces only.
+- [NIT] TAKEN: the dead outputs (settingsEnvAll, settingsEnvOwn, settingsEnvOther, the pluginVarDirs export) are removed.
+- [NIT] TAKEN: tests for the 50-home cap and for the per-pass cache being used; two mutations red.
+- [NIT] TAKEN: the job-home test removes its job file, so later tests do not inherit it.
+
+#### Iteration 4
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 4 WARNINGs (as recorded in the plan)
+- Iteration 4 (Sonnet), on f7d2f2e08: no BLOCKER.
+- [WARNING] FIXED. `export CLAUDE_CODE_PLUGIN_DIRS="~/plugins"` was named (assignmentsIn reads a quoted ~ as unknown, right for a shell path): the shell keeps it literal and Claude Code expands it, so for these variables a quoted ~ is read. Tested; mutation red.
+- [WARNING] FIXED. The startup files were read again for every agent at every refresh; their values are now read once per pass (the launchCache, as the job homes are). Tested (a seeded cache is used); mutation red.
+- [WARNING] FIXED. The variable-named plugin folders were unbounded; past 50 the rest are named. Tested; mutation red.
+- [WARNING] FIXED. "Another account's home" was decided by spelling only; it now compares real paths too. Through the guard this is masked (the own home joins the home list in the spelling it is passed, so its tier is also read as its own), so it is tested at the scan itself, with the homes in one spelling and the own home in the other; mutation red (it stayed GREEN through the guard first).
+- [NIT] TAKEN: a linked agent folder in the agents' folder is read for its job. Tested; mutation red.
+- [NIT] TAKEN: a job home that is the root or the home itself is named. Tested; mutation red.
+- [NIT] TAKEN: a comment that the cache value is not trimmed, as measured.
+- [NIT] not taken: the startup files are picked from part 2's list by their standard names, which a ZDOTDIR does not change.
+
+#### Iteration 5
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 4 WARNINGs (as recorded in the plan)
+- Iteration 5 (Opus), on 433a85a42:
+- [WARNING] FIXED (reproduced by the reviewer). The "holds Kosmos's data" check read deps.dataRoot, which production never passes (every test did), so a plugin folder AT the data root was denied whole in both layers in production. It uses the function's resolved dataRoot. Tested WITHOUT deps.dataRoot, as production calls it; mutation red.
+- [WARNING] FIXED (reproduced). The prepend idiom `${K:+:$K}` (how PATH is usually extended) was named. Both forms are dropped now. Tested; mutation red.
+- [WARNING] STATED under Gaps: another world's agents' config homes are not found.
+- [WARNING] STATED under Gaps: /etc startup files and launchctl setenv values.
+- [NIT] TAKEN: the folder cap counts after the covered check. Tested (51 folders inside a covered folder); mutation red.
+- [NIT] TAKEN: a job home reached by another spelling of one already listed is not added twice.
+- [NIT] TAKEN: a job home that holds this agent's own folder is named. Tested; mutation red.
+- [NIT] TAKEN: each home's real path is resolved once, not per folder above.
+- [NIT] TAKEN (plan): the ~ rule as measured (`~` alone or `~/...`).
+
+#### Iteration 6
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 4 WARNINGs (as recorded in the plan)
+- Iteration 6 (Sonnet), on 1f46078da: no BLOCKER.
+- [WARNING] FIXED. The job-home loop resolved real paths per job home per listed home; each is now resolved once (this agent's folder, the home, a set of the listed homes' real paths).
+- [WARNING] FIXED. Another account's RELATIVE cache or seed value was dropped silently (the guard reported whole); it is now named, so the guard fails closed. Tested; mutation red.
+- [WARNING] TAKEN as a comment: a folder the variables name counts as covered for the scan's runners even when the caller then refuses it (too wide, uncarriable, past the cap); every such one is named there, so nothing is silent, but "covered" means denied only for the rest.
+- [WARNING] TAKEN as a comment: on Windows the first pass of a process may ask schtasks once per agent (readJob reads through win32job's cache); once per pass after that.
+- [NIT] TAKEN: the Tests section no longer carries a stale mutation count.
+- [NIT] not taken: a single-quoted `$HOME/x` is named as "a quoted value" (rare; fails closed).
+- [NIT] not taken: the temp folder compared is os.tmpdir() (or the injected one); the shell's own temp folder is the same on this fleet.
+
+#### Iteration 7
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 4 WARNINGs (as recorded in the plan)
+- Iteration 7 (Opus), on a886914a1:
+- [WARNING] FIXED (reproduced by the reviewer). The plugins INSIDE the folders the variables name were never parsed: a dev plugin's hooks.json running a script outside its folder was a silent miss, and a cache folder's installed_plugins.json and known_marketplaces.json (it takes the place of <home>/plugins) were not read. A CLAUDE_CODE_PLUGIN_DIRS entry is now parsed as a plugin root, and a cache or seed folder is read as a plugin folder. Tested (a dev plugin's hook script and a cached plugin's hook script and folder denied); two mutations red. MY FIRST CUT added the roots to the installed plugins' list, which returned them as installed plugin folders: denied by that loop, with none of the variable folders' checks (the cap, the data folder, inside the agent), so two earlier tests went red. They are now tagged, parsed for their commands only, and denied by the variable loop alone; mutation red (four tests).
+- [WARNING] FIXED (reproduced). A job home already listed (the agent's own, coming back through its own job) was re-judged by refusals it never went through, so an own home holding the agent's folder was named at refresh. The listed check now comes first. Tested; mutation red.
+- [WARNING] FIXED. A variable-named folder INSIDE the agent's own folder was denied whole, unlike an installed plugin there (named). Same policy now: named. Tested; mutation red (two tests).
+- [WARNING] FIXED: the stale comment that other agents' homes are a stated gap.
+- [NIT] TAKEN: positive arms for the other-account relative cache (it is named) and the cap test (the folders were seen).
+- [NIT] STATED under Gaps: part 2's .bashrc.d and BASH_ENV/ENV files are not read for the variables.
+- [NIT] not taken (design note): another account's relative cache could be resolved under each agent the job homes say run on it; it is named instead (fails closed).
+- [NIT] not taken: an uncarriable job home spends one of the 50 places (harmless at today's sizes).
+
+#### Iteration 8
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 6 WARNINGs (as recorded in the plan)
+- Iteration 8 (Sonnet), on 75587de67: no BLOCKER.
+- [WARNING] FIXED. Tests that pass a home but no workers root read the machine's REAL agents' folder, and through readJob the real jobs, adding real config homes to their rules. The job files are now read only when the launch folder is inside the home or an explicit sandbox names it. Mutation (jobs never read): red, four tests.
+- [WARNING] FIXED. The startup-file cache was keyed by the home alone; it is keyed by the files read (they follow ZDOTDIR and the agent). Its test now proves reuse with two agents in one pass and the file changed between them.
+- [WARNING] STATED under Gaps: other self-reference spellings are named (fail closed).
+- [WARNING] NOT A DEFECT: the cache value is not trimmed because 2.1.296 does not trim it (measured; a comment says so).
+- [WARNING] FIXED in part. A plugin folder inside the temp folder (a per-run place, whose rule would pile up at every refresh, never pruned) is named, not denied. The test file now passes a temp folder of its own (its sandbox lives inside the real one). Tested; mutation red. Cross-pass growth of stable values stays under the pruning gap.
+- [WARNING] FIXED. A job home holding this agent's folder was refused, so one odd job file stopped every agent's creation. It is now refused only when a member it denies whole (its code and memory folders) would hold the agent's folder or sit inside it. Tested both ways; two mutations red (the old broad rule and no rule).
+- [NIT] TAKEN: the repeated checks in the job-home loop are gone; the startup-file size limit is a named constant.
+- [NIT] not taken: the "Review N" notes in comments are this codebase's convention.
+
+#### Iteration 9
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs (as recorded in the plan)
+- Iteration 9 (Opus), on 7beae4a22:
+- [WARNING] FIXED (reproduced by the reviewer). A plugin installed INSIDE a cache folder (<cache>/cache/<marketplace>/<plugin>/<version>) got its own versioned rule, which piles up at every update: the installed-plugin loop ran before the cache folder was denied whole. It runs after now, so the cache folder covers it; a refused folder covers nothing. Tested; the old order turns it red. My edit first REMOVED the folder cap without re-adding it (an anchor joined two lines); the cap test caught it, and the cap is back after the refusals.
+- [WARNING] FIXED. The review-7 "listed home first" test could not fail (the wording changed in review 8, and the agent was not under a code member). It now places the agent under its own home's skills/ so only the early skip keeps it from being named; mutation red.
+- [NIT] TAKEN: the folder cap counts after the refusals.
+- [NIT] TAKEN: an unquoted ~user in a startup file (the shell's to expand) is named. Tested; mutation red.
+- [NIT] TAKEN: a comment on jobsHere (it asks whether the caller's home is the machine's).
+- [NIT] TAKEN (plan): another account's relative value is named, not just uncounted.
+- [NIT] not taken: CLAUDE_PLUGIN_DATA for a cached plugin points under the agent's home; both that folder and the cache are denied whole, so nothing is missed.
+- [NIT] ALREADY covered: the review-8 holder test has its positive arm (the holding home's settings.json is denied).
+
+#### Iteration 10
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 3 WARNINGs (as recorded in the plan)
+- Iteration 10 (Sonnet), on bf5078baf: no BLOCKER.
+- [WARNING] FIXED. A job file that exists but cannot be read folded into "no job" (readJob), a silent loss of that agent's config home. readJobVerdict's reason is now used (Linux, Windows), and on macOS, whose reader says only job-or-null, a job file that is there yet reads as no job is named. Tested (a folder where the job file should be); two mutations red.
+- [WARNING] FIXED. A relative configDir in a job was dropped silently; it is named. Tested; mutation red.
+- [WARNING] STATED under Gaps: another variable in a startup-file value fails closed.
+- [NIT] TAKEN: a cache folder that is a home's own plugins folder is read once.
+- [NIT] TAKEN: the coveredDirs comment says "covered or named".
+- [NIT] STATED under Gaps: plugins inside a refused folder get their own rules.
+
+#### Iteration 11
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 3 WARNINGs (as recorded in the plan)
+- Iteration 11 (Opus), on cfdd0e45c: no BLOCKER.
+- [WARNING] FIXED. On Linux a MASKED unit (#5445, the person's choice) was named as unreadable, which made every guard not whole. It is no job now. Tested through the Linux reader (the guard's platform is passed to readJobVerdict; a /dev/null link in the sandboxed unit folder), with an unreadable unit as the control; mutation red.
+- [WARNING] FIXED. jobsHere took AGENT_WORKFORCE_LAUNCH (macOS's job folder) as proof of a sandbox on Linux too, where the jobs are systemd units: it now asks the platform's own place (AGENT_WORKFORCE_SYSTEMD_DIR, or the unit folder inside the home). Not tested on its own (the tests set both).
+- [WARNING] FIXED. `export K=${K:-x}` and `${K:=x}` (the default-if-unset idioms) were named; they reduce to x (K's earlier values are already gathered). Tested; mutation red. My first edit assigned to the loop's const; the test caught it (it would have thrown on that line), and the loop variable is a let.
+- [NIT] STATED under Gaps: one other account's odd settings, or one unusual job file, block every token-only creation (fail closed).
+- [NIT] TAKEN: the plugin-variable block now sits above startCommandScripts' doc comment, which names envPluginDirs among its returns. My first move of it went to the end of the file (the comment opens with /*, not /**); restored from the backup and moved by its first line.
+- [NIT] not taken: the own-home-spelling arms rely on macOS's /var link; on Linux they pass either way.
+- [NIT] TAKEN: the comment claiming a Windows Task Scheduler cost is corrected (the guard does not run on Windows).
+
+#### Iteration 12
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 3 WARNINGs (as recorded in the plan)
+- Iteration 12 (Sonnet), on 45ddfafb9: no BLOCKER.
+- [WARNING] TAKEN: a variable-named folder under the agent's own folder whose value has a $ in it (a shell-style $HOME in a settings env value, which Claude Code takes literally) now says so in its message. Still fails closed.
+- [WARNING] TAKEN: the agent names are sorted before the 50-home cap, so the same homes are taken at every refresh.
+- [WARNING] TAKEN: a plugin-variable folder found in both this agent's tiers and another account's is read once.
+- [NIT] TAKEN (plan): the self-reference gap no longer lists `${K:-}`, read as its default since review 11.
+- [NIT] not taken: jobsHere's two realpaths per call are cheap beside the cached reads.
+- [NIT] DUPLICATE of stated gaps: the /var-dependent arms and the untested jobsHere Linux arm.
+
+#### Iteration 13
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 3 WARNINGs (as recorded in the plan)
+- Iteration 13 (Opus), on d64a061c3: no BLOCKER.
+- [WARNING] FIXED. A config home that is a link to something absent left the place it points to uncovered in both layers (its members resolve back to the link's name). Every home (this agent's, ~/.claude*, job homes: the class, not only route 5's) now has the link's target listed beside it; a live link adds nothing. Tested with the link's own spelling still denied and a live link as the control; mutation red.
+- [WARNING] FIXED. An indented plugin-variable export (an if-block) was a silent miss; now named. Tested with an indented comment as the control; mutation red.
+- [WARNING] FIXED. A cache inside the temp folder was refused, but its installed plugins were still listed by version. Plugins inside a folder refused as temp or past the cap are skipped; past the cap the loop now continues (each refused folder is recorded) and names the cap once. Tested (temp); mutation red. The cap arm is not tested on its own.
+- [NIT] TAKEN: a job home is counted after the uncarriable refusal, as the comment said.
+- [NIT] TAKEN: the job-homes cache key carries the platform.
+- [NIT] not taken: plugins from a variable-named cache are tagged with this agent's home for CLAUDE_PLUGIN_DATA; harmless today (that path sits under a home's plugins/, denied whole), and not measured against the bundle.
+
+#### Iteration 14
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 3 WARNINGs (as recorded in the plan)
+- Iteration 14 (Sonnet), on 0c906fecd: no BLOCKER.
+- [WARNING] FIXED. A startup file that is there but cannot be read, or is past the 4 MiB limit, read as holding no plugin variable (a silent miss). Both are named now; an absent file says nothing. Tested (mode 000; 4 MiB + 1), with a readable file as the control; both mutations red.
+- [WARNING] DUPLICATE of a stated gap: the indented-line detector also names an indented trailing-comment or here-document mention of `K=` (fails closed), and names one line per file.
+- [WARNING] DUPLICATE of a stated gap: another account's relative plugin value makes every token-only creation not whole. The reviewer's suggested fix (resolving it under the agent folders whose jobs name that home) is the follow-up if it fires.
+- [NIT] TAKEN: the Tests section no longer carries a test count.
+- [NIT] TAKEN: the own-home comment re-wrapped.
+- [NIT] TAKEN (comment): the indented-line pattern interpolates one of three fixed names.
+- [NIT] not taken: a value mixing `"$HOME/a":~/b` is named (fails closed).
+- [NIT] DUPLICATE of a stated gap: jobsHere's Linux arm is untested.
+- [NOTE] Merged origin/main (97 commits; one touched setup-assistant.js, #5843; no conflict) as 32f92b263; the guard set stayed green.
+
+#### Iteration 15
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs (as recorded in the plan)
+- Iteration 15 (Opus), on 32f92b263: no BLOCKER.
+- [WARNING] FIXED. A plugin folder holding the projects folder (`CLAUDE_CODE_PLUGIN_DIRS=~/Kosmos`) was denied whole, silently taking every project's work away. The projects folder (projects.projectsRoot, read lazily) now joins the too-wide set, and a plugin folder inside it is named, as one inside the agent's own folder is. A project kept in a folder of the person's own outside it is not known here (stated gap). Tested, with a control (same folder, projects elsewhere: denied whole); both mutations red. My first mutation run of the too-wide arm reported nothing: my replacement string broke the module's syntax, so the run failed on a load error my grep did not match. Re-applied correctly, it is red.
+- [WARNING] TAKEN (comment): agentevents' per-tick check passes no accountConfigDir, so there the agent's own job home reads as another account's. It compares token rules only, which do not change; a comment now says that path's configUnsafe must not be trusted. Not changed in agentevents.js (outside this branch).
+- [NIT] TAKEN: readJob in the comment and plan is readJobVerdict.
+- [NIT] TAKEN: the 4 MiB constant's comment no longer claims to be the import scan's limit.
+- [NIT] FIXED: a dangling home whose target holds or sits inside the agent's own folder is named, not given code-folder denies there. Tested; mutation red.
+- [NIT] not taken: the envKinds dedup keeps the last copy (same kind and folder either way).
+
+#### Iteration 16
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 4 WARNINGs (as recorded in the plan)
+- Iteration 16 (Sonnet), on 70bcca69f: no BLOCKER.
+- [WARNING] FIXED. A plugin folder a variable names whose real place is read-only (a Nix or home-manager store path, hashed and new at every switch) was listed by name and piled up. It now gets no rule (the agent cannot write it), and the plugins inside it none either; a link to one keeps a file-tool rule on the link alone, as part 2's startup links do. Checked before the cap, so it spends no budget. Tested (direct, linked, and a writable control); both mutations red, each run after confirming the mutated module loads.
+- [WARNING] STATED GAP: a dangling link BELOW a job home (not the home itself) resolves through realOrLeaf only, as for every config home since #5516; the member links are followed by withTarget at their leaf.
+- [WARNING] FIXED: the job-homes cache key carries the home too (jobsHere depends on it).
+- [WARNING] DUPLICATE of a stated gap: another account's relative plugin value names (fails closed).
+- [NIT] DUPLICATE: an indented echo of `K=` is named (stated since review 13); /etc startup files are a stated gap.
+- [NIT] not taken: the one-line job-name read in agentJobConfigDirs.
+
+#### Iteration 17
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs (as recorded in the plan)
+- Iteration 17 (Opus), on 48d64316e: no BLOCKER.
+- [WARNING] FIXED. The temp refusal knew only os.tmpdir(); a plugin folder under /tmp (a scratch checkout) was denied by name and its plugins by version, piling up. The fixed temp roots are one list now (TEMP_ROOTS, shared with the launch scan, whose inline copy it replaces), and the too-wide check uses them too (a folder that IS /tmp). Tested with deps.tempRoots and a control; both mutations red. The #1732 Windows-coupling inventory row moved with the literal (same disposition; the guard is unsupported on Windows).
+- [WARNING] FIXED, reversing review 13's call. An indented export is read (indent stripped) and denied rather than named: naming it made every token-only creation fail over a harmless conditional line. The weakest premise: a conditional export may name a folder that does not apply, which costs a deny rule, not a creation. Tested (the review-13 test now asserts the value is denied, and an indented comment is not read); mutation red.
+- [NIT] STATED: the job-file test drives DEPS.platform 'darwin' and reads a plist, so it is macOS-only as written (the node suite runs on a macOS runner). Iteration 1's "Linux-safe" note is about the fixture, not this test.
+- [NIT] DUPLICATE of review 15's: CLAUDE_PLUGIN_DATA tagged with this agent's home for variable-named caches.
+- [NIT] not taken: the Windows `~\` branch never runs (the guard is unsupported there); the one-line folder read.
+
+#### Iteration 18
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 3 WARNINGs (as recorded in the plan)
+- Iteration 18 (Sonnet), on 201cb9fd6: no BLOCKER.
+- [WARNING] FIXED. On macOS a job file that is there but does not parse as a job (an old or hand-edited layout) was named, so one odd file stopped every token-only creation. It is now read for its CLAUDE_CONFIG_DIR directly (the reader's own pattern) and that home covered; one without the key carries no home; only a file that cannot be read is named. Weakest premise: the plist's own key is the agent's config home even when the job does not parse (it is the one place Kosmos writes it). Tested (covered, no key, unreadable control); both mutations red.
+- [WARNING] DUPLICATE of a stated gap: /etc startup files are not read for the plugin variables (review 5).
+- [WARNING] DUPLICATE of review 15: the per-tick path passes no own home (commented there).
+- [NIT] not taken: the one-line folder read; the envKinds dedup (same result).
+
+#### Iteration 19
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 3 WARNINGs (as recorded in the plan)
+- Iteration 19 (Opus), on 0bb37ed34: no BLOCKER.
+- [WARNING] FIXED. A prefix assignment (`K=$1 claude` in a wrapper function, `K=$PWD/x claude` at the top) and a `local K=` never enter the environment, yet were read, and a variable in them made every creation fail. Those lines are left out; a line where export, typeset, declare or readonly comes before the K= is always read. Tested both ways (the three shapes not read; a quoted value with spaces and `export K=x FOO=1` still read); two mutations red. The `local` arm is not red on its own (it shares the mutation that drops all three).
+- [WARNING] FIXED. A plugin folder reached into a Homebrew Cellar or Caskroom (opt/foo -> Cellar/foo/1.2.3) was denied by its versioned name. It is now covered by the Cellar's one stable rule (part 2's stableRootOf), with the link keeping a file-tool rule; a stable folder holding the home or the agent's folder is named. Tested; mutation red.
+- [WARNING] FIXED. On Linux an odd unit (an incomplete ExecStart) was named while macOS read the same case for its home (review 18). Both platforms now read a job file that is there but does not parse for its config home (the Linux reader's Environment= pattern); only an unreadable one is named. Tested; mutation red.
+- [NIT] FIXED: the plist value's XML escapes are decoded as the reader does.
+- [NIT] FIXED: an installed plugin whose folder IS a refused folder is skipped too.
+- [NIT] FIXED (plan): the Gaps line no longer says top-level lines only.
+- [NIT] not taken: an uncarriable link to a read-only plugin folder is named with the startup-folder wording (rare; still named).
+
+#### Iteration 20
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 2 WARNINGs (as recorded in the plan)
+- Iteration 20 (Sonnet), on b104addcf: no BLOCKER.
+- [WARNING] STATED GAP (decided, not changed): a plain `K=/x` line with no export anywhere in the file is still read (the safe direction: a deny rule). It costs a creation only when such a value falls in a refused place (temp, the projects folder, inside the agent), which is rare. Telling "exported later in the file" from "never exported" across a file is a parser of its own, and a wrong guess there would be a silent miss.
+- [WARNING] DUPLICATE of a stated gap (review 8): a job home refused as uncarriable, relative, the home itself, or covering this agent's folder fails every creation; the message names that home's path, so the job at fault can be found.
+- [NIT] not taken: the one-line folder read; the envKinds dedup shape; an ownHomeKnown flag instead of review 15's comment (a change to the per-tick caller, outside this branch).
+
+#### Iteration 21
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNINGs (as recorded in the plan)
+- Iteration 21 (Opus), on 1dcb3f648: no BLOCKER. The reviewer also ran tokenOnlySettingsRules read-only against a real agent folder on this machine: 84 ms, empty configUnsafe.
+- [WARNING] STATED GAP, card #5870: the per-home start-command scan is not cached per pass (cost, not a hole; empty on this fleet). Caching it reaches route 1's scan, so it is its own change.
+- [NIT] STATED (Gaps): the window before an existing agent's guard is rewritten.
+- [NIT] FIXED: another account's RELATIVE plugin value is no longer dropped as a duplicate of the same string in this agent's tiers (it names a different folder); only absolute values are deduplicated. Not tested on its own (the agents' folder case is named either way).
+- [NIT] FIXED: the $HOME replacement is a function, so a $ in the home path is literal. Not tested (a home with $& in it).
+- [NIT] FIXED: jobsHere's Linux arm also takes AGENT_WORKFORCE_LAUNCH as a sandbox, as linuxjob.unitDir does.
+- [NIT] FIXED (comment): the unparseable-job fallback has no runner filter because only CLAUDE_CONFIG_DIR is read.
+- [NIT] DUPLICATE of review 15: CLAUDE_PLUGIN_DATA tagged with this agent's home for variable-named caches.
+
+#### Iteration 22
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 4 WARNINGs (as recorded in the plan)
+- Iteration 22 (Sonnet), on 462eb7376: no BLOCKER, nothing new above NIT. CONVERGED.
+- [WARNING] NOT A DEFECT: "a bare K=/x later exported is not read". The dropped form is `K=/x cmd`, a prefix assignment, which never sets the shell's own K, so a later `export K` or `set -a` cannot export /x. A bare `K=/x` alone is read.
+- [WARNING] NOT A DEFECT: a `~user/x` settings value for the cache or seed variable resolves under the agent's folder and is named as inside it. Claude Code reads it as relative too, so the folder named is the one it uses. Rare; fails closed.
+- [WARNING] DUPLICATE of a stated gap (review 8): jobsHere reads no jobs when the job folder is outside the home and no sandbox variable names it.
+- [WARNING] CONFIRMED BY DESIGN: plugins inside a read-only folder get no rule (unwritable, and versioned).
+- [NIT] not taken: the startup-file name list beside shellStartPaths (the filter keeps only the zsh and bash files part 2 lists); long lines; review comments; the Windows `~\` branch.
+
+### Strengths (across all iterations)
+- Claude Code 2.1.296 itself is the reference for how the three plugin variables are parsed (read from its bundle)
+- Every refusal is named, never dropped; nothing versioned, hashed or per-run is listed by name (temp, read-only, Cellar and store folders get one stable rule or none)
+- Every fix has a test that a mutation turns red, and since iteration 16 each mutation is checked to load before its result is read (iteration 15 caught a syntax error read as a result)
+
