@@ -44,7 +44,7 @@ test('#5959 slice 2: the health line says sign-in, usage and when Kosmos last sa
     'Last seen working: Kosmos cannot see this agent\'s turns');
   // Stopped, restarting or unreadable: Kosmos sees nothing of its sign-in or usage, so only the time is said. Blocked
   // too: a Claude card stays blocked on Claude Code's own report of a refused sign-in or a usage cap.
-  for (const state of ['stopped', 'restarting', 'unknown', 'blocked']) {
+  for (const state of ['stopped', 'restarting', 'unknown', 'blocked', 'connection_lost']) {
     assert.equal(healthLine({ state, lastWorked: { at: new Date(at5).toISOString(), why: null } }, NOW), 'Last seen working: ' + clock(at5), state);
   }
   // Sign-in "no problem" only for Claude: another runner's state cannot show a sign-in that stopped working here.
@@ -61,7 +61,7 @@ test('#5959 slice 2: the health line says sign-in, usage and when Kosmos last sa
   assert.match(healthLine({ state: 'auth_failed', runner: 'claude', stateConfidence: 'structured', lastWorked: old }, NOW), /^Sign-in: isn't working · Last seen working: /);
   const edge = { at: new Date(NOW - 3600e3).toISOString(), why: null };
   assert.match(healthLine({ state: 'idle', runner: 'claude', lastWorked: edge }, NOW), /^Sign-in: no problem showing · /, 'CONTROL: exactly an hour ago still counts');
-  // A clock time, not "N minutes ago": the page is painted once, so a relative time would go stale while it is open.
+  // A clock time, not "N minutes ago": an idle card's line changes rarely, so a relative time would age.
   // Not today: the weekday too; over six days: the date.
   const day = 86400e3;
   assert.equal(seenAtWords(NOW - 2 * day, NOW), new Date(NOW - 2 * day).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }));
@@ -76,6 +76,4 @@ test('#5959 slice 2: no line for a card with no lastWorked, and the page paints 
   const paint = src('paintDetailState');
   assert.match(paint, /getElementById\('d-health'\)[\s\S]{0,200}healthLine\(a, Date\.now\(\)\)/, 'paintDetailState does not paint the health line');
   assert.equal((PAGE.match(/healthLine\(a, Date\.now\(\)\)/g) || []).length, 1, 'the health line is painted somewhere else as well');
-  // A provider switch repaints the open page for the new runner; the health line spoke for the old one, so it goes.
-  assert.match(PAGE, /CURRENT\.lastWorked = null;\s*\{ const dh = document\.getElementById\('d-health'\); if \(dh\) \{ dh\.textContent = ''; dh\.hidden = true; \} \}/, 'the switch path leaves the old runner\'s health line');
 });

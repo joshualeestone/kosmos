@@ -49,6 +49,15 @@ test('#5959 slice 2: lastOk keeps the newest OK through a later rejection, and n
   assert.equal(observed.lastOk(P, 'casey'), null, 'the test reset left it');
 });
 
+test('#5959 slice 2: a provider switch forgets the name too, once its new job is written', () => {
+  const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = src.slice(src.indexOf("pathname.match(/^\\/api\\/agent\\/([^/]+)\\/provider$/)"));
+  assert.ok(route.length < src.length, 'CONTROL: the provider route was not found');
+  const forget = route.search(/^\s*try \{ observed\.forgetAgent\(name\); \}/m);
+  const restart = route.indexOf("removal.restart(name, 'provider')");
+  assert.ok(forget > 0 && restart > forget, 'the switch does not forget the old provider\'s last-seen time before its restart');
+});
+
 test('#5959 slice 2: create, remove and delete-leftover forget the name, beside crashloop', () => {
   const fs2 = require('node:fs');
   for (const [file, v] of [['create.js', 'name'], ['remove.js', 'clean'], ['delete-leftover.js', 'p.name']]) {

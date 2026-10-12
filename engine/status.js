@@ -7491,7 +7491,8 @@ function paneObservedKinds(pane) {
   };
 }
 /* #5959 slice 2: the provider whose observations speak for this pane, in the arms' order (codex, gemini, grok, then
-   Claude for a pane that is none of them). Null for Antigravity and Muse: nothing is recorded for them. */
+   Claude for a pane that is none of them). Null for Antigravity and Muse: nothing is recorded for them. It can differ
+   from the card's runner (cardRunnerOf) for a tag and a command that disagree. */
 function observedProviderOf(pane) {
   const k = paneObservedKinds(pane);
   if (k.codex) return observed.PROVIDER.OPENAI;
