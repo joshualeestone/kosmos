@@ -1027,9 +1027,13 @@ function defaultScanRoots(opts) {
     // routes their walk through the app-identity hatch (--kosmos-app-scan) instead of walking
     // them in the engine (a different TCC subject, which re-prompts). The in-engine walk seeds
     // its stack from the NON-tcc roots only; the tcc roots are handled by the hatch merge.
-    roots.push({ dir: path.join(home, 'Documents'), maxDepth: SCAN.DEEP_DEPTH, tcc: true });
+    // #5882: ONLY where a folder permission exists (macOS). On Linux and Windows there is no prompt
+    // and no native app to answer the hatch, so marking them sent all three to TCC_UNAVAILABLE and
+    // they were never read; there the engine walks them like any other root. opts.platform: tests.
+    const tcc = require('./platform').hasFolderPermission(opts && opts.platform);
+    roots.push(Object.assign({ dir: path.join(home, 'Documents'), maxDepth: SCAN.DEEP_DEPTH }, tcc ? { tcc: true } : {}));
     for (const name of ['Downloads', 'Desktop']) {
-      roots.push({ dir: path.join(home, name), maxDepth: SCAN.DROP_DEPTH, importOnly: true, tcc: true });
+      roots.push(Object.assign({ dir: path.join(home, name), maxDepth: SCAN.DROP_DEPTH, importOnly: true }, tcc ? { tcc: true } : {}));
     }
   }
   return roots;
