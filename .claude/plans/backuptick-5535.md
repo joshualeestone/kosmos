@@ -131,3 +131,4 @@ Mutants after review 7 (20:09 CDT from `date`): G1 gate back to isEnrolledHere: 
 4. FIXED (header): transcript roots sit inside a protected provider home by design and skip the protection check;
    their safety is backupsessions' session-file lists. Said in the header.
 Tests 23 -> 24.
+Mutants after review 8 (20:11 CDT from `date`), each 24/23/1: E1 '..' prefix match back, E2 an unresolvable protected folder dropped (proves the locked parent gives a non-ENOENT error here), E3 protectIncomplete ignored.
