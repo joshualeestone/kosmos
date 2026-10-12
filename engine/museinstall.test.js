@@ -122,5 +122,7 @@ test('#6004: the real run gives Meta\'s installer only installerEnv(), refuses h
   assert.ok(curl.args.includes('--proto') && curl.args[curl.args.indexOf('--proto') + 1] === '=https', 'a plain http fetch would be allowed');
   assert.equal(curl.args[curl.args.length - 1], museinstall.INSTALL_URL);
   assert.equal(bash.env.MUSE_NO_MODIFY_PATH, '1', 'the installer was not kept out of shell profiles');
+  assert.equal(bash.args[0], curl.args[curl.args.indexOf('-o') + 1], 'bash ran a different file from the one curl saved');
+  assert.equal(bash.env.MUSE_INSTALL_DIR, path.join(os.homedir(), '.local', 'bin'), 'the installer was not told where Kosmos looks');
   assert.equal(bash.env.KOSMOS_SECRET_FOR_TEST, undefined, 'the board\'s own environment reached Meta\'s installer');
 });
