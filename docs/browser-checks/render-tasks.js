@@ -179,6 +179,10 @@ const MEMBER = 'taskmate';
 
     // Create one task given to the member, one given to nobody.
     await p.fill('#nt-what', 'Rewrite the handoff checklist');
+    /* kosmos#5956: Create stays down until how you will know it is done is filled too, in a real browser. */
+    if (!(await p.locator('#nt-go').isDisabled())) die('#5956: Create task is live with no done-when');
+    await p.fill('#nt-done', 'It fits on one page');
+    if (await p.locator('#nt-go').isDisabled()) die('#5956: Create task stayed down with both filled');
     await p.fill('#nt-detail', 'The old one mentions the removed billing screen.');
     await p.selectOption('#nt-who', MEMBER);
     await p.click('#nt-go');
@@ -190,6 +194,7 @@ const MEMBER = 'taskmate';
     const who2 = await p.inputValue('#nt-who');
     if (who2 !== '') die('a clean open resurrected the previous assignee: "' + who2 + '"');
     await p.fill('#nt-what', 'Check it against the live flow');
+    await p.fill('#nt-done', 'Every step matches');   // kosmos#5956
     await p.click('#nt-go');
     await p.waitForSelector('.tkcard >> nth=1', { timeout: 10000 });
 

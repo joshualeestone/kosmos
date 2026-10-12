@@ -29,7 +29,7 @@ function world(projects, { current = null, readFailed = false } = {}) {
   const els = {};
   const el = (id) => (els[id] = els[id] || { id, hidden: false, value: '', textContent: '', innerHTML: '', disabled: false, selectedIndex: 0, focused: 0, focus() { this.focused += 1; focusLog.push(id); } });
   const focusLog = [];
-  for (const id of ['nt-projrow', 'nt-proj', 'nt-in', 'nt-in-pick', 'nt-project', 'nt-what', 'nt-detail', 'nt-voice-msg', 'nt-who', 'nt-msg', 'nt-go', 'nt-modal', 'nt-back', 'tsk-new', 'pj-newtask']) el(id);
+  for (const id of ['nt-projrow', 'nt-proj', 'nt-in', 'nt-in-pick', 'nt-project', 'nt-what', 'nt-done', 'nt-detail', 'nt-voice-msg', 'nt-who', 'nt-msg', 'nt-go', 'nt-modal', 'nt-back', 'tsk-new', 'pj-newtask']) el(id);
   els['nt-projrow'].hidden = true;
   els['nt-modal'].hidden = true;
   const box = { attrs: { 'aria-describedby': 'nt-in' }, setAttribute(k, v) { this.attrs[k] = v; } };
@@ -83,7 +83,8 @@ test('no projects at all: the dialog says to make one, and Create stays down', (
   assert.equal(w.els['nt-modal'].hidden, false);
   assert.deepEqual(w.focusLog, ['nt-back'], 'focus is not on the way out');
   // The Create gate on typing also refuses without a project.
-  assert.match(SCRIPT, /getElementById\('nt-go'\)\.disabled = !document\.getElementById\('nt-what'\)\.value\.trim\(\) \|\| !NT_PROJECT;/);
+  // kosmos#5956: the gate also needs how you will know it is done.
+  assert.match(SCRIPT, /getElementById\('nt-go'\)\.disabled = !document\.getElementById\('nt-what'\)\.value\.trim\(\)\s*\|\| !document\.getElementById\('nt-done'\)\.value\.trim\(\) \|\| !NT_PROJECT;/);
 });
 
 test('an unreadable project list is said as unreadable, never as "make a project first"', () => {
@@ -202,4 +203,23 @@ test('the Tasks head carries "+ New task" as its primary button', () => {
   // #4586: the back chevron may lead the head; "+ New task" still follows the title directly.
   assert.match(PAGE, /<div class="tsk-head">(?:<button class="sub-back" id="tsk-back"[^>]*>(?:(?!<\/button>)[\s\S])*<\/button>)?<h2 id="tsk-title">Tasks<\/h2><button class="btn uprime" id="tsk-new" type="button">/);
   assert.match(SCRIPT, /getElementById\('tsk-new'\)\.addEventListener\('click', openNewTaskFromTasks\)/);
+});
+
+test('kosmos#5956: the New task dialog asks how you will know it is done, and sends it as the first done-when check', () => {
+  assert.match(SCRIPT, /doneWhen: document\.getElementById\('nt-done'\)\.value\.trim\(\) \? \[document\.getElementById\('nt-done'\)\.value\.trim\(\)\] : undefined/);
+  assert.match(PAGE, /<label class="flabel tk-lab" for="nt-done">How will you know it is done\?<\/label>/);
+});
+
+test('kosmos#5956: Create stays down until both what needs doing and how you will know it is done are filled', () => {
+  const w = world(P);
+  w.api.NT_FOR = 'a';   // a kept draft for this project, so the words survive the open
+  w.els['nt-what'].value = 'Rewrite the handoff checklist';
+  w.api.openNewTask('a', 'tasks');
+  assert.equal(w.els['nt-go'].disabled, true, 'no done-when yet');
+  const v = world(P);
+  v.api.NT_FOR = 'a';
+  v.els['nt-what'].value = 'Rewrite the handoff checklist';
+  v.els['nt-done'].value = 'It fits on one page';
+  v.api.openNewTask('a', 'tasks');
+  assert.equal(v.els['nt-go'].disabled, false, 'CONTROL: both filled');
 });

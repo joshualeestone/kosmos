@@ -13761,9 +13761,16 @@ window.kosmosMeasureScrollbarWidth();
       <label class="flabel tk-lab" for="nt-what">What needs doing?</label>
       <input class="tk-inp" id="nt-what" type="text" maxlength="200" placeholder="Rewrite the handoff checklist">
     </div>
+    <!-- kosmos#5956: what done looks like is asked for at creation, as #4583 asks a project for its done-when. One line,
+         sent as the task's first done-when check (engine/tasks.js holds up to three, 200 characters each); the agent
+         answers it when it marks the task built. Required here only: agents and the CLI keep it optional. -->
+    <div class="field">
+      <label class="flabel tk-lab" for="nt-done">How will you know it is done?</label>
+      <input class="tk-inp" id="nt-done" type="text" maxlength="200" placeholder="The checklist fits on one page and the team has read it">
+    </div>
     <div class="field">
       <label class="flabel tk-lab" for="nt-detail">Anything they should know</label>
-      <div class="micwrap"><textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, what done looks like, anything you already tried."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="nt-detail" data-voice-name="Anything they should know" data-voice-msg="nt-voice-msg" aria-label="Talk instead of typing: Anything they should know" title="Talk instead of typing: Anything they should know" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
+      <div class="micwrap"><textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, anything you already tried."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="nt-detail" data-voice-name="Anything they should know" data-voice-msg="nt-voice-msg" aria-label="Talk instead of typing: Anything they should know" title="Talk instead of typing: Anything they should know" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       <p class="fmsg" id="nt-voice-msg" role="status" aria-live="polite"></p><!-- #4409 slice 2: the mic's own polite line; #nt-msg is an assertive alert -->
     </div>
     <!-- #3861 part 2: optional, none by default. The open tasks of the project the dialog is aimed
@@ -16939,6 +16946,7 @@ window.kosmosMeasureScrollbarWidth();
              with this task already picked as what it is part of. -->
         <h3 class="dlab" style="margin-top: var(--space-6);">Subtasks</h3>
         <div class="tksubs" id="tk-subs"></div>
+        <p class="dhint tksubs-done" id="tk-subs-built" hidden>All subtasks built. Check each one, then close it and this task.</p>
         <p class="dhint tksubs-done" id="tk-subs-done" hidden><span>All subtasks done.</span><button class="linkish" type="button" id="tk-subs-close">Close this task</button></p>
         <button class="linkish" type="button" id="tk-subadd">+ Add subtask</button>
       </section>
@@ -61049,7 +61057,7 @@ function paintProjectTasks(p) {
     const sub = t.subtasks && t.subtasks.total > 0 ? t.subtasks : null;
     const subLabel = sub ? sub.done + ' of ' + sub.total + ' subtasks done' : '';
     const chip = sub ? '<span class="tsk-chip" title="' + esc(subLabel) + '">' + sub.done + '/' + sub.total
-      + (sub.done === sub.total ? ', all subtasks done' : '<span class="vh"> subtasks done</span>') + '</span>' : '';
+      + (sub.done === sub.total ? ', all subtasks done' : (Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total) ? ', all subtasks built' : '<span class="vh"> subtasks done</span>') + '</span>' : '';
     const partOf = crumb && t.parent != null
       ? '<span class="tkcard-part-of">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
     return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + (depth ? ' sub' + depth : '') + '" type="button" data-task="' + n + '">'
@@ -61384,7 +61392,11 @@ function tskRow(t, at) {
   /* Every subtask closed, the parent still open: say so and offer Close. Closing the last child
      never closes the parent (nothing cascades, engine/tasks.js); the person decides here. */
   const allDone = sub && sub.done === sub.total && t.state !== 'closed'
-    ? '<span>all subtasks done</span><button type="button" data-close-parent="' + esc(tskKey(t)) + '">Close it</button>' : '';
+    ? '<span>all subtasks done</span><button type="button" data-close-parent="' + esc(tskKey(t)) + '">Close it</button>'
+    /* kosmos#5956: every subtask closed or built, some only built: the parent is ready for the person to check. No
+       Close here: the built subtasks are still open, and closing them is the person's call on each one. */
+    : sub && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total && t.state !== 'closed'
+      ? '<span>all subtasks built, ready for you to check</span>' : '';
   const partOf = place.crumb && t.parent != null
     ? '<span class="tsk-part">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
   /* A state this view does not know gets no label at all, never a group the engine did not name. */
@@ -62172,18 +62184,22 @@ function tkPaintSubtasks(p, t, closed) {
   const kids = (p.tasks || []).filter((x) => x && x.parent === t.number)
     .sort((a, b) => Number(a.number) - Number(b.number));
   const done = (x) => (x.progress ? Boolean(x.progress.closed) : Boolean(x.closedAt));
+  const built = (x) => !done(x) && typeof x.builtAt === 'string' && x.builtAt !== '';   // kosmos#5956
   const list = document.getElementById('tk-subs');
   if (list) {
     /* Change-guarded like the project column (TK_LIST_HTML): the poll repaints this page, and an
        unconditional write would take a keyboard user's focus off a subtask every tick. */
     const html = kids.length ? kids.map((x) => '<button class="tksub' + (done(x) ? ' done' : '') + '" type="button" data-sub="' + Number(x.number) + '">'
       + '<span class="tksub-n">#' + Number(x.number) + '</span><span class="tksub-t">' + esc(x.sentence) + '</span>'
-      + '<span class="tksub-s">' + (done(x) ? 'Done' : 'Open') + '</span></button>').join('')
+      + '<span class="tksub-s">' + (done(x) ? 'Done' : built(x) ? 'Built' : 'Open') + '</span></button>').join('')
       : '<p class="dhint" style="margin:0;">None yet. Break this task into smaller ones, each with its own page.</p>';
     if (list.innerHTML !== html) list.innerHTML = html;
   }
   const all = document.getElementById('tk-subs-done');
   if (all) all.hidden = !(kids.length && kids.every(done) && !closed);
+  /* kosmos#5956: every subtask closed or built, some only built: ready for the person to check each one. */
+  const ready = document.getElementById('tk-subs-built');
+  if (ready) ready.hidden = !(kids.length && !kids.every(done) && kids.every((x) => done(x) || built(x)) && !closed);
   const row = document.getElementById('tk-partof-row');
   const up = document.getElementById('tk-partof');
   const parent = t.parent != null ? (p.tasks || []).find((x) => x && x.number === t.parent) : null;
@@ -63219,7 +63235,7 @@ function openNewTask(projectId, origin, parent) {
       document.getElementById('nt-back').focus();
       return;
     }
-    const drafted = NT_FOR && ['nt-what', 'nt-detail'].some((id) => document.getElementById(id).value.trim());
+    const drafted = NT_FOR && ['nt-what', 'nt-detail', 'nt-done'].some((id) => document.getElementById(id).value.trim());
     sel.value = drafted && choices.some((c) => c.id === NT_FOR) ? NT_FOR : choices[0].id;
     p = pjById(sel.value);
     if (p && p.id !== NT_FOR) {
@@ -63236,7 +63252,8 @@ function openNewTask(projectId, origin, parent) {
   ntAimAt(p);
   document.getElementById('nt-msg').textContent = '';
   document.getElementById('nt-voice-msg').textContent = '';   // #4409 slice 2: the mic's line, like every dialog's
-  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
+  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim()
+    || !document.getElementById('nt-done').value.trim();   // kosmos#5956
   document.getElementById('nt-modal').hidden = false;
   /* With the picker showing, focus starts on it: its chosen project is heard first, before any
      words are typed for it. */
@@ -63257,6 +63274,7 @@ function ntAimAt(p) {
     NT_FOR = p.id;
     document.getElementById('nt-what').value = '';
     document.getElementById('nt-detail').value = '';
+    document.getElementById('nt-done').value = '';
   }
   const sel = document.getElementById('nt-who');
   /* The chosen assignee is part of the draft too: the rebuild below resets
@@ -63327,11 +63345,15 @@ document.getElementById('nt-proj').addEventListener('change', (e) => {
 document.getElementById('nt-back').addEventListener('click', leaveNewTask);
 // #3861 part 2: a Part of the person picks themselves is part of their draft, even after a preset.
 document.getElementById('nt-parent').addEventListener('change', (e) => { e.target.dataset.preset = ''; });
-// Create is held down until the one required thing exists (pack: disabled).
-document.getElementById('nt-what').addEventListener('input', () => {
+// Create is held down until the required things exist (pack: disabled): what needs doing and, kosmos#5956, how you
+// will know it is done.
+const ntGoState = () => {
   // No project to file it to (the Tasks view with none made yet): Create stays down whatever is typed.
-  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim() || !NT_PROJECT;
-});
+  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim()
+    || !document.getElementById('nt-done').value.trim() || !NT_PROJECT;
+};
+document.getElementById('nt-what').addEventListener('input', ntGoState);
+document.getElementById('nt-done').addEventListener('input', ntGoState);
 document.getElementById('nt-go').addEventListener('click', async () => {
   const p = pjById(NT_PROJECT);
   if (!p) return;
@@ -63343,6 +63365,7 @@ document.getElementById('nt-go').addEventListener('click', async () => {
       body: JSON.stringify({
         sentence: document.getElementById('nt-what').value,
         detail: document.getElementById('nt-detail').value.trim() || undefined,
+        doneWhen: document.getElementById('nt-done').value.trim() ? [document.getElementById('nt-done').value.trim()] : undefined,   // kosmos#5956
         who: document.getElementById('nt-who').value || undefined,
         parent: document.getElementById('nt-parent').value ? Number(document.getElementById('nt-parent').value) : undefined,
       }),
@@ -63357,6 +63380,7 @@ document.getElementById('nt-go').addEventListener('click', async () => {
     NT_FOR = null;
     document.getElementById('nt-what').value = '';
     document.getElementById('nt-detail').value = '';
+    document.getElementById('nt-done').value = '';
     leaveNewTask();
     if (NT_ORIGIN === 'tasks') {
       /* From the Tasks view: stay there. The view re-reads (a refresh, so ticks stay), and its

@@ -84,7 +84,7 @@ test('the project page rows carry the same tree facts as the Tasks view rows', (
     assert.equal(by[n].parentSentence, view[n].parentSentence, 'parentSentence of ' + n);
     assert.deepEqual(by[n].subtasks, view[n].subtasks, 'subtasks of ' + n);
   }
-  assert.deepEqual(by[1].subtasks, { done: 1, total: 2 });
+  assert.deepEqual(by[1].subtasks, { done: 1, built: 0, total: 2 });
 });
 
 const rowHtml = (t, at, sel) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey', 'claimNotReported', 'tskAgentName',
@@ -119,6 +119,37 @@ test('every subtask closed and the parent open: "all subtasks done" and Close it
   assert.match(crumbed, /class="tsk-row d1"/);
   assert.match(crumbed, /<span class="tsk-part">Part of #1 Press kit<\/span>/);
   assert.doesNotMatch(rowHtml(child, { depth: 1, crumb: false, kids: 0 }), /tsk-part/);
+});
+
+test('kosmos#5956: every subtask closed or built, some only built: "all subtasks built, ready for you to check", no Close', () => {
+  const base = { projectId: 'pp', projectName: 'P', number: 1, sentence: 'Launch', state: 'nobody' };
+  const ready = rowHtml(Object.assign({}, base, { subtasks: { done: 1, built: 1, total: 2 } }), { depth: 0, crumb: false, kids: 0 });
+  assert.match(ready, /<span>all subtasks built, ready for you to check<\/span>/);
+  assert.doesNotMatch(ready, /data-close-parent/, 'a built subtask is still open, so the parent is not offered Close');
+  assert.doesNotMatch(rowHtml(Object.assign({}, base, { subtasks: { done: 0, built: 1, total: 2 } }), { depth: 0, crumb: false, kids: 0 }),
+    /all subtasks built/, 'CONTROL: one subtask is neither closed nor built');
+  assert.doesNotMatch(rowHtml(Object.assign({}, base, { state: 'closed', subtasks: { done: 1, built: 1, total: 2 } }), { depth: 0, crumb: false, kids: 0 }),
+    /all subtasks built/, 'a closed parent says nothing');
+  assert.match(rowHtml(Object.assign({}, base, { subtasks: { done: 2, built: 0, total: 2 } }), { depth: 0, crumb: false, kids: 0 }),
+    /all subtasks done<\/span><button/, 'all closed keeps today\'s line and Close');
+});
+
+test('kosmos#5956: the task page marks a built subtask Built and says when every subtask is closed or built', () => {
+  const els = { 'tk-subs': { innerHTML: '' }, 'tk-subs-done': { hidden: true }, 'tk-subs-built': { hidden: true }, 'tk-partof-row': { hidden: true }, 'tk-partof': { textContent: '', dataset: {} } };
+  const project = { tasks: [
+    { number: 1, sentence: 'Launch', parent: null, progress: { closed: false } },
+    { number: 2, sentence: 'Copy', parent: 1, progress: { closed: false }, builtAt: '2026-10-12T15:00:00Z' },
+    { number: 3, sentence: 'Photos', parent: 1, progress: { closed: true } },
+  ] };
+  new Function('document', 'esc', 'p', 't', page.liftAll(SCRIPT, ['tkPaintSubtasks']) + '\n; tkPaintSubtasks(p, t, false);')(
+    { getElementById: (id) => els[id] || null }, ESC, project, project.tasks[0]);
+  assert.match(els['tk-subs'].innerHTML, /data-sub="2">[\s\S]*?<span class="tksub-s">Built<\/span>/);
+  assert.equal(els['tk-subs-built'].hidden, false);
+  assert.equal(els['tk-subs-done'].hidden, true, 'not every subtask is closed');
+  project.tasks[1].builtAt = undefined;
+  new Function('document', 'esc', 'p', 't', page.liftAll(SCRIPT, ['tkPaintSubtasks']) + '\n; tkPaintSubtasks(p, t, false);')(
+    { getElementById: (id) => els[id] || null }, ESC, project, project.tasks[0]);
+  assert.equal(els['tk-subs-built'].hidden, true, 'CONTROL: an open, unbuilt subtask hides it');
 });
 
 /* #3898 (April's review of #3885): the new strings a person or an agent types (a task's sentence, its

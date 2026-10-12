@@ -214,7 +214,11 @@ function treeOf(p) {
   const under = (n) => kids.get(Number(n)) || [];
   /* The parent's "2 of 5 done": its DIRECT children, finished by progressOf (parts included).
      Direct only: a grandchild is counted by its own parent, never twice up a chain. */
-  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, total: k.length }; };
+  /* kosmos#5956: `built` counts the open children marked built (builtAt), so a parent can say every subtask is built
+     and waiting for the person, not only every subtask closed. Marking built already asks the agent to answer the
+     task's done-when checks. */
+  const isBuilt = (t) => !progressOf(t).closed && typeof t.builtAt === 'string' && t.builtAt !== '';
+  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, built: k.filter(isBuilt).length, total: k.length }; };
   return { byNum, up, under, progress };
 }
 
