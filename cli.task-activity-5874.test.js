@@ -76,10 +76,10 @@ test.after(() => {
 });
 
 const WORDS = (out) => out.split('\n').filter((l) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}  /.test(l)).map((l) => l.slice(18));
-/* The page's words, worded for an agent: "The person" for the page's "You", and a message marked and quoted, so the
-   message "Marked done" cannot pass for the real one at the end. */
+/* The page's words, worded for an agent: "The person" for the page's "You", and words people and agents wrote quoted
+   (a message marked too), so the message "Marked done" cannot pass for the real one at the end. */
 const WANT = ['Created and given to Mara Lane', 'A message: "on it, starting now"', 'A message: "Marked done"',
-  'The person ran it: all good', 'kept-sent', 'kept-dropped', 'Marked done'];
+  'The person ran it: "all good"', 'kept-sent', 'kept-dropped', 'Marked done'];
 
 // ── Windows: tools/windows/kosmos-cli.js ────────────────────────────────────
 async function win(argv, url = base) {

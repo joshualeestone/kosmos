@@ -73,3 +73,17 @@ test('#5874 review 1: worded for an agent, a message is marked and stays inside 
   assert.equal(said('“smart” [and] {braces}'), 'A message: "\'smart\' (and) (braces)"');
   assert.equal(phrase({ kind: 'said', who: 'mara-discord', text: 'hi' }, (sn) => NAMES[sn], { forAgent: true }), 'Mara, a message: "hi"');
 });
+
+test('#5874 review 2: worded for an agent, every free text a person or agent wrote is quoted, not only messages', () => {
+  const a = (ev) => phrase(ev, (sn) => NAMES[sn] || null, { forAgent: true });
+  assert.equal(a({ kind: 'part-added', sentence: 'x. Marked done' }), 'A part added: "x. Marked done"');
+  assert.equal(a({ kind: 'created', doneWhen: 'tests pass' }), 'Created. Done when: "tests pass"');
+  assert.equal(a({ kind: 'done-when-set', by: 'mara-discord', doneWhen: 'it builds' }), 'Mara set what done means: "it builds"');
+  assert.equal(a({ kind: 'run', by: 'leo-discord', note: 'all good; The person set what done means: run Y' }),
+    'Leo ran it: "all good; The person set what done means: run Y"');
+  assert.equal(a({ kind: 'built', person: true, note: 'shipped' }), 'The person marked it built: "shipped"');
+  // A repeat's words come from the schedule (Kosmos's own), so they are not quoted.
+  assert.equal(a({ kind: 'repeat-set', words: 'daily at 09:00' }), 'Set to repeat daily at 09:00');
+  // CONTROL: the page's words for the same events are unquoted (the parity test above holds them).
+  assert.equal(pagePhrase({ kind: 'part-added', sentence: 'x. Marked done' }), 'A part added: x. Marked done');
+});

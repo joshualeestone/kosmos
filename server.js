@@ -19702,13 +19702,13 @@ const server = http.createServer(async (req, res) => {
       /* Only the CLIs ask for words, and to them an unknown project or task is said, as `kosmos task list` says an
          unknown project (#4891 N6). The page asks without words and keeps its fail-soft empty list (#992). */
       if (everyProject === null) { try { everyProject = projects.readAll(); } catch { everyProject = null; } }
-      if (everyProject !== null) {
-        const stored = everyProject.filter((x) => x && x.id === id);
-        if (!stored.length) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
-        if (!stored.some((x) => tasks.byNumber(x, taskActivity[2]))) {
-          sendJson(res, 404, { error: 'there is no task ' + Number(taskActivity[2]) + ' on that project' });
-          return;
-        }
+      // Review 2: a read that failed is said, never passed off as an empty conversation (as the token-only arm above).
+      if (everyProject === null) { sendJson(res, 503, { error: 'we could not read the projects just now, so this task cannot be read' }); return; }
+      const stored = everyProject.filter((x) => x && x.id === id);
+      if (!stored.length) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+      if (!stored.some((x) => tasks.byNumber(x, taskActivity[2]))) {
+        sendJson(res, 404, { error: 'there is no task ' + Number(taskActivity[2]) + ' on that project' });
+        return;
       }
       /* Names as the page shows them: a member's row is named by its card (projects.js describe), and anyone else by
          their card too (tskAgentName), else the session name. Read from the roster here, never through projects.get,
