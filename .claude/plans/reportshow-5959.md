@@ -33,3 +33,5 @@ expressions by text (review 4). A report an operator or an unknown writer left i
 Deferred (review 6): no route-level test of a crash-looping or reconnecting card. The route's card is safeRoster's,
 which adds crashLoop and reconnect with the same expressions /api/status uses; stateReportedBy is covered end to end
 ("Question"); the labels themselves are pinned by the parity test.
+Deferred (review 8): the parity test reads the page with \n anchors; it is not in the Windows job (tools/windows-tests.js)
+and Windows CI checks out with core.autocrlf false. The route's card fields remain the stated premise above.
