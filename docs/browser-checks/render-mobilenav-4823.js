@@ -118,24 +118,32 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
     const browser = await playwright[engine].launch(engine === 'chromium'
       ? { headless: process.env.HEADED === '0', args: ['--host-resolver-rules=MAP remote.test 127.0.0.1'] }
       : { headless: process.env.HEADED === '0' });
+    // kosmos#5921: a request the page abandoned (Log out reloads it) has nothing left to fulfil, and Playwright throws
+    // "Fetch response has been disposed" or "closed" from inside a route handler, where nothing catches it and the
+    // whole check dies. Only that is swallowed; any other routing error still throws.
+    const abandoned = (e) => /has been disposed|has been closed/.test(String(e && e.message));
     const open = async (host, theme, opts) => {
       const ctx = await browser.newContext(Object.assign({ viewport: { width: 430, height: 932 }, colorScheme: theme, hasTouch: true, serviceWorkers: 'block' }, opts || {}));
       if (engine === 'webkit' && host === 'remote.test') {
         // remote.test answered by the same board on loopback; the Host header stays remote.test, which the board accepts.
         await ctx.route(/^http:\/\/remote\.test(:\d+)?\//, async (r) => {
-          const u = new URL(r.request().url());
-          const res = await r.fetch({ url: 'http://127.0.0.1:' + port + u.pathname + u.search, headers: Object.assign({}, r.request().headers(), { host: 'remote.test:' + port }) });
-          return r.fulfill({ response: res });
+          try {
+            const u = new URL(r.request().url());
+            const res = await r.fetch({ url: 'http://127.0.0.1:' + port + u.pathname + u.search, headers: Object.assign({}, r.request().headers(), { host: 'remote.test:' + port }) });
+            return await r.fulfill({ response: res });
+          } catch (e) { if (!abandoned(e)) throw e; }
         });
       }
       const page = await ctx.newPage();
       page.on('pageerror', (e) => errs.push(engine + ' ' + theme + ': ' + e.message));
       // A known context reading and an unread message, so the ring and the bubbles have something to show.
       await page.route('**/api/status*', async (r) => {
-        const res = await r.fetch({ url: r.request().url().replace(/^http:\/\/remote\.test/, 'http://127.0.0.1') }); let j;
-        try { j = await res.json(); } catch { return r.fulfill({ response: res }); }
-        (j.agents || []).forEach((a, i) => { a.context = Object.assign({}, a.context || {}, { percent: 40 + i * 20 }); a.dmUnread = i === 0 ? 3 : 0; });
-        return r.fulfill({ response: res, json: j });
+        try {
+          const res = await r.fetch({ url: r.request().url().replace(/^http:\/\/remote\.test/, 'http://127.0.0.1') }); let j;
+          try { j = await res.json(); } catch { return await r.fulfill({ response: res }); }
+          (j.agents || []).forEach((a, i) => { a.context = Object.assign({}, a.context || {}, { percent: 40 + i * 20 }); a.dmUnread = i === 0 ? 3 : 0; });
+          return await r.fulfill({ response: res, json: j });
+        } catch (e) { if (!abandoned(e)) throw e; }
       });
       await page.route('**/api/remote/computers*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TWO) }));
       await page.route('**/_kosmos/logout', (r) => r.fulfill({ status: 404, body: '' }));
