@@ -85,5 +85,9 @@ test('#5995: the page wires the box: the email step fills it, a typed character 
   assert.match(SCRIPT, /'plus-si-computer': 'plus-signin-code'/, 'Enter in the box no longer asks for the code');
   const field = HTML.slice(HTML.indexOf('id="plus-si-computer-field"'), HTML.indexOf('id="plus-signin-code"'));
   assert.match(field, /<label class="flabel" for="plus-si-computer">Name for this computer<\/label>/);
-  assert.match(field, /id="plus-si-computer"[^>]*maxlength="47"/, 'the box no longer stops at what fits before the ending the engine adds');
+  const max = Number((/id="plus-si-computer"[^>]*maxlength="(\d+)"/.exec(field) || [])[1]);
+  /* The box's limit is the engine's: the longest name deviceNameFrom keeps whole, and one more is cut. */
+  const { deviceNameFrom } = require('./engine/remote');
+  assert.equal(deviceNameFrom('x'.repeat(max)), 'x'.repeat(max) + ' (Kosmos app)', 'the box lets a name through that the engine then cuts');
+  assert.equal(deviceNameFrom('x'.repeat(max + 1)), 'x'.repeat(max) + ' (Kosmos app)', 'the box stops short of what the engine would keep');
 });
