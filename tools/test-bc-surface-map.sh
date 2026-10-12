@@ -199,16 +199,23 @@ _fbok=1
 for _in in "$TMP/wd-parent" "$TMP/ids-two"; do
   _scan="$(bash "$BCM" covering < "$_in" 2>&1; echo "rc=$?")"
   _fall="$(TMPDIR="$TMP/no-such-dir" bash "$BCM" covering < "$_in" 2>&1; echo "rc=$?")"
+  # The fallback was really taken: under that TMPDIR the scan itself cannot run.
+  TMPDIR="$TMP/no-such-dir" bash -c '. "$1" && bc_surface_scan_checks "$2" x' _ "$HERE/lib/browser-check-surface-lib.sh" "$HERE/../docs/browser-checks" >/dev/null 2>&1 \
+    && { fail "covering: the scan still ran under TMPDIR=$TMP/no-such-dir, so the fallback arm compared the scan with itself"; _fbok=0; }
   [ "$_scan" = "$_fall" ] && [ "$_scan" != "rc=0" ] || { fail "covering: the fallback answered '$_fall' where the scan path answered '$_scan' (${_in##*/})"; _fbok=0; }
 done
 [ "$_fbok" -eq 1 ] && pass "covering: the fallback (scan unable to run) answers exactly as the scan path, on a diff and an id list"
-# And the scan path is really the one covering takes by default: the scan itself runs here and finds the pj-parent HIT,
-# so a scan that always failed (every query back on the slow path, still right) goes red here.
-_scanout="$(bash -c '. "$1" && bc_surface_scan_checks "$2" "$3"' _ "$HERE/lib/browser-check-surface-lib.sh" "$HERE/../docs/browser-checks" "$(cat "$TMP/wd-parent")" 2>/dev/null)"; _scanrc=$?
-if [ "$_scanrc" -eq 0 ] && printf '%s\n' "$_scanout" | grep -q "render-subprojects-1994.js${TAB_CHAR:-	}HIT"; then
-  pass "covering: the one-pass scan runs (rc 0) and finds the pj-parent HIT itself"
+# And covering really takes the scan by default: an `awk` first on PATH logs each call. For a plain id list the original
+# path runs no awk at all (the map is sed, the match is grep), so a logged call means covering went through the scan,
+# and a covering that stopped calling it (every query silently slow again) goes red here.
+_shim="$TMP/shim"; mkdir -p "$_shim"; _realawk="$(command -v awk)"
+printf '#!/bin/sh\necho called >> "%s/awk.log"\nexec "%s" "$@"\n' "$TMP" "$_realawk" > "$_shim/awk"; chmod +x "$_shim/awk"
+: > "$TMP/awk.log"
+_viascan="$(PATH="$_shim:$PATH" bash "$BCM" covering < "$TMP/ids-two" 2>/dev/null)"
+if [ -s "$TMP/awk.log" ] && [ -n "$_viascan" ]; then
+  pass "covering: a query goes through the one-pass scan by default (its awk ran) and still names the covering checks"
 else
-  fail "covering: the one-pass scan did not run or did not find the pj-parent HIT (rc=$_scanrc), so covering is on the slow path"
+  fail "covering: a plain id-list query never reached the one-pass scan (no awk call logged), so covering is on the slow path"
 fi
 
 echo "bc-surface-map: $fails FAILED"
