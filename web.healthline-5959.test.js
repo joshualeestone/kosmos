@@ -48,13 +48,18 @@ test('#5959 slice 2: the health line says sign-in, usage and when Kosmos last sa
     assert.equal(healthLine({ state, lastWorked: { at: new Date(at5).toISOString(), why: null } }, NOW), 'Last seen working: ' + clock(at5), state);
   }
   // Sign-in "no problem" only for Claude: another runner's state cannot show a sign-in that stopped working here.
-  for (const runner of ['codex', 'gemini', 'grok']) {
+  for (const runner of ['codex', 'gemini']) {
     assert.equal(healthLine({ state: 'idle', runner, lastWorked: seen }, NOW), 'Usage: no limit showing · Last seen working: ' + clock(at5), runner);
+  }
+  // Nothing reads a Grok limit yet, so "no limit" is not said for it either; a limit it shows still would be.
+  assert.equal(healthLine({ state: 'idle', runner: 'grok', lastWorked: seen }, NOW), 'Last seen working: ' + clock(at5));
+  assert.match(healthLine({ state: 'rate_limited', runner: 'grok', stateConfidence: 'structured', lastWorked: seen }, NOW), /^Usage: limit reached · /);
+  for (const runner of ['codex', 'gemini', 'grok']) {
     assert.match(healthLine({ state: 'auth_failed', runner, stateConfidence: 'structured', lastWorked: seen }, NOW), /^Sign-in: isn't working · /, runner + ': a problem is still said');
   }
   assert.match(healthLine({ state: 'idle', runner: 'claude', lastWorked: seen }, NOW), /^Sign-in: no problem showing · /, 'CONTROL: a Claude card');
-  // No runner field (an older card): not said, since only Claude's state can show a dead sign-in.
-  assert.equal(healthLine({ state: 'idle', lastWorked: seen }, NOW), 'Usage: no limit showing · Last seen working: ' + clock(at5));
+  // No runner field (an older card): neither is said, since neither can be tied to a runner whose state shows it.
+  assert.equal(healthLine({ state: 'idle', lastWorked: seen }, NOW), 'Last seen working: ' + clock(at5));
   // Seen working over an hour ago: a sign-in may have lapsed since, so "no problem" is not said; a problem still is.
   const old = { at: new Date(NOW - 2 * 3600e3).toISOString(), why: null };
   assert.equal(healthLine({ state: 'idle', runner: 'claude', lastWorked: old }, NOW), 'Last seen working: ' + clock(NOW - 2 * 3600e3));
