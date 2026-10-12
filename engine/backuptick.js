@@ -236,7 +236,13 @@ function inputsHere(deps = {}) {
   // the board's readers use (create.defaultAgentCodexHome, create.geminiStorageHome). An agent whose job cannot be
   // read keeps the plain defaults. NOT covered: a move between two NAMED accounts leaves the first account's sessions
   // unread (#5883).
-  const acctTag = (home) => '-a' + require('crypto').createHash('sha256').update(path.resolve(home)).digest('hex').slice(0, 8);
+  // Hashed on the folder's TRUE path (review 4): a job naming the account through a link or another spelling gets the
+  // same name, so its rollouts are not stored again. A folder that does not resolve hashes as given.
+  const acctTag = (home) => {
+    let p = path.resolve(home);
+    try { p = fs.realpathSync.native(p); } catch { /* as given */ }
+    return '-a' + require('crypto').createHash('sha256').update(p).digest('hex').slice(0, 8);
+  };
   const sessions = (dir, id, name) => {
     let job = null;
     try { job = (deps.readJob || create.readJob)(name); } catch { job = null; }

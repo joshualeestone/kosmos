@@ -65,3 +65,9 @@ above). R5 the account home named codex: red. R6 a role tag (-default) instead o
    drop the other. No test makes codexruntime.forAgent throw.
 3. NOTED on #5883: Antigravity agents (Gemini on a Google subscription) are not read here either, as before.
 Tests 37 -> 38.
+
+## Review 4 (sonnet, blind, on 588b3d6e): no must-fix; two nits, both fixed
+1. FIXED: the review-3 test changed the environment before its try, so a throw there would leak into later tests.
+2. FIXED: acctTag hashed the path as spelled; one account folder named through a link or another spelling got two
+   names and its rollouts were stored twice. Now hashed on the true path. Test with a control (another folder, another
+   name). Mutant U1 (hash the spelling again, 20:43 CDT from `date`): red. Tests 38 -> 39.
