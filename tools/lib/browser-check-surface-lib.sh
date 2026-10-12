@@ -37,7 +37,8 @@ bc_surface_token_hits() {
 
 # #5907: every annotated check in ONE pass, for a consumer that would otherwise call bc_surface_tokens_of and
 # bc_surface_token_hits per check and per token (about 4,000 processes on the real tree; the gate took ~17 s a call).
-# Prints, in find's order, one line per check whose annotation is non-empty:
+# Prints, in find's order, one line per check whose annotation is non-empty, and a SLOW line for a check whose key
+# appears in a shape this match refuses (it may turn out to have no annotation; the consumer's sed decides):
 #     <path> TAB <verdict> TAB <token>
 # HIT: the first token (in the check's order) that is PLAIN ([A-Za-z0-9_-]+) and occurs whole in $2; it is that token.
 # MISS: every token is plain and none occurs whole in $2.
@@ -52,9 +53,10 @@ bc_surface_token_hits() {
 # annotation the ambient-locale grep and sed fail on, so the gate is then stricter than before, never looser.
 #   $1 = checks dir   $2 = changed text
 bc_surface_scan_checks() {
-  local _list _chg _rc
+  local _list _chg _out _rc
   _list="$(mktemp "${TMPDIR:-/tmp}/bcsg-list.XXXXXX" 2>/dev/null)" || return 2
   _chg="$(mktemp "${TMPDIR:-/tmp}/bcsg-chg.XXXXXX" 2>/dev/null)" || { rm -f "$_list"; return 2; }
+  _out="$(mktemp "${TMPDIR:-/tmp}/bcsg-out.XXXXXX" 2>/dev/null)" || { rm -f "$_list" "$_chg"; return 2; }
   find "$1" -maxdepth 1 -type f -name '*.js' 2>/dev/null > "$_list"
   printf '%s\n' "$2" > "$_chg"
   LC_ALL=C command awk '
@@ -68,7 +70,7 @@ bc_surface_scan_checks() {
         if (line ~ /[Bb][Rr][Oo][Ww][Ss][Ee][Rr]-[Cc][Hh][Ee][Cc][Kk]-[Ss][Uu][Rr][Ff][Aa][Cc][Ee]:/) { odd = 1; break }
       }
       close(f)
-      if (r < 0) { bad = 1; exit 3 }
+      if (r < 0) exit 3
       if (odd) { printf "%s\tSLOW\t\n", f; next }
       if (!found) next
       rest = substr(line, RSTART + RLENGTH)
@@ -80,9 +82,9 @@ bc_surface_scan_checks() {
         else { v = "SLOW"; break }
       }
       printf "%s\t%s\t%s\n", f, v, hit
-    }' "$_chg" "$_list" > "$_chg.out"
+    }' "$_chg" "$_list" > "$_out"
   _rc=$?
-  [ "$_rc" -eq 0 ] && cat "$_chg.out"
-  rm -f "$_list" "$_chg" "$_chg.out"
+  [ "$_rc" -eq 0 ] && cat "$_out"
+  rm -f "$_list" "$_chg" "$_out"
   return "$_rc"
 }

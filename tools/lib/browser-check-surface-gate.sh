@@ -139,7 +139,8 @@ kosmos_browser_check_surface_gate() {
   [ -d "$bcdir" ] || return 0                       # no checks dir: nothing to map (fail-soft)
   ann_list="$(find "$bcdir" -maxdepth 1 -type f -name '*.js' 2>/dev/null || true)"
   # #5907: every check's verdict in one pass (bc_surface_scan_checks: HIT with its first token, MISS, or SLOW), so a
-  # check is read by the per-token path only when a non-plain token comes before any plain hit. If the scan cannot run, every check
+  # check is read by the per-token path only when the scan says SLOW (a non-plain token before any plain hit, or a key
+  # line the scan's C-locale match refuses). If the scan cannot run, every check
   # takes that path, as before. A MISS check needs nothing more unless a trailer could name it, so with no
   # `Browser-check-surface:` trailer at all it is skipped (it could neither violate nor print an override line).
   scan="$(bc_surface_scan_checks "$bcdir" "$changed")" \
