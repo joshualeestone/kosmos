@@ -41,4 +41,15 @@ tunnel that cannot reach the coordinator fails the sign-in step, loudly.
 - Both arms with the 10-03 relay binaries (renet-grace-1330): main's harness must FAIL at the
   own-code join (the defect, measured rather than reasoned); this branch must PASS end to end.
 - Then this branch with a fresh debug build of kosmos-relay origin/main 703738ab.
-- Results: pending (queued on the local machine queue, 2026-10-05).
+- Results, 2026-10-06: this branch reported VERDICT PASS (49/49) on the machine queue (fedproof-arm-4693d.log).
+- **Re-run 2026-10-11 23:23 CDT (Ice Cream Kitty), after rebasing onto main (2598 commits on):** VERDICT PASS (49/49
+  checks, 54 s), through queued-heavy. The relay binaries were built from kosmos-relay origin/main 0578de95, which
+  contains the live coordinator 9b3a8b7f, into their own external target.
+  - Step 7a: "C is REFUSED A's own code [verify 409, join null]". Step 7c: the negative control reports FAIL for a
+    string that was never posted.
+  - **Built wrong twice first, recorded:** a first build ran in an old 10-05 worktree (703738ab). A second used the
+    usage note's `-p ... --bin kosmos-coordinator`, which filtered the whole build to the coordinator binary, so
+    kosmos-relay and kosmos-tunnel stayed Oct 6 artifacts. The third named all three binaries and checked each was
+    newer than the build start. The usage note is fixed on this branch.
+- **Not re-measured:** main's unfixed harness failing on current code (the control arm). It was measured failing on
+  10-06. The cause is a design fact unchanged on main (a coordinator reached by IP has no computer domain, #4699).
