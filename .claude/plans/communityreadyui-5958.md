@@ -301,3 +301,17 @@ replaced by tests of the new one. That is a change of behaviour, not a tidy-up: 
   comment now shows that its row names no agent, so the shown-name fallback is what counts it.
 - **NITs, not taken:** a delete the board refuses (400) also reads the rows again and has no arm; a held local comment
   whose shown name is another agent's session name would be counted for that agent (stated in the code).
+
+## Review 16 (2026-10-12, sonnet, the plain brief plus the layout line)
+No new finding to act on:
+- **WARNING, a duplicate:** the browser check has never run. It is queued.
+- **WARNING, not taken:** the rows are read when Automation opens and when something they name is saved, not while the
+  page sits open, so a post that goes out meanwhile shows on the next open. That is the cadence of the two lists above
+  them, which go stale the same way about the same posts (#4313 chose it: "repaint each time Automation opens").
+  Reading this list alone on a timer or on tab focus would have it disagree with the lists it sits under.
+- **NITs, not taken:** the list is read at page load as its neighbours are; the toggle listener; the apostrophe
+  replace runs over fixed words only.
+
+The loop ends here: sixteen rounds, two models alternating. Round 6 ran on a narrowed brief and does not count; rounds
+7 to 16 ran on the plain brief (12 to 16 with one added line asking for the layout to be worked through).
+What the sixteen rounds did NOT do: run the page. Every layout and paint claim in this file is from reading.
