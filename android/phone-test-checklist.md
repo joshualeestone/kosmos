@@ -92,7 +92,8 @@ may be a plain browser error, or one written for the Mac. Better wording for whe
 answering is written but not switched on yet, so there is no wrong answer here. We just want to see
 it on a real phone.
 
-> **iPhone TestFlight builds named Kosmos Preview (`io.kosmos.app.preview`, kosmos #4089):** steps 6 to 8
+> **iPhone TestFlight builds listed as Kosmos Preview (`io.kosmos.app.preview`, kosmos #4089; the icon on
+> the phone still says Kosmos):** steps 6 to 8
 > cannot pass on them, by design. The coordinator does not allow that app for notifications: iOS still
 > asks to allow notifications, then nothing more happens (no message, no notification). Record
 > "skipped: preview build" and do not file it as a defect.
