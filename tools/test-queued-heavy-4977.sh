@@ -245,7 +245,7 @@ run5923() {   # run5923 <name> [env assignments...]: runs the real wrapper with 
 lh5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse HEAD; }
 lm5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse origin/main; }
 printf 'p1\nn/\n' > $S/cwd5923
-for n in mv mk ps sh set dirty nops cwd nocwd reuse dead ahead same branch claim need psx nopid live mvfail; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
+for n in mv mk ps sh set dirty nops cwd nocwd reuse dead ahead same branch claim need psx nopid live mvfail mvkeep mvmix noorig unw sideneed; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
 run5923 mv
 ok "#5923: the default lib checkout behind origin/main, nothing live: moved to origin/main, said so, run runs, lock gone" '[ "$rc" = 0 ] && [ -e $S/l5923-mv-ran ] && [ "$(lh5923 mv)" = "$(lm5923 mv)" ] && [[ "$o" == *"moved"*"-> origin/main"*"cut-guard.sh differed"* ]] && [ ! -e $S/ml5923-mv/queued-heavy-lib.lock ]'
 run5923 mv
@@ -314,7 +314,9 @@ mkdir -p $S/ml5923-live/queued-heavy-lib.lock && ps -ww -o command= -p $H > $S/m
 LIVE5923=$!
 # Wait until the wrapper itself is running (re-exec'd, so past perl and its start-up), then give it time to reach the lock.
 until_true 30 'pgrep -f "^/bin/bash $REAL_QH --queued-args" >/dev/null'
-sleep 3
+# Then until it is IN the lock loop: its first sleep (0.5 s between lock reads) is the only one before the lib loads.
+wp5923="$(pgrep -f "^/bin/bash $REAL_QH --queued-args" | head -1)"
+until_true 30 '[ -n "$wp5923" ] && pgrep -P "$wp5923" -x sleep >/dev/null'
 live_held5923="$(lh5923 live)"; live_waiting5923=0; kill -0 $LIVE5923 2>/dev/null && live_waiting5923=1   # still waiting, not finished
 rm -rf $S/ml5923-live/queued-heavy-lib.lock
 wait $LIVE5923
@@ -328,6 +330,25 @@ ok "#5923: a default folder that is a git checkout without cut-guard.sh exits 3 
 # A checkout stopped part way (seam: one file changed, rc 1) is put back at the old commit by force, and the line says so.
 run5923 mvfail QH_TEST_MOVE_FAIL=1
 ok "#5923: a move stopped part way is put back at the old commit, clean, and the line says so" '[ "$rc" = 0 ] && [ "$(lh5923 mvfail)" != "$(lm5923 mvfail)" ] && [ -z "$($GE git -C $S/l5923-mvfail/work/kosmos-bc-main-4610 status --porcelain --untracked-files=no)" ] && [[ "$o" == *"git checkout failed (rc 1) and the checkout was put back at"* ]]'
+# A checkout that failed before changing anything, and whose checkout back failed too, is NOT reported as mixed.
+run5923 mvkeep QH_TEST_MOVE_FAIL=nochange QH_TEST_RESTORE_FAIL=1
+ok "#5923: a failed move that changed nothing, with the checkout back failing too, says unchanged, not MIXED" '[ "$rc" = 0 ] && [ -e $S/l5923-mvkeep-ran ] && [ "$(lh5923 mvkeep)" != "$(lm5923 mvkeep)" ] && [[ "$o" == *"(rc 128) and left the checkout unchanged at"* ]] && [[ "$o" != *MIXED* ]]'
+# Its control: a move stopped part way whose checkout back fails is reported MIXED, with the repair command.
+run5923 mvmix QH_TEST_MOVE_FAIL=1 QH_TEST_RESTORE_FAIL=1
+ok "#5923 CONTROL: a move stopped part way that cannot be put back says FAILED PART WAY, MIXED, and the repair" '[ "$rc" = 0 ] && [[ "$o" == *"FAILED PART WAY (rc 1)"*"may be MIXED; repair with: git -C"*"checkout -f --detach"* ]]'
+# No origin/main to compare with: says so, moves nothing, and the run runs.
+$GE git -C $S/l5923-noorig/work/kosmos-bc-main-4610 update-ref -d refs/remotes/origin/main
+run5923 noorig
+ok "#5923: a checkout with no origin/main says so, is not moved, and the run runs" '[ "$rc" = 0 ] && [ -e $S/l5923-noorig-ran ] && [[ "$o" == *"has no origin/main to compare with (#5923)"* ]] && [[ "$o" != *moved* ]]'
+# An unwritable marker dir: no lock can be taken there, so the check is skipped, the line says so, and nothing moves.
+mkdir -p $S/ml5923-unw && chmod 555 $S/ml5923-unw
+run5923 unw
+chmod 755 $S/ml5923-unw
+ok "#5923: an unwritable marker dir skips the check, says the lib is loaded unchecked, and moves nothing" '[ "$(lh5923 unw)" != "$(lm5923 unw)" ] && [[ "$o" == *"is not writable, so the lib is loaded unchecked (#5923)"* ]]'
+# Origin/main's lib offers side turns (kosmos_light_side_clear) but lacks a side-lane function this copy then calls.
+d5923=$S/l5923-sideneed/work/kosmos-bc-main-4610; $GE git -C $d5923 checkout -q --detach origin/main && sed -i.bak 's/^kosmos_release_light_side()/kosmos_release_light_side_gone()/' $d5923/tools/lib/cut-guard.sh && rm -f $d5923/tools/lib/cut-guard.sh.bak && $GE git -C $d5923 $GC5923 commit -qam drop && $GE git -C $d5923 update-ref refs/remotes/origin/main HEAD && $GE git -C $d5923 checkout -q --detach HEAD~2
+run5923 sideneed
+ok "#5923: origin/main's lib offers side turns but lacks a side-lane function: not moved, names it, the run runs" '[ "$rc" = 0 ] && [ -e $S/l5923-sideneed-ran ] && [ "$(lh5923 sideneed)" != "$(lm5923 sideneed)" ] && [[ "$o" == *"has no kosmos_release_light_side, which this copy calls"* ]]'
 # The REAL ps (no QH_TEST_PS): the run's own pipeline subshell keeps this script's argv and must not read as a waiter.
 # QH_TEST_PS_NAME gives the script a name no real waiter on this box carries. Control: a live process of that name blocks.
 for n in rp rpc; do qh_lib5923 $S/l5923-$n; mkdir -p $S/ml5923-$n $S/rp5923-$n; cp "$REAL_QH" $S/rp5923-$n/qh5923self-$U.sh; done
@@ -481,7 +502,7 @@ sed 's|  exec /bin/bash "${BASH_SOURCE\[0\]}" --queued-args "$_qh_af"|  exec /no
 mkdir -p $S/tmpx; o=$(TMPDIR=$S/tmpx KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash $S/qh-noexec.sh "noexec" true 2>&1); r=$?
 ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"could not restart itself"* ]] && [ -z "$(ls $S/tmpx)" ] && grep -q /nonexistent/bash $S/qh-noexec.sh'
 
-EXPECTED=130   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, twenty-five #5923 lib-drift arms
+EXPECTED=135   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty #5923 lib-drift arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"

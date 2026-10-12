@@ -134,7 +134,8 @@ fi
 # Test seams, never set in production: QH_TEST_PS names a command printing "pid ppid command" lines in place of ps;
 # QH_TEST_PS_NAME replaces the script name matched (queued-heavy.sh), so a test sees only its own processes;
 # QH_TEST_CWD names a command printing lsof -Fn style lines (n<directory>) in place of the working-directory probe;
-# QH_TEST_MOVE_FAIL stands in for a checkout stopped part way.
+# QH_TEST_MOVE_FAIL stands in for a checkout stopped part way (=nochange: one that failed before touching anything);
+# QH_TEST_RESTORE_FAIL stands in for the forced checkout back failing too.
 QH_LIB_LOCK=""
 # The functions this script calls unguarded from the lib (checked again after the load, below).
 QH_NEED_BASE="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_suite_waiting kosmos_refuse_if_earlier_suite_waiter _kosmos_suite_waiter_file kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
@@ -211,24 +212,31 @@ _qh_lib_check() {
     # No trap is set yet at this point (the EXIT and signal traps come later), so the reset below drops nothing; a trap
     # added earlier in the script would be wiped by it and must be restored here instead.
     trap '' INT TERM HUP
-    if [ -n "${QH_TEST_MOVE_FAIL:-}" ]; then
+    if [ "${QH_TEST_MOVE_FAIL:-}" = nochange ]; then mrc=128   # test seam: a checkout that failed before changing anything
+    elif [ -n "${QH_TEST_MOVE_FAIL:-}" ]; then
       echo '# a partial move' >> "$LIB_CHECKOUT/tools/lib/cut-guard.sh"; mrc=1   # test seam: a checkout stopped part way
     else
       set -m
-      $g -c core.hooksPath=/dev/null checkout -q --detach "$main" 2>"$gerr" &
+      $g -c core.hooksPath=/dev/null checkout -q --detach "$main" </dev/null >/dev/null 2>"$gerr" &   # off the terminal: a stopped job (SIGTTIN/TTOU) would hang the wait
       gp=$!
       set +m
       wait "$gp" || mrc=$?
     fi
     trap - INT TERM HUP
     if [ "$mrc" = 0 ]; then
-      rm -f "$gerr"
+      [ "$gerr" = /dev/null ] || rm -f "$gerr"   # never remove /dev/null (the fallback when mktemp fails)
       echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT moved ${head:0:9} -> origin/main ${main:0:9}: ${diff} differed and no queue waiter, claim or process inside it was live (#5923; back with: git -C '$LIB_CHECKOUT' checkout --detach $head)"
       return 0
     fi
-    local gmsg; gmsg="$(head -c 300 "$gerr" 2>/dev/null | tr '\n' ' ')"; rm -f "$gerr"
-    if $g -c core.hooksPath=/dev/null checkout -q -f --detach "$head" >/dev/null 2>&1 && [ -z "$($g status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+    local gmsg; gmsg="$(head -c 300 "$gerr" 2>/dev/null | tr '\n' ' ')"; [ "$gerr" = /dev/null ] || rm -f "$gerr"
+    # Forced back to the old commit: this discards any tracked edit made inside the checkout since the clean check above.
+    if [ -z "${QH_TEST_RESTORE_FAIL:-}" ] && $g -c core.hooksPath=/dev/null checkout -q -f --detach "$head" </dev/null >/dev/null 2>&1 \
+       && [ -z "$($g status --porcelain --untracked-files=no 2>/dev/null)" ]; then
       why="git checkout failed (rc $mrc${gmsg:+: $gmsg}) and the checkout was put back at ${head:0:9}"
+    # The checkout back failed too (the same index.lock, say), but nothing had changed: still at the old commit, no
+    # tracked file differing from it (diff exits non-zero on a difference AND on an error, so an error reads as MIXED).
+    elif [ "$($g rev-parse --verify -q HEAD 2>/dev/null)" = "$head" ] && $g diff --quiet HEAD -- >/dev/null 2>&1; then
+      why="git checkout failed (rc $mrc${gmsg:+: $gmsg}) and left the checkout unchanged at ${head:0:9}"
     else
       echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT: the move to origin/main ${main:0:9} FAILED PART WAY (rc $mrc${gmsg:+: $gmsg}) and could not be put back, so its files may be MIXED; repair with: git -C '$LIB_CHECKOUT' checkout -f --detach $head (#5923)"
       return 0
