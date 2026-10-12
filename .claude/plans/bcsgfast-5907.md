@@ -20,7 +20,8 @@ escape `sed`s, a `grep` of the changed files, a `sed` of the trailers) and per t
 ## Proof
 - Old gate (origin/main) against new, on the same inputs: 38 web diffs (35 real declared tokens sampled every 25th,
   one unmapped id, one non-plain `data-pmark="xai"` line, an empty diff) times 4 (check updated or not, trailer or not):
-  152 runs, 144 refusals, **stdout, stderr and exit code identical in all 152** (`cmp`).
+  152 runs, 144 refusals, **stdout, stderr and exit code identical in all 152** (`cmp`). Identical on valid UTF-8;
+  a review's own 100-combination edge set (CRLF, tabs, case, whitespace-only lines, trailers) agreed too.
 - One call, interleaved on the same load: 10.4 s and 9.1 s before, 0.3 s and 0.2 s after.
 - `tools/test-browser-check-surface-gate.sh` and `tools/test-bc-surface-map.sh`: 0 failed.
 - A SCAN arm in the gate's test holds the scan to the per-token primitives on every 10th real check (36 cases: its
@@ -32,6 +33,7 @@ escape `sed`s, a `grep` of the changed files, a `sed` of the trailers) and per t
   unchanged, so only the token decision moved.
 
 ## Weakest premises
-- The scan reads the annotation in the C locale; the original `sed` reads it in the ambient one. On a check file with
-  invalid UTF-8 on its annotation line they could differ (the checks are valid UTF-8).
+- The scan reads in the C locale; the original `grep`/`sed` read in the ambient one. On INVALID UTF-8 (a byte in the
+  changed web text, or in a check file above or on its annotation line) the new gate can refuse where the old passed:
+  stricter, never looser. The 346 checks and web/index.html are valid UTF-8 today.
 - A check file with a tab in its path would not parse (none has one).
