@@ -88,7 +88,7 @@ kosmos_browser_check_surface_gate() {
   # dstat/dpath NOT status/path: zsh ties `path`->PATH and `status`->$?, and this lib
   # is sourced, sometimes into zsh.
   local base mb bcdir files msgs webdiff changed tab
-  local ann ann_list toks tok basename_chk esc_base esc_bcdir viol reason
+  local ann ann_list toks tok basename_chk esc_base esc_bcdir viol reason scan has_trailer verdict hit
   base="${KOSMOS_BCG_BASE:-origin/main}"
   bcdir="${KOSMOS_BCSG_DIR:-docs/browser-checks}"
   tab="$(printf '\t')"
@@ -139,7 +139,7 @@ kosmos_browser_check_surface_gate() {
   [ -d "$bcdir" ] || return 0                       # no checks dir: nothing to map (fail-soft)
   ann_list="$(find "$bcdir" -maxdepth 1 -type f -name '*.js' 2>/dev/null || true)"
   # #5907: every check's verdict in one pass (bc_surface_scan_checks: HIT with its first token, MISS, or SLOW), so a
-  # check is read by the per-token path only when it carries a non-plain token. If the scan cannot run, every check
+  # check is read by the per-token path only when a non-plain token comes before any plain hit. If the scan cannot run, every check
   # takes that path, as before. A MISS check needs nothing more unless a trailer could name it, so with no
   # `Browser-check-surface:` trailer at all it is skipped (it could neither violate nor print an override line).
   scan="$(bc_surface_scan_checks "$bcdir" "$changed")" \
@@ -150,16 +150,25 @@ kosmos_browser_check_surface_gate() {
     [ -n "$ann" ] || continue
     [ "$verdict" = MISS ] && [ "$has_trailer" -eq 0 ] && continue
     if [ "$verdict" = SLOW ]; then
+      # The annotation parse (case-insensitive key) is the shared primitive.
       toks="$(bc_surface_tokens_of "$ann")"
       [ -n "$toks" ] || continue                   # unannotated: coarse gate handles it
     fi
     basename_chk="${ann##*/}"                       # e.g. render-subprojects-1994.js
+    # Escape the dir + basename for the regex matches below, so a literal `.` (in `.js`, or
+    # a temp seam dir path) is not a wildcard. This matters most for the "is this check
+    # updated?" match: a PERMISSIVE match there could FALSELY treat a check as updated and
+    # skip it, missing a real staleness -- the unsafe direction. The class `[][\.^$*]` is a
+    # metachar in BOTH BRE and ERE, so one escape is safe in the grep -E and the sed below.
     esc_base="$(printf '%s' "$basename_chk" | sed 's/[][\\.^$*]/\\&/g')"
     esc_bcdir="$(printf '%s' "$bcdir" | sed 's/[][\\.^$*]/\\&/g')"
 
+    # Is this check file itself updated on the branch? Then it is not stale by construction.
     if printf '%s\n' "$files" | grep -qE "^[AM][^${tab}]*${tab}${esc_bcdir}/${esc_base}$" 2>/dev/null; then
       continue
     fi
+    # A per-check named override with a non-empty reason excuses THIS check only. The key
+    # is case-insensitive (sibling convention).
     reason="$(printf '%s\n' "$msgs" | sed -n "s|^[Bb][Rr][Oo][Ww][Ss][Ee][Rr]-[Cc][Hh][Ee][Cc][Kk]-[Ss][Uu][Rr][Ff][Aa][Cc][Ee]:[[:space:]]*${esc_base}[[:space:]]\{1,\}\(.*[^[:space:]].*\)\$|\1|p" | head -1)"
     if [ -n "$reason" ]; then
       echo "browser-check surface gate: ${basename_chk} surface change overridden -- $reason"
@@ -170,8 +179,16 @@ kosmos_browser_check_surface_gate() {
       viol="${viol}  ${basename_chk}  (surface token '${hit}' changed in web/index.html)
 "
     elif [ "$verdict" = SLOW ]; then
+      # Does any declared token appear in a CHANGED web line? If so, the check may be stale.
+      # Iterate tokens via newline-split while-read, NOT `for tok in $toks`: zsh does NOT
+      # word-split an unquoted expansion (this lib is sourced, sometimes into zsh), so the
+      # `for` form would test the whole "tok1 tok2" string as ONE token and miss every
+      # multi-token check. tr turns the space/tab-separated list into one token per line.
       while IFS= read -r tok; do
         [ -n "$tok" ] || continue
+        # WHOLE-token match (bounded by non-identifier chars, metachars escaped), the shared
+        # primitive -- so token `pj-parent` does NOT over-fire on `pj-parenthetical`, and the
+        # gate matches EXACTLY what tools/bc-surface-map.sh's `covering` reports.
         if bc_surface_token_hits "$tok" "$changed"; then
           viol="${viol}  ${basename_chk}  (surface token '${tok}' changed in web/index.html)
 "

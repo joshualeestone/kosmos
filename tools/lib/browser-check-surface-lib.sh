@@ -40,16 +40,19 @@ bc_surface_token_hits() {
 # Prints, in find's order, one line per check whose annotation is non-empty:
 #     <path> TAB <verdict> TAB <token>
 # HIT: the first token (in the check's order) that is PLAIN ([A-Za-z0-9_-]+) and occurs whole in $2; it is that token.
-# MISS: every token is plain and none occurs whole in $2 (also an annotation of only whitespace).
+# MISS: every token is plain and none occurs whole in $2.
 # SLOW: a non-plain token comes before any plain hit; the consumer must decide it with bc_surface_token_hits, as before.
 # A plain token is whole in $2 exactly when it is one of $2's maximal runs of [A-Za-z0-9_-], which is
 # bc_surface_token_hits's boundary. Paths go through a file and awk's getline, never shell word-splitting (this lib is
 # sourced into zsh too). Returns non-zero, printing nothing, when it cannot run; the consumer then takes the slow path.
+# It reads in the C locale: on INVALID UTF-8 (a byte in the changed text, or in a check file above or on its annotation
+# line) it can find a match or an annotation that the ambient-locale grep and sed fail on, so the gate is then stricter
+# than before, never looser. On valid UTF-8 the answers are the same.
 #   $1 = checks dir   $2 = changed text
 bc_surface_scan_checks() {
   local _list _chg _rc
-  _list="$(mktemp "${TMPDIR:-/tmp}/bcsg-list.XXXXXX")" || return 2
-  _chg="$(mktemp "${TMPDIR:-/tmp}/bcsg-chg.XXXXXX")" || { rm -f "$_list"; return 2; }
+  _list="$(mktemp "${TMPDIR:-/tmp}/bcsg-list.XXXXXX" 2>/dev/null)" || return 2
+  _chg="$(mktemp "${TMPDIR:-/tmp}/bcsg-chg.XXXXXX" 2>/dev/null)" || { rm -f "$_list"; return 2; }
   find "$1" -maxdepth 1 -type f -name '*.js' 2>/dev/null > "$_list"
   printf '%s\n' "$2" > "$_chg"
   LC_ALL=C command awk '
