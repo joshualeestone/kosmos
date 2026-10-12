@@ -252,3 +252,22 @@ test('review 2: a roots() that throws is said once with no run; overAllowance is
   assert.equal(runs.length, 2);
   assert.deepEqual(said.slice(1), ['company backup: it did not run, and did not say why'], JSON.stringify(said));
 });
+
+test('review 3: a protected folder spelled in another case is still protected (case-insensitive volumes)', () => {
+  const s = sandbox();
+  try {
+    const data = s.mk('Library', 'kosmos-data');
+    const otherCase = data.replace('Library', 'LIBRARY');
+    if (!fs.existsSync(otherCase)) return;   // a case-sensitive volume: there is no second spelling to confuse
+    const workers = s.mk('w');
+    // The project names the folder holding the data root, in lower case; the data root is protected in its own case.
+    const r = tick.rootsFor({ workersDir: workers, protect: [data], projects: [{ slug: 'lib', folder: path.dirname(otherCase).replace('LIBRARY', 'library') }] });
+    assert.deepEqual(r.roots.map((x) => x.name), ['workers'], 'a folder holding the data root was added under another spelling');
+    // And the other way: the protected entry given in another case.
+    const r2 = tick.rootsFor({ workersDir: workers, protect: [otherCase], projects: [{ slug: 'lib', folder: path.dirname(data) }] });
+    assert.deepEqual(r2.roots.map((x) => x.name), ['workers']);
+    // CONTROL: an unrelated far folder is added, so the refusal above is the protection, not a broken rootsFor.
+    const c = tick.rootsFor({ workersDir: workers, protect: [otherCase], projects: [{ slug: 'far', folder: s.mk('far') }] });
+    assert.deepEqual(c.roots.map((x) => x.name), ['workers', 'elsewhere/far']);
+  } finally { s.done(); }
+});
