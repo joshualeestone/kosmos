@@ -123,7 +123,7 @@ function runUninstall(sb) {
 const read = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 const mentions = (obj, needle) => JSON.stringify(obj).includes(needle);
 
-const POSIX = process.platform === 'darwin' || process.platform === 'linux' ? false : 'setup.sh is the macOS and Linux installer';
+const SKIP_OFF_POSIX = process.platform === 'darwin' || process.platform === 'linux' ? false : 'setup.sh is the macOS and Linux installer';
 
 function checkCleaned(sb, out) {
   let gone = false;
@@ -163,13 +163,13 @@ function checkCleaned(sb, out) {
   assert.match(out, /\.claude-arr\/settings\.json/, 'a settings file that is JSON but not an object was not named');
 }
 
-test('#5998: uninstall removes this install\'s hooks and status line and keeps everything else', { skip: POSIX }, () => {
+test('#5998: uninstall removes this install\'s hooks and status line and keeps everything else', { skip: SKIP_OFF_POSIX }, () => {
   const sb = sandbox();
   assert.ok(mentions(read(sb.mainFile), path.join(sb.real, 'app', 'bin')), 'control: our hooks were never seeded');
   checkCleaned(sb, runUninstall(sb));
 });
 
-test('#5998: an install reached through a symlink, whose hooks name the real folder, is cleaned too', { skip: POSIX }, () => {
+test('#5998: an install reached through a symlink, whose hooks name the real folder, is cleaned too', { skip: SKIP_OFF_POSIX }, () => {
   const sb = sandbox({ linkHome: true });
   assert.ok(!mentions(read(sb.mainFile), sb.kh + '/'), 'control: the hooks name the link, so the realpath arm is not exercised');
   checkCleaned(sb, runUninstall(sb));
@@ -186,19 +186,36 @@ function checkNamed(sb, out, what) {
     'a file holding only another install\'s hooks was named for this install');
 }
 
-test('#5998: with no node to edit the settings, every file still pointing at this install is named', { skip: POSIX }, () => {
+test('#5998: with no node to edit the settings, every file still pointing at this install is named', { skip: SKIP_OFF_POSIX }, () => {
   const sb = sandbox({ noNode: true });
   checkNamed(sb, runUninstall(sb), 'no node');
 });
 
-test('#5998: a node that fails partway is not taken as done: the files are named', { skip: POSIX }, () => {
+test('#5998: a node that fails partway is not taken as done: the files are named', { skip: SKIP_OFF_POSIX }, () => {
   const sb = sandbox({ crashNode: true });
   checkNamed(sb, runUninstall(sb), 'a failing node');
 });
 
-test('#5998: with no node, an install reached through a symlink is matched by its real folder', { skip: POSIX }, () => {
+test('#5998: with no node, an install reached through a symlink is matched by its real folder', { skip: SKIP_OFF_POSIX }, () => {
   const sb = sandbox({ linkHome: true, noNode: true });
   checkNamed(sb, runUninstall(sb), 'no node, symlinked home');
+});
+
+test('#5998: with no node, a symlinked install\'s notice names the real folder the hooks were written with', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox({ linkHome: true, noNode: true });
+  const out = runUninstall(sb);
+  assert.ok(out.includes('also written as ' + sb.real), 'the notice names only the link, which the hooks in the file never mention');
+});
+
+test('#5998: an uninstall run again after an older one removed the folder names the hooks it left', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox();
+  fs.rmSync(sb.real, { recursive: true, force: true });   // what an uninstall from before #5998 left: no folder, hooks still wired
+  assert.ok(mentions(read(sb.mainFile), path.join(sb.real, 'app', 'bin', 'kosmos-report-hook.sh')), 'control: the hooks are still there');
+  const out = runUninstall(sb);
+  assert.match(out, /could not be taken out of these Claude settings files/, 'a re-run said nothing about the hooks the old uninstall left');
+  assert.ok(out.includes(sb.mainFile), 'the default settings file was not named');
+  const notice = out.slice(out.indexOf('could not be taken out'), out.indexOf('status line is still') === -1 ? undefined : out.indexOf('status line is still'));
+  assert.ok(!notice.includes(path.join(sb.home, '.claude-work', 'settings.json')), 'a file holding only another install\'s hooks was named');
 });
 
 test('#5998: the unwire step runs inside the proven-install branch, before the home is deleted', () => {
