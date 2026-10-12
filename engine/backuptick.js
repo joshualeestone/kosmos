@@ -16,10 +16,9 @@
  * out and named in the snapshot's skipped list rather than failing the backup.
  * NOT covered, on purpose: the data root (keys, the backup state itself, pairing, codex-homes). Its credentials are what
  * the card says never to take, and what is left is Kosmos's own state, not the person's work.
- * KNOWN GAP in transcripts (review 5), kosmos#5883: backupsessions takes ONE Codex home and ONE Gemini home
- * and has no Grok case, so these transcripts are NOT backed up: agents on a ~/.codex-<label> or ~/.gemini-<label>
- * account, per-session Codex homes (<data root>/codex-homes/<session>), and every Grok agent. Their agent FOLDERS are
- * backed up (under workers or agents/<id>); only the provider's record of the conversation is missing.
+ * Transcripts are read from each agent's OWN Codex or Gemini home, from its launch job (kosmos#5883 slice 1: named
+ * accounts and Codex runtime homes). KNOWN GAP still open on #5883: backupsessions has no Grok case, so Grok agents'
+ * transcripts are NOT backed up. Their agent FOLDERS are (under workers or agents/<id>).
  * `left` names what was not added and why (an id or slug a root name cannot carry), never a path.
  *
  * startTick(deps) -> stop(). Every `everyMs` (an hour): only while deps.enrolled() is true (the board passes mayBackUp:
@@ -119,7 +118,7 @@ function rootsFor(input) {
     let s = [];
     // As Kosmos recorded the folder, not its true spelling (review 4): a transcript records the folder its agent was
     // started in, and backupsessions matches by that.
-    try { s = input.sessions ? input.sessions(a.dir, seg) : []; } catch { s = []; }
+    try { s = input.sessions ? input.sessions(a.dir, seg, a.id) : []; } catch { s = []; }
     for (const r of s) roots.push(r);
   }
   // Transcript roots (`only` lists) last, against every folder root (review 2): a provider folder may be a link, so its
@@ -201,8 +200,9 @@ function startTick(deps) {
 /* The inputs for rootsFor on this computer's active world. Agents: every profile, and every folder in the workers root
    (an agent whose profile write failed still has transcripts), each resolved with create.workerDir. Projects: the
    stored list, each by its id. Claude config roots SORTED by full path (backupsessions numbers them by position, and
-   status.configRoots' order is readdir's). A source that cannot be read gives nothing; never throws. */
-function inputsHere() {
+   status.configRoots' order is readdir's). A source that cannot be read gives nothing; never throws.
+   deps (tests): readJob(name), sessionsFor(dir, opts). */
+function inputsHere(deps = {}) {
   const store = require('./store');
   const create = require('./create');
   const names = new Set();
@@ -220,7 +220,24 @@ function inputsHere() {
   let geminiHome, codexHome;
   try { geminiHome = require('./geminisession').HOME(); } catch { /* none */ }
   try { codexHome = require('./codexupdate').defaultHome(); } catch { /* none */ }
-  const sessions = (dir, id) => require('./backupsessions').sessionsFor(dir, { id, claudeRoots, geminiHome, codexHome });
+  // Each agent's OWN provider home (kosmos#5883), from its launch job, by the helpers the status reader uses, so a
+  // backup and the board can never read different folders: a Codex agent's private runtime home (#4592) when it
+  // exists, else its account home (CODEX_HOME), else the default; a Gemini agent's account storage home
+  // (create.geminiStorageHome). Any other agent, or one whose job cannot be read, keeps the defaults.
+  const sessions = (dir, id, name) => {
+    let job = null;
+    try { job = (deps.readJob || create.readJob)(name); } catch { job = null; }
+    let cx = codexHome, gm = geminiHome;
+    try {
+      if (job && job.runner === 'codex') {
+        const runtime = require('./codexruntime').forAgent(name);
+        cx = fs.existsSync(runtime) ? runtime : (job.configDir || create.defaultAgentCodexHome());
+      } else if (job && job.runner === 'gemini') {
+        gm = create.geminiStorageHome(job.configDir);
+      }
+    } catch { /* the defaults */ }
+    return (deps.sessionsFor || require('./backupsessions').sessionsFor)(dir, { id, claudeRoots, geminiHome: gm, codexHome: cx });
+  };
   // Never inside a root, never holding one (reviews 1 and 5): Kosmos's own data, every provider's config home and every
   // ACCOUNT folder (~/.codex-<label>, ~/.gemini-<label>, ~/.grok and its accounts), and every hidden entry directly in
   // the home folder (~/.ssh, ~/.aws, ~/.config, a provider not listed here yet). The last makes any root that holds the

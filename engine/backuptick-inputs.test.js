@@ -91,3 +91,35 @@ test('review 7: the gate is consent, not enrolment alone: a record with no conse
   fs.writeFileSync(path.join(store.ROOT, 'org-enrollment.json'), JSON.stringify(Object.assign({}, rec, { consentHash: 'b'.repeat(64) })));
   assert.equal(tick.mayBackUp(), true, 'with the words accepted here it may');
 });
+
+test('#5883: a Codex agent on a named account is backed up from THAT account\'s sessions, not the default home', () => {
+  const agentDir = path.join(BASE, 'workers', 'cody');
+  fs.mkdirSync(agentDir, { recursive: true });
+  const acct = mk('home', '.codex-work2');
+  const day = path.join(acct, 'sessions', '2026', '10', '11');
+  fs.mkdirSync(day, { recursive: true });
+  fs.writeFileSync(path.join(day, 'rollout-a.jsonl'), JSON.stringify({ type: 'session_meta', payload: { cwd: agentDir } }) + '\n');
+  const readJob = (name) => (name === 'cody' ? { runner: 'codex', configDir: acct } : null);
+  const { roots } = tick.rootsFor(tick.inputsHere({ readJob }));
+  const r = roots.find((x) => x.name === 'sessions/cody/codex');
+  assert.ok(r, `no transcript root for the agent on a named account: ${JSON.stringify(roots.map((x) => x.name))}`);
+  assert.equal(fs.realpathSync(r.path), fs.realpathSync(path.join(acct, 'sessions')));
+  assert.deepEqual(r.only, [path.join('2026', '10', '11', 'rollout-a.jsonl')]);
+  // CONTROL: with no job read, the default Codex home (which holds no rollout of this agent) gives none.
+  const none = tick.rootsFor(tick.inputsHere({ readJob: () => null })).roots.find((x) => x.name === 'sessions/cody/codex');
+  assert.equal(none, undefined);
+});
+
+test('#5883: a Gemini agent\'s sessions are read from its account storage home (create.geminiStorageHome)', () => {
+  const create = require('./create');
+  const acct = mk('home', '.gemini-two');
+  const seen = {};
+  const sessionsFor = (dir, opts) => { seen[opts.id] = opts; return []; };
+  mk('workers', 'gemma');
+  const input = tick.inputsHere({ readJob: (n) => (n === 'gemma' ? { runner: 'gemini', configDir: acct } : null), sessionsFor });
+  tick.rootsFor(input);
+  assert.equal(seen.gemma.geminiHome, create.geminiStorageHome(acct));
+  // CONTROL: an agent with no job keeps the default home, so the line above is the job's doing.
+  assert.ok(seen.cody, 'CONTROL: the agent with no job was asked too');
+  assert.notEqual(seen.cody.geminiHome, seen.gemma.geminiHome);
+});
