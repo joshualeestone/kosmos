@@ -15,6 +15,11 @@ of reading signed out.
   row says so instead: `{ state: 'unknown', badge: 'unlisted' }`, printed "not checked by Kosmos" (the file may be unreadable, or the folder outside the
   one the list scans). So is a folder Kosmos cannot look into at all: only ENOENT counts as missing (statSync, not
   existsSync, which answers false for a permission error). "We cannot tell" is never written as "gone" (reviews 1, 3).
+- A gemini/grok folder whose own key is gone while this computer's secrets/env door holds that provider's key
+  (GEMINI_API_KEY / XAI_API_KEY, the fallback a launch uses) is also `unlisted`: the agent may still be working on the
+  shared key, so "not signed in" would be confidently wrong (review 9). A door that cannot be read counts as unsure.
+- A signed-out row says how to fix it: add the key or sign in again in Settings > AI Models, naming the folder's label
+  only where re-adding under it lands in that same folder (gemini/grok, in the provider's home).
 - The agents walked are the same set the account guard walks (`knownAgentNames`, factored out of
   `enumerateAgentsOnAccount`): the roster's cards plus known profiles not on it.
 - `GET /api/accounts` sends them as `unlistedAccounts`, APART from `accounts`: eight page consumers read `accounts`,
@@ -34,6 +39,9 @@ of reading signed out.
   Sign in again action; the field is there for it.
 - The provider's DEFAULT folder is not looked at, whether a job names it or names none: a default account can run on
   this computer's own key from the environment (e.g. XAI_API_KEY), so a missing file there proves nothing (review 3).
+
+- The module's Windows behaviour (drive letters, case folding in realpath) is not tested: its test file is excluded
+  from the Windows job (POSIX fixture paths).
 
 ## Weakest premise
 **An emptied credential file reads "not checked", not "not signed in" (review 5).** "Unlisted" is decided by a

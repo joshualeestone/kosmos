@@ -44,7 +44,7 @@ test('#5948: a named account folder an agent uses, with no listed row, comes bac
   assert.deepEqual([r.provider, r.providerName, r.dir, r.label, r.signedOut], ['xai', 'Grok', '/h/.grok-work', 'work', true]);
   assert.deepEqual(r.usedBy, ['Gk', 'Gk Two']);
   assert.deepEqual([r.connection.state, r.connection.badge], ['none', 'signed_out']);
-  assert.match(r.connection.because, /no longer on this computer, and Gk, Gk Two use it$/);
+  assert.match(r.connection.because, /no longer on this computer, and Gk, Gk Two use it\. To fix it, add the key or sign in again in Settings > AI Models\.$/);
 });
 
 test('#5948 CONTROLS: a listed folder, a default-account agent, a Claude agent and an unknown runner add nothing', () => {
@@ -67,7 +67,7 @@ test('#5948: a signed-out row carries the folder\'s chosen name, and a throwing 
 test('#5948: kosmos accounts prints the signed-out accounts after the listed ones; with none listed it no longer says none are set up', () => {
   const gone = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName);
   const both = answer(200, { accounts: [{ providerName: 'Claude', email: 'a@example.com', connection: { state: 'connected' } }], unlistedAccounts: gone });
-  assert.deepEqual(both.lines, ['Claude: a@example.com: signed in', 'Grok: work: not signed in: its sign-in or key is no longer on this computer, and Gk uses it']);
+  assert.deepEqual(both.lines, ['Claude: a@example.com: signed in', 'Grok: work: not signed in: its sign-in or key is no longer on this computer, and Gk uses it. To fix it, add the key or sign in again in Settings > AI Models.']);
   const only = answer(200, { accounts: [], unlistedAccounts: gone });
   assert.equal(only.lines.length, 1);
   assert.match(only.lines[0], /^Grok: work: not signed in/);
@@ -102,7 +102,7 @@ test('#5948 review 1/3: the provider\'s default folder is skipped; many agents a
   for (let i = 1; i <= 5; i++) { many['a' + i] = { configDir: '/h/.grok-team', runner: 'grok' }; cards.push(card('a' + i, 'grok')); }
   const [m] = signedOutRows(cards, { xai: [] }, (n) => many[n], readName, () => false);
   assert.equal(m.usedBy.length, 5);
-  assert.match(m.connection.because, /and A1, A2, A3 and 2 more use it$/);
+  assert.match(m.connection.because, /and A1, A2, A3 and 2 more use it\./);
 });
 
 test('#5948 review 2: each provider\'s credential file names are the ones its own account module reads', () => {
@@ -155,4 +155,35 @@ test('#5948 review 5: kosmos accounts says an unlisted account is not checked by
   const [line] = answer(200, { accounts: [], unlistedAccounts: rows }).lines;
   assert.match(line, /^Grok: work: not checked by Kosmos: a sign-in or key file is in its folder/);
   assert.doesNotMatch(line, /just now/);
+});
+
+test('#5948 review 9: a gemini/grok folder whose own key is gone, with a shared key on this computer, is "unlisted", not signed out', () => {
+  const asked = [];
+  const shared = (v) => { asked.push(v); return v === 'XAI_API_KEY'; };
+  const [r] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => null, shared);
+  assert.deepEqual([r.signedOut, r.sharedKey, r.connection.badge], [false, true, 'unlisted']);
+  assert.match(r.connection.because, /gone from its folder, but this computer's shared Grok key can stand in for it/);
+  assert.deepEqual(asked, ['XAI_API_KEY']);
+  // A door that cannot be read is unsure, never "gone".
+  const [u] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => null, () => { throw new Error('x'); });
+  assert.equal(u.connection.badge, 'unlisted');
+  // CONTROLS: no shared key reads signed out; codex has no shared door, so it is never asked.
+  const [g] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => null, () => false);
+  assert.equal(g.connection.badge, 'signed_out');
+  const cx = { cxn: { configDir: '/h/.codex-team', runner: 'codex' } };
+  const seen = [];
+  const [c] = signedOutRows([card('cx', 'codex')], { openai: [] }, (n) => cx[n === 'cx' ? 'cxn' : n], readName, () => false, () => null, (v) => { seen.push(v); return true; });
+  assert.deepEqual([c.connection.badge, seen], ['signed_out', []]);
+});
+
+test('#5948 review 9: the fix names the folder only where re-adding under that name lands in it (a gemini/grok folder in the provider home)', () => {
+  const [h] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => '/h/.grok');
+  assert.match(h.connection.because, /in Settings > AI Models with the name "work", which is this folder\.$/);
+  // CONTROLS: a folder outside the provider home, and a codex folder, get the plain remedy.
+  const away = { gx: { configDir: '/elsewhere/.grok-work', runner: 'grok' } };
+  const [o] = signedOutRows([card('gk', 'grok')], { xai: [] }, (n) => away[n === 'gk' ? 'gx' : n], readName, () => false, () => '/h/.grok');
+  assert.match(o.connection.because, /in Settings > AI Models\.$/);
+  const cx = { cxn: { configDir: '/h/.codex-team', runner: 'codex' } };
+  const [c] = signedOutRows([card('cx', 'codex')], { openai: [] }, (n) => cx[n === 'cx' ? 'cxn' : n], readName, () => false, () => '/h/.codex');
+  assert.match(c.connection.because, /in Settings > AI Models\.$/);
 });
