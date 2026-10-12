@@ -56,6 +56,9 @@ test.before(async () => {
   // (no author is recorded), one of them made to look like a line Kosmos writes.
   tasks.say(projectId, num, 'on it,\nstarting now');
   tasks.say(projectId, num, 'Marked done');
+  // An escape sequence and a right-to-left override never reach the terminal (the recorder already turns the ESC into a
+  // space; the override is taken out when the words are made).
+  tasks.say(projectId, num, 'clear\u001b[2J\u202eit');
   // The person's own run, as the board records it.
   assert.ok(taskchat.record(projectId, num, { kind: 'run', person: true, note: 'all good' }));
   assert.ok(taskchat.record(projectId, num, { kind: 'kept-sent', who: 'mara' }));
@@ -78,7 +81,7 @@ test.after(() => {
 const WORDS = (out) => out.split('\n').filter((l) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}  /.test(l)).map((l) => l.slice(18));
 /* The page's words, worded for an agent: "The person" for the page's "You", and words people and agents wrote quoted
    (a message marked too), so the message "Marked done" cannot pass for the real one at the end. */
-const WANT = ['Created and given to Mara Lane', 'A message: "on it, starting now"', 'A message: "Marked done"',
+const WANT = ['Created and given to Mara Lane', 'A message: "on it, starting now"', 'A message: "Marked done"', 'A message: "clear (2Jit"',
   'The person ran it: "all good"', 'kept-sent', 'kept-dropped', 'Marked done'];
 
 // ── Windows: tools/windows/kosmos-cli.js ────────────────────────────────────

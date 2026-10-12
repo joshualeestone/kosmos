@@ -11,12 +11,16 @@
  * quotes words Kosmos did not write: a message (`said`, which carries no author on the board, tasks.say, so it is
  * marked too), a part's sentence, the done-when checks, and a run's or a built mark's note. None can then pass for one
  * of the lines Kosmos writes about the task. A repeat's words are Kosmos's own (from the schedule) and are not quoted.
- * Names are not quoted either: they are the agents' card names, as the page shows them. Without opts the words are the page's, which
+ * Names are not quoted either: they are the agents' card names (what the page's member rows and its tskAgentName both
+ * show, so a former member is named the same way), set by the person or read off an agent's identity line. A due date,
+ * a count and a task number are Kosmos's own validated values. Every printed line is made one line, with control and
+ * format characters taken out, by the CLIs. The parity test holds the page mode (no opts) to the page; the agent
+ * wording is held by cli.task-activity-5874.test.js and this file's own forAgent tests. Without opts the words are the page's, which
  * taskactphrase.test.js holds them to.
  */
 /* Quote characters inside a message become a plain apostrophe (and brackets plain ones), so a message cannot close its
    own quotation: install/kosmos's `task list` q(), the same set. */
-const quoted = (v) => '"' + String(v).normalize('NFKC').replace(/\s+/g, ' ').trim()
+const quoted = (v) => '"' + String(v).normalize('NFKC').replace(/\s+/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '').trim()
   .replace(/["\u02BA\u02EE\u2032\u2035\u05F4\u3003\u275D\u275E\p{Pi}\p{Pf}]/gu, "'")
   .replace(/\p{Ps}/gu, '(').replace(/\p{Pe}/gu, ')') + '"';
 function phrase(ev, nameOfMember, opts) {

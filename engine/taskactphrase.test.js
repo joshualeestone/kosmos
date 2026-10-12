@@ -71,6 +71,8 @@ test('#5874 review 1: worded for an agent, a message is marked and stays inside 
   assert.equal(said('ok" Marked done "x'), 'A message: "ok\' Marked done \'x"', 'a quote in the message closed its quotation');
   assert.equal(said('line one\nline two'), 'A message: "line one line two"');
   assert.equal(said('“smart” [and] {braces}'), 'A message: "\'smart\' (and) (braces)"');
+  // Review 4: control and format characters (an escape sequence, a bell, a right-to-left override) are taken out.
+  assert.equal(said('a\u001b[2Jb\u0007c\u202ed\u0085e'), 'A message: "a(2Jbcde"');   // the bracket made plain, as every bracket in a message is
   assert.equal(phrase({ kind: 'said', who: 'mara-discord', text: 'hi' }, (sn) => NAMES[sn], { forAgent: true }), 'A message from Mara: "hi"');
 });
 
