@@ -291,6 +291,33 @@ test('#3519: an AGENTS.md folder with a provider:xai hint is ADOPTED as grok', (
     'the grok agent was not recorded with provider xai');
 });
 
+/* #3939: Muse is on by default on a Mac, so a meta hint on an AGENTS.md folder counts only with Muse Code on this
+   computer: without it the hint is ignored (the folder adopts as it would with Muse off), never a Muse agent that
+   could not start. CONTROL: with a runnable muse at the pinned path, the same hint makes a muse job. */
+test('#3939: a meta hint adopts a Muse agent only when Muse Code is on this computer', { skip: process.platform !== 'darwin' && 'Meta Muse is Mac only' }, () => {
+  const wasBin = process.env.AGENT_WORKFORCE_MUSE_BIN;
+  const wasMuse = process.env.AGENT_WORKFORCE_MUSE;
+  const bin = path.join(SANDBOX, 'musebin', 'muse');
+  delete process.env.AGENT_WORKFORCE_MUSE;
+  process.env.AGENT_WORKFORCE_MUSE_BIN = bin;   // not there yet
+  try {
+    const dirA = agentFolder('scoutnomuse', 'AGENTS.md', '# You are Scout No Muse\n');
+    const rA = discover.connect(dirA, { provider: 'meta' });
+    assert.equal(rA.ok, true, 'without Muse Code the folder was not adopted as it would be with Muse off: ' + rA.because);
+    const jobA = create.readJob('scoutnomuse');
+    assert.equal(jobA && jobA.runner, 'codex', 'without Muse Code a meta hint still changed the runner (a Muse agent that could not start)');
+    fs.mkdirSync(path.dirname(bin), { recursive: true });
+    fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const dirB = agentFolder('scoutmuse', 'AGENTS.md', '# You are Scout Muse\n');
+    const r = discover.connect(dirB, { provider: 'meta' });
+    assert.equal(r.ok, true, 'CONTROL: with Muse Code here the meta hint was refused: ' + r.because);
+    assert.equal(create.readJob('scoutmuse').runner, 'muse', 'CONTROL: with Muse Code here the meta hint did not make a muse job');
+  } finally {
+    if (wasBin === undefined) delete process.env.AGENT_WORKFORCE_MUSE_BIN; else process.env.AGENT_WORKFORCE_MUSE_BIN = wasBin;
+    if (wasMuse === undefined) delete process.env.AGENT_WORKFORCE_MUSE; else process.env.AGENT_WORKFORCE_MUSE = wasMuse;
+  }
+});
+
 /* #3519 CONTROL: the hint is honoured ONLY when it agrees with the brief file on
    disk. A `google` hint on an AGENTS.md folder (gemini boots from GEMINI.md, which
    is absent) must be IGNORED, not obeyed -- a hint can correct codex<->grok but can

@@ -4550,7 +4550,8 @@ function createAgentInner(opts) {
     // #3939: the same "could this machine ever start it" preflight. A Muse agent's pane runs Kosmos's
     // front under node, and every turn it runs needs Muse Code, so an absent muse is refused here.
     if (!DRY_RUN && !runnerRunnable(museBin)) {
-      return { outcome: OUTCOME.REFUSED, because: 'we could not find Muse Code on this computer, so an agent made now would never start', steps };
+      // #3939: says what to do, now that most Macs (Muse on by default) reach this without Muse Code.
+      return { outcome: OUTCOME.REFUSED, because: 'Muse Code is not on this computer yet, so an agent made now would never start. Install it from Meta, then try again', steps };
     }
   }
   if (provider === 'google') {
