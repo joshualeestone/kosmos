@@ -81,3 +81,17 @@ test('#5948: the agent\'s account with no credential is in unlistedAccounts, not
   assert.ok(answer(200, body).lines.some((l) => /^Grok: gone: not signed in: its sign-in or key is no longer on this computer/.test(l)),
     'kosmos accounts does not print it');
 });
+
+test('#5948 review 9: with a shared Grok key in this computer\'s secrets/env door, the same folder is "unlisted", not signed out', async () => {
+  const door = require('./engine/tokendoor').DIR;
+  assert.ok(nodePath.resolve(door).startsWith(nodePath.resolve(SANDBOX) + nodePath.sep), 'the door is not in this test\'s sandbox: ' + door);
+  fs.mkdirSync(door, { recursive: true });
+  fs.writeFileSync(nodePath.join(door, 'XAI_API_KEY'), 'xai-shared-key-abcd\n', { mode: 0o600 });
+  const fleet = require('./test-support/fleet');
+  const board = fleet.install([fleet.agent('grokgone', { state: null, runner: 'grok', command: 'grok', screen: '' })]);
+  let body;
+  try { body = await (await fetch(base + '/api/accounts')).json(); } finally { board.restore(); fs.rmSync(nodePath.join(door, 'XAI_API_KEY'), { force: true }); }
+  const row = (body.unlistedAccounts || []).find((a) => a.dir === GONE);
+  assert.ok(row, JSON.stringify(body.unlistedAccounts));
+  assert.deepEqual([row.signedOut, row.sharedKey, row.connection.badge], [false, true, 'unlisted']);
+});

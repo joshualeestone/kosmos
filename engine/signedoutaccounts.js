@@ -17,9 +17,10 @@ const path = require('node:path');
 /* `files`: the credential files each provider's list reads in an account folder. One of them still there means the
    list left the folder out because it could not read or recognise it, not because the credential is gone. */
 const PROVIDER_OF_RUNNER = Object.freeze({
-  codex: { provider: 'openai', providerName: 'OpenAI', prefix: '.codex-', files: ['auth.json'] },
-  gemini: { provider: 'google', providerName: 'Gemini', prefix: '.gemini-', files: ['.kosmos-gemini-apikey'] },
-  grok: { provider: 'xai', providerName: 'Grok', prefix: '.grok-', files: ['.kosmos-grok-apikey', 'auth.json'] },
+  // `sharedKey`: the variable a launch falls back to when the folder's own key is missing (the secrets/env door).
+  codex: { provider: 'openai', providerName: 'OpenAI', prefix: '.codex-', files: ['auth.json'], sharedKey: null },
+  gemini: { provider: 'google', providerName: 'Gemini', prefix: '.gemini-', files: ['.kosmos-gemini-apikey'], sharedKey: 'GEMINI_API_KEY' },
+  grok: { provider: 'xai', providerName: 'Grok', prefix: '.grok-', files: ['.kosmos-grok-apikey', 'auth.json'], sharedKey: 'XAI_API_KEY' },
 });
 const SHOWN_AGENTS = 3;   // a folder many agents share names the first few, then a count
 
@@ -44,10 +45,11 @@ function samePlace(d) {
  * @param {(provider: string, dir: string) => (string|null)} readName the folder's chosen name, or null
  * @param {(file: string) => boolean} [exists] whether a file is there; throws when that cannot be told
  * @param {(provider: string) => (string|null)} [defaultDirOf] the provider's default folder, which is skipped
- * @returns {Array} rows, one per missing folder: connection state 'none' when no credential file is there, and an
- *   unchecked state when one is there but its list could not read it
+ * @param {(envVar: string) => boolean} [hasSharedKey] whether this computer's shared key door holds that variable
+ * @returns {Array} rows, one per missing folder: badge 'signed_out' when no credential file is there and no shared key
+ *   can stand in, else badge 'unlisted' (a file it could not read, or a shared key it may be running on)
  */
-function signedOutRows(cards, listed, readJob, readName, exists = fileThere, defaultDirOf = () => null) {
+function signedOutRows(cards, listed, readJob, readName, exists = fileThere, defaultDirOf = () => null, hasSharedKey = () => false) {
   const byDir = new Map();
   const listedPlaces = new Map();
   for (const c of Array.isArray(cards) ? cards : []) {
@@ -80,8 +82,16 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
         provider: p.provider, providerName: p.providerName, dir,
         label: base.startsWith(p.prefix) ? base.slice(p.prefix.length) : base,
         name: name || null, isDefault: false, email: null, authMode: null, keyTail: null,
-        signedOut: !unreadable, unreadable, usedBy: [],
+        signedOut: false, unreadable, sharedKey: false, usedBy: [],
+        // Re-adding under this name lands in this same folder only for a gemini/grok folder in the provider's home
+        // (geminiaccounts/grokaccounts dirForLabel: <home>/<prefix><label>).
+        sameNameRefills: !!p.sharedKey && base.startsWith(p.prefix) && !!dflt && path.dirname(dir) === path.dirname(path.resolve(dflt)),
       });
+      const row = byDir.get(key);
+      if (!unreadable && p.sharedKey) {
+        try { row.sharedKey = hasSharedKey(p.sharedKey) === true; } catch { row.sharedKey = true; }   // unsure: never "gone"
+      }
+      row.signedOut = !row.unreadable && !row.sharedKey;
     }
     byDir.get(key).usedBy.push(c.name || c.sessionName);
   }
@@ -89,11 +99,15 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
     const shown = r.usedBy.slice(0, SHOWN_AGENTS).join(', ')
       + (r.usedBy.length > SHOWN_AGENTS ? ' and ' + (r.usedBy.length - SHOWN_AGENTS) + ' more' : '');
     const who = shown + (r.usedBy.length === 1 ? ' uses' : ' use') + ' it';
+    const fix = ' To fix it, add the key or sign in again in Settings > AI Models'
+      + (r.sameNameRefills ? ' with the name "' + r.label + '", which is this folder.' : '.');
     return {
       ...r,
       connection: r.unreadable
         ? { state: 'unknown', badge: 'unlisted', because: 'a sign-in or key file is in its folder, but Kosmos could not read it or does not look in that folder, and ' + who }
-        : { state: 'none', badge: 'signed_out', because: 'its sign-in or key is no longer on this computer, and ' + who },
+        : r.sharedKey
+          ? { state: 'unknown', badge: 'unlisted', because: 'its own sign-in or key is gone from its folder, but this computer\'s shared ' + r.providerName + ' key can stand in for it, and ' + who }
+          : { state: 'none', badge: 'signed_out', because: 'its sign-in or key is no longer on this computer, and ' + who + '.' + fix },
     };
   });
 }
