@@ -84,6 +84,13 @@ test('the profile alone moving recomputes, as does the file changing', () => {
   assert.equal(doctrine.rulesBehind('parts'), null);
 });
 
+test('a Not now said after an answer was kept takes the sentence away at once', () => {
+  agent('later', { doctrineVersion: DV - 13 }, OLD_FILE('Later'));
+  assert.equal(doctrine.rulesBehind('later'), 13);
+  store.writeProfile('later', { doctrineDeclined: DV });
+  assert.equal(doctrine.rulesBehind('later'), null);
+});
+
 test('the cache saves work: unchanged polls read the instructions file once', (t) => {
   agent('steady', { doctrineVersion: DV - 13 }, OLD_FILE('Steady'));
   const real = instructions.read;

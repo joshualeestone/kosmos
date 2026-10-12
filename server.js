@@ -5816,6 +5816,8 @@ const server = http.createServer(async (req, res) => {
                    a terminal-error clock is kept only by the 60s sweep over RUNNING agents (stuckterminal.peek
                    in safeRoster), and this row is an agent with no live session to be stuck. */
                 stuckError: null,
+                /* kosmos#5957 slice 2: a stopped agent is the likeliest to be far behind, so its offline row says so too. */
+                rulesBehind: require('./engine/doctrine').rulesBehind(k.name, profile),
                 stateConfidence: unseen ? 'none' : 'structured',
                 /* #310: when the job exists and launchd holds an override
                    against it, the Login Items switch is the story, and it is
