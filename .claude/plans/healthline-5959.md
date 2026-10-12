@@ -14,11 +14,13 @@ the pane working (a short turn between sweeps is not seen); for Codex, Gemini an
   since the board started, `{ at: null, why: 'no_source' }` for Antigravity and Muse (no observation exists).
   Null for a pane that is not ours and for a paneless card.
 - **Page.** `healthLine(a, now)` builds "Sign-in: ... · Usage: ... · Last seen working: <clock time>" and paints
-  `#d-health` under Runs on, in the agent page's AI Settings section, when the page opens. Sign-in and usage say only
+  `#d-health` under Runs on, in the agent page's AI Settings section, from `paintDetailState`, which the page's open and
+  its poll both call, so the line follows the state pill. Sign-in and usage say only
   what the card's state shows ("no problem showing" / "no limit showing" otherwise), hedged with "looks like" for a
   screen reading as the state sentence is (#215). A problem the state shows is always said; "no problem" only for an
-  agent Kosmos has seen work, in a state it reads. A clock time, not "N minutes ago": the open page is not repainted
-  by the poll, so a relative time would go stale. A provider switch clears the line (it spoke for the old runner).
+  agent Kosmos has seen work, in a state it reads, and for sign-in only on Claude: a Codex 401 loop reads as working
+  and the other runners' sign-in report is written by the Windows supervisor alone. A clock time, not "N minutes ago",
+  which would age between polls. A provider switch clears the line until the next poll (it spoke for the old runner).
 
 ## Rejected
 - **On the board card itself.** #855 (Josh) cut the card's extra lines, and a sign-in or usage problem already shows
@@ -41,13 +43,13 @@ the pane working (a short turn between sweeps is not seen); for Codex, Gemini an
 - Stopped, restarting, unknown or blocked agents show only the time. Blocked because a Claude card stays blocked on
   Claude Code's own report of a refused sign-in or a usage cap, where "no problem showing" would be false.
 - Windows: a Codex agent there is read through its rollout like any Codex agent. Whether the rollout is found on
-  Windows is reasoned from source, not measured; if it is not, the line says "not since Kosmos started" where
+  Windows is reasoned from source, not measured; if it is not, the line says "not seen since Kosmos started" where
   "cannot see" would be truer. Windows changes go to Homer.
 - The account's own Check-now verdict (Settings, AI Models) is not read here: it is about the account, which may serve
   several agents, and it has its own row. A follow-up could name it on this line.
 - A removed agent, or one created under an old name, forgets the name's last-seen time (`observed.forgetAgent`, called
   beside `crashloop.forget` in create, remove and delete-leftover).
-- In memory: after a board restart every agent reads "Last seen working: not since Kosmos started" until its next turn.
+- In memory: after a board restart every agent reads "Last seen working: not seen since Kosmos started" until its next turn.
 - "At a glance" in the ask may mean the board card; if so, the line is one call away (`healthLine` is pure).
 
 ## Tests
