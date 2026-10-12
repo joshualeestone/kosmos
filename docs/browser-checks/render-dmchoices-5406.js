@@ -11,7 +11,12 @@
  *             Focus across a rewrite: back on the same choice; to the message box when the question changed, or when
  *             the choice is drawn disabled (the answered lock).
  *   NO-MENU   the same question with options null (the server was not sure): no buttons (CONTROL).
- *   REPORTED  a question the agent reported in its own words (no live menu): no buttons (CONTROL).
+ *   REPORTED  a question the agent reported in its own words (no live menu): no buttons (CONTROL), and with no
+ *             `clearable` from the server, no "Answered, clear this" either (CONTROL for the next arm).
+ *   ANSWERED  #5943 (Josh: an answered question stayed the newest bubble for 12 days): a reported question dated 12
+ *             days back, the person's answer after it, then a later message. The question is drawn ABOVE the answer,
+ *             says "Asked 12 days ago", and its "Answered, clear this" is a focusable button that POSTs the agent's
+ *             clear-selfreport route and repaints the thread without the question. SHOT_5943=<file.png> saves it.
  *
  * HEADLESS-safe (DOM-state assertions only). SHOT=<file.png> saves the light CHOICES arm's thread.
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-dmchoices-5406.js
@@ -32,6 +37,14 @@ const ARMS = {
   'no-menu': { ...base, messages: [row(false)], options: null, asked: null },
   /* Served WITH options and asked, so only the page's own reported-row guard can keep the buttons off. */
   reported: { ...base, messages: [row(true)], question: { text: 'Which fruit do you want?', reported: true }, options: OPTIONS, asked: 'Which fruit do you want?' },
+  /* #5943: the rows as the server now serves them, the question dated from its first ask and placed in time. */
+  answered: { ...base, options: null, asked: null, question: { text: 'Which fruit do you want?', reported: true }, messages: [
+    { from: 'april', text: 'I have a choice to put to you.', at: new Date(Date.now() - 12 * 86400000 - 120000).toISOString() },
+    { id: 'needs-you-question:april', at: new Date(Date.now() - 12 * 86400000 - 60000).toISOString(), text: 'Which fruit do you want?',
+      from: 'april', delivery: null, kind: 'question', reported: true, clearable: true },
+    { from: null, text: 'Apple, please.', at: new Date(Date.now() - 3600000).toISOString(), delivery: { state: 'placed' } },
+    { from: 'april', text: 'Noted.', at: new Date(Date.now() - 1800000).toISOString() },
+  ] },
 };
 
 const problems = [];
@@ -53,6 +66,11 @@ async function run() {
         window.fetch = async (url, opts) => {
           const u = String(url);
           if (u.includes('/thread') && opts && opts.method === 'POST') { window.__posted.push(JSON.parse(opts.body)); return enc({ delivery: { state: 'placed' }, recorded: true }); }
+          if (u.includes('/clear-selfreport')) {   // #5943: the person cleared it; the next read has no question
+            window.__cleared = (window.__cleared || 0) + 1;
+            window.__fx = { ...window.__fx, asking: false, question: null, messages: window.__fx.messages.filter((m) => m.kind !== 'question') };
+            return enc({ ok: true, cleared: true, state: 'idle', by: 'operator' });
+          }
           if (u.includes('/thread')) return enc(window.__fx);
           if (u.includes('/api/status')) return enc({ agents: [], version: '0.2.0' });
           return enc({});
@@ -132,8 +150,34 @@ async function run() {
           check(`[${theme}] choices: a placed press says Sent.`, said === 'Sent.', JSON.stringify(said));
           check(`[${theme}] choices: a press sends the digit, the words and the question`, posted.length === 1
             && posted[0].text === '2' && posted[0].chose === 'Banana' && posted[0].asked === 'Which fruit do you want?', JSON.stringify(posted));
+        } else if (arm === 'answered') {
+          const a = await page.evaluate(() => {
+            const rows = [...document.querySelectorAll('#d-dmthread .msg, #d-dmthread [data-mid]')];
+            const idxOf = (re) => rows.findIndex((r) => re.test(r.textContent));
+            const q = rows.find((r) => /Which fruit/.test(r.textContent));
+            const btn = q && q.querySelector('.dmq-clear');
+            return { qAt: idxOf(/Which fruit/), answerAt: idxOf(/Apple, please/), laterAt: idxOf(/Noted\./),
+              age: (q && q.querySelector('.dmq-age') || {}).textContent || '', btn: btn ? btn.textContent : null,
+              focusable: !!(btn && btn.tabIndex >= 0 && !btn.disabled), choices: document.querySelectorAll('#d-dmthread .dmchoice').length,
+              overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+          });
+          check(`[${theme}] answered: the question is drawn ABOVE the person's answer and the later message`,
+            a.qAt >= 0 && a.answerAt > a.qAt && a.laterAt > a.answerAt, JSON.stringify(a));
+          check(`[${theme}] answered: it says how long it has been asked`, a.age === 'Asked 12 days ago', JSON.stringify(a.age));
+          check(`[${theme}] answered: "Answered, clear this" is a focusable button on the bubble`, a.btn === 'Answered, clear this' && a.focusable, JSON.stringify(a));
+          check(`[${theme}] answered: no choice buttons and no sideways overflow`, a.choices === 0 && a.overflow <= 0, JSON.stringify(a));
+          if (theme === 'light' && process.env.SHOT_5943) await page.locator('#d-dmthread').screenshot({ path: process.env.SHOT_5943 });
+          await page.locator('#d-dmthread .dmq-clear').click();
+          await page.waitForTimeout(200);
+          const after = await page.evaluate(() => ({ cleared: window.__cleared || 0,
+            question: [...document.querySelectorAll('#d-dmthread .msg')].some((m) => /Which fruit/.test(m.textContent)),
+            answer: [...document.querySelectorAll('#d-dmthread *')].some((m) => m.children.length === 0 && /Apple, please/.test(m.textContent)) }));
+          check(`[${theme}] answered: pressing it clears through the route and the question goes, the conversation stays`,
+            after.cleared === 1 && !after.question && after.answer, JSON.stringify(after));
         } else {
           check(`[${theme}] ${arm}: no buttons (CONTROL)`, seen.all === 0, String(seen.all));
+          const clearBtns = await page.evaluate(() => document.querySelectorAll('#d-dmthread .dmq-clear').length);
+          check(`[${theme}] ${arm}: no "Answered, clear this" without clearable (CONTROL)`, clearBtns === 0, String(clearBtns));
         }
       }
       await page.close();
