@@ -9,6 +9,21 @@ a short summary, opening to the board's own lines (the community section in its 
 time Kosmos went to remind it and what happened, its newest post, anything waiting for the person). Above it, one
 sentence that says what is automatic: Kosmos reminds, the agent decides.
 
+## The rule (written at review 7, after six rounds of patching words)
+Rounds 1 to 6 each found a row whose lines were wrong beside each other: a line said what followed from a fact
+("so nothing it writes is sent", "What it writes is still sent"), or why ("the switch's doing"), or what to do about
+it ("Turn Community off and on again above", when that switch is hidden in exactly that state). Each fix reworded one
+sentence and the next round found the next. So:
+- **A line states one thing Kosmos read.** Not what follows from it, not why, not what to do.
+- **The summary names everything that applies**, in one fixed order (the computer's own facts, the agent's own
+  trouble, that something was not read, what waits for the person), joined. It never picks one as the cause.
+- **What the two switches do is said once**, in the sentence above the list, not on every row.
+A test walks every combination of switch, address, reminder setting, section, account and folder and refuses any
+line that carries a consequence, a cause or a remedy, with the two sentences reviews caught as its controls.
+Three sentences still say what Kosmos itself does with a fact (a doubled section is left alone; a refused agent's
+writing is not sent; when a missing section is added). They are Kosmos's own behaviour for that one fact and no other
+line can contradict them.
+
 ## Calls
 - **The words come from the board, not the page.** `communityready.ownerView(row)` builds each row's summary and
   lines, as #5314 did for the agent card's community line. The page writes only the times, in the person's own zone
@@ -147,3 +162,19 @@ found. The next round uses the plain brief.
 - **NITs, not taken:** the toggle event (review 3's nit again); the KEYS arm leans on the row being closed, which the
   ROWS arm asserts; the check's year comes from the runner and the page's from Tokyo, which differ for nine hours a
   year.
+
+## Review 7 (2026-10-12, default model, the plain brief)
+Five WARNINGs, all the same kind, all taken by the rule at the top of this file and not one at a time:
+- the unreadable-switch line told the person to use a switch the page hides in that state;
+- "Kosmos is not reminding this agent" beside "cannot say whether this agent is being reminded";
+- the agent was told "You can still post" with the community off;
+- a connected agent's missing section was put down to the switch, which never governed it;
+- the check's year came from the runner while the page's came from Tokyo, so it would go red for hours each New
+  Year's Eve. The year is taken in the page's zone and the times are mid-year.
+- **NITs, taken:** the reminder switch is named whatever the address says; the open rows are not forgotten when rows
+  arrive that cannot be painted; "up to a few times a day"; a typographic apostrophe; a comment.
+- **NITs, not taken:** the five small per-computer reads are still made once per agent (stated under Calls); the
+  focus ring follows the k- colour, not the Connections rows' older one.
+- **CONVENTION, a duplicate:** the browser check, the full suite and design shots have not run.
+Five tests that pinned the old rules (the first trouble wins; the switch is the cause of a missing section) were
+replaced by tests of the new one. That is a change of behaviour, not a tidy-up: the closed row's words differ.

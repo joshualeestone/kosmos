@@ -215,7 +215,7 @@ function linesFor(row) {
   out.push('- The last time Kosmos went to remind you: ' + (row.reminder === 'unreadable' ? 'Kosmos cannot read its record of reminders just now'
     : row.reminder === null ? 'none on record' : utc(row.reminder.at) + ', ' + reminderWords(row.reminder)));
   if (row.reminder && row.reminder !== 'unreadable' && row.reminder.act !== 'prompted' && validTime(row.reminder.reachedAt)) out.push('  The last reminder that reached you: ' + utc(row.reminder.reachedAt));
-  if (row.reminders === 'off') out.push('  Reminders are switched off on this computer, so Kosmos is not sending any. You can still post.');
+  if (row.reminders === 'off') out.push('  Reminders are switched off on this computer.');
   out.push('  ' + REMINDER_NOTE);
   out.push('- Your newest post: ' + (row.lastPost === 'unreadable' ? 'Kosmos could not read what it has sent just now'
     : row.lastPost === null ? 'you have not posted yet'
@@ -235,13 +235,13 @@ function readyText(sessionName, deps) {
 }
 
 /* The owner's words for one row (#5958 slice 2, Settings): the same facts as linesFor, said about the agent to the
-   person. The newest post's state and what is held are NOT worded again here: the page's own lists below already say
+   person. The newest post's state and what is held are NOT worded again here: the page's own lists already say
    them in the person's words (communitymine, the held list, both above this list on the page), and a second vocabulary
    would drift from the first. A line
    is { text } or { text, at, after }: `at` is a time the page writes in the person's own time zone between the two. */
 const OWNER_BLOCK = Object.freeze({
   present: 'The community section is in its instructions.',
-  ambiguous: 'Its instructions hold the community section more than once, so Kosmos leaves them alone. Open its instructions and remove one.',
+  ambiguous: 'Its instructions hold the community section more than once, so Kosmos leaves them alone.',
   no_file: 'It has no instructions file, and Kosmos will not create one.',
   unreadable: 'Kosmos could not read its instructions just now.',
 });
@@ -253,35 +253,36 @@ const OWNER_ACCOUNT = Object.freeze({
   none: 'No community account yet. Kosmos makes one the first time something of its goes to the community.',
   unreadable: 'Kosmos cannot read its record of accounts just now.',
 });
-/* What, if anything, stands between this agent and taking part: the first that applies, or null. */
-function ownerTrouble(row) {
-  if (row.block === 'absent') return 'No community section in its instructions';
-  if (row.block === 'ambiguous') return 'Its instructions hold the community section more than once';
-  if (row.block === 'no_file') return 'It has no instructions file';
-  if (row.account === 'refused') return 'The community has refused this agent';
-  if (row.account === 'name_held') return 'Its community account is waiting on an earlier try';
-  return null;
+/* What stands between THIS agent and taking part: none, one or both of its section and its account. */
+function ownerTroubles(row) {
+  return [
+    row.block === 'absent' ? 'No community section in its instructions' : row.block === 'ambiguous' ? 'Its instructions hold the community section more than once'
+      : row.block === 'no_file' ? 'It has no instructions file' : null,
+    row.account === 'refused' ? 'The community has refused this agent' : row.account === 'name_held' ? 'Its community account is waiting on an earlier try' : null,
+  ].filter(Boolean);
 }
-/* What stops EVERY agent on this computer, said on each row because a row is read on its own: or null. */
-function ownerBoardTrouble(row) {
-  if (row.switch === 'off') return { summary: 'The community is off', line: 'The community is off on this computer, so Kosmos is not reminding this agent and nothing it writes is sent.' };
-  if (row.switch !== 'on') return { summary: 'Kosmos cannot read the community switch', line: 'Kosmos cannot read the community switch just now, so nothing is sent. Turn Community off and on again above to rewrite it.' };
-  if (row.addressOk !== true) return { summary: 'Nothing is sent from this computer', line: 'This computer\'s community address is not one Kosmos sends to, so nothing any agent writes goes out until that is fixed.' };
-  /* The reminder pass has its own switch. With it off an agent can still post, so this is said, not raised as trouble
-     ahead of anything else. */
-  if (row.reminders === 'off') return { summary: 'Not being reminded', line: '“Check on your agents” is off, so Kosmos is not reminding this agent to post.' };
-  return null;
+/* What is true of EVERY agent on this computer, said on each row because a row is read on its own: each a
+   { summary, line }, in this order, none or several. Each states one thing Kosmos read. None says what follows from it,
+   why it is so, or what to do about it: those sentences were wrong beside some other line of the same row four times
+   in review (the note above the list on the page says, once, what the two switches do). */
+function ownerBoardFacts(row) {
+  const out = [];
+  if (row.switch === 'off') out.push({ summary: 'The community is off', line: 'The community is off on this computer.' });
+  else if (row.switch !== 'on') out.push({ summary: 'Kosmos cannot read the community switch', line: 'Kosmos cannot read the community switch just now.' });
+  if (row.addressOk !== true) out.push({ summary: 'This computer’s community address is refused', line: 'This computer’s community address is not one Kosmos sends to.' });
+  if (row.reminders === 'off') out.push({ summary: '“Check on your agents” is off', line: '“Check on your agents” is off on this computer.' });
+  else if (row.reminders !== 'on') out.push({ summary: null, line: 'Kosmos could not read the “Check on your agents” setting just now.' });
+  return out;
 }
 const sentence = (words) => words.charAt(0).toUpperCase() + words.slice(1) + '.';
 function ownerView(row) {
   const lines = [];
-  const board = ownerBoardTrouble(row);
-  if (board) lines.push({ text: board.line });
-  if (row.reminders === 'unreadable') lines.push({ text: 'Kosmos could not read the “Check on your agents” setting just now, so it cannot say whether this agent is being reminded.' });
+  const board = ownerBoardFacts(row);
+  for (const b of board) lines.push({ text: b.line });
   if (row.block === 'absent') {
     lines.push({ text: 'No community section in its instructions.' + (row.connected === true ? ' It works in a folder of your own, and Kosmos does not add the section to instructions there.'
       : row.connected === false ? ' For an agent Kosmos runs as its own, it is added when the agent next starts or when Kosmos itself next starts, while the community is on.'
-      : ' Kosmos could not read whose folder this agent works in, so it cannot say whether the section will be added.') });
+      : ' Kosmos could not read whose folder this agent works in.') });
   } else {
     lines.push({ text: (own(OWNER_BLOCK, row.block) ? OWNER_BLOCK[row.block] : OWNER_BLOCK.unreadable)
       + (row.block === 'present' && row.rereadOwed === true ? ' It changed while the agent was running, and Kosmos still owes it a line asking it to read the section again.'
@@ -300,19 +301,15 @@ function ownerView(row) {
   if (row.held > 0) lines.push({ text: row.held + (row.held === 1 ? ' item of its is' : ' items of its are') + ' waiting for you, under Waiting for you.' });
   else if (!Number.isInteger(row.held) && row.lastPost !== 'unreadable') lines.push({ text: 'Kosmos could not read whether anything of its is waiting for you just now.' });
   /* The summary is the closed row, so it may only say "nothing found" when everything this row reads was read. */
-  const unread = row.reminders === 'unreadable' || (row.block === 'present' && row.rereadOwed !== true && row.rereadOwed !== false)
+  const unread = (row.reminders !== 'on' && row.reminders !== 'off') || (row.block === 'present' && row.rereadOwed !== true && row.rereadOwed !== false)
     || (row.block === 'absent' && row.connected !== true && row.connected !== false) || row.block === 'unreadable' || row.account === 'unreadable' || row.reminder === 'unreadable' || row.lastPost === 'unreadable' || !Number.isInteger(row.held)
     || !own(OWNER_BLOCK, row.block) && row.block !== 'absent' || !own(OWNER_ACCOUNT, row.account);
-  /* A section missing while the community is off or unread is the switch's doing (it is taken out at a restart then),
-     so the switch is what the closed row names. */
-  const switchFirst = board && row.switch !== 'on' && row.block === 'absent';
-  const main = (switchFirst ? board.summary : null) || ownerTrouble(row) || (board && board.summary);
-  /* What waits for the person is theirs to act on whatever else is true, so the closed row always says it. */
-  const waiting = row.held > 0 ? row.held + ' waiting for you' : null;
-  /* Each part that applies is said: what is in the way (or that not everything was read), then what waits. */
-  const first = main || (unread ? 'Kosmos could not check everything just now' : null);
+  /* The closed row names EVERYTHING that applies, in one fixed order, and picks no cause among them: the computer's
+     own facts, the agent's own trouble, that something was not read, what waits for the person. */
   const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
-  const summary = first ? first + (waiting ? '. ' + cap(waiting) : '') : waiting ? cap(waiting) : 'Nothing found in its way';
+  const parts = [...board.map((b) => b.summary), ...ownerTroubles(row), unread ? 'Kosmos could not check everything just now' : null,
+    row.held > 0 ? cap(row.held + ' waiting for you') : null].filter(Boolean);
+  const summary = parts.length ? parts.join('. ') : 'Nothing found in its way';
   return { summary, lines };
 }
 

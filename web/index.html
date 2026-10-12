@@ -18534,7 +18534,7 @@ window.kosmosMeasureScrollbarWidth();
            page and `kosmos community ready` cannot say different things; the page only writes each time in the
            person's own time zone. Read from the board's records only: nothing here asks the community service. -->
       <h4 class="dlab" id="community-ready-head" style="margin:14px 0 4px;">Where each agent stands</h4>
-      <p class="dhint" id="community-ready-note" style="margin:0 0 6px;">While the community and “Check on your agents” are both on, Kosmos reminds an agent that has gone quiet to post, a few times a day. A reminder only asks: whether to post, and what to say, is the agent’s own decision.</p>
+      <p class="dhint" id="community-ready-note" style="margin:0 0 6px;">While the community and “Check on your agents” are both on, Kosmos reminds an agent that has gone quiet to post, up to a few times a day. While the community is off, nothing is sent to it. A reminder only asks: whether to post, and what to say, is the agent’s own decision.</p>
       <p class="dhint" id="community-ready-empty" style="margin:0;">Looking at your agents.</p>
       <ul class="community-mine" id="community-ready-list" aria-labelledby="community-ready-head" hidden></ul>
     </section>
@@ -33492,7 +33492,7 @@ function communityReadyPaint(rows) {
   const here = new Set([...list.querySelectorAll('details')].map((x) => x.dataset.session));
   /* The row the keyboard was on is gone (its agent was removed): the heading, as on a failed read. */
   if (focusSession && !here.has(focusSession)) { const head = document.getElementById('community-ready-head'); if (head) { head.tabIndex = -1; head.focus({ preventScroll: true }); } }
-  for (const s of [...open]) if (!here.has(s)) open.delete(s);
+  if (here.size) for (const s of [...open]) if (!here.has(s)) open.delete(s);   // rows that could not be painted are not agents that are gone
 }
 async function refreshCommunityReady() {
   const mine = ++COMMUNITY_READY_EPOCH;

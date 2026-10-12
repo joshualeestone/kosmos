@@ -386,68 +386,6 @@ test('slice 2: an agent with nothing in its way says so, and never claims more t
   assert.match(said(v), /^The community section is in its instructions\.\nIt has a community account\.\nKosmos has no record of going to remind it\.\nIt has not posted yet\.$/);
 });
 
-test('slice 2: what stands in an agent\'s way is its summary, the first that applies', () => {
-  for (const [over, summary] of [
-    [{ block: 'absent' }, 'No community section in its instructions'],
-    [{ block: 'ambiguous' }, 'Its instructions hold the community section more than once'],
-    [{ block: 'no_file' }, 'It has no instructions file'],
-    [{ account: 'refused' }, 'The community has refused this agent'],
-    [{ account: 'name_held' }, 'Its community account is waiting on an earlier try'],
-    [{ block: 'absent', account: 'refused', held: 3 }, 'No community section in its instructions. 3 waiting for you'],
-    [{ switch: 'off', held: 1 }, 'The community is off. 1 waiting for you'],
-    [{ reminders: 'off', held: 2 }, 'Not being reminded. 2 waiting for you'],
-    [{ held: 2 }, '2 waiting for you'],
-  ]) {
-    const v = view(over);
-    assert.equal(v.summary, summary, JSON.stringify(over));
-  }
-  for (const over of [{ account: 'none' }, { account: 'being_made' }, { rereadOwed: true }, { reminder: { at: 1, act: 'not-reached' } }]) {
-    assert.equal(view(over).summary, 'Nothing found in its way', 'CONTROL: ' + JSON.stringify(over) + ' is not something in its way');
-  }
-});
-
-test('slice 2 review 1: "nothing found" is said only when everything was read', () => {
-  for (const over of [{ block: 'unreadable' }, { account: 'unreadable' }, { reminder: 'unreadable' }, { lastPost: 'unreadable' }, { held: null }, { block: 'something-new' }, { account: 'something-new' },
-    { block: 'unreadable', account: 'unreadable', reminder: 'unreadable', lastPost: 'unreadable', held: null }]) {
-    assert.equal(view(over).summary, 'Kosmos could not check everything just now', JSON.stringify(over));
-  }
-  assert.equal(view({ block: 'unreadable', held: 2 }).summary, 'Kosmos could not check everything just now. 2 waiting for you', 'review 6: what waits and what was not read are both said');
-  assert.equal(view({ reminder: 'unreadable', held: 1 }).summary, 'Kosmos could not check everything just now. 1 waiting for you');
-  assert.equal(view({ account: 'unreadable', block: 'absent' }).summary, 'No community section in its instructions');
-});
-
-test('slice 2 review 1: what stops every agent is said on each row, and never under "nothing found"', () => {
-  for (const [over, summary, line] of [
-    [{ switch: 'off' }, 'The community is off', /^The community is off on this computer, so Kosmos is not reminding this agent and nothing it writes is sent\.$/],
-    [{ switch: 'unreadable' }, 'Kosmos cannot read the community switch', /^Kosmos cannot read the community switch just now, so nothing is sent\./],
-    [{ addressOk: false }, 'Nothing is sent from this computer', /community address is not one Kosmos sends to/],
-  ]) {
-    const v = view(over);
-    assert.equal(v.summary, summary, JSON.stringify(over));
-    assert.match(v.lines[0].text, line, JSON.stringify(over));
-    assert.equal(v.lines.length, 5, 'the agent\'s own lines are still there');
-  }
-  // A missing section under a switch that is off is the switch's doing; the agent's other troubles still come first.
-  assert.equal(view({ switch: 'off', block: 'absent' }).summary, 'The community is off');
-  assert.equal(view({ switch: 'unreadable', block: 'absent' }).summary, 'Kosmos cannot read the community switch');
-  assert.equal(view({ switch: 'off', account: 'refused' }).summary, 'The community has refused this agent');
-  assert.equal(view({ switch: 'off', block: 'ambiguous' }).summary, 'Its instructions hold the community section more than once');
-  assert.equal(view({ addressOk: false, block: 'absent' }).summary, 'No community section in its instructions', 'CONTROL: with the switch on, a missing section is the agent\'s own');
-  assert.equal(view({}).lines.length, 4, 'CONTROL: with the community on and sending, there is no such line');
-});
-
-test('slice 2: the section line says whose folder it is, and what Kosmos still owes', () => {
-  assert.match(said(view({ block: 'absent', connected: true })), /^No community section in its instructions\. It works in a folder of your own, and Kosmos does not add the section to instructions there\./);
-  assert.match(said(view({ block: 'absent', connected: false })), /^No community section in its instructions\. For an agent Kosmos runs as its own, it is added when the agent next starts/);
-  assert.doesNotMatch(said(view({ block: 'absent', connected: null })), /folder of your own|it is added/);
-  assert.equal(view({ block: 'absent', connected: null }).lines[0].text, 'No community section in its instructions. Kosmos could not read whose folder this agent works in, so it cannot say whether the section will be added.');
-  assert.match(said(view({ rereadOwed: null })), /in its instructions\. Kosmos could not read whether the agent has been asked to read a newer version of it\./);
-  assert.equal(view({ rereadOwed: null }).summary, 'Kosmos could not check everything just now');
-  assert.equal(view({ block: 'absent', connected: null }).summary, 'No community section in its instructions', 'a known trouble is the summary; the line says what was not read');
-  assert.match(said(view({ rereadOwed: true })), /in its instructions\. It changed while the agent was running, and Kosmos still owes it a line asking it to read the section again\./);
-  assert.doesNotMatch(said(view({ block: 'ambiguous', rereadOwed: true })), /still owes/, 'a re-read was promised for a section Kosmos leaves alone');
-});
-
 test('slice 2: a reminder is a time the page writes, between the same words the agent is told', () => {
   const T = Date.parse('2026-10-12T15:04:00Z');
   let v = view({ reminder: { at: T, act: 'prompted', delivery: 'placed', reachedAt: T } });
@@ -531,28 +469,6 @@ function fleetCard(name) {
   try { return status.snapshot().agents.map((c) => ({ ...c })).find((c) => c.sessionName === name); } finally { board.restore(); }
 }
 
-test('slice 2 review 3: the reminder pass has its own switch, and a row says when it is off', () => {
-  const v = view({ reminders: 'off' });
-  assert.equal(v.summary, 'Not being reminded');
-  assert.equal(v.lines[0].text, '“Check on your agents” is off, so Kosmos is not reminding this agent to post.');
-  // review 5: that line says nothing about sending, so it cannot contradict a refused account below it.
-  assert.doesNotMatch(said(view({ reminders: 'off', account: 'refused' })), /still sent/);
-  assert.equal(view({ reminders: 'off', switch: 'off' }).summary, 'The community is off', 'the community switch stops more, so it is named first');
-  assert.equal(view({ reminders: 'off', block: 'absent' }).summary, 'No community section in its instructions');
-  assert.equal(view({ reminders: 'unreadable' }).summary, 'Kosmos could not check everything just now');
-  assert.match(said(view({ reminders: 'unreadable' })), /Kosmos could not read the “Check on your agents” setting just now/, 'the summary said something was unread and no line said what');
-  assert.equal(view({ reminders: 'on' }).lines.length, 4, 'CONTROL: on, it adds no line');
-  // The same switch, through the real setting file, and in what the agent is told.
-  agentFile('ann', withBlock());
-  assert.equal(ready.rowFor('ann').reminders, 'on', 'no setting file reads as on (heartbeat-setting\'s default)');
-  const hs = require('./heartbeat-setting');
-  hs.setOn(false);
-  assert.equal(hs.read().on, false, 'fixture: could not switch the Prompter off');
-  assert.equal(ready.rowFor('ann').reminders, 'off');
-  assert.match(text('ann'), /Reminders are switched off on this computer, so Kosmos is not sending any\. You can still post\./);
-  assert.equal(ready.rowsFor([fleetCard('ann')])[0].owner.summary, 'Not being reminded');
-});
-
 test('slice 2 review 5: whenever the summary says something could not be checked, an open row says what', () => {
   const NAMES = /could not read|cannot read/;
   for (const over of [{ block: 'unreadable' }, { account: 'unreadable' }, { reminder: 'unreadable' }, { lastPost: 'unreadable' }, { held: null }, { reminders: 'unreadable' }, { block: 'something-new' }, { account: 'something-new' }, { rereadOwed: null }, { rereadOwed: undefined }]) {
@@ -561,4 +477,93 @@ test('slice 2 review 5: whenever the summary says something could not be checked
     assert.match(said(v), NAMES, 'nothing under the summary says what was not read: ' + JSON.stringify(over) + '\n' + said(v));
   }
   assert.doesNotMatch(said(view({})), NAMES, 'CONTROL: a row that was read says nothing of the kind');
+});
+
+/* Review 7 replaced the rules the five tests above this point used to pin (pick the first trouble, guess its cause, say
+   what follows from it). The rule now: every line states one thing Kosmos read, and the summary names all that apply. */
+test('slice 2 review 7: the summary names everything that applies, in one fixed order, and picks no cause', () => {
+  for (const [over, summary] of [
+    [{}, 'Nothing found in its way'],
+    [{ block: 'absent' }, 'No community section in its instructions'],
+    [{ block: 'ambiguous' }, 'Its instructions hold the community section more than once'],
+    [{ block: 'no_file' }, 'It has no instructions file'],
+    [{ account: 'refused' }, 'The community has refused this agent'],
+    [{ account: 'name_held' }, 'Its community account is waiting on an earlier try'],
+    [{ held: 2 }, '2 waiting for you'],
+    [{ switch: 'off' }, 'The community is off'],
+    [{ switch: 'unreadable' }, 'Kosmos cannot read the community switch'],
+    [{ addressOk: false }, 'This computer’s community address is refused'],
+    [{ reminders: 'off' }, '“Check on your agents” is off'],
+    [{ reminders: 'unreadable' }, 'Kosmos could not check everything just now'],
+    [{ block: 'absent', account: 'refused', held: 3 }, 'No community section in its instructions. The community has refused this agent. 3 waiting for you'],
+    [{ switch: 'off', block: 'absent', connected: true }, 'The community is off. No community section in its instructions'],
+    [{ switch: 'off', block: 'absent', connected: false }, 'The community is off. No community section in its instructions'],
+    [{ switch: 'off', addressOk: false, reminders: 'off', held: 1 }, 'The community is off. This computer’s community address is refused. “Check on your agents” is off. 1 waiting for you'],
+    [{ addressOk: false, reminders: 'off' }, 'This computer’s community address is refused. “Check on your agents” is off'],
+    [{ block: 'unreadable', held: 2 }, 'Kosmos could not check everything just now. 2 waiting for you'],
+    [{ account: 'refused', reminder: 'unreadable' }, 'The community has refused this agent. Kosmos could not check everything just now'],
+  ]) assert.equal(view(over).summary, summary, JSON.stringify(over));
+  for (const over of [{ account: 'none' }, { account: 'being_made' }, { rereadOwed: true }, { reminder: { at: 1, act: 'not-reached' } }]) {
+    assert.equal(view(over).summary, 'Nothing found in its way', 'CONTROL: ' + JSON.stringify(over) + ' is not something in its way');
+  }
+});
+
+test('slice 2 review 7: "nothing found" is said only when everything the row reads was read', () => {
+  for (const over of [{ block: 'unreadable' }, { account: 'unreadable' }, { reminder: 'unreadable' }, { lastPost: 'unreadable' }, { held: null }, { block: 'something-new' }, { account: 'something-new' },
+    { reminders: 'unreadable' }, { reminders: undefined }, { rereadOwed: null },
+    { block: 'unreadable', account: 'unreadable', reminder: 'unreadable', lastPost: 'unreadable', held: null }]) {
+    assert.equal(view(over).summary, 'Kosmos could not check everything just now', JSON.stringify(over));
+  }
+});
+
+test('slice 2 review 7: each fact about the whole computer is one line that says only that fact', () => {
+  const first = (over, n = 1) => view(over).lines.slice(0, n).map((l) => l.text);
+  assert.deepEqual(first({ switch: 'off' }), ['The community is off on this computer.']);
+  assert.deepEqual(first({ switch: 'unreadable' }), ['Kosmos cannot read the community switch just now.']);
+  assert.deepEqual(first({ addressOk: false }), ['This computer’s community address is not one Kosmos sends to.']);
+  assert.deepEqual(first({ reminders: 'off' }), ['“Check on your agents” is off on this computer.']);
+  assert.deepEqual(first({ reminders: 'unreadable' }), ['Kosmos could not read the “Check on your agents” setting just now.']);
+  assert.deepEqual(first({ switch: 'off', addressOk: false, reminders: 'off' }, 3), ['The community is off on this computer.', 'This computer’s community address is not one Kosmos sends to.', '“Check on your agents” is off on this computer.']);
+  assert.equal(view({}).lines.length, 4, 'CONTROL: with both switches on and the address good, there is no such line');
+  assert.equal(view({ switch: 'off', addressOk: false, reminders: 'off' }).lines.length, 7, 'the agent\'s own four lines are still there');
+});
+
+test('slice 2 review 7: no line says what follows from another, why, or what to do; so no two lines of a row can disagree', () => {
+  const T = 5;
+  const LEAK = /\bstill sent\b|\bnot reminding\b|\bis not being reminded\b|\bcannot say whether\b|\bturn (it|community) \b|\boff and on\b|\bopen its instructions\b|\bremove one\b|\btry again\b|\bso nothing\b.*\buntil\b/i;
+  for (const sw of ['on', 'off', 'unreadable']) for (const addressOk of [true, false]) for (const reminders of ['on', 'off', 'unreadable']) {
+    for (const block of ['present', 'absent', 'ambiguous', 'no_file', 'unreadable']) for (const account of Object.keys(ready.ACCOUNT_WORDS)) for (const connected of [true, false, null]) {
+      const v = view({ switch: sw, addressOk, reminders, block, account, connected, reminder: { at: T, act: 'held', heldBy: 'cap' }, held: 1, rereadOwed: null });
+      const t = said(v) + '\n' + v.summary;
+      assert.doesNotMatch(t, LEAK, t);
+      assert.equal(new Set(v.lines.map((l) => l.text + ('at' in l ? l.at + l.after : ''))).size, v.lines.length, 'a line is said twice: ' + t);
+    }
+  }
+  assert.match('Turn Community off and on again above', LEAK, 'CONTROL: the pattern finds the remedy review 7 caught');
+  assert.match('What it writes is still sent.', LEAK, 'CONTROL: and the consequence review 5 caught');
+});
+
+test('slice 2 review 7: the section line says what is in the file and what Kosmos read about it, for either kind of agent', () => {
+  assert.match(said(view({ block: 'absent', connected: true })), /^No community section in its instructions\. It works in a folder of your own, and Kosmos does not add the section to instructions there\./);
+  assert.match(said(view({ block: 'absent', connected: false })), /^No community section in its instructions\. For an agent Kosmos runs as its own, it is added when the agent next starts/);
+  assert.equal(view({ block: 'absent', connected: null }).lines[0].text, 'No community section in its instructions. Kosmos could not read whose folder this agent works in.');
+  assert.match(said(view({ rereadOwed: true })), /in its instructions\. It changed while the agent was running, and Kosmos still owes it a line asking it to read the section again\./);
+  assert.match(said(view({ rereadOwed: null })), /in its instructions\. Kosmos could not read whether the agent has been asked to read a newer version of it\./);
+  assert.doesNotMatch(said(view({ block: 'ambiguous', rereadOwed: true })), /still owes/, 'a re-read was promised for a section Kosmos leaves alone');
+});
+
+test('slice 2 review 7: the reminder switch through the real setting file, in the row and in what the agent is told', () => {
+  agentFile('ann', withBlock());
+  assert.equal(ready.rowFor('ann').reminders, 'on', 'no setting file reads as on (heartbeat-setting\'s default)');
+  const hs = require('./heartbeat-setting');
+  hs.setOn(false);
+  assert.equal(hs.read().on, false, 'fixture: could not switch the Prompter off');
+  assert.equal(ready.rowFor('ann').reminders, 'off');
+  const t = text('ann');
+  assert.match(t, /\n  Reminders are switched off on this computer\.\n/);
+  assert.doesNotMatch(t, /You can still post/, 'the agent was told it can post, whatever the community switch says');
+  assert.equal(ready.rowsFor([fleetCard('ann')])[0].owner.summary, '“Check on your agents” is off');
+  fs.writeFileSync(hs.FILE, '{ not json');
+  assert.equal(ready.rowFor('ann').reminders, 'unreadable');
+  assert.doesNotMatch(text('ann'), /Reminders are switched off/, 'an unreadable setting was told to the agent as off');
 });

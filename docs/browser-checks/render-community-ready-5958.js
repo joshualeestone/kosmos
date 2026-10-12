@@ -108,9 +108,11 @@ function readList(pg) {
 const answer = (body, status = 200) => (route) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 /* Times in THIS year, so the page writes them without one (it adds the year for any other); a fixed date would turn
    this check red on the first of January. T_OLD is in an earlier year, for the arm that needs the year shown. */
-const YEAR = new Date().getFullYear();
-const T1 = Date.UTC(YEAR, 0, 12, 15, 4);
-const T0 = Date.UTC(YEAR, 0, 12, 10, 0);
+const ZONE = 'Asia/Tokyo';   // the zone every page here runs in (see page() below)
+/* The year as the PAGE sees it: the runner's own year differs from Tokyo's for hours around New Year. */
+const YEAR = Number(new Intl.DateTimeFormat('en-US', { timeZone: ZONE, year: 'numeric' }).format(new Date()));
+const T1 = Date.UTC(YEAR, 5, 12, 15, 4);   // mid-year, so no zone moves it into another year
+const T0 = Date.UTC(YEAR, 5, 12, 10, 0);
 const T_OLD = Date.UTC(YEAR - 2, 5, 3, 9, 30);
 const agent = (session, name, owner) => ({ session, name, switch: 'on', addressOk: true, block: 'present', connected: false, rereadOwed: false, account: 'yes', reminder: null, lastPost: null, held: 0, owner });
 const AVA = agent('ava', 'Ava', { summary: 'Nothing found in its way', lines: [
@@ -138,7 +140,6 @@ async function run() {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
   /* A fixed zone that is not UTC, and a fixed locale: the TIME arm asserts an hour, and on a runner in UTC a page that
      wrote UTC would otherwise look right. */
-  const ZONE = 'Asia/Tokyo';
   const page = (viewport = { width: 1400, height: 1000 }) => browser.newPage({ viewport, timezoneId: ZONE, locale: 'en-US' });
   try {
     // ROWS (the control)
@@ -165,7 +166,7 @@ async function run() {
     check('TIME: each time is a <time> with a machine datetime', tm.length === 2 && tm[0].dt === new Date(T1).toISOString() && tm[1].dt === new Date(T0).toISOString(), JSON.stringify(tm));
     const local = await p1.evaluate((ms) => new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }), T1);
     // 15:04 UTC on the 12th is 00:04 on the 13th in Tokyo: the page's zone, not UTC and not this runner's.
-    check('TIME CONTROL: the page is in a zone that is not UTC', /Jan 13/.test(local) && /12:04\s?AM/.test(local), local);
+    check('TIME CONTROL: the page is in a zone that is not UTC', /Jun 13/.test(local) && /12:04\s?AM/.test(local), local);
     check('TIME: it is written in the page\'s own zone, between the board\'s words', tm[0].text === local && o.rows[2].lines[2] === 'Kosmos last went to remind it on ' + local + '. Not sent: this board had reached its hourly limit for messages to agents.', JSON.stringify([tm[0].text, local, o.rows[2].lines[2]]));
 
     // MARK
@@ -298,7 +299,7 @@ async function run() {
     // FRESH: the switch changes what every row says, so saving it must read the list again
     const p9 = await page();
     let reads = 0;
-    const OFF = { ...AVA, owner: { summary: 'The community is off', lines: [{ text: 'The community is off on this computer, so Kosmos is not reminding this agent and nothing it writes is sent.' }] } };
+    const OFF = { ...AVA, owner: { summary: 'The community is off', lines: [{ text: 'The community is off on this computer.' }] } };
     let onNow = false;
     await p9.route(READY, (route) => { reads += 1; return answer({ agents: [onNow ? AVA : OFF] })(route); });
     await p9.route('**/api/community-setting', (route) => {
@@ -316,7 +317,7 @@ async function run() {
     const fr1 = await readList(p9);
     check('FRESH: turning the switch on reads the list again and the row stops saying it is off', reads > before && fr1.rows.length === 1 && fr1.rows[0].summary === 'Nothing found in its way', JSON.stringify([reads - before, fr1.rows.map((x) => x.summary)]));
     // the other switch the rows name
-    const NOTREM = { ...AVA, owner: { summary: 'Not being reminded', lines: [{ text: '“Check on your agents” is off, so Kosmos is not reminding this agent to post.' }] } };
+    const NOTREM = { ...AVA, owner: { summary: '“Check on your agents” is off', lines: [{ text: '“Check on your agents” is off on this computer.' }] } };
     let hbOn = true;
     let hbPuts = 0;
     await p9.unroute(READY);
@@ -331,10 +332,10 @@ async function run() {
     check('FRESH CONTROL: "Check on your agents" is there to press, and reads on', hb.shown && hb.on === 'true', JSON.stringify(hb));
     const beforeHb = reads;
     await p9.click('#hb-toggle');
-    await p9.waitForFunction(() => { const d = document.querySelector('#community-ready-list summary span'); return d && d.textContent === 'Not being reminded'; }, null, { timeout: 5000 }).catch(() => {});
+    await p9.waitForFunction(() => { const d = document.querySelector('#community-ready-list summary span'); return d && /Check on your agents/.test(d.textContent); }, null, { timeout: 5000 }).catch(() => {});
     const fr2 = await readList(p9);
     check('FRESH CONTROL: pressing it saved the setting', hbPuts === 1, String(hbPuts));
-    check('FRESH: turning "Check on your agents" off reads the list again and the row says it is not being reminded', reads > beforeHb && fr2.rows.length === 1 && fr2.rows[0].summary === 'Not being reminded', JSON.stringify([reads - beforeHb, fr2.rows.map((x) => x.summary)]));
+    check('FRESH: turning "Check on your agents" off reads the list again and the row says that switch is off', reads > beforeHb && fr2.rows.length === 1 && fr2.rows[0].summary === '“Check on your agents” is off', JSON.stringify([reads - beforeHb, fr2.rows.map((x) => x.summary)]));
     await p9.close();
 
     // PHONE
