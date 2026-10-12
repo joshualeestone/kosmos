@@ -91,7 +91,7 @@ function seen(sessionName, atISO) {
  * When was this agent last seen?
  *
  * 🔑 THREE ANSWERS, NEVER TWO. `found:false` means we have no record at all --
- * which is what a Mac agent that has never heartbeated looks like, and is NOT
+ * which is what an agent that has never reported looks like, and is NOT
  * the same as "seen long ago". Collapsing those is the defect this fleet spent
  * 2026-08-27 finding in eight separate instruments.
  */
@@ -113,8 +113,9 @@ function read(sessionName) {
 /**
  * Is this agent alive right now, on the heartbeat's evidence?
  * ⚠️ `null` for "we cannot tell" -- no record -- and it is deliberately NOT
- * `false`. A caller that treats no-record as dead would drop every Mac agent,
- * none of which heartbeat.
+ * `false`. A caller that treats no-record as dead would drop every agent that
+ * has not reported yet. (Mac agents do beat, through the report route since
+ * #2558: measured 10-12, one file per agent on a Mac board.)
  */
 function alive(sessionName, staleAfterMs) {
   const r = read(sessionName);
