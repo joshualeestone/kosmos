@@ -89,13 +89,23 @@ test('#5959 slice 3: an agent\'s own blocked report over a day old on its card i
   assert.equal(run([casey], reports, { book, reminded, now: NOW + DAY + 60e3 }).sent.length, 1, 'a fresh report a day later was not');
 });
 
-test('#5959 slice 3: never needs_you (a question waiting on the person) and never a report Kosmos wrote', () => {
+test('#5959 slice 3: never needs_you (a question waiting on the person); a blocked Kosmos wrote is told in its own words', () => {
   const [q, k] = cardsFor([['quin', 'needs_you'], ['kai', 'blocked']]);
   const { sent } = run([q, k], {
     [q.sessionName]: { found: true, state: 'needs_you', at: iso(NOW - 3 * DAY), by: 'agent' },
     [k.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3 * DAY), by: 'auto' },
   });
-  assert.deepEqual(sent, [], 'typed into a question, or about a report the reminder\'s own turn can clear');
+  assert.deepEqual(sent.map((x) => x.s), [k.sessionName], 'typed into a question, or missed a Kosmos-written blocked');
+  assert.match(sent[0].text, /: A `blocked` report Kosmos wrote for you has been standing on your card for 3 days\. If what it was about has passed, clear it with: kosmos report clear\./);
+});
+
+test('#5959 slice 3: an agent mid-turn is told at a later sweep, between turns', () => {
+  const [m] = cardsFor([['moe', 'blocked']]);
+  const reports = { [m.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 2 * DAY), by: 'agent' } };
+  const book = new Map();
+  const reminded = memReminded();
+  assert.equal(run([{ ...m, activeWhileWaiting: true }], reports, { book, reminded }).sent.length, 0, 'typed into a turn');
+  assert.equal(run([m], reports, { book, reminded }).sent.length, 1, 'CONTROL: told once the turn is over');
 });
 
 test('#5959 slice 3: Claude cards only (the menu hold that keeps a line out of an open ask is Claude-only)', () => {
@@ -178,10 +188,11 @@ test('#5959 slice 3: the reminded record is kept on disk under the data root and
   fs.writeFileSync(file, 'not json');
   sweep();
   assert.equal(sent.length, 2);
-  // Kept to the sessions on the board: an agent no longer there is dropped at the next write.
-  fs.writeFileSync(file, JSON.stringify({ gone: '2026-01-01T00:00:00.000Z' }));
+  // Dropped only when off the board AND over PRUNE_MS old: one roster read missing a card does not cost its record.
+  fs.writeFileSync(file, JSON.stringify({ gone: iso(NOW - nudge.PRUNE_MS - DAY), away: iso(NOW - 2 * DAY) }));
   sweep();
-  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8'))), [h.sessionName], 'a session not on the board was kept');
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8'))).sort(), ['away', h.sessionName].sort(),
+    'pruned a recent record of an agent briefly off the board, or kept an old one');
 });
 
 test('#5959 slice 3: a record that could not be written is logged', () => {
