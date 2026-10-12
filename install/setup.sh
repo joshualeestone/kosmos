@@ -3522,13 +3522,14 @@ make_app() {
 # renamed, so the app never reads half a file. Returns non-zero on any failure; the caller notes it and goes on,
 # because the bundle's own copy (build_app_bundle) still points the app at this install.
 write_install_config() {
-  local owner_uid tmp _home_norm
+  local owner_uid tmp
   # 🛑 A SANDBOXED INSTALL NEVER WRITES THE REAL ACCOUNT'S FILE. The app reads this file FIRST, so a harness that moved
   # KOSMOS_HOME but not AGENT_WORKFORCE_HOME would point the real Kosmos.app on this Mac at the sandbox. Same rule as
   # uninstall's refusal for the real Application Support folder: a non-default KOSMOS_HOME with the real home is a
   # sandbox here. (A self-host install with a custom KOSMOS_HOME therefore keeps relying on the bundle's copy.)
-  _home_norm="$(printf '%s' "${AGENT_WORKFORCE_HOME:-$HOME}" | /usr/bin/tr -s '/')"
-  if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ] && [ "${_home_norm%/}" = "${HOME%/}" ]; then
+  # 🔑 `-ef` (same directory), NOT a string compare: /System/Volumes/Data/Users/<u> and a doubled or trailing slash all
+  # name the real home, and each passed a string compare (tools/release.sh uses -ef for the same reason).
+  if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ] && [ "${AGENT_WORKFORCE_HOME:-$HOME}" -ef "$HOME" ]; then
     return 2
   fi
   owner_uid="$(/usr/bin/id -u)" || return 1
@@ -3536,7 +3537,7 @@ write_install_config() {
     ''|*[!0-9]*) return 1 ;;
   esac
   mkdir -p "$INSTALL_CONFIG_DIR" 2>/dev/null || return 1
-  tmp="$INSTALL_CONFIG_DIR/.kosmos-install.json.$$"
+  tmp="$(/usr/bin/mktemp "$INSTALL_CONFIG_DIR/.kosmos-install.json.XXXXXX" 2>/dev/null)" || return 1
   printf '{"kosmosHome":"%s","ownerUid":%s,"port":%s}' \
     "$KOSMOS_HOME" "$owner_uid" "$PORT" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
   mv -f "$tmp" "$INSTALL_CONFIG_DIR/kosmos-install.json" 2>/dev/null || { rm -f "$tmp"; return 1; }

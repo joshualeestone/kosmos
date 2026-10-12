@@ -34,6 +34,10 @@ const UNINSTALL_BLOCK = (() => {
 })();
 const DIR_LINE = SETUP.match(/^INSTALL_CONFIG_DIR="[^\n]+"$/m);
 assert.ok(DIR_LINE, 'INSTALL_CONFIG_DIR is no longer set on one line');
+// The install path's own default-home definition, lifted rather than copied, so the guard is tested against the
+// definition setup.sh really uses.
+const DEFAULT_LINES = SETUP.match(/^_kosmos_home_default="[^\n]+"\n_kosmos_home_default="[^\n]+"$/m);
+assert.ok(DEFAULT_LINES, 'the top-level _kosmos_home_default definition moved');
 
 let tmpRoot;
 test.before(() => { tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-appcfg-5896-')); });
@@ -43,8 +47,7 @@ test.after(() => { fs.rmSync(tmpRoot, { recursive: true, force: true }); });
 function run(env, body) {
   const script = [
     'set -u',
-    '_kosmos_home_default="$(printf \'%s\' "$HOME/.local/share/kosmos" | /usr/bin/tr -s \'/\')"',
-    '_kosmos_home_default="${_kosmos_home_default%/}"',
+    DEFAULT_LINES[0],
     DIR_LINE[0],
     WRITE,
     body,
@@ -77,6 +80,41 @@ test('#5896: a moved KOSMOS_HOME with the real home is treated as a sandbox and 
   const r = run({ HOME: home, KOSMOS_HOME: '/sb/kosmos', PORT: '17001' }, 'write_install_config; echo "rc=$?"');
   assert.match(r.out, /rc=2/, 'the guard did not stand down with its own code');
   assert.equal(fs.existsSync(cfgFile(home)), false, 'a sandboxed install pointed the real app at the sandbox');
+});
+
+test('#5896: the real home spelled another way (resolved symlink, doubled slash) is still the real home', () => {
+  // os.tmpdir() on macOS is /var/..., a symlink to /private/var/...: two spellings of one directory, the same shape as
+  // /Users/<u> and /System/Volumes/Data/Users/<u>.
+  const home = fs.mkdtempSync(path.join(tmpRoot, 'realhome-'));
+  for (const awh of [fs.realpathSync(home), home.replace(/\//g, '//') + '/']) {
+    if (awh === home) continue;
+    const r = run({ HOME: home, AGENT_WORKFORCE_HOME: awh, KOSMOS_HOME: '/sb/kosmos', PORT: '17001' },
+      'write_install_config; echo "rc=$?"');
+    assert.match(r.out, /rc=2/, 'AGENT_WORKFORCE_HOME=' + awh + ' names the real home and was not caught');
+    assert.equal(fs.existsSync(cfgFile(home)), false, 'a sandboxed install pointed the real app at the sandbox');
+  }
+});
+
+test('#5896: a write that cannot happen returns non-zero and leaves no file behind', () => {
+  const awh = fs.mkdtempSync(path.join(tmpRoot, 'sandboxhome-'));
+  // A FILE where the Application Support folder should be, so the folder cannot be made.
+  fs.mkdirSync(path.join(awh, 'Library'));
+  fs.writeFileSync(path.join(awh, 'Library', 'Application Support'), 'in the way');
+  const r = run({ HOME: fs.mkdtempSync(path.join(tmpRoot, 'realhome-')), AGENT_WORKFORCE_HOME: awh,
+    KOSMOS_HOME: '/sb/kosmos', PORT: '17001' }, 'write_install_config; echo "rc=$?"');
+  assert.match(r.out, /rc=1/);
+  assert.deepEqual(fs.readdirSync(path.join(awh, 'Library')), ['Application Support']);
+  // A folder that exists but cannot be written to: the temporary file cannot be made either.
+  const awh2 = fs.mkdtempSync(path.join(tmpRoot, 'sandboxhome-'));
+  const dir = path.dirname(cfgFile(awh2));
+  fs.mkdirSync(dir, { recursive: true });
+  fs.chmodSync(dir, 0o500);
+  try {
+    const r2 = run({ HOME: fs.mkdtempSync(path.join(tmpRoot, 'realhome-')), AGENT_WORKFORCE_HOME: awh2,
+      KOSMOS_HOME: '/sb/kosmos', PORT: '17001' }, 'write_install_config; echo "rc=$?"');
+    assert.match(r2.out, /rc=1/);
+    assert.deepEqual(fs.readdirSync(dir), [], 'a failed write left a file');
+  } finally { fs.chmodSync(dir, 0o700); }
 });
 
 test('#5896: CONTROL, a real install (default KOSMOS_HOME, real home) writes the account file', () => {
