@@ -4,16 +4,7 @@
  * #5959: `kosmos report show` also says what the agent's CARD shows (the page's own word), and points out a waiting
  * state that has stood over a day. Harness from server.report-readback-2709.test.js.
  *
- * `kosmos report` was write-only, so an agent could set its state (incl a
- * needs_you it is TOLD to clear once answered) but never check it -- and memory
- * of it does not survive a compaction. The new read-back returns ONLY the
- * caller's own report, authenticated exactly like POST /api/report
- * (resolveAgentSender, token-first then pane), so it is never a window onto the
- * roster (that stays account-gated).
- *
- * Same sandbox posture as server.liveness-refused-2558.test.js.
- *
- *   node --test server.report-readback-2709.test.js
+ *   node --test server.reportshow-card-5959.test.js
  */
 
 const test = require('node:test');
@@ -113,7 +104,8 @@ test('#5959: a waiting state standing over a day is pointed out; a fresh one is 
     const tok = sendertoken.mint(WHO).token;
     backdate(WHO, 'blocked', new Date(Date.now() - 2.5 * 24 * 3600e3).toISOString());
     const old = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } });
-    assert.match(old.text, /This blocked has been standing for 2 days\. If nobody needs to answer it any more, clear it/, old.text);
+    assert.match(old.text, /This `blocked` report has been standing for 2 days\. If nobody needs to answer it any more, clear it/, old.text);
+    assert.doesNotMatch(old.text, /waiting-on-a-person state/, 'two overlapping instructions: ' + old.text);
     assert.equal((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.stale, true);
     // CONTROL: the same state reported now is not stale.
     await post('/api/report', { headers: { 'x-kosmos-agent-token': tok }, body: { state: 'blocked', on: 'the deploy' } });
@@ -124,5 +116,28 @@ test('#5959: a waiting state standing over a day is pointed out; a fresh one is 
     backdate(WHO, 'working', new Date(Date.now() - 3 * 24 * 3600e3).toISOString());
     const work = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': sendertoken.mint(WHO).token } });
     assert.doesNotMatch(work.text, /has been standing/, work.text);
+  });
+});
+
+test('#5959 review 1: with no report at all, the label still comes from the card (the board, not the report)', async () => {
+  boardAuthState.on = false;
+  await withLeo(async () => {
+    const t = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': sendertoken.mint(WHO).token } });
+    assert.match(t.text, /^Your card on the board shows: Idle\.\nYou have not reported a state to the board yet\.\n$/, t.text);
+  });
+});
+
+test('#5959 review 1: the stale boundary is a day, and between one and two days it says "over a day"', async () => {
+  boardAuthState.on = false;
+  await withLeo(async () => {
+    const tok = sendertoken.mint(WHO).token;
+    const at = (h) => new Date(Date.now() - h * 3600e3).toISOString();
+    backdate(WHO, 'needs_you', at(23));
+    assert.equal((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.stale, false, '23 hours read stale');
+    backdate(WHO, 'needs_you', at(25));
+    const t = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } });
+    assert.match(t.text, /This `needs_you` report has been standing for over a day\./, t.text);
+    backdate(WHO, 'needs_you', at(36));
+    assert.match((await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } })).text, /for over a day\./);
   });
 });
