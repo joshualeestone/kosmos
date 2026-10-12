@@ -26532,6 +26532,8 @@ function paintKeyedProviderOptions(sel, accounts, known, current, failed) {
   if (!sel || !sel.options) return;
   for (const opt of sel.options) {
     if (!ACCT_KEYED_ROUTE[opt.value] || opt.value === 'openai') continue;  // Gemini and Grok
+    // #5977 UI review 2: Kosmos cannot start a Qwen agent on Windows yet (the engine refuses), so it is not offered.
+    if (opt.value === 'alibaba' && typeof onWindows === 'function' && onWindows()) { opt.disabled = true; opt.dataset.off = 'Not on Windows yet'; continue; }
     /* "Usable" is BOTH rules: the create list's (acctOfferableTarget) and the switch list's
        (a live check that is not 'none', not marked unofferable). Offering the provider when
        either list would come up empty would post with no account. */
@@ -30515,6 +30517,14 @@ function openAcctAdd(ev) {
   ACCT_REAUTH_DIR = null;
   ACCT_OPENAI_REAUTH_DIR = null;
   acctReauthChrome(false);
+  /* #5977 UI review 2: on Windows Kosmos cannot start a Qwen agent yet, so Qwen is listed as coming and the intro
+     does not say it works today (nobody downloads 4.7 GB for an agent that will be refused). */
+  if (typeof onWindows === 'function' && onWindows()) {
+    const q = sel && sel.querySelector ? sel.querySelector('option[value="alibaba"]') : null;
+    if (q) { q.disabled = true; q.textContent = 'Alibaba Qwen · coming to Windows'; }
+    const intro = document.getElementById('acct-add-in');
+    if (intro && intro.textContent === ACCT_ADD_INTRO) intro.textContent = ACCT_ADD_INTRO.replace('Google Gemini, xAI Grok and Alibaba Qwen', 'Google Gemini and xAI Grok');
+  }
   document.getElementById('acct-add-note').textContent = '';
   document.getElementById('acct-openai-msg').textContent = '';
   modal.hidden = false;
@@ -30831,7 +30841,8 @@ let ACCT_QWEN_LOCAL_ASK = '';
    field change, Not now and a finished POST cannot start parallel chains or let an older answer win. */
 let ACCT_QWEN_LOCAL_TIMER = null;
 let ACCT_QWEN_LOCAL_SEQ = 0;
-let ACCT_QWEN_LOCAL_RUNNING = false;   // a download was running at the last answer: a failed read is retried, not final
+let ACCT_QWEN_LOCAL_RUNNING = false;
+let ACCT_QWEN_LOCAL_LOCKED = false;   // the 700 ms after the confirm appears, when a press is ignored   // a download was running at the last answer: a failed read is retried, not final
 function acctQwenIsLocalSetup() {
   const u = (document.getElementById('acct-qwen-url') || {}).value || '';
   const m = ((document.getElementById('acct-qwen-model') || {}).value || '').trim();
@@ -30840,7 +30851,9 @@ function acctQwenIsLocalSetup() {
   if (!url) return false;
   // UI review: Ollama's own port only (the panel reports on 11434), and every spelling of this computer.
   const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
-  return local && (url.port === '' || url.port === '11434') && m === QWEN_LOCAL_MODEL;
+  // Round 2: Ollama's port exactly (an empty port is 80 or 443, not Ollama); never on Windows, where Qwen cannot run yet.
+  if (typeof onWindows === 'function' && onWindows()) return false;
+  return local && url.port === '11434' && m === QWEN_LOCAL_MODEL;
 }
 function acctQwenGb(n) { return (n / 1e9).toFixed(1); }
 /* UI review: when the row with the focused button is hidden, focus goes to the sentence that replaced it, not the page. */
@@ -30869,6 +30882,7 @@ async function acctQwenLocalPaint() {
   const again = () => { ACCT_QWEN_LOCAL_TIMER = setTimeout(() => { if (ACCT_QWEN_GEN === mine) acctQwenLocalPaint(); }, 2000); };
   if (!s && ACCT_QWEN_LOCAL_RUNNING) { again(); return; }   // a missed poll mid-download: keep what is shown, ask again
   box.hidden = false;
+  if (document.activeElement === no && btn.focus) btn.focus();   // round 2: Not now must not drop focus as it hides
   no.hidden = true;
   btn.disabled = false;
   const d = s && s.download;
@@ -30911,26 +30925,36 @@ document.getElementById('acct-qwen-local-go').addEventListener('click', async ()
     t.textContent = 'This downloads about 4.7 GB from Ollama, which can take a while. Start it?';
     btn.textContent = 'Start the download'; no.hidden = false; ACCT_QWEN_LOCAL_ASK = 'download';
     /* UI review: the confirm sits where the first press landed, so a double click would confirm unread. It takes a
-       press only after a moment. */
-    btn.disabled = true;
-    setTimeout(() => { if (ACCT_QWEN_LOCAL_ASK === 'download') btn.disabled = false; }, 700);
+       press only after a moment. aria-disabled, not disabled (round 2): disabling the focused button would drop a
+       keyboard user's focus to the page. */
+    ACCT_QWEN_LOCAL_LOCKED = true;
+    btn.setAttribute('aria-disabled', 'true');
+    setTimeout(() => { ACCT_QWEN_LOCAL_LOCKED = false; btn.removeAttribute('aria-disabled'); }, 700);
     return;
   }
+  if (ACCT_QWEN_LOCAL_LOCKED) return;
   if (ask !== 'model' && ask !== 'download') return;
+  // Round 2: focus to the sentence first, then disable (a disabled focused button drops focus to the page).
+  if (t.focus) t.focus();
   btn.disabled = true; no.hidden = true;
   t.textContent = ask === 'model' ? 'Setting Qwen up…' : 'Starting the download…';
   let out = null;
+  let busy = false;   // round 2: a download already running (another tab): show its progress, not a dead button
+  const mine = ACCT_QWEN_GEN;
   try {
     const r = await fetch(ask === 'model' ? '/api/accounts/qwen/local/model' : '/api/accounts/qwen/local/download', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(ask === 'download' ? { confirm: true } : {}),
     });
     out = await r.json().catch(() => null);
+    if (ACCT_QWEN_GEN !== mine) return;   // round 2: the step was put away during the request
+    busy = r.status === 409;
     if (!r.ok) {
       const why = out && typeof out.because === 'string' && out.because ? out.because : 'that did not work just now';
       t.textContent = why.charAt(0).toUpperCase() + why.slice(1) + (/[.)]$/.test(why) ? '' : '.');
     }
   } catch { t.textContent = 'We could not reach Kosmos just now.'; }
-  if (out && (out.ok || out.started)) acctQwenLocalPaint();
+  if (ACCT_QWEN_GEN !== mine) return;
+  if ((out && (out.ok || out.started)) || busy) acctQwenLocalPaint();
   else btn.disabled = false;
 });
 document.getElementById('acct-qwen-local-no').addEventListener('click', () => { acctQwenLocalPaint(); });
@@ -52756,7 +52780,10 @@ async function changeProviderNow(say) {
       const mainClaude = (ACCOUNTS || []).find((x) => x && acctProvider(x) === 'anthropic' && x.isDefault);
       /* #5145: the account the switch landed on, by chooseSwitchedAccount's precedence (tested there). */
       const chosenDir = chooseSwitchedAccount(want, sentAccount, out, ACCOUNTS, mainClaude ? mainClaude.dir : null);
-      CURRENT.account = chosenDir ? { dir: chosenDir } : null;
+      /* #5977 UI review 2: a Qwen agent is told apart from an OpenAI one only by its account's provider, so the switch
+         says so even when the landed folder is not in the page's list yet. */
+      CURRENT.account = want === 'alibaba' ? { ...(chosenDir ? { dir: chosenDir } : {}), provider: 'alibaba' }
+        : chosenDir ? { dir: chosenDir } : null;
       /* Round 5: "Right now: <name> (<account>)" kept the OLD account in its bracket; rebuild it from the new one. */
       {
         const drun = document.getElementById('d-runson');
@@ -79925,7 +79952,9 @@ function asbFallbackWords(f) {
   const p = (f && f.providerName) || ASB_FALLBACK_PROVIDER[f && f.runner] || 'Claude';   // #5977: the board's name (Qwen) first
   /* #4588: an Antigravity guide is rate_limited only on its Google account's shared quota (its screen is never read),
      a subscription allowance that refills by itself: no "add credits" (review 4). */
-  const fix = f.problem === 'rate_limited' && f.runner === 'antigravity' ? ' The Google quota refills by itself.'
+  /* #5977 UI review 2: a Qwen guide has no credits to add and no sign-in to renew; what fails is reaching its address. */
+  const fix = p === 'Qwen' ? ' Qwen is not answering at its address; for Qwen on this computer, open Ollama. It picks up again by itself once it answers.'
+    : f.problem === 'rate_limited' && f.runner === 'antigravity' ? ' The Google quota refills by itself.'
     : f.problem === 'rate_limited' ? ` Add credits with ${p}, or wait until the limit resets.`
     : f.problem === 'auth_failed' ? ` Its ${p} sign-in has stopped working: open the guide's page and choose Sign in again.`
     : ` ${p} cannot be reached just now; it picks up again by itself once it can.`;

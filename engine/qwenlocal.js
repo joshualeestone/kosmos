@@ -90,6 +90,9 @@ async function status() {
   if (r.unreachable) return { state: STATE.NO_OLLAMA, because: 'Ollama is not running on this computer, or is not installed. Qwen runs on this computer through Ollama (ollama.com).' };
   const names = r.status === 200 ? namesOf(r.body) : null;
   if (!names) return { state: STATE.UNKNOWN, because: 'Ollama answered, but not with its list of models' };
+  /* UI review 2: a failed download is old news once the base is here (the person pulled it another way), so its
+     reason is not shown under a state that contradicts it. */
+  if (pull && !pull.running && pull.ok === false && (has(names, BASE) || has(names, MODEL))) pull = null;
   if (has(names, MODEL)) return { state: STATE.READY, because: 'Qwen is set up on this computer' };
   if (has(names, BASE)) return { state: STATE.NEEDS_MODEL, because: `Ollama has ${BASE}; Kosmos makes a 16k-context copy of it for its agents (no download)` };
   return { state: STATE.NEEDS_DOWNLOAD, because: `Ollama does not have ${BASE} yet. It is a download of ${BASE_SIZE_WORDS}.` };

@@ -19,12 +19,17 @@ function slice(startSig, endSig) {
   return PAGE.slice(at, end + endSig.length);
 }
 
-function harness(answers) {
+function harness(answers, opts) {
   const els = {};
   const listeners = {};
   let focused = null;
+  /* Round 2: like a browser, disabling (or hiding) the focused element drops focus to the page, so a test of focus
+     can fail. */
   const el = (id) => (els[id] = els[id] || {
-    id, hidden: id === 'acct-qwen-local' || id === 'acct-qwen-local-bar', disabled: false, textContent: '', value: '',
+    id, hidden: id === 'acct-qwen-local' || id === 'acct-qwen-local-bar', textContent: '', value: '',
+    _disabled: false,
+    get disabled() { return this._disabled; },
+    set disabled(v) { this._disabled = !!v; if (v && focused === id) focused = null; },
     attrs: {},
     addEventListener: (ev, fn) => { listeners[id + ':' + ev] = fn; },
     setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; },
@@ -51,12 +56,14 @@ function harness(answers) {
   const document = { getElementById: el, get activeElement() { return focused ? els[focused] : null; } };
   const src = [
     'let ACCT_QWEN_GEN = 0;',
+    'const onWindows = () => ' + JSON.stringify(!!(opts && opts.windows)) + ';',
     slice('function acctQwenShow(on)', '\n}'),
     slice('const QWEN_LOCAL_MODEL =', ';'),
     slice('let ACCT_QWEN_LOCAL_ASK =', ';'),
     slice('let ACCT_QWEN_LOCAL_TIMER =', ';'),
     slice('let ACCT_QWEN_LOCAL_SEQ =', ';'),
     slice('let ACCT_QWEN_LOCAL_RUNNING =', ';'),
+    slice('let ACCT_QWEN_LOCAL_LOCKED =', ';'),
     slice('function acctQwenIsLocalSetup()', '\n}'),
     slice('function acctQwenGb(n)', '}'),
     slice('function acctQwenLocalHideRow(row, t)', '\n}'),
@@ -85,16 +92,18 @@ test('needs_download: names the size, the confirm cannot be double-clicked, and 
   h.api.show(true); await flush(); await flush();
   assert.equal(h.els['acct-qwen-local'].hidden, false);
   assert.equal(h.els['acct-qwen-local-go'].textContent, 'Download Qwen');
+  h.setFocus('acct-qwen-local-go');   // the keyboard user pressed it
   await h.click();
   assert.match(h.els['acct-qwen-local-t'].textContent, /about 4\.7 GB/);
   assert.equal(h.els['acct-qwen-local-go'].textContent, 'Start the download');
-  assert.equal(h.els['acct-qwen-local-go'].disabled, true, 'the confirm takes no press at once (a double click)');
-  assert.equal(h.sent.some((x) => x.method === 'POST'), false, 'the first press only asks');
+  assert.equal(h.els['acct-qwen-local-go'].attrs['aria-disabled'], 'true', 'the confirm says it takes no press yet');
+  assert.equal(h.focused(), 'acct-qwen-local-go', 'the lock does not drop focus (round 2)');
+  await h.click(); await flush();
+  assert.equal(h.sent.some((x) => x.method === 'POST'), false, 'a double click does not confirm');
   const lock = h.timers.find((x) => x.ms === 700);
   assert.ok(lock, 'the confirm unlocks after a moment');
   lock.fired = true; lock.fn();
-  assert.equal(h.els['acct-qwen-local-go'].disabled, false);
-  h.setFocus('acct-qwen-local-go');
+  assert.equal(h.els['acct-qwen-local-go'].attrs['aria-disabled'], undefined);
   await h.click(); await flush(); await flush();
   const post = h.sent.find((x) => x.method === 'POST');
   assert.equal(post.url, '/api/accounts/qwen/local/download');
@@ -150,8 +159,10 @@ test('the panel is only for Ollama on this computer with Kosmos\'s model', async
   h.api.show(true); await flush(); await flush();
   assert.equal(await shown('https://qwen.example.com/v1'), false);
   assert.equal(await shown('http://localhost:8080/v1'), false, 'another port is not Ollama');
+  assert.equal(await shown('http://localhost/v1'), false, 'no port is 80, not Ollama (round 2)');
   assert.equal(await shown('http://localhost:11434/v1', 'llama3'), false, 'another model is the person\'s own');
   assert.equal(await shown('http://[::1]:11434/v1'), true, 'every spelling of this computer');
+  assert.equal(await shown('http://127.0.0.1:11434/v1'), true);
   assert.equal(await shown('http://localhost:11434/v1'), true, 'CONTROL: the default shows it');
 });
 
@@ -193,4 +204,37 @@ test('two checks in flight: the older answer, landing last, does not overwrite t
   assert.equal(h.els['acct-qwen-local-t'].textContent, 'Qwen is set up on this computer.');
   h.release(0); await older; await flush();
   assert.equal(h.els['acct-qwen-local-t'].textContent, 'Qwen is set up on this computer.', 'a stale answer repainted the panel');
+});
+
+test('round 2: on Windows the panel never shows (Kosmos cannot start a Qwen agent there yet)', async () => {
+  const h = harness({ '/api/accounts/qwen/local': { status: 200, body: { state: 'needs_download' } } }, { windows: true });
+  h.api.show(true); await flush(); await flush();
+  assert.equal(h.els['acct-qwen-local'].hidden, true);
+  assert.equal(h.sent.length, 0, 'nothing is even asked');
+});
+
+test('round 2: a download already running (another tab) shows its progress instead of a dead button', async () => {
+  let state = { state: 'needs_download' };
+  const h = harness({
+    '/api/accounts/qwen/local': () => ({ status: 200, body: state }),
+    '/api/accounts/qwen/local/download': () => { state = { state: 'needs_download', download: { running: true, completed: 1, total: 10 } }; return { status: 409, body: { started: false, because: 'Qwen is already downloading' } }; },
+  });
+  h.api.show(true); await flush(); await flush();
+  await h.click(); const lock = h.timers.find((x) => x.ms === 700); lock.fired = true; lock.fn();
+  await h.click(); await flush(); await flush();
+  assert.match(h.els['acct-qwen-local-t'].textContent, /Downloading Qwen/);
+  assert.equal(h.els['acct-qwen-local-bar'].hidden, false);
+});
+
+test('round 2: a request answered after the step was put away writes nothing into it', async () => {
+  const h = harness({
+    '/api/accounts/qwen/local': { status: 200, body: { state: 'needs_model' } },
+    '/api/accounts/qwen/local/model': { status: 400, body: { ok: false, because: 'late refusal' } },
+  });
+  h.api.show(true); await flush(); await flush();
+  h.holdFetches(true);
+  const p = h.click();
+  h.api.show(false);
+  h.release(0); await p; await flush();
+  assert.doesNotMatch(h.els['acct-qwen-local-t'].textContent, /late refusal/i);   // the page capitalises a reason
 });

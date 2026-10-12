@@ -116,3 +116,16 @@ test('progress sums Ollama\'s layers, so a small last layer cannot reset it to 0
   release();
   for (let i = 0; i < 20 && local.pullProgress().running; i += 1) await new Promise((r) => setTimeout(r, 5));
 });
+
+test('a failed download\'s reason is dropped once the base is on this computer some other way', async () => {
+  ollama([], { '/api/pull': async () => ({ unreachable: true }) });
+  local.startDownload();
+  for (let i = 0; i < 20 && local.pullProgress().running; i += 1) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(local.pullProgress().ok, false);
+  ollama([]);
+  await local.status();
+  assert.notEqual(local.pullProgress(), null, 'CONTROL: still missing, the reason stays');
+  ollama(['qwen2.5:7b']);
+  await local.status();
+  assert.equal(local.pullProgress(), null, 'the person pulled it in a terminal: the old failure is not shown');
+});

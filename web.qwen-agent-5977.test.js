@@ -72,7 +72,7 @@ test('#5977: the model menu under a Qwen agent offers no OpenAI list and says th
 });
 
 test('#5977: the board marks only a Qwen account with its provider', () => {
-  assert.match(SERVER, /\.\.\.\(found\.provider === 'alibaba' \? \{ provider: 'alibaba' \} : \{\}\)/,
+  assert.match(SERVER, /const qwenJob = job\.runner === 'codex' && create\.jobProvider\(job\) === 'alibaba';/,
     'accountForAgent no longer marks a Qwen account; the page cannot tell a Qwen agent from an OpenAI one');
 });
 
@@ -101,4 +101,20 @@ test('#5977 UI review: a guide on Qwen falls back with Qwen named, from the boar
   const words = new Function('ASB_FALLBACK_PROVIDER', grab('function asbFallbackWords(') + '\nreturn asbFallbackWords;')({ codex: 'OpenAI' });
   assert.match(words({ problem: 'auth_failed', runner: 'codex', providerName: 'Qwen' }), /Qwen/);
   assert.match(words({ problem: 'auth_failed', runner: 'codex' }), /OpenAI/, 'CONTROL: an older board still names the runner');
+});
+
+test('#5977 UI review 2: a Qwen guide is never told to add credits or sign in again', () => {
+  const words = new Function('ASB_FALLBACK_PROVIDER', grab('function asbFallbackWords(') + '\nreturn asbFallbackWords;')({ codex: 'OpenAI' });
+  for (const problem of ['rate_limited', 'auth_failed', 'connection_lost']) {
+    const s = words({ problem, runner: 'codex', providerName: 'Qwen' });
+    assert.doesNotMatch(s, /credits|Sign in again|sign-in/, problem);
+    assert.match(s, /Ollama/, problem);
+  }
+  assert.match(words({ problem: 'rate_limited', runner: 'codex' }), /credits/, 'CONTROL: OpenAI keeps its words');
+});
+
+test('#5977 UI review 2: a switch to Qwen records the account as Qwen, so the detail page repaints as Qwen', () => {
+  const at = PAGE.indexOf("CURRENT.account = want === 'alibaba'");
+  assert.ok(at > -1, 'the switch no longer marks a Qwen account on CURRENT');
+  assert.match(PAGE.slice(at, at + 200), /provider: 'alibaba'/);
 });

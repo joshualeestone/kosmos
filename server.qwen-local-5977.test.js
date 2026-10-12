@@ -89,3 +89,24 @@ test('model: makes the 16k copy when the base is there, refuses when it is not, 
   assert.equal((await post('/api/accounts/qwen/local/model', {})).status, 200);
   assert.equal(calls.some((c) => c.p === '/api/create'), false, 'already there: not made again');
 });
+
+test('UI review 2: a Qwen agent whose account row is gone (disconnected) is still marked Qwen; an OpenAI one never is', () => {
+  const jobfix = require('./test-support/jobfixture');
+  const create = require('./engine/create');
+  const qwen = require('./engine/qwenaccounts');
+  const { accountForAgent } = require('./server');
+  const bin = nodePath.join(SANDBOX, 'codex'); fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const tmux = nodePath.join(SANDBOX, 'tmux'); fs.writeFileSync(tmux, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const seed = (name, home) => {
+    fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+    fs.mkdirSync(create.workerDir(name), { recursive: true });
+    fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, bin, tmux, null, home, 'codex'), 'utf8');
+  };
+  const gone = nodePath.join(SANDBOX, qwen.DIR_PREFIX + 'setaside');   // a Qwen folder with no endpoint (set aside)
+  fs.mkdirSync(gone, { recursive: true });
+  seed('ui2-qwen', gone);
+  const openaiHome = nodePath.join(SANDBOX, '.codex-ui2'); fs.mkdirSync(openaiHome, { recursive: true });
+  seed('ui2-openai', openaiHome);
+  assert.equal((accountForAgent('ui2-qwen', []) || {}).provider, 'alibaba');
+  assert.equal((accountForAgent('ui2-openai', []) || {}).provider, undefined, 'CONTROL');
+});
