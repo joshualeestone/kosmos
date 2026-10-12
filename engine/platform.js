@@ -184,6 +184,15 @@ function canSelfInstall(platform = process.platform) {
   return SELF_INSTALL.includes(platform);
 }
 
+/* kosmos#5882: where reading ~/Documents, ~/Downloads or ~/Desktop asks the person first (macOS TCC: "would like to
+   access your Documents folder"). There, the import scan hands those folders to the Mac app's hatch (#2125), which
+   reads them as the app the person already allowed. Everywhere else no such prompt exists and no native app answers
+   the hatch, so the engine walks them like any other folder. */
+const FOLDER_PERMISSION = ['darwin'];
+function hasFolderPermission(platform = process.platform) {
+  return FOLDER_PERMISSION.includes(platform);
+}
+
 /** Machine facts for the API / a future gate screen. No user-facing copy.
  *  Each capability is reported SEPARATELY because they diverge: a platform can run
  *  agents (`supported`) while `runnerDownloads` (canDownloadRunner: only the claude arm of runners.install,
@@ -202,4 +211,4 @@ function describe(platform = process.platform) {
   };
 }
 
-module.exports = { SUPPORTED, RUNNER_DOWNLOADS, CLAUDE_DOWNLOADS, CODEX_DOWNLOADS, KEYED_RUNNER_DOWNLOADS, SELF_INSTALL, isSupported, canDownloadRunner, canDownloadClaude, canDownloadCodex, canDownloadKeyedRunner, canSelfInstall, describe };
+module.exports = { SUPPORTED, RUNNER_DOWNLOADS, CLAUDE_DOWNLOADS, CODEX_DOWNLOADS, KEYED_RUNNER_DOWNLOADS, SELF_INSTALL, FOLDER_PERMISSION, isSupported, canDownloadRunner, canDownloadClaude, canDownloadCodex, canDownloadKeyedRunner, canSelfInstall, hasFolderPermission, describe };
