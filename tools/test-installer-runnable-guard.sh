@@ -36,20 +36,26 @@ rm -rf "$_td"
 #    #5986: the guard has to REACH the -x. It must come before it on the same line, joined to it by && (|| for
 #    the negated form), with nothing between but other bracket tests on the same path. And the command that
 #    holds it must not let the -x run without it: from where that command starts (a ; { ( ` or then/do/else/
-#    if/elif/while/until) up to the guard, no || (&& for the negated form) and no ! negating a command. So
+#    if/elif/while/until) up to the guard, no || (&& for the negated form) and no ! negating a command. That is
+#    stricter than the shell needs (A || B && [ -f P ] && [ -x P ] is safe and still flagged): fail-closed on
+#    purpose, so loosen it only with a control that shows the -x cannot run without the -f. A line ending in
+#    \, &&, || or | is joined to the next before it is judged. So
 #    "[ -f P ] || [ -x P ]", "[ -x P ] # [ -f P ]", "x || [ -f P ] && [ -x P ]" and "! [ -f P ] && [ -x P ]"
 #    are all flagged. Quoted text is blanked before the joiners are read.
 #      Not this shape at all: "test -x P", "[ A -a -x P ]", "[  -x P ]" and any other -x inside [ ] or test
 #    outside a comment is flagged as a form the scan cannot judge: write it as [ -f P ] && [ -x P ].
 #    Any missing guard is a directory-accepting site. Red if any is added.
 _scan='
-# skel: the line with every quoted string (and everything in it) replaced by X, same length.
+# skel: the line with every quoted string (and everything in it) replaced by X, same length. A backslash
+# outside single quotes escapes the next character, so an escaped quote opens nothing and \\ before a quote
+# does not escape it.
 function skel(l,   o, i, c, q, sq) {
   o = ""; q = ""; sq = sprintf("%c", 39)
   for (i = 1; i <= length(l); i++) {
     c = substr(l, i, 1)
-    if (q == "") { if (c == "\"" || c == sq) q = c; o = o c }
-    else if (c == q && !(q == "\"" && i > 1 && substr(l, i - 1, 1) == "\\")) { q = ""; o = o c }
+    if (c == "\\" && q != sq && i < length(l)) { o = o (q == "" ? c "X" : "XX"); i++ }
+    else if (q == "") { if (c == "\"" || c == sq) q = c; o = o c }
+    else if (c == q) { q = ""; o = o c }
     else o = o "X"
   }
   return o
@@ -60,8 +66,8 @@ function lastat(l, n, before,   at, i, k) {
   while ((k = index(substr(l, i + 1), n)) > 0 && i + k < before) { i += k; at = i }
   return at
 }
-# reaches(gpos, glen, xpos, p, join, bad): does the guard at gpos reach the -x test at xpos?
-function reaches(gpos, glen, xpos, p, join, bad,   btw, sk, seg, i, c) {
+# reaches(line, gpos, glen, xpos, p, join, bad): does the guard at gpos reach the -x test at xpos?
+function reaches(line, gpos, glen, xpos, p, join, bad,   btw, sk, seg, i, c) {
   if (gpos == 0) return 0
   btw = substr(line, gpos + glen, xpos - gpos - glen)
   for (;;) {
@@ -80,35 +86,49 @@ function reaches(gpos, glen, xpos, p, join, bad,   btw, sk, seg, i, c) {
   if (match(seg, /(^|&&|\|\|)[ \t]*![ \t]/)) return 0
   return 1
 }
-{
-  # A comment is cut first (found on the skeleton, so a # inside quotes is kept): a -x in a comment runs nothing,
-  # and a [ -f P ] in a comment guards nothing.
-  line = $0
-  if (match(skel(line), /(^|[ \t])#/)) line = substr(line, 1, RSTART - 1)
+# scanline: judge one logical line (comments cut, continuation lines joined) of file f; n is where it starts.
+function scanline(line, n, f,   s, t, u, off, at, len, p, g) {
   s = line; off = 0
   while (match(s, /\[ -x ("[^"]+"|[^] ]+) \]/)) {
     at = RSTART; len = RLENGTH   # reaches() calls match(), which resets RSTART and RLENGTH
     p = substr(s, at, len); sub(/^\[ -x /, "", p); sub(/ \]$/, "", p)
     g = "[ -f " p " ]"
-    if (!reaches(lastat(line, g, off + at), length(g), off + at, p, "&&", "||"))
-      printf "%s:%d: bare [ -x %s ] (a directory passes)\n", FILENAME, FNR, p
+    if (!reaches(line, lastat(line, g, off + at), length(g), off + at, p, "&&", "||"))
+      printf "%s:%d: bare [ -x %s ] (a directory passes)\n", f, n, p
     off += at + len - 1; s = substr(s, at + len)
   }
   t = line; off = 0
   while (match(t, /\[ ! -x ("[^"]+"|[^] ]+) \]/)) {
-    at = RSTART; len = RLENGTH   # reaches() calls match(), which resets RSTART and RLENGTH
+    at = RSTART; len = RLENGTH
     p = substr(t, at, len); sub(/^\[ ! -x /, "", p); sub(/ \]$/, "", p)
     g = "[ ! -f " p " ]"
-    if (!reaches(lastat(line, g, off + at), length(g), off + at, p, "\\|\\|", "&&"))
-      printf "%s:%d: bare [ ! -x %s ] (a directory reads as executable)\n", FILENAME, FNR, p
+    if (!reaches(line, lastat(line, g, off + at), length(g), off + at, p, "\\|\\|", "&&"))
+      printf "%s:%d: bare [ ! -x %s ] (a directory reads as executable)\n", f, n, p
     off += at + len - 1; t = substr(t, at + len)
   }
-  # Any other -x test (the comment is already cut): drop the forms judged above, then look for one more.
+  # Any other -x test: drop the forms judged above, then look for one more on the skeleton (a ] in quotes
+  # cannot end the bracket early there).
   u = line
   gsub(/\[ (! )?-x ("[^"]+"|[^] ]+) \]/, "", u)
-  if (match(u, /(\[|(^|[^A-Za-z0-9_])test)[^]]*[ \t]-x([ \t]|$)/))
-    printf "%s:%d: a -x test this scan cannot judge (write it as [ -f P ] && [ -x P ])\n", FILENAME, FNR
-}'
+  if (match(skel(u), /(\[|(^|[^A-Za-z0-9_])test)[^]]*[ \t]-x([ \t]|$)/))
+    printf "%s:%d: a -x test this scan cannot judge (write it as [ -f P ] && [ -x P ])\n", f, n
+}
+FNR == 1 && buf != "" { scanline(buf, bufn, buff); buf = "" }
+{
+  # A comment is cut first (found on the skeleton, so a # inside quotes is kept): a -x in a comment runs nothing,
+  # and a [ -f P ] in a comment guards nothing.
+  code = $0
+  if (match(skel(code), /(^|[ \t])#/)) code = substr(code, 1, RSTART - 1)
+  if (buf != "") code = buf " " code
+  # A line ending in a backslash, &&, || or | continues on the next one: judge them as one line, so an ||
+  # at the end of the line before cannot skip a guard on this one.
+  if (match(skel(code), /(\\|&&|\|\||\|)[ \t]*$/)) {
+    if (buf == "") { bufn = FNR; buff = FILENAME }
+    buf = code; sub(/\\[ \t]*$/, "", buf); next
+  }
+  if (buf != "") { scanline(code, bufn, buff); buf = "" } else scanline(code, FNR, FILENAME)
+}
+END { if (buf != "") scanline(buf, bufn, buff) }'
 bare="$(cd "$HERE" && awk "$_scan" $FILES 2>/dev/null)"
 if [ -z "$bare" ]; then
     pass "no unguarded executable test in the installer (positive or negated, quoted or unquoted)"
@@ -157,8 +177,11 @@ done <<'FLAG'
   [ -f "$P" ] && [ -x "$P" ] || [ -x "$P" ] && run "$P"
   [ ! -f "$P" ] && [ ! -x "$P" ] && echo missing
   true && [ ! -f "$P" ] || [ ! -x "$P" ] && echo missing
+  echo it\'s || [ -f "$P" ] && [ -x "$P" ] && run "$P"
+  echo "a\\" || [ -f "$P" ] && [ -x "$P" ] && run "$P"
 FLAG
-[ "$_flags" -eq "$_nflag" ] && [ "$_nflag" -ge 14 ] && pass "#5986: every shape the old rule excused or never read is flagged ($_flags controls, each passing the old rule)"
+if [ "$_flags" -eq "$_nflag" ] && [ "$_nflag" -ge 16 ]; then pass "#5986: every shape the old rule excused or never read is flagged ($_flags controls, each passing the old rule)"
+else fail "#5986: $_flags of $_nflag must-flag controls flagged (at least 16 expected)"; fi
 _clean=0; _nclean=0
 while IFS= read -r _l; do
   [ -n "$_l" ] || continue
@@ -177,8 +200,21 @@ done <<'CLEAN'
   if [ -z "$K" ] || [ ! -f "$K" ] || [ ! -x "$K" ]; then die; fi
   f() { [ -f "$1" ] && [ -x "$1" ] || command -v "$1" >/dev/null 2>&1 || return 1; }
   [ -f "$P" ] && [ -x "$P" ] && run "$P"   # not [ -x "$P" ] alone, and test -x is not used
+  echo "it\'s || not a join" && [ -f "$P" ] && [ -x "$P" ] && run "$P"
 CLEAN
-[ "$_clean" -eq "$_nclean" ] && [ "$_nclean" -ge 10 ] && pass "#5986: the guarded shapes the installer uses stay clean ($_clean controls)"
+if [ "$_clean" -eq "$_nclean" ] && [ "$_nclean" -ge 11 ]; then pass "#5986: the guarded shapes the installer uses stay clean ($_clean controls)"
+else fail "#5986: $_clean of $_nclean guarded shapes stayed clean (at least 11 expected)"; fi
+# Continued lines are one command: an || ending the line before reaches a guard on this one (flagged), and
+# a guard continued from the line before still counts (clean). Each must-flag pair passes the old rule.
+printf '%s\n' '  command -v foo >/dev/null ||' '  [ -f "$P" ] && [ -x "$P" ] && run "$P"' > "$_ctl"
+_o1="$(awk "$_scan" "$_ctl" 2>/dev/null)"; _p1="$(awk "$_old" "$_ctl" 2>/dev/null)"
+printf '%s\n' '  true || \' '  [ -f "$P" ] && [ -x "$P" ] && run "$P"' > "$_ctl"
+_o2="$(awk "$_scan" "$_ctl" 2>/dev/null)"; _p2="$(awk "$_old" "$_ctl" 2>/dev/null)"
+printf '%s\n' '  if [ -n "$P" ] \' '      && [ -f "$P" ] && [ -x "$P" ]; then run "$P"; fi' > "$_ctl"
+_o3="$(awk "$_scan" "$_ctl" 2>/dev/null)"
+if [ -n "$_o1" ] && [ -n "$_o2" ] && [ -z "$_p1" ] && [ -z "$_p2" ] && [ -z "$_o3" ]; then
+  pass "#5986: an || ending the line before is flagged (both forms, each passing the old rule); a && continuation stays clean"
+else fail "#5986: continued lines judged wrongly (flagged: [$_o1] [$_o2]; old rule: [$_p1] [$_p2]; must stay clean: [$_o3])"; fi
 rm -f "$_ctl"
 
 echo "installer runnable-guard: $fails failures"
