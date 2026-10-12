@@ -72,7 +72,7 @@ printf '%s\n' "$out" | grep -q "real failure" && ok "narration names it a real f
 # and no 'test at' line), so the guard re-runs the WHOLE `yarn test` gate alone and
 # dismisses ONLY on a green -- reproducing a real red in any stage (node, shell, or
 # the browser-check gate). All of these drive the KOSMOS_SUITE_RERUN_CMD seam so the
-# assertion never runs a real 2-minute suite, and set SLEEP=0 so retries do not pause.
+# assertion never runs a real suite, and set SLEEP=0 so retries do not pause.
 # A stray 'test at' line is present to prove this branch never reads the node file
 # list. ---
 export KOSMOS_SUITE_RERUN_SLEEP=0
@@ -115,13 +115,18 @@ printf '%s\n' "$out" | grep -q "attempt 2/3 -> contention" && ok "narration show
 if out="$(env -u KOSMOS_SUITE_RERUN_MAX KOSMOS_SUITE_RERUN_CMD="sh $flip" bash -c '. "$1/tools/lib/cut-rerun-guard.sh"; kosmos_isolation_rerun_verdict "$2" "$3"' _ "$REPO" "$log_shellred" "$WORK")"; then rc=0; else rc=$?; fi
 [ "$rc" -eq 1 ] && [ "$(wc -l < "$cnt" | tr -d ' ')" = 1 ] && ok "by default the whole suite is re-run ONCE, whatever the file-by-file max (one red attempt, then abort)" \
   || bad "default whole-suite budget: rc=$rc runs=$(wc -l < "$cnt" | tr -d ' ') out=$out"
-for badmax in 0 abc 007 99999999999999999999; do
+for badmax in 0 abc 007 1000 99999999999999999999; do
   : > "$cnt"
   if out="$(KOSMOS_SUITE_RERUN_MAX="$badmax" KOSMOS_SUITE_RERUN_CMD="sh $flip" kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 3)"; then rc=0; else rc=$?; fi
   { [ "$rc" -eq 1 ] && [ "$(wc -l < "$cnt" | tr -d ' ')" = 1 ] && printf '%s\n' "$out" | grep -q "budget '$badmax' is not a whole number from 1 to 999"; } \
     && ok "KOSMOS_SUITE_RERUN_MAX=$badmax runs the suite once and says so (never 'across all 0 attempts')" \
     || bad "bad budget $badmax: rc=$rc runs=$(wc -l < "$cnt" | tr -d ' ') out=$out"
 done
+: > "$cnt"
+if out="$(KOSMOS_SUITE_RERUN_MAX=999 KOSMOS_SUITE_RERUN_CMD="sh $flip" kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 1)"; then rc=0; else rc=$?; fi
+{ [ "$rc" -eq 0 ] && [ "$(wc -l < "$cnt" | tr -d ' ')" = 2 ] && ! printf '%s\n' "$out" | grep -q "not a whole number"; } \
+  && ok "KOSMOS_SUITE_RERUN_MAX=999 is accepted (the top of the range): a second attempt runs and dismisses" \
+  || bad "budget 999: rc=$rc runs=$(wc -l < "$cnt" | tr -d ' ') out=$out"
 
 # The rerun runs IN $repo: a command that greps a repo-local file must see it. Prove cd works.
 echo "sentinel" > "$WORK/repo-marker"

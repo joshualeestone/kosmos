@@ -67,11 +67,10 @@ kosmos_failing_test_files() {
 # REDS, never false greens, so a single GREEN re-run proves the red was starvation.
 # Re-running through run-tests.sh is safe from inside the cut: its #1962 machine-claim
 # consult is cookie-excluded, so the cut's OWN `yarn test` self-excludes and runs
-# rather than refusing (run-tests.sh:54-62). Up to `max` attempts (default 1; its caller
-# passes KOSMOS_SUITE_RERUN_MAX), with a short pause between extra ones (so only when
-# the budget is raised);
-# dismiss ONLY on a green, abort on a persistent red. Returns 0 (contention,
-# dismiss) or 1 (real red, abort).
+# rather than refusing (run-tests.sh:54-62). Up to `max` attempts (default 1; its
+# caller passes KOSMOS_SUITE_RERUN_MAX), with a short pause between extra ones, so
+# only when the budget is raised; dismiss ONLY on a green, abort on a persistent
+# red. Returns 0 (contention, dismiss) or 1 (real red, abort).
 #
 # ISOLATION SCOPE, and how it differs from the file-by-file path: this re-runs the
 # WHOLE suite with node's internal file-parallelism INTACT, so it isolates only
@@ -135,7 +134,9 @@ kosmos_whole_suite_rerun_verdict() {
 # Two red shapes reach here: a NODE test-file failure (fail_count > 0), handled by
 # the file-by-file rerun below; and a non-isolable-node-file red (fail_count == 0),
 # handled by re-running the whole gate (#2006 post-node extension,
-# kosmos_whole_suite_rerun_verdict). A red with no readable node tally at all (a
+# kosmos_whole_suite_rerun_verdict). The `max` argument (default 3) is the
+# file-by-file budget only; the whole-gate rerun reads KOSMOS_SUITE_RERUN_MAX
+# (default 1) instead (#5907). A red with no readable node tally at all (a
 # killed suite, a coverage mismatch that fired before the node suite) still aborts:
 # it cannot be proven a dismissable stage. Narrates every rerun and the reason to
 # stdout, so the cut's log shows it re-ran and why (the card's acceptance).
