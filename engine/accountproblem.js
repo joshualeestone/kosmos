@@ -19,9 +19,11 @@
 const PROVIDER_NAME = Object.freeze({ codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok', antigravity: 'Google', muse: 'Meta' });   // #3568: the name the person picked is Google's
 
 function providerOf(card) {
-  /* #5977: Qwen runs on the codex runner too, so a codex card is Qwen when the agent's recorded provider says so (the
-     profile, as server.js reads it for a card's runner). Any failure to read it keeps the runner's name. */
+  /* #5977: Qwen runs on the codex runner too, so a codex card is Qwen when its launch job's account is a Qwen home
+     (create.jobProvider, the one every other Qwen decision reads; review 2: the profile is written best-effort and an
+     older agent has none, so it is only the fallback). Any failure to read either keeps the runner's name. */
   if (card && card.runner === 'codex' && card.sessionName) {
+    try { if (require('./create').agentProvider(card.sessionName, 'codex') === 'alibaba') return 'Qwen'; } catch { /* no job */ }
     try { if (require('./store').readProfile(card.sessionName).provider === 'alibaba') return 'Qwen'; } catch { /* no profile */ }
   }
   return PROVIDER_NAME[card && card.runner] || 'Claude';

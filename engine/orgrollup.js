@@ -238,7 +238,13 @@ function defaultSources() {
     lastActiveOf: (sessionName) => { const r = activity.read(sessionName, 'working'); return r.found ? r.at : null; },
     /* Known runners and providers only (rollup review 22): create's maps fall back to claude/anthropic for anything else,
        which would send a guess as the provider. */
-    providerOf: (runner) => (KNOWN_RUNNERS.has(runner) ? create.runnerProvider(runner) : null),
+    /* #5977 review 2: a Qwen agent (codex on a Qwen home) is not OpenAI, and the company is not known to accept
+       alibaba, so it goes as null, the "not a guess" value this send already carries; never as openai. */
+    providerOf: (runner, sessionName) => {
+      if (!KNOWN_RUNNERS.has(runner)) return null;
+      const p = create.agentProvider(sessionName, runner);
+      return KNOWN_PROVIDERS.has(p) ? p : null;
+    },
     /* The recorded runner, or NULL when neither the launch job nor the profile names one: create.recordedRunner falls
        back to claude, which would report a guess as the provider (rollup review 7). */
     recordedRunner: (sessionName) => {
@@ -296,7 +302,7 @@ async function gather(src) {
     try { runner = s.recordedRunner(a.sessionName); } catch { runner = null; }
     // An unknown runner sends provider null, never a guess (review 5). The model goes only in the daily body, and only
     // for an agent that is running when it is built: a stopped agent has no current model.
-    out.agents.push({ name: a.name, provider: runner ? s.providerOf(runner) : null, model: a.model || null, state: a.state });
+    out.agents.push({ name: a.name, provider: runner ? s.providerOf(runner, a.sessionName) : null, model: a.model || null, state: a.state });
     touch(a.sessionName);
   }
   /* No offline list without a whole pane read (rollup review 22): a snapshot that FAILED leaves no running agent seen, so
@@ -315,7 +321,7 @@ async function gather(src) {
         nameOf.set(k.name, name);
         let runner = null;
         try { runner = s.recordedRunner(k.name); } catch { runner = null; }
-        out.agents.push({ name, provider: runner ? s.providerOf(runner) : null, model: null, state: 'stopped' });
+        out.agents.push({ name, provider: runner ? s.providerOf(runner, k.name) : null, model: null, state: 'stopped' });
         touch(k.name);
       }
     }

@@ -8248,6 +8248,9 @@ function liveAuthForAuthFailed(name, readJobFn, verdictFn) {
   // undefined (auth_failed stands). Unreachable via create.readJob today (it yields a non-empty
   // string or null); a defensive guard so a future malformed source cannot reintroduce it.
   if (job.configDir === '') return undefined;
+  // #5977 review 2: a Qwen agent's home holds an endpoint, not a Claude sign-in; asking the Claude check about it could
+  // only be wrong, and a HEALTHY answer would hide the endpoint's real refusal. auth_failed stands.
+  if (job.configDir && require('./qwenaccounts').isQwenHome(job.configDir)) return undefined;
   // verdictFn is throw-safe by contract (authprobe.verdict), but wrap it too so the safety is
   // LOCAL: a future change that threw must leave auth_failed standing, never crash the tick.
   try { return verdictFn(job.configDir || null); } catch { return undefined; }
@@ -8681,7 +8684,9 @@ function snapshot() {
            on-pane auth-failure signal exists (#2790 Phase 2) -- a positive-only overlay can
            never produce a false "not connected". */
         const at = codexCompletionAt(codexSess);
-        if (typeof at === 'number' && now - at >= 0 && now - at <= observed.freshMs()) {
+        /* #5977 review 2: a Qwen agent's turns never touch OpenAI, so they are no evidence of an OpenAI sign-in. */
+        if (typeof at === 'number' && now - at >= 0 && now - at <= observed.freshMs()
+          && require('./create').agentProvider(pane.name, 'codex') !== 'alibaba') {
           observed.saw(observed.PROVIDER.OPENAI, pane.name, observed.OUTCOME.OK, at);
         }
       } else if (isNamedOurs(pane) && isGeminiPane) {

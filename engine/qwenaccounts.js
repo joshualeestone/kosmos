@@ -75,6 +75,10 @@ function endpointProblem(ep) {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'the address must start with http:// or https://';
   if (url.username || url.password) return 'put the key in the key box, not in the address';
   if (url.search || url.hash) return 'the address must not have a ? or # part';
+  /* Review 2: a link-local host (169.254.x.x, fe80::) is a cloud's metadata service or a cable between two machines,
+     never a model endpoint, and the add route would otherwise ask it for /models. */
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (/^169\.254\./.test(host) || /^fe[89ab][0-9a-f]:/.test(host)) return 'that is a link-local address, not a model endpoint';
   if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/.test(String(e.model || ''))) return 'give the model name the endpoint uses, such as ' + LOCAL.model;
   const ctx = e.contextWindow;
   if (typeof ctx !== 'number' || !Number.isInteger(ctx) || ctx < MIN_CONTEXT || ctx > MAX_CONTEXT) {
@@ -84,6 +88,9 @@ function endpointProblem(ep) {
     const k = String(e.key);
     if (/\s/.test(k)) return 'that does not look like a key: a key has no spaces or line breaks in it';
     if (k.length > 4096) return 'that key is too long';
+    /* Review 2: the key travels with every check and every turn. Over plain http to another machine anyone on the
+       way can read it, so a key needs https, unless the endpoint is on this computer. */
+    if (url.protocol === 'http:' && !isLocal(raw)) return 'a key is sent with every request, so an address on another computer needs https:// to carry one';
   }
   return null;
 }
@@ -159,7 +166,7 @@ function rowFor(dir) {
     isDefault: false,
     email: null,
     authMode: 'endpoint',
-    keyTail: ep && ep.key ? ep.key.slice(-4) : null,
+    keyTail: ep && ep.key && ep.key.length >= 16 ? ep.key.slice(-4) : null,   // review 2: never a large share of a short key
     baseUrl: ep ? ep.baseUrl : null,
     model: ep ? ep.model : null,
     local: ep ? isLocal(ep.baseUrl) : false,

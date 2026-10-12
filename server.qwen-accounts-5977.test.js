@@ -137,3 +137,25 @@ test('review 1: two adds racing for one label: exactly one is stored, the other 
   assert.equal(r.status, 400);
   assert.equal(fs.existsSync(nodePath.join(SANDBOX, qwen.DIR_PREFIX + 'giveback')), false);
 });
+
+test('review 2: an empty claimed folder left by a crashed add is reclaimed once it is old; a fresh one still says taken', async () => {
+  qwen.setFetcher(hasModel);
+  const fresh = nodePath.join(SANDBOX, qwen.DIR_PREFIX + 'r2fresh');
+  fs.mkdirSync(fresh, { mode: 0o700 });
+  const busy = await post('/api/accounts/qwen', { baseUrl: 'http://localhost:11434/v1', model: MODEL, label: 'r2fresh' });
+  assert.equal(busy.status, 409, 'CONTROL: a folder claimed a moment ago may be an add still running');
+  const stale = nodePath.join(SANDBOX, qwen.DIR_PREFIX + 'r2stale');
+  fs.mkdirSync(stale, { mode: 0o700 });
+  const old = (Date.now() - 5 * 60000) / 1000;
+  fs.utimesSync(stale, old, old);
+  const r = await post('/api/accounts/qwen', { baseUrl: 'http://localhost:11434/v1', model: MODEL, label: 'r2stale' });
+  assert.equal(r.status, 200, 'the leftover folder still blocks its label');
+  assert.ok(fs.existsSync(qwen.endpointFile(stale)), 'the reclaimed folder holds the new account');
+  const kept = nodePath.join(SANDBOX, qwen.DIR_PREFIX + 'r2kept');
+  fs.mkdirSync(kept, { mode: 0o700 });
+  fs.writeFileSync(nodePath.join(kept, 'someone-elses.txt'), 'x');
+  fs.utimesSync(kept, old, old);
+  const k = await post('/api/accounts/qwen', { baseUrl: 'http://localhost:11434/v1', model: MODEL, label: 'r2kept' });
+  assert.equal(k.status, 409, 'CONTROL: an old folder with something in it is never reclaimed');
+  assert.ok(fs.existsSync(nodePath.join(kept, 'someone-elses.txt')));
+});
