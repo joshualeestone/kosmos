@@ -126,3 +126,13 @@ test('#6004: the real run gives Meta\'s installer only installerEnv(), refuses h
   assert.equal(bash.env.MUSE_INSTALL_DIR, path.join(os.homedir(), '.local', 'bin'), 'the installer was not told where Kosmos looks');
   assert.equal(bash.env.KOSMOS_SECRET_FOR_TEST, undefined, 'the board\'s own environment reached Meta\'s installer');
 });
+
+test('#6004: inside a test process, with the real seams, Meta\'s installer is never run', async () => {
+  setup();
+  museinstall.resetForTests();   // the real runInstall and exec, as a forgetful future test would leave them
+  museinstall.setPlatformForTests('darwin');
+  museinstall.allowSandboxInstallForTests(true);
+  const r = await museinstall.install();
+  assert.equal(r.ok, false);
+  assert.match(r.because, /from a test/, 'a test process would have fetched and run Meta\'s real installer');
+});
