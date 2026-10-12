@@ -89,3 +89,10 @@ Mutants after review 3 (19:25 CDT from `date`): V1 bucket dropped from the snaps
   caller named (slice (d)), as its siblings are. readPointer and newSnapshotId were exported for nothing; unexported.
 - tools/test-connector-verbs.sh: backuprun.js is a new macRequest caller. Re-decided in the file: it signs nothing of
   its own (backupupload's grant routes and backupmemberkey's, both decided). 27/27 after.
+
+## Review 4 (sonnet, blind, on 692c96da): one must-fix, one nit, both fixed
+1. MUST-FIX: `took` was set before takeSnapshot, so a refused or thrown snapshot plus a failed final write still said
+   "the backup ran" (review 1's fix was incomplete). FIXED: set only on result.ok === true; test for both shapes.
+2. NIT: a missing device key repeated one backup-key request every run. FIXED rather than documented: the device key
+   is read FIRST, locally; without one nothing is asked and nothing is written. Read again before each snapshot.
+   Tests count 17 -> 18 (one replaced in place, one added).
