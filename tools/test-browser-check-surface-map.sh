@@ -36,9 +36,9 @@
 # (full JS/HTML tokenization) is out of proportion here; the per-check override is the escape hatch.
 #
 # dstat/dpath naming avoided; no tied var names (path/status/cdpath); find, not a glob (zsh aborts
-# a no-match glob); every glob quoted. Runs under bash (shebang), wired into test:shell. Surface
-# tokens are DOM ids ([A-Za-z0-9_-]+, no ERE metachars), so the grep boundary needs no escaping;
-# the sibling gate escapes because it cannot assume that.
+# a no-match glob); every glob quoted. Runs under bash (shebang), wired into test:shell. Most surface
+# tokens are DOM ids ([A-Za-z0-9_-]+); some are not (data-pmark="xai"), so token_web_scan escapes
+# ERE metachars, as the sibling gate does.
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 WEB="$REPO/web/index.html"
@@ -47,9 +47,11 @@ FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 [ -f "$WEB" ] || { echo "FAIL  no web/index.html at $WEB"; exit 1; }
 [ -d "$BCDIR" ] || { echo "FAIL  no $BCDIR"; exit 1; }
 
-_TMPS=()
-_mktmp() { local t; t="$(mktemp "${TMPDIR:-/tmp}/bcsm.XXXXXX")"; _TMPS+=("$t"); printf '%s' "$t"; }
-cleanup() { [ "${#_TMPS[@]}" -gt 0 ] && rm -f "${_TMPS[@]}"; }
+# Every temp file goes in ONE directory the trap removes (#5907): _mktmp runs inside $(...), so a list it appended to
+# lived in a subshell and the old cleanup removed nothing (19 files, 13 MB left per run, measured).
+_TMPD="$(mktemp -d "${TMPDIR:-/tmp}/bcsm.XXXXXX")" || { echo "FAIL  could not make a temp directory"; exit 1; }
+_mktmp() { mktemp "$_TMPD/t.XXXXXX"; }
+cleanup() { rm -rf "$_TMPD"; }
 trap cleanup EXIT
 
 # split_halves <infile> <codeout> <cmtout>: one pass, position-accurate (see header).
@@ -104,7 +106,8 @@ token_web_scan() {
 # #5907: one pass per half counts every PLAIN token (only [A-Za-z0-9_-], the boundary class) at once. A line splits into
 # maximal runs of that class, and a plain token sits between boundaries exactly when it is one of those runs, so this is
 # token_web_scan's match; a line counts once per token, as grep -c counts lines. Prints "token count" for each wanted
-# token. Calling token_web_scan per token cost two full-file greps for each of ~1,000 tokens (most of this test's time).
+# token. (On invalid UTF-8 next to a token the C-locale split and the ambient-locale grep can differ; web/index.html is
+# valid UTF-8.) Calling token_web_scan per token cost two full-file greps for each of ~1,000 tokens (most of this test's time).
 count_plain_tokens() {   # $1: file of tokens, one per line; $2: the half to count in
   # FILENAME == ARGV[1], not NR == FNR: an empty token file must not turn the half's own lines into wanted tokens.
   LC_ALL=C awk 'FILENAME == ARGV[1] { if ($0 != "") want[$0]=1; next }
@@ -205,7 +208,8 @@ _chk 'tok.dot' "0 0" "a token with an ERE metachar is escaped, so tok.dot does N
 _chk tok-absent "0 0" "an absent token is neither functional nor comment"                  "absent"
 # #5907: the counted path (count_table + token_counts, as the loop above uses it) agrees with token_web_scan on its own
 # fixture: a token twice on one line (a line counts once) and again on another line (lines add up), a token inside a
-# longer run (not a match), one in a comment,
+# longer run (not a match: tok inside tok-dup and tok_u, TOK and UP inside TOK-UP, so `_`, `-` and capitals are all
+# run characters), one in a comment,
 # a numeric-looking pair (1e3 present, 1000 absent: compared as strings), and an absent one. Names any token that drifts.
 _pf="$(_mktmp)"
 printf '%s\n' \
@@ -213,9 +217,10 @@ printf '%s\n' \
   '<div id="tok-dup-long">c</div>' \
   '<!-- tok-dup in a comment -->' \
   '<i id="1e3"></i>' \
-  '<p class="tok-dup">e</p>' > "$_pf"
+  '<p class="tok-dup">e</p>' \
+  '<b id="tok_u">f</b> <b id="TOK-UP">g</b>' > "$_pf"
 _pfc="$(_mktmp)"; _pfm="$(_mktmp)"; split_halves "$_pf" "$_pfc" "$_pfm"
-_ptoks="$(_mktmp)"; printf '%s\n' tok-dup tok-dup-long tok 1e3 1000 tok-absent > "$_ptoks"
+_ptoks="$(_mktmp)"; printf '%s\n' tok-dup tok-dup-long tok 1e3 1000 tok-absent tok_u TOK-UP TOK UP > "$_ptoks"
 # And a backslash token that is not plain, so it is not in the table: it must take the grep, never A's row.
 _pesc='\101'
 _ptab="$(_mktmp)"; count_table "$_ptoks" "$_pfc" "$_pfm" > "$_ptab"

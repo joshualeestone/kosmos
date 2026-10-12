@@ -23,7 +23,10 @@ was its slowest file at 193 s.
 - The CONTROL arms still call `token_web_scan` directly, so the original matcher stays tested. A PARITY arm runs the
   counted path (count_table + token_counts) against it on its own fixture: a token twice on one line and again on
   another, a token inside a longer run, a backslash token that must not take another's row, one in a comment, `1e3` present with `1000` absent, and an absent token. Mutations checked red: the
-  per-line dedup, the string compare, an empty table, and dropping `-` from the counter's class.
+  per-line dedup, the string compare, an empty table, dropping `-`, `_` or capitals from the counter's class, `-v`
+  for the environment, and the per-line reset.
+- Temp files now go in one directory the trap removes; the old per-file list was appended in a subshell and removed
+  nothing (a fix to a leak older than this change).
 
 ## Proof
 - The test's full output (1,083 lines) is byte-identical before and after (`diff` clean).
