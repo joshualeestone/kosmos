@@ -104,6 +104,11 @@ test('newPeriod with a granted week runs once more in that week, and never a thi
   assert.equal(take.calls.length, 2);
   assert.deepEqual(take.calls.map((c) => c.input.ctx.period), [WEEK, NEXT]);
   assert.equal(r.newPeriod, true);
+  // Review 1: the granted week's naming key was on disk before ITS snapshot too, and both weeks are kept.
+  const second = take.calls[1];
+  assert.equal(second.onDisk.state.periods[0].label, NEXT);
+  assert.ok(second.onDisk.state.periods[0].namingKey.equals(second.input.namingKey));
+  assert.deepEqual(backupstate.readState(A.org, A.member).state.periods.map((x) => x.label), [NEXT, WEEK]);
   // Without grantedPeriod (or the same week), it stops after one.
   for (const answer of [{ ok: false, newPeriod: true }, { ok: false, newPeriod: true, grantedPeriod: WEEK }]) {
     wipe();
@@ -185,10 +190,15 @@ test('runs are one at a time', async () => {
   assert.deepEqual([take.calls.length, most], [3, 1]);
 });
 
-test('never throws: an error inside the run is a fixed sentence', async () => {
-  const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: () => { throw new Error('/Users/someone/secret path'); }, takeSnapshot: taker({ ok: true }) }));
+test('never throws: an error inside the run itself is a fixed sentence', async () => {
+  // Review 1: a throw the key step would catch never reached the run's own guard. The pointer path is a folder, so
+  // reading it gives none and writing the learned pair throws inside runNow.
+  fs.mkdirSync(path.join(store.ROOT, 'backupstate', 'current.json'), { recursive: true });
+  fs.writeFileSync(path.join(store.ROOT, 'backupstate', 'current.json', 'x'), '');
+  const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: taker({ ok: true }) }));
   assert.equal(r.ok, false);
-  assert.doesNotMatch(JSON.stringify(r), /someone|secret/);
+  assert.match(r.because, /^the backup could not run on this computer/);
+  assert.doesNotMatch(JSON.stringify(r), new RegExp(SANDBOX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 
 test('end to end: a run through the REAL snapshot is restored by the real restore with nothing but the member key and the device key', async () => {
@@ -233,4 +243,43 @@ test('end to end: a run through the REAL snapshot is restored by the real restor
     for (const [rel, b] of Object.entries(files)) assert.ok(committed.get('work/' + rel) && committed.get('work/' + rel).equals(b), rel);
     assert.equal(kept.periods[0].index.size, Object.keys(opened.objects).length, 'every stored chunk is in the kept index');
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+test('review 1: a lost pointer over a live state file reuses that pair\'s naming key and index', async () => {
+  const first = taker({ ok: true, added: added(WEEK, 3), bucket: 'b1' });
+  await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: first }));
+  fs.rmSync(path.join(store.ROOT, 'backupstate', 'current.json'));
+  const second = taker({ ok: true, added: new Map(), bucket: 'b1' });
+  const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: second }));
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.ok(second.calls[0].input.namingKey.equals(first.calls[0].input.namingKey), 'a fresh naming key replaced the kept one');
+  assert.equal(second.calls[0].input.index.size, 3, 'the kept index was dropped');
+});
+
+test('review 1: a first run whose key step refuses keeps the pair and that answer, and sends nothing more', async () => {
+  const ensure = ensurer({ ok: false, waiting: true, pendingEpoch: 2, because: 'once a day', ...A });
+  const take = taker({ ok: true });
+  const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensure, takeSnapshot: take }));
+  assert.deepEqual([r.ok, r.waiting, ensure.calls.length, take.calls.length], [false, true, 1, 0]);
+  assert.deepEqual(pointer(), { v: 1, ...A });
+  assert.ok(backupstate.readState(A.org, A.member).state.job.waitUntilMs > NOW, 'the wait was not kept');
+  // The next run waits it out without asking.
+  const again = ensurer(okKey(A));
+  await run.runBackup({ roots: [] }, deps({ ensureMemberKey: again, now: () => NOW + 60 * 1000 }));
+  assert.equal(again.calls.length, 0);
+});
+
+test('review 1: a state that cannot be written AFTER the run keeps the run\'s own answer; "ran" only when a snapshot was taken', async () => {
+  await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: taker({ ok: true }) }));
+  const f = backupstate.fileFor(A.org, A.member);
+  // A snapshot taken, then the file stops being ours before the final write.
+  const took = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: taker(() => { fs.writeFileSync(f, 'not ours'); return { ok: true, manifestKey: 'm9' }; }) }));
+  assert.deepEqual([took.ok, took.manifestKey, took.stateNotKept, took.refusedState], [true, 'm9', true, true], JSON.stringify(took));
+  assert.match(took.stateBecause, /the backup ran/);
+  // No snapshot (a wait), and the file stops being ours during the key step: the wait's flags stand, and no "ran".
+  backupstate.discardState(A.org, A.member);
+  await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: taker({ ok: true }) }));
+  const waited = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: async () => { fs.writeFileSync(f, 'not ours'); return { ok: false, waiting: true, pendingEpoch: 2, because: 'once a day', ...A }; } }));
+  assert.deepEqual([waited.ok, waited.waiting, waited.pendingEpoch, waited.stateNotKept], [false, true, 2, true], JSON.stringify(waited));
+  assert.doesNotMatch(waited.stateBecause, /ran/);
 });
