@@ -29,8 +29,8 @@
     },
     {
       "icon": "tasks",
-      "title": "A long retry no longer skips the next run",
-      "line": "When a recurring task's run is retried for a long time, the next scheduled run is no longer swallowed by it."
+      "title": "Late recurring runs say what they missed",
+      "line": "When a recurring task runs after scheduled runs that never happened, its history now says how many were missed."
     }
   ]
 }

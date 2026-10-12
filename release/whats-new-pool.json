@@ -291,11 +291,12 @@
       "icon": "shield",
       "rank": 6,
       "since": "0.7.44",
-      "status": "held"
+      "status": "held",
+      "why": "Held until PR #6005 (#5994) is merged and its code is on main; then set pending and rebuild."
     },
     {
-      "title": "A long retry no longer skips the next run",
-      "line": "When a recurring task's run is retried for a long time, the next scheduled run is no longer swallowed by it.",
+      "title": "Late recurring runs say what they missed",
+      "line": "When a recurring task runs after scheduled runs that never happened, its history now says how many were missed.",
       "icon": "tasks",
       "rank": 7,
       "since": "0.7.44",
@@ -307,7 +308,8 @@
       "icon": "shield",
       "rank": 8,
       "since": "0.7.44",
-      "status": "held"
+      "status": "held",
+      "why": "Held: no screen in Kosmos names a company backup yet, so a person could not tell what this means."
     }
   ]
 }
