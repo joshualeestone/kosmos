@@ -33,3 +33,5 @@ Mutants (21:30 CDT from `date`): F1 no other accounts: red. F2 another provider'
 4. NIT, FIXED: each provider's account list read once per call, not once per agent.
 5. NIT, FIXED: the test's default row is a real folder with a rollout, so skipping isDefault rows is tested (H3 red).
 Measured 21:32 CDT from `date`.
+
+## Review 2 (sonnet, blind, on 66bd0287): NO NEW ISSUES. Converged at 2.
