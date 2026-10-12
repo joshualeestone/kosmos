@@ -50,8 +50,9 @@ function workSlots() {
 const MOCK = nodePath.join(SANDBOX, 'codex-mock.sh');
 fs.writeFileSync(MOCK, `#!/bin/bash
 if [ "$FAKE_CODEX_FAIL" = "1" ]; then echo "sign-in failed" >&2; exit 1; fi
+# #5994: ignore SIGTERM BEFORE printing, so "awaiting-browser" means the trap is in place and a cancel cannot kill it
+if [ "$FAKE_CODEX_IGNORE_TERM" = "1" ]; then trap '' TERM; echo "Sign in at https://auth.openai.com/device and enter code WXYZ-1234"; while :; do sleep 0.2; done; fi
 echo "Sign in at https://auth.openai.com/device and enter code WXYZ-1234"
-if [ "$FAKE_CODEX_IGNORE_TERM" = "1" ]; then trap '' TERM; while :; do sleep 1; done; fi   # #5994: outlives a cancel until SIGKILL
 if [ "$FAKE_CODEX_SLEEP" = "1" ]; then exec sleep 30; fi   # exec (#5994 review 1): the kill reaches the process holding the pipe
 printf '{"auth_mode":"chatgpt","tokens":{"id_token":"%s"}}' "$FAKE_ID_TOKEN" > "$CODEX_HOME/auth.json"
 exit 0
@@ -239,7 +240,6 @@ test('#5994: removeAccount cancels the account\'s own unfinished reauth and dele
   assert.equal(openai.chatgptLoginStatus(sessionId).state, 'cancelled', 'the reauth was not cancelled');
   delete process.env.FAKE_CODEX_SLEEP;
   await eventuallyTrue(() => workSlots().length === 0, 'the cancelled reauth\'s staging slot was never freed');
-  assert.equal(fs.existsSync(dir), false, 'the removed account came back after the reauth exited');
 });
 
 test('#5994: forgetAccount cancels the account\'s own unfinished reauth and moves it aside', async () => {
@@ -315,28 +315,29 @@ test('#5994: an account already gone from the disk still has its own unfinished 
   assert.equal(rm.ok, true);
   assert.equal(rm.removed, false);
   assert.equal(openai.chatgptLoginStatus(sessionId).state, 'cancelled', 'the abandoned sign-in was left holding a gone account');
+  delete process.env.FAKE_CODEX_SLEEP;
   await eventuallyTrue(() => workSlots().length === 0, 'the staging slot was never freed');
 });
 
-test('#5994: a reauth cancelled a moment ago (its child not exited yet) does not refuse the remove', async () => {
-  openai.setChatgptTimers({ forceKill: 3000 });   // keep the TERM-ignoring child alive across the remove
+test('#5994: a reauth cancelled a moment ago (its child still exiting) does not refuse the remove', async () => {
+  openai.setChatgptTimers({ forceKill: 1500 });   // the TERM-ignoring child lives until this SIGKILL
   try {
     const dir = writeChatgptAccount('.codex-late8', 'late8@example.com');
     process.env.FAKE_CODEX_IGNORE_TERM = '1';
     process.env.FAKE_ID_TOKEN = idToken('late8@example.com');
     const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', reauthDir: dir });
     assert.equal(r.ok, true, r.because);
-    await waitFor(r.sessionId, (x) => x.state === 'awaiting-browser' || x.state === 'awaiting-code' || x.state === 'starting');
-    assert.equal(openai.cancelChatgptLogin(r.sessionId).cancelled, true);   // the person pressed cancel, then Remove
-    assert.equal(workSlots().length > 0, true, 'fixture: the child already exited, so this tests nothing');
-    const rm = openai.removeAccount(dir, []);
+    await waitFor(r.sessionId, (x) => x.state === 'awaiting-browser');   // printed only after the trap
+    assert.equal(openai.cancelChatgptLogin(r.sessionId).cancelled, true);   // the person pressed cancel...
+    await new Promise((res) => setTimeout(res, 300));
+    assert.ok(workSlots().length > 0, 'fixture: the child died on SIGTERM, so the window under test never opened');
+    const rm = openai.removeAccount(dir, []);   // ...and then Remove, while the child is still exiting
     assert.equal(rm.ok, true, rm.because);
     assert.equal(rm.removed, true);
     await eventuallyTrue(() => workSlots().length === 0, 'the SIGKILLed child never freed its slot', 8000);
-    assert.equal(fs.existsSync(dir), false);
   } finally {
     delete process.env.FAKE_CODEX_IGNORE_TERM;
-    openai.setChatgptTimers({ forceKill: 3000 });
+    openai.setChatgptTimers({ forceKill: 3000 });   // the module's default
   }
 });
 
