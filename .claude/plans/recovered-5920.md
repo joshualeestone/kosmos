@@ -45,8 +45,17 @@ see, so those rows were kept.
 ## Review 2 (sonnet, blind, on b1ce4697): 0 blockers, 2 warnings, 1 convention, 2 nits. FIXED
 - W: the doctrine promised "the reminder Kosmos sends names the time", but an agent stuck in a retry is never nudged.
   It now states the rule an agent can apply alone: record while more than 15 minutes (or a quarter of the time between
-  runs, if shorter) remain before the next is due, which is exactly the miss grace; a reminder names the exact time.
+  runs, if shorter) remain before the next is due, which is at least as early as the miss grace (uneven daily times use
+  the shortest gap in code, so the nudge's time can be a few minutes later than the doctrine's); a reminder names it.
 - W: the nudge could name a deadline already past (nudged inside the last grace before the next slot). The deadline is
   now one function, taskrepeat.recordBy, which returns null once it has passed; then the nudge names none.
 - C: an uneven pair (09:00 and 09:30) gives 09:22:30, which "by 9:22am" overstated. recordBy rounds DOWN to the minute
   and the nudge says "before". Tests cover hourly, daily, an uneven daily pair and weekly at the boundary.
+
+## Review 3 (opus, blind, on 7f459e30): 0 blockers, 1 warning, 0 conventions, 4 nits. FIXED
+- W: the nudge test's deadline assertion ran only when the clock left a deadline ahead (not in the last quarter of an
+  hour), so it passed a quarter of the time without the wiring. It now uses a daily job whose slot passed two minutes
+  ago, always with a deadline ahead, checked against a value worked out without recordBy.
+- NITs: recordBy's "not after the due slot" guard is documented and pinned (times a minute apart); the doctrine log and
+  this plan say "at least as early as" the miss grace; the content test's title and comment match the wording. A DST
+  change is not pinned by a test (from source: nextAfter is the board's own, and the floor is to whole minutes).

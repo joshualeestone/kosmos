@@ -66,6 +66,11 @@ test('#5920 review 2: recordBy is before the next slot by more than the grace, o
     assert.equal(taskrepeat.skippedBefore(t, by - 1000), null, JSON.stringify(rule) + ': an obedient record read as after a missed run');
     assert.equal(taskrepeat.recordBy(r, at, by), null, JSON.stringify(rule) + ': a deadline already reached is still named');
   }
+  // Review 3: two times a minute apart: 09:01 less 15 seconds floors to 09:00, the due slot itself: no deadline, even
+  // though it has not passed (now is before it).
+  const tight = taskrepeat.normalise({ every: 'day', at: ['09:00', '09:01'] });
+  const at9 = taskrepeat.nextAfter(tight, new Date(2026, 9, 1, 8, 0).getTime());
+  assert.equal(taskrepeat.recordBy(tight, at9, at9 - 60000), null, 'a deadline on the due slot itself is named');
   // The uneven pair rounds DOWN: 09:30 less 7.5 minutes is 09:22:30, named as 09:22.
   const pair = taskrepeat.normalise({ every: 'day', at: ['09:00', '09:30'] });
   const nine = taskrepeat.nextAfter(pair, new Date(2026, 9, 1, 8, 0).getTime());

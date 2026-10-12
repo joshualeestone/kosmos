@@ -323,8 +323,8 @@ function skippedBefore(t, at) {
 /* kosmos#5920 reviews 1 and 2: the time a run due at `at` must be recorded BEFORE so it answers `at`: the next slot less
    the miss grace (a record inside that grace answers the next slot early, which would count this run as missed),
    rounded down to the minute, so "before 9:22am" can be read to the minute and is never past the real limit (09:22:30
-   for runs at 09:00 and 09:30). null with no next slot, and null when that time has already passed at `now`: then no
-   deadline is named, since none is left to meet. */
+   for runs at 09:00 and 09:30). null with no next slot, when that time has already passed at `now` (no deadline is left
+   to meet), and when it is not after the due slot itself (two times a minute apart: the floor lands on the due slot). */
 function recordBy(rule, at, now = Date.now()) {
   const next = nextAfter(rule, at);
   if (next === null) return null;

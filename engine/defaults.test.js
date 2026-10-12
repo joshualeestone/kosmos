@@ -637,9 +637,9 @@ test('#4787: the block teaches a repeating task: the exact repeat and ran comman
 });
 
 /* kosmos#5920: a retry that held an agent for hours swallowed the scheduled runs after it. Pinned as CONTENT (the
-   fingerprint above catches any change; this says which one must not be undone): each run has until the next is due,
-   and the agent records it as it stands and moves on. */
-test('#5920: the repeating-work paragraph has each run recorded a little before the next one is due', () => {
+   fingerprint above catches any change; this says which one must not be undone): each run is recorded while more than
+   15 minutes (or a quarter of the gap) remain before the next is due, and an overrun is recorded as it stands. */
+test('#5920: the repeating-work paragraph has each run recorded while more than 15 minutes remain before the next', () => {
   const b = defaults.block();
   assert.match(b, /Record each run while\s+more than 15 minutes remain before the next one is due\*\*/, 'the per-run deadline is gone');
   assert.match(b, /or a quarter of the\s+time between runs, if that is shorter/, 'the deadline for short gaps is gone');

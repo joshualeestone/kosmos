@@ -1037,8 +1037,9 @@ function block() {
  *     the agent for hours and the scheduled runs after it never ran, with nothing to
  *     show they were missed. The repeating-work paragraph now says to record each run
  *     while more than 15 minutes (or a quarter of the gap, if shorter) remain before
- *     the next is due, which is the board's miss grace: a run recorded inside it
- *     answers the next slot early. The due-run nudge names the exact time
+ *     the next is due, which is at least as early as the board's miss grace (for
+ *     uneven daily times the code uses the shortest gap): a run recorded inside the
+ *     grace answers the next slot early. The due-run nudge names the exact time
  *     (taskrepeat.recordBy); the rule stands without it, since an agent stuck in a
  *     retry is never nudged. And what to do when a run runs over: record it as it
  *     stands, with what stopped it, and start the next. (The board records the misses
