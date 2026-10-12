@@ -953,7 +953,7 @@ function antigravityEnabled() {
   // Off by 0, false or off (review round 7: an operator writing false meant off); anything else is on.
   return !/^(0|false|off|no)$/i.test(String(process.env.AGENT_WORKFORCE_ANTIGRAVITY || '').trim());
 }
-/* #3939 slice 3c-3a: Meta Muse agents. Off unless Muse is switched on, and on a Mac only
+/* #3939 slice 3c-3a: Meta Muse agents. On a Mac only, and only while Muse is on (on by default since 2026-10-12)
    (engine/musestatus.enabled decides, the same switch the sign-in and the Settings row read). Switching an
    existing agent to Meta (setProvider) is not offered yet, so that route refuses 'meta' as it always has. */
 function museEnabled(platform) {

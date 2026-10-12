@@ -313,7 +313,8 @@ const chk = (ok, label, extra) => {
   // Turned on but Muse Code not installed: the option stays disabled and says why.
   await q(() => { window.__museInstalled = false; closeAcctAdd(); openAcctAdd(); }); await settle();
   const missing = await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return { disabled: o.disabled, off: o.dataset.off || '', text: o.textContent }; });
-  chk(missing.disabled && /not on this computer/.test(missing.off) && missing.off !== 'Not ready on this computer', 'turned on but not installed: the Meta option stays disabled and gives the engine\'s reason', JSON.stringify(missing));
+  // #3939: on by default, most Macs see this pill, and the logo list's pill cannot shrink: a short one that says what to do.
+  chk(missing.disabled && missing.off === 'Install Muse Code from Meta', 'turned on but not installed: the Meta option stays disabled and its pill says to install Muse Code from Meta', JSON.stringify(missing));
   chk(missing.text === 'Meta Muse \u00b7 set up first', '#5316: not installed, the option\'s words say to set it up first', JSON.stringify(missing));
   await q(() => { window.__museInstalled = true; closeAcctAdd(); openAcctAdd(); }); await settle();
   const live = await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return { disabled: o.disabled, off: o.dataset.off || '', text: o.textContent }; });
