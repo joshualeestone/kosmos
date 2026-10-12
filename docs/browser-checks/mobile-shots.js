@@ -875,6 +875,16 @@ const SCREENS = [
     await at(page, '?first-run=1');
     await page.waitForSelector('#firstrun', { state: 'visible', timeout: 5000 });
   } },
+  /* #5977: first run's Model step (pane 5), scrolled to the Qwen row, which says it is added in Settings (or, on
+     Windows, that it is coming there). */
+  { name: 'first-run-model', owner: 'PigeonPete', go: async (page) => {
+    await at(page, '?first-run=1&fr-step=5');
+    await page.waitForSelector('#fr-pane-5', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => {
+      const row = document.querySelector('#fr-pane-5 [data-pmark="qwen"]');
+      if (row) row.closest('.llm').scrollIntoView({ block: 'center' });
+    });
+  } },
   { name: 'agent-files', owner: 'unowned', go: async (page, data) => {
     await at(page, '?tab=detail&agent=' + data.chatAgent);
     /* On a phone the agent page opens on its conversation, which hides this short Files list

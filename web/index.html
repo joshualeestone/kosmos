@@ -11982,6 +11982,12 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    height, is charged that gap, 4px on a sideways phone DM). Written into, it is an ordinary line again. */
 #d-linklost-msg:empty { position: absolute; width: 1px; height: 1px; min-height: 0; margin: -1px; padding: 0; border: 0;
                         overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* #5977: the Qwen download bar in the page's own colours (a native bar's white track glared on a dark page). */
+#acct-qwen-local-bar { -webkit-appearance: none; appearance: none; height: 6px; border: 0; border-radius: 3px;
+  background: var(--k-track); overflow: hidden; color: var(--gold); }
+#acct-qwen-local-bar::-webkit-progress-bar { background: var(--k-track); border-radius: 3px; }
+#acct-qwen-local-bar::-webkit-progress-value { background: var(--gold); border-radius: 3px; }
+#acct-qwen-local-bar::-moz-progress-bar { background: var(--gold); border-radius: 3px; }
 </style>
 <!-- ⚠️ THE id HERE IS LOAD-BEARING, NOT DECORATION. Every page test in this
      repo lifts the app's source with a regex for an ATTRIBUTE-LESS script tag,
