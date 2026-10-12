@@ -37,7 +37,8 @@ rm -rf "$_td"
 #    or, for a test of whether a FOLDER can be entered (#5913), the one exact shape dgated accepts.
 #    Any missing guard is a directory-accepting site. Red if any is added.
 #    NOT covered (a line scan of the bracket form only): `test -x P`, `[ P1 -a -x P ]`, `[  -x P ]` with two
-#    spaces, and an -f excuse placed behind || or in a comment (#5986).
+#    spaces, and an -f excuse placed behind || or in a comment (#5986). A folder-shape P that runs code, such as
+#    "$(mktemp)", is evaluated twice and could differ between the -d and the -x; nothing in the installer does that.
 _scan='
 # #5913: a SEARCH test on a folder (can this account enter it) is not the class. Exactly one shape is excused,
 # the one the installer uses (setup.sh, sealed_icon_other_users): a whole command line, trailing comment aside,
@@ -82,8 +83,10 @@ FNR == 1 { contprev = 0 }
   }
   # Does this line continue into the next one? Judged on the code without a trailing comment ("a || # why" continues,
   # review 10). A blank or comment-only line keeps the state of the line before it, as the shell skips it (review 9).
+  # A line scan cannot tell a comment from a " #" inside quotes, so a code line holding both a quote and a " #"
+  # is taken as continuing (fail closed: the next line is flagged, review 11).
   code = line; sub(/(^|[ \t]+)#.*$/, "", code)
-  if (code !~ /^[ \t]*$/) contprev = (code ~ /(\\|&&|\|)[ \t]*$/)
+  if (code !~ /^[ \t]*$/) contprev = (line ~ /[ \t]#/ && line ~ /["\047]/) ? 1 : (code ~ /(\\|&&|\|)[ \t]*$/)
 }'
 bare="$(cd "$HERE" && awk "$_scan" $FILES 2>/dev/null)"
 if [ -z "$bare" ]; then
@@ -148,11 +151,16 @@ done
 # A || list continued onto the -d line: across a blank and a comment line, behind a trailing comment, and by a \.
 for _f in '  true ||\n  # c\n\n  [ -d "$P" ] && [ -x "$P" ] || return 0\n' \
           '  [ -n "$F" ] || # forced\n  [ -d "$P" ] && [ -x "$P" ] || return 0\n' \
-          '  true || \\\n  [ -d "$P" ] && [ -x "$P" ] || return 0\n'; do
+          '  true || \\\n  [ -d "$P" ] && [ -x "$P" ] || return 0\n' \
+          '  echo "x # y" ||\n  [ -d "$P" ] && [ -x "$P" ] || return 0\n'; do
   printf "$_f" > "$_ctl"
   if [ "$(awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -eq 1 ]; then pass "a folder shape continued from a || list is flagged: $(head -1 "$_ctl")"
   else fail "a folder shape continued from a || list was excused: $(head -1 "$_ctl")"; fi
 done
+# CONTROL: after an ordinary code line (a quote, no " #"), the folder shape is still accepted.
+printf '  a="$(/usr/bin/dirname "$P")"\n  [ -d "$a" ] && [ -x "$a" ] || return 0\n' > "$_ctl"
+if [ -z "$(awk "$_scan" "$_ctl" 2>/dev/null)" ]; then pass "the folder shape after an ordinary quoted code line is not flagged"
+else fail "an ordinary code line before the folder shape made it flagged"; fi
 rm -f "$_ctl"
 
 echo "installer runnable-guard: $fails failures"
