@@ -389,6 +389,7 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
          limit for each held ask that has no record yet (once per ask: noteLimit is skipped for ids already kept). An ask
          `stale` already drops even when asked (answered, or a day old) is not recorded, so the day rule is not undone;
          it is only left alone here, not dropped, so nothing is logged for it. */
+      // #5948: limitHeldVerdict, not accountHeldVerdict, on purpose: this block is about a turn that ended on the usage limit.
       if (!agy && typeof isLimitable === 'function') {
         const v = require('./chat').limitHeldVerdict(name, roster);
         if (v) {

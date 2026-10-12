@@ -91,3 +91,12 @@ test('#5948: a row held because the agent is signed out says so, with no usage l
   // CONTROL: the same row without heldFor is still the usage-limit sentence, so the assertion above can fail.
   assert.match(words('casey', { state: 'held', heldUntil: null }), /out of usage/);
 });
+
+test('#5948 review 1: a wake or handoff hello held because the agent is signed out says so, not that its usage reset', () => {
+  const line = lift('wakeHeldLine', { quotaResetWords: () => 'later today' });
+  const now = new Date().toISOString();
+  const signin = line('Say hello yourself.', { held: true, heldBy: 'limit', heldFor: 'signin', limitReset: now, heldUntil: now });
+  assert.equal(signin, 'Say hello yourself. It is signed out, so Kosmos sent nothing. Sign it in again and Kosmos sends it then.');
+  // CONTROL: the same hold without heldFor is the usage-limit sentence (limitReset now reads as passed).
+  assert.match(line('Say hello yourself.', { held: true, heldBy: 'limit', limitReset: now, heldUntil: now }), /usage has reset/);
+});

@@ -33,12 +33,12 @@ const now = () => new Date().toISOString();
 const IDLE = { state: status.STATE.IDLE, confidence: status.CONFIDENCE.SCRAPED, because: 'idle' };
 
 test('#5948: the automatic sign-in report reads auth_failed, with the vendor sentence as evidence', () => {
-  const out = status.reconcileReport({ ...AUTH, at: now() }, IDLE, Date.now());
+  const out = status.reconcileReport({ ...AUTH, at: now() }, IDLE, Date.now(), undefined, null, undefined, undefined, 'grok');
   assert.equal(out.state, status.STATE.AUTH_FAILED, JSON.stringify(out));
   assert.equal(out.evidence, GROK_SAID);
   assert.equal(out.reported, true);
   // No sentence: still auth_failed, with no evidence key rather than an empty one.
-  const bare = status.reconcileReport({ ...AUTH, because: '', at: now() }, IDLE, Date.now());
+  const bare = status.reconcileReport({ ...AUTH, because: '', at: now() }, IDLE, Date.now(), undefined, null, undefined, undefined, 'grok');
   assert.equal(bare.state, status.STATE.AUTH_FAILED);
   assert.equal('evidence' in bare, false);
 });
@@ -51,13 +51,13 @@ test('#5948 CONTROLS: only the automatic authentication_failed line maps; its ne
     ['a lookalike with more words', { ...AUTH, on: 'provider api (authentication_failed) and more' }],
   ];
   for (const [why, rep] of cases) {
-    const out = status.reconcileReport({ ...rep, at: now() }, IDLE, Date.now());
+    const out = status.reconcileReport({ ...rep, at: now() }, IDLE, Date.now(), undefined, null, undefined, undefined, 'grok');
     assert.equal(out.state, status.STATE.BLOCKED, why + ': ' + JSON.stringify(out));
   }
 });
 
 test('#5948: on a grok card the account problem reads as a Grok sign-in, so the chat line and the manager notice fire', () => {
-  const out = status.reconcileReport({ ...AUTH, at: now() }, IDLE, Date.now());
+  const out = status.reconcileReport({ ...AUTH, at: now() }, IDLE, Date.now(), undefined, null, undefined, undefined, 'grok');
   const card = { sessionName: 'gk', name: 'Gk', runner: 'grok', state: out.state, stateEvidence: out.evidence };
   const p = accountProblemOf(card);
   assert.ok(p, 'no account problem on a signed-out card');
@@ -71,17 +71,28 @@ test('#5948: on a grok card the account problem reads as a Grok sign-in, so the 
 test('#5948: written through selfreport, the sign-in line replaces a standing question, and the agent clears it itself', () => {
   const name = 'gk-' + process.pid;
   assert.equal(selfreport.record(name, { state: 'needs_you', because: 'which colour?', by: 'agent' }).recorded, true);
-  const asked = status.reconcileReport(selfreport.read(name), IDLE, Date.now());
+  const asked = status.reconcileReport(selfreport.read(name), IDLE, Date.now(), undefined, null, undefined, undefined, 'grok');
   assert.equal(asked.state, status.STATE.NEEDS_YOU, 'CONTROL: the question did not stand');
   const rec = selfreport.record(name, { state: 'blocked', auto: true, on: AUTH.on, owner: 'provider', because: GROK_SAID });
   assert.equal(rec.recorded, true, JSON.stringify(rec));
-  assert.equal(status.reconcileReport(selfreport.read(name), IDLE, Date.now()).state, status.STATE.AUTH_FAILED,
+  assert.equal(status.reconcileReport(selfreport.read(name), IDLE, Date.now(), undefined, null, undefined, undefined, 'grok').state, status.STATE.AUTH_FAILED,
     'the stale question still outranks the sign-in problem');
   // An automatic heartbeat cannot clear it (a failed turn must not read healthy) ...
   const hb = selfreport.record(name, { state: 'working', auto: true });
   assert.equal(hb.recorded, false, JSON.stringify(hb));
-  assert.equal(status.reconcileReport(selfreport.read(name), IDLE, Date.now()).state, status.STATE.AUTH_FAILED);
+  assert.equal(status.reconcileReport(selfreport.read(name), IDLE, Date.now(), undefined, null, undefined, undefined, 'grok').state, status.STATE.AUTH_FAILED);
   // ... and a non-automatic report after a turn that worked does.
   assert.equal(selfreport.record(name, { state: 'working', because: 'answered' }).recorded, true);
-  assert.notEqual(status.reconcileReport(selfreport.read(name), IDLE, Date.now()).state, status.STATE.AUTH_FAILED);
+  assert.notEqual(status.reconcileReport(selfreport.read(name), IDLE, Date.now(), undefined, null, undefined, undefined, 'grok').state, status.STATE.AUTH_FAILED);
+});
+
+test('#5948 review 1: a Claude agent\'s own StopFailure sign-in line stays blocked (its later heartbeats cannot clear it), and so does a card whose runner is unknown', () => {
+  for (const runner of ['claude', null, undefined]) {
+    const out = status.reconcileReport({ ...AUTH, at: now() }, IDLE, Date.now(), undefined, null, undefined, undefined, runner);
+    assert.equal(out.state, status.STATE.BLOCKED, String(runner) + ': ' + JSON.stringify(out));
+  }
+  for (const runner of ['codex', 'gemini', 'grok']) {   // CONTROL: the per-turn runners the Windows supervisor drives
+    assert.equal(status.reconcileReport({ ...AUTH, at: now() }, IDLE, Date.now(), undefined, null, undefined, undefined, runner).state,
+      status.STATE.AUTH_FAILED, runner);
+  }
 });
