@@ -20,13 +20,16 @@ verified on the Windows box). The seam between them is decided and pinned here.
 - **Why not Claude (review 1):** nothing on the Mac writes the clearing report for a Claude agent. Its later heartbeats are
   automatic and refused over a standing blocked, so after /login the card would stay signed out and the hold would keep
   every message for a day. A Claude agent's StopFailure sign-in line therefore stays the plain `blocked` it was.
-- **Hold** (chat.signinHeldVerdict / accountHeldVerdict): a message to an auth_failed card (any runner) is kept in the
+- **Hold** (chat.signinHeldVerdict / accountHeldVerdict): a message to a card reading a REPORTED auth_failed (non-Claude runners only) is kept in the
   #5805 queue (heldBy 'limit', heldFor 'signin') instead of typed, at every #5805 site (automatic gates, kosmos msg,
   task lines, the person's DM route). limitQueueReleased refuses while signed out, so the minute sweep types the
   backlog in order once the card leaves auth_failed. Words say "signed out", never "out of usage": the receipt, the
   CLIs (both), the page's held row, the typed note, and the three nudge logs.
 
 ## Weakest premise
+**Shipped alone, this half is inert:** only the Windows supervisor writes the sign-in line, so nothing reads as
+reported-signed-out (and nothing is held) until the writer that must also clear it exists.
+
 **The release is circular unless the supervisor checks on its own (review 5).** Every route holds while the card reads
 signed out, so no message can be the turn that proves the sign-in works. The Windows half must therefore check the
 sign-in itself while signed out (a periodic probe, or on noticing the account's credential change) and write the
