@@ -29,6 +29,9 @@ expect empty-team               1 ""           io.kosmos.app.preview
 expect short-team               1 ABC          io.kosmos.app.preview
 expect bad-bundle-dots          1 "$stone"     io..kosmos
 expect bad-bundle-empty         1 "$stone"     ""
+# A missing setting is refused WITH its sentence (a silent rc=1 told nobody why).
+printf 'DEVELOPMENT_TEAM = ABCDE12345\n' > "$work/nobundle.xcconfig"
+if KOSMOS_IOS_XCCONFIG="$work/nobundle.xcconfig" "$here/archive.sh" --check-config 2>&1 | grep -q 'KOSMOS_BUNDLE_ID must be set exactly once.*found 0'; then echo "PASS  a missing KOSMOS_BUNDLE_ID is refused and named"; else echo "FAIL  a missing KOSMOS_BUNDLE_ID was not refused with its sentence"; fail=1; fi
 # A second KOSMOS_BUNDLE_ID line (xcconfig takes the last) must not slip io.kosmos.app past the pairing check.
 printf 'DEVELOPMENT_TEAM = %s\nKOSMOS_BUNDLE_ID = io.kosmos.app.preview\nKOSMOS_BUNDLE_ID = io.kosmos.app\n' "$stone" > "$work/dup.xcconfig"
 if KOSMOS_IOS_XCCONFIG="$work/dup.xcconfig" "$here/archive.sh" --check-config 2>&1 | grep -q 'must be set exactly once'; then echo "PASS  a second KOSMOS_BUNDLE_ID line is refused"; else echo "FAIL  a second KOSMOS_BUNDLE_ID line was not refused"; fail=1; fi
