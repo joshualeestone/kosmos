@@ -5830,6 +5830,9 @@ const server = http.createServer(async (req, res) => {
                 stuckError: null,
                 /* kosmos#5957 slice 2: a stopped agent is the likeliest to be far behind, so its offline row says so too. */
                 rulesBehind: require('./engine/doctrine').rulesBehind(k.name, profile),
+                /* kosmos#5957 slice 3: and how long it has gone without running, once that is two weeks or more
+                   (engine/liveness.js idleDays; null otherwise and when it was never seen). */
+                idleDays: (() => { try { return liveness.idleDays(k.name); } catch { return null; } })(),
                 stateConfidence: unseen ? 'none' : 'structured',
                 /* #310: when the job exists and launchd holds an override
                    against it, the Login Items switch is the story, and it is

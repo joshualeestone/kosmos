@@ -40,7 +40,7 @@ function buildRenderer() {
     'face',
     'dmBadge',
     'communityLine',
-    'rulesBehindLine',   // #5957: the offline card says a far-behind agent's rules
+    'rulesBehindLine', 'idleLine', 'offlineNote',   // #5957: the offline card says a far-behind agent's rules
     'card',
   ].map((name) => page.lift(SCRIPT, name)).join('\n');
 
