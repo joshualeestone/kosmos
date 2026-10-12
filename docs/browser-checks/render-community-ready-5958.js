@@ -14,13 +14,17 @@
  *   KEYS      the summary takes focus by Tab order and Enter opens it.
  *   TIME      a line with a time is written as <time> with a machine datetime, in the page's own zone, between the
  *             board's words; a time the page cannot read says so and is never "Invalid Date".
- *   KEPT      a row the person opened stays open when the list is painted again (opening Automation again).
+ *   MARK      a closed row shows a mark that it opens, and the mark turns when it does; a summary reached by the
+ *             keyboard shows a focus ring.
+ *   KEPT      a row the person opened stays open when the list is painted again with a new answer (opening Automation
+ *             again), keeps the keyboard's place, and is still open after a read that failed in between.
  *   HOSTILE   a name, summary and line made of markup are shown as text; nothing in them becomes an element.
  *   EMPTY     no agents: the list is hidden and the line says there are none yet.
  *   503       the board could not read its agents: the line says it could not check, never "no agents".
  *   403       a gated read says the same.
  *   ODD       rows the page cannot paint (no session, no owner lines) are skipped, the rest are painted.
- *   PHONE     at 390 px wide, nothing in the list is wider than the screen and each summary is at least 28 px tall.
+ *   PHONE     at 390 px wide, nothing in the list is wider than the screen and each summary is at least 44 px tall
+ *             (the page's tap-target size; the arm reads the size, so the number is here and in the style sheet).
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
  *     node docs/browser-checks/render-community-ready-5958.js http://127.0.0.1:PORT
@@ -71,6 +75,8 @@ function readList(pg) {
         times: d ? [...d.querySelectorAll('time')].map((t) => ({ dt: t.getAttribute('datetime'), text: t.textContent })) : [],
         elements: li.querySelectorAll('img, script, a, button, input, iframe').length,
         sumHeight: sb ? Math.round(sb.height) : 0,
+        mark: (() => { const m = sum && sum.querySelector('svg'); if (!m) return null; const b = m.getBoundingClientRect(); const cs = getComputedStyle(m); return { w: Math.round(b.width), h: Math.round(b.height), hidden: m.getAttribute('aria-hidden'), turn: cs.transform, shown: cs.display !== 'none' && cs.visibility !== 'hidden' }; })(),
+        ring: sum ? getComputedStyle(sum).outlineStyle + ' ' + getComputedStyle(sum).outlineWidth : null,
         right: Math.round(li.getBoundingClientRect().right),
         scrollWide: li.scrollWidth > li.clientWidth + 1,
       };
@@ -98,22 +104,22 @@ const answer = (body, status = 200) => (route) => route.fulfill({ status, conten
 const T1 = Date.parse('2026-10-12T15:04:00Z');
 const T0 = Date.parse('2026-10-12T10:00:00Z');
 const agent = (session, name, owner) => ({ session, name, switch: 'on', addressOk: true, block: 'present', connected: false, rereadOwed: false, account: 'yes', reminder: null, lastPost: null, held: 0, owner });
-const AVA = agent('ava', 'Ava', { summary: 'Nothing found in its way', needsYou: false, lines: [
+const AVA = agent('ava', 'Ava', { summary: 'Nothing found in its way', lines: [
   { text: 'The community section is in its instructions.' },
   { text: 'It has a community account.' },
-  { text: 'Kosmos last went to remind it ', at: T1, after: ': delivered.' },
+  { text: 'Kosmos last went to remind it ', at: T1, after: '. Delivered.' },
   { text: 'Its newest post is "Weekly ops". Where that post stands is in the list of posts and comments.' },
 ] });
-const BO = agent('bo', 'Bo', { summary: 'No community section in its instructions', needsYou: true, lines: [
+const BO = agent('bo', 'Bo', { summary: 'No community section in its instructions', lines: [
   { text: 'No community section in its instructions. It works in a folder of your own, and Kosmos does not add the section to instructions there.' },
   { text: 'No community account yet. Kosmos makes one the first time something of its goes to the community.' },
   { text: 'Kosmos has no record of going to remind it.' },
   { text: 'It has not posted yet.' },
 ] });
-const CY = agent('cy', 'Cy', { summary: 'Waiting for you', needsYou: true, lines: [
+const CY = agent('cy', 'Cy', { summary: 'Waiting for you', lines: [
   { text: 'The community section is in its instructions.' },
   { text: 'It has a community account.' },
-  { text: 'Kosmos last went to remind it ', at: T1, after: ': not sent: this board had reached its hourly limit for messages to agents.' },
+  { text: 'Kosmos last went to remind it ', at: T1, after: '. Not sent: this board had reached its hourly limit for messages to agents.' },
   { text: 'The last reminder that reached it was ', at: T0, after: '.' },
   { text: 'It has not posted yet.' },
   { text: '2 items of its are waiting for you, under Waiting for you.' },
@@ -145,13 +151,33 @@ async function run() {
     const tm = o.rows[2].times;
     check('TIME: each time is a <time> with a machine datetime', tm.length === 2 && tm[0].dt === new Date(T1).toISOString() && tm[1].dt === new Date(T0).toISOString(), JSON.stringify(tm));
     const local = await p1.evaluate((ms) => new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }), T1);
-    check('TIME: it is written in the page\'s own zone, between the board\'s words', tm[0].text === local && o.rows[2].lines[2] === 'Kosmos last went to remind it ' + local + ': not sent: this board had reached its hourly limit for messages to agents.', JSON.stringify([tm[0].text, local, o.rows[2].lines[2]]));
+    check('TIME: it is written in the page\'s own zone, between the board\'s words', tm[0].text === local && o.rows[2].lines[2] === 'Kosmos last went to remind it ' + local + '. Not sent: this board had reached its hourly limit for messages to agents.', JSON.stringify([tm[0].text, local, o.rows[2].lines[2]]));
 
-    // KEPT
+    // MARK
+    check('MARK: every row shows a mark that it opens, hidden from a screen reader', o.rows.every((x) => x.mark && x.mark.shown && x.mark.w >= 8 && x.mark.h >= 8 && x.mark.hidden === 'true'), JSON.stringify(o.rows.map((x) => x.mark)));
+    check('MARK: the open row\'s mark is turned and a closed row\'s is not', o.rows[2].mark.turn !== 'none' && o.rows[0].mark.turn === 'none', JSON.stringify([o.rows[0].mark.turn, o.rows[2].mark.turn]));
+
+    // KEPT: the second answer differs, so a repaint that never happened cannot pass
+    await p1.unroute(READY);
+    await p1.route(READY, answer({ agents: [AVA, BO, { ...CY, owner: { ...CY.owner, summary: 'Nothing found in its way' } }] }));
     await p1.click('#s-nav button[data-go="automation"]');
-    await p1.waitForTimeout(500);
+    await p1.waitForFunction(() => { const d = document.querySelector('#community-ready-list details[data-session="cy"] summary span'); return d && d.textContent === 'Nothing found in its way'; }, null, { timeout: 5000 }).catch(() => {});
     const k = await readList(p1);
-    check('KEPT: the opened row is still open after the list is painted again', k.rows.length === 3 && k.rows[2].open === true && k.rows[0].open === false, JSON.stringify(k.rows.map((x) => x.open)));
+    check('KEPT CONTROL: the list was painted again from the new answer', k.rows.length === 3 && k.rows[2].summary === 'Nothing found in its way', JSON.stringify(k.rows.map((x) => x.summary)));
+    check('KEPT: the opened row is still open, and the others still closed', k.rows.length === 3 && k.rows[2].open === true && k.rows[0].open === false && k.rows[1].open === false, JSON.stringify(k.rows.map((x) => x.open)));
+    // a read that fails clears the list; the next good one must still know which row was open
+    await p1.unroute(READY);
+    await p1.route(READY, answer({ error: 'x' }, 503));
+    await p1.click('#s-nav button[data-go="automation"]');
+    await p1.waitForFunction(() => document.getElementById('community-ready-list').hidden === true, null, { timeout: 5000 }).catch(() => {});
+    const kf = await readList(p1);
+    check('KEPT CONTROL: the failed read cleared the list', kf.listHidden === true && kf.rows.length === 0, JSON.stringify([kf.listHidden, kf.rows.length]));
+    await p1.unroute(READY);
+    await p1.route(READY, answer({ agents: [AVA, BO, CY] }));
+    await p1.click('#s-nav button[data-go="automation"]');
+    await p1.waitForFunction(() => document.querySelectorAll('#community-ready-list li').length === 3, null, { timeout: 5000 }).catch(() => {});
+    const k2 = await readList(p1);
+    check('KEPT: after a read that failed, the row the person opened is open again', k2.rows.length === 3 && k2.rows[2].open === true && k2.rows[0].open === false, JSON.stringify(k2.rows.map((x) => x.open)));
     await p1.close();
 
     // KEYS
@@ -164,24 +190,31 @@ async function run() {
     await p2.keyboard.press('Tab');
     const f2 = await readList(p2);
     check('KEYS: Tab moves to the next row\'s summary', f2.focusIsSummary && f2.focusSession === 'bo', JSON.stringify([f2.focusIsSummary, f2.focusSession]));
+    check('MARK: a summary reached by the keyboard shows a focus ring', /^solid /.test(f2.rows[1].ring) && parseFloat(f2.rows[1].ring.split(' ')[1]) >= 2 && !/^solid /.test(f2.rows[0].ring), JSON.stringify([f2.rows[0].ring, f2.rows[1].ring]));
     await p2.keyboard.press('Enter');
     const f3 = await readList(p2);
     check('KEYS: Enter opens the focused row', f3.rows[1].open === true && f3.rows[0].open === false, JSON.stringify(f3.rows.map((x) => x.open)));
+    // a repaint under the keyboard keeps its place
+    await p2.evaluate(() => refreshCommunityReady());
+    await p2.waitForTimeout(400);
+    const f4 = await readList(p2);
+    check('KEPT: a repaint leaves the keyboard on the same row\'s summary', f4.focusIsSummary && f4.focusSession === 'bo' && f4.rows[1].open === true, JSON.stringify([f4.focusIsSummary, f4.focusSession, f4.rows.map((x) => x.open)]));
     await p2.close();
 
     // TIME a time the page cannot read
     const p3 = await page();
-    await p3.route(READY, answer({ agents: [agent('dee', 'Dee', { summary: 'Nothing found in its way', needsYou: false, lines: [{ text: 'Kosmos last went to remind it ', at: 1e20, after: ': delivered.' }, { text: 'It went again ', at: 'soon', after: '.' }] })] }));
+    await p3.route(READY, answer({ agents: [agent('dee', 'Dee', { summary: 'Nothing found in its way', lines: [{ text: 'Kosmos last went to remind it ', at: 1e20, after: '. Delivered.' }, { text: 'It went again ', at: 'soon', after: '.' }, { text: 7 }, null, { text: 'Last line.' }] })] }));
     await openAutomation(p3);
     const bt = await readList(p3);
-    check('TIME: a time the page cannot read says so, with no datetime and never "Invalid Date"', bt.rows.length === 1 && bt.rows[0].lines.length === 2
-      && bt.rows[0].lines.every((t) => /at a time Kosmos could not read/.test(t) && !/Invalid/.test(t)) && bt.rows[0].times.every((t) => t.dt === null), JSON.stringify(bt.rows[0]));
+    check('TIME: a time the page cannot read says so, with no datetime and never "Invalid Date"', bt.rows.length === 1 && bt.rows[0].lines.length === 3
+      && bt.rows[0].lines.slice(0, 2).every((t) => /at a time Kosmos could not read/.test(t) && !/Invalid/.test(t)) && bt.rows[0].times.every((t) => t.dt === null), JSON.stringify(bt.rows[0]));
+    check('ODD: a line with no words is skipped, not painted as an empty paragraph', bt.rows[0].lines.length === 3 && bt.rows[0].lines[2] === 'Last line.', JSON.stringify(bt.rows[0].lines));
     await p3.close();
 
     // HOSTILE
     const p4 = await page();
     const X = '<img src=x onerror="window.__ready5958=true"><script>window.__ready5958=true</script><b>bold</b>';
-    await p4.route(READY, answer({ agents: [agent('mal', X, { summary: X, needsYou: true, lines: [{ text: X }, { text: X, at: T1, after: X }] })] }));
+    await p4.route(READY, answer({ agents: [agent('mal', X, { summary: X, lines: [{ text: X }, { text: X, at: T1, after: X }] })] }));
     await openAutomation(p4);
     await p4.waitForTimeout(300);
     const h = await readList(p4);
@@ -209,10 +242,11 @@ async function run() {
 
     // ODD
     const p6 = await page();
-    await p6.route(READY, answer({ agents: [null, { name: 'No session', owner: AVA.owner }, { session: 'nolines', name: 'No lines' }, { session: 'badlines', name: 'Bad', owner: { summary: 's', lines: 'x' } }, BO] }));
+    await p6.route(READY, answer({ agents: [null, { name: 'No session', owner: AVA.owner }, { session: 'nolines', name: 'No lines' }, { session: 'badlines', name: 'Bad', owner: { summary: 's', lines: 'x' } }, { ...BO, name: { odd: true } }] }));
     await openAutomation(p6);
     const od = await readList(p6);
     check('ODD: rows the page cannot paint are skipped and the rest are painted', od.rows.length === 1 && od.rows[0].session === 'bo' && od.listHidden === false, JSON.stringify(od.rows.map((x) => x.session)));
+    check('ODD: a name that is not words falls back to the agent\'s session name', od.rows.length === 1 && od.rows[0].name === 'bo', JSON.stringify(od.rows.map((x) => x.name)));
     await p6.close();
     const p7 = await page();
     await p7.route(READY, answer({ agents: [{ session: 'nolines', name: 'No lines' }] }));
@@ -223,7 +257,7 @@ async function run() {
 
     // PHONE
     const p8 = await page({ width: 390, height: 844 });
-    const LONG = agent('long', 'An agent with a very long name that has no reason to fit on one line of a phone', { summary: 'Its community account is waiting on an earlier try', needsYou: true, lines: [
+    const LONG = agent('long', 'An agent with a very long name that has no reason to fit on one line of a phone', { summary: 'Its community account is waiting on an earlier try', lines: [
       { text: 'An earlier try made a community account under its name and Kosmos never received the key, so it waits rather than make a second.' },
       { text: 'Its newest post is "' + 'averyveryverylongunbrokenwordthatcannotwrapanywhereonitsown'.repeat(3) + '". Where that post stands is in the list of posts and comments.' },
     ] });
@@ -234,7 +268,7 @@ async function run() {
     const ph = await readList(p8);
     check('PHONE CONTROL: the rows are painted at 390 px', ph.viewport === 390 && ph.rows.length === 2 && ph.rows[0].lines.length === 2, JSON.stringify([ph.viewport, ph.rows.length]));
     check('PHONE: no row is wider than the screen or scrolls sideways', ph.rows.every((x) => x.right <= ph.viewport && !x.scrollWide) && !ph.pageWide, JSON.stringify(ph.rows.map((x) => [x.right, x.scrollWide]).concat([ph.pageWide])));
-    check('PHONE: each summary is at least 28 px tall', ph.rows.every((x) => x.sumHeight >= 28), JSON.stringify(ph.rows.map((x) => x.sumHeight)));
+    check('PHONE: each summary is at least 44 px tall', ph.rows.every((x) => x.sumHeight >= 44), JSON.stringify(ph.rows.map((x) => x.sumHeight)));
     await p8.close();
   } finally {
     await browser.close();

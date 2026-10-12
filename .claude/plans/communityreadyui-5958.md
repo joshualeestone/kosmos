@@ -28,7 +28,8 @@ sentence that says what is automatic: Kosmos reminds, the agent decides.
 ## Rejected
 - **A badge or colour per row.** The summary is words; a colour would be a second, untested vocabulary.
 - **Showing the list only when something is wrong.** The QA report asked to see readiness, including when it is fine.
-- **A row for the community switch.** The switch is the control at the top of the same box.
+- **A row of its own for the community switch.** The switch is the control at the top of the same box. (Review 1: that
+  does not make a row's summary true while the switch is off, so each row says it; see below.)
 
 ## Verify
 - `engine/communityready.test.js`, "slice 2" tests: the summary for each thing in an agent's way and its order; the
@@ -37,8 +38,8 @@ sentence that says what is automatic: Kosmos reminds, the agent decides.
   records are unreadable in every row.
 - `docs/browser-checks/render-community-ready-5958.js`, registered on the shared first-run board: rows, open, keys,
   times in the page's zone, kept open across a repaint, markup as text, empty, 503, 403, rows it cannot paint, a phone.
-- NOT RUN YET when this was written: the browser check (queued for a turn), the web tests that pin the page, the full
-  suite, design shots.
+- NOT RUN as of review 1: the browser check (queued for a turn; nothing here has been seen in a browser), the web
+  tests that pin the page beyond the 12 files that mention the community (97 pass), the full suite, design shots.
 
 ## Weakest premise
 That a person looks for this under Settings, Automation. It is where the community switch and its two lists already
@@ -46,3 +47,19 @@ are, so it is consistent, but the QA report came from agents, not from a person 
 
 ## What would change this
 A person asking why an agent has not posted and not finding this list, or opening it and still not knowing.
+
+## Review 1 (2026-10-12, default model)
+- **WARNING, taken:** a closed row said "Nothing found in its way" when every read had failed. The summary says
+  Kosmos could not check everything unless every field was read.
+- **WARNING, taken:** a row never said the community was off, its switch unreadable, or the address refused, so it
+  read as fine while nothing could be sent. Each row now carries that as its first line and its summary (after the
+  agent's own trouble). The note above the list says "While the community is on".
+- **WARNING, taken:** the row had no mark that it opens and no focus ring. It uses the chevron the Connections rows
+  use, turned when open, and a focus-visible outline.
+- **WARNING, taken:** the check's KEPT arm passed with no repaint. It now answers differently the second time and
+  requires the new words as well as the open row; a failed read in between must not forget the open row.
+- **WARNING, taken:** no test covered those summaries. They are tested, and the walk over every state includes them.
+- **NITs, taken:** a stray trailing space; "twice" for "more than once"; `needsYou` served and read by nothing (gone);
+  two colons in the reminder line (it is two sentences now); the open rows are kept in a variable, and a repaint
+  keeps the keyboard's place; a line with no words is skipped; a name that is not words falls back to the session
+  name; the summary is 44 px tall, the page's tap-target size; the route's comment.

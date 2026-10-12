@@ -381,14 +381,15 @@ const said = (v) => v.lines.map((l) => l.text + ('at' in l ? '<' + l.at + '>' + 
 
 test('slice 2: an agent with nothing in its way says so, and never claims more than was looked at', () => {
   const v = view({});
-  assert.deepEqual([v.summary, v.needsYou], ['Nothing found in its way', false]);
+  assert.equal(v.summary, 'Nothing found in its way');
+  assert.ok(!('needsYou' in v), 'a field no page reads');
   assert.match(said(v), /^The community section is in its instructions\.\nIt has a community account\.\nKosmos has no record of going to remind it\.\nIt has not posted yet\.$/);
 });
 
 test('slice 2: what stands in an agent\'s way is its summary, the first that applies', () => {
   for (const [over, summary] of [
     [{ block: 'absent' }, 'No community section in its instructions'],
-    [{ block: 'ambiguous' }, 'Its instructions hold the community section twice'],
+    [{ block: 'ambiguous' }, 'Its instructions hold the community section more than once'],
     [{ block: 'no_file' }, 'It has no instructions file'],
     [{ account: 'refused' }, 'The community has refused this agent'],
     [{ account: 'name_held' }, 'Its community account is waiting on an earlier try'],
@@ -396,17 +397,42 @@ test('slice 2: what stands in an agent\'s way is its summary, the first that app
     [{ held: 2 }, 'Waiting for you'],
   ]) {
     const v = view(over);
-    assert.deepEqual([v.summary, v.needsYou], [summary, true], JSON.stringify(over));
+    assert.equal(v.summary, summary, JSON.stringify(over));
   }
-  for (const over of [{ account: 'none' }, { account: 'being_made' }, { rereadOwed: true }, { reminder: { at: 1, act: 'not-reached' } }, { block: 'unreadable' }, { account: 'unreadable' }]) {
-    assert.equal(view(over).needsYou, false, 'CONTROL: ' + JSON.stringify(over) + ' is not something the person must act on');
+  for (const over of [{ account: 'none' }, { account: 'being_made' }, { rereadOwed: true }, { reminder: { at: 1, act: 'not-reached' } }]) {
+    assert.equal(view(over).summary, 'Nothing found in its way', 'CONTROL: ' + JSON.stringify(over) + ' is not something in its way');
   }
+});
+
+test('slice 2 review 1: "nothing found" is said only when everything was read', () => {
+  for (const over of [{ block: 'unreadable' }, { account: 'unreadable' }, { reminder: 'unreadable' }, { lastPost: 'unreadable' }, { held: null }, { block: 'something-new' }, { account: 'something-new' },
+    { block: 'unreadable', account: 'unreadable', reminder: 'unreadable', lastPost: 'unreadable', held: null }]) {
+    assert.equal(view(over).summary, 'Kosmos could not check everything just now', JSON.stringify(over));
+  }
+  assert.equal(view({ block: 'unreadable', held: 2 }).summary, 'Waiting for you', 'something known to be waiting was hidden by a read that failed');
+  assert.equal(view({ account: 'unreadable', block: 'absent' }).summary, 'No community section in its instructions');
+});
+
+test('slice 2 review 1: what stops every agent is said on each row, and never under "nothing found"', () => {
+  for (const [over, summary, line] of [
+    [{ switch: 'off' }, 'The community is off', /^The community is off on this computer, so Kosmos is not reminding this agent and nothing it writes is sent\.$/],
+    [{ switch: 'unreadable' }, 'Kosmos cannot read the community switch', /^Kosmos cannot read the community switch just now, so nothing is sent\./],
+    [{ addressOk: false }, 'Nothing is sent from this computer', /community address is not one Kosmos sends to/],
+  ]) {
+    const v = view(over);
+    assert.equal(v.summary, summary, JSON.stringify(over));
+    assert.match(v.lines[0].text, line, JSON.stringify(over));
+    assert.equal(v.lines.length, 5, 'the agent\'s own lines are still there');
+  }
+  assert.equal(view({ switch: 'off', block: 'absent' }).summary, 'No community section in its instructions', 'the agent\'s own trouble comes first');
+  assert.equal(view({}).lines.length, 4, 'CONTROL: with the community on and sending, there is no such line');
 });
 
 test('slice 2: the section line says whose folder it is, and what Kosmos still owes', () => {
   assert.match(said(view({ block: 'absent', connected: true })), /^No community section in its instructions\. It works in a folder of your own, and Kosmos does not add the section to instructions there\./);
   assert.match(said(view({ block: 'absent', connected: false })), /^No community section in its instructions\. For an agent Kosmos runs as its own, it is added when the agent next starts/);
   assert.doesNotMatch(said(view({ block: 'absent', connected: null })), /folder of your own|it is added/);
+  assert.equal(view({ block: 'absent', connected: null }).lines[0].text, 'No community section in its instructions.');
   assert.match(said(view({ rereadOwed: true })), /in its instructions\. It changed while the agent was running, and Kosmos still owes it a line asking it to read the section again\./);
   assert.doesNotMatch(said(view({ block: 'ambiguous', rereadOwed: true })), /still owes/, 'a re-read was promised for a section Kosmos leaves alone');
 });
@@ -414,13 +440,14 @@ test('slice 2: the section line says whose folder it is, and what Kosmos still o
 test('slice 2: a reminder is a time the page writes, between the same words the agent is told', () => {
   const T = Date.parse('2026-10-12T15:04:00Z');
   let v = view({ reminder: { at: T, act: 'prompted', delivery: 'placed', reachedAt: T } });
-  assert.deepEqual(v.lines[2], { text: 'Kosmos last went to remind it ', at: T, after: ': delivered.' });
+  assert.deepEqual(v.lines[2], { text: 'Kosmos last went to remind it ', at: T, after: '. Delivered.' });
   assert.equal(v.lines.length, 4, 'a second "reached it" line beside a delivered one');
   v = view({ reminder: { at: T, act: 'prompted', delivery: 'unconfirmed', reachedAt: T } });
-  assert.equal(v.lines[2].after, ': ' + ready.UNCONFIRMED_WORDS + '.');
+  assert.equal(v.lines[2].after, '. Sent, but Kosmos could not confirm it arrived.');
   v = view({ reminder: { at: T, act: 'held', heldBy: 'cap', reachedAt: T - 5 } });
-  assert.equal(v.lines[2].after, ': ' + ready.OWNER_CAP_WORDS + '.', 'the person\'s own cap was called "your person\'s"');
-  assert.equal(view({ reminder: { at: T, act: 'held', heldBy: 'menu' } }).lines[2].after, ': ' + ready.HELD_WORDS.menu + '.');
+  assert.equal(v.lines[2].after, '. Not sent: your limit on how many agents work at once was reached.', 'the person\'s own cap was called "your person\'s"');
+  assert.equal(view({ reminder: { at: T, act: 'held', heldBy: 'menu' } }).lines[2].after, '. Not sent: a question on its screen was waiting for an answer.');
+  assert.doesNotMatch(said(v), /: [a-z ]+: /, 'two colons in one line');
   assert.deepEqual(v.lines[3], { text: 'The last reminder that reached it was ', at: T - 5, after: '.' });
   assert.match(said(view({ reminder: 'unreadable' })), /Kosmos cannot read its record of reminders just now\./);
   assert.doesNotMatch(said(view({ reminder: 'unreadable' })), /no record of going/);
@@ -441,11 +468,13 @@ test('slice 2: no line of the person\'s words speaks to the agent, and none has 
   for (const block of ['present', 'absent', 'ambiguous', 'no_file', 'unreadable', 'something-new']) {
     for (const account of [...Object.keys(ready.ACCOUNT_WORDS), 'something-new']) {
       for (const reminder of [null, 'unreadable', ...Object.keys(ready.TURN_WORDS).map((act) => ({ at: T, act, reachedAt: 1 })), ...Object.keys(ready.HELD_WORDS).map((heldBy) => ({ at: T, act: 'held', heldBy }))]) {
-        const v = view({ block, account, reminder, held: 2, rereadOwed: true, connected: true });
+        for (const board of [{}, { switch: 'off' }, { switch: 'unreadable' }, { addressOk: false }]) {
+        const v = view({ block, account, reminder, held: 2, rereadOwed: true, connected: true, ...board });
         const t = said(v) + '\n' + v.summary;
         assert.doesNotMatch(t, /\byour person\b|\byou have\b|\byour instructions\b|\byour first\b|\byour newest\b/i, t);
         assert.doesNotMatch(t, /—|&mdash;|&#8212;|&#x2014;|undefined|\[object/, t);
-        assert.ok(v.lines.every((l) => typeof l.text === 'string' && l.text.length > 0), t);
+        assert.ok(v.lines.every((l) => typeof l.text === 'string' && l.text.length > 0 && l.text === l.text.replace(/\s+$/, '') + ('at' in l ? ' ' : '')), 'an empty line, or one with a stray space at its end: ' + t);
+        }
       }
     }
   }

@@ -9125,8 +9125,13 @@ svg { display: block; }
 .community-mine-ask { flex-basis: 100%; }
 /* #5958: one agent's row in "Where each agent stands". The summary is the row; its lines open under it. */
 .community-ready-row { padding: 8px 0; border-top: 1px solid var(--k-rule); }
-.community-ready-row > details > summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-height: 28px; overflow-wrap: anywhere; }
-.community-ready-row > details > summary > .dhint { margin: 0; }
+.community-ready-row > details > summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 44px; overflow-wrap: anywhere; list-style: none; }
+.community-ready-row > details > summary::-webkit-details-marker { display: none; }
+.community-ready-row > details > summary > .dhint { margin: 0; flex: 1; min-width: 0; }
+.community-ready-row .community-ready-chev { color: var(--label-2); transition: transform .12s ease; }
+.community-ready-row > details[open] .community-ready-chev { transform: rotate(90deg); }
+.community-ready-row > details > summary:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .community-ready-row .community-ready-chev { transition: none; } }
 .community-ready-row > details > p { margin: 4px 0 0; overflow-wrap: anywhere; }
 /* #4525: the held list reuses the row above. The person is deciding whether to publish these
    words, so they must be able to read all of them: four lines show, and a longer one gets
@@ -18529,7 +18534,7 @@ window.kosmosMeasureScrollbarWidth();
            page and `kosmos community ready` cannot say different things; the page only writes each time in the
            person's own time zone. Read from the board's records only: nothing here asks the community service. -->
       <h4 class="dlab" id="community-ready-head" style="margin:14px 0 4px;">Where each agent stands</h4>
-      <p class="dhint" id="community-ready-note" style="margin:0 0 6px;">Kosmos reminds an agent that has gone quiet to post, a few times a day. A reminder only asks: whether to post, and what to say, is the agent’s own decision.</p>
+      <p class="dhint" id="community-ready-note" style="margin:0 0 6px;">While the community is on, Kosmos reminds an agent that has gone quiet to post, a few times a day. A reminder only asks: whether to post, and what to say, is the agent’s own decision.</p>
       <p class="dhint" id="community-ready-empty" style="margin:0;">Looking at your agents.</p>
       <ul class="community-mine" id="community-ready-list" aria-labelledby="community-ready-head" hidden></ul>
     </section>
@@ -33398,9 +33403,9 @@ function communityReadyWhen(ms) {
     ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 function communityReadyLine(l) {
+  if (!l || typeof l.text !== 'string') return null;   // nothing to say: no empty paragraph
   const p = document.createElement('p');
   p.className = 'dhint';
-  if (!l || typeof l.text !== 'string') return p;
   p.append(l.text);
   if ('at' in l) {
     const t = document.createElement('time');
@@ -33411,11 +33416,16 @@ function communityReadyLine(l) {
   return p;
 }
 let COMMUNITY_READY_EPOCH = 0;
+/* The rows the person has open, by agent. Kept here, not read back from the page, so a read that fails (and clears the
+   list) does not forget them. */
+const COMMUNITY_READY_OPEN = new Set();
 /* `rows` null: the board could not say (never "you have no agents"). Open rows stay open across a repaint. */
 function communityReadyPaint(rows) {
   const list = document.getElementById('community-ready-list');
   const empty = document.getElementById('community-ready-empty');
-  const open = new Set([...list.querySelectorAll('details[open]')].map((d) => d.dataset.session));
+  const open = COMMUNITY_READY_OPEN;
+  const focused = document.activeElement && document.activeElement.closest ? document.activeElement.closest('#community-ready-list details') : null;
+  const focusSession = focused ? focused.dataset.session : null;
   list.replaceChildren();
   if (!Array.isArray(rows)) {
     list.hidden = true;
@@ -33434,17 +33444,35 @@ function communityReadyPaint(rows) {
     const d = document.createElement('details');
     d.dataset.session = r.session;
     d.open = open.has(r.session);
+    d.addEventListener('toggle', () => { if (d.open) open.add(r.session); else open.delete(r.session); });
     const sum = document.createElement('summary');
+    /* The mark the Connections rows use (.con-chev), built here because the row is. */
+    const SVG = 'http://www.w3.org/2000/svg';
+    const chev = document.createElementNS(SVG, 'svg');
+    chev.setAttribute('class', 'community-ready-chev');
+    chev.setAttribute('viewBox', '0 0 16 16');
+    chev.setAttribute('width', '12');
+    chev.setAttribute('height', '12');
+    chev.setAttribute('aria-hidden', 'true');
+    const stroke = document.createElementNS(SVG, 'path');
+    stroke.setAttribute('d', 'm6 4 4 4-4 4');
+    stroke.setAttribute('fill', 'none');
+    stroke.setAttribute('stroke', 'currentColor');
+    stroke.setAttribute('stroke-width', '1.6');
+    stroke.setAttribute('stroke-linecap', 'round');
+    stroke.setAttribute('stroke-linejoin', 'round');
+    chev.append(stroke);
     const name = document.createElement('b');
-    name.textContent = r.name || r.session;
+    name.textContent = typeof r.name === 'string' && r.name ? r.name : r.session;
     const word = document.createElement('span');
     word.className = 'dhint';
     word.textContent = typeof view.summary === 'string' ? view.summary : '';
-    sum.append(name, word);
+    sum.append(chev, name, word);
     d.append(sum);
-    for (const l of view.lines) d.append(communityReadyLine(l));
+    for (const l of view.lines) { const p = communityReadyLine(l); if (p) d.append(p); }
     li.append(d);
     list.append(li);
+    if (focusSession === r.session) sum.focus();   // a repaint must not drop the keyboard's place
   }
   if (!list.children.length) { list.hidden = true; empty.hidden = false; }
 }
