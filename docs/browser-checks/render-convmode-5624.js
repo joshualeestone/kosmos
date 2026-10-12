@@ -31,6 +31,7 @@
  *   C17 pressing the mic, through its real handler, stops a reading (review 4)
  *   C18 opening the same agent again (openDetail) reads nothing that arrived meanwhile (reviews 5, 6)
  *   C19 a real tab change away from a room and back reads nothing that arrived meanwhile (review 7)
+ *   C20 at 700px, where the room's header stacks, the room's toggle sits on the search's line, not a row of its own
  *   C9 no page errors
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-convmode-5624.js [shots-dir]
@@ -242,6 +243,19 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     await room(rr);
     const c19 = { away: c19away, then: await spoken(page), err: await page.evaluate(() => window.__tabErr || '') };
     chk(!/another tab/.test(c19.away) && /after coming back/.test(c19.then), 'C19 a tab change and back reads nothing that arrived meanwhile, then reads again', JSON.stringify(c19));
+    // C20: the stacked room header (up to 60rem) keeps the toggle beside the search.
+    await page.setViewportSize({ width: 700, height: 800 });
+    const c20 = await page.evaluate(() => {
+      if (typeof placeProjectHead === 'function') placeProjectHead();
+      const mid = document.querySelector('#pj-one-view .pjmidhead');
+      const b = document.getElementById('pj-conv').getBoundingClientRect();
+      const s = mid.querySelector('.tsearch').getBoundingClientRect();
+      return { stacked: getComputedStyle(mid).flexDirection === 'column', head: !!mid.querySelector('.pjhead'),
+        drawn: b.width > 0 && s.width > 0, dy: Math.round(Math.abs((b.top + b.height / 2) - (s.top + s.height / 2))),
+        before: b.right <= s.left + 1 };
+    });
+    await page.setViewportSize({ width: 1200, height: 800 });
+    chk(c20.stacked && c20.head && c20.drawn && c20.dy <= 6 && c20.before, 'C20 at 700px the room toggle sits on the search line, not a row of its own', JSON.stringify(c20));
     await page.click('#pj-conv');   // off again for the room
     await page.evaluate(() => {
       PJ_CURRENT = null;

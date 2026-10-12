@@ -10789,7 +10789,17 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-shared,
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-paused,   /* kosmos#5391 review 1 */
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-head-pause-msg,
-  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .tsearch { flex: 1 0 100%; }
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .pjconvsearch > .tsearch { flex: 1 0 100%; }
+}
+/* #5624: the room's read-aloud toggle and its search share one wrapper, display: contents, so every layout above
+   sees the search as before. Where the header stacks (up to 60rem) and the toggle is drawn, the wrapper becomes one
+   row, so the toggle sits beside the search instead of on a row of its own. ⚠️ flex: none in the stacked column, for
+   the same height-balloon reason as the .tsearch re-reset above; under the new look's wrapping row it takes the line. */
+.pjconvsearch { display: contents; }
+@media (max-width: 60rem) {
+  html.has-speak.conv-on .pjmidhead:has(.pjhead) > .pjconvsearch { display: flex; flex: none; align-items: center; gap: 8px; }
+  html.has-speak.conv-on .pjmidhead:has(.pjhead) > .pjconvsearch > .tsearch { flex: 1 1 auto; }
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .pjconvsearch { flex: 1 0 100%; }
 }
 /* #4470, Create an agent in the new look. The option cards on every create step (the kind picker's and the role
    step's) lose their hairline at rest (the look's cards have none; the grey bounds them on the white page): a chosen
@@ -11875,6 +11885,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   /* #5551: the new look's Back row steps aside here too, for the same 44px. */
   :root[data-look="new"] body:not(.consolidated) #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box :is(.d-crumb-back, .d-crumb-rootwrap) { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .d-talk-caprow:has(#d-talk-search:placeholder-shown):not(:focus-within) { margin: 0; }
+  /* #5624: the read-aloud toggle steps aside with the rest of that row, so the row stays empty and takes no room. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .d-talk-caprow:has(#d-talk-search:placeholder-shown):not(:focus-within) > #d-conv { display: none; }
   /* The agent's header is one slim line: name and state, no avatar (it is on Profile). */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dav-wrap { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead { padding: 2px 0 2px 6px; margin-bottom: 4px; }
@@ -16595,12 +16607,14 @@ window.kosmosMeasureScrollbarWidth();
 
     <section class="pjcol pjmid">
       <div class="pjmidhead"><h3 class="dlab">Conversation</h3>
-        <button class="convbtn" id="pj-conv" type="button" data-conv-for="pj" aria-pressed="false" aria-label="Read new messages aloud as they arrive" title="Read new messages aloud"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
-        <div class="tsearch">
-          <span class="tsearch-i" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-          </span>
-          <input type="search" id="pj-room-search" placeholder="Search" aria-label="Search this conversation">
+        <div class="pjconvsearch">
+          <button class="convbtn" id="pj-conv" type="button" data-conv-for="pj" aria-pressed="false" aria-label="Read new messages aloud as they arrive" title="Read new messages aloud"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
+          <div class="tsearch">
+            <span class="tsearch-i" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            </span>
+            <input type="search" id="pj-room-search" placeholder="Search" aria-label="Search this conversation">
+          </div>
         </div>
       </div>
       <!-- THE ROOM (View D): this project's thread, drawn from the record
