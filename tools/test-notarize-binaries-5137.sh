@@ -276,7 +276,7 @@ st_stub() {
 }
 # spctl: SP_OUT is what it says, SP_RC its exit. It records the path, so the arm can prove it assessed the COPY.
 sp_stub() { echo "${!#}" >> "$WORK/sp.ran"; echo "${!#}: ${SP_OUT:-accepted}"; echo "source=${SP_SOURCE:-Notarized Developer ID}"
-  echo "origin=${SP_ORIGIN:-Developer ID Application: Stone Syndicate LLC (864QZ69GF2)}"; return "${SP_RC:-0}"; }
+  echo "origin=${SP_ORIGIN:-$KOSMOS_SIGN_APP_DEFAULT}"; return "${SP_RC:-0}"; }   # the identity from lib/signing-identity.sh, never spelled here
 xa_stub() { echo "$*" >> "$WORK/xa.ran"; [ "${XA_FAIL:-0}" = 1 ] && return 1; return 0; }
 runapp() { rm -f "$WORK/st.ran" "$WORK/sp.ran" "$WORK/xa.ran"; run "$WORK/bin/kosmos-app" "$WORK/bin/kosmos-tunnel" "$APP"; }
 export KOSMOS_STAPLER_CMD=st_stub KOSMOS_NOTARY_SPCTL_CMD=sp_stub KOSMOS_NOTARY_XATTR_CMD=xa_stub KOSMOS_STAPLER_RETRY_DELAYS="0 0"
