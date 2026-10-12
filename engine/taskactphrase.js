@@ -5,8 +5,21 @@
  * `nameOfMember(sessionName)`. The page cannot require this file, so it keeps its own copy; taskactphrase.test.js holds
  * the two to the same words for every kind and fails when either knows a kind the other does not.
  * The words are RAW (taskchat keeps them unescaped): a caller printing to a terminal makes them one line itself.
+ *
+ * `opts.forAgent` (the CLIs, whose reader is an agent): the page speaks to the person as "You"; read by an agent, "You"
+ * would name the agent, so it says "The person". And a recorded message (`said`) carries no author on the board
+ * (tasks.say), so its text is marked and QUOTED, as `kosmos task list` quotes words Kosmos did not write: a message
+ * cannot then pass for one of the lines Kosmos writes about the task. Without opts the words are the page's, which
+ * taskactphrase.test.js holds them to.
  */
-function phrase(ev, nameOfMember) {
+/* Quote characters inside a message become a plain apostrophe (and brackets plain ones), so a message cannot close its
+   own quotation: install/kosmos's `task list` q(), the same set. */
+const quoted = (v) => '"' + String(v).normalize('NFKC').replace(/\s+/g, ' ').trim()
+  .replace(/["\u02BA\u02EE\u2032\u2035\u05F4\u3003\u275D\u275E\p{Pi}\p{Pf}]/gu, "'")
+  .replace(/\p{Ps}/gu, '(').replace(/\p{Pe}/gu, ')') + '"';
+function phrase(ev, nameOfMember, opts) {
+  const agent = Boolean(opts && opts.forAgent);
+  const YOU = agent ? 'The person' : 'You';
   const nameOf = (sn) => (sn ? (typeof nameOfMember === 'function' ? nameOfMember(sn) : sn) || sn : null);
   switch (ev.kind) {
     case 'created': { const who = nameOf(ev.who); return (who ? 'Created and given to ' + who : 'Created') + (ev.parent ? ', under task ' + ev.parent : '') + (ev.doneWhen ? '. Done when: ' + ev.doneWhen : ''); }
@@ -17,8 +30,8 @@ function phrase(ev, nameOfMember) {
     case 'due-set': return ev.dueDate ? 'Due date set to ' + ev.dueDate : 'Due date set';
     case 'due-cleared': return 'Due date cleared';
     // #5152: what finished means for the task, set or taken off (by an agent, named, or from the screen).
-    case 'done-when-set': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' set' : 'Set') + ' what done means' + (ev.doneWhen ? ': ' + ev.doneWhen : ''); }
-    case 'done-when-cleared': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' took' : 'Took') + ' off what done means'; }
+    case 'done-when-set': { const who = ev.person ? YOU : nameOf(ev.by); return (who ? who + ' set' : 'Set') + ' what done means' + (ev.doneWhen ? ': ' + ev.doneWhen : ''); }
+    case 'done-when-cleared': { const who = ev.person ? YOU : nameOf(ev.by); return (who ? who + ' took' : 'Took') + ' off what done means'; }
     case 'hold-set': return ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold';
     case 'hold-cleared': return ev.via === 'agent' ? 'Taken off hold by an agent' : ev.via === 'close' ? 'Taken off hold, as it was closed' : 'Taken off hold';
     // #3861: a task put under another task on its project, or taken out from under one.
@@ -27,13 +40,13 @@ function phrase(ev, nameOfMember) {
     // kosmos#4787: a recurring task's rule, and each run its owner reported (kosmos task ran).
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
-    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.unchanged ? (ev.inferred ? ', the same note again' : ', nothing new') : '') + (ev.note ? ': ' + ev.note : ''); }   // kosmos#5643: said, or only a repeated note
+    case 'run': { const who = ev.person ? YOU : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.unchanged ? (ev.inferred ? ', the same note again' : ', nothing new') : '') + (ev.note ? ': ' + ev.note : ''); }   // kosmos#5643: said, or only a repeated note
     /* kosmos#4787 slice 3 (review 5): who reviews it, and a missed run with who was told. */
-    case 'reviewer-set': return ev.person ? 'You will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
+    case 'reviewer-set': return ev.person ? YOU + ' will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
     case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
     case 'missed': {
       const runs = ev.more === true ? 'More than ' + ev.count + ' runs missed' : Number(ev.count) > 1 ? ev.count + ' runs missed' : 'A run was missed';
-      if (ev.person) return runs + '; you review it';
+      if (ev.person) return runs + (agent ? '; the person reviews it' : '; you review it');
       const who = nameOf(ev.told) || 'its reviewer';
       return runs + (ev.reached === false ? '; Kosmos could not reach ' + who : '; ' + who + ' was told');
     }
@@ -41,15 +54,15 @@ function phrase(ev, nameOfMember) {
     // message typed on the board carries none today; the field is honoured now so
     // an authored message reads correctly when two-way delivery lands later). The
     // whole return is esc()'d once at the render site, like every other phrase.
-    case 'said': { const who = nameOf(ev.who); return (who ? who + ': ' : '') + (ev.text || ''); }
+    case 'said': { const who = nameOf(ev.who); if (agent) return (who ? who + ', a message: ' : 'A message: ') + quoted(ev.text || ''); return (who ? who + ': ' : '') + (ev.text || ''); }
     case 'closed': return 'Marked done';
     case 'undone': return ev.files === 1 ? 'One file’s changes undone' : 'File changes undone (' + (Number(ev.files) || 0) + ' files)';   // #5153 slice 4
     case 'reopened': return 'Put back';
     /* #3951: who marked it built and what was left; and why the mark went. */
-    case 'built': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' marked it built' : 'Marked built') + (ev.note ? ': ' + ev.note : ''); }
+    case 'built': { const who = ev.person ? YOU : nameOf(ev.by); return (who ? who + ' marked it built' : 'Marked built') + (ev.note ? ': ' + ev.note : ''); }
     case 'unbuilt': { if (ev.reason === 'new work') return 'No longer built: there is new work on it';
-      if (ev.reason === 'it repeats') return (ev.person ? 'You made it repeat' : 'Made to repeat') + ', so it is no longer built';   // #4787
-      const who = ev.person ? 'You' : nameOf(ev.by); return who ? who + ' took the built mark off' : 'Built mark taken off'; }
+      if (ev.reason === 'it repeats') return (ev.person ? YOU + ' made it repeat' : 'Made to repeat') + ', so it is no longer built';   // #4787
+      const who = ev.person ? YOU : nameOf(ev.by); return who ? who + ' took the built mark off' : 'Built mark taken off'; }
     default: return String(ev.kind);
   }
 }

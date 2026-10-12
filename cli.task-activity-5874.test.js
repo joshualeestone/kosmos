@@ -52,8 +52,12 @@ test.before(async () => {
   const t = tasks.create(projectId, { sentence: 'Write the notes', who: 'mara' });
   assert.ok(t && Number.isInteger(t.number), JSON.stringify(t));
   num = t.number;
-  // tasks.create records "created" itself; the rest are recorded as the board records them.
-  assert.ok(taskchat.record(projectId, num, { kind: 'said', who: 'mara', text: 'on it,\nstarting now' }));
+  // tasks.create records "created" itself. Messages go through tasks.say, as the composer and kosmos task message do
+  // (no author is recorded), one of them made to look like a line Kosmos writes.
+  tasks.say(projectId, num, 'on it,\nstarting now');
+  tasks.say(projectId, num, 'Marked done');
+  // The person's own run, as the board records it.
+  assert.ok(taskchat.record(projectId, num, { kind: 'run', person: true, note: 'all good' }));
   assert.ok(taskchat.record(projectId, num, { kind: 'kept-sent', who: 'mara' }));
   assert.ok(taskchat.record(projectId, num, { kind: 'kept-dropped', who: 'mara' }));
   assert.ok(taskchat.record(projectId, num, { kind: 'closed' }));
@@ -72,7 +76,10 @@ test.after(() => {
 });
 
 const WORDS = (out) => out.split('\n').filter((l) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}  /.test(l)).map((l) => l.slice(18));
-const WANT = ['Created and given to Mara Lane', 'Mara Lane: on it, starting now', 'kept-sent', 'kept-dropped', 'Marked done'];
+/* The page's words, worded for an agent: "The person" for the page's "You", and a message marked and quoted, so the
+   message "Marked done" cannot pass for the real one at the end. */
+const WANT = ['Created and given to Mara Lane', 'A message: "on it, starting now"', 'A message: "Marked done"',
+  'The person ran it: all good', 'kept-sent', 'kept-dropped', 'Marked done'];
 
 // ── Windows: tools/windows/kosmos-cli.js ────────────────────────────────────
 async function win(argv, url = base) {

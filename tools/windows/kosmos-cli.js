@@ -100,7 +100,7 @@ const USAGE = {
     '      --part <part-number>                                     which part, when the task has several',
     '  kosmos task close <project-id> <task-number>                  close one (number is from list)',
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
-    '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, as its page shows it',
+    '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it',
