@@ -75,13 +75,12 @@ async function get(p, { headers = {} } = {}) {
 }
 
 
-const store = require('./engine/store');
 /* A self-report line dated `at`, in the store's own line format: selfreport.record stamps now, and this test needs an
    old one. */
-function backdate(name, state, at) {
+function backdate(name, state, at, by = 'agent') {
   fs.mkdirSync(selfreport.DIR, { recursive: true });
-  fs.appendFileSync(path.join(selfreport.DIR, store.safeKey(name) + '.jsonl'),
-    JSON.stringify({ v: 1, state, because: 'which colour?', on: null, owner: null, until: null, project: null, left: null, at, by: 'agent' }) + '\n');
+  fs.appendFileSync(selfreport.fileFor(name),
+    JSON.stringify({ v: 1, state, because: 'which colour?', on: null, owner: null, until: null, project: null, left: null, at, by }) + '\n');
 }
 
 test('#5959: report show says what the card shows, in the page\'s own word', async () => {
@@ -151,5 +150,19 @@ test('#5959 review 2: a report time in the future, or one that cannot be read, i
     backdate(WHO, 'blocked', 'not a time');
     const j = await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } });
     assert.equal(j.json.stale, false, JSON.stringify(j.json));
+  });
+});
+
+test('#5959 review 3: a waiting report Kosmos wrote (by auto) is not called "your own", and names kosmos report clear', async () => {
+  boardAuthState.on = false;
+  await withLeo(async () => {
+    const tok = sendertoken.mint(WHO).token;
+    backdate(WHO, 'blocked', new Date(Date.now() - 3 * 24 * 3600e3).toISOString(), 'auto');
+    const t = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } });
+    assert.match(t.text, /A `blocked` report Kosmos wrote for you has been standing for 3 days\. If what it was about has passed, clear it with `kosmos report clear`\./, t.text);
+    assert.doesNotMatch(t.text, /Your own/, t.text);
+    // CONTROL: the agent's own report says so.
+    backdate(WHO, 'blocked', new Date(Date.now() - 3 * 24 * 3600e3).toISOString(), 'agent');
+    assert.match((await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } })).text, /Your own `blocked` report has been standing for 3 days\..*`kosmos report clear`/);
   });
 });
