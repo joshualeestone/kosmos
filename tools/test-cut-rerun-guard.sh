@@ -225,6 +225,26 @@ if out="$(kosmos_isolation_rerun_verdict "$log_mixed" "$WORK" 2)"; then rc=0; el
 [ "$rc" -eq 1 ] && ok "mixed (a real failure alongside a dismissable one) -> verdict 1 (abort)" \
   || bad "mixed case: rc=$rc, expected 1"
 
+# --- #5932: release.sh refuses a cut with the rerun seam exported, before the bump (step 2) ---
+R="$REPO/tools/release.sh"
+g5932="$(grep -n '^if \[ -n "\${KOSMOS_SUITE_RERUN_CMD+x}" \]; then$' "$R" | head -1 | cut -d: -f1)"
+bump="$(grep -n '^step "== 2\. ' "$R" | head -1 | cut -d: -f1)"
+use="$(grep -n 'kosmos_isolation_rerun_verdict "\$_suite_log"' "$R" | head -1 | cut -d: -f1)"
+[ -n "$g5932" ] && [ -n "$bump" ] && [ -n "$use" ] && [ "$g5932" -lt "$bump" ] && [ "$bump" -lt "$use" ] \
+  && ok "release.sh refuses KOSMOS_SUITE_RERUN_CMD before the bump and before the rerun uses it ($g5932 < $bump < $use)" \
+  || bad "#5932 guard missing or misplaced (guard=$g5932 bump=$bump use=$use)"
+G5932_SRC="$(sed -n "${g5932:-1},\$p" "$R" | sed '/^fi$/q')"
+case "$G5932_SRC" in *fi) ok "#5932 guard extracted whole, through its fi" ;; *) bad "#5932 guard has no fi line to extract through" ;; esac
+out="$(KOSMOS_SUITE_RERUN_CMD=true bash -c "$G5932_SRC" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && case "$out" in *"KOSMOS_SUITE_RERUN_CMD is set"*) true ;; *) false ;; esac \
+  && ok "#5932 an exported KOSMOS_SUITE_RERUN_CMD=true refuses the cut" || bad "#5932 not refused (rc=$rc): $out"
+out="$(KOSMOS_SUITE_RERUN_CMD= bash -c "$G5932_SRC" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && ok "#5932 an EMPTY export refuses too" || bad "#5932 an empty export passed (rc=$rc): $out"
+out="$(env -u KOSMOS_SUITE_RERUN_CMD KOSMOS_SUITE_RERUN_MAX=3 KOSMOS_SUITE_RERUN_SLEEP=1 bash -c "$G5932_SRC" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && ok "#5932 KOSMOS_SUITE_RERUN_MAX and _SLEEP alone are allowed (operator settings)" || bad "#5932 refused MAX/SLEEP (rc=$rc): $out"
+out="$(env -u KOSMOS_SUITE_RERUN_CMD bash -c "$G5932_SRC" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && ok "#5932 a clean environment passes (control)" || bad "#5932 refused a clean env (rc=$rc): $out"
+
 echo ""
 if [ "$fails" -eq 0 ]; then
   echo "test-cut-rerun-guard: ALL PASS"
