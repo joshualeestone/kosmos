@@ -25,6 +25,8 @@ was its slowest file at 193 s.
   another, a token inside a longer run, a backslash token that must not take another's row, one in a comment, `1e3` present with `1000` absent, and an absent token. Mutations checked red: the
   per-line dedup, the string compare, an empty table, dropping `-`, `_` or capitals from the counter's class, `-v`
   for the environment, and the per-line reset.
+- A check that the real table holds one row per distinct plain declared token, so a broken parse (every token on the
+  slow grep again) goes red instead of silently slow.
 - Temp files now go in one directory the trap removes; the old per-file list was appended in a subshell and removed
   nothing (a fix to a leak older than this change).
 
