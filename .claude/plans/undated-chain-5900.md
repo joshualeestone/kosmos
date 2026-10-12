@@ -19,6 +19,12 @@ newestOwnAside (the reattach after a lost current file) still matches dates stri
 current file of a RE-CREATED project reattach to an undated old project's file, the leak bornAt guards. A lost current
 file of a dated-after-rollover conversation therefore does not reattach to its undated earlier file.
 
+## Accepted residual (named, not new in kind)
+A project from BEFORE dates, deleted and re-created under its name, already adopts the old undated current file
+(readThread refuses only when both are dated); with this change it also reaches that conversation's undated earlier
+`.full` files, not just the 200 carried rows. An undated file of a re-created project is indistinguishable from the
+#5900 case, so this is the same policy readThread applies. The dated-old-project guard is unchanged.
+
 ## Coordination
 Sonya Blade's #5855 step 2 (daily-log tool) follows the same rule and has a test asserting asideChain follows nothing
-in this state; told her before PR.
+in this state (not on main). Tracked on the #5855 card (comment 6118110114): whichever merges second rebases.

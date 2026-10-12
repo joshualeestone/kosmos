@@ -1088,8 +1088,11 @@ test('kosmos#5900: a conversation from before projectBornAt still reaches its ea
   const chain = chat.asideChain(P, 'casey', true);
   assert.deepEqual(chain.map((a) => a.messages.length), [chat.MAX_MESSAGES], 'the dated conversation lost its undated earlier file');
   assert.equal(chain[0].messages[0].text, 'u0');
-  assert.deepEqual(chat.asideChain(P, 'casey', false).map((a) => a.count), [chat.MAX_MESSAGES], 'the counting read (and its cache) disagrees');
-  assert.deepEqual(chat.asideChain(P, 'casey', false).map((a) => a.count), [chat.MAX_MESSAGES], 'a second, cached count disagrees');
+  // The counting read on its own disk path (a new mtime defeats its cache), then served from the cache it filled.
+  const asideFile = path.join(path.dirname(file), now.continues);
+  fs.utimesSync(asideFile, new Date(), new Date(Date.now() + 1000));
+  assert.deepEqual(chat.asideChain(P, 'casey', false).map((a) => a.count), [chat.MAX_MESSAGES], 'the uncached counting read disagrees');
+  assert.deepEqual(chat.asideChain(P, 'casey', false).map((a) => a.count), [chat.MAX_MESSAGES], 'the cached count disagrees');
 
   // A second rollover, now dated: the chain runs dated file, then undated file, oldest first.
   const have = chat.readThread(P, 'casey').messages.length;
@@ -1100,16 +1103,22 @@ test('kosmos#5900: a conversation from before projectBornAt still reaches its ea
   assert.equal(two[0].messages[0].text, 'u0', 'the undated file is not the oldest in the chain');
   assert.equal(two[1].messages.length, chat.MAX_MESSAGES);
 
-  // The guard still holds past an undated file: one with a DIFFERENT date is another conversation's, and stops the chain.
+  // Once the chain is in undated files only undated files may follow: a file behind the undated one is refused
+  // whatever its date, even THIS conversation's own date (a dated file cannot be older than an undated one of the
+  // same conversation). Checked on the reading walk and on the counting walk, cached and not.
   const kind = '.' + now.continues.split('.').pop();
-  const foreign = path.basename(file) + '.other-project' + kind;
-  fs.writeFileSync(path.join(path.dirname(file), foreign),
-    JSON.stringify({ project: P, agent: 'casey', projectBornAt: '2025-01-01T00:00:00.000Z', messages: [{ text: 'not this conversation' }] }));
   const undatedPath = path.join(path.dirname(file), now.continues);
-  fs.writeFileSync(undatedPath, JSON.stringify({ ...aside, continues: foreign }));
-  const guarded = chat.asideChain(P, 'casey', true);
-  assert.ok(guarded.every((a) => a.messages.every((m) => m.text !== 'not this conversation')), 'the chain followed an undated file into a differently dated one');
-  assert.equal(guarded.length, 2, 'the guard cut more than the foreign file');
+  for (const date of ['2025-01-01T00:00:00.000Z', BORN]) {
+    const foreign = path.basename(file) + '.behind' + date.replace(/[^0-9]/g, '') + kind;
+    fs.writeFileSync(path.join(path.dirname(file), foreign),
+      JSON.stringify({ project: P, agent: 'casey', projectBornAt: date, messages: [{ text: 'not this conversation' }] }));
+    fs.writeFileSync(undatedPath, JSON.stringify({ ...aside, continues: foreign }));
+    const guarded = chat.asideChain(P, 'casey', true);
+    assert.ok(guarded.every((a) => a.messages.every((m) => m.text !== 'not this conversation')), `the chain followed an undated file into one dated ${date}`);
+    assert.equal(guarded.length, 2, `the guard cut more than the file dated ${date}`);
+    assert.equal(chat.asideChain(P, 'casey', false).length, 2, `the counting walk followed into the file dated ${date}`);
+    assert.equal(chat.asideChain(P, 'casey', false).length, 2, `the cached counting walk followed into the file dated ${date}`);
+  }
 });
 
 test('a recording failure NEVER throws, so a delivered message cannot come back looking undelivered', () => {

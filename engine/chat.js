@@ -3341,7 +3341,8 @@ const ASIDE_META = new Map();
  * directory, the thread file's name as its prefix, no separator, the ROLL_KIND suffix) AND it belongs to the same
  * conversation: the same agent and the same `projectBornAt` (a project deleted and re-created under its name must not
  * inherit the old one's messages, which is what bornAt guards everywhere else), or no `projectBornAt` at all (kosmos#5900:
- * a file written before conversations were dated, read as readThread reads one). A cycle or a broken link ends the
+ * a file written before conversations were dated, read as readThread reads one). That reading has the cost readThread's
+ * has: a project from before dates, deleted and re-created under its name, reaches the old one's undated files too. A cycle or a broken link ends the
  * chain where it is: what was read is kept, nothing is invented. A count is taken from the cache only while its file
  * has the same size and modification time.
  */
@@ -3375,7 +3376,8 @@ function asideChain(projectId, agent, withRows, from, bornAt) {
     try { rec = JSON.parse(fs.readFileSync(path.join(dir, next), 'utf8')); } catch { break; }
     if (!rec || rec.agent !== String(agent) || !Array.isArray(rec.messages)) break;
     // Another conversation's file is never part of this chain. kosmos#5900: a file with NO date is this conversation's
-    // when its own link names it, the reading readThread gives an undated file (a mismatch only when both are dated).
+    // when this conversation's link names it, the reading readThread gives an undated file (a mismatch only when both
+    // are dated).
     // A conversation dated after it rolled over reaches its undated earlier files this way, and from there on only
     // undated files can follow.
     const recBorn = rec.projectBornAt || null;
