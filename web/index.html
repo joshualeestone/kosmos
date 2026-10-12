@@ -23718,7 +23718,7 @@ function agoWords(ms) {
    it last worked. Sign-in and usage say only what the card's state shows ("no problem seen" is all Kosmos can claim
    without one); the last-worked time is the engine's lastWorked (status.js lastWorkedOf), kept in memory, so after a
    board restart it says so instead of a time. '' for a card with no lastWorked (not ours, or no pane): no line.
-   On the agent's page, not the grid card: #855 cut the card's extra lines, and the card's state already says a
+   On the agent's page, not its card on the board: #855 cut the card's extra lines, and the card's state already says a
    sign-in or usage problem. */
 function healthLine(a, nowMs) {
   const lw = a && a.lastWorked;
