@@ -3,14 +3,17 @@
  * kosmos#5995 item 3: two comments said ping.installId() "is promised never to leave the Mac" while two modules sent
  * it. Anyone reasoning about privacy from the comments got it wrong. engine/ping.js now lists where the id goes, and
  * this holds that list to the source:
- *   - the shipped files that MENTION the install id, by name, are exactly a listed set (in code or in a comment: any
- *     new mention is the moment to decide where the id may go, and no parsing of comments is needed to see it);
+ *   - the shipped files that hold the exact identifier `installId` are exactly a listed set (in code or in a comment:
+ *     any new one is the moment to decide where the id may go, and no parsing of comments is needed to see it);
  *   - the same for the copy kept in an agent's profile (`idInstall`);
  *   - the two that send it put this install's id in what they send;
  *   - in the two modules that talk to a coordinator and to the community, every mention is a comment;
  *   - the wordings found so far that say it never leaves are in no shipped file;
  *   - engine/ping.js's own list names every engine file on the set.
- * What it does not hold: a value handed on by one of the listed files, and a wording nobody has written yet.
+ * What it does not hold: a value handed on by one of the listed files under another name; a read of the id's file
+ * that never uses the identifier; a "never leaves" wording nobody has written yet, or one in a list with no full stop
+ * and no mention of the id beside it; and prose that says "install id" in two words (five other files do, about
+ * test boards and an old bug, and none of them reads it).
  *
  *   node --test engine/installid-senders-5995.test.js
  */
@@ -48,7 +51,8 @@ const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const FILES = shipped();
 const mentioning = (re) => FILES.filter((f) => re.test(read(f)));
 
-/* The install id by its name, however it is reached: a call, a property, a destructure, a comment. */
+/* The exact identifier, however it is reached: a call, a property, a destructure, a comment. Case matters: it is the
+   name every reader of the id has to write at least once. */
 const ID = /installId/;
 /* The profile's copy. A word of its own, so `midInstall` (server.js, about an install in progress) is not one. */
 const PROFILE_COPY = /\bidInstall\b/;
@@ -157,6 +161,8 @@ test('#5995 CONTROL: the two sentences this card was filed for, and other ways o
     'A message never leaves the Mac. The install id is sent with the daily report.',
     'never ping.installId() (engine/ping.js lists where that one goes, and a coordinator is not on the list).',
     'It stays on the Mac. Nothing here is about ids.',
+    'The installId is sent with the daily report. It is random, and that one fact never changes.',
+    'A notifier has its own id. It never leaves the coordinator it was made for.',
   ]) assert.deepEqual(promising(said), [], 'a true sentence was caught: ' + said);
 });
 

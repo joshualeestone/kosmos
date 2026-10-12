@@ -72,3 +72,16 @@ is its own branch. Written on the card.
 - **CONVENTION, taken:** the header claimed the test holds which endpoints; it does not, and no longer says so. The
   test sandboxes its data root before it reads the id. `engine/ping.js` is no longer exempt, and its header is fixed.
 - **NITs, taken:** the two stale notifier lines; controls on the untouched sentences.
+
+## Review 2 (2026-10-12, sonnet)
+- **WARNING, taken:** `engine/ping.js`'s first sentence still named one route out (the feedback report) above a list
+  that names two. It points at the list.
+- **WARNING, taken by saying exactly what is held:** the test matches the identifier `installId`, not every spelling
+  of "install id". Widening it to prose was measured: five more files say "install id" in two words, about test boards
+  and an old bug, and none reads the id; holding those would make any comment that uses the phrase a red. The test's
+  header says "the exact identifier" and lists what that leaves out.
+- **WARNING, a known limit, now written in the test's header:** a "never leaves" wording in a list with no full stop
+  and no mention of the id beside it.
+- **WARNING, taken:** the list's line for the profile's copy says the pages it is served to include a phone over
+  Kosmos+.
+- **NITs, taken:** two more true sentences as controls, one of them through the "It ..." follow-on branch.

@@ -2,8 +2,7 @@
 
 /**
  * This install's random id, and the under-test guard. This file SENDS nothing itself
- * (#2623); the random id it makes can still leave the Mac via the default-on feedback
- * report, which reads it -- see the installId note below.
+ * (#2623); other files send and keep the id it makes: see "Where it goes" below.
  *
  * 🛑 #2623: THE CREATE-AGENT TELEMETRY WAS DELETED. Josh, 2026-09-09, called the
  * two "let the Kosmos team know..." phone-home toggles an invasion of privacy and
@@ -32,7 +31,8 @@
  *   engine/createdbeacon.js   sent to the install endpoint on a board start and when an agent is made
  *   engine/feedbacksend.js    sent with the daily feedback report, DEFAULT-ON, off in Settings > Automation (#2013/#2957)
  *   engine/feedback.js        written into the report file on this computer
- *   engine/store.js           kept in each agent's profile as `idInstall`; the board serves the profile to its own pages
+ *   engine/store.js           kept in each agent's profile as `idInstall`; the board serves the profile in each
+ *                             agent's card to its own pages, wherever they are open (a phone over Kosmos+ too)
  */
 
 const fs = require('node:fs');
