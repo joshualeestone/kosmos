@@ -223,18 +223,31 @@ test('#5883 slice 2: a Grok agent on a named account is backed up from that acco
 test('#5883 slice 4: an agent that moved between two named accounts keeps the FIRST account\'s conversations', () => {
   const agentDir = mk('workers', 'mira');
   const first = mk('home', '.codex-first'), now = mk('home', '.codex-now');
-  rollout(first, agentDir, 'rollout-first.jsonl');
-  rollout(now, agentDir, 'rollout-now.jsonl');
-  const accountsOf = (m) => (m === 'openaiaccounts' ? [{ dir: path.join(BASE, 'default-not-read'), isDefault: true }, { dir: first, isDefault: false }, { dir: now, isDefault: false }] : []);
+  const defaultRow = mk('home', '.codex-defaultrow'), gemOnly = mk('home', '.gemini-only');
+  for (const [home, f] of [[first, 'rollout-first.jsonl'], [now, 'rollout-now.jsonl'], [defaultRow, 'rollout-def.jsonl'], [gemOnly, 'rollout-gem.jsonl']]) rollout(home, agentDir, f);
+  const accountsOf = (m) => (m === 'openaiaccounts' ? [{ dir: defaultRow, isDefault: true }, { dir: first, isDefault: false }, { dir: now, isDefault: false }]
+    : m === 'geminiaccounts' ? [{ dir: gemOnly, isDefault: false }] : []);
   const readJob = (n) => (n === 'mira' ? { runner: 'codex', configDir: now } : null);
   const { roots } = tick.rootsFor(tick.inputsHere({ readJob, accountsOf }));
-  const mine = roots.filter((r) => r.name.startsWith('sessions/mira/codex-a'));
-  assert.equal(mine.length, 2, JSON.stringify(roots.map((r) => r.name)));
-  assert.deepEqual(mine.map((r) => r.only[0].split('/').pop()).sort(), ['rollout-first.jsonl', 'rollout-now.jsonl']);
-  // The current account is read once (one folder, one root), and names are each folder's own.
-  assert.equal(new Set(mine.map((r) => r.name)).size, 2);
-  // CONTROL: another provider's accounts are never read for a Codex agent.
-  const g = tick.rootsFor(tick.inputsHere({ readJob, accountsOf: (m) => (m === 'geminiaccounts' ? [{ dir: first, isDefault: false }] : []) })).roots
-    .filter((r) => r.name.startsWith('sessions/mira/'));
-  assert.ok(!g.some((r) => r.name.startsWith('sessions/mira/gemini-a')));
+  const files = roots.filter((r) => r.name.startsWith('sessions/mira/')).flatMap((r) => (r.only || []).map((f) => f.split('/').pop()));
+  assert.ok(files.includes('rollout-first.jsonl') && files.includes('rollout-now.jsonl'), JSON.stringify(files));
+  // The default ROW (isDefault) is not read as a named account; another provider's account is never read.
+  assert.ok(!files.includes('rollout-def.jsonl'), 'the default row was read as a named account');
+  assert.ok(!files.includes('rollout-gem.jsonl'), 'a Gemini account was read for a Codex agent');
+  const acctRoots = roots.filter((r) => r.name.startsWith('sessions/mira/codex-a'));
+  assert.equal(acctRoots.length, 2);
+  assert.equal(new Set(acctRoots.map((r) => r.name)).size, 2);
+});
+
+test('#5883 slice 4 review 1: a current account whose sessions folder is a link is not added twice under one name', () => {
+  const agentDir = mk('workers', 'lena');
+  const acct = mk('home', '.codex-linkedsess');
+  const realSessions = mk('elsewhere-sessions');
+  if (!fs.existsSync(path.join(acct, 'sessions'))) fs.symlinkSync(realSessions, path.join(acct, 'sessions'));
+  const { roots } = tick.rootsFor(tick.inputsHere({ readJob: (n) => (n === 'lena' ? { runner: 'codex', configDir: acct } : null),
+    accountsOf: (m) => (m === 'openaiaccounts' ? [{ dir: acct, isDefault: false }] : []) }));
+  const names = roots.map((r) => r.name).filter((n) => n.startsWith('sessions/lena/'));
+  assert.equal(names.length, new Set(names).size, `a root name repeated: ${JSON.stringify(names)}`);
+  assert.equal(names.filter((n) => n.startsWith('sessions/lena/codex-a')).length, 1);
+  void agentDir;
 });
