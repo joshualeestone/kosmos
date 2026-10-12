@@ -69,7 +69,7 @@ function blockBody() {
     'asks to connect GPT they mean OpenAI. Google Gemini and xAI Grok can be',
     'connected too: Gemini with an API key or a Google subscription, Grok with',
     'an API key or an xAI subscription. Those four can be connected today.',
-    'On a Mac, Meta Muse can be too: it runs on Meta\'s Muse Code, which the',
+    'On a Mac (unless Meta Muse is switched off on it), Meta Muse can be too: it runs on Meta\'s Muse Code, which the',
     'person installs from Meta first, then signs in with a Meta account in',
     'Settings, AI Models, Add a provider. Kosmos does not install Muse Code yet.',
     'Gemini on a Google subscription runs on Google\'s Antigravity, on a Mac and',
