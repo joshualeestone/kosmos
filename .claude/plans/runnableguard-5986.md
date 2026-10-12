@@ -12,7 +12,8 @@ never read (test -x, -a, extra spaces). Each new rule has a control that the OLD
 - [ -x P ] needs [ -f P ] before it on the same line, joined by && with only other bracket tests on P between.
   From where the command starts (; { ( ` or then/do/else/if/elif/while/until) up to the -f: no || and no !
   negating a command. Negated form mirrors it: [ ! -f P ] || ... [ ! -x P ], no && and no ! before.
-- Quoted text is blanked before joiners are read. Comments are cut first (on the blanked line).
+- Quoted text is blanked before joiners are read. The -x tests are found on the whole line; the comment is cut
+  (found on the blanked line) only when looking for guards. The guard must itself be a command.
 - Any other -x inside [ ] or test outside a comment is flagged as a form the scan cannot judge.
 
 ## Rejected
