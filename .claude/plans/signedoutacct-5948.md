@@ -18,8 +18,8 @@ of reading signed out.
   one the list scans). So is a folder Kosmos cannot look into at all: the file is READ, and only ENOENT or ENOTDIR (a path
   component that is a regular file, so no folder) counts as missing; existsSync was not used, since it answers false
   for a permission error. "We cannot tell" is never written as "gone" (reviews 1, 3).
-- A gemini/grok folder whose own key is gone while this computer's secrets/env door holds that provider's key
-  (GEMINI_API_KEY / XAI_API_KEY, the fallback a launch uses) is also `unlisted`: the agent may still be working on the
+- A codex/gemini/grok folder whose own key is gone while this computer's secrets/env door holds that provider's key
+  (OPENAI_API_KEY / GEMINI_API_KEY / XAI_API_KEY; the supervisor's door loop puts every door file in the pane, review 16) is also `unlisted`: the agent may still be working on the
   shared key, so "not signed in" would be confidently wrong (review 9). A door that cannot be read counts as unsure.
 - When Kosmos could not look (a locked folder, an unread door), the row says that, never that a file or a shared key
   is there (review 13). A failed check, or a walk that could not read the roster, the profiles (review 14) or a job (review 15), sends
