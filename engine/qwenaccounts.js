@@ -238,10 +238,10 @@ let fetcher = null;
 function setFetcher(fn) { fetcher = typeof fn === 'function' ? fn : null; }
 
 /** GET <baseUrl>/models, with the key when there is one. Never returns a raw error message. */
-async function askModels(ep) {
+async function askModels(ep, timeoutMs) {
   const f = fetcher || (async (url, init) => {
     const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 5000);
+    const t = setTimeout(() => ctl.abort(), timeoutMs || 5000);
     try {
       // Review 3: never follow a redirect (an endpoint could send the check to a link-local address); a 3xx is UNKNOWN.
       const res = await fetch(url, { ...init, redirect: 'manual', signal: ctl.signal });
@@ -252,7 +252,7 @@ async function askModels(ep) {
   });
   const headers = ep.key ? { authorization: 'Bearer ' + ep.key } : {};
   try {
-    return await f(ep.baseUrl + '/models', { method: 'GET', headers });
+    return await f(ep.baseUrl + '/models', { method: 'GET', headers }, timeoutMs);
   } catch {
     return { status: 0, body: null, unreachable: true };
   }
@@ -263,9 +263,9 @@ async function askModels(ep) {
  * endpoint's own positive answer: it lists models and this one is not among them, or it refuses the key (401/403).
  * Unreachable or anything else is UNKNOWN, never a guessed NONE (Ollama not running is "we could not check").
  */
-async function validateLive(ep) {
+async function validateLive(ep, opts) {
   const where = isLocal(ep.baseUrl) ? 'Qwen on this computer (Ollama)' : 'the Qwen endpoint';
-  const r = await askModels(ep);
+  const r = await askModels(ep, opts && opts.timeoutMs);
   if (r.unreachable) {
     return { state: STATE.UNKNOWN, because: isLocal(ep.baseUrl) ? 'we could not reach Ollama on this computer; is it running?' : 'we could not reach the Qwen endpoint' };
   }
@@ -286,6 +286,10 @@ async function validateLive(ep) {
    does not answer would otherwise hold the whole list for the timeout every time (review 1). Only a caller that asks
    for it (opts.cached, as listLive does) is answered from it; a person's own check always asks the endpoint. */
 const CACHE_MS = 20000;
+const UNREACHABLE_CACHE_MS = 60000;
+/* Review 4: the account list waits on every Qwen endpoint alongside the other providers, so it asks with a short
+   limit; a person's own check (Check now) keeps the full 5 s. */
+const LIST_TIMEOUT_MS = 1500;
 const liveCache = new Map();
 
 /** checkLive for a stored account. opts.cached: answer from an answer under CACHE_MS old for the same endpoint. */
@@ -296,8 +300,11 @@ async function checkLive(dir, opts) {
   if (got.kind === 'invalid') return { state: STATE.NONE, checkedLive: true, because: got.because };
   const key = path.resolve(String(dir)) + '\u0000' + JSON.stringify(got.endpoint);
   const hit = liveCache.get(key);
-  if (opts && opts.cached && hit && Date.now() - hit.at >= 0 && Date.now() - hit.at < CACHE_MS) return hit.value;
-  const value = { ...(await validateLive(got.endpoint)), checkedLive: true };
+  /* Review 4: an endpoint that did not answer is kept longer (UNREACHABLE_CACHE_MS), so one dead server costs the
+     account list its short wait once a minute, not every 20 s. */
+  const ttl = hit && hit.value && hit.value.state === STATE.UNKNOWN ? UNREACHABLE_CACHE_MS : CACHE_MS;
+  if (opts && opts.cached && hit && Date.now() - hit.at >= 0 && Date.now() - hit.at < ttl) return hit.value;
+  const value = { ...(await validateLive(got.endpoint, { timeoutMs: opts && opts.timeoutMs })), checkedLive: true };
   liveCache.set(key, { at: Date.now(), value });
   return value;
 }
@@ -307,7 +314,7 @@ async function listLiveNow() {
   const rows = list();
   return Promise.all(rows.map(async (row) => {
     try {
-      return { ...row, connection: await module.exports.checkLive(row.dir, { cached: true }) };
+      return { ...row, connection: await module.exports.checkLive(row.dir, { cached: true, timeoutMs: LIST_TIMEOUT_MS }) };
     } catch {
       return { ...row, connection: { state: STATE.UNKNOWN, checkedLive: true, because: 'we could not check this account just now' } };
     }

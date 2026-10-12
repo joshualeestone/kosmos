@@ -164,7 +164,8 @@ test('#5977 r3: a message to a signed-out Qwen agent names Qwen, not an OpenAI s
   const chat = require('./chat');
   const AUTH = require('./status').STATE.AUTH_FAILED;
   const q = chat.waitingNote(AUTH, 'unconfirmed', 'codex', false, QW);
-  assert.match(q, /Qwen sign-in/);
+  assert.match(q, /Qwen endpoint/);
+  assert.doesNotMatch(q, /sign-in/, 'a Qwen account has no sign-in (review 4)');
   assert.match(chat.waitingNote(AUTH, 'unconfirmed', 'codex', false, OA), /OpenAI sign-in/, 'CONTROL');
 });
 
@@ -201,4 +202,43 @@ test('#5977 r3: the live check never follows a redirect', async () => {
     const direct = await qwen.validateLive({ ...EP, baseUrl: `http://127.0.0.1:${tp}/v1` });
     assert.equal(direct.state, qwen.STATE.CONNECTED, 'CONTROL: the target answers when asked directly');
   } finally { hop.close(); target.close(); }
+});
+
+/* ---- review 4 --------------------------------------------------------------------------------------------- */
+
+test('#5977 r4: agentProvider reads a job once per tick, and a switch is seen at once', () => {
+  const name = codexAgent('r4-memo', QWEN_HOME, 'alibaba');
+  const fsReads = [];
+  const orig = fs.readFileSync;
+  fs.readFileSync = function patched(p, ...rest) { if (String(p).includes('r4-memo')) fsReads.push(p); return orig.call(this, p, ...rest); };
+  try {
+    for (let i = 0; i < 5; i += 1) assert.equal(create.agentProvider(name, 'codex'), 'alibaba');
+  } finally { fs.readFileSync = orig; }
+  assert.ok(fsReads.length <= 1, `five asks in one tick read the job ${fsReads.length} times`);
+  // A switch away from Qwen (to Claude: this sandbox has no OpenAI sign-in) rewrites the job through create.
+  const sw = create.setProvider(name, 'anthropic', { claudeBin: CODEX_BIN, tmuxBin: TMUX_BIN, platform: 'darwin' });
+  assert.equal(sw.outcome, 'created', sw.because);
+  assert.notEqual(create.agentProvider(name, 'codex'), 'alibaba', 'the switch rewrote the job, so the cached Qwen answer must go');
+});
+
+test('#5977 r4: the account list asks a dead endpoint briefly and remembers it for a minute', async () => {
+  const http = require('node:http');
+  const sockets = new Set();
+  const hang = http.createServer(() => { /* never answers */ });
+  hang.on('connection', (s) => { sockets.add(s); s.on('close', () => sockets.delete(s)); });
+  await new Promise((r) => hang.listen(0, '127.0.0.1', r));
+  const dir = nodePath.join(HOME, qwen.DIR_PREFIX + 'r4dead');
+  qwen.storeEndpoint(dir, { ...EP, baseUrl: `http://127.0.0.1:${hang.address().port}/v1` });
+  qwen.resetLiveCacheForTest();
+  qwen.setFetcher(null);
+  try {
+    let t0 = Date.now();
+    const first = (await qwen.listLive()).find((r) => r.dir === dir);
+    const took = Date.now() - t0;
+    assert.equal(first.connection.state, qwen.STATE.UNKNOWN);
+    assert.ok(took < 4000, `the list waited ${took} ms on one dead endpoint (the person's own check keeps 5 s)`);
+    t0 = Date.now();
+    await qwen.listLive();
+    assert.ok(Date.now() - t0 < 500, 'a dead endpoint is remembered, not asked again on the next list');
+  } finally { for (const s of sockets) s.destroy(); hang.close(); }
 });
