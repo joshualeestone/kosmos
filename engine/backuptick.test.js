@@ -168,7 +168,7 @@ test('review 1: a root that holds, or is inside, the data root or a provider con
     });
     assert.deepEqual(roots.map((r) => r.name), ['workers']);
     assert.equal(left.length, 3);
-    assert.ok(left.every((l) => /Kosmos's own data or a provider's sign-in folder/.test(l.why)), JSON.stringify(left));
+    assert.ok(left.every((l) => /Kosmos's own data, a provider's sign-in folder, or a hidden folder/.test(l.why)), JSON.stringify(left));
     // The workers folder itself inside protected data: nothing at all, said.
     const none = tick.rootsFor({ workersDir: s.mk('Library', 'kosmos-data', 'workers'), protect: [data] });
     assert.deepEqual([none.roots.length, none.left[0].what], [0, 'workers']);

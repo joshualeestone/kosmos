@@ -100,3 +100,11 @@ Mutants after review 4 (20:01 CDT from `date`): D1 a thrown run silent: red. D2 
    lives there; the lists are best effort, the home rule is not. Test in a sandboxed home with a control.
 2. FIXED (scope, stated): the transcript gap was understated. Header and plan now name all four cases; filed #5883.
 Mutants after review 5 (20:04 CDT from `date`): H1 no hidden-home rule: red. H3 no Grok default home: first SURVIVED (the test unset AGENT_WORKFORCE_GROK_HOME, so the hidden rule covered ~/.grok); a test with the Grok home set OUTSIDE home added, now red. H2 the three account lists dropped: SURVIVES and is equivalent today: every folder they list is in the home folder (hidden rule) or is a default home protected on its own line.
+
+## Review 6 (sonnet, blind, on f920e0d2): no must-fix; two nits, both fixed
+It checked the defaults: workers (~/work/workers), projects (~/Kosmos/Projects) and the Mac data root are not hidden,
+so the hidden-folder rule refuses none of them.
+1. FIXED: hidden entries of BOTH homes when AGENT_WORKFORCE_HOME differs from the real home (projectsRoot uses the
+   real one). Test.
+2. FIXED: the refusal now says "or a hidden folder in the home folder", true for a folder that is merely hidden.
+Tests 20 -> 21.
