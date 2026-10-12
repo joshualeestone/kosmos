@@ -270,7 +270,7 @@ it('#5896: a sealed icon serves the install the account config names: a second i
     'uninstall does not decide whether the sealed icon serves this install before it deletes anything');
 });
 
-it('#5896: the uninstall names ANY sealed Kosmos icon in the shared folder as left in place, whoever it serves', () => {
+it('#5896: bundle_looks_sealed recognises any sealed Kosmos icon, never a per-install bundle or a link (a yes can only keep an icon)', () => {
   const icon = makeBundle(path.join(fs.mkdtempSync(path.join(tmpRoot, 'apps-')), 'Kosmos.app'), 'another install');
   assert.match(run({}, `bundle_looks_sealed "${icon}"; echo "rc=$?"`).out, /rc=0/);
   const legacy = path.join(fs.mkdtempSync(path.join(tmpRoot, 'apps-')), 'Kosmos.app');
@@ -396,6 +396,7 @@ test('#5912: the uninstall asks shared_sealed_stays before the removal branch, w
   const un = SETUP.slice(SETUP.indexOf('\nuninstall() {\n'));
   const ask = un.indexOf('if shared_sealed_stays "$SYS_APP_DIR/Kosmos.app" "$_board_label"; then');
   assert.notEqual(ask, -1, 'the uninstall no longer asks shared_sealed_stays');
+  assert.notEqual(un.indexOf('_board_label=com.kosmos.board'), -1, 'the uninstall no longer sets _board_label');
   assert.ok(un.indexOf('_board_label=com.kosmos.board') < ask, '_board_label is set after it is used');
   assert.ok(ask < un.indexOf('elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then'), 'the removal branch comes first');
 });
