@@ -13919,7 +13919,7 @@ window.kosmosMeasureScrollbarWidth();
 <div class="rm-back" id="acct-add-modal" hidden>
   <div class="rm-box rm-box-form" id="acct-add-dialog" role="dialog" aria-modal="true" aria-labelledby="acct-add-t" aria-describedby="acct-add-in">
     <h2 class="rm-title" id="acct-add-t">Add a provider</h2>
-    <p class="rm-small" id="acct-add-in">Pick which AI provider you want to connect. Anthropic Claude, OpenAI, Google Gemini and xAI Grok work today; the rest are listed so you can see what is coming.</p>
+    <p class="rm-small" id="acct-add-in">Pick which AI provider you want to connect. Anthropic Claude, OpenAI, Google Gemini, xAI Grok and Alibaba Qwen work today; the rest are listed so you can see what is coming.</p>
     <div class="field" id="acct-provider-field">
       <label class="flabel tk-lab" id="acct-provider-lab" for="acct-provider-pick">Provider</label>
       <!-- #770: "list all the others so people can see that they're
@@ -28562,9 +28562,9 @@ let ACCT_REAUTH_DIR = null;
    reauth (the dangerous stale-dir direction that rule guards). */
 let ACCT_OPENAI_REAUTH_DIR = null;
 const ACCT_ADD_TITLE = 'Add a provider';
-const ACCT_ADD_INTRO = 'Pick which AI provider you want to connect. Anthropic Claude, OpenAI, Google Gemini and xAI Grok work today; the rest are listed so you can see what is coming.';
+const ACCT_ADD_INTRO = 'Pick which AI provider you want to connect. Anthropic Claude, OpenAI, Google Gemini, xAI Grok and Alibaba Qwen work today; the rest are listed so you can see what is coming.';
 // #3939: derived from the stock sentence, so the two cannot drift (round 5).
-const ACCT_ADD_INTRO_MUSE = ACCT_ADD_INTRO.replace('Google Gemini and xAI Grok', 'Google Gemini, xAI Grok and Meta Muse');
+const ACCT_ADD_INTRO_MUSE = ACCT_ADD_INTRO.replace('xAI Grok and Alibaba Qwen', 'xAI Grok, Alibaba Qwen and Meta Muse');   // #5977
 /* The stock warning says to sign in to the OTHER Claude account first, which is
    the correct instruction for a second account and the wrong one here: the
    account you want IS this one. */
@@ -53319,7 +53319,7 @@ function applyCreateProviderUI() {
     const modelRow = document.getElementById('create-model-row');
     if (modelRow) modelRow.hidden = true;
     if (why) {
-      why.textContent = switchKeyedWord(pv) + ' picks its own model.'
+      why.textContent = (pv === 'alibaba' ? 'The Qwen account names the model.' : switchKeyedWord(pv) + ' picks its own model.')   // #5977
         + (pv === 'antigravity' && !FR_AGY_READY
           ? ' If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini.' : '');
       why.hidden = false;
@@ -53780,7 +53780,7 @@ function tcPaintModel(pv, ac) {
   };
   if (vendorPicksModel(pv)) {
     row.hidden = true;
-    show('<option value="" selected></option>', true, switchKeyedWord(pv) + ' picks its own model.'
+    show('<option value="" selected></option>', true, (pv === 'alibaba' ? 'The Qwen account names the model.' : switchKeyedWord(pv) + ' picks its own model.')   // #5977
       + (pv === 'antigravity' && !FR_AGY_READY   // the single create's own hint, word for word
         ? ' If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini.' : ''), false);
     return;
