@@ -37,10 +37,16 @@ sweep's one named exception (both sweeps); the docs name the team only as "the S
 file. Proven both ways: without the exception the test fails twice on Signing.xcconfig; a planted id in ios/README.md
 fails both sweeps.
 
+## Sweep rule after review 9
+ios/Signing.xcconfig may name Stone Syndicate only while it builds io.kosmos.app.preview (KOSMOS_BUNDLE_ID). That is
+the iOS app's own decision, so the Mac team switch in tools/lib/signing-identity.sh does not have to land with the
+iOS move; once the file builds io.kosmos.app, Stone Syndicate there is a leftover and the sweep fails. Both arms are
+tested on temporary copies inside the test.
+
 ## Checks
 - archive.sh reads 864QZ69GF2 from the file (its own sed, run by hand).
 - ios/tools/test-check-ipa-entitlements.sh: VERDICT PASS, with four new cases: preview build passes as preview;
   preview refused as the default id; io.kosmos.app refused as preview; preview from another team refused.
-- tools/test-cut-sign-preflight.sh: 43 passed; a planted notary key in ios/Signing.xcconfig is refused (the
+- tools/test-cut-sign-preflight.sh: 45 passed; a planted notary key in ios/Signing.xcconfig is refused (the
   exception admits the team only).
 - iOS CI builds with CODE_SIGNING_ALLOWED=NO, so a team in the file changes nothing there.

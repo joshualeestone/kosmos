@@ -122,14 +122,25 @@ fi
 # The sweep above looks for the CURRENT values, so right after a team switch it would be blind to a
 # leftover of the OLD team. Pin the Stone Syndicate team id (built from fragments so this file does
 # not match itself) everywhere, tests included: only the lib may carry it, and ios/Signing.xcconfig only while
-# it names the lib's CURRENT team (checked below), so a leftover there after a switch is still caught.
+# it builds the interim preview app (checked below), so a leftover there after the iOS move is still caught.
 # Only whole-line comments are unhashed in the pkg input, so a value line must not carry an inline one.
 _inline="$(grep -nE '^[[:space:]]*[A-Z_]+=.*[[:space:]]#' "$REPO/tools/lib/signing-identity.sh" || true)"
 [ -z "$_inline" ] && ok "no value line in lib/signing-identity.sh carries an inline comment (it would be hashed)" || bad "an inline comment on a value line in lib/signing-identity.sh would force a pkg rebuild: $_inline"
 _retired="864QZ""69GF2"; _retired_name="Stone Syndicate"" LLC"; _retired_key="43F2HU""5BT8"; _retired_iss="69a6de7f-a03e-47e3-""e053-5b8c7c11a4d1"
-# The iOS team file is exempt only while its DEVELOPMENT_TEAM is the lib's current team (#4089).
-_ios_team="$(sed -n 's|//.*||; s/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*//p' "$REPO/ios/Signing.xcconfig" 2>/dev/null | tr -d '[:space:]')"
-if [ -n "$_ios_team" ] && [ "$_ios_team" = "$KOSMOS_SIGN_TEAM_ID" ]; then _ios_skip='/ios/Signing.xcconfig$'; else _ios_skip='^$'; fi
+# The iOS team file may name Stone Syndicate only while it builds the interim TestFlight app,
+# io.kosmos.app.preview (#4089). Once it builds io.kosmos.app, Stone Syndicate there is a leftover. This does not
+# depend on the Mac team in the lib, so the Mac switch and the iOS move need not land together.
+ios_xcconfig_may_name_stone() {   # $1 = an xcconfig; 0 when it builds the preview app
+  local b
+  b="$(sed -n 's|//.*||; s/^[[:space:]]*KOSMOS_BUNDLE_ID[[:space:]]*=[[:space:]]*//p' "$1" 2>/dev/null | tr -d '[:space:]')"
+  [ "$b" = "io.kosmos.app.preview" ]
+}
+if ios_xcconfig_may_name_stone "$REPO/ios/Signing.xcconfig"; then _ios_skip='/ios/Signing.xcconfig$'; else _ios_skip='^$'; fi
+# Both arms of that rule, on copies (the repo itself only ever shows the current arm).
+printf 'DEVELOPMENT_TEAM = %s\nKOSMOS_BUNDLE_ID = io.kosmos.app.preview\n' "$_retired" > "$WORK/ios-preview.xcconfig"
+printf 'DEVELOPMENT_TEAM = %s\nKOSMOS_BUNDLE_ID = io.kosmos.app\n' "$_retired" > "$WORK/ios-real.xcconfig"
+ios_xcconfig_may_name_stone "$WORK/ios-preview.xcconfig" && ok "the preview iOS app may be signed by Stone Syndicate" || bad "the preview iOS xcconfig was not allowed its interim team"
+ios_xcconfig_may_name_stone "$WORK/ios-real.xcconfig" && bad "an io.kosmos.app xcconfig was allowed to name Stone Syndicate (a leftover after the iOS move)" || ok "an io.kosmos.app xcconfig may not name Stone Syndicate"
 _ret_hits="$(grep -rlIF --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.claude -e "$_retired" -e "$_retired_name" -e "$_retired_key" -e "$_retired_iss" "$REPO" | grep -v '/tools/lib/signing-identity.sh$' | grep -v "$_ios_skip" || true)"
 [ -z "$_ret_hits" ] && ok "the Stone Syndicate team id, name and notary key appear nowhere but the lib (and the iOS team file), tests included" || bad "the Stone Syndicate team id is named outside lib/signing-identity.sh: $_ret_hits"
 # The iOS exception admits the TEAM only: a notary key id or issuer there is still refused (#4089).
