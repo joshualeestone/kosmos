@@ -183,6 +183,8 @@ notarize_binaries() (
   while :; do
     rc=0
     log="$(_notarytool log "$id" --key "$key" --key-id "$key_id" --issuer "$issuer" 2>&1)" || rc=$?
+    # An exit 0 whose body carries no ticketContents (an error page, say) is a failed fetch too.
+    case "$log" in *'"ticketContents"'*) ;; *) [ "$rc" != 0 ] || rc=1 ;; esac
     [ "$rc" != 0 ] && [ "$try" -lt "$tries" ] || break
     d="${delays[$((try - 1))]:-0}"
     echo "==> could not fetch Apple's log for $id (rc=$rc); trying again in ${d}s (#5137)" >&2
