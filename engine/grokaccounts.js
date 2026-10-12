@@ -507,7 +507,7 @@ const FORGOTTEN_PREFIX = '.removed-grok-';
  * Forget a Grok account WITHOUT deleting the credential: rename its dir aside so it
  * stops being listed, but the key or sign-in stays on the person's own computer
  * (reversible). Mirrors openaiaccounts.forgetAccount, including its refusal of a dir
- * a live sign-in holds (#3391).
+ * a live sign-in holds (#3391), other than the account's own Sign in again, which it cancels (#6000).
  *
  * `usedBy` is supplied by the caller (the route knows which agents run on the dir;
  * this module cannot ask without a cycle through create.js).
@@ -633,7 +633,13 @@ function removeAccount(dir, usedBy) {
     return { ok: false, removed: false, because: 'that is not a Grok account on this computer' };
   }
   try { fs.rmSync(clean, { recursive: true, force: true }); }
-  catch { return { ok: false, removed: false, because: 'we could not delete that account from this computer' }; }
+  catch {
+    /* #6000 (as #5994): a delete that failed part way may already have taken auth.json. Then the folder is no longer
+       an account, and its own sign-in must not finish into it: cancel it. While the account is still whole, cancel
+       nothing. */
+    if (ownReauth && !identityOf(clean)) releaseOwnReauth(clean);
+    return { ok: false, removed: false, because: 'we could not delete that account from this computer' };
+  }
   if (ownReauth) releaseOwnReauth(clean);   // #6000: only once the delete happened, so a failed call cancels nothing
   return { ok: true, removed: true, wasDefault: false, because: null };
 }
@@ -691,7 +697,8 @@ function setGrokTimers({ timeout, ttl, forceKill } = {}) {
   if (Number.isFinite(ttl)) grokSessionTtlMs = ttl;
   if (Number.isFinite(forceKill)) grokForceKillMs = forceKill;
 }
-// Dirs a live (non-terminal) sign-in holds; forget/remove refuse them too.
+// Dirs a sign-in holds until its child exits. Forget/remove refuse them, except the account's own Sign in again,
+// which they cancel (#6000).
 const activeGrokDirs = new Set();
 const GROK_TERMINAL = new Set(['connected', 'error', 'cancelled']);
 function grokIsTerminal(session) { return GROK_TERMINAL.has(session.state); }
@@ -1025,14 +1032,16 @@ function cancelGrokLogin(sessionId) {
 /* #6000 (the #5994 shape, openaiaccounts): the sign-ins whose "Sign in again" still holds this live account dir,
    settled or not (a watchdog or a cancel that just fired leaves the hold until the child exits; it can no longer
    promote, so it is still only the account's own hold). Only sessions still in grokSessions are seen: one reaped
-   after grokSessionTtlMs whose child somehow still lives is not, and its hold then refuses as any other would. */
+   after grokSessionTtlMs whose child still lives is not, and its hold then refuses as any other would. That needs
+   grokForceKillMs >= grokSessionTtlMs or a child that survives SIGKILL; the defaults are 3 s and 2 min. */
 function ownReauthsOf(dir) {
   const out = [];
   for (const [id, s] of grokSessions) if (s.reauthDir === dir && !s.reauthReleased && !s.holdFreed) out.push(id);
   return out;
 }
-/* #6000: true when `dir` is held by its own reauth. (A live account dir holds an auth.json, so no sign-in can be
-   staging into it: resolveFreshGrokDir refuses a named dir that holds credentials, and nextWorkDir skips it.) */
+/* #6000: true when `dir` is held by its own reauth. No other sign-in can be staging into the same path: a live account
+   dir holds an auth.json, so resolveFreshGrokDir refuses it as a name and nextWorkDir skips it, and a dir another
+   sign-in already holds is refused for a reauth by startGrokLogin (activeGrokDirs.has(reauth.dir)). */
 function isHeldByOwnReauth(dir) {
   return activeGrokDirs.has(dir) && ownReauthsOf(dir).length > 0;
 }
@@ -1046,6 +1055,8 @@ function releaseOwnReauth(dir) {
     cancelGrokLogin(id);
     if (s) s.reauthReleased = true;
   }
+  // Drop the hold unless another live sign-in is staging into this same path (never expected: see isHeldByOwnReauth).
+  for (const s of grokSessions.values()) if (s.dir === dir && !s.holdFreed) return;
   activeGrokDirs.delete(dir);
 }
 

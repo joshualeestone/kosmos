@@ -1,6 +1,6 @@
 # #6000: removing a Grok account cancels its own unfinished "Sign in again" (the #5994 shape)
 
-**Branch:** `grokreauthcancel-6000` · **Card:** kosmos#6000 · **Mirrors:** #5994 (branch reauthcancel-5994, 3a5e59a2, not yet merged)
+**Branch:** `grokreauthcancel-6000` · **Card:** kosmos#6000 · **Mirrors:** #5994 (branch reauthcancel-5994 at 2ff0f19c, not yet merged; first ported from 3a5e59a2, synced in challenge iteration 1)
 
 ## The defect
 Pressing Sign in again on a Grok subscription account reserves the account's folder (`activeGrokDirs`). While
@@ -16,6 +16,9 @@ on the live folder, and goes ahead. Any other hold still refuses with the old se
 - Cancelling settles the session, and the exit handler promotes only an unsettled session, so the dying child cannot
   write into the folder being removed.
 - The staging slot stays reserved until the child exits, as on any cancel.
+- A delete that fails PART WAY (auth.json already gone) cancels the sign-in so it cannot finish into the remains; a
+  failed delete of a still-whole account cancels nothing (as #5994's iteration 8).
+- releaseOwnReauth keeps the hold if another live sign-in is staging into that same path (never expected; as #5994).
 - `reauthReleased` on the cancelled session stops its late exit from releasing a hold a NEW sign-in has since taken on
   the same path; `holdFreed` keeps a session whose child already exited from counting as a hold.
 
@@ -29,13 +32,14 @@ on the live folder, and goes ahead. Any other hold still refuses with the old se
 That a live account folder is never also a sign-in's staging folder. resolveFreshGrokDir refuses a named dir that
 holds credentials and nextWorkDir skips one; pinned by the premise test.
 
-## Tests (engine/grokaccounts.reauthcancel-6000.test.js, 10)
+## Tests (engine/grokaccounts.reauthcancel-6000.test.js, 12; the chmod ones skip as root, as #5994's do)
 premise; remove cancels and deletes; forget cancels and moves (the moved account keeps its sign-in); a refused call
 (agents) cancels nothing; the late exit does not release a new sign-in's hold (child kept alive with a TERM trap so
 the window is real); a forget refused for no free name cancels nothing; a forget whose rename fails (read-only home)
-cancels nothing; already gone still cancels; a reauth cancelled a moment ago does not refuse; any other hold refuses.
+cancels nothing; a part-way delete cancels; a failed delete of a whole account cancels nothing; already gone still cancels; a reauth cancelled a moment ago does not refuse; any other hold refuses.
 engine/grokaccounts.reauth-3391.test.js: the old "forget/remove refuse while held" assertions removed (now cancel).
 Mutants (each red, the first by timeout): no release in remove; late exit ignores the flag; any hold counted as own;
-release before the move; settled reauths filtered out; no release when already gone.
+release before the move; settled reauths filtered out; no release when already gone; no release on a part-way delete;
+release on any failed delete.
 Wider: engine/grokaccounts*.test.js 68/68; server.grok-subscription-3391, server.provider-accounts-3296,
 server.disconnect-stop-2570, engine.reachable 72/72.

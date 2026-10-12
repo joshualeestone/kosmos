@@ -139,7 +139,10 @@ test('#6000: a forget that FAILS at the move (no free name to move it to) cancel
   await waitFor(() => workSlots().length === 0, 'the cancelled sign-in never exited');
 });
 
-test('#6000: a forget whose MOVE itself fails (the home cannot be written) cancels nothing', async () => {
+// chmod does not stop root, so these two skip there (as #5994's do).
+const AS_ROOT = { skip: typeof process.getuid === 'function' && process.getuid() === 0 };
+
+test('#6000: a forget whose MOVE itself fails (the home cannot be written) cancels nothing', AS_ROOT, async () => {
   const { dir, sessionId } = await startHeldReauth('.grok-busy10', 'busy10@example.com');
   fs.chmodSync(SANDBOX, 0o555);   // the rename out of the home is refused; nothing in the account is touched
   try {
@@ -153,6 +156,34 @@ test('#6000: a forget whose MOVE itself fails (the home cannot be written) cance
     grok.cancelGrokLogin(sessionId);
   }
   assert.equal(fs.existsSync(nodePath.join(dir, 'auth.json')), true);
+  await waitFor(() => workSlots().length === 0, 'the cancelled sign-in never exited');
+});
+
+test('#6000: a delete that fails PART WAY, after auth.json is gone, cancels the sign-in so it cannot finish into the remains', AS_ROOT, async () => {
+  const { dir, sessionId } = await startHeldReauth('.grok-half12', 'half12@example.com');
+  const stuck = nodePath.join(dir, 'sessions');
+  fs.mkdirSync(stuck, { recursive: true });
+  fs.writeFileSync(nodePath.join(stuck, 'kept.jsonl'), '{}');
+  fs.chmodSync(stuck, 0o555);   // its file cannot be deleted, so rmSync throws after the rest is gone
+  let rm;
+  try { rm = grok.removeAccount(dir, []); } finally { fs.chmodSync(stuck, 0o755); }
+  assert.equal(rm.ok, false);
+  assert.match(rm.because, /could not delete/);
+  assert.equal(fs.existsSync(nodePath.join(dir, 'auth.json')), false, 'fixture: auth.json survived, so this is the whole-account case');
+  assert.equal(state(sessionId), 'cancelled', 'the sign-in was left to finish into a half-deleted folder');
+  await waitFor(() => workSlots().length === 0, 'the staging slot was never freed');
+});
+
+test('#6000: a delete that fails while the account is still WHOLE cancels nothing', AS_ROOT, async () => {
+  const { dir, sessionId } = await startHeldReauth('.grok-whole13', 'whole13@example.com');
+  fs.chmodSync(dir, 0o555);   // nothing inside can be deleted, so auth.json stays and the account is whole
+  let rm;
+  try { rm = grok.removeAccount(dir, []); } finally { fs.chmodSync(dir, 0o755); }
+  assert.equal(rm.ok, false);
+  assert.equal(fs.existsSync(nodePath.join(dir, 'auth.json')), true, 'fixture: auth.json was deleted');
+  const st = state(sessionId);
+  assert.ok(st !== 'cancelled' && st !== 'error', 'a failed delete of a whole account cancelled the sign-in: ' + st);
+  grok.cancelGrokLogin(sessionId);
   await waitFor(() => workSlots().length === 0, 'the cancelled sign-in never exited');
 });
 
