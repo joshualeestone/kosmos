@@ -1736,7 +1736,8 @@ function _roomMembers(members) {
    (engine/projects.js), so the page's blue and this agree on who a display name is. Exported so
    web.mention-parity-4642.test.js can hold the page's pjMentionResolve to it. */
 function mentionedMembers(cleaned, recipients, roster) {
-  const mentionKey = (s) => String(s == null ? '' : s).normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g, '');
+  /* kosmos#5957: the shared key (engine/agentnames.js): the names Kosmos refuses as taken are exactly those an @-word reads as one. */
+  const mentionKey = require('./agentnames').nameKey;
   const byKey = new Map();   // normalised name -> the members it could mean
   const alias = (name, member) => {
     const key = mentionKey(name);

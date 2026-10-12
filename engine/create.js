@@ -55,6 +55,7 @@ const path = require('node:path');
 const codexupdate = require('./codexupdate');
 const { execFileSync, execFile } = require('node:child_process');
 const roles = require('./roles');
+const agentnames = require('./agentnames');   // #5957: one display name per agent
 const liveExec = require('./live-execution');
 const runners = require('./runners'); // #1616: one definition of runnable
 const launchidentity = require('./launchidentity'); // #1704: the per-Kosmos launch key
@@ -4598,6 +4599,12 @@ function createAgentInner(opts) {
   // after-the-button slot the person has scrolled past. The sentence still comes
   // from the server (no client-side copy of the rule); this only says where it goes.
   if (problem) return { outcome: OUTCOME.REFUSED, because: problem, field: 'name', steps };
+  /* kosmos#5957: a name another agent already answers to (its display name or its handle, compared the way an @-word
+     is) is taken, checked here before anything else runs so a refusal changes nothing. The session-name checks below
+     stay: they also cover a running session that is not an agent. */
+  const taken = agentnames.refusalFor(shown);
+  if (taken === agentnames.COULD_NOT_CHECK) return { outcome: OUTCOME.REFUSED, because: taken, steps };   // #2606: untagged, the name may be fine
+  if (taken) return { outcome: OUTCOME.REFUSED, because: taken, field: 'name', steps };
 
   const role = roles.byKey(roleKey);
   if (!role) {

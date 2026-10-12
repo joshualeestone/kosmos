@@ -14510,6 +14510,15 @@ const server = http.createServer(async (req, res) => {
         // remains the fallback for agents with no record.
         if (typeof patch.displayName === 'string' && patch.displayName.trim()) {
           clean.displayName = patch.displayName.trim().slice(0, 80);
+          /* kosmos#5957: a name another agent answers to is refused before anything is written; the agent's own
+             names never clash with it (a change of capitals is a rename to itself). */
+          const taken = require('./engine/agentnames').refusalFor(clean.displayName, { except: name });
+          if (taken) {
+            const body = { error: taken };
+            if (taken !== require('./engine/agentnames').COULD_NOT_CHECK) body.field = 'displayName';
+            sendJson(res, 400, body);
+            return;
+          }
         }
         /**
          * Who this agent reports to (#138, which unblocks the org view #137).
@@ -17696,12 +17705,22 @@ const server = http.createServer(async (req, res) => {
                posture as create.js's own display-name write: a rename we
                could not record is a card that keeps its old name, not a
                failure. */
-            try {
-              const had = store.readProfile(name);
-              if (had && typeof had.displayName === 'string' && had.displayName !== typed) {
-                store.writeProfile(name, { displayName: typed });
-              }
-            } catch { /* the save succeeded; the follow is best-effort */ }
+            /* kosmos#5957: a line naming a name another agent answers to keeps the file (the person's text, already
+               saved) but not the rename, and the reply says so beside "Saved." rather than renaming into a clash. */
+            const agentnames = require('./engine/agentnames');
+            const taken = agentnames.refusalFor(typed, { except: name });
+            if (taken) {
+              wrote.nameKept = taken === agentnames.COULD_NOT_CHECK
+                ? 'The name was not changed, because we could not check the names already in use; try again in a moment.'
+                : `The name was not changed: ${taken}`;
+            } else {
+              try {
+                const had = store.readProfile(name);
+                if (had && typeof had.displayName === 'string' && had.displayName !== typed) {
+                  store.writeProfile(name, { displayName: typed });
+                }
+              } catch { /* the save succeeded; the follow is best-effort */ }
+            }
           }
         }
         sendJson(res, 200, wrote);
@@ -21848,6 +21867,25 @@ function agentEventsTick() {
   } catch { AGENT_EVENTS_RUNNING = false; }
 }
 function start(port = PORT) {
+  /* kosmos#5957: the names already in use, for engine/agentnames.js. Every agent the board shows (the roster's own
+     agents, by display name) plus every agent Kosmos created that is not running (createdKeys, stopped ones too), named
+     the way the board names them. A roster that cannot be read THROWS, so a create or rename refuses rather than
+     passing a name nobody could check. Removed agents are not in it (restore keeps its own checks). Windows has no
+     created source yet, so there a stopped agent's name is not seen until it runs (the win32 follow-up of #1078). */
+  require('./engine/agentnames').setFleetSource(() => {
+    const roster = safeRoster();
+    if (!Array.isArray(roster)) throw new Error('the roster could not be read');
+    const status = require('./engine/status');
+    const named = new Map();
+    for (const a of roster) if (a && a.isNamedOurs === true && a.sessionName) named.set(a.sessionName, a.name || a.sessionName);
+    for (const key of status.createdKeys()) {
+      if (named.has(key)) continue;
+      let shown = key;
+      try { shown = status.readIdentity(key).displayName || key; } catch { /* the handle still counts */ }
+      named.set(key, shown);
+    }
+    return [...named].map(([sessionName, shown]) => ({ sessionName, shown }));
+  });
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
   try { filepreview.sweep(); } catch { /* best effort */ }
