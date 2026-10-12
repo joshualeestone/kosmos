@@ -39,7 +39,9 @@
  * (a key Kosmos+ holds at an epoch this file never recorded was never answered ok here).
  * Every call asks backup-key first, so with Kosmos+ unreachable it answers ok: false even with a key on disk; a backup
  * needs a grant from Kosmos+ anyway.
- * Never throws: answers { ok, epoch, publicKey } or { ok: false, because, ... }.
+ * Never throws: answers { ok, epoch, publicKey } or { ok: false, because, ... }. Every answer given after Kosmos+ named
+ * the company also carries its { org, member }, ok or not (kosmos#5535); an answer before that (no answer, an unreadable
+ * one) carries neither.
  */
 
 const crypto = require('node:crypto');
@@ -125,17 +127,21 @@ async function register(macRequest, company, epoch, key) {
    keeps that true if the store ever gains one. */
 let chain = Promise.resolve();
 function ensureMemberKey(opts = {}) {
-  const run = chain.then(() => ensureNow(opts));
+  // kosmos#5535: every answer given once the company is known names the company and member it is for, so the backup
+  // job can keep its state per (org, member) and scope the lostEpoch it sends (lostFor, below).
+  const seen = {};
+  const run = chain.then(() => ensureNow(opts, seen)).then((r) => (seen.company ? Object.assign(r, { org: seen.company.org, member: seen.company.member }) : r));
   chain = run.catch(() => {});
   return run;
 }
-async function ensureNow(opts) {
+async function ensureNow(opts, seen) {
   const macRequest = opts.macRequest || ((m, r, b) => require('./remote').macRequest(m, r, b));
   try {
     const bk = await macRequest('POST', BACKUP_KEY_ROUTE, {});
     if (!bk || !bk.ok) return { ok: false, because: (bk && bk.because) || 'Kosmos+ did not answer', ...(bk && bk.refusal ? { refusal: bk.refusal } : {}) };
     const company = companyOf(bk.data);
     if (!company) return { ok: false, because: 'the company backup key Kosmos+ sent could not be read' };
+    seen.company = company;
     const read = readKeys(company.org, company.member);
     if (!read.ok) return { ...UNREADABLE };
     const keys = read.keys;
@@ -145,9 +151,15 @@ async function ensureNow(opts) {
        lost key's does (one move, the day respected). The stale key stays in the file, so this computer still opens
        its own backups from that epoch; nothing is deleted on the job's word. The job passes lostEpoch on EVERY call
        until a newer key is registered: without it, a call answers the stale key from disk. lostEpochIgnored and
-       pendingEpoch ride only an answer from disk; a first registration answers neither. */
+       pendingEpoch ride only an answer from disk; a first registration answers neither.
+       opts.lostFor { org, member }: the company and member the job recorded lostEpoch under (kosmos#5535). An epoch is a
+       number per member, so a lostEpoch is honoured ONLY for that pair: one recorded under another company or member
+       (this Kosmos moved, or a restored data root) would otherwise retire this member's key whenever the numbers
+       agreed. Without lostFor, or for another pair, it is ignored, and an answer from disk says so. */
     let lost = null;
-    if (Number.isSafeInteger(opts.lostEpoch) && opts.lostEpoch >= 1 && opts.lostEpoch < EPOCH_MAX && newestRegistered(keys) === opts.lostEpoch) {
+    const lostFor = opts.lostFor;
+    const scoped = !!(lostFor && typeof lostFor === 'object' && lostFor.org === company.org && lostFor.member === company.member);
+    if (scoped && Number.isSafeInteger(opts.lostEpoch) && opts.lostEpoch >= 1 && opts.lostEpoch < EPOCH_MAX && newestRegistered(keys) === opts.lostEpoch) {
       lost = opts.lostEpoch;
     }
     const done = lost === null ? newestRegistered(keys) : undefined;
