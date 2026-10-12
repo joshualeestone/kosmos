@@ -41,7 +41,10 @@ fs.writeFileSync(nodePath.join(KEPT, '.kosmos-grok-apikey'), 'xai-testkey-abcd',
 const create = require('./engine/create');
 const grokAccounts = require('./engine/grokaccounts');
 fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
-for (const [name, dir] of [['grokgone', GONE], ['grokkept', KEPT]]) {
+// A job pinned to the provider's DEFAULT folder, with no credential in it: skipped (it may run on the computer's own key).
+const DEFAULT_GROK = process.env.AGENT_WORKFORCE_GROK_HOME;
+fs.mkdirSync(DEFAULT_GROK, { recursive: true });
+for (const [name, dir] of [['grokgone', GONE], ['grokkept', KEPT], ['grokdefault', DEFAULT_GROK]]) {
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, '/usr/bin/true', process.env.AGENT_WORKFORCE_TMUX_BIN, null, dir, 'grok'), 'utf8');
 }
@@ -61,7 +64,8 @@ test.after(() => {
 test('#5948: the agent\'s account with no credential is in unlistedAccounts, not in accounts; the kept one is the reverse', async () => {
   // Created agents join the board only in the real board process (createdroster), so each gets a pane here.
   const fleet = require('./test-support/fleet');
-  const board = fleet.install([fleet.agent('grokgone', { state: null, runner: 'grok', command: 'grok', screen: '' }), fleet.agent('grokkept', { state: null, runner: 'grok', command: 'grok', screen: '' })]);
+  const board = fleet.install([fleet.agent('grokgone', { state: null, runner: 'grok', command: 'grok', screen: '' }), fleet.agent('grokkept', { state: null, runner: 'grok', command: 'grok', screen: '' }),
+    fleet.agent('grokdefault', { state: null, runner: 'grok', command: 'grok', screen: '' })]);
   let body;
   try { body = await (await fetch(base + '/api/accounts')).json(); } finally { board.restore(); }
   assert.ok(create.readJob('grokgone') && create.readJob('grokgone').configDir, 'setup: the job does not name its account folder');
@@ -70,6 +74,7 @@ test('#5948: the agent\'s account with no credential is in unlistedAccounts, not
   assert.ok(accounts.some((a) => a.provider === 'xai' && a.dir === KEPT), 'CONTROL: the folder with a key is not listed: ' + JSON.stringify(accounts.map((a) => a.dir)));
   assert.ok(!accounts.some((a) => a.dir === GONE), 'a folder with no credential was offered as an account');
   assert.deepEqual(gone.map((a) => [a.provider, a.dir, a.connection && a.connection.badge]), [['xai', GONE, 'signed_out']], JSON.stringify(gone));
+  assert.ok(!gone.some((a) => a.dir === DEFAULT_GROK), 'the default Grok folder was reported, though it may run on the computer\'s own key');
   assert.equal(gone[0].usedBy.length, 1);
   assert.match(String(gone[0].usedBy[0]), /grokgone/i, 'attributed to the wrong agent: ' + JSON.stringify(gone[0].usedBy));
   const { answer } = require('./engine/accountline');
