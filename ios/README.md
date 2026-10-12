@@ -92,8 +92,10 @@ runner, which has the runtime.
     template says an unset list refuses every app). The app logs `[Push] register failed with HTTP 400` and carries on,
     with no banner (`PushRegistrar.swift`). It still shows the notification-permission prompt.
   - Building for a real device in Xcode now signs as that team too, so Xcode provisions
-    `io.kosmos.app.preview` under Stone Syndicate for a person signed in to that team (anyone else sets
-    their own team locally, unsaved), and the build registers
+    `io.kosmos.app.preview` under Stone Syndicate for a person signed in to that team. Anyone else
+    passes their own team on the command line (`xcodebuild ... DEVELOPMENT_TEAM=<theirs>`): picking a
+    team in Xcode's Signing pane writes it into `project.pbxproj`, which must not be committed. The build
+    registers
     for push as `io.kosmos.app.preview`: a local or staging coordinator must list that id in
     `KOSMOS_APNS_BUNDLE_IDS` to test push on a device.
 - `tools/archive.sh --build <N>` archives the Release app, exports it for App Store Connect with

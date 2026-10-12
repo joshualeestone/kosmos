@@ -7,6 +7,10 @@
 #
 #   ios/tools/archive.sh --build <N>            archive + export an .ipa, then check it
 #   ios/tools/archive.sh --build <N> --upload   the same, then upload that build to App Store Connect
+#   ios/tools/archive.sh --check-config         only the signing-settings checks below, then stop
+#
+# It refuses io.kosmos.app under the Stone Syndicate team (#4089): Apple cannot transfer an app never
+# released on the App Store, so that pairing would leave Kosmos's real bundle id there for good.
 #
 # --build is required: App Store Connect refuses a build number it has seen before, so the number is
 # chosen on purpose for every upload rather than read from the project.
@@ -28,8 +32,9 @@ build=""
 upload=0
 check_only=0
 # The signing settings this run reads: the project's own file. ios/tools/test-archive-config.sh points the
-# checks at a scratch copy with KOSMOS_IOS_XCCONFIG, which is refused below unless --check-config is given,
-# so a real archive can never check one file while xcodebuild builds from another.
+# checks at a scratch copy with KOSMOS_IOS_XCCONFIG, which is refused below unless --check-config is given.
+# The archive passes the checked team and bundle id to xcodebuild on its command line, which wins over a
+# team set in Xcode's Signing pane (project.pbxproj) or XCODE_XCCONFIG_FILE, so what is checked is what is signed.
 xcconfig="${KOSMOS_IOS_XCCONFIG:-$ios/Signing.xcconfig}"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -68,7 +73,8 @@ fi
 # never released on the App Store, so one upload would leave Kosmos's real bundle id there for good. The team id
 # is written in two pieces so the cut-sign sweep (tools/test-cut-sign-preflight.sh) does not count this file.
 stone_team="864QZ""69GF2"
-if [ "$bundle" = "io.kosmos.app" ] && [ "$team" = "$stone_team" ]; then
+bundle_lc=$(printf '%s' "$bundle" | tr '[:upper:]' '[:lower:]')   # Apple compares bundle ids without case
+if [ "$bundle_lc" = "io.kosmos.app" ] && [ "$team" = "$stone_team" ]; then
   echo "archive.sh: io.kosmos.app must not be built under the Stone Syndicate team: the interim app is io.kosmos.app.preview. Change DEVELOPMENT_TEAM to Kosmos Agent Manager, Inc.'s Team ID in the same edit." >&2
   exit 1
 fi
@@ -107,6 +113,7 @@ cp "$here/ExportOptions.plist" "$options"
 echo "== archive: team $team, build $build"
 xcodebuild -project "$ios/Kosmos.xcodeproj" -scheme Kosmos -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$archive" \
+  DEVELOPMENT_TEAM="$team" PRODUCT_BUNDLE_IDENTIFIER="$bundle" \
   CURRENT_PROJECT_VERSION="$build" "${auth[@]}" archive
 
 echo "== export"

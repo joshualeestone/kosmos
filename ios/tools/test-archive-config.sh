@@ -20,6 +20,11 @@ expect() {
 expect preview-under-stone      0 "$stone"     io.kosmos.app.preview
 expect real-under-other-team    0 ABCDE12345   io.kosmos.app
 expect real-under-stone         1 "$stone"     io.kosmos.app
+expect real-under-stone-case    1 "$stone"     IO.Kosmos.App
+printf 'DEVELOPMENT_TEAM = %s\nKOSMOS_BUNDLE_ID = io.kosmos.app\n' "$stone" > "$work/pin.xcconfig"
+if KOSMOS_IOS_XCCONFIG="$work/pin.xcconfig" "$here/archive.sh" --check-config 2>&1 | grep -q 'must not be built under the Stone Syndicate team'; then
+  echo "PASS  the refusal of io.kosmos.app under Stone Syndicate is the pairing check's own"
+else echo "FAIL  io.kosmos.app under Stone Syndicate was not refused by the pairing check"; fail=1; fi
 expect empty-team               1 ""           io.kosmos.app.preview
 expect short-team               1 ABC          io.kosmos.app.preview
 expect bad-bundle-dots          1 "$stone"     io..kosmos
