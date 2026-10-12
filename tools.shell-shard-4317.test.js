@@ -91,7 +91,7 @@ function timedRun(list, steps) {
   const out = [];
   let now = 0; let reads = 0; let k = 0;
   const clock = () => { reads += 1; if (reads % 2 === 0) now += steps[k++]; return now; };
-  const code = sh.runShard(list, 1, 1, 'ignore', (s) => out.push(s), clock);
+  const code = sh.runShard(list, 1, 1, 'ignore', (s, fd = 1) => out.push(fd === 1 ? s : `[fd ${fd}] ${s}`), clock);
   return { code, text: out.join('') };
 }
 
@@ -118,7 +118,7 @@ test('#5907: the summary names only the slowest SLOWEST, and a red shard still p
   const red = timedRun(['true # a', 'exit 4', 'true # never'], [2, 9, 1]);
   assert.equal(red.code, 4);
   assert.match(red.text, /\[2\/3\] 9\.0 s: exit 4\n/);
-  assert.match(red.text, /2 commands took 11\.0 s; the slowest:\n\s+9\.0 s  exit 4\n\s+2\.0 s  true # a\n$/);
+  assert.match(red.text, /2 commands took 11\.0 s; the slowest:\n\s+9\.0 s  exit 4\n\s+2\.0 s  true # a\n\[fd 2\] shell-shard 1\/1: FAILED \(exit 4\): exit 4 \(its own output is between its \[2\/3\] start and time lines\)\n$/);
   assert.doesNotMatch(red.text, /# never|all \d+ passed/);
 });
 
@@ -131,6 +131,23 @@ test('#5907: a command\'s start line is written before it runs, so a run that ha
     const list = [1, 2].map((k) => `grep -q '\\[${k}/2\\] start: grep' '${log}' # c${k}`);
     assert.equal(sh.runShard(list, 1, 1, 'ignore', write), 0, fs.readFileSync(log, 'utf8'));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#5907: writeAll finishes a partial write, waits out EAGAIN, and gives up after its bound', () => {
+  const eagain = () => { const e = new Error('EAGAIN'); e.code = 'EAGAIN'; throw e; };
+  let got = ''; let calls = 0;
+  const flaky = (fd, buf, off, len) => {
+    calls += 1;
+    if (calls <= 2) eagain();
+    const n = Math.min(3, len); got += buf.toString('utf8', off, off + n); return n;
+  };
+  sh.writeAll(1, 'hello world\n', flaky);
+  assert.equal(got, 'hello world\n', 'every byte, once, in order');
+  assert.equal(calls, 2 + Math.ceil(12 / 3));
+  let tries = 0;
+  assert.throws(() => sh.writeAll(1, 'x', () => { tries += 1; eagain(); }, 3), (e) => e.code === 'EAGAIN');
+  assert.equal(tries, 4, 'three waits, then the fourth EAGAIN is thrown');
+  assert.throws(() => sh.writeAll(1, 'x', () => { const e = new Error('EPIPE'); e.code = 'EPIPE'; throw e; }), (e) => e.code === 'EPIPE');
 });
 
 test('#5907: the real clock: a command that sleeps is timed at least as long as it slept', () => {
