@@ -1476,6 +1476,10 @@ if boot_board "$sb7" "$P8"; then
   # #4313: your agents' posts in the community, each with Delete (empty, rows, ask, keep, delete,
   # reopen, a refused delete, 403). /api/community/mine and /delete are answered at the browser, so it writes nothing.
   run_one "render-community-delete-4313" env KOSMOS_URL="$B8" node docs/browser-checks/render-community-delete-4313.js
+  # #5958: where each agent stands, below that list (rows, open, keys, times in the page's zone, kept open across a
+  # repaint, markup shown as text, empty, 503, 403, rows it cannot paint, a phone). /api/community/ready is answered at
+  # the browser, so it writes nothing.
+  run_one "render-community-ready-5958" env KOSMOS_URL="$B8" node docs/browser-checks/render-community-ready-5958.js
   # #4375: the owner's industry picker under the Community switch (the board's list, set, could-not-read with None
   # still pickable, change, clear, a refused save). /api/community-industry writes are answered at the browser.
   run_one "render-community-industry-4375" env KOSMOS_URL="$B8" node docs/browser-checks/render-community-industry-4375.js

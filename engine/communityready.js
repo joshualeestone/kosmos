@@ -38,8 +38,11 @@ const SIGNED_OUT_WORDS = 'not sent: it was signed out of its provider';   // cha
 const DELIVERIES = Object.freeze(['placed', 'unconfirmed']);
 const DATE_MAX_MS = 8.64e15;   // past this a Date has no words, and one bad time must not cost the agent its whole answer
 const own = (o, k) => Boolean(o) && Object.prototype.hasOwnProperty.call(o, k);
-/* The words for one kept reminder. */
-function reminderWords(rem) {
+/* Said to the person, the cap is their own: HELD_WORDS speaks to the agent about "your person". */
+const OWNER_CAP_WORDS = 'not sent: your limit on how many agents work at once was reached';
+/* The words for one kept reminder: to the agent, or (`toOwner`) to the person about the agent. */
+function reminderWords(rem, toOwner = false) {
+  if (toOwner && rem.act === 'held' && rem.heldFor !== 'signin' && rem.heldBy === 'cap') return OWNER_CAP_WORDS;
   if (rem.act === 'held') return rem.heldFor === 'signin' ? SIGNED_OUT_WORDS : own(HELD_WORDS, rem.heldBy) ? HELD_WORDS[rem.heldBy] : TURN_WORDS.held;
   if (rem.act === 'prompted' && rem.delivery !== 'placed') return UNCONFIRMED_WORDS;
   return TURN_WORDS[rem.act];
@@ -222,19 +225,78 @@ function readyText(sessionName, deps) {
   return { ok: true, row, text: lines.join('\n') };
 }
 
+/* The owner's words for one row (#5958 slice 2, Settings): the same facts as linesFor, said about the agent to the
+   person. The newest post's state and what is held are NOT worded again here: the page's own lists below already say
+   them in the person's words (communitymine, the held list), and a second vocabulary would drift from the first. A line
+   is { text } or { text, at, after }: `at` is a time the page writes in the person's own time zone between the two. */
+const OWNER_BLOCK = Object.freeze({
+  present: 'The community section is in its instructions.',
+  ambiguous: 'Its instructions hold the community section more than once, so Kosmos leaves them alone. Open its instructions and remove one.',
+  no_file: 'It has no instructions file, and Kosmos will not create one.',
+  unreadable: 'Kosmos could not read its instructions just now.',
+});
+const OWNER_ACCOUNT = Object.freeze({
+  yes: 'It has a community account.',
+  being_made: 'Its community account is being made: Kosmos asked the community for one and has not had its answer yet.',
+  name_held: 'An earlier try made a community account under its name and Kosmos never received the key, so it waits rather than make a second.',
+  refused: 'The community has refused this agent, so nothing it writes is sent.',
+  none: 'No community account yet. Kosmos makes one the first time something of its goes to the community.',
+  unreadable: 'Kosmos cannot read its record of accounts just now.',
+});
+/* What, if anything, stands between this agent and taking part: the first that applies, or null. */
+function ownerTrouble(row) {
+  if (row.block === 'absent') return 'No community section in its instructions';
+  if (row.block === 'ambiguous') return 'Its instructions hold the community section twice';
+  if (row.block === 'no_file') return 'It has no instructions file';
+  if (row.account === 'refused') return 'The community has refused this agent';
+  if (row.account === 'name_held') return 'Its community account is waiting on an earlier try';
+  return null;
+}
+function ownerView(row) {
+  const lines = [];
+  if (row.block === 'absent') {
+    lines.push({ text: 'No community section in its instructions. ' + (row.connected === true ? 'It works in a folder of your own, and Kosmos does not add the section to instructions there.'
+      : row.connected === false ? 'For an agent Kosmos runs as its own, it is added when the agent next starts or when Kosmos itself next starts, while the community is on.' : '') });
+  } else {
+    lines.push({ text: (own(OWNER_BLOCK, row.block) ? OWNER_BLOCK[row.block] : OWNER_BLOCK.unreadable)
+      + (row.block === 'present' && row.rereadOwed === true ? ' It changed while the agent was running, and Kosmos still owes it a line asking it to read the section again.' : '') });
+  }
+  lines.push({ text: own(OWNER_ACCOUNT, row.account) ? OWNER_ACCOUNT[row.account] : OWNER_ACCOUNT.unreadable });
+  if (row.reminder === 'unreadable') lines.push({ text: 'Kosmos cannot read its record of reminders just now.' });
+  else if (row.reminder === null) lines.push({ text: 'Kosmos has no record of going to remind it.' });
+  else {
+    lines.push({ text: 'Kosmos last went to remind it ', at: row.reminder.at, after: ': ' + reminderWords(row.reminder, true) + '.' });
+    if (row.reminder.act !== 'prompted' && validTime(row.reminder.reachedAt)) lines.push({ text: 'The last reminder that reached it was ', at: row.reminder.reachedAt, after: '.' });
+  }
+  if (row.lastPost === 'unreadable') lines.push({ text: 'Kosmos could not read what it has sent just now.' });
+  else if (row.lastPost === null) lines.push({ text: 'It has not posted yet.' });
+  else lines.push({ text: 'Its newest post is ' + JSON.stringify(row.lastPost.title || '(no title)') + '. Where that post stands is in the list of posts and comments.' });
+  if (row.held > 0) lines.push({ text: row.held + (row.held === 1 ? ' item of its is' : ' items of its are') + ' waiting for you, under Waiting for you.' });
+  const trouble = ownerTrouble(row);
+  return { summary: trouble || (row.held > 0 ? 'Waiting for you' : 'Nothing found in its way'), needsYou: Boolean(trouble) || row.held > 0, lines };
+}
+
 /** Every agent's row, for the owner's view. `roster` is the board's cards; a card without a session name is skipped.
- *  Null when there is no roster to read. */
-function rowsFor(roster, deps) {
+ *  Null when there is no roster to read. The send records are read once for all rows (communitystatus.itemsReader).
+ *  Each row also carries `owner`: its summary and lines in the person's words (ownerView). */
+function rowsFor(roster, deps = {}) {
   const out = [];
   const seen = new Set();
   if (!Array.isArray(roster)) return null;   // an unreadable roster is not "no agents"
+  let shared = deps;
+  if (typeof deps.items !== 'function') {
+    let read;
+    try { read = require('./communitystatus').itemsReader(); } catch { read = null; }
+    shared = { ...deps, items: (s) => (read === null ? null : read(s)) };
+  }
   for (const c of roster) {
     const s = c && typeof c.sessionName === 'string' ? c.sessionName : '';
     if (!s || seen.has(s)) continue;
     seen.add(s);
-    out.push({ name: typeof c.name === 'string' && c.name ? c.name : s, ...rowFor(s, deps) });
+    const row = rowFor(s, shared);
+    out.push({ name: typeof c.name === 'string' && c.name ? c.name : s, ...row, owner: ownerView(row) });
   }
   return out;
 }
 
-module.exports = { TURN_WORDS, HELD_WORDS, SIGNED_OUT_WORDS, UNCONFIRMED_WORDS, ACCOUNT_WORDS, REMINDER_NOTE, turnsFile, readTurns, noteTurn, blockState, rereadOwed, accountState, rowFor, linesFor, readyText, rowsFor };
+module.exports = { TURN_WORDS, HELD_WORDS, SIGNED_OUT_WORDS, UNCONFIRMED_WORDS, ACCOUNT_WORDS, REMINDER_NOTE, turnsFile, readTurns, noteTurn, blockState, rereadOwed, accountState, rowFor, linesFor, readyText, rowsFor, ownerView, OWNER_CAP_WORDS };

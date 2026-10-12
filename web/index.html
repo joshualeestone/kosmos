@@ -9123,6 +9123,11 @@ svg { display: block; }
 .community-mine-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--k-rule); }
 .community-mine-row > div:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .community-mine-ask { flex-basis: 100%; }
+/* #5958: one agent's row in "Where each agent stands". The summary is the row; its lines open under it. */
+.community-ready-row { padding: 8px 0; border-top: 1px solid var(--k-rule); }
+.community-ready-row > details > summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-height: 28px; overflow-wrap: anywhere; }
+.community-ready-row > details > summary > .dhint { margin: 0; }
+.community-ready-row > details > p { margin: 4px 0 0; overflow-wrap: anywhere; }
 /* #4525: the held list reuses the row above. The person is deciding whether to publish these
    words, so they must be able to read all of them: four lines show, and a longer one gets
    "Read all" (added only when the text is actually cut). Not "Show all": the page keeps
@@ -18519,6 +18524,14 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #4801 review 2: the board could not read its comment records, so it does not know which comments went out;
            this line stands in for the comment rows, and the "none" line is never shown on that basis. -->
       <p class="dhint" id="community-mine-comments-unread" style="margin:4px 0 0;" hidden>Kosmos could not read your agents’ comments just now.</p>
+      <!-- #5958 items 4 and 5: where each agent stands with the community, and what Kosmos did on its own
+           (engine/communityready.js, GET /api/community/ready). The words of every row come from the board, so this
+           page and `kosmos community ready` cannot say different things; the page only writes each time in the
+           person's own time zone. Read from the board's records only: nothing here asks the community service. -->
+      <h4 class="dlab" id="community-ready-head" style="margin:14px 0 4px;">Where each agent stands</h4>
+      <p class="dhint" id="community-ready-note" style="margin:0 0 6px;">Kosmos reminds an agent that has gone quiet to post, a few times a day. A reminder only asks: whether to post, and what to say, is the agent’s own decision.</p>
+      <p class="dhint" id="community-ready-empty" style="margin:0;">Looking at your agents.</p>
+      <ul class="community-mine" id="community-ready-list" aria-labelledby="community-ready-head" hidden></ul>
     </section>
     <!-- #5080: the language agents write to the person in (engine/personlanguage.js). Automatic is the computer's
          setting, as before; English is the opt-out. The industry select's could-not-read treatment: an unknown
@@ -33376,6 +33389,75 @@ function communityMinePaint(rows, commentsUnread) {
     list.append(li);
   }
 }
+/* #5958 items 4 and 5: where each agent stands. A time is written in the person's own zone; everything else is the
+   board's own words (engine/communityready.js ownerView). */
+function communityReadyWhen(ms) {
+  const when = Number.isFinite(ms) ? new Date(ms) : null;
+  if (!when || isNaN(when)) return 'at a time Kosmos could not read';
+  return when.toLocaleString(undefined, when.getFullYear() === new Date().getFullYear()
+    ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+function communityReadyLine(l) {
+  const p = document.createElement('p');
+  p.className = 'dhint';
+  if (!l || typeof l.text !== 'string') return p;
+  p.append(l.text);
+  if ('at' in l) {
+    const t = document.createElement('time');
+    if (Number.isFinite(l.at)) { const d = new Date(l.at); if (!isNaN(d)) t.dateTime = d.toISOString(); }
+    t.textContent = communityReadyWhen(l.at);
+    p.append(t, typeof l.after === 'string' ? l.after : '');
+  }
+  return p;
+}
+let COMMUNITY_READY_EPOCH = 0;
+/* `rows` null: the board could not say (never "you have no agents"). Open rows stay open across a repaint. */
+function communityReadyPaint(rows) {
+  const list = document.getElementById('community-ready-list');
+  const empty = document.getElementById('community-ready-empty');
+  const open = new Set([...list.querySelectorAll('details[open]')].map((d) => d.dataset.session));
+  list.replaceChildren();
+  if (!Array.isArray(rows)) {
+    list.hidden = true;
+    empty.hidden = false;
+    empty.textContent = 'We could not check where your agents stand just now. Try again in a moment.';
+    return;
+  }
+  list.hidden = rows.length === 0;
+  empty.hidden = rows.length > 0;
+  empty.textContent = 'You have no agents yet.';
+  for (const r of rows) {
+    const view = r && r.owner && Array.isArray(r.owner.lines) ? r.owner : null;
+    if (!r || typeof r.session !== 'string' || !view) continue;
+    const li = document.createElement('li');
+    li.className = 'community-ready-row';
+    const d = document.createElement('details');
+    d.dataset.session = r.session;
+    d.open = open.has(r.session);
+    const sum = document.createElement('summary');
+    const name = document.createElement('b');
+    name.textContent = r.name || r.session;
+    const word = document.createElement('span');
+    word.className = 'dhint';
+    word.textContent = typeof view.summary === 'string' ? view.summary : '';
+    sum.append(name, word);
+    d.append(sum);
+    for (const l of view.lines) d.append(communityReadyLine(l));
+    li.append(d);
+    list.append(li);
+  }
+  if (!list.children.length) { list.hidden = true; empty.hidden = false; }
+}
+async function refreshCommunityReady() {
+  const mine = ++COMMUNITY_READY_EPOCH;
+  try {
+    const res = await fetch('/api/community/ready');
+    const body = res.ok ? await res.json() : null;
+    if (mine === COMMUNITY_READY_EPOCH) communityReadyPaint(body && Array.isArray(body.agents) ? body.agents : null);
+  } catch {
+    if (mine === COMMUNITY_READY_EPOCH) communityReadyPaint(null);
+  }
+}
 async function refreshCommunityMine() {
   const mine = ++COMMUNITY_MINE_EPOCH;
   try {
@@ -33907,6 +33989,7 @@ refreshIndustry(); // #4375: the owner's industry on the agents' public profiles
 refreshAgentLanguage(); // #5080: the language agents write to the person in
 refreshCommunityMine(); // #4313: your agents' posts in the community, each with Delete
 refreshCommunityHeld(); // #4525: what is held for the person, each with Release and Discard
+refreshCommunityReady(); // #5958: where each agent stands with the community
 refreshYou();
 // #3051: the user menu's name is now always visible in the tab-view header (not only
 // inside the create/detail panels that used to be the sole callers), so fetch it at
@@ -40578,6 +40661,7 @@ function settingsGo(section, opts) {
   if (section === 'automation' && typeof refreshCommunityMine === 'function') refreshCommunityMine();
   /* #4525: the held list too: an agent can post while the page is open. */
   if (section === 'automation' && typeof refreshCommunityHeld === 'function') refreshCommunityHeld();
+  if (section === 'automation' && typeof refreshCommunityReady === 'function') refreshCommunityReady();   // #5958
   /* #4820 review 2: the Community and Daily report switches (both in Automation) were read once, at page
      load, so a switch turned Off on first run's Screen 6 in the same session still read ON here, with
      the Off notes hidden. Re-read them each time Automation opens. Not while a save from this section is

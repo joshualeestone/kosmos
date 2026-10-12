@@ -374,3 +374,114 @@ test('review 3: a time no date can hold costs that record, not the agent\'s whol
   assert.match(text('ann'), /The last time Kosmos went to remind you: none on record/);
   assert.equal(ready.readyText('bea').ok, true);
 });
+
+/* #5958 slice 2: the person's words for a row (the Settings list), and one read of the records for every row. */
+const view = (over) => ready.ownerView({ session: 'ann', switch: 'on', addressOk: true, block: 'present', connected: false, rereadOwed: false, account: 'yes', reminder: null, lastPost: null, held: 0, ...over });
+const said = (v) => v.lines.map((l) => l.text + ('at' in l ? '<' + l.at + '>' + l.after : '')).join('\n');
+
+test('slice 2: an agent with nothing in its way says so, and never claims more than was looked at', () => {
+  const v = view({});
+  assert.deepEqual([v.summary, v.needsYou], ['Nothing found in its way', false]);
+  assert.match(said(v), /^The community section is in its instructions\.\nIt has a community account\.\nKosmos has no record of going to remind it\.\nIt has not posted yet\.$/);
+});
+
+test('slice 2: what stands in an agent\'s way is its summary, the first that applies', () => {
+  for (const [over, summary] of [
+    [{ block: 'absent' }, 'No community section in its instructions'],
+    [{ block: 'ambiguous' }, 'Its instructions hold the community section twice'],
+    [{ block: 'no_file' }, 'It has no instructions file'],
+    [{ account: 'refused' }, 'The community has refused this agent'],
+    [{ account: 'name_held' }, 'Its community account is waiting on an earlier try'],
+    [{ block: 'absent', account: 'refused', held: 3 }, 'No community section in its instructions'],
+    [{ held: 2 }, 'Waiting for you'],
+  ]) {
+    const v = view(over);
+    assert.deepEqual([v.summary, v.needsYou], [summary, true], JSON.stringify(over));
+  }
+  for (const over of [{ account: 'none' }, { account: 'being_made' }, { rereadOwed: true }, { reminder: { at: 1, act: 'not-reached' } }, { block: 'unreadable' }, { account: 'unreadable' }]) {
+    assert.equal(view(over).needsYou, false, 'CONTROL: ' + JSON.stringify(over) + ' is not something the person must act on');
+  }
+});
+
+test('slice 2: the section line says whose folder it is, and what Kosmos still owes', () => {
+  assert.match(said(view({ block: 'absent', connected: true })), /^No community section in its instructions\. It works in a folder of your own, and Kosmos does not add the section to instructions there\./);
+  assert.match(said(view({ block: 'absent', connected: false })), /^No community section in its instructions\. For an agent Kosmos runs as its own, it is added when the agent next starts/);
+  assert.doesNotMatch(said(view({ block: 'absent', connected: null })), /folder of your own|it is added/);
+  assert.match(said(view({ rereadOwed: true })), /in its instructions\. It changed while the agent was running, and Kosmos still owes it a line asking it to read the section again\./);
+  assert.doesNotMatch(said(view({ block: 'ambiguous', rereadOwed: true })), /still owes/, 'a re-read was promised for a section Kosmos leaves alone');
+});
+
+test('slice 2: a reminder is a time the page writes, between the same words the agent is told', () => {
+  const T = Date.parse('2026-10-12T15:04:00Z');
+  let v = view({ reminder: { at: T, act: 'prompted', delivery: 'placed', reachedAt: T } });
+  assert.deepEqual(v.lines[2], { text: 'Kosmos last went to remind it ', at: T, after: ': delivered.' });
+  assert.equal(v.lines.length, 4, 'a second "reached it" line beside a delivered one');
+  v = view({ reminder: { at: T, act: 'prompted', delivery: 'unconfirmed', reachedAt: T } });
+  assert.equal(v.lines[2].after, ': ' + ready.UNCONFIRMED_WORDS + '.');
+  v = view({ reminder: { at: T, act: 'held', heldBy: 'cap', reachedAt: T - 5 } });
+  assert.equal(v.lines[2].after, ': ' + ready.OWNER_CAP_WORDS + '.', 'the person\'s own cap was called "your person\'s"');
+  assert.equal(view({ reminder: { at: T, act: 'held', heldBy: 'menu' } }).lines[2].after, ': ' + ready.HELD_WORDS.menu + '.');
+  assert.deepEqual(v.lines[3], { text: 'The last reminder that reached it was ', at: T - 5, after: '.' });
+  assert.match(said(view({ reminder: 'unreadable' })), /Kosmos cannot read its record of reminders just now\./);
+  assert.doesNotMatch(said(view({ reminder: 'unreadable' })), /no record of going/);
+});
+
+test('slice 2: the newest post is named and its state left to the list that already words it; held items point up the page', () => {
+  const v = view({ lastPost: { title: 'Weekly "ops"', at: '2026-10-12T00:00:00Z', state: 'refused' }, held: 1 });
+  assert.match(said(v), /Its newest post is "Weekly \\"ops\\""\. Where that post stands is in the list of posts and comments\./);
+  assert.doesNotMatch(said(v), /refused|not sent/, 'the row worded the post\'s state a second time');
+  assert.match(said(v), /1 item of its is waiting for you, under Waiting for you\./);
+  assert.match(said(view({ held: 4 })), /4 items of its are waiting for you/);
+  assert.match(said(view({ lastPost: 'unreadable' })), /Kosmos could not read what it has sent just now\./);
+  assert.doesNotMatch(said(view({ lastPost: 'unreadable' })), /has not posted yet/);
+});
+
+test('slice 2: no line of the person\'s words speaks to the agent, and none has an em dash', () => {
+  const T = 5;
+  for (const block of ['present', 'absent', 'ambiguous', 'no_file', 'unreadable', 'something-new']) {
+    for (const account of [...Object.keys(ready.ACCOUNT_WORDS), 'something-new']) {
+      for (const reminder of [null, 'unreadable', ...Object.keys(ready.TURN_WORDS).map((act) => ({ at: T, act, reachedAt: 1 })), ...Object.keys(ready.HELD_WORDS).map((heldBy) => ({ at: T, act: 'held', heldBy }))]) {
+        const v = view({ block, account, reminder, held: 2, rereadOwed: true, connected: true });
+        const t = said(v) + '\n' + v.summary;
+        assert.doesNotMatch(t, /\byour person\b|\byou have\b|\byour instructions\b|\byour first\b|\byour newest\b/i, t);
+        assert.doesNotMatch(t, /—|&mdash;|&#8212;|&#x2014;|undefined|\[object/, t);
+        assert.ok(v.lines.every((l) => typeof l.text === 'string' && l.text.length > 0), t);
+      }
+    }
+  }
+});
+
+test('slice 2: rowsFor reads the send records once for every row, and each row carries the person\'s words', () => {
+  const board = fleet.install([fleet.agent('ann', { state: 'idle' }), fleet.agent('bea', { state: 'idle' }), fleet.agent('cal', { state: 'idle' })]);
+  let cards;
+  try { cards = status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
+  for (const n of ['ann', 'bea', 'cal']) agentFile(n, withBlock());
+  post('bea', 'Only hers');
+  const st = require('./communitystatus');
+  const realReader = st.itemsReader;
+  const realFor = st.itemsFor;
+  let readers = 0;
+  let singles = 0;
+  st.itemsReader = (...a) => { readers += 1; return realReader(...a); };
+  st.itemsFor = (...a) => { singles += 1; return realFor(...a); };
+  let rows;
+  try { rows = ready.rowsFor(cards.filter((c) => ['ann', 'bea', 'cal'].includes(c.sessionName))); } finally { st.itemsReader = realReader; st.itemsFor = realFor; }
+  assert.deepEqual([readers, singles], [1, 0], 'the records were read once per agent');
+  assert.deepEqual(rows.map((r) => [r.session, r.lastPost && r.lastPost.title]), [['ann', null], ['bea', 'Only hers'], ['cal', null]]);
+  for (const r of rows) assert.ok(r.owner && typeof r.owner.summary === 'string' && Array.isArray(r.owner.lines) && r.owner.lines.length >= 4, JSON.stringify(r.owner));
+  assert.deepEqual(realReader()('bea'), realFor('bea'), 'the shared read and the single read disagree');
+});
+
+test('slice 2: send records that cannot be read are unreadable in every row, never "has not posted"', () => {
+  const st = require('./communitystatus');
+  const realReader = st.itemsReader;
+  st.itemsReader = () => null;
+  let rows;
+  try { rows = ready.rowsFor([{ ...fleetCard('ann') }]); } finally { st.itemsReader = realReader; }
+  assert.equal(rows[0].lastPost, 'unreadable');
+  assert.match(said(rows[0].owner), /could not read what it has sent/);
+});
+function fleetCard(name) {
+  const board = fleet.install([fleet.agent(name, { state: 'idle' })]);
+  try { return status.snapshot().agents.map((c) => ({ ...c })).find((c) => c.sessionName === name); } finally { board.restore(); }
+}
