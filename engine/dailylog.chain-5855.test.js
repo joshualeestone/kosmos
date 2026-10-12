@@ -359,18 +359,16 @@ test('rows that are not messages, and a carried count out of bounds, are read as
   isolate('odd', 'chain', 'agents');
 });
 
-test('a thread file with no project date that rolls over under one is refused: chat.js does not follow it either', () => {
-  // KNOWN, and chat.js's to fix: the fresh file is stamped with the project's date and the full file has none, so
-  // neither engine/chat.js nor this compiler follows the link. Refused here, which loses nothing.
+test('a thread file with no project date that rolls over under one is refused', () => {
+  // The fresh file is stamped with the project's date and the full file has none, so this compiler does not follow
+  // the link and refuses, which loses nothing. engine/chat.js does follow it since kosmos#5900; making this compiler
+  // follow it by the same rule is a change of its own (kosmos#5855), and then this test is the one to change.
   const file = chat.threadFile('chain', 'agentm');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ project: 'chain', agent: 'agentm', messages: Array.from({ length: MAX }, (_, i) => row('undated', i)) }));
   rollOver('chain', 'agentm', 'undated after the rollover', '2026-09-16T09:00:00Z');
-  const follows = chat.asideChain('chain', 'agentm', true).length;
   const { chatsDir, outDir, base } = isolate('undated', 'chain', 'agentm');
   const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
-  // when chat.js follows this link the compiler must too: then this test is the one to change
-  assert.equal(follows, 0, 'engine/chat.js follows a full file with no project date now: this compiler should compile it');
   assert.equal(s.refused, 'rolled-over');
   assert.deepEqual(s.continuedFiles, [base]);
 });
