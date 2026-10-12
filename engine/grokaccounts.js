@@ -532,7 +532,12 @@ function forgetAccount(dir, usedBy) {
   if (path.dirname(clean) !== home || !base.startsWith(DIR_PREFIX)) {
     return { ok: false, forgotten: false, because: 'that is not a Grok account on this computer' };
   }
-  if (activeGrokDirs.has(clean)) {
+  /* #6000 (the #5994 shape): the account's OWN unfinished "Sign in again" no longer refuses. A person who walked away
+     from it had no cancel they could reach and was refused until the watchdog ended it (grokLoginTimeoutMs, 5
+     minutes); wanting the account gone overrides finishing a sign-in into it. It is cancelled below, after the move
+     succeeds, so a refused or failed call (the #2570 pre-flight) cancels nothing. Any other hold still refuses. */
+  const ownReauth = isHeldByOwnReauth(clean);
+  if (activeGrokDirs.has(clean) && !ownReauth) {
     return { ok: false, forgotten: false, because: 'a sign-in for that account is still in progress; finish or cancel it first' };
   }
   // An account is a real directory, not a symlink (see storeKey). A crafted symlink named like an
@@ -555,6 +560,7 @@ function forgetAccount(dir, usedBy) {
   }
 
   if (!fs.existsSync(clean)) {
+    if (ownReauth) releaseOwnReauth(clean);   // #6000: the account is gone, so its sign-in has nothing to finish
     return { ok: true, forgotten: false, because: 'that account is already gone from this computer' };
   }
   /* THE NAME IS NOT THE ACCOUNT: a name-shaped dir that holds no key is not ours to
@@ -573,6 +579,7 @@ function forgetAccount(dir, usedBy) {
   }
   try { fs.renameSync(clean, target); }
   catch { return { ok: false, forgotten: false, because: 'we could not move that account out of the way' }; }
+  if (ownReauth) releaseOwnReauth(clean);   // #6000: only once the move happened, so a failed call cancels nothing
   return { ok: true, forgotten: true, movedTo: target, wasDefault: false, because: null };
 }
 
@@ -597,7 +604,8 @@ function removeAccount(dir, usedBy) {
   if (path.dirname(clean) !== home || !base.startsWith(DIR_PREFIX)) {
     return { ok: false, removed: false, because: 'that is not a Grok account on this computer' };
   }
-  if (activeGrokDirs.has(clean)) {
+  const ownReauth = isHeldByOwnReauth(clean);   // #6000: as in forgetAccount
+  if (activeGrokDirs.has(clean) && !ownReauth) {
     return { ok: false, removed: false, because: 'a sign-in for that account is still in progress; finish or cancel it first' };
   }
   // Refuse a crafted symlink (see storeKey / forgetAccount): rmSync removes the LINK not its
@@ -618,6 +626,7 @@ function removeAccount(dir, usedBy) {
     };
   }
   if (!fs.existsSync(clean)) {
+    if (ownReauth) releaseOwnReauth(clean);   // #6000: the account is gone, so its sign-in has nothing to finish
     return { ok: true, removed: false, because: 'that account is already gone from this computer' };
   }
   if (!identityOf(clean)) {
@@ -625,6 +634,7 @@ function removeAccount(dir, usedBy) {
   }
   try { fs.rmSync(clean, { recursive: true, force: true }); }
   catch { return { ok: false, removed: false, because: 'we could not delete that account from this computer' }; }
+  if (ownReauth) releaseOwnReauth(clean);   // #6000: only once the delete happened, so a failed call cancels nothing
   return { ok: true, removed: true, wasDefault: false, because: null };
 }
 
@@ -825,7 +835,8 @@ function startGrokLogin({ label, grokBin, reauthDir } = {}) {
   const spot = resolveFreshGrokDir(reauth ? null : label);
   if (spot.error) return { ok: false, because: spot.error };
   activeGrokDirs.add(spot.dir);
-  // Held for the life of the sign-in, so forget/remove and a second sign-in again refuse it.
+  // Held for the life of the sign-in, so a second sign-in again refuses it. A forget or remove of the account
+  // cancels this one instead (#6000).
   if (reauth) activeGrokDirs.add(reauth.dir);
   /* XAI_API_KEY REMOVED, not blanked: an empty value still reads as set to grok. */
   const env = { ...process.env };
@@ -850,7 +861,7 @@ function startGrokLogin({ label, grokBin, reauthDir } = {}) {
     return { ok: false, because: 'we could not start the Grok sign-in' };
   }
   const session = { preexisting, id: sessionId, child, dir: spot.dir, label: spot.label || null, typedLabel: reauth ? null : label, madeDir: spot.madeDir, state: 'starting', buf: '', account: null, error: null, timer: null, forceKillTimer: null, exited: false, reaped: false,
-    reauthDir: reauth ? reauth.dir : null, reauthIsDefault: reauth ? reauth.isDefault : false, expectEmail: reauth ? reauth.expectEmail : null };
+    reauthDir: reauth ? reauth.dir : null, reauthReleased: false, holdFreed: false, reauthIsDefault: reauth ? reauth.isDefault : false, expectEmail: reauth ? reauth.expectEmail : null };
   grokSessions.set(sessionId, session);
   /* Anti-litter a sign-in that did not land an account: a dir we made goes whole; a
      reused slot loses only what grok writes there (auth.json, docs/, logs/, measured),
@@ -868,8 +879,10 @@ function startGrokLogin({ label, grokBin, reauthDir } = {}) {
   };
   // Call only once the child is confirmed gone. Idempotent.
   const freeSlotAndDir = () => {
+    session.holdFreed = true;
     activeGrokDirs.delete(session.dir);
-    if (session.reauthDir) activeGrokDirs.delete(session.reauthDir);
+    // #6000: a hold already released by a forget or remove may belong to a NEW sign-in on that path by now.
+    if (session.reauthDir && !session.reauthReleased) activeGrokDirs.delete(session.reauthDir);
     dropDirIfOurs();
     try { fs.rmSync(sock, { force: true }); } catch { /* best effort */ }
   };
@@ -1007,6 +1020,33 @@ function cancelGrokLogin(sessionId) {
   armGrokForceKill(s);
   reapGrokSession(s);
   return { ok: true, cancelled: true };
+}
+
+/* #6000 (the #5994 shape, openaiaccounts): the sign-ins whose "Sign in again" still holds this live account dir,
+   settled or not (a watchdog or a cancel that just fired leaves the hold until the child exits; it can no longer
+   promote, so it is still only the account's own hold). Only sessions still in grokSessions are seen: one reaped
+   after grokSessionTtlMs whose child somehow still lives is not, and its hold then refuses as any other would. */
+function ownReauthsOf(dir) {
+  const out = [];
+  for (const [id, s] of grokSessions) if (s.reauthDir === dir && !s.reauthReleased && !s.holdFreed) out.push(id);
+  return out;
+}
+/* #6000: true when `dir` is held by its own reauth. (A live account dir holds an auth.json, so no sign-in can be
+   staging into it: resolveFreshGrokDir refuses a named dir that holds credentials, and nextWorkDir skips it.) */
+function isHeldByOwnReauth(dir) {
+  return activeGrokDirs.has(dir) && ownReauthsOf(dir).length > 0;
+}
+/* #6000: cancel the account's own reauths and drop their hold on the live dir now. Cancelling settles the session,
+   so its exit can no longer promote into the dir; the staging slot stays reserved, and is cleaned, when the child
+   exits, as on any cancel. reauthReleased stops that late exit from releasing a hold someone takes on this path
+   afterwards. */
+function releaseOwnReauth(dir) {
+  for (const id of ownReauthsOf(dir)) {
+    const s = grokSessions.get(id);
+    cancelGrokLogin(id);
+    if (s) s.reauthReleased = true;
+  }
+  activeGrokDirs.delete(dir);
 }
 
 /* One shared sweep for concurrent callers (the #1618 collapse openaiaccounts uses):
