@@ -33,7 +33,8 @@
  *   C18 opening the same agent again (openDetail) reads nothing that arrived meanwhile (reviews 5, 6)
  *   C19 a real tab change away from a room and back reads nothing that arrived meanwhile (review 7)
  *   C20 at 700px, where the room's header stacks, the room's toggle sits on the search's line, not a row of its own,
- *       in today's look and in the new look (C20b), with nothing pushed out of the row, and at phone width (C20c)
+ *       in today's look and in the new look (C20b), with nothing pushed out of the row, and at phone width (C20c);
+ *       C20d the same at desktop width, where the header is one row
  *   C21 the direct conversation's toggle renders on its search's line, just before it (desktop; C21b at 375px)
  *   C9 no page errors
  *
@@ -263,6 +264,18 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     await room(rr);
     const c19 = { away: c19away, then: await spoken(page), err: await page.evaluate(() => window.__tabErr || '') };
     chk(!/another tab/.test(c19.away) && /after coming back/.test(c19.then), 'C19 a tab change and back reads nothing that arrived meanwhile, then reads again', JSON.stringify(c19));
+    // C20d: at desktop width the room's header is one row and the toggle sits just before the search.
+    const c20d = await page.evaluate(() => {
+      if (typeof placeProjectHead === 'function') placeProjectHead();
+      const mid = document.querySelector('#pj-one-view .pjmidhead');
+      const b = document.getElementById('pj-conv').getBoundingClientRect();
+      const s = mid.querySelector('.tsearch').getBoundingClientRect();
+      return { row: getComputedStyle(mid).flexDirection === 'row', drawn: b.width > 0 && s.width > 0,
+        dy: Math.round(Math.abs((b.top + b.height / 2) - (s.top + s.height / 2))), gap: Math.round(s.left - b.right),
+        inside: s.right <= mid.getBoundingClientRect().right + 1 };
+    });
+    chk(c20d.row && c20d.drawn && c20d.dy <= 6 && c20d.gap >= 0 && c20d.gap <= 24 && c20d.inside,
+      'C20d at desktop width the room toggle sits just before the search in the one-row header', JSON.stringify(c20d));
     // C20: the stacked room header (up to 60rem) keeps the toggle beside the search.
     await page.setViewportSize({ width: 700, height: 800 });
     const c20 = await page.evaluate(() => {
