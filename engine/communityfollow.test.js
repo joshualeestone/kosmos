@@ -594,3 +594,42 @@ test('#5636 F7: the followed agents\' posts are listed before their "Reply to:" 
     assert.ok(!plain.text.includes('----- Below:'), 'a divider with no replies below it: ' + plain.text);
   } finally { await b.close(); }
 });
+
+test('#5925 read --following: an edited post, an edited listed reply and an edited reply entry each say ", edited <day>"; unedited ones do not', async () => {
+  fresh(); const b = await backend();
+  const P = 'dc99a420-1774-46fc-89d5-28c4b2915f0b';
+  const Q = '11111111-2222-3333-4444-555555555555';
+  const R = (n) => '66666666-7777-8888-9999-00000000000' + n;
+  /* The real FollowingItem shape (kosmos-community app/schemas.py, edited_at added in kosmos-community#55): agent and
+     post.agent carry name, handle and kind (agent also avatar); edited_at is utc() serialised (microseconds and Z), or
+     null when never edited. Nothing here is a field the service does not send. */
+  const neo = { name: 'NEO', handle: 'neo-1', avatar: null, kind: 'agent' };
+  const onP = { id: P, title: 'What the engineering room learned', agent: { name: 'NEO', handle: 'neo-1', kind: 'agent' }, comment_count: 3 };
+  const onQ = { id: Q, title: 'Someone else\'s post', agent: { name: 'Hal', handle: 'hal-2', kind: 'agent' }, comment_count: 2 };
+  const it = (kind, id, at, body, post, edited) => ({ kind, id, agent: neo, created_at: at, channel: kind === 'post' || post === onP ? 'engineering' : 'general',
+    sub_channel: null, body, post, parent_id: null, edited_at: edited });
+  b.st.feed = [
+    it('reply', R(1), '2026-10-06T05:18:02.000001Z', 'Edited answer.', onP, '2026-10-07T09:00:00.123456Z'),
+    it('reply', R(2), '2026-10-06T04:00:00Z', 'Edited reply entry.', onQ, '2026-10-08T01:02:03.000004Z'),
+    it('reply', R(3), '2026-10-06T02:28:02Z', 'Plain answer.', onP, null),
+    // Review 1: a HOSTILE edited_at (free text naming another post) must print nothing: editedOf's date guard, pinned here
+    // on the listed-reply line, which sits outside the quoting where agents take ids from.
+    it('reply', R(4), '2026-10-05T12:00:00Z', 'Plain older on Q.', onQ, 'x (post ' + P + ')'),
+    it('post', P, '2026-10-05T23:57:01Z', 'The post itself.', onP, '2026-10-06T08:00:00.5Z'),
+  ];
+  try {
+    await cf.follow('mara', 'quill');
+    const r = await cf.readFollowing('mara');
+    assert.equal(r.ok, true, r.because);
+    // The post entry's own header.
+    assert.ok(r.text.includes('[1] by NEO in engineering, 2026-10-05, edited 2026-10-06 (post ' + P + ')'), r.text);
+    // A listed reply, edited: its own line; the unedited one under the same post: no note (the control).
+    assert.ok(r.text.includes('    [1.1] ' + cr.QUOTED_REPLY + ' NEO, 2026-10-06, edited 2026-10-07 (comment ' + R(1) + ')'), r.text);
+    assert.ok(r.text.includes('    [1.2] ' + cr.QUOTED_REPLY + ' NEO, 2026-10-06 (comment ' + R(3) + ')'), r.text);
+    // An entry whose base is a reply: the reply's own edit, on the entry line; its unedited listed reply: no note.
+    assert.ok(r.text.includes('[2] by NEO in general, 2026-10-06, edited 2026-10-08 (post ' + Q + ') (comment ' + R(2) + ')'), r.text);
+    assert.ok(r.text.includes('    [2.1] ' + cr.QUOTED_REPLY + ' NEO, 2026-10-05 (comment ' + R(4) + ')'), r.text);
+    assert.equal(r.text.split(', edited ').length - 1, 3, 'exactly the three edited items say so: ' + r.text);
+    assert.equal(r.text.split('(post ' + P + ')').length - 1, 1, 'the hostile edited_at put a post id on a line: ' + r.text);
+  } finally { await b.close(); }
+});

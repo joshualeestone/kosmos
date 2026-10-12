@@ -288,8 +288,92 @@ bundle_is_ours() {
   # link at this leaf would make the fallback read a file the bundle does
   # not own just as surely as a link at the executable would.
   [ ! -L "$1/Contents/Resources/kosmos-install.json" ] || return 1
+  # #5896 slice 2: the SEALED shape carries no per-install file at all (every per-install fact lives in the account's
+  # own Library), so its proof is its signature instead. Only a bundle with no such file is asked for it.
+  # A sealed bundle carries nothing that names an install, so it counts as ours only when THIS account owns it on
+  # disk: another account's sealed icon or leftover is theirs (this account could not delete it anyway, and replacing
+  # it would flip the shared icon between the two accounts' versions), so it is left and the icon diverts as for any
+  # foreign occupant.
+  # $2, the caller's purpose (an argument, not a VAR=x prefix: under /bin/sh a prefix on a function call outlives
+  # the call):
+  #   anchored  a residue sweep          remove  an uninstall removing an icon (in the shared folder a sealed
+  #             icon never gets this far: the uninstall leaves it and names it first, bundle_looks_sealed)
+  #   own       "is this this install's own sealed icon?", for what the transcript says (no placement gate)
+  #   (none)    replacing an icon: in the SHARED folder a sealed occupant counts only when this run places the
+  #             sealed app too, or the per-install bundle built instead would leave other accounts that use this
+  #             icon opening this install
+  if [ ! -e "$1/Contents/Resources/kosmos-install.json" ]; then
+    [ "$(/usr/bin/stat -f %u "$1" 2>/dev/null)" = "$(/usr/bin/id -u)" ] || return 1
+    # And the account's config must name THIS install: an account can also hold a second, custom-home install
+    # (write_install_config stands down for it), and the sealed icon serves the install the config names, not it.
+    # An uninstall decides that before it deletes anything (SEALED_REQ is set only then).
+    # The config checked here must be the one the app at $1 will read: with AGENT_WORKFORCE_HOME elsewhere, only an
+    # icon in a sandboxed icon folder qualifies (a real ~/Applications icon reads the real home's config).
+    sealed_config_reaches "$1" || return 1
+    case "${2:-}" in
+      remove) [ -n "${SEALED_REQ:-}" ] || return 1 ;;   # SEALED_REQ is set only inside uninstall(), so this refuses elsewhere
+      *) sealed_serves_this_install || return 1 ;;
+    esac
+    case "${2:-}" in
+      anchored|remove|own) ;;
+      *) if ! sealed_placeable "$1" && [ "$(/usr/bin/dirname "$1")" -ef "$SYS_APP_DIR" ]; then return 1; fi ;;
+    esac
+    bundle_is_sealed "$1"
+    return
+  fi
   [ -f "$1/Contents/Resources/kosmos-install.json" ] || return 1
   /usr/bin/grep -qF "\"kosmosHome\":\"$KOSMOS_HOME\"" "$1/Contents/Resources/kosmos-install.json" 2>/dev/null
+}
+
+# #5896 slice 2: is this the sealed Kosmos.app? Its signature must be valid and satisfy the designated requirement of
+# THIS install's own shipped copy ($KOSMOS_HOME/app/Kosmos.app), which carries the identifier and the signing team,
+# so the Team ID is never spelled here. Every account's sealed icon is the same app, so this proves "a Kosmos we
+# built", not "this install's". bundle_is_ours adds what makes it this install's (this account owns it on disk, and
+# the account's config names this install). Even then an uninstall leaves a sealed icon in the SHARED folder and
+# names it; residue this account left there, and its icon in its own ~/Applications, are removed.
+# /usr/bin/codesign by absolute path, as /usr/bin/grep above.
+sealed_requirement() {
+  local ours="$KOSMOS_HOME/app/Kosmos.app"
+  [ -d "$ours" ] && [ ! -L "$ours" ] || return 1
+  # An implicit requirement (the usual case, Developer ID or ad-hoc) prints as a comment: "# designated => ...".
+  /usr/bin/codesign -d -r- "$ours" 2>&1 | /usr/bin/sed -n 's/^#* *designated => //p'
+}
+# Does the account's own config (slice 1, write_install_config) name THIS install? Same anchored match as the
+# uninstall's removal of that file.
+sealed_serves_this_install() {
+  local f="$INSTALL_CONFIG_DIR/kosmos-install.json"
+  [ -f "$f" ] && [ ! -L "$f" ] && /usr/bin/grep -qF "\"kosmosHome\":\"$KOSMOS_HOME\"" "$f" 2>/dev/null
+}
+# Is the account config this run reads (INSTALL_CONFIG_DIR, under AGENT_WORKFORCE_HOME) the one the sealed app at
+# $1 will read when opened? Yes with no AGENT_WORKFORCE_HOME elsewhere; otherwise only for an icon in an icon folder
+# the harness itself sandboxed (which launches the app with that environment). Placement (sealed_placeable) and
+# recognition (bundle_is_ours) both ask this, for the icon's own folder.
+sealed_config_reaches() {
+  if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "$AGENT_WORKFORCE_HOME" -ef "$HOME" ]; then return 0; fi
+  local d
+  d="$(/usr/bin/dirname "$1")"
+  { [ -n "${KOSMOS_APP_DIR:-}" ] && [ "$d" -ef "$KOSMOS_APP_DIR" ]; } \
+    || { [ -n "${KOSMOS_SYS_APP_DIR:-}" ] && [ "$d" -ef "$SYS_APP_DIR" ]; } \
+    || { [ -n "${KOSMOS_HOME_APP_DIR:-}" ] && [ "$d" -ef "$HOME_APP_DIR" ]; }
+}
+# A sealed Kosmos icon of ANY install (no per-install file, a valid signature with our identifier). Weaker than
+# bundle_is_sealed and used only where the answer LEAVES an icon in place and names it, never to delete one.
+bundle_looks_sealed() {
+  [ ! -L "$1" ] && [ ! -e "$1/Contents/Resources/kosmos-install.json" ] \
+    && /usr/bin/codesign --verify --deep --strict '-R=identifier "com.chaoskosmos.kosmos"' "$1" >/dev/null 2>&1
+}
+SEALED_REQ=""   # never inherited: it widens the proof below, which decides an rm -rf
+_SEALED_SRC_OK=""   # sealed_placeable's once-per-run verify of the shipped copy; never inherited either
+_SEALED_REQ_RUN=""  # bundle_is_sealed's once-per-run read of the shipped copy's requirement; never inherited either
+bundle_is_sealed() {
+  # SEALED_REQ: uninstall reads it BEFORE it deletes $KOSMOS_HOME (and the shipped copy with it), then sweeps icons.
+  local req="${SEALED_REQ:-}"
+  if [ -z "$req" ]; then
+    [ -n "$_SEALED_REQ_RUN" ] || _SEALED_REQ_RUN="$(sealed_requirement)" || _SEALED_REQ_RUN=""
+    req="$_SEALED_REQ_RUN"   # read once per run: the shipped copy does not change mid-run
+  fi
+  [ -n "$req" ] || return 1
+  /usr/bin/codesign --verify --deep --strict "-R=$req" "$1" >/dev/null 2>&1
 }
 
 # SYS_APP_DIR is overridable ONLY so the harness can drive the probe AND its
@@ -337,6 +421,7 @@ APP_SKIP_REASON=""
 APP_SYS_STALE=no
 APP_SYS_FAILED=no
 APP_HOME_FOREIGN=no
+APP_OWN_SEALED=no
 resolve_app_dir() {
   # The verbatim override is a sandbox: no probing, no fallback.
   [ -n "${KOSMOS_APP_DIR:-}" ] && { APP_DIR="$KOSMOS_APP_DIR"; return 0; }
@@ -371,6 +456,10 @@ resolve_app_dir() {
   if { [ -e "$SYS_APP_DIR/Kosmos.app" ] || [ -L "$SYS_APP_DIR/Kosmos.app" ]; } \
      && ! bundle_is_ours "$SYS_APP_DIR/Kosmos.app"; then
     APP_OTHER_OWNER=yes
+    # #5896 slice 2: the occupant may be THIS account's own sealed icon, refused only because this run cannot place the
+    # sealed app (its config could not be saved where the app looks). The transcript says that, not "something else".
+    APP_OWN_SEALED=no
+    if [ ! -L "$SYS_APP_DIR/Kosmos.app" ] && bundle_is_ours "$SYS_APP_DIR/Kosmos.app" own; then APP_OWN_SEALED=yes; fi
     # ⚠️ THE DIVERT ITSELF NEEDS THE ALIASING GUARD. "Send the icon to the
     # per-user folder instead" is only an escape if the per-user folder is
     # a DIFFERENT folder: with ~/Applications symlinked to the system one,
@@ -411,7 +500,7 @@ resolve_app_dir() {
     /bin/rmdir "$SYS_APP_DIR/.kosmos-write-probe.$$" 2>/dev/null \
       || rm -rf "$SYS_APP_DIR/.kosmos-write-probe.$$" 2>/dev/null || true
     APP_DIR="$SYS_APP_DIR"
-  elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app"; then
+  elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" own; then   # own: this only decides what the transcript says (#5896)
     # The probe FAILED on a machine where an earlier run of this install
     # already put an icon in the system folder (admin rights since lost,
     # folder since locked). The fresh icon goes to the home folder, and
@@ -1370,6 +1459,13 @@ _kosmos_data_root() {
 
 uninstall() {
   step "Removing Kosmos."
+  # #5896 slice 2: the sealed icon is proven against this install's shipped copy, which the removal below deletes
+  # before the icons are swept, so its requirement is read now.
+  # Only when the account's config names this install: otherwise a sealed icon here serves another install of this
+  # account, and stays.
+  SEALED_REQ=""
+  _sys_sealed_left=no
+  if sealed_serves_this_install; then SEALED_REQ="$(sealed_requirement 2>/dev/null)" || SEALED_REQ=""; fi
   # Shared by the icon removals below: unregister BEFORE deleting (a -u on
   # an already-deleted path is likely a no-op, leaving the stale Spotlight
   # record the call exists to clear) and re-register on a failed removal
@@ -1999,7 +2095,7 @@ KOSMOS_SWEEP_LIST
     # override path is not an exemption. -e OR -L like every sibling, so
     # a dangling link is named rather than silently surviving.
     if [ -e "$APP_DIR/Kosmos.app" ] || [ -L "$APP_DIR/Kosmos.app" ]; then
-      if bundle_is_ours "$APP_DIR/Kosmos.app"; then
+      if bundle_is_ours "$APP_DIR/Kosmos.app" remove; then
         info "removing the Kosmos app"
         _lsreg_u "$APP_DIR/Kosmos.app"
         rm -rf "$APP_DIR/Kosmos.app" 2>/dev/null || { _lsreg_f "$APP_DIR/Kosmos.app"; info "note: could not remove $APP_DIR/Kosmos.app; drag it to the Trash to finish."; }
@@ -2009,7 +2105,7 @@ KOSMOS_SWEEP_LIST
     fi
     for _res in "$APP_DIR"/.Kosmos.app.stage.* "$APP_DIR"/.Kosmos.app.old.*; do
       { [ -e "$_res" ] || [ -L "$_res" ]; } || continue
-      if bundle_is_ours "$_res"; then
+      if bundle_is_ours "$_res" anchored; then
         rm -rf "$_res" 2>/dev/null || info "note: could not remove the leftover hidden folder $_res; drag it to the Trash to finish."
       else
         # "could not be proven": a foreign account's aside fails the grep,
@@ -2042,10 +2138,15 @@ KOSMOS_SWEEP_LIST
     # (Ownership cannot be proven through a dangling link, so the refusal
     # note prints; that is honest, and the note names the survivor.)
     if [ -e "$SYS_APP_DIR/Kosmos.app" ] || [ -L "$SYS_APP_DIR/Kosmos.app" ]; then
+      if bundle_looks_sealed "$SYS_APP_DIR/Kosmos.app"; then
+        # #5896 slice 2: the sealed icon is the same app for every account on this Mac, and another account may be
+        # using it, so a shared one is left in place and named.
+        _sys_sealed_left=yes
+        info "note: the Kosmos app in $SYS_APP_DIR is a Kosmos app shared by every account on this computer, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
       # The same anchored token as resolve_app_dir: the closing `}"` keeps
       # two homes in a prefix relationship from cross-matching, because
       # this grep is the sole gate on an rm -rf in a shared folder.
-      if bundle_is_ours "$SYS_APP_DIR/Kosmos.app"; then
+      elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then
         info "removing the Kosmos app from $SYS_APP_DIR"
         # A standard user cannot always delete from /Applications; an icon
         # that survives is NAMED, never silently skipped. The flag feeds
@@ -2101,7 +2202,7 @@ KOSMOS_SWEEP_LIST
         # The same ownership token as the system folder: uninstalling
         # Kosmos must not delete somebody's unrelated app that happens to
         # carry the name, even in the per-user folder.
-        if bundle_is_ours "$HOME_APP_DIR/Kosmos.app"; then
+        if bundle_is_ours "$HOME_APP_DIR/Kosmos.app" remove; then
           info "removing the Kosmos app from $HOME_APP_DIR"
           _lsreg_u "$HOME_APP_DIR/Kosmos.app"
           rm -rf "$HOME_APP_DIR/Kosmos.app" 2>/dev/null || { _lsreg_f "$HOME_APP_DIR/Kosmos.app"; info "note: could not remove $HOME_APP_DIR/Kosmos.app; drag it to the Trash to finish."; }
@@ -2138,7 +2239,7 @@ KOSMOS_SWEEP_LIST
     for _res in "$SYS_APP_DIR"/.Kosmos.app.stage.* "$SYS_APP_DIR"/.Kosmos.app.old.* \
                 "$HOME_APP_DIR"/.Kosmos.app.stage.* "$HOME_APP_DIR"/.Kosmos.app.old.*; do
       { [ -e "$_res" ] || [ -L "$_res" ]; } || continue
-      if bundle_is_ours "$_res"; then
+      if bundle_is_ours "$_res" anchored; then
         rm -rf "$_res" 2>/dev/null || info "note: could not remove the leftover hidden folder $_res; drag it to the Trash to finish."
       else
         # "could not be proven": a foreign account's aside fails the grep,
@@ -2385,6 +2486,10 @@ KOSMOS_SWEEP_LIST
     fi
   else
     printf '\n  Kosmos is removed.\n\n'
+  fi
+  # #5896 slice 2: the closing sentence must not contradict the note above it.
+  if [ "${_sys_sealed_left:-no}" = yes ]; then
+    printf '  The shared Kosmos app in %s was left in place (see the note above).\n\n' "$SYS_APP_DIR"
   fi
   # ⚠️ Named, not removed: the install may have recorded the agent
   # permission setting in Claude Code's own config, but that file can carry
@@ -3424,7 +3529,7 @@ make_app() {
   local _res
   for _res in "$appdir"/.Kosmos.app.stage.* "$appdir"/.Kosmos.app.old.*; do
     { [ -e "$_res" ] || [ -L "$_res" ]; } || continue
-    if bundle_is_ours "$_res"; then
+    if bundle_is_ours "$_res" anchored; then
       rm -rf "$_res" 2>/dev/null || true
     fi
   done
@@ -3441,7 +3546,7 @@ make_app() {
   # the planter is already an admin, so this is hardening rather than a
   # live hole; it costs one word.)
   /bin/mkdir "$stage" 2>/dev/null || return 1
-  if ! build_app_bundle "$stage"; then
+  if ! app_bundle_into "$stage"; then
     rm -rf "$stage" 2>/dev/null || true
     return 1
   fi
@@ -3545,6 +3650,40 @@ write_install_config() {
   printf '{"kosmosHome":"%s","ownerUid":%s,"port":%s}' \
     "$KOSMOS_HOME" "$owner_uid" "$PORT" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
   mv -f "$tmp" "$INSTALL_CONFIG_DIR/kosmos-install.json" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
+
+# Would this run place the sealed app at $1 (an icon path, or a stage in the icon's folder)? The account config was
+# written (_wic_rc 0), the app there will read that config (sealed_config_reaches: the SAME test recognition uses,
+# so a sealed icon this run places is one a later run recognises), and the shipped sealed app verifies.
+sealed_placeable() {
+  local src="$KOSMOS_HOME/app/Kosmos.app"
+  [ "${_wic_rc:-1}" = 0 ] || return 1
+  sealed_config_reaches "$1" || return 1
+  [ -d "$src" ] && [ ! -L "$src" ] || return 1
+  # Verified once per run: a deep verify of the whole app is slow, and the shipped copy does not change mid-run.
+  if [ -z "$_SEALED_SRC_OK" ]; then
+    if /usr/bin/codesign --verify --deep --strict "$src" >/dev/null 2>&1; then _SEALED_SRC_OK=yes; else _SEALED_SRC_OK=no; fi
+  fi
+  [ "$_SEALED_SRC_OK" = yes ]
+}
+
+# #5896 slice 2: the sealed, signed Kosmos.app the build shipped, copied as it is, when this install wrote the
+# account's own config (_wic_rc 0, from write_install_config before the icon step): that file is the only thing that
+# tells the sealed app which install it opens. Otherwise (a sandbox, a custom-home install with the real home, a
+# failed write, a tarball without the sealed app) the per-install bundle is built exactly as before.
+app_bundle_into() {
+  local src="$KOSMOS_HOME/app/Kosmos.app"
+  if sealed_placeable "$1"; then
+    # #4449: the icon's own modes, not the app tree's (KOSMOS_READONLY_APP makes that read-only, and a read-only icon
+    # could not be replaced or removed later). Modes are not part of the signature.
+    if /usr/bin/ditto "$src" "$1" && /bin/chmod -R u+w "$1" \
+       && /usr/bin/codesign --verify --deep --strict "$1" >/dev/null 2>&1; then
+      return 0
+    fi
+    # A copy that did not come out whole: this run's own stage is emptied and the per-install bundle built instead.
+    /bin/chmod -R u+w "$1" 2>/dev/null; rm -rf "$1" && /bin/mkdir "$1" || return 1
+  fi
+  build_app_bundle "$1"
 }
 
 build_app_bundle() {
@@ -3849,8 +3988,13 @@ if [ "$APP_MADE" = "yes" ]; then
       # by this install" covers another account's Kosmos AND a third-party
       # app carrying the name, where "another account has Kosmos" would
       # assert something never established.
-      info "something else already has the Kosmos spot in Applications, so yours went to the"
-      info "Applications folder inside your home folder, as Kosmos (or type Kosmos into Spotlight)"
+      if [ "${APP_OWN_SEALED:-no}" = yes ]; then
+        info "your Kosmos icon is already in Applications and this install could not refresh it, so this install's"
+        info "icon went to the Applications folder inside your home folder, as Kosmos"
+      else
+        info "something else already has the Kosmos spot in Applications, so yours went to the"
+        info "Applications folder inside your home folder, as Kosmos (or type Kosmos into Spotlight)"
+      fi
     else
       info "you will find it in the Applications folder inside your home folder, as Kosmos"
       info "(or type Kosmos into Spotlight)"
@@ -3877,7 +4021,11 @@ elif [ "$APP_HOME_FOREIGN" = "yes" ]; then
   info "note: a Kosmos.app not created by this install is in the Applications folder inside"
   info "your home folder; it was left alone and no icon was created."
   if [ "$APP_OTHER_OWNER" = "yes" ]; then
-    info "(something else also has the Kosmos spot in Applications; it was left alone too)"
+    if [ "${APP_OWN_SEALED:-no}" = yes ]; then
+      info "(your Kosmos icon in Applications could not be refreshed by this install; it was left alone too)"
+    else
+      info "(something else also has the Kosmos spot in Applications; it was left alone too)"
+    fi
   fi
   if [ "$APP_SYS_STALE" = "swap" ]; then
     info "(the Kosmos icon already in Applications could not be replaced and is still there)"

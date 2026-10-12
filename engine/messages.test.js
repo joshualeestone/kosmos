@@ -3479,3 +3479,151 @@ test('#4888: a send that was refused does not hand its id to the next one', () =
     assert.notEqual(next.id, usedId, 'the next send was given the id the refused one had used');
   });
 });
+
+/* ── #5732: a post from the account's own other computer tells the agents to read the room ─────────── */
+
+test('#5732: each member agent gets ONE line naming the room, with no post text, recorded as a nudge', () => {
+  withFleet(room3(), (board) => {
+    fs.rmSync(messages.LOG, { force: true });
+    messages._resetOwnPostNudgesForTests();
+    const tmux = arm([]);
+    const row = messages.externalPost('henderson-lease', { from: 'Josh', fromKind: 'person', text: 'SECRET-WORDS from my laptop' });
+    assert.ok(row && row.id, 'the external row was not stored');
+    const r = messages.nudgeOwnComputerPost('henderson-lease', 'Henderson Lease', row.id, MEMBERS, board.agents);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.nudged.map((n) => n.to).sort(), MEMBERS.slice().sort(), 'not every member agent was told');
+    const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('other computer is in the room'));
+    assert.equal(typed.length, MEMBERS.length, 'not one line per member');
+    assert.match(typed[0], /read it with: kosmos room henderson-lease/);
+    assert.ok(typed.every((t) => !t.includes('SECRET-WORDS')), 'the post\'s own words reached a pane');
+    const rows = messages.record().rows.filter((m) => m.kind === 'nudge' && m.reason === 'own-computer');
+    assert.equal(rows.length, MEMBERS.length, 'the nudges were not recorded');
+    assert.ok(rows.every((m) => m.post === row.id && m.project === 'henderson-lease'));
+  });
+});
+
+test('#5732: a burst of posts is one line per agent until the gap passes; only the members passed are told', () => {
+  withFleet(room3(), (board) => {
+    fs.rmSync(messages.LOG, { force: true });
+    messages._resetOwnPostNudgesForTests();
+    const tmux = arm([]);
+    const t0 = Date.now();
+    messages.nudgeOwnComputerPost('henderson-lease', 'Henderson Lease', 'x-1', ['mara'], board.agents, t0);
+    const again = messages.nudgeOwnComputerPost('henderson-lease', 'Henderson Lease', 'x-2', ['mara'], board.agents, t0 + 30e3);
+    assert.deepEqual(again.nudged, [], 'a second post inside the gap typed another line');
+    const later = messages.nudgeOwnComputerPost('henderson-lease', 'Henderson Lease', 'x-3', ['mara'], board.agents, t0 + messages.OWN_POST_NUDGE_GAP_MS + 1);
+    assert.deepEqual(later.nudged.map((n) => n.to), ['mara'], 'after the gap the agent was not told again');
+    const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('other computer is in the room'));
+    assert.equal(typed.length, 2);
+    // leo and april are not members here: nothing reaches them
+    assert.ok(messages.record().rows.filter((m) => m.kind === 'nudge').every((m) => m.to === 'mara'));
+  });
+});
+
+test('#5732: only a person\'s own post nudges, on by default, off with KOSMOS_OWN_ROOM_NUDGE=0 (the rule run; the server wrapper read as source)', () => {
+  const own = { sameAccount: true, fromKind: 'person', text: 'x' };
+  assert.equal(messages.ownPostNudges(own, {}), true, 'on by default');
+  assert.equal(messages.ownPostNudges(own, { KOSMOS_OWN_ROOM_NUDGE: '1' }), true);
+  assert.equal(messages.ownPostNudges(own, { KOSMOS_OWN_ROOM_NUDGE: '0' }), false, 'the off switch did not turn it off');
+  assert.equal(messages.ownPostNudges({ fromKind: 'person', text: 'x' }, {}), false, 'a post with no stamp (a stranger) nudged');
+  assert.equal(messages.ownPostNudges({ sameAccount: 'true', fromKind: 'person' }, {}), false, 'a stamp that is not exactly true nudged');
+  assert.equal(messages.ownPostNudges({ sameAccount: true, fromKind: 'agent' }, {}), false, 'an agent\'s post from the other computer nudged');
+  assert.equal(messages.ownPostNudges(null, {}), false);
+  // The server's wrapper asks this, and nothing else decides.
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const at = src.indexOf('recordExternal: (projectId, msg) => {');
+  assert.ok(at > 0, 'the recordExternal wrapper is gone');
+  const body = src.slice(at, at + 900);
+  assert.match(body, /if \(row && messages\.ownPostNudges\(msg, process\.env\)\) \{/, 'the wrapper does not ask ownPostNudges');
+  assert.match(body, /messages\.nudgeOwnComputerPost\(/);
+});
+
+test('#5732: an agent switched off in the project is not woken by the nudge; the others are', () => {
+  const projects = require('./projects');
+  const made = projects.create({ name: 'Own Nudge Off' });
+  const pid = made.id || (made.project && made.project.id);
+  projects.setSwarmOn(pid, 'april', false);
+  try {
+    withFleet(room3(), (board) => {
+      fs.rmSync(messages.LOG, { force: true });
+      messages._resetOwnPostNudgesForTests();
+      arm([]);
+      const r = messages.nudgeOwnComputerPost(pid, 'Own Nudge Off', 'x-off', MEMBERS, board.agents);
+      assert.deepEqual(r.nudged.map((n) => n.to).sort(), ['leo', 'mara'], JSON.stringify(r));
+    });
+  } finally { projects.setSwarmOn(pid, 'april', true); }
+});
+
+test('#5732: a paused or archived project nudges nobody, as every other automatic nudge', () => {
+  const projects = require('./projects');
+  const made = projects.create({ name: 'Own Nudge Paused' });
+  const pid = made.id || (made.project && made.project.id);
+  const set = (field, v) => projects.mutate(pid, (p) => { p[field] = v; return p; });
+  try {
+    withFleet(room3(), (board) => {
+      for (const field of ['paused', 'archived']) {
+        set(field, true);
+        messages._resetOwnPostNudgesForTests();
+        const tmux = arm([]);
+        const r = messages.nudgeOwnComputerPost(pid, 'Own Nudge Paused', 'x-' + field, MEMBERS, board.agents);
+        assert.deepEqual(r.nudged, [], 'a ' + field + ' project woke its agents');
+        assert.equal(tmux.sends().length, 0);
+        set(field, false);
+      }
+      messages._resetOwnPostNudgesForTests();
+      arm([]);
+      const ctl = messages.nudgeOwnComputerPost(pid, 'Own Nudge Paused', 'x-live', MEMBERS, board.agents);
+      assert.equal(ctl.nudged.length, MEMBERS.length, 'CONTROL: the same project, live, nudges its agents');
+    });
+  } finally { set('paused', false); set('archived', false); }
+});
+
+test('#5732: a room the valve holds nudges nobody (a reply could not be posted there)', () => {
+  withFleet(room3(), (board) => {
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    fs.writeFileSync(messages.LOG, '');
+    const at = new Date(Date.now() - 60000).toISOString();
+    for (let i = 0; i < ROOM_BUDGET + 2; i += 1) {
+      fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'h' + (i + 1), project: 'henderson-lease', from: 'mara', to: ['leo'], text: 'r' + i, at, outcomes: {} }) + '\n');
+    }
+    assert.ok(messages.roomHeld('henderson-lease', Date.now()), 'CONTROL: the seeded room is held');
+    messages._resetOwnPostNudgesForTests();
+    const tmux = arm([]);
+    const r = messages.nudgeOwnComputerPost('henderson-lease', 'Henderson Lease', 'x-held', MEMBERS, board.agents);
+    assert.equal(r.held, true);
+    assert.deepEqual(r.nudged, []);
+    assert.equal(tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('other computer is in the room')).length, 0, 'typed into a held room');
+  });
+});
+
+test('#5732: a removed member gets nothing; an unreadable removed list tells nobody', () => {
+  withFleet(room3(), (board) => {
+    clearRemoved2442();
+    seedRemoved2442(['mara']);
+    try {
+      fs.rmSync(messages.LOG, { force: true });
+      messages._resetOwnPostNudgesForTests();
+      arm([]);
+      const r = messages.nudgeOwnComputerPost('henderson-lease', 'Henderson Lease', 'x-rm', MEMBERS, board.agents);
+      assert.deepEqual(r.nudged.map((n) => n.to).sort(), ['april', 'leo'], 'a removed agent was told');
+    } finally { clearRemoved2442(); }
+    fs.mkdirSync(remove2442.REMOVED_FILE, { recursive: true });
+    try {
+      messages._resetOwnPostNudgesForTests();
+      const tmux = arm([]);
+      const r = messages.nudgeOwnComputerPost('henderson-lease', 'Henderson Lease', 'x-rm2', MEMBERS, board.agents);
+      assert.deepEqual([r.ok, r.nudged], [false, []], 'an unreadable removed list told someone');
+      assert.equal(tmux.sends().length, 0);
+    } finally { clearRemoved2442(); }
+  });
+});
+
+test('#5732: a project id that is not a plain id is never typed into a pane', () => {
+  withFleet(room3(), (board) => {
+    messages._resetOwnPostNudgesForTests();
+    const tmux = arm([]);
+    const r = messages.nudgeOwnComputerPost('x; rm -rf ~', 'X', 'x-id', MEMBERS, board.agents);
+    assert.deepEqual([r.ok, r.nudged], [false, []]);
+    assert.equal(tmux.sends().length, 0);
+  });
+});

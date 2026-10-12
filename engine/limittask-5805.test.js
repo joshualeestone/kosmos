@@ -185,9 +185,25 @@ test('#5805 task: one still kept a day past its reset is dropped, untyped, and t
     assert.deepEqual(tmux.pastedTo('casey'), [], 'the dropped line was typed');
     const told = tmux.pastedTo('leo');
     assert.equal(told.length, 1, 'the sender was not told');
-    assert.match(told[0], /Your message in task 7 in Launch never reached casey: Kosmos kept it for a day while casey was out of usage/);
+    assert.match(told[0], /Your message in task 7 in Launch never reached casey: Kosmos kept it while casey was out of usage and could not send it within a day\./);
     assert.deepEqual(kept(), []);
     assert.deepEqual(messages.list('casey').filter((r) => r.kind === 'held-dropped'), [], 'a task drop wrote a message row');
+  });
+});
+
+test('#5805 task: a dropped line kept behind earlier messages tells the sender so, naming no usage limit (as the task page does)', async () => {
+  const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
+  limitqueue.add('casey', { id: 'k3', kind: 'task', from: 'leo', envelope: LINE, about: ABOUT, at: old, reset: old, behind: true });
+  await withFleet(undefined, 'idle', async (board, tmux) => {
+    const out = captureStdout();
+    try {
+      await limitqueue.flush(board.agents, limitqueue.sweepHooks({ chat, messages }));
+      await until(() => out.lines.some((l) => l.includes('task line k3')));
+    } finally { out.restore(); }
+    const told = tmux.pastedTo('leo');
+    assert.equal(told.length, 1, 'the sender was not told');
+    assert.match(told[0], /never reached casey: Kosmos kept it behind earlier messages and could not send it within a day\./);
+    assert.doesNotMatch(told[0], /out of usage/, 'a line kept behind earlier messages named a usage limit');
   });
 });
 

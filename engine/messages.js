@@ -1547,8 +1547,10 @@ async function tellTaskLineDropped(entry, roster) {
   // An empty `from` is the person only when the route marked it so (#5842); otherwise an agent it could not name.
   let told = entry.person === true ? 'nobody (the person sent it)' : 'nobody (no sender named)';
   if (entry.from) {
-    const line = '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it'
-      + ' for a day while ' + entry.to + ' was out of usage and could not type it. Send it again if it still matters.';
+    // The task page's words (engine/taskactphrase.js): a line kept behind earlier messages names no usage limit.
+    const line = '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it '
+      + (entry.behind === true ? 'behind earlier messages' : 'while ' + entry.to + ' was out of usage')
+      + ' and could not send it within a day. Send it again if it still matters.';
     try { v = await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { v = null; }
     told = entry.from + ', delivery=' + ((v && v.state) || 'could_not');
   }
@@ -3280,11 +3282,79 @@ function projectOfPost(id) {
   return m && typeof m.project === 'string' && m.project ? m.project : null;
 }
 
+/**
+ * #5732: a post from the account's OWN other computer tells the project's agents to read the room.
+ *
+ * A shared-room post is recorded as an `external` row and, by Josh's #3311 guardrail, nothing else happens
+ * (engine/fedseats.js header): words from outside never arrive in a pane. A post the RELAY stamps
+ * `same_account` (its two members' verified room tickets are one account: the poster is the person, from
+ * another of their computers) is not from outside, so its member agents are told one thing: there is a
+ * post, read the room. The line carries NO post text, so the words still arrive only when the agent reads
+ * the room, marked external, as today. Strangers' posts are never passed here.
+ *
+ * At most one line per agent per room per OWN_POST_NUDGE_GAP_MS, so a burst of posts is one prompt to read.
+ * Removed agents get nothing, and an unreadable removed list tells nobody (the post gate's fail-closed rule).
+ * An agent switched off in this project (#3564) is not woken, as a room post does not wake it (an unreadable project
+ * store reads as none switched off, as the room post's own check does). A paused or archived project nudges nobody, as
+ * every other automatic nudge skips them. A room the valve holds (roomHeld) nudges nobody, since an agent told to read
+ * it could not post a reply there.
+ * Recorded as a `nudge` row naming the external post, so what was typed is checkable from the store.
+ * Whether a post nudges at all is ownPostNudges (server.js asks it).
+ */
+const OWN_POST_NUDGE_GAP_MS = 2 * 60 * 1000;
+/* #5732 decided on by default (reasoning on the card): only a post the relay stamps as this account's own AND that a
+   person wrote. An agent's post relayed from the other computer does not nudge, or two computers' agents would keep
+   telling each other to read the room. KOSMOS_OWN_ROOM_NUDGE=0 turns it off. */
+function ownPostNudges(msg, env) {
+  const e = env || process.env;
+  return !!(msg && msg.sameAccount === true && msg.fromKind === 'person' && e.KOSMOS_OWN_ROOM_NUDGE !== '0');
+}
+const ownPostNudgedAt = new Map();
+function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, now = Date.now()) {
+  const ok = (v) => typeof v === 'string' && v.length > 0;
+  if (!ok(projectId) || !/^[A-Za-z0-9._-]+$/.test(projectId) || !ok(postId) || !Array.isArray(members) || !Array.isArray(roster)) return { ok: false, nudged: [] };
+  const room = _roomMembers(members.filter(ok));
+  if (!room.ok) return { ok: false, nudged: [] };
+  let held = null;
+  try { held = roomHeld(projectId, now); } catch { held = null; }
+  if (held) return { ok: true, nudged: [], held: true };
+  let offHere = new Set();
+  try {
+    const projectsMod = require('./projects');
+    const rec = projectsMod.readAll().find((x) => x && x.id === projectId);
+    if (rec && (rec.archived === true || projectsMod.isPaused(rec))) return { ok: true, nudged: [], paused: true };
+    offHere = projectsMod.swarmOffSet(projectId);
+  } catch { offHere = new Set(); }
+  const rawName = String(projectName == null ? '' : projectName).trim();
+  const shown = (rawName && /^[A-Za-z0-9._ -]+$/.test(rawName)) ? rawName : projectId;
+  const line = '[a new post from the person\u2019s other computer is in the room ' + shown + '; read it with: kosmos room ' + projectId + ']';
+  const nudged = [];
+  for (const name of room.members) {
+    if (offHere.has(String(name))) continue;   // #3564: switched off in this project, so not woken
+    const key = projectId + '\n' + name;
+    if (now - (ownPostNudgedAt.get(key) || -Infinity) < OWN_POST_NUDGE_GAP_MS) continue;
+    const card = roster.find((c) => c && c.sessionName === name);
+    if (!card || !card.target) continue;   // only an addressable card, as the #185 sweep
+    let sent;
+    try { sent = chat.deliverAutomatic(name, line, roster); } catch { continue; }   // one failing pane does not skip the rest
+    // Held (a shared quota, a usage limit, or a Claude screen waiting on its menu or a permission prompt), or not typed
+    // at all: nothing reached the agent, so the gap is not spent and the next post can try.
+    if (sent && (sent.held === true || sent.state === chat.DELIVERY.COULD_NOT)) continue;
+    ownPostNudgedAt.set(key, now);
+    appendLog({ kind: 'nudge', post: postId, to: name, project: projectId, at: new Date(now).toISOString(),
+      outcome: sent && sent.state, reason: 'own-computer' });
+    nudged.push({ to: name, outcome: sent && sent.state });
+  }
+  return { ok: true, nudged };
+}
+function resetOwnPostNudgesForTests() { ownPostNudgedAt.clear(); }
+
 module.exports = {
   HELD_STATE, heldAccepted, logHeldDelivered, logHeldDropped, tellHeldDropped,   // kosmos#5805 slice 2a
   keepTaskLine, tellTaskLineDropped, recordTaskLineOutcome,   // kosmos#5805: task messages; #5842: their outcome on the task
   NOT_ON_PROJECT_FIX,   // kosmos#5752 slice 2
   logRoomRefusal,       // kosmos#5752 slice 3
+  nudgeOwnComputerPost, ownPostNudges, OWN_POST_NUDGE_GAP_MS, _resetOwnPostNudgesForTests: resetOwnPostNudgesForTests,   // #5732
   staleHeld, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS,
   SEND_DEDUP_WINDOW_MS,
   // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.

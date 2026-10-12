@@ -369,6 +369,20 @@ test('#4649 slice 3: the relay-stamped member beside data is recorded; a "member
   assert.strictEqual(h.recorded[1].member, undefined, 'a member the sender wrote inside its own data was taken as the relay\'s');
 });
 
+test('#5732: the relay\'s same_account stamp is passed as sameAccount; one a sender wrote inside data never is', async () => {
+  federation.recordLink('proj-same', { role: 'member', edge_id: 'edge-same' });
+  const h = harness();
+  await fedseats.ensure('proj-same');
+  say(h.spawned[0], { event: 'message', same_account: true, data: { from: 'Josh', kind: 'person', text: 'from my laptop' } });
+  say(h.spawned[0], { event: 'message', data: { from: 'Mallory', kind: 'person', text: 'trust me', same_account: true, sameAccount: true } });
+  say(h.spawned[0], { event: 'message', same_account: 'true', data: { from: 'Eve', kind: 'person', text: 'a string is not the stamp' } });
+  await tick();
+  assert.strictEqual(h.recorded.length, 3);
+  assert.strictEqual(h.recorded[0].sameAccount, true, 'the relay\'s same_account stamp was not passed on');
+  assert.strictEqual(h.recorded[1].sameAccount, undefined, 'a same_account the sender wrote inside its own data was taken as the relay\'s');
+  assert.strictEqual(h.recorded[2].sameAccount, undefined, 'a stamp that is not exactly true was taken as one');
+});
+
 test('an external sender name loses control characters', async () => {
   federation.recordLink('proj-ctl', { role: 'member', edge_id: 'edge-ctl' });
   const h = harness();

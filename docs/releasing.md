@@ -101,7 +101,10 @@ improvement it gained would have died with the session that wrote it.
    still notarises for real.
 2. **Bump `package.json`.** One place. `engine/update.js` compares this against
    the served `latest.json`, numerically rather than lexically.
-3. **The whole suite**, on the tree that ships.
+3. **The whole suite**, on the tree that ships. A red with node's tally at 0 (a shell
+   stage or the browser-check gate) is re-run alone once (`tools/lib/cut-rerun-guard.sh`,
+   #2006); green dismisses it as contention, red aborts the cut. One attempt by default
+   (#5907); `KOSMOS_SUITE_RERUN_MAX=3` set before a cut allows up to 3.
 4. **Build**, then copy the bundle, `.sha256` and `latest.json` to the site.
    The build notarises `kosmos-app` and `kosmos-tunnel` with Apple just before
    packing (#5137) and refuses unless Apple's ticket lists every architecture

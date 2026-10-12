@@ -21525,7 +21525,26 @@ const server = http.createServer(async (req, res) => {
 fedseats.configure({
   spawnSeat: (edge) => remote.spawnFedSeat(edge),
   macRequest: (method, route, body) => remote.macRequest(method, route, body),
-  recordExternal: (projectId, msg) => messages.externalPost(projectId, msg),
+  /* #5732: a post the relay stamps as this account's own (another of the person's computers) tells the project's
+     agents to read the room, with no post text. Whether it does is messages.ownPostNudges (a person's own post, on by
+     default, KOSMOS_OWN_ROOM_NUDGE=0 turns it off). Strangers' posts and agents' posts stay data only.
+     Never throws into the seat's data handler. */
+  recordExternal: (projectId, msg) => {
+    const row = messages.externalPost(projectId, msg);
+    if (row && messages.ownPostNudges(msg, process.env)) {
+      /* Deferred so the seat's data handler returns before any pane is inspected or typed into. The typing itself is
+         synchronous (chat.deliverAutomatic, as the #185 sweep), one member at a time. */
+      const nudge = () => {
+        try {
+          const roster = safeRoster();
+          const found = projects.get(projectId, roster);
+          if (found) messages.nudgeOwnComputerPost(projectId, found.name, row.id, (found.agents || []).map((a) => a.sessionName), roster);
+        } catch { /* the post is recorded; the agents read the room as before */ }
+      };
+      setImmediate(nudge);
+    }
+    return row;
+  },
   externalKeptOn: (projectId, day) => messages.externalKeptOn(projectId, day),
   enrolled: () => remote.enrolled(),
   allowed: () => liveExecution.liveExecutionAllowed(),   // #5671
@@ -21734,6 +21753,11 @@ function start(port = PORT) {
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
   try { filepreview.sweep(); } catch { /* best effort */ }
   setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
+  /* #5535 E0.6 slice (d): the company backup tick, hourly and only while orgenroll.mayReport (enrolled here AND the
+     company's words accepted here). The first run is an hour after start, never at boot. Kosmos+ answers backup_off
+     while company backup is off, and the tick then asks again a day later (engine/backuptick.js). Best effort: never a
+     reason not to start. */
+  try { require('./engine/backuptick').startHere(); } catch { /* best effort */ }
   /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
      running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
   try { const rn = require('./engine/restartnote'); rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK }); rn.startBeating(); } catch { /* best effort */ }

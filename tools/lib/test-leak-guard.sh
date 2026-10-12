@@ -178,9 +178,11 @@ leak_family() {
 # leak_tmp_check <root> <allowlist>: the families of entries left inside <root> that
 # no allowlist line matches. A line is a family name or a shell glob
 # (`aoc-state.*.polls`); `#` starts a comment. Allowlisted families that left nothing
-# are counted on one closing line (so the list can shrink without burying a failure).
+# are counted and named on one closing line (so the list can shrink without burying a failure).
+# #5907: named, because a count alone could not say which line to delete. One clean run is
+# not proof a family is gone: some leak only when a test fails.
 leak_tmp_check() {
-  local root="${1%/}" allow="$2" found=0 n fam pat ok left allowed unused=0 line
+  local root="${1%/}" allow="$2" found=0 n fam pat ok left allowed unused=0 line unused_names=""
   [ -d "$root" ] || return 0
   # One line per family: count, family, TAB, one raw name (so a report says what to fix).
   local ex
@@ -207,9 +209,9 @@ leak_tmp_check() {
       # shellcheck disable=SC2254
       case "$fam" in $pat) ok=1; break ;; esac
     done <<< "$left"
-    [ "$ok" -eq 0 ] && unused=$((unused + 1))
+    if [ "$ok" -eq 0 ]; then unused=$((unused + 1)); unused_names="${unused_names:+$unused_names, }$pat"; fi
   done <<< "$allowed"
-  [ "$unused" -gt 0 ] && echo "note: $unused allowlisted families left nothing this run; remove any that no longer leak from $(basename "$allow")"
+  [ "$unused" -gt 0 ] && echo "note: $unused allowlisted families left nothing this run ($unused_names); remove any that no longer leak from $(basename "$allow") (one clean run is not proof)"
   return "$found"
 }
 

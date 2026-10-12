@@ -739,6 +739,47 @@ echo "==> native app: dictation listens on-device only, or not at all (#4409)"
 _app_bin_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')"
 echo "==> native app: kosmos-app signed $_app_bin_sha"
 
+# ---- #5896 slice 2: the sealed Kosmos.app ----------------------------------
+# The whole app, assembled and signed HERE, once, so a notarized bundle can ship (slice 3): a signed bundle cannot be
+# written into afterwards, so install/setup.sh copies it as it is and every per-install fact lives in the account's
+# own Library (slice 1). The Info.plist is read out of setup.sh's own build_app_bundle heredoc, so the sealed bundle
+# and the per-install one that setup.sh still builds when it cannot use this one never carry different keys; only
+# the version (this build's) and the floor (tools/macos-floor) are filled in here.
+echo "==> assembling the sealed Kosmos.app (#5896)"
+_sealed="$STAGE/app/Kosmos.app"
+mkdir -p "$_sealed/Contents/MacOS" "$_sealed/Contents/Resources"
+cp "$STAGE/app/bin/kosmos-app" "$_sealed/Contents/MacOS/Kosmos"
+_plist="$(awk '/cat > "\$target\/Info.plist" <<PLIST/ { f = 1; next } f && /^PLIST$/ { exit } f' "$REPO/install/setup.sh")"
+case "$_plist" in
+  *'<key>CFBundleIdentifier</key><string>com.chaoskosmos.kosmos</string>'*) ;;
+  *) echo "could not read the Info.plist out of install/setup.sh build_app_bundle (#5896): the heredoc moved or changed shape" >&2; exit 1 ;;
+esac
+_floor="$(cat "$REPO/tools/macos-floor")"
+printf '%s\n' "$_plist" | sed -e "s/\\\$MACOS_FLOOR_MAJOR\\.\\\$MACOS_FLOOR_MINOR/$_floor/" -e "s/\\\$ver</$_ver</g" > "$_sealed/Contents/Info.plist"
+if grep -q '\$' "$_sealed/Contents/Info.plist"; then
+  echo "the sealed app's Info.plist still holds an unfilled \$ value (#5896): setup.sh's heredoc gained a variable this build does not fill" >&2; exit 1
+fi
+plutil -lint "$_sealed/Contents/Info.plist" >/dev/null || { echo "the sealed app's Info.plist is not a valid plist (#5896)" >&2; exit 1; }
+if [ -f "$STAGE/app/assets/Kosmos.icns" ]; then cp "$STAGE/app/assets/Kosmos.icns" "$_sealed/Contents/Resources/Kosmos.icns"
+else echo "==> note: no app/assets/Kosmos.icns staged, so the sealed Kosmos.app ships without its icon"; fi
+# Signing the BUNDLE re-signs its executable with the bundle's Info.plist and resources sealed in. The same identity,
+# hardened runtime, timestamp and entitlements as the binary above (#4409: the mic needs the entitlement here too).
+codesign_ts_retry --force --options runtime --timestamp --entitlements "$REPO/native-app/kosmos-app.entitlements" -s "$_codesign_id" "$_sealed" || {
+  printf '%s\n' "could not Developer ID sign the sealed Kosmos.app as \"$_codesign_id\". NOT falling back to ad-hoc." >&2; exit 1; }
+if ! _sealed_v="$(codesign --verify --deep --strict "$_sealed" 2>&1)"; then
+  printf '%s\n' "$_sealed_v" | sed 's/^/    /' >&2
+  echo "the sealed Kosmos.app's signature did not verify (--deep --strict) after signing" >&2; exit 1
+fi
+_sealed_id="$(codesign -dv "$_sealed" 2>&1 | sed -n 's/^Identifier=//p')"
+[ "$_sealed_id" = "com.chaoskosmos.kosmos" ] || { echo "the sealed Kosmos.app is signed as '$_sealed_id', not com.chaoskosmos.kosmos" >&2; exit 1; }
+case "$(codesign -d --entitlements - --xml "$_sealed" 2>/dev/null)" in
+  *"com.apple.security.device.audio-input"*) ;;
+  *) echo "the sealed Kosmos.app's signature does not carry the microphone entitlement (#4409)" >&2; exit 1 ;;
+esac
+perl -e 'alarm 15; exec @ARGV; exit 127' "$_sealed/Contents/MacOS/Kosmos" --kosmos-app-selftest >/dev/null 2>&1 \
+  || { echo "the sealed Kosmos.app's executable does not run (--kosmos-app-selftest failed or hung)" >&2; exit 1; }
+echo "==> sealed Kosmos.app: signed com.chaoskosmos.kosmos, verified --deep --strict"
+
 # ---- the runtime ------------------------------------------------------------
 node_arch() {
   case "$ARCH" in

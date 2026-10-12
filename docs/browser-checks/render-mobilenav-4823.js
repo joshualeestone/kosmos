@@ -105,6 +105,11 @@ const settled = (page) => page.waitForFunction(() => {
     && document.getAnimations().filter((a) => a.playState === 'running' && a.effect && a.effect.target && n.contains(a.effect.target)).length === 0;
 }, null, { timeout: 5000 }).then(() => true, () => { unsettled++; return false; });
 let unsettled = 0;   // a wait that timed out is reported, never swallowed (review round 2)
+// kosmos#5921: a proxied request aborted while its page was still open, and a teardown call that failed, are counted
+// and checked at the end, so neither can pass silently; neither replaces an arm's own error.
+let abortedLive = 0;
+const abortedWhy = [];   // which request, and why, so a red count can be diagnosed
+const teardownFails = [];
 
 (async () => {
   fleet.install([
@@ -118,17 +123,45 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
     const browser = await playwright[engine].launch(engine === 'chromium'
       ? { headless: process.env.HEADED === '0', args: ['--host-resolver-rules=MAP remote.test 127.0.0.1'] }
       : { headless: process.env.HEADED === '0' });
+    // kosmos#5921: stop routing before a context closes. A route handler still between r.fetch and r.fulfill when its
+    // context closes otherwise throws ("Fetch response has been disposed", "Request context disposed") where nothing
+    // catches it, and the whole check dies after its assertions passed. render-login-expiry-3532 and
+    // render-teamcreate-4557 unroute the page this way; this check also routes on the context (WebKit's remote.test),
+    // so it unroutes both. ignoreErrors makes Playwright ignore errors from handlers already running when it is called.
+    const live = new Map();   // every context that got a page, so a failing arm still unroutes before browser.close
+    // The page closes before the context's route goes: on WebKit that route is what answers remote.test, and a page
+    // still polling without it would reach real DNS and report a page error.
+    const unroute = async (ctx, page) => {
+      await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+      await page.close().catch((e) => teardownFails.push('page.close: ' + (e && e.message)));
+      await ctx.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+    };
+    const shut = async (ctx, page) => {
+      live.delete(ctx);   // first: from here on an abort on its proxy is teardown, not a failure while open
+      await unroute(ctx, page);
+      await ctx.close().catch((e) => teardownFails.push('ctx.close: ' + (e && e.message)));
+    };
     const open = async (host, theme, opts) => {
       const ctx = await browser.newContext(Object.assign({ viewport: { width: 430, height: 932 }, colorScheme: theme, hasTouch: true, serviceWorkers: 'block' }, opts || {}));
       if (engine === 'webkit' && host === 'remote.test') {
         // remote.test answered by the same board on loopback; the Host header stays remote.test, which the board accepts.
+        // Self-contained (kosmos#5921): this route outlives the page at teardown, so a fetch or fulfil it cannot finish
+        // (the page closed under it) aborts that one request instead of throwing where nothing catches it. An abort
+        // while the page is still open is counted, and the end of the run fails on any.
         await ctx.route(/^http:\/\/remote\.test(:\d+)?\//, async (r) => {
-          const u = new URL(r.request().url());
-          const res = await r.fetch({ url: 'http://127.0.0.1:' + port + u.pathname + u.search, headers: Object.assign({}, r.request().headers(), { host: 'remote.test:' + port }) });
-          return r.fulfill({ response: res });
+          try {
+            const u = new URL(r.request().url());
+            const res = await r.fetch({ url: 'http://127.0.0.1:' + port + u.pathname + u.search, headers: Object.assign({}, r.request().headers(), { host: 'remote.test:' + port }) });
+            return await r.fulfill({ response: res });
+          } catch (e) {
+            const pg = live.get(ctx);
+            if (pg && !pg.isClosed()) { abortedLive++; abortedWhy.push(r.request().url() + ': ' + (e && e.message)); }
+            return r.abort().catch(() => {});
+          }
         });
       }
       const page = await ctx.newPage();
+      live.set(ctx, page);
       page.on('pageerror', (e) => errs.push(engine + ' ' + theme + ': ' + e.message));
       // A known context reading and an unread message, so the ring and the bubbles have something to show.
       await page.route('**/api/status*', async (r) => {
@@ -156,7 +189,7 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         chk(!l.bar && !l.nav && l.klink && l.burger && l.stats && l.gridBtn && l.layout === 'grid',
           E + 'L CONTROL: on the Mac itself at phone width there is no navy bar or phone menu; the K mark, the menu button, the count tiles and the grid stay',
           JSON.stringify({ bar: !!l.bar, nav: !!l.nav, klink: l.klink, burger: l.burger, stats: l.stats, grid: l.gridBtn, layout: l.layout }));
-        await ctx.close();
+        await shut(ctx, page);
       }
       for (const theme of ['light', 'dark']) {
         const T = E + theme + ' ';
@@ -318,7 +351,7 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         chk(l.nav && !l.nav.shown && !l.menuBtn && l.logoutBtn && l.stats && l.gridBtn && l.layout === 'grid' && l.saved === 'grid' && !l.up,
           T + 'W1 CONTROL: at 1280 the menu closes and today\'s header and board are back, the saved grid with them',
           JSON.stringify({ shown: l.nav && l.nav.shown, menuBtn: !!l.menuBtn, out: l.logoutBtn, stats: l.stats, grid: l.gridBtn, layout: l.layout, saved: l.saved, up: l.up }));
-        await ctx.close();
+        await shut(ctx, page);
       }
       // A phone held sideways is still a phone (the board's PHONE_WIDTH): the navy header and menu button stay.
       // Chromium only: "hover: none" needs a mobile emulation, which Playwright offers in Chromium and not in WebKit.
@@ -327,7 +360,7 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         const l = await look(page);
         chk(l.bar && l.bar.h === 48 && l.menuBtn && !l.klink && !l.burger && !l.stats && !l.gridBtn,
           E + 'O1 sideways (844x390, touch) keeps the phone header and Agents page', JSON.stringify({ bar: l.bar, menuBtn: !!l.menuBtn, klink: l.klink, burger: l.burger, stats: l.stats, grid: l.gridBtn }));
-        await ctx.close();
+        await shut(ctx, page);
       }
       // Reduced motion: the level changes at once, with no movement.
       {
@@ -337,7 +370,7 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         const now = await page.evaluate(() => ({ level: [...document.querySelectorAll('#pnav .pnav-level')].filter((x) => !x.hidden).map((x) => x.dataset.level),
           running: document.getAnimations().filter((a) => a.playState === 'running' && a.effect && a.effect.target && document.getElementById('pnav').contains(a.effect.target)).length }));
         chk(JSON.stringify(now.level) === '["settings"]' && now.running === 0, E + 'R1 with reduced motion Settings is there at once, nothing moving', JSON.stringify(now));
-        await ctx.close();
+        await shut(ctx, page);
       }
       // kosmos#4879: the phone menu's Log out, when it works, lands where the bar's does (P4 in render-plus-bar-3837):
       // the address's start, '/#signed-out', reloaded. Its own context, since it leaves the board. S4 covers the refusal.
@@ -357,14 +390,17 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         const s5 = await page.evaluate(() => ({ reloaded: !window.__before, path: location.pathname, hash: location.hash, host: location.hostname }));
         chk(asked === 1 && s5.reloaded && s5.path + s5.hash === '/#signed-out' && s5.host === 'remote.test',
           E + 'LO1 the phone menu\'s Log out that works posts once and lands on the address\'s start, signed out', JSON.stringify({ asked, lo1: s5 }));
-        await ctx.close();
+        await shut(ctx, page);
       }
     } finally {
-      await browser.close();
+      for (const [ctx, page] of [...live]) { live.delete(ctx); await unroute(ctx, page); }
+      await browser.close().catch((e) => teardownFails.push('browser.close: ' + (e && e.message)));
     }
   }
   chk(errs.length === 0, 'no page errors', JSON.stringify(errs.slice(0, 3)));
   chk(unsettled === 0, 'every wait for the menu to settle settled', String(unsettled));
+  chk(abortedLive === 0, 'no proxied remote.test request failed while its page was open (kosmos#5921)', abortedLive + ' ' + JSON.stringify(abortedWhy.slice(0, 3)));
+  chk(teardownFails.length === 0, 'every context and browser closed cleanly (kosmos#5921)', JSON.stringify(teardownFails));
   server.close();
   for (const d of ROOTS) fs.rmSync(d, { recursive: true, force: true });
   console.log(`\nrender-mobilenav-4823: ${pass} passed, ${fail.length} failed`);

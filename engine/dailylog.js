@@ -124,7 +124,11 @@ const CHAIN_MAX = 1000;
  * The rule for following a name is engine/chat.js's asideChain's, restated here because that function reads only
  * Kosmos's own chats folder and this compiler is given a folder: the name is this thread file's name, a dot, and
  * `.full` at the end, with no path separator; the file parses, holds a message list, its `agent` is `key`, and its
- * `projectBornAt` is the one `parsed` carries. A test compares the two on files the real writer made.
+ * `projectBornAt` is the one `parsed` carries, or it has none (kosmos#5900: a file from before conversations were
+ * dated; every file before it must then have none either). That reading has the cost asideChain states: a project
+ * from before dates, deleted and re-created under its name, reaches the old one's undated files, so that folder,
+ * refused before kosmos#5900, now compiles with the old project's rows under the live one's heading, as chat.js
+ * shows them. A test compares the two on files the real writer made.
  *
  * Returns `{ complete, earlier }`: `earlier` is [{ name, carried, messages }] as asideChain(..., true) gives it, and
  * `complete` is true only when the walk reached a file that names no earlier one. asideChain keeps what it read when
@@ -134,7 +138,7 @@ const CHAIN_MAX = 1000;
 function followChain(chatsDir, base, key, parsed) {
   const ok = (n) => typeof n === 'string' && n.startsWith(base + '.') && n.endsWith('.' + ROLLED_OVER_SUFFIX)
     && !n.includes('/') && !n.includes('\\') && n.length < 300;
-  const born = (parsed && parsed.projectBornAt) || null;
+  let born = (parsed && parsed.projectBornAt) || null;
   let next = parsed && typeof parsed.continues === 'string' && parsed.continues ? parsed.continues : null;
   const earlier = [];
   const seen = new Set();
@@ -143,7 +147,13 @@ function followChain(chatsDir, base, key, parsed) {
     let rec;
     try { rec = JSON.parse(fs.readFileSync(path.join(chatsDir, next), 'utf8')); } catch { return { complete: false, earlier }; }
     if (!rec || rec.agent !== String(key) || !Array.isArray(rec.messages)) return { complete: false, earlier };
-    if ((rec.projectBornAt || null) !== born) return { complete: false, earlier };
+    // kosmos#5900, as asideChain: a file with no date is followed when the link names it, and after the first such
+    // file only undated ones can follow. A file with another date is another conversation's.
+    const recBorn = rec.projectBornAt || null;
+    if (recBorn !== born) {
+      if (recBorn !== null) return { complete: false, earlier };
+      born = null;
+    }
     const cont = typeof rec.continues === 'string' ? rec.continues : null;
     const rows = rec.messages.filter((m) => m && typeof m === 'object' && typeof m.text === 'string');
     const carried = cont && Number.isInteger(rec.carried) && rec.carried > 0 ? Math.min(rec.carried, rows.length) : 0;
