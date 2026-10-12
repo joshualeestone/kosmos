@@ -111,7 +111,9 @@ a source that fails refuses the check rather than reading as "no stopped agents"
   over 6 MB never gets a reply at all (readBody destroys the request; measured ECONNRESET), as before this change.
 - **`except` is compared by the store key**, so a route reached as `/api/agent/Gemini/...` excepts the gemini agent.
 - **What "fails closed" covers:** a roster that cannot be read (safeRoster answers null) and a created list that cannot
-  be read both refuse, and so does a Windows session record that is there but cannot be read or parsed
+  be read both refuse (the created list through the REAL source asked `strict`, which throws on a job folder that is
+  there and cannot be read; its other callers still get [] as before), and so does a Windows session record that is
+  there but cannot be read or parsed
   (win32sessions.readStrict; an absent record is empty). A tmux with no server is a true empty roster.
 
 ## The fleet reads the pane listing, not the board snapshot (review iteration 11)
@@ -128,3 +130,15 @@ The rule section above says "taken" uses the @-mention key. That held until iter
 lower-case, letters and digits of every script; `nameKey` (the mention key, a-z and 0-9) is unchanged and still what
 `mentionedMembers` calls. Same answer for Latin names; non-Latin names are now compared, and digits alone never
 clash. A single Latin letter or digit is too short to clash; a single character of another script (王) is a name.
+
+## Review iteration 13
+
+- **The created list's strict read was vacuous** (the real source never threw, and the test stubbed a throw it never
+  makes). Fixed: `createdroster.make()` takes `strict`, and the test drives the real source with an unreadable folder.
+- **"Unchanged" means the name the board shows** (readIdentity: the record, else the "You are" line), not only the
+  record, so an agent named only by its line can resend that name beside a role edit.
+- **Deferred, measured:** excepting a connecting agent's own handle. In `registerOnly` the handle is the typed name, and
+  "Ge Mini" has the store key `gemini`, the existing Gemini agent's; excepting by key let that connect through (the
+  connect test went red), where it would have written into Gemini's own profile record. Not excepting refuses it. The
+  cost is a Windows edge (re-connecting an agent's own folder after its job was unregistered, with its session record
+  left behind), which is then refused in its own name.

@@ -250,12 +250,26 @@ test('#5957: on Windows, a stopped agent is read from the session record (the Wi
   assert.equal(nameCheckFleet('darwin').some((a) => a.handle === key), false);
 });
 
-test('#5957: a created list that cannot be read refuses the name check rather than reading as "no stopped agents"', (t) => {
+test('#5957: the REAL created list, with a job folder it cannot read, refuses the name check; an absent one is empty', (t) => {
+  /* The production source (engine/createdroster.make) never throws for the board's own rows; asked strictly, as
+     status.createdKeysStrict asks, it throws on a folder that is there and cannot be read. Driven through the real
+     source with only its fs swapped, so this is the path production takes, not a stubbed throw. */
   const status = require('./engine/status');
   const { nameCheckFleet } = require('./server');
-  status.setCreatedSource(() => { throw new Error('LaunchAgents unreadable'); });
+  const madeWith = (code) => require('./engine/createdroster').make({
+    platform: 'darwin',
+    fs: { ...fs, readdirSync: () => { const e = new Error(code + ' reading LaunchAgents'); e.code = code; throw e; } },
+    status: { sandboxIsInconsistent: () => false },
+  });
   t.after(() => status.setCreatedSource(null));
-  assert.throws(() => nameCheckFleet('darwin'), /LaunchAgents unreadable/);
+
+  status.setCreatedSource(madeWith('EACCES'));
+  assert.throws(() => nameCheckFleet('darwin'), /EACCES reading LaunchAgents/);
+  // Control: no LaunchAgents folder at all is no agents, not a failure.
+  status.setCreatedSource(madeWith('ENOENT'));
+  assert.ok(Array.isArray(nameCheckFleet('darwin')));
+  // And the board's own (non-strict) read of the same unreadable folder is unchanged: it lists nothing.
+  assert.deepEqual(madeWith('EACCES')(new Set(), { includeRemoved: true }), []);
 });
 
 test('#5957: on Windows, a session record that is there but unreadable refuses; an absent one is empty', (t) => {
@@ -279,4 +293,24 @@ test('#5957: a pane listing that cannot be read refuses the name check (tmux cou
   status.setPaneSource(() => null);   // what tmux answers when it could not be asked
   t.after(() => { status.setPaneSource(null); board = fleet.install(AGENTS.map((a) => fleet.agent(a.session, { state: 'idle' }))); });
   assert.throws(() => nameCheckFleet('darwin'), /could not see what is running/);
+});
+
+test('#5957: an agent named only by its "You are" line can resend that name beside a role edit', async (t) => {
+  const beforeG = shownOf('gemini');
+  const beforeO = store.readProfile('other').displayName;
+  const fileWas = fs.readFileSync(briefOf('other'), 'utf8');
+  store.writeProfile('other', { displayName: undefined });   // no name on record: the board reads the file's line
+  fs.writeFileSync(briefOf('other'), fileWas.replace(/You are \*\*[^*]+\*\*/, 'You are **Twin**'));
+  store.writeProfile('gemini', { displayName: 'Twin' });     // an older duplicate of that name
+  t.after(() => {
+    store.writeProfile('gemini', { displayName: beforeG });
+    store.writeProfile('other', { displayName: beforeO });
+    fs.writeFileSync(briefOf('other'), fileWas);
+  });
+  assert.equal(require('./engine/status').readIdentity('other').displayName, 'Twin', 'fixture: other is not named by its line');
+
+  const res = await send('PUT', '/api/agent/other/profile', { displayName: 'Twin', role: 'Planner' });
+  assert.equal(res.status, 200, 'the name the board already shows was refused: ' + JSON.stringify(await res.clone().json()));
+  // Control: a real change into that clash is still refused.
+  assert.equal((await send('PUT', '/api/agent/other/profile', { displayName: 'TWIN' })).status, 400);
 });
