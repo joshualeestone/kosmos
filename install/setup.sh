@@ -460,6 +460,16 @@ sealed_icon_mark_reuse() {
   return $rc
 }
 
+# #5913 review 4: the uninstall's sentence about a shared sealed icon it leaves in place. An account that only REUSED
+# another account's icon neither owns nor can delete it, so it is not told to drag it to the Trash.
+sealed_left_note() {
+  if [ "$(file_owner_uid "$SYS_APP_DIR/Kosmos.app")" != "$(/usr/bin/id -u)" ]; then
+    info "note: the Kosmos app in $SYS_APP_DIR belongs to another account on this computer, so it was left in place."
+  else
+    info "note: the Kosmos app in $SYS_APP_DIR is a Kosmos app shared by every account on this computer, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
+  fi
+}
+
 # #5913: this install's uninstall takes back ITS OWN marker: a regular file this account owns, naming this install.
 sealed_icon_unmark() {
   local me f
@@ -2262,12 +2272,7 @@ KOSMOS_SWEEP_LIST
         # #5896 slice 2: the sealed icon is the same app for every account on this Mac, and another account may be
         # using it, so a shared one is left in place and named.
         _sys_sealed_left=yes
-        # #5913 review 4: an account that only REUSED another account's icon neither owns nor can delete it.
-        if [ "$(file_owner_uid "$SYS_APP_DIR/Kosmos.app")" != "$(/usr/bin/id -u)" ]; then
-          info "note: the Kosmos app in $SYS_APP_DIR belongs to another account on this computer, so it was left in place."
-        else
-          info "note: the Kosmos app in $SYS_APP_DIR is a Kosmos app shared by every account on this computer, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
-        fi
+        sealed_left_note   # #5913 review 4: says whose icon it is
       # The same anchored token as resolve_app_dir: the closing `}"` keeps
       # two homes in a prefix relationship from cross-matching, because
       # this grep is the sole gate on an rm -rf in a shared folder.
