@@ -10,18 +10,20 @@ fleet dialog, but both need the person to go looking; the card, where an agent i
 ## The rule
 A card says it when the agent is FAR behind: its recorded rules version (`profile.doctrineVersion`) is at least
 `RULES_FAR_BEHIND` (5) versions below the current one (`DOCTRINE_VERSION`), AND the agent's own page would offer the
-update (doctrine.status says `refresh`, not `current`). The second condition keeps the card and the page agreeing: a
-person who edited the rules by hand reads `current` there, and the card must not send them to an update the page will
-not offer.
+update (doctrine.status says `refresh`, not `current`), AND the person has not said Not now to this version (the page
+hides its note then too). The last two keep the card and the page agreeing: a person who edited the rules by hand reads
+`current` there, and the card must not send them to an update the page will not offer.
 
 ## Where it is computed
 `doctrine.status` reads and plans the whole instructions file, too heavy for every card on every poll. So the server
 computes `rulesBehind` (a number, or null) per tied row, CACHED on (instructions file mtime and size, profile
-updatedAt): the cost is one stat per poll unless something changed. Null when the version is unknown (an agent made
+updatedAt, version, Not now). An agent not far behind returns before touching any file; a far-behind one costs finding
+its file (its job record) and one stat per poll, and the whole plan only when something changed. Null when the version is unknown (an agent made
 before the version was recorded) or the file is missing: no claim from a missing record.
 
 ## What the card says
-Through `stateReason`, as the last rule (anything more urgent wins): "Its working rules are N versions behind. Open it
+Through `stateReason`, on a CARD only and in a calm state (idle, working, stopped), as the last rule (anything more
+urgent wins): "Its working rules are N versions behind. Open it
 to update them." Plain words, no new badge or colour: the card's look is unchanged (the same posture as #5154 slice C).
 
 ## Not in this slice
