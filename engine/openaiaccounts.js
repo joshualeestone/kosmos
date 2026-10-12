@@ -311,7 +311,12 @@ function forgetAccount(dir, usedBy) {
      in flight really stopped every agent on it and THEN refused. Its own comment
      already said it mirrors the agents refusal; mirroring means beside, not after.
      `server.disconnect-stop-2570.test.js` pins this ordering. */
-  if (activeChatgptDirs.has(clean)) {
+  /* #5994: the account's OWN unfinished "Sign in again" no longer refuses. A person who abandoned it had no cancel
+     they could reach and was refused for up to the watchdog's limit; wanting the account gone overrides finishing a
+     sign-in into it. It is cancelled below, after every other guard, so a refused call (the #2570 pre-flight)
+     cancels nothing. Any other hold still refuses here. */
+  const ownReauth = heldOnlyByOwnReauth(clean);
+  if (activeChatgptDirs.has(clean) && !ownReauth) {
     return { ok: false, forgotten: false, because: 'a sign-in is in progress for this account; finish or cancel it first.' };
   }
 
@@ -374,6 +379,7 @@ function forgetAccount(dir, usedBy) {
     return { ok: false, forgotten: false, because: 'that is not an OpenAI account on this computer' };
   }
 
+  if (ownReauth) releaseOwnReauth(clean);   // #5994: every guard passed; the move goes ahead
   const label = base === '.codex' ? 'default' : base.slice('.codex-'.length);
   let target = path.join(home, FORGOTTEN_PREFIX + label);
   /* A second removal of the same label must not clobber the first one's
@@ -481,7 +487,8 @@ function removeAccount(dir, usedBy) {
      does not depend on the agents must be reachable by a pre-flight call made with a
      NON-EMPTY `usedBy`, or the disconnect-and-stop route stops every agent on the
      account and only then learns it was never going to be deleted. */
-  if (activeChatgptDirs.has(clean)) {
+  const ownReauth = heldOnlyByOwnReauth(clean);   // #5994: as in forgetAccount
+  if (activeChatgptDirs.has(clean) && !ownReauth) {
     return { ok: false, removed: false, because: 'a sign-in is in progress for this account; finish or cancel it first.' };
   }
   const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
@@ -503,6 +510,7 @@ function removeAccount(dir, usedBy) {
   if (!identityOf(clean)) {
     return { ok: false, removed: false, because: 'that is not an OpenAI account on this computer' };
   }
+  if (ownReauth) releaseOwnReauth(clean);   // #5994: every guard passed; the delete goes ahead
   try { fs.rmSync(clean, { recursive: true, force: true }); }
   catch { return { ok: false, removed: false, because: 'we could not delete that account from this computer' }; }
   /* #2684: wasDefault so the caller's history messaging matches forgetAccount's.
@@ -1208,6 +1216,29 @@ function chatgptLoginStatus(sessionId) {
 
 /** Cancel a PENDING subscription sign-in: kill the child; the exit handler then
     frees the slot and anti-litters the dir once the child is truly gone. */
+/* #5994: the unsettled sign-ins whose "Sign in again" holds this live account dir. */
+function ownReauthsOf(dir) {
+  const out = [];
+  for (const [id, s] of chatgptSessions) if (s.reauthDir === dir && !chatgptIsTerminal(s)) out.push(id);
+  return out;
+}
+/* #5994: true when `dir` is held by its own unsettled reauth. (A live account dir holds an auth.json, so no sign-in
+   can be staging into it: resolveFreshChatgptDir refuses a labelled dir that has one and nextWorkDir skips it.) */
+function heldOnlyByOwnReauth(dir) {
+  return activeChatgptDirs.has(dir) && ownReauthsOf(dir).length > 0;
+}
+/* #5994: cancel the account's own reauths and drop their hold on the live dir now. Cancelling settles the session,
+   so its exit can no longer promote into the dir; the staging slot stays reserved until the child exits, as on any
+   cancel. reauthDir is cleared so that late exit does not release a hold someone takes on this path afterwards. */
+function releaseOwnReauth(dir) {
+  for (const id of ownReauthsOf(dir)) {
+    const s = chatgptSessions.get(id);
+    cancelChatgptLogin(id);
+    if (s) s.reauthDir = null;
+  }
+  activeChatgptDirs.delete(dir);
+}
+
 function cancelChatgptLogin(sessionId) {
   const s = chatgptSessions.get(sessionId);
   if (!s) return { ok: false, because: 'no such sign-in in progress' };
