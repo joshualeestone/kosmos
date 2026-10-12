@@ -18,8 +18,8 @@ of reading signed out.
 - A gemini/grok folder whose own key is gone while this computer's secrets/env door holds that provider's key
   (GEMINI_API_KEY / XAI_API_KEY, the fallback a launch uses) is also `unlisted`: the agent may still be working on the
   shared key, so "not signed in" would be confidently wrong (review 9). A door that cannot be read counts as unsure.
-- A signed-out row says how to fix it: add the key or sign in again in Settings > AI Models, naming the folder's label
-  only where re-adding under it lands in that same folder (gemini/grok, in the provider's home).
+- A signed-out row says how to fix it: add the key or sign in again in Settings > AI Models. It does not name a folder
+  to re-add under: whether a name lands in the same folder depends on env overrides and label cleaning (review 11).
 - The agents walked are the same set the account guard walks (`knownAgentNames`, factored out of
   `enumerateAgentsOnAccount`): the roster's cards plus known profiles not on it.
 - `GET /api/accounts` sends them as `unlistedAccounts`, APART from `accounts`: eight page consumers read `accounts`,
@@ -43,9 +43,11 @@ of reading signed out.
 - The module's Windows behaviour (drive letters, case folding in realpath) is not tested: its test file is excluded
   from the Windows job (POSIX fixture paths).
 
+- A stopped agent whose job predates the `runner` field (no runner on job or card) is skipped.
+
 ## Weakest premise
 **A logged-out credential file may read "not checked", not "not signed in" (review 5).** "Unlisted" is decided by a
-non-empty credential file being THERE (an EMPTY one counts as gone, review 10), not by the provider recognising it. If
+credential file with content being THERE (an empty or whitespace-only one counts as gone, reviews 10, 11), not by the provider recognising it. If
 a CLI's logout leaves auth.json with content but no usable entry (e.g. no auth.x.ai key) rather than deleting it, the row says Kosmos could not check it, which is the cautious
 side of the line but not the words Josh needed. Not measured: what `grok logout` / `codex logout` leave on disk.
 

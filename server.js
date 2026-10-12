@@ -2502,25 +2502,9 @@ function safeRoster() {
   }
 }
 
-/* #3296/#3391 accounts slice: the fail-closed "which agents run on this account
-   directory" enumeration, shared by EVERY provider's disconnect/remove route so the
-   safety property lives in ONE place rather than being copied per provider (the
-   "two derivations of the fleet" habit this file's own comments call its worst).
-   Returns { usedBy, complete }:
-     - `usedBy`: the running-or-known agents of runner `runner` whose account home
-       resolves to `dir` (or the default account, when `isDefault` and the agent
-       carries no configDir).
-     - `complete`: FALSE whenever ANYTHING could not be read -- an unreadable roster,
-       a launch file that threw, a non-ENOENT job miss, or a path that would not
-       resolve. A caller MUST refuse the destructive act when `complete` is false:
-       an enumeration that cannot tell "nobody" from "I could not look" is not a
-       safety check (Renet Tilley, reviewing #1447 -- AMBIGUITY WAS SILENTLY NONE).
-   `runner` scopes the walk to ONE provider's agents (a codex account is never held
-   by a gemini agent). This is the exact logic the OpenAI DELETE route grew inline;
-   that route now calls this so the four providers cannot drift. */
 /* The agents an account walk looks at: the roster's cards, plus every profile Kosmos knows that is not removed.
    { names, complete, roster }; `complete` is false whenever any source could not be read (see below). #5948: shared
-   with GET /api/accounts' signed-out rows, so the two walks read one set of names. */
+   with GET /api/accounts' unlisted rows, so the two walks read one set of names. */
 function knownAgentNames() {
   const roster = safeRoster();
   let complete = roster !== null;
@@ -2544,6 +2528,22 @@ function knownAgentNames() {
   }
   return { names, complete, roster };
 }
+/* #3296/#3391 accounts slice: the fail-closed "which agents run on this account
+   directory" enumeration, shared by EVERY provider's disconnect/remove route so the
+   safety property lives in ONE place rather than being copied per provider (the
+   "two derivations of the fleet" habit this file's own comments call its worst).
+   Returns { usedBy, complete }:
+     - `usedBy`: the running-or-known agents of runner `runner` whose account home
+       resolves to `dir` (or the default account, when `isDefault` and the agent
+       carries no configDir).
+     - `complete`: FALSE whenever ANYTHING could not be read -- an unreadable roster,
+       a launch file that threw, a non-ENOENT job miss, or a path that would not
+       resolve. A caller MUST refuse the destructive act when `complete` is false:
+       an enumeration that cannot tell "nobody" from "I could not look" is not a
+       safety check (Renet Tilley, reviewing #1447 -- AMBIGUITY WAS SILENTLY NONE).
+   `runner` scopes the walk to ONE provider's agents (a codex account is never held
+   by a gemini agent). This is the exact logic the OpenAI DELETE route grew inline;
+   that route now calls this so the four providers cannot drift. */
 function enumerateAgentsOnAccount(dir, isDefault, runner) {
   const known = knownAgentNames();
   let complete = known.complete;

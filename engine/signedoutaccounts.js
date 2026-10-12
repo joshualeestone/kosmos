@@ -24,11 +24,12 @@ const PROVIDER_OF_RUNNER = Object.freeze({
 });
 const SHOWN_AGENTS = 3;   // a folder many agents share names the first few, then a count
 
-/* Whether a file with something in it is there (an empty credential file holds no credential). Only ENOENT is "not
+/* Whether a file with something in it is there (an empty or whitespace-only credential file holds no credential). Only ENOENT is "not
    there": a folder Kosmos cannot read (EACCES) throws,
    so the row says it could not be checked rather than gone. fs.existsSync would answer false for both. */
 function fileThere(file) {
-  try { return require('node:fs').statSync(file).size > 0; } catch (e) {
+  // Content, not size: a key file holding only whitespace is no key (the launch reads its first line; readKey trims).
+  try { return require('node:fs').readFileSync(file, 'utf8').trim() !== ''; } catch (e) {
     if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return false;
     throw e;
   }
@@ -69,7 +70,6 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
       defaultPlaces.set(p.provider, d ? { dir: path.resolve(d), place: samePlace(d) } : null);
     }
     const dfltRec = defaultPlaces.get(p.provider);
-    const dflt = dfltRec ? dfltRec.dir : null;
     if (dfltRec && dfltRec.place === samePlace(dir)) continue;
     if (!listedPlaces.has(p.provider)) {   // each provider's listed folders resolved once, not once per card
       const rows = (listed && Array.isArray(listed[p.provider])) ? listed[p.provider] : [];
@@ -90,9 +90,6 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
         label: base.startsWith(p.prefix) ? base.slice(p.prefix.length) : base,
         name: name || null, isDefault: false, email: null, authMode: null, keyTail: null,
         signedOut: false, unreadable, sharedKey: false, usedBy: [],
-        // Re-adding under this name lands in this same folder only for a gemini/grok folder in the provider's home
-        // (geminiaccounts/grokaccounts dirForLabel: <home>/<prefix><label>).
-        sameNameRefills: !!p.sharedKey && base.startsWith(p.prefix) && !!dflt && path.dirname(dir) === path.dirname(path.resolve(dflt)),
       });
       const row = byDir.get(key);
       if (!unreadable && p.sharedKey) {
@@ -106,14 +103,13 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
     const shown = r.usedBy.slice(0, SHOWN_AGENTS).join(', ')
       + (r.usedBy.length > SHOWN_AGENTS ? ' and ' + (r.usedBy.length - SHOWN_AGENTS) + ' more' : '');
     const who = shown + (r.usedBy.length === 1 ? ' uses' : ' use') + ' it';
-    const fix = ' To fix it, add the key or sign in again in Settings > AI Models'
-      + (r.sameNameRefills ? ' with the name "' + r.label + '", which is this folder.' : '.');
+    const fix = ' To fix it, add the key or sign in again in Settings > AI Models.';
     return {
       ...r,
       connection: r.unreadable
-        ? { state: 'unknown', badge: 'unlisted', because: 'a sign-in or key file is in its folder, but Kosmos could not read it or does not look in that folder, and ' + who }
+        ? { state: 'unknown', badge: 'unlisted', because: 'a sign-in or key file is in its folder, but Kosmos could not read it or does not look in that folder, and ' + who + '.' }
         : r.sharedKey
-          ? { state: 'unknown', badge: 'unlisted', because: 'its own sign-in or key is gone from its folder, but this computer\'s shared ' + r.providerName + ' key can stand in for it, and ' + who }
+          ? { state: 'unknown', badge: 'unlisted', because: 'its own sign-in or key is gone from its folder, but this computer\'s shared ' + r.providerName + ' key can stand in for it, and ' + who + '.' + fix }
           : { state: 'none', badge: 'signed_out', because: 'its sign-in or key is no longer on this computer, and ' + who + '.' + fix },
     };
   });
