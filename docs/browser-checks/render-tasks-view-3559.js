@@ -852,13 +852,19 @@ function chk(ok, label, extra) {
           json.tasks = json.tasks.map((t) => (t.state === 'decision' ? Object.assign({}, t, { waitingSince: since }) : t));
           await route.fulfill({ response: resp, json });
         });
-        const aged = await page.evaluate(async () => {
-          await tskLoad();
-          const lines = [...document.querySelectorAll('#tsk-groups .tsk-row .tsk-waiting')];
-          const shown = lines.filter((l) => l.getBoundingClientRect().height > 0);
-          return { n: lines.length, shown: shown.length, text: shown[0] ? shown[0].innerText.trim() : null };
-        });
-        await page.unroute('**/api/tasks?view=tasks*');
+        let aged;
+        try {
+          aged = await page.evaluate(async () => {
+            await tskLoad();
+            const lines = [...document.querySelectorAll('#tsk-groups .tsk-row .tsk-waiting')];
+            const shown = lines.filter((l) => l.getBoundingClientRect().height > 0);
+            return { n: lines.length, shown: shown.length, text: shown[0] ? shown[0].innerText.trim() : null };
+          });
+        } finally {
+          await page.unroute('**/api/tasks?view=tasks*');   // never left stamping rows for the arms after this one
+        }
+        /* ⚠️ agedBack === 0 holds while no real card carries waitingSince, which is true until #5943 merges. Once it
+           does, the fixture's asking agent may carry a real start; re-aim this half then (the plan says so). */
         const agedBack = await page.evaluate(async () => { await tskLoad(); return document.querySelectorAll('#tsk-groups .tsk-row .tsk-waiting').length; });
         chk(aged.n === 1 && aged.shown === 1 && aged.text === 'Waiting on you for 12 days' && agedBack === 0,
           `${tag} a decision row says how long it has waited on you, and says nothing with no known start (#5942)`, JSON.stringify({ aged, agedBack }));
