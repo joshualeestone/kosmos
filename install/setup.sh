@@ -317,7 +317,8 @@ bundle_is_ours() {
 # THIS install's own shipped copy ($KOSMOS_HOME/app/Kosmos.app), which carries the identifier and the signing team,
 # so the Team ID is never spelled here. Every account's sealed icon is the same app, so this proves "a Kosmos we
 # built", not "this install's": safe for REPLACING an icon (each account reads its own config), never enough for
-# deleting a shared one (uninstall leaves that). /usr/bin/codesign by absolute path, as /usr/bin/grep above.
+# deleting one in the SHARED folder (uninstall leaves that). In the person's own ~/Applications an uninstall may
+# remove it: an account has one install (one config file in its Library), so its own icon there is that install's. /usr/bin/codesign by absolute path, as /usr/bin/grep above.
 sealed_requirement() {
   local ours="$KOSMOS_HOME/app/Kosmos.app"
   [ -d "$ours" ] && [ ! -L "$ours" ] || return 1
@@ -3595,10 +3596,6 @@ write_install_config() {
   mv -f "$tmp" "$INSTALL_CONFIG_DIR/kosmos-install.json" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
 
-# #5896 slice 2: the sealed, signed Kosmos.app the build shipped, copied as it is, when this install wrote the
-# account's own config (_wic_rc 0, from write_install_config before the icon step): that file is the only thing that
-# tells the sealed app which install it opens. Otherwise (a sandbox, a custom-home install with the real home, a
-# failed write, a tarball without the sealed app) the per-install bundle is built exactly as before.
 # Will this run place the sealed app? The account config was written (_wic_rc 0), it is where the app will look (an
 # app opened from the Finder reads the REAL home's Library, so an AGENT_WORKFORCE_HOME elsewhere qualifies only in a
 # harness whose icon folder is itself a sandbox (KOSMOS_APP_DIR or KOSMOS_SYS_APP_DIR; KOSMOS_HOME_APP_DIR alone
@@ -3613,6 +3610,10 @@ sealed_placeable() {
   /usr/bin/codesign --verify --deep --strict "$src" >/dev/null 2>&1
 }
 
+# #5896 slice 2: the sealed, signed Kosmos.app the build shipped, copied as it is, when this install wrote the
+# account's own config (_wic_rc 0, from write_install_config before the icon step): that file is the only thing that
+# tells the sealed app which install it opens. Otherwise (a sandbox, a custom-home install with the real home, a
+# failed write, a tarball without the sealed app) the per-install bundle is built exactly as before.
 app_bundle_into() {
   local src="$KOSMOS_HOME/app/Kosmos.app"
   if sealed_placeable; then
