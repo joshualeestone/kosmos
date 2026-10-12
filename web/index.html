@@ -20848,7 +20848,8 @@ function taskLine(a, opts) {
  * never writes and Claude Code freezes at first message is a fossil, not a
  * status), so today only `rate_limited`, `auth_failed` (#874) and
  * `connection_lost` (#3410) speak and every other state shows nothing rather
- * than a stale summary.
+ * than a stale summary. (Since then also: a crash loop, a waiting count, a stuck
+ * error, and on a CARD in a calm state, rules far behind (#5957); see stateReason.)
  *
  * 🛑 `taskWords` IS GONE. It stripped the "Claude Code" default out of the
  * frozen title (#222) so a brand-new agent did not read as "doing Claude Code".
@@ -20975,9 +20976,12 @@ function stateReason(a, opts) {
     return lost;
   }
   /* #5957 slice 2: its working rules are far behind, and its own page offers the update (a.rulesBehind, from
-     engine/doctrine.js rulesBehind: a number only then). Last of the general reasons, so anything more urgent above
-     wins, and a rate-limited agent keeps its usage sentence below. Plain words; the card's look is unchanged. */
-  if (a && a.state !== 'rate_limited' && Number.isSafeInteger(a.rulesBehind) && a.rulesBehind > 0) {
+     engine/doctrine.js rulesBehind: a number only then). Only on a CARD (opts.card: the agent's own page has the
+     update note itself, and "Open it" makes no sense there) and only in a calm state: never in the slot a person reads
+     as what a needs-you, question or blocked agent is stuck on (#986/#2833), and never over a sign-in, connection or
+     usage problem. Last of the general reasons; plain words; the card's look is unchanged. */
+  if (a && opts && opts.card === true && (a.state === 'idle' || a.state === 'working' || a.state === 'stopped')
+      && Number.isSafeInteger(a.rulesBehind) && a.rulesBehind > 0) {
     return 'Its working rules are ' + a.rulesBehind + ' versions behind. Open it to update them.';
   }
   if (!a || a.state !== 'rate_limited') return '';
@@ -21993,7 +21997,7 @@ function card(a) {
     <div class="astate st-${m.st}">${glyphOf(a)}<b>${esc(copy.label)}</b>${answer}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(modelLine(a))}</div>
-    <div class="atask">${esc(taskLine(a, { noQuote: true }))}</div>
+    <div class="atask">${esc(taskLine(a, { noQuote: true, card: true }))}</div>
     ${comm ? `<div class="acommunity">${esc(comm)}</div>` : ''}
   </div>`;
 }
@@ -22225,7 +22229,7 @@ function lrow(a) {
          because they are actions, not status text. This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
     <div class="lstate"><span class="vh">${glyphOf(a)}${esc(copy.label)}</span><span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}">${glyphOf(a)}</span>${answerBtn(a)}${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
-    <div class="ltask">${esc(taskLine(a, { noQuote: true }))}</div>
+    <div class="ltask">${esc(taskLine(a, { noQuote: true, card: true }))}</div>
     <div class="lmodel">${esc(modelLine(a))}</div>
     <div class="lmem">${mem}</div>
   </div>`;
