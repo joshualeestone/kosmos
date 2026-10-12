@@ -65571,6 +65571,9 @@ const PV_HTML = '<div class="rm-back pv-back" id="pv-preview">'
   + '<div class="pv-bar"><span id="pv-act"></span><span class="pv-name" id="pv-name"></span><span class="pv-msg" id="pv-msg" role="status"></span></div>'
   + '</div></div>';
 function pvRevealWord() { return onWindows() ? 'Show in File Explorer' : 'Open in Finder'; }
+/* The preview's action is Download, not a reveal, through Kosmos+ (the file is not on this device) and, #5865, on
+   Linux (revealFolder runs /usr/bin/open, which a Linux board does not have). */
+function pvOffersDownload() { return kplusRemote() || onLinux(); }
 function pvOpen(id, from) {
   const a = PV_ATTS.get(id);
   if (!a) return false;
@@ -65616,7 +65619,7 @@ function pvOpen(id, from) {
     b.type = 'button'; b.className = 'pv-btn'; b.id = 'pv-do'; b.textContent = 'Download';
     b.addEventListener('click', () => a.download());
     act.replaceWith(b);
-  } else if (kplusRemote() || onLinux()) {   // #5865: a Linux board has no Finder to reveal in, so Download, as remotely
+  } else if (pvOffersDownload()) {
     const dl = document.createElement('a');
     dl.className = 'pv-btn'; dl.id = 'pv-do'; dl.href = a.url; dl.setAttribute('download', a.name); dl.textContent = 'Download';
     act.replaceWith(dl);
