@@ -19,8 +19,10 @@ cannot be parsed or saved but names this install is named in the uninstall outpu
 "Inside this home" is anchored: the root must start the string or follow a quote or space (so /var/x never matches
 /private/var/x by accident); both the given KOSMOS_HOME and its realpath count, since the engine writes hook paths
 from its own realpath. An event with nothing of ours is left exactly as it was. Saved with fsync, temp removed on
-failure. With no node (a partial install) or no temp file, every settings file that still names THIS install's hook
-path is named instead. The later status-line notice no longer claims a surviving status line records nothing: it
+failure (that cleanup is defensive and untested: reaching it needs a write to fail after the file opened). The program
+ends its output with a done line; whenever that line is missing (no node, a node that crashed or cannot run here, no
+temp file) the shell names every settings file that still holds THIS install's hook path (given or real, right after a
+quote) instead. A JSON file that is not an object but names this install is named too. The later status-line notice no longer claims a surviving status line records nothing: it
 may be another install's.
 Node writes its list to a temp file (a heredoc inside $( ) does not parse in bash here).
 

@@ -2084,6 +2084,7 @@ KOSMOS_SWEEP_LIST
       # inside THIS install's home are removed (another Kosmos install on this Mac shares these files), anything
       # else in the file is kept, and a file that cannot be read or saved is named below, never rewritten wrong.
       _unwire_left=""
+      _unwire_done=""
       _unwire_out="$(mktemp "${TMPDIR:-/tmp}/kosmos-unwire.XXXXXX" 2>/dev/null)" || _unwire_out=""
       if [ -n "$_unwire_out" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ]; then
         "$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" "${AGENT_WORKFORCE_HOME:-$HOME}" <<'UNWIREEOF' >"$_unwire_out" 2>/dev/null || true
@@ -2123,7 +2124,10 @@ for (const file of files) {
     try { const raw = fs.readFileSync(target, 'utf8'); if (/kosmos-(report-hook|statusline)/.test(raw) && inside(raw.replace(/\\\//g, '/'))) left.push(file); } catch { /* unreadable */ }
     continue;
   }
-  if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    if (/kosmos-(report-hook|statusline)/.test(JSON.stringify(data)) && inside(JSON.stringify(data).replace(/\\\//g, '/'))) left.push(file);
+    continue;
+  }
   let changed = false;
   if (data.hooks && typeof data.hooks === 'object' && !Array.isArray(data.hooks)) {
     for (const event of Object.keys(data.hooks)) {
@@ -2151,7 +2155,7 @@ for (const file of files) {
   if (!changed) continue;
   const tmp = target + '.kosmos-unwire.' + process.pid;
   try {
-    const fd = fs.openSync(tmp, 'w', mode);
+    const fd = fs.openSync(tmp, 'wx', mode);   // exclusive: never through something already at this name
     try { fs.writeSync(fd, JSON.stringify(data, null, 2) + '\n'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
     fs.chmodSync(tmp, mode);
     fs.renameSync(tmp, target);
@@ -2160,12 +2164,18 @@ for (const file of files) {
     left.push(file);
   }
 }
-process.stdout.write(left.join('\n'));
+// The last line says the program finished; without it (a node that crashed or cannot run here) the shell names
+// the files itself.
+process.stdout.write(left.concat(['@kosmos-unwire-done']).join('\n') + '\n');
 UNWIREEOF
-        _unwire_left="$(cat "$_unwire_out" 2>/dev/null)" || _unwire_left=""
-      else
-        # No node to edit JSON with (a partial install) or no temp file: name every settings file that still points
-        # at this install's hook, rather than leaving it silently.
+        if [ "$(tail -n 1 "$_unwire_out" 2>/dev/null)" = "@kosmos-unwire-done" ]; then
+          _unwire_done=yes
+          _unwire_left="$(grep -v '^@kosmos-unwire-done$' "$_unwire_out" 2>/dev/null)" || _unwire_left=""
+        fi
+      fi
+      if [ -z "$_unwire_done" ]; then
+        # No node that ran to the end (a partial install, a node that crashed or cannot run here) or no temp file:
+        # name every settings file that still points at this install's hook, rather than leaving it silently.
         # The path right after a quote, as the hook command and args write it, so another install whose folder merely
         # ends in this one's path is not named.
         _kh_given="${KOSMOS_HOME%/}"
@@ -2179,7 +2189,7 @@ UNWIREEOF
       [ -z "$_unwire_out" ] || rm -f "$_unwire_out"
       if [ -n "$_unwire_left" ]; then
         info "note: Kosmos's agent hooks could not be taken out of these Claude settings files; delete the"
-        info "entries naming kosmos-report-hook and kosmos-statusline.js there:"
+        info "entries there naming kosmos-report-hook or kosmos-statusline.js inside $KOSMOS_HOME:"
         printf '%s\n' "$_unwire_left" | while IFS= read -r _uf; do info "  $_uf"; done
       fi
       # 🔑 RETIRE THIS MAC AT THE COORDINATOR WHILE IT CAN STILL SPEAK (#793).
