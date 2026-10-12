@@ -4831,7 +4831,7 @@ test('#5995: an untouched name field keeps nothing and sends what was sent befor
   const shown = remote.computerNameShown();
   assert.equal(shown.fromComputer, true, 'a name was already kept before this test');
   assert.equal(shown.name + ' (Kosmos app)', remote.thisComputerDeviceName(), 'the field does not show the name that is sent');
-  assert.deepEqual(remote.setComputerName(shown.name), { ok: true, name: shown.name, was: null });
+  assert.deepEqual(remote.setComputerName(shown.name), { ok: true, name: shown.name });
   assert.equal(remote.read().computer_name, null, 'the computer\'s own name was kept as if the person had typed it');
   const from = recorded().length;
   await remote.signinStart('her@example.com');
@@ -4846,7 +4846,7 @@ test('#5995: a typed name is kept, shown again, and sent by the start, the verif
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   const own = remote.computerNameShown().name;
   try {
-    assert.deepEqual(remote.setComputerName('  Kitchen\niMac  '), { ok: true, name: 'Kitchen iMac', was: null }, 'the name was not cleaned to one line');
+    assert.deepEqual(remote.setComputerName('  Kitchen\niMac  '), { ok: true, name: 'Kitchen iMac' }, 'the name was not cleaned to one line');
     assert.equal(remote.read().computer_name, 'Kitchen iMac');
     assert.deepEqual(remote.computerNameShown(), { name: 'Kitchen iMac', fromComputer: false });
     assert.notEqual('Kitchen iMac', own, 'CONTROL: this computer happens to have the test\'s name, so nothing below is told apart');
@@ -4877,7 +4877,7 @@ test('#5995: a cleared name field is a choice: the plain name is sent, and it st
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   const own = remote.computerNameShown().name;
   try {
-    assert.deepEqual(remote.setComputerName('   '), { ok: true, name: 'This computer', was: null });
+    assert.deepEqual(remote.setComputerName('   '), { ok: true, name: 'This computer' });
     assert.equal(remote.read().computer_name, '', 'a cleared field was not kept as a choice');
     assert.equal(remote.computerNameShown().fromComputer, false, 'a cleared field reads as the computer\'s own name');
     assert.equal(remote.thisComputerDeviceName(), 'This computer (Kosmos app)');
@@ -4910,15 +4910,15 @@ test('#5995: an untouched name field writes nothing: no remote.json is created, 
   try {
     fs.rmSync(remote.FILE, { force: true });
     assert.equal(remote.read().computer_name, null, 'a missing file does not read as "no name kept"');
-    assert.deepEqual(remote.setComputerName(own), { ok: true, name: own, was: null });
+    assert.deepEqual(remote.setComputerName(own), { ok: true, name: own });
     assert.equal(fs.existsSync(remote.FILE), false, 'an untouched field created remote.json');
     fs.writeFileSync(remote.FILE, '{ this is not valid json');
     assert.equal(remote.read().ok, false, 'CONTROL: the damaged file read as fine');
     assert.equal(remote.read().computer_name, null);
-    assert.deepEqual(remote.setComputerName(own), { ok: true, name: own, was: null }, 'an untouched field was refused on a damaged file, which would block the sign-in');
+    assert.deepEqual(remote.setComputerName(own), { ok: true, name: own }, 'an untouched field was refused on a damaged file, which would block the sign-in');
     assert.equal(fs.readFileSync(remote.FILE, 'utf8'), '{ this is not valid json', 'an untouched field rewrote a damaged file');
     // A real choice on the damaged file is kept, repairing the file as the sign-in's other writes do.
-    assert.deepEqual(remote.setComputerName('Work Mac'), { ok: true, name: 'Work Mac', was: null });
+    assert.deepEqual(remote.setComputerName('Work Mac'), { ok: true, name: 'Work Mac' });
     assert.equal(remote.read().ok, true);
     assert.equal(remote.read().computer_name, 'Work Mac');
   } finally {
@@ -4938,20 +4938,30 @@ test('#5995: forgetting this computer keeps the chosen name, so it is what the n
   } finally { remote.setComputerName(own); }
 });
 
-test('#5995: a typed " (Kosmos app)" ending is not doubled, and what was kept before can be put back', () => {
+test('#5995: a typed " (Kosmos app)" ending is not doubled, and one derivation says what a choice keeps, sends and shows', () => {
   const own = remote.computerNameShown().name;
   try {
-    assert.deepEqual(remote.setComputerName('Den (Kosmos app)'), { ok: true, name: 'Den', was: null });
+    assert.deepEqual(remote.setComputerName('Den (Kosmos app)'), { ok: true, name: 'Den' });
     assert.equal(remote.thisComputerDeviceName(), 'Den (Kosmos app)', 'the ending the person typed was sent twice');
     assert.equal(remote.setComputerName('Den (Kosmos app) (Kosmos app)').name, 'Den');
-    // A second choice says what the first was, and putting that back restores it; putting back "nothing kept" follows the computer again.
-    const second = remote.setComputerName('Attic');
-    assert.equal(second.was, 'Den');
-    remote.putBackComputerName(second.was);
-    assert.equal(remote.read().computer_name, 'Den');
-    remote.putBackComputerName(null);
-    assert.equal(remote.read().computer_name, null);
-    assert.equal(remote.computerNameShown().name, own);
+    // Only a real ending is taken off: glued to a word it is part of the name.
+    assert.equal(remote.computerNameChoice('Sam(Kosmos app)').next, 'Sam(Kosmos app)');
+    assert.deepEqual(remote.computerNameChoice('(Kosmos app)'), { ok: true, next: '', label: 'This computer (Kosmos app)', box: '' });
+  } finally { remote.setComputerName(own); }
+  // The choice itself reads and writes nothing, and what it says is sent is what keeping it then sends.
+  const before = fs.existsSync(remote.FILE) ? fs.readFileSync(remote.FILE, 'utf8') : null;
+  assert.deepEqual(remote.computerNameChoice('  Kitchen\niMac  '), { ok: true, next: 'Kitchen iMac', label: 'Kitchen iMac (Kosmos app)', box: 'Kitchen iMac' });
+  assert.deepEqual(remote.computerNameChoice('   '), { ok: true, next: '', label: 'This computer (Kosmos app)', box: '' });
+  const untouched = remote.computerNameChoice(own);
+  assert.deepEqual([untouched.next, untouched.label, untouched.box], [null, own + ' (Kosmos app)', own]);
+  assert.equal(remote.computerNameChoice(7).ok, false);
+  assert.equal(fs.existsSync(remote.FILE) ? fs.readFileSync(remote.FILE, 'utf8') : null, before, 'working out a choice wrote remote.json');
+  try {
+    for (const typed of ['Kitchen iMac', '', 'M'.repeat(90), own]) {
+      const choice = remote.computerNameChoice(typed);
+      remote.setComputerName(typed);
+      assert.equal(remote.thisComputerDeviceName(), choice.label, 'a start would send one name and the later paths another, for a typed name of length ' + typed.length);
+    }
   } finally { remote.setComputerName(own); }
 });
 

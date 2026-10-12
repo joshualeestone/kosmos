@@ -2538,44 +2538,41 @@ function computerNameShown() {
   const chosen = read().computer_name;
   return { name: withoutSuffix(thisComputerDeviceName()), fromComputer: typeof chosen !== 'string' };
 }
-/** Keep what the person left in that field. The name the computer has is not kept (so an untouched field goes on
-    following the computer if it is renamed); anything else is, an empty field included. The stored name is the
-    cleaned one (one line, no control characters, cut to fit, and without a " (Kosmos app)" ending the person typed:
-    the engine adds its own), so what is shown next time is what was sent.
+/** What the text left in that field MEANS, with nothing read from or written to remote.json:
+    `next`  what would be kept: null for the computer's own name (so an untouched field goes on following the
+            computer if it is renamed), '' for a cleared field, else the cleaned name (one line, no control
+            characters, cut to fit, and without a " (Kosmos app)" ending the person typed: the engine adds its own);
+    `label` the full name a sign-in start sends for it;
+    `box`   what the field shows for it afterwards ('' stays an empty field).
+    One derivation, so the name a start sends and the name kept after it cannot differ. */
+function computerNameChoice(raw) {
+  if (typeof raw !== 'string') return { ok: false, because: 'that is not a name' };
+  let typed = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  while (typed.endsWith(DEVICE_SUFFIX) || typed === DEVICE_SUFFIX.trim()) typed = typed.slice(0, -DEVICE_SUFFIX.trim().length).trim();
+  const kept = typed ? withoutSuffix(deviceNameFrom(typed)) : '';
+  const own = withoutSuffix(ownComputerDeviceName());
+  const next = kept === own ? null : kept;
+  return { ok: true, next, label: next === null ? ownComputerDeviceName() : deviceNameFrom(next), box: next === null ? own : next };
+}
+/** Keep what the person left in that field (computerNameChoice says what that is).
     Nothing is written when nothing changes: an untouched field on a computer with no remote.json creates none, and
     on a damaged remote.json it is not refused (the sign-in start never was).
     A real choice on a remote.json that HOLDS UNREADABLE TEXT repairs it, as the sign-in's other writes do (#4308).
     One that could not be read AT ALL just now (the disk, a permission, too many open files) is refused: the file
     may be whole, and a repair would rewrite it from nothing for the sake of a name.
-    `was` is what was kept before, for putBackComputerName(). */
+    The server calls this only AFTER a sign-in start carried the name, so a name is never kept for a start that did
+    not go out, and there is nothing to put back. */
 function setComputerName(raw) {
-  if (typeof raw !== 'string') return { ok: false, because: 'that is not a name' };
-  let typed = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
-  while (typed.endsWith(DEVICE_SUFFIX.trim())) typed = typed.slice(0, -DEVICE_SUFFIX.trim().length).trim();
-  const kept = typed ? withoutSuffix(deviceNameFrom(typed)) : '';
-  const own = withoutSuffix(ownComputerDeviceName());
-  const next = kept === own ? null : kept;
+  const choice = computerNameChoice(raw);
+  if (!choice.ok) return choice;
   const current = read();
-  const was = current.computer_name;
-  if (was === next) return { ok: true, name: withoutSuffix(thisComputerDeviceName()), was };
+  if (current.computer_name === choice.next) return { ok: true, name: withoutSuffix(thisComputerDeviceName()) };
   if (current.ok === false) {
     try { fs.readFileSync(FILE, 'utf8'); } catch { return { ok: false, because: 'we could not keep that name just now' }; }
   }
-  const wrote = write({ computer_name: next }, { repair: true });
+  const wrote = write({ computer_name: choice.next }, { repair: true });
   if (!wrote || wrote.ok === false) return { ok: false, because: (wrote && wrote.because) || 'we could not keep that name' };
-  return { ok: true, name: withoutSuffix(thisComputerDeviceName()), was };
-}
-/** Put back what was kept before a setComputerName() whose sign-in start then did not go out, so a name is only ever
-    kept once a start carried it. Best effort: a start that failed is already being reported, and this must not mask it. */
-function putBackComputerName(was) {
-  const before = typeof was === 'string' ? was : null;
-  let saved = true;
-  try { if (read().computer_name !== before) { const wrote = write({ computer_name: before }); saved = !!wrote && wrote.ok !== false; } }
-  catch { saved = false; }
-  /* The start's own refusal is what the person is told. This is for whoever reads the log: a name no start carried
-     is still kept. Never the name itself. */
-  if (!saved) { try { console.error('remote: a computer name typed for a sign-in start that did not go out could not be put back'); } catch { /* never mask the refusal */ } }
-  return saved;
+  return { ok: true, name: withoutSuffix(thisComputerDeviceName()) };
 }
 
 /** Append --device-name. A caller's label goes through only when clean (trimmed
@@ -3189,7 +3186,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { computerNameShown, setComputerName, putBackComputerName /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { computerNameShown, computerNameChoice, setComputerName /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   ownDeviceIds,

@@ -13,8 +13,8 @@ sent, let the person change or clear it, and use the chosen name on every path t
   place. `ownComputerDeviceName()` is the cached read of the computer's name. `computerNameShown()` and
   `setComputerName()` are what the server calls.
 - `server.js`: `GET /api/remote/computer-name` (refused to another website) and `computer_name` on
-  `POST /api/remote/signin-start`, kept BEFORE the code is asked for. A name that cannot be kept refuses
-  the start. `device_name` keeps its meaning (a caller naming some OTHER device).
+  `POST /api/remote/signin-start`. The name RIDES that start (as the label the tunnel is given) and is kept
+  only after the start went out. `device_name` keeps its meaning (a caller naming some OTHER device).
 - `web/index.html`: a "Name for this computer" box on the email step. It is hidden until the route has
   answered, then shown filled; the start waits for that read and sends the box's text. Enter in it asks
   for the code.
@@ -118,3 +118,23 @@ Not taken:
 - warming the computer's name before the wizard opens: it would run `scutil` at every board start for a screen
   most starts never open. The box appearing moves the button once; the start waits for the read either way.
 - dropping `fromComputer` from the route: the browser check and the server test read it to tell the arms apart.
+
+## Review 4 (sonnet), and the design change it led to
+3 WARNING, 1 CONVENTION, 3 NIT, and review 3's late NIT.
+Two of the three WARNINGs were again in the keep-then-put-back code that review 2 asked for and review 3 patched
+(a stale put-back; a put-back that cannot be saved leaving a name no start carried). Three rounds, one new exit
+each. So the mechanism is gone, replaced by ONE rule: **the name rides the start and is kept only after the start
+went out.** `computerNameChoice()` works out, without touching remote.json, what a typed text keeps, sends and
+shows; the server passes its label to the start and calls `setComputerName()` afterwards. There is no put-back, no
+"what was kept before", and no one-at-a-time lock, because a start that does not go out has changed nothing.
+- The one gap this leaves, stated in the server comment: a start that went out followed by a save that fails. It is
+  answered as a failure and the person asks again.
+- WARNING taken: after a failed or given-up read, each press of the button waited the whole 3 s again. The start no
+  longer retries a failed read; showing the email step does.
+- NITs taken: a typed ending glued to a word is part of the name; a box the person emptied stays empty after the
+  start (the board answers '' for it); the browser check measures the explanation's contrast against the card
+  behind it, in both themes, where it used to compare two colours for inequality.
+- CONVENTION (what is owed before the proof): unchanged, listed under Verify.
+- Not taken: "typing the computer's own name follows the computer" is the design (Decided, first line).
+Earlier sections of this plan that mention `putBackComputerName`, `was` or `computerNameTurn` (Reviews 2 and 3)
+describe code that no longer exists.

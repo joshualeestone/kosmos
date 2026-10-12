@@ -79,8 +79,11 @@ test('#5995: a read that fails leaves the box hidden and sends nothing, so its w
     assert.equal(w.field.hidden, true, 'the box and its "An empty box sends..." line showed with no name read');
     assert.equal(w.box.value, '');
     assert.deepEqual(plain(w.ctx.sent()), {}, 'an unread name was sent as a cleared one');
-    // The next time the step is shown, it is read again.
+    // The start does not try again (on a board that never answers, each press would wait the whole give-up time)...
     await w.ctx.fill();
+    assert.equal(w.ctx.reads, 1, 'a start re-ran a read that had just failed');
+    // ...and the next time the step is shown, it is read again.
+    await w.ctx.fill(true);
     assert.equal(w.ctx.reads, 2, 'a failed read was never tried again');
   }
 });
@@ -126,12 +129,12 @@ test('#5995: a board that takes the request and never answers is given up on, so
 
 test('#5995: the page wires the box: the email step fills it, the start waits for it and sends it, a new sign-in reads again', () => {
   const body = (name) => slice(name, name);
-  assert.match(body('function plusSiShow('), /step === 'plus-si-email'\) plusSiComputerName\(\)/, 'the email step no longer fills the box');
+  assert.match(body('function plusSiShow('), /step === 'plus-si-email'\) plusSiComputerName\(true\)/, 'the email step no longer fills the box, or no longer tries a failed read again');
   const ask = body('async function plusSiRequestCode(');
   assert.match(ask, /plusSiPost\('\/api\/remote\/signin-start', Object\.assign\(\{ email \}, plusSiComputerSent\(\)\)\)/, 'the start no longer sends the name');
   assert.ok(ask.indexOf('await plusSiComputerName();') > 0 && ask.indexOf('await plusSiComputerName();') < ask.indexOf("plusSiPost('/api/remote/signin-start'"), 'the start no longer waits for the name to be on screen');
   const clear = body('function plusSiClear(');
-  assert.match(clear, /PLUS_SI_COMPUTER\.loaded = false; PLUS_SI_COMPUTER\.reading = null;/, 'a new sign-in keeps the last one\'s box state');
+  assert.match(clear, /PLUS_SI_COMPUTER\.loaded = false; PLUS_SI_COMPUTER\.reading = null; PLUS_SI_COMPUTER\.failed = false;/, 'a new sign-in keeps the last one\'s box state');
   assert.match(clear, /getElementById\('plus-si-computer-field'\); if \(cf\) cf\.hidden = true;/, 'a new sign-in starts with the box on screen before its name is read');
   assert.match(SCRIPT, /'plus-si-computer': 'plus-signin-code'/, 'Enter in the box no longer asks for the code');
   const field = HTML.slice(HTML.indexOf('id="plus-si-computer-field"'), HTML.indexOf('id="plus-signin-code"'));

@@ -49117,13 +49117,15 @@ function plusSiKStop() {
    The box stays hidden until that read has answered, so its words are never on screen beside a box that showed no
    name. `loaded` decides what the start sends: the box's text once it has shown a name, and nothing at all before
    (the start then behaves as it did before this box existed). One read at a time; a read left over from a sign-in
-   that was since cleared is dropped. */
-const PLUS_SI_COMPUTER = { loaded: false, reading: null };
+   that was since cleared is dropped. A read that failed is tried again each time the email step is shown, but NOT
+   by the start: on a board that never answers, each press would otherwise wait the whole give-up time again. */
+const PLUS_SI_COMPUTER = { loaded: false, reading: null, failed: false };
 const PLUS_SI_COMPUTER_WAIT_MS = 3000;
-function plusSiComputerName() {
+function plusSiComputerName(again) {
   const el = document.getElementById('plus-si-computer');
   if (!el || PLUS_SI_COMPUTER.loaded) return Promise.resolve();
   if (PLUS_SI_COMPUTER.reading) return PLUS_SI_COMPUTER.reading;
+  if (PLUS_SI_COMPUTER.failed && again !== true) return Promise.resolve();
   const mine = (async () => {
     let r = null;
     /* Given up on after PLUS_SI_COMPUTER_WAIT_MS: the start waits for this read, so a board that accepts the request
@@ -49135,7 +49137,8 @@ function plusSiComputerName() {
     clearTimeout(timer);
     if (PLUS_SI_COMPUTER.reading !== mine) return;   // cleared meanwhile: that sign-in is over
     PLUS_SI_COMPUTER.reading = null;
-    if (!r || typeof r.name !== 'string') return;
+    PLUS_SI_COMPUTER.failed = !r || typeof r.name !== 'string';
+    if (PLUS_SI_COMPUTER.failed) return;
     el.value = r.name;
     PLUS_SI_COMPUTER.loaded = true;
     const field = document.getElementById('plus-si-computer-field'); if (field) field.hidden = false;
@@ -49167,7 +49170,7 @@ function plusSiShow(step) {
   plusSiMeasure();
   // kosmos#5628 slice 2b-ui: the company button follows the profile (a cached read in the engine).
   if (step === 'plus-si-email' && typeof plusCompanyManaged === 'function') plusCompanyManaged();
-  if (step === 'plus-si-email') plusSiComputerName();   // #5995: the name is on screen before the start can send it
+  if (step === 'plus-si-email') plusSiComputerName(true);   // #5995: the name is on screen before the start can send it
 }
 /* #3796 (Josh, 14:00): the wizard card is centred VERTICALLY in the settings content area on
    every step. That area is only as tall as its content, so CSS alone has nothing to centre in:
@@ -49316,12 +49319,12 @@ function plusSiClear() {
   }
   const to = document.getElementById('plus-si-code-to'); if (to) to.textContent = '';
   /* #5995: the computer's name is read again for the next sign-in. A name typed and never sent is not carried over,
-     and neither is one whose start did not go out (the engine puts back what it kept before); one a start carried
-     is kept by the engine, so it comes back. */
+     and neither is one whose start did not go out (the board keeps a name only after a start carried it); one a
+     start carried is kept, so it comes back. */
   {
     const cn = document.getElementById('plus-si-computer'); if (cn) cn.value = '';
     const cf = document.getElementById('plus-si-computer-field'); if (cf) cf.hidden = true;
-    if (typeof PLUS_SI_COMPUTER !== 'undefined') { PLUS_SI_COMPUTER.loaded = false; PLUS_SI_COMPUTER.reading = null; }
+    if (typeof PLUS_SI_COMPUTER !== 'undefined') { PLUS_SI_COMPUTER.loaded = false; PLUS_SI_COMPUTER.reading = null; PLUS_SI_COMPUTER.failed = false; }
   }
   const sug = document.getElementById('plus-si-name-suggested'); if (sug) sug.hidden = true;   // #3842: a fresh one next time
   plusSiKStop();   // #5785 review 1: a Sign out during a connect ends the loader (a hidden canvas would keep drawing)
@@ -49748,8 +49751,8 @@ async function plusSiRequestCode(btn) {
     return;
   }
   plusSetBusy(btn, false);
-  /* #5995: the box shows the name as it was kept (one line, cut to fit), so coming back to this step shows what
-     was sent and not what was typed. */
+  /* #5995: the box shows the name as it was kept (one line, cut to fit; a cleared box stays empty), so coming back
+     to this step shows what was sent and not what was typed. */
   { const cn = document.getElementById('plus-si-computer'); if (cn && r.data && typeof r.data.computer_name === 'string') cn.value = r.data.computer_name; }
   /* #3796: one short line on the code step ("We sent a code to <email>.") replaces the
      paragraph; the status line below only says something when a resend went out. */

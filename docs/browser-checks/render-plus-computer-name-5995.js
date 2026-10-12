@@ -100,6 +100,21 @@ async function shownName(page) {
   await page.waitForFunction(() => { const f = document.getElementById('plus-si-computer-field'); return f && !f.hidden; }, null, { timeout: 5000 }).catch(() => {});
   return valueOf(page, 'plus-si-computer');
 }
+/* The contrast ratio between the explanation's text and the first painted background behind it (the card's, not
+   the page's): WCAG's relative-luminance formula. 0 when the text is hidden or fully transparent. */
+const hintContrast = (page) => page.evaluate(() => {
+  const rgba = (c) => { const m = /rgba?\(([^)]+)\)/.exec(c); if (!m) return null; const p = m[1].split(',').map((x) => parseFloat(x)); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
+  const lum = (c) => { const f = (v) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+  const e = document.getElementById('plus-si-computer-hint');
+  const cs = getComputedStyle(e);
+  const text = rgba(cs.color);
+  if (!text || text.a === 0 || Number(cs.opacity) === 0 || cs.visibility !== 'visible') return 0;
+  let behind = null;
+  for (let n = e; n && !behind; n = n.parentElement) { const bg = rgba(getComputedStyle(n).backgroundColor); if (bg && bg.a > 0.5) behind = bg; }
+  if (!behind) behind = { r: 255, g: 255, b: 255, a: 1 };
+  const a = lum(text), b = lum(behind);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+});
 /* What a failing check may say about a name: never the name. */
 const about = (got, want) => 'matched: ' + (got === want) + ', length ' + String(got == null ? 0 : got.length);
 async function codeStep(page) {
@@ -134,6 +149,8 @@ async function codeStep(page) {
       chk(!!email && !!name && email.width === name.width, 'it is as wide as the email box above it', JSON.stringify({ email: email && email.width, name: name && name.width }));
       const fits = await page.evaluate(() => { const e = document.getElementById('plus-si-computer-hint'); const c = document.getElementById('plus-state2'); return e.getBoundingClientRect().right <= c.getBoundingClientRect().right + 1 && document.documentElement.scrollWidth <= window.innerWidth; });
       chk(fits, 'the explanation stays inside the card and the page does not scroll sideways');
+      const ratioDark = await hintContrast(page);
+      chk(ratioDark >= 3, 'dark: the explanation can be read against what is behind it (contrast at least 3 to 1)', 'ratio ' + ratioDark.toFixed(2));
       await page.fill('#plus-si-computer', 'A shown name');   // so the shot carries no real computer name
       await page.screenshot({ path: path.join(OUT, 'computer-name-email-step.png') });
       await page.close();
@@ -150,8 +167,8 @@ async function codeStep(page) {
       chk(!!name && name.width >= 200 && name.height >= 24, 'phone width, light: the box is a usable size', JSON.stringify(name));
       const inside = await page.evaluate(() => { const h = document.getElementById('plus-si-computer-hint').getBoundingClientRect(); return h.left >= 0 && h.right <= window.innerWidth + 1 && document.documentElement.scrollWidth <= window.innerWidth; });
       chk(inside, 'phone width, light: the explanation wraps inside the screen and the page does not scroll sideways');
-      const seen = await page.evaluate(() => { const e = document.getElementById('plus-si-computer-hint'); const c = getComputedStyle(e); return c.color !== getComputedStyle(document.body).backgroundColor && Number(c.opacity) > 0 && c.visibility === 'visible'; });
-      chk(seen, 'phone width, light: the explanation is drawn in a colour that is not the page\'s');
+      const ratio = await hintContrast(page);
+      chk(ratio >= 3, 'phone width, light: the explanation can be read against what is behind it (contrast at least 3 to 1)', 'ratio ' + ratio.toFixed(2));
       await page.fill('#plus-si-computer', 'A shown name');
       await page.screenshot({ path: path.join(OUT, 'computer-name-email-step-phone-light.png') });
       await page.close();
@@ -200,6 +217,7 @@ async function codeStep(page) {
       chk(await codeStep(page), 'a cleared box: the sign-in moves on to the code step');
       const sent = sentNames().slice(before);
       chk(sent.length === 1 && sent[0] === 'This computer' + ENDING, 'a cleared box sends the plain name', 'starts: ' + sent.length + ', ' + about(sent[0], 'This computer' + ENDING));
+      chk((await valueOf(page, 'plus-si-computer')) === '', 'and the box the person emptied is still empty after the start');
       await page.close();
     }
     {

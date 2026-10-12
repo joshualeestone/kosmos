@@ -12013,15 +12013,17 @@ test('#5995: the name this computer is sent under can be read first, is kept fro
     assert.deepEqual(await shown(), { ok: true, name: 'Studio Mac', fromComputer: false });
     // A later start that names nothing (the quiet paths, an older page) still sends the kept name.
     assert.equal((await start({})).status, 200);
-    // They cleared it: the plain name goes, and the field stays cleared in meaning (it shows the plain name).
-    assert.equal((await start({ computer_name: '' })).status, 200);
+    // They cleared it: the plain name goes, the box is told to stay empty, and the next sign-in shows the plain name.
+    const cleared = await start({ computer_name: '' });
+    assert.equal(cleared.status, 200);
+    assert.equal(JSON.parse(cleared.body).computer_name, '', 'a cleared box is told to show a name');
     assert.deepEqual(await shown(), { ok: true, name: 'This computer', fromComputer: false });
     // Not text: ignored, as an absent field is.
     assert.equal((await start({ computer_name: 7 })).status, 200);
     // Compared as "own" or the literal, so a failing line never prints this computer's real name.
     const told = sentNames().map((n) => (n === first.name + ' (Kosmos app)' ? 'OWN' : n));
     assert.deepEqual(told, ['OWN', 'Studio Mac (Kosmos app)', 'Studio Mac (Kosmos app)', 'This computer (Kosmos app)', 'This computer (Kosmos app)']);
-    // A start that does not go out keeps nothing new: what was kept before it is put back.
+    // A start that does not go out keeps nothing: the name is kept only after a start carried it.
     assert.equal(remoteEngine.read().computer_name, '', 'CONTROL: the cleared choice is not what is kept going in');
     process.env.FAKE_NAME_FAIL = '1';
     const failed = await start({ computer_name: 'Never Sent' });
@@ -12031,9 +12033,8 @@ test('#5995: the name this computer is sent under can be read first, is kept fro
     assert.equal((await start({ computer_name: 'Never Sent' })).status, 200);
     assert.equal(remoteEngine.read().computer_name, 'Never Sent', 'CONTROL: the same name on a start that went out was not kept');
     assert.equal(sentNames().at(-1), 'Never Sent (Kosmos app)');
-    /* Two starts at once with the same new name, the first failing late: the second carried the name, so it stays.
-       (Unserialised, the first's put-back would clear what the second sent.) The stand-in fails only its FIRST start
-       here, after a pause that lets the second request arrive. */
+    /* Two starts at once with the same new name, one failing late: the other carried the name, so it is kept, and
+       the failing one changes nothing. The stand-in fails only the FIRST start it sees, after a pause. */
     assert.equal((await start({ computer_name: '' })).status, 200);
     process.env.FAKE_NAME_FAIL_ONCE = nodePath.join(sb, 'fail-once');
     fs.writeFileSync(process.env.FAKE_NAME_FAIL_ONCE, '');
