@@ -8,8 +8,11 @@ disposed", or "Request context disposed." if the fetch itself is in flight) from
 catches it, and the whole check dies after its assertions passed. The disposal comes from the CONTEXT CLOSING
 (Playwright clears stored fetch bodies on BrowserContext close), not from LO1's reload; the reload only starts a fresh
 /api/status poll just before the close. Fix: every ctx.close() goes through shut(), which first calls
-page.unrouteAll and ctx.unrouteAll with { behavior: 'ignoreErrors' }, the pattern render-login-expiry-3532,
-render-teamcreate-4557, render-updates-stale, render-engine-restart-4408 and render-project-done-4583 already use.
+page.unrouteAll and ctx.unrouteAll with { behavior: 'ignoreErrors' }; and the finally that closes the browser
+unroutes any context an arm left open (a failing arm never reaches its shut()), so a teardown crash cannot replace
+the real error. Precedent, stated exactly: render-login-expiry-3532 and render-teamcreate-4557 call page.unrouteAll
+with ignoreErrors before closing (render-project-done-4583 uses 'wait', a different semantic). None of them routes on
+the context, so ctx.unrouteAll here is new, needed for WebKit's remote.test route.
 
 ## Decided
 - The repo's established unrouteAll-before-close, not a per-handler message match (my first version, reviewed and
@@ -21,8 +24,10 @@ render-teamcreate-4557, render-updates-stale, render-engine-restart-4408 and ren
 
 ## Measured
 - Before: alone on Mortals at 5621723a5, 3 runs, 1 crashed (169 pass, then disposed); in the cut, 2 of 2 crashed.
-- After: alone on Mortals at origin/main with this file, 8 of 8 clean (171 pass, 0 fail, 0 disposed).
-- At the before-rate (1 in 3), 8 clean runs happen by chance about 4% of the time. That is evidence, not proof.
+- After: alone on Mortals at origin/main, 12 of 12 clean with the unroute approach (171 pass, 0 fail, 0 disposed):
+  8 on the version before the finally change, 4 on this final file.
+- At the before-rate (1 in 3), 12 clean runs happen by chance under 1% of the time. Evidence, not proof.
+- The fix rests on Playwright's documented ignoreErrors semantics, not on a reproduced failure.
 - NOT measured: a deterministic red arm. Two injections were tried, applied identically to the old and new files:
   - a pause of 400 ms before the status fulfil: both passed (not discriminating)
   - a slowed status poll fired just before the first close: both passed (not discriminating)
