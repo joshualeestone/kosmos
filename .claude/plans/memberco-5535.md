@@ -33,6 +33,15 @@ pair, including a frozen UNREADABLE copied twice; lostEpoch ignored with no/othe
 with a scoped control that moves to epoch 2).
 
 ## Mutants (each must go red)
-Measured 19:4x CDT, each applied to the committed tree, node --check first, then reverted (pass 37 fail 1 each):
+Measured 19:03 CDT (first written as 19:4x, a guess, corrected from `date`), each applied to the committed tree, node --check first, then reverted (pass 37 fail 1 each):
 - M1 scoped always true: red. M2 member not compared: red. M3 no pair on the answer: red.
 - M4 pair recorded from the raw answer before companyOf checks it: red. M5 org not compared: red.
+
+## Review 1 (opus, blind, on 56a42317): no must-fix, three nits
+1. memberKeyFor still sent lostEpoch unscoped, so wired straight to ensureMemberKey every lostEpoch would be ignored and
+   backups would stop forever while the job said "it registers a new one next time". FIXED in code, not a comment:
+   deps.pair; lostEpoch sent with lostFor: pair; a lostEpoch with no pair refused before any call; an answer naming
+   another pair refused as otherPair with the state untouched (a wait from another pair must not back off this one);
+   the key and the snapshot input carry the answer's pair.
+2. The "equal is never answered" comment missed the new cause. Fixed.
+3. A test comment claimed the frozen constant was checked. Reworded to what it proves.
