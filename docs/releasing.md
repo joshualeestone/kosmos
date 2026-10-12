@@ -112,11 +112,14 @@ improvement it gained would have died with the session that wrote it.
    #2006); green dismisses it as contention, red aborts the cut. One attempt by default
    (#5907); `KOSMOS_SUITE_RERUN_MAX=3` set before a cut allows up to 3.
 4. **Build**, then copy the bundle, `.sha256` and `latest.json` to the site.
-   The build notarises `kosmos-app` and `kosmos-tunnel` with Apple just before
-   packing (#5137) and refuses unless Apple's ticket lists every architecture
-   slice's cdhash. That waits on Apple: usually minutes, and past an hour when
-   Apple is slow (each wait gives up at 30 minutes and is tried twice, and the
-   upload and log fetch retry). A failure there comes after the bump. It counts
+   The build notarises `kosmos-app`, `kosmos-tunnel` and the sealed
+   `app/Kosmos.app` with Apple just before packing (#5137, #5896), refuses
+   unless Apple's ticket lists every architecture slice's cdhash, then staples
+   the ticket to the app and refuses unless a quarantined copy is accepted as
+   "Notarized Developer ID" of our team. That waits on Apple: usually minutes,
+   and past an hour when Apple is slow (each wait gives up at 30 minutes and is
+   tried twice, the upload and log fetch retry, and a lagging staple is tried
+   for up to about 8.5 minutes more). A failure there comes after the bump. It counts
    toward the cut's duration `D`, so a hand-stamped page (option (b) under the
    versions entry below) has less room than it did before #5137.
    ⚠️ The tarball and `latest.json` must land in the **same deploy**: shipping
