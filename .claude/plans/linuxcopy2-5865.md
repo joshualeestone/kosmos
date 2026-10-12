@@ -49,3 +49,10 @@ run every web*.test.js from the worktree as cwd.
 - Audited every data-win-hide element for Linux: Open Terminal is hidden (engine/terminal.js drives Terminal.app via
   osascript); Update Kosmos automatically STAYS (a Linux install has runtime/bin/node, so engine/update.js
   installedRoot finds it); the first-run ones (S3 mocks and gate, S7 Dock drawing) are #5877's.
+
+## Review 3 (blind, opus)
+- Hidden on Linux: the agent Files "Open in Finder" and the project docs "Open this folder in Finder" (revealFolder
+  runs /usr/bin/open). The agent page's Terminal box takes Windows' title and Trust & Restart hint (no "macOS").
+- The Linux not-answering sentence covers both causes it names ("Make sure it is on, then run kosmos restart").
+- platformHides knows data-linux-hide, so a first-run gate #5877 hides on Linux is not waited on.
+- HostMachine renamed hostMachineCap (a case-only difference was easy to mistype).

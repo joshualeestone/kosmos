@@ -28,7 +28,7 @@ test('#4408: the did-not-answer screen stands down while the board restarts itse
 function offlineNoteAfter(restarting, deviceIsOffline) {
   const slot = { dataset: {}, innerHTML: '' };
   new Function('document', 'ENGINE_RESTARTING', 'offlineRemoteView', 'esc', 'bakedVersion', 'platformCopy', 'onLinux',
-    'hostMachine', 'HostMachine',
+    'hostMachine', 'hostMachineCap',
     page.lift(SCRIPT, 'paintOfflineNote') + '\npaintOfflineNote(true, ' + (deviceIsOffline ? 'true' : 'false') + ');')(
     { getElementById: (id) => (id === 'uoffline-slot' ? slot : null) }, restarting, () => false, (x) => String(x),
     () => '0.2.75', (k, fallback) => fallback || String(k), () => false,   // #5862: the note's Linux arm

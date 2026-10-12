@@ -13347,7 +13347,7 @@ window.kosmosMeasureScrollbarWidth();
        menu. "Open Terminal" (added with Pete's second route) opens the real window.
        Copy: Mona Lisa. -->
   <section class="dbox" id="d-term-actions">
-    <h3 class="dlab" data-win-copy="terminalBoxTitle">This agent&rsquo;s Terminal</h3>
+    <h3 class="dlab" data-win-copy="terminalBoxTitle" data-linux-copy="terminalBoxTitle">This agent&rsquo;s Terminal</h3>
     <!-- Two grouped actions. "Open Terminal" first: it is the lighter, read-only one (it
          only attaches a viewer to the live tmux session; it does NOT restart the agent).
          "Trust & Restart" is the heavier one (it restarts). Each carries its own hint +
@@ -13361,7 +13361,7 @@ window.kosmosMeasureScrollbarWidth();
     </div>
     <div class="field" style="margin-top:14px;">
       <button class="btn" id="d-trust-restart" type="button">Trust &amp; Restart</button>
-      <p class="fhint" id="d-trust-restart-hint" style="margin-top:8px;" data-win-copy="trustRestartHint">Approves this agent's folder so it can start without the macOS permission prompt each time.</p>
+      <p class="fhint" id="d-trust-restart-hint" style="margin-top:8px;" data-win-copy="trustRestartHint" data-linux-copy="trustRestartHint">Approves this agent's folder so it can start without the macOS permission prompt each time.</p>
       <p class="fmsg" id="d-trust-restart-msg" role="status" aria-live="polite"></p>
     </div>
   </section>
@@ -13467,7 +13467,7 @@ window.kosmosMeasureScrollbarWidth();
     <button class="back" id="d-files-back" type="button">&larr; Direct Message</button>
     <div class="dfiles-head dfiles-screen-head">
       <h2 class="dfiles-title" id="d-filesall-h">Files</h2>
-      <button class="btn" id="d-files-finder" type="button" data-win-copy="docsOpenFolder">Open in Finder</button>
+      <button class="btn" id="d-files-finder" type="button" data-win-copy="docsOpenFolder" data-linux-hide>Open in Finder</button>
     </div>
     <p class="dhint" id="d-filesall-msg" role="status"></p>
     <div class="pj-docs" id="d-filesall-list"></div>
@@ -17043,7 +17043,8 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <!-- #3504 (Josh, 2026-09-23): a plain text link read as passive; make it the gold
            primary button so "Open this folder in Finder" reads as an easy, obvious action. -->
-      <button class="btn uprime" id="docs-finder" type="button" data-win-copy="docsOpenFolder">Open this folder in Finder</button>
+      <!-- #5865: hidden on Linux, where engine/projects.js revealFolder runs /usr/bin/open, which is not there. -->
+      <button class="btn uprime" id="docs-finder" type="button" data-win-copy="docsOpenFolder" data-linux-hide>Open this folder in Finder</button>
     </div>
     <!-- Two sources, said apart (#131, Josh's 08-20 ruling): files from the
          CONVERSATION live in the attachment store, not the folder, so a
@@ -19676,12 +19677,14 @@ function onLinux(platform) {
 function hostMachine(platform) {
   return onLinux(platform) ? 'the computer running Kosmos' : onWindows(platform) ? 'your PC' : 'your Mac';
 }
-function HostMachine(platform) {   // the same words opening a sentence
+function hostMachineCap(platform) {   // the same words opening a sentence
   return onLinux(platform) ? 'The computer running Kosmos' : onWindows(platform) ? 'Your PC' : 'Your Mac';
 }
 function linuxCopyTable() {
   return {
     /* Settings can be read from a phone through Kosmos+, so not "this computer". */
+    terminalBoxTitle: 'Start-up and restart',   // its Terminal button is hidden on Linux, as on Windows
+    trustRestartHint: 'Approves this agent&rsquo;s folder so it can start without asking each time.',
     settingsOpenKosmos: 'If Kosmos stops, run <b>kosmos restart</b> in a terminal on the computer it is installed on '
       + '(over SSH on a headless server).',
   };
@@ -19814,7 +19817,8 @@ function platformCopy(key, macCopy, platform) {
 /* Whether an element is one this platform hides, for code that reads the DOM rather
    than looking at it (the first-run gate poll must not wait on a hidden Mac gate). */
 function platformHides(el) {
-  return onWindows() && Boolean(el && typeof el.closest === 'function' && el.closest('[data-win-hide]'));
+  if (!el || typeof el.closest !== 'function') return false;
+  return (onWindows() && Boolean(el.closest('[data-win-hide]'))) || (onLinux() && Boolean(el.closest('[data-linux-hide]')));   // #5865
 }
 function applyPlatformCopy(root) {
   if (onLinux() && root && typeof root.querySelectorAll === 'function') {
@@ -23735,7 +23739,7 @@ function paintOfflineNote(down, deviceIsOffline) {
     catch { /* no location: the sentence stands on its own */ }
     slot.innerHTML = '<div class="utoast stale" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt"><b>' + HostMachine() + ' is not answering</b>'
+      + '<div class="utxt"><b>' + hostMachineCap() + ' is not answering</b>'
       + '<small>' + MAC_ASLEEP_SENTENCE + at + '</small>'
       + '</div></div>';
     return;
@@ -36192,7 +36196,7 @@ let BOARD_SIGNED_OUT = false;
 function relaySignedOut(status, body) {
   return status === 401 && !!body && body.signed_out === true;
 }
-const ORG_SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos. ' + HostMachine() + ' and your agents are fine.';
+const ORG_SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos. ' + hostMachineCap() + ' and your agents are fine.';
 const DEVICE_SIGNIN_BUTTON = '<button class="btn" type="button" data-device-signin>Sign in</button>';
 /* #718 state 1: a read that got no answer, from a phone or computer reaching the Mac through
    Kosmos+, while the browser says it has no network. Then the thing that is offline is the
@@ -36209,8 +36213,8 @@ function deviceOffline() {
 /* #718 state 2: what a phone or remote computer is told when the Mac behind Kosmos+ does not answer. */
 /* #5865: a Linux board is often a server: not asleep, but off or with Kosmos stopped, and the step is #5862's. Chosen at
    load from the served platform meta, which is in <head> before this script runs. */
-const MAC_ASLEEP_SENTENCE = onLinux()
-  ? 'It may be turned off, or Kosmos may have stopped on it. Run kosmos restart in a terminal on that computer, and this page asks again by itself. If it is running, check this phone or computer\'s own connection.'
+const MAC_ASLEEP_SENTENCE = onLinux()   // per platform since #5865, the name kept for its callers
+  ? 'It may be turned off, or Kosmos may have stopped on it. Make sure it is on, then run kosmos restart in a terminal on it, and this page asks again by itself. If it is running, check this phone or computer\'s own connection.'
   : 'It may be asleep or turned off. Wake it and make sure Kosmos is open on it, and this page asks again by itself. If your Mac is on, check this phone or computer\'s own connection.';
 const OFFLINE_SENTENCE = 'This phone or computer is not connected to the internet, so it cannot reach ' + hostMachine() + '. The board tries again by itself when you are online again.';
 function deviceOfflineHtml() {
@@ -36219,7 +36223,7 @@ function deviceOfflineHtml() {
     + '<button class="btn" type="button" data-board-retry>Try again</button>'
     + '</div>';
 }
-const SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos, so it cannot see your agents or projects. ' + HostMachine() + ' and your agents are fine. Sign in again from the Agents or Projects page.';
+const SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos, so it cannot see your agents or projects. ' + hostMachineCap() + ' and your agents are fine. Sign in again from the Agents or Projects page.';
 function deviceSignedOutHtml(what) {
   return '<div class="pj-empty boardfail">'
     + '<p><b>Sign in again to see your ' + (what === 'projects' ? 'projects' : 'agents') + '.</b><br>'

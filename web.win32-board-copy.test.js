@@ -703,7 +703,7 @@ const SENTENCES = ['MAC_ASLEEP_SENTENCE', 'OFFLINE_SENTENCE', 'SIGNED_OUT_SENTEN
 test('#5865: a Linux board seen from elsewhere is "the computer running Kosmos", never "your Mac"', () => {
   const asleep = remoteNote('linux', false);
   assert.ok(asleep.includes('<b>The computer running Kosmos is not answering</b>'), asleep);
-  assert.ok(asleep.includes('Run kosmos restart in a terminal on that computer'), asleep);
+  assert.ok(asleep.includes('Make sure it is on, then run kosmos restart in a terminal on it'), asleep);
   assert.ok(asleep.includes('Nothing answered at box.kosmosplus.com.'), 'premise: this is the remote arm: ' + asleep);
   const offline = remoteNote('linux', true);
   assert.ok(offline.includes('so it cannot reach the computer running Kosmos.</small>'), offline);
@@ -744,6 +744,9 @@ test('#5865: Settings on Linux has no Dock line, app icon, Accessibility or tmux
     // engine/terminal.js opens Terminal.app with osascript. (Update Kosmos automatically stays: a Linux install has the
     // Mac's runtime/bin/node layout, so engine/update.js installedRoot finds it and auto-install runs.)
     'Open Terminal': /<div class="field" data-win-hide data-linux-hide>\s*<button class="btn" id="d-open-terminal"/,
+    // engine/projects.js revealFolder runs /usr/bin/open, which a Linux board does not have.
+    'agent Files: Open in Finder': /id="d-files-finder" type="button" data-win-copy="docsOpenFolder" data-linux-hide>/,
+    'project docs: Open this folder in Finder': /id="docs-finder" type="button" data-win-copy="docsOpenFolder" data-linux-hide>/,
   };
   for (const [name, re] of Object.entries(HIDDEN_ON_LINUX)) assert.match(PAGE, re, name + ' shows on Linux');
   const markup = PAGE.replace(/<script\b[\s\S]*?<\/script>/g, '').replace(/<style\b[\s\S]*?<\/style>/g, '').replace(/<!--[\s\S]*?-->/g, '');
@@ -767,6 +770,20 @@ test('#5865: Settings on Linux has no Dock line, app icon, Accessibility or tmux
   // CONTROLS: a Mac is untouched; Windows still gets its own copy.
   assert.deepEqual(run('darwin'), { text: 'Kosmos is already in your Dock.', stamp: undefined });
   assert.equal(run('win32').text, table.settingsOpenKosmos);
+});
+
+test('#5865: every data-linux-copy key has a Linux string, the agent page drops "Terminal" and "macOS", and platformHides knows Linux', () => {
+  const keys = [...new Set((PAGE.match(/data-linux-copy="([^"]+)"/g) || []).map((m) => m.slice(17, -1)))].sort();
+  assert.deepEqual(keys, ['settingsOpenKosmos', 'terminalBoxTitle', 'trustRestartHint']);
+  for (const k of keys) assert.equal(typeof runPage('linux', [], 'linuxCopy(' + JSON.stringify(k) + ')'), 'string', k);
+  assert.equal(runPage('linux', [], "linuxCopy('terminalBoxTitle')"), 'Start-up and restart');
+  assert.doesNotMatch(runPage('linux', [], "linuxCopy('trustRestartHint')"), /macOS/);
+  // platformHides: the first-run gate poll asks it, so a Linux-hidden gate must not be waited on.
+  const el = (attr) => ({ closest: (sel) => (sel === '[' + attr + ']' ? {} : null) });
+  assert.equal(runPage('linux', [], 'platformHides(e)', { e: el('data-linux-hide') }), true);
+  assert.equal(runPage('linux', [], 'platformHides(e)', { e: el('data-win-hide') }), false, 'Linux honoured a Windows-only hide');
+  assert.equal(runPage('win32', [], 'platformHides(e)', { e: el('data-win-hide') }), true);
+  assert.equal(runPage('darwin', [], 'platformHides(e)', { e: el('data-linux-hide') }), false, 'CONTROL: a Mac hid a Linux-only element');
 });
 
 test('#5865: an unreadable daily-report setting on Linux does not send the person to an app icon', () => {
