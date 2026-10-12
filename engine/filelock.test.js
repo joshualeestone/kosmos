@@ -206,7 +206,8 @@ test('#5997: a lock that vanished at the stat is NOT treated as stale; a waiter 
   };
   let fnRan = false;
   try {
-    const r = withFileLock(file, () => { fnRan = true; }, { busy: 'still held', waitMs: 150 });
+    // Long deadline: lstat sees B's real lock here, so the waiter pauses (~165 ms under load) between the two lies.
+    const r = withFileLock(file, () => { fnRan = true; }, { busy: 'still held', waitMs: 1500 });
     assert.equal(statLied, 2, 'CONTROL: the stat that finds no lock was reached, twice');
     assert.deepEqual(moved, [], 'the waiter moved a live holder\'s lock aside (it read a missing lock as stale)');
     assert.equal(fnRan, false);
@@ -246,7 +247,7 @@ test('#5997 review 1: a stat that fails another way once (Windows delete-pending
     fails = 0; failTimes = Infinity;
     // A long deadline: a 20 ms pause measured ~165 ms on a loaded Mac (load 11.5), and this arm needs two of them.
     withFileLock(file, () => 'ran', { busy: 'still held', waitMs: 1500 });
-    assert.ok(moved.length > 0, 'CONTROL: a stat that keeps failing no longer reaches the debris path at all');
+    assert.ok(moved.length > 0, 'CONTROL: a stat that keeps failing must still reach the debris path (the old reading)');
   } finally {
     fs.statSync = realStat;
     fs.renameSync = realRename;
@@ -254,5 +255,24 @@ test('#5997 review 1: a stat that fails another way once (Windows delete-pending
     for (const f of fs.readdirSync(dir)) {
       try { fs.rmSync(path.join(dir, f), { recursive: true, force: true }); } catch { /* best-effort */ }
     }
+  }
+});
+
+test('#5997 review 2: a dangling symlink at the lock path (mkdir EEXIST, stat ENOENT) is waited on with pauses, not spun hot', () => {
+  const file = tmpFile();
+  const lock = file + '.lock';
+  fs.symlinkSync(path.join(path.dirname(lock), 'nowhere'), lock);   // EEXIST for mkdir, ENOENT for stat
+  const realMkdir = fs.mkdirSync;
+  let tries = 0;
+  fs.mkdirSync = (p, ...rest) => { if (p === lock) tries += 1; return realMkdir(p, ...rest); };
+  try {
+    const r = withFileLock(file, () => 'ran', { busy: 'still held', waitMs: 300 });
+    assert.deepEqual(r, { ok: false, because: 'still held' });
+    // A hot spin makes thousands of tries in 300 ms; with pauses (20 ms, often far longer under load) it is a handful.
+    assert.ok(tries < 100, `${tries} mkdir tries in 300 ms: the wait spun hot`);
+    assert.ok(tries >= 2, 'CONTROL: the wait retried at all');
+  } finally {
+    fs.mkdirSync = realMkdir;
+    try { fs.unlinkSync(lock); } catch { /* best-effort */ }
   }
 });

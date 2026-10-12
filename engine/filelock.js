@@ -88,6 +88,7 @@ function withFileLock(file, fn, opts = {}) {
   }
   const until = Date.now() + waitMs;
   let statFailedBefore = null;   // #5997 review 1: the code of the last stat failure, so only a repeated one reads as debris
+  let vanishedRun = 0;           // #5997 review 2: consecutive "vanished at the stat" reads, so a stuck one does not spin hot
   for (;;) {
     try { fs.mkdirSync(lock); break; }
     catch (err) {
@@ -111,7 +112,18 @@ function withFileLock(file, fn, opts = {}) {
            it back, and a third writer can mkdir in that gap, leaving two writers inside the section. All report
            success and one update is lost (one of 12 concurrent trust writes, in CI). Any other stat failure keeps the
            old reading: a lock we cannot even stat is treated as debris. */
-        if (err && err.code === 'ENOENT') { statFailedBefore = null; continue; }
+        if (err && err.code === 'ENOENT') {
+          statFailedBefore = null;
+          /* Review 2: a vanish is retried at once (the lock was just freed), but something that keeps making mkdir say
+             EEXIST while the stat says ENOENT (a dangling symlink at the lock path) would spin hot to the deadline.
+             After three in a row, or when lstat shows something IS there, pause between tries. (Such a path was never
+             collected by the old code either: its steal measured no mtime and always put the link back.) */
+          vanishedRun += 1;
+          let present = false;
+          try { fs.lstatSync(lock); present = true; } catch { present = false; }
+          if (present || vanishedRun >= 3) pauseMs(LOCK_SPIN_MS);
+          continue;
+        }
         /* Review 1: on Windows a lock being removed can sit delete-pending, where the stat fails EPERM or EACCES
            rather than ENOENT, and the same steal would follow. Any other stat failure is retried once after a pause;
            only the same failure twice in a row is debris (an unreadable leftover is still collected). */
@@ -119,7 +131,7 @@ function withFileLock(file, fn, opts = {}) {
         if (statFailedBefore !== code) { statFailedBefore = code; pauseMs(LOCK_SPIN_MS); continue; }
         age = Infinity;
       }
-      if (age !== Infinity) statFailedBefore = null;
+      if (age !== Infinity) { statFailedBefore = null; vanishedRun = 0; }
       if (age > LOCK_STALE_MS) {
         const aside = `${lock}.${process.pid}.${Date.now()}.stale`;
         try { fs.renameSync(lock, aside); }
