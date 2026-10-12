@@ -71,7 +71,7 @@ function cfgFor(home) {
 const REMOVE = 'SEALED_REQ="$(sealed_requirement)"; ';   // what uninstall() sets before it deletes anything
 
 function run(env, body) {
-  env = { _SEALED_SRC_OK: '', ...env };
+  env = { _SEALED_SRC_OK: '', _SEALED_REQ_RUN: '', ...env };
   if (env.KOSMOS_HOME && !('INSTALL_CONFIG_DIR' in env)) env = { ...env, INSTALL_CONFIG_DIR: cfgFor(env.KOSMOS_HOME) };
   const script = ['set -u', 'build_app_bundle() { /bin/mkdir -p "$1/Contents"; : > "$1/Contents/BUILT"; }', FNS, body].join('\n');
   try {
@@ -289,6 +289,7 @@ test('#5896: setup.sh ordering and mode invariants (text only, every platform)',
   assert.match(SETUP, /bundle_is_ours "\$SYS_APP_DIR\/Kosmos\.app" own; then APP_OWN_SEALED=yes; fi/, 'the transcript line no longer asks in own mode');
   assert.match(SETUP, /^SEALED_REQ=""/m, 'SEALED_REQ can be inherited');
   assert.match(SETUP, /^_SEALED_SRC_OK=""/m, 'the placement cache can be inherited');
+  assert.match(SETUP, /^_SEALED_REQ_RUN=""/m, 'the requirement cache can be inherited');
 });
 
 it('#5896: with AGENT_WORKFORCE_HOME elsewhere, a sealed icon in a REAL folder is never ours (its app reads the real home\'s config)', () => {

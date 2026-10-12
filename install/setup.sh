@@ -345,7 +345,9 @@ sealed_serves_this_install() {
 }
 # Is the account config this run reads (INSTALL_CONFIG_DIR, under AGENT_WORKFORCE_HOME) the one the sealed app at
 # $1 will read when opened? Yes with no AGENT_WORKFORCE_HOME elsewhere; otherwise only for an icon in an icon folder
-# the harness itself sandboxed (which launches the app with that environment).
+# the harness itself sandboxed (which launches the app with that environment). KOSMOS_HOME_APP_DIR counts here, for
+# an icon IN that folder; sealed_placeable does not count it, because with it alone this run may still place into
+# the real /Applications.
 sealed_config_reaches() {
   if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "$AGENT_WORKFORCE_HOME" -ef "$HOME" ]; then return 0; fi
   local d
@@ -362,10 +364,14 @@ bundle_looks_sealed() {
 }
 SEALED_REQ=""   # never inherited: it widens the proof below, which decides an rm -rf
 _SEALED_SRC_OK=""   # sealed_placeable's once-per-run verify of the shipped copy; never inherited either
+_SEALED_REQ_RUN=""  # bundle_is_sealed's once-per-run read of the shipped copy's requirement; never inherited either
 bundle_is_sealed() {
   # SEALED_REQ: uninstall reads it BEFORE it deletes $KOSMOS_HOME (and the shipped copy with it), then sweeps icons.
   local req="${SEALED_REQ:-}"
-  [ -n "$req" ] || req="$(sealed_requirement)" || return 1
+  if [ -z "$req" ]; then
+    [ -n "$_SEALED_REQ_RUN" ] || _SEALED_REQ_RUN="$(sealed_requirement)" || _SEALED_REQ_RUN=""
+    req="$_SEALED_REQ_RUN"   # read once per run: the shipped copy does not change mid-run
+  fi
   [ -n "$req" ] || return 1
   /usr/bin/codesign --verify --deep --strict "-R=$req" "$1" >/dev/null 2>&1
 }
