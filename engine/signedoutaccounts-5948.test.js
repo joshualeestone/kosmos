@@ -175,13 +175,13 @@ test('#5948 review 9: a gemini/grok folder whose own key is gone, with a shared 
   // review 13: an unread door is not said to hold a key.
   assert.match(u.connection.because, /could not read this computer's shared Grok key to tell whether one stands in/);
   assert.doesNotMatch(u.connection.because, /can stand in for it/);
-  // CONTROLS: no shared key reads signed out; codex has no shared door, so it is never asked.
+  // CONTROLS: no shared key reads signed out; codex is asked for OPENAI_API_KEY (review 16: the door loop reaches it).
   const [g] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => null, () => false);
   assert.equal(g.connection.badge, 'signed_out');
   const cx = { cxn: { configDir: '/h/.codex-team', runner: 'codex' } };
   const seen = [];
   const [c] = signedOutRows([card('cx', 'codex')], { openai: [] }, (n) => cx[n === 'cx' ? 'cxn' : n], readName, () => false, () => null, (v) => { seen.push(v); return true; });
-  assert.deepEqual([c.connection.badge, seen], ['signed_out', []]);
+  assert.deepEqual([c.connection.badge, seen], ['unlisted', ['OPENAI_API_KEY']]);
 });
 
 test('#5948 review 10: on a real disk, an EMPTY credential file holds no credential and reads signed out; a non-empty one reads unlisted', () => {
@@ -222,4 +222,13 @@ test('#5948 review 15: with accounts listed but the unlisted check incomplete, k
   assert.deepEqual(lines, ['Claude: a@example.com: signed in', 'Kosmos could not check every account its agents use just now, so one may be missing here. Try again in a minute.']);
   // CONTROL: a complete check adds nothing.
   assert.deepEqual(answer(200, { accounts: [{ providerName: 'Claude', email: 'a@example.com', connection: { state: 'connected' } }], unlistedAccounts: [], unlistedComplete: true }).lines, ['Claude: a@example.com: signed in']);
+});
+
+test('#5948 review 16: when the provider\'s default folder cannot be asked, a job\'s folder reads unlisted, never signed out', () => {
+  const [r] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => { throw new Error('x'); });
+  assert.deepEqual([r.signedOut, r.defaultUnsure, r.connection.badge], [false, true, 'unlisted']);
+  assert.match(r.connection.because, /could not tell whether that folder is the default account/);
+  // CONTROL: a default that answers (and is another folder) leaves it signed out.
+  const [g] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, () => false, () => '/h/.grok');
+  assert.equal(g.connection.badge, 'signed_out');
 });

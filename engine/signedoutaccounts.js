@@ -12,13 +12,15 @@
  * Pure: the cards, the listed rows, and the two readers are passed in.
  */
 
+const fs = require('node:fs');
 const path = require('node:path');
 
 /* `files`: the credential files each provider's list reads in an account folder. One of them still there means the
    list left the folder out because it could not read or recognise it, not because the credential is gone. */
 const PROVIDER_OF_RUNNER = Object.freeze({
   // `sharedKey`: the variable a launch falls back to when the folder's own key is missing (the secrets/env door).
-  codex: { provider: 'openai', providerName: 'OpenAI', prefix: '.codex-', files: ['auth.json'], sharedKey: null },
+  // codex: the supervisor's generic door loop puts every secrets/env file into the pane, and codex reads OPENAI_API_KEY.
+  codex: { provider: 'openai', providerName: 'OpenAI', prefix: '.codex-', files: ['auth.json'], sharedKey: 'OPENAI_API_KEY' },
   gemini: { provider: 'google', providerName: 'Gemini', prefix: '.gemini-', files: ['.kosmos-gemini-apikey'], sharedKey: 'GEMINI_API_KEY' },
   grok: { provider: 'xai', providerName: 'Grok', prefix: '.grok-', files: ['.kosmos-grok-apikey', 'auth.json'], sharedKey: 'XAI_API_KEY' },
 });
@@ -29,7 +31,7 @@ const SHOWN_AGENTS = 3;   // a folder many agents share names the first few, the
    "gone". fs.existsSync would answer false for both. */
 function fileThere(file) {
   // Content, not size: a key file holding only whitespace is no key (the launch reads its first line; readKey trims).
-  try { return require('node:fs').readFileSync(file, 'utf8').trim() !== ''; } catch (e) {
+  try { return fs.readFileSync(file, 'utf8').trim() !== ''; } catch (e) {
     if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return false;
     throw e;
   }
@@ -37,7 +39,7 @@ function fileThere(file) {
 
 /* One folder, however it is spelled: a symlinked or differently-cased home names the same folder (best effort). */
 function samePlace(d) {
-  try { return require('node:fs').realpathSync.native(d); } catch { return path.resolve(d); }
+  try { return fs.realpathSync.native(d); } catch { return path.resolve(d); }
 }
 
 /**
@@ -66,11 +68,12 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
     if (!dir) continue;
     if (!defaultPlaces.has(p.provider)) {   // once per provider, like listedPlaces
       let d = null;
-      try { d = defaultDirOf(p.provider); } catch { d = null; }
-      defaultPlaces.set(p.provider, d ? { dir: path.resolve(d), place: samePlace(d) } : null);
+      let unsure = false;   // the default could not be asked: a pinned default folder must not read "gone"
+      try { d = defaultDirOf(p.provider); } catch { d = null; unsure = true; }
+      defaultPlaces.set(p.provider, d ? { dir: path.resolve(d), place: samePlace(d) } : unsure ? { unsure: true } : null);
     }
     const dfltRec = defaultPlaces.get(p.provider);
-    if (dfltRec && dfltRec.place === samePlace(dir)) continue;
+    if (dfltRec && !dfltRec.unsure && dfltRec.place === samePlace(dir)) continue;
     if (!listedPlaces.has(p.provider)) {   // each provider's listed folders resolved once, not once per card
       const rows = (listed && Array.isArray(listed[p.provider])) ? listed[p.provider] : [];
       listedPlaces.set(p.provider, new Set(rows.filter((r) => r && typeof r.dir === 'string').map((r) => samePlace(r.dir))));
@@ -90,14 +93,15 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
         provider: p.provider, providerName: p.providerName, dir,
         label: base.startsWith(p.prefix) ? base.slice(p.prefix.length) : base,
         name: name || null, isDefault: false, email: null, authMode: null, keyTail: null,
-        signedOut: false, unreadable, folderUnsure, sharedKey: false, sharedKeyUnsure: false, usedBy: [],
+        signedOut: false, unreadable, folderUnsure, sharedKey: false, sharedKeyUnsure: false,
+        defaultUnsure: !!(dfltRec && dfltRec.unsure), usedBy: [],
       });
       const row = byDir.get(key);
       if (!unreadable && p.sharedKey) {
         // A door that cannot be read is unsure: never "gone", and never said to hold a key nobody saw.
         try { row.sharedKey = hasSharedKey(p.sharedKey) === true; } catch { row.sharedKey = true; row.sharedKeyUnsure = true; }
       }
-      row.signedOut = !row.unreadable && !row.sharedKey;
+      row.signedOut = !row.unreadable && !row.sharedKey && !row.defaultUnsure;
     }
     byDir.get(key).usedBy.push(c.name || c.sessionName);
   }
@@ -108,7 +112,9 @@ function signedOutRows(cards, listed, readJob, readName, exists = fileThere, def
     const fix = ' To fix it, add the key or sign in again in Settings > AI Models.';
     return {
       ...r,
-      connection: r.folderUnsure
+      connection: r.defaultUnsure && !r.unreadable && !r.sharedKey
+        ? { state: 'unknown', badge: 'unlisted', because: 'its sign-in or key is not in its folder, Kosmos could not tell whether that folder is the default account\'s (which can run on this computer\'s own key), and ' + who + '.' }
+        : r.folderUnsure
         ? { state: 'unknown', badge: 'unlisted', because: 'Kosmos could not look in its folder, and ' + who + '.' }
         : r.unreadable
           ? { state: 'unknown', badge: 'unlisted', because: 'a sign-in or key file is in its folder, but Kosmos could not read it or does not look in that folder, and ' + who + '.' }
