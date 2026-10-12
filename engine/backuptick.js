@@ -14,8 +14,11 @@
  * out and named in the snapshot's skipped list rather than failing the backup.
  * NOT covered, on purpose: the data root (keys, the backup state itself, pairing, codex-homes). Its credentials are what
  * the card says never to take, and what is left is Kosmos's own state, not the person's work.
- * Known gap: per-session Codex homes (<data root>/codex-homes/<session>) are not transcript roots; sessionsFor takes
- * one codexHome. `left` names what was not added and why (an id or slug a root name cannot carry), never a path.
+ * KNOWN GAP in transcripts (review 5), kosmos#5883: backupsessions takes ONE Codex home and ONE Gemini home
+ * and has no Grok case, so these transcripts are NOT backed up: agents on a ~/.codex-<label> or ~/.gemini-<label>
+ * account, per-session Codex homes (<data root>/codex-homes/<session>), and every Grok agent. Their agent FOLDERS are
+ * backed up (under workers or agents/<id>); only the provider's record of the conversation is missing.
+ * `left` names what was not added and why (an id or slug a root name cannot carry), never a path.
  *
  * startTick(deps) -> stop(). Every `everyMs` (an hour): only while deps.enrolled() is true (this Kosmos is enrolled
  * with a company), and never while a run is still going (a tick then is skipped, not queued). Pauses:
@@ -193,8 +196,20 @@ function inputsHere() {
   try { geminiHome = require('./geminisession').HOME(); } catch { /* none */ }
   try { codexHome = require('./codexupdate').defaultHome(); } catch { /* none */ }
   const sessions = (dir, id) => require('./backupsessions').sessionsFor(dir, { id, claudeRoots, geminiHome, codexHome });
-  // Never inside a root, never holding one: Kosmos's own data and each provider's config home (review 1).
-  const protect = [store.ROOT, ...claudeRoots, geminiHome, codexHome].filter((x) => typeof x === 'string' && x);
+  // Never inside a root, never holding one (reviews 1 and 5): Kosmos's own data, every provider's config home and every
+  // ACCOUNT folder (~/.codex-<label>, ~/.gemini-<label>, ~/.grok and its accounts), and every hidden entry directly in
+  // the home folder (~/.ssh, ~/.aws, ~/.config, a provider not listed here yet). The last makes any root that holds the
+  // home folder refused, whatever lives there: the provider lists are best effort, the home rule is not.
+  const accountDirs = [];
+  for (const m of ['openaiaccounts', 'geminiaccounts', 'grokaccounts']) {
+    try { for (const row of require(`./${m}`).list()) if (row && typeof row.dir === 'string') accountDirs.push(row.dir); } catch { /* the home rule still holds */ }
+  }
+  try { accountDirs.push(require('./grokaccounts').defaultDir()); } catch { /* the home rule still holds */ }
+  const home = process.env.AGENT_WORKFORCE_HOME || require('os').homedir();
+  const hidden = [];
+  try { for (const n of fs.readdirSync(home)) if (n.startsWith('.') && n !== '.' && n !== '..') hidden.push(path.join(home, n)); } catch { /* none */ }
+  const protect = [store.ROOT, ...claudeRoots, geminiHome, codexHome, ...accountDirs, ...hidden]
+    .filter((x) => typeof x === 'string' && x).map((x) => path.resolve(x));
   return { workersDir: create.WORKERS_DIR, projectsDir, agents, projects, sessions, protect };
 }
 
