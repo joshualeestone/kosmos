@@ -122,7 +122,7 @@ fi
 # put two lib generations in one queue (#4977): detached and clean, no other queued-heavy.sh process (waiter or
 # holder), and no queue marker (suitewait.*, a machine claim, a side claim). A stale marker only blocks the move; the
 # line says why and this run joins on the lib as it is. The check, the move and the load below are one step under a
-# lock, so a joiner never loads the lib halfway through another's move.
+# lock (the residuals of its takeover are in the plan, .claude/plans/libdrift-5923.md).
 # Weakest premise: a process is matched only as `<shell> <path>/queued-heavy.sh ...` or a direct exec of it (what a
 # waiter shows, before and after its #5467 re-exec), split on spaces. A path with a space is not seen, nor (for the
 # instant before its re-exec) one started with shell options before the path or through `env bash`.
@@ -159,13 +159,15 @@ _qh_lib_check() {
       [ -e "$m" ] && { why="a queue marker is present (${m##*/})"; break; }
     done
     if [ -z "$why" ]; then
-      local p="" out=""
+      local out=""
       # A ps that fails or prints nothing must not read as "nothing live": it always lists at least this run.
       out="$(${QH_TEST_PS:-ps -axww -o pid= -o ppid= -o command=} 2>/dev/null)" || out=""
-      if [ -z "$out" ]; then why="could not list processes"; else
-      p="$(printf '%s\n' "$out" | awk -v me="$$" -v nm="${QH_TEST_PS_NAME:-queued-heavy.sh}" '
-        function isq(w) { return w == nm || (length(w) > length(nm) && substr(w, length(w) - length(nm)) == "/" nm) }
-        $1 != me && $2 != me && (isq($3) || ($3 ~ /(^|\/)(ba|z|da|k)?sh$/ && isq($4))) { print $1; exit }')"
+      if [ -z "$out" ]; then
+        why="could not list processes"
+      else
+        p="$(printf '%s\n' "$out" | awk -v me="$$" -v nm="${QH_TEST_PS_NAME:-queued-heavy.sh}" '
+          function isq(w) { return w == nm || (length(w) > length(nm) && substr(w, length(w) - length(nm)) == "/" nm) }
+          $1 != me && $2 != me && (isq($3) || ($3 ~ /(^|\/)(ba|z|da|k)?sh$/ && isq($4))) { print $1; exit }')"
       fi
       [ -n "$p" ] && why="another queued-heavy.sh is live (pid $p)"
     fi
@@ -184,7 +186,7 @@ _qh_lib_check() {
       fi
     fi
   fi
-  # Origin/main's lib must still define every function this copy calls, or the move would make every later join exit 3
+  # Origin/main's lib must still define every function this copy calls unguarded (QH_NEED_BASE), or the move would make every later join exit 3
   # until this copy (the installed one, say) is updated too.
   if [ -z "$why" ]; then
     local fn tgt; tgt="$($g show "$main:tools/lib/cut-guard.sh" 2>/dev/null)"
@@ -221,7 +223,8 @@ else
     if [ -n "$_qh_op" ]; then _qh_empty=0
       if ! kill -0 "$_qh_op" 2>/dev/null \
          || { [ -s "$QH_LIB_LOCK/cmd" ] && [ "$(ps -ww -o command= -p "$_qh_op" 2>/dev/null)" != "$(cat "$QH_LIB_LOCK/cmd" 2>/dev/null)" ]; }; then
-        rm -rf "$QH_LIB_LOCK"
+        # Only if it is still that holder's lock (another joiner may have just taken it over).
+        [ "$(cat "$QH_LIB_LOCK/pid" 2>/dev/null)" = "$_qh_op" ] && rm -rf "$QH_LIB_LOCK"
       fi
     else _qh_empty=$((_qh_empty + 1)); if [ "$_qh_empty" -ge 20 ]; then rm -rf "$QH_LIB_LOCK"; _qh_empty=0; fi; fi
     _qh_i=$((_qh_i + 1)); [ "$_qh_i" -ge 600 ] && { QH_LIB_LOCK=""; break; }
