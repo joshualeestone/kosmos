@@ -3,7 +3,7 @@
 #
 # Signs as the team, with the bundle id, in ios/Signing.xcconfig (for now the Stone Syndicate team and the
 # interim io.kosmos.app.preview, #4089). It stops before archiving if the bundle id is malformed, or if the
-# Team ID is empty or not 10 characters.
+# Team ID is empty or not 10 uppercase letters or digits.
 #
 #   ios/tools/archive.sh --build <N>            archive + export an .ipa, then check it
 #   ios/tools/archive.sh --build <N> --upload   the same, then upload that build to App Store Connect
@@ -16,9 +16,9 @@
 # App Store Connect API key given as ASC_KEY_PATH (the AuthKey_<id>.p8 file), ASC_KEY_ID and
 # ASC_ISSUER_ID. --upload needs the key.
 #
-# Nothing is uploaded unless the exported .ipa passes check-ipa-entitlements.sh (push must be
-# production), and the upload sends that same .ipa file, so a build that could never receive a
-# push does not reach TestFlight.
+# Nothing is uploaded unless the exported .ipa passes check-ipa-entitlements.sh (aps-environment
+# production, this team, this bundle id), and the upload sends that same .ipa file. That makes the
+# signing right for push; it does not make push work: the interim preview app never gets push.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -42,7 +42,7 @@ esac
 team=$(sed -n 's|//.*||; s/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*//p' "$ios/Signing.xcconfig" | tr -d '[:space:]')
 # The bundle id the project builds with (KOSMOS_BUNDLE_ID in the same file), checked on the export.
 bundle=$(sed -n 's|//.*||; s/^[[:space:]]*KOSMOS_BUNDLE_ID[[:space:]]*=[[:space:]]*//p' "$ios/Signing.xcconfig" | tr -d '[:space:]')
-if ! printf '%s' "$bundle" | grep -Eq '^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$'; then
+if ! printf '%s' "$bundle" | LC_ALL=C grep -Eq '^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$'; then
   echo "archive.sh: KOSMOS_BUNDLE_ID in ios/Signing.xcconfig is '${bundle}', not a bundle id." >&2; exit 1
 fi
 if [ -z "$team" ]; then
@@ -50,7 +50,7 @@ if [ -z "$team" ]; then
   exit 1
 fi
 if ! printf '%s' "$team" | LC_ALL=C grep -Eq '^[A-Z0-9]{10}$'; then
-  echo "archive.sh: DEVELOPMENT_TEAM in ios/Signing.xcconfig is '$team', not a 10-character Team ID." >&2
+  echo "archive.sh: DEVELOPMENT_TEAM in ios/Signing.xcconfig is '$team', not a Team ID (10 uppercase letters or digits)." >&2
   exit 1
 fi
 
