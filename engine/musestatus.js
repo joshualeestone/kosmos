@@ -85,12 +85,19 @@ function version() {
 
 /** Whether Meta Muse shows anywhere: on a Mac (the only platform the runner is built for), ON by default since
     #3939's Muse Wonder release (2026-10-12): every provider list offers Meta, and a computer without Muse Code
-    is told to set it up first. AGENT_WORKFORCE_MUSE=0 turns it off (a support switch, not a setting); the old
-    preview marker file is no longer read, so one left in a data folder changes nothing. */
+    is told to set it up first. Two ways off, both support switches rather than settings:
+    AGENT_WORKFORCE_MUSE=0 for one run, and the OFF MARKER (a file named muse-off in the Kosmos data folder),
+    which lasts, because every install and update rewrites the board's launchd job with a fixed list of
+    variables and so drops the variable. The old preview marker (muse-preview-on) is no longer read. */
 function enabled(platform = process.platform) {
   if (platform !== 'darwin') return false;
-  return process.env.AGENT_WORKFORCE_MUSE !== '0';
+  if (process.env.AGENT_WORKFORCE_MUSE === '0') return false;
+  try { return !fs.existsSync(offMarker()); } catch { return true; }
 }
+/* Read on every check, store.ROOT at call time (the AGENT_WORKFORCE_HOME / _DATA seams), as the preview marker was:
+   creating or deleting it needs no restart. */
+const OFF_MARKER = 'muse-off';
+function offMarker() { return path.join(require('./store').ROOT, OFF_MARKER); }
 
 /* The mark Kosmos leaves when ITS sign-in ended "Logged in." (engine/musesignin.js writes it). On a
    Mac, Muse keeps the sign-in in the login Keychain, which Kosmos never reads: an item named "meta"
@@ -305,4 +312,4 @@ const REAL = { runVersion };
 function setRunnerForTests(fn, opts) { if (fn) runVersion = fn; if (opts && opts.hardCapMs) hardCapMs = opts.hardCapMs; if (opts && opts.timeoutMs) timeoutMs = opts.timeoutMs; }
 function resetForTests() { runVersion = REAL.runVersion; hardCapMs = VERSION_HARD_CAP_MS; timeoutMs = VERSION_TIMEOUT_MS; }
 
-module.exports = { installed, version, parseVersion, enabled, NOT_INSTALLED_BECAUSE, signedIn, lastSeenWorking, refused, signinFolder, signedInMarker, eventsFolder, latest, markSignedOut, markTurnSignedIn, markKosmosSignedIn, markSaveFailed, fileAtStart, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };
+module.exports = { installed, version, parseVersion, enabled, offMarker, OFF_MARKER, NOT_INSTALLED_BECAUSE, signedIn, lastSeenWorking, refused, signinFolder, signedInMarker, eventsFolder, latest, markSignedOut, markTurnSignedIn, markKosmosSignedIn, markSaveFailed, fileAtStart, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };
