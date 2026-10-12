@@ -69,7 +69,8 @@ kosmos_failing_test_files() {
 # consult is cookie-excluded, so the cut's OWN `yarn test` self-excludes and runs
 # rather than refusing (run-tests.sh:54-62). Up to `max` attempts (default 1; a cut
 # passes KOSMOS_SUITE_RERUN_MAX), with a short pause between any extra ones;
-# dismiss ONLY on a green, abort on a persistent red. Returns 0 (contention, dismiss) or 1 (real red, abort).
+# dismiss ONLY on a green, abort on a persistent red. Returns 0 (contention,
+# dismiss) or 1 (real red, abort).
 #
 # ISOLATION SCOPE, and how it differs from the file-by-file path: this re-runs the
 # WHOLE suite with node's internal file-parallelism INTACT, so it isolates only
