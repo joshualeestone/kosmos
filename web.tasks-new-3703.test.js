@@ -229,3 +229,20 @@ test('kosmos#5956 review 1: the engine\'s done-when refusal is said in the field
   assert.match(PAGE, /id="nt-done"[^>]*aria-required="true"[^>]*aria-describedby="nt-done-hint"/);
   assert.match(PAGE, /<p class="fhint" id="nt-done-hint"[^>]*>Needed to create the task\. The agent checks its work against this\.<\/p>/);
 });
+
+test('kosmos#5956 review 2: the Create gate run as typed: what alone keeps it down, both lift it, no project keeps it down', () => {
+  const els = { 'nt-go': { disabled: false }, 'nt-what': { value: '' }, 'nt-done': { value: '' } };
+  const gate = (project) => new Function('document', 'NT_PROJECT', page.liftAll(SCRIPT, ['ntGoState']) + '\n; ntGoState();')(
+    { getElementById: (id) => els[id] || null }, project);
+  els['nt-what'].value = 'Rewrite the handoff checklist';
+  gate('a');
+  assert.equal(els['nt-go'].disabled, true, 'what alone');
+  els['nt-done'].value = 'It fits on one page';
+  gate('a');
+  assert.equal(els['nt-go'].disabled, false, 'CONTROL: both filled');
+  gate(null);
+  assert.equal(els['nt-go'].disabled, true, 'no project to file it to');
+  els['nt-done'].value = '   ';
+  gate('a');
+  assert.equal(els['nt-go'].disabled, true, 'blank done-when is no done-when');
+});

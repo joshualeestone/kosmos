@@ -3,7 +3,7 @@
 ## Done when
 1. A parent whose direct subtasks are each closed or built (at least one only built) says so: the task list row
    "all subtasks built, ready for you to check" (no Close: the built ones are still open), the project card chip
-   ", all subtasks built", and the task page "All subtasks built. Check each one, then close it and this task.",
+   ", all subtasks built", and the task page "All subtasks are built. Check each one and close it, then close this task.",
    with each built subtask marked Built. All closed keeps today's "all subtasks done" and Close.
 2. The New task dialog asks "How will you know it is done?" and Create stays down until it is filled; the answer
    is sent as the task's first done-when check. Agents and the CLI keep done-when optional.

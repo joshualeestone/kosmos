@@ -63348,11 +63348,11 @@ document.getElementById('nt-back').addEventListener('click', leaveNewTask);
 document.getElementById('nt-parent').addEventListener('change', (e) => { e.target.dataset.preset = ''; });
 // Create is held down until the required things exist (pack: disabled): what needs doing and, kosmos#5956, how you
 // will know it is done.
-const ntGoState = () => {
+function ntGoState() {
   // No project to file it to (the Tasks view with none made yet): Create stays down whatever is typed.
   document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim()
     || !document.getElementById('nt-done').value.trim() || !NT_PROJECT;
-};
+}
 document.getElementById('nt-what').addEventListener('input', ntGoState);
 document.getElementById('nt-done').addEventListener('input', ntGoState);
 document.getElementById('nt-go').addEventListener('click', async () => {

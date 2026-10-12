@@ -134,6 +134,7 @@ test('kosmos#5956: every subtask closed or built, some only built: "all subtasks
     /all subtasks done<\/span><button/, 'all closed keeps today\'s line and Close');
 });
 
+const PAGE_HTML_5956 = require('node:fs').readFileSync(require('node:path').join(__dirname, 'web', 'index.html'), 'utf8');
 test('kosmos#5956: the task page marks a built subtask Built and says when every subtask is closed or built', () => {
   const els = { 'tk-subs': { innerHTML: '' }, 'tk-subs-done': { hidden: true }, 'tk-subs-built': { hidden: true }, 'tk-partof-row': { hidden: true }, 'tk-partof': { textContent: '', dataset: {} } };
   const project = { tasks: [
@@ -145,6 +146,7 @@ test('kosmos#5956: the task page marks a built subtask Built and says when every
     { getElementById: (id) => els[id] || null }, ESC, project, project.tasks[0]);
   assert.match(els['tk-subs'].innerHTML, /data-sub="2">[\s\S]*?<span class="tksub-s">Built<\/span>/);
   assert.equal(els['tk-subs-built'].hidden, false);
+  assert.match(PAGE_HTML_5956, /<p class="dhint tksubs-done" id="tk-subs-built" hidden>All subtasks are built\. Check each one and close it, then close this task\.<\/p>/);
   assert.equal(els['tk-subs-done'].hidden, true, 'not every subtask is closed');
   project.tasks[1].builtAt = undefined;
   new Function('document', 'esc', 'p', 't', page.liftAll(SCRIPT, ['tkPaintSubtasks']) + '\n; tkPaintSubtasks(p, t, false);')(
