@@ -132,12 +132,12 @@ const teardownFails = [];
     // still polling without it would reach real DNS and report a page error.
     const unroute = async (ctx, page) => {
       await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
-      await page.close().catch(() => {});
+      await page.close().catch((e) => teardownFails.push('page.close: ' + (e && e.message)));
       await ctx.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
     };
     const shut = async (ctx, page) => {
+      live.delete(ctx);   // first: from here on an abort on its proxy is teardown, not a failure while open
       await unroute(ctx, page);
-      live.delete(ctx);
       await ctx.close().catch((e) => teardownFails.push('ctx.close: ' + (e && e.message)));
     };
     const open = async (host, theme, opts) => {
@@ -392,7 +392,7 @@ const teardownFails = [];
         await shut(ctx, page);
       }
     } finally {
-      for (const [ctx, page] of live) await unroute(ctx, page);
+      for (const [ctx, page] of [...live]) { live.delete(ctx); await unroute(ctx, page); }
       await browser.close().catch((e) => teardownFails.push('browser.close: ' + (e && e.message)));
     }
   }

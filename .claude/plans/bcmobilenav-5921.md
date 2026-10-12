@@ -22,21 +22,22 @@ the context and may carry the same teardown race (noted on #5921, not changed he
   replaced): it covers every handler still routed at teardown and every variant of the error, and applies only at
   teardown, so it cannot hide a routing error while assertions are running. Two stubs taken off earlier with a plain
   page.unroute (one in the C0 Switch Computers arm, one in LO1) are outside it; both fulfil at once with no fetch.
+  The 1500 ms computers stub that replaces the first one stays routed, so unrouteAll covers it.
 - Rejected: retrying the check more times in browser-checks.sh (hides a race behind a retry count).
 - The WebKit context route is self-contained: it catches its own failure and aborts that request. Reviews 3 and 5
   flipped the teardown ORDER (page close first keeps a still-polling page off real DNS; page close first also leaves
   the context handler exposed to a target-closed rejection before its ignoreErrors). Two rounds rewriting one rule
   means it lived in the wrong place, so the handler now owns its failure and the order matters only for DNS.
 - Nothing passes silently: an abort while the page is open (abortedLive) and a failed ctx.close or browser.close
-  (teardownFails) are counted and checked at the end, so they fail an otherwise green run without replacing an arm's
-  own error.
+  (teardownFails, page.close included) are counted and checked at the end, so they fail an otherwise green run without replacing an arm's
+  own error. A context leaves `live` before its teardown starts, so a teardown abort is never counted as one while open.
 - Weakest premise: ignoreErrors at teardown also swallows a real handler bug that only shows during close.
 
 ## Measured
 - Before: alone on Mortals at 5621723a5, 3 runs, 1 crashed (169 pass, then disposed); in the cut, 2 of 2 crashed.
-- After: alone on Mortals at origin/main, 32 of 32 clean with the unroute approach (171 pass, 0 fail, 0 disposed):
+- After: alone on Mortals at origin/main, 36 of 36 clean with the unroute approach (171 pass, 0 fail, 0 disposed):
   8 before the finally change, 4 with it, 4 with the page closed between the unroutes, 4 with browser.close caught, 4 with the self-contained route, 4 with ctx.close caught, 4 on
-  this final file (aborts and teardown failures counted; 173 checks). Only the last 4 ran this exact file; the odds below are about the approach, not this file.
+  a version with the counts, 4 on this final file (a context leaves live before teardown; 173 checks). Only the last 4 ran this exact file; the odds below are about the approach, not this file.
 - At the before-rate (1 in 3), 24 clean runs happen by chance under 0.01% of the time; that figure is about the OLD crash, not about any residual window. Evidence, not proof.
 - The fix rests on Playwright's documented ignoreErrors semantics, not on a reproduced failure.
 - NOT measured: a deterministic red arm. Two injections were tried, applied identically to the old and new files:
