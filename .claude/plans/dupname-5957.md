@@ -62,9 +62,12 @@ It names the other agent by display name and handle, as `ambiguousNote` does, so
 
 ## As built (changes from the plan above)
 
-- **The fleet source is wired at the top of `start()`, not beside `setCreatedSource`.** That one sits under
+- **The fleet source is wired in `start()`, not beside `setCreatedSource`.** That one sits under
   `require.main === module`, so a board started by a test (or any caller of `start()`) never had it, and the first run
-  of the server test showed every refusal passing. `start()` is what every board, real or test, runs.
+  of the server test showed every refusal passing. `start()` is what every board, real or test, runs. It is ONE line
+  after the file-preview sweep, calling `nameCheckFleet()` (module level, exported for its tests): an earlier version
+  put the whole block at the top of `start()` and broke two structural tests (#5247 wants `snapshotWorlds()` first,
+  #5254 wants the sweep within 400 characters).
 - **"Could not check" is untagged** (no `field`), as #2606 asks for system refusals: the name may be fine.
 - **The create test calls `create.createAgent`** with the board's wiring live. Through POST /api/agents the sandbox
   refuses first for having no Claude account signed in, which says nothing about names.
@@ -72,7 +75,9 @@ It names the other agent by display name and handle, as `ambiguousNote` does, so
 - Measured at the first build (the counts have grown since; the PR states the final ones): engine/agentnames.test.js 6/6, server.dupname-5957.test.js 5/5. Mutants, each restored by
   `git checkout` on a clean tree: a case-sensitive key 5 fail, no `except` 4 fail, a no-op create check 1 fail. The
   nearest existing files (mentions, create, rename x3, connect, team x3, setup guide, CLI create, inline errors,
-  messages): 538 tests, 0 fail.
+  messages): 538 tests, 0 fail. **That set was too narrow:** it missed three guards a full run found red (the two
+  start() structure tests above, and windows-tests-1777, which flags a test that branches on a win32 host). Only the
+  full suite on Mortals counts as the regression check.
 
 ## Accepted, deliberately (review iteration 2)
 
@@ -87,3 +92,12 @@ It names the other agent by display name and handle, as `ambiguousNote` does, so
   ignore them too. Known gap, said on the card.
 - **An unchanged name is not re-checked** on the profile route, so an agent that already shares its name (Josh's two
   Geminis, made before this check) can still save a role. Renaming either one now works only to a free name.
+
+## Windows (review iteration 5)
+
+The defect was reported on Windows, where the roster lists only LIVE sessions and there is no created list. So the
+fleet also reads Kosmos's Windows session record (engine/win32sessions.js), which keeps every agent Kosmos made there
+whether or not it runs. Tested by calling `nameCheckFleet('win32')` with a recorded, stopped agent. The created list on
+a Mac or Linux is read strictly (`status.createdKeysStrict`): a source that fails refuses the check rather than reading
+as "no stopped agents". `win32sessions.read()` answers {} for an unreadable record rather than throwing, so on Windows
+that one source fails open; the roster arm still fails closed.

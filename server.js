@@ -21879,35 +21879,43 @@ function agentEventsTick() {
     }).catch(() => { /* best effort */ }).finally(() => { AGENT_EVENTS_RUNNING = false; });
   } catch { AGENT_EVENTS_RUNNING = false; }
 }
+/**
+ * kosmos#5957: every agent's handle and display name, for engine/agentnames.js (wired in start()).
+ * Every agent the board shows (the roster's own agents, by display name), plus the agents Kosmos made that are not
+ * running: on a Mac or Linux the created list (status.createdKeysStrict), and on Windows the session record
+ * (engine/win32sessions.js), since the Windows roster lists only live sessions. Removed agents are left out (the
+ * created list keeps them for Restore, and a person cannot rename an agent the board does not show); create's
+ * removed-list refusal still covers a removed agent's handle. THROWS when the roster or the created list cannot be
+ * read, so a create or rename refuses rather than passing a name nobody could check.
+ * `platform` is a parameter so a test can read the Windows arm on any computer.
+ */
+function nameCheckFleet(platform = process.platform) {
+  const roster = safeRoster();
+  if (!Array.isArray(roster)) throw new Error('the roster could not be read');
+  const status = require('./engine/status');
+  /* Wider than safeRoster's hidesCard filter on purpose: a removed agent whose card still shows is in the roster rows,
+     so it is counted there; this set only stops the stopped-agent lists re-adding the rest. */
+  const gone = new Set(removal.removedAgents().map((r) => r && r.name));
+  const named = new Map();
+  for (const a of roster) if (a && a.isNamedOurs === true && a.sessionName) named.set(a.sessionName, a.name || a.sessionName);
+  const stopped = platform === 'win32'
+    ? Object.values(require('./engine/win32sessions').read()).map((r) => r && r.name).filter((n) => typeof n === 'string' && n)
+    : status.createdKeysStrict();
+  for (const key of stopped) {
+    if (named.has(key) || gone.has(key)) continue;
+    let shown = key;
+    try { shown = status.readIdentity(key).displayName || key; } catch { /* the handle still counts */ }
+    named.set(key, shown);
+  }
+  return [...named].map(([handle, shown]) => ({ handle, shown }));
+}
+
 function start(port = PORT) {
-  /* kosmos#5957: the names already in use, for engine/agentnames.js. Every agent the board shows (the roster's own
-     agents, by display name) plus every agent Kosmos created that is not running (createdKeys, stopped ones too), named
-     the way the board names them. A roster that cannot be read THROWS, so a create or rename refuses rather than
-     passing a name nobody could check. Removed agents are taken OUT here (createdKeys includes them for Restore, and
-     a person cannot rename an agent the board does not show); create's removed-list refusal still covers a removed
-     agent's handle. Windows has no created source yet, so there a stopped agent's name is not seen until it runs
-     (the win32 follow-up of #1078). */
-  require('./engine/agentnames').setFleetSource(() => {
-    const roster = safeRoster();
-    if (!Array.isArray(roster)) throw new Error('the roster could not be read');
-    const status = require('./engine/status');
-    /* Every removed agent, wider than safeRoster's hidesCard filter on purpose: a removed agent whose card still
-       shows is in the roster rows above, so it is counted there; this set only stops createdKeys re-adding the rest. */
-    const gone = new Set(removal.removedAgents().map((r) => r && r.name));
-    const named = new Map();
-    for (const a of roster) if (a && a.isNamedOurs === true && a.sessionName) named.set(a.sessionName, a.name || a.sessionName);
-    for (const key of status.createdKeys()) {
-      if (named.has(key) || gone.has(key)) continue;
-      let shown = key;
-      try { shown = status.readIdentity(key).displayName || key; } catch { /* the handle still counts */ }
-      named.set(key, shown);
-    }
-    return [...named].map(([handle, shown]) => ({ handle, shown }));
-  });
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
   try { filepreview.sweep(); } catch { /* best effort */ }
   setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
+  require('./engine/agentnames').setFleetSource(() => nameCheckFleet());   // #5957: one display name per agent
   /* #5535 E0.6 slice (d): the company backup tick, hourly and only while orgenroll.mayReport (enrolled here AND the
      company's words accepted here). The first run is an hour after start, never at boot. Kosmos+ answers backup_off
      while company backup is off, and the tick then asks again a day later (engine/backuptick.js). Best effort: never a
@@ -23361,6 +23369,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
   knowWorld, // #5247: a world this board made counts at its gate, for its test

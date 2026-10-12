@@ -1204,6 +1204,15 @@ function createdKeys() {
   try { const k = createdSource(new Set(), { includeRemoved: true }); return Array.isArray(k) ? k : []; } catch { return []; }
 }
 
+/* kosmos#5957: createdKeys, but a source that throws or answers a non-list THROWS instead of reading as "none", so the
+   name check refuses rather than passing a stopped agent's name as free. [] when no source is wired. */
+function createdKeysStrict() {
+  if (!createdSource) return [];
+  const k = createdSource(new Set(), { includeRemoved: true });
+  if (!Array.isArray(k)) throw new Error('the created agents could not be read');
+  return k;
+}
+
 function listPanes() {
   const out = paneSource ? paneSource() : tmuxPanes();
   /**
@@ -9300,7 +9309,7 @@ module.exports = {
      which would report a different moment from the one that failed. */
   lastLookProblem,
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
-  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor,
+  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, createdKeysStrict, tmuxSaidNoServer, lookProblemFor,
   // #2955: the version-wall switch, and its test seams (excused by name in engine.reachable.test.js).
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
