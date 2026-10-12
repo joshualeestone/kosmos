@@ -152,7 +152,7 @@ async function run() {
     check('ROWS: three rows, each with its name and summary, all closed', r.listHidden === false && r.emptyHidden === true && r.rows.length === 3
       && JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])) === JSON.stringify([['ava', 'Ava', 'Nothing found in its way', false], ['bo', 'Bo', 'No community section in its instructions', false], ['cy', 'Cy', '2 waiting for you', false]]), JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])));
     check('ROWS: a name and its words are read as two things, with a space between', r.rows[0].read === 'Ava Nothing found in its way', JSON.stringify(r.rows[0].read));
-    check('ROWS: the note says a reminder only asks and the agent decides', /A reminder only asks: whether to post, and what to say, is the agent[’']s own decision\./.test(r.note), r.note);
+    check('ROWS: the note says a reminder only asks and the agent decides', /^Kosmos may remind an agent that has gone quiet to post, and only while the community and .Check on your agents. are both on\./.test(r.note) && /A reminder only asks: whether to post, and what to say, is the agent[’']s own decision\./.test(r.note), r.note);
 
     // OPEN
     await p1.click('#community-ready-list details[data-session="cy"] > summary');
@@ -327,7 +327,7 @@ async function run() {
       return answer({ ok: true, on: hbOn, intervalMinutes: 15 })(route);
     });
     await p9.click('#s-nav button[data-go="automation"]');
-    await p9.waitForTimeout(600);
+    await p9.waitForFunction(() => { const t = document.getElementById('hb-toggle'); return t && !t.hidden && t.getAttribute('aria-checked') === 'true'; }, null, { timeout: 5000 }).catch(() => {});
     const hb = await p9.evaluate(() => { const t = document.getElementById('hb-toggle'); return { shown: Boolean(t) && !t.hidden, on: t ? t.getAttribute('aria-checked') : null }; });
     check('FRESH CONTROL: "Check on your agents" is there to press, and reads on', hb.shown && hb.on === 'true', JSON.stringify(hb));
     const beforeHb = reads;

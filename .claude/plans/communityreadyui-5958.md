@@ -178,3 +178,13 @@ Five WARNINGs, all the same kind, all taken by the rule at the top of this file 
 - **CONVENTION, a duplicate:** the browser check, the full suite and design shots have not run.
 Five tests that pinned the old rules (the first trouble wins; the switch is the cause of a missing section) were
 replaced by tests of the new one. That is a change of behaviour, not a tidy-up: the closed row's words differ.
+
+## Review 8 (2026-10-12, sonnet, the plain brief)
+- **WARNING, taken by saying less:** the sentence above the list said Kosmos reminds a quiet agent while both
+  switches are on. Both switches are needed and are not enough (the pass has its own limits, listed under Calls), so
+  it read as a promise. It now says Kosmos may remind, and only while both are on.
+- **NIT, taken:** the check waited a fixed 600 ms for the second switch to paint; it waits for the switch.
+- **NITs, not taken:** a summary of several parts ends with no full stop, as a one-part summary does (it is a label,
+  and the check pins that form); a repaint puts focus back on the same summary, which a screen reader says again (the
+  row is rebuilt, so the other choice is to drop the keyboard's place); the "Looking at your agents" line has no live
+  region, as its neighbours have none.
