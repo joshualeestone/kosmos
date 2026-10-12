@@ -245,7 +245,7 @@ run5923() {   # run5923 <name> [env assignments...]: runs the real wrapper with 
 lh5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse HEAD; }
 lm5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse origin/main; }
 printf 'p1\nn/\n' > $S/cwd5923
-for n in mv mk ps sh set dirty nops cwd nocwd reuse dead ahead same branch claim need; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
+for n in mv mk ps sh set dirty nops cwd nocwd reuse dead ahead same branch claim need psx nopid live; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
 run5923 mv
 ok "#5923: the default lib checkout behind origin/main, nothing live: moved to origin/main, said so, run runs, lock gone" '[ "$rc" = 0 ] && [ -e $S/l5923-mv-ran ] && [ "$(lh5923 mv)" = "$(lm5923 mv)" ] && [[ "$o" == *"moved"*"-> origin/main"*"cut-guard.sh differed"* ]] && [ ! -e $S/ml5923-mv/queued-heavy-lib.lock ]'
 run5923 mv
@@ -300,6 +300,23 @@ ok "#5923: a machine claim blocks the move like a waiter marker" '[ "$(lh5923 cl
 d5923=$S/l5923-need/work/kosmos-bc-main-4610; $GE git -C $d5923 checkout -q --detach origin/main && sed -i.bak 's/^kosmos_release_machine()/kosmos_release_machine_gone()/' $d5923/tools/lib/cut-guard.sh && rm -f $d5923/tools/lib/cut-guard.sh.bak && $GE git -C $d5923 $GC5923 commit -qam drop && $GE git -C $d5923 update-ref refs/remotes/origin/main HEAD && $GE git -C $d5923 checkout -q --detach HEAD~2
 run5923 need
 ok "#5923: origin/main's lib lacks a function this copy calls: not moved, names it, and the run still runs" '[ "$rc" = 0 ] && [ -e $S/l5923-need-ran ] && [ "$(lh5923 need)" != "$(lm5923 need)" ] && [[ "$o" == *"has no kosmos_release_machine, which this copy calls"* ]]'
+printf '1 0 /sbin/launchd\n4247 1 /x/queued-heavy.sh --queued-args /tmp/queued-heavy-args.y\n' > $S/ps5923-psx
+run5923 psx
+ok "#5923: a waiter run directly as its own command (argv[0] is the script) also blocks the move" '[ "$(lh5923 psx)" != "$(lm5923 psx)" ] && [[ "$o" == *"another queued-heavy.sh is live (pid 4247)"* ]]'
+# A lock with no pid file at all (a holder killed between its mkdir and its pid write) is taken over after 20 reads.
+mkdir -p $S/ml5923-nopid/queued-heavy-lib.lock
+run5923 nopid
+ok "#5923: a lib lock with no pid is taken over after its consecutive empty reads, and the run moves the lib" '[ "$rc" = 0 ] && [ "$(lh5923 nopid)" = "$(lm5923 nopid)" ] && [[ "$o" != *"stayed taken"* ]]'
+# A lock held by a LIVE holder (this test's H, its command recorded) is respected: the run waits, moves nothing while
+# it is held, and goes on once it is released. The arm that proves the takeovers above are not unconditional.
+mkdir -p $S/ml5923-live/queued-heavy-lib.lock && ps -ww -o command= -p $H > $S/ml5923-live/queued-heavy-lib.lock/cmd && echo $H > $S/ml5923-live/queued-heavy-lib.lock/pid
+( run5923 live; printf '%s\n' "$o" > $S/live5923.out; echo "$rc" > $S/live5923.rc ) &
+LIVE5923=$!
+sleep 4
+live_held5923="$(lh5923 live)"
+rm -rf $S/ml5923-live/queued-heavy-lib.lock
+wait $LIVE5923
+ok "#5923: a lib lock held by a live holder is respected (nothing moves while held), and the run moves once it is released" '[ "$live_held5923" != "$(lm5923 live)" ] && [ "$(cat $S/live5923.rc)" = 0 ] && [ "$(lh5923 live)" = "$(lm5923 live)" ] && grep -q moved $S/live5923.out'
 # The REAL ps (no QH_TEST_PS): the run's own pipeline subshell keeps this script's argv and must not read as a waiter.
 # QH_TEST_PS_NAME gives the script a name no real waiter on this box carries. Control: a live process of that name blocks.
 for n in rp rpc; do qh_lib5923 $S/l5923-$n; mkdir -p $S/ml5923-$n $S/rp5923-$n; cp "$REAL_QH" $S/rp5923-$n/qh5923self-$U.sh; done
@@ -453,7 +470,7 @@ sed 's|  exec /bin/bash "${BASH_SOURCE\[0\]}" --queued-args "$_qh_af"|  exec /no
 mkdir -p $S/tmpx; o=$(TMPDIR=$S/tmpx KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash $S/qh-noexec.sh "noexec" true 2>&1); r=$?
 ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"could not restart itself"* ]] && [ -z "$(ls $S/tmpx)" ] && grep -q /nonexistent/bash $S/qh-noexec.sh'
 
-EXPECTED=125   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, twenty #5923 lib-drift arms
+EXPECTED=128   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, twenty-three #5923 lib-drift arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"

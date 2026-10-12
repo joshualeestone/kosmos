@@ -189,14 +189,18 @@ _qh_lib_check() {
   # Origin/main's lib must still define every function this copy calls unguarded (QH_NEED_BASE), or the move would make every later join exit 3
   # until this copy (the installed one, say) is updated too.
   if [ -z "$why" ]; then
-    local fn tgt; tgt="$($g show "$main:tools/lib/cut-guard.sh" 2>/dev/null)"
-    for fn in $QH_NEED_BASE; do
+    local fn tgt need="$QH_NEED_BASE"; tgt="$($g show "$main:tools/lib/cut-guard.sh" 2>/dev/null)"
+    # And the side lane's, which the load below requires when the lib offers side turns.
+    printf '%s\n' "$tgt" | grep -qE '^kosmos_light_side_clear\(\)' && need="$need kosmos_light_side_take kosmos_publish_light_side_pgid kosmos_release_light_side"
+    [ -n "$tgt" ] || why="could not read origin/main's cut-guard.sh"
+    for fn in $need; do
+      [ -n "$why" ] && break
       printf '%s\n' "$tgt" | grep -qE "^$fn\(\)" || { why="origin/main's cut-guard.sh has no $fn, which this copy calls; update this copy first"; break; }
     done
   fi
   if [ -z "$why" ]; then
     if $g -c core.hooksPath=/dev/null checkout -q --detach "$main" 2>/dev/null; then
-      echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT moved ${head:0:9} -> origin/main ${main:0:9}: ${diff} differed and no queue run was live (#5923; back with: git -C '$LIB_CHECKOUT' checkout --detach ${head:0:9})"
+      echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT moved ${head:0:9} -> origin/main ${main:0:9}: ${diff} differed and no queue waiter, claim or process inside it was live (#5923; back with: git -C '$LIB_CHECKOUT' checkout --detach ${head:0:9})"
       return 0
     fi
     why="git checkout failed"
@@ -221,8 +225,10 @@ else
   until mkdir "$QH_LIB_LOCK" 2>/dev/null; do
     _qh_op="$(cat "$QH_LIB_LOCK/pid" 2>/dev/null)"
     if [ -n "$_qh_op" ]; then _qh_empty=0
+      # A reused pid is a live one whose command (read, so not empty) differs from the one recorded.
+      _qh_oc="$(ps -ww -o command= -p "$_qh_op" 2>/dev/null)"
       if ! kill -0 "$_qh_op" 2>/dev/null \
-         || { [ -s "$QH_LIB_LOCK/cmd" ] && [ "$(ps -ww -o command= -p "$_qh_op" 2>/dev/null)" != "$(cat "$QH_LIB_LOCK/cmd" 2>/dev/null)" ]; }; then
+         || { [ -s "$QH_LIB_LOCK/cmd" ] && [ -n "$_qh_oc" ] && [ "$_qh_oc" != "$(cat "$QH_LIB_LOCK/cmd" 2>/dev/null)" ]; }; then
         # Only if it is still that holder's lock (another joiner may have just taken it over).
         [ "$(cat "$QH_LIB_LOCK/pid" 2>/dev/null)" = "$_qh_op" ] && rm -rf "$QH_LIB_LOCK"
       fi
@@ -233,7 +239,7 @@ else
   if [ -n "$QH_LIB_LOCK" ]; then
     ps -ww -o command= -p "$$" > "$QH_LIB_LOCK/cmd" 2>/dev/null; echo "$$" > "$QH_LIB_LOCK/pid"; _qh_lib_check; else
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') the lib check's lock stayed taken for 5 min (holder pid ${_qh_op:-?}); loading the lib unchecked, possibly in the middle of a move (#5923)"; fi
-  unset _qh_i _qh_op _qh_empty
+  unset _qh_i _qh_op _qh_oc _qh_empty
 fi
 . "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || {
   _qh_lib_unlock

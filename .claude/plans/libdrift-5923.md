@@ -13,7 +13,8 @@ lib is loaded:
    disk with origin/main's, and print one QUEUED-HEAVY line: match, moved, or DIFFERS and not moved (with why).
 2. Move it only when safe: the DEFAULT checkout only (QUEUED_HEAVY_LIB unset, no #5446 fallback), detached, clean,
    its commit an ancestor of origin/main (a checkout ahead or diverged is never moved back), origin/main's
-   cut-guard.sh still defining every function this copy calls (else every later join would exit 3), no queue marker (suitewait.*, machine-claim, light-side-claim), and no other queued-heavy.sh process. Then
+   cut-guard.sh still defining every function this copy calls (the side lane's too, when it offers side turns; else
+   every later join would exit 3), no queue marker (suitewait.*, machine-claim, light-side-claim), and no other queued-heavy.sh process. Then
    `git checkout --detach origin/main`. Otherwise join on the lib as it is (one generation per queue, #4977).
 
 origin/main is read from the checkout's own refs (on Agent1s it is a worktree of ~/work/kosmos, which every agent
@@ -53,7 +54,7 @@ Residuals, stated:
   A lock whose pid was reused by another command is taken over (the holder records its command line).
 
 ## Tests
-tools/test-queued-heavy-4977.sh, twenty #5923 arms (EXPECTED 125), listed in the file. Two use the REAL ps under a
+tools/test-queued-heavy-4977.sh, twenty-three #5923 arms (EXPECTED 128), listed in the file. Two use the REAL ps under a
 private script name (QH_TEST_PS_NAME): the run does not count itself (perturbed by removing the ppid exclusion: that
 arm went red), and its control, a live process of that name, blocks the move. The rest use the QH_TEST_PS and
 QH_TEST_CWD seams so real processes on the box cannot sway them.
