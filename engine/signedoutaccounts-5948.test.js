@@ -251,3 +251,13 @@ test('#5948 review 19: a runner named like an Object member is not a provider', 
     assert.deepEqual(signedOutRows([card('gk')], { xai: [] }, () => ({ configDir: '/h/.grok-work', runner }), readName), [], runner);
   }
 });
+
+test('#5948 review 20: one credential file that faults does not make the folder unsure when another file is seen there', () => {
+  const look = (f) => { if (f.endsWith('.kosmos-grok-apikey')) throw new Error('x'); return f.endsWith('auth.json'); };
+  const [r] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, look);
+  assert.deepEqual([r.unreadable, r.folderUnsure, r.connection.badge], [true, false, 'unlisted']);
+  assert.match(r.connection.because, /file is in its folder/);
+  // CONTROL: when the only look that answers is the one that faulted, it is unsure.
+  const [u] = signedOutRows([card('gk', 'grok')], { xai: [] }, readJob, readName, (f) => { if (f.endsWith('.kosmos-grok-apikey')) throw new Error('x'); return false; });
+  assert.deepEqual([u.folderUnsure, u.connection.badge], [true, 'unlisted']);
+});
