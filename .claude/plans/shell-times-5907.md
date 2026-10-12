@@ -32,6 +32,9 @@ ran `yarn -s test:shell`, one `&&` chain with no timing.
 ## Weakest premise
 Dropping yarn from the local path changes nothing else. Evidence: CI shards run every command without yarn and pass; no
 shell test reads `npm_*` or `node_modules/.bin` (a control on the same search hits provision-pw.sh).
+Process ancestry: no check keys on a yarn parent. Searched every non-comment `yarn` in engine/, bin/, tools/*.sh and
+tools/lib: queued-heavy.sh:209-211 classifies the command a caller hands the queue (`yarn test`), not an ancestor, and
+cut-guard.sh drops only a `node --test` ancestor, which shell-shard.js's node is not.
 
 ## Status
 - [x] Built, committed e2b59e1e8, pushed.
