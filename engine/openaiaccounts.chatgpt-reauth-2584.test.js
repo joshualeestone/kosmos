@@ -68,6 +68,8 @@ async function waitFor(sessionId, pred, ms = 4000) {
     describe: (s) => `last state=${s.state} error=${s.error}`,
   });
 }
+// #5994: no test leaks a mock mode into the next one, even when it fails.
+test.afterEach(() => { for (const k of ['FAKE_CODEX_SLEEP', 'FAKE_CODEX_IGNORE_TERM', 'FAKE_CODEX_FAIL']) delete process.env[k]; });
 // #5994: wait for a plain condition through the same shared helper.
 async function eventuallyTrue(fn, msg, ms = 4000) {
   return eventually(() => Boolean(fn()), (v) => v === true, { timeoutMs: ms, describe: () => msg });
@@ -222,8 +224,6 @@ test('a promote FAILURE (live dir not writable) is refused and the live account 
 /* #5994 (replaces "forget/remove refuse while a reauth is in flight"): the account's OWN unfinished "Sign in again"
    is cancelled by a remove or forget that passes every other guard, so a person who abandoned it is not refused for
    up to the watchdog's five minutes with a cancel they cannot reach. */
-test.afterEach(() => { delete process.env.FAKE_CODEX_SLEEP; delete process.env.FAKE_CODEX_IGNORE_TERM; });   // a failing test leaks no mock mode
-
 /* #5994's premise, pinned: a live account folder is never also a sign-in's staging folder, so a hold on it can only be
    its own reauth. A new sign-in under an existing account's name is refused before it reserves anything. */
 test('#5994 premise: a new sign-in cannot stage into an existing account\'s folder', () => {
@@ -332,12 +332,13 @@ test('#5994: an account already gone from the disk still has its own unfinished 
 });
 
 test('#5994: a reauth cancelled a moment ago (its child still exiting) does not refuse the remove', async () => {
-  openai.setChatgptTimers({ forceKill: 1500 });   // the TERM-ignoring child lives until this SIGKILL
+  openai.setChatgptTimers({ forceKill: 4000 });   // the TERM-ignoring child lives until this SIGKILL
+  let r = null;
   try {
     const dir = writeChatgptAccount('.codex-late8', 'late8@example.com');
     process.env.FAKE_CODEX_IGNORE_TERM = '1';
     process.env.FAKE_ID_TOKEN = idToken('late8@example.com');
-    const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', reauthDir: dir });
+    r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', reauthDir: dir });
     assert.equal(r.ok, true, r.because);
     await waitFor(r.sessionId, (x) => x.state === 'awaiting-browser');   // printed only after the trap
     assert.equal(openai.cancelChatgptLogin(r.sessionId).cancelled, true);   // the person pressed cancel...
@@ -346,8 +347,9 @@ test('#5994: a reauth cancelled a moment ago (its child still exiting) does not 
     const rm = openai.removeAccount(dir, []);   // ...and then Remove, while the child is still exiting
     assert.equal(rm.ok, true, rm.because);
     assert.equal(rm.removed, true);
-    await eventuallyTrue(() => workSlots().length === 0, 'the SIGKILLed child never freed its slot', 8000);
+    await eventuallyTrue(() => workSlots().length === 0, 'the SIGKILLed child never freed its slot', 10000);
   } finally {
+    if (r && r.ok) openai.cancelChatgptLogin(r.sessionId);   // arms the SIGKILL even if an early step failed
     delete process.env.FAKE_CODEX_IGNORE_TERM;
     openai.setChatgptTimers({ forceKill: 3000 });   // the module's default
   }

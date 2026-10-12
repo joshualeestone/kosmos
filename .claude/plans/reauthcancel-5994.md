@@ -31,6 +31,12 @@ the live folder, and goes ahead. Any other hold still refuses with the old sente
 Grok has the same refusal (engine/grokaccounts.js forget/remove while its own reauth runs): carded as #6000, to
 port this once it merges so the two stay the same shape.
 
+## Deliberate trade
+If `rmSync` deletes part of the folder and then throws, the remove returns ok:false and the reauth stays live (a
+failed call cancels nothing). A sign-in then finished could promote a fresh auth.json into the half-deleted folder.
+Before #5994 the hold refused the remove up front. Accepted: the folder is still there, the route offers Restore, and
+cancelling on a failure would break the rule the #2570 pre-flight relies on.
+
 ## Weakest premise
 That a live account folder is never also a sign-in's staging folder. It holds an auth.json, and
 resolveFreshChatgptDir refuses a labelled dir with one while nextWorkDir skips it. If that ever changes, a remove could
