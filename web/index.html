@@ -20910,10 +20910,10 @@ function rulesBehindLine(a, offline) {
 }
 /* #5957 slice 3: the sentence for an agent that has not run for two weeks or more (a.idleDays, from
    engine/liveness.js idleDays: a whole number only then), or ''. Kosmos removes nothing itself; Remove is on the
-   agent's own page, and the person decides. */
+   agent's own page (under Advanced), and the person decides. */
 function idleLine(a) {
   if (!(a && Number.isSafeInteger(a.idleDays) && a.idleDays > 0)) return '';
-  return 'Has not run in ' + a.idleDays + ' days. If it is no longer needed, Remove is on its page.';
+  return 'Has not run in ' + a.idleDays + ' days. If it is no longer needed, remove it under Advanced on its page.';
 }
 /* The offline card and list row's one note: rules behind, then not run in N days, whichever apply. */
 function offlineNote(a) {
@@ -22200,7 +22200,7 @@ function lrow(a) {
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
-      <div class="ltask">${esc(a.jobRunningUnseen === true ? '' : offlineNote(a))}</div>
+      <div class="ltask"${a.jobRunningUnseen !== true && offlineNote(a) ? ` title="${esc(offlineNote(a))}"` : ''}>${esc(a.jobRunningUnseen === true ? '' : offlineNote(a))}</div>
       <div class="lmodel"></div>
       <div class="lmem"></div>
     </div>`;
