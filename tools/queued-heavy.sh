@@ -150,9 +150,10 @@ _qh_lib_check() {
   if [ -n "${QUEUED_HEAVY_LIB:-}" ] || [ -n "$QH_LIB_FALLBACK" ]; then why="it is not the default shared checkout"
   elif $g symbolic-ref -q HEAD >/dev/null 2>&1; then why="it is on a branch, not detached"
   elif [ -n "$($g status --porcelain --untracked-files=no 2>/dev/null)" ]; then why="it has local changes"
+  elif ! $g merge-base --is-ancestor "$head" "$main" 2>/dev/null; then why="its commit is not behind origin/main (ahead or diverged)"
   else
     local d m; d="$(_qh_marker_dir_raw)"
-    for m in "$d"/suitewait.* "$d/machine-claim" "$d/light-side-claim"; do
+    for m in "$d"/suitewait.* "$d/machine-claim" "$d/light-side-claim"; do   # an unmatched glob stays literal, so -e is false
       [ -e "$m" ] && { why="a queue marker is present (${m##*/})"; break; }
     done
     if [ -z "$why" ]; then
@@ -179,7 +180,7 @@ _qh_lib_check() {
     fi
   fi
   if [ -z "$why" ]; then
-    if $g checkout -q --detach "$main" 2>/dev/null; then
+    if $g -c core.hooksPath=/dev/null checkout -q --detach "$main" 2>/dev/null; then
       echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT moved ${head:0:9} -> origin/main ${main:0:9}: its ${diff} differed and no queue run was live (#5923; back with: git -C '$LIB_CHECKOUT' checkout --detach ${head:0:9})"
       return 0
     fi
@@ -189,9 +190,14 @@ _qh_lib_check() {
 }
 # The marker dir as the lib names it (_kosmos_marker_dir), needed before the lib is loaded.
 _qh_marker_dir_raw() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cache/kosmos-run-markers}"; }
-if command -v git >/dev/null 2>&1; then
+# Removes the lib lock only while it is still this run's (a joiner may have taken it over).
+_qh_lib_unlock() { [ -n "$QH_LIB_LOCK" ] && [ "$(cat "$QH_LIB_LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$QH_LIB_LOCK"; return 0; }
+mkdir -p "$(_qh_marker_dir_raw)" 2>/dev/null
+if ! command -v git >/dev/null 2>&1; then :
+elif [ ! -w "$(_qh_marker_dir_raw)" ]; then
+  echo "QUEUED-HEAVY $(date '+%H:%M:%S') the marker dir $(_qh_marker_dir_raw) is not writable, so the lib is loaded unchecked (#5923)"
+else
   QH_LIB_LOCK="$(_qh_marker_dir_raw)/queued-heavy-lib.lock"
-  mkdir -p "$(_qh_marker_dir_raw)" 2>/dev/null
   _qh_i=0; _qh_empty=0
   # As _qh_take's lock: a dead holder's lock is taken over, and so is one with no pid for 20 CONSECUTIVE reads (a new
   # holder between its mkdir and its pid write is never taken over). A holder also records its command line; a live
@@ -210,16 +216,16 @@ if command -v git >/dev/null 2>&1; then
   done
   if [ -n "$QH_LIB_LOCK" ]; then
     ps -ww -o command= -p "$$" > "$QH_LIB_LOCK/cmd" 2>/dev/null; echo "$$" > "$QH_LIB_LOCK/pid"; _qh_lib_check; else
-    echo "QUEUED-HEAVY $(date '+%H:%M:%S') the lib check's lock stayed taken for 5 min; loading the lib unchecked (#5923)"; fi
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') the lib check's lock stayed taken for 5 min (holder pid ${_qh_op:-?}); loading the lib unchecked, possibly in the middle of a move (#5923)"; fi
   unset _qh_i _qh_op _qh_empty
 fi
 . "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || {
-  [ -n "$QH_LIB_LOCK" ] && rm -rf "$QH_LIB_LOCK"
+  _qh_lib_unlock
   echo "QUEUED-HEAVY: could not load cut-guard.sh from $LIB_CHECKOUT (set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2
   # #5446: the main-checkout fallback was tried and that checkout has no lib either (it predates it).
   [ -n "$QH_MAIN_TRIED" ] && echo "QUEUED-HEAVY: this repo's main checkout $QH_MAIN_TRIED has none either; if it is on main, bring it up to date with: git -C '$QH_MAIN_TRIED' pull --ff-only" >&2
   exit 3; }
-[ -n "$QH_LIB_LOCK" ] && rm -rf "$QH_LIB_LOCK"   # #5923: loaded, so a move by the next joiner can no longer reach this run
+_qh_lib_unlock   # #5923: loaded, so a move by the next joiner can no longer reach this run
 # The functions called unguarded: every run's, then the side lane's (it is offered only when kosmos_light_side_clear exists).
 _qh_need="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_suite_waiting kosmos_refuse_if_earlier_suite_waiter _kosmos_suite_waiter_file kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
 declare -F kosmos_light_side_clear >/dev/null && _qh_need="$_qh_need kosmos_light_side_take kosmos_publish_light_side_pgid kosmos_release_light_side"
