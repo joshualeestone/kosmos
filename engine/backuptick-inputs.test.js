@@ -63,3 +63,12 @@ test('review 5: every account folder and every hidden folder in the home folder 
   assert.ok(roots.some((r) => r.name === 'elsewhere/far'), 'CONTROL: an ordinary folder is added');
   assert.ok(left.some((l) => l.what === 'a project' && /sign-in folder/.test(l.why)), JSON.stringify(left));
 });
+
+test('review 5: a Grok home set OUTSIDE the home folder is protected too (only the provider line can see it)', () => {
+  const grokOut = mk('elsewhere-grok');
+  process.env.AGENT_WORKFORCE_GROK_HOME = grokOut;
+  try {
+    const input = tick.inputsHere();
+    assert.ok(input.protect.includes(grokOut), 'an env-set Grok home outside home was not protected');
+  } finally { delete process.env.AGENT_WORKFORCE_GROK_HOME; }
+});
