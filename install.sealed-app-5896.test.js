@@ -140,8 +140,11 @@ it('#5896: a bundle that carries a per-install file is still judged by it, never
 test('#5896: uninstall checks for the shared sealed icon BEFORE the branch that removes it', () => {
   const at = SETUP.indexOf('if shared_sealed_stays "$SYS_APP_DIR/Kosmos.app" "$_board_label"; then');
   assert.notEqual(at, -1, 'the uninstall no longer asks whether the shared icon is the sealed one');
-  const rm = SETUP.indexOf('elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then', at);
-  assert.ok(rm > at && rm - at < 900, 'the sealed check is not directly before the removal branch');
+  // #5913 merge review 3: the 6-space indent is the removal branch; the uninstall note has an 8-space elif with the
+  // same text inside the kept-icon block, and an unindented anchor landed on that note instead.
+  const rm = SETUP.indexOf('\n      elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then', at);
+  // 1800: the kept branch now holds the #5912/#5913 note (three cases and their comments) before the removal elif.
+  assert.ok(rm > at && rm - at < 1800, 'the sealed check is not directly before the removal branch');
   const code = SETUP.slice(at, rm).split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');   // comments may say rm -rf
   assert.doesNotMatch(code, /rm -rf/, 'the sealed branch removes something');
 });
@@ -415,5 +418,5 @@ test('#5912: the uninstall asks shared_sealed_stays before the removal branch, w
   assert.notEqual(ask, -1, 'the uninstall no longer asks shared_sealed_stays');
   assert.notEqual(un.indexOf('_board_label=com.kosmos.board'), -1, 'the uninstall no longer sets _board_label');
   assert.ok(un.indexOf('_board_label=com.kosmos.board') < ask, '_board_label is set after it is used');
-  assert.ok(ask < un.indexOf('elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then'), 'the removal branch comes first');
+  assert.ok(ask < un.indexOf('\n      elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then'), 'the removal branch comes first');   // 6 spaces: not the note's elif
 });
