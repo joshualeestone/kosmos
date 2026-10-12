@@ -44,4 +44,3 @@ fails both sweeps.
 - tools/test-cut-sign-preflight.sh: 43 passed; a planted notary key in ios/Signing.xcconfig is refused (the
   exception admits the team only).
 - iOS CI builds with CODE_SIGNING_ALLOWED=NO, so a team in the file changes nothing there.
-- (see above)

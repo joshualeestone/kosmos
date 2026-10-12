@@ -86,6 +86,11 @@ runner, which has the runtime.
   are the Stone Syndicate team's and `io.kosmos.app.preview`: an interim TestFlight app. The real
   app is created fresh as `io.kosmos.app` under Kosmos Agent Manager, Inc. once Apple approves
   #3643, and both lines change then (docs/phone-push-go-live.md, "Interim").
+  - A preview build's push registration is refused by the coordinator (its `KOSMOS_APNS_BUNDLE_IDS`
+    allows only `io.kosmos.app`). The app logs `[Push] register failed with HTTP 400` and carries on:
+    no banner and no retry loop (`PushRegistrar.swift`).
+  - Building for a real device in Xcode now signs as that team too, so Xcode provisions
+    `io.kosmos.app.preview` under Stone Syndicate for the person building.
 - `tools/archive.sh --build <N>` archives the Release app, exports it for App Store Connect with
   `tools/ExportOptions.plist` (the Team ID is added from `Signing.xcconfig`), and runs
   `tools/check-ipa-entitlements.sh` on the exported `.ipa`: `aps-environment` must be
