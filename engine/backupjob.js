@@ -18,9 +18,11 @@
  *     day each counts toward the registration cap, kosmos#5736).
  *
  * state (plain, the caller persists it): { lostEpoch?, waitUntilMs?, waits? }. Every function returns a NEW state.
- * The state belongs to ONE (org, member): ensureMemberKey honours lostEpoch only with lostFor naming that pair
- * (kosmos#5535), so the caller's deps.ensureMemberKey adds lostFor for the pair it keeps this state under, and checks
- * the org and member the answer carries against it.
+ * The state belongs to ONE (org, member), deps.pair (kosmos#5535): an epoch is a number per member. memberKeyFor sends
+ * lostEpoch with lostFor: deps.pair (ensureMemberKey honours it only for that pair), and refuses an answer that names
+ * another pair as otherPair, with the state untouched (it is this pair's; the caller moves to that pair's state). A
+ * lostEpoch with no deps.pair is refused before any call: sent unscoped it would be ignored on every run, and the job
+ * would say forever that it registers a new key next time.
  * waits counts the waiting answers since the last ok key, so a refusal in between (no answer, an unreadable file)
  * does not restart the backoff at an hour. A waitUntilMs more than the longest wait ahead of the clock (written under
  * a clock that was wrong, or a restored state) is read as over: it would otherwise hold the job for as long as the
@@ -53,26 +55,37 @@ function cleanState(state) {
   if (Number.isSafeInteger(s.waits) && s.waits > 0) out.waits = s.waits;
   return out;
 }
+const isPair = (p) => !!(p && typeof p === 'object' && typeof p.org === 'string' && p.org && typeof p.member === 'string' && p.member);
 function backoffMs(waits) {
   return Math.min(BACKOFF_MIN_MS * 2 ** Math.min(Math.max(waits - 1, 0), 10), BACKOFF_MAX_MS);
 }
 
-/* The key step. deps: { ensureMemberKey, now? } (now in whole milliseconds, as Date.now). Resolves { ok: true, key: { epoch, publicKey }, state, lostEpochIgnored? }
-   or { ok: false, because, waiting?, pendingEpoch?, lostEpochIgnored?, unreadableKeyFile?, refusal?, state }. Never throws. */
+/* The key step. deps: { ensureMemberKey, pair?, now? } (now in whole milliseconds, as Date.now). Resolves
+   { ok: true, key: { epoch, publicKey, org?, member? }, state, lostEpochIgnored? }
+   or { ok: false, because, waiting?, pendingEpoch?, lostEpochIgnored?, unreadableKeyFile?, refusal?, otherPair?, state }.
+   key.org and key.member are the pair the answer named, when it named one. Never throws. */
 async function memberKeyFor(state, deps) {
   const st = cleanState(state);
   const now = (deps && deps.now) || Date.now;
   const ensure = deps && deps.ensureMemberKey;
   if (typeof ensure !== 'function') return { ok: false, because: 'no member key step', state: st };
+  const pair = isPair(deps.pair) ? { org: deps.pair.org, member: deps.pair.member } : null;
+  if (st.lostEpoch && !pair) return { ok: false, because: 'the backup state does not say which company and member it is for', state: st };
   if (st.waitUntilMs && now() < st.waitUntilMs && st.waitUntilMs - now() <= BACKOFF_MAX_MS) {
     return { ok: false, waiting: true, because: 'Kosmos+ takes a new backup key at most once a day; this computer tries again later', state: st };
   }
   let r;
-  try { r = await ensure(st.lostEpoch ? { lostEpoch: st.lostEpoch } : {}); } catch { r = null; }
+  try { r = await ensure(st.lostEpoch ? { lostEpoch: st.lostEpoch, lostFor: pair } : {}); } catch { r = null; }
+  // Another pair's answer, ok or not, says nothing about this state (not even a wait to back off): kept as it was.
+  const named = r && isPair(r) ? { org: r.org, member: r.member } : null;
+  if (pair && named && (named.org !== pair.org || named.member !== pair.member)) {
+    return { ok: false, otherPair: named, because: 'Kosmos+ named another company or member than this backup state is for', state: st };
+  }
   if (r && r.ok && isEpoch(r.epoch) && Buffer.isBuffer(r.publicKey) && r.publicKey.length === 32) {
     // An answer below the lost epoch comes when ensureMemberKey ignored lostEpoch (it is not the file's newest
     // registered key): that key is older still, so it is the one to replace next run. Never sealed under. (Equal is
-    // never answered when lostEpoch is honoured; refused too, defensively.)
+    // never answered when lostEpoch is honoured, which needs lostFor to name the answer's pair, checked above; refused
+    // too, defensively.)
     const waitsKept = st.waits ? { waits: st.waits } : {};
     if (st.lostEpoch && r.epoch <= st.lostEpoch) {
       return Object.assign({ ok: false, because: 'the backup key this computer holds is older than the member\'s current one; it registers a new one next time', state: Object.assign({ lostEpoch: r.epoch }, waitsKept) },
@@ -81,7 +94,7 @@ async function memberKeyFor(state, deps) {
     if (isEpoch(r.pendingEpoch) && r.pendingEpoch > r.epoch) {
       return { ok: false, pendingEpoch: r.pendingEpoch, because: 'a newer backup key for this computer is not confirmed with Kosmos+ yet; it is sent next time', state: Object.assign({ lostEpoch: r.epoch }, waitsKept) };
     }
-    return Object.assign({ ok: true, key: { epoch: r.epoch, publicKey: r.publicKey }, state: {} },
+    return Object.assign({ ok: true, key: Object.assign({ epoch: r.epoch, publicKey: r.publicKey }, named || {}), state: {} },
       r.lostEpochIgnored === true ? { lostEpochIgnored: true } : {});
   }
   const keep = Object.assign(st.lostEpoch ? { lostEpoch: st.lostEpoch } : {}, st.waits ? { waits: st.waits } : {});
@@ -103,8 +116,9 @@ function afterSnapshot(state, key, result) {
   return st;
 }
 
-/* One run: the key step, then (only under an ok key) deps.snapshot({ memberPk, epoch }), where epoch is the key's
-   context id. deps: { ensureMemberKey, snapshot, now? }. Resolves { state, key?, result }: result is the key step's
+/* One run: the key step, then (only under an ok key) deps.snapshot({ memberPk, epoch, org?, member? }), where epoch is
+   the key's context id and org and member are the pair the key step's answer named. deps: { ensureMemberKey, snapshot,
+   pair?, now? }. Resolves { state, key?, result }: result is the key step's
    refusal when no snapshot was taken (its because and flags), else the snapshot's own
    result. key, when present, carries the key step's lostEpochIgnored. Never throws. */
 async function runOnce(state, deps) {
@@ -115,7 +129,8 @@ async function runOnce(state, deps) {
   }
   if (!deps || typeof deps.snapshot !== 'function') return { state: k.state, key: k.key, result: { ok: false, because: 'no snapshot step' } };
   let result;
-  try { result = await deps.snapshot({ memberPk: k.key.publicKey, epoch: String(k.key.epoch) }); } catch { result = null; }
+  const named = k.key.org ? { org: k.key.org, member: k.key.member } : {};
+  try { result = await deps.snapshot(Object.assign({ memberPk: k.key.publicKey, epoch: String(k.key.epoch) }, named)); } catch { result = null; }
   if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };
   const key = Object.assign({}, k.key, k.lostEpochIgnored ? { lostEpochIgnored: true } : {});
   return { state: afterSnapshot(k.state, k.key, result), key, result };
