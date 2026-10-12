@@ -1520,11 +1520,16 @@ function linuxOpenFolder(folder) {
   /* xdg-open reads an argument starting with "-" as an option and takes no "--", so only an absolute path reaches it
      (every caller passes one: a stored folder, or the folder of a resolved file). */
   if (!path.isAbsolute(String(folder))) return { ok: false, because: 'the folder did not open' };
-  /* Only a folder reaches xdg-open, never a file or a link to one (it would open a .desktop file or a script with whatever
-     the desktop runs it with: the reason files are refused here). The Windows arm makes the same check. */
+  /* A folder, as this check saw it, never a file or a link to one (xdg-open would hand a .desktop file or a script to
+     whatever the desktop runs it with: the reason files are refused here). The link is resolved first and the RESOLVED
+     path is what xdg-open gets, so a link swapped after the check cannot redirect it; replacing the folder itself in that
+     instant is not covered. The Windows arm makes the same check. */
+  let real;
+  try { real = fs.realpathSync(String(folder)); } catch { return { ok: false, because: 'that folder is not there any more' }; }
   let st;
-  try { st = fs.statSync(String(folder)); } catch { return { ok: false, because: 'that folder is not there any more' }; }
+  try { st = fs.statSync(real); } catch { return { ok: false, because: 'that folder is not there any more' }; }
   if (!st.isDirectory()) return { ok: false, because: 'that is not a folder' };
+  folder = real;
   if (revealRunner) return revealRunner('xdg-open', [folder]);
   const bin = xdgOpenPath();
   if (!bin) return { ok: false, because: 'this computer has no program installed for opening folders' };   // xdg-open, from xdg-utils
