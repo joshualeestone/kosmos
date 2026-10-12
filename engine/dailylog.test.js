@@ -309,7 +309,7 @@ test('readConversations: reports readable=false on a failed listing, true on suc
   assert.equal(dl.readConversations(good).readable, true, 'an existing (even empty) dir is readable');
 });
 
-test('compileAll: a per-file READ failure blocks pruning, but invalid JSON does not', () => {
+test('compileAll: a per-file READ failure blocks pruning', () => {
   const chatsDir = path.join(SANDBOX, 'chats-readerr');
   const outDir = path.join(SANDBOX, 'chats-daily-readerr');
   fs.mkdirSync(chatsDir, { recursive: true });

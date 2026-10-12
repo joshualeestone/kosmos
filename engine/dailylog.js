@@ -401,11 +401,12 @@ function readConversations(chatsDir, now = new Date()) {
   // That is the earliest of: when the file was last written, when its name says it was set aside, and now. Each is an
   // upper bound on its own, so a file time in the future (or one that cannot be read) does not move the line.
   const nowIso = now.toISOString();
-  const unknown = (name) => {
+  const unknown = (name, setAside) => {
     unknownFiles.push(name);
     let when = nowIso;
     try { const m = fs.statSync(path.join(chatsDir, name)).mtime.toISOString(); if (m < when) when = m; } catch { /* unreadable: the other bounds */ }
-    const aside = setAsideAt(name);
+    // Only a set-aside name carries the time it was set aside; a live file's key can be all digits and say nothing.
+    const aside = setAside ? setAsideAt(name) : null;
     if (aside !== null && aside < when) when = aside;
     if (unknownThrough === null || when > unknownThrough) unknownThrough = when;
   };
@@ -418,7 +419,7 @@ function readConversations(chatsDir, now = new Date()) {
       continue;
     }
     if (asideThread(name, DAMAGED_SUFFIX) !== null) {
-      if (!isFolder(name)) unknown(name);
+      if (!isFolder(name)) unknown(name, true);
       continue;
     }
     const earlier = asideThread(name, SUPERSEDED_SUFFIX);
@@ -429,7 +430,7 @@ function readConversations(chatsDir, now = new Date()) {
       catch { readErrors += 1; continue; }
       let asideParsed = null;
       try { asideParsed = JSON.parse(asideRaw); } catch { asideParsed = null; }
-      if (!asideParsed || !Array.isArray(asideParsed.messages)) { unknown(name); continue; }
+      if (!asideParsed || !Array.isArray(asideParsed.messages)) { unknown(name, true); continue; }
       // An earlier project's file can itself have rolled over: the same second sign as a live file's (kosmos#5855).
       if (typeof asideParsed.continues === 'string' && asideParsed.continues) continuedFiles.push(name);
       // What tells this earlier project from another of the same name: when it began, else the file's own stamp.
@@ -449,7 +450,7 @@ function readConversations(chatsDir, now = new Date()) {
       // Will not parse. If it names an earlier file it is a rolled-over conversation (kosmos#5855). Otherwise it is a
       // damaged thread file chat.js has not set aside yet (it does so at the next message): the same unknown rows as
       // a `.damaged` file, held from now and not only from then (kosmos#5866).
-      if (NAMES_AN_EARLIER_FILE.test(raw)) continuedFiles.push(name); else unknown(name);
+      if (NAMES_AN_EARLIER_FILE.test(raw)) continuedFiles.push(name); else unknown(name, false);
       continue;
     }
     if (parsed && typeof parsed.continues === 'string' && parsed.continues) continuedFiles.push(name);
@@ -565,8 +566,9 @@ function compileAll(opts = {}) {
      conversations", and pruning on that would delete the compiled history for a
      transient failure. A successful, fully-read listing that is genuinely empty
      still prunes, which is correct: chats/ is there and has nothing, so every
-     daily file is stale. (A file that read fine but is not valid JSON is stable
-     junk, not a read failure, and does not block pruning -- see readConversations.) */
+     daily file is stale. (A file that read fine but is not valid JSON is not a
+     read failure: it does not stop the prune here. It holds the days before it was last written, which the
+     loop below skips -- kosmos#5866, see HELD DAYS above.) */
   const pruned = [];
   if (prune && !onlyDay && readable && readErrors === 0) {
     const keep = new Set(written);
@@ -695,7 +697,7 @@ if (require.main === module) {
     if (summary.held.length) {
       const n = summary.unknownFiles.length;
       process.stdout.write(`dailylog: left ${summary.held.length} daily file(s) already there as they were `
-        + `(${summary.held[0]}${summary.held.length > 1 ? ' to ' + summary.held[summary.held.length - 1] : ''}), because `
+        + `(${summary.held.length > 1 ? 'between ' + summary.held[0] + ' and ' + summary.held[summary.held.length - 1] : summary.held[0]}), because `
         + `${n} file(s) in the chats folder could not be read as conversations and may hold messages from those days\n`);
     }
   }

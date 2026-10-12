@@ -279,6 +279,13 @@ test('a LIVE thread file that will not parse holds the same days, before chat.js
   const s2 = dl.compileAll({ chatsDir, outDir, dayOf, timeOf, now: NOW });
   assert.deepEqual(s2.held, ['2026-09-10', '2026-09-11']);
   assert.equal(day(outDir, 10), 'COMPILED 10, WITH ITS ROWS');
+  // a live file's key made only of digits is not a set-aside time: its own last write still sets the line
+  const d = dirs('live-digits');
+  put(d.outDir, '2026-09-01.md', 'COMPILED 1');
+  put(d.chatsDir, 'direct..1234567890123.json', '{bad');
+  lastWritten(d.chatsDir, 'direct..1234567890123.json', '2026-09-12T09:00:00Z');
+  const sd = dl.compileAll({ chatsDir: d.chatsDir, outDir: d.outDir, dayOf, timeOf, now: NOW });
+  assert.deepEqual([sd.held, sd.pruned], [['2026-09-01'], []], 'the digits in a live file\'s key were read as the time it was set aside');
   // a thread-named file that parses but is not a conversation is still just skipped: it is not a damaged one
   const c = dirs('live-other');
   put(c.outDir, '2026-09-10.md', 'STALE');
@@ -401,7 +408,7 @@ test('the command says which daily files it left alone and why, and still exits 
   const held = run();
   assert.equal(held.status, 0, held.stderr);
   assert.equal(held.stderr, '');
-  assert.ok(held.stdout.includes(`dailylog: left 3 daily file(s) already there as they were (${made[0]} to ${made[2]}), because 2 file(s) in the chats folder could not be read as conversations and may hold messages from those days\n`), held.stdout);
+  assert.ok(held.stdout.includes(`dailylog: left 3 daily file(s) already there as they were (between ${made[0]} and ${made[2]}), because 2 file(s) in the chats folder could not be read as conversations and may hold messages from those days\n`), held.stdout);
 });
 
 test('pin (convention 5): what this compiler assumes about the two kinds is what engine/chat.js does', () => {

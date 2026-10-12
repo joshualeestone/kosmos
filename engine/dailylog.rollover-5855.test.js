@@ -171,7 +171,7 @@ test('a fresh file that names an earlier one but is itself damaged still refuses
   mk('dmg-list', JSON.stringify({ continues: ASIDE, messages: 'nope' }));
   mk('dmg-cut', '{"continues":"' + ASIDE + '","carried":1,"messages":[{"at":"2026-09-15T10:00:00Z","te');
   mk('dmg-spaced', '{ "continues" : "' + ASIDE + '", "messages": [');
-  // control: the same damage with no such field is stable junk, as before, and does not refuse
+  // control: the same damage with no such field does not refuse the run (it is a damaged file, kosmos#5866, not a rolled-over one)
   for (const [label, body] of [['ctl-cut', '{"carried":1,"messages":[{"at":"2026-09-15T10:00:00Z","te'], ['ctl-empty', '{"continues":"","messages":['], ['ctl-word', '{"note":"this continues elsewhere","messages":[']]) {
     const chatsDir = path.join(SANDBOX, 'chats-' + label);
     fs.mkdirSync(chatsDir, { recursive: true });
