@@ -77,6 +77,17 @@ const KEPT = 'The name was not changed: there is already an agent called Gemini 
   });
   /* #5957: the instructions Save, answered as the server answers a line naming a taken name: the text saved, the
      rename did not, and nameKept says so. Intercepted here too, so no file is written. */
+  /* The status poll disables the editor when it reports this agent's file as not editable (on purpose), and this
+     sandbox's agent reports exactly that (measured: the box held the fixture text, INSTR_READY false, no message). The
+     poll is answered from the REAL response with only that flag set, so the instructions Save case exercises the
+     page's handling of the save's answer, not the sandbox's file. */
+  await page.route(/\/api\/status(\?|$)/, async (r) => {
+    const resp = await r.fetch();
+    let body;
+    try { body = await resp.json(); } catch { r.fulfill({ response: resp }); return; }
+    for (const a of (body && body.agents) || []) if (a && a.instructions) a.instructions.editable = true;
+    r.fulfill({ response: resp, json: body });
+  });
   /* The load is answered too, with a fixture, so the editor is ready whatever this sandbox's agent has on disk (a Save
      before the load lands is refused by the page on purpose). A regex, so the load's ?t= query matches and the
      /instructions/previous route does not. */
@@ -160,7 +171,6 @@ const KEPT = 'The name was not changed: there is already an agent called Gemini 
   /* #5957: the instructions Save says the name was kept, after "Saved.". */
   await page.evaluate(() => document.getElementById('d-instr-save').scrollIntoView({ block: 'center' }));
   await page.waitForFunction(() => /You are \*\*Fixture\*\*/.test(document.getElementById('d-instr').value), null, { timeout: 8000 });
-  console.log('DIAG5957 ' + JSON.stringify(await page.evaluate(() => ({ dis: document.getElementById('d-instr').disabled, ready: typeof INSTR_READY === 'undefined' ? 'undef' : INSTR_READY, msg: document.getElementById('d-instr-msg').textContent, save: document.getElementById('d-instr-save').disabled, val: document.getElementById('d-instr').value.slice(0, 60) }))));
   // Save is enabled by an edit (a save of unchanged text has nothing to send), so make the edit a person would.
   await page.fill('#d-instr', '# Fixture\n\nYou are **Gemini**, a tester.\n');
   await page.click('#d-instr-save');
