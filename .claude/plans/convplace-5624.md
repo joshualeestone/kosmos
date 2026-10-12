@@ -22,6 +22,16 @@ left open. Chosen: the conversation's header row, beside search.
 - Moving it again is a markup move of one button per conversation plus check C1; the behaviour code does not depend
   on where the button sits (it is found by class and data-conv-for).
 
+## Layout (challenge iteration 1)
+- The room's toggle and search share a wrapper (.pjconvsearch, display: contents), so every existing layout sees the
+  search exactly as before. Up to 60rem, where the room header stacks, the wrapper becomes one row once the toggle
+  is drawn, so the toggle sits beside the search rather than on a row of its own.
+- The toggle goes where the header goes. Where a phone collapses the caption row to save room (keyboard up while
+  writing; the sideways phone with an idle search), the toggle collapses with it. Accepted: the person turned the
+  mode on in this conversation and is in it, and the alternative costs a conversation that has 57 to 90 px. The
+  stated reason above ("always in view") holds wherever the header itself is shown.
+
 ## Tests
 docs/browser-checks/render-convmode-5624.js C1 now asserts each toggle is in its header row immediately before the
-search, and inside no message box. All other arms are unchanged.
+search, and inside no message box. C20 (new) asserts that at 700px the room's toggle sits on the search's line.
+All other arms are unchanged. Not covered by a check: the sideways-phone collapse (hover: none media).
