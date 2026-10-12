@@ -1,8 +1,9 @@
 #!/bin/bash
 # Archive, export and (with --upload) upload the iOS app to App Store Connect (kosmos #4089, #718).
 #
-# Signs as the team in ios/Signing.xcconfig (the Stone Syndicate team for now, #4089; Kosmos Agent Manager,
-# Inc. after the app transfer, #3643). It stops at the first check below if that Team ID is empty or not 10 characters.
+# Signs as the team, with the bundle id, in ios/Signing.xcconfig (for now the Stone Syndicate team and the
+# interim io.kosmos.app.preview, #4089). It stops at the first check below if the Team ID is empty or not
+# 10 characters.
 #
 #   ios/tools/archive.sh --build <N>            archive + export an .ipa, then check it
 #   ios/tools/archive.sh --build <N> --upload   the same, then upload that build to App Store Connect
@@ -39,6 +40,11 @@ esac
 
 # The value Xcode reads: the DEVELOPMENT_TEAM line, less any trailing // comment and spaces.
 team=$(sed -n 's|//.*||; s/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*//p' "$ios/Signing.xcconfig" | tr -d '[:space:]')
+# The bundle id the project builds with (KOSMOS_BUNDLE_ID in the same file), checked on the export.
+bundle=$(sed -n 's|//.*||; s/^[[:space:]]*KOSMOS_BUNDLE_ID[[:space:]]*=[[:space:]]*//p' "$ios/Signing.xcconfig" | tr -d '[:space:]')
+case "$bundle" in
+  ''|*[!A-Za-z0-9.-]*) echo "archive.sh: KOSMOS_BUNDLE_ID in ios/Signing.xcconfig is '${bundle}', not a bundle id." >&2; exit 2 ;;
+esac
 if [ -z "$team" ]; then
   echo "archive.sh: DEVELOPMENT_TEAM is empty in ios/Signing.xcconfig. Set it to the Team ID that signs the app (see the comment in that file)." >&2
   exit 1
@@ -88,7 +94,7 @@ ipa=$(find "$out/export" -maxdepth 1 -name '*.ipa' | head -1)
 [ -n "$ipa" ] || { echo "archive.sh: the export wrote no .ipa into $out/export" >&2; exit 1; }
 
 echo "== check $ipa"
-"$here/check-ipa-entitlements.sh" "$ipa" "$team"
+"$here/check-ipa-entitlements.sh" "$ipa" "$team" "$bundle"
 
 if [ "$upload" -eq 0 ]; then
   echo "Exported and checked: $ipa"

@@ -2,14 +2,22 @@
 
 **Branch:** `iosteam-4089` · **Card:** kosmos#4089 (Splinter routed it 10-12 17:03; Liu Kang out of usage until 10-16).
 
-## The call (Josh via Splinter, 2026-10-12)
-Ship TestFlight now under the active Stone Syndicate LLC team, internal testers only, and transfer the app to Kosmos
-Agent Manager, Inc. after Apple approves #3643. Rejected: waiting on #3643 (pending since September). An App Store
-app transfer moves the record, the bundle id and the builds; testers are added again after it, and Josh confirms
-Apple's transfer conditions (agreements accepted, nothing that blocks a transfer) before relying on it.
+## The call (Josh via Splinter, 2026-10-12; option A decided 17:11)
+Ship TestFlight now under the active Stone Syndicate team, internal testers only, as a SEPARATE app,
+`io.kosmos.app.preview`. `io.kosmos.app` is never used under Stone Syndicate. Review 3 found, and Apple's App
+Transfer Criteria confirm verbatim, that "The app must have at least one version that was released to the App
+Store", so an internal-TestFlight app cannot be transferred, and a bundle id is fixed once a build is uploaded.
+The first plan ("transfer later") would have stranded io.kosmos.app under Stone Syndicate. When #3643 is approved
+the real app is created fresh as io.kosmos.app under Kosmos Agent Manager, Inc.
 
 ## Change
-- `ios/Signing.xcconfig`: `DEVELOPMENT_TEAM = 864QZ69GF2`, with a comment saying it is interim and why.
+- `ios/Signing.xcconfig`: `DEVELOPMENT_TEAM = 864QZ69GF2` and a new `KOSMOS_BUNDLE_ID = io.kosmos.app.preview`,
+  with comments saying both are interim and why.
+- `ios/Kosmos.xcodeproj/project.pbxproj`: PRODUCT_BUNDLE_IDENTIFIER = $(KOSMOS_BUNDLE_ID) (both configurations).
+  Measured with -showBuildSettings: Release and Debug resolve io.kosmos.app.preview, team 864QZ69GF2. The app reads
+  its id from Bundle.main at runtime.
+- `ios/tools/check-ipa-entitlements.sh` takes the expected bundle id as a third argument (default io.kosmos.app);
+  `ios/tools/archive.sh` reads KOSMOS_BUNDLE_ID from the xcconfig and passes it.
 - `docs/phone-push-go-live.md`: an "Interim" paragraph above Step 4's done list, and the two lines that said the
   team is empty / waits on the org now say Stone Syndicate for now / change it after the transfer.
 
@@ -31,6 +39,9 @@ fails both sweeps.
 
 ## Checks
 - archive.sh reads 864QZ69GF2 from the file (its own sed, run by hand).
-- ios/tools/test-check-ipa-entitlements.sh: VERDICT PASS.
+- ios/tools/test-check-ipa-entitlements.sh: VERDICT PASS, with four new cases: preview build passes as preview;
+  preview refused as the default id; io.kosmos.app refused as preview; preview from another team refused.
+- tools/test-cut-sign-preflight.sh: 43 passed; a planted notary key in ios/Signing.xcconfig is refused (the
+  exception admits the team only).
 - iOS CI builds with CODE_SIGNING_ALLOWED=NO, so a team in the file changes nothing there.
-- tools/test-cut-sign-preflight.sh: 42 passed, 0 failed.
+- (see above)
