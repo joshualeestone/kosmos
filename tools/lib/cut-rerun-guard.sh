@@ -68,7 +68,8 @@ kosmos_failing_test_files() {
 # Re-running through run-tests.sh is safe from inside the cut: its #1962 machine-claim
 # consult is cookie-excluded, so the cut's OWN `yarn test` self-excludes and runs
 # rather than refusing (run-tests.sh:54-62). Up to `max` attempts (default 1; its caller
-# passes KOSMOS_SUITE_RERUN_MAX), with a short pause between any extra ones;
+# passes KOSMOS_SUITE_RERUN_MAX), with a short pause between extra ones (so only when
+# the budget is raised);
 # dismiss ONLY on a green, abort on a persistent red. Returns 0 (contention,
 # dismiss) or 1 (real red, abort).
 #
@@ -84,8 +85,11 @@ kosmos_failing_test_files() {
 # 10-12, not the ~2 min this was written for), run while the cut holds the box. So
 # this path no longer shares the file-by-file `max`; it has its own budget,
 # KOSMOS_SUITE_RERUN_MAX, default 1. Measured over the six cuts whose logs reached
-# this path on one release box (Agent1s, 10-07 to 10-08): three passed on attempt 1 and three stayed red on all
-# three, so attempts 2 and 3 changed no verdict and cost two suites per real red.
+# this path on one release box (Agent1s, 10-07 to 10-08): three passed on attempt 1
+# and three stayed red on all three, so attempts 2 and 3 changed no verdict and cost
+# two suites per real red. That evidence is thin and one-sided: it shows retries
+# wasted on real reds, not that a second attempt never rescues contention. If
+# contention reds come back, KOSMOS_SUITE_RERUN_MAX=3 restores the old budget.
 #
 # SEAMS (so the test proves both verdicts without running a real suite):
 #   KOSMOS_SUITE_RERUN_CMD   the command run in $repo (default `yarn test`)
@@ -97,7 +101,8 @@ kosmos_failing_test_files() {
 kosmos_whole_suite_rerun_verdict() {
   local repo="$1" max="${2:-1}" attempt rc
   # #5907: a budget that is not a whole number from 1 to 999 runs once and says so, so a typo (or a number too long
-  # for [ -le ]) is never logged as "red across all N attempts" with no suite run.
+  # for [ -le ]) is never logged as "red across all N attempts" with no suite run. 999 is a deliberate cap: each
+  # attempt is a full suite, so anything near it is a mistake.
   case "$max" in
     ''|0*|*[!0-9]*|????*) echo "isolation-rerun: whole-suite budget '$max' is not a whole number from 1 to 999; re-running the whole suite once."; max=1 ;;
   esac
