@@ -122,4 +122,18 @@ function alive(sessionName, staleAfterMs) {
   return r.ageMs <= (Number.isFinite(staleAfterMs) ? staleAfterMs : STALE_AFTER_MS);
 }
 
-module.exports = { DIR, STALE_AFTER_MS, fileFor, seen, read, alive };
+/* kosmos#5957 slice 3: how long an agent has gone without running, once that is long enough to say so.
+   The last authenticated report beats this record (server.js, every agent, Mac and Windows), so its time is
+   the last moment the agent was seen working. A whole number of days only at IDLE_DAYS or more; null
+   otherwise, and null when there is no record: an agent with no heartbeat has not been seen, which is not
+   the same as "seen long ago" (the three-answers rule above), so nothing is claimed about it. */
+const IDLE_DAYS = 14;
+function idleDays(sessionName, nowMs) {
+  const r = read(sessionName);
+  if (!r.found) return null;
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const days = Math.floor((now - Date.parse(r.at)) / 86400000);
+  return days >= IDLE_DAYS ? days : null;
+}
+
+module.exports = { DIR, STALE_AFTER_MS, IDLE_DAYS, fileFor, seen, read, alive, idleDays };

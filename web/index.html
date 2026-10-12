@@ -20907,6 +20907,17 @@ function rulesBehindLine(a, offline) {
      the agent in the roster), so the sentence states the fact and promises no action. */
   return 'Its working rules are ' + a.rulesBehind + ' versions behind.' + (offline ? '' : ' Open it to update them.');
 }
+/* #5957 slice 3: the sentence for an agent that has not run for two weeks or more (a.idleDays, from
+   engine/liveness.js idleDays: a whole number only then), or ''. Kosmos removes nothing itself; Remove is on the
+   agent's own page, and the person decides. */
+function idleLine(a) {
+  if (!(a && Number.isSafeInteger(a.idleDays) && a.idleDays > 0)) return '';
+  return 'Has not run in ' + a.idleDays + ' days. If it is no longer needed, Remove is on its page.';
+}
+/* The offline card and list row's one note: rules behind, then not run in N days, whichever apply. */
+function offlineNote(a) {
+  return [rulesBehindLine(a, true), idleLine(a)].filter(Boolean).join(' ');
+}
 function stateReason(a, opts) {
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
@@ -21985,7 +21996,7 @@ function card(a) {
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate ${split ? 'st-unknown' : 'st-stopped'}">${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b></div>
-    ${!split && rulesBehindLine(a, true) ? `<div class="arules">${esc(rulesBehindLine(a, true))}</div>` : ''}
+    ${!split && offlineNote(a) ? `<div class="arules">${esc(offlineNote(a))}</div>` : ''}
     ${comm ? `<div class="acommunity">${esc(comm)}</div>` : ''}
   </div>`;
   }
@@ -22188,7 +22199,7 @@ function lrow(a) {
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
-      <div class="ltask">${esc(a.jobRunningUnseen === true ? '' : rulesBehindLine(a, true))}</div>
+      <div class="ltask">${esc(a.jobRunningUnseen === true ? '' : offlineNote(a))}</div>
       <div class="lmodel"></div>
       <div class="lmem"></div>
     </div>`;

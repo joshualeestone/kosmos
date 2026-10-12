@@ -126,7 +126,7 @@ function render(which, a) {
      reads the CURRENT global -- lift it like face, and pass CURRENT (null: no
      agent is open in this isolated render) as an arg so the eval has both. */
   const fn = new Function('a', 'esc', 'GLYPH', 'PRESSAY', 'roleLine', 'discTint', 'discInk', 'initials', 'ROLE_TITLES', 'CURRENT',
-    `${page.lift(SCRIPT, 'agentNeedsAttention')}\n${page.lift(SCRIPT, 'face')}\n${page.lift(SCRIPT, 'dmBadge')}\n${page.lift(SCRIPT, 'rulesBehindLine')}\n${page.lift(SCRIPT, which)}\nreturn ${which}(a);`);
+    `${page.lift(SCRIPT, 'agentNeedsAttention')}\n${page.lift(SCRIPT, 'face')}\n${page.lift(SCRIPT, 'dmBadge')}\n${page.lift(SCRIPT, 'rulesBehindLine')}\n${page.lift(SCRIPT, 'idleLine')}\n${page.lift(SCRIPT, 'offlineNote')}\n${page.lift(SCRIPT, which)}\nreturn ${which}(a);`);
   return fn(a, (x) => String(x == null ? '' : x), { stopped: '<span class="stop"></span>' },
     { off: 'Not running' }, (x) => x.role || '', () => '#eee', () => '#111', (n) => n[0], null, null);
 }
@@ -339,5 +339,25 @@ for (const which of ['card', 'lrow']) {
     finally { delete globalThis.STATE_COPY; }
     assert.ok(split.includes('Could not check') || split.includes('st-unknown'), `fixture: ${which} did not take the split branch`);
     assert.ok(!split.includes('working rules'), `${which} said it on the could-not-check split`);
+  });
+}
+
+/* kosmos#5957 slice 3: an agent not run for two weeks says so in the same slot, after the rules sentence when both
+   apply, and points at the Remove on its page (Kosmos removes nothing itself). Not on the could-not-check split. */
+for (const which of ['card', 'lrow']) {
+  test(`#5957 slice 3 ${which}: a stopped agent idle 23 days says so; the real row (null) says nothing`, () => {
+    const IDLE = 'Has not run in 23 days. If it is no longer needed, Remove is on its page.';
+    assert.ok(!render(which, offlineRow()).includes('Has not run'), 'a row with no number drew the sentence');
+    const html = render(which, { ...offlineRow({ strict: false }), idleDays: 23 });
+    const slot = which === 'card' ? '<div class="arules">' : '<div class="ltask">';
+    assert.ok(html.includes(slot + IDLE), `${which} did not draw it in its slot: ${html.slice(0, 200)}`);
+    const both = render(which, { ...offlineRow({ strict: false }), idleDays: 23, rulesBehind: 13 });
+    assert.ok(both.includes(slot + 'Its working rules are 13 versions behind. ' + IDLE), `${which} did not join both in order`);
+    globalThis.STATE_COPY = { unknown: { label: 'Could not check' } };
+    let split;
+    try { split = render(which, { ...offlineRow({ strict: false }), idleDays: 23, jobRunningUnseen: true }); }
+    finally { delete globalThis.STATE_COPY; }
+    assert.ok(split.includes('Could not check') || split.includes('st-unknown'), `fixture: ${which} did not take the split branch`);
+    assert.ok(!split.includes('Has not run'), `${which} said it on the could-not-check split`);
   });
 }
