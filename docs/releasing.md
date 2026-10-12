@@ -101,7 +101,7 @@ improvement it gained would have died with the session that wrote it.
    step 4 also submits the sealed `app/Kosmos.app` in the same submission,
    staples its ticket, and refuses unless a quarantined copy is accepted by
    `spctl -a -t exec -vv` as "Notarized Developer ID" of our team (a downloaded,
-   quarantined copy that is not notarised is refused, measured on #5896).
+   quarantined copy that is not notarised is rejected by `spctl`, measured on #5896).
    `KOSMOS_NOTARY_PROBE_BIN`
    is deliberately not refused: like `KOSMOS_CODESIGN_BIN` it replaces only that
    probe (the release-gate tests set it), says "not probed" when set, and step 4
