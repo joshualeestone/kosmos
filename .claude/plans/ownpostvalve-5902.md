@@ -25,9 +25,15 @@ no agent and the room stayed held until someone pressed Reopen on THIS computer.
 - `HELD_MEMO.delete` after the write: dead. The memo is keyed on the log's row count, and the append changes it.
 
 ## Weakest premise
-`fromKind: 'person'` is said by the sending board. A modified client on the person's OWN other computer could keep
-that account's own room open (the account's own agents bypassing its own valve). Never a stranger: `same_account` is
-the relay's stamp. What would change it: the relay stamping who wrote a post.
+`fromKind: 'person'` is said by the sending board, and engine/fedseats.js reads any kind but 'agent' as a person (an
+older client that sends no kind included). So a same-account post not marked as an agent's releases the room, and a
+modified client on the person's OWN other computer could keep that account's own room open. Bounded: never a stranger
+(`same_account` is the relay's stamp), a reopen is not relayed onward (no loop between computers), and inbound posts
+are rate-limited per minute and per day (fedseats). What would change it: the relay stamping who wrote a post.
+
+Also: the reopen is written for EVERY such post, held or not, so like a post typed here it restarts the valve's count
+in an open room too. That is deliberate (one rule: the person posting counts), not a release that happens only when
+held.
 
 ## Verify
 - server.ownpostvalve-5902.test.js, through server.js's REAL recordExternal (the test keeps the deps server.js hands
@@ -38,3 +44,14 @@ the relay's stamp. What would change it: the relay stamping who wrote a post.
   post (the four stay-held arms); now instead of the post's time (the engine arm, added after this mutant first
   PASSED: through recordExternal both times are one millisecond).
 - Related suites 410/410: engine.reachable, messages, room-held-5800, ownroomnudge-5732, fedmsg-3311, fedseats, this file.
+
+## Review 1 (opus, 2026-10-12 01:13)
+- **SHOULD-FIX, taken:** the "no fromKind" arm certified the opposite of what ships (fedseats maps a missing kind to
+  'person' before recordExternal). The arm is removed; the plan's weakest premise and the code comment now say an older
+  client's post counts as the person's.
+- **SHOULD-FIX, taken:** #5732's nudge, the reason for the change, was never run. New arm: held -> the nudge returns
+  held (CONTROL); after reopenForOwnPost it does not.
+- **NIT, taken:** a future `at` is written as now (it would push the valve window ahead). Tested.
+- **NIT, taken:** the plan and comment say the reopen is written for every such post, held or not.
+- **NITs, not taken:** aligning the project-id regex with reopenRoom's and #5732's (unreachable: the id is the board's
+  own project id from the seat, and #5732 owns the other regex); line numbers in a comment (they rot).

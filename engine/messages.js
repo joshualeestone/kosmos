@@ -3104,14 +3104,19 @@ function reopenRoom(project, at) {
    Called only when ownPostNudges(msg) is true (server.js recordExternal), so exactly the posts that nudge: stamped
    same_account by the relay AND written by a person. A stranger's post, or an agent's relayed from the other computer,
    never releases it, and KOSMOS_OWN_ROOM_NUDGE=0 turns this off with the nudge (one switch for the behaviour).
-   Weakest premise, on the card: fromKind is said by the sending board, so a modified client on the person's own other
-   computer could keep that account's own room open. It can never be a stranger: same_account is the relay's.
+   Weakest premise, on the card: fromKind is said by the sending board, and engine/fedseats.js reads any kind but
+   'agent' as a person (an older client that sends none included), so a same-account post not marked as an agent's
+   releases the room. It can never be a stranger: same_account is the relay's.
+   Written for EVERY such post, held or not: like a post typed here, it also restarts the valve's count in an open
+   room.
    Written as the reopen marker reopenRoom writes (it renders nothing; both valve readers count it), at the external
    row's own time, naming that row. */
 function reopenForOwnPost(projectId, row) {
   const id = String(projectId == null ? '' : projectId).trim();
   if (!id || !/^[A-Za-z0-9._ -]+$/.test(id) || !row || typeof row.id !== 'string' || !row.id) return { ok: false };
-  const when = typeof row.at === 'string' && Number.isFinite(Date.parse(row.at)) ? row.at : new Date().toISOString();
+  /* Never later than now: a future time would move the valve's window start ahead and stop it counting until then. */
+  const t = typeof row.at === 'string' ? Date.parse(row.at) : NaN;
+  const when = Number.isFinite(t) && t <= Date.now() ? row.at : new Date().toISOString();
   appendLog({ kind: 'reopen', from: 'you', to: id, project: id, operator: true, at: when, post: row.id, reason: 'own-computer' });
   return { ok: true, at: when };
 }

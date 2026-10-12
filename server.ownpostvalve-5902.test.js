@@ -8,7 +8,10 @@
  *     wrote, and the release is a reopen row naming that external post, reason own-computer, at the post's own
  *     time (pinned on the engine, since through recordExternal the two times are the same millisecond);
  *   - a stranger's post (no same_account), an agent's post from the person's other computer, a stamp that is not
- *     exactly true, and any post with KOSMOS_OWN_ROOM_NUDGE=0 all leave the room held and write no reopen.
+ *     exactly true, and any post with KOSMOS_OWN_ROOM_NUDGE=0 all leave the room held and write no reopen;
+ *   - #5732's nudge, the reason for all this: skipped (held) without the reopen, and goes ahead after it.
+ * (A seat event with no kind is not tested here: engine/fedseats.js maps a missing data.kind to 'person' before
+ * recordExternal sees it, so an older client's post counts as the person's. That is the plan's weakest premise.)
  *
  *   node --test server.ownpostvalve-5902.test.js
  */
@@ -91,7 +94,6 @@ for (const [what, msg] of [
   ['a stranger\'s post (no same_account stamp)', { from: 'Mallory', fromKind: 'person', text: 'hello' }],
   ['an agent\'s post from the person\'s other computer', { from: 'casey', fromKind: 'agent', text: 'done', sameAccount: true }],
   ['a stamp that is not exactly true', { from: 'Eve', fromKind: 'person', text: 'hi', sameAccount: 'true' }],
-  ['a post with no fromKind', { from: 'Josh', text: 'hi', sameAccount: true }],
 ]) {
   test(`#5902 ${what} leaves the room held and writes no reopen`, async () => {
     const project = 'keep' + (++seq);
@@ -122,4 +124,23 @@ test('#5902 engine: the reopen is at the external post\'s own time, not the time
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(reopensFor('timeA')[0].at, at);
   assert.equal(messages.reopenForOwnPost('timeA', { at }).ok, false, 'a row with no id was written');
+});
+
+test('#5902 engine: #5732\'s nudge is skipped in a held room, and goes ahead once a reopen is written', () => {
+  const now = Date.now();
+  holdRoom('nudgeA', now);
+  /* An empty roster: the nudge types into nothing, so this reads only whether it stopped at the held check. */
+  const before = messages.nudgeOwnComputerPost('nudgeA', 'Plans', 'x-before', ['casey'], [], Date.now());
+  assert.equal(before.held, true, 'CONTROL: a held room did not stop the nudge: ' + JSON.stringify(before));
+  assert.equal(messages.reopenForOwnPost('nudgeA', { id: 'x-after', at: iso(Date.now()) }).ok, true);
+  const after = messages.nudgeOwnComputerPost('nudgeA', 'Plans', 'x-after', ['casey'], [], Date.now());
+  assert.equal(after.ok, true, JSON.stringify(after));
+  assert.notEqual(after.held, true, 'the nudge still stopped at the held check after the reopen');
+});
+
+test('#5902 engine: a post time in the future is written as now, so it cannot push the valve window ahead', () => {
+  const t0 = Date.now();
+  assert.equal(messages.reopenForOwnPost('futA', { id: 'x-fut', at: iso(t0 + 60 * MIN) }).ok, true);
+  const at = Date.parse(reopensFor('futA')[0].at);
+  assert.ok(at >= t0 && at <= Date.now(), 'a future post time was written as is: ' + iso(at));
 });
