@@ -39,7 +39,7 @@ test('the Files block sits directly under the four-pack, inside the left column,
   assert.match(SCRIPT, /!document\.getElementById\('panel-detail'\)\.hidden\) paintAgentFiles\(CURRENT\.sessionName\)/, 'the poll does not refresh the Files list');
 });
 
-function harness(respond, current = card('ana')) {
+function harness(respond, current = card('ana'), linux = false) {
   const make = (id) => {
     const el = { id, textContent: '', hidden: false, children: [], append(...c) { this.children.push(...c); } };
     Object.defineProperty(el, 'textContent', {
@@ -59,11 +59,11 @@ function harness(respond, current = card('ana')) {
     },
   };
   const calls = [];
-  const env = { CURRENT: current };
+  const env = { CURRENT: current, LINUX: linux };
   const make2 = new Function('document', 'fetch', 'fileIcon', 'pjSize', 'asSentence', 'env',
     'let AGENT_FILES_EPOCH = 0; let AGENT_FILES_STAMP = null; let AGENT_FILES_ALL_EPOCH = 0; const AGENT_FILES_SHOWN = 10;\n'
     + 'const kplusRemote = () => false;\n'   // #5165: at the computer
-    + 'const onLinux = () => false;\n'   // #5865: a Mac board
+    + 'const onLinux = () => env.LINUX;\n'   // #5865: a Mac board unless the test says Linux
     + 'const detailSection = (k) => document.getElementById("d-sec-" + k);\n'
     + 'const CURRENT_REF = env; \n'
     + FNS.replace(/\bCURRENT\b/g, 'CURRENT_REF.CURRENT')
@@ -244,4 +244,16 @@ test('#3757: a read that fails on the network keeps the section, with its reason
   await h.api.paintAgentFiles('ana');
   assert.equal(h.el['d-files'].hidden, false, 'a network failure hid the section as if there were no files');
   assert.match(h.el['d-files-msg'].textContent, /could not read this agent/);
+});
+
+test('#5865: on a Linux board the Files screen does not point at the Finder button it hides', async () => {
+  const many = Array.from({ length: 12 }, (_, i) => ({ name: 'f' + i + '.txt', size: 1 }));
+  const respond = (url) => ({ ok: true, total: 520, stamp: 'm', files: /limit=500/.test(url) ? many : many.slice(0, 10) });
+  const lin = harness(respond, card('ana'), true);
+  await lin.api.paintAgentFilesAll('ana');
+  assert.equal(lin.el['d-filesall-more'].textContent, 'And 508 more in the folder.');
+  // CONTROL: the same screen on a Mac still names the button.
+  const mac = harness(respond);
+  await mac.api.paintAgentFilesAll('ana');
+  assert.equal(mac.el['d-filesall-more'].textContent, 'And 508 more in the folder. Open in Finder shows them all.');
 });

@@ -173,7 +173,7 @@ test('BUG a11y (review round 1): the agent\'s Terminal section is NAMED what its
   // carries the key now; the section's own accessible name still reads it, and no stale pill may.
   assert.doesNotMatch(PAGE, /<button type="button" data-go="term"/, 'an Advanced pill is back; #4550 folds Terminal into AI Settings');
   assert.doesNotMatch(PAGE, /data-win-copy="terminalTab">Advanced</, 'a stale Advanced label still carries the terminalTab key');
-  assert.match(PAGE, /<section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab"( data-linux-aria-label="terminalTab")? data-tied="1" hidden>/,
+  assert.match(PAGE, /<section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab" data-tied="1" hidden>/,
     'the Terminal section is not named from the same key as its tab');
   assert.match(page.lift(SCRIPT, 'applyPlatformCopy'),
     /querySelectorAll\('\[data-win-aria-label\]'\)\.forEach\(\(el\) => \{ el\.setAttribute\('aria-label', windowsCopy\(el\.getAttribute\('data-win-aria-label'\)\)\); \}\)/);
@@ -781,10 +781,6 @@ test('#5865: Settings on Linux has no Dock line, app icon, Accessibility or tmux
 test('#5865: every data-linux-copy key has a Linux string, the agent page drops "Terminal" and "macOS", and platformHides knows Linux', () => {
   const keys = [...new Set((PAGE.match(/data-linux-copy="([^"]+)"/g) || []).map((m) => m.slice(17, -1)))].sort();
   assert.deepEqual(keys, ['settingsOpenKosmos', 'terminalBoxTitle', 'trustRestartHint']);
-  const ariaKeys = [...new Set((PAGE.match(/data-linux-aria-label="([^"]+)"/g) || []).map((m) => m.slice(23, -1)))].sort();
-  assert.deepEqual(ariaKeys, ['terminalTab']);
-  assert.equal(runPage('linux', [], "linuxCopy('terminalTab')"), runPage('linux', [], "linuxCopy('terminalBoxTitle')"),
-    'the Terminal section is named differently from its heading on Linux');
   for (const k of keys) assert.equal(typeof runPage('linux', [], 'linuxCopy(' + JSON.stringify(k) + ')'), 'string', k);
   assert.equal(runPage('linux', [], "linuxCopy('terminalBoxTitle')"), 'Start-up and restart');
   assert.doesNotMatch(runPage('linux', [], "linuxCopy('trustRestartHint')"), /macOS/);
@@ -796,11 +792,21 @@ test('#5865: every data-linux-copy key has a Linux string, the agent page drops 
   assert.equal(runPage('darwin', [], 'platformHides(e)', { e: el('data-linux-hide') }), false, 'CONTROL: a Mac hid a Linux-only element');
 });
 
-test('#5865: on Linux the Files overflow line and the preview do not offer Finder', () => {
-  const lister = page.lift(SCRIPT, 'paintAgentFilesAll');
-  assert.match(lister, /\(kplusRemote\(\) \|\| onLinux\(\) \? '' : ' Open in Finder shows them all\.'\)/, 'the overflow line still points Linux at Finder');
+test('#5865: on Linux the file preview does not offer Finder', () => {
   const pv = page.lift(SCRIPT, 'pvOpen');
   assert.match(pv, /\} else if \(kplusRemote\(\) \|\| onLinux\(\)\) \{[^\n]*\n\s*const dl = document\.createElement\('a'\)/, 'the preview offers Finder on Linux');
+});
+
+test('#5865: after a folder move on Linux the keyboard lands on the sentence, not the hidden reveal button', () => {
+  const run = (platform) => {
+    let focused = null;
+    const reveal = { focus() { focused = 'reveal'; }, closest: (sel) => (sel === '[data-linux-hide]' ? {} : null) };
+    const said = { tabIndex: 0, focus() { focused = 'said'; } };
+    runPage(platform, ['pjsMoveDoneFocus'], 'pjsMoveDoneFocus(said)', { said, __byId: { 'pjs-reveal': reveal } });
+    return { focused, tab: said.tabIndex };
+  };
+  assert.deepEqual(run('linux'), { focused: 'said', tab: -1 });
+  assert.deepEqual(run('darwin'), { focused: 'reveal', tab: 0 }, 'CONTROL: a Mac sends the keyboard to Show me where it is');
 });
 
 test('#5865: an unreadable daily-report setting on Linux does not send the person to an app icon', () => {

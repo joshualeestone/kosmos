@@ -1,8 +1,8 @@
 # kosmos#5865: the rest of the Mac-only steps that reach a Linux (or Windows) board
 
 ## Finished looks like
-A Linux board, at the computer or seen remotely through Kosmos+, never tells the person about "your Mac", the Dock,
-or an app icon; a Windows board's slow world-switch line names the Windows step, not "quit and reopen". Each fix is
+Outside first run and the engine's machine checks (both #5877), a Linux board, at the computer or seen remotely
+through Kosmos+, never tells the person about "your Mac", the Dock, Finder or an app icon; a Windows board's slow world-switch line names the Windows step, not "quit and reopen". Each fix is
 pinned by a test that runs the real page function with the platform set, and a Mac control is unchanged.
 
 ## Re-measured on main (5bfc177fc), not the card's line numbers
@@ -28,7 +28,9 @@ pinned by a test that runs the real page function with the platform set, and a M
   is far more than the one success line the card lists; filed as #5877 with the measurement.
 
 ## Weakest premise
-That a remote Linux board's offline state is reached the same way as a Mac's (offlineRemoteView is !onWindows() &&
+The Linux steps name `kosmos restart`, which a board that is not installed (from source, unmanaged) does not have.
+#5862's offline note already says the same to every Linux board, so this follows its precedent rather than fixing it.
+Also: that a remote Linux board's offline state is reached the same way as a Mac's (offlineRemoteView is !onWindows() &&
 kplusRemote(), so yes by code; not walked on a real Linux board).
 
 ## Tests
@@ -73,3 +75,11 @@ run every web*.test.js from the worktree as cwd.
   location, macOS pane URLs). DEFERRED to #5877 (comment 6115721162): an engine change, and first run reads the same
   sleepGate, so it is decided with that card.
 - The browser check covers every data-linux-hide element now; the sentence block says it needs PLATFORM_COPY_FNS.
+
+## Review 7 (blind, opus)
+- After a folder move on Linux the keyboard goes to the "Done" sentence (pjsMoveDoneFocus), since the reveal button
+  it used to land on is hidden; tested both arms.
+- Windows' slow world-switch step is restartHow's Start-menu step, not the "Kosmos folder" one the table marks stale.
+- REVERTED (iteration 5's own change): the Linux aria-label rename of the agent's Terminal section. On Linux that
+  section still holds the live window box, so "Terminal" is right; only the box title (h3) takes Windows' words.
+- The Files overflow line is tested by running paintAgentFilesAll with onLinux true, Mac as the control.

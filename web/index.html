@@ -13337,7 +13337,7 @@ window.kosmosMeasureScrollbarWidth();
        this region kept aria-label "Terminal" to
        match its own content (the "This agent's Terminal" heading + Open Terminal controls) -- same
        convention as d-sec-model staying "Model" under the "AI Settings" pill (data-go="model"). -->
-  <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab" data-linux-aria-label="terminalTab" data-tied="1" hidden>
+  <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab" data-tied="1" hidden>
 
   <!-- #5 insurance + terminal-window actions (Josh 0.6.44). These sit ABOVE the window
        box (which hides when the capture cannot land) on purpose: an agent stuck at the
@@ -19686,7 +19686,6 @@ function linuxCopyTable() {
   return {
     /* Settings can be read from a phone through Kosmos+, so not "this computer". */
     terminalBoxTitle: 'Start-up and restart',   // its Terminal button is hidden on Linux, as on Windows
-    terminalTab: 'Start-up and restart',   // the section's accessible name says what its heading says
     trustRestartHint: 'Approves this agent&rsquo;s folder so it can start without asking each time.',
     settingsOpenKosmos: 'If Kosmos stops, run <b>kosmos restart</b> in a terminal on the computer it is installed on '
       + '(over SSH on a headless server).',
@@ -19782,7 +19781,7 @@ function windowsCopyTable() {
       + 'was holding the update, so the next one can finish. Your agents keep working, they do not live in this window.',
     /* %NAME% is the Kosmos being switched to, filled in by the caller. */
     worldSwitchRestart: 'Kosmos could not restart itself. To finish switching to %NAME%, ' + restartKosmos,
-    worldswStuck: restartKosmos,   // #5865: the slow world-switch line's step
+    worldswStuck: 'close the Kosmos window, then open Kosmos again from the Start menu.',   // #5865, restartHow's step
     /* The Copy button beside a command a person must paste (W-14). */
     copyLabel: 'Copy',
     copyDone: 'Copied',
@@ -19829,7 +19828,6 @@ function applyPlatformCopy(root) {
        It returns before the Windows pass on purpose: data-win-only stays hidden and data-win-aria-label is not applied. */
     document.documentElement.setAttribute('data-kosmos-platform', 'linux');
     root.querySelectorAll('[data-linux-copy]').forEach((el) => { el.innerHTML = linuxCopy(el.getAttribute('data-linux-copy')); });
-    root.querySelectorAll('[data-linux-aria-label]').forEach((el) => { el.setAttribute('aria-label', linuxCopy(el.getAttribute('data-linux-aria-label'))); });
     return;
   }
   if (!onWindows() || !root || typeof root.querySelectorAll !== 'function') return;
@@ -72987,6 +72985,14 @@ document.getElementById('pj-head-pause').addEventListener('click', () => pjToggl
 // disclosure this returns you to.
 /* kosmos#5340: point a project whose folder moved at its new place. The board checks the path as it checks a new
    project's folder (there, a folder, readable, not a temporary folder, not another project's) and tells the members. */
+/* After a folder move the form hides, so the keyboard goes to the next control: "Show me where it is". #5865: on Linux
+   that button is hidden and focus() on it does nothing, so the sentence saying it was done takes the keyboard. */
+function pjsMoveDoneFocus(said) {
+  const next = document.getElementById('pjs-reveal');
+  if (next && !platformHides(next)) { next.focus(); return; }
+  said.tabIndex = -1;
+  said.focus();
+}
 document.getElementById('pjs-move-btn').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
@@ -73024,7 +73030,7 @@ document.getElementById('pjs-move-btn').addEventListener('click', async () => {
     else line = head + ' Kosmos now uses the new location. Told ' + reached + ' of ' + agents(total) + ' on this project; the others will see it when they next start.';   // Mona Lisa's wording
     said.textContent = line;
     // The form hides now that the folder is there: the keyboard goes to the next control, not the page.
-    if (document.activeElement === document.body || document.activeElement === btn) document.getElementById('pjs-reveal').focus();
+    if (document.activeElement === document.body || document.activeElement === btn) pjsMoveDoneFocus(said);
   } catch (e) {
     if (PJ_CURRENT !== p.id) return;   // review 5: a late refusal stays with its project too
     const t = String((e && e.message) || 'we could not move it');
