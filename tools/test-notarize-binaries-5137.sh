@@ -16,7 +16,7 @@ bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-unset KOSMOS_NOTARIZE KOSMOS_NOTARY_KEY_ID KOSMOS_NOTARY_ISSUER KOSMOS_NOTARY_PROBE_BIN NT_HISTORY NT_TAIL NT_WAIT_STATUS NT_RAWLOG NT_NOID_TIMES NT_LOG_FAIL NT_ISSUE_HASH NT_MESSAGE   # an operator's export must not change the arms
+unset KOSMOS_NOTARIZE KOSMOS_NOTARY_KEY_ID KOSMOS_NOTARY_ISSUER KOSMOS_NOTARY_PROBE_BIN NT_HISTORY NT_TAIL NT_FIRST_WAIT NT_RAWLOG NT_NOID_TIMES NT_LOG_FAIL NT_ISSUE_HASH NT_MESSAGE   # an operator's export must not change the arms
 
 HA=1111111111111111111111111111111111111111
 HT=2222222222222222222222222222222222222222
@@ -51,7 +51,8 @@ ditto() { echo "$*" >> "$WORK/ditto.ran"; : > "${!#}"; }
 sm_ok()   { [ "$1" = path ] && [ "$2" = "$KOSMOS_NOTARY_SECRET_TARGET" ] && echo "$WORK/notary.p8"; }
 sm_none() { echo "secrets-map: no credential for target" >&2; return 1; }
 
-# notarytool: NT_STATUS for submit, NT_HASHES for the log's ticketContents, NT_ISSUE_HASH for a
+# notarytool: submit answers with an id only (as the real one does without --wait); `wait` answers
+# NT_STATUS, or NT_FIRST_WAIT for its first call. NT_HASHES for the log's ticketContents, NT_ISSUE_HASH for a
 # hash named only in issues[]. NT_NOID_TIMES makes the first N submits come back with no id.
 # NT_LOG_FAIL=1 makes `log` fail. The log is pretty-printed over several lines, as Apple's is.
 nt_stub() {
@@ -60,8 +61,11 @@ nt_stub() {
     submit) printf '%s\n' "$*" > "$WORK/submit.argv"
             if [ "$(grep -c '^submit$' "$WORK/nt.ran")" -le "${NT_NOID_TIMES:-0}" ]; then
               echo "Error: HTTP status code: 503. Service Unavailable" >&2; return 1; fi
-            echo "{\"status\":\"$NT_STATUS\",\"id\":\"sub-1\",\"message\":\"${NT_MESSAGE:-Processing complete}\"${NT_TAIL:-}}" ;;
-    wait)   echo "{\"status\":\"${NT_WAIT_STATUS:-In Progress}\",\"id\":\"$2\"}" ;;
+            echo "{\"id\":\"sub-1\",\"message\":\"Successfully uploaded file\"${NT_TAIL:-}}" ;;
+    wait)   printf '%s\n' "$*" > "$WORK/wait.argv"
+            if [ -n "${NT_FIRST_WAIT:-}" ] && [ "$(grep -c '^wait$' "$WORK/nt.ran")" = 1 ]; then
+              echo "{\"status\":\"$NT_FIRST_WAIT\",\"id\":\"$2\"}"
+            else echo "{\"status\":\"$NT_STATUS\",\"id\":\"$2\",\"message\":\"${NT_MESSAGE:-Processing complete}\"}"; fi ;;
     history) echo "${NT_HISTORY:-{\"history\":[]\}}" ;;
     log)    [ "${NT_LOG_FAIL:-0}" = 1 ] && { echo "Error: log unavailable" >&2; return 1; }
             [ -n "${NT_RAWLOG:-}" ] && { printf '%s\n' "$NT_RAWLOG"; return 0; }
@@ -73,7 +77,7 @@ nt_stub() {
 export KOSMOS_NOTARY_CODESIGN_CMD=cs_stub KOSMOS_NOTARYTOOL_CMD=nt_stub KOSMOS_SECRETS_MAP_BIN=sm_ok KOSMOS_NOTARY_LIPO_CMD=lipo_stub
 export KOSMOS_NOTARY_RETRY_DELAYS="0 0"
 
-run() { rm -f "$WORK/nt.ran" "$WORK/ditto.ran" "$WORK/submit.argv"; notarize_binaries "$@" > "$WORK/out" 2>&1; echo $?; }
+run() { rm -f "$WORK/nt.ran" "$WORK/ditto.ran" "$WORK/submit.argv" "$WORK/wait.argv"; notarize_binaries "$@" > "$WORK/out" 2>&1; echo $?; }
 # grep -c prints 0 AND exits 1 on no match, so a `|| echo 0` fallback would print a second 0.
 ran() { local n; n="$(grep -c "^$1\$" "$WORK/nt.ran" 2>/dev/null)"; echo "${n:-0}"; }
 
@@ -82,8 +86,11 @@ NT_STATUS=Accepted NT_HASHES="$HA $HT $HX"; rc=$(run "$WORK/bin/kosmos-app" "$WO
 [ "$rc" = 0 ] && ok "accepted + both cdhashes ticketed passes" || bad "should pass (rc=$rc): $(cat "$WORK/out")"
 [ "$(ran submit)" = 1 ] && ok "the pass came from a real submit" || bad "submit ran $(ran submit) times"
 [ "$(grep -c '^==> notarised: ' "$WORK/out")" = 3 ] && ok "all three slices reported notarised (the tunnel is universal)" || bad "notarised lines: $(cat "$WORK/out")"
-grep -q -- "--key $WORK/notary.p8 --key-id $KOSMOS_NOTARY_KEY_ID_DEFAULT --issuer $KOSMOS_NOTARY_ISSUER_DEFAULT --wait --timeout 30m --output-format json" "$WORK/submit.argv" \
-  && ok "submit carries the key, key id, issuer, --wait, its timeout and json output" || bad "submit argv: $(cat "$WORK/submit.argv" 2>/dev/null)"
+grep -q -- "--key $WORK/notary.p8 --key-id $KOSMOS_NOTARY_KEY_ID_DEFAULT --issuer $KOSMOS_NOTARY_ISSUER_DEFAULT --output-format json" "$WORK/submit.argv" \
+  && ! grep -q -- '--wait' "$WORK/submit.argv" \
+  && grep -q -- "^wait sub-1 --key $WORK/notary.p8 --key-id $KOSMOS_NOTARY_KEY_ID_DEFAULT --issuer $KOSMOS_NOTARY_ISSUER_DEFAULT --timeout 30m --output-format json" "$WORK/wait.argv" \
+  && grep -q '^==> submitted: sub-1' "$WORK/out" \
+  && ok "submit has no --wait, the id is printed before waiting, and the wait carries the credentials and its timeout" || bad "argv: submit=$(cat "$WORK/submit.argv" 2>/dev/null) wait=$(cat "$WORK/wait.argv" 2>/dev/null)"
 [ -s "$WORK/ditto.ran" ] && ok "the binaries were zipped" || bad "ditto never ran"
 
 # --- Accepted, but the ticket covers other bytes: refuses and names the one missing ---
@@ -175,17 +182,25 @@ NT_STATUS=Accepted NT_HASHES="$HA" NT_TAIL=',"extra":{"id":"other-job"}'; rc=$(r
 unset NT_TAIL
 
 # --- an id whose status is not final is waited on, not refused and not resubmitted ---
-NT_STATUS="In Progress" NT_WAIT_STATUS=Accepted NT_HASHES="$HA"; rc=$(run "$WORK/bin/kosmos-app")
-[ "$rc" = 0 ] && [ "$(ran wait)" = 1 ] && [ "$(ran submit)" = 1 ] && ok "an unfinished submission is waited on once and then passes" || bad "in-progress wait (rc=$rc, wait=$(ran wait), submit=$(ran submit)): $(cat "$WORK/out")"
-NT_STATUS="In Progress" NT_WAIT_STATUS="In Progress" NT_HASHES="$HA"; rc=$(run "$WORK/bin/kosmos-app")
+NT_FIRST_WAIT="In Progress" NT_STATUS=Accepted NT_HASHES="$HA"; rc=$(run "$WORK/bin/kosmos-app")
+[ "$rc" = 0 ] && [ "$(ran wait)" = 2 ] && [ "$(ran submit)" = 1 ] && ok "an unfinished submission is waited on once more and then passes" || bad "in-progress wait (rc=$rc, wait=$(ran wait), submit=$(ran submit)): $(cat "$WORK/out")"
+NT_FIRST_WAIT="In Progress" NT_STATUS="In Progress" NT_HASHES="$HA"; rc=$(run "$WORK/bin/kosmos-app")
 [ "$rc" = 1 ] && [ "$(ran log)" = 0 ] && ok "still unfinished after the wait refuses, without fetching a log that cannot exist yet" || bad "unfinished refusal (rc=$rc, log=$(ran log))"
+unset NT_FIRST_WAIT   # VAR=x rc=$(...) is a plain assignment, so it persists into later arms
 NT_STATUS=Invalid NT_HASHES=""; rc=$(run "$WORK/bin/kosmos-app")
-[ "$(ran wait)" = 0 ] && ok "a final status is not waited on" || bad "waited on a final status"
-unset NT_WAIT_STATUS
+[ "$(ran wait)" = 1 ] && ok "a final status is waited on only once" || bad "waited $(ran wait) times on a final status"
 
 # --- a log whose ticketContents cannot be read is a parse failure, not "other bytes" ---
 NT_STATUS=Accepted NT_HASHES="$HA" NT_RAWLOG='{"status":"Accepted","ticketContents":[]}'; rc=$(run "$WORK/bin/kosmos-app")
 [ "$rc" = 1 ] && grep -q 'could not read any cdhash from ticketContents' "$WORK/out" && ok "a ticket with no cdhash in it refuses as a parse failure" || bad "ticket parse (rc=$rc): $(cat "$WORK/out")"
+unset NT_RAWLOG
+
+# --- a nested array in a ticket entry cuts the read short, and that refuses, never passes ---
+NT_STATUS=Accepted NT_HASHES="" NT_RAWLOG="{\"ticketContents\":[{\"cdhash\":\"$HA\",\"x\":[1]},{\"cdhash\":\"$HT\"},{\"cdhash\":\"$HX\"}]}"; rc=$(run "$WORK/bin/kosmos-app" "$WORK/bin/kosmos-tunnel")
+[ "$rc" = 1 ] && ok "a nested array in the ticket refuses (fails closed)" || bad "nested array passed (rc=$rc)"
+# --- the hash must be the value of a cdhash key, not any value in the ticket ---
+NT_STATUS=Accepted NT_HASHES="" NT_RAWLOG="{\"ticketContents\":[{\"cdhash\":\"$HT\",\"other\":\"$HA\"}]}"; rc=$(run "$WORK/bin/kosmos-app")
+[ "$rc" = 1 ] && ok "a hash that is not under a cdhash key does not count" || bad "a non-cdhash value counted (rc=$rc)"
 unset NT_RAWLOG
 
 # --- step 1c's probe: Apple's answer decides, not notarytool's exit status ---
@@ -217,6 +232,6 @@ pack="$(grep -n '^echo "==> packing"' "$B" | head -1 | cut -d: -f1)"
   || bad "order wrong: notarise=$call last-sign=$last_sign last-selftest=$last_selftest pack=$pack"
 
 echo "test-notarize-binaries-5137: $passes passed, $fails failed"
-EXPECTED=48   # the number of ok lines above; a skipped arm must not read as green
+EXPECTED=50   # the number of ok lines above; a skipped arm must not read as green
 [ "$passes" = "$EXPECTED" ] || echo "test-notarize-binaries-5137: $passes passes, expected $EXPECTED (an arm was skipped or added without updating EXPECTED)"
 [ "$fails" = 0 ] && [ "$passes" = "$EXPECTED" ]

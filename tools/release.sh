@@ -722,7 +722,7 @@ kosmos_sign_preflight || exit 1
 # the 1c probe below, says "not probed" when set, and tools.release-gate.test.js needs it.
 for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSMOS_NOTARY_LIPO_CMD KOSMOS_NOTARY_RETRY_DELAYS; do
   if [ -n "${!_nv+x}" ]; then
-    echo "$_nv is set in this shell. A cut always notarises the app binaries for real (#5137): unset it and run again."; exit 1
+    echo "$_nv is set in this shell (even an empty value counts). A cut always notarises the app binaries for real (#5137): unset it and run again."; exit 1
   fi
 done
 # One authenticated request to Apple with the notary key, so a bad key or an outage refuses here,
