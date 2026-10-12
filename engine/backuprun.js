@@ -31,6 +31,10 @@
  *   the key step's (waiting, pendingEpoch, unreadableKeyFile, refusal ...) when no snapshot was taken;
  *   refusedState (the state file is not this computer's; the caller may discardState it), retry (a passing error),
  *   pairChanged (Kosmos+ named another pair twice in one run). leftOut: index rows withRun could not keep (a bug shows).
+ *   stateNotKept, stateBecause, stateRetry: the state could not be written AFTER the run; the run's own answer and
+ *   flags stand beside them (a snapshot taken is still taken; its chunks are uploaded again next run).
+ * A first run (no pointer) whose key step refuses keeps that answer's job state in the named pair's file (when the file
+ * holds none of its own) and stops; one whose key step names no pair keeps nothing (there is no file to keep it in).
  * deps (tests): ensureMemberKey, takeSnapshot, deviceKey, macRequest, now, snapshotId.
  */
 const fs = require('fs');
@@ -89,7 +93,7 @@ async function runNow(input, deps) {
       } else {
         state = { job: {}, periods: [] };
       }
-      const ref = { state, leftOut: 0, unwritable: false };
+      const ref = { state, leftOut: 0, unwritable: false, took: false };
       const known = pair;
       const r = await job.runOnce(state.job, {
         ensureMemberKey: deps.ensureMemberKey || require('./backupmemberkey').ensureMemberKey,
@@ -98,19 +102,37 @@ async function runNow(input, deps) {
         // Under no known pair nothing is snapshotted: the pair is learned first and the run starts again under it.
         snapshot: (k) => (known ? snapshotStep(known, k, ref, input, deps, now) : { ok: false, learnPair: true, because: 'this computer learned its company and member; it starts again' }),
       });
-      const next = r.result && r.result.otherPair ? r.result.otherPair : (!known && r.pair ? r.pair : null);
-      if (next) {
-        writePointer(next);
-        pair = next;
+      if (r.result && r.result.otherPair) {
+        writePointer(r.result.otherPair);
+        pair = r.result.otherPair;
         continue;
       }
+      if (!known && r.pair) {
+        writePointer(r.pair);
+        // An ok key: start again under the pair, reading its state first (it may have one: a lost pointer).
+        if (r.result && r.result.learnPair) { pair = r.pair; continue; }
+        // The key step refused (a wait, a pending key, no answer...). Its answer is already this pair's, so it is kept
+        // and the run stops: starting again would send the same request again, a registration inside a rotation wait
+        // among them (review 1). The job state goes into the pair's file only when that file holds none of its own (a
+        // lost pointer over a live file keeps the file's); a file that does not read is left for the next run to report.
+        const read = backupstate.readState(r.pair.org, r.pair.member);
+        if (read.ok && !Object.keys(read.state.job || {}).length && Object.keys(r.state || {}).length) {
+          try { backupstate.writeState(r.pair.org, r.pair.member, Object.assign({}, read.state, { job: r.state })); } catch { /* kept next time */ }
+        }
+        return stripState(r.result);
+      }
+      // No pair named at all (no answer, an unreadable one): nothing to keep the job's state in, so it is not kept.
       if (!known) return Object.assign({ ok: false }, stripState(r.result));
       // The snapshot step could not write the state, so no snapshot was taken: its own answer says why, and writing
       // again would only fail again under a sentence claiming the backup ran.
       if (ref.unwritable) return stripState(r.result);
       ref.state = Object.assign({}, ref.state, { job: r.state });
       try { backupstate.writeState(known.org, known.member, ref.state); } catch (err) {
-        return Object.assign({ ok: false, because: 'the backup ran, but this computer could not keep what it needs for the next one' + fixed(err) }, err && err.retry ? { retry: true } : {}, err && err.code === 'refused' && !err.retry ? { refusedState: true } : {});
+        // The run's own answer stands, flags and all; the write failure rides beside it (review 1). "Ran" only when a
+        // snapshot was taken.
+        return Object.assign(stripState(r.result), { stateNotKept: true,
+          stateBecause: (ref.took ? 'the backup ran, but this computer could not keep what it needs for the next one' : 'this computer could not keep the backup state') + fixed(err) },
+          err && err.retry ? { stateRetry: true } : {}, err && err.code === 'refused' && !err.retry ? { refusedState: true } : {});
       }
       return Object.assign(stripState(r.result), ref.leftOut ? { leftOut: ref.leftOut } : {});
     }
@@ -148,6 +170,7 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
     }
     const dk = (deps.deviceKey || require('./backupdevicekey').deviceKey)();
     if (!dk || !dk.ok) return Object.assign({ ok: false, because: (dk && dk.because) || 'the device key could not be read' }, dk && dk.retry ? { retry: true } : {});
+    ref.took = true;
     result = await take({
       roots: input.roots, memberPk: k.memberPk, namingKey: p.namingKey, namingKeyId: backupkeys.namingKeyId(p.namingKey),
       deviceKey: dk.privateKey, index: p.index, bucket: p.bucket,
