@@ -30,7 +30,8 @@ const VERSION_MAX_BUFFER = 64 * 1024;
 const VERSION_RE = /^Muse Code (\d+\.\d+\.\d+)(?: \(([^)\s]+)\))?$/;
 const VERSION_UNKNOWN_BECAUSE = 'Kosmos could not read which Muse Code this is';
 // #3939: with Meta on by default, this is what most Macs see, so it says what to do (the first-run step's words).
-const NOT_INSTALLED_BECAUSE = 'Muse Code is not on this computer yet. Install it from Meta, then come back';
+// Neutral on purpose: it also reaches an existing Muse agent's turn (engine/muserun.js) when Muse Code was removed.
+const NOT_INSTALLED_BECAUSE = 'Muse Code is not on this computer. Install it from Meta, then try again';
 const CHECK_FAILED_BECAUSE = 'Kosmos could not check for Muse Code';
 /* The one command this module runs; the refusal message and the run both use it (round 3). */
 const VERSION_ARGS = Object.freeze(['--version']);

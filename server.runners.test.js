@@ -340,7 +340,7 @@ test('#3939: with nothing set, a Mac board offers Meta Muse, and one without Mus
     assert.ok(!fs.existsSync(musestatus.offMarker()), 'control: no off marker in the sandbox');
     assert.deepEqual(json(await req('/api/muse')), { enabled: true, installed: false, because: musestatus.NOT_INSTALLED_BECAUSE, signedIn: false },
       'an ordinary Mac board does not offer Meta Muse');
-    assert.match(musestatus.NOT_INSTALLED_BECAUSE, /Install it from Meta/, 'the not-installed answer does not say what to do');
+    assert.match(musestatus.NOT_INSTALLED_BECAUSE, /Install it from Meta, then try again/, 'the not-installed answer does not say what to do');
   } finally {
     if (was === undefined) delete process.env.AGENT_WORKFORCE_MUSE; else process.env.AGENT_WORKFORCE_MUSE = was;
     if (wasBin === undefined) delete process.env.AGENT_WORKFORCE_MUSE_BIN; else process.env.AGENT_WORKFORCE_MUSE_BIN = wasBin;
