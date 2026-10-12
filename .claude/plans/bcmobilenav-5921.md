@@ -35,10 +35,11 @@ the context and may carry the same teardown race (noted on #5921, not changed he
 
 ## Measured
 - Before: alone on Mortals at 5621723a5, 3 runs, 1 crashed (169 pass, then disposed); in the cut, 2 of 2 crashed.
-- After: alone on Mortals at origin/main, 36 of 36 clean with the unroute approach (171 pass, 0 fail, 0 disposed):
-  8 before the finally change, 4 with it, 4 with the page closed between the unroutes, 4 with browser.close caught, 4 with the self-contained route, 4 with ctx.close caught, 4 on
-  a version with the counts, 4 on this final file (a context leaves live before teardown; 173 checks). Only the last 4 ran this exact file; the odds below are about the approach, not this file.
-- At the before-rate (1 in 3), 24 clean runs happen by chance under 0.01% of the time; that figure is about the OLD crash, not about any residual window. Evidence, not proof.
+- After: alone on Mortals at origin/main, 40 of 40 runs of the unroute approach clean (0 fail, 0 disposed), across
+  nine successive versions of the file, 4 or 8 runs each (171 checks before the end counts were added, 173 after).
+  Only the last 4 ran this exact file.
+- At the before-rate (1 in 3), 40 clean runs of the approach happen by chance about 1 in 11 million; that is about the
+  OLD crash, not about this exact file or any residual window.
 - The fix rests on Playwright's documented ignoreErrors semantics, not on a reproduced failure.
 - NOT measured: a deterministic red arm. Two injections were tried, applied identically to the old and new files:
   - a pause of 400 ms before the status fulfil: both passed (not discriminating)
