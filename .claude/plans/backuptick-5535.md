@@ -11,7 +11,8 @@ startHere (the board's tick). server.js start(): startHere, beside the hourly fi
   the workers root (agents/<id>), each agent's transcripts (backupsessions). Everything but workers is optional.
 - NOT covered: the data root. It holds the keys, the backup state, pairing and codex-homes: credentials the card says
   never to take, and Kosmos's own state rather than the person's work.
-- Known gap, stated in the header: per-session Codex homes are not transcript roots (sessionsFor takes one codexHome).
+- Known gap, stated in the header and filed as kosmos#5883 (review 5 widened it): transcripts of agents on named Codex
+  or Gemini accounts, per-session Codex homes, and every Grok agent. Their folders are backed up; their transcripts are not.
 - Gate: orgenroll.isEnrolledHere(), the check /api/org uses. First run an hour after start, never at boot.
 - backup_off pauses a day (Kosmos+ answers 404 backup_off on backup-key while backup is off, coordinator plan
   orgescrow-5535). overAllowance pauses to the next Monday 00:00 UTC. A tick during a run is skipped.
@@ -90,3 +91,11 @@ against a plain realpath (the only equality check is for `only` roots, which kee
 2. FIXED: transcripts are looked up by the agent folder as Kosmos recorded it, not its true spelling, since a
    transcript records the folder its agent started in. Tests 17 -> 18.
 Mutants after review 4 (20:01 CDT from `date`): D1 a thrown run silent: red. D2 transcripts by the native folder: first SURVIVED, because my test's second spelling (path.join with '.') was normalised to the same string, so the test was vacuous. Rewritten with a symlink and a control that the spellings differ; D2 now red (16/15/1 in that file).
+
+## Review 5 (opus, blind, on 74883306): two must-fix, both taken
+1. FIXED: protect covered the default provider homes only; named accounts (~/.codex-<label>, ~/.gemini-<label>) and all
+   of Grok were missing, so for a Codex- or Grok-only person a root holding home would be walked with only file-name
+   rules in front of their sign-ins. Now every account folder the three account modules list, Grok's default home, and
+   every hidden entry directly in the home folder are protected. The last makes any root holding home refused whatever
+   lives there; the lists are best effort, the home rule is not. Test in a sandboxed home with a control.
+2. FIXED (scope, stated): the transcript gap was understated. Header and plan now name all four cases; filed #5883.

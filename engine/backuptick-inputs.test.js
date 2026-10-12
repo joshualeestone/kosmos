@@ -19,6 +19,8 @@ process.env.AGENT_WORKFORCE_PROJECTS = mk('projects');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = mk('claude');
 process.env.AGENT_WORKFORCE_GEMINI_HOME = mk('gemini');
 process.env.AGENT_WORKFORCE_CODEX_HOME = mk('codex');
+process.env.AGENT_WORKFORCE_HOME = mk('home');
+delete process.env.AGENT_WORKFORCE_GROK_HOME;
 const store = require('./store');
 const tick = require('./backuptick');
 
@@ -49,4 +51,15 @@ test('inputsHere never throws on a projects file it cannot read; the workers roo
   const input = tick.inputsHere();
   assert.deepEqual(input.projects, []);
   assert.deepEqual(tick.rootsFor(input).roots[0].name, 'workers');
+});
+
+test('review 5: every account folder and every hidden folder in the home folder is protected; a root holding home is refused', () => {
+  const grok = mk('home', '.grok'), codexAcct = mk('home', '.codex-work'), ssh = mk('home', '.ssh');
+  fs.writeFileSync(path.join(store.ROOT, 'projects.json'), JSON.stringify([{ id: 'home', folder: path.join(BASE, 'home') }, { id: 'far', folder: mk('far2') }]));
+  const input = tick.inputsHere();
+  for (const d of [grok, codexAcct, ssh]) assert.ok(input.protect.includes(d), d);
+  const { roots, left } = tick.rootsFor(input);
+  assert.ok(!roots.some((r) => r.name === 'elsewhere/home'), 'a root holding the home folder was added');
+  assert.ok(roots.some((r) => r.name === 'elsewhere/far'), 'CONTROL: an ordinary folder is added');
+  assert.ok(left.some((l) => l.what === 'a project' && /sign-in folder/.test(l.why)), JSON.stringify(left));
 });
