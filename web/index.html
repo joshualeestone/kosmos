@@ -31210,7 +31210,15 @@ function museSigninFlow(prefix, opts) {
     try { res = await post('start', {}); out = await res.json().catch(() => null); }
     catch { if (mine === gen) rearm('We could not reach Kosmos to start that sign-in. Try again.'); return; }
     if (mine !== gen) { if (res.ok && out && out.id) post('stop', { id: out.id }).catch(() => {}); return; }
-    if (!res.ok || !out || !out.id) { rearm(pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.'); return; }
+    if (!res.ok || !out || !out.id) {
+      rearm(pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.');
+      // #6004: Muse Code went missing since this place last looked: back to the Install step, never a sign-in loop.
+      if (/not on this computer/.test((out && (out.error || out.because)) || '') && opts && opts.onMissing) {
+        try { opts.onMissing(); } catch { /* the next read decides */ }
+        if (go) go.textContent = 'Install Muse Code';
+      }
+      return;
+    }
     id = out.id;
     // #4569: the button stays where it was, off, with Connecting beside it, so the person can see it is under way.
     el('cancel-row').hidden = false;
@@ -31255,8 +31263,9 @@ function museSigninFlow(prefix, opts) {
     if (go) go.removeAttribute('aria-disabled');
     if (!out) {
       // No answer is not a failure: the install runs on the board and may still be going. A second press shares that run.
-      if (go) { go.textContent = 'Check again'; go.focus(); }
-      say('Muse Code may still be installing. Press Check again in a moment.');
+      // Labelled for what it does: a press installs, and joins the board's install if one is still running.
+      if (go) { go.textContent = 'Install Muse Code'; go.focus(); }
+      say('Muse Code may still be installing. Pressing Install Muse Code again joins that install, or starts it if it stopped.');
       return;
     }
     if (!out.ok) {
@@ -31297,6 +31306,7 @@ function museSigninWire(flow, prefix) {
 const ACCT_MUSE = museSigninFlow('acct-muse-', {
   needsInstall: () => MUSE_CODE_HERE === false,
   onInstalled: () => { MUSE_CODE_HERE = true; },
+  onMissing: () => { MUSE_CODE_HERE = false; },
   onDone: () => paintAccounts(),
   /* #4569 (Josh): once signed in, Close is the thing to press. */
   onSuccess: () => { const c = document.getElementById('acct-add-close'); if (c) { c.classList.add('uprime'); c.setAttribute('aria-describedby', 'acct-muse-done'); c.focus(); } },
@@ -31322,7 +31332,8 @@ museSigninWire(ACCT_MUSE, 'acct-muse-');
    it). Signed in, the row reads Connected with the gold box, like Gemini's and Grok's. */
 const FR_MUSE = museSigninFlow('fr-muse-', {
   needsInstall: () => !!(MUSE_CREATE && MUSE_CREATE.on && MUSE_CREATE.installed === false),
-  onInstalled: () => { if (MUSE_CREATE) MUSE_CREATE.installed = true; },
+  onInstalled: () => { if (MUSE_CREATE) MUSE_CREATE.installed = true; frPaintMeta().catch(() => {}); },   // repaints the under-18 line too
+  onMissing: () => { if (MUSE_CREATE) MUSE_CREATE.installed = false; },
   onDone: async () => {
   await frPaintMeta({ fresh: true });
   if (MUSE_CREATE && MUSE_CREATE.ready) return;
@@ -31391,7 +31402,7 @@ async function frPaintMeta(opts) {
        offers Next rather than only "Skip connecting a model", unless Claude has offered its own. */
     const claudeConnected = FR && FR.subscription && FR.subscription.state === 'connected';
     if (!claudeConnected && FR_STEP === 5) frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
-  } else if (msg.classList.contains('fr-connbox') || (m.installed && msg.dataset.said === 'missing')) {
+  } else if (msg.classList.contains('fr-connbox')) {
     msg.className = 'dhint'; msg.textContent = ''; delete msg.dataset.said;
   }
 }

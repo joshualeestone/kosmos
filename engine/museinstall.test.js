@@ -119,6 +119,7 @@ test('#6004: the real run gives Meta\'s installer only installerEnv(), refuses h
   const bash = calls.find((c) => c.cmd === '/bin/bash');
   assert.ok(curl && bash, 'the real run did not fetch and then run the installer: ' + JSON.stringify(calls.map((c) => c.cmd)));
   assert.ok(curl.args.includes('--proto-redir') && curl.args[curl.args.indexOf('--proto-redir') + 1] === '=https', 'an http redirect would be followed');
+  assert.ok(curl.args.includes('--proto') && curl.args[curl.args.indexOf('--proto') + 1] === '=https', 'a plain http fetch would be allowed');
   assert.equal(curl.args[curl.args.length - 1], museinstall.INSTALL_URL);
   assert.equal(bash.env.MUSE_NO_MODIFY_PATH, '1', 'the installer was not kept out of shell profiles');
   assert.equal(bash.env.KOSMOS_SECRET_FOR_TEST, undefined, 'the board\'s own environment reached Meta\'s installer');
