@@ -61,3 +61,10 @@ test('the wired source: none wired is no clash; a source that throws or answers 
   agentnames.setFleetSource(() => null);
   assert.equal(agentnames.refusalFor('Anything'), agentnames.COULD_NOT_CHECK);
 });
+
+test('except is the agent by its store key, so any spelling a route accepted for it excepts that agent only', () => {
+  assert.equal(agentnames.clashFor('gemini', { agents: FLEET, except: 'GEMINI' }), null);
+  assert.equal(agentnames.clashFor('gemini', { agents: FLEET, except: 'ge.mini' }), null);
+  // Control: a spelling of ANOTHER agent's key does not except gemini.
+  assert.equal(agentnames.clashFor('gemini', { agents: FLEET, except: 'SubZero' }).handle, 'gemini');
+});
