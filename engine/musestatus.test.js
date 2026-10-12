@@ -375,7 +375,7 @@ test('#3939 3c-1 round 7: a failed save blocks an older sign-in but does not con
   clean();
 }));
 
-/* #3939 (Muse Wonder, 2026-10-12): Meta Muse is on by default on a Mac. AGENT_WORKFORCE_MUSE=0 is the one way off,
+/* #3939 (Muse Wonder, 2026-10-12): Meta Muse is on by default on a Mac. AGENT_WORKFORCE_MUSE=0 and a muse-off file are the ways off,
    and the old preview marker file is no longer read (one left in a data folder changes nothing). */
 test('#3939: Muse is on by default on a Mac, off with AGENT_WORKFORCE_MUSE=0, never off a Mac', () => {
   const was = process.env.AGENT_WORKFORCE_MUSE;
