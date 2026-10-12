@@ -71,7 +71,10 @@ function answer(status, json, now = Date.now()) {
     return { lines: ['No provider accounts are listed, and Kosmos could not check the accounts its agents use just now. Try again in a minute.'] };
   }
   if (!json.accounts.length && !gone.length) return { lines: ['No provider accounts are set up on this board yet. The person adds one in Settings > AI Models.'] };
-  return { lines: [...json.accounts, ...gone].filter((a) => a && typeof a === 'object').map((a) => accountLine(a, now)) };
+  const lines = [...json.accounts, ...gone].filter((a) => a && typeof a === 'object').map((a) => accountLine(a, now));
+  // #5948: the check for accounts its agents use but Kosmos does not list did not finish, so the list may be short.
+  if (json.unlistedComplete === false) lines.push('Kosmos could not check every account its agents use just now, so one may be missing here. Try again in a minute.');
+  return { lines };
 }
 
 module.exports = { accountLine, accountName, accountState, answer, clean };

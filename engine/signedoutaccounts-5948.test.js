@@ -216,3 +216,10 @@ test('#5948 review 13: when the board could not check its agents\' accounts, kos
   assert.deepEqual(answer(200, { accounts: [], unlistedAccounts: [], unlistedComplete: true }).lines,
     ['No provider accounts are set up on this board yet. The person adds one in Settings > AI Models.']);
 });
+
+test('#5948 review 15: with accounts listed but the unlisted check incomplete, kosmos accounts says the list may be short', () => {
+  const lines = answer(200, { accounts: [{ providerName: 'Claude', email: 'a@example.com', connection: { state: 'connected' } }], unlistedAccounts: [], unlistedComplete: false }).lines;
+  assert.deepEqual(lines, ['Claude: a@example.com: signed in', 'Kosmos could not check every account its agents use just now, so one may be missing here. Try again in a minute.']);
+  // CONTROL: a complete check adds nothing.
+  assert.deepEqual(answer(200, { accounts: [{ providerName: 'Claude', email: 'a@example.com', connection: { state: 'connected' } }], unlistedAccounts: [], unlistedComplete: true }).lines, ['Claude: a@example.com: signed in']);
+});
