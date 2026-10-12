@@ -11,7 +11,11 @@
  * no pane is typed into, nothing is run. Agents see it when they read the room,
  * where it is marked external, so a message from outside can never arrive as an
  * instruction (Josh's guardrail on #3311: "our agents are reading their
- * messages and determining how they work together").
+ * messages and determining how they work together"). One exception (#5732): a
+ * post a PERSON wrote that the relay stamps `same_account` (the account's own
+ * other computer) also types a one-line, no-text "read the room" notice into the
+ * project's agents (server.js recordExternal, messages.nudgeOwnComputerPost). The
+ * words still arrive only when the agent reads the room, marked external.
  *
  * Which projects get a seat comes from engine/federation.js's link record:
  *   member: the link's edge_id.
@@ -115,7 +119,7 @@ let deps = null;
  * Wire the manager. Everything it touches is injected so a test can drive it:
  *   spawnSeat(edgeId) -> a ChildProcess-like { stdin, stdout, on('exit') }
  *   macRequest(method, route, body) -> { ok, data | because }
- *   recordExternal(projectId, { from, fromKind, text })
+ *   recordExternal(projectId, { from, fromKind, text, member?, sameAccount? })
  *   onStatus(projectId, status)   optional
  *   enrolled() -> bool            optional; no seat is started on a Mac that is
  *                                 not connected to Kosmos+ (a dev board, a test)

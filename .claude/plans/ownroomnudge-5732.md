@@ -41,6 +41,11 @@ computer tells no agent on the agents Mac. For tomorrow, Splinter checks the roo
 - **Only a person's own post nudges** (review 1): an agent's post relayed from the other computer arrives stamped too,
   and nudging on it would set two computers' agents telling each other to read the room. Trusting the sender's `kind`
   is fine here because the sender is this same account.
+- **Deferred off the seat's data handler** (review 2): server.js runs the nudge in setImmediate, so the handler returns
+  first. The typing stays synchronous (chat.deliverAutomatic, as the #185 sweep), one member at a time, each in its own
+  try so one failing pane does not skip the rest.
+- **Not done** (review 2): a held agent is inspected again on each new post, since a held or could_not send does not
+  spend the gap. That is bounded by fedseats' per-minute and per-day inbound budgets, so no backoff was added.
 - **A held room nudges nobody** (review 1): the valve would refuse the reply the nudge invites. roomHeld fails open (an
   unreadable record reads as not held), so at worst the nudge goes out as it would have before.
 - **No post text in the nudge.** That is how it stays inside the substance of #3311 even for an own post.

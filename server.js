@@ -21531,11 +21531,16 @@ fedseats.configure({
   recordExternal: (projectId, msg) => {
     const row = messages.externalPost(projectId, msg);
     if (row && messages.ownPostNudges(msg, process.env)) {
-      try {
-        const roster = safeRoster();
-        const found = projects.get(projectId, roster);
-        if (found) messages.nudgeOwnComputerPost(projectId, found.name, row.id, (found.agents || []).map((a) => a.sessionName), roster);
-      } catch { /* the post is recorded; the agents read the room as before */ }
+      /* Deferred so the seat's data handler returns before any pane is inspected or typed into. The typing itself is
+         synchronous (chat.deliverAutomatic, as the #185 sweep), one member at a time. */
+      const nudge = () => {
+        try {
+          const roster = safeRoster();
+          const found = projects.get(projectId, roster);
+          if (found) messages.nudgeOwnComputerPost(projectId, found.name, row.id, (found.agents || []).map((a) => a.sessionName), roster);
+        } catch { /* the post is recorded; the agents read the room as before */ }
+      };
+      setImmediate(nudge);
     }
     return row;
   },
