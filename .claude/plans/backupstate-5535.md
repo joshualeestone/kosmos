@@ -188,3 +188,9 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
   refusal to replace a file not ours now carries code 'refused' (test asserts it).
 - FIXED (NIT): fileFor runs the same id check (test).
 - Now: 18 tests; backup*.test.js + reachable: 379 pass.
+
+## Mortals run 1 (c8fffe444, 19:46 CDT): ONE failure, the #1777 win32-host guard
+engine/backupstate-5535.test.js branches on a win32 host (it skips the mode and symlink checks there) and nothing ran
+it on Windows. Decided: add it to tools/windows-tests.js ALSO (run on Windows), not HOST_BRANCH_EXCLUDED. Its subject is
+partly Windows behaviour (a rename refused while a scanner holds the file reads as retry), so a real Windows run is the
+point. If the PR's windows job goes red on it, that is a finding about Windows, not noise. Guard alone: 23/23.
