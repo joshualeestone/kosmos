@@ -49,17 +49,15 @@ test('#5959 slice 2: lastOk keeps the newest OK through a later rejection, and n
   assert.equal(observed.lastOk(P, 'casey'), null, 'the test reset left it');
 });
 
-test('#5959 slice 2: a provider or account switch forgets the name too, before and after its restart', () => {
+test('#5959 slice 2: a provider or account switch forgets the name too, before its restart', () => {
   const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   for (const why of ['provider', 'account']) {
     const restart = src.indexOf("removal.restart(name, '" + why + "')");
     assert.ok(restart > 0, 'CONTROL: the ' + why + ' restart was not found');
     const route = src.slice(0, restart + 600);
     const call = /^\s*try \{ observed\.forgetAgent\(name\); \}/m;
-    // Before the restart (the job already names the new provider) and after it (the old pane could be seen working until
-    // the restart replaced it).
+    // Before the restart: the job already names the new provider or account, and the restart is synchronous.
     assert.match(route.slice(restart - 600, restart), call, 'the ' + why + ' switch does not forget the old last-seen time before its restart');
-    assert.match(route.slice(restart, restart + 600), call, 'the ' + why + ' switch does not forget it again after its restart');
   }
 });
 

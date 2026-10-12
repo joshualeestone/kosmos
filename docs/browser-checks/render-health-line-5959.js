@@ -79,7 +79,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     await page.goto(URL, { waitUntil: 'networkidle' });
     await page.waitForSelector('[data-agent="bob"]', { timeout: 8000 });
     const bob = await healthOf('bob');
-    say(/Last seen working: not yet$/.test(bob), 'CONTROL: Bob, never seen working, says so', bob);
+    say(/Last seen working: no record$/.test(bob), 'CONTROL: Bob, never seen working, says so', bob);
     await page.goto(URL, { waitUntil: 'networkidle' });
     await page.waitForSelector('[data-agent="agy"]', { timeout: 8000 });
     const agy = await healthOf('agy');
