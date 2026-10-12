@@ -22,8 +22,8 @@ its file (its job record) and one stat per poll, and the whole plan only when so
 before the version was recorded) or the file is missing: no claim from a missing record.
 
 ## What the card says
-Through `stateReason`, on a CARD only and in a calm state (idle, working, stopped), as the last rule (anything more
-urgent wins): "Its working rules are N versions behind. Open it
+Through `stateReason`, on a CARD only and only when the agent is idle or stopped (the update restarts it, so a working
+agent is not pointed at it mid-task), as the last rule (anything more urgent wins): "Its working rules are N versions behind. Open it
 to update them." Plain words, no new badge or colour: the card's look is unchanged (the same posture as #5154 slice C).
 
 ## Not in this slice
