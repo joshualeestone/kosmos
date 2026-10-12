@@ -38,7 +38,7 @@ converged: true
 - The cache key drops updatedAt (status() reads only the version and Not now from the profile), so an unrelated profile
   write keeps the answer. Test: a Not now said after an answer was kept takes the sentence away.
 
-### rulesbehind-5957 -- plan: tests as built, with the mutants run
+Also committed in this round: plan: tests as built, with the mutants run.
 
 #### Iteration 5
 The offline row carried rulesBehind but card() and lrow() return early for a not-running agent with no task line, so the
@@ -46,7 +46,7 @@ likeliest stale agent still said nothing. One helper (rulesBehindLine) now says 
 offline card's atask line (only when there is something to say) and the offline list row's ltask cell. Test through
 the real renderers with the route's own offline row.
 
-### rulesbehind-5957 -- the offline card's line uses the note class (as the needs-trust offline card), so #855's card order holds; the #5314 test lifts the new helper
+Also committed in this round: the offline card's line uses the note class (as the needs-trust offline card), so #855's card order holds; the #5314 test lifts the new helper.
 
 #### Iteration 6
 - The offline card's line is the small muted ameta style, not the padded note box, so the card's look is unchanged.
