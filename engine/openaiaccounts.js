@@ -1225,8 +1225,9 @@ function ownReauthsOf(dir) {
   for (const [id, s] of chatgptSessions) if (s.reauthDir === dir && !s.reauthReleased && !s.holdFreed) out.push(id);
   return out;
 }
-/* #5994: true when `dir` is held by its own reauth. (A live account dir holds an auth.json, so no sign-in can be
-   staging into it: resolveFreshChatgptDir refuses a labelled dir that has one and nextWorkDir skips it.) */
+/* #5994: true when `dir` is held by its own reauth. No other sign-in can be staging into the same path: a live account
+   dir holds an auth.json, so resolveFreshChatgptDir refuses it as a label and nextWorkDir skips it, and a dir another
+   sign-in already holds is refused for a reauth by startChatgptLogin (activeChatgptDirs.has(reauth.dir)). */
 function isHeldByOwnReauth(dir) {
   return activeChatgptDirs.has(dir) && ownReauthsOf(dir).length > 0;
 }

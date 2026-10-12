@@ -900,6 +900,9 @@ test('#5994: disconnect-and-stop on an account with its own unfinished Sign in a
   fs.chmodSync(mock, 0o755);
   const started = openai.startChatgptLogin({ codexBin: mock, mode: 'browser', reauthDir: dir });
   assert.equal(started.ok, true, started.because);
+  const t0 = Date.now();   // the sign-in is under way (its URL printed) before the pre-flight runs
+  while (Date.now() - t0 < 4000 && openai.chatgptLoginStatus(started.sessionId).state === 'starting') await new Promise((res) => setTimeout(res, 25));
+  assert.equal(openai.chatgptLoginStatus(started.sessionId).state, 'awaiting-browser');
   registeredNotRunning('reauth5994', dir, 'codex');
   try {
     // CONTROL, the pre-flight: refused, names the agent, and the sign-in is NOT cancelled.

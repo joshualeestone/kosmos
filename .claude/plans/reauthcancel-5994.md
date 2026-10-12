@@ -55,7 +55,13 @@ cancel a reauth while a staging sign-in still writes into the folder.
 - any other hold refuses for forget as well as remove.
 - server.disconnect-stop-2570: the real route, an own unfinished reauth plus a registered agent: the pre-flight is
   refused and cancels nothing; stopAgents stops, deletes and cancels (review 2).
+- a cancelled reauth whose child writes a VALID auth.json as it dies (exit 0) does not bring the removed account back
+  (review 7: the old 'cannot bring it back' assertion could not fail, the mock never wrote one).
+- a rename or delete that THROWS (home made read-only) cancels nothing (review 7: the free-name test returns earlier).
+- every sign-in a test starts is cancelled after it, so a failing assertion leaves no child; the sandbox is removed
+  when the file ends (it was left behind on every run, 62 found on this Mac).
 - Mutants, all red: no release in remove (3 fail); late exit ignores the flag (1); any hold counted as own (1);
   release before the agents guard (2); release before the move (1); settled reauths filtered out (1); no release
-  when already gone (2); own reauth never counted (the route test, 1).
+  when already gone (2); own reauth never counted (the route test, 1); kill without settling the session (4); release moved to just before
+  the rename/delete (1).
 - Wide run: 31 files (openaiaccounts*, server account/disconnect/openai/chatgpt, engine.reachable) 359 pass 0 fail.
