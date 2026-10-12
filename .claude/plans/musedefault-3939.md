@@ -7,7 +7,7 @@ from inside Kosmos).
 On a Mac, with no switch set, GET /api/muse says enabled, so every list where an agent is made or a provider added
 (Settings Add a provider, Create Agent, Create a Team, the first-run model step) offers Meta Muse (the switch dialog
 offers Meta only as an agent's current provider: switching an agent to Meta is not built, as before): "Meta Muse" when Muse Code is
-installed and signed in, "set up first" with what to do when it is not. AGENT_WORKFORCE_MUSE=0 turns it off. Off a Mac
+installed and signed in, "install Muse Code first" with what to do when it is not. AGENT_WORKFORCE_MUSE=0 turns it off. Off a Mac
 it stays off (no runner there yet).
 
 ## Change
@@ -42,6 +42,9 @@ it stays off (no runner there yet).
   by default would otherwise register a Muse agent that can never start.
 - The off switches are documented in engine/musestatus.js and this plan only; AGENT_WORKFORCE_ANTIGRAVITY has no
   operator page either. Support reads the code.
+
+- Known gap until #6004: the first-run Meta row offers Connect on every Mac, and on one without Muse Code that
+  press says to install Muse Code from Meta (it cannot connect yet). #6004 makes that press install it.
 
 ## Weakest premise
 That Muse Code's default model is now Muse Wonder. Not measured: a real turn needs Muse Code installed and signed in
