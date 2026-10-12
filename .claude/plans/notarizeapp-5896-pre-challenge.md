@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: notarizeapp-5896
-diff_hash: a84f9cedc6fc3c965fc0d22a4c54881e3f3838e094db7ce79e6556bc98215f5c
+diff_hash: 449ee396df8f885d9116908f102cc3151334ab1a8201136e987f95acb18171e1
 validation: pending (Mortals run queued since 09:56 CDT; PR CI runs the full suite; real Apple end-to-end runs passed, below)
 subdir_audit: passed
 timestamp: 2026-10-12T16:45:24Z
@@ -41,3 +41,5 @@ converged: true
 - [NIT] releasing.md step 4 (app, staple, time) --> FIXED
 - [NIT] staple-failure message pointed at a hand staple --> FIXED (re-run the cut)
 - [NIT] dead test line --> FIXED
+
+**After the PR opened:** CI shell 1/2 caught the test's spctl stub spelling the team identity (the cut-sign-preflight sweep allows it only in lib/signing-identity.sh); the stub now reads it from there. test-notarize-binaries-5137 85/85, cut-sign-preflight 42/42.
