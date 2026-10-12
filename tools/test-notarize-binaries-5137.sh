@@ -304,7 +304,7 @@ NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" ST_VALIDATE=fail; rc=$(runapp)
 [ "$rc" = 1 ] && ok "app: a staple that does not validate refuses" || bad "an invalid staple passed"
 unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
 NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" SP_RC=3 SP_OUT=rejected SP_SOURCE="Unnotarized Developer ID"; rc=$(runapp)
-[ "$rc" = 1 ] && grep -q 'told it is damaged' "$WORK/out" && ok "app: a quarantined copy Gatekeeper rejects refuses the build" || bad "a rejected quarantined copy passed (rc=$rc)"
+[ "$rc" = 1 ] && grep -q 'refuse to open a downloaded copy' "$WORK/out" && ok "app: a quarantined copy Gatekeeper rejects refuses the build" || bad "a rejected quarantined copy passed (rc=$rc)"
 unset NT_STATUS NT_HASHES ST_STAPLE_FAIL_TIMES ST_VALIDATE SP_RC SP_OUT SP_SOURCE XA_FAIL   # plain assignments persist (see above)
 NT_STATUS=Accepted NT_HASHES="$HA $HT $HX $HK" SP_SOURCE="Developer ID"; rc=$(runapp)
 [ "$rc" = 1 ] && ok "app: accepted but not as Notarized Developer ID refuses" || bad "a non-notarised acceptance passed"

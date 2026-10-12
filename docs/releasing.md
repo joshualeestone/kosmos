@@ -100,8 +100,9 @@ improvement it gained would have died with the session that wrote it.
    bad key or an outage refuses before the bump is pushed. Since #5896 slice 3,
    step 4 also submits the sealed `app/Kosmos.app` in the same submission,
    staples its ticket, and refuses unless a quarantined copy is accepted by
-   `spctl -a -t exec -vv` as "Notarized Developer ID" of our team (Josh, 0.7.42:
-   "Kosmos is damaged"). `KOSMOS_NOTARY_PROBE_BIN`
+   `spctl -a -t exec -vv` as "Notarized Developer ID" of our team (a downloaded,
+   quarantined copy that is not notarised is refused, measured on #5896).
+   `KOSMOS_NOTARY_PROBE_BIN`
    is deliberately not refused: like `KOSMOS_CODESIGN_BIN` it replaces only that
    probe (the release-gate tests set it), says "not probed" when set, and step 4
    still notarises for real.
