@@ -23,14 +23,20 @@ the context and may carry the same teardown race (noted on #5921, not changed he
   teardown, so it cannot hide a routing error while assertions are running. Two stubs taken off earlier with a plain
   page.unroute (lines near the O1 and LO1 arms) are outside it; both fulfil at once with no fetch.
 - Rejected: retrying the check more times in browser-checks.sh (hides a race behind a retry count).
-- Weakest premise: ignoreErrors at teardown also swallows a real handler bug that only shows during close. Nothing
-  is asserted after close, so no assertion can depend on it.
+- The WebKit context route is self-contained: it catches its own failure and aborts that request. Reviews 3 and 5
+  flipped the teardown ORDER (page close first keeps a still-polling page off real DNS; page close first also leaves
+  the context handler exposed to a target-closed rejection before its ignoreErrors). Two rounds rewriting one rule
+  means it lived in the wrong place, so the handler now owns its failure and the order matters only for DNS.
+- Weakest premise: ignoreErrors at teardown also swallows a real handler bug that only shows during close, and the
+  context handler's abort turns a mid-run proxy failure into a failed request rather than a crash. Nothing is
+  asserted after close, and a failed request during an arm still fails that arm's checks.
 
 ## Measured
 - Before: alone on Mortals at 5621723a5, 3 runs, 1 crashed (169 pass, then disposed); in the cut, 2 of 2 crashed.
-- After: alone on Mortals at origin/main, 20 of 20 clean with the unroute approach (171 pass, 0 fail, 0 disposed):
-  8 before the finally change, 4 with it, 4 with the page closed between the unroutes, 4 on this final file.
-- At the before-rate (1 in 3), 20 clean runs happen by chance about 0.03% of the time. Evidence, not proof.
+- After: alone on Mortals at origin/main, 24 of 24 clean with the unroute approach (171 pass, 0 fail, 0 disposed):
+  8 before the finally change, 4 with it, 4 with the page closed between the unroutes, 4 with browser.close caught, 4 on
+  this final file (the context route self-contained). Only the last 4 ran this exact file.
+- At the before-rate (1 in 3), 24 clean runs happen by chance under 0.01% of the time; that figure is about the OLD crash, not about any residual window. Evidence, not proof.
 - The fix rests on Playwright's documented ignoreErrors semantics, not on a reproduced failure.
 - NOT measured: a deterministic red arm. Two injections were tried, applied identically to the old and new files:
   - a pause of 400 ms before the status fulfil: both passed (not discriminating)
