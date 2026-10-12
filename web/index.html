@@ -14114,7 +14114,8 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #5977 slice 3: Qwen on this computer, set up from here. Shown only for the local address and Kosmos's own
            model. The download asks first (about 4.7 GB); making the 16k model needs no download. -->
       <div id="acct-qwen-local" hidden style="margin-top:8px;">
-        <p class="dhint" id="acct-qwen-local-t" role="status" aria-live="polite" style="margin:0;"></p>
+        <p class="dhint" id="acct-qwen-local-t" role="status" aria-live="polite" tabindex="-1" style="margin:0;"></p>
+        <progress id="acct-qwen-local-bar" hidden aria-label="Qwen download" style="width:100%;margin-top:6px;"></progress>
         <div class="frow" id="acct-qwen-local-row" hidden style="margin-top:8px;">
           <button class="btn" id="acct-qwen-local-go" type="button"></button>
           <button class="btn" id="acct-qwen-local-no" type="button" hidden>Not now</button>
@@ -15323,7 +15324,7 @@ window.kosmosMeasureScrollbarWidth();
                   <p class="dhint" id="fr-muse-say" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
                 </div>
                 <div class="dhint" id="fr-muse-msg" role="status" aria-live="polite"></div>
-                <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon" title="Add Qwen in Settings, AI Models, once Kosmos is set up">In Settings</span></div>
+                <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Add in Settings</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="deepseek" role="img" aria-label="DeepSeek"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 1.5 27 20.1" fill="currentColor"><path d="M26.5174 3.39471C26.235 3.2567 26.1137 3.52006 25.9487 3.65346C25.8923 3.69659 25.8446 3.75294 25.7969 3.80469C25.3846 4.24516 24.9027 4.53439 24.2737 4.49989C23.3536 4.44814 22.5682 4.73737 21.8735 5.44119C21.7258 4.57349 21.2353 4.0554 20.4889 3.72304C20.0985 3.55054 19.7034 3.37746 19.4297 3.00197C19.2388 2.73459 19.1865 2.43673 19.091 2.14289C19.0301 1.96579 18.9697 1.78466 18.7656 1.75418C18.5442 1.71968 18.4574 1.90541 18.3705 2.06067C18.0232 2.69549 17.8887 3.39471 17.9019 4.10313C17.9324 5.6965 18.6051 6.96556 19.9421 7.86834C20.0939 7.97184 20.133 8.07535 20.0852 8.22658C19.9938 8.53766 19.8857 8.83955 19.7903 9.15063C19.7293 9.34901 19.6384 9.39271 19.4257 9.30588C18.692 8.9994 18.0583 8.54571 17.4982 7.99772C16.5477 7.07827 15.6881 6.06336 14.6162 5.26869C14.3644 5.08296 14.1125 4.91045 13.8521 4.746C12.7584 3.68394 13.9952 2.81164 14.2816 2.70814C14.5812 2.60003 14.3857 2.22857 13.4179 2.23317C12.4502 2.2372 11.5646 2.56151 10.4359 2.99335C10.2708 3.05832 10.0972 3.10547 9.91951 3.14457C8.8954 2.95022 7.83162 2.90709 6.72069 3.03245C4.62877 3.26533 2.95777 4.25436 1.72954 5.94261C0.254043 7.97184 -0.0932678 10.2777 0.33167 12.6824C0.778458 15.2171 2.07225 17.3153 4.06008 18.9558C6.12152 20.6567 8.49577 21.4905 11.2047 21.3306C12.8498 21.2358 14.6812 21.0155 16.7473 19.2669C17.2682 19.5262 17.8151 19.6297 18.7219 19.7074C19.4205 19.7723 20.0933 19.6729 20.6143 19.5648C21.4302 19.3923 21.3739 18.6367 21.0789 18.4981C18.6874 17.3843 19.2124 17.8374 18.7351 17.4706C19.9501 16.033 21.8063 13.4776 22.379 9.99821C22.4353 9.61409 22.5072 9.073 22.4986 8.76192C22.494 8.57216 22.5377 8.49856 22.7545 8.47671C23.3536 8.40771 23.935 8.24383 24.4692 7.94999C26.0188 7.10357 26.6439 5.71318 26.7911 4.04678C26.8129 3.79204 26.7865 3.52869 26.5174 3.39471ZM13.0143 18.3946C10.6964 16.5724 9.5722 15.9726 9.10816 15.9985C8.67402 16.0244 8.75222 16.5212 8.84768 16.8449C8.94773 17.1646 9.07768 17.3849 9.25996 17.6655C9.38589 17.8512 9.47272 18.1272 9.13404 18.3348C8.38766 18.7965 7.08985 18.1796 7.0289 18.1491C5.51833 17.2595 4.25559 16.0853 3.36546 14.4793C2.50581 12.9337 2.0067 11.2753 1.92447 9.50542C1.90262 9.07818 2.02855 8.92695 2.45406 8.84932C3.01413 8.74582 3.59144 8.72397 4.15093 8.80619C6.51656 9.15178 8.53027 10.2092 10.2185 11.8848C11.1822 12.8388 11.9114 13.979 12.6623 15.0929C13.461 16.2757 14.3201 17.4027 15.4144 18.3268C15.8008 18.6505 16.109 18.8966 16.404 19.0783C15.5144 19.1778 14.0297 19.1991 13.0143 18.3958V18.3946ZM14.1252 11.2489C14.1252 11.0591 14.277 10.9079 14.4679 10.9079C14.511 10.9079 14.5501 10.9165 14.5852 10.9292C14.6329 10.9464 14.6766 10.9723 14.7111 11.0114C14.7721 11.0718 14.8066 11.158 14.8066 11.2489C14.8066 11.4386 14.6548 11.5899 14.4639 11.5899C14.273 11.5899 14.1252 11.4386 14.1252 11.2489ZM17.5759 13.0188C17.3545 13.1096 17.1331 13.1873 16.9203 13.1959C16.5903 13.2131 16.2303 13.0791 16.0348 12.9153C15.7312 12.6605 15.5139 12.5179 15.423 12.0734C15.3839 11.8837 15.4057 11.5899 15.4402 11.4214C15.5185 11.0585 15.4316 10.8257 15.1757 10.614C14.9676 10.4415 14.7025 10.3938 14.4115 10.3938C14.3029 10.3938 14.2034 10.3461 14.1292 10.3076C14.0079 10.2472 13.9078 10.096 14.0033 9.91023C14.0338 9.84985 14.1815 9.70322 14.216 9.67734C14.6111 9.45251 15.0665 9.52612 15.488 9.6946C15.8784 9.85445 16.174 10.1477 16.5989 10.5623C17.033 11.0631 17.1112 11.2011 17.3585 11.5772C17.554 11.871 17.7317 12.1729 17.8536 12.5185C17.9272 12.7341 17.8317 12.9107 17.5759 13.0188Z"/></svg></span><div class="llm-w"><b>DeepSeek</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="glm" role="img" aria-label="GLM"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 31.85 27" fill="currentColor"><path d="M16.7889 0L14.5697 3.17647C14.3977 3.42466 14.1676 3.62682 13.8995 3.76526C13.6315 3.9037 13.3337 3.9742 13.0321 3.97059H0.9375V0H16.7889Z"/><path d="M31.8478 0L12.8261 27H0.14502L19.1667 0H31.8478Z"/><path d="M15.2041 26.9999L17.4391 23.8234C17.6135 23.5777 17.8441 23.3773 18.1116 23.2392C18.3791 23.101 18.6758 23.029 18.9767 23.0293H31.0555V26.9999H15.2041Z"/></svg></span><div class="llm-w"><b>GLM</b><small>Z.ai</small></div><span class="soon">Coming soon</span></div>
@@ -21119,6 +21120,8 @@ function modelLine(a) {
   const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName;
   /* #4416 (Josh 15:18: knowing "what actual model these things are on"): the model its rollout names (engine
      codexsession, read by the board, never asked of the agent), e.g. "GPT 5.6 Sol"; the provider while none is known. */
+  // #5977 (UI review): a Qwen agent runs on codex too, and is never "OpenAI": its model, or Qwen while none is known.
+  if (a.runner === 'codex' && a.account && a.account.provider === 'alibaba') return name ? (/qwen/i.test(name) ? name : 'Qwen ' + name) : 'Qwen';
   if (a.runner === 'codex') return name ? (/^(?:gpt|openai|codex)\b/i.test(name) ? name : 'OpenAI ' + name) : 'OpenAI Codex';   // "o3" alone is less recognisable than "OpenAI o3"
   /* #5804: a running Gemini agent whose reply came from a model other than the one it is set to (the CLI's own
      fallback) says so. The board decides (engine/geminimodelswitch.js) and sends settingModelName only then; kept
@@ -29830,7 +29833,7 @@ function worldAddClose() {
    is said rather than left blank; an unreadable task list is said, never shown as 0; and there is no quota figure,
    because no provider gives Kosmos one. */
 const WV_PROVIDER = { claude: 'Claude', codex: 'OpenAI Codex', gemini: 'Gemini', grok: 'Grok',
-  antigravity: 'Gemini (Google subscription)', muse: 'Meta Muse' };
+  antigravity: 'Gemini (Google subscription)', muse: 'Meta Muse', qwen: 'Qwen' };   // #5977: qwen is the overview's own word (worldview)
 function wvCount(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
 function wvTime(iso, now = new Date()) {
   const d = new Date(iso);
@@ -30446,7 +30449,7 @@ function acctShowSuccess(accountLabel, goldBox) {
      stale "Success!" with no provider form on the next open. closeAcctAdd has already
      put the modal back to its form state by then, so a no-op here is the clean outcome. */
   if (document.getElementById('acct-add-modal').hidden) return;
-  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-gemini-flow', 'acct-add-acts']
+  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-gemini-flow', 'acct-qwen-flow', 'acct-add-acts']   // #5977: Qwen too
     .forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = true; });
   /* Unhide the role="status" region BEFORE writing its text: a polite live region
      mutated while hidden is not reliably announced, so the order is what makes a
@@ -30505,6 +30508,7 @@ function openAcctAdd(ev) {
   }
   ACCT_GROK_REAUTH_DIR = null;   // #3391 part 2: a fresh add is never a sign-in again
   acctApikeyShow(null);  /* #3566: the key step never outlives a visit (it holds a pasted key) */
+  acctQwenShow(false);   // #5977: nor does the Qwen step (its key, and its download poll)
   ACCT_ADD_VISIT += 1;
   acctAddPickSay('');
   acctMuseShow(false); ACCT_MUSE_ASKING = museAsk();   // #3939: Meta Muse is offered only when this Kosmos says so
@@ -30542,6 +30546,7 @@ function closeAcctAdd() {
   ACCT_OPENAI_SUB_SESSION = null;
   acctOpenaiSubReset();   // hides the sub affordances and re-enables the Sign-in button
   acctApikeyShow(null);   // #3566: a pasted Gemini/Grok key does not stay in a hidden field after close
+  acctQwenShow(false);   // #5977: the Qwen key and name too, and its download poll stops
   acctMuseShow(false);   // #3939: a Muse sign-in left running is stopped, not left polling a closed dialog
   /* kosmos#1656: return the modal to its form state on the way out, so the next
      open is clean: the success panel gone and the sign-in controls back. */
@@ -30806,48 +30811,86 @@ function acctQwenShow(on) {
   flow.hidden = !on;
   const go = document.getElementById('acct-qwen-go'); if (go) go.disabled = false;
   const m = document.getElementById('acct-qwen-msg'); if (m) m.textContent = '';
-  if (on) acctQwenLocalPaint(); else { const l = document.getElementById('acct-qwen-local'); if (l) l.hidden = true; }
+  if (on) acctQwenLocalPaint();
+  else {
+    /* UI review 1: put away means put away. The bumped generation above stops the download poll; a key typed
+       here does not stay in a hidden field, and the panel does not reappear on the next open. */
+    const l = document.getElementById('acct-qwen-local'); if (l) l.hidden = true;
+    for (const id of ['acct-qwen-key', 'acct-qwen-name']) { const f = document.getElementById(id); if (f) f.value = ''; }
+    ACCT_QWEN_LOCAL_ASK = '';
+    if (ACCT_QWEN_LOCAL_TIMER) { clearTimeout(ACCT_QWEN_LOCAL_TIMER); ACCT_QWEN_LOCAL_TIMER = null; }
+    ACCT_QWEN_LOCAL_RUNNING = false;
+  }
 }
 /* #5977 slice 3: what this computer is missing for Qwen, and the one step that fixes it. Only for the local address
    with Kosmos's own model; a server the person names is theirs to set up. `ACCT_QWEN_LOCAL_ASK` holds the step the
    button takes; a download needs a second press (the confirm), naming its size first. */
 const QWEN_LOCAL_MODEL = 'kosmos-qwen2.5-7b-16k:latest';
 let ACCT_QWEN_LOCAL_ASK = '';
+/* UI review: ONE poll at a time (a new paint clears the old timer), and only the newest answer paints (SEQ), so a
+   field change, Not now and a finished POST cannot start parallel chains or let an older answer win. */
+let ACCT_QWEN_LOCAL_TIMER = null;
+let ACCT_QWEN_LOCAL_SEQ = 0;
+let ACCT_QWEN_LOCAL_RUNNING = false;   // a download was running at the last answer: a failed read is retried, not final
 function acctQwenIsLocalSetup() {
   const u = (document.getElementById('acct-qwen-url') || {}).value || '';
   const m = ((document.getElementById('acct-qwen-model') || {}).value || '').trim();
-  let host = '';
-  try { host = new URL(u.trim()).hostname; } catch { host = ''; }
-  return (host === 'localhost' || host === '127.0.0.1') && m === QWEN_LOCAL_MODEL;
+  let url = null;
+  try { url = new URL(u.trim()); } catch { url = null; }
+  if (!url) return false;
+  // UI review: Ollama's own port only (the panel reports on 11434), and every spelling of this computer.
+  const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+  return local && (url.port === '' || url.port === '11434') && m === QWEN_LOCAL_MODEL;
 }
 function acctQwenGb(n) { return (n / 1e9).toFixed(1); }
+/* UI review: when the row with the focused button is hidden, focus goes to the sentence that replaced it, not the page. */
+function acctQwenLocalHideRow(row, t) {
+  const had = row.contains && document.activeElement && row.contains(document.activeElement);
+  row.hidden = true;
+  if (had && t.focus) t.focus();
+}
 async function acctQwenLocalPaint() {
   const box = document.getElementById('acct-qwen-local');
   const t = document.getElementById('acct-qwen-local-t');
   const row = document.getElementById('acct-qwen-local-row');
   const btn = document.getElementById('acct-qwen-local-go');
   const no = document.getElementById('acct-qwen-local-no');
+  const bar = document.getElementById('acct-qwen-local-bar');
   if (!box || !t || !row || !btn || !no) return;
+  if (ACCT_QWEN_LOCAL_TIMER) { clearTimeout(ACCT_QWEN_LOCAL_TIMER); ACCT_QWEN_LOCAL_TIMER = null; }
+  const seq = ++ACCT_QWEN_LOCAL_SEQ;
   if (!acctQwenIsLocalSetup()) { box.hidden = true; ACCT_QWEN_LOCAL_ASK = ''; return; }
   const mine = ACCT_QWEN_GEN;
   let s = null;
   try { const r = await fetch('/api/accounts/qwen/local', { cache: 'no-store' }); s = r.ok ? await r.json() : null; } catch { s = null; }
-  if (ACCT_QWEN_GEN !== mine || document.getElementById('acct-qwen-flow').hidden) return;
+  // The newest paint only, on the same visit, for the address the fields hold NOW (they can change during the await).
+  if (seq !== ACCT_QWEN_LOCAL_SEQ || ACCT_QWEN_GEN !== mine || document.getElementById('acct-qwen-flow').hidden) return;
+  if (!acctQwenIsLocalSetup()) { box.hidden = true; ACCT_QWEN_LOCAL_ASK = ''; return; }
+  const again = () => { ACCT_QWEN_LOCAL_TIMER = setTimeout(() => { if (ACCT_QWEN_GEN === mine) acctQwenLocalPaint(); }, 2000); };
+  if (!s && ACCT_QWEN_LOCAL_RUNNING) { again(); return; }   // a missed poll mid-download: keep what is shown, ask again
   box.hidden = false;
   no.hidden = true;
   btn.disabled = false;
   const d = s && s.download;
+  ACCT_QWEN_LOCAL_RUNNING = !!(d && d.running);
   if (d && d.running) {
-    t.textContent = d.total > 0
-      ? 'Downloading Qwen: ' + Math.floor((100 * d.completed) / d.total) + '% (' + acctQwenGb(d.completed) + ' of ' + acctQwenGb(d.total) + ' GB). You can leave this page; it carries on.'
-      : 'Downloading Qwen…';
-    row.hidden = true; ACCT_QWEN_LOCAL_ASK = '';
-    setTimeout(() => { if (ACCT_QWEN_GEN === mine) acctQwenLocalPaint(); }, 2000);
+    /* The sentence (a polite live region) is written once; the figures go to a progress bar, which is not announced
+       every two seconds. */
+    const say = 'Downloading Qwen (about 4.7 GB). You can leave this page; it carries on.';
+    if (t.textContent !== say) t.textContent = say;
+    if (bar) {
+      bar.hidden = false;
+      if (d.total > 0) { bar.max = d.total; bar.value = d.completed; bar.setAttribute('aria-valuetext', acctQwenGb(d.completed) + ' of ' + acctQwenGb(d.total) + ' GB'); }
+      else bar.removeAttribute('value');
+    }
+    acctQwenLocalHideRow(row, t); ACCT_QWEN_LOCAL_ASK = '';
+    again();
     return;
   }
+  if (bar) bar.hidden = true;
   const lastFailed = d && d.ok === false ? d.because.charAt(0).toUpperCase() + d.because.slice(1) + '. ' : '';
   const state = s ? s.state : 'unknown';
-  if (state === 'ready') { t.textContent = 'Qwen is set up on this computer.'; row.hidden = true; ACCT_QWEN_LOCAL_ASK = ''; return; }
+  if (state === 'ready') { t.textContent = 'Qwen is set up on this computer.'; acctQwenLocalHideRow(row, t); ACCT_QWEN_LOCAL_ASK = ''; return; }
   if (state === 'needs_model') {
     t.textContent = lastFailed + 'Ollama has Qwen. Kosmos makes a copy of it that holds a longer conversation, for its agents. Nothing is downloaded.';
     btn.textContent = 'Set up Qwen'; row.hidden = false; ACCT_QWEN_LOCAL_ASK = 'model'; return;
@@ -30857,7 +30900,7 @@ async function acctQwenLocalPaint() {
     btn.textContent = 'Download Qwen'; row.hidden = false; ACCT_QWEN_LOCAL_ASK = 'download-ask'; return;
   }
   t.textContent = (s && s.because) || 'We could not check Ollama just now.';
-  row.hidden = true; ACCT_QWEN_LOCAL_ASK = '';
+  acctQwenLocalHideRow(row, t); ACCT_QWEN_LOCAL_ASK = '';
 }
 document.getElementById('acct-qwen-local-go').addEventListener('click', async () => {
   const t = document.getElementById('acct-qwen-local-t');
@@ -30867,6 +30910,10 @@ document.getElementById('acct-qwen-local-go').addEventListener('click', async ()
   if (ask === 'download-ask') {
     t.textContent = 'This downloads about 4.7 GB from Ollama, which can take a while. Start it?';
     btn.textContent = 'Start the download'; no.hidden = false; ACCT_QWEN_LOCAL_ASK = 'download';
+    /* UI review: the confirm sits where the first press landed, so a double click would confirm unread. It takes a
+       press only after a moment. */
+    btn.disabled = true;
+    setTimeout(() => { if (ACCT_QWEN_LOCAL_ASK === 'download') btn.disabled = false; }, 700);
     return;
   }
   if (ask !== 'model' && ask !== 'download') return;
@@ -50656,9 +50703,9 @@ async function paintModelPicker(a) {
     /* #4416: a Gemini or Grok agent runs the model its job names, or the one Kosmos pins when it names none, so the
        menu says the same model the card does. Antigravity and Muse really do pick their own. */
     const runsOn = menuRunsOn(a);
-    const one = '<option value="" selected>' + esc(runsOn ? 'Runs on ' + runsOn
-      : isQwen ? ((a.modelName || a.plannedModelName) ? 'Runs on ' + modelLine(a) : 'The Qwen account names the model')   // #5977
-      : word + ' picks its own model') + '</option>';
+    // #5977: a Qwen agent says the model its account names, or that the account names it.
+    const qwenSays = isQwen ? ((a.modelName || a.plannedModelName) ? 'Runs on ' + modelLine(a) : 'The Qwen account names the model') : '';
+    const one = '<option value="" selected>' + (qwenSays ? esc(qwenSays) : esc(runsOn ? 'Runs on ' + runsOn : word + ' picks its own model')) + '</option>';
     if (sel.innerHTML !== one) sel.innerHTML = one;
     sel.dataset.current = '';
     sel.disabled = true;
@@ -79875,7 +79922,7 @@ function asbInFallback() { return !!(ASB.guide && ASB.fallback && !ASB.hostedOff
 const ASB_FALLBACK_PROVIDER = { codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok', antigravity: 'Google' };   // engine/accountproblem.js's names
 /* The one line, the card's words, then what fixes it, in #3723's words where it has them. */
 function asbFallbackWords(f) {
-  const p = ASB_FALLBACK_PROVIDER[f && f.runner] || 'Claude';
+  const p = (f && f.providerName) || ASB_FALLBACK_PROVIDER[f && f.runner] || 'Claude';   // #5977: the board's name (Qwen) first
   /* #4588: an Antigravity guide is rate_limited only on its Google account's shared quota (its screen is never read),
      a subscription allowance that refills by itself: no "add credits" (review 4). */
   const fix = f.problem === 'rate_limited' && f.runner === 'antigravity' ? ' The Google quota refills by itself.'
@@ -79890,7 +79937,7 @@ function asbFallbackFrom(b) {
   if (!b || b.hostedWhy === 'unchecked') return;
   const failing = b.hosted === true && b.hostedWhy === 'own_model_failing';
   const was = !!ASB.fallback;
-  ASB.fallback = failing ? { problem: String(b.problem || ''), runner: b.runner || null } : null;
+  ASB.fallback = failing ? { problem: String(b.problem || ''), runner: b.runner || null, providerName: typeof b.providerName === 'string' ? b.providerName : null } : null;
   if (was && !failing) { const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = ASB_FALLBACK_BACK; ASB.shown = ''; }
   if (!was && failing) ASB.shown = '';   // the chat is painted again, from the backup's conversation
 }

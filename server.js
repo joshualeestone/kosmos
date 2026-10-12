@@ -6530,7 +6530,11 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/worlds/overview' && (req.method === 'GET' || req.method === 'HEAD')) {
     let base;
     try { base = worldBase(); } catch (_e) { sendJson(res, 500, { because: 'the world registry is not readable on this machine' }); return; }
-    const cards = safeRoster();   // null when the cards could not be read
+    const roster = safeRoster();   // null when the cards could not be read
+    /* #5977: a codex card on a Qwen home is Qwen (its job says so; codex cards only, one read each). */
+    const cards = Array.isArray(roster)
+      ? roster.map((c) => (c && c.runner === 'codex' && create.agentProvider(c.sessionName, 'codex') === 'alibaba' ? { ...c, providerWord: 'qwen' } : c))
+      : roster;
     try {
       const runningId = require('./engine/worldenv').bootedWorld() || worlds.DEFAULT_ID;
       sendJson(res, 200, { worlds: worldview.overview({ base, runningId, cards }) });
@@ -19353,7 +19357,7 @@ const server = http.createServer(async (req, res) => {
     try { failing = guideCardFailing(found.name); } catch { sendJson(res, 200, { ok: true, name: found.name, hosted: false, hostedWhy: 'unchecked' }); return; }
     if (failing) {
       const w = setupAssistant.hostedWhy({ failing: () => failing });
-      sendJson(res, 200, { ok: true, name: found.name, hosted: w.ok, hostedWhy: w.why, problem: failing.problem, runner: failing.runner });
+      sendJson(res, 200, { ok: true, name: found.name, hosted: w.ok, hostedWhy: w.why, problem: failing.problem, runner: failing.runner, providerName: failing.providerName || null });
       return;
     }
     sendJson(res, 200, { ok: true, name: found.name });

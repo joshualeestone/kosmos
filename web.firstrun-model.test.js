@@ -192,7 +192,7 @@ test('no disclosure survives: all eleven providers render in the open', () => {
      and the other six still say "Coming soon". */
   assert.equal((STEP.match(/class="soon"[^>]*>Coming soon</g) || []).length, 6,
     'expected a "Coming soon" pill on each of the six still-unavailable providers');
-  assert.match(STEP, /data-pmark="qwen"(?:(?!class="llm )[\s\S])*class="soon"[^>]*>In Settings</,
+  assert.match(STEP, /data-pmark="qwen"(?:(?!class="llm )[\s\S])*class="soon"[^>]*>Add in Settings</,
     'the Qwen row should say it is added in Settings (#5977)');
   assert.equal((STEP.match(/After setup/g) || []).length, 0,
     'an "After setup" pill came back; Gemini and Grok connect on this step (#3658)');

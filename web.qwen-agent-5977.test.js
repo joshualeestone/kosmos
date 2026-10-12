@@ -75,3 +75,30 @@ test('#5977: the board marks only a Qwen account with its provider', () => {
   assert.match(SERVER, /\.\.\.\(found\.provider === 'alibaba' \? \{ provider: 'alibaba' \} : \{\}\)/,
     'accountForAgent no longer marks a Qwen account; the page cannot tell a Qwen agent from an OpenAI one');
 });
+
+test('#5977 UI review: modelLine, run, never calls a Qwen agent OpenAI', () => {
+  // eslint-disable-next-line no-new-func
+  const modelLine = new Function('cardStOf', grab('function modelLine(') + '\nreturn modelLine;')(() => ({ pres: 'on' }));
+  assert.equal(modelLine({ ...QWEN }), 'Qwen', 'no model known yet: the provider');
+  assert.equal(modelLine({ ...QWEN, modelName: 'kosmos-qwen2.5-7b-16k' }), 'kosmos-qwen2.5-7b-16k');
+  assert.equal(modelLine({ ...QWEN, modelName: 'my-finetune' }), 'Qwen my-finetune');
+  assert.equal(modelLine({ ...OPENAI }), 'OpenAI Codex', 'CONTROL: an OpenAI codex agent');
+  assert.equal(modelLine({ ...OPENAI, modelName: 'o3' }), 'OpenAI o3', 'CONTROL');
+});
+
+test('#5977 UI review: the At a glance overview gives Qwen its own row, named Qwen', () => {
+  const { providersFrom } = require('./engine/worldview');
+  const rows = providersFrom([
+    { sessionName: 'q', runner: 'codex', providerWord: 'qwen', state: 'idle' },
+    { sessionName: 'o', runner: 'codex', state: 'idle' },
+  ]);
+  assert.deepEqual(rows.map((r) => [r.provider, r.agents]), [['codex', 1], ['qwen', 1]]);
+  assert.match(PAGE, /muse: 'Meta Muse', qwen: 'Qwen' \}/, 'the page names the qwen row');
+  assert.match(SERVER, /providerWord: 'qwen'/, 'the route tags a Qwen card');
+});
+
+test('#5977 UI review: a guide on Qwen falls back with Qwen named, from the board', () => {
+  const words = new Function('ASB_FALLBACK_PROVIDER', grab('function asbFallbackWords(') + '\nreturn asbFallbackWords;')({ codex: 'OpenAI' });
+  assert.match(words({ problem: 'auth_failed', runner: 'codex', providerName: 'Qwen' }), /Qwen/);
+  assert.match(words({ problem: 'auth_failed', runner: 'codex' }), /OpenAI/, 'CONTROL: an older board still names the runner');
+});

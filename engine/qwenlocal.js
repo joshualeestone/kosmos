@@ -122,13 +122,23 @@ function pullProgress() {
  */
 function startDownload() {
   if (pull && pull.running) return { started: false, because: 'Qwen is already downloading' };
-  pull = { running: true, completed: 0, total: 0, ok: null, because: '', startedAt: Date.now() };
+  pull = { running: true, completed: 0, total: 0, ok: null, because: '', startedAt: Date.now(), layers: new Map() };
   const mine = pull;
   (async () => {
     const r = await call('/api/pull', {
       method: 'POST', stream: true, body: { model: BASE, stream: true },
+      /* UI review: Ollama reports a pull layer by layer ({ digest, total, completed }), so one layer's figures are not
+         the download's. Each layer is kept by its digest and the figures are the sums, so a small last layer cannot
+         make the page say 100% of 0.0 GB, and the percentage never runs backwards. */
       onLine: (line) => {
-        if (line && Number.isFinite(line.total) && line.total > 0) { mine.total = line.total; mine.completed = Number.isFinite(line.completed) ? line.completed : mine.completed; }
+        if (!line || !Number.isFinite(line.total) || line.total <= 0) return;
+        const id = typeof line.digest === 'string' && line.digest ? line.digest : String(line.status || '');
+        const done = Number.isFinite(line.completed) ? line.completed : 0;
+        const prev = mine.layers.get(id) || { total: 0, completed: 0 };
+        mine.layers.set(id, { total: line.total, completed: Math.max(prev.completed, done) });
+        let total = 0; let completed = 0;
+        for (const l of mine.layers.values()) { total += l.total; completed += l.completed; }
+        mine.total = total; mine.completed = Math.min(completed, total);
       },
     });
     if (r.unreachable) { mine.ok = false; mine.because = 'the download stopped: we lost Ollama on this computer'; return; }

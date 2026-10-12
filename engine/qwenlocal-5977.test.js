@@ -94,3 +94,25 @@ test('a download that fails says so and makes no model', async () => {
   assert.doesNotMatch(end.because, /disk full|Users/);
   assert.equal(calls.some((c) => c.p === '/api/create'), false, 'CONTROL: no model from a failed download');
 });
+
+test('progress sums Ollama\'s layers, so a small last layer cannot reset it to 0.0 GB', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  ollama([], {
+    '/api/pull': async (o) => {
+      o.onLine({ status: 'pulling a', digest: 'sha256:a', total: 4600, completed: 4600 });
+      o.onLine({ status: 'pulling b', digest: 'sha256:b', total: 100, completed: 40 });
+      o.onLine({ status: 'pulling b', digest: 'sha256:b', total: 100, completed: 30 });   // never backwards
+      await gate;
+      return { status: 200, body: { status: 'success' } };
+    },
+    '/api/create': async () => ({ status: 200, body: { status: 'success' } }),
+  });
+  local.startDownload();
+  await new Promise((r) => setImmediate(r));
+  const p = local.pullProgress();
+  assert.equal(p.total, 4700);
+  assert.equal(p.completed, 4640);
+  release();
+  for (let i = 0; i < 20 && local.pullProgress().running; i += 1) await new Promise((r) => setTimeout(r, 5));
+});
