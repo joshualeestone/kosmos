@@ -291,3 +291,17 @@ The reachability guard (`engine.reachable.test.js`), run at 2d417473b with the o
 the two functions the server calls. So the tests no longer exercise a path the product does not have.
 Earlier sections of this plan that say `setComputerName()` mean `keepComputerNameChoice(computerNameChoice(text))`.
 This is a code change after the round that converged, so one more blind round follows it.
+
+## Review 13 (default), after the wrappers were removed
+2 WARNING, 5 NIT. Both warnings are one fault of mine, and a real one.
+- WARNING taken: the direction controls in `computerNameChoice`, and the test strings beside them, were in the
+  source as RAW invisible characters, not as escapes. I had typed escapes; the tool I write files with turned them
+  into the characters. Nothing on screen shows the difference, and a raw override character even reorders how its
+  own line displays. Every character outside plain ASCII that this branch adds is now an escape (checked by code
+  point over the whole diff: none left), and a test fails if `computerNameChoice`'s source holds anything else.
+- WARNING taken: only two of the twelve direction controls had an assertion. Each has one now, by code point,
+  both inside a name and alone.
+- NIT taken: half a character pair alone (an emoji cut by the box's length limit) is a cleared box.
+- NITs not taken: a lower-case "(kosmos app)" typed by hand is part of the name, as the glued form is; invisible
+  characters inside a name that draws stay (the comment now says so); an unreachable refusal branch; where the
+  one-time read of the computer's name lands.

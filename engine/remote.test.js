@@ -4962,22 +4962,36 @@ test('#5995: a typed " (Kosmos app)" ending is not doubled, and one derivation s
     assert.equal(remote.computerNameChoice(' - -x').next, 'x');
     assert.equal(remote.computerNameChoice('---').next, '');
     // A name with nothing in it that draws is a cleared box: zero-width marks, the Hangul fillers, a selector alone.
-    for (const blank of ['​‍﻿', 'ㅤ', 'ᅟᅠ', 'ﾠ', '️︀', 'ㅤ ​️', '‮‬']) {
+    for (const blank of ['\u200b\u200d\ufeff', '\u3164', '\u115f\u1160', '\uffa0', '\ufe0f\ufe00', '\u3164 \u200b\ufe0f', '\u202e\u202c']) {
       assert.deepEqual(remote.computerNameChoice(blank), { ok: true, next: '', label: 'This computer (Kosmos app)', box: '' }, 'a name that draws nothing was kept: ' + JSON.stringify(blank));
     }
+    // Each of the twelve, one at a time, by its code point: inside a name it is gone, and alone it is a cleared box.
+    for (const mark of ['\u061c', '\u200e', '\u200f', '\u202a', '\u202b', '\u202c', '\u202d', '\u202e', '\u2066', '\u2067', '\u2068', '\u2069']) {
+      assert.equal(remote.computerNameChoice('Sa' + mark + 'm').next, 'Sam', 'a direction control stayed in a name: U+' + mark.codePointAt(0).toString(16));
+      assert.equal(remote.computerNameChoice(mark).next, '', 'a direction control alone was kept as a name: U+' + mark.codePointAt(0).toString(16));
+    }
+    // The source spells every such character as an escape: a raw one cannot be seen in a diff, and an editor can drop it.
+    {
+      const src = fs.readFileSync(nodePath.join(__dirname, 'remote.js'), 'utf8');
+      const body = src.slice(src.indexOf('function computerNameChoice('), src.indexOf('function canKeepComputerNameChoice('));
+      assert.ok(body.length > 500, 'CONTROL: computerNameChoice was not found in the source');
+      assert.ok(!/[^\x09\x0a\x20-\x7e]/.test(body), 'computerNameChoice holds a character that is not plain ASCII; write it as an escape');
+    }
     // The direction controls leave a name; nothing else that is spelling does.
-    assert.equal(remote.computerNameChoice('Sam‮elif‬ Mac').next, 'Samelif Mac');
-    for (const spelled of ['\u{1F468}‍\u{1F4BB}', 'Sam ❤️', 'می‌خواهم', '한글 Mac', 'Büro', '\u{1F600}']) {
+    assert.equal(remote.computerNameChoice('Sam\u202eelif\u202c Mac').next, 'Samelif Mac');
+    for (const spelled of ['\u{1F468}\u200d\u{1F4BB}', 'Sam \u2764\ufe0f', '\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645', '\ud55c\uae00 Mac', 'B\u00fcro', '\u{1F600}']) {
       assert.equal(remote.computerNameChoice(spelled).next, spelled, 'a typed name lost part of its spelling: ' + JSON.stringify(spelled));
     }
     // "Left as it was" is told the way the computer's own name was made (one line), before anything is taken off:
     // whatever deviceNameFrom makes of a computer's name, that same text typed back is untouched.
-    for (const computer of ['Sam’s Mac ❤️', '\u{1F468}‍\u{1F4BB} box', '-Studio', 'می‌خواهم']) {
+    for (const computer of ['Sam\u2019s Mac \u2764\ufe0f', '\u{1F468}\u200d\u{1F4BB} box', '-Studio', '\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645']) {
       const shown = remote.deviceNameFrom(computer).slice(0, -' (Kosmos app)'.length);
       assert.equal(shown, computer, 'CONTROL: the computer\'s own name is changed by its own derivation: ' + JSON.stringify(computer));
     }
     // Half of a character pair on its own (a script can send one; a page cannot) is not handed on as it is.
-    assert.equal(remote.computerNameChoice('A\ud83d').next, 'A�');
+    assert.equal(remote.computerNameChoice('A\ud83d').next, 'A\ufffd');
+    // Alone (an emoji cut in two by the box's length limit, and nothing else typed) it is a cleared box.
+    assert.equal(remote.computerNameChoice('\ud83d').next, '');
     // What the server does: one choice asked, and kept, is the same as doing both from the text.
     const one = remote.computerNameChoice('Hall Mac');
     assert.deepEqual(remote.canKeepComputerNameChoice(one), { ok: true });

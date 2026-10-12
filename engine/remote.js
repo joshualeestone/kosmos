@@ -2584,10 +2584,12 @@ function computerNameChoice(raw) {
      Everything else stays as typed. Joiners and selectors are spelling (the Persian word joiner, the joiner inside
      an emoji of several parts, the selector that makes a heart red), so they are NOT removed: an earlier version
      removed every character that draws nothing and changed such names. */
-  const cleaned = asTyped.toWellFormed().replace(/[؜‎‏‪-‮⁦-⁩]/g, '').trim();
+  const cleaned = asTyped.toWellFormed().replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').trim();
   /* A name with nothing in it that draws LOOKS like a cleared box, and so is one. Asked of what is left once
-     Unicode's own "drawn as nothing" characters and white space are set aside; the name itself is not changed. */
-  if (cleaned.replace(/[\p{Default_Ignorable_Code_Point}\p{Cf}\s]/gu, '') === '') return { ok: true, next: '', label: deviceNameFrom(''), box: '' };
+     Unicode's own "drawn as nothing" characters, white space and the replacement mark (what half a character pair
+     became: the box's length limit can cut an emoji in two) are set aside. The name itself is not changed by the
+     asking, so such characters INSIDE a name that does draw stay as typed. */
+  if (cleaned.replace(/[\p{Default_Ignorable_Code_Point}\p{Cf}\s\ufffd]/gu, '') === '') return { ok: true, next: '', label: deviceNameFrom(''), box: '' };
   const typed = bare(cleaned);
   /* Cut to fit, then the ending is looked for once more: a longer text can be cut exactly where a typed ending ends. */
   const kept = typed ? bare(withoutSuffix(deviceNameFrom(typed))) : '';
