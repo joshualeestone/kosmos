@@ -33,6 +33,7 @@
  *   C19 a real tab change away from a room and back reads nothing that arrived meanwhile (review 7)
  *   C20 at 700px, where the room's header stacks, the room's toggle sits on the search's line, not a row of its own,
  *       in today's look and in the new look (C20b), with nothing pushed out of the row
+ *   C21 the direct conversation's toggle renders on its search's line, just before it (desktop)
  *   C9 no page errors
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-convmode-5624.js [shots-dir]
@@ -156,6 +157,13 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     });
     chk(c1.exists && c1.shown && c1.pressed === 'false' && c1.inHead && c1.pjInHead && !c1.inBox,
       'C1 the toggle is drawn in each conversation\'s header beside its search, not in the message box, and starts off', JSON.stringify(c1));
+    const c21 = await page.evaluate(() => {
+      const b = document.getElementById('d-conv').getBoundingClientRect();
+      const s = document.getElementById('d-talk-search-wrap').getBoundingClientRect();
+      return { drawn: b.width > 0 && s.width > 0, dy: Math.round(Math.abs((b.top + b.height / 2) - (s.top + s.height / 2))),
+        gap: Math.round(s.left - b.right) };
+    });
+    chk(c21.drawn && c21.dy <= 6 && c21.gap >= 0 && c21.gap <= 24, 'C21 the direct conversation\'s toggle renders on its search\'s line, just before it', JSON.stringify(c21));
 
     // C2: mode off, a new agent message arrives: nothing is read.
     thread = [...thread, agentRow(3, 'A new thing while the mode is off.')];
@@ -259,6 +267,8 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     const c20b = await page.evaluate(() => {
       const root = document.documentElement, was = root.getAttribute('data-look');
       root.setAttribute('data-look', 'new');
+      const cons = document.body.classList.contains('consolidated');
+      if (typeof placeLook === 'function') placeLook(cons);   // the crumb row moves into the header, as in the real look
       const mid = document.querySelector('#pj-one-view .pjmidhead');
       const wrap = mid.querySelector('.pjconvsearch');
       const b = document.getElementById('pj-conv').getBoundingClientRect();
@@ -268,6 +278,7 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
         dy: Math.round(Math.abs((b.top + b.height / 2) - (s.top + s.height / 2))), before: b.right <= s.left + 1,
         inside: s.right <= w.right + 1 && s.right <= mid.getBoundingClientRect().right + 1 };
       if (was == null) root.removeAttribute('data-look'); else root.setAttribute('data-look', was);
+      if (typeof placeLook === 'function') placeLook(cons);
       return out;
     });
     await page.setViewportSize({ width: 1200, height: 800 });
