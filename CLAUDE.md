@@ -32,10 +32,9 @@ explicitly to learn the repo's pre-PR commands and conventions.
   Its lists, each entry with its card or reason: `KNOWN_RED` (tests expected to fail), `FLAKY`
   (not judged), `ALL_SKIP_OK` (may skip everything on the runner) and `HOST_BRANCH_EXCLUDED`
   (Windows-branching files left out).
-- **Use yarn, not npm.** The scripts are also npm-runnable, and `tools/run-tests.sh` itself
-  runs test:shell through tools/shell-shard.js rather than through yarn (#4317 for CI's shards,
-  #5907 for the local whole list), so it does not need yarn itself; its own coverage-mismatch
-  message still names `yarn test` the canonical helper, so use yarn. There is no committed lockfile or `packageManager` pin.
+- **Use yarn, not npm.** The scripts are also npm-runnable, but `yarn test` is the canonical
+  helper (`tools/run-tests.sh`'s coverage-mismatch message names it). There is no committed
+  lockfile or `packageManager` pin.
 
 ### Build / Lint
 

@@ -75,6 +75,7 @@ function slowestSummary(ii, nn, times) {
 // #5907: write all of `s` to `fd`, synchronously. A child that inherits a pipe can leave it
 // non-blocking, so a full pipe answers EAGAIN: wait a moment and retry (up to `tries` times), and
 // finish a partial write rather than drop its tail. `writeSync` is a seam for the test.
+// The default bound is 2000 waits of 5 ms, 10 s in all.
 function writeAll(fd, s, writeSync = fs.writeSync, tries = 2000) {
   const buf = Buffer.from(s);
   let off = 0; let waits = 0;
@@ -110,7 +111,8 @@ function runShard(list, ii, nn, stdio = 'inherit', write = (s, fd = 1) => writeA
     if (r.status !== 0) {
       const why = r.error ? `could not run: ${r.error.message}` : `exit ${r.status === null ? r.signal : r.status}`;
       write(slowestSummary(ii, nn, times));
-      write(`shell-shard ${ii}/${nn}: FAILED (${why}): ${c} (its own output is between its [${k + 1}/${mine.length}] start and time lines)\n`, 2);
+      // A FAILED line that cannot be written must not replace the command's own status.
+      try { write(`shell-shard ${ii}/${nn}: FAILED (${why}): ${c} (its own output is between its [${k + 1}/${mine.length}] start and time lines)\n`, 2); } catch { /* the status below still says it */ }
       return r.status || 1;
     }
   }
