@@ -21,7 +21,7 @@
 # A submission that comes back with no submission id (the upload or Apple's service
 # failed before a job existed) is tried again after each delay in
 # KOSMOS_NOTARY_RETRY_DELAYS (seconds, default "30 120": three tries). A submission
-# with an id is never resubmitted: Apple answered, and its answer stands.
+# with an id is never resubmitted: it is waited on instead.
 #
 # Usage: notarize_binaries <binary>...   returns non-zero on any failure, after
 # printing why. Sourced by build-kosmos-bundle.sh under set -euo pipefail; call it
@@ -97,7 +97,7 @@ notarize_probe_credentials() (
 )
 
 # A subshell body, so the EXIT trap removes the scratch copies on every path, an
-# interrupted --wait included.
+# interrupted wait included.
 notarize_binaries() (
   if [ "$#" = 0 ]; then echo "notarize_binaries: no binaries named" >&2; exit 1; fi
   if [ "${KOSMOS_NOTARIZE:-1}" = 0 ]; then
@@ -132,13 +132,15 @@ notarize_binaries() (
   for b in "$@"; do cp -p "$b" "$dir/bin/" || { echo "notarize: could not copy $b" >&2; exit 1; }; done
   ditto -c -k --keepParent "$dir/bin" "$dir/binaries.zip" || { echo "notarize: could not zip the binaries" >&2; exit 1; }
 
+  # Submitted WITHOUT --wait, so the submission id is printed as soon as Apple has one, before
+  # the long wait; then waited on by that id.
   read -r -a delays <<< "${KOSMOS_NOTARY_RETRY_DELAYS-30 120}"
   tries=$(( ${#delays[@]} + 1 )); try=1
   while :; do
-    echo "==> notarytool submit --wait (try $try of $tries): $*"
+    echo "==> notarytool submit (try $try of $tries): $*"
     rc=0
     out="$(_notarytool submit "$dir/binaries.zip" --key "$key" --key-id "$key_id" --issuer "$issuer" \
-             --wait --timeout 30m --output-format json 2>&1)" || rc=$?
+             --output-format json 2>&1)" || rc=$?
     printf '%s\n' "$out" | sed 's/^/    /'
     id="$(_notarize_json_first id "$out")"
     [ -z "$id" ] && [ "$try" -lt "$tries" ] || break
@@ -147,40 +149,40 @@ notarize_binaries() (
     sleep "$d" || :
     try=$((try + 1))
   done
-  # The status VALUE, read from its own key: a glob for "Accepted" anywhere would pass an answer
-  # whose message merely mentions the word.
-  status="$(_notarize_json_first status "$out")"
-  # An id whose status is not final (the --wait poll lost its connection, or hit its timeout) is
-  # not an answer yet. Wait on that same submission once more rather than refusing or resubmitting.
-  if [ -n "$id" ]; then
-    case "$status" in
-      Accepted|Invalid|Rejected) ;;
-      *)
-        echo "==> submission $id is not finished (status '${status:-none}'); waiting on it (#5137)"
-        rc=0
-        out="$(_notarytool wait "$id" --key "$key" --key-id "$key_id" --issuer "$issuer" \
-                 --timeout 30m --output-format json 2>&1)" || rc=$?
-        printf '%s\n' "$out" | sed 's/^/    /'
-        status="$(_notarize_json_first status "$out")" ;;
-    esac
-  fi
+  [ -n "$id" ] || { echo "notarize: notarytool returned no submission id after $tries tries (last rc=$rc), so there is nothing to wait on or check" >&2; exit 1; }
+  echo "==> submitted: $id; waiting for Apple's answer (#5137)"
+
+  # At most two waits on the same submission: one that returns without a final status (a dropped
+  # connection, or its 30-minute timeout) gets one more. The status VALUE is read from its own
+  # key: a glob for "Accepted" anywhere would pass an answer whose message mentions the word.
+  status=""
+  for w in 1 2; do
+    rc=0
+    out="$(_notarytool wait "$id" --key "$key" --key-id "$key_id" --issuer "$issuer" \
+             --timeout 30m --output-format json 2>&1)" || rc=$?
+    printf '%s\n' "$out" | sed 's/^/    /'
+    status="$(_notarize_json_first status "$out")"
+    case "$status" in Accepted|Invalid|Rejected) break ;; esac
+    [ "$w" = 2 ] || echo "==> submission $id is not finished (status '${status:-none}'); waiting on it once more (#5137)"
+  done
   if [ "$status" != Accepted ]; then
-    echo "notarize: Apple did not accept the binaries (status '${status:-none}', notarytool rc=$rc)." >&2
-    if [ -n "$id" ] && { [ "$status" = Invalid ] || [ "$status" = Rejected ]; }; then
+    echo "notarize: Apple did not accept submission $id (status '${status:-none}', notarytool rc=$rc)." >&2
+    if [ "$status" = Invalid ] || [ "$status" = Rejected ]; then
       echo "notarize: Apple's log for $id:" >&2
       _notarytool log "$id" --key "$key" --key-id "$key_id" --issuer "$issuer" 2>&1 | sed 's/^/    /' >&2 || :
     fi
     exit 1
   fi
-  [ -n "$id" ] || { echo "notarize: Accepted, but no submission id in notarytool's answer, so the ticket cannot be checked" >&2; exit 1; }
 
   log="$(_notarytool log "$id" --key "$key" --key-id "$key_id" --issuer "$issuer" 2>&1)" || {
     printf '%s\n' "$log" | sed 's/^/    /' >&2; echo "notarize: could not fetch Apple's log for $id" >&2; exit 1; }
   # Only the ticketContents array counts: a hash named in issues[] is not a ticket.
-  # Read up to the array's first "]".
-  ticket="$(printf '%s' "$log" | tr -d '\n' | sed -n 's/.*"ticketContents"[[:space:]]*:[[:space:]]*\[\([^]]*\)\].*/\1/p')"
+  # Read up to the array's first "]", with whitespace removed so a match can name the key.
+  # A nested array inside an entry would cut it short; tools/test-notarize-binaries-5137.sh pins
+  # that this refuses rather than passes.
+  ticket="$(printf '%s' "$log" | tr -d ' \t\n\r' | sed -n 's/.*"ticketContents":\[\([^]]*\)\].*/\1/p')"
   case "$ticket" in
-    *cdhash*) ;;
+    *'"cdhash":"'*) ;;
     *) printf '%s\n' "$log" | sed 's/^/    /' >&2
        echo "notarize: could not read any cdhash from ticketContents in Apple's log for $id (above), so the ticket cannot be checked" >&2; exit 1 ;;
   esac
@@ -189,7 +191,7 @@ notarize_binaries() (
   while read -r name a h; do
     [ -n "$name" ] || continue
     case "$ticket" in
-      *"\"$h\""*) echo "==> notarised: $name $a (cdhash $h, submission $id)" ;;
+      *"\"cdhash\":\"$h\""*) echo "==> notarised: $name $a (cdhash $h, submission $id)" ;;
       *) missing="$missing $name/$a($h)" ;;
     esac
   done <<EOF
