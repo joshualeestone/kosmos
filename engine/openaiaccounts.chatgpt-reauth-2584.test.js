@@ -19,6 +19,8 @@ const os = require('node:os');
 const nodePath = require('node:path');
 
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-chatgpt-reauth-2584-'));
+// The sandbox goes when the file ends (it was left behind on every run before #5994). chmod first: one test makes it read-only.
+process.on('exit', () => { try { fs.chmodSync(SANDBOX, 0o755); fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 
 const openai = require('./openaiaccounts');
@@ -50,6 +52,8 @@ function workSlots() {
 const MOCK = nodePath.join(SANDBOX, 'codex-mock.sh');
 fs.writeFileSync(MOCK, `#!/bin/bash
 if [ "$FAKE_CODEX_FAIL" = "1" ]; then echo "sign-in failed" >&2; exit 1; fi
+# #5994: on SIGTERM write a valid chatgpt auth.json and exit 0, the one way a cancelled reauth could still try to promote
+if [ "$FAKE_CODEX_WRITE_ON_TERM" = "1" ]; then trap 'printf "{\\"auth_mode\\":\\"chatgpt\\",\\"tokens\\":{\\"id_token\\":\\"%s\\"}}" "$FAKE_ID_TOKEN" > "$CODEX_HOME/auth.json"; exit 0' TERM; echo "Sign in at https://auth.openai.com/device and enter code WXYZ-1234"; while :; do sleep 0.2; done; fi
 # #5994: ignore SIGTERM BEFORE printing, so "awaiting-browser" means the trap is in place and a cancel cannot kill it
 if [ "$FAKE_CODEX_IGNORE_TERM" = "1" ]; then trap '' TERM; echo "Sign in at https://auth.openai.com/device and enter code WXYZ-1234"; while :; do sleep 0.2; done; fi
 echo "Sign in at https://auth.openai.com/device and enter code WXYZ-1234"
@@ -69,7 +73,12 @@ async function waitFor(sessionId, pred, ms = 4000) {
   });
 }
 // #5994: no test leaks a mock mode into the next one, even when it fails.
-test.afterEach(() => { for (const k of ['FAKE_CODEX_SLEEP', 'FAKE_CODEX_IGNORE_TERM', 'FAKE_CODEX_FAIL']) delete process.env[k]; });
+// and no sign-in a test started outlives it, even when an assertion failed before the test's own cancel.
+const STARTED = [];
+test.afterEach(() => {
+  for (const k of ['FAKE_CODEX_SLEEP', 'FAKE_CODEX_IGNORE_TERM', 'FAKE_CODEX_FAIL', 'FAKE_CODEX_WRITE_ON_TERM']) delete process.env[k];
+  while (STARTED.length) openai.cancelChatgptLogin(STARTED.pop());
+});
 // #5994: wait for a plain condition through the same shared helper.
 async function eventuallyTrue(fn, msg, ms = 4000) {
   return eventually(() => Boolean(fn()), (v) => v === true, { timeoutMs: ms, describe: () => msg });
@@ -240,11 +249,12 @@ async function startHeldReauth(dirName, email) {
   process.env.FAKE_ID_TOKEN = idToken(email);
   const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', reauthDir: dir });
   assert.equal(r.ok, true, r.because);
+  STARTED.push(r.sessionId);
   await waitFor(r.sessionId, (x) => x.state === 'awaiting-browser' || x.state === 'awaiting-code' || x.state === 'starting');
   return { dir, sessionId: r.sessionId };
 }
 
-test('#5994: removeAccount cancels the account\'s own unfinished reauth and deletes it; the late exit cannot bring it back', async () => {
+test('#5994: removeAccount cancels the account\'s own unfinished reauth and deletes it', async () => {
   const { dir, sessionId } = await startHeldReauth('.codex-busy', 'busy@example.com');
   const rm = openai.removeAccount(dir, []);
   assert.equal(rm.ok, true, rm.because);
@@ -252,6 +262,20 @@ test('#5994: removeAccount cancels the account\'s own unfinished reauth and dele
   assert.equal(openai.chatgptLoginStatus(sessionId).state, 'cancelled', 'the reauth was not cancelled');
   delete process.env.FAKE_CODEX_SLEEP;
   await eventuallyTrue(() => workSlots().length === 0, 'the cancelled reauth\'s staging slot was never freed');
+});
+
+test('#5994: a cancelled reauth that writes a valid auth.json as it dies does not bring the removed account back', async () => {
+  const dir = writeChatgptAccount('.codex-back10', 'back10@example.com');
+  process.env.FAKE_CODEX_WRITE_ON_TERM = '1';
+  process.env.FAKE_ID_TOKEN = idToken('back10@example.com');   // the SAME account, so a promote would be accepted
+  const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', reauthDir: dir });
+  assert.equal(r.ok, true, r.because);
+  STARTED.push(r.sessionId);
+  await waitFor(r.sessionId, (x) => x.state === 'awaiting-browser');   // printed after the trap
+  assert.equal(openai.removeAccount(dir, []).removed, true);
+  // The SIGTERM makes the child write auth.json into its staging dir and exit 0: the shape of a finished sign-in.
+  await eventuallyTrue(() => workSlots().length === 0, 'the child never exited');
+  assert.equal(fs.existsSync(dir), false, 'the dying reauth promoted into the removed account');
 });
 
 test('#5994: forgetAccount cancels the account\'s own unfinished reauth and moves it aside', async () => {
@@ -287,10 +311,12 @@ test('#5994: the cancelled reauth\'s late exit does not release a hold a NEW sig
   process.env.FAKE_CODEX_SLEEP = '1';
   const fresh = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', label: 'busy4' });
   assert.equal(fresh.ok, true, fresh.because);
+  STARTED.push(fresh.sessionId);
   await eventuallyTrue(() => openai.chatgptLoginStatus(sessionId).state === 'cancelled' && workSlots().length === 0,
     'the old reauth never finished exiting');
   // The old exit has run. The new sign-in's hold must still stand, so a second one under that name is refused.
   const second = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', label: 'busy4' });
+  if (second.ok) STARTED.push(second.sessionId);
   assert.equal(second.ok, false, 'the old exit released the new sign-in\'s hold');
   assert.match(second.because, /already in progress/);
   openai.cancelChatgptLogin(fresh.sessionId);
@@ -331,6 +357,22 @@ test('#5994: an account already gone from the disk still has its own unfinished 
   await eventuallyTrue(() => workSlots().length === 0, 'the staging slot was never freed');
 });
 
+test('#5994: a rename or delete that THROWS (home not writable) cancels nothing', async () => {
+  const { dir, sessionId } = await startHeldReauth('.codex-ro11', 'ro11@example.com');
+  fs.chmodSync(SANDBOX, 0o555);   // nothing can be renamed out of, or deleted from, the home
+  let f; let rm;
+  try {
+    f = openai.forgetAccount(dir, []);
+    rm = openai.removeAccount(dir, []);
+  } finally { fs.chmodSync(SANDBOX, 0o755); }
+  assert.equal(f.ok, false);
+  assert.match(f.because, /could not move/);
+  assert.equal(rm.ok, false);
+  assert.match(rm.because, /could not delete/);
+  const st = openai.chatgptLoginStatus(sessionId).state;
+  assert.ok(st !== 'cancelled' && st !== 'error', 'a failed rename or delete cancelled the sign-in: ' + st);
+});
+
 test('#5994: a reauth cancelled a moment ago (its child still exiting) does not refuse the remove', async () => {
   openai.setChatgptTimers({ forceKill: 4000 });   // the TERM-ignoring child lives until this SIGKILL
   let r = null;
@@ -340,6 +382,7 @@ test('#5994: a reauth cancelled a moment ago (its child still exiting) does not 
     process.env.FAKE_ID_TOKEN = idToken('late8@example.com');
     r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', reauthDir: dir });
     assert.equal(r.ok, true, r.because);
+    STARTED.push(r.sessionId);
     await waitFor(r.sessionId, (x) => x.state === 'awaiting-browser');   // printed only after the trap
     assert.equal(openai.cancelChatgptLogin(r.sessionId).cancelled, true);   // the person pressed cancel...
     await new Promise((res) => setTimeout(res, 300));
