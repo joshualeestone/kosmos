@@ -4959,6 +4959,17 @@ test('#5995: a typed " (Kosmos app)" ending is not doubled, and one derivation s
     assert.deepEqual(remote.computerNameChoice('--relay evil'), { ok: true, next: 'relay evil', label: 'relay evil (Kosmos app)', box: 'relay evil' });
     assert.equal(remote.computerNameChoice(' - -x').next, 'x');
     assert.equal(remote.computerNameChoice('---').next, '');
+    // Characters nobody can see: a name made only of them is a cleared box, and none of them stays inside a name.
+    assert.deepEqual(remote.computerNameChoice('​‍﻿'), { ok: true, next: '', label: 'This computer (Kosmos app)', box: '' });
+    assert.equal(remote.computerNameChoice('Sam‮elif‬ Mac­').next, 'Samelif Mac');
+    // Half of a character pair on its own (a script can send one; a page cannot) is not handed on as it is.
+    assert.equal(remote.computerNameChoice('A\ud83d').next, 'A�');
+    // What the server does: one choice asked, and kept, is the same as doing both from the text.
+    const one = remote.computerNameChoice('Hall Mac');
+    assert.deepEqual(remote.canKeepComputerNameChoice(one), { ok: true });
+    assert.deepEqual(remote.keepComputerNameChoice(one), { ok: true, name: 'Hall Mac' });
+    assert.equal(remote.thisComputerDeviceName(), one.label);
+    assert.equal(remote.keepComputerNameChoice({ ok: false, because: 'that is not a name' }).ok, false);
     // Whatever is typed, the cleaned name passes the tunnel's own rule for a name (one line, 1 to 60 characters), so
     // a typed name is never swapped for the plain one behind the person's back.
     for (const odd of ['\t\ttabs\tinside\t', 'emoji \u{1F600} name', 'x'.repeat(200), 'a\u0000b\u007fc']) {
@@ -4999,6 +5010,10 @@ test('#5995: a remote.json that cannot be read at all is not rewritten for the s
     try { fs.readFileSync(remote.FILE, 'utf8'); } catch { stillReads = false; }
     if (stillReads) { t.skip('this host reads a file with no permissions, so the state cannot be made here'); return; }
     assert.equal(remote.read().ok, false, 'CONTROL: the unreadable file read as fine');
+    // No kept choice can be shown from a file that cannot be read: the box gets the computer's own name (the file
+    // here holds none; one that did would come back when the file reads again, which the comment at
+    // computerNameShown states).
+    assert.deepEqual(remote.computerNameShown(), { name: own, fromComputer: true });
     const got = remote.setComputerName('Work Mac');
     assert.equal(got.ok, false, 'a name was kept by rewriting a file that could not be read');
     assert.match(got.because, /could not keep that name just now/);

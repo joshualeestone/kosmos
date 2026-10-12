@@ -1212,9 +1212,8 @@ async function forgetNow() {
   // the key being retired (the ensure tick, a stale page).
   write({ on: false, vouched: {} }, { repair: true });   // kosmos#5786 (b): a forgotten computer keeps no notes
   /* kosmos#5995: computer_name is NOT cleared here, on purpose. It is the person's own choice of what to call this
-     computer, not a note about a sign-in; the next sign-in shows it in the box before anything is sent, and the
-     quiet approval only ever follows a sign-in that showed it. (On a damaged file this write starts from the
-     defaults, so the choice is lost with everything else.) Pinned in remote.test.js. */
+     computer, not a note about a sign-in, and the next sign-in's box is filled with it. (On a damaged file this
+     write starts from the defaults, so the choice is lost with everything else.) Pinned in remote.test.js. */
   flipPending = false;   // kosmos#4743: a flip not yet told belonged to the identity being forgotten
   let retired = false;
   let because = null;
@@ -2566,7 +2565,11 @@ function computerNameChoice(raw) {
     while (v.endsWith(DEVICE_SUFFIX) || v === DEVICE_SUFFIX.trim()) v = v.slice(0, -DEVICE_SUFFIX.trim().length).trim();
     return v;
   };
-  const cleaned = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  /* Characters nobody can see go first (zero-width and direction marks, the soft hyphen, the byte-order mark): a
+     name made only of them LOOKS like a cleared box and must be one, and a direction override inside a name can
+     make the account's list read as something else. A half of a character pair on its own is replaced. */
+  const cleaned = raw.toWellFormed().replace(/[­؜​-‏‪-‮⁠-⁤⁦-⁩﻿]/g, '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
   const own = withoutSuffix(ownComputerDeviceName());
   /* The text the box was filled with, left as it was, is "untouched" whatever it looks like (a computer named
      "-Studio" too): compared BEFORE anything is taken off it, so what was shown is what is sent, and nothing is kept. */
@@ -2580,10 +2583,9 @@ function computerNameChoice(raw) {
 /** Whether setComputerName(raw) could keep this choice right now, without writing anything: yes when there is
     nothing to write, or when remote.json can be read or repaired; no for something that is not a name, and for a
     file that cannot be read at all. Asked before the start, so a code is not emailed for a name that cannot be kept. */
-function canKeepComputerName(raw) {
-  const choice = computerNameChoice(raw);
-  return choice.ok ? ableToKeep(choice, read()) : choice;
-}
+function canKeepComputerName(raw) { return canKeepComputerNameChoice(computerNameChoice(raw)); }
+/** The same question for a choice already worked out (the server holds one from before the start). */
+function canKeepComputerNameChoice(choice) { return choice && choice.ok ? ableToKeep(choice, read()) : choice; }
 /* The one answer both functions give, for a choice already worked out and a read already made (so neither is
    derived twice within one call). */
 function ableToKeep(choice, current) {
@@ -2599,9 +2601,10 @@ function ableToKeep(choice, current) {
     may be whole, and a repair would rewrite it from nothing for the sake of a name.
     The server calls this only AFTER a sign-in start carried the name, so a name is never kept for a start that did
     not go out, and there is nothing to put back. It asks canKeepComputerName() BEFORE that start. */
-function setComputerName(raw) {
-  const choice = computerNameChoice(raw);
-  if (!choice.ok) return choice;
+function setComputerName(raw) { return keepComputerNameChoice(computerNameChoice(raw)); }
+/** Keep a choice already worked out: the very one whose `label` the start sent, so the name sent IS the name kept. */
+function keepComputerNameChoice(choice) {
+  if (!choice || !choice.ok) return choice;
   const current = read();
   const able = ableToKeep(choice, current);
   if (!able.ok) return able;
@@ -3222,7 +3225,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { computerNameShown, computerNameChoice, canKeepComputerName, setComputerName /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { computerNameShown, computerNameChoice, canKeepComputerName, canKeepComputerNameChoice, setComputerName, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   ownDeviceIds,

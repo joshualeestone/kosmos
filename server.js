@@ -9915,31 +9915,26 @@ const server = http.createServer(async (req, res) => {
         }
         const deviceName = typeof body.device_name === 'string' ? body.device_name : undefined;
         /* kosmos#5995 item 4: what the person left in "Name for this computer" names this start, and is kept once
-           the start has carried it, so verify and every later re-approval of this computer send the one name they
-           saw. In that order on purpose: a start that does not go out (busy, the tunnel failing) keeps nothing, so
-           there is nothing to undo, and a start that fails cannot undo a name another start carried. (An earlier
-           version kept first and put back on failure; three review rounds each found another way that could go
-           wrong.) Two starts at once with DIFFERENT names keep whichever is saved last: one person naming one
-           computer two ways at once has no right answer, and the next sign-in shows which name stayed.
-           Whether the name CAN be kept is asked before the start, so no code is emailed for a name that cannot
-           be (a settings file that cannot be read at all would otherwise send one on every try).
-           Absent (an older page, a script): nothing changes, and `device_name` keeps its meaning. A request
-           with both is naming THIS computer: computer_name takes device_name's place.
-           The one gap, stated: the start went out and the save then fails all the same (a disk that fails
-           between the two, or another request changing the settings file while the start was out: the question
-           asked before the start is not a promise about after it). The code was emailed and works, so the answer is still the code step, with
-           computer_name_kept: false for the page to say so; it is not an error the person must start over from. */
+           the start has gone out, so verify and every later re-approval of this computer send that name.
+           - A start that does not go out (busy, the tunnel failing) keeps nothing.
+           - Whether the name can be kept is asked BEFORE the start, so no code is emailed for one that cannot be.
+           - If the save fails all the same after the start went out, the answer is still the code step (the
+             code was emailed and works), with computer_name_kept: false for the page to say so.
+           - Two starts at once with different names keep whichever is saved last.
+           - Absent (an older page, a script): nothing changes. With both, computer_name takes device_name's
+             place: the request is naming THIS computer.
+           One choice is worked out and used three times (asked, sent, kept), so the three cannot differ. */
         let choice = null;
         if (typeof body.computer_name === 'string') {
           choice = remote.computerNameChoice(body.computer_name);
           if (!choice.ok) { sendJson(res, 400, { error: choice.because }); return; }
-          const able = remote.canKeepComputerName(body.computer_name);
+          const able = remote.canKeepComputerNameChoice(choice);
           if (!able.ok) { sendJson(res, 400, { error: able.because }); return; }
         }
         const got = await remote.signinStart(email, choice ? choice.label : deviceName);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         if (choice) {
-          const kept = remote.setComputerName(body.computer_name);
+          const kept = remote.keepComputerNameChoice(choice);
           if (!kept.ok) { sendJson(res, 200, { ok: true, stage: got.data.stage, computer_name_kept: false }); return; }
           // computer_name: what the box shows for the name as kept (one line, cut to fit; '' for a cleared box).
           sendJson(res, 200, { ok: true, stage: got.data.stage, computer_name: choice.box });

@@ -12015,7 +12015,7 @@ test('#5995: the name this computer is sent under can be read first, rides the s
     assert.deepEqual(await shown(), { ok: true, name: 'Studio Mac', fromComputer: false });
     // A later start that names nothing (the quiet paths, an older page) still sends the kept name.
     assert.equal((await start({})).status, 200);
-    // They cleared it: the plain name goes, the box is told to stay empty, and the next sign-in shows the plain name.
+    // They cleared it: the plain name goes, the box is told to stay empty, and the next sign-in shows an empty box.
     const cleared = await start({ computer_name: '' });
     assert.equal(cleared.status, 200);
     assert.equal(JSON.parse(cleared.body).computer_name, '', 'a cleared box is told to show a name');
@@ -12025,6 +12025,10 @@ test('#5995: the name this computer is sent under can be read first, rides the s
     // Compared as "own" or the literal, so a failing line never prints this computer's real name.
     const told = sentNames().map((n) => (n === first.name + ' (Kosmos app)' ? 'OWN' : n));
     assert.deepEqual(told, ['OWN', 'Studio Mac (Kosmos app)', 'Studio Mac (Kosmos app)', 'This computer (Kosmos app)', 'This computer (Kosmos app)']);
+    // Sent with a device_name too, computer_name is the one that names this start.
+    assert.equal((await start({ computer_name: 'Both Given', device_name: 'Ignored Label' })).status, 200);
+    assert.equal(sentNames().at(-1), 'Both Given (Kosmos app)', 'device_name named a start that also carried computer_name');
+    assert.equal((await start({ computer_name: '' })).status, 200);
     // A start that does not go out keeps nothing: the name is kept only after a start carried it.
     assert.equal(remoteEngine.read().computer_name, '', 'CONTROL: the cleared choice is not what is kept going in');
     process.env.FAKE_NAME_FAIL = '1';

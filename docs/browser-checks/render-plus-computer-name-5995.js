@@ -207,7 +207,7 @@ async function codeStep(page) {
       chk(kept === 'Studio Mac', 'the next sign-in shows the kept name, not the computer\'s', about(kept, 'Studio Mac'));
       await page.screenshot({ path: path.join(OUT, 'computer-name-kept.png') });
 
-      // ---- 3. Cleared: "This computer" goes, and that is what the next sign-in shows. ----
+      // ---- 3. Cleared: "This computer" goes, and the next sign-in shows the box still empty. ----
       await page.fill('#plus-signin-email', 'person@example.com');
       await page.fill('#plus-si-computer', '');
       const ph = await page.evaluate(() => document.getElementById('plus-si-computer').placeholder);

@@ -18,8 +18,8 @@ sent, let the person change or clear it, and use the chosen name on every path t
 - `web/index.html`: a "Name for this computer" box on the email step. It is hidden until the route has
   answered, then shown filled; the start waits for that read and sends the box's text. Enter in it asks
   for the code.
-- Tests: 8 in `engine/remote.test.js`, 1 in `server.test.js`, `web.computer-name-5995.test.js` (5), one
-  in `web.code-box.test.js`, which also loads the real name function. Browser check
+- Tests named `#5995`: 10 in `engine/remote.test.js`, 1 in `server.test.js`, 5 in
+  `web.computer-name-5995.test.js`, 2 in `web.code-box.test.js` (which also loads the real name function). Browser check
   `docs/browser-checks/render-plus-computer-name-5995.js` drives the real page and the real routes.
 
 ## Decided
@@ -203,3 +203,19 @@ Not taken (third time): the plan's file name and the commit subjects (reasons in
 - NITs taken: the choice and the read are worked out once per call (third time raised); a test that a typed name
   always passes the tunnel's rule for a name, so it is never swapped for the plain one. Not taken: an unreachable
   refusal branch in the route (harmless, and it is what makes a later change to the engine's refusals safe).
+
+## Review 9 (default)
+3 WARNING, 5 CONVENTION, 4 NIT.
+- WARNING taken: a name made only of characters nobody can see (zero-width, direction marks) was kept as a name and
+  looked like a cleared box; those characters are removed first, so it IS a cleared box, and a direction override
+  cannot sit inside a name. Half of a character pair on its own is replaced.
+- WARNING, recorded since Review 7: while remote.json cannot be read at all, an untouched start sends the
+  computer's own name, and a choice still in the file comes back when it reads again. The unreadable-at-all half
+  now has the same assertion as the damaged half. The behaviour is unchanged.
+- WARNING, the owed verification: unchanged, and it is what stands between this branch and its proof.
+- CONVENTION taken: the route's comment told the story of earlier versions (it now says what the code does, as a
+  list, with no long line); a comment at Forget claimed the quiet approval "only ever follows a sign-in that
+  showed it" (false on the fast path; removed); the plan's test counts; and "worked out once" was not true of the
+  ROUTE, which now holds one choice and passes it to `canKeepComputerNameChoice` and `keepComputerNameChoice`.
+- CONVENTION, not taken (fifth time): the plan's file name and the commit subjects.
+- NITs taken: two stale "shows the plain name" comments; a test that `computer_name` wins over `device_name`.
