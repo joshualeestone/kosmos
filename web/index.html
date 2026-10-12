@@ -68352,7 +68352,7 @@ window.addEventListener('pagehide', () => { if (SPEAK.btn) speakStop(); });
 /* ---- #5624: conversation mode ----
    While it is on for a conversation (an agent's direct thread, or a project room), each NEW message from an agent
    there is read aloud as it arrives, with the read-aloud parts above (on-device voice, code announced not spelled).
-   On/off is per conversation, remembered on this computer only (localStorage), and always visible on its button.
+   On/off is per conversation, remembered on this computer only (localStorage), and shown on its button.
    Nothing already on screen is read: a conversation's messages count as heard the first time they are drawn, and
    when the mode is turned on. A newer message stops the one being read; leaving the conversation or turning the mode
    off stops it too. A long message is read up to CONV_MAX characters, cut at a sentence end. */
