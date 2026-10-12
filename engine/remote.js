@@ -2541,7 +2541,7 @@ const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
    switch goes off (it may have been on before the sign-in) and no tunnel runs,
    so the ensure tick cannot bring it online. */
 /* A register that failed AFTER writing a new identity (the tunnel writes the new
-   key, id and address first, the certificate last): what is left is the new id
+   mac_identity, then key, id and address, the certificate last; kosmos#5871): what is left is the new id
    beside the old certificate, which no tunnel may run on. The old certificate
    belongs to a key that is gone, so it is dropped: the directory is then half
    registered, and the next register retires that id first. (#3827) */
@@ -2561,7 +2561,12 @@ function abandonChangedIdentity(before, addressBefore, startedAt) {
   }
   fedSetStanding('');
 }
-const macIdHere = () => { try { return fs.readFileSync(path.join(STATE_DIR(), 'mac_id'), 'utf8').trim() || null; } catch { return null; } };
+/* kosmos#5871: the id the TUNNEL signs as, by its own rule (engine/enrolment.js currentMacIdBy): from mac_identity,
+   which a registration writes first, unless an older tunnel's newer mac_id names another. Reading only mac_id let a
+   register cut between the two leave the app and the tunnel naming different computers. */
+const macIdHere = () => require('./enrolment').currentMacIdBy(
+  (f) => { try { return fs.readFileSync(path.join(STATE_DIR(), f), 'utf8'); } catch { return null; } },
+  (f) => { try { return fs.statSync(path.join(STATE_DIR(), f)).mtimeMs; } catch { return null; } });
 function cancelledAfter(result, before, addressBefore, startedAt) {
   // Failed after writing a new id: the same clean-up as an uncancelled failure,
   // so no tunnel can later run the new id on the old certificate.

@@ -26,4 +26,26 @@ function enrolledBy(exists) {
   return missingFor(exists).length === 0;
 }
 
-module.exports = { ENROL_FILES, CERT_FILES, HELD_FILE, missingFor, enrolledBy };
+/* kosmos#5871: which id names this computer NOW, given `read(name)` (the file's text, or null) and `mtimeOf(name)`
+   (its modification time in ms, or null). The tunnel writes `mac_identity` (the id, then the key, one per line) FIRST
+   at every registration, in one step, and the old `mac_id` / `mac_key` pair after it for older readers. So: the id
+   in `mac_identity` names it, unless the `mac_id` file names a DIFFERENT id and is NEWER (an older tunnel, which
+   writes only the pair, registered since). No `mac_identity` (registered before it existed): the `mac_id` file.
+   ⚠️ COUPLING, across a repo: this is the rule of kosmos-relay crates/tunnel/src/coordinator.rs
+   MacState::identity_record, so the app and the tunnel always name the same computer. Change them together.
+   A mac_identity without an id is no id (null), never the other file's. A tie in mtime keeps mac_identity. */
+const IDENTITY_FILE = 'mac_identity';
+function currentMacIdBy(read, mtimeOf) {
+  const pairId = ((read('mac_id') || '').trim()) || null;
+  const text = read(IDENTITY_FILE);
+  if (text === null || text === undefined) return pairId;
+  const id = String(text).split('\n')[0].trim() || null;
+  if (!id) return null;
+  if (pairId && pairId !== id) {
+    const pairAt = mtimeOf('mac_id'); const fileAt = mtimeOf(IDENTITY_FILE);
+    if (pairAt !== null && fileAt !== null && pairAt > fileAt) return pairId;
+  }
+  return id;
+}
+
+module.exports = { ENROL_FILES, CERT_FILES, HELD_FILE, IDENTITY_FILE, missingFor, enrolledBy, currentMacIdBy };
