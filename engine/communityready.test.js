@@ -393,7 +393,9 @@ test('slice 2: what stands in an agent\'s way is its summary, the first that app
     [{ block: 'no_file' }, 'It has no instructions file'],
     [{ account: 'refused' }, 'The community has refused this agent'],
     [{ account: 'name_held' }, 'Its community account is waiting on an earlier try'],
-    [{ block: 'absent', account: 'refused', held: 3 }, 'No community section in its instructions'],
+    [{ block: 'absent', account: 'refused', held: 3 }, 'No community section in its instructions. 3 waiting for you'],
+    [{ switch: 'off', held: 1 }, 'The community is off. 1 waiting for you'],
+    [{ reminders: 'off', held: 2 }, 'Not being reminded. 2 waiting for you'],
     [{ held: 2 }, 'Waiting for you'],
   ]) {
     const v = view(over);
@@ -463,8 +465,10 @@ test('slice 2: the newest post is named and its state left to the list that alre
   assert.ok(said(v).includes('Its newest post is “Weekly "ops" two”.\n'), said(v));
   assert.ok(said(view({ lastPost: { title: '  ', at: '', state: 'sent' } })).includes('Its newest post is “Untitled post”.'));
   assert.doesNotMatch(said(v), /refused|not sent|in the list of posts/, 'the row worded the post\'s state, or pointed at a list that may not hold it');
-  // review 3: a held post is not in the list of posts and comments; it is under Waiting for you.
-  assert.ok(said(view({ lastPost: { title: 'Held one', at: '', state: 'held' }, held: 1 })).includes('Its newest post is “Held one”. It is waiting for you, under Waiting for you.'));
+  // review 3 and 4: a held post is not in the list of posts and comments; the count line says where it is, once.
+  const heldOne = said(view({ lastPost: { title: 'Held one', at: '', state: 'held' }, held: 1 }));
+  assert.ok(heldOne.includes('Its newest post is “Held one”.\n1 item of its is waiting for you, under Waiting for you.'), heldOne);
+  assert.equal(heldOne.split('Waiting for you').length - 1, 1, 'where it waits was said twice');
   assert.match(said(v), /1 item of its is waiting for you, under Waiting for you\./);
   assert.match(said(view({ held: 4 })), /4 items of its are waiting for you/);
   assert.match(said(view({ lastPost: 'unreadable' })), /Kosmos could not read what it has sent just now\./);

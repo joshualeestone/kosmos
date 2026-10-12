@@ -25894,6 +25894,9 @@ async function saveHeartbeat(on, intervalMinutes) {
       body: JSON.stringify({ on, intervalMinutes }),
     });
     const out = await res.json().catch(() => ({}));
+    /* #5958: "Where each agent stands" names this switch on every row, so a save reads that list again. Before the
+       epoch check: the save landed whether or not a newer read of this switch is in flight. */
+    if (res.ok) { if (typeof refreshCommunityReady === 'function') refreshCommunityReady(); }
     if (mine !== HB_EPOCH) return;
     if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
     paintSwitch('hb-toggle', out.on === true);
@@ -32961,10 +32964,12 @@ async function communityToggleClick() {
       body: JSON.stringify({ on }),
     });
     const body = await res.json().catch(() => ({}));
+    /* #5958: the rows name this switch, so a save reads them again. Before the epoch check: the save landed whether
+       or not a newer read of the switch is in flight. */
+    if (res.ok) { if (typeof refreshCommunityReady === 'function') refreshCommunityReady(); }
     if (mine !== COMMUNITY_EPOCH) return;
     if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; return; }
     communityPaint(body);
-    if (typeof refreshCommunityReady === 'function') refreshCommunityReady();   // #5958: the rows name the switch, what is held and the newest post
   } catch {
     msg.textContent = 'We could not save that setting.';
   } finally {

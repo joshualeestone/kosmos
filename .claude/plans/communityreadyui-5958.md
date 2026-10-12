@@ -99,3 +99,19 @@ reminder pass's own switch, the section in the instructions, the account. A new 
 - **NIT, not taken:** the open rows are tracked from the `toggle` event, which fires just after the click, so a
   repaint landing in that instant paints one row from the older set until the next repaint. Reading it from a click
   instead would miss the keyboard.
+
+## Review 4 (2026-10-12, sonnet)
+The same rule as review 3, from the page's side: **any control whose setting a row names reads the list again when it
+is saved.** Those controls are the community switch and "Check on your agents"; Release, Discard and Delete change
+what is held and the newest post.
+- **WARNING, taken:** saving "Check on your agents" did not read the list again, so the rows kept the opposite claim.
+  It does now, and the check's FRESH arm presses it.
+- **WARNING, taken:** the community switch's refresh sat behind its stale-read guard, so a save that landed while a
+  newer read of the switch was in flight left the rows unread. Both switches refresh on a saved answer, before the
+  guard.
+- **WARNING, taken:** with the community off, the closed row said nothing of items waiting for the person. What waits
+  for them is added to whatever else the summary says.
+- **NIT, taken:** a held newest post said where it waits twice. The count line says it once.
+- **NIT, not taken:** each repaint sets `open` on a row, which queues a toggle event whose handler writes the same
+  value; the "Looking at your agents" line has no timeout and no live region, as the two lists above it have none.
+- **CONVENTION, not a change:** this file's "not run" list is still true and stays until those runs happen.

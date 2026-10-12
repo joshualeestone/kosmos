@@ -25,7 +25,8 @@
  *   403       a gated read says the same.
  *   ODD       rows the page cannot paint (no session, no owner lines) are skipped, the rest are painted.
  *   FRESH     turning the community switch on or off reads the list again, so a row never keeps saying the community
- *             is off beside a switch that is on.
+ *             is off beside a switch that is on; so does turning "Check on your agents" on or off, which the rows
+ *             also name.
  *   PHONE     at 390 px wide, nothing in the list is wider than the screen and each summary is at least 44 px tall
  *             (the page's tap-target size; the arm reads the size, so the number is here and in the style sheet).
  *
@@ -297,6 +298,26 @@ async function run() {
     await p9.waitForFunction(() => { const d = document.querySelector('#community-ready-list summary span'); return d && d.textContent === 'Nothing found in its way'; }, null, { timeout: 5000 }).catch(() => {});
     const fr1 = await readList(p9);
     check('FRESH: turning the switch on reads the list again and the row stops saying it is off', reads > before && fr1.rows.length === 1 && fr1.rows[0].summary === 'Nothing found in its way', JSON.stringify([reads - before, fr1.rows.map((x) => x.summary)]));
+    // the other switch the rows name
+    const NOTREM = { ...AVA, owner: { summary: 'Not being reminded', lines: [{ text: '“Check on your agents” is off, so Kosmos is not reminding this agent to post. What it writes is still sent.' }] } };
+    let hbOn = true;
+    let hbPuts = 0;
+    await p9.unroute(READY);
+    await p9.route(READY, (route) => { reads += 1; return answer({ agents: [hbOn ? AVA : NOTREM] })(route); });
+    await p9.route('**/api/heartbeat-setting', (route) => {
+      if (route.request().method() === 'PUT') { hbPuts += 1; hbOn = !hbOn; }
+      return answer({ ok: true, on: hbOn, intervalMinutes: 15 })(route);
+    });
+    await p9.click('#s-nav button[data-go="automation"]');
+    await p9.waitForTimeout(600);
+    const hb = await p9.evaluate(() => { const t = document.getElementById('hb-toggle'); return { shown: Boolean(t) && !t.hidden, on: t ? t.getAttribute('aria-checked') : null }; });
+    check('FRESH CONTROL: "Check on your agents" is there to press, and reads on', hb.shown && hb.on === 'true', JSON.stringify(hb));
+    const beforeHb = reads;
+    await p9.click('#hb-toggle');
+    await p9.waitForFunction(() => { const d = document.querySelector('#community-ready-list summary span'); return d && d.textContent === 'Not being reminded'; }, null, { timeout: 5000 }).catch(() => {});
+    const fr2 = await readList(p9);
+    check('FRESH CONTROL: pressing it saved the setting', hbPuts === 1, String(hbPuts));
+    check('FRESH: turning "Check on your agents" off reads the list again and the row says it is not being reminded', reads > beforeHb && fr2.rows.length === 1 && fr2.rows[0].summary === 'Not being reminded', JSON.stringify([reads - beforeHb, fr2.rows.map((x) => x.summary)]));
     await p9.close();
 
     // PHONE

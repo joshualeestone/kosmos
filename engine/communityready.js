@@ -293,7 +293,7 @@ function ownerView(row) {
   }
   if (row.lastPost === 'unreadable') lines.push({ text: 'Kosmos could not read what it has sent just now.' });
   else if (row.lastPost === null) lines.push({ text: 'It has not posted yet.' });
-  else lines.push({ text: 'Its newest post is “' + (String(row.lastPost.title || '').replace(/\s+/g, ' ').trim() || 'Untitled post') + '”.' + (row.lastPost.state === 'held' ? ' It is waiting for you, under Waiting for you.' : '') });
+  else lines.push({ text: 'Its newest post is “' + (String(row.lastPost.title || '').replace(/\s+/g, ' ').trim() || 'Untitled post') + '”.' });
   if (row.held > 0) lines.push({ text: row.held + (row.held === 1 ? ' item of its is' : ' items of its are') + ' waiting for you, under Waiting for you.' });
   /* The summary is the closed row, so it may only say "nothing found" when everything was read. */
   const unread = row.reminders === 'unreadable' || row.block === 'unreadable' || row.account === 'unreadable' || row.reminder === 'unreadable' || row.lastPost === 'unreadable' || !Number.isInteger(row.held)
@@ -301,7 +301,10 @@ function ownerView(row) {
   /* A section missing while the community is off or unread is the switch's doing (it is taken out at a restart then),
      so the switch is what the closed row names. */
   const switchFirst = board && row.switch !== 'on' && row.block === 'absent';
-  const summary = (switchFirst ? board.summary : null) || ownerTrouble(row) || (board && board.summary) || (row.held > 0 ? 'Waiting for you' : null) || (unread ? 'Kosmos could not check everything just now' : 'Nothing found in its way');
+  const main = (switchFirst ? board.summary : null) || ownerTrouble(row) || (board && board.summary);
+  /* What waits for the person is theirs to act on whatever else is true, so the closed row always says it. */
+  const waiting = row.held > 0 ? row.held + ' waiting for you' : null;
+  const summary = main ? main + (waiting ? '. ' + waiting.charAt(0).toUpperCase() + waiting.slice(1) : '') : waiting ? 'Waiting for you' : (unread ? 'Kosmos could not check everything just now' : 'Nothing found in its way');
   return { summary, lines };
 }
 
