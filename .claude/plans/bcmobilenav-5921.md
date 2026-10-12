@@ -37,7 +37,10 @@ the context and may carry the same teardown race (noted on #5921, not changed he
 - Before: alone on Mortals at 5621723a5, 3 runs, 1 crashed (169 pass, then disposed); in the cut, 2 of 2 crashed.
 - After: alone on Mortals at origin/main, 40 of 40 runs of the unroute approach clean (0 fail, 0 disposed), across
   nine successive versions of the file, 4 or 8 runs each (171 checks before the end counts were added, 173 after).
-  Only the last 4 ran this exact file.
+  Then 26 more on this exact file (07:08, load about 3): 30 of 30 clean on the exact file, 173 checks each.
+- Can the abort count false-fail a green run (a request a reload or resize cancels while the page is open)? Review 9
+  traced WebKit's fulfil to a call that may fail without throwing; review 10 suspected it could throw. Measured: 0 false
+  fails in 30 runs of the exact file. If it false-failed 10% of runs, 30 clean would happen about 4% of the time.
 - At the before-rate (1 in 3), 40 clean runs of the approach happen by chance about 1 in 11 million; that is about the
   OLD crash, not about this exact file or any residual window.
 - The fix rests on Playwright's documented ignoreErrors semantics, not on a reproduced failure.
