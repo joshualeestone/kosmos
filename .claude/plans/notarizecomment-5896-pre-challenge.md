@@ -23,3 +23,8 @@ converged: true
 - [NIT] docs/releasing.md "is refused" did not say by what --> FIXED ("is rejected by spctl")
 - [NIT] a rewrapped comment line ran long --> FIXED
 - [NIT] the new header's "Measured 2026-10-12" claim is backed by the card's Apple submissions f51dd781 and bc72162c --> NOTED
+
+#### Checked by the reviewer and found clean
+- Tests: test-notarize-binaries-5137 85/85 and cut-sign-preflight 42/42 on the branch.
+- Behaviour: the diff touches only comments, one echo string, one doc paragraph and the matching grep in the test.
+- The old claim elsewhere: none left; "damaged" near notarise/sealed/quarantine appears only in the reworded comments (which now say the cause is not established) and in older plan files; no What's New or release-notes file makes the claim.
