@@ -1954,7 +1954,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   // Review 11's rule for the launch scan: whatever happens in the scan, the rest of the guard is still written, and the
   // guard says it is not whole.
   let startCmds;
-  try { startCmds = startcommands.startCommandScripts(dir, { homes: concreteHomes, home, ownHome, platform: deps.platform, managedDir: deps.managedDir, managedPrefsDir: deps.managedPrefsDir, covered: wholeDenied, pluginVars }); } catch (e) { startCmds = { files: [], pluginDirs: [], envPluginDirs: [], unsafe: [`(the commands Claude Code runs at start could not be read: ${(e && e.message) || e})`] }; }
+  try { startCmds = startcommands.startCommandScripts(dir, { homes: concreteHomes, home, ownHome, platform: deps.platform, managedDir: deps.managedDir, managedPrefsDir: deps.managedPrefsDir, covered: wholeDenied, pluginVars, readCache: deps.launchCache }); } catch (e) { startCmds = { files: [], pluginDirs: [], envPluginDirs: [], unsafe: [`(the commands Claude Code runs at start could not be read: ${(e && e.message) || e})`] }; }
   configUnsafe.push(...startCmds.unsafe);
 
   /* #5774 route 5: each plugin folder the three variables name (parsed in the scan), denied whole in both layers, as an
