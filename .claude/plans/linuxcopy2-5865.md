@@ -42,3 +42,10 @@ run every web*.test.js from the worktree as cwd.
 - The Accessibility line and button and the tmux permission box (macOS TCC) are hidden on Linux too.
 - A Linux arm in docs/browser-checks/render-win32-board-copy.js checks the hiding by computed style in chromium and
   webkit, with a Mac control; the unit test counts every data-linux-hide element against a named list.
+
+## Review 2 (blind, sonnet)
+- hostMachine/HostMachine gained a Windows arm ("your PC"): the signed-out sentences said "Your Mac" on a Windows board
+  seen from a phone.
+- Audited every data-win-hide element for Linux: Open Terminal is hidden (engine/terminal.js drives Terminal.app via
+  osascript); Update Kosmos automatically STAYS (a Linux install has runtime/bin/node, so engine/update.js
+  installedRoot finds it); the first-run ones (S3 mocks and gate, S7 Dock drawing) are #5877's.

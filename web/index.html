@@ -13354,7 +13354,8 @@ window.kosmosMeasureScrollbarWidth();
          "Trust & Restart" is the heavier one (it restarts). Each carries its own hint +
          receipt line so the association is unambiguous. -->
     <!-- win32-board-copy (W-18): hidden on Windows, where an agent runs headless and there is no Terminal window to attach. -->
-    <div class="field" data-win-hide>
+    <!-- #5865: and on Linux, where it would drive Terminal.app through osascript (engine/terminal.js), which is not there. -->
+    <div class="field" data-win-hide data-linux-hide>
       <button class="btn" id="d-open-terminal" type="button">Open Terminal</button>
       <p class="fhint" id="d-open-terminal-hint" style="margin-top:8px;">Opens this agent&rsquo;s Terminal window on this computer.</p>
       <p class="fmsg" id="d-open-terminal-msg" role="status" aria-live="polite"></p>
@@ -19672,9 +19673,12 @@ function onLinux(platform) {
   return known === 'linux';
 }
 /* #5865: what the person calls the machine Kosmos runs on, in words shown from elsewhere (a phone through Kosmos+).
-   A Linux board is often a headless server, so it is not "your Mac". */
+   A Linux board is often a headless server, and a Windows board is a PC, so neither is "your Mac". */
 function hostMachine(platform) {
-  return onLinux(platform) ? 'the computer running Kosmos' : 'your Mac';
+  return onLinux(platform) ? 'the computer running Kosmos' : onWindows(platform) ? 'your PC' : 'your Mac';
+}
+function HostMachine(platform) {   // the same words opening a sentence
+  return onLinux(platform) ? 'The computer running Kosmos' : onWindows(platform) ? 'Your PC' : 'Your Mac';
 }
 function linuxCopyTable() {
   return {
@@ -23732,7 +23736,7 @@ function paintOfflineNote(down, deviceIsOffline) {
     catch { /* no location: the sentence stands on its own */ }
     slot.innerHTML = '<div class="utoast stale" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt"><b>' + (onLinux() ? 'The computer running Kosmos' : 'Your Mac') + ' is not answering</b>'
+      + '<div class="utxt"><b>' + HostMachine() + ' is not answering</b>'
       + '<small>' + MAC_ASLEEP_SENTENCE + at + '</small>'
       + '</div></div>';
     return;
@@ -36189,7 +36193,7 @@ let BOARD_SIGNED_OUT = false;
 function relaySignedOut(status, body) {
   return status === 401 && !!body && body.signed_out === true;
 }
-const ORG_SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos. ' + (onLinux() ? 'The computer running Kosmos' : 'Your Mac') + ' and your agents are fine.';
+const ORG_SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos. ' + HostMachine() + ' and your agents are fine.';
 const DEVICE_SIGNIN_BUTTON = '<button class="btn" type="button" data-device-signin>Sign in</button>';
 /* #718 state 1: a read that got no answer, from a phone or computer reaching the Mac through
    Kosmos+, while the browser says it has no network. Then the thing that is offline is the
@@ -36216,7 +36220,7 @@ function deviceOfflineHtml() {
     + '<button class="btn" type="button" data-board-retry>Try again</button>'
     + '</div>';
 }
-const SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos, so it cannot see your agents or projects. ' + (onLinux() ? 'The computer running Kosmos' : 'Your Mac') + ' and your agents are fine. Sign in again from the Agents or Projects page.';
+const SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos, so it cannot see your agents or projects. ' + HostMachine() + ' and your agents are fine. Sign in again from the Agents or Projects page.';
 function deviceSignedOutHtml(what) {
   return '<div class="pj-empty boardfail">'
     + '<p><b>Sign in again to see your ' + (what === 'projects' ? 'projects' : 'agents') + '.</b><br>'
