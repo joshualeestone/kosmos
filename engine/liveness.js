@@ -123,10 +123,9 @@ function alive(sessionName, staleAfterMs) {
 }
 
 /* kosmos#5957 slice 3: how long an agent has gone without running, once that is long enough to say so.
-   The last authenticated report beats this record (server.js, the report route), so its time is the last
-   report the agent made. An agent that never reports has no record and gets null here. A whole number of days only at IDLE_DAYS or more; null
-   otherwise, and null when there is no record: an agent with no heartbeat has not been seen, which is not
-   the same as "seen long ago" (the three-answers rule above), so nothing is claimed about it. */
+   The report route (server.js) beats this record, so its time is the agent's last report. A whole number of
+   days only at IDLE_DAYS or more; null otherwise, and null with no record (never seen is not "seen long ago",
+   the three-answers rule above). */
 const IDLE_DAYS = 14;
 function idleDays(sessionName, nowMs) {
   const r = read(sessionName);
