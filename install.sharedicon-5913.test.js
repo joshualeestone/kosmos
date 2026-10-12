@@ -269,6 +269,19 @@ it('#5913 review 2: the reader keeps the icon when an ancestor above the parent 
   assert.match(run({ ...w, users: deep }, `sealed_icon_other_users ${ME}; echo "rc=$?"`).out, /rc=1/, 'CONTROL: with the grandparent searchable, the folder reads absent');
 });
 
+it('#5913 review 6: the reader keeps the icon when the nearest existing ancestor is a FILE, executable or not', () => {
+  const w = world();
+  const blocker = path.join(w.root, 'blocker');
+  const deep = path.join(blocker, 'Kosmos', 'sealed-icon-users');
+  for (const mode of [0o755, 0o644]) {
+    fs.writeFileSync(blocker, '#!/bin/sh\n'); fs.chmodSync(blocker, mode);
+    assert.match(run({ ...w, users: deep }, `sealed_icon_other_users ${ME}; echo "rc=$?"`).out, /rc=0/, `a file ancestor (mode ${mode.toString(8)}) read as "no other user"`);
+    fs.rmSync(blocker);
+  }
+  fs.mkdirSync(blocker);
+  assert.match(run({ ...w, users: deep }, `sealed_icon_other_users ${ME}; echo "rc=$?"`).out, /rc=1/, 'CONTROL: with a folder there, the users folder reads absent');
+});
+
 test('#5913 review 2: open and uninstall wiring (text only, every platform)', () => {
   // A reusing run opens the shared icon, gated on reuse, never on bundle_is_ours.
   assert.match(SETUP, /if \[ "\$\{APP_SKIP_REASON:-\}" = "shared-sealed" \]; then\n  _open_app="\$SYS_APP_DIR\/Kosmos\.app"\n  sealed_icon_reusable "\$_open_app" && _open_ok=yes/, 'a reusing install no longer opens the shared icon');

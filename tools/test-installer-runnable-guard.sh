@@ -1,7 +1,8 @@
 #!/bin/bash
 # #1716: [ -x "$p" ] succeeds on a DIRECTORY, so a directory named like a binary
 # reads as an installed program. Every executable test in the shipped installer
-# must guard the SAME path with -f. This test (1) demonstrates the class and
+# must guard the SAME path with -f (or, for a folder search test, gate it with -d;
+# see section 2). This test (1) demonstrates the class and
 # (2) asserts no bare, unguarded [ -x "P" ] remains in the three installer files.
 #
 # Sibling #1616 is the same class for fs.existsSync in JavaScript; #1592 fixed
@@ -33,6 +34,8 @@ rm -rf "$_td"
 #      [ -x P ]     (P = "quoted" or an unquoted /path)  needs  [ -f P ]
 #      [ ! -x P ]   (the negated form: a +x dir reads as executable there too)
 #                                                        needs  [ ! -f P ]
+#    or, for a test of whether a FOLDER can be entered (#5913), [ -d P ] before it on the line,
+#    joined by && alone.
 #    Any missing guard is a directory-accepting site. Red if any is added.
 _scan='
 {
@@ -40,9 +43,13 @@ _scan='
   s = line
   while (match(s, /\[ -x ("[^"]+"|[^] ]+) \]/)) {
     p = substr(s, RSTART, RLENGTH); sub(/^\[ -x /, "", p); sub(/ \]$/, "", p)
-    # #5913: [ -d P ] on the same line makes it a SEARCH test on a folder (can this account enter it), which is
-    # not the class: a path that must be a directory cannot be mistaken for an installed program.
-    if (index(line, "[ -f " p " ]") == 0 && index(line, "[ -d " p " ]") == 0)
+    # #5913: a SEARCH test on a folder (can this account enter it) is not the class, but only when the folder test
+    # gates it: [ -d P ] earlier on the line, joined to [ -x P ] by && alone (no || and no ; between).
+    # Then a path that is not a folder never reaches the -x, so it cannot be taken for an installed program.
+    # (A -d in a trailing comment always comes after the code, so the order rule refuses it too.)
+    xi = index(line, "[ -x " p " ]"); di = index(line, "[ -d " p " ]")
+    dgate = (di > 0 && xi > di && substr(line, di, xi - di) !~ /\|\||;/)
+    if (index(line, "[ -f " p " ]") == 0 && !dgate)
       printf "%s:%d: bare [ -x %s ] (a directory passes)\n", FILENAME, FNR, p
     s = substr(s, RSTART + RLENGTH)
   }
@@ -80,9 +87,21 @@ _ctl="$(mktemp)"
 printf '  [ -d "$DIR" ] && [ -x "$DIR" ] || return 0\n' > "$_ctl"
 if [ -z "$(awk "$_scan" "$_ctl" 2>/dev/null)" ]; then pass "a folder search test ([ -d P ] && [ -x P ]) is not flagged"
 else fail "the scan flagged a folder search test guarded by -d on the same path"; fi
-printf '  [ -d "$OTHER" ] && [ -x "$DIR" ] || return 0\n' > "$_ctl"
-if [ "$(awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -eq 1 ]; then pass "a -d on a different path does not excuse a bare [ -x ] (control)"
-else fail "a -d on another path excused a bare [ -x ]"; fi
+printf '  [ -d "$S" ] && [ ! -L "$S" ] && [ -r "$S" ] && [ -x "$S" ] || return 0\n' > "$_ctl"
+if [ -z "$(awk "$_scan" "$_ctl" 2>/dev/null)" ]; then pass "a folder search test with other && tests between is not flagged"
+else fail "the scan flagged a folder search test joined by && through other tests"; fi
+# Each of these lets a path that is NOT a folder reach the -x, so each must still be flagged (review 6).
+_n=0
+for _l in '  [ -d "$OTHER" ] && [ -x "$DIR" ] || return 0' \
+          '  [ -d "$P" ] || [ -x "$P" ] && run "$P"' \
+          '  [ -d "$P" ] && mkdir y; [ -x "$P" ] && "$P" --version' \
+          '  [ -x "$P" ] && run "$P"   # was [ -d "$P" ] before' \
+          '  [ -x "$P" ] && [ -d "$P" ] && run "$P"'; do
+  printf '%s\n' "$_l" > "$_ctl"
+  if [ "$(awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -eq 1 ]; then _n=$((_n + 1))
+  else fail "a -d that does not gate the -x excused it: $_l"; fi
+done
+[ "$_n" -eq 5 ] && pass "a -d on another path, across || or ;, in a comment, or after the -x excuses nothing (5 controls)"
 rm -f "$_ctl"
 
 echo "installer runnable-guard: $fails failures"
