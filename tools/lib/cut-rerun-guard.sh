@@ -68,8 +68,8 @@ kosmos_failing_test_files() {
 # Re-running through run-tests.sh is safe from inside the cut: its #1962 machine-claim
 # consult is cookie-excluded, so the cut's OWN `yarn test` self-excludes and runs
 # rather than refusing (run-tests.sh:54-62). Up to `max` attempts (default 1; its
-# caller passes KOSMOS_SUITE_RERUN_MAX), with a short pause between extra ones, so
-# only when the budget is raised; dismiss ONLY on a green, abort on a persistent
+# caller passes KOSMOS_SUITE_RERUN_MAX), pausing briefly between attempts, which only
+# happens when the budget is above 1; dismiss ONLY on a green, abort on a persistent
 # red. Returns 0 (contention, dismiss) or 1 (real red, abort).
 #
 # ISOLATION SCOPE, and how it differs from the file-by-file path: this re-runs the
@@ -83,17 +83,18 @@ kosmos_failing_test_files() {
 # COST, and #5907's split: each attempt here is a full `yarn test` (30 to 36 min by
 # 10-12, not the ~2 min this was written for), run while the cut holds the box. So
 # this path no longer shares the file-by-file `max`; it has its own budget,
-# KOSMOS_SUITE_RERUN_MAX, default 1. Measured over the six cuts whose logs reached
-# this path on one release box (Agent1s, 10-07 to 10-08): three passed on attempt 1
-# and three stayed red on all three, so attempts 2 and 3 changed no verdict and cost
-# two suites per real red. That evidence is thin and one-sided: it shows retries
+# KOSMOS_SUITE_RERUN_MAX, default 1. Measured over the eleven cut runs whose logs reached
+# this path on one release box (Agent1s: six cut logs 10-07 to 10-08, five more in
+# ~/.claude/logs/cut-suite-runs.log to 09-27): three passed on attempt 1 and eight
+# stayed red on all three, so attempts 2 and 3 changed no verdict and cost two
+# suites per real red. That evidence is thin and one-sided: it shows retries
 # wasted on real reds, not that a second attempt never rescues contention. If
 # contention reds come back, KOSMOS_SUITE_RERUN_MAX=3 restores the old budget.
 #
 # SEAMS (so the test proves both verdicts without running a real suite):
 #   KOSMOS_SUITE_RERUN_CMD   the command run in $repo (default `yarn test`)
 #   KOSMOS_SUITE_RERUN_SLEEP seconds to pause between attempts (default 5; 0 in tests)
-#   KOSMOS_SUITE_RERUN_MAX   attempts for this path (default 1; the tests set 2 and 3)
+#   KOSMOS_SUITE_RERUN_MAX   attempts for this path (default 1)
 # Written errexit-safe (release.sh sources this under set -euo pipefail): the rerun
 # runs in an `if ( ... )` subshell so its non-zero does not abort, and the
 # inter-attempt pause is guarded by an `if` (a bare `&&` list could trip errexit).
@@ -122,8 +123,10 @@ kosmos_whole_suite_rerun_verdict() {
     if [ "$attempt" -le "$max" ] && [ "$sleep_s" -gt 0 ]; then sleep "$sleep_s"; fi
   done
   echo "  whole suite: red in isolation across all $max attempts -> a real failure, not contention. The cut aborts."
-  # #5907: the budget is 1 by default, so say where the override is, in the log a person reads.
-  echo "  (whole-suite attempts: $max. If you believe this red was contention, KOSMOS_SUITE_RERUN_MAX=3 before the cut allows up to 3.)"
+  # #5907: the budget is 1 by default, so say where the override is, in the log a person reads (not when it is already 3+).
+  if [ "$max" -lt 3 ]; then
+    echo "  (whole-suite attempts: $max. If you believe this red was contention, KOSMOS_SUITE_RERUN_MAX=3 before the cut allows up to 3.)"
+  fi
   return 1
 }
 

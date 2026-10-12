@@ -127,6 +127,10 @@ if out="$(KOSMOS_SUITE_RERUN_MAX=999 KOSMOS_SUITE_RERUN_CMD="sh $flip" kosmos_is
 { [ "$rc" -eq 0 ] && [ "$(wc -l < "$cnt" | tr -d ' ')" = 2 ] && ! printf '%s\n' "$out" | grep -q "not a whole number"; } \
   && ok "KOSMOS_SUITE_RERUN_MAX=999 is accepted (the top of the range): a second attempt runs and dismisses" \
   || bad "budget 999: rc=$rc runs=$(wc -l < "$cnt" | tr -d ' ') out=$out"
+if out="$(KOSMOS_SUITE_RERUN_MAX=3 KOSMOS_SUITE_RERUN_CMD=false kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 1)"; then rc=0; else rc=$?; fi
+{ [ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -q "across all 3 attempts" && ! printf '%s\n' "$out" | grep -q "KOSMOS_SUITE_RERUN_MAX=3 before the cut"; } \
+  && ok "an abort at a budget of 3 or more does not tell the person to set 3" \
+  || bad "budget 3 abort: rc=$rc out=$out"
 
 # The rerun runs IN $repo: a command that greps a repo-local file must see it. Prove cd works.
 echo "sentinel" > "$WORK/repo-marker"
@@ -150,7 +154,7 @@ fi
 # A bare `&&` list or a `((...))` that returned non-zero here would abort before the
 # verdict; the correct behavior is a clean return 1 (the loop exhausts and aborts).
 eset4_out="$(bash -c 'set -euo pipefail; export KOSMOS_SUITE_RERUN_SLEEP=0 KOSMOS_SUITE_RERUN_CMD=false KOSMOS_SUITE_RERUN_MAX=2; . "$REPO/tools/lib/cut-rerun-guard.sh"; kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 2' 2>&1)"; eset4_rc=$?
-if [ "$eset4_rc" -eq 1 ] && printf '%s\n' "$eset4_out" | grep -q "across all 2 attempts"; then
+if [ "$eset4_rc" -eq 1 ] && printf '%s\n' "$eset4_out" | grep -q "across all 2 attempts" && printf '%s\n' "$eset4_out" | grep -q "KOSMOS_SUITE_RERUN_MAX=3 before the cut"; then
   ok "as a DIRECT caller under set -euo pipefail, the multi-attempt abort path exercises the increment + sleep-guard and returns 1 cleanly (errexit-safe)"
 else
   bad "errexit-safety (multi-attempt abort path): rc=$eset4_rc out=[$eset4_out]"
