@@ -336,3 +336,27 @@ test('#6054 review 3: at a permission prompt the words-check refusal does not of
     assert.deepEqual(calls.keys(), []);
   });
 });
+
+test('#6054 review 4: an older rule above a box whose own top has scrolled away does not make it answerable', async () => {
+  const lines = BASH.split('\n');
+  const q = lines.findIndex((l) => /Do you want to proceed\?/.test(l));
+  const stale = '────────────────────────────────\n⏺ An earlier reply.\n  ⎿  An earlier result\n' + lines.slice(q - 3).join('\n');
+  assert.equal(chat.permissionAnswerable(stale), false, 'an earlier turn\'s rule was taken for this box\'s top');
+  assert.equal(chat.permissionAnswerable(BASH), true, 'CONTROL: the whole box');
+  await withPrompt(stale, async (calls) => {
+    const back = await getThread();
+    assert.equal(back.asked, null, 'buttons were drawn under a stale rule');
+    assert.deepEqual(calls.keys(), []);
+  });
+});
+
+test('#6054 review 4: a prompt with a label a press could never carry keeps the window ending (the page draws no buttons for it)', async () => {
+  const huge = EDIT.replace('   3. No', '   3. ' + 'N'.repeat(10500));
+  assert.ok(chat.messageProblem('N'.repeat(10500)), 'premise: that label is one a press cannot carry');
+  await withPrompt(huge, async () => {
+    const back = await getThread();
+    assert.equal(back.asked, null, 'premise: no buttons are drawn');
+    const r = await post({ text: 'yes go ahead' });
+    assert.match(JSON.stringify(r.json), /answer it in its window first/, 'a refusal promised buttons the page does not draw');
+  });
+});
