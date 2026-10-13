@@ -13097,8 +13097,10 @@ test('#1304: each field takes the best source that has it, and neither hard-null
     /* AND THE UNIDENTIFIABLE-DIRECTORY FORM, the third branch of `acct`, which
        no arm reached: a job pointing at a config dir that is in no known list. */
     const unknownDir = whoamiFor(card, [], { ok: false, because: 'no pane' });
-    assert.match(sentenceForWhoami(unknownDir.account, unknownDir.model), /^This agent runs on an account we cannot identify \(/,
+    assert.match(sentenceForWhoami(unknownDir.account, unknownDir.model), /^This agent runs on an account we cannot identify[,.]/,
       'a configured but unrecognised directory stopped being reported');
+    // #5636 N4: without the folder (it names this computer's user folder).
+    assert.doesNotMatch(sentenceForWhoami(unknownDir.account, unknownDir.model), /cannot identify \(|\//, 'the folder is in the sentence');
 
   } finally {
     if (fixtureJob) { try { fs.rmSync(fixtureJob, { force: true }); } catch { /* nothing to undo */ } }
@@ -13748,8 +13750,9 @@ test('#2811: the sentence a Codex agent reads back actually says Codex', () => {
   const { sentenceForWhoami } = require('./server.js');
   const codexAcct = { email: null, label: null, dir: '/Users/x/.codex', isDefault: null };
   const said = sentenceForWhoami(codexAcct, { id: 'gpt-5.6', name: 'GPT-5.6' }, 'codex');
-  assert.match(said, /^This is a Codex agent, and it runs on an account we cannot identify \(/,
+  assert.match(said, /^This is a Codex agent, and it runs on an account we cannot identify, /,
     'a Codex agent is told nothing about being a Codex agent');
+  assert.ok(!said.includes('/Users/x'), '#5636 N4: the folder is in the sentence');
   assert.match(said, /and its model is GPT-5\.6/);
 
   /* CONTROL: the claude sentence is byte-identical to what it was. The clause is
@@ -15563,7 +15566,7 @@ test('#2811: a NAMED Codex account is called by its name, not "an account we can
   /* CONTROL 1: the SAME object with no name must still produce the old sentence,
      else the rung is not what changed the answer and this arm proves nothing. */
   const unnamed = sentenceForWhoami({ dir: DIR, name: null, email: null, label: null, isDefault: null }, null, 'codex');
-  assert.match(unnamed, /an account we cannot identify \(\/Users\/x\/\.codex-work2\)/,
+  assert.match(unnamed, /an account we cannot identify[,.]/,
     'CONTROL: without a name the sentence no longer says "cannot identify", so the name rung is not the discriminator');
 
   /* CONTROL 2: the name must LEAD, matching `acctParenthetical`'s order. With both
