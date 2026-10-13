@@ -20738,6 +20738,11 @@ const STATE_COPY = {
      still needs_you; cardStOf/stateCopyOf route a class-2 here via the inlined
      `state==='needs_you' && stateReportedBy==='agent'` predicate (glyphOf follows cardStOf.st). */
   question:     { label: 'Question',      attn: false },
+  /* #6091: a Claude agent stopped on its permission prompt (the engine's needs_you with because APPROVAL_WAITING,
+     status.js) reads "Waiting for you", not "Issue": it is waiting on the person's Yes/No (#6054 buttons on its page),
+     not broken. Still an attention state with the needs-you look: it blocks the agent, and #2808 keeps a technical
+     prompt red on purpose, as the fallback when nothing answers it. Only the word changes. */
+  approval:     { label: 'Waiting for you', attn: true },
   rate_limited: { label: 'Paused',        attn: true  },
   /* #874: Anthropic has rejected this account's bearer token outright, not
      merely throttled it. "Working" forever was the bug; "Paused" would be
@@ -20920,6 +20925,8 @@ function stateCopyOf(a) {
   // the red "Issue". The predicate is byte-identical to cardStOf's above (inlined, not
   // shared, so this painter stays self-contained for eval-extraction), so label and card agree.
   if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') return STATE_COPY.question;
+  // #6091: the permission prompt's own reason, byte-equal to status.APPROVAL_WAITING (web.approval-pill-6091.test.js).
+  if (a && a.state === 'needs_you' && a.because === 'it is waiting for your approval') return STATE_COPY.approval;
   /* #3410: while the self-heal still has retries to give (a.reconnect, from /api/status), the
      person has nothing to do yet, so the label says Kosmos is on it. Only when it has given up,
      or is not running, does the label go back to "Connection lost" (cardStOf sets the look). */
