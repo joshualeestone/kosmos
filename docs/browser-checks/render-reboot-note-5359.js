@@ -190,11 +190,15 @@ const CASES = [
     let note = null;
     let startedAt = null;   // null: pass the board's own value through
     await pg.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note }) }).catch(() => {}));
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await pg.route('**/api/status', async (route) => {
-      let res, data;
-      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
-      if (startedAt && data && data.engine) data.engine.startedAt = startedAt;
-      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      try {
+        let res, data;
+        try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+        if (startedAt && data && data.engine) data.engine.startedAt = startedAt;
+        await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      } catch { await route.abort().catch(() => {}); }
     });
     await pg.goto(URL, { waitUntil: 'networkidle' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }

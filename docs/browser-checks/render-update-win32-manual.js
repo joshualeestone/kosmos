@@ -162,19 +162,17 @@ async function readCard(pg) {
       answers.status.updateLook = { reached: answers.check.reached, readable: answers.check.readable, looked: true };
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(answers.check) });
     });
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await pg.route('**/api/status', async (route) => {
       /* Guarded for the reason render-updates-stale.js records: a route callback that loses its
          page must not kill node after every assertion printed PASS. */
-      let res, data;
       try {
-        res = await route.fetch();
-        data = await res.json();
-      } catch {
-        await route.abort().catch(() => {});
-        return;
-      }
-      Object.assign(data, answers.status, { engine: null });
-      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+        const res = await route.fetch();
+        const data = await res.json();
+        Object.assign(data, answers.status, { engine: null });
+        await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      } catch { await route.abort().catch(() => {}); }
     });
     await openUpdatesCard(pg);
     /* The card is painted by the poll; wait for a paint that reflects this state's answer. */

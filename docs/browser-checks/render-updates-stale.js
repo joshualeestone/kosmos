@@ -103,7 +103,10 @@ function chk(ok, label, extra) {
          is a fact about the sandboxed board's files, not about #691; pinned
          off so the toast assertion below cannot fail for that cause. */
       data.engine = null;
-      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      /* #6022: the answer can be late too (a poll in flight at close); a late rejection is caught, not a crash. */
+      try {
+        await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      } catch { await route.abort().catch(() => {}); }
     });
     await pg.goto(URL, { waitUntil: 'networkidle' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }

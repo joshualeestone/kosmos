@@ -84,36 +84,42 @@ function chk(ok, label, extra) {
       page.on('pageerror', (e) => errs.push(e.message));
       let injected = 0;
       const seen = new Set();
+      /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+         (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
       await page.route('**/api/**', async (route) => {
-        let res;
-        try { res = await route.fetch(); } catch { return route.continue(); }
-        const type = res.headers()['content-type'] || '';
-        if (!/json/.test(type)) return route.fulfill({ response: res });
-        let body;
-        try { body = await res.json(); } catch { return route.fulfill({ response: res }); }
-        const walk = (v) => {
-          if (Array.isArray(v)) { v.forEach(walk); return; }
-          if (v && typeof v === 'object') {
-            if (typeof v.sessionName === 'string') {
-              // Indexed by the running total (review pass 1: a per-response index only ever sent the first two).
-              v.stateConflict = PHRASES[injected % PHRASES.length]; injected += 1;
-              seen.add(v.stateConflict);
-              if (/^dora/.test(v.sessionName)) v.state = 'unknown';
-              // A needs-trust card is drawn only for a stopped agent (card(): running === false), so the
-              // fixture says so too (review pass 2: without it this agent drew as a plain card).
-              if (/^ned/.test(v.sessionName)) { v.needsTrust = true; v.running = false; }
+        try {
+          let res;
+          try { res = await route.fetch(); } catch { return await route.continue(); }
+          const type = res.headers()['content-type'] || '';
+          if (!/json/.test(type)) return await route.fulfill({ response: res });
+          let body;
+          try { body = await res.json(); } catch { return await route.fulfill({ response: res }); }
+          const walk = (v) => {
+            if (Array.isArray(v)) { v.forEach(walk); return; }
+            if (v && typeof v === 'object') {
+              if (typeof v.sessionName === 'string') {
+                // Indexed by the running total (review pass 1: a per-response index only ever sent the first two).
+                v.stateConflict = PHRASES[injected % PHRASES.length]; injected += 1;
+                seen.add(v.stateConflict);
+                if (/^dora/.test(v.sessionName)) v.state = 'unknown';
+                // A needs-trust card is drawn only for a stopped agent (card(): running === false), so the
+                // fixture says so too (review pass 2: without it this agent drew as a plain card).
+                if (/^ned/.test(v.sessionName)) { v.needsTrust = true; v.running = false; }
+              }
+              for (const k of Object.keys(v)) walk(v[k]);
             }
-            for (const k of Object.keys(v)) walk(v[k]);
-          }
-        };
-        walk(body);
-        return route.fulfill({ response: res, json: body });
+          };
+          walk(body);
+          return await route.fulfill({ response: res, json: body });
+        } catch { await route.abort().catch(() => {}); }
       });
       if (platform === 'win32') {
         await page.route(URL + '/', async (route) => {
-          const res = await route.fetch();
-          const html = (await res.text()).replace(/(<meta name="kosmos-platform" content=")[^"]*(")/, '$1win32$2');
-          return route.fulfill({ response: res, body: html });
+          try {
+            const res = await route.fetch();
+            const html = (await res.text()).replace(/(<meta name="kosmos-platform" content=")[^"]*(")/, '$1win32$2');
+            return await route.fulfill({ response: res, body: html });
+          } catch { await route.abort().catch(() => {}); }
         });
       }
       await page.goto(URL + '/', { waitUntil: 'networkidle' });
