@@ -39,3 +39,16 @@ a sign-in refused because Muse Code went missing returns to the Install step. No
 That Meta's installer keeps honouring MUSE_NO_MODIFY_PATH and MUSE_INSTALL_DIR (read in the 10-12 script; a test
 pins that Kosmos passes them, not that Meta honours them). Measured: the real installer ran on Mortals 10-12 and put
 muse 1.4.6 at ~/.local/bin/muse.
+
+## Review log, rounds 6 to 8 (2026-10-12)
+- Round 6 (sonnet): no BLOCKER or WARNING. NIT fixed: the first-run panel heading read "Sign in" above Install Muse
+  Code; it now reads Connect Meta Muse (browser-check arm, perturbed red). Other NITs: proxy/CA and an unpinned
+  installer hash are the Antigravity decisions above; a non-JSON error body reads as "may still be installing",
+  which is honest because a second press joins the run.
+- Round 7 (opus): WARNING fixed. The test-process gate read only --test flags, so a test file run with plain node
+  and the real seams could run Meta's installer. installOnce now also requires the real-start gate
+  (live-execution.liveExecutionAllowed, opened only on server.js's real-start path). Test fakes the plain-node case;
+  the perturbation ran behind a dead https proxy and a scratch HOME, failed, and installed nothing. NITs fixed:
+  README row, stale comments, a read begun before an install cannot undo it (MUSE_ASK_GEN bump), installer maxBuffer.
+- Round 8 (sonnet): no BLOCKER or WARNING; confirmed allowLiveExecution runs before the board can serve the install
+  route on every Mac start path. CONVERGED.
