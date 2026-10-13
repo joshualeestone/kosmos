@@ -53,7 +53,9 @@ Residuals, stated:
   KILL (or ALRM) of the wrapper during the checkout does not stop git, which runs in its own group and usually
   finishes; its pid is written to the lock (gitpid), and a joiner does not take the lock over while that git lives, so
   no run loads a half-written lib (iteration 19, arm "gitlive"). A joiner also waits while the lib's index.lock exists
-  (iteration 21, arm "idxlock"; both arms check the lock while the joiner is IN its lock loop, iteration 22): that covers the instant before the pid is written and a reused gitpid. An index.lock
+  (iteration 21, arm "idxlock"; both arms check the lock while the joiner is IN its lock loop, iteration 22). The gitpid is removed once git exits, and a live gitpid
+  running another command than the one recorded beside it (gitcmd) is a reused pid and does not hold the lock
+  (iteration 23, arm "gitreuse"): that covers the instant before the pid is written. An index.lock
   left by a git that was itself killed holds joiners until the 5-minute give-up (it blocks every git there anyway). If git is itself killed part way, the tree is left
   mixed and is not repaired automatically. The checkout back runs the same way (own group, INT/TERM/HUP ignored
   until it ends). The checkout back is
@@ -94,7 +96,7 @@ Residuals, stated:
   A lock whose pid was reused by another command is taken over (the holder records its command line).
 
 ## Tests
-tools/test-queued-heavy-4977.sh, thirty-six #5923 arms (EXPECTED 141), listed in the file. Two use the REAL ps under a
+tools/test-queued-heavy-4977.sh, thirty-seven #5923 arms (EXPECTED 142), listed in the file. Two use the REAL ps under a
 private script name (QH_TEST_PS_NAME): the run does not count itself (perturbed by removing the ppid exclusion: that
 arm went red), and its control, a live process of that name, blocks the move. The rest use the QH_TEST_PS and
 QH_TEST_CWD seams so real processes on the box cannot sway them.

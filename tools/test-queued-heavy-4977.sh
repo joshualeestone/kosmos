@@ -254,7 +254,7 @@ qh_nogit5923() {
   $GE git -C "$w" update-ref refs/remotes/origin/main HEAD && $GE git -C "$w" checkout -q --detach HEAD~1
 }
 printf 'p1\nn/\n' > $S/cwd5923
-for n in mv mk ps sh set dirty nops cwd nocwd reuse dead gitlive idxlock ahead same branch claim need psx nopid live mvfail mvkeep mvmix noorig unw sideneed; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
+for n in mv mk ps sh set dirty nops cwd nocwd reuse dead gitlive idxlock gitreuse ahead same branch claim need psx nopid live mvfail mvkeep mvmix noorig unw sideneed; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
 run5923 mv
 ok "#5923: the default lib checkout behind origin/main, nothing live: moved to origin/main, said so, run runs, lock gone" '[ "$rc" = 0 ] && [ -e $S/l5923-mv-ran ] && [ "$(lh5923 mv)" = "$(lm5923 mv)" ] && [[ "$o" == *"moved"*"-> origin/main"*"cut-guard.sh differed"* ]] && [ ! -e $S/ml5923-mv/queued-heavy-lib.lock ]'
 run5923 mv
@@ -311,7 +311,7 @@ GLR5923=$!
 # Checked once the joiner is IN its lock loop (as the live arm does), never on a timer a slow box could beat: past
 # perl and the re-exec, then sleeping between lock reads, which it only does while it has NOT taken the lock.
 until_true 30 'pgrep -f "^/bin/bash $REAL_QH --queued-args" >/dev/null'
-glw5923="$(pgrep -f "^/bin/bash $REAL_QH --queued-args" | head -1)"
+glw5923="$(pgrep -o -f "^/bin/bash $REAL_QH --queued-args")"
 until_true 30 '[ -n "$glw5923" ] && pgrep -P "$glw5923" -x sleep >/dev/null'; gl_inloop5923=$?
 if [ "$gl_inloop5923" = 0 ] && [ "$(cat $S/ml5923-gitlive/queued-heavy-lib.lock/pid 2>/dev/null)" = "$DEADG5923" ] && [ "$(lh5923 gitlive)" = "$GL_OLD5923" ]; then gl_held5923=held; else gl_held5923=taken; fi
 kill $GIT5923 2>/dev/null; wait $GIT5923 2>/dev/null; wait $GLR5923
@@ -325,11 +325,20 @@ IL_OLD5923=$(lh5923 idxlock)
 ( run5923 idxlock; printf '%s\n' "$o" > $S/idxlock5923.out; echo "$rc" > $S/idxlock5923.rc ) &
 ILR5923=$!
 until_true 30 'pgrep -f "^/bin/bash $REAL_QH --queued-args" >/dev/null'
-ilw5923="$(pgrep -f "^/bin/bash $REAL_QH --queued-args" | head -1)"
+ilw5923="$(pgrep -o -f "^/bin/bash $REAL_QH --queued-args")"
 until_true 30 '[ -n "$ilw5923" ] && pgrep -P "$ilw5923" -x sleep >/dev/null'; il_inloop5923=$?
 if [ "$il_inloop5923" = 0 ] && [ "$(cat $S/ml5923-idxlock/queued-heavy-lib.lock/pid 2>/dev/null)" = "$DEADI5923" ] && [ "$(lh5923 idxlock)" = "$IL_OLD5923" ]; then il_held5923=held; else il_held5923=taken; fi
 rm -f "$IDX5923"; wait $ILR5923
 ok "#5923: a dead holder with no gitpid but a live index.lock keeps the lock until index.lock is gone, then the run takes over and moves" '[ "$il_held5923" = held ] && [ "$(cat $S/idxlock5923.rc)" = 0 ] && [ "$(lh5923 idxlock)" = "$(lm5923 idxlock)" ] && ! grep -q "stayed taken" $S/idxlock5923.out'
+# Iteration 23: the dead holder's gitpid now names an UNRELATED live process (a reused pid): its recorded gitcmd does not
+# match what that pid runs, so it is not that git, and the run takes the lock over at once instead of waiting 5 minutes.
+sh -c 'exit 0' & DEADR5923=$!; wait $DEADR5923
+sleep 60 & OTHER5923=$!
+mkdir -p $S/ml5923-gitreuse/queued-heavy-lib.lock && echo $DEADR5923 > $S/ml5923-gitreuse/queued-heavy-lib.lock/pid \
+  && echo $OTHER5923 > $S/ml5923-gitreuse/queued-heavy-lib.lock/gitpid && echo "/bin/bash /x/queued-heavy.sh lib-gone" > $S/ml5923-gitreuse/queued-heavy-lib.lock/gitcmd
+run5923 gitreuse
+kill $OTHER5923 2>/dev/null; wait $OTHER5923 2>/dev/null
+ok "#5923: a dead holder's gitpid reused by an unrelated live process does not hold the lock; the run takes over and moves" '[ "$rc" = 0 ] && [ "$(lh5923 gitreuse)" = "$(lm5923 gitreuse)" ] && [[ "$o" != *"stayed taken"* ]] && [ ! -e $S/ml5923-gitreuse/queued-heavy-lib.lock ]'
 # A checkout AHEAD of origin/main (a lib fix not merged yet) differs too, and is never moved back.
 d5923=$S/l5923-ahead/work/kosmos-bc-main-4610; $GE git -C $d5923 checkout -q --detach origin/main && echo '# ahead' >> $d5923/tools/lib/cut-guard.sh && $GE git -C $d5923 -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qam ahead
 run5923 ahead
@@ -374,7 +383,7 @@ LIVE5923=$!
 # Wait until the wrapper itself is running (re-exec'd, so past perl and its start-up), then give it time to reach the lock.
 until_true 30 'pgrep -f "^/bin/bash $REAL_QH --queued-args" >/dev/null'
 # Then until it is IN the lock loop: its first sleep (0.5 s between lock reads) is the only one before the lib loads.
-wp5923="$(pgrep -f "^/bin/bash $REAL_QH --queued-args" | head -1)"
+wp5923="$(pgrep -o -f "^/bin/bash $REAL_QH --queued-args")"
 until_true 30 '[ -n "$wp5923" ] && pgrep -P "$wp5923" -x sleep >/dev/null'
 live_held5923="$(lh5923 live)"; live_waiting5923=0; kill -0 $LIVE5923 2>/dev/null && live_waiting5923=1   # still waiting, not finished
 rm -rf $S/ml5923-live/queued-heavy-lib.lock
@@ -561,7 +570,7 @@ sed 's|  exec /bin/bash "${BASH_SOURCE\[0\]}" --queued-args "$_qh_af"|  exec /no
 mkdir -p $S/tmpx; o=$(TMPDIR=$S/tmpx KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash $S/qh-noexec.sh "noexec" true 2>&1); r=$?
 ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"could not restart itself"* ]] && [ -z "$(ls $S/tmpx)" ] && grep -q /nonexistent/bash $S/qh-noexec.sh'
 
-EXPECTED=141   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-six #5923 lib-drift arms
+EXPECTED=142   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
