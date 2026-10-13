@@ -84,6 +84,9 @@ test('#6083: which titles are near (pure); every #5319 counterexample is never n
     ['Buy the three licenses', 'Buy the licenses', false, 'review 3: a number word'],
     ['Email Alice about the launch', 'Email about the launch', false, 'review 3: a dropped name'],
     ['Run the Meta pass please', 'Run the Meta pass', true, 'review 3: filler (please) is near'],
+    ['Run variant A tests', 'Run variant tests', false, 'review 4: a single letter is a label'],
+    ['Check the A records', 'Check the records', false, 'review 4: DNS A records'],
+    ['Restart the server now', 'Restart the server', true, 'review 4: now is filler, by decision'],
   ]) assert.equal(tasks.isNearTitle(a, b), want, `${a} | ${b}: ${why}`);
 });
 

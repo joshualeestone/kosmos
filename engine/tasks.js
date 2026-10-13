@@ -2001,8 +2001,10 @@ const NEGATING = new Set(['not', 'no', 'never', 'none', 'nor', 'without', 'dont'
 /* Review 3: the ONE word added or dropped must be filler, from a short allow-list. A deny-list of words that change an
    ask leaked in every round (prod, staging, admin, second, three, a dropped name: "Email Alice about the launch" /
    "Email about the launch"), as #5319's rounds found for any loose rule. An allow-list cannot leak that way: anything
-   not on it is a miss, which costs only today's behaviour. */
-const FILLER = new Set(['now', 'please', 'pls', 'asap', 'the', 'a', 'an', 'soon', 'quickly', 'kindly', 'urgently']);
+   not on it is a miss, which costs only today's behaviour. Review 4: 'a' is not on it, because a single letter is often a
+   label ("Run variant A tests", DNS A records). 'now' and 'soon' stay: an urgent ask and the same ask unhurried are
+   near enough for a note that only says to close the new one if it is the same ask. */
+const FILLER = new Set(['now', 'please', 'pls', 'asap', 'the', 'an', 'soon', 'quickly', 'kindly', 'urgently']);
 /* Review 1: sentence punctuation is set aside; every other punctuation or symbol character counts, as in #5319 ("C#" is
    not "C", "!=" is not "=", "50%" is not "50"). */
 const SENTENCE_MARKS = new Set(Array.from('.,;:?\'"\u2018\u2019\u201c\u201d()[]-\u2013\u2014'));
