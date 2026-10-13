@@ -474,21 +474,28 @@ case "$EVENT" in
     else report needs_you --auto "asking permission to use ${TOOL}${CMD:+: $CMD}"; fi ;;
   PostToolUseFailure)
     # #6071 (slice D1): one failed tool call, sent to the board as a digest so it can count the SAME failure repeating
-    # inside one turn (engine/toolloop.js). The signature is a hash of the tool, its input and the error's first line,
-    # made here, so the input itself never leaves this Mac. Without jq, the whole payload with its per-call
-    # tool_use_id taken out is hashed instead (identical for identical failures in one session). An interrupt is the
-    # person stopping the call, not a failure, so it is not sent. Waits at most 3 s, like keep-copy.
-    if [ -n "$KOSMOS" ] && ! printf '%s' "$INPUT" | grep -q '"is_interrupt"[[:space:]]*:[[:space:]]*true'; then
-      TF_TOOL=$(json_field '.tool_name' 'tool_name'); TF_TOOL="${TF_TOOL:-a tool}"
-      # The sed fallback (no jq) returns the error still JSON-escaped, so its first line also ends at a literal \n.
-      TF_ERR=$(json_field '.error' 'error' | head -1 | sed 's/\\n.*//' | cut -c1-300)
-      if command -v shasum >/dev/null 2>&1; then TF_HASH='shasum -a 256'; else TF_HASH='sha256sum'; fi
-      if [ -n "$JQ" ]; then
-        TF_SIG=$(printf '%s' "$INPUT" | "$JQ" -cS '[.tool_name, .tool_input, ((.error // "") | tostring | split("\n")[0])]' 2>/dev/null | $TF_HASH 2>/dev/null | cut -c1-64)
-      else
-        TF_SIG=$(printf '%s' "$INPUT" | sed 's/"tool_use_id"[[:space:]]*:[[:space:]]*"[^"]*"//g' | $TF_HASH 2>/dev/null | cut -c1-64)
+    # inside one turn (engine/toolloop.js). The signature is a hash of the tool, its input and the WHOLE error, made
+    # here, so the input never leaves this Mac; only the error's first line is sent to be shown. Without jq, the whole
+    # payload is hashed with its per-call fields (tool_use_id, duration_ms) taken out. An interrupt is the person
+    # stopping the call, not a failure, so it is not sent. In the background, like report(): nothing waits on it.
+    # The error line goes to the CLI on stdin, not in its arguments, where `ps` would show it.
+    if [ -n "$KOSMOS" ]; then
+      if [ -n "$JQ" ]; then TF_INTR=$(printf '%s' "$INPUT" | "$JQ" -r '.is_interrupt == true' 2>/dev/null)
+      elif printf '%s' "$INPUT" | grep -q '"is_interrupt"[[:space:]]*:[[:space:]]*true'; then TF_INTR=true; else TF_INTR=false; fi
+      if [ "$TF_INTR" != true ]; then
+        TF_TOOL=$(json_field '.tool_name' 'tool_name'); TF_TOOL="${TF_TOOL:-a tool}"
+        # The sed fallback (no jq) returns the error still JSON-escaped, so its first line also ends at a literal \n.
+        TF_ERR=$(json_field '.error' 'error' | head -1 | sed 's/\\n.*//' | cut -c1-300)
+        if command -v shasum >/dev/null 2>&1; then TF_HASH='shasum -a 256'; else TF_HASH='sha256sum'; fi
+        if [ -n "$JQ" ]; then
+          TF_SIG=$(printf '%s' "$INPUT" | "$JQ" -cS '[.tool_name, .tool_input, ((.error // "") | tostring)]' 2>/dev/null | $TF_HASH 2>/dev/null | cut -c1-64)
+        else
+          TF_SIG=$(printf '%s' "$INPUT" | sed 's/"tool_use_id"[[:space:]]*:[[:space:]]*"[^"]*"//g; s/"duration_ms"[[:space:]]*:[[:space:]]*[0-9.eE+-]*//g' | $TF_HASH 2>/dev/null | cut -c1-64)
+        fi
+        if [ -n "$TF_SIG" ]; then
+          ( printf '%s' "$TF_ERR" | "$KOSMOS" tool-failed "$TF_TOOL" "$TF_SIG" >/dev/null 2>&1 & ) 2>/dev/null || true
+        fi
       fi
-      [ -n "$TF_SIG" ] && "$KOSMOS" tool-failed "$TF_TOOL" "$TF_SIG" "$TF_ERR" </dev/null >/dev/null 2>&1 || true
     fi ;;
   Stop)
     rm -f "$MARK" 2>/dev/null || true

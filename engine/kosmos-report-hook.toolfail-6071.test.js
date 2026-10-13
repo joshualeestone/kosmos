@@ -66,9 +66,11 @@ test('an interrupt, or another event, gives no digest', async () => {
 });
 
 test('a board that does not answer never holds the agent and never throws', async () => {
+  const t0 = Date.now();
   const r = await hook.toolFailed({ tool: 'Bash', sig: 'a'.repeat(64), error: 'e' }, {
     url: 'http://127.0.0.1:1', fetchImpl: (u, init) => new Promise((_, rej) => init.signal.addEventListener('abort', () => rej(new Error('aborted')))),
     timeoutMs: 50,
   });
   assert.equal(r.ok, false);
+  assert.ok(Date.now() - t0 < 2000, 'it gave up on its own bound: ' + (Date.now() - t0) + ' ms');
 });

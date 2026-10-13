@@ -4,23 +4,23 @@
  *
  * Slices A (engine/crashloop.js) and C (engine/stuckterminal.js) bound what Kosmos can already see. This
  * counts what only the agent's runner can see: a Claude Code agent calling one tool, and it failing, over
- * and over. Claude Code fires its PostToolUseFailure hook on each failed call ("JSON with tool_name,
- * tool_input, tool_use_id, error, error_type, is_interrupt, and is_timeout", from its 2.1.296 binary), and
- * the report hook (install/kosmos-report-hook.sh, engine/kosmos-report-hook.js) sends a digest of it to
- * POST /api/toolfail, which calls noteFailure here.
+ * and over. Claude Code fires its PostToolUseFailure hook on each failed call, and the report hook
+ * (install/kosmos-report-hook.sh, engine/kosmos-report-hook.js) sends a digest of it to POST /api/toolfail,
+ * which calls noteFailure here.
  *
  * D1 RECORDS AND ASSESSES; IT RAISES NOTHING. The card, the push and the self-clear are increment D2. The
  * board logs the first time a run reaches the threshold, so the threshold can be read against real boards
  * before anything is shown to a person (false alarms are the chief risk, as in A and C).
  *
- * "THE SAME FAILURE" is the hook's `sig`: a hash of the tool name, the tool's input and the error's first
- * line. A retry that changes its input is a different signature, so a retry that is making progress never
- * adds to a run. Only CONSECUTIVE failures with one signature count: a different failing signature starts
- * a new run.
+ * "THE SAME FAILURE" is the hook's `sig`: a hash of the tool name, the tool's input and the WHOLE error. A
+ * retry whose input or error output changes is a different signature and starts a new run, so a run is
+ * only one tool failing in exactly the same way again. Not seen: successful calls in between (an agent
+ * that edits, reruns the same test and gets the identical failure still counts that rerun).
  *
- * INSIDE ONE TURN: Stop writes `idle` at the end of every turn (and SessionEnd `stopped`, SessionStart
- * `started`), into the agent's self-report record. A failure arriving after such a report that is newer
- * than the run's last failure starts a new run. Read through selfreport.history, never a second record.
+ * INSIDE ONE TURN: POST /api/report calls noteTurnEnd when an automatic idle, stopped or started arrives
+ * (the end of a turn or a session), BEFORE the self-report guard can refuse to record it: a standing
+ * deliberate wait refuses an automatic idle, so the self-report record cannot be the source. The next
+ * failure after a turn end starts a new run.
  *
  * ON DISK (store.ROOT/toolloop/<key>.json), like stuckterminal, so `forget` is reachable from create.js,
  * remove.js and delete-leftover.js: a removed-and-recreated agent of the same name never inherits a run.
@@ -34,7 +34,7 @@ const store = require('./store');
    (the card: thresholds start conservative, logged before they push). */
 const LOOP_AT = 5;
 
-/* The states that end a turn (or a session) in the self-report record. */
+/* The automatic report states that end a turn (Stop), a session (SessionEnd) or start one (SessionStart). */
 const TURN_ENDS = Object.freeze(['idle', 'stopped', 'started']);
 
 const SIG_RE = /^[0-9a-f]{16,128}$/;
@@ -58,7 +58,7 @@ function readRun(key) {
     if (r && typeof r.sig === 'string' && SIG_RE.test(r.sig) && Number.isInteger(r.count) && r.count > 0
       && Number.isFinite(r.firstAt) && Number.isFinite(r.lastAt)) {
       return { sig: r.sig, tool: clean(r.tool, MAX_TOOL), error: clean(r.error, MAX_ERROR), count: r.count,
-        firstAt: r.firstAt, lastAt: r.lastAt };
+        firstAt: r.firstAt, lastAt: r.lastAt, turnEndAt: Number.isFinite(r.turnEndAt) ? r.turnEndAt : null };
     }
   } catch { /* a malformed file reads as no run */ }
   return null;
@@ -72,20 +72,11 @@ function writeRun(key, run) {
   } catch { return false; }
 }
 
-/* True when the agent's self-report record shows a turn ending after `since`. A record that cannot be read
-   says nothing, so it never splits a run. `history` is a seam for tests. */
-function turnEndedSince(key, since, history) {
-  let rows;
-  try { rows = (history || require('./selfreport').history)(key); } catch { rows = null; }
-  if (!Array.isArray(rows)) return false;
-  return rows.some((r) => r && TURN_ENDS.includes(r.state) && Number.isFinite(r.at) && r.at > since);
-}
-
 /*
  * Count one failed tool call for an agent. Never throws.
  * @param {string} key   the agent's session name
  * @param {{ tool: string, sig: string, error?: string }} failure  the hook's digest
- * @param {{ now?: number, history?: Function }} [opts]
+ * @param {{ now?: number }} [opts]
  * @returns {{ ok: boolean, because?: string, count?: number, looping?: boolean, reached?: boolean }}
  *   `reached` is true on the one call that brought the run to LOOP_AT (the board logs it once).
  */
@@ -99,12 +90,23 @@ function noteFailure(key, failure, opts) {
   const tool = clean(f.tool, MAX_TOOL) || 'a tool';
   const error = clean(f.error, MAX_ERROR);
   const prev = readRun(key);
-  const continues = prev && prev.sig === sig && !turnEndedSince(key, prev.lastAt, o.history);
+  const continues = prev && prev.sig === sig && prev.turnEndAt === null;
   const run = continues
     ? { ...prev, count: prev.count + 1, lastAt: now, error: error || prev.error }
-    : { sig, tool, error, count: 1, firstAt: now, lastAt: now };
+    : { sig, tool, error, count: 1, firstAt: now, lastAt: now, turnEndAt: null };
   if (!writeRun(key, run)) return { ok: false, because: 'the record could not be written' };
   return { ok: true, count: run.count, looping: run.count >= LOOP_AT, reached: run.count === LOOP_AT };
+}
+
+/*
+ * A turn (or session) ended for an agent: the next failure starts a new run. Called by POST /api/report for an
+ * automatic idle, stopped or started. Writes only when there is a run not already marked. Never throws.
+ */
+function noteTurnEnd(key, opts) {
+  const now = opts && Number.isFinite(opts.now) ? opts.now : Date.now();
+  const run = key ? readRun(key) : null;
+  if (!run || run.turnEndAt !== null) return false;
+  return writeRun(key, { ...run, turnEndAt: now });
 }
 
 /*
@@ -114,10 +116,10 @@ function noteFailure(key, failure, opts) {
  *   since the run's last failure: the next failure starts a new run, but the run itself is still what
  *   happened (D2 decides how long a finished loop stays on the card).
  */
-function peek(key, opts) {
+function peek(key) {
   const run = readRun(key);
   if (!run) return null;
-  return { looping: run.count >= LOOP_AT, turnOver: turnEndedSince(key, run.lastAt, opts && opts.history),
+  return { looping: run.count >= LOOP_AT, turnOver: run.turnEndAt !== null,
     tool: run.tool, error: run.error, count: run.count, firstAt: run.firstAt, lastAt: run.lastAt };
 }
 
@@ -126,4 +128,4 @@ function forget(key) {
   try { fs.unlinkSync(fileFor(key)); } catch { /* already gone */ }
 }
 
-module.exports = { noteFailure, peek, forget, LOOP_AT, TURN_ENDS };
+module.exports = { noteFailure, noteTurnEnd, peek, forget, LOOP_AT, TURN_ENDS };

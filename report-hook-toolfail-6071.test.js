@@ -1,8 +1,9 @@
 'use strict';
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 /* #6071 (slice D1): when a Claude tool call fails (PostToolUseFailure), the report hook sends the board a digest
- * (`kosmos tool-failed <tool> <signature> <error line>`), with jq and without it (a clean Mac has none). The real
- * hook, a recording stand-in for the CLI.
+ * (`kosmos tool-failed <tool> <signature>`, the error line on stdin), with jq and without it (a clean Mac has none).
+ * The real hook, a recording stand-in for the CLI. The hook sends it in the background, so each run waits for the
+ * stand-in to finish writing.
  *   node --test report-hook-toolfail-6071.test.js */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -16,30 +17,37 @@ const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'rhtf-'));
 const LOG = path.join(SB, 'calls.log');
 const CLI = path.join(SB, 'kosmos');
 /* Speaks `report` (answers with the six words, as the hook's probe expects) and records every call. */
-fs.writeFileSync(CLI, '#!/bin/bash\nprintf "%s|" "$@" >> "' + LOG + '"; printf "\\n" >> "' + LOG + '"\n'
+fs.writeFileSync(CLI, '#!/bin/bash\nIN=$(cat)\n{ printf "%s|" "$@"; printf "STDIN=%s\\n" "$IN"; } >> "' + LOG + '"\n'
   + '[ "$1" = report ] && [ -z "${2:-}" ] && echo "started working idle needs_you blocked stopped"\nexit 0\n');
 fs.chmodSync(CLI, 0o755);
 
-function run(event, env = {}) {
+function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
+function run(event, env = {}, expect = 1) {
   fs.writeFileSync(LOG, '');
   const r = cp.spawnSync('bash', [HOOK], { input: JSON.stringify(event), encoding: 'utf8', timeout: 20000,
     env: { ...process.env, KOSMOS_REPORT_CLI: CLI, TMPDIR: SB, KOSMOS_KILL_GUARD: 'off', ...env } });
   assert.equal(r.status, 0, 'the hook always exits 0: ' + r.stderr);
-  const lines = fs.readFileSync(LOG, 'utf8').split('\n').filter((l) => l.length);
-  return { failed: lines.filter((l) => l.startsWith('tool-failed|')).map((l) => l.split('|')), all: lines };
+  /* The hook backgrounds the call: wait (at most 5 s) for the expected number of lines, then a little longer so a
+     line that should NOT be there has had time to appear. */
+  const lines = () => fs.readFileSync(LOG, 'utf8').split('\n').filter((l) => l.length);
+  for (let i = 0; i < 100 && lines().filter((l) => l.startsWith('tool-failed|')).length < expect; i++) sleepMs(50);
+  sleepMs(expect ? 50 : 400);
+  const all = lines();
+  return { failed: all.filter((l) => l.startsWith('tool-failed|')).map((l) => l.split('|')), all };
 }
+/* The shape Claude Code 2.1.296 builds: a per-call tool_use_id and duration_ms, which must never split a signature. */
 const fail = (tool, input, error, extra) => ({ hook_event_name: 'PostToolUseFailure', tool_name: tool, tool_input: input,
-  tool_use_id: 'toolu_' + Math.random().toString(36).slice(2), error, error_type: 'error', is_interrupt: false,
-  is_timeout: false, session_id: 'sess-1', cwd: '/w/agent', ...(extra || {}) });
+  tool_use_id: 'toolu_' + Math.random().toString(36).slice(2), error, is_interrupt: false,
+  duration_ms: Math.floor(Math.random() * 90000) + 10, session_id: 'sess-1', cwd: '/w/agent', ...(extra || {}) });
 
 for (const [label, env] of [['with jq', {}], ['without jq', { KOSMOS_REPORT_HOOK_NO_JQ: '1' }]]) {
   test('a failed tool call sends the tool, a signature and the error line, and no report (' + label + ')', () => {
     const r = run(fail('Bash', { command: 'make test' }, 'Exit code 2\nmake: *** [test] Error 2'), env);
     assert.equal(r.failed.length, 1, JSON.stringify(r.all));
-    const [, tool, sig, error] = r.failed[0];
+    const [, tool, sig, rest] = r.failed[0];
     assert.equal(tool, 'Bash');
     assert.match(sig, /^[0-9a-f]{64}$/);
-    assert.equal(error, 'Exit code 2', 'only the first line of the error');
+    assert.equal(rest, 'STDIN=Exit code 2', 'the error\'s first line, on stdin and not as an argument');
     assert.ok(!r.all.some((l) => l.startsWith('report|')), 'a failed call writes no report');
     assert.ok(!r.all.join('\n').includes('make test'), 'the input itself never reaches the CLI');
   });
@@ -50,14 +58,16 @@ for (const [label, env] of [['with jq', {}], ['without jq', { KOSMOS_REPORT_HOOK
     assert.equal(a, b);
   });
 
-  test('a different input or a different error is a different signature (' + label + ')', () => {
-    const base = run(fail('Bash', { command: 'make test' }, 'Exit code 2'), env).failed[0][2];
-    assert.notEqual(run(fail('Bash', { command: 'make test2' }, 'Exit code 2'), env).failed[0][2], base);
-    assert.notEqual(run(fail('Bash', { command: 'make test' }, 'Exit code 1'), env).failed[0][2], base);
+  test('a different input or a different error, even past its first line, is a different signature (' + label + ')', () => {
+    const base = run(fail('Bash', { command: 'make test' }, 'Exit code 2\n3 tests failed'), env).failed[0][2];
+    assert.notEqual(run(fail('Bash', { command: 'make test2' }, 'Exit code 2\n3 tests failed'), env).failed[0][2], base);
+    assert.notEqual(run(fail('Bash', { command: 'make test' }, 'Exit code 1\n3 tests failed'), env).failed[0][2], base);
+    assert.notEqual(run(fail('Bash', { command: 'make test' }, 'Exit code 2\n2 tests failed'), env).failed[0][2], base,
+      'a rerun whose output changed is progress, not the same failure');
   });
 
   test('an interrupt is the person stopping the call, so nothing is sent (' + label + ')', () => {
-    assert.deepEqual(run(fail('Bash', { command: 'sleep 100' }, 'Interrupted', { is_interrupt: true }), env).failed, []);
+    assert.deepEqual(run(fail('Bash', { command: 'sleep 100' }, 'Interrupted', { is_interrupt: true }), env, 0).failed, []);
   });
 }
 
@@ -67,10 +77,8 @@ test('with jq, key order in the input does not change the signature', () => {
   assert.equal(a, b);
 });
 
-test('a control character in the error does not split the CLI arguments', () => {
-  const r = run(fail('Bash', { command: 'x' }, 'bad\tthing'));
-  assert.equal(r.failed.length, 1);
-  assert.equal(r.failed[0].length, 5, 'tool-failed, tool, sig, error, and the trailing empty field: ' + JSON.stringify(r.failed[0]));
+test('with jq, an is_interrupt key inside the tool input does not hide a real failure', () => {
+  assert.equal(run(fail('mcp__x__do', { is_interrupt: true }, 'boom')).failed.length, 1);
 });
 
 test('with no runnable CLI the hook still exits 0 and sends nothing', () => {

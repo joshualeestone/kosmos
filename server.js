@@ -15354,7 +15354,7 @@ const server = http.createServer(async (req, res) => {
        first, then pane, the same pane refusal on an enforcing board), so a failure lands on the same agent its
        reports do. Records only: nothing is raised yet. The first time a run reaches the threshold is logged,
        so the threshold can be read against real boards before it is shown to anyone. */
-    readBody(req)
+    readBody(req, 8 * 1024)
       .then((buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
@@ -15442,6 +15442,12 @@ const server = http.createServer(async (req, res) => {
         if (!sender.ok) { sendJson(res, 200, { recorded: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
+        /* #6071: an automatic idle, stopped or started ends a turn for engine/toolloop.js's count of one repeating
+           tool failure. Here, BEFORE selfreport.record: that record refuses an automatic idle over a standing
+           deliberate wait, and the turn ended all the same. */
+        if (body.auto === true && require('./engine/toolloop').TURN_ENDS.includes(body.state)) {
+          try { require('./engine/toolloop').noteTurnEnd(who); } catch { /* the count is best-effort */ }
+        }
         // #718: a phone buzzes on the change INTO needs_you, not on every repeat
         // report, so read what this agent said last before recording this one.
         let wasNeedsYou = false;
