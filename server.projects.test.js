@@ -1953,8 +1953,8 @@ test('the thread GET returns a bounded tail with the older count stated, never t
   reset();
   await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
     const chat = require('./engine/chat');
-    /* #6059: one write after the first append, not 205 appends: that loop between two requests is the gap every CI
-       ECONNRESET of this kind shares (test-support/thread-fixture.js). The rows are the engine's own first row with
+    /* #6059: one write after the first append, not 205 appends: that loop between two requests is the gap the CI
+       ECONNRESET runs listed in test-support/thread-fixture.js share. The rows are the engine's own first row with
        only the text and time changed. */
     const seeded = appendMany(chat, project.id, 'zeta', Array.from({ length: 205 }, (_, i) => ({
       text: 'row ' + i, delivery: { state: chat.DELIVERY.PLACED },

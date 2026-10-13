@@ -19,15 +19,16 @@ const { appendMany } = require('./test-support/thread-fixture');
 test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 const rows = (agent) => chat.readThread(chat.DIRECT, agent).messages;
 
-test('205 same-shaped entries are one write, and read back exactly as 205 real appends do (control)', () => {
-  const entries = Array.from({ length: 205 }, (_, i) => ({ text: 'm ' + i, at: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(), delivery: { state: chat.DELIVERY.PLACED } }));
+test('same-shaped entries are one write, and read back exactly as the same real appends do (control)', () => {
+  // 20 prove the shape as well as 205 would, at a tenth of the real appends (review 3).
+  const entries = Array.from({ length: 20 }, (_, i) => ({ text: 'm ' + i, at: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(), delivery: { state: chat.DELIVERY.PLACED } }));
   assert.equal(appendMany(chat, chat.DIRECT, 'fast', entries).via, 'one write');
   for (const e of entries) assert.equal(chat.appendMessage(chat.DIRECT, 'real', e).recorded, true);
   assert.deepEqual(rows('fast'), rows('real'), 'the one-write thread differs from the real one');
 });
 
 test('entries with no time get distinct, increasing times', () => {
-  appendMany(chat, chat.DIRECT, 'notime', Array.from({ length: 5 }, (_, i) => ({ text: 'n ' + i })));
+  assert.equal(appendMany(chat, chat.DIRECT, 'notime', Array.from({ length: 5 }, (_, i) => ({ text: 'n ' + i }))).via, 'one write', 'fixture: fell back, so these are the engine\'s times, not the fixture\'s');
   const ats = rows('notime').map((m) => Date.parse(m.at));
   assert.equal(new Set(ats).size, 5, 'two rows share a time');
   assert.deepEqual([...ats].sort((x, y) => x - y), ats, 'times are not increasing');
@@ -37,8 +38,11 @@ test('it falls back to real appends for a differing field, a text the engine wou
   assert.equal(appendMany(chat, chat.DIRECT, 'mixed', [{ text: 'a', from: null }, { text: 'b', wire: '1' }]).via, 'appendMessage');
   assert.equal(appendMany(chat, chat.DIRECT, 'spaced', [{ text: 'a  b' }, { text: 'x' }]).via, 'appendMessage', 'a text appendMessage would collapse was copied raw');
   assert.equal(appendMany(chat, chat.DIRECT, 'uni', [{ text: 'café' }, { text: 'x' }]).via, 'one write', 'a text the engine stores unchanged was refused');
-  const near = Array.from({ length: chat.MAX_MESSAGES }, (_, i) => ({ text: 'c ' + i }));
-  assert.equal(appendMany(chat, chat.DIRECT, 'cap', near).via, 'appendMessage');
+  // Review 3: seeded near the cap through the fast path, then crossed with a few, so the boundary is tested without
+  // the 1000 real appends this card exists to remove.
+  const below = chat.MAX_MESSAGES - 5;
+  assert.equal(appendMany(chat, chat.DIRECT, 'cap', Array.from({ length: below }, (_, i) => ({ text: 'c ' + i }))).via, 'one write', 'fixture: the seed below the cap fell back');
+  assert.equal(appendMany(chat, chat.DIRECT, 'cap', Array.from({ length: 5 }, (_, i) => ({ text: 'd ' + i }))).via, 'appendMessage', 'a seed reaching the cap was written in one go');
   assert.equal(appendMany(chat, chat.DIRECT, 'ok', [{ text: 'a' }, { text: 'b' }]).via, 'one write', 'CONTROL: the fast path is taken when nothing forbids it');
 });
 
