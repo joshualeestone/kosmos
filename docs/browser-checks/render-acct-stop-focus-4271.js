@@ -83,10 +83,14 @@ const focusNow = (p) => p.evaluate(() => {
     await p.route('**/api/connect/cancel', (route) => { phase = 'idle'; route.fulfill({ json: { ok: true } }); });
     await p.route(/\/api\/connect(\?.*)?$/, (route) => route.fulfill({ json: because ? { phase, because } : { phase } }));
     /* No install is coming, so Start goes straight to the POST with no confirm box. */
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await p.route('**/api/first-run', async (route) => {
-      const res = await route.fetch();
-      const body = await res.json().catch(() => ({}));
-      route.fulfill({ json: Object.assign({}, body, { connect: Object.assign({}, body.connect || {}, { willInstall: false }) }) });
+      try {
+        const res = await route.fetch();
+        const body = await res.json().catch(() => ({}));
+        await route.fulfill({ json: Object.assign({}, body, { connect: Object.assign({}, body.connect || {}, { willInstall: false }) }) });
+      } catch { await route.abort().catch(() => {}); }
     });
 
     await p.goto(URL + '/?tab=settings', { waitUntil: 'load' });

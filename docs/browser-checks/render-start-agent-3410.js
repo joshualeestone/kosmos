@@ -334,19 +334,23 @@ function chk(ok, label, extra) {
       status: 200, contentType: 'application/json', body: JSON.stringify({ recorded: true, delivery: { state: 'placed' } }),
     }));
     let statusPolls = 0;
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await page.route('**/api/status', async (route) => {
-      const resp = await route.fetch();
-      let json;
-      try { json = await resp.json(); } catch { return route.fulfill({ response: resp }); }
-      statusPolls++;
-      // Unready on the first poll (the gap restartReadyWait requires), then ready.
-      // restartedAndReady = boardCanSeeIt (isAgentSession && isNamedOurs && state
-      // !== 'stopped') && state !== 'restarting', so set all of them.
-      if (statusPolls >= 2 && Array.isArray(json.agents)) {
-        const a = json.agents.find((x) => x.sessionName === 'nyx');
-        if (a) { a.state = 'idle'; a.running = true; a.isAgentSession = true; a.isNamedOurs = true; }
-      }
-      return route.fulfill({ response: resp, body: JSON.stringify(json), contentType: 'application/json' });
+      try {
+        const resp = await route.fetch();
+        let json;
+        try { json = await resp.json(); } catch { return await route.fulfill({ response: resp }); }
+        statusPolls++;
+        // Unready on the first poll (the gap restartReadyWait requires), then ready.
+        // restartedAndReady = boardCanSeeIt (isAgentSession && isNamedOurs && state
+        // !== 'stopped') && state !== 'restarting', so set all of them.
+        if (statusPolls >= 2 && Array.isArray(json.agents)) {
+          const a = json.agents.find((x) => x.sessionName === 'nyx');
+          if (a) { a.state = 'idle'; a.running = true; a.isAgentSession = true; a.isNamedOurs = true; }
+        }
+        return await route.fulfill({ response: resp, body: JSON.stringify(json), contentType: 'application/json' });
+      } catch { await route.abort().catch(() => {}); }
     });
     await page.evaluate(() => openDetail('nyx'));
     await page.waitForSelector('#panel-detail:not([hidden])');

@@ -66,14 +66,18 @@ const CASES = [
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     const errs = [];
     pg.on('pageerror', (e) => errs.push(e.message));
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await pg.route('**/api/status', async (route) => {
-      // Every await guarded: a navigation disposes an in-flight route context, and an
-      // unguarded rejection kills node AFTER the PASS lines print (render-updates-stale's
-      // measured flake). A route callback losing its page is normal here, so swallow it.
-      let res, data;
-      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
-      data.loginAdvisories = c.adv;
-      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      try {
+        // Every await guarded: a navigation disposes an in-flight route context, and an
+        // unguarded rejection kills node AFTER the PASS lines print (render-updates-stale's
+        // measured flake). A route callback losing its page is normal here, so swallow it.
+        let res, data;
+        try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+        data.loginAdvisories = c.adv;
+        await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      } catch { await route.abort().catch(() => {}); }
     });
     await pg.goto(URL, { waitUntil: 'networkidle' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
@@ -119,10 +123,12 @@ const CASES = [
     pg.on('pageerror', (e) => errs.push(e.message));
     await pg.clock.setFixedTime(base);
     await pg.route('**/api/status', async (route) => {
-      let res, data;
-      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
-      data.loginAdvisories = adv;
-      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      try {
+        let res, data;
+        try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+        data.loginAdvisories = adv;
+        await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      } catch { await route.abort().catch(() => {}); }
     });
     await pg.goto(URL, { waitUntil: 'networkidle' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
@@ -151,11 +157,13 @@ const CASES = [
     let served = 0;   // advisory-carrying /api/status replies, so an absence is read only after one was served
     pg.on('pageerror', (e) => errs.push(e.message));
     await pg.route('**/api/status', async (route) => {
-      let res, data;
-      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
-      data.loginAdvisories = adv;
-      served += 1;
-      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      try {
+        let res, data;
+        try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+        data.loginAdvisories = adv;
+        served += 1;
+        await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      } catch { await route.abort().catch(() => {}); }
     });
     await pg.goto(URL, { waitUntil: 'networkidle' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
@@ -227,10 +235,12 @@ const CASES = [
     for (const cons of [false, true]) {
       if (cons) {
         await pg.route('**/api/style', async (r) => {
-          if (r.request().method() !== 'GET') return r.continue();
-          let resp; try { resp = await r.fetch(); } catch { return r.continue(); }
-          const j = await resp.json().catch(() => null);
-          return j ? r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } }) : r.fulfill({ response: resp });
+          try {
+            if (r.request().method() !== 'GET') return await r.continue();
+            let resp; try { resp = await r.fetch(); } catch { return await r.continue(); }
+            const j = await resp.json().catch(() => null);
+            return await (j ? r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } }) : r.fulfill({ response: resp }));
+          } catch { await r.abort().catch(() => {}); }
         });
         await pg.reload({ waitUntil: 'load' });
         if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
@@ -315,12 +325,14 @@ const CASES = [
     const errs = [];
     pg.on('pageerror', (e) => errs.push(e.message));
     await pg.route('**/api/status', async (route) => {
-      let res, data;
-      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
-      data.loginAdvisories = [{ agents: ['leo'], daysLeft: 0, severity: 'urgent', expired: false }];
-      data.updateAbort = feed.abort;
-      data.update = feed.update;
-      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      try {
+        let res, data;
+        try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+        data.loginAdvisories = [{ agents: ['leo'], daysLeft: 0, severity: 'urgent', expired: false }];
+        data.updateAbort = feed.abort;
+        data.update = feed.update;
+        await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      } catch { await route.abort().catch(() => {}); }
     });
     await pg.goto(URL, { waitUntil: 'networkidle' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
@@ -426,10 +438,12 @@ const CASES = [
     const errs = [];
     pg.on('pageerror', (e) => errs.push(e.message));
     await pg.route('**/api/status', async (route) => {
-      let res, data;
-      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
-      data.loginAdvisories = adv;
-      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      try {
+        let res, data;
+        try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+        data.loginAdvisories = adv;
+        await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      } catch { await route.abort().catch(() => {}); }
     });
     await pg.goto(URL, { waitUntil: 'networkidle' });
     await pg.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));

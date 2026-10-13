@@ -764,13 +764,17 @@ async function main() {
       const NOWIN = 'on Windows an agent runs without a window, so there is no screen to show here; its replies are in your messages with it';
       let patched = 0;
       const THREAD = '**/api/project/*/thread/*';
+      /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+         (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
       await page.route(THREAD, async (route) => {
-        if (route.request().method() !== 'GET') return route.continue();
-        const res = await route.fetch();
-        const body = await res.json();
-        body.viewport = { text: null, noWindow: true, because: NOWIN };
-        patched += 1;
-        await route.fulfill({ response: res, json: body });
+        try {
+          if (route.request().method() !== 'GET') return await route.continue();
+          const res = await route.fetch();
+          const body = await res.json();
+          body.viewport = { text: null, noWindow: true, because: NOWIN };
+          patched += 1;
+          await route.fulfill({ response: res, json: body });
+        } catch { await route.abort().catch(() => {}); }
       });
       const nw = await page.evaluate(async () => {
         await loadThread();

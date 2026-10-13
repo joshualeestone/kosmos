@@ -175,9 +175,11 @@ async function openConsAgents(page) {
     if (r.request().method() !== 'GET') return r.fallback();
     let resp;
     try { resp = await fetchBoard(r); } catch { return r.fallback(); }   // never leave the request hanging
-    const j = await resp.json().catch(() => null);
-    if (!j) return r.fulfill({ response: resp });
-    return r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });
+    try {   // #6022: a late answer after close is caught, not a crash
+      const j = await resp.json().catch(() => null);
+      if (!j) return await r.fulfill({ response: resp });
+      return await r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });
+    } catch { await r.abort().catch(() => {}); }
   });
   await page.reload({ waitUntil: 'load' });   // 'load', per this file's rule; the next line is the real readiness signal
   await page.waitForFunction(() => document.documentElement.getAttribute('data-layout') === 'consolidated', null, { timeout: 8000 });
@@ -322,7 +324,8 @@ const SCREENS = [
       let res, data;
       try { res = await fetchBoard(route); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
       data.loginAdvisories = adv;
-      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      /* #6022: the answer can be late too (a poll in flight at close); a late rejection is caught. */
+      try { await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } }); } catch { await route.abort().catch(() => {}); }
     });
     await at(page, '');
     await page.waitForSelector('#login-adv-slot .login-adv', { state: 'visible', timeout: 12000 });
@@ -342,7 +345,8 @@ const SCREENS = [
       try { res = await fetchBoard(route); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
       data.loginAdvisories = [{ agents: ['roo-lane'], names: ['Roo'], provider: 'Claude', service: 'Claude Code-credentials',
         email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
-      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      /* #6022: the answer can be late too (a poll in flight at close); a late rejection is caught. */
+      try { await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } }); } catch { await route.abort().catch(() => {}); }
     });
     await at(page, '');
     await page.waitForSelector('#login-adv-slot .login-adv', { state: 'visible', timeout: 12000 });
@@ -402,11 +406,15 @@ const SCREENS = [
       { communityOn: true, lastCommunityPost: 'No community posts yet', lastCommunityPostAt: null },
       { communityOn: true, lastCommunityPost: 'No community posts yet', lastCommunityPostAt: null },
     ];
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await page.route('**/api/status', async (route) => {
-      let res, d;
-      try { res = await route.fetch(); d = await res.json(); } catch { await route.abort().catch(() => {}); return; }
-      if (Array.isArray(d.agents)) d.agents.forEach((a, i) => { if (seed[i]) Object.assign(a, seed[i]); });
-      await route.fulfill({ response: res, body: JSON.stringify(d), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      try {
+        const res = await route.fetch();
+        const d = await res.json();
+        if (Array.isArray(d.agents)) d.agents.forEach((a, i) => { if (seed[i]) Object.assign(a, seed[i]); });
+        await route.fulfill({ response: res, body: JSON.stringify(d), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      } catch { await route.abort().catch(() => {}); }
     });
     await at(page, '');
     // The default board view already shows the .acard agents grid (like the agents-list and
@@ -1160,7 +1168,7 @@ const SCREENS = [
           if (t.progress) t.progress.closed = true;
         }
       }
-      await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      try { await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } }); } catch { await route.abort().catch(() => {}); }   // #6022
     });
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
@@ -1997,15 +2005,17 @@ async function run() {
                  byte still comes from this board. Registered FIRST so the stubs below, registered after it, win
                  (Playwright tries the newest route first); they fetch through fetchBoard, which points back at the board. */
               if (args.remote) {
-                await ctx.route(REMOTE_BASE + '/**', (r) => fetchBoard(r).then((res) => r.fulfill({ response: res }), () => r.abort()));   // board gone: fail now, not at the screen's timeout
+                await ctx.route(REMOTE_BASE + '/**', (r) => fetchBoard(r).then((res) => r.fulfill({ response: res }), () => r.abort()).catch(() => {}));   // board gone: fail now, not at the screen's timeout; a late answer after close is quiet (#6022)
               }
               if (DATA.connected) {
                 await ctx.route('**/api/status', async (r) => {
-                  const res = await fetchBoard(r);
-                  const body = await res.json().catch(() => null);
-                  if (!body || typeof body !== 'object') return r.fulfill({ response: res });
-                  body.connection = { ...(body.connection || {}), state: 'connected' };
-                  return r.fulfill({ response: res, json: body });
+                  try {   // #6022: a poll can be in flight at close; caught, not a crash
+                    const res = await fetchBoard(r);
+                    const body = await res.json().catch(() => null);
+                    if (!body || typeof body !== 'object') return await r.fulfill({ response: res });
+                    body.connection = { ...(body.connection || {}), state: 'connected' };
+                    return await r.fulfill({ response: res, json: body });
+                  } catch { await r.abort().catch(() => {}); }
                 });
               }
               await ctx.addInitScript((t) => { try { localStorage.setItem('kosmos-theme', t); } catch { /* no storage */ } }, theme);

@@ -159,18 +159,22 @@ function chk(ok, label, extra) {
             if (pictureFail.has(pname)) return r.fulfill({ status: 500, json: { error: 'no' } });
             return r.fulfill({ status: 200, json: { ok: true } });
           });
+          /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+             (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
           await page.route('**/api/teams/seeded/*/specs', async (r) => {
-            const b = JSON.parse(r.request().postData() || '{}');
-            if (b.check && checkHold.p) { const held = checkHold.p; checkHold.p = null; await held; }
-            if (!b.check && specsFail.n > 0) { specsFail.n -= 1; return r.fulfill({ status: 503, json: { error: 'Kosmos could not prepare the team' } }); }
-            if (!b.check && specsMangle.slot) {
-              specsMangle.reads += 1;
-              const resp = await r.fetch();
-              const j = await resp.json().catch(() => null);
-              if (j && Array.isArray(j.specs)) for (const sp of j.specs) if (sp.slot === specsMangle.slot) sp.spec.name += ' x';
-              return r.fulfill({ response: resp, json: j });
-            }
-            return r.continue();
+            try {
+              const b = JSON.parse(r.request().postData() || '{}');
+              if (b.check && checkHold.p) { const held = checkHold.p; checkHold.p = null; await held; }
+              if (!b.check && specsFail.n > 0) { specsFail.n -= 1; return await r.fulfill({ status: 503, json: { error: 'Kosmos could not prepare the team' } }); }
+              if (!b.check && specsMangle.slot) {
+                specsMangle.reads += 1;
+                const resp = await r.fetch();
+                const j = await resp.json().catch(() => null);
+                if (j && Array.isArray(j.specs)) for (const sp of j.specs) if (sp.slot === specsMangle.slot) sp.spec.name += ' x';
+                return await r.fulfill({ response: resp, json: j });
+              }
+              return await r.continue();
+            } catch { await r.abort().catch(() => {}); }
           });
           const projectTaken = { n: 0 };   // how many project creates are refused as "that folder is already a project"
           const projectPosts = [];
@@ -200,13 +204,15 @@ function chk(ok, label, extra) {
              the portrait and project tell). The real /api/status passes through, with each intercepted member
              appended as a running card of ours, unless the arm hides it. */
           await page.route('**/api/status*', async (r) => {
-            const resp = await r.fetch();
-            const j = await resp.json().catch(() => null);
-            if (!j || !Array.isArray(j.agents)) return r.fulfill({ response: resp });
-            for (const n of made) if (!hidden.has(n)) j.agents.push({ sessionName: n, name: n, displayName: n, isAgentSession: true, isNamedOurs: true, state: stateOf[n] || 'idle' });
-            // #4936 review 10: names only in stateOf are board agents too, for asking the page about a state directly.
-            for (const n of Object.keys(stateOf)) if (!made.includes(n)) j.agents.push({ sessionName: n, name: n, displayName: n, isAgentSession: true, isNamedOurs: true, state: stateOf[n] });
-            return r.fulfill({ response: resp, json: j });
+            try {
+              const resp = await r.fetch();
+              const j = await resp.json().catch(() => null);
+              if (!j || !Array.isArray(j.agents)) return await r.fulfill({ response: resp });
+              for (const n of made) if (!hidden.has(n)) j.agents.push({ sessionName: n, name: n, displayName: n, isAgentSession: true, isNamedOurs: true, state: stateOf[n] || 'idle' });
+              // #4936 review 10: names only in stateOf are board agents too, for asking the page about a state directly.
+              for (const n of Object.keys(stateOf)) if (!made.includes(n)) j.agents.push({ sessionName: n, name: n, displayName: n, isAgentSession: true, isNamedOurs: true, state: stateOf[n] });
+              return await r.fulfill({ response: resp, json: j });
+            } catch { await r.abort().catch(() => {}); }
           });
           /* #4936: the step says hello to every member itself. The members here are not real agents, so the hello
              is answered here: placed, or (for a name in helloFail) not placed. Every hello is recorded, in order. */
@@ -273,7 +279,7 @@ function chk(ok, label, extra) {
           chk(await page.evaluate(() => document.getElementById('tc-provider').disabled), `${E} #4719 the choice is fixed once the team starts`);
           chk(errs.length === 0, `${E} no page errors (#4719 arm)`, errs.join(' | '));
           /* The board's /api/status poll can still be inside this check's route when the page closes: its
-             r.fetch() response is then disposed and route.fulfill throws an uncaught rejection that kills
+             fetched response is then disposed and route.fulfill throws an uncaught rejection that kills
              the whole check (CI, PR #4875, both attempts). Stop routing first, as render-login-expiry does. */
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();
@@ -318,7 +324,7 @@ function chk(ok, label, extra) {
             `${E} #4719 a slow account list moves the untouched team menu to OpenAI when it lands`, JSON.stringify({ early, late }));
           chk(errs.length === 0, `${E} no page errors (#4719 slow arm)`, errs.join(' | '));
           /* The board's /api/status poll can still be inside this check's route when the page closes: its
-             r.fetch() response is then disposed and route.fulfill throws an uncaught rejection that kills
+             fetched response is then disposed and route.fulfill throws an uncaught rejection that kills
              the whole check (CI, PR #4875, both attempts). Stop routing first, as render-login-expiry does. */
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();

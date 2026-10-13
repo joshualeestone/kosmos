@@ -29,7 +29,10 @@
  * arrow (`async (r) =>`, `r =>`) or `function (r)`. A handler written as a named function defined elsewhere is not
  * read (fails GREEN). A handler that only fulfills a fixture is not checked: its answer is immediate, with no await
  * before it. "Inside a try" counts braces from the last `try {` before the fetch, so a brace inside a string
- * between the two can miscount. The fixtures below pin both directions.
+ * between the two can miscount. Comments are blanked first (strings and template literals kept). A handler that
+ * fetches through a helper (mobile-shots.js fetchBoard(route)) is not seen: that file's helper-fed handlers were
+ * hardened by hand. A handler's span runs to the next `.route(` call, so a nearby helper that reuses the parameter
+ * name is read as part of it (fails RED, safe). The fixtures below pin both directions.
  */
 
 const test = require('node:test');
@@ -40,7 +43,29 @@ const nodePath = require('node:path');
 const DIR = nodePath.join(__dirname, 'docs', 'browser-checks');
 const HANDLER = /\.route\(\s*[^,]+,\s*(?:async\s+)?(?:function\s*\(\s*(\w+)|\(\s*(\w+)[^)]*\)\s*=>|(\w+)\s*=>)/g;
 
-/* True when a `try {` is still open at `at` in `src`, counting braces from the last `try {` before it. */
+/* The source with every comment blanked (newlines kept, so line numbers hold): a comment that mentions r.fetch() is
+   not code. Strings and template literals are skipped intact, so a // inside a URL is not read as a comment. */
+function stripComments(src) {
+  let out = '';
+  for (let i = 0; i < src.length;) {
+    const c = src[i];
+    const n = src[i + 1];
+    if (c === '"' || c === "'" || c === '`') {
+      let j = i + 1;
+      while (j < src.length && src[j] !== c) { if (src[j] === '\\') j += 1; else if (c !== '`' && src[j] === '\n') break; j += 1; }
+      out += src.slice(i, j + 1); i = j + 1;
+    } else if (c === '/' && n === '/') {
+      let j = i; while (j < src.length && src[j] !== '\n') j += 1;
+      out += ' '.repeat(j - i); i = j;
+    } else if (c === '/' && n === '*') {
+      let j = src.indexOf('*/', i + 2); j = j < 0 ? src.length : j + 2;
+      out += src.slice(i, j).replace(/[^\n]/g, ' '); i = j;
+    } else { out += c; i += 1; }
+  }
+  return out;
+}
+
+/* True when any `try {` after `from` is still open at `at` in `src` (braces counted from each `try {` before it). */
 function insideOpenTry(src, from, at) {
   const seg = src.slice(from, at);
   const t = seg.lastIndexOf('try');
@@ -49,12 +74,14 @@ function insideOpenTry(src, from, at) {
   if (open < 0 || !/^try\s*$/.test(seg.slice(t, open))) return insideOpenTry(src, from, from + t);
   let depth = 0;
   for (let i = open; i < seg.length; i += 1) { if (seg[i] === '{') depth += 1; else if (seg[i] === '}') depth -= 1; }
-  return depth > 0;
+  // An inner try that already closed may sit inside an outer one that is still open: keep walking back.
+  return depth > 0 || insideOpenTry(src, from, from + t);
 }
 
 /* The findings for one file's source: the lines of route-handler calls that can reject after the browser closes
    outside an open try (a handler's fetch, and every fulfill / continue / fetch after it). */
-function scan(src) {
+function scan(raw) {
+  const src = stripComments(raw);
   const bad = [];
   const starts = [];
   let m;
@@ -84,6 +111,10 @@ test('#6022 fixtures: the rule can fail, and the safe shapes pass (controls)', (
   assert.deepEqual(scan(fulfillOutside), [4], 'a fulfill after the try closed can still reject after close');
   const closedTry = "await page.route('**/x', async (r) => {\n  try { setup(); } catch {}\n  const resp = await r.fetch();\n  r.fulfill({ response: resp });\n});\n";
   assert.deepEqual(scan(closedTry), [3, 4], 'a try that closed before the fetch does not guard it');
+  const nested = "await page.route('**/x', async (r) => {\n  try {\n    const resp = await r.fetch();\n    let body; try { body = await resp.json(); } catch { body = null; }\n    await r.fulfill({ response: resp, json: body });\n  } catch { await r.abort().catch(() => {}); }\n});\n";
+  assert.deepEqual(scan(nested), [], 'a closed inner try inside an open outer try still guards (review: the editor of batch 2)');
+  const commented = "await page.route('**/api/a', async (r) => {\n  // the r.fetch() answer is not used here\n  /* nor r.fulfill() */\n  await r.fulfill({ json: { url: 'http://x//y' } });\n});\n";
+  assert.deepEqual(scan(commented), [], 'a comment naming r.fetch() is not a fetch, and a // inside a string is not a comment');
   const fixtureOnly = "await page.route('**/api/x', (r) => r.fulfill({ json: {} }));\nconst x = await window.fetch('/a');\nawait browser.close();\n";
   assert.deepEqual(scan(fixtureOnly), [], 'a fixture-only handler and window.fetch are not flagged');
   const bareParam = "page.route('**/t', async route => {\n  const r = await route.fetch();\n  route.fulfill({ response: r });\n});\n";

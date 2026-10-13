@@ -39,16 +39,20 @@ function chk(ok, label, extra) {
     /* /api/status is answered at the browser for the whole run: stale (with or without canRestart)
        until the restart is asked for, then a board with a NEW start time. The page draws the toast
        from its own poll, the real flow. */
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await page.route('**/api/status', async (route) => {
-      /* The page polls on its own clock, so a poll can be in flight when the check ends and closes the
-         browser; that closed context is the end of the run, not a failure of the page. */
-      const res = await route.fetch().catch(() => null);
-      if (!res) return;
-      const body = await res.json();
-      body.engine = restarted
-        ? { startedAt: '2026-09-28T16:00:00Z', staleSince: null, canRestart: false }
-        : { startedAt: '2026-09-28T14:59:00Z', staleSince: '2026-09-28T15:10:00Z', changed: ['engine/roles.js'], canRestart: can };
-      return route.fulfill({ response: res, body: JSON.stringify(body) });
+      try {
+        /* The page polls on its own clock, so a poll can be in flight when the check ends and closes the
+           browser; that closed context is the end of the run, not a failure of the page. */
+        const res = await route.fetch().catch(() => null);
+        if (!res) return;
+        const body = await res.json();
+        body.engine = restarted
+          ? { startedAt: '2026-09-28T16:00:00Z', staleSince: null, canRestart: false }
+          : { startedAt: '2026-09-28T14:59:00Z', staleSince: '2026-09-28T15:10:00Z', changed: ['engine/roles.js'], canRestart: can };
+        return await route.fulfill({ response: res, body: JSON.stringify(body) });
+      } catch { await route.abort().catch(() => {}); }
     });
     let answer = 'refuse';   // refused, then an update in flight, then accepted
     await page.route('**/api/engine/restart', (route) => {

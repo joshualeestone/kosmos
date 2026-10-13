@@ -41,12 +41,17 @@ function check(name, pass, detail) {
   async function slotAfter(inject) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
     const page = await ctx.newPage();
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await page.route('**/api/status*', async (route) => {
-      const resp = await route.fetch();
-      let json;
-      try { json = await resp.json(); } catch { return route.fulfill({ response: resp }); }
-      if (inject !== undefined) json.updateAbort = inject;
-      await route.fulfill({ response: resp, json });
+      try {
+        const resp = await route.fetch();
+        const NOT_JSON = Symbol('not json');
+        const json = await resp.json().catch(() => NOT_JSON);
+        if (json === NOT_JSON) return await route.fulfill({ response: resp });
+        if (inject !== undefined) json.updateAbort = inject;
+        await route.fulfill({ response: resp, json });
+      } catch { await route.abort().catch(() => {}); }
     });
     await page.goto(BASE + '/?tab=agents', { waitUntil: 'networkidle' });
     await page.waitForTimeout(700); // let a poll paint

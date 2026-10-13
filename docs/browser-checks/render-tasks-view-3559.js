@@ -831,12 +831,16 @@ function chk(ok, label, extra) {
         /* The same through the wire (review round 11): the route answers rosterUnreadable, and the page's own read
            (tskLoad) takes it; no flag set by hand. The rows are the route's own, with Max's decision as the route
            would derive it with no roster (not a decision). */
+        /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+           (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
         await page.route('**/api/tasks?view=tasks*', async (route) => {
-          const resp = await route.fetch();
-          const json = await resp.json();
-          json.rosterUnreadable = true;
-          json.tasks = json.tasks.map((t) => (t.state === 'decision' ? Object.assign({}, t, { state: 'assigned', waitingOnPerson: false }) : t));
-          await route.fulfill({ response: resp, json });
+          try {
+            const resp = await route.fetch();
+            const json = await resp.json();
+            json.rosterUnreadable = true;
+            json.tasks = json.tasks.map((t) => (t.state === 'decision' ? Object.assign({}, t, { state: 'assigned', waitingOnPerson: false }) : t));
+            await route.fulfill({ response: resp, json });
+          } catch { await route.abort().catch(() => {}); }
         });
         const wire = await page.evaluate(async () => {
           await tskLoad();

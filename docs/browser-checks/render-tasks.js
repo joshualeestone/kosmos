@@ -105,12 +105,16 @@ const MEMBER = 'taskmate';
     /* #4896: the member's role as stored is lower case ("project manager", as a role parsed out of an agent's own
        instructions is), so the New task picker must say it as the menu does. Set on the project list GET only;
        the server's own /api/roles supplies the titles. */
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await p.route('**/api/projects', async (route) => {
-      if (route.request().method() !== 'GET') return route.continue();
-      const res = await route.fetch();
-      let j; try { j = await res.json(); } catch { return route.fulfill({ response: res }); }
-      for (const pr of (j && j.projects) || []) for (const a of pr.agents || []) if (a && a.sessionName === MEMBER) a.role = 'project manager';
-      return route.fulfill({ response: res, json: j });
+      try {
+        if (route.request().method() !== 'GET') return await route.continue();
+        const res = await route.fetch();
+        let j; try { j = await res.json(); } catch { return await route.fulfill({ response: res }); }
+        for (const pr of (j && j.projects) || []) for (const a of pr.agents || []) if (a && a.sessionName === MEMBER) a.role = 'project manager';
+        return await route.fulfill({ response: res, json: j });
+      } catch { await route.abort().catch(() => {}); }
     });
     // Into the project.
     await p.click('[data-tab="projects"]');

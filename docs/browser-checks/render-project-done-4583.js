@@ -164,12 +164,16 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
 
     // ---- coordinators (#5951): no notice, even when the add answer and the read still carry the old warning ----
     const id = await p.evaluate(() => (PROJECTS.find((x) => x.name === 'Given Done Project') || {}).id);
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await p.route('**/api/projects', async (route) => {
-      if (route.request().method() !== 'GET') return route.continue();
-      const res = await route.fetch();
-      const body = await res.json();
-      for (const pr of body.projects || []) if (pr.id === id) pr.coordinators = WARN;
-      return route.fulfill({ response: res, json: body });
+      try {
+        if (route.request().method() !== 'GET') return await route.continue();
+        const res = await route.fetch();
+        const body = await res.json();
+        for (const pr of body.projects || []) if (pr.id === id) pr.coordinators = WARN;
+        return await route.fulfill({ response: res, json: body });
+      } catch { await route.abort().catch(() => {}); }
     });
     await p.route('**/api/project/*/agent/*', (route) => route.fulfill({ status: 200, contentType: 'application/json',
       body: JSON.stringify({ project: null, told: { state: 'not_tried' }, said: null, coordinators: WARN }) }));

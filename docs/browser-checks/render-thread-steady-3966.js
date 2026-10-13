@@ -65,12 +65,15 @@ function chk(ok, label, extra) {
           messages.push({ id: 'm' + k, from: k % 2 ? 'you' : 'beatrix-discord', text: 'message ' + k,
             at: new Date(T0 + k * 217000 + k * 3700).toISOString() });
         }
+        /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+           (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
         await page.route('**/api/agent/*/thread', async (route) => {
-          const r = await route.fetch();
-          let j = {};
-          try { j = await r.json(); } catch { j = {}; }
-          j.messages = messages;
-          await route.fulfill({ response: r, json: j });
+          try {
+            const r = await route.fetch();
+            const j = await r.json().catch(() => ({}));
+            j.messages = messages;
+            await route.fulfill({ response: r, json: j });
+          } catch { await route.abort().catch(() => {}); }
         });
         await page.goto(URL);
         await page.waitForSelector('.acard .namego', { timeout: 20000 });
