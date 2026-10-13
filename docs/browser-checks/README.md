@@ -807,8 +807,10 @@ it. `tools.browser-checks-home-3675.test.js` fails if a board-booting check skip
 polls `/api/status` on a timer, so when a check closes its browser a poll can be mid-route: the handler's
 `route.fetch()` rejects with `Request context disposed`, unhandled, and the check exits 1 after every assertion passed.
 That aborted the 0.7.42 cut (#5921) and the first 0.7.44 cut (render-rename-say). It unroutes every open page of every
-context with `ignoreErrors`, then closes. A check whose route handlers `fetch` a polled URL should close through it (or
-call `unrouteAll({ behavior: 'ignoreErrors' })` itself before closing).
+context with `ignoreErrors`, then closes. It only reaches handlers still registered on a page that is still open: a
+check that calls `ctx.close()`, `page.close()` or a plain `page.unroute()` on a polled route earlier must call
+`unrouteAll({ behavior: 'ignoreErrors' })` on that page or context first, or the helper changes nothing there (#6022
+lists the checks that still do).
 
 ### `lib-firstrun-steps.js` is a library, not a check
 

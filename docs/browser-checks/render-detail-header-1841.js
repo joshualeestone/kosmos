@@ -52,7 +52,6 @@ process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
 const { chromium } = require('playwright');
-const { closeQuietly } = require('./lib-close-quietly.js');   // #6022: a poll in flight at close must not crash the check
 const fleet = require('../../test-support/fleet');
 const create = require('../../engine/create');
 const srv = require('../../server.js');
@@ -520,7 +519,7 @@ function chk(ok, label, extra) {
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
   } finally {
-    await closeQuietly(browser);
+    await browser.close();
     server.close();
     fleet.restore();
   }
