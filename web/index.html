@@ -4195,7 +4195,7 @@ body:not(.consolidated) #docs-chev { display: none; }
 /* #3029: a picked subproject's name can outgrow a phone; the control shrinks to its row. overflow: hidden on the
    select is what stops WebKit (the Mac app) widening the page by the selected text (render-subprojects-1994). */
 .tsk-ctl { display: flex; align-items: center; min-width: 0; max-width: 100%; }
-.tsk-ctl select.tsk-sel { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.tsk-ctl select.tsk-sel { min-width: 0; max-width: min(100%, 22rem); overflow: hidden; text-overflow: ellipsis; }
 .tsk-cl { font: 600 .875rem var(--font-ui); color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
 .tsk-search { position: relative; margin: 0; max-width: 100%; }
 .tsk-search svg { position: absolute; left: 11px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--k-ink-2); pointer-events: none; }
@@ -61840,7 +61840,8 @@ function tskPaint() {
   const onProjects = new Set(open.map((t) => t.projectId)).size;
   document.getElementById('tsk-title').textContent = !TSK.data ? 'Tasks'
     : open.length + (open.length === 1 ? ' Task' : ' Tasks')
-      + (picked ? ' on ' + pjChainText(picked.chain) : open.length ? ' on ' + onProjects + (onProjects === 1 ? ' Project' : ' Projects') : '');
+      /* #3029: the picked project's own name; the crumb above carries the path. */
+      + (picked ? ' on ' + picked.chain[picked.chain.length - 1] : open.length ? ' on ' + onProjects + (onProjects === 1 ? ' Project' : ' Projects') : '');
   tskSearchOpen();   // the compact search's open state follows TSK.q on every paint, whoever changed it
   /* #3949: Created: and Group by are dropdowns (they were button rows). */
   tskOptions(document.getElementById('tsk-win'), TSK_WINDOWS.map(([l, d]) => '<option value="' + d + '"' + (TSK.win === d ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), String(TSK.win));

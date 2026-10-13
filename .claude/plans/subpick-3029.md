@@ -6,7 +6,7 @@ Everywhere a person picks or reads a project from a flat list, a subproject is n
 same-named subprojects under different parents are told apart. A top-level project reads exactly as
 before. The places:
 - Tasks: the Project: dropdown, the Group by: Project headings, the "All tasks › ..." crumb, the
-  "N Tasks on ..." title, the back chevron's label, each row's project button (Group by: Status), the
+  back chevron's label, each row's project button (Group by: Status), the
   row checkbox and "Not built yet" labels, the bulk-close failure line, and search
 - Accessible names (aria-labels) join the chain with commas ("Book A, Launch"), not the › mark
 - New task from All tasks: the "which project" picker (ntChoices / #nt-proj)
@@ -33,6 +33,10 @@ shows "Launch", "Launch" in every picker.
 - Tasks search matches a row's ancestors too, so searching a parent's name finds its subprojects'
   tasks: the chain is what the row shows, so it is what search reads.
 - The chain, not indentation: a closed native select would show an indent with no parent.
+- The "N Tasks on ..." title keeps the picked project's own name: the shots showed the chain repeated there
+  as a four-line heading right under the crumb that already shows it. The crumb is the path.
+- The Tasks dropdowns are capped at 22rem: a whole-chain option stretched the Project dropdown across most
+  of a desktop row.
 - Select options read own name first ("Launch, in Book A") so a cut-short closed select still says which
   project is picked; everything that is not a select reads the chain root first.
 - Rejected a custom tree picker: far bigger, and the native select is what keyboards, screen readers
