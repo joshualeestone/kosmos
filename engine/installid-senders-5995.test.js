@@ -12,7 +12,9 @@
  *   - engine/ping.js's own list has a line for every engine file that uses the id.
  * What it does not hold: a value handed on by one of the listed files under another name, and what any comment SAYS.
  * The largest case of the first: a profile carries `idInstall`, so whatever passes a whole profile on passes the id
- * on without naming it, and no set here sees that. engine/status.js does so today, in every agent's card.
+ * on without naming it, and no set here sees that. That is how the id used to reach every agent's card. engine/store.js
+ * now hands a profile on without the key, and engine/status.cardnoinstallid-5995.test.js holds that on the served card;
+ * a copy carried under another name would still be seen by neither.
  * A check of wording was tried and taken out: a list of ways to say "it never leaves" missed real ones and flagged
  * true ones ("is never sent to the community"). The comments were reduced to pointers at engine/ping.js instead.
  *
@@ -74,7 +76,6 @@ const HOLD_ID = Object.freeze({
   'tools/test-install.sh': { what: 'a comment about the file the id is kept in', listed: false },
 });
 const HOLD_PROFILE_COPY = Object.freeze({
-  'docs/browser-checks/fixtures/agent-card.json': 'a captured card, with the id replaced by a fixed zero uuid',
   'docs/browser-checks/render-talk.js': 'a comment about the capture that blanks it',
   'engine/agentfile.js': 'a comment: an exported agent file does not carry it',
   'engine/ping.js': 'the list of where the install id goes names it',

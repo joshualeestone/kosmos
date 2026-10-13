@@ -63,9 +63,10 @@ A consumer that needs to tell, from a profile alone, which install made an agent
 `store.agentId` does), never the id.
 
 ## Order with the item 3 branch (installidwords-5995)
-Both touch what is said about this field. Whichever merges second must, in `engine/installid-senders-5995.test.js`,
-drop the recorded card fixture from the set of files that hold `idInstall` (it no longer does), and correct the
-sentences that say `engine/status.js` serves the profile's copy (`engine/ping.js`'s list, and that test's header).
+Item 3 merged first (kosmos#6018, on main as 4dfbcaad1), so this branch did the second-to-merge work after merging
+main in: `engine/installid-senders-5995.test.js` no longer lists the recorded card fixture among the files that hold
+`idInstall` (it no longer does), and the two sentences that said `engine/status.js` serves the profile's copy
+(`engine/ping.js`'s list, and that test's header) say what is true now: the store hands a profile on without it.
 
 ## Review 1 (2026-10-12, default model)
 - **WARNING, taken, then replaced by the change above:** the answer to a profile save carried the id.
@@ -85,3 +86,24 @@ sentences that say `engine/status.js` serves the profile's copy (`engine/ping.js
 - **NIT, taken:** the file list said how it was counted and did not say `server.js` matches only inside another word.
 - **NIT, gone with the change:** the helper's comment named cards as its only use.
 - The design changed after this round, so rounds 1 to 3 are history, not convergence.
+
+## Review 4 (2026-10-12, sonnet), at ef049382e
+- No blocker, no warning, no convention finding. NITs only, not applied. The first clean round on the design that
+  moved the rule into the store.
+
+## What the full suite found (2026-10-12 21:49 CDT, at ef049382e)
+19664 tests, 1 failed, and the failure was this change: `engine/store.fsync-5434.test.js` compared the bytes a profile
+save writes to the save's ANSWER re-serialized. The answer no longer carries the install's id and the file still does,
+so the two differ on purpose. The search under "Weakest premise" looked for callers that name the field; this test
+never names it, which is the kind of caller that premise said would not be found.
+- The test now compares the file to its own record re-serialized (the format, no trailing newline), and the answer
+  to that record less the one key, with a control that the file does hold the id.
+- Proven on a copy: with `writeProfile` answering the whole record again, that test is red by name (17 pass, 1 fail).
+- No other test in the suite failed, so no other test took a save's answer or a read profile for the stored record.
+
+## After merging main (4dfbcaad1), on the merged tree
+- The second-to-merge work above. `node --test engine/installid-senders-5995.test.js`: 8 pass.
+- This branch's tests and every file named under Verify, plus the two above, in one run: 617 pass, 0 fail.
+- The source-sweep guards: 180 pass. Every `web*.test.js`: 2752 pass.
+- NOT run on the merged tree: the full suite (PR CI is that run), and any browser check.
+- The fsync test, the two sentences and the set entry are changes no reviewer had seen before review 5.

@@ -33,8 +33,8 @@
  *   engine/createdbeacon.js   sends it to the install endpoint
  *   engine/feedbacksend.js    sends it with the daily feedback report
  *   engine/feedback.js        writes it into the report file on this computer
- *   engine/store.js           keeps it in each agent's profile as `idInstall` (engine/status.js serves the profile
- *                             in each agent's card)
+ *   engine/store.js           keeps it in each agent's profile as `idInstall`, and hands a profile on without it
+ *                             (what it reads out and what a save answers are copies less that key)
  */
 
 const fs = require('node:fs');
