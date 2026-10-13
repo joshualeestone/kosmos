@@ -24,10 +24,17 @@ files is exactly as it was. Anything that could not be taken out is named in the
   (win32launch) wire the hooks back, so removing them earlier undoes nothing. Rejected: unwiring first (it would
   just be re-wired, and the report would claim a removal that did not last).
 - Roots = the bundle only, not %LOCALAPPDATA%\Kosmos: the hook entry names the bundle's node.exe and script.
-- No `--root`: nothing is guessed; a LEFT line says the hooks were not checked. The launcher always passes it.
+- No `--root`: nothing is guessed; a NOTE says the hooks were not checked (round 1: a LEFT made the result not ok for
+  good and turned the existing Windows uninstall tests red, which pass no root). The launcher always passes it.
 - A file whose lock is held is not touched; a read-only look decides whether to name it.
 - A LEFT line makes the result not ok, so the launcher keeps the Apps entry for removing again. Same posture as every
   other leftover in this module.
+- Round 1: a hook carrying the marker whose script is already gone is taken out too, wherever it points. An added
+  account (`accounts.prepare`) is wired once, with the folder Kosmos ran from then, and nothing repoints it after a
+  move, so its hooks can name an earlier folder. Ours by the marker and already broken: removing it removes an error.
+  Weakest part: a Kosmos on a drive that is unplugged at uninstall time loses its hooks in added accounts (the
+  default account's are re-wired by that board at its next start).
+- Roots: the given folder made absolute, plus both real paths (Node's `__dirname` uses the JS realpath).
 - Status line: not touched; it is never written on Windows (allowance.ensureStatusLine skips win32).
 
 ## Weakest premise
