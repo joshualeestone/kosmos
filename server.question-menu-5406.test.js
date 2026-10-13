@@ -307,7 +307,7 @@ test('#5406 slice C: a press whose words fail the bounds is still checked by its
 });
 
 test('#5406 slice C + #6054: a permission prompt draws its buttons, and a press at one goes out as the bare digit', async () => {
-  const PERM = '⏺ Update(a.js)\n\n Edit file\n a.js\n\n Do you want to make this edit to a.js?\n ❯ 1. Yes\n   2. Yes, allow all edits during this session (shift+tab)\n   3. No, and tell Claude what to do differently (esc)\n\n Enter to select · ↑/↓ to navigate · Esc to cancel';
+  const PERM = '⏺ Update(a.js)\n\n────────────────────────────────\n Edit file\n a.js\n\n Do you want to make this edit to a.js?\n ❯ 1. Yes\n   2. Yes, allow all edits during this session (shift+tab)\n   3. No, and tell Claude what to do differently (esc)\n\n Enter to select · ↑/↓ to navigate · Esc to cancel';
   const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: PERM })]);
   try {
     const calls = [];
