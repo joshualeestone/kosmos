@@ -204,7 +204,10 @@ function unspill(file) {
    them handoffs (#6065). The full text still goes in the LOG either way (the screens draw from the log).
    Review 1: the limit is for the LONGEST line any path will type, not only now. A message held for an agent out of
    usage or signed out is typed later with limitqueue's kept note after it, through the same length check, so the room
-   for the longest note is left here: a line that fit now and not then would be refused on every sweep until dropped. */
+   for the longest note is left here: a line that fit now and not then would be refused on every sweep until dropped.
+   Review 2: keptNote is the ONLY text a later path adds in front of or after a stored line today (a task line is a
+   short preview; the person's own held DM carries its note in the trailer, which chat does not measure). A new
+   appender must leave its room here too. */
 let keptRoom = null;
 function laterRoom() {
   if (keptRoom === null) {
@@ -2371,7 +2374,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     /* #6065: the post is typed whole unless this member's whole line (envelope, catch-up, held posts) would be longer
        than chat types (spillsAt); only then does its full text go into this member's own Inbox (#4447) and the line
        carry its head and the path (#5706). A member that cannot be typed into gets no file and is refused by deliver
-       below. A file that cannot be written: not reached, its taken held posts put back. */
+       below; for a line past the limit that refusal names its length rather than why it cannot be typed (deliver checks
+       the length first). Accepted: only a post over the limit to a member that is not running meets it, and the
+       outcome is the same could-not either way. A file that cannot be written: not reached, its taken held posts put back. */
     if (spillsAt(envelope + catchUp + heldLine) && chat.addressable(name, roster).ok) {
       const spill = spillInto(name, id, cleaned);
       if (!spill.file) {

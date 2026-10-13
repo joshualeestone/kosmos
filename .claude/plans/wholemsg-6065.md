@@ -32,6 +32,11 @@ The older spill tests (#4447's Inbox safety, #1264, #4926, #5706 head) now use m
 
 **Shown failing:** with the old 700 rule back, all three new tests fail. Measuring the body alone instead of the whole line makes the boundary test fail (the body near the limit would be refused by chat). Review 1: no reserve for the kept note, no put-back on a failed spill, and the held line left out of the measure each fail exactly their own test.
 
+## Accepted, with reasons (review 2)
+
+- A room post over the limit to a member that is not running is refused for its length, not for why it cannot be typed: deliver checks the length first. Only that case meets it, and the outcome is the same could-not.
+- chat's one-time "moved" note (#5400) rides in front of a line only when both fit the limit. On a long whole line it waits for the next shorter one; nothing is lost.
+
 ## Not in this card
 
 The third ask, an exact-file identity (path and hash) an agent can reference rather than transcribe. Delivering whole already means a path and hash written in a message arrive as written. A reference mechanism beyond that is its own feature.
