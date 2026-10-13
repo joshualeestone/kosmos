@@ -30,6 +30,8 @@
  *     is itself an mtime bound, a stolen-stale lock's mtime is >LOCK_STALE_MS old
  *     while a re-acquired one's is ~now, so they cannot collide. A mismatch means we
  *     grabbed a lock we never measured stale, and we put it back and re-wait.
+ *   - A lock that cannot be STAT'D (it vanished after a release, or a Windows lock is being deleted) is waited
+ *     on, never read as stale (#5997): read as stale it sent the waiter to steal the NEXT writer's live lock.
  *   - Staleness is by AGE, not owner liveness, so a crash between the `mkdir` and
  *     the owner write — an owner-less lock no liveness check could break — is still
  *     collected once it outlives LOCK_STALE_MS.
@@ -100,7 +102,19 @@ function withFileLock(file, fn, opts = {}) {
       // Capture the lock's MTIME alongside its age, from the SAME stat, so the
       // steal below can prove it moved the same dir it measured (kosmos#1991).
       let measuredMtime = null;
-      try { const st = fs.statSync(lock); measuredMtime = st.mtimeMs; age = Date.now() - st.mtimeMs; } catch { age = Infinity; }
+      try { const st = fs.statSync(lock); measuredMtime = st.mtimeMs; age = Date.now() - st.mtimeMs; }
+      catch {
+        /* #5997: NO FAILED STAT LEADS TO A STEAL. A lock that vanished between our mkdir and this stat (its holder
+           released) used to read as infinitely stale and sent us to steal whatever stood at the path next: under
+           contention a live writer's fresh lock. The identity check below then moved it aside and put it back, and a
+           third writer could mkdir in that gap, leaving two writers inside the section; all reported success and one
+           update was lost (one of 12 concurrent trust writes, in CI). A steal can only remove a lock whose mtime it
+           measured, so with no measurement it could never collect anything, only open that window: whatever the
+           failure (ENOENT after a release, EPERM on a Windows lock being deleted, a dangling symlink), pause and try
+           the mkdir again; the deadline answers "busy", as for a live holder. */
+        pauseMs(LOCK_SPIN_MS);
+        continue;
+      }
       if (age > LOCK_STALE_MS) {
         const aside = `${lock}.${process.pid}.${Date.now()}.stale`;
         try { fs.renameSync(lock, aside); }
@@ -121,6 +135,8 @@ function withFileLock(file, fn, opts = {}) {
         // means a fresh lock was substituted.
         let stolenMtime = null;
         try { stolenMtime = fs.statSync(aside).mtimeMs; } catch { stolenMtime = null; }
+        // (#5997: measuredMtime is never null here any more, since a failed stat no longer reaches a steal; the clause
+        // stays as a guard against a future path that does.)
         if (measuredMtime == null || stolenMtime == null || stolenMtime !== measuredMtime) {
           // We moved a lock we did not measure stale -- put it back and re-wait,
           // rather than proceed beside its holder. Restoring is what makes the
@@ -136,6 +152,8 @@ function withFileLock(file, fn, opts = {}) {
           // whenever the deschedule happens; with it, a third double-entry needs the
           // deschedule AND a sub-millisecond third-process mkdir landing in the gap.
           // A conditional-rename syscall would close it, but POSIX has none.
+          // #5997: that estimate holds only now that no failed stat reaches here; the one way in is a lock
+          // genuinely measured stale (over LOCK_STALE_MS) and then substituted before the rename.
           try { fs.renameSync(aside, lock); } catch { /* path re-occupied; leave the inert `.stale` leftover in place */ }
           pauseMs(LOCK_SPIN_MS);
           continue;
