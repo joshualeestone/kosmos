@@ -96,6 +96,7 @@ test('#5999: a dry run says ours and writes nothing; an unreadable file is named
   fs.mkdirSync(path.dirname(broken), { recursive: true }); fs.writeFileSync(broken, text);
   const r = reporthook.unwireInstall(broken, [BUNDLE]);
   assert.equal(r.ours, true, 'an unreadable file holding our hook was not reported');
+  assert.equal(r.unreadable, true);
   assert.equal(r.changed, false);
   assert.ok(r.because);
   assert.equal(fs.readFileSync(broken, 'utf8'), text, 'an unreadable file was rewritten');
@@ -253,6 +254,18 @@ test('#5999: the folder as Node records it (the real path behind a link) and the
     env: { APPDATA: path.join(base, 'Roaming'), LOCALAPPDATA: path.join(base, 'Local'), USERNAME: 'someone', USERDOMAIN: 'BOX', AGENT_WORKFORCE_CLAUDE_SETTINGS: custom } });
   assert.deepEqual(readJson(custom), { hooks: { Stop: [PERSONS] } }, 'a hook naming the real folder behind --root, in the override file, was kept');
   assert.ok(r.done.some((d) => d.includes(custom)), JSON.stringify(r.done));
+});
+
+test('#5999: a settings file that cannot be read is a note (removing again cannot fix it), never rewritten (round 4)', async () => {
+  const h = home();
+  const broken = path.join(h, '.claude-work1', 'settings.json');
+  const text = JSON.stringify(wiredSettings()).slice(0, -1);   // cut off: not JSON
+  fs.mkdirSync(path.dirname(broken), { recursive: true }); fs.writeFileSync(broken, text);
+  stubSchedulers([listing([])]);
+  const r = await run(h);
+  assert.equal(fs.readFileSync(broken, 'utf8'), text, 'an unreadable file was rewritten');
+  assert.ok(r.notes.some((n) => n.includes(broken) && /could not be read/.test(n) && /whole entry/.test(n)), JSON.stringify(r.notes));
+  assert.ok(!r.left.some((l) => l.includes(broken)), 'an unreadable file was made a leftover, which keeps the removal unfinished for good: ' + JSON.stringify(r.left));
 });
 
 test('#5999: a held lock is waited on, then the file is named and left as it was (the #3088 lock the writers take)', async () => {
