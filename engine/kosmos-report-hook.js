@@ -261,7 +261,8 @@ function sortedKeys(v) {
 /** #6071 (slice D1): the digest of a failed tool call (PostToolUseFailure) that the board counts, or null. The
  *  signature hashes the tool, its input and the WHOLE error, here, so the input never leaves the computer; only the
  *  error's first line is sent, to be shown. An interrupt is the person stopping the call, not a failure, so it gives
- *  null. The bash hook's twin. */
+ *  null. The bash hook does the same job, but its signatures are not interchangeable with these (jq's sorted JSON
+ *  there, JSON.stringify here): the board only ever compares one agent's signatures with its own. */
 function failureRequestFor(evt) {
   if (field(evt, 'hook_event_name') !== 'PostToolUseFailure' || !evt || evt.is_interrupt === true) return null;
   const tool = field(evt, 'tool_name') || 'a tool';
