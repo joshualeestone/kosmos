@@ -52,9 +52,12 @@ const TURN_ENDS = Object.freeze(['idle', 'stopped', 'started']);
    (the person pressed Esc). */
 const PROMPT_TEXT = 'answering a prompt';
 
-/* True when an AUTOMATIC report with this state and text ends the current turn. Pure. */
+/* What kind of turn end an AUTOMATIC report with this state and text is: 'stop' (the turn or session ended), 'prompt'
+   (the next prompt started a new turn), or null (it ends nothing). Pure. */
 function endsTurn(state, text) {
-  return TURN_ENDS.includes(state) || (state === 'working' && text === PROMPT_TEXT);
+  if (TURN_ENDS.includes(state)) return 'stop';
+  if (state === 'working' && text === PROMPT_TEXT) return 'prompt';
+  return null;
 }
 
 /* A failure that arrives this soon after a turn end still belongs to the turn that just ended: the hook sends its
@@ -94,7 +97,8 @@ function readRun(key) {
     if (r && typeof r.sig === 'string' && SIG_RE.test(r.sig) && Number.isInteger(r.count) && r.count > 0
       && Number.isFinite(r.firstAt) && Number.isFinite(r.lastAt)) {
       return { sig: r.sig, tool: clean(r.tool, MAX_TOOL), error: clean(r.error, MAX_ERROR), count: r.count,
-        firstAt: r.firstAt, lastAt: r.lastAt, turnEndAt: Number.isFinite(r.turnEndAt) ? r.turnEndAt : null };
+        firstAt: r.firstAt, lastAt: r.lastAt, turnEndAt: Number.isFinite(r.turnEndAt) ? r.turnEndAt : null,
+        turnEndKind: r.turnEndKind === 'prompt' ? 'prompt' : 'stop' };
     }
   } catch { /* a malformed file reads as no run */ }
   return null;
@@ -126,25 +130,36 @@ function noteFailure(key, failure, opts) {
   const tool = clean(f.tool, MAX_TOOL) || 'a tool';
   const error = clean(redacted(f.error), MAX_ERROR);
   const prev = readRun(key);
-  const late = prev && prev.turnEndAt !== null && now - prev.turnEndAt <= lateMs;
+  /* Late: sent before a Stop but delivered just after it. Only a Stop can be overtaken this way; after a prompt the
+     next failure is the new turn's. A late failure that does not continue the run still belongs to the turn that
+     ended, so its run keeps that turn end and the next turn's failures start afresh. */
+  const late = Boolean(prev && prev.turnEndAt !== null && prev.turnEndKind === 'stop' && now - prev.turnEndAt <= lateMs);
   const continues = prev && prev.sig === sig && (prev.turnEndAt === null || late);
   const run = continues
     ? { ...prev, count: prev.count + 1, lastAt: now, error: error || prev.error }
-    : { sig, tool, error, count: 1, firstAt: now, lastAt: now, turnEndAt: null };
+    : { sig, tool, error, count: 1, firstAt: now, lastAt: now,
+      turnEndAt: late ? prev.turnEndAt : null, turnEndKind: late ? prev.turnEndKind : 'stop' };
   if (!writeRun(key, run)) return { ok: false, because: 'the record could not be written' };
-  return { ok: true, count: run.count, looping: run.count >= LOOP_AT, reached: run.count === LOOP_AT };
+  return { ok: true, count: run.count, looping: run.count >= LOOP_AT, reached: run.count === LOOP_AT, tool: run.tool };
 }
 
 /*
  * A turn (or session) ended for an agent: the next failure starts a new run. Called by POST /api/report for an
- * automatic report that endsTurn: an idle, stopped or started, or the next prompt. Writes only when there is a run
- * not already marked. Never throws.
+ * automatic report that endsTurn, with its kind ('stop' or 'prompt'). Writes only when there is a run to mark, or
+ * when a prompt follows a Stop (which closes the late window). Never throws.
  */
 function noteTurnEnd(key, opts) {
-  const now = opts && Number.isFinite(opts.now) ? opts.now : Date.now();
+  const o = opts || {};
+  const now = Number.isFinite(o.now) ? o.now : Date.now();
+  const kind = o.kind === 'prompt' ? 'prompt' : 'stop';
   const run = key ? readRun(key) : null;
-  if (!run || run.turnEndAt !== null) return false;
-  return writeRun(key, { ...run, turnEndAt: now });
+  if (!run) return false;
+  if (run.turnEndAt !== null) {
+    /* A prompt after a Stop closes the late window: from here on, a failure is the new turn's. */
+    if (kind === 'prompt' && run.turnEndKind !== 'prompt') return writeRun(key, { ...run, turnEndKind: 'prompt' });
+    return false;
+  }
+  return writeRun(key, { ...run, turnEndAt: now, turnEndKind: kind });
 }
 
 /*

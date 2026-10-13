@@ -15371,10 +15371,7 @@ const server = http.createServer(async (req, res) => {
         const who = sender.card.sessionName;
         const r = require('./engine/toolloop').noteFailure(who, { tool: body.tool, sig: body.sig, error: body.error });
         if (!r.ok) { sendJson(res, 200, { recorded: false, because: r.because }); return; }
-        if (r.reached) {
-          const tool = String(body.tool || 'a tool').replace(/[\u0000-\u001f\u007f]+/g, ' ').slice(0, 80);
-          console.log(`[toolloop] ${who}: ${tool} failed the same way ${r.count} times in one turn (#6071, recorded only)`);
-        }
+        if (r.reached) console.log(`[toolloop] ${who}: ${r.tool} failed the same way ${r.count} times in one turn (#6071, recorded only)`);
         sendJson(res, 200, { recorded: true, count: r.count, looping: r.looping });
       })
       .catch(() => sendJson(res, 400, { recorded: false, because: 'that request is not something we can read' }));
@@ -15445,8 +15442,9 @@ const server = http.createServer(async (req, res) => {
         /* #6071: an automatic idle, stopped or started, or the prompt that starts a new turn, ends a turn for
            engine/toolloop.js's count of one repeating tool failure. Here, BEFORE selfreport.record: that record
            refuses an automatic idle over a standing deliberate wait, and the turn ended all the same. */
-        if (body.auto === true && require('./engine/toolloop').endsTurn(body.state, body.text)) {
-          try { require('./engine/toolloop').noteTurnEnd(who); } catch { /* the count is best-effort */ }
+        const turnEnd = body.auto === true ? require('./engine/toolloop').endsTurn(body.state, body.text) : null;
+        if (turnEnd) {
+          try { require('./engine/toolloop').noteTurnEnd(who, { kind: turnEnd }); } catch { /* the count is best-effort */ }
         }
         // #718: a phone buzzes on the change INTO needs_you, not on every repeat
         // report, so read what this agent said last before recording this one.

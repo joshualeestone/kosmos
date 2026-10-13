@@ -82,6 +82,9 @@ for (const [label, env] of [['with jq', {}], ['without jq', { KOSMOS_REPORT_HOOK
     assert.equal(run(fail('mcp__x__do', { is_interrupt: true }, 'boom'), env).failed.length, 1, 'in the input');
     assert.equal(run(fail('Bash', { command: 'x' }, 'saw "is_interrupt": true in the log'), env).failed.length, 1, 'in the error');
     assert.deepEqual(run(fail('mcp__x__do', { is_interrupt: false }, 'stop', { is_interrupt: true }), env, 0).failed, [], 'the real top-level key still wins');
+    const noTop = fail('mcp__x__do', { is_interrupt: true }, 'boom');
+    delete noTop.is_interrupt;   // Claude Code leaves the key out when it has no value
+    assert.equal(run(noTop, env).failed.length, 1, 'no top-level key: an input key alone does not make it an interrupt');
   });
 }
 
