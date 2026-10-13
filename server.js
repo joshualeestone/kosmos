@@ -16860,7 +16860,7 @@ const server = http.createServer(async (req, res) => {
              drift from the screen. */
           if (chose) chose = chat.cleanMessage(chose);
           if (menu && askedGiven && !chose) {   // #5406 slice C: words that failed their check are not "a changed question"
-            const unchecked = new Error('we could not check that choice\'s words, so we did not send it. Answer it in its window, or type its number.');
+            const unchecked = new Error('we could not check that choice\'s words, so we did not send it. Its current question is on this page; you can also answer it by typing its number.');
             unchecked.status = 409;
             throw unchecked;
           }

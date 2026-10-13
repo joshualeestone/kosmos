@@ -2339,6 +2339,8 @@ const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEED
    wording changes. It is deliberately NOT a real question, so a caller can tell
    "the board is asking, in general" from "the agent told us this". */
 const ASKING_GENERIC = 'it is asking you something';
+/* #6054: a Claude agent stopped on its permission prompt (claudePermissionPromptKind `wording`). */
+const APPROVAL_WAITING = 'it is waiting for your approval';
 
 /* #5039: Claude Code's safeguards model-switch menu, which stops a session until the person picks. Observed on Angel's
    pane 2026-10-02 ~11:07 (Claude Code 2.1.287, Opus 5.5):
@@ -5070,6 +5072,9 @@ function classify(pane, paneText) {
   if (drawsOptionMenu(tail)) {
     const flagged = safeguardsMenu(tail);
     if (flagged) return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, ...flagged };
+    /* #6054: Claude Code's permission prompt says what it is waiting for, so the card and page do not read it as an open
+       question: the person answers it with its buttons on the agent page. */
+    if (claudePermissionPromptKind(paneText) === 'wording') return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: APPROVAL_WAITING };
     return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: ASKING_GENERIC };
   }
   /* #5749: Claude Code's question menu with NO numbered highlighted row in the tail: the highlight on the multi-select
@@ -9450,7 +9455,7 @@ module.exports = {
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
      placeholder as if the agent had said it. */
-  ASKING_GENERIC, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudePermissionPrompt, claudeAnswerableMenu, claudeSafeguardsMenuUp,
+  ASKING_GENERIC, APPROVAL_WAITING, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudePermissionPrompt, claudeAnswerableMenu, claudeSafeguardsMenuUp,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,
