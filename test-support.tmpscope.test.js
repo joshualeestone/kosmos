@@ -214,7 +214,7 @@ test('#6061: a process with no script file (node -e) records that it had none', 
   assert.equal(r.signal, 'SIGKILL', String(r.stderr));
   const left = entries(base).filter((n) => n.startsWith('kts-'));
   assert.equal(left.length, 1, String(entries(base)));
-  assert.match(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8'), /^\(no script, [^)]+\)\tpid \d+\n$/);
+  assert.match(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8'), /^\(no script, [^)/]+\)\tpid \d+\n$/, 'argv0 is not its basename, so a full node path reaches the log');
 });
 
 test('#6061 end to end: the leak guard reads the owner a killed process really wrote (not a hand-made line)', (t) => {
@@ -226,7 +226,7 @@ test('#6061 end to end: the leak guard reads the owner a killed process really w
   const guard = path.join(__dirname, 'tools', 'lib', 'test-leak-guard.sh');
   const g = spawnSync('bash', ['-c', '. "$1" && leak_kts_owners "$2"', 'g', guard, base], { encoding: 'utf8' });
   assert.equal(g.status, 0, g.stderr);
-  assert.match(g.stdout, new RegExp(`^  kts-[A-Za-z0-9]{6}: made by victim-e2e\\.test\\.js \\(pid ${r.pid}\\), killed before its exit sweep ran\\n$`));
+  assert.match(g.stdout, new RegExp(`^  kts-[A-Za-z0-9]{6}: made by victim-e2e\\.test\\.js \\(pid ${r.pid}\\); its exit sweep did not run \\(killed, still running, or the sweep failed\\)\\n$`));
 });
 
 test('#6061: a killed file outside its cwd is named by its absolute path, never a climb of ../', (t) => {
@@ -240,4 +240,16 @@ test('#6061: a killed file outside its cwd is named by its absolute path, never 
   assert.equal(left.length, 1, String(entries(base)));
   const named = fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0];
   assert.equal(named, fs.realpathSync(victim));
+});
+
+test('#6061 review 1: a killed file under the home folder is written with ~, so no user name reaches the log', (t) => {
+  const base = fs.realpathSync(freshBase(t));
+  const away = fs.mkdtempSync(path.join(base, 'away-'));
+  const victim = path.join(base, 'homed-6061.test.js');
+  fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
+  const r = spawnSync(process.execPath, [victim], { cwd: away, env: { ...process.env, TMPDIR: base, HOME: base } });
+  assert.equal(r.signal, 'SIGKILL', String(r.stderr));
+  const left = entries(base).filter((n) => n.startsWith('kts-'));
+  assert.equal(left.length, 1, String(entries(base)));
+  assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0], '~/homed-6061.test.js');
 });
