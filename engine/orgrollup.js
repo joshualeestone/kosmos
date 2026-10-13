@@ -53,7 +53,7 @@ function statusWord(state) {
    a person could have named after a client or a project (review 7). */
 const MODEL_PART = '(\\d+(\\.\\d+)*[a-z]?|opus|sonnet|haiku|fable|mini|nano|flash|pro|lite|codex|turbo|preview|latest|exp|\\d{8})';
 const MODEL_ID = new RegExp('^(claude|gpt|o[134]|codex|gemini|grok|llama)(-' + MODEL_PART + '){0,6}$');
-const PROVIDERS = new Set(['anthropic', 'openai', 'google', 'xai', 'meta', 'antigravity']);
+const PROVIDERS = new Set(['anthropic', 'openai', 'google', 'xai', 'meta', 'antigravity', 'alibaba']);
 /* The whole tag block too (rollup review 24): the coordinator refuses U+E0000 to U+E007F, and externalName leaves the
    unassigned ones; one such name would lose the whole rollup. */
 const clean = (v) => externalName(typeof v === 'string' ? v.replace(/[\u{E0000}-\u{E007F}]/gu, '') : v, NAME_MAX) || null;
@@ -214,7 +214,8 @@ function fit(body) {
 
 /* The real sources, behind one seam so tests can hand plain records instead. */
 const KNOWN_RUNNERS = new Set(['claude', 'codex', 'gemini', 'grok', 'antigravity', 'muse']);
-const KNOWN_PROVIDERS = new Set(['anthropic', 'openai', 'google', 'xai', 'antigravity', 'meta', 'alibaba']);
+// #5975: the same set build() sends, so the two cannot drift (a second copy is how alibaba was first missed).
+const KNOWN_PROVIDERS = PROVIDERS;
 function defaultSources() {
   const status = require('./status');
   const register = require('./register');
@@ -238,10 +239,20 @@ function defaultSources() {
     lastActiveOf: (sessionName) => { const r = activity.read(sessionName, 'working'); return r.found ? r.at : null; },
     /* Known runners and providers only (rollup review 22): create's maps fall back to claude/anthropic for anything else,
        which would send a guess as the provider. */
-    /* #5977 review 2: a Qwen agent (codex on a Qwen home) is not OpenAI, so it never goes as openai. #5975: it goes as
-       alibaba, so a company can see which agents run on its own model. */
+    /* #5977 review 2: a Qwen agent (codex on a Qwen home) never goes as openai. #5975: codex is the one runner two
+       providers share, so its provider follows accountproblem's rule: the job decides, and the profile only when there
+       is no job (a stopped agent whose runner recordedRunner read off an alibaba profile). */
     providerOf: (runner, sessionName) => {
       if (!KNOWN_RUNNERS.has(runner)) return null;
+      if (runner === 'codex' && sessionName) {
+        let fromJob = null;
+        try { fromJob = create.codexJobProvider(sessionName); } catch { fromJob = null; }
+        if (!fromJob) {
+          let fromProfile = null;
+          try { fromProfile = require('./store').readProfile(sessionName).provider; } catch { fromProfile = null; }
+          if (fromProfile === 'alibaba') return 'alibaba';
+        }
+      }
       const p = create.agentProvider(sessionName, runner);
       return KNOWN_PROVIDERS.has(p) ? p : null;
     },
