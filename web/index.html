@@ -4192,10 +4192,9 @@ body:not(.consolidated) #docs-chev { display: none; }
    gone, and the search sits compact to the right of Sort (below). */
 .tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 14px 0 4px; }
 #tsk-under { margin: 12px 0 4px; }
-.tsk-ctl { display: flex; align-items: center; }
 /* #3029: a project picker names subprojects by their chain, which can outgrow a phone; the control shrinks
    to its row and the closed select ends in an ellipsis (the open list shows the whole chain). */
-.tsk-ctl { min-width: 0; max-width: 100%; }
+.tsk-ctl { display: flex; align-items: center; min-width: 0; max-width: 100%; }
 .tsk-ctl select.tsk-sel { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
 .tsk-cl { font: 600 .875rem var(--font-ui); color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
 .tsk-search { position: relative; margin: 0; max-width: 100%; }
