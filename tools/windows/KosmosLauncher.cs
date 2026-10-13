@@ -62,7 +62,7 @@ class KosmosLauncher
     // window (#1118); 5 installs itself without asking (#3286); 6 shows the waiting count on the
     // window's taskbar button (#3996); 7 replaces a board that holds its port but does not answer
     // (#4543); 8 asks whether this computer runs agents or connects to them (#4381, off on main).
-    public const string LauncherVersion = "8.0.0.0";
+    public const string LauncherVersion = "8.1.0.0";
     // Explorer's "Product version". Worded so nobody reads it as the Kosmos
     // version, which lives in manifest.json and on the board.
     public const string LauncherProductVersion = "launcher 8.0";
@@ -2473,6 +2473,7 @@ class KosmosLauncher
         string fallbackProblem = null;
         bool noRuntime = false;
         bool stoppedWorking = false;
+        bool relaunch = false;
         bool firstWindow;
         using (Mutex onlyWindow = new Mutex(true, "Local\\" + BoardWindowName(port), out firstWindow))
         {
@@ -2493,6 +2494,7 @@ class KosmosLauncher
                     BoardWindowForm form = ShowBoardWindow(here, node, opener, app, port, loader);
                     fallbackProblem = form.RuntimeProblem;
                     stoppedWorking = form.StoppedWorking;
+                    relaunch = form.RelaunchAfterClose;
                 }
             }
             finally { onlyWindow.ReleaseMutex(); }
@@ -2500,6 +2502,14 @@ class KosmosLauncher
 
         if (fallbackProblem != null) return OpenInBrowserInstead(here, node, opener, app, port, fallbackProblem, noRuntime);
         if (stoppedWorking) ShowMessageBox(WindowStoppedMessage, true);
+        // #4382: the window closed to open the Kosmos.exe an update (or a rollback) on this connect computer just
+        // put in the Kosmos folder; this process runs the copy that was moved aside. After the lock, so the new
+        // window can take it. Kosmos.exe reads the mode itself, so a connect computer starts no board here.
+        if (relaunch)
+        {
+            string relaunchProblem = StartLauncherAt(Path.Combine(here, "Kosmos.exe"), here);
+            if (relaunchProblem != null) ShowMessageBox(RelaunchFailedMessage(here, relaunchProblem), true);
+        }
         return 0;
     }
 
@@ -2651,6 +2661,127 @@ class KosmosLauncher
 
     // The system menu's item (right-click the title bar, or Alt+Space), shown only on a connect computer.
     internal const string RunAgentsMenuText = "Run agents on this computer";
+
+    // ---- #4382: a connect computer updates, and rolls back, with no board ----
+    //
+    // The board is what looks for updates, and a connect computer has stopped its board on purpose
+    // (#4381). So its window asks app\engine\win32connectupdate.js, with this folder's node, at launch
+    // (once its stop of the board is done), once a day while it is open, and when the person picks
+    // Update or Roll back in the system menu. That file runs the board's own look, consent, updater and
+    // rollback, and leaves the board stopped; this file only shows what it said and carries the choice.
+
+    internal const string ConnectUpdateScript = "win32connectupdate.js";
+    // A day between looks, and an hour after a look that could not reach the release host.
+    internal const int UpdateLookEveryMs = 24 * 60 * 60 * 1000;
+    internal const int UpdateLookRetryMs = 60 * 60 * 1000;
+
+    internal const string StillUpdatingMessage = "Kosmos is still updating on this computer. Try again in a moment.";
+
+    internal enum ConnectUpdateKind { Unknown, Current, Newer, Updated, RolledBack, Failed, Board, Refused }
+
+    internal sealed class ConnectUpdateAnswer
+    {
+        internal ConnectUpdateKind Kind;
+        internal string Value;            // the version, or the reason in the words the engine used
+        internal string RollbackVersion;  // the kept build a rollback restores, or null
+    }
+
+    internal static string ConnectUpdateArguments(string action, int port)
+    {
+        return "--" + action + " --port " + port;
+    }
+
+    // The board's own shape of a version, a.b.c with digits only. Anything else is not a version.
+    internal static bool IsReleaseVersion(string v)
+    {
+        if (string.IsNullOrEmpty(v)) return false;
+        string[] parts = v.Split('.');
+        if (parts.Length != 3) return false;
+        foreach (string p in parts)
+        {
+            if (p.Length == 0) return false;
+            foreach (char ch in p) if (ch < '0' || ch > '9') return false;
+        }
+        return true;
+    }
+
+    // PURE: what the engine said, from the lines of its report (win32connectupdate.js reportLines). The
+    // FIRST non-empty line is the answer; a version-bearing answer whose version is not of the board's
+    // shape is Unknown, never Current, so a garbled answer can neither hide an update nor offer one. A
+    // later `rollback <v>` line is the rollback offer.
+    internal static ConnectUpdateAnswer ReadConnectUpdateReport(string[] lines)
+    {
+        ConnectUpdateAnswer answer = new ConnectUpdateAnswer();
+        answer.Kind = ConnectUpdateKind.Unknown;
+        if (lines == null) return answer;
+        bool first = true;
+        foreach (string raw in lines)
+        {
+            string line = (raw ?? "").Trim();
+            if (line.Length == 0) continue;
+            int space = line.IndexOf(' ');
+            string word = space < 0 ? line : line.Substring(0, space);
+            string rest = space < 0 ? "" : line.Substring(space + 1).Trim();
+            if (first)
+            {
+                first = false;
+                // An if chain, not a switch: this compiler turns a switch on seven or more strings into a
+                // class named by a fresh GUID each build, which verify-launcher.ps1 would then have to mask.
+                ConnectUpdateKind versioned = word == "current" ? ConnectUpdateKind.Current
+                    : word == "newer" ? ConnectUpdateKind.Newer
+                    : word == "updated" ? ConnectUpdateKind.Updated
+                    : word == "rolledback" ? ConnectUpdateKind.RolledBack
+                    : ConnectUpdateKind.Unknown;
+                if (versioned != ConnectUpdateKind.Unknown)
+                {
+                    if (IsReleaseVersion(rest)) { answer.Kind = versioned; answer.Value = rest; }
+                }
+                else if (word == "board") { if (rest.Length == 0) answer.Kind = ConnectUpdateKind.Board; }
+                else if (word == "failed") { answer.Kind = ConnectUpdateKind.Failed; answer.Value = rest; }
+                else if (word == "refused") { answer.Kind = ConnectUpdateKind.Refused; answer.Value = rest; }
+                else if (word == "unknown") { answer.Value = rest; }
+                continue;
+            }
+            if (word == "rollback" && IsReleaseVersion(rest)) answer.RollbackVersion = rest;
+        }
+        return answer;
+    }
+
+    // The system menu's items and the bar's words.
+    internal static string UpdateMenuText(string version) { return "Update Kosmos to " + version; }
+    internal static string RestartMenuText(string version) { return "Restart Kosmos to use " + version; }
+    internal static string RollbackMenuText(string version) { return "Roll back Kosmos to " + version; }
+    internal static string UpdateOfferNote(string version)
+    {
+        return "Kosmos " + version + " is ready. Updates are off on this computer, so Kosmos asks first.";
+    }
+    internal static string UpdateInstalledNote(string version)
+    {
+        return "Kosmos " + version + " is installed. Restart Kosmos to start using it.";
+    }
+    internal const string UpdatingNote = "Updating Kosmos. It opens again when the update is installed.";
+    internal const string RollingBackNote = "Rolling Kosmos back. It opens again when that is done.";
+    internal static string RollbackQuestion(string version)
+    {
+        return "Roll Kosmos on this computer back to " + version + "?\n\nThis puts back the version the last update replaced. Your agents on the other computer are not affected.";
+    }
+    internal static string UpdateFailedNote(string why)
+    {
+        return "Kosmos could not update" + (string.IsNullOrEmpty(why) ? "" : " (" + why + ")") + ". Press Update to try again.";
+    }
+    internal static string RollbackFailedMessage(string why)
+    {
+        return "Kosmos could not roll back" + (string.IsNullOrEmpty(why) ? "" : " (" + why + ")") + ". It is still on the version it was.";
+    }
+    internal const string UpdateUnreachableNote = "Kosmos could not check for updates. Check this computer's internet connection, then try again.";
+    internal static string UpdateNotStartedNote(string why)
+    {
+        return "Kosmos could not start that right now" + (string.IsNullOrEmpty(why) ? "" : " (" + why + ")") + ". Try again in a few minutes.";
+    }
+    internal static string RelaunchFailedMessage(string folder, string problem)
+    {
+        return "Kosmos is updated, but it would not open again (" + problem + "). Double-click Kosmos.exe in " + folder + ".";
+    }
 
     internal static string ChoiceNotSavedMessage(string folder)
     {
@@ -2906,10 +3037,31 @@ class BoardWindowForm : System.Windows.Forms.Form
     // page. Only the Kosmos Plus SITE may send the window to another site by script (its checkout hand-off).
     string committedPage;
     readonly Dictionary<ulong, string> connectInWindow = new Dictionary<ulong, string>();
-    bool runAgentsItemShown;
-    // The system menu's ids. WM_SYSCOMMAND keeps its low four bits for Windows, so both end in 0.
+    // What the system menu shows now, as one string, so it is rebuilt only when that changes (null: nothing of ours).
+    string systemMenuShown;
+    // The system menu's ids. WM_SYSCOMMAND keeps its low four bits for Windows, so all of them end in 0.
     internal const int RunAgentsMenuId = 0x4380;
     const int RunAgentsSeparatorId = 0x4390;
+    internal const int UpdateMenuId = 0x43A0;
+    internal const int RollbackMenuId = 0x43B0;
+
+    // #4382: the connect computer's update looks (KosmosLauncher.ConnectUpdateScript). Main-thread only.
+    System.Windows.Forms.Timer updateTimer;
+    bool updateLookInFlight;
+    // A newer version offered (updates are off here), one an unasked look installed that waits for a
+    // restart, and the kept build a rollback restores. Each null when there is none.
+    string updateOffer;
+    string updateInstalled;
+    string rollbackOffer;
+    // The slim bar over the page that says so (the Mac's update bar, Liu Kang's ruling on #4382: drawn by
+    // the window, never put into the page, which on a connect computer is the other computer's).
+    System.Windows.Forms.Panel updateBar;
+    System.Windows.Forms.Label updateBarLabel;
+    System.Windows.Forms.Button updateBarButton;
+    // The version whose bar the person put away with Not now; the menu item still offers it.
+    string updateBarDismissed;
+    // Set when this window closes to open the updated (or rolled back) Kosmos.exe: RunBoardWindow starts it.
+    internal bool RelaunchAfterClose;
 
     internal BoardWindowForm(int port, IntPtr loader, string userDataFolder, Func<string> resolveBoardAddress, KosmosLauncher.ComputerMode mode, string here)
     {
@@ -3221,7 +3373,9 @@ class BoardWindowForm : System.Windows.Forms.Form
             if (minimized) return;
             System.Drawing.Rectangle client = ClientRectangle;
             RECT bounds;
-            bounds.left = client.Left; bounds.top = client.Top; bounds.right = client.Right; bounds.bottom = client.Bottom;
+            // #4382: the page starts below the update bar while it shows, so the bar never covers the page.
+            int barHeight = updateBar != null && updateBar.Visible ? updateBar.Height : 0;
+            bounds.left = client.Left; bounds.top = client.Top + barHeight; bounds.right = client.Right; bounds.bottom = client.Bottom;
             controller.put_Bounds(bounds);
         }
         catch { /* a view that is going away */ }
@@ -3257,6 +3411,8 @@ class BoardWindowForm : System.Windows.Forms.Form
         }
         if (m.Msg != 0 && (uint)m.Msg == closeMessage) { Close(); return; }
         if (m.Msg == WM_SYSCOMMAND && ((long)m.WParam & 0xFFF0) == RunAgentsMenuId) { RunAgentsHere(); return; }
+        if (m.Msg == WM_SYSCOMMAND && ((long)m.WParam & 0xFFF0) == UpdateMenuId) { UpdatePicked(); return; }
+        if (m.Msg == WM_SYSCOMMAND && ((long)m.WParam & 0xFFF0) == RollbackMenuId) { RollbackPicked(); return; }
         if (m.Msg != 0 && (uint)m.Msg == taskbarButtonCreatedMessage)
         {
             taskbarButtonReady = true;
@@ -3451,6 +3607,9 @@ class BoardWindowForm : System.Windows.Forms.Form
                     stopsInFlight--;
                     if (thenSignIn && mode == KosmosLauncher.ComputerMode.Connect) LoadConnect();
                     if (!stopped) KosmosLauncher.ShowWindowMessage(KosmosLauncher.BoardStillRunningMessage, true);
+                    // #4382: with the stop done, a connect computer looks for an update now and once a day, as the
+                    // Mac chains its look after stopBoardIfRunning. The look itself refuses while a board answers.
+                    if (mode == KosmosLauncher.ComputerMode.Connect) StartUpdateLooks();
                 }));
             }
             catch { /* the window closed meanwhile; the next launch stops it again */ }
@@ -3472,6 +3631,8 @@ class BoardWindowForm : System.Windows.Forms.Form
     void RunAgentsHere()
     {
         if (mode != KosmosLauncher.ComputerMode.Connect) return;
+        // #4382: an update or rollback swaps the Kosmos folder; a board started under it would race the swap.
+        if (updateLookInFlight) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }
         if (stopsInFlight > 0) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillStoppingMessage, false); return; }
         string file = KosmosLauncher.computerModeFile();
         if (!KosmosLauncher.WriteComputerMode(KosmosLauncher.ComputerMode.Run, file))
@@ -3480,6 +3641,8 @@ class BoardWindowForm : System.Windows.Forms.Form
             return;
         }
         mode = KosmosLauncher.ComputerMode.Run;
+        // #4382: the board this starts keeps the computer updated from here on.
+        StopUpdateLooks();
         UpdateRunAgentsItem();
         committedPage = null;
         connectInWindow.Clear();
@@ -3511,26 +3674,237 @@ class BoardWindowForm : System.Windows.Forms.Form
     }
 
     // Shown only while the mode is connect. Hidden by giving the window its default system menu back.
+    // #4382: on a connect computer the same menu also offers the update ("Update Kosmos to X", or "Restart
+    // Kosmos to use X" once one is installed) and the rollback ("Roll back Kosmos to X"), each only while
+    // there is one, because the page, where a board computer has both buttons, is the other computer's.
+    // Rebuilt from the default menu whenever what it should show changes.
     void UpdateRunAgentsItem()
     {
         bool want = mode == KosmosLauncher.ComputerMode.Connect;
-        if (want == runAgentsItemShown || !IsHandleCreated) return;
+        string updateText = !want ? null
+            : updateInstalled != null ? KosmosLauncher.RestartMenuText(updateInstalled)
+            : updateOffer != null ? KosmosLauncher.UpdateMenuText(updateOffer)
+            : null;
+        string rollbackText = want && rollbackOffer != null ? KosmosLauncher.RollbackMenuText(rollbackOffer) : null;
+        string shape = want ? "run|" + (updateText ?? "") + "|" + (rollbackText ?? "") : null;
+        if (shape == systemMenuShown || !IsHandleCreated) return;
         try
         {
+            if (systemMenuShown != null) GetSystemMenu(Handle, true);
             if (want)
             {
                 IntPtr menu = GetSystemMenu(Handle, false);
                 if (menu == IntPtr.Zero) return;
                 AppendMenuW(menu, MF_SEPARATOR, UIntPtr.Zero, null);
                 AppendMenuW(menu, MF_STRING, new UIntPtr((uint)RunAgentsMenuId), KosmosLauncher.RunAgentsMenuText);
+                if (updateText != null) AppendMenuW(menu, MF_STRING, new UIntPtr((uint)UpdateMenuId), updateText);
+                if (rollbackText != null) AppendMenuW(menu, MF_STRING, new UIntPtr((uint)RollbackMenuId), rollbackText);
             }
             else
             {
                 GetSystemMenu(Handle, true);
             }
-            runAgentsItemShown = want;
+            systemMenuShown = shape;
         }
         catch { /* no system menu to change: the next change tries again */ }
+    }
+
+    // ---- #4382: a connect computer updates, and rolls back, with no board ----------------------
+    //
+    // As the Mac app's startUpdateLooks/lookForUpdate (native-app/main.swift), with the engine's answer
+    // read by KosmosLauncher.ReadConnectUpdateReport:
+    //   at launch, once the connect stop is done, and every UpdateLookEveryMs while the window is open:
+    //     a look, which installs only when updates are on here (the board's own rule, maybeAutoInstall);
+    //   newer X (updates off): the bar and the menu item offer it; nothing installs until the person picks it;
+    //   updated X from an unasked look: never a restart unasked; the bar and the menu offer Restart;
+    //   updated X or rolled back to X that the person asked for: this window closes and the updated
+    //     Kosmos.exe opens (RunBoardWindow), as the Mac relaunches;
+    //   a rollback offer (rollback X): the menu item "Roll back Kosmos to X", asked before it runs.
+    // Each run is counted in stopsInFlight, so "Run agents on this computer" cannot start a board under
+    // an install; the engine starts no board itself on a connect computer.
+    void StartUpdateLooks()
+    {
+        if (mode != KosmosLauncher.ComputerMode.Connect) return;
+        if (updateTimer == null)
+        {
+            updateTimer = new System.Windows.Forms.Timer();
+            updateTimer.Interval = KosmosLauncher.UpdateLookEveryMs;
+            updateTimer.Tick += (sender, args) => LookForUpdate("look");
+            updateTimer.Start();
+        }
+        LookForUpdate("look");
+    }
+
+    void StopUpdateLooks()
+    {
+        if (updateTimer != null) { updateTimer.Stop(); updateTimer.Dispose(); updateTimer = null; }
+        updateOffer = null;
+        updateInstalled = null;
+        rollbackOffer = null;
+        ShowUpdateBar(null, null);
+    }
+
+    // "look", "install" (the person picked Update) or "rollback" (the person picked Roll back and said yes).
+    void LookForUpdate(string action)
+    {
+        if (mode != KosmosLauncher.ComputerMode.Connect) return;
+        if (updateLookInFlight) return;
+        updateLookInFlight = true;
+        stopsInFlight++;
+        if (action == "install") ShowUpdateBar(KosmosLauncher.UpdatingNote, null);
+        else if (action == "rollback") ShowUpdateBar(KosmosLauncher.RollingBackNote, null);
+        int boardPort = port;
+        string folder = here;
+        Thread look = new Thread(() =>
+        {
+            string problem = null;
+            string[] lines = null;
+            try
+            {
+                lines = KosmosLauncher.runEngineHelper(Path.Combine(folder, "runtime\\node.exe"), folder, KosmosLauncher.ConnectUpdateScript,
+                    KosmosLauncher.ConnectUpdateArguments(action, boardPort), 0, out problem);
+            }
+            catch (Exception e) { problem = e.Message; }
+            KosmosLauncher.ConnectUpdateAnswer answer = KosmosLauncher.ReadConnectUpdateReport(lines);
+            if (answer.Kind == KosmosLauncher.ConnectUpdateKind.Unknown && answer.Value == null && problem != null) answer.Value = problem;
+            try
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    updateLookInFlight = false;
+                    stopsInFlight--;
+                    UpdateLookDone(answer, action);
+                }));
+            }
+            catch { /* the window closed meanwhile; the next launch looks again */ }
+        });
+        // Not a background thread: closing the window must not cut an install off between its steps.
+        look.IsBackground = false;
+        look.Start();
+    }
+
+    void UpdateLookDone(KosmosLauncher.ConnectUpdateAnswer answer, string action)
+    {
+        if (mode != KosmosLauncher.ComputerMode.Connect) { StopUpdateLooks(); UpdateRunAgentsItem(); return; }
+        bool asked = action != "look";
+        // An answer that could not look keeps what was known; any other answer says what can be rolled back to now.
+        if (answer.Kind != KosmosLauncher.ConnectUpdateKind.Unknown || answer.RollbackVersion != null) rollbackOffer = answer.RollbackVersion;
+        if (updateTimer != null)
+        {
+            int next = answer.Kind == KosmosLauncher.ConnectUpdateKind.Unknown && !asked ? KosmosLauncher.UpdateLookRetryMs : KosmosLauncher.UpdateLookEveryMs;
+            if (updateTimer.Interval != next) updateTimer.Interval = next;
+        }
+        switch (answer.Kind)
+        {
+            case KosmosLauncher.ConnectUpdateKind.Newer:
+                updateOffer = answer.Value;
+                updateInstalled = null;
+                ShowCurrentOffer();
+                break;
+            case KosmosLauncher.ConnectUpdateKind.Updated:
+                updateOffer = null;
+                if (asked) { RelaunchAfterClose = true; Close(); return; }
+                updateInstalled = answer.Value;
+                ShowCurrentOffer();
+                break;
+            case KosmosLauncher.ConnectUpdateKind.RolledBack:
+                updateOffer = null;
+                updateInstalled = null;
+                RelaunchAfterClose = true;
+                Close();
+                return;
+            case KosmosLauncher.ConnectUpdateKind.Failed:
+                if (action == "rollback") { ShowCurrentOffer(); KosmosLauncher.ShowWindowMessage(KosmosLauncher.RollbackFailedMessage(answer.Value), true); }
+                else ShowUpdateBar(KosmosLauncher.UpdateFailedNote(answer.Value), updateOffer != null ? "Update" : null);
+                break;
+            case KosmosLauncher.ConnectUpdateKind.Unknown:
+                if (asked) ShowUpdateBar(KosmosLauncher.UpdateUnreachableNote, null);
+                else ShowCurrentOffer();
+                break;
+            case KosmosLauncher.ConnectUpdateKind.Board:
+            case KosmosLauncher.ConnectUpdateKind.Refused:
+                if (asked) ShowUpdateBar(KosmosLauncher.UpdateNotStartedNote(answer.Value), null);
+                else ShowCurrentOffer();
+                break;
+            default:   // Current: nothing newer; an installed update still waits for its restart
+                updateOffer = null;
+                ShowCurrentOffer();
+                break;
+        }
+        UpdateRunAgentsItem();
+    }
+
+    // The bar for what is on offer now: an installed update waiting for a restart, else a newer version,
+    // else nothing. A version the person put away with Not now stays only in the menu.
+    void ShowCurrentOffer()
+    {
+        if (updateInstalled != null && updateBarDismissed != updateInstalled) ShowUpdateBar(KosmosLauncher.UpdateInstalledNote(updateInstalled), "Restart");
+        else if (updateInstalled == null && updateOffer != null && updateBarDismissed != updateOffer) ShowUpdateBar(KosmosLauncher.UpdateOfferNote(updateOffer), "Update");
+        else ShowUpdateBar(null, null);
+    }
+
+    // The system menu's Update item, and the bar's button.
+    void UpdatePicked()
+    {
+        if (mode != KosmosLauncher.ComputerMode.Connect || updateLookInFlight) return;
+        if (updateInstalled != null) { RelaunchAfterClose = true; Close(); return; }
+        if (updateOffer != null) LookForUpdate("install");
+    }
+
+    // The system menu's Roll back item: asked first, because it replaces the Kosmos folder's build.
+    void RollbackPicked()
+    {
+        if (mode != KosmosLauncher.ComputerMode.Connect || updateLookInFlight || rollbackOffer == null) return;
+        if (!KosmosLauncher.askYesNo(KosmosLauncher.RollbackQuestion(rollbackOffer))) return;
+        LookForUpdate("rollback");
+    }
+
+    // The slim bar over the page: `note` and, when given, one button (Update or Restart) and Not now.
+    // null hides it. The page is moved below it (FitViewToWindow), never covered.
+    void ShowUpdateBar(string note, string button)
+    {
+        if (note == null)
+        {
+            if (updateBar != null && updateBar.Visible) { updateBar.Visible = false; FitViewToWindow(); }
+            return;
+        }
+        if (updateBar == null)
+        {
+            updateBar = new System.Windows.Forms.Panel();
+            updateBar.Dock = System.Windows.Forms.DockStyle.Top;
+            updateBar.Height = (int)Math.Ceiling(Font.GetHeight() * 2.6);
+            updateBar.BackColor = System.Drawing.Color.FromArgb(255, 244, 214);
+            updateBar.Padding = new System.Windows.Forms.Padding(8, 4, 8, 4);
+            System.Windows.Forms.Button later = new System.Windows.Forms.Button();
+            later.Text = "Not now";
+            later.AutoSize = true;
+            later.Dock = System.Windows.Forms.DockStyle.Right;
+            later.Click += (sender, args) =>
+            {
+                updateBarDismissed = updateInstalled ?? updateOffer;
+                ShowUpdateBar(null, null);
+            };
+            updateBarButton = new System.Windows.Forms.Button();
+            updateBarButton.AutoSize = true;
+            updateBarButton.Dock = System.Windows.Forms.DockStyle.Right;
+            updateBarButton.Click += (sender, args) => UpdatePicked();
+            updateBarLabel = new System.Windows.Forms.Label();
+            updateBarLabel.Dock = System.Windows.Forms.DockStyle.Fill;
+            updateBarLabel.AutoEllipsis = true;
+            updateBarLabel.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            updateBar.Controls.Add(updateBarLabel);
+            updateBar.Controls.Add(updateBarButton);
+            updateBar.Controls.Add(later);
+            Controls.Add(updateBar);
+        }
+        updateBarLabel.Text = note;
+        updateBarButton.Text = button ?? "";
+        updateBarButton.Visible = button != null;
+        // Not now is for an offer; a note with no button (updating, could not reach) has nothing to put away.
+        updateBar.Controls[2].Visible = button != null;
+        updateBar.Visible = true;
+        updateBar.BringToFront();
+        FitViewToWindow();
     }
 
     const int WM_SYSCOMMAND = 0x0112;
@@ -3546,6 +3920,7 @@ class BoardWindowForm : System.Windows.Forms.Form
     protected override void OnFormClosed(System.Windows.Forms.FormClosedEventArgs e)
     {
         if (badgeTimer != null) { badgeTimer.Stop(); badgeTimer.Dispose(); badgeTimer = null; }
+        if (updateTimer != null) { updateTimer.Stop(); updateTimer.Dispose(); updateTimer = null; }
         if (controller != null) { try { controller.Close(); } catch { /* already gone */ } controller = null; }
         base.OnFormClosed(e);
     }

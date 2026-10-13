@@ -476,10 +476,28 @@ function computerModePath(env, home) {
  */
 function boardMayStartForModeBytes(bytes) {
   if (bytes === null || bytes === undefined) return true;
+  const word = computerModeWordForBytes(bytes);
+  return word === 'run' || word === 'both';
+}
+
+/** The word the mode file's bytes hold, by that one reading, or null when they are not one of the three. */
+function computerModeWordForBytes(bytes) {
   let text;
-  try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch { return false; }
+  try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch { return null; }
   text = text.replace(/\n+$/, '');
-  return text === 'run' || text === 'both';
+  return text === 'run' || text === 'connect' || text === 'both' ? text : null;
+}
+
+/**
+ * #4382: does this computer's choice read exactly `connect`, now? The connect computer's update
+ * (engine/win32connectupdate.js, and a newer download run there, win32update's applyCli) acts only then.
+ * No file, a file that cannot be read, and any other bytes are not connect: such a computer runs, or may
+ * run, its own board, and the board keeps it updated.
+ */
+function readsConnect(env, home) {
+  let bytes;
+  try { bytes = fs.readFileSync(computerModePath(env, home)); } catch { return false; }
+  return computerModeWordForBytes(bytes) === 'connect';
 }
 
 /** The file on this computer, read now. A missing file (or folder) is no file; any other failure to read
@@ -1914,5 +1932,5 @@ module.exports = {
   stagedIsYoung, presenceOf, answersAs, previousAppMayBoot,
   MODULE_FILE_NAME, PREVIOUS_PREFIX, ANCHORED_NODE_COPY_NAME, APPLY_LOG_NAME, DEFAULT_APPLY_LIMITS, PHASES, STAGED_HELPER_STARTUP_GRACE_MS,
   OWNER_READ_BUDGET, CONFIRMED_RECORD_PATIENCE_MS,
-  computerModePath, boardMayStartForModeBytes, boardMayStart, COMPUTER_MODE_FOLDER_NAME, COMPUTER_MODE_FILE_NAME,
+  computerModePath, boardMayStartForModeBytes, boardMayStart, computerModeWordForBytes, readsConnect, COMPUTER_MODE_FOLDER_NAME, COMPUTER_MODE_FILE_NAME,
 };

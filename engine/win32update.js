@@ -421,6 +421,35 @@ function boardTaskRefusal(boardTask) {
   return null;
 }
 
+/**
+ * #4382: B0's board preconditions on a computer that connects to agents on another computer, in place of
+ * boardTaskRefusal's. Such a computer has stopped its board and switched its logon task off on purpose
+ * (#4381), so "a board its task started" can never hold there, and without this nothing could update it.
+ * What must hold instead, each read now: the mode file still reads exactly `connect` (so the helper's own
+ * mode check starts no board afterwards, win32apply.startAndConfirm), and no board answers on the port (a
+ * board that answers updates itself, and two updaters must never race). `c` is
+ * `{ connects(), boardAnswers() }`, both required; anything that is not an exact yes / no refuses.
+ */
+function connectComputerRefusal(c) {
+  if (!c || typeof c.connects !== 'function' || typeof c.boardAnswers !== 'function') {
+    return 'Kosmos could not tell whether this computer connects to agents elsewhere, so it did not start the update';
+  }
+  if (c.connects() !== true) {
+    return 'this computer is not set to connect to agents on another computer, so its own board keeps it updated';
+  }
+  if (c.boardAnswers() !== false) {
+    return 'a Kosmos board is running on this computer, so the update was left to it';
+  }
+  return null;
+}
+
+/** B0's board preconditions for this run: the connect computer's (#4382) when the caller says it is one,
+    the board task's otherwise. */
+function boardRefusal(o) {
+  if (o.connectComputer) return connectComputerRefusal(o.connectComputer);
+  return boardTaskRefusal(o.boardTask || defaultBoardTask());
+}
+
 /** win32board's answers. A process that may not run schtasks (win32job's one answer, #2973: a test
     process or a board a test spawned) and reaches this with no seam refuses here, in a test process
     by throwing (convention 3). win32board.status() refuses there too. */
@@ -1260,7 +1289,7 @@ async function prepare(opts) {
     return { ok: false, because: LIVE_REFUSAL };
   }
   /* After the live gate, so a process that never armed it never queries the scheduler. */
-  const taskRefusal = boardTaskRefusal(o.boardTask || defaultBoardTask());
+  const taskRefusal = boardRefusal(o);
   if (taskRefusal) { log(`refused before starting: ${taskRefusal}`); return { ok: false, because: taskRefusal }; }
 
   const work = path.join(root, WORK_DIRNAME);
@@ -1608,7 +1637,7 @@ async function rollbackToPrevious(opts) {
     liveExec.refuseOrWarn('engine/win32update.js', 'rollbackToPrevious', ['--root', root]);
     return { ok: false, because: LIVE_REFUSAL };
   }
-  const taskRefusal = boardTaskRefusal(o.boardTask || defaultBoardTask());
+  const taskRefusal = boardRefusal(o);
   if (taskRefusal) { log(`refused before starting: ${taskRefusal}`); return { ok: false, because: taskRefusal }; }
 
   const kept = keptPreviousBuild(root);
@@ -1787,14 +1816,24 @@ async function applyCli(a, out, seams) {
     if (!a.report) return;
     try { fs.writeFileSync(a.report, line.replace(/\s*\r?\n\s*/g, ' ') + '\r\n', 'utf8'); } catch (e) { out(`could not write the report to ${a.report}: ${firstLine(e)}\n`); }
   };
+  /* #4382: a computer that connects to agents elsewhere has no board for its task to have started (#4381
+     stopped it and switched the task off), so a newer download run there (#3286, and setup.ps1, which
+     hands its zip to this same path) is held to the connect computer's preconditions instead: the mode
+     file reads connect, and nothing answers on the port. Any other computer keeps the board-task rule. */
+  const readsConnect = s.readsConnect || (() => require('./win32apply').readsConnect(process.env, os.homedir()));
+  const boardRule = readsConnect() === true && answer.answering !== true
+    ? { connectComputer: { connects: () => readsConnect() === true, boardAnswers: () => answer.answering === true } }
+    : {
+      /* The board says itself whether its task started it (#2986, x-kosmos-board-started-by-task), and
+         only an exact yes counts. Task Scheduler's `running` is not asked: it reads null whenever its
+         CSV cannot be read, times out or meets a locale. */
+      boardTask: { startedByTask: () => answer.startedByTask === true && answer.answering === true && answer.identity === fromIdentity, status: () => task },
+    };
   const r = await begin({
     root, base: a.base, channel: a.channel, world: a.world, port, boardPid, fromIdentity,
     source: a.source ? path.resolve(a.source) : undefined,
     liveExecutionAllowed: () => true,
-    /* The board says itself whether its task started it (#2986, x-kosmos-board-started-by-task), and
-       only an exact yes counts. Task Scheduler's `running` is not asked: it reads null whenever its
-       CSV cannot be read, times out or meets a locale. */
-    boardTask: { startedByTask: () => answer.startedByTask === true && answer.answering === true && answer.identity === fromIdentity, status: () => task },
+    ...boardRule,
     ...(s.begin || {}),
   });
   out(JSON.stringify(r, null, 2) + '\n');
@@ -1834,7 +1873,7 @@ async function cliMain(argv, write, seams) {
 }
 
 module.exports = {
-  prepare, begin, rollbackToPrevious, keptPreviousBuild, cliMain, runStagedNode, stagedNodeLaunch, workGuard, takeLock, releaseLock, sweepLockLeftovers, resolveWorld,
+  prepare, begin, rollbackToPrevious, keptPreviousBuild, connectComputerRefusal, cliMain, runStagedNode, stagedNodeLaunch, workGuard, takeLock, releaseLock, sweepLockLeftovers, resolveWorld,
   readFileRetryingHolds, tryRetryingHolds, QUICK_HELD_READ_BUDGET, HELD_FILE_CODES,
   processImageFromTasklist, processImageStamp, sha256OfFile, unusualLocationRefusal, helperLaunch, waitForOutcome,
   REQUIRED_ENTRIES, ENTRIES, WORK_DIRNAME, STAGED_DIRNAME, DOWNLOAD_PART_NAME, LOCK_NAME, DEFAULT_LIMITS, STAGED_NODE_ENV_KEYS,
