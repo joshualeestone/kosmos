@@ -6,7 +6,8 @@
  * `kosmos report show` says the same thing when the agent asks (slice 1); this says it without being asked.
  *
  * Who is told, all of:
- *  - its latest report (selfreport.read) is `blocked`, not written by Kosmos, over STALE_WAIT_MS ago
+ *  - its latest report (selfreport.read) is `blocked`, not written by Kosmos, and its waiting run began over
+ *    STALE_WAIT_MS ago
  *    (selfreport.STALE_WAIT_MS, with the comparison `kosmos report show` uses);
  *  - its card shows that report (stateReported, and the same state: the board's reconcile can set a report aside);
  *  - its card is ours, a Claude agent, not mid-turn (activeWhileWaiting: a later sweep tells it), and not a switched-off
@@ -72,6 +73,11 @@ function fileReminded() {
 
 /* The line typed into the agent, in the words `kosmos report show` uses for the same report (server.js), so the agent
    is taught one command. Kosmos's own words only: the report's `on` text is the agent's and is not repeated to it. */
+/* The time a waiting report is aged and remembered by: when its run began (selfreport's askedAt, #5943: the same state,
+   words and project), as `kosmos report show` ages it, or the latest line when that is not known. Re-reporting the same
+   question is the same run, so it is neither made fresh nor reminded again. */
+function runOf(rep) { return (rep && (rep.askedAt || rep.at)) || null; }
+
 function nudgeText(rep, ageMs) {
   const age = cardlabel.standingFor(ageMs);
   // Who wrote it, as report show says it: the agent, or someone else / no writer recorded ("This").
@@ -91,12 +97,12 @@ function plan(card, rep, entry, now, remindedAt) {
   /* The card shows THE REPORT, not only its state: reconcile can show a screen reading of the same state over a report
      it set aside, and then stateReported is false. */
   if (card.stateReported !== true || card.state !== rep.state) return { act: 'none', because: 'its card does not show that report' };
-  const at = typeof rep.at === 'string' ? Date.parse(rep.at) : NaN;
+  const at = typeof runOf(rep) === 'string' ? Date.parse(runOf(rep)) : NaN;
   if (!Number.isFinite(at) || !Number.isFinite(now)) return { act: 'none', because: 'no readable time for its report' };
-  // The comparison `kosmos report show` uses (over STALE_WAIT_MS), so the two agree on which report is stale.
+  // The comparison `kosmos report show` uses (the run's start, over STALE_WAIT_MS), so the two agree on which is stale.
   if (!(now - at > selfreport.STALE_WAIT_MS)) return { act: 'none', because: 'its report is not over a day old' };
-  if (remindedAt === rep.at || (entry && entry.forAt === rep.at && entry.nudgedAt != null)) return { act: 'none', because: 'already reminded about this report' };
-  if (entry && entry.forAt === rep.at && Number.isInteger(entry.tries) && entry.tries >= MAX_TRIES) {
+  if (remindedAt === runOf(rep) || (entry && entry.forAt === runOf(rep) && entry.nudgedAt != null)) return { act: 'none', because: 'already reminded about this report' };
+  if (entry && entry.forAt === runOf(rep) && Number.isInteger(entry.tries) && entry.tries >= MAX_TRIES) {
     return { act: 'none', because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };
   }
   return { act: 'nudge', ageMs: now - at, because: 'its ' + rep.state + ' report has stood ' + cardlabel.standingFor(now - at) };
@@ -156,8 +162,8 @@ function sweepOnce(o) {
       if (open) {
         const why = p.because + '; not typed, ' + open;
         results.push({ session, name: display, act: 'screen', delivered: false, delivery: null, because: why });
-        if (!entry || entry.screenSaidFor !== rep.at) {
-          book.set(session, { ...(entry && entry.forAt === rep.at ? entry : {}), forAt: rep.at, screenSaidFor: rep.at });
+        if (!entry || entry.screenSaidFor !== runOf(rep)) {
+          book.set(session, { ...(entry && entry.forAt === runOf(rep) ? entry : {}), forAt: runOf(rep), screenSaidFor: runOf(rep) });
           say({ name: display, session, act: 'screen', delivered: false, delivery: null, because: why });
         }
         continue;
@@ -173,8 +179,8 @@ function sweepOnce(o) {
       if (held) {
         const why = p.because + '; held' + (heldBy ? ' (' + heldBy + ')' : '');
         results.push({ session, name: display, act: 'held', heldBy, delivered: false, delivery: state, because: why });
-        if (!entry || entry.heldSaidFor !== rep.at) {
-          book.set(session, { ...(entry && entry.forAt === rep.at ? entry : {}), forAt: rep.at, heldSaidFor: rep.at });
+        if (!entry || entry.heldSaidFor !== runOf(rep)) {
+          book.set(session, { ...(entry && entry.forAt === runOf(rep) ? entry : {}), forAt: runOf(rep), heldSaidFor: runOf(rep) });
           say({ name: display, session, act: 'held', delivered: false, delivery: state, because: why });
         }
         continue;
@@ -182,11 +188,11 @@ function sweepOnce(o) {
       const D = o.DELIVERY || {};
       const delivered = D.PLACED != null && state === D.PLACED;
       const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);
-      const tries = ((entry && entry.forAt === rep.at && Number.isInteger(entry.tries)) ? entry.tries : 0) + 1;
-      book.set(session, { forAt: rep.at, nudgedAt: mayHaveReached ? now : null, tries, delivery: state, heldSaidFor: entry && entry.heldSaidFor, screenSaidFor: entry && entry.screenSaidFor });
+      const tries = ((entry && entry.forAt === runOf(rep) && Number.isInteger(entry.tries)) ? entry.tries : 0) + 1;
+      book.set(session, { forAt: runOf(rep), nudgedAt: mayHaveReached ? now : null, tries, delivery: state, heldSaidFor: entry && entry.heldSaidFor, screenSaidFor: entry && entry.screenSaidFor });
       if (mayHaveReached) {
         let kept = false;
-        try { kept = reminded.set(session, rep.at, new Set(o.roster.map((c) => c && c.sessionName).filter(Boolean)), now) !== false; } catch { kept = false; }
+        try { kept = reminded.set(session, runOf(rep), new Set(o.roster.map((c) => c && c.sessionName).filter(Boolean)), now) !== false; } catch { kept = false; }
         if (!kept) say({ name: display, session, act: 'record', delivered, delivery: state, because: 'reminded, but the record of it could not be written, so a board restart may remind it again' });
       }
       const because = (!mayHaveReached && tries >= MAX_TRIES) ? p.because + '; nothing reached the pane in ' + tries + ' tries, so this report is left alone' : p.because;

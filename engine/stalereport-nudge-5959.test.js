@@ -275,3 +275,20 @@ test('#5959 slice 3: the server runs the sweep on its own timer, typing through 
   assert.match(block, /deliver: \(session, text, r\) => chat\.deliverAutomatic\(/, 'not typed through deliverAutomatic');
   assert.match(block, /setInterval\(stalereportTick, /, 'no timer runs the tick');
 });
+
+test('#5959 slice 3: a question re-reported since is one run: aged from when it was first made, and reminded once', () => {
+  const [ray] = cardsFor([['ray', 'blocked']]);
+  // The same question, first made three days ago and re-reported an hour ago (selfreport's askedAt is the run's start).
+  const reports = { [ray.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3600e3), askedAt: iso(NOW - 3 * DAY), by: 'agent' } };
+  const reminded = memReminded();
+  const first = run([ray], reports, { reminded });
+  assert.equal(first.sent.length, 1, 'a question first made three days ago was not told about');
+  assert.match(first.sent[0].text, /has been standing for 3 days\./);
+  assert.equal(reminded.get(ray.sessionName), iso(NOW - 3 * DAY), 'the reminder is recorded against the run, not the latest line');
+  // Re-reported again: still the same run, so not told twice.
+  reports[ray.sessionName] = { ...reports[ray.sessionName], at: iso(NOW + 30e3) };
+  assert.equal(run([ray], reports, { reminded, now: NOW + 60e3 }).sent.length, 0, 'told again for the same question');
+  // CONTROL: with no askedAt (the run's start not known), the latest line decides, and an hour is not a day.
+  const fresh = { [ray.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3600e3), by: 'agent' } };
+  assert.equal(run([ray], fresh, { reminded: memReminded() }).sent.length, 0);
+});
