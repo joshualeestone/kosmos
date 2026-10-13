@@ -60619,8 +60619,8 @@ function pjAncestry(p) {
    Group by: Project headings and crumb, New task's project, both parent pickers) names it by its chain,
    "Book A › Launch", the grid's ancestry line in words, so a subproject never reads as top-level and two
    same-named subprojects under different parents are told apart. Lists are ordered by the chain, segment by
-   segment, so each subproject follows its parent (a joined-string sort would put "Alpha 2" between "Alpha"
-   and "Alpha › Sub"). A top-level project's chain is just its name, so it reads exactly as before. */
+   segment, so each subproject follows its parent (a joined-string sort puts a sibling named "Alpha - old"
+   between "Alpha" and "Alpha › Sub"; web.subpick-3029.test.js shows it). A top-level project's chain is just its name, so it reads exactly as before. */
 function pjChainOf(p) {
   return p ? pjAncestry(p).concat(String(p.name)) : [];
 }
@@ -61524,6 +61524,11 @@ function tskInWindow(t, days, now) {
   const c = Date.parse(t && t.createdAt);
   return Number.isFinite(c) && (now - c) <= days * 86400000;
 }
+/* #3029: a Tasks row's project chain (Book A › Launch), from the engine's projectPath on the row, so every
+   place the Tasks screen names a project reads the same array. */
+function tskChainOf(t) {
+  return (Array.isArray(t.projectPath) ? t.projectPath : []).concat(String(t.projectName));
+}
 function tskMatches(t, q) {
   const needle = String(q || '').trim().toLowerCase();
   if (!needle) return true;
@@ -61614,7 +61619,7 @@ async function tskLoad(arrival) {
 function tskRow(t, at) {
   const on = TSK.sel.has(tskKey(t));
   /* #3029: the row names its project by the chain (Book A › Launch), so two same-named subprojects differ. */
-  const projChain = (Array.isArray(t.projectPath) ? t.projectPath : []).concat(String(t.projectName)).join(' › ');
+  const projChain = tskChainOf(t).join(' › ');
   /* #3861 part 2: where the row sits in its list (taskNest): its indent, whether it says what it
      is part of, and how many of its subtasks are in this same list (the fold toggle). A caller
      that passes nothing gets a plain top-level row. */
@@ -61771,7 +61776,7 @@ function tskPaint() {
   const projMap = new Map();
   for (const t of all) {
     if (!projMap.has(t.projectId)) projMap.set(t.projectId, { id: t.projectId, name: t.projectName, open: 0,
-      chain: (Array.isArray(t.projectPath) ? t.projectPath : []).concat(String(t.projectName)) });   // #3029
+      chain: tskChainOf(t) });   // #3029
     if (t.state !== 'closed') projMap.get(t.projectId).open += 1;
   }
   /* A project door can scope us to a project with no tasks yet: it is still the project, with 0. */
@@ -61870,11 +61875,10 @@ function tskPaint() {
     const byP = new Map();
     for (const t of sorted) { if (!byP.has(t.projectId)) byP.set(t.projectId, []); byP.get(t.projectId).push(t); }
     /* #3029: a group is named and ordered by its project's chain, so a subproject's group follows its parent's. */
-    const chainOf = (t) => (Array.isArray(t.projectPath) ? t.projectPath : []).concat(String(t.projectName));
-    groups.innerHTML = [...byP.entries()].sort((a, b) => pjChainCompare(chainOf(a[1][0]), chainOf(b[1][0])))
+    groups.innerHTML = [...byP.entries()].sort((a, b) => pjChainCompare(tskChainOf(a[1][0]), tskChainOf(b[1][0])))
       .map(([, ts]) => {
         const n = ts.filter((t) => t.state !== 'closed').length;
-        return '<section class="tsk-grp"><h3>' + esc(pjChainText(chainOf(ts[0]))) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
+        return '<section class="tsk-grp"><h3>' + esc(pjChainText(tskChainOf(ts[0]))) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
       }).join('') || '<p class="tsk-empty">' + (TSK.tile || TSK.proj || TSK.win ? 'No tasks match.' : 'No tasks yet.') + '</p>';
   } else {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
@@ -62039,7 +62043,7 @@ async function tskBulkClose() {
       msg.textContent = asSentence(body.error || 'those tasks were not closed');
     } else if (failed.length) {
       msg.textContent = 'Closed ' + done + ' of ' + results.length + '.' + tail + ' '
-        + failed.map((x) => { const t = (TSK.data || []).find((y) => y.projectId === x.projectId && y.number === x.number); return (t ? (Array.isArray(t.projectPath) ? t.projectPath : []).concat(String(t.projectName)).join(' › ') + ' ' : '') + '#' + x.number + ': ' + x.error; }).join('; ') + '.';
+        + failed.map((x) => { const t = (TSK.data || []).find((y) => y.projectId === x.projectId && y.number === x.number); return (t ? tskChainOf(t).join(' › ') + ' ' : '') + '#' + x.number + ': ' + x.error; }).join('; ') + '.';
     } else {
       msg.textContent = 'Closed ' + done + (done === 1 ? ' task.' : ' tasks.') + tail
         + ' Closing a task does not stop an agent that is working on it.';

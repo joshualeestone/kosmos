@@ -88,7 +88,7 @@ test('the project page rows carry the same tree facts as the Tasks view rows', (
 });
 
 const rowHtml = (t, at, sel) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey', 'claimNotReported', 'tskAgentName',
-  GROUPS + '\n' + page.liftAll(SCRIPT, ['tskRow']) + '\nreturn tskRow;')(
+  GROUPS + '\n' + page.liftAll(SCRIPT, ['tskChainOf', 'tskRow']) + '\nreturn tskRow;')(
   { sel: new Set(), by: 'status', fold: sel || new Set() }, [], (s) => String(s), () => 'just now', tskKey, () => '', (s) => s)(t, at);
 
 test('a parent row carries its chip; with its family in the list the chip is the fold toggle', () => {
@@ -180,7 +180,7 @@ const evilRows = () => {
 const W1 = evilRows();
 
 const tskRowWith = (escFn, t, at) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey', 'claimNotReported', 'tskAgentName',
-  GROUPS + '\n' + page.liftAll(SCRIPT, ['tskRow']) + '\nreturn tskRow;')(
+  GROUPS + '\n' + page.liftAll(SCRIPT, ['tskChainOf', 'tskRow']) + '\nreturn tskRow;')(
   { sel: new Set(), by: 'status', fold: new Set() }, [], escFn, () => 'just now', tskKey, () => '', (s) => s)(t, at);
 
 test('#3898: the Tasks view row escapes the sentence and the parent\'s sentence in its crumb', () => {

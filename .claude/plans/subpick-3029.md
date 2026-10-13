@@ -22,11 +22,14 @@ shows "Launch", "Launch" in every picker.
   snapshot it already reads. A parent missing from the read gives [] (tested); a stored loop stops.
   The Tasks screen reads names off rows, not PROJECTS.
 - web/index.html: pjChainOf / pjChainCompare / pjChainText beside pjAncestry. Lists sort segment by
-  segment, so "Alpha 2" never sits between "Alpha" and "Alpha › Sub".
+  segment, so a sibling like "Alpha - old" never sits between "Alpha" and "Alpha › Sub" (a joined
+  localeCompare sort does put it there; "Alpha 2" would NOT have shown it, measured).
 - The parent pickers switch from the list's sort (PJ_SORT, default newest) to chain order: a picker
   is for finding a project by name, and tree order is what makes a subproject findable.
 
 ## Decided
+- Tasks search matches a row's ancestors too, so searching a parent's name finds its subprojects'
+  tasks: the chain is what the row shows, so it is what search reads.
 - The chain, not indentation: a closed native select would show an indent with no parent.
 - Rejected a custom tree picker: far bigger, and the native select is what keyboards, screen readers
   and the phone picker handle.

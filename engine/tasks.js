@@ -1538,7 +1538,6 @@ function columnTasks(p) {
    could-not-tell with the reason. Accepting the spelling costs nothing
    before agents are taught it; teaching it is a wording change (#763's
    rule: Splinter, then Josh) and is not in this file. */
-
 /**
  * Every task on every project, for the Tasks view (#3559) and `kosmos tasks`. It was
  * written for the all-tasks screen (#1382), which #3703 retired for the Tasks view.

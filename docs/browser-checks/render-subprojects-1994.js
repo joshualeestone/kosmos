@@ -455,12 +455,12 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' top-level create OMITS parent (absent, not null)', create.topLevel && !('parent' in create.topLevel), JSON.stringify(create.topLevel));
 
     // ---- #3029: every project picker, and the Tasks screen's project names, read by the chain ----
-    // Two same-named subprojects (Launch under Book A and under Book B), a grandchild, and an "Alpha 2" that a
+    // Two same-named subprojects (Launch under Book A and under Book B), a grandchild, and an "Alpha - old" that a
     // joined-string sort would wedge between Alpha and Alpha's own child. Read through the page's own painters.
     const chains = await page.evaluate(() => {
       const mk = (id, name, parent) => ({ id, name, parent: parent || null, parentName: null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
       PROJECTS = [mk('bb', 'Book B'), mk('ba', 'Book A'), mk('lb', 'Launch', 'bb'), mk('la', 'Launch', 'ba'), mk('ad', 'Ads', 'la'),
-        mk('al2', 'Alpha 2'), mk('al', 'Alpha'), mk('als', 'Sub', 'al')];
+        mk('al2', 'Alpha - old'), mk('al', 'Alpha'), mk('als', 'Sub', 'al')];
       const texts = (id) => Array.from(document.getElementById(id).options).map((o) => o.textContent);
       openAddProject();
       const create = texts('pj-add-parent');
@@ -495,9 +495,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       const archivedParent = document.getElementById('pjs-parent').selectedOptions[0].textContent;
       return { create, settings, pick, tasksSel, heads, crumb, title, backLabel, archivedParent, rowProjects, found };
     });
-    const order = ['Alpha', 'Alpha › Sub', 'Alpha 2', 'Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B', 'Book B › Launch'];
+    const order = ['Alpha', 'Alpha › Sub', 'Alpha - old', 'Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B', 'Book B › Launch'];
     ok(t + ' #3029 create parent picker: named by chain, each subproject after its parent', JSON.stringify(chains.create.slice(1)) === JSON.stringify(order), JSON.stringify(chains.create));
-    ok(t + ' #3029 settings parent picker: the same, minus the project itself', JSON.stringify(chains.settings.slice(1)) === JSON.stringify(order.filter((x) => x !== 'Alpha 2')), JSON.stringify(chains.settings));
+    ok(t + ' #3029 settings parent picker: the same, minus the project itself', JSON.stringify(chains.settings.slice(1)) === JSON.stringify(order.filter((x) => x !== 'Alpha - old')), JSON.stringify(chains.settings));
     ok(t + ' #3029 New task project picker: the same chains and order', JSON.stringify(chains.pick) === JSON.stringify(order), JSON.stringify(chains.pick));
     ok(t + ' #3029 Tasks Project: dropdown: the two Launches are told apart, in chain order',
       JSON.stringify(chains.tasksSel.slice(1).map((s) => s.replace(/ \(\d+\)$/, ''))) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.tasksSel));
