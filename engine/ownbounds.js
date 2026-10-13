@@ -149,15 +149,24 @@ function recovered(key, cls) {
  * have not pruned yet, so it never raises). Returns { raised, items: [{ cls, sinceAt, evidence, forMs }] },
  * items oldest-sinceAt first so the board shows the longest-standing give-up first; `stale` lists classes whose
  * entries have gone stale (the sweep prunes them). `raised` is false for an empty record.
+ *
+ * `state` is the agent's CURRENT live state, passed ONLY on the /api/status read path (peek). When supplied and
+ * NOT 'idle', an IDLE_ONLY class (nudge/firstreply) is MOOT and excluded from `items` AT ONCE -- so the board
+ * drops a nudge/firstreply give-up the instant the agent is no longer idle, rather than carrying it for up to a
+ * 60s sweep (the exact brief false-alarm slice C's state-aware peek was built to avoid, stuckterminal.js). The
+ * 60s sweep calls assess WITHOUT a state so it still SEES the item and clears it from disk (tellBounds's
+ * IDLE_ONLY+row.state branch); this read-path filter never writes.
  */
-function assess(rec, now) {
+function assess(rec, now, state) {
   if (now === undefined) now = Date.now();
+  const stateKnown = typeof state === 'string' && state !== '';
   const items = [];
   const stale = [];
   for (const cls of CLASSES) {
     const e = rec && rec[cls];
     if (!e) continue;
     if (now - e.lastAt >= STALE_MS) { stale.push(cls); continue; }
+    if (IDLE_ONLY[cls] && stateKnown && state !== 'idle') continue;   // moot: an idle-only give-up on a non-idle agent
     const forMs = now - e.sinceAt;
     if (forMs >= GRACE_MS) items.push({ cls, sinceAt: e.sinceAt, evidence: e.evidence, forMs });
   }
@@ -165,8 +174,10 @@ function assess(rec, now) {
   return { raised: items.length > 0, items, stale };
 }
 
-/* READ-ONLY assessment for /api/status (every 5s): the stored record, assessed, never written. */
-function peek(key, now) { return assess(readRec(key), now); }
+/* READ-ONLY assessment for /api/status (every 5s): the stored record, assessed against the agent's CURRENT
+   `state` (so an idle-only give-up on a now-non-idle agent is mooted immediately), never written. Signature
+   mirrors stuckterminal.peek(key, state, now). */
+function peek(key, state, now) { return assess(readRec(key), now, state); }
 
 /* Drop every class for one agent (a removed/recreated agent never inherits an old episode -- as
    stuckterminal.forget). Wired into engine/create.js, remove.js and delete-leftover.js beside its forget. */
