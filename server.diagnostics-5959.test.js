@@ -147,3 +147,15 @@ test('#5959: when one half of a click fails, the other half gives the same answe
   const look2 = await fetch(base + '/api/diagnostics?check=1', { headers: H });
   assert.equal(look2.status, 500, 'the look half of the same click says the download failed');
 });
+
+test('#5959: the board token is masked in the file even when a line prints it bare', async () => {
+  const stand = { write() { return true; } };
+  logring.board.tap(stand, 'stderr');
+  stand.write(`probe-5959-board ${BOARD} seen\n`);
+  const r = await get({ 'x-kosmos-board-token': BOARD });
+  assert.equal(r.code, 200);
+  const line = JSON.parse(r.text).log.tail.find((e) => /probe-5959-board/.test(e.line));
+  assert.ok(line, 'CONTROL: the line is in the file');
+  assert.equal(line.line, 'probe-5959-board •••• seen');
+  assert.ok(!r.text.includes(BOARD), 'the board token is not in the bytes sent');
+});

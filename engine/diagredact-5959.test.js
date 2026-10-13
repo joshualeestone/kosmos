@@ -158,3 +158,18 @@ test('#5959: another person\'s folder that starts with the home folder\'s name i
 test('#5959: a passphrase field is a secret too', () => {
   assert.equal(makeRedactor({ home: '/Users/zed', user: 'zzz', host: 'zzz' }).redactText('{"passphrase":"correct horse"}'), '{"passphrase":"••••"}');
 });
+
+test('#5959: a secret-named field loses its value in every common spelling, and plain words stay', () => {
+  const { redactText } = makeRedactor({ home: '/Users/zed', user: 'zzz', host: 'zzz' });
+  const v = 'Q7w9Zk2Lm4Np6Rt8Vx0Yb3C';
+  const rows = [
+    ["{ authToken: '" + v + "' }", "{ authToken: '••••' }"],                       // a logged object (util.inspect)
+    ["{ accessToken: '" + v + "', authMode: 'agy' }", "{ accessToken: '••••', authMode: 'agy' }"],
+    ["'authToken': '" + v + "'", "'authToken': '••••'"],
+    ['authToken=' + v + '&x=1', 'authToken=••••&x=1'],
+    ['{"authToken":"' + v + '","name":"ok"}', '{"authToken":"••••","name":"ok"}'],
+  ];
+  for (const [input, want] of rows) assert.equal(redactText(input), want, input);
+  assert.equal(redactText('Basic information about the board'), 'Basic information about the board', 'CONTROL: prose after Basic stays');
+  assert.equal(redactText('the token was refused'), 'the token was refused', 'CONTROL: the word token alone is not a field');
+});
