@@ -183,3 +183,27 @@ test('#5959: readBoardLog says why it read nothing', () => {
     } finally { fs.closeSync(fd); }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('#5959: a roster that could not be read is said so, not shown as a board with no agents', () => {
+  const unread = build({ cards: null, redactor: makeRedactor(WHO) });
+  assert.equal(unread.agentsRead, false);
+  assert.deepEqual(unread.agents, []);
+  assert.equal(build({ cards: [], redactor: makeRedactor(WHO) }).agentsRead, true, 'CONTROL: an empty roster that was read');
+});
+
+test('#5959: board.log is used only when every stream named goes to it', () => {
+  const fs = require('node:fs');
+  const { readBoardLog } = require('./diagnostics');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-diag-fds-5959-'));
+  try {
+    const log = path.join(dir, 'board.log'), other = path.join(dir, 'other.log');
+    fs.writeFileSync(log, 'a\n'); fs.writeFileSync(other, '');
+    const out = fs.openSync(log, 'a'), err = fs.openSync(log, 'a'), away = fs.openSync(other, 'a');
+    try {
+      assert.deepEqual(readBoardLog(log, [out, err]), ['a'], 'CONTROL: both to board.log');
+      const why = {};
+      assert.equal(readBoardLog(log, [out, away], 10, why), null, 'stderr elsewhere');
+      assert.equal(why.why, 'not this board\'s output');
+    } finally { fs.closeSync(out); fs.closeSync(err); fs.closeSync(away); }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

@@ -4,7 +4,7 @@
 
    One function for every string in the file, in this order:
    1. secretmask.mask, the backup scan's redactor (keys, tokens, an env line's value);
-   2. the home folder, as `~`;
+   2. the home folder, as `~`, with any separator and in any case;
    3. email addresses, as [email];
    4. this computer's user name and host name (long and short forms), as [user] and [computer], matched whole
       (not inside a longer name) and in any case. A generic host name (localhost) is not replaced.
@@ -39,7 +39,18 @@ function makeRedactor(who) {
     ...hosts.map((h) => [wholeName(h), '[computer]']),
     ...(user && user.length >= MIN_NAME_CHARS ? [[wholeName(user), '[user]']] : []),
   ];
-  const homeRe = home && home.length > 1 ? new RegExp(escapeRe(home.replace(/[\\/]+$/, '')) + '(?=[\\\\/]|$|[^A-Za-z0-9_.-])', 'g') : null;
+  /* The home folder however a line spells it: any separator (\, a doubled \ as in JSON, or /) and any case (Windows and
+     macOS paths ignore case). Its last segment is also a name when it differs from the user name (a "Pat Smith" folder
+     for a pat.smith account), so it is replaced as [user] too. */
+  const segs = typeof home === 'string' ? home.split(/[\\/]+/).filter(Boolean) : [];
+  const SEP = '(?:\\\\\\\\|\\\\|/)';
+  const homeRe = segs.length && home.length > 1
+    ? new RegExp((/^[\\/]/.test(home) ? SEP : '') + segs.map(escapeRe).join(SEP) + '(?=' + SEP + '|$|[^A-Za-z0-9_.-])', 'gi')
+    : null;
+  const folder = segs.length ? segs[segs.length - 1] : '';
+  if (folder && folder.length >= MIN_NAME_CHARS && folder.toLowerCase() !== String(user || '').toLowerCase()) {
+    names.push([wholeName(folder), '[user]']);
+  }
 
   function redactText(text) {
     if (typeof text !== 'string' || !text) return text;
@@ -50,13 +61,14 @@ function makeRedactor(who) {
     return out;
   }
 
-  /* Every string in a plain value (object keys included), as a new value; the input is not changed. */
+  /* Every string value in a plain value, as a new value; the input is not changed. Keys are left alone: in the
+     diagnostics file they are all the code's own words, and a name equal to one (a host called "log") must not rename it. */
   function redactDeep(value) {
     if (typeof value === 'string') return redactText(value);
     if (Array.isArray(value)) return value.map(redactDeep);
     if (value && typeof value === 'object') {
       const out = {};
-      for (const [k, v] of Object.entries(value)) out[redactText(k)] = redactDeep(v);
+      for (const [k, v] of Object.entries(value)) out[k] = redactDeep(v);
       return out;
     }
     return value;

@@ -45,11 +45,11 @@ test('#5959: the home folder is replaced only as a whole folder, and a Windows o
   assert.equal(win.redactText('C:\\Users\\pat\\AppData'), '~\\AppData');
 });
 
-test('#5959: redactDeep reaches every string, keys included, and leaves the input as it was', () => {
-  const { redactDeep } = makeRedactor(WHO);
-  const input = { name: 'pat', nested: [{ path: '/Users/pat/a', n: 3, ok: true, none: null }], ['pat@example.com']: 'x' };
+test('#5959: redactDeep reaches every string value, leaves keys (the code\'s own words) alone, and leaves the input as it was', () => {
+  const { redactDeep } = makeRedactor({ ...WHO, host: 'log' });   // a host name equal to one of the file's keys
+  const input = { name: 'pat', nested: [{ path: '/Users/pat/a', n: 3, ok: true, none: null }], log: 'log said pat@example.com' };
   const out = redactDeep(input);
-  assert.deepEqual(out, { name: '[user]', nested: [{ path: '~/a', n: 3, ok: true, none: null }], '[email]': 'x' });
+  assert.deepEqual(out, { name: '[user]', nested: [{ path: '~/a', n: 3, ok: true, none: null }], log: '[computer] said [email]' });
   assert.equal(input.name, 'pat', 'the input is not changed');
   assert.ok(!/\bpat\b/.test(JSON.stringify(out)), JSON.stringify(out));
 });
@@ -75,4 +75,15 @@ test('#5959: a long run of name characters with no @ stays fast, and an address 
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
   assert.ok(ms < 2000, 'fifty such lines took ' + ms.toFixed(0) + ' ms');   // generous: a quadratic pattern took far longer
   assert.equal(redactText(run + ' ops@example.com'), run + ' [email]');
+});
+
+test('#5959: a Windows home folder is replaced however a line spells it, and a folder named for a person is too', () => {
+  const { redactText } = makeRedactor({ home: 'C:\\Users\\Pat Smith', user: 'pat.smith', host: 'zzz' });
+  const line = 'C:/Users/Pat Smith/doc, C:\\\\Users\\\\Pat Smith\\\\doc, c:\\users\\pat smith\\x, and Pat Smith said';
+  assert.ok(line.includes('Pat Smith') && line.includes('pat smith'), 'CONTROL: the folder name is in the line');
+  const out = redactText(line);
+  assert.ok(!/pat smith/i.test(out), out);
+  assert.equal(out, '~/doc, ~\\\\doc, ~\\x, and [user] said');
+  const mac = makeRedactor({ home: '/Users/pat', user: 'pat', host: 'zzz' });
+  assert.equal(mac.redactText('/users/PAT/y and /Users/patricia/z'), '~/y and /Users/patricia/z', 'any case, whole folder only');
 });

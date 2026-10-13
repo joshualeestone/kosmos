@@ -14139,7 +14139,8 @@ const server = http.createServer(async (req, res) => {
 
   /* #5959 slice 4: the diagnostics file, saved by the person from Settings > Advanced (a download, read on demand, never
      polled). Board-token only, like every /api read; not an agent-token route, since it carries every agent's lines.
-     engine/diagnostics.js shapes and redacts it. board.log is read only when it is this board's stdout. */
+     engine/diagnostics.js shapes and redacts it. board.log is read only when it is this board's stdout and stderr.
+     `?check=1` is the page's look beside the click (isDownloadCheck), as the agent export's is. */
   if (pathname === '/api/diagnostics' && req.method === 'GET') {
     try {
       const diagnostics = require('./engine/diagnostics');
@@ -14147,12 +14148,14 @@ const server = http.createServer(async (req, res) => {
       const logPath = path.join(__dirname, '..', 'logs', 'board.log');   // as the stamp above names it
       // As many lines as the ring holds, so each agent's own lines are searched as far back on Mac and Linux as on Windows.
       const fileWhy = {};
-      const fileLines = diagnostics.readBoardLog(logPath, 1, diagnostics.SEARCH_LINES, fileWhy);
+      const fileLines = diagnostics.readBoardLog(logPath, [1, 2], diagnostics.SEARCH_LINES, fileWhy);   // stdout and stderr
       const file = diagnostics.build({
         version: updates.RUNNING, platform: process.platform, now: new Date(),
         cards: safeRoster(), readReport: (n) => selfreport.read(n), accountProblemOf,
         ringLines: logring.board.tail(), fileLines, fileSource: fileLines ? logPath : null, fileWhy: fileWhy.why || null,
       });
+      // The page's look beside the click (as the other downloads): the same work, no file.
+      if (isDownloadCheck(req)) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
       const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;   // the person's day, not UTC's
       res.writeHead(200, {
         'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
@@ -14161,7 +14164,8 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify(file, null, 2) + '\n');
     } catch (err) {
       console.error('diagnostics: the file could not be made: ' + String((err && err.message) || err));
-      sendJson(res, 500, { error: 'we could not make the diagnostics file right now' });
+      // A refusal the browser does not save as the file (204 to its own download), and the page's look gets the sentence.
+      refuseDownload(req, res, 'Kosmos could not make the diagnostics file just now', 500);
     }
     return;
   }

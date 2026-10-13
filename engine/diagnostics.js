@@ -15,9 +15,11 @@ const LOG_TAIL_LINES = 300;
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-/* Whether a log line names this agent: its session name or display name, whole (not inside a longer name). */
+/* A name matched whole (not inside a longer name), compiled once per agent. */
+function namePattern(n) { return new RegExp('(?<![A-Za-z0-9_-])' + escapeRe(n) + '(?![A-Za-z0-9_-])'); }
+/* Whether a log line names this agent: its session name or display name, as strings or as patterns from namePattern. */
 function namesAgent(line, names) {
-  return names.some((n) => new RegExp('(?<![A-Za-z0-9_-])' + escapeRe(n) + '(?![A-Za-z0-9_-])').test(line));
+  return names.some((n) => (n instanceof RegExp ? n : namePattern(n)).test(line));
 }
 
 function reportOf(readReport, sessionName) {
@@ -47,7 +49,9 @@ function accountOf(accountProblemOf, card) {
      redactor    { redactDeep }                    engine/diagredact (this computer's own when not given) */
 function build(inputs) {
   const i = inputs || {};
-  const cards = Array.isArray(i.cards) ? i.cards : [];
+  // A roster that could not be read (safeRoster's null) is said so, never shown as a board with no agents.
+  const cardsRead = Array.isArray(i.cards);
+  const cards = cardsRead ? i.cards : [];
   const ring = Array.isArray(i.ringLines) ? i.ringLines : [];
   const fileLines = Array.isArray(i.fileLines) ? i.fileLines : null;
   /* One source, oldest first: board.log when the board could read it (it already holds every line the ring does, and
@@ -56,7 +60,7 @@ function build(inputs) {
     ? fileLines.map((line) => ({ at: null, stream: null, line }))   // one shape either way; board.log lines carry their own stamp
     : ring.map((e) => ({ at: e.at || null, stream: e.stream || null, line: e.line }));
   const agents = cards.filter((c) => c && c.sessionName).map((c) => {
-    const names = [...new Set([c.sessionName, c.name].filter((n) => typeof n === 'string' && n.length >= 2))];
+    const names = [...new Set([c.sessionName, c.name].filter((n) => typeof n === 'string' && n.length >= 2))].map(namePattern);
     return {
       name: c.name || c.sessionName,
       sessionName: c.sessionName,
@@ -72,6 +76,7 @@ function build(inputs) {
     kosmosDiagnostics: FILE_VERSION,
     made: (i.now instanceof Date ? i.now : new Date()).toISOString(),
     board: { version: i.version || null, platform: i.platform || null },
+    agentsRead: cardsRead,
     agents,
     log: {
       // Where the lines came from, so a reader knows whether lines from before the last restart could be here.
@@ -89,7 +94,7 @@ const READ_TAIL_BYTES = 256 * 1024;
 const { MAX_LINE_CHARS, MAX_LINES } = require('./logring');
 
 /* The last `max` lines of board.log, only when it is this board's own output: the file `logPath` names must be the
-   open file on `outFd` (same device and inode). A board.log left by another run (a board started from a terminal, say)
+   open file on `outFd` (one descriptor, or each of a list; same device and inode). A board.log left by another run (a board started from a terminal, say)
    is not this board's log and gives null, as does a missing or unreadable file; `why`, when given, says which.
    Reads at most READ_TAIL_BYTES. */
 function readBoardLog(logPath, outFd, max, why) {
@@ -98,8 +103,11 @@ function readBoardLog(logPath, outFd, max, why) {
   let fd = null;
   try {
     try { fd = fs.openSync(logPath, 'r'); } catch (e) { return said(e && e.code === 'ENOENT' ? 'missing' : 'unreadable'); }
-    const file = fs.fstatSync(fd), out = fs.fstatSync(outFd);
-    if (!file.isFile() || file.dev !== out.dev || file.ino !== out.ino) return said('not this board\'s output');
+    const file = fs.fstatSync(fd);
+    // Every stream named must go to this file (stdout and stderr both: a board whose stderr goes elsewhere would lose its
+    // failures from a file read only from board.log).
+    const outs = (Array.isArray(outFd) ? outFd : [outFd]).map((o) => fs.fstatSync(o));
+    if (!file.isFile() || outs.some((o) => file.dev !== o.dev || file.ino !== o.ino)) return said('not this board\'s output');
     const start = Math.max(0, file.size - READ_TAIL_BYTES);
     const buf = Buffer.alloc(file.size - start);
     const got = fs.readSync(fd, buf, 0, buf.length, start);
