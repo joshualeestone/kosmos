@@ -3093,7 +3093,8 @@ cmd_tool_failed() {
   case "$_sig" in ''|*[!0-9a-f]*) exit 0 ;; esac
   _err="$(head -c 2000 2>/dev/null | head -1)"
   # Cut BEFORE escaping, so a cut can never split an escape pair and leave the body unreadable.
-  _tf_esc() { printf '%s' "$1" | tr '\000-\037\177' ' ' | cut -c1-300 | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+  # LC_ALL=C: a cut that lands inside a multibyte character must not make sed refuse the line.
+  _tf_esc() { printf '%s' "$1" | LC_ALL=C tr '\000-\037\177' ' ' | LC_ALL=C cut -c1-300 | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g'; }
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in
     ''|*[!0-9a-f]*) ;;

@@ -56,7 +56,7 @@ test('a turn end after the last failure starts a new run, and the run says its t
   assert.equal(toolloop.peek('agent-c').turnOver, true);
   assert.equal(toolloop.peek('agent-c').count, 4, 'the finished run is still what happened');
   assert.equal(toolloop.noteTurnEnd('agent-c', { now: 3600 }), false, 'a second turn end writes nothing');
-  const r = toolloop.noteFailure('agent-c', { tool: 'Bash', sig: SIG_A }, { now: 4000 });
+  const r = toolloop.noteFailure('agent-c', { tool: 'Bash', sig: SIG_A }, { now: 3500 + toolloop.LATE_MS + 1000 });
   assert.equal(r.count, 1, 'the same failure in the NEXT turn is a new run');
   assert.equal(toolloop.peek('agent-c').turnOver, false);
 });
@@ -104,4 +104,15 @@ test('endsTurn: an automatic idle, stopped or started, or the next prompt; not a
   assert.equal(toolloop.endsTurn('working', 'running Bash'), false);
   assert.equal(toolloop.endsTurn('needs_you', 'asking permission to use Bash'), false);
   assert.equal(toolloop.endsTurn('blocked', ''), false);
+});
+
+test('a failure arriving just after the turn end it preceded still counts in that turn (the hook sends late)', () => {
+  toolloop.forget('agent-l');
+  for (let i = 0; i < 4; i++) toolloop.noteFailure('agent-l', { tool: 'Bash', sig: SIG_A }, { now: 9000 + i });
+  toolloop.noteTurnEnd('agent-l', { now: 9100 });
+  assert.equal(toolloop.noteFailure('agent-l', { tool: 'Bash', sig: SIG_A }, { now: 9100 + toolloop.LATE_MS }).count, 5, 'within LATE_MS: the same turn');
+  toolloop.forget('agent-l');
+  for (let i = 0; i < 4; i++) toolloop.noteFailure('agent-l', { tool: 'Bash', sig: SIG_A }, { now: 9000 + i });
+  toolloop.noteTurnEnd('agent-l', { now: 9100 });
+  assert.equal(toolloop.noteFailure('agent-l', { tool: 'Bash', sig: SIG_A }, { now: 9100 + toolloop.LATE_MS + 1 }).count, 1, 'past it: a new turn');
 });

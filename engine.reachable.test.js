@@ -202,6 +202,7 @@ const EXCUSED = {
    read the module). Keyed by FILE, like TRIAGED_5548, because several names are generic (setClock, setBin, _lock):
    a by-name excuse would also hide a real orphan of the same name in another module (#5548 review 2). */
 const SEAMS_5548 = {
+  setLateMsForTests: 'engine/toolloop.js',   // #6071: the late-digest window, which route tests cross in milliseconds
   // #5805 slice 3: forgets every first-seen time of a dateless usage-limit line, so each test in
   // engine/limituntil-5805.test.js (and slice 3b's) starts clean. Production never clears them.
   resetLimitFirstSeenForTests: 'engine/status.js',

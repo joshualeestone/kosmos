@@ -186,6 +186,7 @@ const EXPECTED = {
   'engine/prompternudge.js': { moves: 0, flushed: /writeSecret\([^;]*0o600/ },
   'engine/replynudge.js': { moves: 0, flushed: /saveFlushed\(/ },
   'engine/stuckterminal.js': { moves: 0, flushed: /saveFlushed\(/ },
+  'engine/toolloop.js': { moves: 0, flushed: /saveFlushed\(/ },   // #6071: the same store-file pattern as stuckterminal
 };
 // review 2: a file with two owner-only saves must keep BOTH on writeSecret (one regex match would pass with one left).
 const OWNER_ONLY_SITES = { 'engine/communitynudge.js': 2 };

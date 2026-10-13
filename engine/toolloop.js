@@ -15,7 +15,8 @@
  * "THE SAME FAILURE" is the hook's `sig`: a hash of the tool name, the tool's input and the WHOLE error. A
  * retry whose input or error output changes is a different signature and starts a new run, so a run is
  * only one tool failing in exactly the same way again, CONSECUTIVELY: any other failure in between starts a
- * new run (so alternating failures, or parallel calls interleaving, never add up). Not seen: successful
+ * new run (so alternating failures, or parallel calls interleaving, never add up: two different tools both
+ * looping at once are invisible to D1). Not seen: successful
  * calls in between, so an agent that edits, reruns the same test and gets the identical failure counts that
  * rerun, and a poll with the same input and the same bare error (an `until test -f` loop) looks the same.
  *
@@ -55,6 +56,13 @@ const PROMPT_TEXT = 'answering a prompt';
 function endsTurn(state, text) {
   return TURN_ENDS.includes(state) || (state === 'working' && text === PROMPT_TEXT);
 }
+
+/* A failure that arrives this soon after a turn end still belongs to the turn that just ended: the hook sends its
+   digest in the background, so it can reach the board just after the Stop report that followed it. */
+const LATE_MS = 2000;
+let lateMs = LATE_MS;
+/* Seam: route tests run in real time and cross a turn end in milliseconds. */
+function setLateMsForTests(ms) { lateMs = Number.isFinite(ms) ? ms : LATE_MS; }
 
 const SIG_RE = /^[0-9a-f]{16,128}$/;
 const MAX_TOOL = 80;
@@ -109,7 +117,8 @@ function noteFailure(key, failure, opts) {
   const tool = clean(f.tool, MAX_TOOL) || 'a tool';
   const error = clean(f.error, MAX_ERROR);
   const prev = readRun(key);
-  const continues = prev && prev.sig === sig && prev.turnEndAt === null;
+  const late = prev && prev.turnEndAt !== null && now - prev.turnEndAt <= lateMs;
+  const continues = prev && prev.sig === sig && (prev.turnEndAt === null || late);
   const run = continues
     ? { ...prev, count: prev.count + 1, lastAt: now, error: error || prev.error }
     : { sig, tool, error, count: 1, firstAt: now, lastAt: now, turnEndAt: null };
@@ -148,4 +157,4 @@ function forget(key) {
   try { fs.unlinkSync(fileFor(key)); } catch { /* already gone */ }
 }
 
-module.exports = { noteFailure, noteTurnEnd, endsTurn, peek, forget, LOOP_AT, TURN_ENDS, PROMPT_TEXT };
+module.exports = { noteFailure, noteTurnEnd, endsTurn, peek, forget, LOOP_AT, LATE_MS, TURN_ENDS, PROMPT_TEXT, setLateMsForTests };
