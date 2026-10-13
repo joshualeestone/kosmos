@@ -2108,7 +2108,9 @@ function sentenceForWhoami(account, model, runner) {
     : account && account.email ? account.email
       : account && account.label ? account.label
         : account && account.keyTail ? 'the API key ending in ' + account.keyTail   // #4603
-          : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
+          /* #5636 N4 (0.7.46 report): said without the folder. The path names this computer's user folder, and an
+             agent may repeat its whoami where others read it (a post, a room). */
+          : account && account.dir ? 'an account we cannot identify'
             : null;
   const parts = [];
   /* 🛑 ONE FORM, NOT TWO, AND THE SECOND ONE WAS DEAD. This used to branch on
