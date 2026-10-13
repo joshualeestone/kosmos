@@ -19368,7 +19368,7 @@ window.kosmosMeasureScrollbarWidth();
           <p class="dhint" style="margin:2px 0 0;">For the people who build Kosmos: each agent's state, recent problems and the board's last log lines. Keys, email addresses, user folders and this computer's names are taken out first. Your messages are not collected, though a log line can quote a few words of one. It is saved on this computer; nothing is sent anywhere.</p></div>
         <a class="btn-quiet" id="diag-save" href="/api/diagnostics" download>Save diagnostics</a>
       </div>
-      <p class="dhint" id="diag-msg" role="status" style="margin:8px 0 0;"></p>
+      <p class="dhint" id="diag-note" role="status" style="margin:8px 0 0;"></p>
     </section>
 
   <div class="dremove">
@@ -42886,13 +42886,13 @@ document.addEventListener('click', (e) => {
   if (!link) return;
   const ticket = {};
   DIAG_LATEST = ticket;
-  const msg = document.getElementById('diag-msg');
-  if (msg) msg.textContent = '';
+  const note = document.getElementById('diag-note');
+  if (note) note.textContent = '';
   fetch('/api/diagnostics?check=1', { cache: 'no-store' }).then(async (res) => {
     if (res.ok || DIAG_LATEST !== ticket) return;
     let said = '';
     try { const b = await res.json(); said = (b && (b.because || b.error)) || ''; } catch { said = ''; }
-    if (msg) msg.textContent = 'Not saved: ' + (asSentence(said) || 'Kosmos could not make the diagnostics file just now.');
+    if (note) note.textContent = 'Not saved: ' + (asSentence(said) || 'Kosmos could not make the diagnostics file just now.');
   }).catch(() => { /* the download itself is already under way; a failed look is not a failed download */ });
 });
 /* kosmos#5581: "Download this agent". The download starts in the person's click (the link itself), and beside it the
