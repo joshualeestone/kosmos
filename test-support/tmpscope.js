@@ -61,8 +61,10 @@ function activate() {
       let script = `(no script, ${path.basename(process.argv0)})`;
       if (process.argv[1]) {
         const abs = real(process.argv[1]);
-        const rel = path.relative(real(process.cwd()), abs);
-        const home = os.homedir();
+        let cwd = null;
+        try { cwd = real(process.cwd()); } catch { /* a deleted cwd: name the file by its absolute path below */ }
+        const rel = cwd ? path.relative(cwd, abs) : '';
+        const home = real(os.homedir());
         script = rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel
           : (home && abs.startsWith(home + path.sep) ? '~' + abs.slice(home.length) : abs);
       }

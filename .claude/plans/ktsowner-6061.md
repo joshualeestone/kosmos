@@ -31,10 +31,12 @@ author could not tell which test was killed and the only move was a 35-minute re
   real killed process wrote (so the two halves cannot drift on format).
 - Found by the new test while building: macOS gives the cwd as /private/var and argv[1] as /var, so a plain
   path.relative climbed to the root. Fixed with real paths.
-- Mutation: tmpscope not writing the owner reds all four new JS tests (the ~ test added in review 1 came later).
+- Mutation: tmpscope not writing the owner reds every new JS test that reads an owner (re-run after review 2).
 - Review 1: under `set -e` an empty or unterminated owner aborted the function; fixed with `|| true`, and dropping it
   reds exactly the two new set -e checks. A home path is written as ~; argv0 is its basename.
 
 ## Weakest premise
-That the leftover is a SIGKILL of a test process. If the harness kills a CHILD that has its own tmpscope (a nested
-`kts-` inside its parent's), the parent sweeps it and nothing leaks, so the report only ever names top-level kills.
+That the leftover is a SIGKILL of a test process. Reasoned, not measured: a killed CHILD with its own tmpscope makes
+its `kts-` inside its parent's TMPDIR, so the parent's sweep removes it and the report only names top-level ones.
+- Review 2: a deleted cwd no longer drops the owner line (absolute path instead, tested); HOME is real-pathed, so a
+  symlinked home still gets ~; the outside-cwd test pins HOME so it cannot depend on where the box keeps its tmp.

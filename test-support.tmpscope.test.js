@@ -234,7 +234,8 @@ test('#6061: a killed file outside its cwd is named by its absolute path, never 
   const away = fs.mkdtempSync(path.join(base, 'away-'));
   const victim = path.join(base, 'outside-6061.test.js');
   fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
-  const r = spawnSync(process.execPath, [victim], { cwd: away, env: { ...process.env, TMPDIR: base } });
+  const elsewhere = fs.mkdtempSync(path.join(base, 'home-'));   // HOME away from the victim, so no ~ applies here
+  const r = spawnSync(process.execPath, [victim], { cwd: away, env: { ...process.env, TMPDIR: base, HOME: elsewhere } });
   assert.equal(r.signal, 'SIGKILL', String(r.stderr));
   const left = entries(base).filter((n) => n.startsWith('kts-'));
   assert.equal(left.length, 1, String(entries(base)));
@@ -252,4 +253,19 @@ test('#6061 review 1: a killed file under the home folder is written with ~, so 
   const left = entries(base).filter((n) => n.startsWith('kts-'));
   assert.equal(left.length, 1, String(entries(base)));
   assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0], '~/homed-6061.test.js');
+});
+
+test('#6061 review 2: a killed process whose cwd was deleted still names its file (by its absolute path)', (t) => {
+  const base = fs.realpathSync(freshBase(t));
+  const gone = fs.mkdtempSync(path.join(base, 'gone-'));
+  const elsewhere = fs.mkdtempSync(path.join(base, 'home-'));
+  const victim = path.join(base, 'nocwd-6061.test.js');
+  fs.writeFileSync(victim, `process.chdir(${JSON.stringify(gone)});require('fs').rmdirSync(${JSON.stringify(gone)});`
+    + `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
+  const r = spawnSync(process.execPath, [victim], { env: { ...process.env, TMPDIR: base, HOME: elsewhere } });
+  assert.equal(r.signal, 'SIGKILL', String(r.stderr));
+  assert.ok(!fs.existsSync(gone), 'fixture: the cwd was not deleted, so this proves nothing');
+  const left = entries(base).filter((n) => n.startsWith('kts-'));
+  assert.equal(left.length, 1, String(entries(base)));
+  assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0], victim);
 });
