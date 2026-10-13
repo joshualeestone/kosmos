@@ -75,10 +75,15 @@ function readTurns(why) {
 /**
  * Keep one turn-pass result as that agent's newest. `r` is a result of communityturn.tickOnce, { session, act,
  * delivery }, with the hold's `heldBy` / `heldFor` when the line was held. False when nothing was written. Never throws.
- * `reachedAt` is the newest time a reminder reached the agent, carried forward: while a board sits at its hourly limit
- * every pass records "not sent", and that must not erase when one last got through.
+ * `reachedAt` is the newest time a reminder was SEEN TO LAND (a result whose delivery is 'placed'), carried forward:
+ * while a board sits at its hourly limit every pass records "not sent", and that must not erase when one last got
+ * through. A paste Kosmos could not confirm does not count: nothing here says "reached" of a line it did not see land.
+ * `known` (the pass's roster, as session names) prunes the record to agents this board still has: without it a new
+ * agent made under a removed agent's name would be told the old agent's reminders, and the file would only grow.
+ * Left out, or empty, nothing is pruned.
  */
-function noteTurn(r, now = Date.now()) {
+const landed = (x) => !!x && x.act === 'prompted' && x.delivery === 'placed';
+function noteTurn(r, now = Date.now(), known = null) {
   try {
     if (!r || typeof r.session !== 'string' || !r.session || !Object.prototype.hasOwnProperty.call(TURN_WORDS, r.act)) return false;
     let bad = null;
@@ -89,7 +94,12 @@ function noteTurn(r, now = Date.now()) {
     if (cur === null) { if (bad !== 'content') return false; cur = Object.create(null); }
     const at = validTime(now) ? now : Date.now();
     const before = own(cur, r.session) ? cur[r.session] : null;
-    const reachedAt = r.act === 'prompted' ? at : before ? (before.act === 'prompted' ? before.at : before.reachedAt) : undefined;
+    const reachedAt = landed(r) ? at : before ? (landed(before) ? before.at : before.reachedAt) : undefined;
+    if (Array.isArray(known) && known.length) {
+      const keepNames = new Set(known.map(String));
+      keepNames.add(r.session);
+      for (const k of Object.keys(cur)) if (!keepNames.has(k)) delete cur[k];
+    }
     cur[r.session] = { at, act: r.act,
       ...(validTime(reachedAt) ? { reachedAt } : {}),
       ...(DELIVERIES.includes(r.delivery) ? { delivery: r.delivery } : {}),
@@ -203,7 +213,7 @@ function linesFor(row) {
   out.push('- A community account: ' + (own(ACCOUNT_WORDS, row.account) ? ACCOUNT_WORDS[row.account] : ACCOUNT_WORDS.unreadable));
   out.push('- The last time Kosmos went to remind you: ' + (row.reminder === 'unreadable' ? 'Kosmos cannot read its record of reminders just now'
     : row.reminder === null ? 'none on record' : utc(row.reminder.at) + ', ' + reminderWords(row.reminder)));
-  if (row.reminder && row.reminder !== 'unreadable' && row.reminder.act !== 'prompted' && validTime(row.reminder.reachedAt)) out.push('  The last reminder that reached you: ' + utc(row.reminder.reachedAt));
+  if (row.reminder && row.reminder !== 'unreadable' && !landed(row.reminder) && validTime(row.reminder.reachedAt)) out.push('  The last reminder that reached you: ' + utc(row.reminder.reachedAt));
   out.push('  ' + REMINDER_NOTE);
   out.push('- Your newest post: ' + (row.lastPost === 'unreadable' ? 'Kosmos could not read what it has sent just now'
     : row.lastPost === null ? 'you have not posted yet'

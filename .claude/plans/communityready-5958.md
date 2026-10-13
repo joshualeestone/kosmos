@@ -173,3 +173,20 @@ Three WARNINGs, none taken, each read against the code:
   `communitymine`'s tests do; the usage line (review 2's CONVENTION again).
 
 No new finding to act on, so the loop ends here: four rounds, two models.
+
+## After review 4: main merged in, and why the loop did not end there
+Review 4 raised three WARNINGs and I took none. By the loop's own rule a round that raises something new has not
+converged, whatever is done with it, so "the loop ends here" above was wrong. It went on at review 5.
+Before that round the branch was 109 commits behind main and no longer merged cleanly: `engine/communityblock.js`'s
+export list had gained one name on main (my own #5988) and another here. Main is merged in with both names kept.
+
+## Review 5 (2026-10-12, default model), on the merged branch
+- **WARNING, taken:** "The last reminder that reached you" was said of any reminder that was tried, including a
+  paste Kosmos could not confirm, in a file that refuses to call such a paste delivered. `reachedAt` is now kept only
+  for a result whose delivery is `placed`, and the line is shown whenever the newest result is not one of those.
+- **WARNING, taken (review 1 had it as a NIT, left as a known limit):** the record was never pruned, so a new agent
+  made under a removed agent's name was told the old agent's reminders. The pass now hands the record the roster's
+  session names and it keeps only those (and the one being written). No roster, or an empty one, prunes nothing.
+- **NITs, not taken:** the lines mix "you" and "this agent" (slice 2 rewrote these words; that slice is stacked on
+  this one); an address read that throws reads as "not one Kosmos sends to" (the read swallows its own errors today);
+  the off-and-absent pair of lines; one write per agent at the limit (review 4's answer); two comments.

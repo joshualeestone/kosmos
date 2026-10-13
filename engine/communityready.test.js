@@ -374,3 +374,36 @@ test('review 3: a time no date can hold costs that record, not the agent\'s whol
   assert.match(text('ann'), /The last time Kosmos went to remind you: none on record/);
   assert.equal(ready.readyText('bea').ok, true);
 });
+
+test('#5958 review 5: "reached you" is said only of a reminder Kosmos saw land', () => {
+  agentFile('ann', withBlock());
+  const T = (h) => Date.parse('2026-10-12T0' + h + ':00:00Z');
+  // A paste Kosmos could not confirm, then a pass that sent nothing: no line claims a reminder reached the agent.
+  ready.noteTurn({ session: 'ann', act: 'prompted', delivery: 'unconfirmed' }, T(1));
+  assert.equal(ready.rowFor('ann').reminder.reachedAt, undefined, 'an unconfirmed paste was recorded as one that reached the agent');
+  ready.noteTurn({ session: 'ann', act: 'limit' }, T(2));
+  assert.doesNotMatch(text('ann'), /The last reminder that reached you/);
+  // One that landed, then an unconfirmed one: the newest is not called delivered, and the older landed one is still said, with ITS time.
+  ready.noteTurn({ session: 'ann', act: 'prompted', delivery: 'placed' }, T(3));
+  assert.doesNotMatch(text('ann'), /The last reminder that reached you/, 'CONTROL: said twice when the newest itself landed');
+  ready.noteTurn({ session: 'ann', act: 'prompted', delivery: 'unconfirmed' }, T(4));
+  assert.deepEqual(ready.rowFor('ann').reminder, { at: T(4), act: 'prompted', reachedAt: T(3), delivery: 'unconfirmed' });
+  assert.match(text('ann'), /The last reminder that reached you: 2026-10-12 03:00 UTC/);
+  assert.equal(ready.noteTurn({ session: 'ann', act: 'pane-busy' }, T(5)), true, 'CONTROL: the later pass was not recorded');
+  assert.match(text('ann'), /The last reminder that reached you: 2026-10-12 03:00 UTC/, 'a later pass lost when one last landed');
+});
+
+test('#5958 review 5: the record keeps only agents the pass still has, so a new agent under an old name starts clean', () => {
+  ready.noteTurn({ session: 'gone', act: 'prompted', delivery: 'placed' }, 1);
+  ready.noteTurn({ session: 'ann', act: 'prompted', delivery: 'placed' }, 2);
+  // With no roster given (a caller outside the pass) nothing is pruned.
+  ready.noteTurn({ session: 'bea', act: 'pane-busy' }, 3);
+  assert.deepEqual(Object.keys(ready.readTurns()).sort(), ['ann', 'bea', 'gone'], 'CONTROL: a result with no roster pruned the record');
+  ready.noteTurn({ session: 'bea', act: 'pane-busy' }, 4, []);
+  assert.equal(Object.keys(ready.readTurns()).length, 3, 'an EMPTY roster emptied the record');
+  // The pass names who is on the board: the removed agent's entry goes, the others stay, and the one being written always stays.
+  ready.noteTurn({ session: 'bea', act: 'pane-busy' }, 5, ['ann', 'bea']);
+  assert.deepEqual(Object.keys(ready.readTurns()).sort(), ['ann', 'bea']);
+  ready.noteTurn({ session: 'cy', act: 'pane-busy' }, 6, ['ann']);
+  assert.deepEqual(Object.keys(ready.readTurns()).sort(), ['ann', 'cy']);
+});

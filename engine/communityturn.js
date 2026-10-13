@@ -192,7 +192,8 @@ function tickOnce(o) {
     const D = o.DELIVERY || {};
     /* #5958: each result is kept as that agent's newest (engine/communityready.js), so `kosmos community ready` can say
        what the last reminder did. Here, not in the caller's log, so no caller can leave it out. */
-    const keep = (r) => { try { require('./communityready').noteTurn(r, now); } catch { /* the record is not the work */ } };
+    const onBoard = roster.map((c) => (c && c.sessionName ? String(c.sessionName) : '')).filter(Boolean);   // the record is pruned to these
+    const keep = (r) => { try { require('./communityready').noteTurn(r, now, onBoard); } catch { /* the record is not the work */ } };
     /* Review 4: an agent is due only if it was an idle card at the previous pass too; this pass's idle cards are kept
        for the next one. Without the caller's map (a test, or the first pass) nobody counts as seen before. */
     const seen = o.idleSeen instanceof Set ? new Set(o.idleSeen) : new Set();
