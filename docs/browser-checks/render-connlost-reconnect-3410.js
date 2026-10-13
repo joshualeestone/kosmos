@@ -31,6 +31,7 @@ process.env.AGENT_WORKFORCE_CONFIG_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
 const { chromium } = require('playwright');
+const { closeQuietly } = require('./lib-close-quietly.js');   // #6022: a poll in flight at close must not crash the check
 const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 
@@ -117,7 +118,7 @@ const PHASES = [
     chk(borderOf.gave_up && borderOf.waiting && borderOf.gave_up !== borderOf.waiting, 'given up has the needs-you border, not the paused one', `${borderOf.gave_up} vs ${borderOf.waiting}`);
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
-    await browser.close();
+    await closeQuietly(browser);
     server.close();
   }
   console.log(`screenshots: ${OUT}`);

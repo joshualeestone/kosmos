@@ -23,6 +23,7 @@
 'use strict';
 
 const playwright = require('playwright');
+const { closeQuietly } = require('./lib-close-quietly.js');   // #6022: a poll in flight at close must not crash the check
 
 const BASE = process.argv[2] || 'http://127.0.0.1:4399';
 const HEADED = process.env.HEADED !== '0';
@@ -107,7 +108,7 @@ function check(name, pass, detail) {
   const garbage = await slotAfter({ count: 'lots', reason: 'x' });
   check('CONTROL garbage: a non-numeric count shows nothing (never NaN)', garbage.trim() === '' && !/NaN/.test(garbage), JSON.stringify(garbage.slice(0, 80)));
 
-  await browser.close();
+  await closeQuietly(browser);
   const failed = results.filter((r) => !r.pass);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   if (failed.length) {
