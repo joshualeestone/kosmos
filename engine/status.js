@@ -2301,13 +2301,15 @@ const CONSENT_PROMPT_ACCEPT = /^Yes\b/;            // "Yes, I accept" / "Yes, co
    key (the chrome above is); an unlabelled confirm dialog still reads needs_you, generically. */
 const CONSENT_PROMPT_HEADINGS = Object.freeze([
   { re: /Bypass Permissions/i, because: 'it is asking you to accept Bypass Permissions mode before it can start, and the default answer exits' },
-  /* #6063: Claude Code's question about instructions that import files from outside the agent's folder, asked once
-     per folder per account (so after an account move with no earlier answer to carry, and for a new agent). The
-     family detector already read it as needs_you; this says WHAT it asks. Anchored to the whole heading row, so
-     the words in prose above another dialog do not label that one. No claim about the default: the detector does
-     not read the highlight. Kosmos never presses it: the answer is the person's. Screen captured 2026-10-13 on
-     Claude Code 2.1.296. */
-  { re: /^Allow external CLAUDE\.md file imports\?$/, because: 'it is asking whether its instructions may import files from outside its folder' },
+  /* #6063: Claude Code's question about instructions that import files from outside the agent's folder. The family
+     detector already read it as needs_you; this says WHAT it asks. Two rows must agree, because a label is only
+     true for the dialog that is live: the whole heading row, and `accept`, which must be the LAST "Yes ..." row on
+     the screen and sit below the heading. So the heading in prose, or an answered copy of this dialog still on
+     screen above a different one, labels nothing. No claim about the default: the detector does not read the
+     highlight. Kosmos never presses it: the answer is the person's. Screen captured 2026-10-13 on Claude Code
+     2.1.296; the same version stores the answer per folder in each account's own config, which is why a move can
+     ask again. */
+  { re: /^Allow external CLAUDE\.md file imports\?$/, accept: /^Yes, allow external imports$/, because: 'it is asking whether its instructions may import files from outside its folder' },
 ]);
 /* No "and the default answer exits" here: that is verified only for the LABELLED
    dialogs (bypass, trust), which default to `No, exit`. An unlabelled confirm dialog the
@@ -4516,8 +4518,15 @@ function consentPrompt(tail) {
   const cap = (s) => (s.length > 240 ? s.slice(0, 240) + '…' : s);
   let because = CONSENT_PROMPT_GENERIC_BECAUSE;
   let headingRow = null;
+  let lastAccept = -1;
+  rows.forEach((row, i) => { if (CONSENT_PROMPT_ACCEPT.test(row)) lastAccept = i; });
   for (const h of CONSENT_PROMPT_HEADINGS) {
-    const idx = rows.findIndex((row) => h.re.test(row));
+    let idx = rows.findIndex((row) => h.re.test(row));
+    /* #6063: a heading that names its own answer row labels only the live dialog (see the list above). */
+    if (h.accept) {
+      idx = lastAccept !== -1 && h.accept.test(rows[lastAccept])
+        ? rows.slice(0, lastAccept).map((row) => h.re.test(row)).lastIndexOf(true) : -1;
+    }
     if (idx !== -1) { because = h.because; headingRow = rows[idx]; break; }
   }
   /* Evidence, in preference order: a recognised heading (most informative), else the

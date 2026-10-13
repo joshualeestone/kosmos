@@ -6116,7 +6116,35 @@ test('#6063 CONTROL: a confirm dialog nobody labelled keeps the generic reason, 
 
   /* And the words alone, with no dialog under them, are not a question at all. */
   const idle = ' It asked "Allow external CLAUDE.md file imports?" and I answered.\n\n > \n   ⏵⏵ bypass permissions on (shift+tab to cycle)\n';
-  assert.notEqual(classify(pane(), idle).state, STATE.NEEDS_YOU);
+  assert.equal(classify(pane(), idle).state, STATE.IDLE);
+});
+
+test('#6063 CONTROL: an answered copy of the question still on screen does not label the dialog beneath it', () => {
+  const { consentPrompt } = require('./status');
+  const GENERIC = 'it is waiting for you to answer a prompt';
+  const answered = EXTERNAL_IMPORTS_LIVE.replace(/\n+$/, '');
+  const other = [
+    '  Something nobody has seen yet?',
+    '',
+    '  ❯ No, exit',
+    '    Yes, go',
+    '',
+    '  Enter to confirm · Esc to cancel',
+  ].join('\n');
+
+  /* The whole earlier dialog, heading row and answer row both, above a different live one. */
+  const stacked = consentPrompt(answered + '\n\n' + other);
+  assert.ok(stacked, 'the dialog beneath is still a dialog');
+  assert.equal(stacked.because, GENERIC, 'the answered question above labelled the live dialog');
+
+  /* The heading alone on a row (a log line, a printed fixture) above a different live one. */
+  const printed = consentPrompt('Allow external CLAUDE.md file imports?\n...\n' + other);
+  assert.equal(printed.because, GENERIC, 'a printed heading row labelled the live dialog');
+
+  /* The other way up, the question IS the live one and keeps its label. */
+  const live = consentPrompt(other + '\n\n' + answered);
+  assert.match(live.because, /import files from outside its folder/);
+  assert.equal(live.evidence, 'Allow external CLAUDE.md file imports?');
 });
 
 test('#1919: consentPrompt returns {because, evidence} for a live dialog and null for a non-dialog', () => {
