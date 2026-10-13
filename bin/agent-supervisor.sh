@@ -1220,14 +1220,16 @@ if [ -z "$adopt" ]; then
     GEMINI_MODEL="${MODEL:-gemini-2.5-flash}"
     # #5812: the folders of the projects this agent is on join its workspace, so gemini's own
     # write_file/replace can change project files (it refuses any path outside the workspace,
-    # and a shell write records nothing). engine/geminidirs.js decides which folders and logs
-    # each one it leaves out (missing, a comma in the path, folder trust switched on). Read at
-    # launch: a project joined later reaches this agent at its next start.
+    # and a shell write records nothing). engine/geminidirs.js decides which folders, records
+    # each one as trusted in this account's trustedFolders.json (else gemini's trust dialog
+    # would wait in front of the pane), and logs the ones it leaves out with why. Membership
+    # is keyed by the roster name, not the launch key ($SESSION can carry +world or -discord).
+    # Read at launch: a project joined later reaches this agent at its next start.
     GEMINI_INCLUDE=()
     if [ -n "$_eng" ] && [ -n "${NODE_BIN:-}" ] && [ -f "$_eng/geminidirs.js" ]; then
       while IFS= read -r _gdir; do
         [ -n "$_gdir" ] && GEMINI_INCLUDE+=(--include-directories "$_gdir")
-      done < <("$NODE_BIN" "$_eng/geminidirs.js" launch-args "$SESSION" "$WORKDIR" "${GEMINI_CLI_HOME:-}" || true)
+      done < <("$NODE_BIN" "$_eng/geminidirs.js" launch-args "$(token_roster_name)" "$WORKDIR" "${GEMINI_CLI_HOME:-}" || true)
       unset _gdir
     fi
     launch_pane "$CLAUDE" --approval-mode yolo --skip-trust -m "$GEMINI_MODEL" ${GEMINI_INCLUDE[@]+"${GEMINI_INCLUDE[@]}"} || exit 1
