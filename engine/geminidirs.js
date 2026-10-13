@@ -139,14 +139,61 @@ function trustOf(rules, folder) {
   return undefined;
 }
 
-/* Read the trust file: { rules } (an absent file is no rules) or { because } to leave it alone.
-   gemini refuses to start on a file it cannot parse, so such a file is never rewritten here. */
+/* gemini parses its trust file through strip-json-comments (parseTrustedFoldersJson), so a hand-edited
+   file may carry line and block comments. Drop them outside strings, as that does, before JSON.parse. */
+function stripComments(text) {
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      out += c;
+      if (c === '\\') { out += text[i + 1] || ''; i++; }
+      else if (c === '"') inString = false;
+    } else if (c === '"') { inString = true; out += c; }
+    else if (c === '/' && text[i + 1] === '/') { while (i < text.length && text[i] !== '\n') i++; out += '\n'; }
+    else if (c === '/' && text[i + 1] === '*') { const end = text.indexOf('*/', i + 2); i = end < 0 ? text.length : end + 1; out += ' '; }
+    else out += c;
+  }
+  return out;
+}
+
+/* Read the person's trust file: { rules } (an absent file is no rules) or { because }. When it cannot
+   be read, their DO_NOT_TRUST marks cannot be honoured, so the caller includes no folder at all. */
 function readRules(file) {
   let rules = {};
-  try { rules = JSON.parse(fs.readFileSync(file, 'utf8')); }
-  catch (err) { if (!err || err.code !== 'ENOENT') return { because: 'Gemini\'s trusted folders file could not be read, so it was left alone' }; }
-  if (!rules || typeof rules !== 'object' || Array.isArray(rules)) return { because: 'Gemini\'s trusted folders file is not an object, so it was left alone' };
+  try { rules = JSON.parse(stripComments(fs.readFileSync(file, 'utf8'))); }
+  catch (err) { if (!err || err.code !== 'ENOENT') return { because: 'Gemini\'s trusted folders file could not be read, so the do-not-trust marks in it could not be checked' }; }
+  if (!rules || typeof rules !== 'object' || Array.isArray(rules)) return { because: 'Gemini\'s trusted folders file is not an object, so the do-not-trust marks in it could not be checked' };
   return { rules };
+}
+
+/**
+ * Leave out the folders the person marked DO_NOT_TRUST in their own trust file (read only). The same
+ * rule on the Mac and on Windows. Never throws.
+ * @returns {{ folders: string[], leftOut: Array<{ folder: string, because: string }> }}
+ */
+function honourMarks(folders, cliHome) {
+  const list = Array.isArray(folders) ? folders : [];
+  const out = { folders: [], leftOut: [] };
+  if (list.length === 0) return out;
+  const theirs = readRules(trustFile(cliHome));
+  if (!theirs.rules) return { folders: [], leftOut: list.map((folder) => ({ folder, because: theirs.because })) };
+  for (const f of list) {
+    if (trustOf(theirs.rules, f) === false) out.leftOut.push({ folder: f, because: 'the folder is marked do not trust in Gemini, and that is left as it is' });
+    else out.folders.push(f);
+  }
+  return out;
+}
+
+/**
+ * What a Windows turn passes: the project folders, minus the person's DO_NOT_TRUST marks. A headless
+ * turn asks no trust question, so no trust file is written. Never throws.
+ */
+function turnFolders(name, workdir, cliHome, opts) {
+  const r = foldersFor(name, Object.assign({}, opts, { workdir }));
+  const m = honourMarks(r.folders, cliHome);
+  return { folders: m.folders, leftOut: r.leftOut.concat(m.leftOut) };
 }
 
 /* The agent's own trust file, in the Kosmos store (one per agent, so trust never spreads to another
@@ -171,13 +218,11 @@ function agentTrust(name, folders, cliHome, opts) {
   const out = { file: null, folders: [], leftOut: [] };
   if (list.length === 0) return out;
   const leaveAll = (because) => ({ file: null, folders: [], leftOut: list.map((folder) => ({ folder, because })) });
-  const theirs = readRules(trustFile(cliHome));
-  if (!theirs.rules) return leaveAll(theirs.because);
+  const m = honourMarks(list, cliHome);
+  out.folders = m.folders;
+  out.leftOut = m.leftOut;
   const rules = {};
-  for (const f of list) {
-    if (trustOf(theirs.rules, f) === false) out.leftOut.push({ folder: f, because: 'the folder is marked do not trust in Gemini, and that is left as it is' });
-    else { rules[f] = 'TRUST_FOLDER'; out.folders.push(f); }
-  }
+  for (const f of out.folders) rules[f] = 'TRUST_FOLDER';
   if (out.folders.length === 0) return out;
   try {
     const file = (opts && opts.file) || agentTrustFile(name);
@@ -219,4 +264,4 @@ if (require.main === module) {
   process.exit(0);
 }
 
-module.exports = { foldersFor, includeArgs, agentTrust, agentTrustFile, trustOf, trustFile, launchFolders, MAX_TOTAL_CHARS };
+module.exports = { foldersFor, includeArgs, agentTrust, agentTrustFile, trustOf, trustFile, honourMarks, turnFolders, launchFolders, stripComments, MAX_TOTAL_CHARS };
