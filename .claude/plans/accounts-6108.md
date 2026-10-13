@@ -33,6 +33,12 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
 - The setup guide is left out by the server (isSetupGuide), not only by the page's cached list.
 - Progress shows on the button; the live region speaks once, with the result. Each move times out after 60 s.
 
+- One shared walk (agentsByAccountWalk) behind both the account guards (count every agent) and this list (skips
+  the setup guide), so they cannot drift.
+- A move that times out is "No answer yet", not a failure (the route works before it answers).
+
 ## Not in slice 1 (follow-ups after it ships)
+- After a 'partial' move the server already lists the agent under the new account, though it still runs on the old
+  one until it restarts.
 Default ~/.claude reading (no statusline), the 5-hour limit, OpenAI/Gemini/Grok percentages, Windows, agents on other
 computers, a bulk route.

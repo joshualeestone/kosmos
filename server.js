@@ -2561,12 +2561,16 @@ function knownAgentNames() {
    `runner` scopes the walk to ONE provider's agents (a codex account is never held
    by a gemini agent). This is the exact logic the OpenAI DELETE route grew inline;
    that route now calls this so the four providers cannot drift. */
-function enumerateAgentsOnAccount(dir, isDefault, runner) {
+/* #6108: the ONE walk over this computer's agents and the account folder each runs on, so the account guards and the
+   accounts list cannot drift (Opus review, round 6). Fail-closed: `complete` is false whenever anything could not be
+   read. `skipGuide` leaves the setup guide out (lists, #3739); a guard that must count every agent leaves it in. */
+function agentsByAccountWalk(runner, { skipGuide = false } = {}) {
   const known = knownAgentNames();
   let complete = known.complete;
-  const names = known.names;
-  const usedBy = [];
-  for (const sessionName of names) {
+  const entries = [];   // { sessionName, home } with home null for the default account
+  let guideFolderName = null;
+  if (skipGuide) { try { guideFolderName = setupAssistant.guideName(); } catch { guideFolderName = null; } }   // read once per walk
+  for (const sessionName of known.names) {
     let job = null;
     try { job = create.readJob(sessionName); }
     catch { complete = false; continue; }
@@ -2580,7 +2584,22 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
       continue;
     }
     if (job.runner !== runner) continue;
-    const home = job.configDir || null;
+    if (skipGuide) {
+      let guide = false;
+      try { guide = setupAssistant.isGuideFolder(sessionName)
+        || (!!guideFolderName && create.cleanName(guideFolderName).toLowerCase() === create.cleanName(sessionName).toLowerCase() && setupAssistant.isGuideFolder(guideFolderName)); }
+      catch { guide = false; }
+      if (guide) continue;
+    }
+    entries.push({ sessionName, home: job.configDir || null });
+  }
+  return { entries, complete };
+}
+function enumerateAgentsOnAccount(dir, isDefault, runner) {
+  const walk = agentsByAccountWalk(runner);
+  let complete = walk.complete;
+  const usedBy = [];
+  for (const { sessionName, home } of walk.entries) {
     let onIt = false;
     try { onIt = home ? path.resolve(home) === path.resolve(dir) : isDefault; }
     catch { complete = false; continue; }
@@ -2593,17 +2612,12 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
    list (which used to need a full walk per account row). The same reading as enumerateAgentsOnAccount: a job with no
    configDir runs on the default account; `complete` is false when anything could not be read. */
 function claudeAgentsByAccount() {
-  const known = knownAgentNames();
-  let complete = known.complete;
+  const walk = agentsByAccountWalk('claude', { skipGuide: true });
+  let complete = walk.complete;
   const byDir = new Map(), onDefault = [];
-  for (const sessionName of known.names) {
-    let job = null;
-    try { job = create.readJob(sessionName); } catch { complete = false; continue; }
-    if (!job) { let absent = true; try { absent = create.jobMissing(sessionName); } catch { absent = false; } if (!absent) complete = false; continue; }
-    if (job.runner !== 'claude') continue;
-    if (isSetupGuide(sessionName)) continue;   // the guide is left out of agent lists (#3739), here at the source
-    if (!job.configDir) { onDefault.push(sessionName); continue; }
-    let key; try { key = path.resolve(job.configDir); } catch { complete = false; continue; }
+  for (const { sessionName, home } of walk.entries) {
+    if (!home) { onDefault.push(sessionName); continue; }
+    let key; try { key = path.resolve(home); } catch { complete = false; continue; }
     if (!byDir.has(key)) byDir.set(key, []);
     byDir.get(key).push(sessionName);
   }

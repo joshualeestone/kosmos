@@ -752,6 +752,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-move-msg { margin: 0; font-size: .8125rem; color: var(--label); }
 .acct-move-msg:empty { margin-top: -8px; }   /* kept in the page (a live region must exist before it speaks), but no gap */
 .acct-move-msg:focus { outline: none; }
+.acct-move-msg:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; border-radius: 4px; }
 .acct-move-note { margin: 0; flex: 1 1 100%; font-size: .75rem; color: var(--label-2); }
 /* The disambiguator beside a name two accounts share. Quiet on purpose: it is
    an answer to "why are there two of these", not a thing to read first. Same
@@ -27148,27 +27149,33 @@ function acctUsageHtml(a, list) {
 /* #6108: move every agent this computer has on `fromDir` to `toDir`, one at a time through the same route the agent's
    own page uses, and say how it went in one line: the engine's own sentence for any that did not move. */
 async function moveAccountAgents(fromDir, toDir, names, onProgress) {
-  let moved = 0; const restarting = [], misses = new Map();   // reason -> names, so one refusal is said once
+  let moved = 0;
+  const group = () => new Map();   // reason -> names, so one sentence is said once
+  const restarting = group(), misses = group(), silent = [];
+  const add = (m, why, who) => { if (!m.has(why)) m.set(why, []); m.get(why).push(who); };
   const nameOf = (n) => (((LAST || []).find((x) => x.sessionName === n) || {}).name || n);
+  const end = (t) => t + (/[.!?]$/.test(t) ? '' : '.');
   for (const [i, n] of names.entries()) {
+    /* A move that never answers must not hold the row disabled for the life of the page. The limit covers the reply's
+       body too. A timeout is NOT a failure: the route works before it answers, so the agent may well have moved. */
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), 60e3) : null;
     try {
-      /* A move that never answers must not hold the row disabled for the life of the page. */
-      const ctl = typeof AbortController === 'function' ? new AbortController() : null;
-      const timer = ctl ? setTimeout(() => ctl.abort(), 60e3) : null;
-      let res;
-      try { res = await fetch('/api/agent/' + encodeURIComponent(n) + '/account', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: toDir }), ...(ctl ? { signal: ctl.signal } : {}) }); }
-      finally { if (timer) clearTimeout(timer); }
-      const out = await res.json().catch(() => null);
+      const res = await fetch('/api/agent/' + encodeURIComponent(n) + '/account', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: toDir }), ...(ctl ? { signal: ctl.signal } : {}) });
+      const out = await res.json().catch((e) => { if (e && e.name === 'AbortError') throw e; return null; });
       if (res.ok && out && out.outcome === 'changed') moved++;
-      else if (res.ok && out && out.outcome === 'partial') restarting.push(nameOf(n));   // saved; still on the old one until it restarts
-      else { const why = (out && (out.because || out.error)) || 'that did not work'; if (!misses.has(why)) misses.set(why, []); misses.get(why).push(nameOf(n)); }
-    } catch { const why = 'that did not work'; if (!misses.has(why)) misses.set(why, []); misses.get(why).push(nameOf(n)); }
+      else if (res.ok && out && out.outcome === 'partial') add(restarting, (out.because || '').trim(), nameOf(n));   // saved; still on the old one until it restarts
+      else add(misses, (out && (out.because || out.error)) || 'that did not work', nameOf(n));
+    } catch (e) {
+      if (e && e.name === 'AbortError') silent.push(nameOf(n)); else add(misses, 'that did not work', nameOf(n));
+    } finally { if (timer) clearTimeout(timer); }
     if (onProgress) onProgress(i + 1, names.length);
   }
   const parts = [];
   if (moved) parts.push('Moved ' + moved + (moved === 1 ? ' agent. It restarts on the new account.' : ' agents. They restart on the new account.'));
-  if (restarting.length) parts.push('Saved, moving when ' + (restarting.length === 1 ? 'it restarts' : 'they restart') + ': ' + restarting.join(', ') + '.');
-  for (const [why, who] of misses) parts.push('Not moved (' + who.join(', ') + '): ' + why + (/[.!?]$/.test(why) ? '' : '.'));
+  for (const [why, who] of restarting) parts.push('Saved, moving when ' + (who.length === 1 ? 'it restarts' : 'they restart') + ' (' + who.join(', ') + ')' + (why ? ': ' + end(why) : '.'));
+  for (const [why, who] of misses) parts.push('Not moved (' + who.join(', ') + '): ' + end(why));
+  if (silent.length) parts.push('No answer yet for ' + silent.join(', ') + '. Check ' + (silent.length === 1 ? 'its' : 'their') + ' account in a moment.');
   return parts.join(' ');
 }
 
@@ -27841,7 +27848,11 @@ async function paintAccounts(opts) {
       const m = document.querySelector('[data-acct-move-msg="' + CSS.escape(from) + '"]');
       const again = document.querySelector('[data-acct-move-to="' + CSS.escape(from) + '"]');
       requestAnimationFrame(() => { if (m) m.textContent = said; });
-      try { (again && !again.disabled ? again : m) && (again && !again.disabled ? again : m).focus({ preventScroll: true }); } catch { /* focus is best effort */ }
+      /* Only if the person is still here: a long move must not pull focus from something they moved on to. */
+      const ae = document.activeElement;
+      const stillHere = !ae || ae === document.body || !!(ae.closest && ae.closest('#set-accounts'));
+      const target = again && !again.disabled ? again : m;
+      if (stillHere && target) { try { target.focus({ preventScroll: true }); } catch { /* focus is best effort */ } }
     });
   }
   for (const btn of box.querySelectorAll('[data-reauth]')) {

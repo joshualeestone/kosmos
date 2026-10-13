@@ -32,7 +32,7 @@ const claude = (email, dir, extra) => ({ provider: 'anthropic', providerName: 'A
   organization: null, isDefault: false, keyTail: null, name: null, memoryShared: true, connection: conn, ...extra });
 const ACCOUNTS = [
   claude('busy@example.com', 'busy', { weekly: { usedPct: 82, resetsAt: now + 50 * H, at: now - 2 * H }, agentsHere: { names: ['s-dana', 's-eli', 's-guide'], complete: true } }),
-  claude('mixed@example.com', 'mixed', { weekly: { usedPct: 95, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-p', 's-r1', 's-r2'], complete: true } }),
+  claude('mixed@example.com', 'mixed', { weekly: { usedPct: 95, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-p', 's-r1', 's-r2', 's-slow'], complete: true } }),
   claude('spare@example.com', 'spare', { weekly: { usedPct: 20, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
   claude('fresh@example.com', 'fresh', { weekly: null, agentsHere: { names: ['s-x'], complete: true } }),
   claude('calm@example.com', 'calm', { weekly: { usedPct: 40, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
@@ -44,7 +44,7 @@ const ACCOUNTS = [
   claude('noshare@example.com', 'noshare', { memoryShared: false, weekly: { usedPct: 5, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
 ];
 const AGENTS = [{ sessionName: 's-dana', name: 'Dana' }, { sessionName: 's-eli', name: 'Eli' }, { sessionName: 's-x', name: 'x<b>y' },
-  { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true }, { sessionName: 's-guide2', name: 'Kosmos Guide', isGuide: true }, { sessionName: 's-q', name: 'Quinn' }, { sessionName: 's-p', name: 'Pia' }, { sessionName: 's-r1', name: 'Rex' }, { sessionName: 's-r2', name: 'Rio' }];
+  { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true }, { sessionName: 's-guide2', name: 'Kosmos Guide', isGuide: true }, { sessionName: 's-q', name: 'Quinn' }, { sessionName: 's-p', name: 'Pia' }, { sessionName: 's-r1', name: 'Rex' }, { sessionName: 's-r2', name: 'Rio' }, { sessionName: 's-slow', name: 'Sol' }];
 
 const fails = [];
 const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fails.push(label); };
@@ -75,7 +75,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           if (m && opts && opts.method === 'POST') {
             const agent = decodeURIComponent(m[1]), dir = JSON.parse(opts.body).dir;
             posts.push({ agent, dir });
-            if (agent === 's-p') return new Promise((r) => setTimeout(() => r({ ok: true, json: async () => ({ outcome: 'partial', because: 'saved' }) }), 30));
+            if (agent === 's-p') return new Promise((r) => setTimeout(() => r({ ok: true, json: async () => ({ outcome: 'partial', because: 'could not start it again: the session is busy' }) }), 30));
+            if (agent === 's-slow') return new Promise((_, rej) => setTimeout(() => rej(new DOMException('The operation was aborted.', 'AbortError')), 30));   // as the 60 s limit ends it
             if (agent === 's-r1' || agent === 's-r2') return new Promise((r) => setTimeout(() => r({ ok: false, json: async () => ({ outcome: 'refused', because: 'That account does not share this computer\'s memory.' }) }), 30));
             where.set(agent, dir);
             return new Promise((r) => setTimeout(() => r({ ok: true, json: async () => ({ outcome: 'changed', because: 'moved' }) }), 30));
@@ -133,13 +134,14 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         if (moved) { moved.msg = msgOf('/home/.claude-busy');   // read AFTER the list repainted with the agents gone
           const ae = document.activeElement; moved.focus = ae ? (ae.getAttribute('data-acct-move-msg') || ae.getAttribute('data-acct-move-to') || ae.tagName) : null; }
         const busyAfter = read('busy@example.com');
-        const mixed = await runMove('mixed@example.com', '/home/.claude-spare', 3);
+        const mixed = await runMove('mixed@example.com', '/home/.claude-spare', 4);
         if (mixed) mixed.msg = msgOf('/home/.claude-mixed');
         // Two minutes on, a repaint shows the row plain again.
         const st = ACCT_MOVE.get('/home/.claude-busy'); if (st) st.doneAt -= 3 * 60e3;
         await paintAccounts();
         const expired = msgOf('/home/.claude-busy');
-        return { before, moved, busyAfter, mixed, expired, sideways: document.documentElement.scrollWidth - window.innerWidth };
+        /* Sideways overflow is measured on the frame the rows live in: the page itself cannot scroll past a fixed frame. */
+        return { before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - frame.clientWidth };
       }, { accounts: ACCOUNTS, agents: AGENTS });
       await page.close();
       if (r.error) { say(false, tag + ' ' + r.error); continue; }
@@ -162,15 +164,16 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!r.moved && r.moved.focus === '/home/.claude-busy', tag + ' after the move, focus lands on the row\'s sentence (the pressed button is gone)', JSON.stringify(r.moved && r.moved.focus));
       say(r.expired === '', tag + ' two minutes on, a repaint shows the row plain again', JSON.stringify(r.expired));
       say(!!r.busyAfter && r.busyAfter.agents === 'No agents on it on this computer.', tag + ' after the move the busy row has no agents left (the repaint happened)', JSON.stringify(r.busyAfter && r.busyAfter.agents));
-      say(!!r.mixed && r.mixed.posts.length === 3, tag + ' a mixed move sends one move per agent', JSON.stringify(r.mixed && r.mixed.posts));
-      say(!!r.mixed && r.mixed.msg === "Saved, moving when it restarts: Pia. Not moved (Rex, Rio): That account does not share this computer's memory.", tag + ' a saved-but-restarting agent is not called not moved, and one refusal is said once', JSON.stringify(r.mixed && r.mixed.msg));
+      say(!!r.mixed && r.mixed.posts.length === 4, tag + ' a mixed move sends one move per agent', JSON.stringify(r.mixed && r.mixed.posts));
+      say(!!r.mixed && r.mixed.msg === "Saved, moving when it restarts (Pia): could not start it again: the session is busy. Not moved (Rex, Rio): That account does not share this computer's memory. No answer yet for Sol. Check its account in a moment.",
+        tag + ' saved-but-restarting keeps the engine\'s reason, one refusal is said once, and an unanswered move is not called a failure', JSON.stringify(r.mixed && r.mixed.msg));
       say(!!fresh && fresh.line === 'No usage reading for this account yet.' && !fresh.warn, tag + ' a row with no reading says so, and does not warn', JSON.stringify(fresh));
       say(!!fresh && fresh.agents === 'Its agents on this computer: x<b>y' && fresh.agentsEls === 0, tag + ' an agent name with markup is shown as text', JSON.stringify(fresh && fresh.agents));
       say(!!calm && calm.fill === '40%' && !calm.warn, tag + ' a 40% row does not warn', JSON.stringify(calm));
       say(!!key && key.has && key.fill === null && key.line === null, tag + ' an API-key row draws no meter', JSON.stringify(key));
       say(!!old && !old.has, tag + ' an older board\'s row draws no usage block', JSON.stringify(old));
       say(!!busy && busy.vis && busy.moveInside === true, tag + ' the move control fits inside its (visible, measured) row', JSON.stringify(busy && { vis: busy.vis, inside: busy.moveInside }));
-      say(r.sideways <= 0, tag + ' the page does not scroll sideways', String(r.sideways));
+      say(r.sideways <= 0, tag + ' the account list does not scroll sideways', String(r.sideways));
       say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
     }
     await browser.close();
