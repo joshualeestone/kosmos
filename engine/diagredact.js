@@ -31,13 +31,22 @@ const CRED_PATTERNS = [
   // Authorization: Bearer x / Basic x / Token x (a header line, or a logged headers object)
   [/\b((?:proxy-)?authorization["']?\s*[:=]\s*["']?(?:(?:bearer|basic|token|digest)\s+)?)[^\s"',;}]+/gi, '$1'],
   // a bare scheme and its value
-  [/\b((?:bearer|basic)\s+)[A-Za-z0-9._~+\/=-]{8,}/gi, '$1'],
+  // (a value that looks like a credential: a digit or base64 padding in it, or 20+ characters; "Basic information" stays)
+  [/\b((?:bearer|basic)\s+)(?:(?=[A-Za-z0-9._~+\/=-]*[0-9=])[A-Za-z0-9._~+\/=-]{8,}|[A-Za-z0-9._~+\/=-]{20,})/gi, '$1'],
   // Cookie: a=b; c=d (every value)
   [/\b((?:set-)?cookie["']?\s*[:=]\s*["']?)[^\r\n"']+/gi, '$1'],
-  // "authToken": "x", "client_secret": "x", "password": "x", "apiKey": "x"
-  // (not any name with "auth" in it: authMode and author are facts a builder needs; an escaped quote stays in the value)
-  // (a value cut before its closing quote, at a line's end, is taken to the end)
-  [/("[A-Za-z0-9_-]*(?:token|secret|password|passwd|passphrase|apikey|api_key|authorization)[A-Za-z0-9_-]*"\s*:\s*")(?:[^"\\]|\\.)*("|$)/gi, '$1$2'],
+  // A field named like a secret, in any common spelling of a key and value: JSON ("authToken": "x"), a logged object
+  // ({ accessToken: 'x' }), single quotes, or name=value. The name and the quotes stay; the value goes. Not any name
+  // with "auth" in it (authMode and author are facts a builder needs). An escaped quote stays inside the value, and a
+  // value cut before its closing quote, at a line's end, is taken to the end. A bare scheme word (Authorization: Bearer x)
+  // is left to the header rule above, which keeps the scheme and masks the value.
+  [/((?:^|[^A-Za-z0-9_-])["']?[A-Za-z0-9_-]*(?:token|secret|password|passwd|passphrase|apikey|api_key|authorization)[A-Za-z0-9_-]*["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*("|$)|'(?:[^'\\]|\\.)*('|$)|(?!["'])(?!(?:bearer|basic|token|digest)\s)[^\s,;}&)\]]+)/gi,
+    (m, lead, dq, sq) => {
+      const q = m.slice(lead.length, lead.length + 1);
+      if (q === '"') return lead + '"' + secretmask.MASK + (dq || '');
+      if (q === "'") return lead + "'" + secretmask.MASK + (sq || '');
+      return lead + secretmask.MASK;
+    }],
 ];
 
 // Host names every computer can have, which name no one: replacing them would only damage lines like a localhost URL.
@@ -88,7 +97,10 @@ function makeRedactor(who) {
     if (typeof text !== 'string' || !text) return text;
     let out = text;
     for (const v of known) if (out.includes(v)) out = out.split(v).join(secretmask.MASK);
-    for (const [re, keep] of CRED_PATTERNS) out = out.replace(re, (...m) => keep.replace(/\$(\d)/g, (_, n) => (n === '1' ? m[1] + secretmask.MASK : m[Number(n)] || '')));
+    for (const [re, keep] of CRED_PATTERNS) {
+      out = typeof keep === 'function' ? out.replace(re, keep)
+        : out.replace(re, (...m) => keep.replace(/\$(\d)/g, (_, n) => (n === '1' ? m[1] + secretmask.MASK : m[Number(n)] || '')));
+    }
     out = secretmask.mask(out).text;
     if (homeRe) out = out.replace(homeRe, '~');
     // Any other account's folder too (a shared computer): the folder name under Users or home names a person.
