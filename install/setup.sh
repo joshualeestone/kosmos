@@ -1338,14 +1338,43 @@ install_kosmos() {
     return 1
   fi
   local part
+  # BEGIN #4455 lift-then-check
   # #4449: the previous install may have left `app` read-only (KOSMOS_READONLY_APP, below), and rm -rf cannot
   # remove files from a folder nobody may write to, so every part is made writable again before the swap starts.
-  # Harmless on a part that never was read-only. A chmod that fails is tolerated here on purpose: with the switch
-  # off (the default) nothing was locked, so the swap below behaves as it always has. Refusing before anything is
-  # removed when a locked part cannot be unlocked is a condition of turning the switch on (#4455).
+  # Harmless on a part that never was read-only.
+  # #4455: ALL THREE are lifted and checked BEFORE ANY is removed. The swap below removes them one at a time, so a
+  # part that cannot be removed used to be found only after `bin` was already gone: half an install and a paused
+  # board. Two things keep rm from removing a part, and each has its own check:
+  #   a locked file or folder (the Finder's Locked box, chflags uchg). chmod does NOT report these: it leaves a
+  #     file that is already writable alone and exits 0 (measured; the first version of this check asked only
+  #     after a failed chmod and let a locked file through). So every part is searched for the flag, on macOS.
+  #   a folder this user may not write to, which keeps its entries. Only possible where the lift failed, so only
+  #     those parts are walked (one `test` per folder is slow on a big tree and the usual update never pays it).
+  # A chmod that fails is not by itself a reason to refuse: a file somebody else owns, in a folder this user may
+  # write to, is removed fine.
+  local _lift_failed="" _stuck_at=""
   for part in bin app runtime; do
-    [ -d "$dest/$part" ] && chmod -R u+w "$dest/$part" 2>/dev/null || true
+    [ -d "$dest/$part" ] || continue
+    chmod -R u+w "$dest/$part" 2>/dev/null || _lift_failed="$_lift_failed $part"
   done
+  if [ "$(uname -s)" = "Darwin" ]; then
+    for part in bin app runtime; do
+      [ -z "$_stuck_at" ] && [ -d "$dest/$part" ] || continue
+      _stuck_at="$(find "$dest/$part" \( -flags +uchg -o -flags +schg \) -print 2>/dev/null | sed -n '1p')" || _stuck_at=""
+    done
+  fi
+  for part in $_lift_failed; do
+    [ -z "$_stuck_at" ] || break
+    _stuck_at="$(find "$dest/$part" -type d ! -exec test -w {} \; -print 2>/dev/null | sed -n '1p')" || _stuck_at=""
+  done
+  if [ -n "$_stuck_at" ]; then
+    info "the installed Kosmos cannot be replaced: this is locked and could not be unlocked:"
+    info "  $_stuck_at"
+    info "Nothing was removed. Unlock it (in the Finder: Get Info, untick Locked), then paste the install line again."
+    rm -rf "$stage"
+    return 1
+  fi
+  # END #4455 lift-then-check
   for part in bin app runtime; do
     rm -rf "$dest/$part" || { rm -rf "$stage"; return 1; }
     mv "$stage/$part" "$dest/$part" || { rm -rf "$stage"; return 1; }
