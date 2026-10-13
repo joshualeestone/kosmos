@@ -2161,6 +2161,15 @@ async function run() {
     const keys = Object.keys(DATA.busy).sort().join(',');
     if (claims !== keys) throw new Error('--data ' + args.data + ': the busy table names ' + keys + ' but the agents are ' + claims);
     if (!DATA.connected) throw new Error('--data ' + args.data + ': a busy table is applied in the connected status rewrite, so it needs connected: true');
+  }
+  FACES_DIR = args.faces ? path.resolve(args.faces) : null;
+  if (FACES_DIR && !(fs.existsSync(FACES_DIR) && fs.statSync(FACES_DIR).isDirectory())) throw new Error('--faces ' + FACES_DIR + ' is not a folder');
+  SEED_LEFTOVER = screens.some((s) => s.name === 'leftover-delete');
+
+  const board = await startBoard();
+  if (DATA.busy) {
+    /* #6051: every busy row can produce its reading. Here, not at the start: status.js may only load once the
+       sandbox is set (the leak guard refuses an engine module loaded before it). */
     const { limitFor } = require(path.join(REPO, 'engine', 'status'));
     for (const [k, b] of Object.entries(DATA.busy)) {
       if (b.runner === 'muse') continue;   // no reading by design
@@ -2169,11 +2178,6 @@ async function run() {
       if (!(Number.isFinite(ceiling) && ceiling > 0)) throw new Error('--data ' + args.data + ': busy ' + k + ' has no memory limit (limitFor does not know ' + (b.model || 'its model') + ' and no ceiling is given)');
     }
   }
-  FACES_DIR = args.faces ? path.resolve(args.faces) : null;
-  if (FACES_DIR && !(fs.existsSync(FACES_DIR) && fs.statSync(FACES_DIR).isDirectory())) throw new Error('--faces ' + FACES_DIR + ' is not a folder');
-  SEED_LEFTOVER = screens.some((s) => s.name === 'leftover-delete');
-
-  const board = await startBoard();
   const rows = [];
   const skipped = [];   // phone-only screens at desktop, desktop-only ones at a phone size: listed in both reports, never silently absent
   let overflowCount = 0, errors = 0;
