@@ -95,6 +95,14 @@ test('an agent in a named world is matched by its roster name, not its world lau
   assert.ok(out.rec.includes('--include-directories ' + proj), out.rec);
 });
 
+test('a -discord launch key is matched by its roster name too', () => {
+  const proj = nodePath.join(SANDBOX, 'proj-discord');
+  fs.mkdirSync(proj, { recursive: true });
+  const out = run({ projects: [{ name: 'X', folder: proj, agents: ['gem-agent'] }], session: 'gem-agent-discord' });
+  assert.ok(out.rec.includes('new-session'), out.stderr.slice(-400));
+  assert.ok(out.rec.includes('--include-directories ' + proj), out.rec);
+});
+
 test('a project folder with spaces in its path reaches the launch as one argument', () => {
   const proj = nodePath.join(SANDBOX, 'My Projects', 'a b');
   fs.mkdirSync(proj, { recursive: true });

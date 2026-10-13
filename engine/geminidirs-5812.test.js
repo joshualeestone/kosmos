@@ -34,6 +34,16 @@ test('a project the agent is on is included; one it is not on is not', () => {
   assert.deepEqual(r.leftOut, []);
 });
 
+test('an archived project is left out; a paused one stays', () => {
+  const archived = mk('p-archived');
+  const paused = mk('p-paused');
+  const r = dirs.foldersFor('gem', { projects: [
+    { folder: archived, agents: ['gem'], archived: true },
+    { folder: paused, agents: ['gem'], paused: true },
+  ] });
+  assert.deepEqual(r.folders, [paused]);
+});
+
 test('a missing folder is left out and said (gemini would throw at startup on it)', () => {
   const gone = path.join(SANDBOX, 'not-there');
   const r = dirs.foldersFor('gem', { projects: [{ folder: gone, agents: ['gem'] }] });
