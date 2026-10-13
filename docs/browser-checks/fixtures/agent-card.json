@@ -37,6 +37,7 @@
   "stateReported": true,
   "waiting": null,
   "stateReportedBy": null,
+  "awaitingApproval": false,
   "stateBackgroundWait": false,
   "stateConflict": null,
   "context": {

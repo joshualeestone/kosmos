@@ -94,7 +94,7 @@ test('the fields the projects engine reads off a card are fields snapshot() real
   // which is the one failure this file exists to make loud).
   // #2808: describe() now also reads card.stateReportedBy (for pjMember's class-2 de-alarm), so
   // a real card must carry it -- added here to keep this tripwire current with what describe reads.
-  const READ_BY_PROJECTS = ['sessionName', 'name', 'state', 'because', 'isNamedOurs', 'role', 'profile', 'stateReportedBy'];
+  const READ_BY_PROJECTS = ['sessionName', 'name', 'state', 'because', 'isNamedOurs', 'role', 'profile', 'stateReportedBy', 'awaitingApproval'];   // #6091
   const board = fleet.install([fleet.agent('mara', { state: 'working' })]);
   try {
     const card = board.card('mara');
