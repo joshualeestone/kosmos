@@ -63,11 +63,16 @@ function maskKeyBlocks(entries) {
   });
 }
 
+function labelOf(card) {
+  try { return require('./cardlabel').labelOf(card); } catch { return null; }
+}
+
 function reportOf(readReport, sessionName) {
   try {
     const rep = readReport(sessionName);
     if (!rep || rep.found !== true) return null;
-    return { state: rep.state || null, by: rep.by || null, at: rep.at || null };
+    // askedAt (#5943): when a waiting question was first made, which report show ages a stale report from.
+    return { state: rep.state || null, by: rep.by || null, at: rep.at || null, askedAt: rep.askedAt || null };
   } catch { return { unreadable: true }; }
 }
 
@@ -130,7 +135,10 @@ function build(inputs) {
       name: c.name || c.sessionName,
       sessionName: c.sessionName,
       runner: c.runner || null,
-      card: { state: c.state || null, stateReported: c.stateReported || null, stateReportedBy: c.stateReportedBy || null },
+      // label: the card's word as the page shows it (engine/cardlabel, #5959 slice 1), so a builder reads what the person saw.
+      card: { state: c.state || null, label: labelOf(c), stateReported: c.stateReported || null, stateReportedBy: c.stateReportedBy || null },
+      // When it was last seen working (#5959 slice 2, status.js lastWorkedOf): { at, why } or null for a card with no pane.
+      lastWorked: c.lastWorked || null,
       report: reportOf(i.readReport || (() => null), c.sessionName),
       crashLoop: c.crashLoop || null,
       stuckError: c.stuckError || null,   // a terminal error that keeps coming back (#5154), as the roster carries it
