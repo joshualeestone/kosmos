@@ -505,7 +505,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       JSON.stringify(chains.heads) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.heads));
     ok(t + ' #3029 Tasks crumb names the picked subproject by its chain', /All tasks › Book A › Launch › Ads/.test(chains.crumb), JSON.stringify(chains.crumb));
     ok(t + ' #3029 Tasks title and back chevron name the picked subproject by its chain',
-      / on Book A › Launch › Ads$/.test(chains.title.trim()) && chains.backLabel === 'Back to Book A › Launch › Ads', JSON.stringify({ title: chains.title, back: chains.backLabel }));
+      / on Book A › Launch › Ads$/.test(chains.title.trim()) && chains.backLabel === 'Back to Book A, Launch, Ads', JSON.stringify({ title: chains.title, back: chains.backLabel }));
     ok(t + ' #3029 Tasks rows (Group by: Status) name their project by its chain',
       JSON.stringify(chains.rowProjects) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.rowProjects));
     ok(t + ' #3029 Tasks search for a parent\'s name finds its subproject\'s tasks', JSON.stringify(chains.found) === JSON.stringify(['Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.found));

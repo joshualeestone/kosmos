@@ -1638,7 +1638,7 @@ function projectPathOf(p, byId) {
   let cur = p && p.parent ? byId.get(p.parent) : null;
   while (cur && !seen.has(cur.id)) {
     seen.add(cur.id);
-    names.unshift(String(cur.name));
+    names.unshift(cur.name == null ? '' : String(cur.name));
     cur = cur.parent ? byId.get(cur.parent) : null;
   }
   return names;

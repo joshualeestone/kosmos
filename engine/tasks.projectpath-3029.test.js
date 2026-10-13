@@ -53,6 +53,11 @@ test('projectPath: a parent missing from the read gives [] (top level, as the AP
   assert.deepEqual(pathOf(rows, 'x'), ['Y'], 'a stored loop must stop, never hang or repeat');
 });
 
+test('projectPath: a parent with no stored name is an empty segment, never the text undefined', () => {
+  const rows = tasks.allTasks([{ id: 'nn', tasks: [] }, { id: 'c', name: 'Child', parent: 'nn', tasks: [task(1)] }]);
+  assert.deepEqual(pathOf(rows, 'c'), ['']);
+});
+
 test('projectPath on projects the app really writes: a subproject made with create({ parent })', () => {
   const top = projects.create({ name: 'Real Book' });
   const sub = projects.create({ name: 'Real Launch', parent: top.id });

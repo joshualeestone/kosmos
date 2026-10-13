@@ -60635,6 +60635,9 @@ function pjChainCompare(a, b) {
 function pjChainText(names) {
   return names.join(' › ');
 }
+function pjChainSpoken(names) {
+  return names.join(', ');   // for accessible names: a screen reader would read the › aloud
+}
 function pjSortByChain(list) {
   const chain = new Map(list.map((p) => [p, pjChainOf(p)]));   // each chain built once, not per comparison
   return list.slice().sort((a, b) => pjChainCompare(chain.get(a), chain.get(b)));
@@ -61686,7 +61689,7 @@ function tskRow(t, at) {
       + (t.builtAt && agoWords(Date.now() - Date.parse(t.builtAt)) ? ' ' + esc(agoWords(Date.now() - Date.parse(t.builtAt))) : '')
       + (t.builtNote ? ': ' + esc(t.builtNote) : '')
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
-      + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(projChain) + ' not built yet">Not built yet</button></div>';
+      + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(tskChainOf(t))) + ' not built yet">Not built yet</button></div>';
   /* kosmos#4787: a recurring job's row says how often it runs, when it last ran and who ran it, and when it runs next,
      so automated work shows its owner and its rhythm instead of looking idle or ownerless. The rule's words and the next
      run come from the board (taskrepeat.describe / nextAfter), never worked out again here. */
@@ -61697,7 +61700,7 @@ function tskRow(t, at) {
     /* The row no longer repeats its state in a status group (the heading says it), so there the
        label carries it: a screen reader moving between checkboxes still hears where each task is.
        Grouped by project the row shows its state line, so the label does not say it again. */
-    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(projChain)
+    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(tskChainOf(t)))
     + (g && TSK.by !== 'project' ? ' (' + esc(g.l) + ')' : '') + '"></label>'
     + '<div class="t">' + partOf + '<span class="n">#' + Number(t.number) + '</span>'
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
@@ -61779,14 +61782,14 @@ function tskPaint() {
   const all = tskVisible(TSK.data, TSK.proj);
   const projMap = new Map();
   for (const t of all) {
-    if (!projMap.has(t.projectId)) projMap.set(t.projectId, { id: t.projectId, name: t.projectName, open: 0,
+    if (!projMap.has(t.projectId)) projMap.set(t.projectId, { id: t.projectId, open: 0,
       chain: tskChainOf(t) });   // #3029
     if (t.state !== 'closed') projMap.get(t.projectId).open += 1;
   }
   /* A project door can scope us to a project with no tasks yet: it is still the project, with 0. */
   if (TSK.proj && !projMap.has(TSK.proj) && TSK.projHint && TSK.projHint.id === TSK.proj
       && PROJECTS.some((x) => x && x.id === TSK.proj)) {   // only while the project still exists
-    projMap.set(TSK.proj, { id: TSK.proj, name: TSK.projHint.name, open: 0, chain: pjChainOf(pjById(TSK.proj)) });
+    projMap.set(TSK.proj, { id: TSK.proj, open: 0, chain: pjChainOf(pjById(TSK.proj)) });
   }
   /* A scope to a project that is gone falls back to All tasks, but only once the tasks are read:
      before the first read there is no data to judge by, and dropping it then would lose the
@@ -61814,7 +61817,7 @@ function tskPaint() {
   const back = document.getElementById('tsk-back');
   if (back) {
     back.hidden = !picked;
-    if (picked) { back.dataset.openProject = picked.id; back.setAttribute('aria-label', 'Back to ' + pjChainText(picked.chain)); }
+    if (picked) { back.dataset.openProject = picked.id; back.setAttribute('aria-label', 'Back to ' + pjChainSpoken(picked.chain)); }
     else delete back.dataset.openProject;
   }
   const scoped = tskScoped(all, TSK, now);
@@ -61879,10 +61882,11 @@ function tskPaint() {
     const byP = new Map();
     for (const t of sorted) { if (!byP.has(t.projectId)) byP.set(t.projectId, []); byP.get(t.projectId).push(t); }
     /* #3029: a group is named and ordered by its project's chain, so a subproject's group follows its parent's. */
-    groups.innerHTML = [...byP.entries()].sort((a, b) => pjChainCompare(tskChainOf(a[1][0]), tskChainOf(b[1][0])))
+    const chainOfGroup = new Map([...byP.entries()].map(([id, ts]) => [id, tskChainOf(ts[0])]));   // built once, as pjSortByChain does
+    groups.innerHTML = [...byP.entries()].sort((a, b) => pjChainCompare(chainOfGroup.get(a[0]), chainOfGroup.get(b[0])))
       .map(([, ts]) => {
         const n = ts.filter((t) => t.state !== 'closed').length;
-        return '<section class="tsk-grp"><h3>' + esc(pjChainText(tskChainOf(ts[0]))) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
+        return '<section class="tsk-grp"><h3>' + esc(pjChainText(chainOfGroup.get(ts[0].projectId))) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
       }).join('') || '<p class="tsk-empty">' + (TSK.tile || TSK.proj || TSK.win ? 'No tasks match.' : 'No tasks yet.') + '</p>';
   } else {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {

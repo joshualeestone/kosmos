@@ -6,7 +6,9 @@ Everywhere a person picks or reads a project from a flat list, a subproject is n
 same-named subprojects under different parents are told apart. A top-level project reads exactly as
 before. The places:
 - Tasks: the Project: dropdown, the Group by: Project headings, the "All tasks › ..." crumb, the
-  "N Tasks on ..." title and the back chevron's label
+  "N Tasks on ..." title, the back chevron's label, each row's project button (Group by: Status), the
+  row checkbox and "Not built yet" labels, the bulk-close failure line, and search
+- Accessible names (aria-labels) join the chain with commas ("Book A, Launch"), not the › mark
 - New task from All tasks: the "which project" picker (ntChoices / #nt-proj)
 - Project Settings: the parent picker (#pjs-parent)
 - Create project: the parent picker (#pj-add-parent)
@@ -37,6 +39,8 @@ shows "Launch", "Launch" in every picker.
   project's own name). If shots show it, put the own name first ("Launch, in Book A").
 
 ## Tests
+  Phone shots: NOT taken yet. The row button and the group heading get longer text too, so the
+  shots should cover a two-level chain in the Tasks dropdown, a row and a heading at phone width.
 - engine/tasks.projectpath-3029.test.js: the engine walk, with a negative control (projectPathOf returning
   [] fails every test).
 - web.subpick-3029.test.js: the shipped page helpers; its control shows a joined-string sort misorders
