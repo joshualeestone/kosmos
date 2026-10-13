@@ -60619,9 +60619,10 @@ function pjAncestry(p) {
   return names;
 }
 /* #3029: every place a person PICKS or reads a project from a flat list (the Tasks Project: dropdown, its
-   Group by: Project headings and crumb, New task's project, both parent pickers) names it by its chain,
-   "Book A › Launch", the grid's ancestry line in words, so a subproject never reads as top-level and two
-   same-named subprojects under different parents are told apart. Lists are ordered by the chain, segment by
+   Group by: Project headings and crumb, New task's project, both parent pickers) names it by its chain, so a
+   subproject never reads as top-level and two same-named subprojects under different parents are told apart:
+   root first where it is read ("Book A › Launch", the grid's ancestry line in words), own name first in a
+   select option (pjChainOption, "Launch, in Book A"). Lists are ordered by the chain, segment by
    segment, so each subproject follows its parent (a joined-string sort puts a sibling named "Alpha - old"
    between "Alpha" and "Alpha › Sub"; web.subpick-3029.test.js shows it). A top-level project's chain is just its name, so it reads exactly as before. */
 function pjChainOf(p) {

@@ -48,6 +48,21 @@ const FIT_LONG_CHAIN = () => {
   return out;
 };
 
+/* #3029: runs in the page. One dialog picker holding a long chain, picked, made visible; reports its fit. */
+const FIT_DIALOG_PICKER = (which) => {
+  const long = 'Spring catalogue relaunch with the regional sales teams and the new print partner';
+  const mk = (id, name, parent) => ({ id, name, parent: parent || null, parentName: null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+  PROJECTS = [mk('fa', long), mk('fb', long, 'fa'), mk('fc', long, 'fb'), mk('fd', 'Short')];
+  let sel = null;
+  if (which === 'create') { openAddProject(); sel = document.getElementById('pj-add-parent'); }
+  if (which === 'settings') { pjPaintParentSelect(PROJECTS[3]); sel = document.getElementById('pjs-parent'); }
+  if (which === 'newtask') { openNewTask(null, 'tasks'); sel = document.getElementById('nt-proj'); }
+  for (let a = sel; a && a !== document.body; a = a.parentElement) { if (a.hidden) a.hidden = false; }
+  sel.value = 'fc';
+  const r = sel.getBoundingClientRect();
+  return { which, shown: r.width > 0 && sel.value === 'fc', selRight: Math.round(r.right), inner: window.innerWidth, docW: document.documentElement.scrollWidth };
+};
+
 (async () => {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] });
   for (const theme of ['light', 'dark']) {
@@ -554,13 +569,19 @@ const FIT_LONG_CHAIN = () => {
   await browser.close();
   // #3029 in WebKit, the Mac app's engine: Chromium alone passed while WebKit scrolled the page sideways by 140 px.
   let wk = null;
-  try { wk = await webkit.launch(); } catch (e) { console.log('NOT CHECKED in WebKit (#3029 long chain): ' + String(e.message || e).split('\n')[0]); }
+  // The Mac app renders in WebKit, so WebKit is not optional here (as render-computers-4648): a launch failure is a failure.
+  try { wk = await webkit.launch(); } catch (e) { problems.push('[webkit] #3029 could not launch WebKit, so the long-chain fit is NOT CHECKED: ' + String(e.message || e).split('\n')[0]); }
   if (wk) {
     const wp = await wk.newPage({ viewport: { width: 390, height: 844 } });
     await wp.goto(PAGE);
     await wp.waitForFunction(() => typeof tskPaint === 'function');
     const wfit = await wp.evaluate(FIT_LONG_CHAIN);
     ok('[webkit 390] #3029 a very long chain, picked, never widens the page', wfit.shown && wfit.selRight <= wfit.inner && wfit.docW <= wfit.inner, JSON.stringify(wfit));
+    // The three dialog pickers carry the same long options; measured inside the window today, guarded so a CSS change cannot undo it.
+    for (const which of ['create', 'settings', 'newtask']) {
+      const d = await wp.evaluate(FIT_DIALOG_PICKER, which);
+      ok('[webkit 390] #3029 the ' + which + ' picker with a long chain picked never widens the page', d.shown && d.selRight <= d.inner && d.docW <= d.inner, JSON.stringify(d));
+    }
     await wk.close();
   }
   if (problems.length) {

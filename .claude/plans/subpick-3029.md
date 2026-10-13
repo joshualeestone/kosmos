@@ -41,8 +41,8 @@ shows "Launch", "Launch" in every picker.
   project is picked; everything that is not a select reads the chain root first.
 - Rejected a custom tree picker: far bigger, and the native select is what keyboards, screen readers
   and the phone picker handle.
-- Weakest premise: a long chain is cut off in a narrow select on a phone, losing the tail (the
-  project's own name). If shots show it, put the own name first ("Launch, in Book A").
+- Weakest premise (it came true, see below): a long chain is cut off in a narrow select on a phone, losing the tail (the project's own name).
+  Done: select options read own name first ("Launch, in Book A").
 
 ## Tests
   It happened. At 390 px a picked long chain is cut short in the closed select in Chromium (ellipsis) and
@@ -51,7 +51,8 @@ shows "Launch", "Launch" in every picker.
   chain. WebKit (the Mac app's engine) also scrolled the page 140 px sideways by the picked option's text
   even with the select capped; overflow: hidden on the select fixes it. The browser arm runs the picked
   long-chain fit check in Chromium and in WebKit (without the fix WebKit fails: a 1653 px page at 390).
-  Design shots of the finished screens are still to take before the PR.
+  Design shots: ~/work/design-shots/kosmos-3029/ (tasks-subprojects, tasks-subproject-picked; desktop and
+  iPhone 15, light and dark, Chromium and WebKit), taken from the branch's own mobile-shots.js screens.
 - engine/tasks.projectpath-3029.test.js: the engine walk, with a negative control (projectPathOf returning
   [] fails every test).
 - web.subpick-3029.test.js: the shipped page helpers; its control shows a joined-string sort misorders
