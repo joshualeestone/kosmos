@@ -148,7 +148,7 @@ test('#5154-B precedence: an agent in its OWN needs_you is suppressed, then surf
   const told = new Set(); const calls = [];
   ob.note('busy', 'quota', 'gave up resuming', 100);
   const tell = (key, item) => calls.push([key, item.cls]);
-  // while the agent has its own question, suppress — and do NOT mark told
+  // while the agent has its own question, suppress, and do NOT mark told
   ob.tellBounds({ rows: [{ key: 'busy', shown: 'Busy', ownNeedsYou: true }], told, now: 100 + GRACE, tell });
   assert.equal(calls.length, 0, 'suppressed while the agent has its own needs_you');
   assert.equal(told.size, 0, 'not marked told, so it can still surface later');
@@ -217,7 +217,7 @@ test('#5154-B: tellBounds prunes a DEPARTED agent’s record on a good roster', 
 
 // ---- sweepRoster: the null-skip SAFETY INVARIANT (slice C W3) ----
 
-test('#5154-B W3: sweepRoster does NOTHING on a failed (null) snapshot — never wipes a live record', () => {
+test('#5154-B W3: sweepRoster does NOTHING on a failed (null) snapshot, never wipes a live record', () => {
   ob.clearAll();
   ob.note('alive', 'nudge', 'x', 100);
   const told = new Set();
