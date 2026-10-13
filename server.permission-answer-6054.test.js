@@ -237,3 +237,48 @@ test('#6054 review 1: the next command\'s prompt after the key is "answered", no
     assert.deepEqual([r.ok, r.answered], [true, false], 'the same prompt after the key was reported answered');
   } finally { chat.resetForTests(); board.restore(); }
 });
+
+/* Review 2: a long, multi-line command whose HEAD is the only difference between two prompts. */
+const longCommand = (head) => BASH.replace(' /usr/bin/uuidgen\n', ` ${head} \\\n   --one \\\n   --two \\\n   --three \\\n   --four \\\n   --five\n`);
+
+test('#6054 review 2: the identity is the whole box, so two long commands that differ only at their head are told apart', async () => {
+  const a = longCommand('rm -rf build');
+  const b = longCommand('ls build');
+  assert.notEqual(idOf(a), idOf(b), 'two different commands shared an identity');
+  assert.match(idOf(a), /rm -rf build/, 'the command\'s head is not in its identity');
+  assert.match(chat.questionIn(a, 'claude').text, /^\s*Bash command/, 'the page does not show the whole box');
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: b })]);
+  try {
+    const calls = armSequence([a]);
+    const r = await chat.answerQuestionMenu('casey', 1, board.agents, { question: 'Do you want to proceed?', label: 'Yes', identity: idOf(b) });
+    assert.deepEqual([r.ok, calls.keys()], [false, []], 'Yes went to rm -rf build when the person saw ls build');
+  } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#6054 review 2: a press with no identity is refused with its own sentence, not "its question changed"', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: BASH })]);
+  try {
+    const calls = armSequence([BASH]);
+    const r = await chat.answerQuestionMenu('casey', 1, board.agents, { question: 'Do you want to proceed?', label: 'Yes' });
+    assert.deepEqual([r.ok, calls.keys()], [false, []]);
+    assert.match(r.because, /could not tell which request/);
+  } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#6054 review 2: a WORKING card (the page draws no buttons for it) keeps the window ending; the same screen needs_you says buttons', async () => {
+  /* The board's card is from its last snapshot; the refusal reads the screen fresh. "working" with the prompt on screen is
+     that gap (the agent reached the prompt mid-turn, the snapshot not yet redrawn), so the card is built from a working
+     screen and only the fresh capture shows the prompt. */
+  const refusalFor = async (state) => {
+    const board = fleet.install([state === 'working'
+      ? fleet.agent('casey', { state, runner: 'claude', command: 'claude' })
+      : fleet.agent('casey', { state, runner: 'claude', command: 'claude', screen: EDIT })]);
+    armSequence([EDIT]);
+    try {
+      const v = await chat.deliver('casey', 'yes go ahead', board.agents);
+      return String(v && v.because);
+    } finally { chat.resetForTests(); board.restore(); }
+  };
+  assert.match(await refusalFor('working'), /answer it in its window first$/, 'a working card was promised buttons the page does not draw');
+  assert.match(await refusalFor('needs_you'), /buttons under its question on its page in Kosmos$/, 'CONTROL: needs_you is told about the buttons');
+});
