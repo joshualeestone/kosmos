@@ -16632,6 +16632,8 @@ const server = http.createServer(async (req, res) => {
       && Array.isArray(options) && Boolean(question) && typeof question.text === 'string'
       && options.every((o) => o && typeof o.label === 'string' && !chat.messageProblem(o.label))   // a label a press could never carry
       && Boolean(cqNow)
+      // #6054 review 3: a permission prompt only with its whole box on screen (its identity must be the whole request).
+      && (!cqNow.permission || chat.permissionAnswerable(view.text))
       // Both menu readers agree on the options, so a drawn button is one the key path will accept (review 21).
       && cqNow.options.length === options.length
       && cqNow.options.every((o, k) => o.n === options[k].n && chat.cleanMessage(o.label) === chat.cleanMessage(options[k].label));
@@ -16860,7 +16862,9 @@ const server = http.createServer(async (req, res) => {
              drift from the screen. */
           if (chose) chose = chat.cleanMessage(chose);
           if (menu && askedGiven && !chose) {   // #5406 slice C: words that failed their check are not "a changed question"
-            const unchecked = new Error('we could not check that choice\'s words, so we did not send it. Its current question is on this page; you can also answer it by typing its number.');
+            // #6054 review 3: a permission prompt is answered only by a press, so typing its number is not offered there.
+            const typing = require('./engine/status').claudePermissionPrompt(asked.text) ? '' : '; you can also answer it by typing its number';
+            const unchecked = new Error('we could not check that choice\'s words, so we did not send it. Its current question is on this page' + typing + '.');
             unchecked.status = 409;
             throw unchecked;
           }
@@ -16899,7 +16903,10 @@ const server = http.createServer(async (req, res) => {
            * so the right treatment is to bound BOTH SIDES identically and
            * compare what is left, rather than to stop looking.
            */
-          const bound = (v) => chat.cleanMessage(v).slice(0, 2000);
+          /* #6054 review 3: uncut for a permission prompt, whose distinguishing text (the command's head) can sit past any
+             prefix of a tall box; still the same on both sides. */
+          const permNow = Boolean(asked && require('./engine/status').claudePermissionPrompt(asked.text));
+          const bound = (v) => (permNow ? chat.cleanMessage(v) : chat.cleanMessage(v).slice(0, 2000));
           const askedAbove = askedGiven ? bound(body.asked) : null;   // the one test for a press that named its question
           const nowAbove = asked ? chat.questionAbove(asked.text) : null;
           const nowClean = nowAbove ? bound(nowAbove) : null;

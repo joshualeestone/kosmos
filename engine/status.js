@@ -2532,8 +2532,8 @@ function claudePermissionPromptKind(text) {
    a highlighted option in other wording may be one of Claude Code's own pickers, which is not pressed on a guess.
    Returns { at, question, options: [{ n, label }], count, permission: true } or null. Refused (null): no footer within
    the last three non-blank lines, numbering that is not 1..count in order, not exactly one highlighted option, fewer than
-   2 or more than 9 options (every answer is ONE key), or a control character in a label. A label wrapped onto an
-   indented next line keeps its first line, as claudeQuestionMenu does. */
+   2 or more than 9 options (every answer is ONE key), or a control character in a label. A label wrapped onto
+   indented next lines is joined into one whole option (the page shows and the key path checks the whole label). */
 function claudePermissionPrompt(text) {
   if (safeguardsMenuAt(String(text == null ? '' : text))) return null;   // never the safeguards menu (#5051), as claudeQuestionMenu
   if (claudePermissionPromptKind(text) !== 'wording') return null;
