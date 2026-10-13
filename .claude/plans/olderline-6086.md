@@ -13,15 +13,17 @@ newest message, and the view must not jump. The person who reported it is at mes
   - `earlierNearTop()`: when the reader is within 120 px of the top of what is loaded and there is more before it,
     it asks for the page before (the #5841 paging: `EARLIER`, `earlierMore`, the `thread/older?before=<n>` route,
     200 messages a page). Called on the thread's scroll and after each paint.
-  - A small line floats over the top edge of the thread only while a page loads ("Loading earlier messages…"), or to
-    say a load failed, with Try again. It sits in a wrapper with no height, so it never moves a message.
+  - While a page loads, a small line floats over the top edge of the thread ("Loading earlier messages…"). It sits in
+    a wrapper with no height, so it never moves a message.
+  - A load that FAILED is said in a row of its own above the thread, with Try again, and stays until the person
+    presses it.
   - `earlierMore` no longer scrolls the reader to the first new row. Nothing moves them: the thread's own paint
     (`setThread`) already keeps the message a scrolled-back reader is on where it was (#1926's anchor).
-- `docs/browser-checks/render-dm-earlier-5841.js`: rewritten for scrolling. 41 arms. Its README row.
+- `docs/browser-checks/render-dm-earlier-5841.js`: rewritten for scrolling. 42 arms. Its README row.
 
 ## Decided
-- **The indicator floats; it does not take a row.** A line that appears above the thread and then goes would push
-  every message down and back by its own height, which is a jump. Rejected: a row inside the thread (the thread's
+- **While a page loads the indicator floats; it does not take a row.** A line that appears above the thread and then
+  goes would push every message down and back by its own height, which is a jump. Rejected: a row inside the thread (the thread's
   markup is rewritten by its paint, and sixteen checks read its children).
 - **One failed load stops the automatic asking.** A scroll event fires many times a second; a failing route must not
   become a stream of requests. The line says it failed and Try again is the way on. This is the one button left.
@@ -33,7 +35,11 @@ newest message, and the view must not jump. The person who reported it is at mes
   different range than asked when the thread changed under it; the first time the page starts again, the second
   time running it is a failed load (review 1: with no button this would otherwise be asked on every scroll and
   every poll, for ever).
-- **A failed load is said only while the reader is at the top.** The line lies over the first message on screen.
+- **A failed load takes a row, and stands wherever the reader scrolls.** It stays until the person acts, so floating
+  it would leave it lying over the first message (review 2). And it is not tied to being at the top: once it has a
+  row, showing and hiding it with the scroll position would change the thread's height as the reader scrolls
+  (review 3 found that this moves them, and near the 120 px line can show and hide without end). The one shift
+  when "loading" turns into "failed" is the cost.
 - **Not while a search is on.** A search shortens the thread; that is not a reader at the top.
 - **No "hide".** Earlier messages stay loaded until another agent's conversation is opened, as before.
 
@@ -59,15 +65,23 @@ but on a fixture of tall rows in a 300 px thread, not on 200 real messages with 
 ## Verify
 - The page's main script parses (`node --check` on the extracted script). Every `web*.test.js`: 2773 pass.
 - The source-sweep guards: 134 pass. Both surface-map tests pass.
-- **The rewritten browser check, in a real browser, at 9fda34891 (15:05 CDT): exit 0, 41 arms passed, 0 failed.**
-  Among them: opened at the newest message nothing is asked; the line is over the top of the thread while a page
-  loads and not between the newest message and the composer; "THE VIEW DOES NOT JUMP: the message the reader was
-  on is where it was" (within 2 px); showing and hiding the line does not move the thread.
+- **The rewritten browser check, in a real browser: exit 0 at 9fda34891 (15:05 CDT, 41 arms) and again at 9bb44bc09
+  (15:11, 42 arms, 0 failed).** Among them: opened at the newest message nothing is asked; the line is over the top of
+  the thread while a page loads and not between the newest message and the composer; "THE VIEW DOES NOT JUMP: the
+  message the reader was on is where it was" (top 117 before and after); showing and hiding the line does not move
+  the thread (115 and 115).
 - Its first run was red on 5 arms, and the fault was the check's: it opened another agent's conversation with a
   bare repaint, so the next agent inherited "scrolled to the top" and loaded at once. The app forgets the reader's
   place when it opens another agent (its agent-open block); the check now does the same.
-- NOT RUN YET: the sixteen other checks the surface gate names for the conversation thread (queued as one turn),
-  the full suite.
+- **The sixteen other checks the surface gate names for the conversation thread, each run in a real browser on this
+  branch, each exit 0:** thread-steady-3966 (at 59c49dcf1) and, at 9bb44bc09, dm-sendjump-4639, dm-sideways-3969,
+  dm-owes-4340, unread-edge-3743, dm-tapreact-718, newlook-4470, msgref-4631, dm-chatfirst-718 (413 arms),
+  dm-reply-4256, signin-visible-3892, dm-reactions-3650, voice-4409, dm-phone-718, agentdm-3414, rename-4421.
+  The per-check trailers are on an empty commit.
+- **NOT run at the final head:** review 3's change (the failed row no longer tied to the top) came after all of
+  the above. It touches only how a failure is shown, and changes two arms of this branch's own check. My rerun of
+  that check was waiting behind a suite when the PR was opened, so CI's browser run on the PR is its measurement.
+- NOT RUN: the full suite locally (CI runs it).
 
 ## Review 1 (2026-10-13, default model), at 9bf41ff76
 0 BLOCKER, 8 WARNING, 2 CONVENTION, 5 NIT. Not converged.
@@ -88,3 +102,26 @@ but on a fixture of tall rows in a 300 px thread, not on 200 real messages with 
 - The reviewer traced re-entrancy (one request from the three callers), the anchor that keeps the reader's place
   (it survives a prepend, and scrollTop 0 anchors the first row), and that the thread is height-bounded in every
   layout it found, so it cannot run to the first message by itself on open.
+
+## Review 2 (2026-10-13, sonnet), at 59c49dcf1
+0 BLOCKER, 3 WARNING, 0 CONVENTION, 3 NIT. Not converged. Asked whether anything left would harm a person using it:
+"no wrong or lost message, no unbounded request loop, and no conversation that can't be used".
+- **WARNING, taken:** the count of "moved" answers was never started again for another agent, so one later move
+  could show as a failure at once. It starts again when another agent's conversation is opened.
+- **WARNING, taken:** the failure line floated over the first message for as long as the reader stayed at the top.
+  A failure has a row of its own above the thread.
+- **WARNING, an observation, no change:** "Loading" shows wherever the reader is; it is short-lived.
+- **NIT x3, no change:** where focus goes after Try again; the pointer-events pair works; the check's hold gate
+  would hang a second held request (each arm holds one).
+
+## Review 3 (2026-10-13, default model), at 9bb44bc09
+0 BLOCKER, 2 WARNING, 3 CONVENTION, 4 NIT. Not converged.
+- **WARNING x2, taken, and it was the last fix that caused them:** with its own row, the failure was still shown only
+  near the top, so the thread's height followed the scroll position: a reader could be moved by it, and in a short
+  thread near the 120 px line it could show and hide without end. The failure now stands wherever the reader
+  scrolls, the scroll no longer repaints it, and the check measures that the line and the thread stay put.
+- **CONVENTION x3, taken:** two comments that contradicted the code, and this file's stale statements.
+- **NIT, taken:** the class is cleared where the line is hidden on a failed read; a redundant field removed.
+- **NIT, not taken:** the gap fill's own "moved" path, which predates this branch.
+- The reviewer checked the declaration order of the new counter (no use before it exists) and that asking is
+  bounded on every path.
