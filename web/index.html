@@ -27189,7 +27189,9 @@ async function moveAccountAgents(fromDir, toDir, names, onProgress, stoppedAtCli
       const res = await fetch('/api/agent/' + encodeURIComponent(n) + '/account', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: toDir }), ...(ctl ? { signal: ctl.signal } : {}) });
       const out = await res.json().catch((e) => { if (e && e.name === 'AbortError') throw e; return null; });
       if (res.ok && out && out.outcome === 'changed') moved++;
-      else if (res.ok && out && out.outcome === 'partial' && wasStopped.has(n)) movedStopped.push(nameOf(n));   // stopped: saved, and not started, as said
+      /* Stopped, saved, and not started, as the note said: only when the card said stopped AND the engine's own sentence
+         says so. A partial for any other reason (a stale card, a window it could not close) keeps the engine's words. */
+      else if (res.ok && out && out.outcome === 'partial' && wasStopped.has(n) && /\bis not running\b/.test(String(out.because || ''))) movedStopped.push(nameOf(n));
       else if (res.ok && out && out.outcome === 'partial') add(restarting, (out.because || '').trim(), nameOf(n));   // saved; still on the old one until it restarts
       else add(misses, (out && (out.because || out.error)) || 'that did not work', nameOf(n));
     } catch (e) {

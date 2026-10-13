@@ -249,3 +249,24 @@ test('#6108 /api/accounts says when an account cannot have a reading: its own st
     assert.equal(await blockedOf(), 'own-statusline', 'an account with its own status line was not marked');
   } finally { fs.rmSync(settings, { force: true }); }
 });
+
+/* #6108: the page's "Moved X (stopped). It stays stopped" depends on what the account route answers for a stopped
+   agent. Pin it here, so a change to the route goes red rather than leaving the row's sentence untrue. */
+test('#6108 the account route moves a stopped agent without starting it, and says it is not running', async () => {
+  const from = account('acct-6108-from');
+  /* The target must be an account the route knows: ~/.claude-<label> with a signed-in .claude.json, and its history
+     shared with the default account (projects linked to ~/.claude/projects), as prepare() makes them. */
+  const home = process.env.AGENT_WORKFORCE_HOME;
+  fs.mkdirSync(path.join(home, '.claude', 'projects'), { recursive: true });
+  const to = path.join(home, '.claude-6108to');
+  fs.mkdirSync(to, { recursive: true });
+  fs.writeFileSync(path.join(to, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'to@example.com', accountUuid: 'u-6108-to' } }));
+  try { fs.symlinkSync(path.join(home, '.claude', 'projects'), path.join(to, 'projects')); } catch { /* already linked */ }
+  lead('sleeper-6108', { role: 'writer' }, from);
+  const r = await fetch(base + '/api/agent/sleeper-6108/account', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: to }) });
+  const out = await r.json();
+
+  assert.equal(out.outcome, 'partial', 'a stopped agent did not come back partial: ' + JSON.stringify(out));
+  assert.match(String(out.because || ''), /\bis not running\b/, 'the reason no longer says the agent is not running, which the page keys on');
+  assert.equal(path.resolve(create.readJob('sleeper-6108').configDir), path.resolve(to), 'the account was not saved');
+});

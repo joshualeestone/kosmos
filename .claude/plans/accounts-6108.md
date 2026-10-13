@@ -52,7 +52,8 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
   settings hold a status line that is not Kosmos's). The default account is wired by the installer, so it waits for a
   reading like any other.
 - A stopped agent's move comes back 'partial' from the route (it never starts a dead agent); for an agent stopped at
-  the click the page counts that as moved and says it stays stopped. An agent of unknown state gets no restart count.
+  the click AND an engine sentence saying it is not running, the page counts that as moved and says it stays stopped
+  (any other partial keeps the engine's words). A server test pins that reply. An agent of unknown state gets no restart count.
 
 ## Not in slice 1 (follow-ups after it ships)
 - A bulk move blocks the server once per agent (removal.restart runs inside the route); a bulk route could batch it.
