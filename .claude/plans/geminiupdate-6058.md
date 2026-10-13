@@ -149,3 +149,7 @@ the module header's wording (a comment), and a stale test count in this file. No
 the new install key. It counts as the person's choice, the CLI reads it as off, and the pin holds.
 The reviewer read the long comment against the code line by line, counted the two tables (thirteen rows and nine),
 and checked this file's sections against each other.
+
+## The full validation (2026-10-13, finished 12:50 CDT, at 25ca2d138): passed
+Type-check, lint, the node suite (20119 tests, 19884 passed, 0 failed, the rest skipped), the shell suite (232
+commands, none failed), the build. Exit 0, read from the run's own exit line, with both tallies present.
