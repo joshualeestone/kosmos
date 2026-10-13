@@ -145,7 +145,11 @@ const KNOWN_NATIVE_SLIDERS = ['d-swarm-max', 'd-swarm-cap', 'create-swarm-max', 
 /* #5531: the company join code (#plus-org-code) is the panel's always-dark field too (the wizard's style, on the same navy
    card), so it is skipped here by name for the same reason. What covers it on its real ground: render-plus-blue-1615 pins
    its dark fill (a control), and render-plus-signin-3478 pins its fill and text colour with the wizard's. */
-const PLUS_WIZARD_FIELDS = new Set(['#plus-signin-email', '#plus-si-code-in', '#plus-si-second-in', '#plus-si-phone', '#plus-si-secret', '#plus-si-enrol-code', '#plus-si-name', '#plus-org-code', '#plus-si-company-name', '#plus-si-company-second']);   // field loop keys carry '#'
+/* #5995: the name box on the email step (#plus-si-computer) is one more always-dark field on the same navy card, so it
+   is skipped here by name for the same reason. What covers it on its real ground: render-plus-signin-3478 counts it
+   among the card's fields and measures their fill, text and border there, and render-plus-computer-name-5995 measures
+   its label, its hint and where it sits. */
+const PLUS_WIZARD_FIELDS = new Set(['#plus-signin-email', '#plus-si-code-in', '#plus-si-second-in', '#plus-si-phone', '#plus-si-secret', '#plus-si-enrol-code', '#plus-si-name', '#plus-org-code', '#plus-si-company-name', '#plus-si-company-second', '#plus-si-computer']);   // field loop keys carry '#'
 const PLUS_WIZARD_BUTTONS = new Set(['plus-si-enrol-sms', 'plus-signin-company', 'plus-si-company-resend']);   // the button loop compares BARE ids
 const FIELDS = 'input:not([type=button]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=submit]), textarea, select';
 /* ⚠️ BUTTONS TOO, and their absence was a hole shaped exactly like the defect

@@ -456,3 +456,17 @@ All four checks ran in a browser (headless Chromium, plus WebKit inside the sign
   - `render-plus-asks-signin-4610.js`: exit 0 at 5acb99041, 12:20 CDT, 20 arms passed, 0 failed.
 - The two per-check trailers the gate asks for are on an empty commit after this one. After it the gate, run alone,
   exits 0.
+
+## A second red on the PR, and this one I had never run (2026-10-13)
+CI's `browser-checks` failed on both heads of kosmos#6057, on one check: `render-fields.js`, "field
+#plus-si-computer is recessed in light and raised in dark", in chromium and webkit. That check measures every field
+against the bare page ground, which is wrong for the sign-in card's always-dark fields, so it skips them BY NAME and
+says of itself: "A NEW #plus-state2 field fails here until it is added." The new name box is such a field and I had
+not added it. I never ran `render-fields.js` on this branch; of the browser checks, I ran only the four I knew
+touched the card. CI's run selected the others and found it.
+- The box is added to that list, with what covers it on its real ground: `render-plus-signin-3478.js` counts it
+  among the card's ten fields and measures each one's fill, text and border on the navy card (its #3841 arms), and
+  this branch's own check measures its label, hint and place.
+- `render-fields.js` is the only check CI's run failed (its FAILED-LIST holds that one name).
+- Run in a browser after the change: see the PR; CI's `browser-checks` on the new head is the measurement, and a
+  local run is queued.
