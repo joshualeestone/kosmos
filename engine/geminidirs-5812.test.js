@@ -160,10 +160,37 @@ test('agentTrust: an unreadable or non-object person trust file includes nothing
     const r = dirs.agentTrust('gem', [a], home, { file });
     assert.deepEqual(r.folders, [], name);
     assert.equal(r.file, null, name);
-    assert.match(r.leftOut[0].because, /left alone/, name);
+    assert.match(r.leftOut[0].because, /could not be checked/, name);
     assert.ok(!fs.existsSync(file), name + ': no agent file');
     assert.equal(fs.readFileSync(theirTrust(home), 'utf8'), body, name + ': not rewritten');
   }
+});
+
+test('agentTrust: a trust file with comments is read as gemini reads it (strip-json-comments)', () => {
+  const deny = mk('t-cmt-deny');
+  const ok = mk('t-cmt-ok');
+  const body = '{\n  // the person\'s own note\n  "' + deny + '": "DO_NOT_TRUST", /* a block\n comment */\n  "/x//y": "TRUST_FOLDER"\n}\n';
+  const home = trustHome('t-cmt', body);
+  const r = dirs.agentTrust('gem', [deny, ok], home, { file: path.join(SANDBOX, 't-cmt-agent.json') });
+  assert.deepEqual(r.folders, [ok], 'the marked folder is left out, the other kept: ' + JSON.stringify(r.leftOut));
+  assert.deepEqual(JSON.parse(dirs.stripComments(body)), { [deny]: 'DO_NOT_TRUST', '/x//y': 'TRUST_FOLDER' }, 'a // inside a string is not a comment');
+});
+
+test('a project folder that holds the agent\'s own folder is included (membership is the grant)', () => {
+  const parent = mk('p-parent');
+  const own = mk('p-parent', 'agent');
+  assert.deepEqual(dirs.foldersFor('gem', { workdir: own, projects: [{ folder: parent, agents: ['gem'] }] }).folders, [parent]);
+});
+
+test('Windows: turnFolders honours the person\'s DO_NOT_TRUST marks, as the Mac does, and writes nothing', () => {
+  const deny = mk('tf-deny');
+  const ok = mk('tf-ok');
+  const home = trustHome('tf-home', { [deny]: 'DO_NOT_TRUST' });
+  const before = fs.readFileSync(theirTrust(home), 'utf8');
+  const r = dirs.turnFolders('gem', null, home, { projects: [{ folder: deny, agents: ['gem'] }, { folder: ok, agents: ['gem'] }] });
+  assert.deepEqual(r.folders, [ok]);
+  assert.match(r.leftOut[0].because, /do not trust/);
+  assert.equal(fs.readFileSync(theirTrust(home), 'utf8'), before);
 });
 
 test('launchFolders: the Mac launch returns the folders and the agent trust file', () => {
@@ -189,7 +216,9 @@ test('Windows: the real turn path (no folder seam) reads the agent\'s projects b
   const proj = mk('w-proj');
   fs.mkdirSync(store.ROOT, { recursive: true });
   assert.ok(store.ROOT.startsWith(SANDBOX), 'the store is the sandbox: ' + store.ROOT);
-  fs.writeFileSync(path.join(store.ROOT, 'projects.json'), JSON.stringify([{ name: 'W', folder: proj, agents: ['gem'] }]));
+  const denied = mk('w-denied');
+  const home = trustHome('w-home', { [denied]: 'DO_NOT_TRUST' });
+  fs.writeFileSync(path.join(store.ROOT, 'projects.json'), JSON.stringify([{ name: 'W', folder: proj, agents: ['gem'] }, { name: 'D', folder: denied, agents: ['gem'] }]));
   const { EventEmitter } = require('node:events');
   const { superviseCodexStreaming } = require('./win32codexsup');
   const seen = [];
@@ -203,7 +232,7 @@ test('Windows: the real turn path (no folder seam) reads the agent\'s projects b
     return c;
   });
   const h = superviseCodexStreaming({ name: 'gem', cwd: mk('w-own'), runner: 'gemini' }, {
-    bin: '/x/gemini', env: { GEMINI_API_KEY: 'k' }, onEvent: () => {},
+    bin: '/x/gemini', env: { GEMINI_API_KEY: 'k', GEMINI_CLI_HOME: home }, onEvent: () => {},
     stream: { started() {}, event() {}, wrote() {}, stopped() {}, rekey() {} },
     retireRun: () => ({ ok: true }), sessions: { pruneName: () => ({ ok: true, removed: 0 }) }, supervisorPid: 1,
     prepare: () => ({ ok: true, sessionId: 'k1', name: 'gem', token: 't', instance: 'i' }),
@@ -214,6 +243,7 @@ test('Windows: the real turn path (no folder seam) reads the agent\'s projects b
     assert.equal(seen.length, 1);
     const i = seen[0].indexOf('--include-directories');
     assert.ok(i >= 0 && seen[0][i + 1] === proj, JSON.stringify(seen[0]));
+    assert.ok(!seen[0].includes(denied), 'the folder the person marked do not trust is not passed');
   } finally { h.stop(); keyed.setSpawn(null); fs.rmSync(path.join(store.ROOT, 'projects.json'), { force: true }); }
 });
 
