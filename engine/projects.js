@@ -1007,6 +1007,7 @@ function describe(project, roster, all) {
          COUNT split: the project needsYou counts (the red pill) deliberately still include a
          class-2 (see the plan), only the per-member render de-alarms. Null when untied. */
       stateReportedBy: (card && card.isNamedOurs) ? (card.stateReportedBy || null) : null,
+      awaitingApproval: Boolean(card && card.isNamedOurs && card.awaitingApproval === true),   // #6091, same gate
       // The face, gated on tied like every other card-read here: a
       // stranger's pane borrowing the name must not lend the row a
       // photograph of somebody it is not (the project cards draw member

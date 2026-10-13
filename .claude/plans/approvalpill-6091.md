@@ -7,10 +7,16 @@ While a Claude agent waits on its permission prompt, its status pill reads "Issu
 asked for a clear "waiting on your approval" state, distinct from working and from broken; "Issue" reads as broken.
 
 ## The fix
-The engine already says why: `status.js` returns `needs_you` with `because: APPROVAL_WAITING` ("it is waiting for your
-approval") for a Claude permission prompt (#6054), and the row carries `because` to the page. So:
-- `web/index.html`: `STATE_COPY.approval = { label: 'Waiting for you', attn: true }`, and `stateCopyOf` returns it for a
-  `needs_you` whose `because` is that sentence, after the #2808 agent-question case.
+The engine reads the permission prompt off the screen (#6054: `classify` returns needs_you with because APPROVAL_WAITING),
+but that `because` does NOT reach the card for most Claude agents (challenge iteration 1): the PermissionRequest hook
+(kosmos-report-hook.js) reports the same moment as needs_you by 'auto' with its own words, and reconcileReport keeps the
+report's words. So the signal is a separate field, read from the screen before the report is reconciled in:
+- `engine/status.js`: `awaitingApprovalOf(scraped, status)` (exported): the scrape is the permission prompt and the
+  reconciled state is still needs_you. The pane card carries `awaitingApproval` from it; the paneless card carries false.
+- `engine/projects.js`: project members carry it, under the same isNamedOurs gate as stateReportedBy.
+- `web/index.html`: `STATE_COPY.approval = { label: 'Waiting for you', attn: true }`; `stateCopyOf` returns it for a
+  needs_you card with `awaitingApproval === true`, after the #2808 agent-question case. The other-account rows (oa-sub)
+  now go through stateCopyOf, so they say the same.
 - `engine/cardlabel.js` (the second copy, for an agent's own `kosmos report show`, kept equal by cardlabel-5959.test.js):
   the same key and case.
 
@@ -21,8 +27,10 @@ approval") for a Claude permission prompt (#6054), and the row carries `because`
   "Question"), that is a one-line change in cardStOf plus attn:false.
 - **Counts unchanged.** The board's Issue count already counts every needs_you, including the calm Question; a waiting
   approval is still something that needs the person.
-- **The literal, not a shared import, in the page and cardlabel.js** (the page is not a module; cardlabel.js imports
-  nothing). web.approval-pill-6091.test.js pins both to `status.APPROVAL_WAITING` byte for byte.
+- **A field, not `because`** (iteration 1): see The fix. The field is a boolean, so the page and cardlabel.js need no
+  copy of the engine's sentence.
+- **The triangle's accessible name stays "Issue"** (LROW_WARN, iteration 1 nit): it belongs to the needs-you look,
+  which is kept on purpose; the visible word beside it is "Waiting for you". Changes with the look if Josh wants calm.
 - **Out of scope: the collapsed request bubble after Yes** (the card's "also seen"; its Done-when is the pill only).
   Noted on the card for a follow-up.
 
@@ -31,10 +39,12 @@ That the red needs-you look with the words "Waiting for you" no longer reads as 
 is the next step (see above).
 
 ## Tests
-- web.approval-pill-6091.test.js (7): the label; still attn with the needs-you look; byte-equal to the engine's sentence;
-  controls (another needs_you, no because, a near-miss, a non-needs_you state); #2808's agent question first; cardlabel.js
-  agrees.
-- engine/cardlabel-5959.test.js: three new parity cards (permission prompt, agent question with the same because, the
-  generic ask).
-- Mutants: removing the page line turns 3 red; removing the cardlabel line turns 2 red.
-- Every test that reads stateCopyOf, cardStOf or cardlabel: 341/341.
+- web.approval-pill-6091.test.js (12): engine, on the real 2.1.296 permission-prompt capture with the hook's report
+  reconciled in (review 1's path; a control shows `because` no longer carries it) and with no report; controls (another
+  question menu on screen, a non-needs_you reconciled state); both card builders and project members carry the field;
+  page: the label, still attn and the needs-you look, controls (false, absent, the string "true", non-needs_you), #2808
+  first, the other-account rows; cardlabel.js agrees.
+- engine/cardlabel-5959.test.js: four new parity cards.
+- Mutants: awaitingApprovalOf keyed on the reconciled `because` turns the engine test red; the page line and the
+  cardlabel line each turn tests red.
+- All 43 engine/status*.test.js plus projects/server tests reading the card shape: 1005/1005.
