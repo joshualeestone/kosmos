@@ -159,6 +159,19 @@ async function codeStep(page) {
       const go = await box(page, '#plus-signin-code');
       chk(!!name && name.width >= 200 && name.height >= 24, 'the name box is laid out at a usable size', JSON.stringify(name));
       chk(!!label && !!hint && label.height > 0 && hint.height > 0, 'its label and its one line of explanation are on screen', JSON.stringify({ label, hint }));
+      /* Design review (kosmos#5995): on this card the hint took the label's colour and the two read as one block. The
+         hint is its own colour, smaller than the label, and sits closer to its label than to its box. */
+      const look = await page.evaluate(() => {
+        const cs = (id) => getComputedStyle(document.getElementById(id));
+        const lab = getComputedStyle(document.querySelector('label[for="plus-si-computer"]'));
+        const h = cs('plus-si-computer-hint');
+        const r = (sel) => document.querySelector(sel).getBoundingClientRect();
+        return { label: lab.color, hint: h.color, labelPx: parseFloat(lab.fontSize), hintPx: parseFloat(h.fontSize),
+          above: r('#plus-si-computer-hint').top - r('label[for="plus-si-computer"]').bottom, below: r('#plus-si-computer').top - r('#plus-si-computer-hint').bottom };
+      });
+      chk(look.hint !== look.label && look.hint === 'rgb(143, 160, 196)', 'the explanation is its own colour, not the label\'s', JSON.stringify([look.label, look.hint]));
+      chk(look.hintPx < look.labelPx, 'the explanation is smaller than its label', JSON.stringify([look.labelPx, look.hintPx]));
+      chk(look.above >= 0 && look.above < look.below && look.below >= 6 && look.below <= 12, 'the explanation sits closer to its label than to its box (about 8px above the box)', JSON.stringify([look.above, look.below]));
       chk(!!email && !!name && !!go && email.bottom <= name.top && name.bottom <= go.top, 'it sits between the email box and the button', JSON.stringify({ email, name, go }));
       chk(!!email && !!name && email.width === name.width, 'it is as wide as the email box above it', JSON.stringify({ email: email && email.width, name: name && name.width }));
       const fits = await page.evaluate(() => { const e = document.getElementById('plus-si-computer-hint'); const c = document.getElementById('plus-state2'); return e.getBoundingClientRect().right <= c.getBoundingClientRect().right + 1 && document.documentElement.scrollWidth <= window.innerWidth; });

@@ -76,7 +76,7 @@ test('#5995: a read that fails leaves the box hidden and sends nothing, so its w
   for (const answer of [() => [500, { error: 'no' }], () => [403, { error: 'another website' }], () => { throw new Error('offline'); }, () => [200, { ok: true }]]) {
     const w = world(answer);
     await w.ctx.fill();
-    assert.equal(w.field.hidden, true, 'the box and its "An empty box sends..." line showed with no name read');
+    assert.equal(w.field.hidden, true, 'the box and its "...by this name" line showed with no name read');
     assert.equal(w.box.value, '');
     assert.deepEqual(plain(w.ctx.sent()), {}, 'an unread name was sent as a cleared one');
     // The start does not try again (on a board that never answers, each press would wait the whole give-up time)...

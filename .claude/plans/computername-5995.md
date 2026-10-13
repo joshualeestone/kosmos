@@ -327,3 +327,35 @@ The check had never run in a browser. Its first run, at b0e4ab534, was red in tw
   ten passed; only the counts were old. The counts are 10 and 11 now.
 - The other two checks in the run (`render-plus-signin-enter-0929.js`, `render-plus-company-5628.js`) exited 0.
 - These are changes to two checks that no reviewer has seen, and neither has run since. The rerun is queued.
+
+## Review 15 (sonnet, 2026-10-12 late), at 8ef93454b, on the two changed checks
+0 BLOCKER, 0 WARNING, 0 CONVENTION, 6 NIT over two passes (the second read the rewritten contrast check in full).
+None applied: the device name is read from disk per call; a typeof guard on a const gives no protection; the
+two-stage name compare is under-explained; the contrast arm does not itself check the hint is displayed (the arms
+beside it do) nor an ancestor's opacity; the "dark" and "phone, light" arms measure one navy card; the colour parser
+would not read color() or oklch (it fails closed).
+
+## Main merged in, the full validation, and the surface gate (2026-10-13)
+- Main (288716526, with both other #5995 changes) merged in at 9b4888434, no conflict.
+- The repo's full validation at 9b4888434, finished 01:22 CDT: node 19866 tests, 19631 passed, 0 failed, 235 skipped;
+  shell 232 of 232. It then failed on its LAST step, the browser-check surface gate: `web/index.html` maps Enter in
+  the new box to "Email me a code", a surface `render-plus-signin-enter-0929.js` names. That check's own boxes are
+  unchanged and it exited 0 in the 10-12 browser run with the new box on the page; Enter in the new box is asserted
+  by this branch's own check. An empty commit (a158331ef) carries the per-check trailer the gate asks for, and the
+  gate alone at that head exits 0.
+
+## Design review (Mona Lisa, 2026-10-13, on the shots at a158331ef): approved with two changes, both taken
+- The explanation read as more label: on this card a hint took the label's colour (both measured rgb(159,176,208)).
+  It is now `#8fa0c4` (the card's placeholder colour), `.85rem`, directly under its label and 8px above its box.
+- The explanation is one sentence: "Your Kosmos+ account will list this computer by this name." Dropped: "Change it
+  if you like" (a filled, editable box says it), "An empty box sends This computer" (the placeholder says it once the
+  box is cleared), and the "(Kosmos app)" ending (the account page shows it beside the name).
+  **Weakest premise, hers and now mine:** that nobody is surprised to see "(Kosmos app)" after their name on the
+  account page. If someone is, it comes back as a second short sentence.
+- NOT taken here: Cancel is a 48x17 tap target on the phone. It is on main already, and making it 44px tall changes
+  the height of every step of this card, which `render-plus-signin-3478.js` measures. Its own card.
+- The browser check gains three arms for what the review asked: the hint's colour is its own, it is smaller than the
+  label, and it sits closer to the label than to the box.
+- At this tree: `web.computer-name-5995.test.js` and `web.code-box.test.js` 13 pass; guards 145 pass; every
+  `web*.test.js` 2759 pass. NOT run: any browser check (the rerun is queued), the full suite since this change.
+- These are changes no reviewer has seen. One round follows.

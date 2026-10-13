@@ -11597,6 +11597,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 #plus-si-k-note:empty { margin: 0; }
 #plus-state2.plus-si-busy #plus-si-title, #plus-state2.plus-si-busy #plus-si-owned, #plus-state2.plus-si-busy #plus-si-k-note { text-align: center; }
 #plus-state2 .flabel { color: var(--k-ink-2); font-weight: 500; margin-top: 1rem; }
+/* kosmos#5995 (design review): on this card a hint took the label's own colour and read as more label. This one is the
+   card's placeholder colour, a little smaller, close under its label (the label's own 2px) and 8px above its box. */
+#plus-state2 #plus-si-computer-hint { color: #8fa0c4; font-size: .85rem; margin: 0 0 8px; }
 #plus-state2 .plus-si-lead b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
 #plus-state2 .tk-inp:not(select), #plus-org .tk-inp:not(select) { --danger: #E8705E; background: #16223e; color: #E6EBF7; -webkit-text-fill-color: #E6EBF7;
   caret-color: #E6EBF7; border: 1px solid #5c78a6; border-radius: 10px; }
@@ -18959,11 +18962,11 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <!-- kosmos#5995 item 4: the name this computer is sent under, shown BEFORE it is sent. Filled from the
              computer (plusSiComputerName); the person can keep it, change it or clear it. Hidden until the name
-             has been read: its words ("An empty box sends...") are only true of a box that showed a name. 47 is
+             has been read: its words ("...by this name") are only true of a box that shows a name. 47 is
              what fits before the " (Kosmos app)" ending the engine adds. -->
         <div class="field" id="plus-si-computer-field" hidden>
           <label class="flabel" for="plus-si-computer">Name for this computer</label>
-          <p class="fhint" id="plus-si-computer-hint">Your Kosmos+ account lists this computer under this name, with "(Kosmos app)" after it. Change it if you like. An empty box sends "This computer".</p>
+          <p class="fhint" id="plus-si-computer-hint">Your Kosmos+ account will list this computer by this name.</p>
           <input type="text" id="plus-si-computer" class="tk-inp plus-si-wide" maxlength="47" autocomplete="off" spellcheck="false"
             placeholder="This computer" aria-describedby="plus-si-computer-hint">
         </div>
