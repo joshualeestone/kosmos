@@ -37,7 +37,9 @@
  * a later argument are not read (fail GREEN; none in the folder); nor is an answer in an object or class method
  * (`{ go() { r.fulfill() } }`) or in a default parameter of the handler (fail GREEN). A concise arrow's body is read
  * to the next comma, semicolon or closing bracket, so an answer after a ternary's arrow branch reads as nested (fails
- * RED), and in code without semicolons it can swallow the next statements (fails GREEN; no check is written that way). A handler's span is its .route( call, to the matching paren (a backtick string nested inside
+ * RED), and in code without semicolons it can swallow the next statements (fails GREEN; no check is written that way).
+ * A nested function whose own parameter shares the route's name is read as re-binding it, even when the route is passed
+ * in as an argument (`setTimeout((r) => r.fulfill(), 10, r)`): fails GREEN; no check is written that way. A handler's span is its .route( call, to the matching paren (a backtick string nested inside
  * ${...} in the route's URL can cut it short). Code before the wait now sits inside the try, so a throw there aborts
  * the request quietly instead of crashing; no check relies on that crash. A catch that
  * rethrows counts as caught, and the abort in the catch is advised, not required (an empty catch passes: no crash, but a
