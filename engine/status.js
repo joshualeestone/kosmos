@@ -2522,6 +2522,55 @@ function claudePermissionPromptKind(text) {
   return null;
 }
 
+/* #6054: Claude Code's permission prompt, read into the same shape as claudeQuestionMenu, so the agent page can offer
+   its options as buttons and answer it by key. Measured on 2.1.296 (2026-10-13, a Write that needed approval):
+   "Do you want to create notes-a.txt?", then "❯ 1. Yes" / "  2. Yes, and switch to accept edits (...)" / "  3. No",
+   over "Esc to cancel · Tab to amend". A bare digit answers at once: 1 approved the write, 3 rejected it ("User
+   rejected write to ...") and the agent went back to its prompt. Only the `wording` kind (claudePermissionPromptKind):
+   a highlighted option in other wording may be one of Claude Code's own pickers, which is not pressed on a guess.
+   Returns { at, question, options: [{ n, label }], count, permission: true } or null. Refused (null): no footer within
+   the last three non-blank lines, numbering that is not 1..count in order, not exactly one highlighted option, fewer than
+   2 or more than 9 options (every answer is ONE key), or a control character in a label. A label wrapped onto an
+   indented next line keeps its first line, as claudeQuestionMenu does. */
+function claudePermissionPrompt(text) {
+  if (claudePermissionPromptKind(text) !== 'wording') return null;
+  const lines = String(text == null ? '' : text).split('\n');
+  let foot = -1;
+  let seen = 0;
+  for (let i = lines.length - 1; i >= 0 && seen < 3; i -= 1) {
+    if (!lines[i].trim()) continue;
+    seen += 1;
+    if (CLAUDE_PERMISSION_FOOTER.test(lines[i])) { foot = i; break; }
+  }
+  if (foot < 0) return null;
+  const opts = [];
+  let selected = 0;
+  let q = -1;
+  for (let i = foot - 1; i >= Math.max(0, foot - 20); i -= 1) {
+    const l = lines[i];
+    if (!l.trim()) continue;
+    const m = CLAUDE_QMENU_OPTION.exec(l);
+    if (m) {
+      // eslint-disable-next-line no-control-regex
+      if (/[\u0000-\u001f\u007f]/.test(m[3])) return null;
+      opts.unshift({ n: Number(m[2]), label: m[3] });
+      if (m[1]) selected += 1;
+      continue;
+    }
+    if (CLAUDE_PERMISSION_QUESTION.test(l)) { q = i; break; }
+    if (/^\s{3,}\S/.test(l) && opts.length) continue;   // a wrapped option label's next line
+    return null;   // anything else between the options and the question: not the prompt as measured
+  }
+  if (q < 0 || opts.length < 2 || opts.length > 9 || selected !== 1) return null;
+  if (opts.some((o, k) => o.n !== k + 1)) return null;
+  return { at: q, question: lines[q].trim(), options: opts, count: opts.length, permission: true };
+}
+/* #6054: a menu the agent page may answer by key: the question menu, or a permission prompt. Only for answering by a
+   pressed number. Closing with Escape stays the question menu's alone: on a permission prompt Escape means No. */
+function claudeAnswerableMenu(text) {
+  return claudeQuestionMenu(text) || claudePermissionPrompt(text);
+}
+
 /* #5743 review 10: the safeguards model-switch menu (#5051) LIVE at the bottom of the screen. claudeQuestionMenuUp leaves
    it out on purpose (it is never answered by a press); this lets the delivery floor still refuse to type into it, whose
    Enter would switch models for a choice nobody made. Its footer within the last three non-blank lines, so a menu left
@@ -9401,7 +9450,7 @@ module.exports = {
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
      placeholder as if the agent had said it. */
-  ASKING_GENERIC, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudeSafeguardsMenuUp,
+  ASKING_GENERIC, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudePermissionPrompt, claudeAnswerableMenu, claudeSafeguardsMenuUp,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,

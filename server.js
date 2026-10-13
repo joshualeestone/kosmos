@@ -16627,7 +16627,7 @@ const server = http.createServer(async (req, res) => {
     const guideName = guideThread ? ((card && card.sessionName) || name) : null;
     const servedRows = dmServeRows(servedMessages, name, card);   // kosmos#5841: shared with the older route
     /* #5406 slice C: may this screen's options be offered as buttons (see `asked` below)? Every condition must hold. */
-    const cqNow = view && view.text ? require('./engine/status').claudeQuestionMenu(view.text) : null;
+    const cqNow = view && view.text ? require('./engine/status').claudeAnswerableMenu(view.text) : null;   // #6054: a permission prompt too
     const pressable = !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude'
       && Array.isArray(options) && Boolean(question) && typeof question.text === 'string'
       && options.every((o) => o && typeof o.label === 'string' && !chat.messageProblem(o.label))   // a label a press could never carry
@@ -16825,7 +16825,7 @@ const server = http.createServer(async (req, res) => {
           /* #5406 slice C review 18: the press-kind refusals FIRST, so their sentence is the true one (a press for another
              runner, or at a screen that is not the single-select menu, would otherwise be told its question is gone or
              its words could not be checked). */
-          const notMenu = askedGiven && seen && seen.text && !require('./engine/status').claudeQuestionMenu(seen.text);
+          const notMenu = askedGiven && seen && seen.text && !require('./engine/status').claudeAnswerableMenu(seen.text);
           if (askedGiven && ((card && String(card.runner || 'claude') !== 'claude') || notMenu)) {
             /* Review 24: at a screen that is not the menu, say which is true. The same question on another kind of screen
                cannot be answered with a button; a DIFFERENT (or no) question there means the screen moved on. */
@@ -17044,7 +17044,7 @@ const server = http.createServer(async (req, res) => {
         let qmenuClosed = false;
         // Review 2: a Claude card only (Codex and Gemini answer their own menus by their own keys).
         if (!automatic && seenNow && askingCard && String(askingCard.runner || 'claude') === 'claude') {
-          const cq = seenNow.text ? require('./engine/status').claudeQuestionMenu(seenNow.text) : null;
+          const cq = seenNow.text ? require('./engine/status').claudeAnswerableMenu(seenNow.text) : null;   // #6054
           if (cq) {
             const said = String(body.text).trim();
             const opt = /^\d$/.test(said) ? cq.options.find((o) => String(o.n) === said) : null;
@@ -17055,7 +17055,7 @@ const server = http.createServer(async (req, res) => {
               e.status = 409; throw e;
             }
             if (!opt && (chose || askedGiven)) {
-              const e = new Error('that is not one of the numbers on the menu its screen shows now, so we did not send it. Answer it in its window.');
+              const e = new Error('that is not one of the numbers on the menu its screen shows now, so we did not send it. Its current question is on this page.');
               e.status = 409; throw e;
             }
             if (opt && !files.recs.length && !answered) {
@@ -17066,6 +17066,9 @@ const server = http.createServer(async (req, res) => {
               // Review round 1: a button is a choice; one carrying files or a reply is not sent as a dismissal.
               const e = new Error('a choice is sent on its own; send the files or the reply as a message after it');
               e.status = 409; throw e;
+            } else if (cq.permission) {
+              /* #6054: words, not a pressed option, while a permission prompt is up. Not closed: Escape there means No,
+                 a refusal nobody chose. Delivery below refuses to type and says to answer with the buttons. */
             } else {
               const c = await chat.closeQuestionMenu(name, roster, { question: cq.question });
               if (!c.ok) { const e = new Error(c.because); e.status = 409; throw e; }
