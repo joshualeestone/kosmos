@@ -70,10 +70,10 @@ const KEPT = 'The name was not changed: there is already an agent called Gemini 
   page.on('pageerror', (e) => errors.push(String(e.message)));
 
   let answer = CASES[0].body;
-  await page.route('**/api/agent/*/profile', (r) => {
-    if (r.request().method() !== 'PUT') { r.continue(); return; }
-    if (answer && answer.__status) { r.fulfill({ status: answer.__status, json: answer.body }); return; }
-    r.fulfill({ json: { ok: true, ...answer } });
+  await page.route('**/api/agent/*/profile', async (r) => {
+    if (r.request().method() !== 'PUT') { await r.continue().catch(() => {}); return; }
+    if (answer && answer.__status) { await r.fulfill({ status: answer.__status, json: answer.body }).catch(() => {}); return; }
+    await r.fulfill({ json: { ok: true, ...answer } }).catch(() => {});
   });
   /* #5957: the instructions Save, answered as the server answers a line naming a taken name: the text saved, the
      rename did not, and nameKept says so. Intercepted here too, so no file is written. */
@@ -83,8 +83,8 @@ const KEPT = 'The name was not changed: there is already an agent called Gemini 
      page's handling of the save's answer, not the sandbox's file. */
   /* The poll runs on a timer, so one can be in flight when the check closes the browser: its fetch then rejects with
      "Request context disposed", and unhandled, that crashed the check AFTER every assertion passed (the 0.7.44 cut,
-     failed twice at load 4.5). So a route the page no longer wants is dropped quietly, and the check unroutes before
-     it closes. */
+     failed twice at load 4.5). So a failed poll is aborted (quietly once the page is closed), the other handlers
+     guard their answers the same way, and the check unroutes before it closes. */
   await page.route(/\/api\/status(\?|$)/, async (r) => {
     try {
       const resp = await r.fetch();
@@ -92,15 +92,15 @@ const KEPT = 'The name was not changed: there is already an agent called Gemini 
       try { body = await resp.json(); } catch { await r.fulfill({ response: resp }); return; }
       for (const a of (body && body.agents) || []) if (a && a.instructions) a.instructions.editable = true;
       await r.fulfill({ response: resp, json: body });
-    } catch { /* the page or browser closed with this poll in flight: nothing is waiting for its answer */ }
+    } catch { await r.abort().catch(() => {}); }   // fail the poll fast while the page is open; quiet once it is closed
   });
   /* The load is answered too, with a fixture, so the editor is ready whatever this sandbox's agent has on disk (a Save
      before the load lands is refused by the page on purpose). A regex, so the load's ?t= query matches and the
      /instructions/previous route does not. */
-  await page.route(/\/api\/agent\/[^/]+\/instructions(\?|$)/, (r) => {
-    if (r.request().method() === 'GET') { r.fulfill({ json: { exists: true, editable: true, text: '# Fixture\n\nYou are **Fixture**, a tester.\n', version: 'v-fixture' } }); return; }
-    if (r.request().method() !== 'PUT') { r.continue(); return; }
-    r.fulfill({ json: { ok: true, version: 'v-check', nameKept: KEPT } });
+  await page.route(/\/api\/agent\/[^/]+\/instructions(\?|$)/, async (r) => {
+    if (r.request().method() === 'GET') { await r.fulfill({ json: { exists: true, editable: true, text: '# Fixture\n\nYou are **Fixture**, a tester.\n', version: 'v-fixture' } }).catch(() => {}); return; }
+    if (r.request().method() !== 'PUT') { await r.continue().catch(() => {}); return; }
+    await r.fulfill({ json: { ok: true, version: 'v-check', nameKept: KEPT } }).catch(() => {});
   });
 
   await page.goto(BASE + '/?tab=agents', { waitUntil: 'networkidle' });

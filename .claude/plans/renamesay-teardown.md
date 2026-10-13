@@ -10,10 +10,11 @@ be in flight when the check closes the browser; the handler's `r.fetch()` then r
 It passed CI on #6010; under the cut's load (Mortals load 4.5) a poll was in flight at teardown both times.
 
 ## The fix
-- The handler's body is in a try/catch: a poll the closed page no longer wants is dropped quietly. `fulfill` is awaited,
-  so its rejection is caught too.
+- The handler's body is in a try/catch that aborts the request (review 1: an empty catch would leave a failed poll
+  hanging mid-check and fail on an unrelated assertion); `abort` is itself guarded, so after close it is quiet.
+  The profile and instructions handlers await their answers with the same guard.
 - Before `browser.close()`, `page.unrouteAll({ behavior: 'ignoreErrors' })`, the form Playwright's own error message
-  recommends and three other checks already use (render-updates-stale, render-engine-restart-4408,
+  recommends and at least seven other checks already use, among them (render-updates-stale, render-engine-restart-4408,
   render-login-expiry-3532).
 No assertion changes.
 
@@ -29,3 +30,12 @@ the tree that ships. Checked rather than assumed: no test names render-rename-sa
 are other checks, and pass 18/18), and the 61 test files that scan docs/browser-checks/ pass 1426/1426 with this change.
 Weakest premise: that the CI browser-checks job's load is enough to show the check is green; it was green there before
 too, so CI cannot show the crash is gone, only that the check still passes. The mechanism repro is what shows that.
+
+## Review 1 (opus, blind, on f601d2bc7): one warning, two nits; all taken
+1. [WARNING] the empty catch left a failed poll hanging during the check. FIXED: abort, guarded.
+2. [NIT] profile and instructions handlers did not await or guard fulfill. FIXED.
+3. [NIT] "three other checks" undercounts. FIXED.
+Also reported, NOT in this branch: 8 other checks have an unguarded fetch on a status route and no unrouteAll
+(render-owncode-4649, render-swarm-ui-3564, render-connlost-reconnect-3410, render-start-agent-3410,
+render-update-abort-2055, render-detail-header-1841, render-member-ring-3991, render-made-endings). Filed as its own card,
+so this fix stays the one the 0.7.44 re-cut needs.
