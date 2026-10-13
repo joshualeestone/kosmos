@@ -376,3 +376,16 @@ would not read color() or oklch (it fails closed).
 - **NIT, taken:** the colour arm's label says the literal is a pin. **NIT, taken:** this file marks the old copy.
 - **NIT, not taken:** `box()` answers "not on screen" from the `hidden` attribute. It holds through the page's
   `[hidden] { display: none !important }`.
+
+## Review 17 (2026-10-13, sonnet), at 51e383d13
+0 BLOCKER, 1 WARNING, 0 CONVENTION, 2 NIT. A new warning, so by the loop's rule not converged, though nothing changes
+in the code for it.
+- The reviewer computed every layout and colour assertion of the browser check from the page's CSS and found each
+  holds: the hint's colour and that it differs from the label's, 12px against 13px, 2px above and 8px below, the
+  box's size and order at desktop, and the contrast over both gradient stops (about 5.25 on the lighter one).
+- **WARNING, answered by a measurement already on record:** the one assertion it could not compute was the box's
+  width at phone width (at least 200px), which depends on the Settings page's gutters. It was MEASURED in the check's
+  first real browser run (2026-10-12, at b0e4ab534): `phone width, light: the box is a usable size`, PASS, width 240,
+  height 44. Nothing since has changed the box, its class or the card's padding.
+- **NIT, not taken:** one boolean folds "the hint stays inside the card" and "the page does not scroll sideways".
+- **NIT, not taken:** a comment that `toWellFormed` needs the Node the repo already pins.
