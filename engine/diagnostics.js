@@ -43,6 +43,7 @@ function accountOf(accountProblemOf, card) {
      ringLines   [{at, stream, line}]              engine/logring, since this board started
      fileLines   [string] | null                   the tail of board.log (as many lines as the ring holds), when it is this board's
      fileSource  string | null                     where fileLines came from, for the reader
+     fileWhy     string | null                     why there are no fileLines (readBoardLog's `why`)
      redactor    { redactDeep }                    engine/diagredact (this computer's own when not given) */
 function build(inputs) {
   const i = inputs || {};
@@ -52,8 +53,8 @@ function build(inputs) {
   /* One source, oldest first: board.log when the board could read it (it already holds every line the ring does, and
      the lines from before the last restart), otherwise the ring (Windows, a pipe), which starts at this board's start. */
   const all = fileLines
-    ? fileLines.map((line) => ({ line }))
-    : ring.map((e) => ({ at: e.at, stream: e.stream, line: e.line }));
+    ? fileLines.map((line) => ({ at: null, stream: null, line }))   // one shape either way; board.log lines carry their own stamp
+    : ring.map((e) => ({ at: e.at || null, stream: e.stream || null, line: e.line }));
   const agents = cards.filter((c) => c && c.sessionName).map((c) => {
     const names = [...new Set([c.sessionName, c.name].filter((n) => typeof n === 'string' && n.length >= 2))];
     return {
@@ -75,6 +76,8 @@ function build(inputs) {
     log: {
       // Where the lines came from, so a reader knows whether lines from before the last restart could be here.
       source: fileLines ? (i.fileSource || 'board.log') : 'since this board started',
+      // Why board.log was not used, when it was not: missing, not this board's output, or unreadable.
+      boardLog: fileLines ? 'read' : (i.fileWhy || 'missing'),
       tail: all.slice(-LOG_TAIL_LINES),
     },
   };
@@ -87,14 +90,16 @@ const { MAX_LINE_CHARS, MAX_LINES } = require('./logring');
 
 /* The last `max` lines of board.log, only when it is this board's own output: the file `logPath` names must be the
    open file on `outFd` (same device and inode). A board.log left by another run (a board started from a terminal, say)
-   is not this board's log and gives null, as does a missing or unreadable file. Reads at most READ_TAIL_BYTES. */
-function readBoardLog(logPath, outFd, max) {
+   is not this board's log and gives null, as does a missing or unreadable file; `why`, when given, says which.
+   Reads at most READ_TAIL_BYTES. */
+function readBoardLog(logPath, outFd, max, why) {
   const fs = require('node:fs');
+  const said = (w) => { if (why && typeof why === 'object') why.why = w; return null; };
   let fd = null;
   try {
-    fd = fs.openSync(logPath, 'r');
+    try { fd = fs.openSync(logPath, 'r'); } catch (e) { return said(e && e.code === 'ENOENT' ? 'missing' : 'unreadable'); }
     const file = fs.fstatSync(fd), out = fs.fstatSync(outFd);
-    if (!file.isFile() || file.dev !== out.dev || file.ino !== out.ino) return null;
+    if (!file.isFile() || file.dev !== out.dev || file.ino !== out.ino) return said('not this board\'s output');
     const start = Math.max(0, file.size - READ_TAIL_BYTES);
     const buf = Buffer.alloc(file.size - start);
     const got = fs.readSync(fd, buf, 0, buf.length, start);
@@ -104,7 +109,7 @@ function readBoardLog(logPath, outFd, max) {
     // Cut as the ring cuts a line, so one huge line cannot fill the file or stall the redactor.
     return lines.map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l)).map((l) => (l.length > MAX_LINE_CHARS ? l.slice(0, MAX_LINE_CHARS) : l))
       .slice(-(Number.isInteger(max) && max > 0 ? max : LOG_TAIL_LINES));
-  } catch { return null; }
+  } catch { return said('unreadable'); }
   finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
 
