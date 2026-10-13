@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: museinstall-6004
-diff_hash: cf50addad8daced1bd2cf9db5c480c7bb82f18a58ae73fd2b14372923af348b8
+diff_hash: baecd849afc83c5d0e12dc711b7d2071505664e0464ddff94f036659e915818e
 validation: passed (focused: 23 files incl. the file-scanning guards 527/527 after the rebase onto main; render-muse-signin-3939 headless PASS)
 subdir_audit: passed
-timestamp: 2026-10-13T00:18:34Z
-iterations: 8
+timestamp: 2026-10-13T00:22:59Z
+iterations: 9
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8 (opus and sonnet alternating)
-**Converged:** Yes (iteration 8: no BLOCKER or WARNING, no code changed after it)
+**Iterations:** 9 (opus and sonnet alternating)
+**Converged:** Yes (iterations 8 and 9: no BLOCKER or WARNING; after 9 only a test assertion was tightened)
 **Rebased:** onto origin/main after #3939 merged (#6007); the rebased diff equals the reviewed one except one line of #3939's own iteration-9 comment on the removed side.
 **Deferred, with reasons in the plan:** proxy/CA variables not passed to the installer and an unpinned installer hash (the Antigravity install's decisions); the hard cap answers the press without killing a still-running installer.
 **Unmeasured:** Meta's installer honouring MUSE_NO_MODIFY_PATH and MUSE_INSTALL_DIR beyond the 10-12 run on Mortals.
@@ -53,3 +53,7 @@ converged: true
 
 #### Iteration 8 (sonnet)
 - No BLOCKER or WARNING. Confirmed allowLiveExecution runs before the install route can be served on every Mac start path.
+
+#### Iteration 9 (opus), after the PR screenshot
+- The screenshot showed the Settings step heading still said Sign in above Install Muse Code (round 6 fixed first run only) --> FIXED before this round (arm perturbed red); the round reviewed that fix and every label against what a press does.
+- No BLOCKER or WARNING. [NIT] heading assertions were case-sensitive --> FIXED. [NIT] heading body describes the sign-in only, a pre-existing checkmark, and the account row's Sign in again can open on Install when Muse Code was removed --> left as is (no contradiction; rare case).
