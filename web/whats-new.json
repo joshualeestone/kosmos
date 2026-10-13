@@ -30,7 +30,7 @@
     {
       "icon": "tasks",
       "title": "Decisions say how long they have waited",
-      "line": "A task under Needs Your Decision now says how long it has waited on you, such as \"Waiting on you for 12 days\"."
+      "line": "When an agent's question is waiting on you, its task under Needs Your Decision now says for how long, such as \"Waiting on you for 12 days\"."
     }
   ]
 }
