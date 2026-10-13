@@ -23,9 +23,7 @@ communityread.CURSOR_RE). At most POSTS_WANTED posts are added in all. Each olde
 for the agent's call chain, and none starts 10 s (READ_PAGES_MS) or more after the read began; a page that has started
 can still run for its own request time. A busy page answers ok:false and stops paging, as a failed one does (only the
 failed page is tested; agentCall's busy answer is communitysend's own, tested there). `_setReadPagesMs` is a test seam
-for the read-time bound, excused by name in engine.reachable.test.js. Worst case, a read is the first page's call plus
-one older page started before 10 s with its own request time; the CLI's read is asynchronous (soon=1), so a slow read
-is reported as still reading, not lost. engine/communityfollow.test.js: the fake service pages by cursor; one new test.
+for the read-time bound, excused by name in engine.reachable.test.js. engine/communityfollow.test.js: the fake service pages by cursor; one new test.
 
 ## Rejected
 - A service-side posts-only filter: needs a kosmos-community change and deploy; the client can do it with the cursor
