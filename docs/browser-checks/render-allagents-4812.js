@@ -83,11 +83,15 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
     /* serviceWorkers: 'block', as six sibling checks: after a reload WebKit's page service worker fetched the other
        computers past ctx.route, so they read as unreachable and no request was seen (S2, S4 in WebKit). */
     const ctx = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' }, opts || {}));
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await ctx.route('https://laptop.kosmosplus.com/**', async (route) => {
-      const u = new URL(route.request().url());
-      if (u.pathname === '/api/remote/computers') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(COMPUTERS) });
-      const resp = await route.fetch({ url: 'http://127.0.0.1:' + port + u.pathname + u.search });
-      return route.fulfill({ response: resp });
+      try {
+        const u = new URL(route.request().url());
+        if (u.pathname === '/api/remote/computers') return await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(COMPUTERS) });
+        const resp = await route.fetch({ url: 'http://127.0.0.1:' + port + u.pathname + u.search });
+        return await route.fulfill({ response: resp });
+      } catch { await route.abort().catch(() => {}); }
     });
     /* First run is over in this sandbox. Without this the board's welcome overlay (#firstrun) opens
        asynchronously after load (firstRunBoot), after settle() has looked, and covers the page: the

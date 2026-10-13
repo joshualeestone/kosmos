@@ -53,7 +53,14 @@ const CASES = [
   { name: 'nothing about the name was sent',
     body: {},
     wants: /^Saved\.$/, forbids: /restart/i },
+  /* #5957: a name another agent already has is REFUSED (400), and the page says the server's sentence, not a generic
+     "that did not save" the person cannot act on. */
+  { name: '#5957 another agent already has the name',
+    status: 400,
+    body: { error: 'there is already an agent called Gemini (@gemini). Pick another name, or rename that one first.', field: 'displayName' },
+    wants: /^there is already an agent called Gemini \(@gemini\)\. Pick another name, or rename that one first\.$/, forbids: /did not save|restart/i },
 ];
+const KEPT = 'The name was not changed: there is already an agent called Gemini (@gemini). Pick another name, or rename that one first. Its instructions still say Gemini, so it will call itself that until you change the "You are" line.';
 
 (async () => {
   const browser = await playwright.chromium.launch({ headless: !HEADED });
@@ -63,9 +70,37 @@ const CASES = [
   page.on('pageerror', (e) => errors.push(String(e.message)));
 
   let answer = CASES[0].body;
-  await page.route('**/api/agent/*/profile', (r) => {
-    if (r.request().method() !== 'PUT') { r.continue(); return; }
-    r.fulfill({ json: { ok: true, ...answer } });
+  await page.route('**/api/agent/*/profile', async (r) => {
+    if (r.request().method() !== 'PUT') { await r.continue().catch(() => {}); return; }
+    if (answer && answer.__status) { await r.fulfill({ status: answer.__status, json: answer.body }).catch(() => {}); return; }
+    await r.fulfill({ json: { ok: true, ...answer } }).catch(() => {});
+  });
+  /* #5957: the instructions Save, answered as the server answers a line naming a taken name: the text saved, the
+     rename did not, and nameKept says so. Intercepted here too, so no file is written. */
+  /* The status poll disables the editor when it reports this agent's file as not editable (on purpose), and this
+     sandbox's agent reports exactly that (measured: the box held the fixture text, INSTR_READY false, no message). The
+     poll is answered from the REAL response with only that flag set, so the instructions Save case exercises the
+     page's handling of the save's answer, not the sandbox's file. */
+  /* The poll runs on a timer, so one can be in flight when the check closes the browser: its fetch then rejects with
+     "Request context disposed", and unhandled, that crashed the check AFTER every assertion passed (the 0.7.44 cut,
+     failed twice at load 4.5). So a failed poll is aborted (quietly once the page is closed), the other handlers
+     guard their answers the same way, and the check unroutes before it closes. */
+  await page.route(/\/api\/status(\?|$)/, async (r) => {
+    try {
+      const resp = await r.fetch();
+      let body;
+      try { body = await resp.json(); } catch { await r.fulfill({ response: resp }); return; }
+      for (const a of (body && body.agents) || []) if (a && a.instructions) a.instructions.editable = true;
+      await r.fulfill({ response: resp, json: body });
+    } catch { await r.abort().catch(() => {}); }   // fail the poll fast while the page is open; quiet once it is closed
+  });
+  /* The load is answered too, with a fixture, so the editor is ready whatever this sandbox's agent has on disk (a Save
+     before the load lands is refused by the page on purpose). A regex, so the load's ?t= query matches and the
+     /instructions/previous route does not. */
+  await page.route(/\/api\/agent\/[^/]+\/instructions(\?|$)/, async (r) => {
+    if (r.request().method() === 'GET') { await r.fulfill({ json: { exists: true, editable: true, text: '# Fixture\n\nYou are **Fixture**, a tester.\n', version: 'v-fixture' } }).catch(() => {}); return; }
+    if (r.request().method() !== 'PUT') { await r.continue().catch(() => {}); return; }
+    await r.fulfill({ json: { ok: true, version: 'v-check', nameKept: KEPT } }).catch(() => {});
   });
 
   await page.goto(BASE + '/?tab=agents', { waitUntil: 'networkidle' });
@@ -104,7 +139,7 @@ const CASES = [
   check('the hint says the instructions are part of a rename', /instructions/i.test(hint), `"${hint}"`);
 
   for (const c of CASES) {
-    answer = c.body;
+    answer = c.status ? { __status: c.status, body: c.body } : c.body;
     await page.fill('#d-rename', 'Scarlet');
     await page.click('#d-save');
     await page.waitForFunction(() => {
@@ -139,8 +174,22 @@ const CASES = [
     }
   }
 
+  /* #5957: the instructions Save says the name was kept, after "Saved.". */
+  await page.evaluate(() => document.getElementById('d-instr-save').scrollIntoView({ block: 'center' }));
+  await page.waitForFunction(() => /You are \*\*Fixture\*\*/.test(document.getElementById('d-instr').value), null, { timeout: 8000 });
+  // Save is enabled by an edit (a save of unchanged text has nothing to send), so make the edit a person would.
+  await page.fill('#d-instr', '# Fixture\n\nYou are **Gemini**, a tester.\n');
+  await page.click('#d-instr-save');
+  await page.waitForFunction(() => {
+    const m = document.getElementById('d-instr-msg');
+    return m && m.textContent && m.textContent !== 'Saving…';
+  }, null, { timeout: 8000 });
+  const instrSaid = await page.evaluate(() => document.getElementById('d-instr-msg').textContent.trim());
+  check('#5957 the instructions Save says the name was kept, after "Saved."', instrSaid === 'Saved. ' + KEPT, `"${instrSaid}"`);
+
   check('no page errors', errors.length === 0, errors.join(' | '));
 
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
   await browser.close();
   const failed = results.filter((r) => !r.pass);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);

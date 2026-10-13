@@ -3869,7 +3869,7 @@ test('#4642: a room post row carries its recorded `mentioned`, [] when it addres
 });
 
 // ---------------------------------------------------------------------------
-// #4583: what done looks like, asked at creation; and two coordinators warned about
+// #4583: what done looks like, asked at creation
 // ---------------------------------------------------------------------------
 
 test('#4583: a project with a goal but no done, staffed, gets ONE agents-only done note (not the brief note)', async () => {
@@ -3987,7 +3987,7 @@ test('#4583: a done over 1000 characters is refused with the done box named, and
   assert.equal(json(await req('/api/projects')).projects.filter((p) => p.name === 'Too long').length, 0);
 });
 
-test('#4583: two coordinators warn on create and when a second one joins; a non-coordinator joining does not', async () => {
+test('#5951: two project managers on a project are not warned about, on create or when the second joins', async () => {
   reset();
   const store = require('./engine/store');
   store.writeProfile('pm-x', { role: 'Project Manager' });
@@ -3995,14 +3995,15 @@ test('#4583: two coordinators warn on create and when a second one joins; a non-
   store.writeProfile('dev-z', { role: 'Developer' });
   try {
     const both = json(await post('/api/projects', { name: 'Two PMs', folder: folder('two-pms'), agents: ['pm-x', 'pm-y'] }));
-    assert.match(String(both.coordinators), /coordinating role/, 'create with two coordinators did not warn');
+    assert.equal(both.project.agents.length, 2, 'CONTROL: the create answer is the two-manager project');
+    assert.equal(both.coordinators, undefined, 'create with two project managers still warns');
     const one = json(await post('/api/projects', { name: 'One PM', folder: folder('one-pm'), agents: ['pm-x'] }));
-    assert.equal(one.coordinators, undefined, 'CONTROL: one coordinator warned');
     const joined = json(await post(`/api/project/${one.project.id}/agent/pm-y`));
-    assert.match(String(joined.coordinators), /coordinating role/, 'a second coordinator joining did not warn');
+    assert.equal(joined.project.agents.length, 2, 'CONTROL: the second manager did join');
+    assert.equal(joined.coordinators, undefined, 'a second project manager joining still warns');
     const dev = json(await post(`/api/project/${one.project.id}/agent/dev-z`));
-    assert.equal(dev.coordinators, undefined, 'a non-coordinator joining re-warned');
-    assert.equal(dev.project.agents.length, 3, 'the warning must never refuse the add');
+    assert.equal(dev.coordinators, undefined);
+    assert.equal(dev.project.agents.length, 3);
   } finally {
     for (const n of ['pm-x', 'pm-y', 'dev-z']) store.writeProfile(n, { role: null });
   }

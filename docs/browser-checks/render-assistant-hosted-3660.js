@@ -125,10 +125,14 @@ const BUBBLE_SHOWN_ON_JOSH = () => {
     const asked = [];
     let answer = { status: 200, body: { reply: 'Click New agent at the top, then pick what it should do.', remaining: 29 } };
     let slow = 0;
+    /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+       its late rejection is caught instead of crashing the check after it passed. */
     await page.route('**/api/setup-guide/hosted', async (route) => {
-      asked.push(JSON.parse(route.request().postData() || '{}'));
-      if (slow) await new Promise((r) => setTimeout(r, slow));
-      route.fulfill({ status: answer.status, contentType: 'application/json', body: JSON.stringify(answer.body) });
+      try {
+        asked.push(JSON.parse(route.request().postData() || '{}'));
+        if (slow) await new Promise((r) => setTimeout(r, slow));
+        await route.fulfill({ status: answer.status, contentType: 'application/json', body: JSON.stringify(answer.body) });
+      } catch { await route.abort().catch(() => {}); }
     });
     const pageReports = [];
     const threadPosts = [];

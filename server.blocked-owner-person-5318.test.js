@@ -102,7 +102,9 @@ test('#5318: the route records a blocked report naming a person, and answers wit
 
     const asked = await report({ state: 'needs_you', text: 'Can we meet the founder this week?' });
     assert.equal(asked.recorded, true);
-    assert.equal(asked.note, undefined, 'needs_you gets no note');
+    // #5943: needs_you now answers with its own asking reminder (reversibility test, then report clear), never the blocked note.
+    assert.notEqual(asked.note, NOTE, 'needs_you got the blocked-owner note');
+    assert.match(String(asked.note), /^Before a person has to answer this: .*kosmos report clear/, 'needs_you did not get the asking reminder');
   } finally { board.restore(); }
 });
 

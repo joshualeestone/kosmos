@@ -353,5 +353,94 @@ else
   fail "bcg_anchor_base differs between the two gate libs (or is missing)"
 fi
 
+# #5907: bc_surface_scan_checks (the gate's one-pass decision) agrees with the per-token primitives it replaced, on
+# the real checks: every 10th annotated check, against a diff touching its first token and against one touching nothing
+# mapped. The expected verdict is computed the original way (bc_surface_tokens_of + bc_surface_token_hits, token by
+# token, the first hit wins), so a scan that drifted from the boundary match names the check. Plus one non-plain token:
+# it must be SLOW, never decided by the scan.
+. "$HERE/lib/browser-check-surface-lib.sh"
+_SDIR="$(cd "$HERE/.." && pwd)/docs/browser-checks"
+_sbad=0; _sn=0; _sreal=0
+_expect() {   # $1 check path, $2 changed text -> "HIT <tok>", "MISS" or "SLOW"
+  local toks t
+  toks="$(bc_surface_tokens_of "$1")"
+  while IFS= read -r t; do   # while-read, not for: no globbing of a token like `*`
+    [ -n "$t" ] || continue
+    case "$t" in *[!A-Za-z0-9_-]*) echo SLOW; return ;; esac
+    if bc_surface_token_hits "$t" "$2"; then echo "HIT $t"; return; fi
+  done <<< "$(printf '%s' "$toks" | tr ' \t' '\n\n')"
+  echo MISS
+}
+_k=0
+while IFS= read -r _c; do
+  [ -n "$_c" ] || continue
+  _toks="$(bc_surface_tokens_of "$_c")"; [ -n "$_toks" ] || continue
+  _k=$((_k + 1)); [ $((_k % 10)) -eq 1 ] || continue
+  _first="$(printf '%s' "$_toks" | tr ' \t' '\n\n' | grep -v '^$' | head -1)"
+  for _chg in "+<p id=\"${_first}\">x</p>" "+<p id=\"zz-nothing-mapped-5907\">x</p>"; do
+    _sn=$((_sn + 1)); _sreal=$((_sreal + 1))
+    _want="$(_expect "$_c" "$_chg")"
+    _got="$(bc_surface_scan_checks "$_SDIR" "$_chg" | awk -F '\t' -v f="$_c" '$1 == f { print ($2 == "HIT" ? $2 " " $3 : $2) }')"
+    [ "$_got" = "$_want" ] || { fail "SCAN: ${_c##*/} on '$_chg': the scan says '$_got', the per-token primitives say '$_want'"; _sbad=1; }
+  done
+done <<< "$(find "$_SDIR" -maxdepth 1 -type f -name '*.js' 2>/dev/null)"
+_nd="$TMP/bcsg-np"; mkdir -p "$_nd"   # under $TMP, so the EXIT trap removes it if the test dies here
+printf '// Browser-check-surface: data-pmark="xai" plain-tok\n' > "$_nd/np.js"
+_np="$(bc_surface_scan_checks "$_nd" '+<i data-pmark="xai" id="plain-tok">' | cut -f2)"
+[ "$_np" = SLOW ] || { fail "SCAN: a check whose first token is not plain was decided by the scan ('$_np'), not left SLOW"; _sbad=1; }
+# A plain token inside a longer run joined by `_`, `-` or capitals is not a match: the scan must agree with the primitives.
+rm -f "$_nd/np.js"; printf '// Browser-check-surface: plain-tok tokx\n' > "$_nd/run.js"
+for _chg in '+<i id="plain-tok_x">' '+<i id="plain-tok-y">' '+<i id="tokxZ">' '+<i id="plain-tok">'; do
+  _sn=$((_sn + 1))
+  _want="$(_expect "$_nd/run.js" "$_chg")"
+  _got="$(bc_surface_scan_checks "$_nd" "$_chg" | awk -F '\t' '{ print ($2 == "HIT" ? $2 " " $3 : $2) }')"
+  [ "$_got" = "$_want" ] || { fail "SCAN: run.js on '$_chg': the scan says '$_got', the per-token primitives say '$_want'"; _sbad=1; }
+done
+# A later token is the only hit, or both are: the first token in the annotation's order is the one named.
+printf '// Browser-check-surface: first-tok second-tok\n' > "$_nd/run.js"
+for _chg in '+<i id="second-tok">' '+<i id="second-tok"> <b id="first-tok">' '+<i id="first-tok">'; do
+  _sn=$((_sn + 1))
+  _want="$(_expect "$_nd/run.js" "$_chg")"
+  _got="$(bc_surface_scan_checks "$_nd" "$_chg" | awk -F '\t' '{ print ($2 == "HIT" ? $2 " " $3 : $2) }')"
+  [ "$_got" = "$_want" ] || { fail "SCAN: run.js on '$_chg': the scan says '$_got', the per-token primitives say '$_want'"; _sbad=1; }
+done
+# A Unicode space (U+00A0) around the key: the ambient-locale sed can read it as space, the C-locale scan cannot, so the
+# scan must leave the check SLOW (to the sed), never skip it as unannotated.
+printf '\302\240// Browser-check-surface: nb-tok\n' > "$_nd/run.js"
+_nbv="$(bc_surface_scan_checks "$_nd" '+<i id="nb-tok">' | cut -f2)"
+[ "$_nbv" = SLOW ] || { fail "SCAN: a key after a Unicode space was decided by the scan ('$_nbv'), not left SLOW"; _sbad=1; }
+rm -rf "$_nd"
+[ "$_sreal" -ge 20 ] || { fail "SCAN: only $_sreal real cases were sampled (want at least 20): the sampling found too few checks"; _sbad=1; }
+[ "$_sbad" -eq 0 ] && pass "SCAN: bc_surface_scan_checks agrees with the per-token primitives on $_sreal real and $((_sn - _sreal)) synthetic cases, and leaves a non-plain token SLOW"
+
+# #5907: the fallback (the scan cannot run, so every check takes the per-check path) gives the gate the same answer,
+# word for word, as the scan does: forced by a TMPDIR the scan cannot write, on a diff touching a real mapped token.
+_fbtok="$(bc_surface_tokens_of "$(find "$_SDIR" -maxdepth 1 -type f -name '*.js' | while IFS= read -r _c; do [ -n "$(bc_surface_tokens_of "$_c")" ] && { echo "$_c"; break; }; done)" | tr ' \t' '\n\n' | grep -v '^$' | head -1)"
+printf '%s\n' '--- a/web/index.html' '+++ b/web/index.html' "+<p id=\"$_fbtok\">x</p>" > "$TMP/fb.wd"; : > "$TMP/fb.files"; : > "$TMP/fb.msgs"
+_fbn="$( (KOSMOS_BCSG_WEBDIFF="$TMP/fb.wd" KOSMOS_BCG_FILES="$TMP/fb.files" KOSMOS_BCG_MSGS="$TMP/fb.msgs" KOSMOS_BCSG_DIR="$_SDIR" kosmos_browser_check_surface_gate) 2>&1; echo "rc=$?")"
+_fbf="$( (TMPDIR="$TMP/no-such-dir" KOSMOS_BCSG_WEBDIFF="$TMP/fb.wd" KOSMOS_BCG_FILES="$TMP/fb.files" KOSMOS_BCG_MSGS="$TMP/fb.msgs" KOSMOS_BCSG_DIR="$_SDIR" kosmos_browser_check_surface_gate) 2>&1; echo "rc=$?")"
+# The fallback was really taken: with that TMPDIR the scan itself cannot run.
+TMPDIR="$TMP/no-such-dir" bc_surface_scan_checks "$_SDIR" "x" >/dev/null 2>&1; _fbrc=$?
+if [ -n "$_fbtok" ] && [ "$_fbrc" -ne 0 ] && [ "$_fbn" = "$_fbf" ] && printf '%s' "$_fbn" | grep -q 'rc=1'; then
+  pass "FALLBACK: with the scan unable to run, the gate refuses '$_fbtok' with the same words and exit as the scan path"
+else
+  fail "FALLBACK: the fallback and the scan path disagree on '$_fbtok' (or nothing was refused): scan='$(printf '%s' "$_fbn" | tail -1)' fallback='$(printf '%s' "$_fbf" | tail -1)'"
+fi
+
+# #5907: a check whose tokens did NOT change (a MISS to the scan) still prints its override line when a trailer names
+# it, in any case, as the per-check path always did; with no trailer at all it prints nothing.
+_ovchk="$(find "$_SDIR" -maxdepth 1 -type f -name '*.js' | while IFS= read -r _c; do [ -n "$(bc_surface_tokens_of "$_c")" ] && { echo "${_c##*/}"; break; }; done)"
+printf '%s\n' '--- a/web/index.html' '+++ b/web/index.html' '+<p id="zz-nothing-mapped-5907">x</p>' > "$TMP/ov.wd"; : > "$TMP/ov.files"
+_ovok=1
+for _key in 'Browser-check-surface' 'BROWSER-CHECK-SURFACE' 'browser-Check-Surface'; do
+  printf 'x\n\n%s: %s still fine\n' "$_key" "$_ovchk" > "$TMP/ov.msgs"
+  _ovout="$( (KOSMOS_BCSG_WEBDIFF="$TMP/ov.wd" KOSMOS_BCG_FILES="$TMP/ov.files" KOSMOS_BCG_MSGS="$TMP/ov.msgs" KOSMOS_BCSG_DIR="$_SDIR" kosmos_browser_check_surface_gate) 2>/dev/null)"
+  [ "$_ovout" = "browser-check surface gate: ${_ovchk} surface change overridden -- still fine" ] || { fail "OVERRIDE: a $_key trailer on an untouched check printed '$_ovout'"; _ovok=0; }
+done
+: > "$TMP/ov.msgs"
+_ovnone="$( (KOSMOS_BCSG_WEBDIFF="$TMP/ov.wd" KOSMOS_BCG_FILES="$TMP/ov.files" KOSMOS_BCG_MSGS="$TMP/ov.msgs" KOSMOS_BCSG_DIR="$_SDIR" kosmos_browser_check_surface_gate) 2>&1)"
+[ -z "$_ovnone" ] || { fail "OVERRIDE: with no trailer the gate printed '$_ovnone'"; _ovok=0; }
+[ -n "$_ovchk" ] && [ "$_ovok" -eq 1 ] && pass "OVERRIDE: an untouched check's override line prints for a trailer in any case, and nothing prints without one"
+
 echo "browser-check surface gate: $fails FAILED"
 [ "$fails" -eq 0 ]

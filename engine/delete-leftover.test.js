@@ -449,6 +449,17 @@ test('#4006: deleting a leftover clears its failed-restart record', () => {
   assert.equal(disruption.read('failgone').found, false, 'the failed record outlived the delete');
 });
 
+test('#5957 slice 3: deleting a leftover clears its last report', () => {
+  const liveness = require('./liveness');
+  leftoverAgent('idlegone');
+  liveness.seen('idlegone', new Date(Date.now() - 40 * 86400000).toISOString());
+  assert.equal(liveness.read('idlegone').found, true, 'precondition: a report is on file');
+  quiet();
+  const done = mac.del('idlegone');
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
+  assert.equal(liveness.read('idlegone').found, false, 'the last report outlived the delete');
+});
+
 test('#5000: a trusted name is put back at the start by the delete, so a new agent under it is not trusted', () => {
   const cs = require('./communitystore');
   leftoverAgent('trusty');

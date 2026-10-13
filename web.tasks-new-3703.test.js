@@ -23,13 +23,13 @@ test.after(() => { try { BOARD.restore(); } catch { /* restored */ } fs.rmSync(S
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
-const FNS = page.liftAll(SCRIPT, ['pjById', 'ntChoices', 'openNewTask', 'ntAimAt', 'ntFillParents', 'leaveNewTask']);
+const FNS = page.liftAll(SCRIPT, ['pjById', 'pjAncestry', 'pjChainOf', 'pjChainCompare', 'pjChainText', 'pjChainOption', 'pjSortByChain', 'ntChoices', 'openNewTask', 'ntAimAt', 'ntFillParents', 'leaveNewTask', 'ntGoState']);
 
 function world(projects, { current = null, readFailed = false } = {}) {
   const els = {};
   const el = (id) => (els[id] = els[id] || { id, hidden: false, value: '', textContent: '', innerHTML: '', disabled: false, selectedIndex: 0, focused: 0, focus() { this.focused += 1; focusLog.push(id); } });
   const focusLog = [];
-  for (const id of ['nt-projrow', 'nt-proj', 'nt-in', 'nt-in-pick', 'nt-project', 'nt-what', 'nt-detail', 'nt-voice-msg', 'nt-who', 'nt-msg', 'nt-go', 'nt-modal', 'nt-back', 'tsk-new', 'pj-newtask']) el(id);
+  for (const id of ['nt-projrow', 'nt-proj', 'nt-in', 'nt-in-pick', 'nt-project', 'nt-what', 'nt-done', 'nt-detail', 'nt-voice-msg', 'nt-who', 'nt-msg', 'nt-go', 'nt-modal', 'nt-back', 'tsk-new', 'pj-newtask']) el(id);
   els['nt-projrow'].hidden = true;
   els['nt-modal'].hidden = true;
   const box = { attrs: { 'aria-describedby': 'nt-in' }, setAttribute(k, v) { this.attrs[k] = v; } };
@@ -83,7 +83,8 @@ test('no projects at all: the dialog says to make one, and Create stays down', (
   assert.equal(w.els['nt-modal'].hidden, false);
   assert.deepEqual(w.focusLog, ['nt-back'], 'focus is not on the way out');
   // The Create gate on typing also refuses without a project.
-  assert.match(SCRIPT, /getElementById\('nt-go'\)\.disabled = !document\.getElementById\('nt-what'\)\.value\.trim\(\) \|\| !NT_PROJECT;/);
+  // kosmos#5956: the gate also needs how you will know it is done.
+  assert.match(SCRIPT, /getElementById\('nt-go'\)\.disabled = !document\.getElementById\('nt-what'\)\.value\.trim\(\)\s*\|\| !document\.getElementById\('nt-done'\)\.value\.trim\(\) \|\| !NT_PROJECT;/);
 });
 
 test('an unreadable project list is said as unreadable, never as "make a project first"', () => {
@@ -202,4 +203,57 @@ test('the Tasks head carries "+ New task" as its primary button', () => {
   // #4586: the back chevron may lead the head; "+ New task" still follows the title directly.
   assert.match(PAGE, /<div class="tsk-head">(?:<button class="sub-back" id="tsk-back"[^>]*>(?:(?!<\/button>)[\s\S])*<\/button>)?<h2 id="tsk-title">Tasks<\/h2><button class="btn uprime" id="tsk-new" type="button">/);
   assert.match(SCRIPT, /getElementById\('tsk-new'\)\.addEventListener\('click', openNewTaskFromTasks\)/);
+});
+
+test('kosmos#5956: the New task dialog asks how you will know it is done, and sends it as the first done-when check', () => {
+  assert.match(SCRIPT, /doneWhen: document\.getElementById\('nt-done'\)\.value\.trim\(\) \? \[document\.getElementById\('nt-done'\)\.value\.trim\(\)\] : undefined/);
+  assert.match(PAGE, /<label class="flabel tk-lab" for="nt-done">How will you know it is done\?<\/label>/);
+});
+
+test('kosmos#5956: Create stays down until both what needs doing and how you will know it is done are filled', () => {
+  const w = world(P);
+  w.api.NT_FOR = 'a';   // a kept draft for this project, so the words survive the open
+  w.els['nt-what'].value = 'Rewrite the handoff checklist';
+  w.api.openNewTask('a', 'tasks');
+  assert.equal(w.els['nt-go'].disabled, true, 'no done-when yet');
+  const v = world(P);
+  v.api.NT_FOR = 'a';
+  v.els['nt-what'].value = 'Rewrite the handoff checklist';
+  v.els['nt-done'].value = 'It fits on one page';
+  v.api.openNewTask('a', 'tasks');
+  assert.equal(v.els['nt-go'].disabled, false, 'CONTROL: both filled');
+});
+
+test('kosmos#5956 review 1: the engine\'s done-when refusal is said in the field\'s own words, and the field says it is needed', () => {
+  assert.match(SCRIPT, /\/done-when check has to be \(one line of plain text\|\\d\+ characters or fewer\)\/\.test\(why\)\s*\? 'Your answer to "How will you know it is done\?" has to be one line of plain text, 200 characters or fewer\. Some emoji and symbols cannot be used there\.'/);
+  assert.match(PAGE, /id="nt-done"[^>]*aria-required="true"[^>]*aria-describedby="nt-done-hint"/);
+  assert.match(PAGE, /<p class="fhint" id="nt-done-hint"[^>]*>Needed to create the task\. The agent checks its work against this\.<\/p>/);
+});
+
+test('kosmos#5956 review 2: the Create gate run as typed: what alone keeps it down, both lift it, no project keeps it down', () => {
+  const els = { 'nt-go': { disabled: false }, 'nt-what': { value: '' }, 'nt-done': { value: '' } };
+  const gate = (project) => new Function('document', 'NT_PROJECT', page.liftAll(SCRIPT, ['ntGoState']) + '\n; ntGoState();')(
+    { getElementById: (id) => els[id] || null }, project);
+  els['nt-what'].value = 'Rewrite the handoff checklist';
+  gate('a');
+  assert.equal(els['nt-go'].disabled, true, 'what alone');
+  els['nt-done'].value = 'It fits on one page';
+  gate('a');
+  assert.equal(els['nt-go'].disabled, false, 'CONTROL: both filled');
+  gate(null);
+  assert.equal(els['nt-go'].disabled, true, 'no project to file it to');
+  els['nt-done'].value = '   ';
+  gate('a');
+  assert.equal(els['nt-go'].disabled, true, 'blank done-when is no done-when');
+});
+
+test('kosmos#5956 review 5: the engine\'s real refusal for an emoji joined with U+200D is the one the dialog rewords', () => {
+  const tasks = require('./engine/tasks');
+  const m = SCRIPT.match(/textContent = (\/done-when check has to be [^\n]*?\/)\.test\(why\)/);
+  assert.ok(m, 'PRE-CONTROL: the dialog\'s pattern is in the page');
+  const re = new Function('return ' + m[1])();
+  const refusal = tasks.doneWhenProblem(['Ship it \u{1F469}‍\u{1F4BB}']);
+  assert.ok(refusal, 'PRE-CONTROL: the engine refuses a zero-width joiner');
+  assert.match(refusal, re, 'the engine reworded its refusal; the dialog would show the raw text again');
+  assert.doesNotMatch(String(tasks.doneWhenProblem(['Ship it'])), re, 'CONTROL: a plain answer is not refused');
 });

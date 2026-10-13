@@ -384,6 +384,18 @@ test('#4475: a removal ends the agent in the history sendertoken.revoke keeps, a
   assert.equal(sendertoken.endedSince([], before), null, 'asked about no name at all, it answered "nothing ended" instead of refusing');
 });
 
+test('#5957 slice 3: a removal takes the agent\'s last report with it, so a recreate never says "has not run"', () => {
+  const liveness = require('./liveness');
+  const name = foreignAgent('lastreport');
+  boardShows(name, `${name}-discord`);
+  world();
+  remove.setDryRun(false);
+  liveness.seen(name, new Date(Date.now() - 40 * 86400000).toISOString());
+  assert.equal(liveness.read(name).found, true, 'precondition: a report is on file');
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(liveness.read(name).found, false, 'the last report outlived the removal');
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The round trip
 // ─────────────────────────────────────────────────────────────────────────────

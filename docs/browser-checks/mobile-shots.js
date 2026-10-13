@@ -171,13 +171,17 @@ const newLook = async (page) => {
    one board every later screen of this run is shot on. So the READ is stubbed in this screen's own context (gone
    with it) to say consolidated, and the page reloads. Screens that call this set noServiceWorker. */
 async function openConsAgents(page) {
+  /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+     its late rejection is caught instead of crashing the check after it passed. */
   await page.route('**/api/style', async (r) => {
-    if (r.request().method() !== 'GET') return r.fallback();
-    let resp;
-    try { resp = await fetchBoard(r); } catch { return r.fallback(); }   // never leave the request hanging
-    const j = await resp.json().catch(() => null);
-    if (!j) return r.fulfill({ response: resp });
-    return r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });
+    try {   // #6022: a late answer after close is caught, not a crash
+      if (r.request().method() !== 'GET') return await r.fallback();
+      let resp;
+      try { resp = await fetchBoard(r); } catch { return await r.fallback(); }   // never leave the request hanging
+      const j = await resp.json().catch(() => null);
+      if (!j) return await r.fulfill({ response: resp });
+      return await r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });
+    } catch { await r.abort().catch(() => {}); }
   });
   await page.reload({ waitUntil: 'load' });   // 'load', per this file's rule; the next line is the real readiness signal
   await page.waitForFunction(() => document.documentElement.getAttribute('data-layout') === 'consolidated', null, { timeout: 8000 });
@@ -310,6 +314,53 @@ const heldReopenAt = () => {
   return 'covered by ' + (named ? named.tagName.toLowerCase() + '#' + named.id : top ? top.tagName.toLowerCase() : 'nothing readable');
 };
 
+/* #3029: the subproject fixture for tasks-subprojects and tasks-subproject-picked, made once per run (there is no
+   project delete here) and cached on data. Projects are found again by name and parent on a fresh read, so this
+   does not depend on the create route's response shape. */
+async function subprojectFixture(page, data) {
+  if (data.subprojects) return data.subprojects;
+  const made = await page.evaluate(async (topId) => {
+    const post = (pth, b) => fetch(pth, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
+    const find = async (name, parent) => {
+      const all = await (await fetch('/api/projects')).json();
+      const list = Array.isArray(all) ? all : (all.projects || []);
+      const hit = list.find((p) => p && p.name === name && (p.parent || null) === (parent || null));
+      return hit ? hit.id : null;
+    };
+    // A new project's folder is named from its name, so two projects called Launch would share one folder (refused).
+    // Each is made under a one-off name, which gives it its own folder, then renamed: a rename keeps the folder.
+    // The one-off name is short (a folder name is capped at 60 characters) and unique to this run, and a project already
+    // made by an earlier screen of the same run is found and reused, so a retry never meets its own folders.
+    const runTag = Date.now().toString(36);
+    let seq = 0;
+    const make = async (name, parent) => {
+      const existing = await find(name, parent);
+      if (existing) return existing;
+      const first = 'fixture ' + runTag + ' ' + (++seq);
+      const r = await post('/api/projects', parent ? { name: first, parent } : { name: first });
+      if (r.status !== 200 && r.status !== 201) throw new Error('could not make ' + name + ' (status ' + r.status + ': ' + ((await r.json().catch(() => ({}))).error || '') + ')');
+      const made = await find(first, parent);
+      if (!made) throw new Error('made ' + name + ' but could not read it back');
+      const ren = await fetch('/api/project/' + encodeURIComponent(made), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+      if (ren.status !== 200) throw new Error('could not name ' + name + ' (status ' + ren.status + ')');
+      const id = await find(name, parent);
+      if (!id) throw new Error('made ' + name + ' but could not read it back');
+      return id;
+    };
+    const bookB = await make('Book B');
+    const launchA = await make('Launch', topId);
+    const launchB = await make('Launch', bookB);
+    const grandchild = await make('Spring catalogue relaunch with the regional sales teams', launchA);
+    for (const [id, sentence] of [[launchA, 'Draft the launch email'], [launchB, 'Book the venue'], [grandchild, 'Proof the catalogue pages']]) {
+      const r = await post('/api/project/' + encodeURIComponent(id) + '/tasks', { sentence });
+      if (r.status !== 200) throw new Error('could not add a task to ' + id + ' (status ' + r.status + ')');
+    }
+    return { bookB, launchA, launchB, grandchild };
+  }, data.projectId);
+  data.subprojects = made;
+  return made;
+}
+
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -322,7 +373,8 @@ const SCREENS = [
       let res, data;
       try { res = await fetchBoard(route); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
       data.loginAdvisories = adv;
-      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      /* #6022: the answer can be late too (a poll in flight at close); a late rejection is caught. */
+      try { await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } }); } catch { await route.abort().catch(() => {}); }
     });
     await at(page, '');
     await page.waitForSelector('#login-adv-slot .login-adv', { state: 'visible', timeout: 12000 });
@@ -342,7 +394,8 @@ const SCREENS = [
       try { res = await fetchBoard(route); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
       data.loginAdvisories = [{ agents: ['roo-lane'], names: ['Roo'], provider: 'Claude', service: 'Claude Code-credentials',
         email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
-      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      /* #6022: the answer can be late too (a poll in flight at close); a late rejection is caught. */
+      try { await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } }); } catch { await route.abort().catch(() => {}); }
     });
     await at(page, '');
     await page.waitForSelector('#login-adv-slot .login-adv', { state: 'visible', timeout: 12000 });
@@ -402,11 +455,15 @@ const SCREENS = [
       { communityOn: true, lastCommunityPost: 'No community posts yet', lastCommunityPostAt: null },
       { communityOn: true, lastCommunityPost: 'No community posts yet', lastCommunityPostAt: null },
     ];
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await page.route('**/api/status', async (route) => {
-      let res, d;
-      try { res = await route.fetch(); d = await res.json(); } catch { await route.abort().catch(() => {}); return; }
-      if (Array.isArray(d.agents)) d.agents.forEach((a, i) => { if (seed[i]) Object.assign(a, seed[i]); });
-      await route.fulfill({ response: res, body: JSON.stringify(d), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      try {
+        const res = await route.fetch();
+        const d = await res.json();
+        if (Array.isArray(d.agents)) d.agents.forEach((a, i) => { if (seed[i]) Object.assign(a, seed[i]); });
+        await route.fulfill({ response: res, body: JSON.stringify(d), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      } catch { await route.abort().catch(() => {}); }
     });
     await at(page, '');
     // The default board view already shows the .acard agents grid (like the agents-list and
@@ -657,6 +714,62 @@ const SCREENS = [
     await page.evaluate(() => scrollTo(0, 0));
     await page.mouse.move(1, 1);
   } },
+  /* kosmos#5958 slice 2: "Where each agent stands" in Settings > Automation, with three sample rows in three states
+     and the last one open, so a closed row, an open row and a row with something waiting are all in one shot. The
+     board's own answer names this computer's agents and is not a shot's business, so the read is answered HERE with
+     sample names. Times are made from now (the page writes a time without its year, except in the first day or so of
+     a year, when the oldest of these falls in the year before). */
+  { name: 'community-ready', owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page) => {
+    const hour = 3600000;
+    const row = (session, name, owner, more) => ({ session, name, switch: 'on', addressOk: true, block: 'present', connected: false, rereadOwed: false, account: 'yes', reminder: null, lastPost: null, held: 0, ...more, owner });
+    const agents = [
+      row('ava', 'Ava', { summary: 'Newest post is in the community', lines: [
+        { text: 'The community section is in its instructions.' },
+        { text: 'It has a community account.' },
+        { text: 'Kosmos last went to remind it on ', at: Date.now() - 5 * hour, after: '. Delivered.' },
+        { text: 'Its newest post, “Weekly ops”, is in the community.' },
+      ] }),
+      row('bo', 'Bo', { summary: 'No community section in its instructions. Has not posted yet', lines: [
+        { text: 'No community section in its instructions. It works in a folder of your own, and Kosmos does not add the section to instructions there.' },
+        { text: 'No community account yet. Kosmos makes one the first time something it wrote goes to the community.' },
+        { text: 'Kosmos has no record of going to remind it.' },
+        { text: 'It has not posted yet.' },
+      ] }, { block: 'absent', account: 'none' }),
+      row('cy', 'Cy', { summary: 'Has not posted yet. 2 waiting for you', lines: [
+        { text: 'The community section is in its instructions.' },
+        { text: 'It has a community account.' },
+        { text: 'Kosmos last went to remind it on ', at: Date.now() - 2 * hour, after: '. Not sent: this computer had reached its hourly limit for messages to agents.' },
+        { text: 'The last reminder that reached it was on ', at: Date.now() - 26 * hour, after: '.' },
+        { text: 'It has not posted yet.' },
+        { text: '2 items it wrote are under Waiting for you.' },
+      ] }, { held: 2 }),
+    ];
+    await page.route('**/api/community/ready', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ agents }) }));
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForFunction(() => { const l = document.getElementById('community-ready-list'); return l && !l.hidden && l.querySelectorAll('.community-ready-row').length === 3; }, null, { timeout: 8000 });
+    await page.evaluate(() => {
+      const rows = document.querySelectorAll('#community-ready-list .community-ready-row > details');
+      const last = rows[rows.length - 1];
+      last.open = true;
+      document.getElementById('community-ready-head').scrollIntoView({ block: 'start' });
+      // The shot is the viewport only. Where the list is taller than the screen (a phone), the open row's last line
+      // is what must be in it: the heading goes off the top before the open row is cut off at the bottom.
+      const line = last.querySelector('p:last-of-type');
+      if (line && line.getBoundingClientRect().bottom > window.innerHeight) line.scrollIntoView({ block: 'end' });
+    });
+    await page.mouse.move(1, 1);
+    await page.waitForTimeout(300);
+  }, verify: async (page) => {
+    // The shot is the screen meant: three rows, the last one open, and its last line on screen (not cut off below).
+    const seen = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('#community-ready-list .community-ready-row > details')];
+      const last = rows[rows.length - 1];
+      const line = last ? last.querySelector('p:last-of-type') : null;
+      const r = line ? line.getBoundingClientRect() : null;
+      return { rows: rows.length, open: !!(last && last.open), lastLineOnScreen: !!(r && r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight) };
+    });
+    if (seen.rows !== 3 || !seen.open || !seen.lastLineOnScreen) throw new Error('community-ready: not the screen meant ' + JSON.stringify(seen));
+  }, after: async (page) => { await page.unroute('**/api/community/ready'); } },
   /* #4794: the computer waiting to be allowed shows the same code and "The codes match". */
   { name: 'plus-join', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await joinWaiting(page); await at(page, '?tab=settings&sec=plus');
     await page.waitForFunction(() => /Check that homemac shows this same code/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
@@ -956,6 +1069,25 @@ const SCREENS = [
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
   } },
+  /* #3029: subprojects on the Tasks view, named by their chain. Two subprojects both called Launch (one under the
+     fixture project, one under a new Book B) and a long grandchild, each with a task; made ONCE per run through the
+     board's own API and reused by every size and theme. tasks-subprojects groups by project with nothing picked;
+     tasks-subproject-picked picks the long grandchild, so the closed select, crumb and title show it. */
+  { name: 'tasks-subprojects', owner: 'Mona Lisa', go: async (page, data) => {
+    await subprojectFixture(page, data);
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+    await page.selectOption('#tsk-by', 'project');
+    await page.waitForFunction(() => document.querySelectorAll('#tsk-groups .tsk-grp h3').length > 1, null, { timeout: 5000 });
+  } },
+  { name: 'tasks-subproject-picked', owner: 'Mona Lisa', go: async (page, data) => {
+    const ids = await subprojectFixture(page, data);
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+    await page.waitForFunction((id) => !!document.querySelector('#tsk-projsel option[value="' + id + '"]'), ids.grandchild, { timeout: 5000 });
+    await page.selectOption('#tsk-projsel', ids.grandchild);
+    await page.waitForFunction(() => document.getElementById('tsk-crumb').textContent.includes('›'), null, { timeout: 5000 });
+  } },
   /* #5456: the Tasks view with a repeating task nobody is named on, under On a schedule (not Unassigned). The task is made
      and given its rule here, and the rule is cleared after the shot. The task is made ONCE per run and reused by every
      size and theme (there is no task delete), so each shot shows the same counts. */
@@ -1194,7 +1326,7 @@ const SCREENS = [
           if (t.progress) t.progress.closed = true;
         }
       }
-      await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      try { await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } }); } catch { await route.abort().catch(() => {}); }   // #6022
     });
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
@@ -2031,15 +2163,17 @@ async function run() {
                  byte still comes from this board. Registered FIRST so the stubs below, registered after it, win
                  (Playwright tries the newest route first); they fetch through fetchBoard, which points back at the board. */
               if (args.remote) {
-                await ctx.route(REMOTE_BASE + '/**', (r) => fetchBoard(r).then((res) => r.fulfill({ response: res }), () => r.abort()));   // board gone: fail now, not at the screen's timeout
+                await ctx.route(REMOTE_BASE + '/**', (r) => fetchBoard(r).then((res) => r.fulfill({ response: res }).catch(() => {}), () => r.abort().catch(() => {})).catch(() => {}));   // board gone: fail now, not at the screen's timeout; a late answer after close is quiet (#6022)
               }
               if (DATA.connected) {
                 await ctx.route('**/api/status', async (r) => {
-                  const res = await fetchBoard(r);
-                  const body = await res.json().catch(() => null);
-                  if (!body || typeof body !== 'object') return r.fulfill({ response: res });
-                  body.connection = { ...(body.connection || {}), state: 'connected' };
-                  return r.fulfill({ response: res, json: body });
+                  try {   // #6022: a poll can be in flight at close; caught, not a crash
+                    const res = await fetchBoard(r);
+                    const body = await res.json().catch(() => null);
+                    if (!body || typeof body !== 'object') return await r.fulfill({ response: res });
+                    body.connection = { ...(body.connection || {}), state: 'connected' };
+                    return await r.fulfill({ response: res, json: body });
+                  } catch { await r.abort().catch(() => {}); }
                 });
               }
               await ctx.addInitScript((t) => { try { localStorage.setItem('kosmos-theme', t); } catch { /* no storage */ } }, theme);

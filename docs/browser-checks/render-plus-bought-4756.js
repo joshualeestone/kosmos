@@ -195,7 +195,8 @@ const visible = (page, sel) => page.evaluate((s) => {
       await open(page);
       await page.route('**/api/remote/signin-**', (route, req) => {
         const p = new URL(req.url()).pathname;
-        const json = (status, body) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+        // #6027: some answers are sent late (setTimeout below), so each one catches its own rejection after close.
+        const json = (status, body) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) }).catch(() => {});
         if (p === '/api/remote/signin-start') return json(200, { ok: true, stage: 'code_sent' });
         if (p === '/api/remote/signin-verify') return json(200, { ok: true, stage: 'session', account_address: sc.account === undefined ? 'first.kosmosplus.com' : sc.account });
         if (p === '/api/remote/signin-addresses') {

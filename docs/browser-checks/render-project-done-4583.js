@@ -1,16 +1,13 @@
 /* #4583 (#4580 items 3 and 4): the create form asks what done looks like (the list's "Done not set" tag is gone,
- * #5688), and a second coordinator added to a project is warned about in the
- * project notice until it no longer holds or the person dismisses it.
+ * #5688). The person is never warned that a project has several coordinators (#5951).
  *
  * Drives the SHIPPED page against a real server (sandboxed roots):
  *  0. On the form: the label's words and the box's aria-label are both "What does done look like?", and the hint
  *     is shown and names neither "Done not set" nor a length.
  *  1. Create with done left blank: the POST carries no `done` key; the row shows no badge (#5688: "Done not set" is gone).
  *  2. Create with done typed: the POST carries it; the row shows no badge (control for 1).
- *  3. Coordinators (the page's own rules; the server's are in server.projects.test.js): the add answer and the
- *     project read are stubbed. A project read that says two coordinators shows NOTHING until an add brought it on
- *     (a warning at add time, not a standing nag); after the add it shows; Dismiss removes it; and a read that no
- *     longer has two coordinators drops it by itself.
+ *  3. Coordinators (#5951): the page shows no notice about them, even to an answer and a project read that still
+ *     carry the old warning (a board served by an older build).
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-project-done-4583.js
  *      (HEADED=0 on a machine with no console session)
@@ -165,49 +162,35 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
     await p.setViewportSize({ width: 1400, height: 900 });
     await p.evaluate((l) => layoutApply('projects', l), layoutBefore);
 
-    // ---- coordinators (page rules; the add answer and the read are stubbed) ----
+    // ---- coordinators (#5951): no notice, even when the add answer and the read still carry the old warning ----
     const id = await p.evaluate(() => (PROJECTS.find((x) => x.name === 'Given Done Project') || {}).id);
-    let readSaysTwo = true;
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await p.route('**/api/projects', async (route) => {
-      if (route.request().method() !== 'GET') return route.continue();
-      const res = await route.fetch();
-      const body = await res.json();
-      for (const pr of body.projects || []) if (pr.id === id) pr.coordinators = readSaysTwo ? WARN : null;
-      return route.fulfill({ response: res, json: body });
+      try {
+        if (route.request().method() !== 'GET') return await route.continue();
+        const res = await route.fetch();
+        const body = await res.json();
+        for (const pr of body.projects || []) if (pr.id === id) pr.coordinators = WARN;
+        return await route.fulfill({ response: res, json: body });
+      } catch { await route.abort().catch(() => {}); }
     });
     await p.route('**/api/project/*/agent/*', (route) => route.fulfill({ status: 200, contentType: 'application/json',
       body: JSON.stringify({ project: null, told: { state: 'not_tried' }, said: null, coordinators: WARN }) }));
     await p.evaluate((pid) => openProject(pid), id);
+    const added = await p.evaluate(() => addMemberToProject('pm-y', document.getElementById('pj-one-msg')));
     await p.evaluate(() => loadProjects());
     await p.waitForTimeout(300);
-    const notice = () => p.evaluate(() => (document.getElementById('pj-one-notice').textContent || ''));
-    ok('coordinators: a read that says two shows nothing before an add brought it on', !/coordinator/i.test(await notice()), await notice());
-    await p.evaluate(() => addMemberToProject('pm-y', document.getElementById('pj-one-msg')));
-    await p.evaluate(() => loadProjects());
-    await p.waitForTimeout(300);
-    ok('coordinators: after the add the warning is in the project notice', (await notice()).includes('Two coordinators on this project') && (await notice()).includes('owns the task queue'), await notice());
-    await p.click('#pj-one-notice [data-pn-coord-dismiss]');
-    await p.waitForTimeout(200);
-    ok('coordinators: Dismiss removes it', !/coordinator/i.test(await notice()), await notice());
-    await p.evaluate(() => addMemberToProject('pm-y', document.getElementById('pj-one-msg')));
-    readSaysTwo = false;
-    await p.evaluate(() => loadProjects());
-    await p.waitForTimeout(300);
-    ok('coordinators: a read with no longer two coordinators drops it by itself', !/coordinator/i.test(await notice()), await notice());
-    readSaysTwo = true;
-    await p.evaluate(() => loadProjects());
-    await p.waitForTimeout(300);
-    ok('coordinators: once dropped, it does not come back without a new add', !/coordinator/i.test(await notice()), await notice());
-    // Review round 2: a repaint on the read from BEFORE the add (coordinators still null) must not clear the warning
-    // before it was ever shown; the next read, which knows about the add, shows it.
-    readSaysTwo = false;
-    await p.evaluate(() => loadProjects());
-    await p.evaluate(() => addMemberToProject('pm-y', document.getElementById('pj-one-msg')));
-    await p.evaluate(() => paintOneProject());   // the stale read: coordinators null
-    readSaysTwo = true;
-    await p.evaluate(() => loadProjects());
-    await p.waitForTimeout(300);
-    ok('coordinators: a stale repaint between the add and the next read does not swallow the warning', (await notice()).includes('Two coordinators on this project'), await notice());
+    const shown = await p.evaluate((pid) => {
+      const text = (elId) => { const el = document.getElementById(elId); return el ? (el.textContent || '') : null; };
+      const held = PROJECTS.find((x) => x.id === pid) || {};
+      return { held: held.coordinators || null, open: PJ_CURRENT === pid, page: document.body.innerText || '', one: text('pj-one-notice'), rail: text('alist-pj-notice') };
+    }, id);
+    ok('coordinators: CONTROL the add went through and the open project, as the page holds it, carries the old sentence', added === true && shown.open && shown.held === WARN && shown.one !== null,
+      JSON.stringify({ added, open: shown.open, held: shown.held, one: shown.one !== null }));
+    const said = /coordinating role|coordinators on this project/i;
+    ok('coordinators: the person sees no notice about them', !said.test(shown.page), shown.page.slice(0, 300));
+    ok('coordinators: neither notice box holds one, shown or hidden', !said.test(shown.one || '') && !said.test(shown.rail || ''), JSON.stringify({ one: shown.one, rail: shown.rail }));
     /* #5688: unroute() does not wait for a handler already running, so a poll's route.fetch still in flight at
        b.close() threw "Request context disposed" AFTER every assertion passed (CI, twice). Wait for in-flight handlers
        to finish while the page is still open, then drop the stubs. */

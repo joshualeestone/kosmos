@@ -476,6 +476,46 @@ test('#3326: sign-up with reauth forces a real login even when the credential is
   }
 });
 
+// #3326, the card's own case (a credential last used ~6 months ago that the local file still calls
+// connected), measured through the sign-up route for the two live answers the LIVE test above
+// does not cover. EXPIRED: the live check says signed out. UNVERIFIABLE: the live check cannot reach
+// Claude at all; WITHOUT reauth that answers connected (the #1585 control below), so this arm is the
+// one that fails if the route stops forwarding reauth or connect.start stops honouring it.
+for (const [label, runner] of [
+  ['EXPIRED (live check says signed out)', async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null })],
+  ['UNVERIFIABLE (live check cannot reach Claude)', async () => { throw new Error('claude is not reachable'); }],
+]) {
+  test('#3326: sign-up with reauth never accepts a stale Connected, credential ' + label, async () => {
+    const subscription = require('./engine/subscription');
+    fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+    subscription.setRunner(runner);
+    const calls = [];
+    connect.setRunner((file, args) => {
+      calls.push({ file, args: args || [] });
+      if ((args || []).includes('--version')) return { ok: true, stdout: '2.1.0' };
+      return { ok: true, stdout: '' };
+    });
+    try {
+      const got = await post('/api/connect/start', { reauth: true });
+      assert.equal(got.status, 200, got.body);
+      assert.notEqual(json(got).phase, 'connected', 'sign-up accepted the stale Connected without a login');
+      for (let end = Date.now() + 2000; Date.now() < end && !calls.some((c) => (c.args || []).includes('new-session')); ) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      const launch = calls.find((c) => (c.args || []).includes('new-session'));
+      assert.ok(launch, 'no tmux new-session -- sign-up did not launch a login over the stale credential');
+      assert.match(launch.args.join(' '), /auth login --claudeai/,
+        'sign-up must launch a REAL login over a stale credential; got: ' + launch.args.join(' '));
+    } finally {
+      connect.setRunner(null);
+      subscription.setRunner(null);
+      fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+      await post('/api/connect/cancel').catch(() => {});
+      connect.resetForTests();
+    }
+  });
+}
+
 // #2645 CONTROL: a genuinely FRESH machine (no credential -> check() NONE -> the
 // deadCredential fall-through is never entered) must still launch a BARE claude for its
 // own onboarding. Without this arm, the test above is satisfied by a change that ALWAYS

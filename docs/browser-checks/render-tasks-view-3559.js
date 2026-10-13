@@ -127,6 +127,10 @@ function chk(ok, label, extra) {
     return {
       visible: !panel.hidden && panel.getClientRects().length > 0,
       text: panel.innerText,
+      /* #5942: a row's own wait line says "Waiting on you for ..." from a recorded start, which is provable;
+         the #3559 rule below is about GROUPS and categories, so it reads the panel without those lines. */
+      waitLines: [...panel.querySelectorAll('.tsk-row .tsk-waiting')].map((el) => el.textContent),
+      textNoWait: (() => { const c = panel.cloneNode(true); c.querySelectorAll('.tsk-row .tsk-waiting').forEach((el) => el.remove()); return c.textContent; })(),
       tiles,
       rows,
       fold: !!document.querySelector('#tsk-groups .tsk-fold'),
@@ -419,7 +423,8 @@ function chk(ok, label, extra) {
       chk(gaps.aboveTitle >= 16 && gaps.aboveTitle <= 32, `${tag} the gap above the title is about half the old 51px`, JSON.stringify(gaps));
       chk(gaps.hintToGroup >= 16 && gaps.hintToGroup <= 32, `${tag} the gap from the Group by row to the first group is about half the old 49px`, JSON.stringify(gaps));
       chk(a.tiles.every((t) => t.n === EXPECT[t.k]), `${tag} each tile counts its group`, JSON.stringify(a.tiles));
-      chk(!/Waiting on you|Done, check it|Categor/i.test(a.text), `${tag} no unprovable group or category is drawn`);
+      chk(!/Waiting on you|Done, check it|Categor/i.test(a.textNoWait), `${tag} no unprovable group or category is drawn`);
+      chk(a.waitLines.every((t) => /^(Waiting on you for \d+ (seconds|minutes?|hours?|days?)|Just started waiting on you)$/.test(t)), `${tag} the only lines that rule leaves out are rows' own wait lines`, JSON.stringify(a.waitLines));
       const cover = a.rows.find((r) => r.text === 'Approve the cover');
       chk(cover && /Needs Your Decision/.test(cover.group), `${tag} the task whose agent needs the person is under Needs Your Decision`, JSON.stringify(cover));
       chk(!/Archived away task|Old catalog/.test(a.text), `${tag} an archived project's tasks are left out`);
@@ -826,12 +831,16 @@ function chk(ok, label, extra) {
         /* The same through the wire (review round 11): the route answers rosterUnreadable, and the page's own read
            (tskLoad) takes it; no flag set by hand. The rows are the route's own, with Max's decision as the route
            would derive it with no roster (not a decision). */
+        /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+           (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
         await page.route('**/api/tasks?view=tasks*', async (route) => {
-          const resp = await route.fetch();
-          const json = await resp.json();
-          json.rosterUnreadable = true;
-          json.tasks = json.tasks.map((t) => (t.state === 'decision' ? Object.assign({}, t, { state: 'assigned', waitingOnPerson: false }) : t));
-          await route.fulfill({ response: resp, json });
+          try {
+            const resp = await route.fetch();
+            const json = await resp.json();
+            json.rosterUnreadable = true;
+            json.tasks = json.tasks.map((t) => (t.state === 'decision' ? Object.assign({}, t, { state: 'assigned', waitingOnPerson: false }) : t));
+            await route.fulfill({ response: resp, json });
+          } catch { await route.abort().catch(() => {}); }
         });
         const wire = await page.evaluate(async () => {
           await tskLoad();
@@ -843,6 +852,49 @@ function chk(ok, label, extra) {
         const wireBack = await page.evaluate(async () => { await tskLoad(); return { num: document.querySelector('#tsk-tiles [data-tile="decision"] .num').textContent, flag: TSK.rosterUnknown }; });
         chk(wire.num === '?' && wire.flag === true && wire.group && /cannot tell/.test(wire.group) && wireBack.num === '1' && wireBack.flag === false,
           `${tag} an unreadable roster from the route reaches the tile and its group through the page's own read, and a good read clears it`, JSON.stringify({ wire, wireBack }));
+        /* kosmos#5942: a decision row says how long it has waited. The route's own rows, with the one field #5943's
+           askedAt fills (#5943 has merged), stamped to a fixed time, so the real row renders it through the real page. */
+        const stampAge = async (route) => {
+          try {   // #6022: a poll in flight at close is caught, not a crash after the check passed
+            const resp = await route.fetch();
+            const json = await resp.json();
+            const since = new Date(Date.now() - (12 * 86400 + 3600) * 1000).toISOString();
+            json.tasks = json.tasks.map((t) => (t.state === 'decision' ? Object.assign({}, t, { waitingSince: since }) : t));
+            await route.fulfill({ response: resp, json });
+          } catch { await route.abort().catch(() => {}); }
+        };
+        await page.route('**/api/tasks?view=tasks*', stampAge);
+        let aged;
+        try {
+          aged = await page.evaluate(async () => {
+            await tskLoad();
+            const lines = [...document.querySelectorAll('#tsk-groups .tsk-row .tsk-waiting')];
+            const shown = lines.filter((l) => l.getBoundingClientRect().height > 0);
+            return { n: lines.length, shown: shown.length, text: shown[0] ? shown[0].innerText.trim() : null };
+          });
+        } finally {
+          await page.unroute('**/api/tasks?view=tasks*', stampAge);   // this handler only; never left stamping rows
+        }
+        /* No known start: the same rows with waitingSince forced to null on the decision row, so this half means the
+           same before and after #5943 gives real cards a start. */
+        const noAge = async (route) => {
+          try {   // #6022
+            const resp = await route.fetch();
+            const json = await resp.json();
+            json.tasks = json.tasks.map((t) => (t.state === 'decision' ? Object.assign({}, t, { waitingSince: null }) : t));
+            await route.fulfill({ response: resp, json });
+          } catch { await route.abort().catch(() => {}); }
+        };
+        await page.route('**/api/tasks?view=tasks*', noAge);
+        let agedBack;
+        try {
+          agedBack = await page.evaluate(async () => { await tskLoad(); return document.querySelectorAll('#tsk-groups .tsk-row .tsk-waiting').length; });
+        } finally {
+          await page.unroute('**/api/tasks?view=tasks*', noAge);
+        }
+        await page.evaluate(async () => { await tskLoad(); });   // back to the route's own rows for the arms after this
+        chk(aged.n === 1 && aged.shown === 1 && aged.text === 'Waiting on you for 12 days' && agedBack === 0,
+          `${tag} a decision row says how long it has waited on you, and says nothing with no known start (#5942)`, JSON.stringify({ aged, agedBack }));
         await page.fill('#tsk-search', 'podcast');
         /* Its own clear button: shown with text, clears and hides again. */
         const clr = await page.evaluate(() => !document.getElementById('tsk-qclear').hidden);

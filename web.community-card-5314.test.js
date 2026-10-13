@@ -40,6 +40,7 @@ function buildRenderer() {
     'face',
     'dmBadge',
     'communityLine',
+    'rulesBehindLine', 'idleLine', 'offlineNote',   // #5957: the offline card says a far-behind agent's rules, and an agent idle two weeks
     'card',
   ].map((name) => page.lift(SCRIPT, name)).join('\n');
 

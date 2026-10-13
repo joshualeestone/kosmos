@@ -338,6 +338,26 @@ test('the Connect button says Connected once it is, and stops saying it if we lo
   assert.equal(btn.disabled, false);
 });
 
+test('#3326: the sign-up start asks for a forced login whether or not an install was confirmed', () => {
+  /* The painter above keeps the button an action until a watched login succeeds; this pins
+     what pressing it sends. Without reauth, a credential the live check cannot verify answers
+     connected straight away (server.connect.test.js "#1585 CONTROL"), so sign-up would never
+     run a login over it. Evaluated rather than matched, so a body that only mentions reauth in
+     a comment, or sets it false, fails. */
+  const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  const at = page.indexOf('async function frConnectStartConfirmed(');
+  assert.notEqual(at, -1, 'frConnectStartConfirmed moved; re-point this test');
+  const end = page.indexOf('\nasync function ', at + 1);
+  const m = codeOnly(page.slice(at, end === -1 ? at + 6000 : end)).match(/fetch\('\/api\/connect\/start'[\s\S]*?body: JSON\.stringify\((.+?)\),\n/);
+  assert.ok(m, 'the sign-up start no longer builds a body this test can read');
+  const build = new Function('installConfirmed', 'return ' + m[1] + ';');
+  for (const confirmed of [true, false]) {
+    const body = build(confirmed);
+    assert.equal(body.reauth, true, 'the sign-up start does not ask for a forced login (installConfirmed ' + confirmed + ')');
+    assert.equal(body.installConfirmed, confirmed, 'the sign-up start lost its install-confirm value');
+  }
+});
+
 test('frPaintOpenai marks the row Connected, told directly or by asking the machine', async () => {
   const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const at = page.indexOf('async function frPaintOpenai(');
@@ -719,10 +739,10 @@ test('#5856: the model step says Claude is 18+ and names who an under-18 can cho
   assert.doesNotMatch(STEP, /\b(how old|your age|date of birth|birthday)\b/i, 'the model step asks an age, which #5856 ruled out');
 });
 
-test('#5856: frPaintMeta names Meta Muse in the under-18 list only while Muse is live', async () => {
+test('#5856: frPaintMeta names Meta Muse in the under-18 list only while Muse can be picked (on, and installed: #3939)', async () => {
   const { scriptOf, lift } = require('./test-support/page');
   const src = lift(scriptOf(PAGE), 'frPaintMeta');
-  const run = async (on) => {
+  const run = async (on, installed) => {
     const els = {};
     const el = () => ({ hidden: false, textContent: '', innerHTML: '', className: '', disabled: false,
       classList: { toggle() {} }, setAttribute() {}, querySelector: () => null, focus() {} });
@@ -730,10 +750,11 @@ test('#5856: frPaintMeta names Meta Muse in the under-18 list only while Muse is
     els['fr-age-list'].textContent = 'unpainted';
     const document = { getElementById: (id) => els[id] || null };
     const fn = new Function('document', 'MUSE_CREATE', 'MUSE_CREATE_ASKING', 'museCreateAsk', 'frMuseCollapse', 'frCheckRow',
-      src + '\nreturn frPaintMeta;')(document, { on, ready: false }, null, async () => {}, () => {}, frCheckRowStub);
+      src + '\nreturn frPaintMeta;')(document, { on, installed, ready: false }, null, async () => {}, () => {}, frCheckRowStub);
     await fn();
     return els['fr-age-list'].textContent;
   };
-  assert.equal(await run(false), 'OpenAI or Grok', 'with Muse off the list must not name Meta');
-  assert.equal(await run(true), 'OpenAI, Grok or Meta Muse', 'with Muse live the list must name Meta Muse');
+  assert.equal(await run(false, false), 'OpenAI or Grok', 'with Muse off the list must not name Meta');
+  assert.equal(await run(true, false), 'OpenAI or Grok', 'Muse on by default but Muse Code not installed: Meta cannot be picked yet');
+  assert.equal(await run(true, true), 'OpenAI, Grok or Meta Muse', 'with Muse on and installed the list must name Meta Muse');
 });

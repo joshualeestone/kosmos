@@ -200,8 +200,8 @@ DATA_PATHS_BEFORE="$(data_paths)"
 # ⇒ ping.json (#3038, kosmos): the beacon reads the install's random installId on board
 #   start (engine/ping.js writes store.ROOT/ping.json, minted once), and this gate boots the
 #   installed board, so the id file lands on first boot -- the same set-once-boot-marker case
-#   as .world-confirmed.json above. It is a local random id (never a machine fingerprint) and
-#   only leaves the Mac via the opt-out feedback report. #3038 added the boot-time read without
+#   as .world-confirmed.json above. It is a local random id (never a machine fingerprint);
+#   engine/ping.js lists the files that send it. #3038 added the boot-time read without
 #   updating this list, so the first cut carrying it red-flagged ping.json here; blessed now.
 # ⇒ prompter-nudges.json (#3508, kosmos): the in-app check-in store. The runner tick writes the
 #   current nudge set to store.ROOT/prompter-nudges.json each tick (store.ROOT already ends in the
@@ -714,7 +714,33 @@ chk "launcher passes its own account and starts the board" "[ -s \"$SB/launcher.
 # #5896 slice 2: when the build shipped the sealed Kosmos.app and this install wrote the account's config, the icon IS
 # that sealed app (signed, nothing per-install inside it), and the config lives only in the account's Library.
 # The sealed shape: no per-install file inside, and a signature that verifies. Read BEFORE an uninstall, which
-# leaves a shared sealed icon in place and names it, where it removes a per-install one.
+# keeps a shared sealed icon only while a runnable default install can still open it (#5912), where it removes a per-install one.
+# #5912 review: what the owner's uninstall MUST do with the shared sealed icon, from the same facts setup.sh's
+# sealed_opens_another reads (so each check asserts ONE outcome, not "removed or named"): it is kept only when the
+# install being removed is not the default home ($1 = the HOME the uninstall ran with, against the KOSMOS_HOME it
+# inherits) and that HOME's default install is runnable (bin/kosmos, the app's own test). 0 = must be removed.
+sealed_icon_must_go() {
+  _smg_def="$(printf '%s' "$1/.local/share/kosmos" | tr -s '/')"; _smg_def="${_smg_def%/}"
+  if [ "$(printf '%s' "$KOSMOS_HOME" | tr -s '/')" = "$_smg_def" ]; then return 0; fi
+  [ -x "$_smg_def/bin/kosmos" ] && return 1
+  return 0
+}
+# #5912 review 5: the whole condition, read BEFORE the uninstall (it removes the config): `other` when the account
+# config does not name the install being removed (the icon is not proven this install's: kept, "may be used by another
+# account or install"), else `gone` or `main` from sealed_icon_must_go. $1 = the HOME the uninstall runs with.
+sealed_expect() {
+  _se_cfg="${AGENT_WORKFORCE_HOME:-$1}/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json"
+  if ! { [ -f "$_se_cfg" ] && grep -qF "\"kosmosHome\":\"$KOSMOS_HOME\"" "$_se_cfg"; }; then echo other; return; fi
+  if sealed_icon_must_go "$1"; then echo gone; else echo main; fi
+}
+check_sealed_owner_uninstall() { # $1 label, $2 icon dir, $3 log, $4 what sealed_expect said BEFORE the uninstall
+  case "$4" in
+    gone) chk "$1: removed (nothing left on this account opens it)" "[ ! -e \"$2/Kosmos.app\" ] && ! grep -q 'so it was left in place' \"$3\"" ;;
+    main) chk "$1: kept and named (the default install still opens it)" "[ -d \"$2/Kosmos.app\" ] && grep -q \"still opens this account's main Kosmos install\" \"$3\"" ;;
+    other) chk "$1: kept and named (not proven this install's)" "[ -d \"$2/Kosmos.app\" ] && grep -q 'may be used by another account or install' \"$3\"" ;;
+    *) chk "$1: sealed_expect gave an answer" "false" ;;
+  esac
+}
 icon_is_sealed() { [ ! -e "$1/Contents/Resources/kosmos-install.json" ] && /usr/bin/codesign --verify --deep --strict "$1" >/dev/null 2>&1; }
 APP_CFG="$SB/apps/Kosmos.app/Contents/Resources/kosmos-install.json"
 [ -f "$APP_CFG" ] || APP_CFG="$SB/home/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json"
@@ -1251,7 +1277,8 @@ fi
 echo "== the uninstall sweep proves ownership before deleting =="
 # The system-folder icon was installed by the home2 install; this uninstall
 # runs as the home3 install, so the sweep must take the per-user icon and
-# REFUSE the shared one it does not own, in a sentence.
+# REFUSE a per-install shared one it does not own, in a sentence. A SEALED shared icon follows the account config
+# instead (#5912): when home3's fallback install rewrote the config, this uninstall is the one it opens, and takes it.
 SYS_OK_SEALED=no; icon_is_sealed "$SYS_OK/Kosmos.app" && SYS_OK_SEALED=yes
 # Not just "whichever shape it is": when the build shipped the sealed app, the shared-folder install must have placed it.
 # #5896: the uninstall below is driven with the SAME KOSMOS_HOME_APP_DIR as the fallback install above (the rule
@@ -1260,16 +1287,19 @@ SYS_OK_SEALED=no; icon_is_sealed "$SYS_OK/Kosmos.app" && SYS_OK_SEALED=yes
 if [ -d "$KOS_SRC/app/Kosmos.app" ]; then
   chk "#5896: the shared-folder icon is the sealed app the build shipped" "[ \"$SYS_OK_SEALED\" = yes ]"
 fi
+PROBE_EXP="$(sealed_expect "$SBH")"   # #5912: read before the uninstall removes the config
 RC=0; HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" sh -s -- --uninstall < "$SETUP" > "$SB/probe-un.log" 2>&1 || RC=$?
 chk "sweep uninstall exits 0" "rc_ok $RC"
 chk "home-folder icon swept" "[ ! -d \"$SBH/Applications/Kosmos.app\" ]"
-chk "another install's system icon left alone" "[ -d \"$SYS_OK/Kosmos.app\" ]"
 if [ "$SYS_OK_SEALED" = yes ]; then
-  chk "#5896: the shared sealed icon is named as left in place" "grep -q 'shared by every account on this computer, so it was left in place' \"$SB/probe-un.log\""
+  # #5912 review: a SEALED icon belongs to the install the account config names. The home3 fallback install above
+  # rewrote that config, so this uninstall takes it; on the root path nothing rewrote it, so it is kept and named.
+  check_sealed_owner_uninstall "#5912: the shared sealed icon follows the account config" "$SYS_OK" "$SB/probe-un.log" "$PROBE_EXP"
 else
+  chk "another install's system icon left alone" "[ -d \"$SYS_OK/Kosmos.app\" ]"
   chk "the refusal speaks a sentence" "grep -q \"in $SYS_OK could not be proven to belong to this install\" \"$SB/probe-un.log\""
 fi
-# The OWNER's uninstall takes a per-install icon (a sealed one is left and named, #5896). Probe and stage residue are seeded first
+# The OWNER's uninstall takes a per-install icon (a sealed one follows the account config, #5912). Probe and stage residue are seeded first
 # so the sweep the served header PROMISES ("--uninstall sweeps it") is
 # pinned rather than assumed, in both folders.
 # The swept residue must be PROVABLY OURS (the sweep now demands the same
@@ -1283,11 +1313,18 @@ seed_residue "$SBH/Applications/.Kosmos.app.stage.888" "$SB/home2"
 seed_residue "$SBH/Applications/.Kosmos.app.old.222" "$SB/home2"
 mkdir -p "$SYS_OK/.kosmos-write-probe.777"
 export KOSMOS_HOME="$SB/home2" KOSMOS_BIN_DIR="$SB/bin2"
-SYS_OK_SEALED=no; icon_is_sealed "$SYS_OK/Kosmos.app" && SYS_OK_SEALED=yes
+# #5912 review 5: SYS_OK_SEALED is the reading from BEFORE the first uninstall (re-reading here, after that uninstall
+# may have taken the icon, would read "not sealed" and route a sealed build to the per-install arm).
+OWNER_PRESENT=no; [ -e "$SYS_OK/Kosmos.app" ] && OWNER_PRESENT=yes
+OWNER_EXP="$(sealed_expect "$SBH")"
 RC=0; HOME="$SBH" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" sh -s -- --uninstall < "$SETUP" > "$SB/probe-un2.log" 2>&1 || RC=$?
 chk "owner uninstall exits 0" "rc_ok $RC"
 if [ "$SYS_OK_SEALED" = yes ]; then
-  chk "#5896: the owner's uninstall leaves the shared sealed icon and names it" "[ -d \"$SYS_OK/Kosmos.app\" ] && grep -q 'shared by every account on this computer, so it was left in place' \"$SB/probe-un2.log\""
+  if [ "$OWNER_PRESENT" = yes ]; then
+    check_sealed_owner_uninstall "#5912: the owner's uninstall and the shared sealed icon" "$SYS_OK" "$SB/probe-un2.log" "$OWNER_EXP"
+  else
+    chk "#5912: the shared sealed icon already went with the install the config named, and stays gone" "[ ! -e \"$SYS_OK/Kosmos.app\" ]"
+  fi
 else
   chk "system-folder icon swept by its owner" "[ ! -d \"$SYS_OK/Kosmos.app\" ]"
 fi
@@ -1320,12 +1357,13 @@ KOSMOS_HOME="$SB/home4" "$SB/bin4/kosmos" stop > /dev/null 2>&1 || true
 RC=0; HOME="$SBH3" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYSALIAS" KOSMOS_HOME="$SB/home5" KOSMOS_BIN_DIR="$SB/bin5" sh -s -- --uninstall < "$SETUP" > "$SB/alias-un.log" 2>&1 || RC=$?
 chk "foreign uninstall exits 0 in the aliased world" "rc_ok $RC"
 chk "refused bundle survives the aliased home sweep" "[ -d \"$SYSALIAS/Kosmos.app\" ]"
-# The owner's uninstall takes a per-install icon, exactly once, with no survivor note (a sealed one is left and named, #5896).
+# The owner's uninstall takes a per-install icon, exactly once, with no survivor note (a sealed one follows the rule in sealed_icon_must_go, #5912).
 ALIAS_SEALED=no; icon_is_sealed "$SYSALIAS/Kosmos.app" && ALIAS_SEALED=yes
+ALIAS_EXP="$(sealed_expect "$SBH3")"   # #5912: read before the uninstall removes the config
 RC=0; HOME="$SBH3" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYSALIAS" sh -s -- --uninstall < "$SETUP" > "$SB/alias-un2.log" 2>&1 || RC=$?
 chk "owner uninstall exits 0 in the aliased world" "rc_ok $RC"
 if [ "$ALIAS_SEALED" = yes ]; then
-  chk "#5896: the aliased shared sealed icon is left in place and named" "[ -d \"$SYSALIAS/Kosmos.app\" ] && grep -q 'shared by every account on this computer, so it was left in place' \"$SB/alias-un2.log\""
+  check_sealed_owner_uninstall "#5896/#5912: the aliased shared sealed icon" "$SYSALIAS" "$SB/alias-un2.log" "$ALIAS_EXP"
 else
   chk "aliased bundle removed by its owner" "[ ! -d \"$SYSALIAS/Kosmos.app\" ]"
 fi
@@ -1476,10 +1514,11 @@ else
   # served header says the sweep names what it cannot remove; hold it to
   # that.
   DEEP_SEALED=no; icon_is_sealed "$SYS_DEEP/Kosmos.app" && DEEP_SEALED=yes
+  DEEP_EXP="$(sealed_expect "$SBH17")"   # #5912: read before the uninstall removes the config
   RC=0; HOME="$SBH17" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_DEEP" sh -s -- --uninstall < "$SETUP" > "$SB/deep-un.log" 2>&1 || RC=$?
   chk "deep-world uninstall exits 0" "rc_ok $RC"
   if [ "$DEEP_SEALED" = yes ]; then
-    chk "#5896: the deep-world shared sealed icon is left in place and named" "[ -d \"$SYS_DEEP/Kosmos.app\" ] && grep -q 'shared by every account on this computer, so it was left in place' \"$SB/deep-un.log\""
+    check_sealed_owner_uninstall "#5896/#5912: the deep-world shared sealed icon" "$SYS_DEEP" "$SB/deep-un.log" "$DEEP_EXP"
   else
     chk "deep-world slot fully cleared" "[ ! -e \"$SYS_DEEP/Kosmos.app\" ]"
   fi

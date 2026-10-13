@@ -214,7 +214,11 @@ function treeOf(p) {
   const under = (n) => kids.get(Number(n)) || [];
   /* The parent's "2 of 5 done": its DIRECT children, finished by progressOf (parts included).
      Direct only: a grandchild is counted by its own parent, never twice up a chain. */
-  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, total: k.length }; };
+  /* kosmos#5956: `built` counts the open children marked built (builtAt), so a parent can say every subtask is built
+     and waiting for the person, not only every subtask closed. Marking built already asks the agent to answer the
+     task's done-when checks. */
+  const isBuilt = (t) => !progressOf(t).closed && !isOnHold(t) && typeof t.builtAt === 'string' && t.builtAt !== '';   // held reads held (taskState)
+  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, built: k.filter(isBuilt).length, total: k.length }; };
   return { byNum, up, under, progress };
 }
 
@@ -309,7 +313,7 @@ function childrenOf(p, n) {
   return treeOf(p).under(n);
 }
 
-/** A parent's `{done, total}` over its direct children; total 0 means no subtasks. */
+/** A parent's `{done, built, total}` over its direct children (kosmos#5956: built = open, not held, marked built); total 0 means no subtasks. */
 function subtaskProgress(p, n) {
   return treeOf(p).progress(n);
 }
@@ -1561,7 +1565,7 @@ function columnTasks(p) {
  * them because one number came from the DATA and the other from a
  * document-wide DOM query.
  *
- * `projectName` and `whoNames` are ADDED, never merged over the task's own
+ * `projectName`, `projectPath` (#3029) and `whoNames` are ADDED, never merged over the task's own
  * fields: a task that stores parts has no `who` at all, and overwriting it
  * with the derived list would make two different facts share one name.
  */
@@ -1569,17 +1573,23 @@ function allTasks(everyProject) {
   const out = [];
   /* #3559: a caller that already read the store passes that snapshot, so the
      rows and anything it joins onto them come from ONE read. */
-  for (const p of (Array.isArray(everyProject) ? everyProject : projects.readAll()) || []) {
+  const all = (Array.isArray(everyProject) ? everyProject : projects.readAll()) || [];
+  /* #3029: the project's ancestors, root first, from the same read, so a subproject is named by its chain
+     on the Tasks screen (Book A › Launch) as the grid's ancestry line names it. */
+  const byId = new Map(all.filter((x) => x && x.id).map((x) => [x.id, x]));
+  for (const p of all) {
     /* #3861: the project's tree is built once (treeOf), so each row's parent and subtask
        count is a lookup rather than a re-scan of the project per task. */
     const tree = treeOf(p);
     const members = new Set(Array.isArray(p.agents) ? p.agents : []);   // #5678
     const owners = treeOwners(tree, members);
+    const path = projectPathOf(p, byId);
     for (const t of p.tasks || []) {
       const up = tree.up(t);
       out.push(Object.assign({}, t, {
         projectId: p.id,
         projectName: p.name,
+        projectPath: path.slice(),   // each row its own copy
         /* #3559: the Tasks view leaves archived projects' tasks out, as the rails tuck them away. */
         projectArchived: p.archived === true,
         /* #4771: whether the task's project is paused. taskState and listGroup decide what that means: on hold, unless
@@ -1618,6 +1628,20 @@ function allTasks(everyProject) {
   return out.sort((a, b) => (a.isClosed ? 1 : 0) - (b.isClosed ? 1 : 0)
     || String(a.projectName).localeCompare(String(b.projectName))
     || (b.number || 0) - (a.number || 0));
+}
+
+/* #3029: a project's ancestors' names, root first ([] for a top-level project). The walk stops at the first
+   ancestor missing from the read (tested for a missing direct parent). */
+function projectPathOf(p, byId) {
+  const names = [];
+  const seen = new Set(p && p.id ? [p.id] : []);
+  let cur = p && p.parent ? byId.get(p.parent) : null;
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    names.unshift(cur.name == null ? '' : String(cur.name));
+    cur = cur.parent ? byId.get(cur.parent) : null;
+  }
+  return names;
 }
 
 /* #5705 (user feedback, 2026-10-09): `kosmos task list` was one flat list of every task in every state. The list
@@ -1701,6 +1725,13 @@ function taskState(task) {
  */
 function waitingOnPerson(task, roster, members) {
   if (!task || progressOf(task).closed || !Array.isArray(roster)) return false;
+  return cardsNeedingPerson(task, roster, members).length > 0;
+}
+
+/* The one rule for which cards make a task wait on the person (kosmos#5942), shared by waitingOnPerson (any) and
+   waitingSinceOf (the oldest start), so the red and the age can never come from different cards. */
+function cardsNeedingPerson(task, roster, members) {
+  if (!task || progressOf(task).closed || !Array.isArray(roster)) return [];
   /* #5034: `members` (the task's project's agents, when the caller has them) leaves out a holder that was taken off
      the project. Removal does not unassign, so without this the agent's question kept the old project's card red,
      with nobody on the project waiting on it (projects.joinTaskClaims already says a departed holder's report
@@ -1709,14 +1740,36 @@ function waitingOnPerson(task, roster, members) {
      them on the agent, not on a project it has left. Omitted: every holder, as before. */
   const onProject = Array.isArray(members) ? new Set(members) : null;
   const holders = new Set(partsOf(task).filter((x) => x && x.who && !x.closedAt && (!onProject || onProject.has(x.who))).map((x) => x.who));
-  if (!holders.size) return false;
+  if (!holders.size) return [];
   // Required here rather than at the top, as projects.js does: status is loaded lazily from this layer.
   const status = require('./status');
-  return roster.some((card) => card && holders.has(card.sessionName) && card.isNamedOurs === true
+  return roster.filter((card) => card && holders.has(card.sessionName) && card.isNamedOurs === true
     && status.needsPerson(card)
     /* Only a question names a project. A trust wait or a connection given up on is about the agent itself,
        so it counts on every task the agent holds, as it does on the project page (#3726). */
     && (card.state === status.STATE.NEEDS_YOU ? card.stateProject === task.projectId : true));
+}
+
+/**
+ * kosmos#5942: since when this open task has needed the person, for the task list's "Waiting on you for 12 days": the OLDEST
+ * `waitingSince` among the cards that make waitingOnPerson true (the same holders and the same project rule), as an
+ * ISO string, or null when none of them knows when its wait began. Null is shown as no age, never as "just now".
+ * When any of those cards has no known start (it never said when, or it waits for a reason that has none, such as
+ * a trust wait), the answer is null: an age taken from the others could be shorter than the real wait. The start is
+ * the self-report's askedAt (#5943), dated per run of identical reports about the same project.
+ */
+function waitingSinceOf(task, roster, members) {
+  let oldest = null;
+  const status = require('./status');
+  for (const card of cardsNeedingPerson(task, roster, members)) {
+    /* Only a question's start is the start of this wait. A card that needs the person for another reason (a trust
+       wait, a given-up connection, a crash loop, a stuck error) may still carry an older blocked report's start, which
+       is not when it began needing the person, so it counts as unknown. */
+    const at = card.state === status.STATE.NEEDS_YOU && typeof card.waitingSince === 'string' ? Date.parse(card.waitingSince) : NaN;
+    if (!Number.isFinite(at)) return null;   // one wait of unknown length: any age shown could be too short
+    if (oldest === null || at < oldest) oldest = at;
+  }
+  return oldest === null ? null : new Date(oldest).toISOString();
 }
 
 /**
@@ -1926,7 +1979,7 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
 }
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
+  taskState, waitingOnPerson, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };

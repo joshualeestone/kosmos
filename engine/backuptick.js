@@ -20,9 +20,10 @@
  * Codex agent's rollout files in its runtime home (<data root>/codex-homes/<key>/sessions), taken by name as
  * sessions/<id>/codex-runtime (#5883), never anything beside them.
  * Transcripts are read from every home an agent's Codex or Gemini sessions can be in, from its launch job (kosmos#5883
- * slice 1). KNOWN GAPS still open on #5883, each leaving that agent's FOLDER backed up but not its transcripts: Grok
- * (no session reader), Antigravity (Gemini on a Google subscription), and a move between two NAMED accounts (the first
- * account's sessions stay unread).
+ * slices 1 and 2, Grok included). KNOWN GAPS still open on #5883, each leaving that agent's FOLDER backed up but not its
+ * transcripts: Grok sessions run in a Grok WORKTREE (their launch folder is the worktree, not the agent's folder), and
+ * conversations started in a SUBFOLDER of an agent's folder. (Every named account of the agent's provider is read,
+ * slice 4; an agent that changed PROVIDER keeps its old provider's sessions unread.)
  * `left` names what was not added and why (an id or slug a root name cannot carry), never a path.
  *
  * startTick(deps) -> stop(). Every `everyMs` (an hour): only while deps.enrolled() is true (the board passes mayBackUp:
@@ -159,9 +160,13 @@ function startTick(deps) {
   async function tick() {
     try {
       if (state.running || now() < state.pausedUntil || !deps.enrolled()) return;
+      // Running from here, BEFORE anything is awaited (#5883: roots() is async now, and a second tick in that gap
+      // would start a second run). Cleared on every path, in the finally below.
+      state.running = true;
+      try {
       // roots() gives rootsFor's { roots, left } (or a bare list). What was left out is said once per change (review 1).
       let plan;
-      try { plan = deps.roots(); } catch {
+      try { plan = await deps.roots(); } catch {
         // Said once (review 2): otherwise no backup, every hour, and nothing said.
         if (state.saidLeft !== 'threw') say('the folders to back up could not be listed on this computer');
         state.saidLeft = 'threw';
@@ -173,13 +178,12 @@ function startTick(deps) {
       state.saidLeft = leftKey;
       // No workers root, no backup and no request: the run would only ask Kosmos+ for a key to refuse afterwards.
       if (!roots.some((r) => r && r.name === 'workers')) return;
-      state.running = true;
       let r;
       try { r = await deps.runBackup({ roots }); } catch {
         // runBackup never throws by contract; one that does is said once (review 4), not swallowed every hour.
         if (state.said !== 'threw') { state.said = 'threw'; say('the backup stopped on an unexpected error on this computer'); }
         return;
-      } finally { state.running = false; }
+      }
       if (!r || typeof r !== 'object') return;
       // Refused before Kosmos+ named the company (no pair): Kosmos+ is unreachable, refuses, or an older connector will
       // not sign and so gives no refusal code (review 1). Backed off, doubling to a day, so an enrolled Mac does not
@@ -194,6 +198,7 @@ function startTick(deps) {
       // Cleared by any run that ends without a reason a person acts on (review 7), so one that comes back is said again.
       if (r.ok || !act) state.said = null;
       else if (act && state.said !== act) { state.said = act; say(typeof r.because === 'string' && r.because ? r.because : 'it did not run, and did not say why'); }
+      } finally { state.running = false; }
     } catch { /* never throws; the next tick tries again */ }
   }
   const t = (deps.setInterval || setInterval)(tick, every);
@@ -205,7 +210,7 @@ function startTick(deps) {
    (an agent whose profile write failed still has transcripts), each resolved with create.workerDir. Projects: the
    stored list, each by its id. Claude config roots SORTED by full path (backupsessions numbers them by position, and
    status.configRoots' order is readdir's). A source that cannot be read gives nothing; never throws.
-   deps (tests): readJob(name), sessionsFor(dir, opts). */
+   deps (tests): readJob(name), sessionsFor(dir, opts), accountsOf(moduleName) -> account rows. */
 function inputsHere(deps = {}) {
   const store = require('./store');
   const create = require('./create');
@@ -230,6 +235,8 @@ function inputsHere(deps = {}) {
   let agentCodexHome = codexHome, agentGeminiHome = geminiHome;
   try { agentCodexHome = create.defaultAgentCodexHome(); } catch { /* the board's */ }
   try { agentGeminiHome = create.geminiStorageHome(null); } catch { /* the board's */ }
+  let agentGrokHome = null;
+  try { agentGrokHome = require('./grokaccounts').defaultDir(); } catch { /* none */ }
   // Each agent's OWN provider homes (kosmos#5883), from its launch job. The board reads ONE home (the current session);
   // a backup owes EVERY conversation (review 1), so it reads each home the agent's sessions can be in. Each root is
   // named for its FOLDER, never its role (review 2: a role name moved to another folder when the agent changed account,
@@ -237,8 +244,7 @@ function inputsHere(deps = {}) {
   // change), the runtime home (#4592) `codex-runtime`, and a named account's home `codex-a<8 hex of its path>` /
   // `gemini-a<...>`. Every one is filtered to this agent's own files (backupsessions). The homes come from the helpers
   // the board's readers use (create.defaultAgentCodexHome, create.geminiStorageHome). An agent whose job cannot be
-  // read keeps the plain defaults. NOT covered: a move between two NAMED accounts leaves the first account's sessions
-  // unread (#5883).
+  // read keeps the plain defaults.
   // Hashed on the folder's TRUE path (review 4): a job naming the account through a link or another spelling gets the
   // same name, so its rollouts are not stored again. A folder that does not resolve hashes as given.
   const acctTag = (home) => {
@@ -246,6 +252,11 @@ function inputsHere(deps = {}) {
     try { p = fs.realpathSync.native(p); } catch { /* as given */ }
     return '-a' + require('crypto').createHash('sha256').update(p).digest('hex').slice(0, 8);
   };
+  // Each provider's account list read ONCE per call (review 1 of slice 4), not once per agent.
+  const accountRows = {};
+  for (const m of ['openaiaccounts', 'geminiaccounts', 'grokaccounts']) {
+    try { accountRows[m] = (deps.accountsOf || ((x) => require(`./${x}`).list()))(m) || []; } catch { accountRows[m] = []; }
+  }
   const sessions = (dir, id, name) => {
     let job = null;
     try { job = (deps.readJob || create.readJob)(name); } catch { job = null; }
@@ -260,8 +271,30 @@ function inputsHere(deps = {}) {
       } catch { /* left */ }
     } else if (job && job.runner === 'gemini' && job.configDir) {
       try { moreHomes.push({ provider: 'gemini', home: create.geminiStorageHome(job.configDir), tag: acctTag(job.configDir) }); } catch { /* left */ }
+    } else if (job && job.runner === 'grok' && job.configDir) {
+      // kosmos#5883 slice 2: a Grok agent on a named account (its GROK_HOME is the account folder).
+      try { moreHomes.push({ provider: 'grok', home: job.configDir, tag: acctTag(job.configDir) }); } catch { /* left */ }
     }
-    return (deps.sessionsFor || require('./backupsessions').sessionsFor)(dir, { id, claudeRoots, geminiHome: gm, codexHome: cx, moreHomes });
+    // kosmos#5883 slice 4: EVERY named account of the agent's provider, not only the current one, so an agent that moved
+    // between two named accounts keeps the first one's conversations. Each is filtered to this agent's own files and
+    // named for its folder (acctTag), so it is stable, and sessionsFor reads one folder once. Only the agent's own
+    // provider's accounts: what the runner can have written. A SIGNED-OUT account is not listed (the account modules
+    // list only folders with an identity), so its old sessions stay unread.
+    const each = { codex: ['openaiaccounts', (d) => d], gemini: ['geminiaccounts', (d) => create.geminiStorageHome(d)], grok: ['grokaccounts', (d) => d] }[job && job.runner];
+    if (each) {
+      try {
+        for (const row of accountRows[each[0]]) {
+          if (!row || typeof row.dir !== 'string' || row.isDefault) continue;
+          const tag = acctTag(row.dir);
+          // The current account is already there (by its job): never twice under one name (review 1 of slice 4: a
+          // linked sessions folder gives a refused root with no path, which the one-folder rule cannot catch, and a
+          // repeated root name fails EVERY backup).
+          if (moreHomes.some((h) => h.tag === tag)) continue;
+          moreHomes.push({ provider: job.runner, home: each[1](row.dir), tag });
+        }
+      } catch { /* the current account is still read */ }
+    }
+    return (deps.sessionsFor || require('./backupsessions').sessionsFor)(dir, { id, claudeRoots, geminiHome: gm, codexHome: cx, grokHome: agentGrokHome, moreHomes });
   };
   // Never inside a root, never holding one (reviews 1 and 5): Kosmos's own data, every provider's config home and every
   // ACCOUNT folder (~/.codex-<label>, ~/.gemini-<label>, ~/.grok and its accounts), and every hidden entry directly in
@@ -300,9 +333,28 @@ function mayBackUp() {
    board's log. RESIDUAL: the gate is asked when a run starts; a Leave during a run does not stop that run's uploads (a
    rollup re-asks per batch). A run is bounded by the week's allowance and is one an hour at most. */
 function startHere() {
+  // kosmos#5883 slice 3: Antigravity conversations are live SQLite files, copied whole into a staging folder under
+  // Kosmos's own data (engine/backupagy.js). Staged INSIDE the run (review 1): a copy exists only for a run that
+  // happens, and is cleared after it, whatever happened. roots() keeps the agents it listed for the run to use.
+  const stageDir = () => path.join(require('./store').ROOT, 'backupstage', 'agy');
+  const agy = require('./backupagy');
+  let lastAgents = [];
   return startTick({
-    runBackup: (input) => require('./backuprun').runBackup(input),
-    roots: () => rootsFor(inputsHere()),
+    runBackup: async (input) => {
+      agy.clearStage(stageDir());   // a run that died left copies behind
+      try {
+        let home = null;
+        try { home = require('./agytrust').agyHome(); } catch { /* none */ }
+        let extra = [];
+        try { extra = await agy.stageAgy({ home, stageDir: stageDir(), agents: lastAgents }); } catch { extra = []; }
+        return await require('./backuprun').runBackup(Object.assign({}, input, { roots: input.roots.concat(extra) }));
+      } finally { agy.clearStage(stageDir()); }
+    },
+    roots: () => {
+      const input = inputsHere();
+      lastAgents = (input.agents || []).map((a) => ({ dir: a.dir, seg: rootSegment(a.id) })).filter((a) => a.seg);
+      return rootsFor(input);
+    },
     enrolled: mayBackUp,
     say: (text) => console.error(text),
   });

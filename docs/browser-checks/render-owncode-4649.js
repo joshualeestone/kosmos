@@ -72,12 +72,16 @@ function chk(ok, label, extra) {
           const errs = [];
           page.on('pageerror', (e) => errs.push(e.message));
           // The gate reads federationLive and kosmos_plus off the status poll.
+          /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+             (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
           await page.route('**/api/status*', async (r) => {
-            const resp = await r.fetch();
-            const j = await resp.json().catch(() => null);
-            if (!j) return r.fulfill({ response: resp });
-            j.federationLive = live; j.kosmos_plus = live;
-            return r.fulfill({ response: resp, json: j });
+            try {
+              const resp = await r.fetch();
+              const j = await resp.json().catch(() => null);
+              if (!j) return await r.fulfill({ response: resp });
+              j.federationLive = live; j.kosmos_plus = live;
+              return await r.fulfill({ response: resp, json: j });
+            } catch { await r.abort().catch(() => {}); }
           });
           await page.goto(URL, { waitUntil: 'networkidle' });
           if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }

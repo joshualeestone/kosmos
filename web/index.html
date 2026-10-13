@@ -3020,6 +3020,8 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 /* `.acut` is retired: the pack dropped the rule AND the divs together, and a
    surviving rule would still draw a line under markup that no longer exists. */
 /* The role sits directly under the name as one unit (Josh's regroup). */
+/* #5957 slice 2: an offline card's far-behind note: small and muted, so the quieter offline card stays quiet. */
+.acard .arules { font-size: .75rem; color: var(--k-ink-2); line-height: 1.35; margin-top: 4px; }
 .acard .ameta { font-weight: 600; color: var(--k-ink); font-size: .8125rem; margin-top: 1px; }
 /* Josh, 2026-08-19: "a tiny bit more. Not crazy." One pixel is not a gap, it is
    the absence of one. Mona Lisa's spec (#184) is `--space-3`.
@@ -3718,6 +3720,8 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
   #panel-settings .con-group { font-size: .75rem; }
   #panel-settings #plus-signin-bottom { display: inline-flex; align-items: center; min-height: 44px; }
   #panel-settings #plus-signin-top { display: inline-flex; align-items: center; min-height: 44px; }
+  /* #6029: the sign-in card's way out (Cancel, Start over or Sign out by step) was a 48x17 target. */
+  #panel-settings #plus-si-cancel { display: inline-flex; align-items: center; min-height: 44px; }
   /* The account actions wrap at this width, so a wrapped line began with a divider and an
      indent. Spaced links with no dividers wrap cleanly. */
   #panel-settings .acct-actions { gap: 6px 22px; }
@@ -4190,7 +4194,10 @@ body:not(.consolidated) #docs-chev { display: none; }
    gone, and the search sits compact to the right of Sort (below). */
 .tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 14px 0 4px; }
 #tsk-under { margin: 12px 0 4px; }
-.tsk-ctl { display: flex; align-items: center; }
+/* #3029: a picked subproject's name can outgrow a phone; the control shrinks to its row. overflow: hidden on the
+   select is what stops WebKit (the Mac app) widening the page by the selected text (render-subprojects-1994). */
+.tsk-ctl { display: flex; align-items: center; min-width: 0; max-width: 100%; }
+.tsk-ctl select.tsk-sel { min-width: 0; max-width: min(100%, 22rem); overflow: hidden; text-overflow: ellipsis; }
 .tsk-cl { font: 600 .875rem var(--font-ui); color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
 .tsk-search { position: relative; margin: 0; max-width: 100%; }
 .tsk-search svg { position: absolute; left: 11px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--k-ink-2); pointer-events: none; }
@@ -6988,6 +6995,15 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dmchoice[disabled] { opacity: .5; cursor: not-allowed; }
 .dmchoice-n { color: var(--k-ink-2); font-variant-numeric: tabular-nums; }
 .dmchoices-msg { font-size: .8125rem; color: var(--k-ink-2); }
+/* #5943: under a reported question, its age and the person's own "Answered, clear this" (the .dmchoice tokens, AA). */
+.dmq-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 2px; }
+.dmq-age { font-size: .8125rem; color: var(--k-ink-2); }
+.dmq-clear { font: inherit; font-size: .8125rem; font-weight: 600; color: var(--k-ink); background: var(--k-surface);
+  border: 1px solid var(--k-optline); border-radius: 10px; padding: .3em .8em; cursor: pointer; }
+.dmq-clear:hover { border-color: var(--k-ink-2); }
+.dmq-clear:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.dmq-clear[disabled] { opacity: .5; cursor: not-allowed; }
+.dmq-msg { font-size: .8125rem; color: var(--k-ink-2); }
 /* #3134-followup (Josh 6.72): name + timestamp now live INSIDE the bubble. The agent
    name is a bold heading at the TOP; the timestamp is a small muted line at the
    bottom-RIGHT under the body. Scoped to .msg-bd so the .msg-valve inline timestamp
@@ -9123,6 +9139,21 @@ svg { display: block; }
 .community-mine-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--k-rule); }
 .community-mine-row > div:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .community-mine-ask { flex-basis: 100%; }
+/* #5958: one agent's row in "Where each agent stands". The summary is the row; its lines open under it. */
+.community-ready-row { padding: 8px 0; border-top: 1px solid var(--k-rule); }
+.community-ready-row > details > summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 44px; overflow-wrap: anywhere; list-style: none; }
+.community-ready-row > details > summary::-webkit-details-marker { display: none; }
+.community-ready-row .community-ready-name { display: flex; align-items: flex-start; gap: 8px; min-width: 0; max-width: 100%; }
+.community-ready-row .community-ready-name > svg { flex: none; margin-top: .3em; }   /* beside the name's first line when the name wraps */
+.community-ready-row .community-ready-name > b { min-width: 0; overflow-wrap: anywhere; }
+/* The words always have a line of their own, the full width of the row: they are a list of everything that applies
+   and can be long, and beside a name they would be a narrow column. */
+.community-ready-row > details > summary > .community-ready-words { margin: 0; flex: 1 1 100%; min-width: 0; }
+.community-ready-row .community-ready-chev { color: var(--label-2); transition: transform .12s ease; }
+.community-ready-row > details[open] .community-ready-chev { transform: rotate(90deg); }
+.community-ready-row > details > summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) { .community-ready-row .community-ready-chev { transition: none; } }
+.community-ready-row > details > p { margin: 4px 0 0 20px; overflow-wrap: anywhere; }   /* under the name, clear of the mark */
 /* #4525: the held list reuses the row above. The person is deciding whether to publish these
    words, so they must be able to read all of them: four lines show, and a longer one gets
    "Read all" (added only when the text is actually cut). Not "Show all": the page keeps
@@ -9495,6 +9526,10 @@ body.consolidated .tkcard:hover { border-color: transparent; }
 /* #766: a dialog that holds a form (New task) takes the create page's width
    and lets its fields fill it. */
 .rm-box.rm-box-form { max-width: 34rem; }
+/* kosmos#5956: New task, taller since it asks how you will know it is done, scrolls inside the backdrop on a phone or a
+   short window instead of losing its top and its Create button off-screen. Scoped to this dialog: Add a provider's logo
+   list hangs past its dialog's edge on purpose, and a scroll container would clip it (review 4). */
+#nt-modal .rm-box.rm-box-form { max-height: 100%; overflow-y: auto; }
 .rm-box-form .field { margin-top: var(--space-5); }
 .rm-box-form .tk-inp { width: 100%; }
 /* 0.6.45 (Josh): the add-member modal closes with an X in the corner (not a
@@ -12879,6 +12914,7 @@ window.kosmosMeasureScrollbarWidth();
          than pressing. -->
     <p class="runnow" id="d-runson"></p>
     <p class="dhint" id="d-runson-why" hidden></p>
+    <p class="dhint" id="d-health" hidden></p>
     <div class="msteps" role="group" aria-label="Change what this agent runs on" style="margin-top:12px;">
       <div class="frow">
         <!-- kosmos#990 (Josh, 2026-08-26): "prepopulate that with what it is
@@ -13772,9 +13808,17 @@ window.kosmosMeasureScrollbarWidth();
       <label class="flabel tk-lab" for="nt-what">What needs doing?</label>
       <input class="tk-inp" id="nt-what" type="text" maxlength="200" placeholder="Rewrite the handoff checklist">
     </div>
+    <!-- kosmos#5956: what done looks like is asked for at creation, as #4583 asks a project for its done-when. One line,
+         sent as the task's first done-when check (engine/tasks.js holds up to three, 200 characters each); the agent
+         answers it when it marks the task built. Required here only: agents and the CLI keep it optional. -->
+    <div class="field">
+      <label class="flabel tk-lab" for="nt-done">How will you know it is done?</label>
+      <input class="tk-inp" id="nt-done" type="text" maxlength="200" aria-required="true" aria-describedby="nt-done-hint" placeholder="The checklist fits on one page and the team has read it">
+      <p class="fhint" id="nt-done-hint" style="margin:8px 0 0;">Needed to create the task. The agent checks its work against this.</p>
+    </div>
     <div class="field">
       <label class="flabel tk-lab" for="nt-detail">Anything they should know</label>
-      <div class="micwrap"><textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, what done looks like, anything you already tried."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="nt-detail" data-voice-name="Anything they should know" data-voice-msg="nt-voice-msg" aria-label="Talk instead of typing: Anything they should know" title="Talk instead of typing: Anything they should know" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
+      <div class="micwrap"><textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, anything you already tried."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="nt-detail" data-voice-name="Anything they should know" data-voice-msg="nt-voice-msg" aria-label="Talk instead of typing: Anything they should know" title="Talk instead of typing: Anything they should know" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       <p class="fmsg" id="nt-voice-msg" role="status" aria-live="polite"></p><!-- #4409 slice 2: the mic's own polite line; #nt-msg is an assertive alert -->
     </div>
     <!-- #3861 part 2: optional, none by default. The open tasks of the project the dialog is aimed
@@ -14021,7 +14065,7 @@ window.kosmosMeasureScrollbarWidth();
          Meta's page and the code in the #3952 boxes, offers a new code when one expires, and stops it.
          Off, the Meta option stays "coming soon" exactly as before and this never shows. -->
     <div id="acct-muse-flow" hidden style="margin-top: var(--space-5);">
-      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in to Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password. Your agents then run on your own Meta account, on this computer.</p>
+      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Connect Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password. Your agents then run on your own Meta account, on this computer.</p>
       <div class="frow" style="margin-top:12px;">
         <button class="btn uprime" id="acct-muse-go" type="button">Sign in with Meta</button>
         <span class="muse-connecting" id="acct-muse-spin" hidden><span class="spin" aria-hidden="true"></span>Connecting&hellip;</span>
@@ -15328,9 +15372,9 @@ window.kosmosMeasureScrollbarWidth();
                 <div class="llm off" id="fr-meta-row"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon" id="fr-meta-soon">Coming soon</span><button class="connect-b" type="button" id="fr-meta-connect" aria-expanded="false" aria-controls="fr-muse-flow" aria-label="Connect Meta Muse" hidden>Connect</button></div>
                 <!-- #3939 3c-4: Meta Muse on this step, only where Muse is switched on (GET /api/muse says enabled); otherwise the
                      row above stays "Coming soon" and none of this shows. The same sign-in controller as Add a provider
-                     (museSigninFlow) with the fr-muse- prefix; Kosmos does not install Muse Code, so a computer without it is told. -->
+                     (museSigninFlow) with the fr-muse- prefix; #6004: Kosmos installs Muse Code on this step, so a computer without it is told. -->
                 <div id="fr-muse-flow" hidden class="fr-confirm" role="group" aria-labelledby="fr-muse-t">
-                  <p class="fr-confirm-t" id="fr-muse-t"><b>Sign in to Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password.</p>
+                  <p class="fr-confirm-t" id="fr-muse-t"><b>Connect Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password.</p>
                   <div class="frow" style="margin-top:12px;"><button class="btn uprime" id="fr-muse-go" type="button">Sign in with Meta</button><span class="muse-connecting" id="fr-muse-spin" hidden><span class="spin" aria-hidden="true"></span>Connecting&hellip;</span></div>
                   <div class="frow" id="fr-muse-open-row" hidden style="margin-top:8px;">
                     <a class="btn" id="fr-muse-open" href="#" target="_blank" rel="noopener noreferrer">Open Meta's sign-in page<span class="vh"> (opens in your browser)</span></a>
@@ -16989,6 +17033,7 @@ window.kosmosMeasureScrollbarWidth();
              with this task already picked as what it is part of. -->
         <h3 class="dlab" style="margin-top: var(--space-6);">Subtasks</h3>
         <div class="tksubs" id="tk-subs"></div>
+        <p class="dhint tksubs-done" id="tk-subs-built" hidden>All subtasks are built. Check each one and close it, then close this task.</p>
         <p class="dhint tksubs-done" id="tk-subs-done" hidden><span>All subtasks done.</span><button class="linkish" type="button" id="tk-subs-close">Close this task</button></p>
         <button class="linkish" type="button" id="tk-subadd">+ Add subtask</button>
       </section>
@@ -18569,6 +18614,14 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #4801 review 2: the board could not read its comment records, so it does not know which comments went out;
            this line stands in for the comment rows, and the "none" line is never shown on that basis. -->
       <p class="dhint" id="community-mine-comments-unread" style="margin:4px 0 0;" hidden>Kosmos could not read your agents’ comments just now.</p>
+      <!-- #5958 items 4 and 5: where each agent stands with the community, and what Kosmos did on its own
+           (engine/communityready.js, GET /api/community/ready). The words of every row come from the board
+           (ownerView); the page only writes each time in the person's own time zone. Read from the board's records
+           only: nothing here asks the community service. -->
+      <h4 class="dlab" id="community-ready-head" style="margin:14px 0 4px;">Where each agent stands</h4>
+      <p class="dhint" id="community-ready-note" style="margin:0 0 6px;">Kosmos may remind an agent that has gone quiet to post, and only while the community and “Check on your agents” are both on. While the community is off, nothing is sent to it. A reminder only asks: whether to post, and what to say, is the agent’s own decision.</p>
+      <p class="dhint" id="community-ready-empty" style="margin:0;">Looking at your agents.</p>
+      <ul class="community-mine" id="community-ready-list" aria-labelledby="community-ready-head" hidden></ul>
     </section>
     <!-- #5080: the language agents write to the person in (engine/personlanguage.js). Automatic is the computer's
          setting, as before; English is the opt-out. The industry select's could-not-read treatment: an unknown
@@ -19383,6 +19436,17 @@ window.kosmosMeasureScrollbarWidth();
           <p class="dhint" style="margin:2px 0 0;">Still being built, a page at a time. Turn it off to go back.</p></div>
         <button class="toggle" id="look-toggle" role="switch" aria-label="Try the new look" aria-checked="false"><i></i></button>
       </div>
+    </section>
+    <!-- #5959 slice 4: one file for the people who build Kosmos. Made on this computer when pressed (GET /api/diagnostics,
+         engine/diagnostics.js), redacted there, and saved here; nothing is sent anywhere. -->
+    <section class="dbox">
+      <h3 class="dlab">Diagnostics</h3>
+      <div class="setrow" id="diag-row">
+        <div><b>Save a diagnostics file</b>
+          <p class="dhint" style="margin:2px 0 0;">For the people who build Kosmos: each agent's state, recent problems and the board's last log lines. Keys, email addresses, user folders and this computer's names are taken out first. Your messages are not collected, though a log line can quote a few words of one. It is saved on this computer; nothing is sent anywhere.</p></div>
+        <a class="btn-quiet" id="diag-save" href="/api/diagnostics" download>Save diagnostics</a>
+      </div>
+      <p class="dhint" id="diag-note" role="status" style="margin:8px 0 0;"></p>
     </section>
 
   <div class="dremove">
@@ -20898,7 +20962,8 @@ function taskLine(a, opts) {
  * never writes and Claude Code freezes at first message is a fossil, not a
  * status), so today only `rate_limited`, `auth_failed` (#874) and
  * `connection_lost` (#3410) speak and every other state shows nothing rather
- * than a stale summary.
+ * than a stale summary. (Since then also: a crash loop, a waiting count, a stuck
+ * error, and on a CARD in a calm state, rules far behind (#5957); see stateReason.)
  *
  * 🛑 `taskWords` IS GONE. It stripped the "Claude Code" default out of the
  * frozen title (#222) so a brand-new agent did not read as "doing Claude Code".
@@ -20922,6 +20987,27 @@ function waitingLine(w) {
   if (!yours) return base;
   if (yours === n) return base + (n === 1 ? ', it\'s yours' : ', all yours');
   return base + ', yours ' + (yours === 1 ? 'is' : 'are') + ' next';
+}
+/* #5957 slice 2: the one sentence for an agent whose working rules are far behind (a.rulesBehind, from
+   engine/doctrine.js: a whole number only when its own page offers the update), or ''. Said by stateReason on a
+   running card and by the offline card and list row, which draw no task line of their own. */
+function rulesBehindLine(a, offline) {
+  if (!(a && Number.isSafeInteger(a.rulesBehind) && a.rulesBehind > 0)) return '';
+  /* `offline`: the not-running card and row (no session in the roster), where the page's update is refused (it needs
+     the agent in the roster), so the sentence states the fact and promises no action. */
+  return 'Its working rules are ' + a.rulesBehind + ' versions behind.' + (offline ? '' : ' Open it to update them.');
+}
+/* #5957 slice 3: the sentence for an agent that has not run for two weeks or more (a.idleDays, from
+   engine/liveness.js idleDays: a whole number only then), or ''. Kosmos removes nothing itself; Remove is on the
+   agent's own page (under AI Settings: DETAIL_SECTION_PILL.remove, guarded in web.not-running.test.js), and the
+   person decides. */
+function idleLine(a) {
+  if (!(a && Number.isSafeInteger(a.idleDays) && a.idleDays > 0)) return '';
+  return 'Has not run in ' + a.idleDays + ' days. If it is no longer needed, remove it under AI Settings on its page.';
+}
+/* The offline card and list row's one note: rules behind, then not run in N days, whichever apply. */
+function offlineNote(a) {
+  return [rulesBehindLine(a, true), idleLine(a)].filter(Boolean).join(' ');
 }
 function stateReason(a, opts) {
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
@@ -21023,6 +21109,15 @@ function stateReason(a, opts) {
     /* "Has asked": an attempt was made, not that it landed (the sweep counts every attempt). */
     if (ph === 'retried') return lost + '. Kosmos has asked it to try again.';
     return lost;
+  }
+  /* #5957 slice 2: its working rules are far behind, and its own page offers the update (a.rulesBehind, from
+     engine/doctrine.js rulesBehind: a number only then). Only on a CARD (opts.card: the agent's own page has the
+     update note itself, and "Open it" makes no sense there) and only when it is idle or stopped: the update restarts
+     it, so a working agent is not pointed at it mid-task, and it is never in the slot a person reads
+     as what a needs-you, question or blocked agent is stuck on (#986/#2833), and never over a sign-in, connection or
+     usage problem. Last of the general reasons; plain words; the card's look is unchanged. */
+  if (a && opts && opts.card === true && (a.state === 'idle' || a.state === 'stopped') && rulesBehindLine(a)) {
+    return rulesBehindLine(a);
   }
   if (!a || a.state !== 'rate_limited') return '';
   /* #4588: an Antigravity agent paused on its account's shared Google quota carries the reset, so the card says
@@ -21994,6 +22089,7 @@ function card(a) {
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate ${split ? 'st-unknown' : 'st-stopped'}">${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b></div>
+    ${!split && offlineNote(a) ? `<div class="arules">${esc(offlineNote(a))}</div>` : ''}
     ${comm ? `<div class="acommunity">${esc(comm)}</div>` : ''}
   </div>`;
   }
@@ -22039,7 +22135,7 @@ function card(a) {
     <div class="astate st-${m.st}">${glyphOf(a)}<b>${esc(copy.label)}</b>${answer}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(modelLine(a))}</div>
-    <div class="atask">${esc(taskLine(a, { noQuote: true }))}</div>
+    <div class="atask">${esc(taskLine(a, { noQuote: true, card: true }))}</div>
     ${comm ? `<div class="acommunity">${esc(comm)}</div>` : ''}
   </div>`;
 }
@@ -22196,7 +22292,7 @@ function lrow(a) {
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
-      <div class="ltask"></div>
+      <div class="ltask"${a.jobRunningUnseen !== true && offlineNote(a) ? ` title="${esc(offlineNote(a))}"` : ''}>${esc(a.jobRunningUnseen === true ? '' : offlineNote(a))}</div>
       <div class="lmodel"></div>
       <div class="lmem"></div>
     </div>`;
@@ -22271,7 +22367,7 @@ function lrow(a) {
          because they are actions, not status text. This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
     <div class="lstate"><span class="vh">${glyphOf(a)}${esc(copy.label)}</span><span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}">${glyphOf(a)}</span>${answerBtn(a)}${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
-    <div class="ltask">${esc(taskLine(a, { noQuote: true }))}</div>
+    <div class="ltask">${esc(taskLine(a, { noQuote: true, card: true }))}</div>
     <div class="lmodel">${esc(modelLine(a))}</div>
     <div class="lmem">${mem}</div>
   </div>`;
@@ -23721,6 +23817,60 @@ function agoWords(ms) {
   return days + (days === 1 ? ' day ago' : ' days ago');
 }
 
+/* #5959 slice 2 (the Windows agents' QA report, item 2): one health line on the agent's page: sign-in, usage, and when
+   Kosmos last saw it working. Sign-in and usage come from the card's state only, hedged as the state sentence is for a
+   screen reading (#215). The time is the engine's lastWorked (status.js lastWorkedOf), said as a clock time because the
+   poll repaints the line with the state pill, but an idle card's line changes rarely and a relative time would age.
+   '' for a card with no lastWorked: no line.
+   On the agent's page, not its card on the board: #855 cut the card's extra lines, and the card's state already says a
+   sign-in or usage problem. */
+const HEALTH_QUIET_MS = 3600e3;   // see healthLine: how recent a sighting "no problem showing" rests on
+/* Not 'blocked': a Claude card stays blocked on Claude Code's own report of a refused sign-in or a usage cap, so
+   "no problem showing" would be false there. Not 'connection_lost' either: beside a lost connection, "no problem
+   showing" reads as a clean bill of health. Such an agent shows only the time. */
+const HEALTH_READ_STATES = new Set(['working', 'idle', 'needs_you', 'rate_limited', 'auth_failed']);
+function healthLine(a, nowMs) {
+  const lw = a && a.lastWorked;
+  if (!lw || typeof lw !== 'object') return '';
+  const at = typeof lw.at === 'string' ? Date.parse(lw.at) : NaN;
+  let last;
+  if (Number.isFinite(at)) last = seenAtWords(at, nowMs);
+  else if (lw.why === 'no_source') last = 'Kosmos cannot see this agent\'s turns';
+  /* "no record": true after a board restart (the record is in memory) and after a switch or a recreate (it is forgotten
+     then), where "not yet" would read as never and "since Kosmos started" would be false. */
+  else last = 'no record';
+  /* auth_failed and rate_limited are always said (a blocked card says neither: see HEALTH_READ_STATES). "No problem" is
+     said only for a state Kosmos reads (HEALTH_READ_STATES)
+     on an agent it has seen work within the last hour (HEALTH_QUIET_MS): otherwise it would be a health claim resting
+     on an absence, or on a sighting old enough for a sign-in to have lapsed since. */
+  const looks = a.stateConfidence === 'scraped';
+  // Within the hour either way: a sighting stamped ahead of this clock (another computer's) is not recent for ever.
+  const quiet = HEALTH_READ_STATES.has(a.state) && Number.isFinite(at) && Math.abs(nowMs - at) <= HEALTH_QUIET_MS;
+  const parts = [];
+  if (a.state === 'auth_failed') parts.push('Sign-in: ' + (looks ? 'looks like it isn\'t working' : 'isn\'t working'));
+  /* Only a Claude agent's state can show a sign-in that stopped working on this computer (a Codex 401 loop reads as
+     working, and the other runners' sign-in report is written by the Windows supervisor alone), so "no problem" is said
+     only for Claude. */
+  // Not on needs_you: a Claude agent waiting at a browser sign-in reads needs_you (status.js), so the question may be it.
+  else if (quiet && a.runner === 'claude' && a.state !== 'needs_you') parts.push('Sign-in: no problem showing');
+  if (a.state === 'rate_limited') parts.push('Usage: ' + (looks ? 'looks like a limit' : 'limit reached'));
+  /* Usage likewise, only for the runners whose limit the board reads (Claude's screen, Codex's and Gemini's own words,
+     status.js limitFrom): nothing reads a Grok limit yet. */
+  // Not beside a refused sign-in: no turn runs then, so no limit could show.
+  else if (quiet && a.state !== 'auth_failed' && (a.runner === 'claude' || a.runner === 'codex' || a.runner === 'gemini')) parts.push('Usage: no limit showing');
+  parts.push('Last seen working: ' + last);
+  return parts.join(' · ');
+}
+/* #5959 slice 2: a past time as the viewer's clock reads it (in a Kosmos+ view of another computer, the viewer's own), with the weekday when it was not today's, and the date
+   when it was over six days ago. */
+function seenAtWords(atMs, nowMs) {
+  const age = nowMs - atMs;
+  // A time ahead of now (the two computers' clocks disagree, in a Kosmos+ view) is said as the time alone, never a weekday.
+  const when = age <= 0 ? {} : age > 6 * 86400e3 ? { month: 'short', day: 'numeric' }
+    : new Date(atMs).toDateString() !== new Date(nowMs).toDateString() ? { weekday: 'short' } : {};
+  return new Date(atMs).toLocaleString([], { ...when, hour: 'numeric', minute: '2-digit' });
+}
+
 /* Whether this window is a Kosmos+ view of a Mac somewhere else, the one test both the offline note
    and the full-restart screen (#4343) branch on. One function, so the two cannot drift apart. */
 function offlineRemoteView() {
@@ -24116,7 +24266,7 @@ function paintRailPjNotice() {
   const rn = document.getElementById('alist-pj-notice');
   if (!rn) return;
   const op = (document.body.classList.contains('consolidated') && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
-  pjKeepOpenFocus(rn, () => setIfChanged(rn, op ? pjNeedsNotice(op.agents || [], pjRedHere) + pjCoordNotice(op) + pjNotice(op.agents || [], op.id) : ''));   // #5688: who needs you, first
+  pjKeepOpenFocus(rn, () => setIfChanged(rn, op ? pjNeedsNotice(op.agents || [], pjRedHere) + pjNotice(op.agents || [], op.id) : ''));   // #5688: who needs you, first
   const rs = document.getElementById('alist-pj-notice-said');
   if (rs && rs.dataset.pj && (!op || rs.dataset.pj !== String(op.id))) { rs.textContent = ''; rs.dataset.pj = ''; }
 }
@@ -25928,6 +26078,9 @@ async function saveHeartbeat(on, intervalMinutes) {
       body: JSON.stringify({ on, intervalMinutes }),
     });
     const out = await res.json().catch(() => ({}));
+    /* #5958: "Where each agent stands" names this switch on every row, so a save reads that list again. Before the
+       epoch check: the save landed whether or not a newer read of this switch is in flight. */
+    if (res.ok) { if (typeof refreshCommunityReady === 'function') refreshCommunityReady(); }
     if (mine !== HB_EPOCH) return;
     if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
     paintSwitch('hb-toggle', out.on === true);
@@ -26503,12 +26656,14 @@ function paintMuseOption(sel, current) {
   opt.disabled = !on;
   /* #5316 (Josh 11:06: "Muse is disabled in the team builder"): this code enables the option, but its static text
      still said "coming soon", and a plain select (the team step's) shows that text as it is. The words follow the
-     same state as `disabled`: usable, sign in first (installed, not signed in), set up first (switched on, not
+     same state as `disabled`: usable, sign in first (installed, not signed in), set up in Settings (#6004: Settings installs Muse Code; switched on, not
      installed), or coming soon (not switched on here). */
   const pending = !on && creating && !!MUSE_CREATE && MUSE_CREATE.on === true;   // switched on, not usable yet
   const signIn = pending && MUSE_CREATE.installed === true;   // installed, only the sign-in is missing
-  opt.textContent = on ? 'Meta Muse' : signIn ? 'Meta Muse \u00b7 sign in first' : pending ? 'Meta Muse \u00b7 set up first' : 'Meta Muse \u00b7 coming soon';
+  // #3939: the team step is a plain select, so its words carry the instruction too. #6004: Settings installs it.
+  opt.textContent = on ? 'Meta Muse' : signIn ? 'Meta Muse \u00b7 sign in first' : pending ? 'Meta Muse \u00b7 set up in Settings' : 'Meta Muse \u00b7 coming soon';
   // The logo list's pill.
+  // #6004: Settings installs Muse Code now, so a Mac without it is pointed there, as one not signed in is.
   if (signIn) opt.dataset.off = 'Sign in to Meta Muse first';
   else if (pending) opt.dataset.off = 'Set up in Settings, AI Models';
   else delete opt.dataset.off;
@@ -26518,7 +26673,7 @@ function paintMuseOption(sel, current) {
 function museCreateAsk() {
   /* Asked again on every paint while Muse is switched on here (the read is a file check): a person who
      signs in to Meta with the board open sees the option turn on without a reload. Switched off is asked
-     again only after MUSE_OFF_RECHECK_MS (the preview marker can switch it on with the page open), so a
+     again only after MUSE_OFF_RECHECK_MS (removing the muse-off marker switches it on with the page open), so a
      board that is off makes at most one read a minute. Asked when the form paints, not on a timer: an open
      form shows the change when it is next painted or reopened. One read in flight at a time. */
   if (MUSE_CREATE_ASKING) return MUSE_CREATE_ASKING;
@@ -31306,6 +31461,10 @@ document.getElementById('acct-grok-sub-cancel').addEventListener('click', () => 
    OWN start answered, never one read back from the poll (another tab's start replaces the sign-in, and
    this screen then says so rather than driving the other one). */
 const MUSE_NOT_HERE = 'Meta Muse is not available on this computer just now.';
+/* #6004: what the Muse step says before its Install press (the press is the confirm, as Antigravity's is). */
+const MUSE_INSTALL_INTRO = 'Meta Muse runs on Meta\'s Muse Code, which is not on this computer yet. Kosmos can install it for you: it is a download from Meta.';
+// #6004: whether Muse Code is on this computer, from Add a provider's last read (null: not read yet).
+let MUSE_CODE_HERE = null;
 const MUSE_BUSY = 'Finish or stop the Claude sign-in first, then sign in to Meta again.';   // round 9: say which
 const MUSE_SAY = {
   starting: 'Starting Muse Code\'s sign-in\u2026',
@@ -31317,25 +31476,29 @@ function museMetaOption() { return document.querySelector('#acct-provider-pick o
 let MUSE_ASK_GEN = 0;   // the latest read wins (round 4: two quick opens could answer out of order)
 async function museAsk() {
   const mine = ++MUSE_ASK_GEN;
-  let on = false; let missing = false;
+  let on = false;
   try {
     const r = await fetch('/api/muse', { cache: 'no-store' });
     const out = r.ok ? await r.json().catch(() => null) : null;
-    /* Offered only when Muse Code is on this computer too (round 2: as Gemini's and Grok's rows wait
-       until they are ready); turned on but not installed says so on the row instead of "Coming soon". */
-    on = !!(out && out.enabled === true && out.installed === true);
-    // The engine's own reason (round 3); the fallback is deliberately not a copy of it (round 4).
-    missing = !!(out && out.enabled === true && out.installed === false) && (pjSentence(out.because) || 'Not ready on this computer');
+    /* #6004: offered whenever Muse is on here, installed or not: without Muse Code, Meta's step installs it first. */
+    on = !!(out && out.enabled === true);
+    if (mine === MUSE_ASK_GEN) {
+      const was = MUSE_CODE_HERE;
+      MUSE_CODE_HERE = out && out.enabled === true ? out.installed === true : null;   // the latest read wins
+      // #6004: the step may have been painted from the previous visit's answer; repaint it while nothing is running.
+      const flow = document.getElementById('acct-muse-flow');
+      if (was !== MUSE_CODE_HERE && flow && !flow.hidden && typeof ACCT_MUSE !== 'undefined' && !ACCT_MUSE.busy) ACCT_MUSE.reset();
+    }
   } catch { on = false; }   // a failed read keeps it "coming soon": today's screen, never a guess
   if (mine !== MUSE_ASK_GEN) return on;
   if (on) { const say = document.getElementById('acct-add-pick-say'); if (say && say.textContent === MUSE_NOT_HERE) acctAddPickSay(''); }
   /* The logo combobox re-reads `disabled` on open (syncOpts) and drops its pill; its row name is fixed at build. The
-     option's words are set too (#5316), for a plain select: usable, not on this computer yet, or coming soon. */
+     option's words are set too (#5316), for a plain select: usable, or coming soon. */
   const opt = museMetaOption();
   if (opt) {
     opt.disabled = !on;
-    opt.textContent = on ? 'Meta Muse' : missing ? 'Meta Muse \u00b7 set up first' : 'Meta Muse \u00b7 coming soon';
-    if (missing) opt.dataset.off = missing; else delete opt.dataset.off;
+    opt.textContent = on ? 'Meta Muse' : 'Meta Muse \u00b7 coming soon';
+    delete opt.dataset.off;
     // An open logo list re-reads its options (round 3), as paintAgyOption and paintKeyedProviderOptions do.
     const sel = opt.parentElement;
     if (sel && sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
@@ -31358,7 +31521,9 @@ function museOffered() {
    Meta row (fr-muse-*). `prefix` names its elements; `opts.onDone` repaints that place after a sign-in. Only one
    place is usable at a time (first run makes the rest of the page inert), and each stops its own sign-in by id. */
 function museSigninFlow(prefix, opts) {
-  let id = null; let poll = null; let gen = 0; let retrying = false;
+  let id = null; let poll = null; let gen = 0; let retrying = false; let installing = false;
+  // #6004: true while this place knows Muse Code is not on this computer (its own read decides).
+  const needsInstall = () => !!(opts && opts.needsInstall && opts.needsInstall());
   const el = (x) => document.getElementById(prefix + x);
   const say = (t) => { const m = el('say'); if (m) m.textContent = t; };   // named 'say': the surface gate maps the usual name to other checks
   const stopPoll = () => { if (poll) { clearInterval(poll); poll = null; } };
@@ -31389,7 +31554,10 @@ function museSigninFlow(prefix, opts) {
     const g = el('go'); if (g) { g.hidden = false; g.disabled = false; }
     const sp = el('spin'); if (sp) sp.hidden = true;
     const dn = el('done'); if (dn) dn.hidden = true;
-    if (g) g.textContent = 'Sign in with Meta';   // a reopened step starts fresh (review round 1); a failure relabels after
+    // A reopened step starts fresh (review round 1); a failure relabels after. #6004: no Muse Code here, install first.
+    if (g) { g.textContent = needsInstall() ? 'Install Muse Code' : 'Sign in with Meta'; g.removeAttribute('aria-disabled'); }   // #6004: no busy mark left by an install the panel was closed on
+    { const sp0 = el('spin'); if (sp0 && sp0.dataset.was) { sp0.lastChild.textContent = sp0.dataset.was; delete sp0.dataset.was; } }
+    if (needsInstall()) say(MUSE_INSTALL_INTRO);
     if (opts && opts.onReset) opts.onReset();
   }
   /* #4569: a sign-in that failed or ended offers Try again on the same button. */
@@ -31409,7 +31577,8 @@ function museSigninFlow(prefix, opts) {
   }
   function finish(text) {
     // reset() hides each row through hideRow, which moves focus off a control that is going.
-    gen += 1; stopPoll(); id = null; reset();
+    // #6004: an install left behind keeps running on the board; a new press joins that same run (one shared run).
+    gen += 1; stopPoll(); id = null; installing = false; reset();
     if (text != null) say(text);
   }
   function watch(mine) {
@@ -31461,7 +31630,16 @@ function museSigninFlow(prefix, opts) {
     try { res = await post('start', {}); out = await res.json().catch(() => null); }
     catch { if (mine === gen) rearm('We could not reach Kosmos to start that sign-in. Try again.'); return; }
     if (mine !== gen) { if (res.ok && out && out.id) post('stop', { id: out.id }).catch(() => {}); return; }
-    if (!res.ok || !out || !out.id) { rearm(pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.'); return; }
+    if (!res.ok || !out || !out.id) {
+      rearm(pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.');
+      // #6004: Muse Code went missing since this place last looked: back to the Install step, never a sign-in loop.
+      if (/not on this computer/.test((out && (out.error || out.because)) || '') && opts && opts.onMissing) {
+        try { opts.onMissing(); } catch { /* the next read decides */ }
+        if (go) go.textContent = 'Install Muse Code';
+        say(MUSE_INSTALL_INTRO);   // the press installs here; never "go to Settings" from the screen that installs
+      }
+      return;
+    }
     id = out.id;
     // #4569: the button stays where it was, off, with Connecting beside it, so the person can see it is under way.
     el('cancel-row').hidden = false;
@@ -31485,17 +31663,60 @@ function museSigninFlow(prefix, opts) {
     hideRow('retry-row');
     say(MUSE_SAY.starting);
   }
+  /* #6004: Install Muse Code with Meta's own installer, on this press (the press is the confirm: the step has just
+     said it is a download from Meta). Installed, the same button becomes Sign in with Meta. */
+  async function install() {
+    if (installing || id) return;
+    installing = true;
+    gen += 1;
+    const mine = gen;
+    // Not disabled (disabling a focused button drops focus to the page): marked busy, and `installing` ignores presses.
+    const go = el('go'); if (go) go.setAttribute('aria-disabled', 'true');
+    const spin = el('spin');
+    if (spin) { spin.hidden = false; spin.dataset.was = spin.dataset.was || spin.lastChild.textContent; spin.lastChild.textContent = 'Installing\u2026'; }
+    say('Installing Muse Code from Meta\u2026');
+    let out = null;
+    try { const res = await fetch('/api/muse/install', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); out = await res.json().catch(() => null); }
+    catch { out = null; }
+    if (mine !== gen) return;
+    installing = false;
+    if (spin) { spin.hidden = true; if (spin.dataset.was) spin.lastChild.textContent = spin.dataset.was; }
+    if (go) go.removeAttribute('aria-disabled');
+    if (!out) {
+      // No answer is not a failure: the install runs on the board and may still be going. A second press shares that run.
+      // Labelled for what it does: a press installs, and joins the board's install if one is still running.
+      if (go) { go.textContent = 'Install Muse Code'; go.focus(); }
+      say('Muse Code may still be installing. Pressing Install Muse Code again joins that install, or starts it if it stopped.');
+      return;
+    }
+    if (!out.ok) {
+      // A refusal a retry cannot change offers nothing to press (as Antigravity's goes to Check again, not Try again).
+      const stuck = /different home|switched off|not available/.test(out.error || out.because || '');
+      say(pjSentence(out.error || out.because) || 'We could not install Muse Code just now.');
+      if (go) {
+        if (stuck) { const m = el('say'); if (m) { m.tabIndex = -1; m.focus(); } go.hidden = true; }   // focus to the reason first, never stranded
+        else { go.textContent = 'Try again'; go.focus(); }
+      }
+      return;
+    }
+    if (opts && opts.onInstalled) { try { opts.onInstalled(); } catch { /* the place repaints on its next read */ } }
+    if (go) { go.textContent = 'Sign in with Meta'; go.focus(); }
+    say('Muse Code is installed. Now sign in with your Meta account.');
+  }
+  /* The one button: install first while Muse Code is missing here, then the sign-in. */
+  function press() { if (needsInstall()) install(); else start(); }
   function leave() {
     const was = id;
     finish(null); say('');
+    if (needsInstall()) say(MUSE_INSTALL_INTRO);
     if (was) post('stop', { id: was }).catch(() => { /* the engine's own limit ends it regardless */ });
   }
-  return { start, retry, leave, reset, get active() { return !!id; } };
+  return { start, retry, leave, reset, install, press, get active() { return !!id; }, get busy() { return installing || !!id; } };
 }
 /* The three buttons of one place, wired to its controller. */
 function museSigninWire(flow, prefix) {
   const el = (x) => document.getElementById(prefix + x);
-  el('go').addEventListener('click', () => flow.start());
+  el('go').addEventListener('click', () => flow.press());   // #6004: installs Muse Code first where it is missing
   el('retry').addEventListener('click', () => flow.retry());
   el('cancel').addEventListener('click', () => {
     flow.leave();
@@ -31504,6 +31725,9 @@ function museSigninWire(flow, prefix) {
   });
 }
 const ACCT_MUSE = museSigninFlow('acct-muse-', {
+  needsInstall: () => MUSE_CODE_HERE === false,
+  onInstalled: () => { MUSE_CODE_HERE = true; MUSE_ASK_GEN += 1; },   // round 7: a read begun before the install cannot undo it
+  onMissing: () => { MUSE_CODE_HERE = false; },
   onDone: () => paintAccounts(),
   /* #4569 (Josh): once signed in, Close is the thing to press. */
   onSuccess: () => { const c = document.getElementById('acct-add-close'); if (c) { c.classList.add('uprime'); c.setAttribute('aria-describedby', 'acct-muse-done'); c.focus(); } },
@@ -31525,9 +31749,13 @@ function acctMuseShow(on) {
 museSigninWire(ACCT_MUSE, 'acct-muse-');
 /* #3939 3c-4: Meta Muse on the first-run model step. The row is today's "Coming soon" unless Muse is switched
    on here (the Create form's read, museCreateAsk / MUSE_CREATE); then it offers Connect, which opens the same
-   sign-in as Add a provider under the row, or says Muse Code is not on this computer (Kosmos does not install
+   sign-in as Add a provider under the row, or says Muse Code is not on this computer (#6004: Kosmos now installs it; before, it did not install
    it). Signed in, the row reads Connected with the gold box, like Gemini's and Grok's. */
-const FR_MUSE = museSigninFlow('fr-muse-', { onDone: async () => {
+const FR_MUSE = museSigninFlow('fr-muse-', {
+  needsInstall: () => !!(MUSE_CREATE && MUSE_CREATE.on && MUSE_CREATE.installed === false),
+  onInstalled: () => { if (MUSE_CREATE) MUSE_CREATE.installed = true; frPaintMeta().catch(() => {}); },   // repaints the under-18 line too
+  onMissing: () => { if (MUSE_CREATE) MUSE_CREATE.installed = false; },
+  onDone: async () => {
   await frPaintMeta({ fresh: true });
   if (MUSE_CREATE && MUSE_CREATE.ready) return;
   /* The sign-in finished but the read after it did not confirm it (it failed, or answered before Muse
@@ -31569,8 +31797,9 @@ async function frPaintMeta(opts) {
   /* #4569 (Josh: the Meta label everywhere): switched on, the row names what the person connects, Muse (from Meta),
      as Gemini / Google and Grok / xAI do; off, it keeps today's coming-soon Llama. */
   const nm = row.querySelector('.llm-w b'); if (nm) nm.textContent = live ? 'Muse' : 'Llama';
-  /* #5856: the under-18 sentence names Meta Muse only when a person can actually pick it. */
-  const ages = document.getElementById('fr-age-list'); if (ages) ages.textContent = live ? 'OpenAI, Grok or Meta Muse' : 'OpenAI or Grok';
+  /* #5856: the under-18 sentence names Meta Muse only when a person can actually pick it: with Muse on by default
+     (#3939), that is once Muse Code is on this computer, not merely switched on. */
+  const ages = document.getElementById('fr-age-list'); if (ages) ages.textContent = live && m.installed === true ? 'OpenAI, Grok or Meta Muse' : 'OpenAI or Grok';
   const msg = document.getElementById('fr-muse-msg');
   if (!live) {
     frMuseCollapse();
@@ -31594,7 +31823,7 @@ async function frPaintMeta(opts) {
        offers Next rather than only "Skip connecting a model", unless Claude has offered its own. */
     const claudeConnected = FR && FR.subscription && FR.subscription.state === 'connected';
     if (!claudeConnected && FR_STEP === 5) frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
-  } else if (msg.classList.contains('fr-connbox') || (m.installed && msg.dataset.said === 'missing')) {
+  } else if (msg.classList.contains('fr-connbox')) {
     msg.className = 'dhint'; msg.textContent = ''; delete msg.dataset.said;
   }
 }
@@ -31608,10 +31837,10 @@ document.getElementById('fr-meta-connect').addEventListener('click', async () =>
   await frPaintMeta();
   if (FR_STEP !== step || document.getElementById('firstrun').hidden) return;   // first run moved on during the read
   if (!MUSE_CREATE || !MUSE_CREATE.on || MUSE_CREATE.ready || btn.hidden) return;
-  if (!MUSE_CREATE.installed) {
-    if (msg) { msg.className = 'dhint'; msg.textContent = 'Muse Code is not on this computer yet. Install it from Meta, then come back to this step.'; msg.dataset.said = 'missing'; }
-    return;
-  }
+  // #6004: without Muse Code the same panel opens on its Install step (FR_MUSE's reset reads MUSE_CREATE). A line
+  // left under the row from an earlier state is cleared: the panel says what is happening now.
+  if (msg) { msg.className = 'dhint'; msg.textContent = ''; delete msg.dataset.said; }
+  FR_MUSE.reset();
   flow.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
   document.getElementById('fr-muse-go').focus();
@@ -33248,6 +33477,9 @@ async function communityToggleClick() {
       body: JSON.stringify({ on }),
     });
     const body = await res.json().catch(() => ({}));
+    /* #5958: the rows name this switch, so a save reads them again. Before the epoch check: the save landed whether
+       or not a newer read of the switch is in flight. */
+    if (res.ok) { if (typeof refreshCommunityReady === 'function') refreshCommunityReady(); }
     if (mine !== COMMUNITY_EPOCH) return;
     if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; return; }
     communityPaint(body);
@@ -33681,6 +33913,125 @@ function communityMinePaint(rows, commentsUnread) {
     list.append(li);
   }
 }
+/* #5958 items 4 and 5: where each agent stands. A time is written in the person's own zone; everything else is the
+   board's own words (engine/communityready.js ownerView). */
+function communityReadyWhen(ms) {
+  const when = Number.isFinite(ms) ? new Date(ms) : null;
+  if (!when || isNaN(when)) return 'a date Kosmos could not read';
+  return when.toLocaleString(undefined, when.getFullYear() === new Date().getFullYear()
+    ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+function communityReadyLine(l) {
+  if (!l || typeof l.text !== 'string') return null;   // nothing to say: no empty paragraph
+  const p = document.createElement('p');
+  p.className = 'dhint';
+  p.append(l.text);
+  /* A line the board wrote around a time has words after it; a time that was lost on the way (no `at` at all) is said
+     as one the page cannot read, never as a sentence that stops short. */
+  if ('at' in l || typeof l.after === 'string') {
+    const t = document.createElement('time');
+    if (Number.isFinite(l.at)) { const d = new Date(l.at); if (!isNaN(d)) t.dateTime = d.toISOString(); }
+    t.textContent = communityReadyWhen(l.at);
+    p.append(t, typeof l.after === 'string' ? l.after : '');
+  }
+  return p;
+}
+let COMMUNITY_READY_EPOCH = 0;
+let COMMUNITY_READY_PAINTED = null;   // the answer the rows on the page were painted from, as text; null when none is
+/* The rows the person has open, by agent. Kept here, not read back from the page, so a read that fails (and clears the
+   list) does not forget them. */
+const COMMUNITY_READY_OPEN = new Set();
+/* `rows` null: the board could not say (never "you have no agents"). Open rows stay open across a repaint. */
+function communityReadyPaint(rows) {
+  const list = document.getElementById('community-ready-list');
+  const empty = document.getElementById('community-ready-empty');
+  const open = COMMUNITY_READY_OPEN;
+  /* A row's toggle event comes a moment after its click; take what the rows on the page say now, so a repaint that
+     lands in between does not paint from the older set. */
+  for (const live of list.querySelectorAll('details')) { if (live.open) open.add(live.dataset.session); else open.delete(live.dataset.session); }
+  const focused = document.activeElement && document.activeElement.closest ? document.activeElement.closest('#community-ready-list details') : null;
+  const focusSession = focused ? focused.dataset.session : null;
+  list.replaceChildren();
+  const COULD_NOT = 'We could not check where your agents stand just now. Try again in a moment.';
+  if (!Array.isArray(rows)) {
+    list.hidden = true;
+    empty.hidden = false;
+    empty.textContent = COULD_NOT;
+    /* The row the keyboard was on is gone: put it on the heading, as the lists above do, not on nothing. */
+    if (focusSession) { const head = document.getElementById('community-ready-head'); if (head) { head.tabIndex = -1; head.focus({ preventScroll: true }); } }
+    return;
+  }
+  list.hidden = rows.length === 0;
+  empty.hidden = rows.length > 0;
+  empty.textContent = 'Kosmos lists no agents yet.';
+  for (const r of rows) {
+    const view = r && r.owner && Array.isArray(r.owner.lines) ? r.owner : null;
+    if (!r || typeof r.session !== 'string' || !view) continue;
+    const li = document.createElement('li');
+    li.className = 'community-ready-row';
+    const d = document.createElement('details');
+    d.dataset.session = r.session;
+    d.open = open.has(r.session);
+    d.addEventListener('toggle', () => { if (d.open) open.add(r.session); else open.delete(r.session); });
+    const sum = document.createElement('summary');
+    /* The same chevron shape the Connections rows use (.con-chev), before the name here, built in script because the row is. */
+    const SVG = 'http://www.w3.org/2000/svg';
+    const chev = document.createElementNS(SVG, 'svg');
+    chev.setAttribute('class', 'community-ready-chev');
+    chev.setAttribute('viewBox', '0 0 16 16');
+    chev.setAttribute('width', '12');
+    chev.setAttribute('height', '12');
+    chev.setAttribute('aria-hidden', 'true');
+    const stroke = document.createElementNS(SVG, 'path');
+    stroke.setAttribute('d', 'm6 4 4 4-4 4');
+    stroke.setAttribute('fill', 'none');
+    stroke.setAttribute('stroke', 'currentColor');
+    stroke.setAttribute('stroke-width', '1.6');
+    stroke.setAttribute('stroke-linecap', 'round');
+    stroke.setAttribute('stroke-linejoin', 'round');
+    chev.append(stroke);
+    const name = document.createElement('b');
+    name.textContent = typeof r.name === 'string' && r.name ? r.name : r.session;
+    const word = document.createElement('span');
+    word.className = 'dhint community-ready-words';
+    word.textContent = typeof view.summary === 'string' ? view.summary : '';
+    const who = document.createElement('span');   // the mark and the name stay together; the words wrap as one piece
+    who.className = 'community-ready-name';
+    who.append(chev, name);
+    sum.append(who, ' ', word);   // a space in the row's text between the name and its words
+    d.append(sum);
+    for (const l of view.lines) { const p = communityReadyLine(l); if (p) d.append(p); }
+    li.append(d);
+    list.append(li);
+    if (focusSession === r.session) sum.focus({ preventScroll: true });   // a repaint must not drop the keyboard's place, or move the view
+  }
+  /* Rows came and none could be painted: that is a read this page could not use, not "no agents". */
+  if (!list.children.length) { list.hidden = true; empty.hidden = false; if (rows.length) empty.textContent = COULD_NOT; }
+  /* An agent that is gone no longer has a row to keep open. */
+  const here = new Set([...list.querySelectorAll('details')].map((x) => x.dataset.session));
+  /* The row the keyboard was on is gone (its agent was removed): the heading, as on a failed read. */
+  if (focusSession && !here.has(focusSession)) { const head = document.getElementById('community-ready-head'); if (head) { head.tabIndex = -1; head.focus({ preventScroll: true }); } }
+  /* Only an agent the board no longer lists is forgotten; one whose row could not be painted this time is not gone. */
+  const listed = new Set(rows.map((r) => (r && typeof r.session === 'string' ? r.session : null)).filter(Boolean));
+  for (const s of [...open]) if (!listed.has(s)) open.delete(s);
+}
+async function refreshCommunityReady() {
+  const mine = ++COMMUNITY_READY_EPOCH;
+  try {
+    const res = await fetch('/api/community/ready', { cache: 'no-store' });
+    const body = res.ok ? await res.json() : null;
+    if (mine !== COMMUNITY_READY_EPOCH) return;
+    const rows = body && Array.isArray(body.agents) ? body.agents : null;
+    /* The same answer as the one on the page is not painted again: a repaint rebuilds every row, which would take a
+       half-made click or a selection away for nothing. A failed read always paints, and forgets what was painted. */
+    const same = rows === null ? null : JSON.stringify(rows);
+    if (same !== null && same === COMMUNITY_READY_PAINTED) return;
+    communityReadyPaint(rows);
+    COMMUNITY_READY_PAINTED = same;   // only what was painted whole is remembered
+  } catch {
+    if (mine === COMMUNITY_READY_EPOCH) { COMMUNITY_READY_PAINTED = null; communityReadyPaint(null); }
+  }
+}
 async function refreshCommunityMine() {
   const mine = ++COMMUNITY_MINE_EPOCH;
   try {
@@ -33748,6 +34099,7 @@ function openCommunityDelete(r, li) {
          that cannot land, then put the board's message back on the row, since the repaint drops the ask. */
       if (res.status === 400 || res.status === 404) {
         await refreshCommunityMine();
+        if (typeof refreshCommunityReady === 'function') refreshCommunityReady();   // #5958: the rows name the switch, what is held and the newest post
         const fresh = document.querySelector('#community-mine-list li[data-id="' + CSS.escape(r.id) + '"]');
         const note = document.createElement('p');
         note.className = 'dhint community-mine-said';
@@ -33762,6 +34114,7 @@ function openCommunityDelete(r, li) {
       }
       if (!res.ok) { delNote.textContent = said; del.disabled = false; keep.disabled = false; return; }
       await refreshCommunityMine();
+      if (typeof refreshCommunityReady === 'function') refreshCommunityReady();   // #5958: the rows name the switch, what is held and the newest post
       const head = document.getElementById('community-mine-head');
       if (head) { head.tabIndex = -1; head.focus(); }
     } catch {
@@ -34000,6 +34353,7 @@ async function refreshCommunityHeld() {
    once the send sweep picks it up), and focus goes to the heading, since the row it was on is gone. */
 async function communityHeldDone() {
   await Promise.all([refreshCommunityHeld(), refreshCommunityMine()]);
+  if (typeof refreshCommunityReady === 'function') refreshCommunityReady();   // #5958: the rows name the switch, what is held and the newest post
   const head = document.getElementById('community-held-head');
   if (head) { head.tabIndex = -1; head.focus(); }
 }
@@ -34212,6 +34566,7 @@ refreshIndustry(); // #4375: the owner's industry on the agents' public profiles
 refreshAgentLanguage(); // #5080: the language agents write to the person in
 refreshCommunityMine(); // #4313: your agents' posts in the community, each with Delete
 refreshCommunityHeld(); // #4525: what is held for the person, each with Release and Discard
+refreshCommunityReady(); // #5958: where each agent stands with the community
 refreshYou();
 // #3051: the user menu's name is now always visible in the tab-view header (not only
 // inside the create/detail panels that used to be the sole callers), so fetch it at
@@ -37896,7 +38251,7 @@ function dmRow(m, name, replyAdjacent) {
        room's own pills + hover quick bar (rxnsInner), keyed by the message's `at`
        (a DM row has no id; the react route finds the message by it). `typeof`-guarded
        because the lifted dmRow tests run without the room's reaction helpers. */
-    const rxns = (m.at && typeof rxnsInner === 'function')
+    const rxns = (m.at && m.kind !== 'question' && typeof rxnsInner === 'function')   // #5943: a dated question is not a stored message, so it takes no reaction
       ? '<div class="rxns" data-at="' + esc(String(m.at)) + '" data-speak>' + rxnsInner(m.reactions,
         typeof CURRENT === 'undefined' || !CURRENT || m.from === CURRENT.sessionName, true, m.id) + '</div>' : '';   // #4409: an agent's row, so it can be read aloud   // #4631: its id for Copy reference   // #4256: Reply on this agent's own messages (the server takes no other sender's)
     return '<div class="msg" data-mid="' + midOf(m) + '">' + av
@@ -37906,6 +38261,7 @@ function dmRow(m, name, replyAdjacent) {
       + pjRich(typeof pjDropSelfName === 'function' ? pjDropSelfName(pjWords(m), [shownFrom, m.from]) : pjWords(m))   // #4873
       + pjPreviewCard(m.preview) + pjAttachmentCards(m)
       + (typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m) : '')   // #5406 (guarded: the lifted dmRow tests run without it)
+      + (typeof dmQuestionFootHtml === 'function' ? dmQuestionFootHtml(m) : '')   // #5943 (guarded: the lifted dmRow tests run without it)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
       + '</div>' + rxns + '</div></div>';
   }
@@ -38306,6 +38662,53 @@ document.addEventListener('click', (e) => {
   const b = e.target && e.target.closest ? e.target.closest('#d-dmthread .dmchoice') : null;
   if (b && !b.disabled) dmChoicePress(b);
 });
+/* #5943 (Josh: an answered question stayed the newest bubble for 12 days, and only an Engineering-mode button cleared
+   it). Under a question the agent REPORTED: how long it has been asked ("Asked 12 days ago", agoWords, the wording
+   #5942 matches), and "Answered, clear this" for anyone. The button takes the marker off through the same route as
+   the Engineering-mode control (clear-selfreport, recorded as the person's); no message is deleted. A question read
+   off the agent's screen alone has neither: it is in front of the agent now and is answered by replying. */
+function dmQuestionFootHtml(m) {
+  // The question row itself, or (review 2) the agent's own message that IS the question, carrying its ask time.
+  const own = Boolean(m && m.kind !== 'question' && m.questionClearable === true);
+  if (!m || (!own && (m.kind !== 'question' || m.clearable !== true))) return '';
+  const askedIso = own ? m.questionAt : m.at;
+  const asked = Date.parse(askedIso || '');
+  const age = Number.isFinite(asked) && typeof agoWords === 'function' ? agoWords(Date.now() - asked) : '';
+  return '<div class="dmq-foot">'
+    // data-at so the age is refreshed in place (refreshWhens) and blanked for the repaint check (threadShape): the
+    // minute it changes must not rebuild the thread (#3966's flash).
+    + (age ? '<span class="dmq-age" data-at="' + esc(String(askedIso)) + '">Asked ' + esc(age) + '</span>' : '')
+    + '<button type="button" class="dmq-clear" data-asked="' + esc(String(askedIso || '')) + '" aria-label="This question is answered: clear it">Answered, clear this</button>'
+    + '<span class="dmq-msg" role="status" aria-live="polite"></span></div>';
+}
+async function dmQuestionClear(btn) {
+  const target = CURRENT && CURRENT.sessionName;
+  if (!target || !btn || btn.disabled) return;
+  const foot = btn.closest('.dmq-foot');
+  const say = (t) => { const el = foot && foot.querySelector('.dmq-msg'); if (el) el.textContent = t; };
+  btn.disabled = true;
+  say('');
+  let ok = false;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(target) + '/clear-selfreport', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      // Review 3: the ask this button was drawn for; the route refuses if a different question stands now.
+      body: JSON.stringify({ reason: 'the person marked the question answered', askedAt: btn.getAttribute('data-asked') || undefined }),
+    });
+    let body = {};
+    try { body = await res.json(); } catch { body = {}; }
+    ok = res.ok && body && body.ok === true;   // cleared:false (already cleared, a race) is success too
+    // Review 4: the agent asked something new since this was drawn; that one was NOT cleared, and the next poll shows it.
+    if (ok && body.stale === true) { say('The agent asked something new since this was shown, so nothing was cleared. It appears in a moment.'); return; }
+  } catch { ok = false; }
+  if (!ok) { btn.disabled = false; say('We could not clear that just now. Try again.'); return; }
+  // The next paint has no question row, so the bubble (and this button) goes; the card's badge goes on its next tick.
+  if (CURRENT && CURRENT.sessionName === target) await paintTalk(CURRENT.sessionName, CURRENT.name);
+}
+document.addEventListener('click', (e) => {
+  const b = e.target && e.target.closest ? e.target.closest('#d-dmthread .dmq-clear') : null;
+  if (b) dmQuestionClear(b);
+});
 /**
  * kosmos#5841: a direct conversation's EARLIER messages, opened from the "older messages are still kept" line, a page
  * at a time from GET .../thread/older?before=<n>, and drawn IN the thread, before the latest 200, by the thread's own
@@ -38467,7 +38870,7 @@ function paintTalkThread(body, name) {
   DM_ROWS_NAME = name;
   DM_ROWS_OLDER = CURRENT && earlierOn(CURRENT.sessionName) ? EARLIER.before : (Number(body.olderCount) || 0);   // kosmos#5841
   DM_ROWS_OLDEST = null;
-  for (const r of allRows) if (r && typeof r.at === 'string' && (DM_ROWS_OLDEST === null || r.at < DM_ROWS_OLDEST)) DM_ROWS_OLDEST = r.at;
+  for (const r of allRows) if (r && r.kind !== 'question' && typeof r.at === 'string' && (DM_ROWS_OLDEST === null || r.at < DM_ROWS_OLDEST)) DM_ROWS_OLDEST = r.at;   // #5943: the dated question is not a stored row
   dmReplyPaint(DM_ROWS_OF);
   convPaint();   // #5624 review 1: the toggle follows the agent on screen, whatever this paint shows
   if (TALK_QUERY && String(TALK_QUERY).trim()) convPause();   // #5624 review 4: any search, a no-match one too
@@ -38490,6 +38893,7 @@ function paintTalkThread(body, name) {
   for (const m of dmSession && Array.isArray(body.messages) ? body.messages : []) {   // kosmos#5841: the latest only, not earlier rows
     if (!m || m.from !== dmSession || !m.at) continue;
     if (m.kind && ROOM_NOT_SPEECH.has(m.kind)) continue;
+    if (m.kind === 'question') continue;   // #5943: a standing question, dated when it was asked, is not a new reply
     const at = Date.parse(m.at);
     if (!Number.isFinite(at)) continue;
     const seen = DM_SPOKE_AT.get(dmSession);
@@ -39843,6 +40247,10 @@ function paintDetailState(card) {
      described the work, so an Idle pill beside "Its screen said: <that work>" would be the same
      split one row lower. */
   const a = workingSampleIsStale(card) ? { ...card, state: 'idle', stateEvidence: '' } : card;
+  /* #5959 slice 2: the health line follows the poll with the pill, from the same card, so the two never disagree about a
+     sign-in or usage problem. */
+  const dhealth = document.getElementById('d-health');
+  if (dhealth) { dhealth.textContent = healthLine(a, Date.now()); dhealth.hidden = !dhealth.textContent; }
   /* #3958 (review): the screen-said evidence and the re-auth button follow the poll with the
      pill. Painted FIRST, so a missing #d-task or #d-state cannot stop them. Painted only by openDetail they froze while the pill went live, so a page opened on a
      working agent that then hit auth_failed said so in the pill with no "Sign in again" beside it. */
@@ -40883,6 +41291,7 @@ function settingsGo(section, opts) {
   if (section === 'automation' && typeof refreshCommunityMine === 'function') refreshCommunityMine();
   /* #4525: the held list too: an agent can post while the page is open. */
   if (section === 'automation' && typeof refreshCommunityHeld === 'function') refreshCommunityHeld();
+  if (section === 'automation' && typeof refreshCommunityReady === 'function') refreshCommunityReady();   // #5958
   /* #4820 review 2: the Community and Daily report switches (both in Automation) were read once, at page
      load, so a switch turned Off on first run's Screen 6 in the same session still read ON here, with
      the Off notes hidden. Re-read them each time Automation opens. Not while a save from this section is
@@ -42943,6 +43352,24 @@ async function instrAddAct(sessionName, act, note, buttons) {
   }
   loadInstructions(sessionName);
 }
+/* #5959 slice 4: "Save diagnostics". The download starts in the person's click (the link itself); beside it the page
+   asks the same route with ?check=1, as the agent export does, so a refusal is said under the link instead of saved as
+   the file. The address is written out here so the route test can read it (#3957). */
+let DIAG_LATEST = null;   // the last click's ticket: an older look's answer never lands on a newer click
+document.addEventListener('click', (e) => {
+  const link = e.target && e.target.closest && e.target.closest('#diag-save');
+  if (!link) return;
+  const ticket = {};
+  DIAG_LATEST = ticket;
+  const note = document.getElementById('diag-note');
+  if (note) note.textContent = '';
+  fetch('/api/diagnostics?check=1', { cache: 'no-store' }).then(async (res) => {
+    if (res.ok || DIAG_LATEST !== ticket) return;
+    let said = '';
+    try { const b = await res.json(); said = (b && (b.because || b.error)) || ''; } catch { said = ''; }
+    if (note) note.textContent = 'Not saved: ' + (asSentence(said) || 'Kosmos could not make the diagnostics file just now.');
+  }).catch(() => { /* the download itself is already under way; a failed look is not a failed download */ });
+});
 /* kosmos#5581: "Download this agent". The download starts in the person's click (the link itself), and beside it the
    page asks the same route with ?check=1, as kplusDownload does: a refusal is said on the panel's message line instead
    of left to the browser. The address is written out here so the route test can read it (#3957). */
@@ -43615,7 +44042,8 @@ document.getElementById('d-instr-save').addEventListener('click', async () => {
     // A different agent, OR the same agent reloaded since this save began.
     if (!CURRENT || CURRENT.sessionName !== forAgent || INSTR_LOAD !== forLoad) return;
     if (!res.ok) throw new Error(data.error || 'that did not work');
-    msg.textContent = 'Saved.';
+    // #5957: the text saved, but a new name another agent already has was not taken; say so in the same line.
+    msg.textContent = typeof data.nameKept === 'string' && data.nameKept ? 'Saved. ' + data.nameKept : 'Saved.';
     INSTR_VERSION = data.version || null;
     INSTR_LOADED_TEXT = text;   // #4406: the box now holds what is saved
     INSTR_EPOCH += 1;
@@ -46779,7 +47207,11 @@ document.getElementById('d-save').addEventListener('click', async () => {
                                   line every time somebody saved a role. */
                                ...(reportsSent === null ? {} : { reportsTo: reportsSent }) }) });
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
-    if (!res.ok) throw new Error('that did not save');
+    /* #5957: a refusal carries its own sentence (a name another agent already has); say it, as the instructions Save does. */
+    if (!res.ok) {
+      const refused = await res.json().catch(() => null);
+      throw new Error((refused && typeof refused.error === 'string' && refused.error) || 'that did not save');
+    }
     const saved = await res.json().catch(() => null);
     /* 🔑 A RENAME IS TWO ACTS AND THE SENTENCE SAYS WHICH ONES HAPPENED. The
        record is what every screen reads; the sentence at the top of the agent's
@@ -52319,7 +52751,7 @@ function enhanceProviderSelect(selectId) {
     li.setAttribute('aria-selected', o.selected && !disabled ? 'true' : 'false');
     // The bare provider name: the <option> text carries " · coming soon" (or #5316's " · sign in first" or
     // " · set up first"); strip it, the widget shows a pill instead.
-    const label = o.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first)\s*$/i, '').trim();
+    const label = o.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first|install Muse Code first|set up in Settings)\s*$/i, '').trim();
     const mark = providerMarkNode(o.value, label);
     mark.classList.add('pcombo-mark');
     if (disabled) mark.classList.add('dim');
@@ -52376,7 +52808,7 @@ function enhanceProviderSelect(selectId) {
        for an unrecognised provider, leaving selectedIndex -1 / a blank native select), the
        trigger must show blank too, not silently present the first option as selected. */
     const cur = opts.find((o) => o.value === select.value) || null;
-    const label = cur ? cur.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first)\s*$/i, '').trim() : '';
+    const label = cur ? cur.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first|install Muse Code first|set up in Settings)\s*$/i, '').trim() : '';
     trigger.textContent = '';
     if (cur) {
       const mark = providerMarkNode(cur.value, label);
@@ -53267,7 +53699,8 @@ function createPickGone(known) {
       ? (!MUSE_CREATE || !MUSE_CREATE.on
         ? 'Meta Muse is not available on this computer, so this is back on ' + back + '.'
         : !MUSE_CREATE.installed
-        ? 'Meta Muse is not set up on this computer, so this is back on ' + back + '. Set it up in Settings, AI Models: Add a provider, then Meta.'
+        // #6004: Settings installs Muse Code, so the sentence points there.
+        ? 'Muse Code is not on this computer, so this is back on ' + back + '. Install it in Settings, AI Models: Add a provider, then Meta.'
         : 'Meta Muse is not signed in on this computer, so this is back on ' + back + '. Sign in to it in Settings, AI Models: Add a provider, then Meta.')
       : known
       ? 'There is no ' + gone + ' account connected, so this is back on ' + back + '. Add one in Settings, AI Models.'
@@ -59631,24 +60064,6 @@ function pjNoticeStill(r, projectId) {
   return PJ_NOTICE_TRIED.get(k) === r.because ? ' It still did not work.' : '';
 }
 
-/* #4583: the two-coordinator warning, shown after an add or a create that brought a second coordinator on (the
-   server says so in that answer), until it no longer holds (the project read's `coordinators` is null) or the
-   person dismisses it. Remembered for this tab only: a warning, never a refusal, and never a nag on every visit. */
-/* id -> the projects-read number current when the add or create answered. Review round 2: a repaint can run on a
-   read that STARTED before the add (coordinators still null), and that null says nothing about the add; only a
-   read started after it (a higher number, PJ_READ_SHOWN) can say the warning no longer holds. */
-const PJ_COORD_WARN = new Map();
-let PJ_READ_SEQ = 0;     // numbers each /api/projects read as it starts
-let PJ_READ_SHOWN = 0;   // the number of the read whose answer is in PROJECTS now
-function pjCoordNotice(p) {
-  const id = p && p.id;
-  if (!id || !PJ_COORD_WARN.has(String(id))) return '';
-  if (!p.coordinators) { if (PJ_READ_SHOWN > PJ_COORD_WARN.get(String(id))) PJ_COORD_WARN.delete(String(id)); return ''; }
-  return '<div class="pnotice pn-coord"><span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>Two coordinators on this project.</b>'
-    + '<div class="pnrow"><span class="pnwhy">' + esc(pjSentence(p.coordinators) || String(p.coordinators)) + '</span>'
-    + '<button class="qopt" type="button" data-pn-coord-dismiss="' + esc(String(id)) + '">Dismiss</button></div></div></div>';
-}
-
 /* #5688 (Josh, 10-09 08:45: "There's some issue and I don't know what an issue would be"): the project's Issue
    count, said member by member. Each reason is the engine's needsYouHere (projects.js needsYouReason), so the block's
    first group is exactly the members the red pill counts (#5692 adds red rows it does not count, after them). One Open per row: the agent's own page holds the fix (the answer box,
@@ -60708,10 +61123,45 @@ function pjAncestry(p) {
   if (!cur && p && p.parentName) return [p.parentName];   // parent record not loaded
   while (cur && !seen.has(cur.id)) {
     seen.add(cur.id);
-    names.unshift(cur.name);
+    names.unshift(cur.name == null ? '' : cur.name);   // #3029: never the text undefined in a chain
     cur = cur.parent ? pjById(cur.parent) : null;
   }
   return names;
+}
+/* #3029: every place a person PICKS or reads a project from a flat list (the Tasks Project: dropdown, its
+   Group by: Project headings and crumb, New task's project, both parent pickers) names it by its chain, so a
+   subproject never reads as top-level and two same-named subprojects under different parents are told apart:
+   root first where it is read ("Book A › Launch", the grid's ancestry line in words), own name first in a
+   select option (pjChainOption, "Launch, in Book A"). Lists are ordered by the chain, segment by
+   segment, so each subproject follows its parent (a joined-string sort puts a sibling named "Alpha - old"
+   between "Alpha" and "Alpha › Sub"; web.subpick-3029.test.js shows it). A top-level project's chain is just its name, so it reads exactly as before. */
+function pjChainOf(p) {
+  return p ? pjAncestry(p).concat(p.name == null ? '' : String(p.name)) : [];
+}
+function pjChainCompare(a, b) {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i += 1) {
+    const c = String(a[i]).localeCompare(String(b[i]));
+    if (c) return c;
+  }
+  return a.length - b.length;
+}
+function pjChainText(names) {
+  return names.join(' › ');
+}
+function pjChainSpoken(names) {
+  return names.join(', ');   // #3029: the chain in aria-labels
+}
+function pjChainOption(names, after) {
+  /* #3029: an option's words. Its own name first, so a closed select cut short on a phone still says which
+     project is picked: "Launch, in Book A". A top-level project is its bare name. `after` (the Tasks open count)
+     sits right after the own name it belongs to: "Ads (3), in Book A › Launch". */
+  const own = (names.length ? names[names.length - 1] : '') + (after || '');
+  return names.length < 2 ? own : own + ', in ' + pjChainText(names.slice(0, -1));
+}
+function pjSortByChain(list) {
+  const chain = new Map(list.map((p) => [p, pjChainOf(p)]));   // each chain built once, not per comparison
+  return list.slice().sort((a, b) => pjChainCompare(chain.get(a), chain.get(b)));
 }
 function projectCard(p, unreadable, depth, childCount, lastKid) {
   const s = p.summary || {};
@@ -60995,7 +61445,6 @@ async function loadProjects() {
   // it). Callers that branch on PJ_READ_FAILED right after awaiting need to
   // know the flag is their read's, not a predecessor's -- see pjAnswerFrom
   // (round 21).
-  const readNo = ++PJ_READ_SEQ;   // #4583: which read this is, for the coordinator warning
   try {
     const res = await fetch('/api/projects');
     reached = true;
@@ -61019,7 +61468,6 @@ async function loadProjects() {
       throw new Error(body.error || 'we cannot read your projects right now');
     }
     PROJECTS = body.projects || [];
-    PJ_READ_SHOWN = readNo;
     /* #5551 review: an agent page opened from a project names it; a rename (or a list that arrives late) repaints it. */
     /* typeof first: loadProjects is lifted and run alone by tests (web.projects-signed-out-718), where this global is absent. */
     if (typeof DETAIL_FROM_PROJECT !== 'undefined' && DETAIL_FROM_PROJECT && typeof detailBackPaint === 'function') detailBackPaint();
@@ -61367,7 +61815,7 @@ function paintProjectTasks(p) {
     const sub = t.subtasks && t.subtasks.total > 0 ? t.subtasks : null;
     const subLabel = sub ? sub.done + ' of ' + sub.total + ' subtasks done' : '';
     const chip = sub ? '<span class="tsk-chip" title="' + esc(subLabel) + '">' + sub.done + '/' + sub.total
-      + (sub.done === sub.total ? ', all subtasks done' : '<span class="vh"> subtasks done</span>') + '</span>' : '';
+      + (sub.done === sub.total ? ', all subtasks done' : (!t.closedAt && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total) ? ', all subtasks built' : '<span class="vh"> subtasks done</span>') + '</span>' : '';
     const partOf = crumb && t.parent != null
       ? '<span class="tkcard-part-of">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
     return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + (depth ? ' sub' + depth : '') + '" type="button" data-task="' + n + '">'
@@ -61604,10 +62052,15 @@ function tskInWindow(t, days, now) {
   const c = Date.parse(t && t.createdAt);
   return Number.isFinite(c) && (now - c) <= days * 86400000;
 }
+/* #3029: a Tasks row's project chain (Book A › Launch), from the engine's projectPath on the row. */
+function tskChainOf(t) {
+  return (Array.isArray(t.projectPath) ? t.projectPath : []).concat(t.projectName == null ? '' : String(t.projectName));
+}
 function tskMatches(t, q) {
   const needle = String(q || '').trim().toLowerCase();
   if (!needle) return true;
   const hay = [t.sentence, '#' + t.number, String(t.number), t.projectName]
+    .concat(Array.isArray(t.projectPath) ? t.projectPath : [])   // #3029: "Book A" finds Book A › Launch's tasks
     .concat((t.whoNames || []).map((w) => w + ' ' + tskAgentName(w)))
     .join(' \u0001 ').toLowerCase();
   /* Every word must appear somewhere, so "logo april" finds April's logo task. A "#N" word
@@ -61692,6 +62145,9 @@ async function tskLoad(arrival) {
 }
 function tskRow(t, at) {
   const on = TSK.sel.has(tskKey(t));
+  /* #3029: the row names its project by the chain (Book A › Launch), so two same-named subprojects differ. */
+  const rowChain = tskChainOf(t);
+  const projChain = pjChainText(rowChain);
   /* #3861 part 2: where the row sits in its list (taskNest): its indent, whether it says what it
      is part of, and how many of its subtasks are in this same list (the fold toggle). A caller
      that passes nothing gets a plain top-level row. */
@@ -61706,7 +62162,11 @@ function tskRow(t, at) {
   /* Every subtask closed, the parent still open: say so and offer Close. Closing the last child
      never closes the parent (nothing cascades, engine/tasks.js); the person decides here. */
   const allDone = sub && sub.done === sub.total && t.state !== 'closed'
-    ? '<span>all subtasks done</span><button type="button" data-close-parent="' + esc(tskKey(t)) + '">Close it</button>' : '';
+    ? '<span>all subtasks done</span><button type="button" data-close-parent="' + esc(tskKey(t)) + '">Close it</button>'
+    /* kosmos#5956: every subtask closed or built, some only built: the parent is ready for the person to check. No
+       Close here: the built subtasks are still open, and closing them is the person's call on each one. */
+    : sub && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total && t.state !== 'closed'
+      ? '<span>all subtasks built, ready for you to check</span>' : '';
   const partOf = place.crumb && t.parent != null
     ? '<span class="tsk-part">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
   /* A state this view does not know gets no label at all, never a group the engine did not name. */
@@ -61735,6 +62195,12 @@ function tskRow(t, at) {
     : notReported && t.claim.about
       ? '<div class="why">' + esc(tskAgentName(t.claim.about)) + ' ' + notReported + '.</div>'
       : t.claim.because ? '<div class="why">We cannot tell whether it started: ' + esc(t.claim.because) + '.</div>' : '';
+  /* kosmos#5942: a decision row says how long it has waited on the person. agoWords gives the age; its " ago" is
+     dropped for "for". When the route sends no start (nothing knows it), the row shows no age. */
+  const waitWords = t.state === 'decision' && typeof t.waitingSince === 'string'
+    ? agoWords(Date.now() - Date.parse(t.waitingSince)) : '';
+  const waitLine = !waitWords ? ''
+    : '<div class="why tsk-waiting">' + (waitWords === 'just now' ? 'Just started waiting on you' : 'Waiting on you for ' + esc(waitWords.replace(/ ago$/, ''))) + '</div>';
   /* #3951: a built row says who marked it and what is left, the agent's own words. */
   /* On any marked open task, not only in the Built group (review round 5: a built task whose agent needs the person
      sits under Needs Your Decision, and still says who marked it and offers the undo). */
@@ -61744,7 +62210,7 @@ function tskRow(t, at) {
       + (t.builtAt && agoWords(Date.now() - Date.parse(t.builtAt)) ? ' ' + esc(agoWords(Date.now() - Date.parse(t.builtAt))) : '')
       + (t.builtNote ? ': ' + esc(t.builtNote) : '')
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
-      + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(t.projectName) + ' not built yet">Not built yet</button></div>';
+      + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(rowChain)) + ' not built yet">Not built yet</button></div>';
   /* kosmos#4787: a recurring job's row says how often it runs, when it last ran and who ran it, and when it runs next,
      so automated work shows its owner and its rhythm instead of looking idle or ownerless. The rule's words and the next
      run come from the board (taskrepeat.describe / nextAfter), never worked out again here. */
@@ -61755,11 +62221,11 @@ function tskRow(t, at) {
     /* The row no longer repeats its state in a status group (the heading says it), so there the
        label carries it: a screen reader moving between checkboxes still hears where each task is.
        Grouped by project the row shows its state line, so the label does not say it again. */
-    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName)
+    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(rowChain))
     + (g && TSK.by !== 'project' ? ' (' + esc(g.l) + ')' : '') + '"></label>'
     + '<div class="t">' + partOf + '<span class="n">#' + Number(t.number) + '</span>'
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
-    + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
+    + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(projChain) + '</button>'
     /* #5864: a BUILT task in a paused project sits in Built but waiting, so its row says the project is paused (the CLI
        prints [project paused]); a held row needs no note, its group already says it. */
     + (t.projectPaused === true && t.state === 'built' ? '<span class="tsk-paused">project paused</span>' : '')
@@ -61769,7 +62235,7 @@ function tskRow(t, at) {
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
-    + '</div>' + cannot + repeatLine + builtLine + '</div>'
+    + '</div>' + cannot + waitLine + repeatLine + builtLine + '</div>'
     + '<div class="tsk-side">' + whoHtml
     /* Said once per row (Mona): inside a status group the heading already names the state, so the
        row's state line shows only when grouping by project, where it is information. */
@@ -61837,19 +62303,20 @@ function tskPaint() {
   const all = tskVisible(TSK.data, TSK.proj);
   const projMap = new Map();
   for (const t of all) {
-    if (!projMap.has(t.projectId)) projMap.set(t.projectId, { id: t.projectId, name: t.projectName, open: 0 });
+    if (!projMap.has(t.projectId)) projMap.set(t.projectId, { id: t.projectId, open: 0,
+      chain: tskChainOf(t) });   // #3029
     if (t.state !== 'closed') projMap.get(t.projectId).open += 1;
   }
   /* A project door can scope us to a project with no tasks yet: it is still the project, with 0. */
   if (TSK.proj && !projMap.has(TSK.proj) && TSK.projHint && TSK.projHint.id === TSK.proj
       && PROJECTS.some((x) => x && x.id === TSK.proj)) {   // only while the project still exists
-    projMap.set(TSK.proj, { id: TSK.proj, name: TSK.projHint.name, open: 0 });
+    projMap.set(TSK.proj, { id: TSK.proj, open: 0, chain: pjChainOf(pjById(TSK.proj)) });
   }
   /* A scope to a project that is gone falls back to All tasks, but only once the tasks are read:
      before the first read there is no data to judge by, and dropping it then would lose the
      project a door just asked for (#3703). */
   if (TSK.data && TSK.proj && !projMap.has(TSK.proj)) TSK.proj = null;
-  const projectsList = [...projMap.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const projectsList = [...projMap.values()].sort((a, b) => pjChainCompare(a.chain, b.chain));   // #3029: each subproject after its parent
   /* #3949: the project picker is this dropdown at every width (the left rail is gone). Each option keeps
      the rail's open count of that project's tasks, whatever Created: and the search hide (#1346 held it
      equal to what picking it shows with neither set). */
@@ -61857,21 +62324,21 @@ function tskPaint() {
   if (sel) {
     /* Mona's design review: a count here sat under "N open tasks across M projects" and read as a number
        of projects. The count stays on each project's own option. */
-    tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + ' (' + p.open + ')</option>').join(''), TSK.proj || '');
+    tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(pjChainOption(p.chain, ' (' + p.open + ')')) + '</option>').join(''), TSK.proj || '');
   }
   const picked = TSK.proj ? projMap.get(TSK.proj) : null;
   /* #5072: the separator and Open project are one unit, so the phone rule can put Open project on its own line and
      drop the dot together (see .tsk-crumb-open). The dot is aria-hidden with a vh comma beside it, the pairing
      .pj-crumb-sep uses, so a screen reader hears a pause rather than a dot. */
   document.getElementById('tsk-crumb').innerHTML = picked
-    ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' <span class="tsk-crumb-open"><span class="tsk-crumb-sep" aria-hidden="true">·</span><span class="vh">, </span> <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button></span>'
+    ? '<button type="button" data-proj="">All tasks</button> › ' + esc(pjChainText(picked.chain)) + ' <span class="tsk-crumb-open"><span class="tsk-crumb-sep" aria-hidden="true">·</span><span class="vh">, </span> <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button></span>'
     : '';
   /* #4586: the chevron beside the title is the crumb's Open project, shown exactly when that is: the
      panel's delegated [data-open-project] click opens the room, so there is one way in, not two. */
   const back = document.getElementById('tsk-back');
   if (back) {
     back.hidden = !picked;
-    if (picked) { back.dataset.openProject = picked.id; back.setAttribute('aria-label', 'Back to ' + picked.name); }
+    if (picked) { back.dataset.openProject = picked.id; back.setAttribute('aria-label', 'Back to ' + pjChainSpoken(picked.chain)); }
     else delete back.dataset.openProject;
   }
   const scoped = tskScoped(all, TSK, now);
@@ -61886,7 +62353,8 @@ function tskPaint() {
   const onProjects = new Set(open.map((t) => t.projectId)).size;
   document.getElementById('tsk-title').textContent = !TSK.data ? 'Tasks'
     : open.length + (open.length === 1 ? ' Task' : ' Tasks')
-      + (picked ? ' on ' + picked.name : open.length ? ' on ' + onProjects + (onProjects === 1 ? ' Project' : ' Projects') : '');
+      /* #3029: the picked project's own name; the crumb above carries the path. */
+      + (picked ? ' on ' + picked.chain[picked.chain.length - 1] : open.length ? ' on ' + onProjects + (onProjects === 1 ? ' Project' : ' Projects') : '');
   tskSearchOpen();   // the compact search's open state follows TSK.q on every paint, whoever changed it
   /* #3949: Created: and Group by are dropdowns (they were button rows). */
   tskOptions(document.getElementById('tsk-win'), TSK_WINDOWS.map(([l, d]) => '<option value="' + d + '"' + (TSK.win === d ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), String(TSK.win));
@@ -61935,10 +62403,12 @@ function tskPaint() {
   if (TSK.by === 'project') {
     const byP = new Map();
     for (const t of sorted) { if (!byP.has(t.projectId)) byP.set(t.projectId, []); byP.get(t.projectId).push(t); }
-    groups.innerHTML = [...byP.entries()].sort((a, b) => String(a[1][0].projectName).localeCompare(String(b[1][0].projectName)))
+    /* #3029: a group is named and ordered by its project's chain, so a subproject's group follows its parent's. */
+    const chainOfGroup = new Map([...byP.entries()].map(([id, ts]) => [id, tskChainOf(ts[0])]));   // built once, as pjSortByChain does
+    groups.innerHTML = [...byP.entries()].sort((a, b) => pjChainCompare(chainOfGroup.get(a[0]), chainOfGroup.get(b[0])))
       .map(([, ts]) => {
         const n = ts.filter((t) => t.state !== 'closed').length;
-        return '<section class="tsk-grp"><h3>' + esc(ts[0].projectName) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
+        return '<section class="tsk-grp"><h3>' + esc(pjChainText(chainOfGroup.get(ts[0].projectId))) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
       }).join('') || '<p class="tsk-empty">' + (TSK.tile || TSK.proj || TSK.win ? 'No tasks match.' : 'No tasks yet.') + '</p>';
   } else {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
@@ -62103,7 +62573,7 @@ async function tskBulkClose() {
       msg.textContent = asSentence(body.error || 'those tasks were not closed');
     } else if (failed.length) {
       msg.textContent = 'Closed ' + done + ' of ' + results.length + '.' + tail + ' '
-        + failed.map((x) => { const t = (TSK.data || []).find((y) => y.projectId === x.projectId && y.number === x.number); return (t ? t.projectName + ' ' : '') + '#' + x.number + ': ' + x.error; }).join('; ') + '.';
+        + failed.map((x) => { const t = (TSK.data || []).find((y) => y.projectId === x.projectId && y.number === x.number); return (t ? pjChainText(tskChainOf(t)) + ' ' : '') + '#' + x.number + ': ' + x.error; }).join('; ') + '.';
     } else {
       msg.textContent = 'Closed ' + done + (done === 1 ? ' task.' : ' tasks.') + tail
         + ' Closing a task does not stop an agent that is working on it.';
@@ -62494,18 +62964,22 @@ function tkPaintSubtasks(p, t, closed) {
   const kids = (p.tasks || []).filter((x) => x && x.parent === t.number)
     .sort((a, b) => Number(a.number) - Number(b.number));
   const done = (x) => (x.progress ? Boolean(x.progress.closed) : Boolean(x.closedAt));
+  const built = (x) => !done(x) && x.onHold !== true && typeof x.builtAt === 'string' && x.builtAt !== '';   // kosmos#5956; held reads held
   const list = document.getElementById('tk-subs');
   if (list) {
     /* Change-guarded like the project column (TK_LIST_HTML): the poll repaints this page, and an
        unconditional write would take a keyboard user's focus off a subtask every tick. */
     const html = kids.length ? kids.map((x) => '<button class="tksub' + (done(x) ? ' done' : '') + '" type="button" data-sub="' + Number(x.number) + '">'
       + '<span class="tksub-n">#' + Number(x.number) + '</span><span class="tksub-t">' + esc(x.sentence) + '</span>'
-      + '<span class="tksub-s">' + (done(x) ? 'Done' : 'Open') + '</span></button>').join('')
+      + '<span class="tksub-s">' + (done(x) ? 'Done' : built(x) ? 'Built' : 'Open') + '</span></button>').join('')
       : '<p class="dhint" style="margin:0;">None yet. Break this task into smaller ones, each with its own page.</p>';
     if (list.innerHTML !== html) list.innerHTML = html;
   }
   const all = document.getElementById('tk-subs-done');
   if (all) all.hidden = !(kids.length && kids.every(done) && !closed);
+  /* kosmos#5956: every subtask closed or built, some only built: ready for the person to check each one. */
+  const ready = document.getElementById('tk-subs-built');
+  if (ready) ready.hidden = !(kids.length && !kids.every(done) && kids.every((x) => done(x) || built(x)) && !closed);
   const row = document.getElementById('tk-partof-row');
   const up = document.getElementById('tk-partof');
   const parent = t.parent != null ? (p.tasks || []).find((x) => x && x.number === t.parent) : null;
@@ -63487,13 +63961,12 @@ let NT_FOR = null;
 let NT_ORIGIN = 'project';
 let NT_PROJECT = null;
 let NT_PARENT = null;   // #3861 part 2: the task "+ Add subtask" was pressed on, or null
-/* The projects the All-tasks picker offers: every project that is not archived, by name. The
+/* The projects the All-tasks picker offers: every project that is not archived, in chain order (#3029). The
    rails set archived projects aside, and so does this list. A view SCOPED to an archived project
    (its own View-all door) files there without the picker, exactly as that project's own page
    does: the person is standing in that project on purpose. */
 function ntChoices() {
-  return PROJECTS.filter((p) => p && p.archived !== true)
-    .slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  return pjSortByChain(PROJECTS.filter((p) => p && p.archived !== true));   // #3029: each subproject after its parent
 }
 async function openNewTaskFromTasks() {
   await loadProjects();
@@ -63513,12 +63986,12 @@ function openNewTask(projectId, origin, parent) {
   let p = pjById(projectId === undefined ? PJ_CURRENT : projectId);
   if (NT_ORIGIN === 'tasks' && !p) {
     /* All tasks: ask which project, in the dialog. A kept draft's project (one with anything in
-       it) is offered first, since the person was aiming it there; else the first by name. Either
+       it) is offered first, since the person was aiming it there; else the first in the list. Either
        way the draft is never wiped here: the person has not chosen anything yet, so the words
        follow the pick (below) exactly as they do when the person changes it. */
     const choices = ntChoices();
     const sel = document.getElementById('nt-proj');
-    sel.innerHTML = choices.map((c) => '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>').join('');
+    sel.innerHTML = choices.map((c) => '<option value="' + esc(c.id) + '">' + esc(pjChainOption(pjChainOf(c))) + '</option>').join('');
     row.hidden = false;
     said.hidden = true;
     pick.hidden = false;
@@ -63542,7 +64015,7 @@ function openNewTask(projectId, origin, parent) {
       document.getElementById('nt-back').focus();
       return;
     }
-    const drafted = NT_FOR && ['nt-what', 'nt-detail'].some((id) => document.getElementById(id).value.trim());
+    const drafted = NT_FOR && ['nt-what', 'nt-detail', 'nt-done'].some((id) => document.getElementById(id).value.trim());
     sel.value = drafted && choices.some((c) => c.id === NT_FOR) ? NT_FOR : choices[0].id;
     p = pjById(sel.value);
     if (p && p.id !== NT_FOR) {
@@ -63559,7 +64032,7 @@ function openNewTask(projectId, origin, parent) {
   ntAimAt(p);
   document.getElementById('nt-msg').textContent = '';
   document.getElementById('nt-voice-msg').textContent = '';   // #4409 slice 2: the mic's line, like every dialog's
-  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
+  ntGoState();   // kosmos#5956: the one Create rule (what needs doing, how you will know it is done, a project)
   document.getElementById('nt-modal').hidden = false;
   /* With the picker showing, focus starts on it: its chosen project is heard first, before any
      words are typed for it. */
@@ -63580,6 +64053,7 @@ function ntAimAt(p) {
     NT_FOR = p.id;
     document.getElementById('nt-what').value = '';
     document.getElementById('nt-detail').value = '';
+    document.getElementById('nt-done').value = '';
   }
   const sel = document.getElementById('nt-who');
   /* The chosen assignee is part of the draft too: the rebuild below resets
@@ -63650,11 +64124,15 @@ document.getElementById('nt-proj').addEventListener('change', (e) => {
 document.getElementById('nt-back').addEventListener('click', leaveNewTask);
 // #3861 part 2: a Part of the person picks themselves is part of their draft, even after a preset.
 document.getElementById('nt-parent').addEventListener('change', (e) => { e.target.dataset.preset = ''; });
-// Create is held down until the one required thing exists (pack: disabled).
-document.getElementById('nt-what').addEventListener('input', () => {
+// Create is held down until the required things exist (pack: disabled): what needs doing and, kosmos#5956, how you
+// will know it is done.
+function ntGoState() {
   // No project to file it to (the Tasks view with none made yet): Create stays down whatever is typed.
-  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim() || !NT_PROJECT;
-});
+  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim()
+    || !document.getElementById('nt-done').value.trim() || !NT_PROJECT;
+}
+document.getElementById('nt-what').addEventListener('input', ntGoState);
+document.getElementById('nt-done').addEventListener('input', ntGoState);
 document.getElementById('nt-go').addEventListener('click', async () => {
   const p = pjById(NT_PROJECT);
   if (!p) return;
@@ -63666,20 +64144,26 @@ document.getElementById('nt-go').addEventListener('click', async () => {
       body: JSON.stringify({
         sentence: document.getElementById('nt-what').value,
         detail: document.getElementById('nt-detail').value.trim() || undefined,
+        doneWhen: document.getElementById('nt-done').value.trim() ? [document.getElementById('nt-done').value.trim()] : undefined,   // kosmos#5956
         who: document.getElementById('nt-who').value || undefined,
         parent: document.getElementById('nt-parent').value ? Number(document.getElementById('nt-parent').value) : undefined,
       }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {
-      document.getElementById('nt-msg').textContent =
-        (body && body.error) || 'we could not add that task';
+      /* kosmos#5956: the engine's done-when refusal names "done-when checks", words this dialog never shows; say it in
+         the field's own words. */
+      const why = (body && body.error) || '';
+      document.getElementById('nt-msg').textContent = /done-when check has to be (one line of plain text|\d+ characters or fewer)/.test(why)
+        ? 'Your answer to "How will you know it is done?" has to be one line of plain text, 200 characters or fewer. Some emoji and symbols cannot be used there.'
+        : why || 'we could not add that task';
       go.disabled = false;
       return;
     }
     NT_FOR = null;
     document.getElementById('nt-what').value = '';
     document.getElementById('nt-detail').value = '';
+    document.getElementById('nt-done').value = '';
     leaveNewTask();
     if (NT_ORIGIN === 'tasks') {
       /* From the Tasks view: stay there. The view re-reads (a refresh, so ticks stay), and its
@@ -63823,11 +64307,12 @@ function pjPaintParentSelect(p) {
   const banned = pjDescendantIds(p.id);
   const opts = ['<option value="">Top level (none)</option>'];
   let hasCurrent = !p.parent;   // "Top level (none)" always represents no parent
-  for (const q of sortProjects(PROJECTS.filter((x) => !x.archived), PJ_SORT)) {
+  /* #3029: in chain order and named by the chain, so the parent being picked is unmistakable. */
+  for (const q of pjSortByChain(PROJECTS.filter((x) => !x.archived))) {
     if (q.id === p.id || banned.has(q.id)) continue;
     if (q.id === p.parent) hasCurrent = true;
     opts.push('<option value="' + esc(q.id) + '"' + (q.id === p.parent ? ' selected' : '') + '>'
-      + esc(q.name) + '</option>');
+      + esc(pjChainOption(pjChainOf(q))) + '</option>');
   }
   /* Keep the select HONEST about the current parent even when it is not among
      the offered options. The engine explicitly ALLOWS archiving a project that
@@ -63841,8 +64326,9 @@ function pjPaintParentSelect(p) {
      else (the active filter still excludes archived), only shown as the
      existing one here. */
   if (!hasCurrent && p.parent) {
+    const par = pjById(p.parent);   // #3029: an archived parent that is itself a subproject keeps its chain
     const label = p.parentName
-      ? p.parentName + (p.parentArchived ? ' (archived)' : '')
+      ? (par ? pjChainOption(pjChainOf(par)) : p.parentName) + (p.parentArchived ? ' (archived)' : '')
       : 'Current parent (no longer available)';
     opts.splice(1, 0, '<option value="' + esc(p.parent) + '" selected>' + esc(label) + '</option>');
   }
@@ -64754,7 +65240,7 @@ function paintOneProject() {
   paintRoomBusy(roster.map((a) => (a && a.sessionName) || a), p.id);
   /* #3923: an agent that could not be given the folder is said once, in the project notice
      above the list (Mona's design), not on its row: every member row passes suppressTold. */
-  const notice = pjNeedsNotice(roster, pjRedHere) + pjCoordNotice(p) + pjNotice(roster, p.id);   // #5688: who needs you, first
+  const notice = pjNeedsNotice(roster, pjRedHere) + pjNotice(roster, p.id);   // #5688: who needs you, first
   const noticeBox = document.getElementById('pj-one-notice');
   // The region is never hidden (see the CSS note): only its content comes and goes.
   pjKeepOpenFocus(noticeBox, () => setIfChanged(noticeBox, notice));   // #5688: a repaint keeps a focused Open
@@ -68592,7 +69078,7 @@ function speechTextOfRow(row) {
   const src = row && (row.querySelector('.msg-bd') || row);
   if (!src) return '';
   const c = src.cloneNode(true);
-  c.querySelectorAll('.msg-nm, .msg-t, .msg-replyto, .vh, .rxns, button, .att-pic, .att-meta, .att-name, .att-txt').forEach((n) => n.remove());
+  c.querySelectorAll('.msg-nm, .msg-t, .msg-replyto, .vh, .rxns, button, .att-pic, .att-meta, .att-name, .att-txt, .dmq-foot').forEach((n) => n.remove());   // #5943: not the question's age line
   /* A fenced block renders as span.mdcb (pjRich), not <pre>; both are announced. A line break is a space, or
      "Run this:<br>then" is read as "this:then". Measured by render-voice-4409.js V7, which the <pre>-only
      version failed. */
@@ -70431,6 +70917,7 @@ function pjWhenLive(at) {
 function threadShape(html) {
   return String(html)
     .replace(/(<span class="mwhen" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2')
+    .replace(/(<span class="dmq-age" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2')   // #5943
     .replace(/<svg class="lring"[\s\S]*?<\/svg>/g, (ring) => ring.replace(/stroke-dasharray="[^"]*"/g, 'stroke-dasharray=""'));
 }
 /** #3991: bring every memory ring arc under `root` to the one in `html`, pairing each ring with the
@@ -70465,6 +70952,12 @@ function refreshWhens(root) {
   if (!root || typeof root.querySelectorAll !== 'function') return;
   for (const el of root.querySelectorAll('.mwhen[data-at]')) {
     const said = pjWhen(el.getAttribute('data-at'));
+    if (said && el.textContent !== said) el.textContent = said;
+  }
+  // #5943: a standing question's age, the same in-place refresh (threadShape blanks it too).
+  for (const el of root.querySelectorAll('.dmq-age[data-at]')) {
+    const age = agoWords(Date.now() - Date.parse(el.getAttribute('data-at')));
+    const said = age ? 'Asked ' + age : '';
     if (said && el.textContent !== said) el.textContent = said;
   }
 }
@@ -72047,8 +72540,8 @@ function pjPaintCreateParentSelect() {
   const sel = document.getElementById('pj-add-parent');
   if (!sel) return;
   const opts = ['<option value="">Top level (none)</option>'];
-  for (const q of sortProjects(PROJECTS.filter((x) => !x.archived), PJ_SORT)) {
-    opts.push('<option value="' + esc(q.id) + '">' + esc(q.name) + '</option>');
+  for (const q of pjSortByChain(PROJECTS.filter((x) => !x.archived))) {   // #3029
+    opts.push('<option value="' + esc(q.id) + '">' + esc(pjChainOption(pjChainOf(q))) + '</option>');
   }
   sel.innerHTML = opts.join('');
   sel.value = '';   // a fresh create starts top-level
@@ -72782,7 +73275,6 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     // land the person INSIDE the new project. openProject also carries the
     // read-back-failure case (body.id set, body.project null) with its notice.
     const newProjectId = (body.project && body.project.id) || body.id;
-    if (body.coordinators && newProjectId) PJ_COORD_WARN.set(String(newProjectId), PJ_READ_SEQ);   // #4583
     openProject(newProjectId);
   } catch (err) {
     // Through pjSentence like every other engine `because` on this screen
@@ -72837,7 +73329,6 @@ async function addMemberToProject(who, msg) {
     const res = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/agent/' + encodeURIComponent(who), { method: 'POST' });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not change that project');
-    if (body.coordinators) PJ_COORD_WARN.set(String(PJ_CURRENT), PJ_READ_SEQ);   // #4583: shown in the project notice
     return true;
   } catch (err) {
     // Through pjSentence like every sibling on this screen (round 24): the
@@ -72948,16 +73439,6 @@ function pjNeedsOpenClick(e) {
 }
 document.getElementById('pj-one-notice').addEventListener('click', pjNeedsOpenClick);
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNeedsOpenClick); }
-/* #4583: Dismiss on the two-coordinator warning, in either notice. */
-function pjCoordDismissClick(e) {
-  const btn = e.target && e.target.closest ? e.target.closest('[data-pn-coord-dismiss]') : null;
-  if (!btn) return;
-  PJ_COORD_WARN.delete(btn.dataset.pnCoordDismiss);
-  paintOneProject();
-  paintRailPjNotice();
-}
-document.getElementById('pj-one-notice').addEventListener('click', pjCoordDismissClick);
-{ const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjCoordDismissClick); }
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
 document.getElementById('pj-one-add-go').addEventListener('click', async () => {
   // #2429 (Josh, 0.6.45): once the member is added there is nothing more to do in the

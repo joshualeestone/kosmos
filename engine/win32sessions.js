@@ -101,6 +101,17 @@ function read() {
   return parsed;
 }
 
+/* kosmos#5957: read(), but a record that is there and cannot be read or parsed THROWS instead of reading as "no
+   sessions", so the name check refuses rather than passing a stopped agent's name as free. Absent is empty. */
+function readStrict() {
+  let raw;
+  try { raw = fs.readFileSync(file(), 'utf8'); }
+  catch (e) { if (e && e.code === 'ENOENT') return {}; throw e; }
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('the session record is not an object');
+  return parsed;
+}
+
 /**
  * Read, change and write the record under its lock.
  *
@@ -208,4 +219,4 @@ function isOurs(sessionId) {
   return Object.prototype.hasOwnProperty.call(rec, sessionId);
 }
 
-module.exports = { get DIR() { return dir(); }, get FILE() { return file(); }, read, record, forget, pruneName, rowIsUnder, isOurs, validId, validName };
+module.exports = { get DIR() { return dir(); }, get FILE() { return file(); }, read, readStrict, record, forget, pruneName, rowIsUnder, isOurs, validId, validName };

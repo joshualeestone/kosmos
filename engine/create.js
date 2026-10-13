@@ -55,6 +55,7 @@ const path = require('node:path');
 const codexupdate = require('./codexupdate');
 const { execFileSync, execFile } = require('node:child_process');
 const roles = require('./roles');
+const agentnames = require('./agentnames');   // #5957: one display name per agent
 const liveExec = require('./live-execution');
 const runners = require('./runners'); // #1616: one definition of runnable
 const launchidentity = require('./launchidentity'); // #1704: the per-Kosmos launch key
@@ -999,7 +1000,7 @@ function antigravityEnabled() {
   // Off by 0, false or off (review round 7: an operator writing false meant off); anything else is on.
   return !/^(0|false|off|no)$/i.test(String(process.env.AGENT_WORKFORCE_ANTIGRAVITY || '').trim());
 }
-/* #3939 slice 3c-3a: Meta Muse agents. Off unless Muse is switched on, and on a Mac only
+/* #3939 slice 3c-3a: Meta Muse agents. On a Mac only, and only while Muse is on (on by default since 2026-10-12)
    (engine/musestatus.enabled decides, the same switch the sign-in and the Settings row read). Switching an
    existing agent to Meta (setProvider) is not offered yet, so that route refuses 'meta' as it always has. */
 function museEnabled(platform) {
@@ -4712,7 +4713,9 @@ function createAgentInner(opts) {
     // #3939: the same "could this machine ever start it" preflight. A Muse agent's pane runs Kosmos's
     // front under node, and every turn it runs needs Muse Code, so an absent muse is refused here.
     if (!DRY_RUN && !runnerRunnable(museBin)) {
-      return { outcome: OUTCOME.REFUSED, because: 'we could not find Muse Code on this computer, so an agent made now would never start', steps };
+      // #3939: says what to do, now that most Macs (Muse on by default) reach this without Muse Code.
+      // #6004: Settings installs it now.
+      return { outcome: OUTCOME.REFUSED, because: 'Muse Code is not on this computer yet, so an agent made now would never start. Install it in Settings, AI Models: Add a provider, then Meta', steps };
     }
   }
   if (provider === 'google') {
@@ -4768,6 +4771,12 @@ function createAgentInner(opts) {
   // after-the-button slot the person has scrolled past. The sentence still comes
   // from the server (no client-side copy of the rule); this only says where it goes.
   if (problem) return { outcome: OUTCOME.REFUSED, because: problem, field: 'name', steps };
+  /* kosmos#5957: a name another agent already answers to (its display name or its handle, compared the way an @-word
+     is) is taken. Checked before anything is written. An agent under this SAME handle is skipped (`except`): the
+     checks below refuse that case with the sentence that fits it (removed, half made, already running). */
+  const taken = agentnames.refusalFor(shown, { except: name });
+  if (taken === agentnames.COULD_NOT_CHECK) return { outcome: OUTCOME.REFUSED, because: taken, steps };   // #2606: untagged, the name may be fine
+  if (taken) return { outcome: OUTCOME.REFUSED, because: taken, field: 'name', steps };
 
   const role = roles.byKey(roleKey);
   if (!role) {
@@ -5296,7 +5305,9 @@ function createAgentInner(opts) {
      hides nothing; while a create that ends PARTIAL leaves a launch file (so a card), which must not inherit it. */
   try { require('./disruption').clear(name); } catch { /* best-effort */ }
   try { require('./crashloop').forget(name); } catch { /* #5154: a new agent never inherits an old loop */ }
+  try { require('./observed').forgetAgent(name); } catch { /* #5959 slice 2: nor the old name's last-seen time */ }
   try { require('./stuckterminal').forget(name); } catch { /* #5154 slice C: nor an old stuck-terminal episode's clock */ }
+  try { require('./liveness').forget(name); } catch { /* #5957 slice 3: nor an old agent's last report */ }
   const priorTokens = sendertoken.revoke(name);
   if (priorTokens.ok !== true) {
     return {

@@ -178,3 +178,104 @@ test('a non-EEXIST acquire failure is REPORTED, not thrown (opts.cannotAccess)',
   const r = withFileLock(file, () => 'unreached', { cannotAccess: 'NO ACCESS' });
   assert.deepEqual(r, { ok: false, because: 'NO ACCESS' });
 });
+
+test('#5997: a lock that vanished at the stat is NOT treated as stale; a waiter never moves a live holder\'s lock', () => {
+  // The interleave behind a lost trust write (#5997): a waiter's mkdir meets EEXIST, the holder releases, the waiter's
+  // stat finds nothing (ENOENT), and writer B re-acquires a fresh lock. A waiter that reads the missing lock as
+  // infinitely stale renames B's LIVE lock aside; the identity check notices and tries to put it back, but a third
+  // writer C can mkdir the lock in that gap, the restore fails, and B and C are both inside the section: every writer
+  // reports success and one update is lost. Reproduced deterministically: statSync throws ENOENT once while B's live
+  // lock stands at the path, and C's mkdir is placed in the gap before any restore.
+  const file = tmpFile();
+  const lock = file + '.lock';
+  fs.mkdirSync(lock);                                              // B's live lock, fresh mtime
+  fs.writeFileSync(path.join(lock, 'owner'), 'writer-B');
+  const realStat = fs.statSync;
+  const realRename = fs.renameSync;
+  let statLied = 0;   // review 1: twice in a row (heavy contention), which a retry-once rule alone would read as debris
+  const moved = [];
+  fs.statSync = (p, ...rest) => {
+    if (statLied < 2 && p === lock) { statLied += 1; const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; }
+    return realStat(p, ...rest);
+  };
+  fs.renameSync = (from, to) => {
+    if (from === lock) moved.push(to);
+    // C takes the lock in the gap before any restore of B's lock.
+    if (to === lock && !fs.existsSync(lock)) { fs.mkdirSync(lock); fs.writeFileSync(path.join(lock, 'owner'), 'writer-C'); }
+    return realRename(from, to);
+  };
+  let fnRan = false;
+  try {
+    // Long deadline: each failed stat pauses (~165 ms under load), and this arm needs two lies and then a real stat.
+    const r = withFileLock(file, () => { fnRan = true; }, { busy: 'still held', waitMs: 1500 });
+    assert.equal(statLied, 2, 'CONTROL: the stat that finds no lock was reached, twice');
+    assert.deepEqual(moved, [], 'the waiter moved a live holder\'s lock aside (it read a missing lock as stale)');
+    assert.equal(fnRan, false);
+    assert.deepEqual(r, { ok: false, because: 'still held' });
+    assert.equal(fs.readFileSync(path.join(lock, 'owner'), 'utf8'), 'writer-B', 'B\'s live lock was replaced');
+  } finally {
+    fs.statSync = realStat;
+    fs.renameSync = realRename;
+    const dir = path.dirname(lock);
+    for (const f of fs.readdirSync(dir)) {
+      try { fs.rmSync(path.join(dir, f), { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  }
+});
+
+test('#5997 reviews 1 and 3: a stat that fails another way (Windows delete-pending: EPERM), once or every time, never leads to moving the lock', () => {
+  const file = tmpFile();
+  const lock = file + '.lock';
+  fs.mkdirSync(lock);
+  fs.writeFileSync(path.join(lock, 'owner'), 'writer-B');
+  const realStat = fs.statSync;
+  const realRename = fs.renameSync;
+  let fails = 0;
+  let failTimes = 1;
+  const moved = [];
+  fs.statSync = (p, ...rest) => {
+    if (p === lock && fails < failTimes) { fails += 1; const e = new Error('EPERM'); e.code = 'EPERM'; throw e; }
+    return realStat(p, ...rest);
+  };
+  fs.renameSync = (from, to) => { if (from === lock) moved.push(to); return realRename(from, to); };
+  try {
+    const r = withFileLock(file, () => 'ran', { busy: 'still held', waitMs: 150 });
+    assert.equal(fails, 1, 'CONTROL: the failing stat was reached');
+    assert.deepEqual(moved, [], 'one EPERM sent the waiter to move a live lock');
+    assert.deepEqual(r, { ok: false, because: 'still held' });
+    // Review 3: every time too. A steal needs a measured mtime; with none it could only move a lock aside and put it
+    // back (the #5997 window), never collect it. So it waits and answers busy, and moves nothing.
+    fails = 0; failTimes = Infinity;
+    // A long deadline: a 20 ms pause measured ~165 ms on a loaded Mac (load 11.5), and this arm needs two of them.
+    const r2 = withFileLock(file, () => 'ran', { busy: 'still held', waitMs: 1000 });
+    assert.ok(fails >= 2, 'CONTROL: the stat failed repeatedly (the arm under test was reached)');
+    assert.deepEqual(moved, [], 'a stat that keeps failing sent the waiter to move the lock');
+    assert.deepEqual(r2, { ok: false, because: 'still held' });
+  } finally {
+    fs.statSync = realStat;
+    fs.renameSync = realRename;
+    const dir = path.dirname(lock);
+    for (const f of fs.readdirSync(dir)) {
+      try { fs.rmSync(path.join(dir, f), { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  }
+});
+
+test('#5997 review 2: a dangling symlink at the lock path (mkdir EEXIST, stat ENOENT) is waited on with pauses, not spun hot', () => {
+  const file = tmpFile();
+  const lock = file + '.lock';
+  fs.symlinkSync(path.join(path.dirname(lock), 'nowhere'), lock);   // EEXIST for mkdir, ENOENT for stat
+  const realMkdir = fs.mkdirSync;
+  let tries = 0;
+  fs.mkdirSync = (p, ...rest) => { if (p === lock) tries += 1; return realMkdir(p, ...rest); };
+  try {
+    const r = withFileLock(file, () => 'ran', { busy: 'still held', waitMs: 300 });
+    assert.deepEqual(r, { ok: false, because: 'still held' });
+    // A hot spin makes thousands of tries in 300 ms; with pauses (20 ms, often far longer under load) it is a handful.
+    assert.ok(tries < 100, `${tries} mkdir tries in 300 ms: the wait spun hot`);
+    assert.ok(tries >= 2, 'CONTROL: the wait retried at all');
+  } finally {
+    fs.mkdirSync = realMkdir;
+    try { fs.unlinkSync(lock); } catch { /* best-effort */ }
+  }
+});

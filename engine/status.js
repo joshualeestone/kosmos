@@ -1204,6 +1204,15 @@ function createdKeys() {
   try { const k = createdSource(new Set(), { includeRemoved: true }); return Array.isArray(k) ? k : []; } catch { return []; }
 }
 
+/* kosmos#5957: createdKeys, but a source that throws or answers a non-list THROWS instead of reading as "none", so the
+   name check refuses rather than passing a stopped agent's name as free. [] when no source is wired. */
+function createdKeysStrict() {
+  if (!createdSource) return [];
+  const k = createdSource(new Set(), { includeRemoved: true, strict: true });
+  if (!Array.isArray(k)) throw new Error('the created agents could not be read');
+  return k;
+}
+
 function listPanes() {
   const out = paneSource ? paneSource() : tmuxPanes();
   /**
@@ -3170,6 +3179,19 @@ function activeWhileWaitingFrom(state, freshest, askedAtMs) {
   if (!freshest) return false;
   if (freshest.source === 'pane') return true;
   return Number.isFinite(askedAtMs) && freshest.atMs > askedAtMs;
+}
+
+/**
+ * kosmos#5942: when the standing wait began, for the task list's "Waiting on you for 12 days". The self-report's
+ * `askedAt` (#5943: the first of the trailing run of identical waiting reports, so re-reporting the same question
+ * does not re-date it). Kept only when the report's own state is the card's state, so a question read off the screen
+ * over an older blocked report gets no start. A missing, unparseable or future value is null too.
+ */
+function waitingSinceFrom(waitReport, cardState, nowMs = Date.now()) {
+  if (!waitReport || waitReport.found !== true || typeof waitReport.askedAt !== 'string') return null;
+  if (waitReport.state !== cardState) return null;
+  const at = Date.parse(waitReport.askedAt);
+  return Number.isFinite(at) && at <= nowMs ? new Date(at).toISOString() : null;
 }
 
 /**
@@ -7478,6 +7500,40 @@ function providerLimitReport(reported) {
 function cardRunnerOf(pane) {
   return (pane.runner === 'codex' || (!pane.runner && isCodexCommand(pane.command))) ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : pane.runner === 'muse' ? 'muse' : 'claude';
 }
+/* Which runner a pane is, as the observation arms in snapshot read it: a tag, or (codex, grok, agy) a command before its
+   tag lands (#3953). #5959 slice 2 reads the provider from this too, so an observation is read back under the provider
+   it was filed under. */
+function paneObservedKinds(pane) {
+  return {
+    codex: pane.runner === 'codex' || isCodexCommand(pane.command),
+    gemini: pane.runner === 'gemini',
+    grok: pane.runner === 'grok' || isGrokCommand(pane.command),   // #3953: before its tag lands too
+    agy: pane.runner === 'antigravity' || isAntigravityCommand(pane.command),
+    muse: pane.runner === 'muse',   // #3939: kept out of the Claude arm, like agy
+  };
+}
+/* #5959 slice 2: the provider whose observations speak for this pane, in the arms' order (codex, gemini, grok, then
+   Claude for a pane that is none of them). Null for Antigravity and Muse: nothing is recorded for them. It can differ
+   from the card's runner (cardRunnerOf) for a tag and a command that disagree. */
+function observedProviderOf(pane) {
+  const k = paneObservedKinds(pane);
+  if (k.codex) return observed.PROVIDER.OPENAI;
+  if (k.gemini) return observed.PROVIDER.GOOGLE;
+  if (k.grok) return observed.PROVIDER.XAI;
+  if (k.agy || k.muse) return null;
+  return observed.PROVIDER.ANTHROPIC;
+}
+/* #5959 slice 2: when this agent was last seen working, for its page's health line. { at: ISO, why: null } when Kosmos
+   saw it; { at: null, why: 'not_seen' } when its provider is observed but nothing was seen since the board started (the
+   record is in memory); { at: null, why: 'no_source' } for Antigravity and Muse. Null for a pane that is not ours,
+   which is never observed. */
+function lastWorkedOf(pane) {
+  if (!isNamedOurs(pane)) return null;
+  const provider = observedProviderOf(pane);
+  if (!provider) return { at: null, why: 'no_source' };
+  const at = observed.lastOk(provider, pane.name);
+  return at === null ? { at: null, why: 'not_seen' } : { at: new Date(at).toISOString(), why: null };
+}
 /* #5948: the automatic report of a turn its provider refused for the sign-in (see the blocked rule in reconcileReport). */
 function providerAuthReport(reported) {
   return !!reported && reported.state === 'blocked' && reported.by === 'auto'
@@ -8109,10 +8165,12 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
      beats liveness even on a refused auto-working: a Windows/Codex agent working
      under a sticky needs_you has nothing else to show it is alive AND active. */
   let activeWhileWaiting = false;
+  let waitingSince = null;   // kosmos#5942: when this wait began (selfreport's askedAt, #5943), else null
   if (status.state === STATE.NEEDS_YOU || status.state === STATE.BLOCKED) {
     const waitReport = selfreport.read(key);
     const fresh = freshestActivity(key, { nowMs, paneWorking: false });
     activeWhileWaiting = activeWhileWaitingFrom(status.state, fresh, waitReport.found === true ? Date.parse(waitReport.at || '') : NaN);
+    waitingSince = waitingSinceFrom(waitReport, status.state, nowMs);
   }
   return {
     name: identity.displayName,
@@ -8139,6 +8197,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
        through a channel. Carried so every card answers the question. */
     reachedByChannel: false,
     runner: null,
+    lastWorked: null,   // #5959 slice 2: no pane, nothing observed; its page shows no health line
     task: null,
     state: status.state,
     stateConfidence: status.confidence,
@@ -8165,6 +8224,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     /* #2146: additive coexistence flag; on a paneless card it can only be set by
        the heartbeat leg (there is no pane to read working off of). */
     activeWhileWaiting,
+    waitingSince,   // kosmos#5942
     stateReported: status.reported === true,
     waiting: status.waiting || null,   // #4569 fix 4
     /* #2808 class 2: same field as the pane card carries, for shape parity, so a consumer reads
@@ -8202,7 +8262,11 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     // #2698: the avatar version travels with hasAvatar so a changed picture
     // changes the org node's URL and defeats its identical-repaint skip.
     avatarVer: store.avatarVersion(key),
-    profile: store.readProfile(key),
+    ...(() => {
+      const profile = store.readProfile(key);
+      /* kosmos#5957 slice 2: as the pane row (one profile read), so a paneless card can say its rules are far behind. */
+      return { profile, rulesBehind: require('./doctrine').rulesBehind(key, profile) };
+    })(),
   };
 }
 
@@ -8609,7 +8673,8 @@ function snapshot() {
     // codexsession.read WALKS THE SESSIONS TREE to match by workdir, so a second
     // derivation per pane per sweep is avoidable duplicate work. null for a non-codex or
     // untied pane (neither consumer reads a rollout for it).
-    const isCodexPane = pane.runner === 'codex' || isCodexCommand(pane.command);
+    const kinds = paneObservedKinds(pane);   // #5959 slice 2: one derivation, shared with observedProviderOf
+    const isCodexPane = kinds.codex;
     const codexSess = (isNamedOurs(pane) && isCodexPane) ? readCodexSession(pane.name) : null;
     /* #3296: the Gemini arm. TAG-ONLY recognition -- a Gemini agent runs as
        `node <bundle>/gemini.js`, so its pane command is `node` (the dev-server
@@ -8617,16 +8682,16 @@ function snapshot() {
        So key ONLY on the @kosmos_runner tag the supervisor records, never on the
        command. Read the session once for the context ring below (no observation
        arm yet -- the account badge's GOOGLE provider is the launcher slice). */
-    const isGeminiPane = pane.runner === 'gemini';
+    const isGeminiPane = kinds.gemini;
     const geminiSess = (isNamedOurs(pane) && isGeminiPane) ? readGeminiSession(pane.name) : null;
     /* #3391: the Grok arm, keyed on the @kosmos_runner tag the supervisor records.
        Read the session once for the context ring below (no observation arm yet --
        the account badge's XAI provider is the launcher slice). */
-    const isGrokPane = pane.runner === 'grok' || isGrokCommand(pane.command);   // #3953: before its tag lands too
+    const isGrokPane = kinds.grok;
     /* #3568: an Antigravity pane is not a Claude pane either; kept out of the ANTHROPIC
        observation arm below so it can never record a false Claude-account reading. */
-    const isAgyPane = pane.runner === 'antigravity' || isAntigravityCommand(pane.command);
-    const isMusePane = pane.runner === 'muse';   // #3939: kept out of the Claude arm below, like agy
+    const isAgyPane = kinds.agy;
+    const isMusePane = kinds.muse;
     // #4039: the agy conversation, read once per tick (the ring and the model both use it).
     const agySess = (isNamedOurs(pane) && isAgyPane) ? readAgySession(pane.name) : null;
     const grokSess = (isNamedOurs(pane) && isGrokPane) ? readGrokSession(pane.name) : null;
@@ -8797,6 +8862,7 @@ function snapshot() {
        any past ask, so it always counts. Mutually exclusive with an in-flight
        disruption (that lives on RESTARTING); a failed one reads needs_you (#4006). */
     let activeWhileWaiting = false;
+    let waitingSince = null;   // kosmos#5942: when this wait began (selfreport's askedAt, #5943), else null
     if (status.state === STATE.NEEDS_YOU || status.state === STATE.BLOCKED) {
       const waitReport = tied ? selfreport.read(pane.name) : { found: false };
       const fresh = freshestActivity(tied ? pane.name : null, {
@@ -8804,6 +8870,7 @@ function snapshot() {
         paneWorking: scrapedStatus.state === STATE.WORKING,
       });
       activeWhileWaiting = activeWhileWaitingFrom(status.state, fresh, waitReport.found === true ? Date.parse(waitReport.at || '') : NaN);
+      waitingSince = waitingSinceFrom(waitReport, status.state, now);
     }
     /* Read once: the card carries it, and #3564's swarm field is computed from it. */
     const rowProfile = tied ? store.readProfile(pane.name) : null;
@@ -8896,6 +8963,8 @@ function snapshot() {
          claudeLimitUntil), so the card can say when: "Looks like a usage limit until <time>" (every Claude card is a
          screen reading today; a reported one would say "Out of usage until"). Null for any other card or an unread line. */
       limitUntil: claudeLimitUntilIso(pane, status),
+      /* #5959 slice 2: when it was last seen working, for the health line on its page (see lastWorkedOf). */
+      lastWorked: lastWorkedOf(pane),
       because: status.because,
       /* #2019: present while state === 'restarting' -- {cause, startedAt}
          for the deliberate disruption in flight -- and (#4006) on the needs_you of a
@@ -8909,6 +8978,7 @@ function snapshot() {
          working animation alongside the pending needs_you. False for every other
          state and whenever there is no fresh post-ask activity. */
       activeWhileWaiting,
+      waitingSince,   // kosmos#5942
       /* Whether the state above is the agent's own account (#188's third
          verb) rather than a pane reading. */
       stateReported: status.reported === true,
@@ -8966,6 +9036,9 @@ function snapshot() {
       // rule this block already states. Untied -> 0, the no-picture value.
       avatarVer: tied ? store.avatarVersion(pane.name) : 0,
       profile: rowProfile,
+      /* kosmos#5957 slice 2: how far behind its working rules are, for the card; null unless far behind and its own page
+         would offer the update. Required here, not at the top: doctrine's requires reach back to this module. */
+      rulesBehind: tied ? require('./doctrine').rulesBehind(pane.name, rowProfile) : null,
       /* #3564: null for an ordinary agent; for a swarm, its helpers and today's tokens,
          read from the lead's transcripts (engine/swarm.js). Same `tied` gate as every
          other read keyed on the name. The contract with the UI is on #3564. */
@@ -9269,6 +9342,7 @@ function sessionStartedAtFromTmux(sessionName, now = Date.now()) {
 }
 
 module.exports = {
+  waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
   waitingTotal,   // #3996: the Dock badge's number
   waitingBadgeOn, // #4025: the switch for it
   /* #1500: exported so discover.foundCodex can honour the same refusal.
@@ -9300,7 +9374,7 @@ module.exports = {
      which would report a different moment from the one that failed. */
   lastLookProblem,
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
-  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor,
+  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, createdKeysStrict, tmuxSaidNoServer, lookProblemFor,
   // #2955: the version-wall switch, and its test seams (excused by name in engine.reachable.test.js).
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite

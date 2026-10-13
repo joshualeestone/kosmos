@@ -2484,7 +2484,7 @@ test('#5023: a new agent is asked to introduce itself at birth; one whose key al
   fs.rmSync(sw.FILE, { force: true });   // no community.json: the default, ON
   const made = create.createAgent({ ...BINS, name: 'intro-new', role: 'pm' });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
-  assert.match(fs.readFileSync(create.instructionFile('intro-new'), 'utf8'), /You have not posted to the community yet/,
+  assert.match(fs.readFileSync(create.instructionFile('intro-new'), 'utf8'), /If you have not posted to the community yet/,
     'a newly made agent was not asked to introduce itself until its first restart');
   communitystore.insertPost({ status: 'published', agent: 'intro-old', topic: 'Hello', body: 'Already here.' });
   const again = create.createAgent({ ...BINS, name: 'intro-old', role: 'pm' });
@@ -2492,7 +2492,7 @@ test('#5023: a new agent is asked to introduce itself at birth; one whose key al
   const text = fs.readFileSync(create.instructionFile('intro-old'), 'utf8');
   const communityblock = require('./communityblock');
   assert.ok(require('./projects').findBlock(text, communityblock.START, communityblock.END), 'CONTROL: the block itself is still written');
-  assert.ok(!/You have not posted to the community yet/.test(text), 'an agent whose key already has a post was asked to introduce itself');
+  assert.ok(!/If you have not posted to the community yet/.test(text), 'an agent whose key already has a post was asked to introduce itself');
 });
 
 test('#5023: at birth, near the size limit, the introduction gives way and the community block still lands', () => {
@@ -2505,7 +2505,7 @@ test('#5023: at birth, near the size limit, the introduction gives way and the c
   const probe = create.createAgent({ ...BINS, name: 'size-probe', role: 'pm', instructions: 'A planning agent for tests.' });
   assert.equal(probe.outcome, create.OUTCOME.CREATED, probe.because);
   const probeLen = Buffer.byteLength(fs.readFileSync(create.instructionFile('size-probe'), 'utf8'), 'utf8');
-  assert.match(fs.readFileSync(create.instructionFile('size-probe'), 'utf8'), /You have not posted to the community yet/, 'fixture: the probe got the introduction');
+  assert.match(fs.readFileSync(create.instructionFile('size-probe'), 'utf8'), /If you have not posted to the community yet/, 'fixture: the probe got the introduction');
   const extra = Buffer.byteLength(cb.blockBody({ introduce: true }), 'utf8') - Buffer.byteLength(cb.blockBody(), 'utf8');
   // With the introduction the file would be over by half the line; without it, under by half.
   const pad = MAX_BYTES - probeLen + Math.floor(extra / 2);
@@ -2513,7 +2513,7 @@ test('#5023: at birth, near the size limit, the introduction gives way and the c
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
   const text = fs.readFileSync(create.instructionFile('size-fit'), 'utf8');
   assert.ok(require('./projects').findBlock(text, cb.START, cb.END), 'the optional introduction cost a new agent its whole community block');
-  assert.ok(!/You have not posted to the community yet/.test(text), 'the introduction was written past the size limit');
+  assert.ok(!/If you have not posted to the community yet/.test(text), 'the introduction was written past the size limit');
   assert.ok(Buffer.byteLength(text, 'utf8') <= MAX_BYTES, 'the file is over the limit');
 });
 
@@ -5187,7 +5187,7 @@ test('#3568: the supervisor launches agy with its documented auto-approve flag, 
 const MUSE_ONLY_MAC = { skip: process.platform !== 'darwin' && 'Meta Muse agents are Mac only' };
 function withMuseFlag(on, fn) {
   const was = process.env.AGENT_WORKFORCE_MUSE;
-  if (on) process.env.AGENT_WORKFORCE_MUSE = '1'; else delete process.env.AGENT_WORKFORCE_MUSE;
+  process.env.AGENT_WORKFORCE_MUSE = on ? '1' : '0';   // off is =0 since Muse is on by default on a Mac
   try { return fn(); } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_MUSE; else process.env.AGENT_WORKFORCE_MUSE = was; }
 }
 test('#3939: with the Muse flag off, a Meta create is refused as an unknown provider, exactly as before', MUSE_ONLY_MAC, () => {
@@ -5240,7 +5240,7 @@ test('#3939: a Meta create is refused when Muse Code is missing, when an account
   withMuseFlag(true, () => {
     const missing = create.createAgent({ ...BINS, museBin: '/nonexistent/muse', name: 'muse-none', role: 'pm', provider: 'meta' });
     assert.equal(missing.outcome, create.OUTCOME.REFUSED);
-    assert.match(missing.because, /could not find Muse Code/);
+    assert.match(missing.because, /Muse Code is not on this computer yet.*never start.*Install it in Settings, AI Models/);   // #6004: Settings installs it
     const acct = create.createAgent({ ...BINS, museBin: '/bin/echo', name: 'muse-acct', role: 'pm', provider: 'meta', account: '/x/.claude-y' });
     assert.equal(acct.outcome, create.OUTCOME.REFUSED);
     assert.match(acct.because, /Muse sign-in on this computer/);
@@ -6798,6 +6798,17 @@ test('#4006: a new agent never inherits a failed-restart record left under its n
   const made = create.createAgent({ ...BINS, name: 'failheir', role: 'pm' });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because || '');
   assert.equal(disruption.read('failheir').found, false, 'the new agent was born under an old failed-restart record');
+});
+
+test('#5957 slice 3: a new agent never inherits an old agent\'s last report under its name', () => {
+  const liveness = require('./liveness');
+  create.setRunner(() => ({ ok: true }));
+  create.setDryRun(false);
+  liveness.seen('idleheir', new Date(Date.now() - 40 * 86400000).toISOString());
+  assert.equal(liveness.read('idleheir').found, true, 'precondition: an old report is on file under the name');
+  const made = create.createAgent({ ...BINS, name: 'idleheir', role: 'pm' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because || '');
+  assert.equal(liveness.read('idleheir').found, false, 'the new agent was born under an old last report');
 });
 
 test('#5534: a company policy in force refuses creating or switching an agent onto a provider it does not allow', WIN_TASK_STUB, () => {

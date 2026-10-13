@@ -689,12 +689,30 @@ function profilePath(name) {
   return path.join(profilesDir(), profileFileName(name));
 }
 
-function readProfile(name) {
+/* The record as it is on disk, the install's id beside the agent's own included. For this file only: the two readers
+   that need that copy are writeProfile and agentId below. Not exported. */
+function storedProfile(name) {
   try {
     return JSON.parse(fs.readFileSync(profilePath(name), 'utf8'));
   } catch {
     return {};
   }
+}
+
+/* kosmos#5995: A PROFILE LEAVES THIS FILE WITHOUT THE INSTALL'S ID, on every door (readProfile, and what writeProfile
+   answers). The file keeps a copy of that id beside each agent's own (`idInstall`), and no engine or server
+   code outside this file reads that key. Whole profiles are served (in each agent's card, in a stopped agent's row, in the answer to a profile
+   save), so the rule is here, where the record is read, and not at each place that serves one.
+   A copy, never the parsed object; a value that is not a record passes through as it is. */
+function withoutInstallId(profile) {
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return profile;
+  const out = { ...profile };
+  delete out.idInstall;
+  return out;
+}
+
+function readProfile(name) {
+  return withoutInstallId(storedProfile(name));
 }
 
 /* The identity fields (#170): `id` is the random anchor minted on first write, and
@@ -747,7 +765,7 @@ function saveFlushed(file, data) {
 
 function writeProfile(name, patch) {
   ensure(profilesDir());
-  const had = readProfile(name);
+  const had = storedProfile(name);   // the whole record: the stamp below compares its install id
   const next = { ...had, ...patch, updatedAt: new Date().toISOString() };
   /**
    * The agent's identity (#170): a random id minted ON THE FIRST WRITE and
@@ -764,8 +782,8 @@ function writeProfile(name, patch) {
    * decided restore semantics, not housekeeping: a restored agent is a
    * SEPARATE agent with its own fresh id (Josh ruled the screen, 19:26:
    * nobody is ever asked same-or-copy; the mechanism that needs no warning
-   * is fresh id). The install id is the created ping's, the same one-Mac-
-   * one-install anchor notify.js already reuses. Its known limit rides
+   * is fresh id). The install id is the created ping's (engine/ping.js), one
+   * per Kosmos data root. Its known limit rides
    * along: on a machine whose ping file cannot be written, installId is
    * fresh per process and ids would remint per restart -- which degrades
    * in the SAFE direction (a new id is a separate agent, never a warning).
@@ -779,7 +797,7 @@ function writeProfile(name, patch) {
   // Write-then-rename (flushed first), so an interrupted write cannot leave a half-written or zero-filled
   // file that parses as an empty profile and silently loses someone's edits.
   saveFlushed(profilePath(name), JSON.stringify(next, null, 2));
-  return next;
+  return withoutInstallId(next);   // #5995: the answer is handed on, sometimes to the page
 }
 
 /**
@@ -791,7 +809,7 @@ function writeProfile(name, patch) {
  * poll must never write.
  */
 function agentId(name) {
-  const p = readProfile(name);
+  const p = storedProfile(name);
   return (p.id && p.idInstall === require('./ping').installId()) ? p.id : null;
 }
 

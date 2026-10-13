@@ -77,15 +77,19 @@ const PERCENT = { beatrix: 42, dora: 71 };
         page.on('pageerror', (e) => errs.push(e.message));
         /* A memory reading on each card that should have one (a stopped card is given one too, as
            a board could: the dot, not the ring, carries "not running"). */
+        /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+           (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
         await page.route('**/api/status*', async (route) => {
-          const r = await route.fetch();
-          let j = {};
-          try { j = await r.json(); } catch { j = {}; }
-          for (const a of (j.agents || [])) {
-            const key = String(a.sessionName || '').replace(/-discord$/, '');
-            if (PERCENT[key] !== undefined) { a.context = Object.assign({}, a.context || {}, { percent: PERCENT[key] }); injected += 1; }
-          }
-          await route.fulfill({ response: r, json: j });
+          try {
+            const r = await route.fetch();
+            let j = {};
+            try { j = await r.json(); } catch { j = {}; }
+            for (const a of (j.agents || [])) {
+              const key = String(a.sessionName || '').replace(/-discord$/, '');
+              if (PERCENT[key] !== undefined) { a.context = Object.assign({}, a.context || {}, { percent: PERCENT[key] }); injected += 1; }
+            }
+            await route.fulfill({ response: r, json: j });
+          } catch { await route.abort().catch(() => {}); }
         });
         await page.goto(URL + '/?tab=projects', { waitUntil: 'networkidle' });
         await page.waitForSelector('[data-project="' + p.id + '"]', { state: 'visible', timeout: 15000 });

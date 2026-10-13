@@ -41,6 +41,9 @@ const STATES = Object.freeze(['started', 'working', 'idle', 'needs_you', 'blocke
    `status.reconcileReport` already declines to decay, and they are the only
    ones an automatic writer may not erase. */
 const WAITING_ON_A_PERSON = Object.freeze(['blocked', 'needs_you']);
+/* #5959: a waiting report older than this is pointed out to the agent (kosmos report show). It is aged from when the
+   waiting run began (askedAt below), or from the latest line when that is not known, which can only be shorter. */
+const STALE_WAIT_MS = 24 * 3600 * 1000;
 
 const DIR = path.join(store.ROOT, 'selfreports');
 
@@ -387,9 +390,11 @@ function read(sessionName) {
     return { found: false, because: NO_READING.UNREADABLE };
   }
   let text;
+  let cut = false;   // #5943: the tail began after the file's start, so lines before it are not seen
   try {
     const size = fs.fstatSync(fd).size;
     const start = Math.max(0, size - TAIL_BYTES);
+    cut = start > 0;
     const buf = Buffer.alloc(size - start);
     fs.readSync(fd, buf, 0, buf.length, start);
     text = buf.toString('utf8');
@@ -413,6 +418,13 @@ function read(sessionName) {
      next must not make the DM forget what the agent answered), within the TAIL_BYTES this read looks at. A started
      or stopped report forgets it, like the project. */
   let final = null;
+  /* #5943: when the standing question was first asked. The `at` of the FIRST line of the trailing run of identical
+     reports (same state, same words, same project), so re-reporting the same question does not re-date it, and a
+     different one (or the same words about another project) does. */
+  let runKey = null;
+  let runAt = null;
+  let parsed = 0;
+  let runFromFirst = false;   // the run began at the first line read: when the tail is cut, its start is unknown
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let row;
@@ -442,6 +454,13 @@ function read(sessionName) {
        names the project again. Both are accepted residuals, in the #5034 plan. */
     if (typeof row.left === 'string' && row.left && row.left === project) project = null;
     if (typeof row.project === 'string' && row.project) project = row.project;
+    /* #5943 (with #5942, Mona Lisa): a run is the same state, the same words AND the same project (as carried), so one
+       generic sentence filed about project A and later about project B is two asks, not one 10 days old. */
+    {
+      const key = row.state + '\u0000' + (typeof row.because === 'string' ? row.because : '') + '\u0000' + (project || '');
+      if (key !== runKey) { runKey = key; runAt = typeof row.at === 'string' ? row.at : null; runFromFirst = parsed === 0; }
+      parsed += 1;
+    }
   }
   if (!latest) return { found: false, because: NO_READING.NEVER_REPORTED };
   return {
@@ -454,6 +473,10 @@ function read(sessionName) {
     owner: latest.owner || null,
     until: latest.until || null,
     at: latest.at || null,
+    // #5943: null unless the latest report waits on a person (see the loop above).
+    // Not known (null) rather than too recent: a run that begins at the first line of a CUT tail began earlier (Mona Lisa).
+    askedAt: WAITING_ON_A_PERSON.includes(latest.state) && runAt && Number.isFinite(Date.parse(runAt))
+      && !(cut && runFromFirst) ? runAt : null,
     /* Null for a pane-derived report, which is most of them: the pane arm has
        no notion of a run. Null means "not known", never "only one run". */
     instance: latest.instance || null,
@@ -517,6 +540,12 @@ function history(sessionName) {
    line of advice. The note names no owner and holds no double quote or backslash, so the macOS CLI can lift it with
    sed; its question is in single quotes, as the nudge's is (unquoted, a ? stops zsh). */
 const PERSON_WORDS = /^(?:(?:the|my|our|your) )?(?:person|human|user|operator|boss|founder|me|you)$/;
+/* #5943 (Josh: questions an agent could settle itself should not reach a non-technical person): said back by the board
+   at the moment of asking, as the report's `note`, which both CLIs print (install/kosmos and tools/windows/kosmos-cli.js).
+   No quote or backslash: the bash CLI reads `note` with a sed that stops at the first quote. */
+const NEEDS_YOU_ASK_NOTE = 'Before a person has to answer this: can you undo it yourself? Can you undo it before anyone acts on it? '
+  + 'If both are yes, decide it, tell them what you decided, and run: kosmos report clear. '
+  + 'When they answer, wherever they answer, run: kosmos report clear.';
 const BLOCKED_PERSON_NOTE = 'Note: that owner looks like a person, and blocked is never followed up or escalated. '
   + 'If a person must decide or act, report it this way instead, and Kosmos follows it up: kosmos report needs_you \'<your question>\'';
 function blockedOwnerNote(state, owner, opts) {
@@ -533,5 +562,5 @@ function blockedOwnerNote(state, owner, opts) {
   return isPerson ? BLOCKED_PERSON_NOTE : '';
 }
 
-module.exports = { STATES, WAITING_ON_A_PERSON, DIR, NO_READING, TAIL_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean,
-  blockedOwnerNote, BLOCKED_PERSON_NOTE };
+module.exports = { STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, DIR, NO_READING, TAIL_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean,
+  blockedOwnerNote, BLOCKED_PERSON_NOTE, NEEDS_YOU_ASK_NOTE };

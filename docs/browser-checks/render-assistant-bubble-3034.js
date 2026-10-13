@@ -779,10 +779,14 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     let settingsFailed = 0;
     /* Only the assistant's own read fails: the first settings GET once the page knows the guide (other
        parts of the app read /api/settings too, and failing one of theirs would test nothing here). */
+    /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+       its late rejection is caught instead of crashing the check after it passed. */
     await page.route('**/api/settings', async (route) => {
-      const knowsGuide = await page.evaluate(() => typeof ASB !== 'undefined' && !!ASB.guide && !ASB.setting).catch(() => false);
-      if (route.request().method() === 'GET' && settingsFailed === 0 && knowsGuide) { settingsFailed++; return route.abort(); }
-      return route.continue();
+      try {
+        const knowsGuide = await page.evaluate(() => typeof ASB !== 'undefined' && !!ASB.guide && !ASB.setting).catch(() => false);
+        if (route.request().method() === 'GET' && settingsFailed === 0 && knowsGuide) { settingsFailed++; return await route.abort().catch(() => {}); }
+        return await route.continue();
+      } catch { await route.abort().catch(() => {}); }
     });
     await boot();
     chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 15000) && settingsFailed === 1, 'B13 a settings read that failed at load is retried and the bubble arrives', 'failed=' + settingsFailed);

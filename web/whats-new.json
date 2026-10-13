@@ -1,5 +1,5 @@
 {
-  "version": "0.7.43",
+  "version": "0.7.45",
   "highlights": [
     {
       "icon": "shield",
@@ -23,17 +23,14 @@
       "line": "Settings, Automation, Language asks your agents to write to you in the language you pick."
     },
     {
-      "icon": "chat",
-      "title": "Reply to Claude questions by number",
-      "line": "When a Claude agent asks you to pick one option, replying with its number reaches it as your answer, not the highlighted default.",
-      "platforms": [
-        "mac"
-      ]
+      "icon": "tasks",
+      "title": "New tasks ask how you will know they are done",
+      "line": "New task asks \"How will you know it is done?\" and Create waits for your answer; a parent task says when all its subtasks are built."
     },
     {
-      "icon": "phone",
-      "title": "Kosmos fits a phone screen better",
-      "line": "On a phone, a project's name gets two lines, its message box hint fits, and Settings' Community section fits most phone screens."
+      "icon": "tasks",
+      "title": "Decisions say how long they have waited",
+      "line": "When an agent's question is waiting on you, its task under Needs Your Decision now says for how long, such as \"Waiting on you for 12 days\"."
     }
   ]
 }

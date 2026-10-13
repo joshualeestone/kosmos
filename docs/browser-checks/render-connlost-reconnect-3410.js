@@ -31,6 +31,7 @@ process.env.AGENT_WORKFORCE_CONFIG_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
 const { chromium } = require('playwright');
+const { closeQuietly } = require('./lib-close-quietly.js');   // #6022: a poll in flight at close must not crash the check
 const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 
@@ -65,11 +66,15 @@ const PHASES = [
     page.on('pageerror', (e) => errs.push(e.message));
     let phase = PHASES[0];
     const borderOf = {};
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await page.route('**/api/status', async (route) => {
-      const res = await route.fetch();
-      const body = await res.json();
-      for (const a of body.agents || []) if (a.state === 'connection_lost') { a.reconnect = phase.reconnect; a.crashLoop = phase.crashLoop || null; }
-      await route.fulfill({ response: res, json: body });
+      try {
+        const res = await route.fetch();
+        const body = await res.json();
+        for (const a of body.agents || []) if (a.state === 'connection_lost') { a.reconnect = phase.reconnect; a.crashLoop = phase.crashLoop || null; }
+        await route.fulfill({ response: res, json: body });
+      } catch { await route.abort().catch(() => {}); }
     });
     for (const p of PHASES) {
       phase = p;
@@ -117,7 +122,7 @@ const PHASES = [
     chk(borderOf.gave_up && borderOf.waiting && borderOf.gave_up !== borderOf.waiting, 'given up has the needs-you border, not the paused one', `${borderOf.gave_up} vs ${borderOf.waiting}`);
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
-    await browser.close();
+    await closeQuietly(browser);
     server.close();
   }
   console.log(`screenshots: ${OUT}`);

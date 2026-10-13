@@ -88,7 +88,7 @@ kosmos_browser_check_surface_gate() {
   # dstat/dpath NOT status/path: zsh ties `path`->PATH and `status`->$?, and this lib
   # is sourced, sometimes into zsh.
   local base mb bcdir files msgs webdiff changed tab
-  local ann ann_list toks tok basename_chk esc_base esc_bcdir viol reason
+  local ann ann_list toks tok basename_chk esc_base esc_bcdir viol reason scan has_trailer verdict hit
   base="${KOSMOS_BCG_BASE:-origin/main}"
   bcdir="${KOSMOS_BCSG_DIR:-docs/browser-checks}"
   tab="$(printf '\t')"
@@ -138,11 +138,23 @@ kosmos_browser_check_surface_gate() {
   #    zsh. find returns empty on no match in every shell, so this is nomatch-safe.
   [ -d "$bcdir" ] || return 0                       # no checks dir: nothing to map (fail-soft)
   ann_list="$(find "$bcdir" -maxdepth 1 -type f -name '*.js' 2>/dev/null || true)"
-  while IFS= read -r ann; do
+  # #5907: every check's verdict in one pass (bc_surface_scan_checks: HIT with its first token, MISS, or SLOW), so a
+  # check is read by the per-token path only when the scan says SLOW (a non-plain token before any plain hit, or a key
+  # line the scan's C-locale match refuses). If the scan cannot run, every check
+  # takes that path, as before. A MISS check needs nothing more unless a trailer could name it, so with no
+  # `Browser-check-surface:` trailer at all it is skipped (it could neither violate nor print an override line).
+  scan="$(bc_surface_scan_checks "$bcdir" "$changed")" \
+    || scan="$(printf '%s\n' "$ann_list" | sed "s|\$|${tab}SLOW${tab}|")"
+  has_trailer=0
+  printf '%s\n' "$msgs" | grep -qiE '^browser-check-surface:' && has_trailer=1
+  while IFS="$tab" read -r ann verdict hit; do
     [ -n "$ann" ] || continue
-    # The annotation parse (case-insensitive key) is the shared primitive.
-    toks="$(bc_surface_tokens_of "$ann")"
-    [ -n "$toks" ] || continue                     # unannotated: coarse gate handles it
+    [ "$verdict" = MISS ] && [ "$has_trailer" -eq 0 ] && continue
+    if [ "$verdict" = SLOW ]; then
+      # The annotation parse (case-insensitive key) is the shared primitive.
+      toks="$(bc_surface_tokens_of "$ann")"
+      [ -n "$toks" ] || continue                   # unannotated: coarse gate handles it
+    fi
     basename_chk="${ann##*/}"                       # e.g. render-subprojects-1994.js
     # Escape the dir + basename for the regex matches below, so a literal `.` (in `.js`, or
     # a temp seam dir path) is not a wildcard. This matters most for the "is this check
@@ -164,23 +176,28 @@ kosmos_browser_check_surface_gate() {
       continue
     fi
 
-    # Does any declared token appear in a CHANGED web line? If so, the check may be stale.
-    # Iterate tokens via newline-split while-read, NOT `for tok in $toks`: zsh does NOT
-    # word-split an unquoted expansion (this lib is sourced, sometimes into zsh), so the
-    # `for` form would test the whole "tok1 tok2" string as ONE token and miss every
-    # multi-token check. tr turns the space/tab-separated list into one token per line.
-    while IFS= read -r tok; do
-      [ -n "$tok" ] || continue
-      # WHOLE-token match (bounded by non-identifier chars, metachars escaped), the shared
-      # primitive -- so token `pj-parent` does NOT over-fire on `pj-parenthetical`, and the
-      # gate matches EXACTLY what tools/bc-surface-map.sh's `covering` reports.
-      if bc_surface_token_hits "$tok" "$changed"; then
-        viol="${viol}  ${basename_chk}  (surface token '${tok}' changed in web/index.html)
+    if [ "$verdict" = HIT ]; then
+      viol="${viol}  ${basename_chk}  (surface token '${hit}' changed in web/index.html)
 "
-        break
-      fi
-    done <<< "$(printf '%s' "$toks" | tr ' \t' '\n\n')"
-  done <<< "$ann_list"
+    elif [ "$verdict" = SLOW ]; then
+      # Does any declared token appear in a CHANGED web line? If so, the check may be stale.
+      # Iterate tokens via newline-split while-read, NOT `for tok in $toks`: zsh does NOT
+      # word-split an unquoted expansion (this lib is sourced, sometimes into zsh), so the
+      # `for` form would test the whole "tok1 tok2" string as ONE token and miss every
+      # multi-token check. tr turns the space/tab-separated list into one token per line.
+      while IFS= read -r tok; do
+        [ -n "$tok" ] || continue
+        # WHOLE-token match (bounded by non-identifier chars, metachars escaped), the shared
+        # primitive -- so token `pj-parent` does NOT over-fire on `pj-parenthetical`, and the
+        # gate matches EXACTLY what tools/bc-surface-map.sh's `covering` reports.
+        if bc_surface_token_hits "$tok" "$changed"; then
+          viol="${viol}  ${basename_chk}  (surface token '${tok}' changed in web/index.html)
+"
+          break
+        fi
+      done <<< "$(printf '%s' "$toks" | tr ' \t' '\n\n')"
+    fi
+  done <<< "$scan"
 
   [ -n "$viol" ] || return 0
 

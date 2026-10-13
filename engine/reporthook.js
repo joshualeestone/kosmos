@@ -399,5 +399,115 @@ function ensureWired(settingsPath, scriptPath, opts) {
   return { wired: true, changed: true };
 }
 
+/**
+ * #5999: take ONE install's report hooks back out of a Claude settings file (the Windows uninstall; #5998's
+ * setup.sh step is the Mac and Linux one, and its matching rules are these). A hook is this install's when it carries
+ * the marker AND that same string (the command, or an arg) names a path inside one of `roots`. Windows paths: matched
+ * without case and with either separator, and a root counts only at the start of the string or right after a quote
+ * or a space, so C:\Kosmos2 is not inside C:\Kosmos and D:\x\C:\Kosmos is not either. Everything else in the file
+ * stays: another install's hooks, a person's own, and a person's hook that shares an entry with ours (the entry is
+ * kept with theirs alone). An event left empty is removed, and `hooks` too when nothing is left in it.
+ * `gone` (a function): when given, a hook carrying the marker whose script is provably gone is removed too, whatever
+ * folder it names. An added account keeps the folder Kosmos ran from when it was added, and nothing repoints it after
+ * a move. Ours by the marker and already broken, so taking it out only takes out an error. `gone(path)` must be true
+ * only for a path that is certainly not there (goneOnDisk below: not found, never "could not look").
+ * `dryRun` only says whether the file holds any. Returns { ours, dead, changed, unreadable?, because? } (`dead`: how
+ * many of the hooks taken out were broken ones outside `roots`; `unreadable`: the file is not settings Kosmos can
+ * read, so a retry cannot change it); never throws for a shape.
+ * The caller holds the #3088 lock (filelock.withFileLock) around this, as wireDefaultHooks does around ensureWired.
+ */
+function unwireInstall(settingsPath, roots, opts) {
+  const o = opts || {};
+  const norm = (s) => String(s).replace(/\//g, '\\').toLowerCase();
+  const prefixes = [...new Set((roots || []).filter((r) => typeof r === 'string' && r.trim())
+    .map((r) => norm(r).replace(/\\+$/, '') + '\\'))];
+  if (!prefixes.length) return { ours: false, dead: 0, changed: false, because: 'Kosmos could not tell which folder it was installed in' };
+  const inside = (s) => {
+    if (typeof s !== 'string') return false;
+    const n = norm(s);
+    return prefixes.some((root) => {
+      for (let at = n.indexOf(root); at !== -1; at = n.indexOf(root, at + 1)) {
+        if (at === 0 || /["'\s]/.test(n[at - 1])) return true;
+      }
+      return false;
+    });
+  };
+  const carries = (s) => typeof s === 'string' && s.includes(MARKER) && inside(s);
+  const inRoots = (h) => !!h && (carries(h.command) || (Array.isArray(h.args) && h.args.some(carries)));
+  /* The script path a hook names: an arg carrying the marker (exec form), or the quoted or bare word of the command
+     that carries it (the old shell form). */
+  const scriptPaths = (h) => {
+    const out = [];
+    if (Array.isArray(h.args)) for (const a of h.args) if (typeof a === 'string' && a.includes(MARKER)) out.push(a);
+    if (typeof h.command === 'string' && h.command.includes(MARKER)) {
+      for (const m of h.command.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)) {
+        const w = m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3];
+        if (w.includes(MARKER)) out.push(w);
+      }
+    }
+    return out;
+  };
+  /* Only a string that is provably the script, at a provable place, can be judged gone: an absolute drive-letter path
+     (a \\\\server path is never looked at, its server may be offline; a mapped drive letter still is, and a disconnected
+     one can be slow to answer), with no %, $ or ~ (a shell would expand them; a ~ also turns away an 8.3 short name such as PROGRA~1, which only
+     errs toward keeping), whose file name is the hook script itself,
+     on a drive that is there now (an unplugged drive is not a deleted folder). Anything else is kept. */
+  const provablyGone = (x) => {
+    if (!/^[A-Za-z]:[\\/]/.test(x) || /[%$~]/.test(x)) return false;
+    const base = x.split(/[\\/]/).pop();
+    if (base !== MARKER + '.js' && base !== MARKER + '.sh') return false;
+    try { return !o.gone(x.slice(0, 2) + '\\') && o.gone(x) === true; } catch { return false; }
+  };
+  const isDead = (h) => {
+    if (typeof o.gone !== 'function' || !h) return false;
+    const paths = scriptPaths(h);
+    return paths.length > 0 && paths.every(provablyGone);
+  };
+  let dead = 0;
+  const hookIsOurs = (h) => inRoots(h) || isDead(h);
+  let target;
+  try { target = fs.realpathSync(settingsPath); }
+  catch { return { ours: false, dead: 0, changed: false }; }   // absent, or a link to nothing: nothing of ours in it
+  const read = readSettings(target);
+  if (read.because) {
+    // Unreadable or not an object: never rewritten, only said, when it names this install's hook.
+    let raw = '';
+    try { raw = fs.readFileSync(target, 'utf8'); } catch { /* unreadable */ }
+    return { ours: raw.includes(MARKER) && inside(raw.replace(/\\\\/g, '\\')), dead: 0, changed: false, unreadable: true, because: read.because };
+  }
+  const { data, prevMode } = read;
+  const hooks = data.hooks;
+  if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return { ours: false, dead: 0, changed: false };
+  let ours = false;
+  for (const event of Object.keys(hooks)) {
+    const list = hooks[event];
+    if (!Array.isArray(list)) continue;
+    const kept = [];
+    let mine = false;
+    for (const entry of list) {
+      if (!entry || !Array.isArray(entry.hooks) || !entry.hooks.some(hookIsOurs)) { kept.push(entry); continue; }
+      mine = true;
+      dead += entry.hooks.filter((h) => !inRoots(h) && isDead(h)).length;
+      const rest = entry.hooks.filter((h) => !hookIsOurs(h));
+      if (rest.length) kept.push({ ...entry, hooks: rest });   // a person's hook shared our entry: theirs stays
+    }
+    if (!mine) continue;   // an event with nothing of ours is left exactly as it was
+    ours = true;
+    if (kept.length) hooks[event] = kept; else delete hooks[event];
+  }
+  if (!ours) return { ours: false, dead: 0, changed: false };
+  if (o.dryRun) return { ours: true, dead, changed: false };
+  if (Object.keys(hooks).length === 0) delete data.hooks;
+  if (!writeSettings(target, data, prevMode)) return { ours: true, dead, changed: false, because: 'we could not save the settings file' };
+  return { ours: true, dead, changed: true };
+}
+
+/** #5999: true only when `p` is certainly not there (not found); a path that could not be looked at (no permission,
+    say) is not gone, so a hook naming it is kept. */
+function goneOnDisk(p) {
+  try { fs.statSync(p); return false; }
+  catch (e) { return !!e && (e.code === 'ENOENT' || e.code === 'ENOTDIR'); }
+}
+
 module.exports = { HOOK_EVENTS, MARKER, hookScriptPath, entryFor, unsafeForCommand, entryIsOurs, ensureWired,
-  ephemeralMismatch, readSettings, writeSettings };
+  ephemeralMismatch, readSettings, writeSettings, unwireInstall, goneOnDisk };

@@ -22,6 +22,7 @@
 'use strict';
 
 const playwright = require('playwright');
+const { closeQuietly } = require('./lib-close-quietly.js');   // #6022: a poll in flight at close must not crash the check
 
 const BASE = process.argv[2] || 'http://127.0.0.1:4399';
 const HEADED = process.env.HEADED !== '0';
@@ -54,14 +55,18 @@ const MADE = {
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e.message)));
 
+  /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+     (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
   /* A board that never contains Rosie: the exact machine state this ending is
      about. Everything else on it is left alone. */
   await page.route('**/api/status**', async (r) => {
-    const res = await r.fetch();
-    let body = {};
-    try { body = await res.json(); } catch { body = { agents: [] }; }
-    body.agents = (body.agents || []).filter((a) => a && a.sessionName !== 'rosie');
-    r.fulfill({ json: body });
+    try {
+      const res = await r.fetch();
+      let body = {};
+      try { body = await res.json(); } catch { body = { agents: [] }; }
+      body.agents = (body.agents || []).filter((a) => a && a.sessionName !== 'rosie');
+      await r.fulfill({ json: body });
+    } catch { await r.abort().catch(() => {}); }
   });
   await page.route('**/api/agents', (r) => {
     if (r.request().method() !== 'POST') { r.continue(); return; }
@@ -143,7 +148,7 @@ const MADE = {
 
   check('no page errors', errors.length === 0, errors.join(' | '));
 
-  await browser.close();
+  await closeQuietly(browser);
   const failed = results.filter((r) => !r.pass);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   process.exit(failed.length ? 1 : 0);

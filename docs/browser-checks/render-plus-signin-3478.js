@@ -599,11 +599,15 @@ const visible = (page, sel) => page.evaluate((s) => {
       page.on('pageerror', (e) => errs.push(e.message));
       await openPlusState1(page);
       let startAnswer = { status: 200, body: { ok: true, stage: 'code_sent' } };
+      /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+         its late rejection is caught instead of crashing the check after it passed. */
       await page.route('**/api/remote/signin-**', async (route, req) => {
-        const p = req.url().replace(/^.*\/api\/remote\//, '');
-        if (p === 'signin-verify') { await new Promise((r) => setTimeout(r, 1500)); route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'second' }) }); return; }
-        if (p === 'signin-start') { route.fulfill({ status: startAnswer.status, contentType: 'application/json', body: JSON.stringify(startAnswer.body) }); return; }
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'enrol_second_factor', sms_available: true }) });
+        try {
+          const p = req.url().replace(/^.*\/api\/remote\//, '');
+          if (p === 'signin-verify') { await new Promise((r) => setTimeout(r, 1500)); await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'second' }) }); return; }
+          if (p === 'signin-start') { await route.fulfill({ status: startAnswer.status, contentType: 'application/json', body: JSON.stringify(startAnswer.body) }); return; }
+          await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'enrol_second_factor', sms_available: true }) });
+        } catch { await route.abort().catch(() => {}); }
       });
       const enter = async () => { await page.click('#plus-signin-top'); await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 }); };
       await enter();
@@ -648,11 +652,13 @@ const visible = (page, sel) => page.evaluate((s) => {
       let startDelay = 0;   // #3942 round 11: a slow new-code request, so the old code is still in the field
       let startFail = null;   // #3942 round 12: a refused new-code request (no new code was made)
       await page.route('**/api/remote/signin-**', async (route, req) => {
-        const p = req.url().replace(/^.*\/api\/remote\//, '');
-        if (p === 'signin-verify') { if (verifyDelay) await new Promise((r) => setTimeout(r, verifyDelay)); if (verifyAbort) { route.abort(); return; } route.fulfill({ status: verifyAnswer.status, contentType: 'application/json', body: JSON.stringify(verifyAnswer.body) }); return; }
-        if (startDelay) await new Promise((r) => setTimeout(r, startDelay));
-        if (startFail && p === 'signin-start') { route.fulfill({ status: startFail.status, contentType: 'application/json', body: JSON.stringify(startFail.body) }); return; }
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'code_sent' }) });
+        try {
+          const p = req.url().replace(/^.*\/api\/remote\//, '');
+          if (p === 'signin-verify') { if (verifyDelay) await new Promise((r) => setTimeout(r, verifyDelay)); if (verifyAbort) { await route.abort().catch(() => {}); return; } await route.fulfill({ status: verifyAnswer.status, contentType: 'application/json', body: JSON.stringify(verifyAnswer.body) }); return; }
+          if (startDelay) await new Promise((r) => setTimeout(r, startDelay));
+          if (startFail && p === 'signin-start') { await route.fulfill({ status: startFail.status, contentType: 'application/json', body: JSON.stringify(startFail.body) }); return; }
+          await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'code_sent' }) });
+        } catch { await route.abort().catch(() => {}); }
       });
       await page.fill('#plus-signin-email', 'you@example.com');
       await page.click('#plus-signin-code');
@@ -1031,7 +1037,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         if (p === 'signin-register') {
           regTries += 1;
           // #4608: the first answer is held 1.5 s, so the connecting state can be read while it waits.
-          if (regTries === 1) { setTimeout(() => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the name twin-mac is already connected on another computer' }) }), 1500); return; }
+          if (regTries === 1) { setTimeout(() => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the name twin-mac is already connected on another computer' }) }).catch(() => {}), 1500); return; }   // #6027: a late answer after close is caught
           route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'registered', address: 'twin-mac', name: 'twin-mac', standing: 'active' }) }); return;
         }
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'code_sent' }) });

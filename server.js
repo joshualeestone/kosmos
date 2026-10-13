@@ -52,6 +52,11 @@ if (require.main === module) {
   const logPaths = [path.join(__dirname, '..', 'logs', 'board.log')];
   logstamp.install(process.stdout, 1, { shared, logPaths });
   logstamp.install(process.stderr, 2, { shared, logPaths });
+  /* #5959: and the board's own lines into memory for the diagnostics file, whatever the streams are (a pipe on Windows
+     too). Installed after the stamp, so it wraps it and records each line before the stamp's time is added. */
+  const logring = require('./engine/logring');
+  logring.board.tap(process.stdout, 'stdout');
+  logring.board.tap(process.stderr, 'stderr');
 }
 /* #5450: who started this board (install/kosmos board-run and start), taken out of the environment before anything
    can start a process that would inherit it (the log stamp above starts none; #4199 keeps it right after the bootstrap); engine/restartnote.js atStart reads these values. (engine/worldenv.js
@@ -1005,6 +1010,7 @@ const teamseed = require('./engine/teamseed'); // #4557: a seeded team's members
 const orgchartfile = require('./engine/orgchartfile'); // #4559: an org chart FILE into the New Agent preview
 const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
+const cardlabel = require('./engine/cardlabel');   // #5959: the card's word, as the page shows it
 /* ⚠️ For the not-running rows only. `engine/status.js` reads the same store for
    the agents it can see; this is the same question asked about an agent with no
    pane, not a second idea of where a face lives. */
@@ -4285,6 +4291,21 @@ function statusForSibling(json) {
    passes the same checks and answers 204 with no body. A refusal goes to `refuseDownload`. */
 const DOWNLOAD_GONE = 'that file is not there any more, or it was moved';
 const DOWNLOAD_UNREADABLE = 'that file could not be read on the computer Kosmos runs on';
+/* #5959 slice 4: the diagnostics file one half of a click made (the download or the page's ?check=1 look), or that it
+   failed, kept a few seconds for the other half, once. */
+let DIAG_LAST = null;
+const DIAG_REUSE_MS = 5000;
+const DIAG_FAILED = 'Kosmos could not make the diagnostics file just now';
+function sendDiagnostics(res, file, now) {
+  const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;   // the person's day, not UTC's
+  res.writeHead(200, {
+    'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
+    // As the other download route: never sniffed, never run as a page on the board's origin.
+    'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox",
+    'content-disposition': `attachment; filename="kosmos-diagnostics-${day}.json"`,
+  });
+  res.end(JSON.stringify(file, null, 2) + '\n');
+}
 function isDownloadCheck(req) {
   try { return new URL(req.url, ROUTING_BASE).searchParams.get('check') === '1'; } catch { return false; }
 }
@@ -5319,6 +5340,18 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #5958 item 5: every agent's community readiness for the owner (engine/communityready.js), from the board's records
+     only: no call to the community service, and one read of the send records for all rows. */
+  if (pathname === '/api/community/ready' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const rows = require('./engine/communityready').rowsFor(safeRoster());
+      if (rows === null) sendJson(res, 503, { error: 'we could not check which agents are running just now; try again' });
+      else sendJson(res, 200, { agents: rows });
+    }
+    catch (e) { console.error('FAIL /api/community/ready: ' + (e && e.message || e)); sendJson(res, 500, { error: 'could not load where your agents stand with the community' }); }
+    return;
+  }
+
   /* #4287: the owner deletes a post from the public community. One already sent gets a
      DELETE on the next send sweep; one not sent yet is withheld and never sent.
      #4801: the same for a comment on a community post; requestDelete looks the id up as a
@@ -5895,6 +5928,11 @@ const server = http.createServer(async (req, res) => {
                    a terminal-error clock is kept only by the 60s sweep over RUNNING agents (stuckterminal.peek
                    in safeRoster), and this row is an agent with no live session to be stuck. */
                 stuckError: null,
+                /* kosmos#5957 slice 2: a stopped agent is the likeliest to be far behind, so its offline row says so too. */
+                rulesBehind: require('./engine/doctrine').rulesBehind(k.name, profile),
+                /* kosmos#5957 slice 3: and how long it has gone without running, once that is two weeks or more
+                   (engine/liveness.js idleDays; null otherwise and when it was never seen). */
+                idleDays: (() => { try { return liveness.idleDays(k.name); } catch { return null; } })(),
                 stateConfidence: unseen ? 'none' : 'structured',
                 /* #310: when the job exists and launchd holds an override
                    against it, the Login Items switch is the story, and it is
@@ -8742,6 +8780,10 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
           return;
         }
+        /* #5959 slice 2: the switch keeps the name, so the old provider's last-seen time would otherwise come back on a
+           switch back. Written job, so the provider has changed whether or not the restart lands. Once is enough: the
+           restart below is synchronous, so no sweep runs before it returns. */
+        try { observed.forgetAgent(name); } catch { /* best-effort, like the forgets on remove */ }
         /* #5429: the model, written to the job the switch just wrote, BEFORE the one restart. */
         let pickedModel = null;
         let modelMiss = '';
@@ -9343,10 +9385,19 @@ const server = http.createServer(async (req, res) => {
     /* #4939: `?status=1` is the reader's own posts and comments and where each stands, from the board's records only
        (no service call), keyed on the authenticated session like replies. */
     if (q.get('status') === '1') {
-      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies') || q.get('older')) { sendJson(res, 400, { error: 'read your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
+      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies') || q.get('older') || q.get('ready')) { sendJson(res, 400, { error: 'read your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
       let r;
       try { r = require('./engine/communitystatus').statusText(reader.card.sessionName); } catch { r = { ok: false, because: 'we could not read what Kosmos has sent just now' }; }
       sendJson(res, r.ok ? 200 : 500, r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because });
+      return;
+    }
+    /* #5958: `?ready=1` is where the reader stands with the community (the switch, its instructions, its account, the
+       last reminder, its newest post, anything held), from the board's records only, keyed on the authenticated session. */
+    if (q.get('ready') === '1') {
+      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies') || q.get('older') || q.get('status')) { sendJson(res, 400, { error: 'read where you stand, your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
+      let r;
+      try { r = require('./engine/communityready').readyText(reader.card.sessionName); } catch { r = { ok: false, because: 'we could not read where you stand just now' }; }
+      sendJson(res, r.ok ? 200 : 500, r.ok ? { ok: true, text: r.text } : { error: r.because });
       return;
     }
     if (q.get('replies') === '1') {
@@ -11258,6 +11309,15 @@ const server = http.createServer(async (req, res) => {
     } catch { sendJson(res, 500, { error: 'we could not check Muse Code just now' }); }
     return;
   }
+  /* #6004: install Muse Code with Meta's own installer, on a Confirm press (as Kosmos installs every provider's
+     terminal agent); a person is never told to open a Terminal (#996). Concurrent presses share one run. */
+  if (pathname === '/api/muse/install' && req.method === 'POST') {
+    req.resume();
+    require('./engine/museinstall').install()
+      .then((r) => sendJson(res, r.ok ? 200 : 400, r.ok ? r : { ...r, error: r.because }))
+      .catch(() => sendJson(res, 500, { ok: false, error: 'we could not install Muse Code just now' }));
+    return;
+  }
   if (pathname === '/api/muse/signin' || pathname === '/api/muse/signin/retry' || pathname === '/api/muse/signin/stop') {
     const signin = require('./engine/musesignin');
     const sub = pathname.slice('/api/muse/signin'.length);
@@ -12298,7 +12358,8 @@ const server = http.createServer(async (req, res) => {
              `removeAccount` deletes the default `.codex` (whole-dir) and
              `forgetAccount` renames it aside, both AFTER the agents check. What
              both share as PRE-agents refusals is the path guard and the
-             sign-in-in-progress guard. So without this, a request
+             sign-in-in-progress guard (any hold but the account's own Sign in again,
+             which #5994 cancels once the account is gone). So without this, a request
              naming the default account stopped every agent on it, for real, wrote
              each to the removed list, and then answered 400 with a refusal that
              never mentioned the stop. Deterministic, not a race. The default row renders live
@@ -12322,7 +12383,9 @@ const server = http.createServer(async (req, res) => {
              depend on the agents comes BEFORE the agents guard"). Two refusals
              precede the agents guard and are therefore visible here: the path
              guard and the OpenAI sign-in-in-progress guard (#2684 removed the
-             default-account guard; the default is agents-gated like any row now). The IDENTITY refusal ("that is not a
+             default-account guard; the default is agents-gated like any row now). Since #5994 that guard
+             no longer covers the account's own Sign in again, which is cancelled once the account is gone.
+             The IDENTITY refusal ("that is not a
              Claude/OpenAI account on this computer") does NOT, in any of the
              four, and it cannot be hoisted: `engine/accounts.js` states why at
              the guard itself, that `identityOf` answers null for a missing
@@ -13135,6 +13198,7 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
           return;
         }
+        try { observed.forgetAgent(name); } catch { /* #5959: a move keeps the name, not its sighting */ }
         let back;
         try { back = removal.restart(name, 'account'); }
         catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
@@ -14244,6 +14308,62 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #5959 slice 4: the diagnostics file, saved by the person from Settings > Advanced (a download, read on demand, never
+     polled). Board-token only, like every /api read; not an agent-token route, since it carries every agent's lines.
+     ⚠️ That keeps out a caller holding only an agent token, not every agent: an agent whose CLI can read the board token
+     can read this too, as it can every /api read (#4491, open; see the codex-hooks route).
+     engine/diagnostics.js shapes and redacts it. board.log is read only when it is this board's stdout and stderr.
+     `?check=1` is the page's look beside the click (isDownloadCheck), as the agent export's is. */
+  if (pathname === '/api/diagnostics' && req.method === 'GET') {
+    try {
+      /* A click is two requests at once, the download and the page's ?check=1 look: the file one of them made in the
+         last few seconds is the other's too, so the work is done once. */
+      const look = isDownloadCheck(req);
+      // Only the OTHER half of the click reuses it, once: two downloads in a row each get a fresh file.
+      const cached = DIAG_LAST && DIAG_LAST.look !== look && Date.now() - DIAG_LAST.at < DIAG_REUSE_MS ? DIAG_LAST : null;
+      if (cached) {
+        DIAG_LAST = null;
+        // A failure the other half met is this half's answer too, so the page and the download never disagree.
+        if (cached.failed) { refuseDownload(req, res, DIAG_FAILED, 500); return; }
+        if (look) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); } else sendDiagnostics(res, cached.file, cached.now);
+        return;
+      }
+      const diagnostics = require('./engine/diagnostics');
+      const logring = require('./engine/logring');
+      const logPath = path.join(__dirname, '..', 'logs', 'board.log');   // as the stamp above names it
+      // As many lines as the ring holds, so each agent's own lines are searched as far back on Mac and Linux as on Windows.
+      const fileWhy = {};
+      const fileLines = diagnostics.readBoardLog(logPath, [1, 2], diagnostics.SEARCH_LINES, fileWhy);   // stdout and stderr
+      const now = new Date();   // one instant for the file's `made` and its name
+      const file = diagnostics.build({
+        version: updates.RUNNING, platform: process.platform, now,
+        cards: safeRoster(), readReport: (n) => selfreport.read(n), accountProblemOf,
+        ringLines: logring.board.tail(), fileLines, fileSource: fileLines ? logPath : null, fileWhy: fileWhy.why || null,
+        /* The values this board holds are masked by value too: a bare hex token in a line has no shape to find it by.
+           Its own token, the other worlds' tokens it also accepts (KNOWN_WORLD_TOKENS, boardTokenOk), and the live agent
+           tokens. Its other held values (connect tokens, account keys) are masked by secretmask's held set, which the
+           board loads from knownsecrets.collect(). */
+        redactor: require('./engine/diagredact').makeRedactor({ secrets: [boardAuthState.token,
+          ...(KNOWN_WORLD_TOKENS ? [...KNOWN_WORLD_TOKENS.values()].filter(Boolean) : []), ...sendertoken.heldValues()] }),
+      });
+      DIAG_LAST = { at: Date.now(), file, now, look };
+      // Not kept past its few seconds when the other half never comes (curl, or a browser that skips the look).
+      const mine = DIAG_LAST;
+      setTimeout(() => { if (DIAG_LAST === mine) DIAG_LAST = null; }, DIAG_REUSE_MS).unref();
+      // The page's look beside the click (as the other downloads): the same work, no file.
+      if (look) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
+      sendDiagnostics(res, file, now);
+    } catch (err) {
+      console.error('diagnostics: the file could not be made: ' + String((err && err.message) || err));
+      const failed = { at: Date.now(), failed: true, look: isDownloadCheck(req) };
+      DIAG_LAST = failed;
+      setTimeout(() => { if (DIAG_LAST === failed) DIAG_LAST = null; }, DIAG_REUSE_MS).unref();
+      // A refusal the browser does not save as the file (204 to its own download), and the page's look gets the sentence.
+      refuseDownload(req, res, DIAG_FAILED, 500);
+    }
+    return;
+  }
+
   if (pathname === '/api/update/check' && req.method === 'POST') {
     updates.checkNow()
       // offer is the newer()-gated verdict (same gate the toast rides), so
@@ -14657,6 +14777,20 @@ const server = http.createServer(async (req, res) => {
         // remains the fallback for agents with no record.
         if (typeof patch.displayName === 'string' && patch.displayName.trim()) {
           clean.displayName = patch.displayName.trim().slice(0, 80);
+          /* kosmos#5957: a name another agent answers to is refused before anything is written; the agent's own
+             names never clash with it (a change of capitals is a rename to itself). */
+          const agentnames = require('./engine/agentnames');
+          /* Only a CHANGE is checked: a client resending the name it already has (beside a role edit) must not be
+             refused because an older duplicate exists. */
+          let stored = null;   // the name the board shows: the record, else the "You are" line (readIdentity)
+          try { stored = require('./engine/status').readIdentity(name).displayName; } catch { stored = null; }
+          const taken = clean.displayName === stored ? null : agentnames.refusalFor(clean.displayName, { except: name });
+          if (taken) {
+            const body = { error: taken };
+            if (taken !== agentnames.COULD_NOT_CHECK) body.field = 'displayName';
+            sendJson(res, 400, body);
+            return;
+          }
         }
         /**
          * Who this agent reports to (#138, which unblocks the org view #137).
@@ -14752,7 +14886,14 @@ const server = http.createServer(async (req, res) => {
         }
         sendJson(res, 200, { ...written, ...(renamed ? { renamed } : {}), ...(told ? { reports: told } : {}) });
       })
-      .catch((err) => sendJson(res, 400, { error: String(err.message) }));
+      /* #5957: the agent page now shows this route's error, so it must be a sentence, never an errno or a temp path
+         (the instructions route's round-40 rule). Its own refusals above answer with their sentences directly. */
+      .catch((err) => {
+        if (!(err instanceof SyntaxError)) process.stderr.write(`profile save for ${name} failed: ${String((err && err.message) || err)}\n`);   // kept for the log, not the page
+        sendJson(res, 400, { error: err instanceof SyntaxError
+          ? 'we could not read that request; send it as JSON'
+          : 'that did not save; try again in a moment' });
+      });
     return;
   }
 
@@ -15195,6 +15336,16 @@ const server = http.createServer(async (req, res) => {
       });
       if (!sender.ok) { fail(403, sender.because); return; }
       const rep = selfreport.read(sender.card.sessionName);
+      /* #5959: the card as the PERSON sees it (its label is the page's own word, engine/cardlabel), so an agent can
+         check its own card without reading the board; and a waiting state standing over a day is pointed out. */
+      const cardLabel = cardlabel.labelOf(sender.card);
+      /* Aged from when the waiting run began (selfreport's askedAt, #5943: the same state, words and project), so an
+         agent re-reporting the same question does not reset it; the latest line's time when the run's start is not
+         known (a cut tail), which can only make the age shorter. */
+      const atMs = rep && rep.found === true ? Date.parse(rep.askedAt || rep.at || '') : NaN;
+      const ageMs = Number.isFinite(atMs) ? Date.now() - atMs : null;
+      const stale = !!(rep && rep.found === true && selfreport.WAITING_ON_A_PERSON.includes(rep.state)
+        && ageMs !== null && ageMs > selfreport.STALE_WAIT_MS);
       /* A no-report agent is a SUCCESSFUL read of "you have no state yet" -- 200,
          found:false -- never a refusal, so the CLI exits 0 on it. Only auth /
          server-fault paths above are non-2xx. */
@@ -15219,15 +15370,32 @@ const server = http.createServer(async (req, res) => {
           if (rep.until) detail.push('until ' + rep.until);
           line = 'You are currently: ' + rep.state + (detail.length ? ' (' + detail.join(', ') + ')' : '') + '.';
           if (rep.at) line += ' Set ' + rep.at + '.';
-          if (selfreport.WAITING_ON_A_PERSON.includes(rep.state)) {
+          if (stale) {
+            // #5959: a waiting state standing over a day says so in the same sentence, not a second one.
+            // When the question was first made before the latest line, say so, so "Set <time>" above and the age agree.
+            const age = cardlabel.standingFor(ageMs) + (rep.askedAt && rep.askedAt !== rep.at ? ' (first made ' + rep.askedAt + ')' : '');
+            // blocked waits on something that is not the person (a deploy, another agent); needs_you waits on a person.
+            const passed = rep.state === 'blocked' ? 'If it is no longer in your way' : 'If nobody needs to answer it any more';
+            // Who wrote it: the agent ("your own"), Kosmos for it (a permission prompt, a provider error), or someone
+            // else / unknown (an operator, a legacy line), which is said without naming a writer.
+            line += rep.by === 'agent'
+              ? ' Your own `' + rep.state + '` report has been standing for ' + age + '. ' + passed + ', clear it with `kosmos report clear`.'
+              : rep.by === 'auto'
+                ? ' A `' + rep.state + '` report Kosmos wrote for you has been standing for ' + age
+                  + '. If what it was about has passed, clear it with `kosmos report clear`.'
+                : ' This `' + rep.state + '` report has been standing for ' + age + '. ' + passed + ', clear it with `kosmos report clear`.';
+          } else if (selfreport.WAITING_ON_A_PERSON.includes(rep.state)) {
             line += ' This is a waiting-on-a-person state; clear it with a fresh report (e.g. `kosmos report working ...`) once you have been answered.';
           }
         }
+        line = cardlabel.cardLine(cardLabel) + '\n' + line;
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
         res.end(line + '\n');
         return;
       }
-      sendJson(res, 200, { ok: true, report: rep });
+      // #5959: `card` is what the board shows (its raw state and the page's word for it, which can differ: "Question"),
+      // and `stale` says the standing waiting report (whoever wrote it) has stood over a day.
+      sendJson(res, 200, { ok: true, report: rep, card: { state: sender.card.state || null, label: cardLabel }, stale });
     } catch (err) {
       fail(500, String((err && err.message) || 'we could not read your report right now'));
     }
@@ -15442,6 +15610,7 @@ const server = http.createServer(async (req, res) => {
           for (const c of roster || []) for (const n of [c && c.sessionName, c && c.name]) if (typeof n === 'string' && n) agentNames.push(n);
           note = selfreport.blockedOwnerNote(body.state, body.owner, { personName, agentNames });
         } catch { note = ''; }
+        if (body.state === 'needs_you' && body.auto !== true) note = selfreport.NEEDS_YOU_ASK_NOTE;   // #5943: an agent asking, not a hook
         sendJson(res, 200, note ? { recorded: true, note } : { recorded: true });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
@@ -16479,8 +16648,25 @@ const server = http.createServer(async (req, res) => {
        the integration test below pins. */
     /* #3723: and Kosmos's own line while the agent is stopped by its account (out of usage or
        credits, a sign-in that stopped working), derived from the same card, so it clears itself. */
+    /* #5943: a question the agent REPORTED is dated from when it was first asked (selfreport askedAt), so it sits in
+       time instead of under every later message, and the person may clear it from the bubble (clear-selfreport, the
+       same route as the Engineering-mode control). A question only read off the screen has neither. */
+    let questionRow = question;
+    /* Review 1: only when the question SERVED is the reported one. A question read off the screen (a permission
+       menu, a later prompt) wins over the report and is answered on that screen: it stays undated, last, and has no
+       clear button, even while some report stands. */
+    if (question && question === reportedQuestion && card && card.stateReported === true) {
+      let askedAt = null;
+      let permissionWait = false;
+      try {
+        const rep = selfreport.read(card.sessionName);
+        askedAt = rep && rep.found ? rep.askedAt : null;
+        permissionWait = Boolean(rep && rep.found && selfreport.isAutoPermissionWait(rep));   // answered on the screen (review 2)
+      } catch { askedAt = null; }
+      if (!permissionWait) questionRow = { ...question, clearable: true, ...(askedAt ? { at: askedAt } : {}) };
+    }
     const servedMessages = Array.isArray(messages)
-      ? chat.withAccountRow(chat.withQuestionRow(messages, (card && card.sessionName) || name, question),
+      ? chat.withAccountRow(chat.withQuestionRow(messages, (card && card.sessionName) || name, questionRow),
         (card && card.sessionName) || name, accountProblemOf(card))
       : messages;
     /* #3650: the person's reactions on the agent's messages, in the room's pill shape
@@ -16873,7 +17059,28 @@ const server = http.createServer(async (req, res) => {
         /* Not on a numbered menu answer (chat.dmNoteMayRide); the note waits for the next
            ordinary message. */
         const news = chat.dmNoteMayRide(body.text, chose) ? chat.dmReactionNews(name) : { note: '', named: {} };
-        const reactionNote = news.note;
+        /* #5943: a reported question standing while the person writes: the agent is told to decide whether this answers
+           it (clear it, or leave it open and say what it still needs). Rides with the reaction note, under the same rule
+           (never on a numbered menu answer), and never on the automatic hello, which answers nothing. Only a question
+           the agent REPORTED: one read off its screen is answered by this message going into that screen. */
+        /* Review 1: never for a permission wait the hook filed (it is answered on the screen, not cleared), never while
+           a question stands on the screen itself, and ONCE per ask (keyed on when it was asked), recorded only once the
+           message is placed, like the reactions: a person chatting about other things is not asked again and again. */
+        let questionNote = '';
+        let questionAsk = null;
+        if (!automatic && chat.dmNoteMayRide(body.text, chose) && askingCard
+          && askingCard.state === STATE.NEEDS_YOU && askingCard.stateReported === true
+          && typeof askingCard.because === 'string' && askingCard.because !== ASKING_GENERIC
+          && !(seenNow && typeof seenNow.text === 'string' && chat.questionIn(seenNow.text, askingCard.runner))) {
+          let rep = null;
+          try { rep = selfreport.read(askingCard.sessionName); } catch { rep = null; }
+          if (rep && rep.found && rep.state === 'needs_you' && !selfreport.isAutoPermissionWait(rep) && rep.askedAt
+            && !chat.dmQuestionTold(askingCard.sessionName, rep.askedAt)) {
+            questionNote = chat.dmStandingQuestionNote(rep.because || askingCard.because);   // the fresh report's words (review 2)
+            questionAsk = rep.askedAt;
+          }
+        }
+        const reactionNote = news.note + questionNote;
         /* #4256: the quote is Kosmos's framing, so it rides in the ENVELOPE, after the operator's bracket: the
            person's words reach deliver unchanged, so their length budget and the paused-agent command check see
            exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
@@ -16949,7 +17156,7 @@ const server = http.createServer(async (req, res) => {
             const at = new Date().toISOString();
             const signin = !!hold && hold.heldFor === 'signin';   // #5948: no reset to wait for, only a sign-in
             const until = hold && !signin && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
-            const trailer = (attachments.wireNote(files.recs) || '') + reactionNote;
+            const trailer = (attachments.wireNote(files.recs) || '') + news.note;   // #5943 review 1: no question note in a held message: by the reset it may be untrue
             const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');   // two sends in one millisecond stay two
             if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at, signin: signin && !behind })) {
               const heldDelivery = {
@@ -17006,9 +17213,10 @@ const server = http.createServer(async (req, res) => {
            send (a paste that failed part-way, a pane that changed before Enter) is the case
            most likely to have lost it. Telling twice costs one extra note; not telling is
            silent. A failed mark (the thread lock busy) also just tells again next time. */
-        if (reactionNote && delivery && delivery.state === chat.DELIVERY.PLACED) {
+        if (news.note && delivery && delivery.state === chat.DELIVERY.PLACED) {   // #5943: the reactions' own part, not the question note riding with it
           chat.markDmReactionsTold(name, news.named);
         }
+        if (questionAsk && delivery && delivery.state === chat.DELIVERY.PLACED) chat.markDmQuestionTold(askingCard.sessionName, questionAsk);   // #5943: once per ask
         const kept = chat.appendMessage(chat.DIRECT, name, {
           ...attachments.rowFields(files.recs),
           text: chose || body.text,
@@ -17806,7 +18014,20 @@ const server = http.createServer(async (req, res) => {
             try {
               const had = store.readProfile(name);
               if (had && typeof had.displayName === 'string' && had.displayName !== typed) {
-                store.writeProfile(name, { displayName: typed });
+                /* kosmos#5957: a rename into a name another agent answers to keeps the file (the person's text,
+                   already saved) but not the rename, and the reply says so beside "Saved.". Checked only when the
+                   record would change, as the profile route does. */
+                const agentnames = require('./engine/agentnames');
+                const taken = agentnames.refusalFor(typed, { except: name });
+                if (taken) {
+                  /* The file keeps the line (the person's text), and the AGENT reads its file, so say that it will
+                     still call itself by that name until the line changes. */
+                  wrote.nameKept = taken === agentnames.COULD_NOT_CHECK
+                    ? 'The name was not changed, because we could not check the names already in use; try again in a moment.'
+                    : `The name was not changed: ${taken} Its instructions still say ${typed}, so it will call itself that until you change the "You are" line.`;
+                } else {
+                  store.writeProfile(name, { displayName: typed });
+                }
               }
             } catch { /* the save succeeded; the follow is best-effort */ }
           }
@@ -17860,6 +18081,13 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
         const current = selfreport.read(name);
         const waiting = current.found === true && selfreport.WAITING_ON_A_PERSON.includes(current.state);
+        /* #5943 review 3: the DM's "Answered, clear this" names the ask it was drawn for. A different question standing
+           now (reported since the page last painted) is NOT cleared: the person never saw it. Without askedAt (the
+           Engineering-mode control) nothing changes. */
+        if (waiting && typeof body.askedAt === 'string' && body.askedAt && current.askedAt && current.askedAt !== body.askedAt) {
+          sendJson(res, 200, { ok: true, cleared: false, stale: true, state: current.state });
+          return;
+        }
         if (!waiting) {
           /* Idempotent: nothing sticky to clear (never reported, already idle,
              or working). Not an error -- a second click, or a race with the
@@ -18160,6 +18388,7 @@ const server = http.createServer(async (req, res) => {
                         roster read and one commitments reading per agent for
                         the whole request
          waitingOnPerson tasks.waitingOnPerson: its agent needs the person about it (#3949)
+         waitingSince    tasks.waitingSinceOf: since when, the oldest known start among those agents (#5942)
          state          tasks.taskState: closed / decision / held / built / scheduled / nobody / working / assigned
          projectPaused  its project is paused (#4771; with the task's own onHold, the held state, except that a
                         built task in a paused project reads built, #5864)
@@ -18205,10 +18434,14 @@ const server = http.createServer(async (req, res) => {
       /* #3949: Needs Your Decision, from the same roster read (the engine's rule, tasks.waitingOnPerson). */
       /* #5034: with the project's members, so a holder taken off the project does not keep its card red. */
       /* kosmos#4787 slice 3: a repeating task the PERSON reviews waits on them while a run is missed (they asked to be told). */
-      const waitingOnPerson = tasks.waitingOnPerson(t, roster, membersOf.get(t.projectId)) || missedtell.personReviewMissed(t);
+      const runMissed = missedtell.personReviewMissed(t);   // read once: both lines below must agree
+      const waitingOnPerson = tasks.waitingOnPerson(t, roster, membersOf.get(t.projectId)) || runMissed;
       return Object.assign({}, t, {
         claim,
         waitingOnPerson,
+        /* kosmos#5942: since when an agent holding it has needed the person, from the same cards. Null when no card
+           knows, and whenever a missed repeating run is waiting too: that wait has no start, so any age could be short. */
+        waitingSince: waitingOnPerson && !runMissed ? tasks.waitingSinceOf(t, roster, membersOf.get(t.projectId)) : null,
         state: tasks.taskState(Object.assign({}, t, { claim, waitingOnPerson })),
         lastActivityAt: tasks.lastActivityOf(t.projectId, t),
         /* kosmos#4787: a repeating task's rule in words and its next run (this board's local time), worked out here so
@@ -18494,9 +18727,7 @@ const server = http.createServer(async (req, res) => {
         if (federationLinked) fedseats.ensure(made.id).catch(() => {});
         let project = null;
         try { project = projects.get(made.id, roster); } catch { project = null; }
-        // #4583: made with two coordinators already on it: the same warning as adding the second one.
-        const coordinators = project ? projects.coordinatorWarning(project, null) : null;
-        sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked, ...(coordinators ? { coordinators } : {}) });
+        sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked });
       })
       .catch((err) => sendJson(res, (err && err.code === 'UNREADABLE') ? 500 : 400,
         { error: String((err && err.message) || 'we could not read that request'), ...(err && err.code === 'FOLDER_TAKEN' ? { code: 'folder_taken' } : {}) }));
@@ -21029,9 +21260,7 @@ const server = http.createServer(async (req, res) => {
     if (moved && project) {
       said = await projects.speakOfMembershipAsync(name, project, req.method === 'POST' ? 'joined' : 'left', roster);
     }
-    // #4583: a second coordinator joining is warned about, never refused.
-    const coordinators = (req.method === 'POST' && moved && project) ? projects.coordinatorWarning(project, name) : null;
-    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null, ...(coordinators ? { coordinators } : {}), ...(leftBehind ? { leftBehind } : {}) });
+    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null, ...(leftBehind ? { leftBehind } : {}) });
     return;
   }
 
@@ -21951,11 +22180,41 @@ function agentEventsTick() {
     }).catch(() => { /* best effort */ }).finally(() => { AGENT_EVENTS_RUNNING = false; });
   } catch { AGENT_EVENTS_RUNNING = false; }
 }
+/**
+ * kosmos#5957: every agent's handle and display name, for engine/agentnames.js (wired in start()).
+ * The running agents of ours from status.paneRoster (ONE pane listing, no captures and none of snapshot()'s side
+ * effects; a name check only reads), plus the agents Kosmos made that are not running: on a Mac or Linux the created
+ * list (status.createdKeysStrict), on Windows the session record (engine/win32sessions.js, which has a row once a
+ * session has started; an agent whose first launch never started is not in it). Each is named by status.readIdentity,
+ * as the board names it. Removed agents are left out (the created list keeps them for Restore, and a person cannot
+ * rename an agent the board does not show); create's removed-list refusal still covers a removed agent's handle.
+ * THROWS when the pane listing or the stopped-agent list cannot be read, so a create or rename refuses rather than
+ * passing a name nobody could check. A tmux with no server is an empty listing, not a failure.
+ * `platform` is a parameter so a test can read the Windows arm on any computer.
+ */
+function nameCheckFleet(platform = process.platform) {
+  const status = require('./engine/status');
+  const gone = new Set(removal.removedAgents().map((r) => r && r.name));
+  const running = status.paneRoster().filter((p) => p && p.isNamedOurs === true && p.sessionName).map((p) => p.sessionName);
+  const stopped = platform === 'win32'
+    ? Object.values(require('./engine/win32sessions').readStrict()).map((r) => r && r.name).filter((n) => typeof n === 'string' && n)
+    : status.createdKeysStrict();
+  const named = new Map();
+  for (const key of [...running, ...stopped]) {
+    if (named.has(key) || gone.has(key)) continue;
+    let shown = key;
+    try { shown = status.readIdentity(key).displayName || key; } catch { /* the handle still counts */ }
+    named.set(key, shown);
+  }
+  return [...named].map(([handle, shown]) => ({ handle, shown }));
+}
+
 function start(port = PORT) {
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
   try { filepreview.sweep(); } catch { /* best effort */ }
   setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
+  require('./engine/agentnames').setFleetSource(() => nameCheckFleet());   // #5957: one display name per agent
   /* #5535 E0.6 slice (d): the company backup tick, hourly and only while orgenroll.mayReport (enrolled here AND the
      company's words accepted here). The first run is an hour after start, never at boot. Kosmos+ answers backup_off
      while company backup is off, and the tick then asks again a day later (engine/backuptick.js). Best effort: never a
@@ -23409,6 +23668,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
   knowWorld, // #5247: a world this board made counts at its gate, for its test

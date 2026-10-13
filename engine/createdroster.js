@@ -76,7 +76,8 @@ const fs = require('node:fs');
  * @returns {(excludeKeys?: Set<string>, callOpts?: {includeRemoved?: boolean}) => string[]} a source: the
  *   safeKey'd names of Kosmos-created agents (running or not; the board passes the live keys to exclude, which is
  *   why its rows are the never-run ones) NOT already in `excludeKeys`. Never throws; returns [] on any read failure
- *   or in an inconsistent sandbox. `callOpts.includeRemoved` (#4845) also lists agents on the removed list, whose
+ *   or in an inconsistent sandbox, unless `callOpts.strict` (#5957): then a job folder that is there and cannot be
+ *   read throws. `callOpts.includeRemoved` (#4845) also lists agents on the removed list, whose
  *   plist and folder are kept so Restore can bring them back; the removed list is then not read at all.
  */
 function make(opts) {
@@ -92,6 +93,11 @@ function make(opts) {
   const linuxjob = o.linuxjob || (platform === 'linux' ? require('./linuxjob') : null);
   return function createdRoster(excludeKeys, callOpts) {
     const includeRemoved = !!(callOpts && callOpts.includeRemoved);
+    /* kosmos#5957: `strict` makes a job folder that is there but cannot be read THROW instead of listing nothing, so
+       the name check (status.createdKeysStrict) refuses rather than reading every stopped agent's name as free. A
+       folder that does not exist is still an empty list. Only that caller asks; every other caller is unchanged. */
+    const strict = !!(callOpts && callOpts.strict);
+    const unreadable = (e) => { if (strict && !(e && e.code === 'ENOENT')) throw e; return []; };
     // A failed look must refuse honestly, exactly like the discover sources. Every
     // external read here is wrapped so the "never throws -> []" contract in the
     // docblock is TRUE for any caller, not merely because today's sole caller
@@ -118,10 +124,10 @@ function make(opts) {
     let jobs;
     if (platform === 'linux') {
       // A unit folder that cannot be read lists nothing (fail closed), as an unreadable LaunchAgents folder does.
-      try { jobs = linuxjob.listUnits(); } catch { return []; }
+      try { jobs = linuxjob.listUnits(); } catch (e) { return unreadable(e); }
     } else {
       let files;
-      try { files = fsMod.readdirSync(create.AGENTS_DIR); } catch { return []; }
+      try { files = fsMod.readdirSync(create.AGENTS_DIR); } catch (e) { return unreadable(e); }
       const SUFFIX = '.plist';
       /* #1704: attribute each plist to a Kosmos by its label. The prefix match is world-independent
          (create.SERVICE_LABEL_PREFIX), because serviceLabel('') is not any more. */

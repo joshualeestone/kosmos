@@ -105,12 +105,16 @@ const MEMBER = 'taskmate';
     /* #4896: the member's role as stored is lower case ("project manager", as a role parsed out of an agent's own
        instructions is), so the New task picker must say it as the menu does. Set on the project list GET only;
        the server's own /api/roles supplies the titles. */
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await p.route('**/api/projects', async (route) => {
-      if (route.request().method() !== 'GET') return route.continue();
-      const res = await route.fetch();
-      let j; try { j = await res.json(); } catch { return route.fulfill({ response: res }); }
-      for (const pr of (j && j.projects) || []) for (const a of pr.agents || []) if (a && a.sessionName === MEMBER) a.role = 'project manager';
-      return route.fulfill({ response: res, json: j });
+      try {
+        if (route.request().method() !== 'GET') return await route.continue();
+        const res = await route.fetch();
+        let j; try { j = await res.json(); } catch { return await route.fulfill({ response: res }); }
+        for (const pr of (j && j.projects) || []) for (const a of pr.agents || []) if (a && a.sessionName === MEMBER) a.role = 'project manager';
+        return await route.fulfill({ response: res, json: j });
+      } catch { await route.abort().catch(() => {}); }
     });
     // Into the project.
     await p.click('[data-tab="projects"]');
@@ -147,7 +151,10 @@ const MEMBER = 'taskmate';
     /* #766: New task is a dialog over the project page again. */
     await p.waitForSelector('#nt-modal', { state: 'visible' });
     if (!(await p.isVisible('#pj-one-view'))) die('the project view left the screen under the new-task dialog');
-    const hint = await p.evaluate(() => { const h = document.querySelector('#nt-modal .fhint'); return h.getBoundingClientRect().height > 0 ? h.innerText.trim() : ''; });
+    /* kosmos#5956: the dialog has two hints now; this one is Who is on it's, so it is found next to that field. */
+    const hint = await p.evaluate(() => { const h = document.querySelector('#nt-who ~ .fhint'); return h && h.getBoundingClientRect().height > 0 ? h.innerText.trim() : ''; });
+    const doneHint = await p.evaluate(() => { const h = document.getElementById('nt-done-hint'); return h && h.getBoundingClientRect().height > 0 ? h.innerText.trim() : ''; });
+    if (doneHint !== 'Needed to create the task. The agent checks its work against this.') die('#5956: the done-when hint is not shown: ' + JSON.stringify(doneHint));
     // #4896: the role in the menu's words. Precondition (review 2): the page's own project list holds the role in
     // lower case, as the route set it, so a pass below is the picker's doing and not a role that arrived capitalised.
     const stored = await p.evaluate((m) => { for (const pr of PROJECTS) for (const a of pr.agents || []) if (a && a.sessionName === m) return a.role; return null; }, MEMBER);
@@ -158,6 +165,22 @@ const MEMBER = 'taskmate';
     if (hint !== 'You can give it to somebody later.') die('the default-to-nobody hint drifted: ' + hint);
     if (!(await p.locator('#nt-go').isDisabled())) die('Create task is live with no sentence');
     await p.screenshot({ path: path.join(OUT, 'tasks-new-page.png') });
+
+    /* kosmos#5956: New task grew a field. On a short phone window its box scrolls inside the backdrop, so the top
+       stays on screen and Create can be reached; then the window goes back to the size this check runs at. */
+    const wasSize = p.viewportSize();
+    await p.setViewportSize({ width: 375, height: 560 });
+    const fit = await p.evaluate(() => {
+      const box = document.querySelector('#nt-modal .rm-box');
+      const r = box.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, vh: window.innerHeight, scrolls: box.scrollHeight > box.clientHeight + 1 };
+    });
+    if (fit.top < 0 || fit.bottom > fit.vh + 1) die('#5956: New task runs off a 375x560 window: ' + JSON.stringify(fit));
+    if (!fit.scrolls) die('#5956 precondition: at 375x560 New task should need to scroll, or this arm proves nothing: ' + JSON.stringify(fit));
+    await p.locator('#nt-go').scrollIntoViewIfNeeded();
+    const goIn = await p.evaluate(() => { const r = document.getElementById('nt-go').getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight; });
+    if (!goIn) die('#5956: Create task cannot be scrolled into view on a 375x560 window');
+    await p.setViewportSize(wasSize);
 
     // A page does not trap and does not dismiss: Escape leaves it standing,
     // and typed words survive Back to the same project.
@@ -179,6 +202,10 @@ const MEMBER = 'taskmate';
 
     // Create one task given to the member, one given to nobody.
     await p.fill('#nt-what', 'Rewrite the handoff checklist');
+    /* kosmos#5956: Create stays down until how you will know it is done is filled too, in a real browser. */
+    if (!(await p.locator('#nt-go').isDisabled())) die('#5956: Create task is live with no done-when');
+    await p.fill('#nt-done', 'It fits on one page');
+    if (await p.locator('#nt-go').isDisabled()) die('#5956: Create task stayed down with both filled');
     await p.fill('#nt-detail', 'The old one mentions the removed billing screen.');
     await p.selectOption('#nt-who', MEMBER);
     await p.click('#nt-go');
@@ -190,6 +217,7 @@ const MEMBER = 'taskmate';
     const who2 = await p.inputValue('#nt-who');
     if (who2 !== '') die('a clean open resurrected the previous assignee: "' + who2 + '"');
     await p.fill('#nt-what', 'Check it against the live flow');
+    await p.fill('#nt-done', 'Every step matches');   // kosmos#5956
     await p.click('#nt-go');
     await p.waitForSelector('.tkcard >> nth=1', { timeout: 10000 });
 

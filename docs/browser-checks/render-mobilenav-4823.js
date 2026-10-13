@@ -164,11 +164,15 @@ const teardownFails = [];
       live.set(ctx, page);
       page.on('pageerror', (e) => errs.push(engine + ' ' + theme + ': ' + e.message));
       // A known context reading and an unread message, so the ring and the bubbles have something to show.
+      /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+         (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
       await page.route('**/api/status*', async (r) => {
-        const res = await r.fetch({ url: r.request().url().replace(/^http:\/\/remote\.test/, 'http://127.0.0.1') }); let j;
-        try { j = await res.json(); } catch { return r.fulfill({ response: res }); }
-        (j.agents || []).forEach((a, i) => { a.context = Object.assign({}, a.context || {}, { percent: 40 + i * 20 }); a.dmUnread = i === 0 ? 3 : 0; });
-        return r.fulfill({ response: res, json: j });
+        try {
+          const res = await r.fetch({ url: r.request().url().replace(/^http:\/\/remote\.test/, 'http://127.0.0.1') }); let j;
+          try { j = await res.json(); } catch { return await r.fulfill({ response: res }); }
+          (j.agents || []).forEach((a, i) => { a.context = Object.assign({}, a.context || {}, { percent: 40 + i * 20 }); a.dmUnread = i === 0 ? 3 : 0; });
+          return await r.fulfill({ response: res, json: j });
+        } catch { await r.abort().catch(() => {}); }
       });
       await page.route('**/api/remote/computers*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TWO) }));
       await page.route('**/_kosmos/logout', (r) => r.fulfill({ status: 404, body: '' }));
@@ -271,7 +275,14 @@ const teardownFails = [];
         // Switch Computers, a third level. Its read is slowed here, so the arm can see the level BEFORE the answer: an
         // earlier read's "Online" link must not be offered while a fresh one is on its way (review round 5).
         await page.unroute('**/api/remote/computers*');
-        await page.route('**/api/remote/computers*', async (r) => { await new Promise((res) => setTimeout(res, 1500)); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TWO) }); });
+        /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+           its late rejection is caught instead of crashing the check after it passed. */
+        await page.route('**/api/remote/computers*', async (r) => {
+          try {
+            await new Promise((res) => setTimeout(res, 1500));
+            return await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TWO) });
+          } catch { await r.abort().catch(() => {}); }
+        });
         const stale = await page.evaluate(() => document.querySelectorAll('#worldsw-computers-list a').length);
         chk(stale > 0, T + 'C0 precondition: an earlier read left an Online link that the fresh read must clear', String(stale));
         await page.click('#pnav-computers');

@@ -692,11 +692,10 @@ test('#2570: stopped plus PARTIAL does not tell you to go and stop the partial y
    it, so a stopAgents request against an account with a sign-in in flight
    stopped every agent and only then refused.
 
-   ⚠️ ASSERTED ON THE SOURCE, and the reason is worth stating rather than hiding:
-   reserving a reauth dir means driving `startChatgptLogin`, which launches a real
-   sign-in. A behavioural arm is the better test and is not worth a live login in
-   this suite, so this pins the ORDER instead and says so. It goes red if anybody
-   moves either guard back. */
+   ⚠️ ASSERTED ON THE SOURCE. Since #5994 the account's OWN reauth is no longer such a
+   refusal, and the last test in this file drives one through this route with a mock
+   codex. This pin stays for every other hold, which still refuses ahead of the agents
+   guard. It goes red if anybody moves either guard back. */
 test('#2570: every OpenAI refusal that ignores the agents runs BEFORE the agents guard', () => {
   const src = fs.readFileSync(nodePath.join(__dirname, 'engine', 'openaiaccounts.js'), 'utf8');
   for (const fn of ['function forgetAccount(dir, usedBy) {', 'function removeAccount(dir, usedBy) {']) {
@@ -707,7 +706,7 @@ test('#2570: every OpenAI refusal that ignores the agents runs BEFORE the agents
     const agents = body.indexOf('const agents = (Array.isArray(usedBy)');
     assert.ok(reauth > 0 && agents > 0, `${fn}: could not find both guards, so this pin proves nothing`);
     assert.ok(reauth < agents,
-      `${fn}: the sign-in-in-progress refusal sits AFTER the agents guard, so #2570's `
+      `${fn}: the sign-in-in-progress refusal (any hold but the account's own reauth, #5994) sits AFTER the agents guard, so #2570's `
       + 'pre-flight cannot see it and will stop every agent on the account before learning '
       + 'the operation was refused');
   }
@@ -883,4 +882,97 @@ test('#2570 CONTROL: the OpenAI route with no flag still refuses and names the a
   assert.ok(!('notStopped' in r.json), 'the stop loop ran on the OpenAI route without being asked');
   assert.deepEqual(calls, [], 'the runner was called, so something tried to stop an agent unasked');
   assert.ok(fs.existsSync(dir));
+});
+
+/* #5994 end to end through this route: an account whose own "Sign in again" was left unfinished. Without stopAgents the
+   request is refused and cancels nothing; with stopAgents the agent is stopped, the account is deleted, and the abandoned
+   sign-in is cancelled rather than refusing the delete after the agent was already stopped. */
+test('#5994: disconnect-and-stop on an account with its own unfinished Sign in again stops, deletes and cancels', async () => {
+  installRunner();
+  const openai = require('./engine/openaiaccounts');
+  const slotsBefore = new Set(fs.readdirSync(HOME).filter((n) => /^\.codex-work/.test(n)));
+  const ourSlots = () => fs.readdirSync(HOME).filter((n) => /^\.codex-work/.test(n) && !slotsBefore.has(n));
+  const dir = nodePath.join(HOME, '.codex-reauth5994');
+  fs.mkdirSync(dir, { recursive: true });
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const idToken = `${b64({ alg: 'none' })}.${b64({ email: 'r5994@example.com' })}.`;
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: idToken } }));
+  const mock = nodePath.join(SANDBOX, 'codex-reauth-5994.sh');
+  fs.writeFileSync(mock, '#!/bin/bash\necho "Sign in at https://auth.openai.com/device and enter code WXYZ-1234"\nexec sleep 30\n');
+  fs.chmodSync(mock, 0o755);
+  const started = openai.startChatgptLogin({ codexBin: mock, mode: 'browser', reauthDir: dir });
+  assert.equal(started.ok, true, started.because);
+  try {   // from here on, any failure still cancels the sign-in below
+    const t0 = Date.now();   // the sign-in is under way (its URL printed) before the first request
+    while (Date.now() - t0 < 4000 && openai.chatgptLoginStatus(started.sessionId).state === 'starting') await new Promise((res) => setTimeout(res, 25));
+    assert.equal(openai.chatgptLoginStatus(started.sessionId).state, 'awaiting-browser');
+    registeredNotRunning('reauth5994', dir, 'codex');
+    // CONTROL, without stopAgents: refused, names the agent, and the sign-in is NOT cancelled. (That the #2570
+    // pre-flight inside the next request cancels nothing is pinned at engine level, where it is observable.)
+    const refused = await del('openai', { dir, remove: true });
+    assert.equal(refused.code, 400, JSON.stringify(refused.json));
+    assert.match(String(refused.json.error), /reauth5994 is set up to run on this account/);
+    assert.notEqual(openai.chatgptLoginStatus(started.sessionId).state, 'cancelled', 'a refused call cancelled the sign-in');
+    assert.ok(fs.existsSync(dir));
+    // The real call.
+    const r = await del('openai', { dir, stopAgents: true, remove: true });
+    assert.equal(r.code, 200, 'the abandoned sign-in still blocked the delete. body: ' + JSON.stringify(r.json));
+    assert.deepEqual(r.json.stopped, ['reauth5994']);
+    assert.ok(!fs.existsSync(dir), 'the account was not deleted');
+    assert.equal(openai.chatgptLoginStatus(started.sessionId).state, 'cancelled');
+  } finally {
+    openai.cancelChatgptLogin(started.sessionId);
+  }
+  // let the killed child exit so nothing outlives this test
+  const end = Date.now() + 4000;
+  while (Date.now() < end && ourSlots().length) await new Promise((res) => setTimeout(res, 25));
+  assert.deepEqual(ourSlots(), [], 'the cancelled sign-in never exited');
+});
+
+/* #6000 end to end through the Grok route (the #5994 shape; this route has no stopAgents): an account whose own "Sign
+   in again" was left unfinished. With an agent on the account the request is refused and cancels nothing; once the agent
+   is gone the delete goes ahead and the abandoned sign-in is cancelled instead of refusing the delete. */
+test('#6000: the Grok route deletes an account with its own unfinished Sign in again and cancels it; refused with an agent on it', async () => {
+  installRunner();   // a clean pane list and runner, as every arm here (one undiagnosable agent anywhere fails closed)
+  const grok = require('./engine/grokaccounts');
+  const slotsBefore = new Set(fs.readdirSync(HOME).filter((n) => /^\.grok-work/.test(n)));
+  const ourSlots = () => fs.readdirSync(HOME).filter((n) => /^\.grok-work/.test(n) && !slotsBefore.has(n));
+  const dir = nodePath.join(HOME, '.grok-reauth6000');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::u1': { email: 'r6000@example.com', refresh_token: 'OLD' } }));
+  const mock = nodePath.join(SANDBOX, 'grok-reauth-6000.sh');
+  fs.writeFileSync(mock, '#!/bin/bash\nprintf "\\n  https://accounts.x.ai/oauth2/device?user_code=QWER-TYUI\\n\\n  QWER-TYUI\\n\\n"\nexec sleep 30\n');
+  fs.chmodSync(mock, 0o755);
+  const started = grok.startGrokLogin({ grokBin: mock, reauthDir: dir });
+  assert.equal(started.ok, true, started.because);
+  try {   // from here, so a setup failure still cancels the sign-in and removes the agent (as #5994's route test)
+    const t0 = Date.now();   // the sign-in is under way (its code printed) before the first request
+    while (Date.now() - t0 < 4000 && !grok.grokLoginStatus(started.sessionId).userCode) await new Promise((res) => setTimeout(res, 25));
+    assert.ok(grok.grokLoginStatus(started.sessionId).userCode, 'the mock sign-in never printed its code');
+    registeredNotRunning('reauth6000', dir, 'grok');
+    // CONTROL: an agent on the account, so the request is refused, names it, and the sign-in is NOT cancelled.
+    const refused = await del('grok', { dir, remove: true });
+    assert.equal(refused.code, 400, JSON.stringify(refused.json));
+    assert.match(String(refused.json.error), /reauth6000 is set up to run on this account/);
+    assert.notEqual(grok.grokLoginStatus(started.sessionId).state, 'cancelled', 'a refused call cancelled the sign-in');
+    assert.ok(fs.existsSync(dir));
+    // The agent is removed (its job and profile gone); now the delete goes ahead and cancels the abandoned sign-in.
+    fs.rmSync(jobfix.jobPath('reauth6000'), { force: true });
+    fs.rmSync(nodePath.join(DATA, store.APP, 'profiles', 'reauth6000.json'), { force: true });
+    fs.rmSync(nodePath.join(WORKERS, 'reauth6000'), { recursive: true, force: true });
+    const r = await del('grok', { dir, remove: true });
+    assert.equal(r.code, 200, 'the abandoned sign-in still blocked the delete. body: ' + JSON.stringify(r.json));
+    assert.ok(!fs.existsSync(dir), 'the account was not deleted');
+    assert.equal(grok.grokLoginStatus(started.sessionId).state, 'cancelled');
+    assert.deepEqual(calls, [], 'the runner was called: this route has no stopAgents, so nothing may stop an agent');
+  } finally {
+    grok.cancelGrokLogin(started.sessionId);
+    fs.rmSync(jobfix.jobPath('reauth6000'), { force: true });
+    fs.rmSync(nodePath.join(DATA, store.APP, 'profiles', 'reauth6000.json'), { force: true });
+    fs.rmSync(nodePath.join(WORKERS, 'reauth6000'), { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  const end = Date.now() + 4000;   // let the killed child exit so nothing outlives this test
+  while (Date.now() < end && ourSlots().length) await new Promise((res) => setTimeout(res, 25));
+  assert.deepEqual(ourSlots(), [], 'the cancelled sign-in never exited');
 });
