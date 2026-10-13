@@ -64,3 +64,12 @@ runs `kosmos report show`; this says it without being asked. Stacked on slice 1 
   exact-day boundary, controls (under a day, the card not showing it, set aside by reconcile, working, paused, not
   ours), retries and give-up, unconfirmed, holds, the gate, the server wiring. Mutations checked red: card shows it,
   once, paused, the day, needs_you (the card filter; the report filter is also backed by the state match), Claude-only, prune, record-log, mid-turn, the persisted record, unconfirmed, held-once.
+
+## After slice 1 merged (2026-10-13 04:4x CDT)
+Rebased onto main with `--onto` (slice 1 landed as #6035, so this branch's own commits moved and slice 1's old ones
+dropped). Slice 1 now ages a waiting report from when its run began (selfreport's askedAt, #5943), not the latest line,
+so this reminder does the same: `runOf(rep)` (askedAt, else at) is both the age and the key "already reminded" is
+recorded against. That keeps the promise that report show and the reminder agree on which report is stale, and a
+question re-reported every few hours is reminded once, not after every re-report. Test: a re-reported question is
+aged from its first line and reminded once; CONTROL: with no askedAt an hour is not a day; mutation: the latest line
+alone reds it.
