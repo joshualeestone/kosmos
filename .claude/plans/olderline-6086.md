@@ -141,3 +141,10 @@ that check claims. It is about the box filling its height, which this change's n
 real question and not only a word in a line. NOT RUN when the PR was opened (waiting behind a suite here); CI's
 browser run measures it, and its trailer is added only after it has passed. Until then the PR's `test` workflow is
 red on that gate, on purpose.
+
+## Run at the final code head (2026-10-13, 15:59 and 16:00 CDT, at c847bc9eb), in a real browser
+- This branch's own check, with review 3's change in it: exit 0, 43 arms passed, 0 failed. The failure still stands
+  when the reader scrolls to the newest message, and neither it nor the thread moved with the scroll.
+- `render-talk-fill-2622.js` (the conversation box filling its height, which the new wrapper sits inside): exit 0,
+  59 arms passed, 0 failed. Its trailer is on an empty commit after this one.
+So nothing under "NOT run at the final head" above is outstanding: both items have now run.
