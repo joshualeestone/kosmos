@@ -125,8 +125,22 @@ test('#5154-B: clearAll wipes every record (the boot reset)', () => {
 
 test('#5154-B: peek is read-only (never writes)', () => {
   const k = freshKey('peekonly');
-  assert.deepEqual(ob.peek(k, 999).items, [], 'absent record: nothing raised');
+  assert.deepEqual(ob.peek(k, 'idle', 999).items, [], 'absent record: nothing raised');
   assert.equal(fs.existsSync(ob.fileFor(k)), false, 'peek on an absent key writes nothing');
+});
+
+test('#5154-B: peek moots an idle-only give-up the instant the agent is no longer idle (state-aware read)', () => {
+  const k = freshKey('peekmoot'); const t0 = 5_000_000; const at = t0 + GRACE;
+  ob.note(k, 'nudge', 'gave up nudging', t0);
+  ob.note(k, 'quota', 'gave up resuming', t0);
+  // idle: both the nudge (idle-only) and the quota (not idle-only) give-ups are raised.
+  assert.deepEqual(ob.peek(k, 'idle', at).items.map((it) => it.cls).sort(), ['nudge', 'quota']);
+  // working: the nudge give-up is MOOT and drops out at once; the quota give-up (not idle-gated) stays.
+  assert.deepEqual(ob.peek(k, 'working', at).items.map((it) => it.cls), ['quota'], 'idle-only mooted, quota kept');
+  // no state supplied (the sweep path): nothing is mooted, so the sweep still sees the nudge item to clear it.
+  assert.deepEqual(ob.assess(ob.readRec(k), at).items.map((it) => it.cls).sort(), ['nudge', 'quota'], 'sweep path sees all');
+  // peek never writes: the on-disk record still has both classes after the mooting read.
+  assert.deepEqual(Object.keys(ob.readRec(k)).sort(), ['nudge', 'quota'], 'peek did not prune disk');
 });
 
 // ---- tellBounds: one push per episode, precedence, recover-and-retell, prune ----

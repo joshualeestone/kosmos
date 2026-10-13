@@ -41,15 +41,17 @@ const { chromium } = require('playwright');
       const notRaised = base({ sessionName: 'c', name: 'Sam', state: 'idle', isNamedOurs: true, ownBound: { raised: false, items: [], stale: [] } });
       // CONTROL: a healthy agent with no ownBound field value at all.
       const healthy = base({ sessionName: 'h', name: 'Ada', state: 'working', isNamedOurs: true, ownBound: null });
-      // CONTROL: a raised nudge on a NON-idle agent is moot -- the card must NOT carry the nudge sentence
-      // (the board's render only speaks items[0], but a nudge give-up on a working agent should not have
-      // survived the server's mootness clear; this pins that the render itself does not invent one).
-      const mootNudge = raised('nudge', 15, { sessionName: 'm', name: 'Nyx', state: 'working' });
+      // PRECEDENCE: an agent with BOTH a raised give-up AND its own reported question. The card must show the
+      // agent's OWN question (stateReason's own-question arm), NOT the give-up sentence -- a Kosmos give-up must
+      // never mask the person's actual question. (Server-side the push/pill honour this too; this pins the card.)
+      const ownQuestion = base({ sessionName: 'o', name: 'Zed', state: 'needs_you', stateReported: true,
+        because: 'Which launch date should I use, the 14th or the 21st?', isNamedOurs: true,
+        ownBound: { raised: true, items: [{ cls: 'quota', sinceAt: now - 20 * 60000, forMs: 20 * 60000, evidence: 'gave up after 3 tries that reached nothing' }], stale: [] } });
       const cardHtml = {};
-      try { for (const a of [quota, nudge, first, notRaised, healthy, mootNudge]) cardHtml[a.sessionName] = card(a); }
+      try { for (const a of [quota, nudge, first, notRaised, healthy, ownQuestion]) cardHtml[a.sessionName] = card(a); }
       catch (e) { return { error: 'card() threw: ' + e.message }; }
       return {
-        quotaText: cardHtml.q, nudgeText: cardHtml.n, firstText: cardHtml.f, notRaisedText: cardHtml.c, mootText: cardHtml.m,
+        quotaText: cardHtml.q, nudgeText: cardHtml.n, firstText: cardHtml.f, notRaisedText: cardHtml.c, ownQuestionText: cardHtml.o,
         attnQuota: agentNeedsAttention(quota), attnNudge: agentNeedsAttention(nudge), attnFirst: agentNeedsAttention(first),
         attnNotRaised: agentNeedsAttention(notRaised), attnHealthy: agentNeedsAttention(healthy),
       };
@@ -60,6 +62,10 @@ const { chromium } = require('playwright');
       say(/nudged this idle agent to pick up its open task/i.test(out.nudgeText) && /15\s+minutes/.test(out.nudgeText), 'a raised nudge give-up names the idle nudge and the minutes');
       say(/reminded this agent to answer its first message/i.test(out.firstText) && /10\s+minutes/.test(out.firstText), 'a raised first-reply give-up names the reminder and the minutes');
       say(!/gave up/i.test(out.notRaisedText) && !/quota reset/i.test(out.notRaisedText), 'a NOT-raised ownBound shows no give-up sentence (CONTROL)');
+      // PRECEDENCE assertion (arms what the old unasserted mootNudge fixture never checked): the card shows the
+      // agent's own question and NOT the give-up sentence, so a give-up cannot mask the person's actual question.
+      say(/launch date should I use/i.test(out.ownQuestionText), 'an agent with its OWN question shows that question on the card');
+      say(!/get this agent going again after its quota reset/i.test(out.ownQuestionText), 'and the give-up sentence does NOT mask it (precedence)');
       say(out.attnQuota === true, 'a raised quota give-up counts as an Issue (agentNeedsAttention)');
       say(out.attnNudge === true, 'a raised nudge give-up counts as an Issue');
       say(out.attnFirst === true, 'a raised first-reply give-up counts as an Issue');

@@ -2513,7 +2513,7 @@ function safeRoster() {
         ? Object.assign({}, withReconnect, {
             crashLoop: crashloop.read(a.sessionName),
             stuckError: stuckterminal.peek(a.sessionName, a.state, Date.now()),   // peek returns not-stuck unless the anchor matches the CURRENT state
-            ownBound: ownbounds.peek(a.sessionName, Date.now()),                  // #5154 slice B: a Kosmos helper gave up on this agent (READ-ONLY; the 60s sweep is the only writer)
+            ownBound: ownbounds.peek(a.sessionName, a.state, Date.now()),         // #5154 slice B: a Kosmos helper gave up on this agent (READ-ONLY; state moots an idle-only give-up at once; the 60s sweep is the only writer)
           })
         : withReconnect;
     });
@@ -5768,7 +5768,7 @@ const server = http.createServer(async (req, res) => {
         /* #5154 slice B: whether a Kosmos helper (quota resume / idle nudge / first-reply nudge) has given up
            on this agent and said so only in a log. READ-ONLY (ownbounds.peek); the 60s sweep is the only writer,
            so the board cannot advance or clear an episode by polling. Only for an agent we started. */
-        ownBound: a.isNamedOurs ? ownbounds.peek(a.sessionName, Date.now()) : null,
+        ownBound: a.isNamedOurs ? ownbounds.peek(a.sessionName, a.state, Date.now()) : null,
         // The name only. `plannedModelArg` returns null for "we do not know",
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
