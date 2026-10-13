@@ -341,7 +341,7 @@
     },
     {
       "title": "Subprojects are named with their project",
-      "line": "Lists and pickers name a subproject with the project it is in, as in \"Book A › Launch\", so two with the same name can be told apart.",
+      "line": "Task lists name a subproject with its project, as in \"Book A › Launch\", and project pickers as in \"Launch (3), in Book A\".",
       "icon": "tasks",
       "rank": 8.8,
       "since": "0.7.46",
