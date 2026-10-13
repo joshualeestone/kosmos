@@ -195,3 +195,10 @@ an app this release locked. Stated, not tested, and nothing guards it.
   NOT among the 29: the ones that boot a board or a real install (`test-install.sh`, the pause sandbox, the
   put-back, the deploy-site and release tests). Those run in the validation.
 - No reviewer has read this commit.
+
+## Main merged in (2026-10-13, 14:15 CDT, fb554545f5)
+The 0.7.46 cut ran while this waited, so this rides 0.7.47. One conflict, in `release/whats-new-pool.json` (main
+gained entries at the same place): resolved by taking main's file whole and adding this branch's one entry to it,
+checked by parsing (main's 39 items unchanged, 40 after), with `since` moved to 0.7.47. After the merge: the pool's
+tests 54 pass, the installer check's test 31 pass, the runnable guard 0 failures, the static check 23 pass.
+0.7.45 has now been the served `/setup` for about five hours. The weakest premise is unchanged by that.
