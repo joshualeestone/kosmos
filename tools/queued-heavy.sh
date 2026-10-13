@@ -318,8 +318,12 @@ else
          || { [ -s "$QH_LIB_LOCK/cmd" ] && [ -n "$_qh_oc" ] && [ "$_qh_oc" != "$(cat "$QH_LIB_LOCK/cmd" 2>/dev/null)" ]; }; then
         # Only if it is still that holder's lock (another joiner may have just taken it over), and no git it started is
         # still checking out (a dead holder's git keeps writing in its own group).
+        # Also not while the lib's index.lock exists: a running checkout always holds it, which covers the instant
+        # between git starting and its pid reaching the lock (and a gitpid since reused). A lock left by a git that
+        # was itself killed blocks until the 5-minute give-up below, as it blocks every git in that checkout anyway.
         _qh_gp="$(cat "$QH_LIB_LOCK/gitpid" 2>/dev/null)"
-        if [ -z "$_qh_gp" ] || ! kill -0 "$_qh_gp" 2>/dev/null; then
+        _qh_gd="$(_qh_libgit rev-parse --absolute-git-dir 2>/dev/null)"
+        if { [ -z "$_qh_gp" ] || ! kill -0 "$_qh_gp" 2>/dev/null; } && { [ -z "$_qh_gd" ] || [ ! -e "$_qh_gd/index.lock" ]; }; then
           [ "$(cat "$QH_LIB_LOCK/pid" 2>/dev/null)" = "$_qh_op" ] && rm -rf "$QH_LIB_LOCK"
         fi
       fi
@@ -347,7 +351,7 @@ else
   else
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') the lib check's lock stayed taken for 5 min (holder pid ${_qh_op:-?}); loading the lib unchecked, possibly in the middle of a move (#5923)"
   fi
-  unset _qh_i _qh_op _qh_oc _qh_empty _qh_ino _qh_ino2 _qh_lastino _qh_gp _qh_gone
+  unset _qh_i _qh_op _qh_oc _qh_empty _qh_ino _qh_ino2 _qh_lastino _qh_gp _qh_gd _qh_gone
 fi
 . "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || {
   _qh_lib_unlock
