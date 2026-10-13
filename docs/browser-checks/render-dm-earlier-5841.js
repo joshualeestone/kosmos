@@ -250,12 +250,14 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' +
     await toTop(); await settle(); await toTop(); await settle();
     s = await state();
     chk(s.asked.join(',') === 'june:5', '#6086: scrolling at the top does not ask again after a failure', JSON.stringify(s.asked));
+    /* The failure stays put while the reader scrolls: a row that came and went with the scroll position would change
+       the thread's height under them. Scrolled to the newest message and back, the line and the thread are where they were. */
+    const failAt = await where();
     await page.evaluate(() => { const t = document.getElementById('d-dmthread'); t.scrollTop = t.scrollHeight; t.dispatchEvent(new Event('scroll')); }); await settle();
-    s = await state();
-    chk(!s.line && !s.retry, '#6086: away from the top the failure does not stand over the messages', JSON.stringify(s));
+    s = await state(); w = await where();
+    chk(/could not read the earlier messages/i.test(s.line) && s.retry && s.asked.join(',') === 'june:5', '#6086: scrolled to the newest message, the failure still stands, and nothing is asked', JSON.stringify(s));
+    chk(!!w.line && w.line.top === failAt.line.top && w.thread.top === failAt.thread.top && w.thread.bottom === failAt.thread.bottom, '#6086: and neither it nor the thread moved with the scroll', JSON.stringify([failAt.line, w.line, failAt.thread, w.thread]));
     await toTop(); await settle();
-    s = await state();
-    chk(/could not read the earlier messages/i.test(s.line) && s.retry && s.asked.join(',') === 'june:5', '#6086: back at the top it is said again, still without asking', JSON.stringify(s));
     await page.evaluate(() => { window.__olderFail = false; });
     await page.click('#d-talk-older-show'); await settle();
     s = await state();

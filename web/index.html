@@ -12803,7 +12803,8 @@ window.kosmosMeasureScrollbarWidth();
          message on screen loads the batch before it, and so on to the first. This is the only sign of it: a small
          line over the top of the thread WHILE a batch loads (or saying a load failed, with Try again). It replaces
          the line and button that stood under the newest message on every visit, which read as a notice that would
-         not go away. The wrapper has no height, so showing and hiding the line never moves a message. -->
+         not go away. While a page loads the wrapper has no height, so showing and hiding the line never moves a
+         message; a failed load, which stays until the person acts, takes a row of its own above the thread. -->
     <div class="dm-earlier-wrap"><p class="dm-earlier" id="d-talk-older" role="status" aria-live="polite" hidden><span id="d-talk-older-text"></span> <button type="button" class="btn-quiet" id="d-talk-older-show" hidden>Try again</button></p></div>
     <div class="dmthread" id="d-dmthread"></div>
     <!-- 🔑 "WORKING", NEVER "TYPING". We can see that Claude is producing
@@ -38444,7 +38445,7 @@ document.addEventListener('click', (e) => {
  * belongs to a reset that came after it.
  */
 const EARLIER = { session: null, open: false, before: 0, end: 0, rows: [], loading: false, filling: false, because: null, opening: 0 };
-const EARLIER_MOVED = { session: null, n: 0 };   // kosmos#6086: "the thread changed under the page" answers in a row, across resets for one agent
+const EARLIER_MOVED = { n: 0 };   // kosmos#6086: "the thread changed under the page" answers in a row, across resets for one agent
 function earlierReset(session) {
   if (session !== EARLIER.session) EARLIER_MOVED.n = 0;   // kosmos#6086: the count of moved answers belongs to one agent's visit
   Object.assign(EARLIER, { session, open: false, before: 0, end: 0, rows: [], loading: false, filling: false, because: null, opening: EARLIER.opening + 1 });
@@ -38483,7 +38484,7 @@ async function earlierMore() {
     /* The thread changed under the page: start again, ONCE. Reaching the top asks by itself now (kosmos#6086), so a
        thread and an older route that keep disagreeing would be asked on every scroll and every poll, for ever. The
        second time running it is a failed load, which stops the asking until the person presses Try again. */
-    EARLIER_MOVED.n = EARLIER_MOVED.session === session ? EARLIER_MOVED.n + 1 : 1; EARLIER_MOVED.session = session;
+    EARLIER_MOVED.n += 1;   // earlierReset starts it again for another agent
     if (EARLIER_MOVED.n < 2) { earlierReset(session); earlierRepaint(); return; }
     EARLIER.because = r.because; earlierRepaint(); return;
   }
@@ -38519,11 +38520,7 @@ function earlierNearTop() {
   }
   earlierMore();
 }
-document.addEventListener('scroll', (e) => {
-  if (!e.target || e.target.id !== 'd-dmthread') return;
-  earlierNearTop();
-  if (EARLIER.because && e.target.__lastBody) paintOlderLine(e.target.__lastBody, e.target.__lastSession);   // a failure shows only at the top
-}, { capture: true, passive: true });
+document.addEventListener('scroll', (e) => { if (e.target && e.target.id === 'd-dmthread') earlierNearTop(); }, { capture: true, passive: true });
 /* Messages at [end, olderCount) left the latest 200 while this was open: fetch them, newest pages first, and append. */
 async function earlierFillGap(session, olderCount) {
   if (EARLIER.filling) return;
@@ -38549,8 +38546,8 @@ async function earlierFillGap(session, olderCount) {
   const last = th && th.__lastSession === session ? th.__lastBody : null;
   if (last && Array.isArray(last.messages) && (Number(last.olderCount) || 0) > EARLIER.end) earlierFillGap(session, Number(last.olderCount));
 }
-/* kosmos#6086: the line over the top of the thread. It shows only while a page of earlier messages loads, or, with the
-   reader at the top, to say a load failed (with Try again, the one button left). Nothing stands when there is nothing
+/* kosmos#6086: the line at the top of the thread. It shows only while a page of earlier messages loads, or to say a
+   load failed (with Try again, the one button left). Nothing stands when there is nothing
    to say: not a count, not a way in. The button is one static element, shown and hidden, never rebuilt (a rebuild
    each poll would take a keyboard user's focus). */
 function paintOlderLine(body, sessionName) {
@@ -38559,13 +38556,12 @@ function paintOlderLine(body, sessionName) {
   const retry = document.getElementById('d-talk-older-show');
   if (!older || !textEl || !retry || !body) return;
   /* A FAILED latest read (messages null): the thread says so, and nothing stands over it (review 7 of #5841). */
-  if (!Array.isArray(body.messages)) { older.hidden = true; return; }
+  if (!Array.isArray(body.messages)) { older.hidden = true; if (older.parentNode) older.parentNode.classList.remove('dm-earlier-failed'); return; }
   const on = earlierOn(sessionName);
-  /* A failed load is said only while the reader is at the top, where it happened and where Try again belongs. Left
-     standing wherever they scroll, the line would sit over the first message on screen for the rest of the visit. */
-  const thread = document.getElementById('d-dmthread');
-  const atTop = !thread || thread.scrollTop <= EARLIER_NEAR_TOP;
-  const failed = on && Boolean(EARLIER.because) && !EARLIER.loading && atTop;
+  /* A failed load stands until the person presses Try again, WHEREVER they scroll. It has a row of its own (below),
+     so it covers nothing; and a row that came and went with the scroll position would change the thread's height
+     as the reader scrolls, which moves them, and near the 120 px line could show and hide without end (review 3). */
+  const failed = on && Boolean(EARLIER.because) && !EARLIER.loading;
   const text = !on ? '' : failed ? pjSentence(EARLIER.because) : EARLIER.loading ? 'Loading earlier messages\u2026' : '';
   if (textEl.textContent !== text) textEl.textContent = text;
   retry.hidden = !failed;
