@@ -1615,6 +1615,9 @@ function busyCards(body, busy) {
     // Counted as reached only when every line it asks for can show: a community line needs the community on.
     if (!(Number.isInteger(b.postedDaysAgo) && c.communityOn === false)) BUSY_SEEN.add(key);
     if (b.modelName) c.modelName = b.modelName;
+    // A Muse card with no model of its own says "Meta Muse" (modelLine's fallback); the sandbox's seeded Claude model
+    // must not stand in for it.
+    else if (b.runner === 'muse') { c.modelName = null; c.plannedModelName = null; }
     if (b.runner) c.runner = b.runner;   // modelLine names a codex agent's model without the Claude prefix
     if (Number.isInteger(b.postedDaysAgo) && c.communityOn !== false) {
       // The server's own wording for the card's community line (server.js, lastCommunityPost).
