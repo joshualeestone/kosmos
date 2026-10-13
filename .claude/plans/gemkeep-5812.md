@@ -10,8 +10,11 @@ A throwaway folder with a project-level `.gemini/settings.json` holding one Befo
   "tool_name":"write_file","tool_input":{"file_path":"probe.txt","content":"hello"}}`
 - 🔑 `file_path` arrives RELATIVE to `cwd`. The board resolves the path with `path.resolve(p)` (filewriters), against
   the BOARD's folder, so the bridge sends `path.resolve(cwd, file_path)`.
-- a hook answering `{}` lets the write go ahead. (A SILENT hook, which is what the bridge is, measured in a second run:
-  see "Measured, second run" below.)
+- a hook answering `{}` lets the write go ahead.
+- Measured, second run (08:2x): a SILENT hook (prints nothing, as the bridge does) also lets write_file go ahead: the
+  file was written with its content. The same run's `replace` step never ran: the API answered 503 six times and the
+  session ended. So `replace`'s path field (`file_path`) is read from the CLI's code (EDIT_TOOL_NAME "replace", its
+  params.file_path), not yet seen live.
 
 ## The change
 1. `engine/geminisettings.js`: one more hook, `BeforeTool` with matcher `write_file|replace`, running the same bridge
