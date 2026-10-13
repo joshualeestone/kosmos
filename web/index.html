@@ -739,8 +739,16 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-usage-warn::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: #d97528; transform: translateY(-1px); }
 .acct-usage-warn.high::before { background: #b3261e; }
 .acct-move { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.acct-move select { min-height: 44px; font-size: 16px; max-width: 100%; }
-.acct-move button { min-height: 44px; }
+.acct-move select { min-height: 44px; font-size: .875rem; max-width: 100%; }
+/* The account panel's own primary action shape (Sign in again's gold outline), so Move reads as this panel's button. */
+.acct-move button { min-height: 44px; font: inherit; font-size: .875rem; font-weight: 600; padding: .45em 1.1em; border-radius: 8px;
+  border: 1px solid var(--gold-bright); background: var(--k-surface); color: var(--label); cursor: pointer; }
+.acct-move button[disabled] { opacity: .5; cursor: default; }
+@media (max-width: 40rem) {
+  .acct-move select { font-size: 16px; flex: 1 1 100%; }   /* 16px: iOS zooms into a smaller field */
+  .acct-usage-meter { flex-direction: column; align-items: stretch; gap: 6px; }
+  .acct-usage-meter .bar { flex: none; width: 100%; }
+}
 .acct-move-msg { margin: 0; font-size: .8125rem; color: var(--label); }
 /* The disambiguator beside a name two accounts share. Quiet on purpose: it is
    an answer to "why are there two of these", not a thing to read first. Same
@@ -27108,7 +27116,7 @@ function acctUsageHtml(a, list) {
     ? '<div class="acct-move"><select data-acct-move-to="' + esc(a.dir) + '" aria-label="Move ' + (names.length === 1 ? 'this agent' : 'these agents') + ' to another account">'
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
       + targets.map((x) => '<option value="' + esc(x.dir) + '">' + esc(x.email || x.label || x.dir) + (x.weekly && Number.isFinite(x.weekly.usedPct) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
-      + '</select><button type="button" class="ubtn" data-acct-move="' + esc(a.dir) + '" disabled>Move</button>'
+      + '</select><button type="button" data-acct-move="' + esc(a.dir) + '" disabled>Move</button>'
       + '<p class="acct-move-msg" role="status" data-acct-move-msg="' + esc(a.dir) + '"></p></div>'
     : '';
   return '<div class="acct-usage">' + usage + agentsLine + move + '</div>';
