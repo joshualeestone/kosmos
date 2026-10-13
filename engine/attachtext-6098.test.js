@@ -834,3 +834,14 @@ test('#6098 review 18: a prefixed styles part still gives the number-format note
   ]);
   assert.ok(at.xlsxText(book).notes.some((n) => /without their formats/.test(n)));
 });
+
+/* ── review 19 ── */
+test('#6098 review 19: /Contents naming an array object of streams is read (not called scanned)', async () => {
+  const f = path.join(SANDBOX, 'contents-array.pdf');
+  fs.writeFileSync(f, pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R >>'], [4, streamObj('', 'BT /F1 12 Tf 72 700 Td (Quarterly report) Tj ET')],
+    [5, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'], [6, '[4 0 R]']]));
+  const got = await at.pdfText(f, fs.readFileSync(f));
+  assert.ok(got.body.includes('Quarterly report'), JSON.stringify(got));
+  assert.ok(!got.notes.some((n) => /scanned/.test(n)), JSON.stringify(got.notes));
+});
