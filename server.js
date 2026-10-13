@@ -14156,6 +14156,8 @@ const server = http.createServer(async (req, res) => {
         version: updates.RUNNING, platform: process.platform, now,
         cards: safeRoster(), readReport: (n) => selfreport.read(n), accountProblemOf,
         ringLines: logring.board.tail(), fileLines, fileSource: fileLines ? logPath : null, fileWhy: fileWhy.why || null,
+        // The values this board holds are masked by value too: a bare hex token in a line has no shape to find it by.
+        redactor: require('./engine/diagredact').makeRedactor({ secrets: [boardAuthState.token, ...sendertoken.heldValues()] }),
       });
       // The page's look beside the click (as the other downloads): the same work, no file.
       if (isDownloadCheck(req)) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }

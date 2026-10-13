@@ -95,3 +95,15 @@ test('#5959: the download is never sniffed or run as a page', async () => {
   assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
   assert.match(r.headers.get('content-security-policy') || '', /sandbox/);
 });
+
+test('#5959: an agent token the board holds is masked in the file even when a line prints it bare', async () => {
+  const stand = { write() { return true; } };
+  logring.board.tap(stand, 'stderr');
+  stand.write(`probe-5959-token ${agentToken} refused\n`);
+  const r = await get({ 'x-kosmos-board-token': BOARD });
+  assert.equal(r.code, 200);
+  const line = JSON.parse(r.text).log.tail.find((e) => /probe-5959-token/.test(e.line));
+  assert.ok(line, 'CONTROL: the line is in the file');
+  assert.equal(line.line, 'probe-5959-token •••• refused');
+  assert.ok(!r.text.includes(agentToken), 'the token is not in the bytes sent');
+});

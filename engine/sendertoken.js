@@ -767,6 +767,18 @@ function instanceState(sessionName, instance) {
  * look" cannot use this; today's caller adds rows to a roster, so a failed
  * read costs it a row it never had rather than deleting one it did.
  */
+/* #5959 slice 4: every token value on file, for the diagnostics redactor to mask by value (a bare hex token in a log
+   line has no shape to find it by). Values stay in this process; a file that cannot be read is skipped. */
+function heldValues() {
+  const out = [];
+  for (const key of keys()) {
+    let held = [];
+    try { held = readTokens(key); } catch { held = []; }
+    for (const t of held) if (t && typeof t.token === 'string' && t.token) out.push(t.token);
+  }
+  return out;
+}
+
 function keys() {
   let names;
   try { names = fs.readdirSync(DIR).filter((f) => f.endsWith('.json')); } catch { return []; }
@@ -991,5 +1003,5 @@ function tokenOnlyFor(name) {
 
 module.exports = {
   mint, revoke, revokeIfUnchanged, retire, endedSince, endedLogFile, endedDir, compactEnded, newestPerName, resetCompactNotesForTests,
-  ENDED_DIRNAME, ENDED_COMPACT_AT_BYTES, SEALED_KEEP_MS, holdsTokens, keyHoldsOthers, retireLauncher, live, instanceState, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyList, tokenOnlyFile, CLASH, DIR, MAX_LIVE,
+  ENDED_DIRNAME, ENDED_COMPACT_AT_BYTES, SEALED_KEEP_MS, holdsTokens, heldValues, keyHoldsOthers, retireLauncher, live, instanceState, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyList, tokenOnlyFile, CLASH, DIR, MAX_LIVE,
   NO_MATCH };   // #5333: exported so the CLIs' recovery hint is pinned to the one sentence (cli.token-refused-5333.test.js)

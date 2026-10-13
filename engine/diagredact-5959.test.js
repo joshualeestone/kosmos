@@ -118,3 +118,18 @@ test('#5959: header credentials and secret-named JSON fields lose their value, k
   for (const [input, want] of cases) assert.equal(redactText(input), want, input);
   assert.equal(redactText('the bearer of bad news, basic rules'), 'the bearer of bad news, basic rules', 'CONTROL: plain words stay');
 });
+
+test('#5959: a value the board holds is masked by value, however bare; a short one is left alone', () => {
+  const tok = 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9';
+  const { redactText } = makeRedactor({ home: '/Users/zed', user: 'zzz', host: 'zzz', secrets: [tok, 'short'] });
+  assert.equal(makeRedactor({ home: '/Users/zed', user: 'zzz', host: 'zzz' }).redactText('agent token ' + tok + ' refused'),
+    'agent token ' + tok + ' refused', 'CONTROL: by shape alone a bare hex token is not found');
+  assert.equal(redactText('agent token ' + tok + ' refused'), 'agent token •••• refused');
+  assert.equal(redactText('a short word'), 'a short word');
+});
+
+test('#5959: a secret field keeps nothing after an escaped quote, and authMode or author is not a secret', () => {
+  const { redactText } = makeRedactor({ home: '/Users/zed', user: 'zzz', host: 'zzz' });
+  assert.equal(redactText('{"password":"a\\"bcdefgh","x":1}'), '{"password":"••••","x":1}');
+  assert.equal(redactText('{"author":"Rick","authMode":"antigravity"}'), '{"author":"Rick","authMode":"antigravity"}');
+});
