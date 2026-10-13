@@ -171,6 +171,9 @@ function parseTurn(runner, stdout) {
    conversation rather than failing the same way forever. */
 const LOST_SESSION = /no previous sessions found|invalid session identifier|session[^\n]{0,40}not found|no session/i;
 
+/* #5812: the left-out project folders already written to stderr by this process. */
+const SAID_LEFT_OUT = new Set();
+
 /* The spawn seam. Tests replace it; nothing else does. Mirrors win32codex.setSpawn. */
 let spawnFn = null;
 function setSpawn(fn) { spawnFn = typeof fn === 'function' ? fn : null; }
@@ -207,7 +210,15 @@ function runKeyedTurn(opts) {
        DO_NOT_TRUST marks are honoured as on the Mac (geminidirs.turnFolders). */
     let includeDirs = Array.isArray(o.includeDirs) ? o.includeDirs : [];
     if (runner === 'gemini' && !Array.isArray(o.includeDirs) && o.name) {
-      try { includeDirs = require('./geminidirs').turnFolders(o.name, o.cwd, (o.env && o.env.GEMINI_CLI_HOME) || '').folders; }
+      try {
+        const r = require('./geminidirs').turnFolders(o.name, o.cwd, (o.env && o.env.GEMINI_CLI_HOME) || '');
+        includeDirs = r.folders;
+        /* Each left-out folder is said once per supervisor, as the Mac launch says it, not at every turn. */
+        for (const l of r.leftOut) {
+          const line = '#5812: the project folder ' + (l.folder || '(none)') + ' was left out of the Gemini workspace (' + l.because + ')';
+          if (!SAID_LEFT_OUT.has(line)) { SAID_LEFT_OUT.add(line); process.stderr.write(line + '\n'); }
+        }
+      }
       catch (e) { includeDirs = []; process.stderr.write('#5812: no project folders for this gemini turn (' + ((e && e.message) || e) + ')\n'); }
     }
     try { args = turnArgs(runner, { message: o.message, model: o.model, sessionId: o.sessionId, newSessionId, includeDirs }); }
