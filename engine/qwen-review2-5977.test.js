@@ -83,12 +83,32 @@ test('#5977 r2 + #5975: the org rollup sends a Qwen agent as alibaba, never as o
   assert.equal(s.providerOf('codex', OA), 'openai', 'CONTROL');
 });
 
-test('#5975: a stopped Qwen agent with no launch job is still counted, its runner read from its alibaba profile', () => {
+test('#5975: the rollup body itself carries alibaba for a Qwen agent (build, not only the source)', () => {
+  const body = require('./orgrollup').build({ world: 'w', at: new Date().toISOString(), reason: 'daily',
+    agents: [{ name: 'qwr2-built', provider: 'alibaba', model: null, state: 'working' },
+      { name: 'qwr2-built-unknown', provider: 'somethingnew', model: null, state: 'working' }] });
+  const byName = Object.fromEntries((body.agents || []).map((a) => [a.name, a.provider]));
+  assert.equal(byName['qwr2-built'], 'alibaba', 'build() dropped alibaba: the console would show a blank provider');
+  assert.equal(byName['qwr2-built-unknown'], null, 'CONTROL: an unknown provider must still go as null');
+});
+
+test('#5975: a stopped Qwen agent with no launch job goes as alibaba through the whole source chain, never openai', () => {
   const s = require('./orgrollup').defaultSources();
   store.writeProfile('qwr2-nojob', { provider: 'alibaba' });
-  store.writeProfile('qwr2-nojob-unknown', { provider: 'somethingnew' });
-  assert.equal(s.recordedRunner('qwr2-nojob'), 'codex', 'a Qwen agent with no launch job was sent with no runner');
-  assert.equal(s.recordedRunner('qwr2-nojob-unknown'), null, 'CONTROL: an unknown provider must not be given a runner');
+  store.writeProfile('qwr2-nojob-oa', { provider: 'openai' });
+  const sent = (n) => { const r = s.recordedRunner(n); return r ? s.providerOf(r, n) : null; };
+  assert.equal(sent('qwr2-nojob'), 'alibaba', 'a stopped Qwen agent with no job was sent as ' + sent('qwr2-nojob'));
+  assert.equal(sent('qwr2-nojob-oa'), 'openai', 'CONTROL: an OpenAI agent with no job stays openai');
+});
+
+test('#5975: a job is the answer even when an old profile still says alibaba (the job wins, as in accountproblem)', () => {
+  const s = require('./orgrollup').defaultSources();
+  store.writeProfile(OA, { provider: 'alibaba' });
+  try {
+    assert.equal(s.providerOf('codex', OA), 'openai', 'a stale alibaba profile overrode an OpenAI launch job');
+  } finally {
+    store.writeProfile(OA, { provider: 'openai' });
+  }
 });
 
 test('#5977 r2: a Qwen agent with no profile is told about Qwen, not an OpenAI sign-in', () => {
