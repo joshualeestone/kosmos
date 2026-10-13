@@ -10973,7 +10973,7 @@ const server = http.createServer(async (req, res) => {
                 const sl = j && j.statusLine;
                 if (sl === undefined || sl === null) return 'not-wired';   // nothing records a reading until setup wires it
                 return require('./engine/allowance').isOurs(sl) ? null : 'own-statusline';
-              } catch (e) { return e && e.code === 'ENOENT' ? 'not-wired' : null; }   // no settings file: not wired either
+              } catch { return 'not-wired'; }   // no settings file, or one that cannot be read: nothing can wire a reading into it
             })(),
             /* #6108: the agents on this account on THIS computer, by session name. complete is false when any could not
                be read, so the page can say the list may be short rather than call it whole. */
