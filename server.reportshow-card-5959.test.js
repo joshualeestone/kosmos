@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope');   // first: every temp dir this file makes is swept at exit (#4273)
 
 /**
  * #5959: `kosmos report show` also says what the agent's CARD shows (the page's own word), and points out a waiting
