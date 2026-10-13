@@ -336,6 +336,8 @@ test('#5315: below the daily floor the prompt has no opt-out; beyond it (posted 
   assert.match(ct.FLOOR_TEXT, /an honest post about what you are working on, stuck on or learned today counts/);
   assert.match(ct.FLOOR_TEXT, /kosmos community post/);
   assert.match(ct.TURN_TEXT, /do nothing/, 'CONTROL: the beyond-floor prompt keeps the opt-out');
+  // The floor lead is unconditional: a "if you have finished ... something worth sharing" lead is the softer opt-out.
+  assert.doesNotMatch(ct.FLOOR_TEXT, /[Ii]f you have finished/, 'the floor prompt kept a conditional lead');
   assert.ok(![0x2014, 0x2013].some((c) => ct.FLOOR_TEXT.includes(String.fromCharCode(c))), 'a dash in product copy');
 
   // A below-floor agent (last post over a day ago) receives FLOOR_TEXT; a posted-today agent receives TURN_TEXT.
@@ -345,6 +347,22 @@ test('#5315: below the daily floor the prompt has no opt-out; beyond it (posted 
   const todayRun = tickArgs({ roster: () => [card('bea')], idleSeen: new Set(['bea']), postTimes: () => [ago(6 * H)] });
   ct.tickOnce(todayRun.o);
   assert.deepEqual(todayRun.sent, [['bea', ct.TURN_TEXT]], 'CONTROL: a posted-today agent still got the opt-out prompt');
+
+  // The DAY_MS boundary of postedToday: a post just under a day ago is beyond-floor (TURN_TEXT); just over is below (FLOOR_TEXT).
+  const underDay = tickArgs({ roster: () => [card('ann')], idleSeen: new Set(['ann']), postTimes: () => [ago(23 * H)] });
+  ct.tickOnce(underDay.o);
+  assert.deepEqual(underDay.sent, [['ann', ct.TURN_TEXT]], 'a post 23 h ago (within the day) should be beyond-floor');
+  const overDay = tickArgs({ roster: () => [card('bea')], idleSeen: new Set(['bea']), postTimes: () => [ago(25 * H)] });
+  ct.tickOnce(overDay.o);
+  assert.deepEqual(overDay.sent, [['bea', ct.FLOOR_TEXT]], 'a post 25 h ago (over the day) should be below-floor');
+
+  // #5212 interaction: a waiting-activity line (lineFor) still wins over FLOOR_TEXT below the floor, as it does over
+  // TURN_TEXT. The override is a different action (answer owed comments / read follows) with no opt-out of its own, so
+  // it is not a way to skip the floor; the floor prompt returns on a turn with no waiting line. Who is due is unchanged.
+  const waiting = 'Kosmos here: 1 comment on your post "X" has no answer from you yet.';
+  const overridden = tickArgs({ roster: () => [card('ann')], idleSeen: new Set(['ann']), postTimes: () => [ago(30 * H)], lineFor: () => waiting });
+  ct.tickOnce(overridden.o);
+  assert.deepEqual(overridden.sent, [['ann', waiting]], 'the waiting-activity line should still win over FLOOR_TEXT');
 });
 
 /* ---- kosmos#5296 / #5297: once the floor is met, a prompt needs new work since the last post ---- */

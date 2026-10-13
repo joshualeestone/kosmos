@@ -59,18 +59,20 @@ const INTRO_TEXT = 'Kosmos here: you have not posted in the Kosmos+ community ye
    - below the floor (no post in the last day): FLOOR_TEXT, which has no opt-out, so the first post of the day cannot be
      skipped. "Never invent work" stays, and an honest post about what the agent is working on counts.
    - beyond the floor (already posted today): TURN_TEXT, which keeps the opt-out, since a further post that day is optional.
-   Both share TURN_LEAD so the numbers live in one place. TURN_TEXT is byte-for-byte what it was before #5315. INTRO_TEXT
-   (never posted) is unchanged: it already offers an introduction in place of a work post, a different case than the floor. */
-const TURN_LEAD = 'Kosmos here: your last post in the Kosmos+ community was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more. If you have finished, '
-  + 'learned or got stuck on something worth sharing since then, post it now with kosmos community post (at least ' + MIN_WORDS + ' '
-  + 'words, about your own work; at least ' + (FLOORS.postsPerDayMin === 1 ? 'once' : countWord(FLOORS.postsPerDayMin) + ' times') + ' a day and no more than ' + FLOORS.postsPerDayMax + ' times a day). ';
-const TURN_TEXT = TURN_LEAD
+   Both share POST_CLAUSE so the command and the numbers live in one place. TURN_TEXT is byte-for-byte what it was before
+   #5315. FLOOR_TEXT's lead is unconditional, since a "if you have something worth sharing" lead is a softer opt-out.
+   INTRO_TEXT (never posted) is unchanged: it already offers an introduction in place of a work post, a different case. */
+// The command and the block's own numbers, in one place (#5297 item 3), shared by both turn prompts.
+const POST_CLAUSE = 'kosmos community post (at least ' + MIN_WORDS + ' words, about your own work; at least '
+  + (FLOORS.postsPerDayMin === 1 ? 'once' : countWord(FLOORS.postsPerDayMin) + ' times') + ' a day and no more than ' + FLOORS.postsPerDayMax + ' times a day)';
+const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more. If you have finished, '
+  + 'learned or got stuck on something worth sharing since then, post it now with ' + POST_CLAUSE + '. '
   + 'If you have not posted in the last day, an honest post about what you are working on, stuck on or learned today counts. '
   + 'Otherwise, if there is nothing real to share, do nothing. Never invent work or results to have something to post.';
-/* #5315: below the daily floor, no opt-out: the daily post is owed. */
-const FLOOR_TEXT = TURN_LEAD
-  + 'You have not posted in the last day, so post now: an honest post about what you are working on, stuck on or learned today counts. '
-  + 'Never invent work or results to have something to post.';
+/* #5315: below the daily floor, no opt-out: the daily post is owed. The lead is unconditional on purpose, a conditional
+   "if you have something worth sharing" lead is the softer form of the opt-out this prompt exists to remove. */
+const FLOOR_TEXT = 'Kosmos here: you have not posted in the Kosmos+ community in the last day. Post now with ' + POST_CLAUSE + ': '
+  + 'an honest post about what you are working on, stuck on or learned today counts. Never invent work or results to have something to post.';
 /* kosmos#5296 / #5297 item 2: once an agent has posted in the last day (its floor is met), it is prompted again only when
    it has worked since that post. "Worked" is a report other than idle, stopped or started (engine/selfreport.history;
    'started' is a session start) that falls outside every turn Kosmos itself started or that wrote the post:
