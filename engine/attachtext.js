@@ -102,6 +102,11 @@ function partOf(get, name, what) {
     throw new Error(/too large|expands/.test(m) ? 'a part of this ' + what + ' is larger than Kosmos will convert' : 'this ' + what + ' is damaged');
   }
 }
+/* Iteration 11: a big part (a sheet of 100,000 rows, a long document) gives its first MAX_PART_BYTES rather than
+   nothing; `cut` says it was cut. A damaged part still throws, worded as damaged. */
+function prefixPart(get, name, what) {
+  try { return get(name, { prefix: true }) || { text: null, cut: false }; } catch { throw new Error('this ' + what + ' is damaged'); }
+}
 function zipOf(buf, what) {
   try { return oc.unzip(buf); } catch { throw new Error('this ' + what + ' is damaged or is not a ' + what); }
 }
@@ -146,10 +151,12 @@ function xlsxText(buf) {
   const targets = new Map();
   for (const m of rels.matchAll(/<Relationship\b[^<>]*>/g)) targets.set(oc.attr(m[0], 'Id'), oc.attr(m[0], 'Target'));
   const shared = [];
-  const sst = partOf(get, 'xl/sharedStrings.xml', 'workbook');
+  const sstPart = prefixPart(get, 'xl/sharedStrings.xml', 'workbook');
+  const sst = sstPart.text;
   if (sst) for (const si of oc.blocks(sst, 'si')) shared.push(oc.xmlText(oc.stripBlocks(si, 'rPh').replace(/<\/t>\s*<t[^<>]*>/g, '')).slice(0, MAX_CELL));
   const out = sink();
   const notes = new Set();
+  if (sstPart.cut) notes.add('This workbook\u2019s text is larger than Kosmos reads, so some text cells are shown empty.');
   let formulas = false;
   let first = true;
   const seen = new Set();
@@ -169,8 +176,10 @@ function xlsxText(buf) {
     if (seen.has(part)) { out.add('(the same sheet as one above)\n'); continue; }   // iteration 2: one part listed many times is read once
     seen.add(part);
     let sheet = null;
-    try { sheet = get(part); } catch { sheet = null; }   // one unreadable sheet does not lose the others (review 1)
+    let big = false;
+    try { const got = get(part, { prefix: true }); sheet = got && got.text; big = !!(got && got.cut); } catch { sheet = null; }   // one unreadable sheet does not lose the others (review 1)
     if (!sheet) { out.add('(this sheet could not be read)\n'); continue; }
+    if (big) notes.add('A sheet is larger than Kosmos reads, so only its first rows are shown.');   // iteration 11: its first rows, not nothing
     if (/<(?:\w+:)?f[\s>]/.test(sheet)) formulas = true;
     const { rows, truncated } = sheetRows(sheet, shared, clip);
     tableInto(out, rows);
@@ -189,6 +198,12 @@ function xlsxText(buf) {
     return false;
   };   // iteration 3: one match then a test, not a backtracking pattern
   if (styles && (/numFmtId="(?:1[4-9]|2[0-2]|4[5-7])"/.test(styles) || dateFormat())) notes.add('Dates may appear as Excel day numbers (for example 45123), not as dates.');
+  /* Iteration 11: a percentage shows as the fraction stored (100% as 1) and currency without its symbol. */
+  const numberFormat = () => {
+    for (const m of styles.matchAll(/formatCode="([^"<>]*)"/g)) if (/[%$\u00a3\u20ac\u00a5]|\[\$/.test(m[1].replace(/&quot;([^&]*)&quot;/g, '$1'))) return true;
+    return false;
+  };
+  if (styles && (/<xf\b[^<>]*numFmtId="(?:9|10|[5-8]|4[1-4])"/.test(styles) || numberFormat())) notes.add('Numbers are shown as stored, without their formats: a percentage shows as a fraction (100% as 1) and currency has no symbol.');
   if (hasPart(buf, /^xl\/(charts|drawings|media)\//)) notes.add('Charts, pictures and drawings are not converted.');
   return { body: out.text().trim(), notes: [...notes], full: out.full };
 }
@@ -318,7 +333,8 @@ function paraText(p) {
 
 function docxText(buf) {
   const get = zipOf(buf, 'document');
-  const doc = partOf(get, 'word/document.xml', 'document');
+  const docPart = prefixPart(get, 'word/document.xml', 'document');
+  const doc = docPart.text;
   if (!doc) throw new Error('it is not a Word document');
   /* mc:AlternateContent carries the same content twice (Choice and Fallback): keep the Choice (review 1). */
   const body = oc.stripBlocks(oc.innerOf(doc, 'w:body') || doc, 'mc:Fallback');
@@ -336,7 +352,8 @@ function docxText(buf) {
     } else if (!out.add(paraText(b.p) + '\n')) break;
   }
   const notes = [];
-  if (state.broken) notes.push('Part of this document is damaged; the text after that point is not included.');
+  if (docPart.cut) notes.push('This document is larger than Kosmos reads, so only its first part is converted.');
+  else if (state.broken) notes.push('Part of this document is damaged; the text after that point is not included.');
   if (hasPart(buf, /^word\/media\//)) notes.push('Pictures are not converted.');
   if (hasPart(buf, /^word\/(header|footer|footnotes|endnotes|comments)\d*\.xml$/)) notes.push('Headers, footers, footnotes and comments are not included.');
   return { body: out.text().replace(/\n{3,}/g, '\n\n').trim(), notes, full: out.full };
@@ -757,8 +774,9 @@ function pageText(content, fonts, out, used = {}) {
     }
     /* Iteration 9: macOS maps some CJK glyphs to the look-alike Kangxi radicals (U+2F00-U+2FDF), which a search for the
        real character never finds; NFKC gives the character itself. Iteration 10: the same for Arabic and Hebrew
-       presentation forms (U+FB1D-U+FDFF, U+FE70-U+FEFF), which a search for the ordinary letters never matches. */
-    return /[\u2F00-\u2FDF\uFB1D-\uFDFF\uFE70-\uFEFE]/.test(s) ? s.replace(/[\u2F00-\u2FDF\uFB1D-\uFDFF\uFE70-\uFEFE]/g, (ch) => ch.normalize('NFKC')) : s;
+       presentation forms (U+FB1D-U+FDFF, U+FE70-U+FEFF), which a search for the ordinary letters never matches.
+       Iteration 11: and the Latin ligatures (U+FB00-U+FB06: "Proﬁles" is found as "Profiles"). */
+    return /[\u2F00-\u2FDF\uFB00-\uFB06\uFB1D-\uFDFF\uFE70-\uFEFE]/.test(s) ? s.replace(/[\u2F00-\u2FDF\uFB00-\uFB06\uFB1D-\uFDFF\uFE70-\uFEFE]/g, (ch) => ch.normalize('NFKC')) : s;
   };
   /* Trailing blanks stripped by a backwards loop (iteration 2: `/[ \t]+$/` is quadratic on a long run of spaces). */
   const trimEnd = (x) => { let e = x.length; while (e && (x[e - 1] === ' ' || x[e - 1] === '\t')) e -= 1; return x.slice(0, e); };
@@ -1070,7 +1088,7 @@ async function render(rec) {
   if (got && got.js) got = await pdfAfter(rec.file, got.js);
   if (!got || got.failed) got = { body: '', notes: [(got && got.failed) || 'Kosmos could not convert this file.'] };
   const notes = (got.notes || []).slice();
-  if (got.full) notes.push('The rendering stops at ' + MAX_OUT + ' characters.');
+  if (got.full && !notes.some((n) => /stops at/.test(n))) notes.push('The rendering stops at ' + MAX_OUT + ' characters.');   // iteration 11: said once
   const head = 'Text rendering of ' + rec.name + ', made by Kosmos from the attached file (#6098).'
     + (notes.length ? '\n' + notes.map((n) => 'Note: ' + n).join('\n') : '');
   const out = path.join(rec.dir, TEXT_NAME);

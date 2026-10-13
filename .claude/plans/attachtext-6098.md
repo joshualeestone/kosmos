@@ -84,6 +84,11 @@ reads these files itself.
   visual order, so it is marked: a Mac asks PDFKit (measured: the Hebrew License reads in reading order), elsewhere a
   note says it may read reversed. Arabic and Hebrew presentation forms are NFKC-normalized like Kangxi radicals. The
   `cm` limit is written down under Not done (and in the pageText comment) rather than followed.
+- **Iteration 11:** a part over the 20 MB limit (a sheet of ~100k rows, shared strings, a long document) gives its
+  first 20 MB with a note, not "could not be read": orgchartfile's unzip getter takes an opt-in `{ prefix: true }`
+  (default behaviour unchanged for the org-chart import), which inflates a shrinking prefix of the compressed bytes,
+  at most 8 tries. A note when styles carry a percentage or currency format (shown as stored). Latin ligatures
+  (U+FB00-U+FB06) normalized. The text-cap note is said once.
 - **Not done:** pictures (no OCR), charts, inline (not referenced) PDF font dictionaries, /Differences glyph names (pdfTeX
   ligatures), LZW, lists and headings applied only through a paragraph style (no numId; localized heading style ids), docx headers/footers/footnotes/comments, text inside PDF form XObjects (`Do`), the `cm` matrix (a line break is decided in the text's own space, so two blocks moved apart only by `cm` can join on one line), right-to-left reading order off a Mac (said in a note),
   xls/doc/ppt/pptx, an attachment uploaded before this change (it gets no rendering; its line is unchanged).
@@ -93,7 +98,7 @@ That the JS PDF reader's output is right when it "reads as text". A font whose c
 being those letters would pass the readability check and be wrong; PDFKit is only asked when the check fails. Real PDFs
 from common writers carry ToUnicode maps, which the reader uses.
 
-## Tests (engine/attachtext-6098.test.js, 50 in all; the per-iteration additions are listed at the end. Earlier: three added in iteration 3 (the text cap alone, an ASCII85+Flate chain with
+## Tests (engine/attachtext-6098.test.js, 54 in all; the per-iteration additions are listed at the end. Earlier: three added in iteration 3 (the text cap alone, an ASCII85+Flate chain with
 WinAnsi punctuation, the date check on a 200K unclosed format) and the packed-object arm rewritten so it can fail; five added in iteration 2: a 100k-space line, falling ObjStm offsets, a sheet
 listed 300 times with 300 columns, the worker timeout through render, docx list/text-box/damaged)
 The first 12 (xlsx, docx, simple and modern PDFs, encrypted, no text, end to end through render and wireNote, a text file
@@ -102,4 +107,4 @@ empty paragraphs, tables with no paragraphs between); nested table, text box and
 in every cell (capped, quick, says so); PDF digit runs, CMap brackets and repeated full ranges (bounded); a content
 stream shared by many pages (charged each time, total capped); a two-digit indirect /Length; a TJ array of 80 items and
 two runs on one line; a 70 MB Flate image before the text; a damaged document worded as a document. Meta: engine.reachable
-excuses setPdfkit and pdfText as test seams. Neighbours and meta: 161/161 at iteration 8 (attach, orgchartfile, engine.reachable, fixture-discipline, 1732); full validation before the PR. Tests: 50 (iteration 10 added right-to-left text and presentation forms; iteration 9 added style-change blocks, Td cells, inline images, Kangxi; iteration 8 added a no-/Widths standard font and the shared width budget; iteration 7 added glyph-at-a-time words, kerned chunks, Type3 FontMatrix, Type0 /W, symbolic fonts, notes; iteration 6 added an unused mapless font, mixed Latin and mapless text, and PDFKit locked; iteration 5 added CJK no-map and encrypted-through-PDFKit). Iteration 4 added two arms (MacRoman asks PDFKit; [Red] is not a date).
+excuses setPdfkit and pdfText as test seams. Neighbours and meta: 161/161 at iteration 8 (attach, orgchartfile, engine.reachable, fixture-discipline, 1732); full validation before the PR. Tests: 54 (iteration 11 added a sheet over the part limit, the number-format note, ligatures, the cap note once; iteration 10 added right-to-left text and presentation forms; iteration 9 added style-change blocks, Td cells, inline images, Kangxi; iteration 8 added a no-/Widths standard font and the shared width budget; iteration 7 added glyph-at-a-time words, kerned chunks, Type3 FontMatrix, Type0 /W, symbolic fonts, notes; iteration 6 added an unused mapless font, mixed Latin and mapless text, and PDFKit locked; iteration 5 added CJK no-map and encrypted-through-PDFKit). Iteration 4 added two arms (MacRoman asks PDFKit; [Red] is not a date).
