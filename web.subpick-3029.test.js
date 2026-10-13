@@ -71,4 +71,6 @@ test('pjChainOption words an option own name first, so a closed select cut short
   assert.equal(F.pjChainOption(['Book A', 'Launch', 'Ads']), 'Ads, in Book A › Launch');
   assert.equal(F.pjChainOption(['Book A']), 'Book A');
   assert.equal(F.pjChainOption([]), '');
+  assert.equal(F.pjChainOption(['Book A', 'Launch', 'Ads'], ' (3)'), 'Ads (3), in Book A › Launch', 'the count belongs to the own name');
+  assert.equal(F.pjChainOption(['Solo'], ' (2)'), 'Solo (2)');
 });

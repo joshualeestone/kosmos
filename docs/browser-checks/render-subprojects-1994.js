@@ -533,13 +533,13 @@ const FIT_DIALOG_PICKER = (which) => {
       return { create, settings, pick, tasksSel, heads, crumb, title, backLabel, archivedParent, rowProjects, found, rowLabels, doorCrumb };
     });
     // Pickers order by chain and word each option own name first (pjChainOption), so a cut-short closed select still names it.
-    const asOption = (chain) => { const n = chain.split(' › '); return n.length < 2 ? n[0] : n[n.length - 1] + ', in ' + n.slice(0, -1).join(' › '); };
-    const order = ['Alpha', 'Alpha › Sub', 'Alpha - old', 'Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B', 'Book B › Launch'].map(asOption);
+    const asOption = (chain, after) => { const n = chain.split(' › '); const own = n[n.length - 1] + (after || ''); return n.length < 2 ? own : own + ', in ' + n.slice(0, -1).join(' › '); };
+    const order = ['Alpha', 'Alpha › Sub', 'Alpha - old', 'Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B', 'Book B › Launch'].map((c) => asOption(c));
     ok(t + ' #3029 create parent picker: named by chain, each subproject after its parent', JSON.stringify(chains.create.slice(1)) === JSON.stringify(order), JSON.stringify(chains.create));
     ok(t + ' #3029 settings parent picker: the same, minus the project itself', JSON.stringify(chains.settings.slice(1)) === JSON.stringify(order.filter((x) => x !== 'Alpha - old')), JSON.stringify(chains.settings));
     ok(t + ' #3029 New task project picker: the same chains and order', JSON.stringify(chains.pick) === JSON.stringify(order), JSON.stringify(chains.pick));
     ok(t + ' #3029 Tasks Project: dropdown: the two Launches are told apart, in chain order',
-      JSON.stringify(chains.tasksSel.slice(1).map((s) => s.replace(/ \(\d+\)$/, ''))) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch'].map(asOption)), JSON.stringify(chains.tasksSel));
+      JSON.stringify(chains.tasksSel.slice(1)) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch'].map((c) => asOption(c, ' (1)'))), JSON.stringify(chains.tasksSel));
     ok(t + ' #3029 Tasks Group by: Project headings are named and ordered by chain',
       JSON.stringify(chains.heads) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.heads));
     ok(t + ' #3029 Tasks crumb names the picked subproject by its chain', /All tasks › Book A › Launch › Ads/.test(chains.crumb), JSON.stringify(chains.crumb));
@@ -570,7 +570,7 @@ const FIT_DIALOG_PICKER = (which) => {
   // #3029 in WebKit, the Mac app's engine: Chromium alone passed while WebKit scrolled the page sideways by 140 px.
   let wk = null;
   // The Mac app renders in WebKit, so WebKit is not optional here (as render-computers-4648): a launch failure is a failure.
-  try { wk = await webkit.launch(); } catch (e) { problems.push('[webkit] #3029 could not launch WebKit, so the long-chain fit is NOT CHECKED: ' + String(e.message || e).split('\n')[0]); }
+  try { wk = await webkit.launch({ headless: process.env.HEADED === '0' }); } catch (e) { problems.push('[webkit] #3029 could not launch WebKit, so the long-chain fit is NOT CHECKED: ' + String(e.message || e).split('\n')[0]); }
   if (wk) {
     const wp = await wk.newPage({ viewport: { width: 390, height: 844 } });
     await wp.goto(PAGE);
@@ -579,7 +579,12 @@ const FIT_DIALOG_PICKER = (which) => {
     ok('[webkit 390] #3029 a very long chain, picked, never widens the page', wfit.shown && wfit.selRight <= wfit.inner && wfit.docW <= wfit.inner, JSON.stringify(wfit));
     // The three dialog pickers carry the same long options; measured inside the window today, guarded so a CSS change cannot undo it.
     for (const which of ['create', 'settings', 'newtask']) {
-      const d = await wp.evaluate(FIT_DIALOG_PICKER, which);
+      // A fresh page per picker, so one picker's overflow can never be blamed on the next.
+      const dp = await wk.newPage({ viewport: { width: 390, height: 844 } });
+      await dp.goto(PAGE);
+      await dp.waitForFunction(() => typeof openAddProject === 'function');
+      const d = await dp.evaluate(FIT_DIALOG_PICKER, which);
+      await dp.close();
       ok('[webkit 390] #3029 the ' + which + ' picker with a long chain picked never widens the page', d.shown && d.selRight <= d.inner && d.docW <= d.inner, JSON.stringify(d));
     }
     await wk.close();

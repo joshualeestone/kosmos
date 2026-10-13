@@ -60642,10 +60642,12 @@ function pjChainText(names) {
 function pjChainSpoken(names) {
   return names.join(', ');   // #3029: the chain in aria-labels
 }
-function pjChainOption(names) {
+function pjChainOption(names, after) {
   /* #3029: an option's words. Its own name first, so a closed select cut short on a phone still says which
-     project is picked: "Launch, in Book A". A top-level project is its bare name. */
-  return names.length < 2 ? (names[0] || '') : names[names.length - 1] + ', in ' + pjChainText(names.slice(0, -1));
+     project is picked: "Launch, in Book A". A top-level project is its bare name. `after` (the Tasks open count)
+     sits right after the own name it belongs to: "Ads (3), in Book A › Launch". */
+  const own = (names.length ? names[names.length - 1] : '') + (after || '');
+  return names.length < 2 ? own : own + ', in ' + pjChainText(names.slice(0, -1));
 }
 function pjSortByChain(list) {
   const chain = new Map(list.map((p) => [p, pjChainOf(p)]));   // each chain built once, not per comparison
@@ -61812,7 +61814,7 @@ function tskPaint() {
   if (sel) {
     /* Mona's design review: a count here sat under "N open tasks across M projects" and read as a number
        of projects. The count stays on each project's own option. */
-    tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(pjChainOption(p.chain)) + ' (' + p.open + ')</option>').join(''), TSK.proj || '');
+    tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(pjChainOption(p.chain, ' (' + p.open + ')')) + '</option>').join(''), TSK.proj || '');
   }
   const picked = TSK.proj ? projMap.get(TSK.proj) : null;
   /* #5072: the separator and Open project are one unit, so the phone rule can put Open project on its own line and
