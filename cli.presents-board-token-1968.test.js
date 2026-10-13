@@ -18,6 +18,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { eventually } = require('./test-support/eventually');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
@@ -100,9 +101,8 @@ async function drive(port, seen, which, extraEnv) {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA4796, KOSMOS_PORT: String(port), ...extraEnv };
   const args = which === 'report' ? ['report', 'started'] : ['reply', 'on it'];
   await runCli(args, env);
-  for (let i = 0; i < 100 && seen[which].length === before; i += 1) {
-    await new Promise((r) => setTimeout(r, 50));
-  }
+  // #5727: load-aware poll, was a count-based for-tick loop (positive wait); .catch keeps the old no-throw behaviour so the assertion below stays the failure check.
+  await eventually(() => seen[which].length !== before, (v) => v, { timeoutMs: 5000, stepMs: 50 }).catch(() => {});
   assert.equal(seen[which].length, before + 1, `${which} did not reach the route at all, so the header cannot be judged`);
   return seen[which][before];
 }

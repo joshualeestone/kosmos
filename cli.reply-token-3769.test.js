@@ -12,6 +12,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { eventually } = require('./test-support/eventually');
 const fs = require('node:fs');
 const os = require('node:os');
 const http = require('node:http');
@@ -50,7 +51,8 @@ const reply = async (port, token, seen) => {
   if (token === null) delete env.KOSMOS_AGENT_TOKEN;
   else env.KOSMOS_AGENT_TOKEN = token;
   try { await run(CLI, ['reply', 'hello from the guide'], { env, timeout: 15000 }); } catch { /* the exit code is not what this asserts */ }
-  for (let i = 0; i < 100 && seen.length === before; i += 1) await new Promise((r) => setTimeout(r, 50));
+  // #5727: load-aware poll, was a count-based for-tick loop (positive wait); .catch keeps the old no-throw behaviour so the assertion below stays the failure check.
+  await eventually(() => seen.length !== before, (v) => v, { timeoutMs: 5000, stepMs: 50 }).catch(() => {});
   assert.equal(seen.length, before + 1, 'the CLI did not reply at all, so the header cannot be judged');
   return seen[seen.length - 1];
 };
