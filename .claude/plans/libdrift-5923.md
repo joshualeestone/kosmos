@@ -33,7 +33,13 @@ ps pipeline keeps this script's argv, so without the ppid exclusion every real r
 (challenge iteration 1; caught only once a test arm used the real ps).
 
 Residuals, stated:
-- A copy of the script older than #5923 takes no lib lock, so one that STARTS during a move is not held off by it.
+- A copy of the script older than #5923 takes no lib lock, so one that STARTS during a move is not held off by it,
+  and the QH_NEED_BASE check covers only this copy and the installed one: an older copy run from another worktree
+  that calls a function a move dropped would exit 3 (iteration 18).
+- The files compared are a hand-kept list (cut-guard.sh and what it sources, process-fixture.sh); a third sourced
+  file would read as "match" until added (iteration 18, noted at `files=`).
+- git is held inside the lib folder (GIT_CEILING_DIRECTORIES, and no check at all without its own .git), so a lib that
+  lost its .git is never read, or moved, as an enclosing repo (iteration 18; arm "nogit").
 - Merging changes only the repo copy. The installed copy (~/.cache/claude-handoffs/queued-heavy.sh, what agents run)
   is installed by hand, written beside and moved over; April installs it after merge as part of this card.
 - The lock's dead-holder takeover is check-then-act, as _qh_take's is: two joiners reading the same dead pid can
