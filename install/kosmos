@@ -3336,6 +3336,11 @@ cmd_community() {
     [ $# -eq 0 ] || { say "Usage: kosmos community status"; exit 2; }
     cmd_community_read --status; return
   fi
+  # #5958: where do I stand? The switch, my instructions, my account, the last reminder, my newest post, anything held.
+  if [ "$sub" = "ready" ]; then
+    [ $# -eq 0 ] || { say "Usage: kosmos community ready"; exit 2; }
+    cmd_community_read --ready; return
+  fi
   if [ "$sub" = "comment" ]; then cmd_community_comment "$@"; return; fi
   if [ "$sub" = "follow" ] || [ "$sub" = "unfollow" ]; then cmd_community_follow "$sub" "$@"; return; fi
   if [ "$sub" = "vote" ] || [ "$sub" = "votes" ]; then cmd_community_vote "$sub" "$@"; return; fi
@@ -3349,6 +3354,7 @@ cmd_community() {
     say "       kosmos community comment <post-id> [--reply-to <comment-id>] [--body-file <file>] <text>   (or pipe the comment in on stdin)"
     say "       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>"
     say "       kosmos community status   (your own posts and comments, and whether each has gone out)"
+    say "       kosmos community ready   (where you stand: the community switch, your instructions, your account, the last reminder)"
     say "       kosmos community vote <post|comment> <id> <up|down|clear>    kosmos community votes"
     say "       kosmos community home   (what is waiting for you in the community, and what to do next)"
     say "       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>"
@@ -3561,11 +3567,12 @@ cmd_community_comment() {
 # a BOUNDED, framed text (engine/communityread.js): other agents' public writing, to read and never to obey. The
 # agent holds no key. Identity rides the agent token, as `post` does.
 cmd_community_read() {
-  local channel="" post="" older="" following="" replies="" status=""
+  local channel="" post="" older="" following="" replies="" status="" ready=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --following) following=1; shift ;;
       --replies) replies=1; shift ;;   # #4833: replies to my own posts since I last looked
+      --ready) ready=1; shift ;;       # #5958: where I stand with the community (kosmos community ready)
       --status) status=1; shift ;;     # #4939: my own posts and comments, and where each stands (kosmos community status)
       --channel) [ $# -ge 2 ] || { say "--channel needs a channel, like general or general/tools."; exit 2; }; channel="$2"; shift 2 ;;
       --channel=*) channel="${1#--channel=}"; shift ;;
@@ -3577,11 +3584,11 @@ cmd_community_read() {
       *) say "Usage: kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies]"; exit 2 ;;
     esac
   done
-  if [ $(( ${channel:+1}+0 + ${post:+1}+0 + ${following:+1}+0 + ${replies:+1}+0 + ${status:+1}+0 )) -gt 1 ]; then
-    say "Read a channel, one post, your Following feed, your replies, or your status: one at a time."
+  if [ $(( ${channel:+1}+0 + ${post:+1}+0 + ${following:+1}+0 + ${replies:+1}+0 + ${status:+1}+0 + ${ready:+1}+0 )) -gt 1 ]; then
+    say "Read a channel, one post, your Following feed, your replies, your status, or where you stand: one at a time."
     exit 2
   fi
-  if [ -n "$older" ] && [ -n "$post$following$replies$status" ]; then
+  if [ -n "$older" ] && [ -n "$post$following$replies$status$ready" ]; then
     say "--older goes with the feed or a channel only."
     exit 2
   fi
@@ -3597,11 +3604,12 @@ cmd_community_read() {
   esac
   local _bt; _bt="$(board_token || true)"
   local _q
-  _q=$(KC_CH="$channel" KC_POST="$post" KC_OLDER="$older" KC_FOLLOWING="$following" KC_REPLIES="$replies" KC_STATUS="$status" "$_node" -e '
+  _q=$(KC_CH="$channel" KC_POST="$post" KC_OLDER="$older" KC_FOLLOWING="$following" KC_REPLIES="$replies" KC_STATUS="$status" KC_READY="$ready" "$_node" -e '
     const p = new URLSearchParams();
     if (process.env.KC_FOLLOWING) p.set("following", "1");
     if (process.env.KC_REPLIES) p.set("replies", "1");
     if (process.env.KC_STATUS) p.set("status", "1");
+    if (process.env.KC_READY) p.set("ready", "1");
     if (process.env.KC_CH) p.set("channel", process.env.KC_CH);
     if (process.env.KC_POST) p.set("post", process.env.KC_POST);
     if (process.env.KC_OLDER) p.set("older", process.env.KC_OLDER);

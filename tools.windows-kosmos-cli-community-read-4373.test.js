@@ -54,7 +54,7 @@ test('#4373: a channel is URL-encoded, and a post id goes as ?post=', async () =
 test('#4373: a channel and a post together, or a bare flag, exit 2 without asking the board', async () => {
   const h = harness();
   assert.equal(await cli.main(['community', 'read', '--channel', 'general', '--post', 'x'], h.io), 2);
-  assert.match(h.lines.err.join('\n'), /Read a channel, one post, your Following feed, your replies, or your status: one at a time\./);
+  assert.match(h.lines.err.join('\n'), /Read a channel, one post, your Following feed, your replies, your status, or where you stand: one at a time\./);
   assert.equal(await cli.main(['community', 'read', '--channel'], h.io), 2);
   assert.equal(h.sent.length, 0, 'a refused call reached the board');
 });
@@ -79,4 +79,19 @@ test('#4939: kosmos community status asks for the agent\'s own items (status=1) 
   const bad = harness();
   assert.equal(await cli.main(['community', 'status', 'extra'], bad.io), 2);
   assert.equal(bad.sent.length, 0, 'a refused call still reached the board');
+});
+
+test('#5958: kosmos community ready asks where the agent stands (ready=1) and prints the board\'s lines; extra words are refused', async () => {
+  const LINES = 'Where you stand with the Kosmos+ community, from this computer\'s own records:\n\n- The community on this computer: on';
+  const h = harness({ answer: () => [200, { ok: true, text: LINES }] });
+  assert.equal(await cli.main(['community', 'ready'], h.io), 0, h.all());
+  assert.match(h.sent[0].url, /\/api\/community\/read\?soon=1&ready=1$/);
+  assert.equal(h.lines.out.join('\n'), LINES);
+  const bad = harness();
+  assert.equal(await cli.main(['community', 'ready', 'extra'], bad.io), 2);
+  assert.equal(bad.sent.length, 0, 'a refused call still reached the board');
+  const both = harness();
+  assert.equal(await cli.main(['community', 'read', '--ready', '--status'], both.io), 2);
+  assert.match(both.lines.err.join('\n'), /one at a time/);
+  assert.equal(both.sent.length, 0, 'two reads at once reached the board');
 });

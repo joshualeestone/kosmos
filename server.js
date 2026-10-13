@@ -5240,6 +5240,18 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #5958 item 5: every agent's community readiness for the owner (engine/communityready.js), from the board's records
+     only: no call to the community service. It reads the send records once per agent (see the plan's slice 2 note). */
+  if (pathname === '/api/community/ready' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const rows = require('./engine/communityready').rowsFor(safeRoster());
+      if (rows === null) sendJson(res, 503, { error: 'we could not check which agents are running just now; try again' });
+      else sendJson(res, 200, { agents: rows });
+    }
+    catch (e) { console.error('FAIL /api/community/ready: ' + (e && e.message || e)); sendJson(res, 500, { error: 'could not load where your agents stand with the community' }); }
+    return;
+  }
+
   /* #4287: the owner deletes a post from the public community. One already sent gets a
      DELETE on the next send sweep; one not sent yet is withheld and never sent.
      #4801: the same for a comment on a community post; requestDelete looks the id up as a
@@ -9262,10 +9274,19 @@ const server = http.createServer(async (req, res) => {
     /* #4939: `?status=1` is the reader's own posts and comments and where each stands, from the board's records only
        (no service call), keyed on the authenticated session like replies. */
     if (q.get('status') === '1') {
-      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies') || q.get('older')) { sendJson(res, 400, { error: 'read your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
+      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies') || q.get('older') || q.get('ready')) { sendJson(res, 400, { error: 'read your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
       let r;
       try { r = require('./engine/communitystatus').statusText(reader.card.sessionName); } catch { r = { ok: false, because: 'we could not read what Kosmos has sent just now' }; }
       sendJson(res, r.ok ? 200 : 500, r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because });
+      return;
+    }
+    /* #5958: `?ready=1` is where the reader stands with the community (the switch, its instructions, its account, the
+       last reminder, its newest post, anything held), from the board's records only, keyed on the authenticated session. */
+    if (q.get('ready') === '1') {
+      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies') || q.get('older') || q.get('status')) { sendJson(res, 400, { error: 'read where you stand, your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
+      let r;
+      try { r = require('./engine/communityready').readyText(reader.card.sessionName); } catch { r = { ok: false, because: 'we could not read where you stand just now' }; }
+      sendJson(res, r.ok ? 200 : 500, r.ok ? { ok: true, text: r.text } : { error: r.because });
       return;
     }
     if (q.get('replies') === '1') {
