@@ -207,3 +207,22 @@ test('#5959: board.log is used only when every stream named goes to it', () => {
     } finally { fs.closeSync(out); fs.closeSync(err); fs.closeSync(away); }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('#5959: a private key logged across lines is taken out whole, and the lines around it are kept', () => {
+  const { maskKeyBlocks, MASKED_BLOCK } = require('./diagnostics');
+  const body = 'MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7';
+  const lines = ['before', 'got -----BEGIN PRIVATE KEY-----', body, body, '-----END PRIVATE KEY-----', 'after',
+    '-----BEGIN RSA PRIVATE KEY----- one line -----END RSA PRIVATE KEY-----', 'kept'];
+  const out = maskKeyBlocks(lines.map((line) => ({ at: null, stream: null, line }))).map((e) => e.line);
+  assert.deepEqual(out, ['before', MASKED_BLOCK, MASKED_BLOCK, MASKED_BLOCK, MASKED_BLOCK, 'after', MASKED_BLOCK, 'kept']);
+  const file = build({ cards: CARDS, fileLines: ['rick: -----BEGIN PRIVATE KEY-----', body, '-----END PRIVATE KEY-----'], redactor: makeRedactor(WHO) });
+  assert.ok(!JSON.stringify(file).includes(body), 'the key body is not in the file');
+});
+
+test('#5959: an agent\'s own lines are cut shorter than the tail\'s', () => {
+  const { AGENT_LINE_CHARS } = require('./diagnostics');
+  const long = 'rick ' + 'z'.repeat(1500);
+  const file = build({ cards: CARDS, ringLines: [{ at: 't', stream: 'stdout', line: long }], redactor: makeRedactor(WHO) });
+  assert.equal(file.agents[0].logLines[0].line.length, AGENT_LINE_CHARS);
+  assert.equal(file.log.tail[0].line.length, long.length, 'CONTROL: the tail keeps the line');
+});

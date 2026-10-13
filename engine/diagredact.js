@@ -4,7 +4,8 @@
 
    One function for every string in the file, in this order:
    1. secretmask.mask, the backup scan's redactor (keys, tokens, an env line's value);
-   2. the home folder, as `~`, with any separator and in any case;
+   2. the home folder, as `~`, with any separator and in any case, and any other account's folder name under Users or
+      home, as [user];
    3. email addresses, as [email];
    4. this computer's user name and host name (long and short forms), as [user] and [computer], matched whole
       (not inside a longer name) and in any case. A generic host name (localhost) is not replaced.
@@ -17,6 +18,9 @@ const MIN_NAME_CHARS = 3;
 // The last label is letters, as a real domain's is: a package's `name@1.2.3` is not an address.
 // Bounded parts (an address's own limits), so a long run of name characters with no @ cannot make it slow.
 const EMAIL = /[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9-]{1,63}\.){1,8}[A-Za-z]{2,24}(?![A-Za-z0-9-])/g;
+// A user folder in any account's path: /Users/x, /home/x, C:\Users\x (any separator, any case). A name with spaces
+// ("Cy Doe") is taken whole when a separator follows it; a bare /Users/x at the end of a phrase stops at the space.
+const OTHER_HOMES = /((?:^|[^A-Za-z0-9_.-])(?:[A-Za-z]:)?(?:\\\\|\\|\/)(?:Users|home)(?:\\\\|\\|\/))(?!\[user\])(?:[^\\\/\s'"`<>:|*?]+(?: [^\\\/\s'"`<>:|*?]+)*(?=\\|\/)|[^\\\/\s'"`<>:|*?]+)/gi;
 // Host names every computer can have, which name no one: replacing them would only damage lines like a localhost URL.
 const GENERIC_HOSTS = new Set(['localhost', 'localhost.localdomain']);
 
@@ -56,6 +60,8 @@ function makeRedactor(who) {
     if (typeof text !== 'string' || !text) return text;
     let out = secretmask.mask(text).text;
     if (homeRe) out = out.replace(homeRe, '~');
+    // Any other account's folder too (a shared computer): the folder name under Users or home names a person.
+    out = out.replace(OTHER_HOMES, (m, lead) => lead + '[user]');
     out = out.replace(EMAIL, '[email]');
     for (const [re, word] of names) out = out.replace(re, word);
     return out;

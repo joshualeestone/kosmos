@@ -22,6 +22,28 @@ function namesAgent(line, names) {
   return names.some((n) => (n instanceof RegExp ? n : namePattern(n)).test(line));
 }
 
+const AGENT_LINE_CHARS = 500;
+const MASKED_BLOCK = '[a private key, taken out]';
+const BLOCK_BEGIN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/;
+const BLOCK_END = /-----END [A-Z0-9 ]*PRIVATE KEY-----/;
+
+/* A private key logged across lines is taken out whole: the line that begins it, every line after, and the line that
+   ends it. The redactor sees one line at a time and would mask only the BEGIN line. An unended block runs to the end. */
+function maskKeyBlocks(entries) {
+  let inside = false;
+  return entries.map((e) => {
+    if (!inside && BLOCK_BEGIN.test(e.line)) {
+      inside = !BLOCK_END.test(e.line.slice(e.line.search(BLOCK_BEGIN)));
+      return { ...e, line: MASKED_BLOCK };
+    }
+    if (inside) {
+      if (BLOCK_END.test(e.line)) inside = false;
+      return { ...e, line: MASKED_BLOCK };
+    }
+    return e;
+  });
+}
+
 function reportOf(readReport, sessionName) {
   try {
     const rep = readReport(sessionName);
@@ -56,9 +78,9 @@ function build(inputs) {
   const fileLines = Array.isArray(i.fileLines) ? i.fileLines : null;
   /* One source, oldest first: board.log when the board could read it (it already holds every line the ring does, and
      the lines from before the last restart), otherwise the ring (Windows, a pipe), which starts at this board's start. */
-  const all = fileLines
+  const all = maskKeyBlocks(fileLines
     ? fileLines.map((line) => ({ at: null, stream: null, line }))   // one shape either way; board.log lines carry their own stamp
-    : ring.map((e) => ({ at: e.at || null, stream: e.stream || null, line: e.line }));
+    : ring.map((e) => ({ at: e.at || null, stream: e.stream || null, line: e.line })));
   const agents = cards.filter((c) => c && c.sessionName).map((c) => {
     const names = [...new Set([c.sessionName, c.name].filter((n) => typeof n === 'string' && n.length >= 2))].map(namePattern);
     return {
@@ -69,7 +91,9 @@ function build(inputs) {
       report: reportOf(i.readReport || (() => null), c.sessionName),
       crashLoop: c.crashLoop || null,
       account: accountOf(i.accountProblemOf || (() => null), c),
-      logLines: all.filter((e) => namesAgent(e.line, names)).slice(-AGENT_LOG_LINES),
+      // Cut shorter than the tail's lines, so a large fleet's file stays small (the full line is in the tail when recent).
+      logLines: all.filter((e) => namesAgent(e.line, names)).slice(-AGENT_LOG_LINES)
+        .map((e) => (e.line.length > AGENT_LINE_CHARS ? { ...e, line: e.line.slice(0, AGENT_LINE_CHARS) } : e)),
     };
   });
   const out = {
@@ -121,4 +145,4 @@ function readBoardLog(logPath, outFd, max, why) {
   finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
 
-module.exports = { build, namesAgent, readBoardLog, FILE_VERSION, AGENT_LOG_LINES, LOG_TAIL_LINES, READ_TAIL_BYTES, SEARCH_LINES: MAX_LINES };
+module.exports = { build, namesAgent, readBoardLog, maskKeyBlocks, MASKED_BLOCK, AGENT_LINE_CHARS, FILE_VERSION, AGENT_LOG_LINES, LOG_TAIL_LINES, READ_TAIL_BYTES, SEARCH_LINES: MAX_LINES };

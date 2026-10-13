@@ -40,7 +40,7 @@ test('#5959: a name too short to replace safely is left alone', () => {
 
 test('#5959: the home folder is replaced only as a whole folder, and a Windows one too', () => {
   const { redactText } = makeRedactor({ home: '/Users/pat', user: 'zzz', host: 'zzz' });
-  assert.equal(redactText('/Users/pat/x and /Users/patricia/y'), '~/x and /Users/patricia/y');
+  assert.equal(redactText('/Users/pat/x and /Users/patricia/y'), '~/x and /Users/[user]/y', 'patricia is not the home folder (it is another account\'s, so [user])');
   const win = makeRedactor({ home: 'C:\\Users\\pat', user: 'zzz', host: 'zzz' });
   assert.equal(win.redactText('C:\\Users\\pat\\AppData'), '~\\AppData');
 });
@@ -85,5 +85,12 @@ test('#5959: a Windows home folder is replaced however a line spells it, and a f
   assert.ok(!/pat smith/i.test(out), out);
   assert.equal(out, '~/doc, ~\\\\doc, ~\\x, and [user] said');
   const mac = makeRedactor({ home: '/Users/pat', user: 'pat', host: 'zzz' });
-  assert.equal(mac.redactText('/users/PAT/y and /Users/patricia/z'), '~/y and /Users/patricia/z', 'any case, whole folder only');
+  assert.equal(mac.redactText('/users/PAT/y and /Users/patricia/z'), '~/y and /Users/[user]/z', 'any case; patricia is another account, not ~');
+});
+
+test('#5959: another account\'s user folder is taken out too, a name with spaces whole', () => {
+  const { redactText } = makeRedactor({ home: '/Users/pat', user: 'pat', host: 'zzz' });
+  const line = '/Users/ann/y /home/bob/z C:\\Users\\Cy Doe\\w C:/Users/Cy Doe/q /Users/ann said hi';
+  for (const n of ['ann', 'bob', 'Cy Doe']) assert.ok(line.includes(n), 'CONTROL: ' + n + ' is in the line');
+  assert.equal(redactText(line), '/Users/[user]/y /home/[user]/z C:\\Users\\[user]\\w C:/Users/[user]/q /Users/[user] said hi');
 });
