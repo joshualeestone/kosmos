@@ -106,3 +106,19 @@ test('a jq that fails on the signature sends nothing, rather than the one hash o
   const r = run(fail('Bash', { command: 'x' }, 'e'), { PATH: bin + ':' + process.env.PATH }, 0);
   assert.deepEqual(r.failed, []);
 });
+
+test('both hooks send the prompt sentence engine/toolloop.js reads as a new turn (PROMPT_TEXT)', () => {
+  const toolloop = require('./engine/toolloop');
+  fs.writeFileSync(LOG, '');
+  const r = cp.spawnSync('bash', [HOOK], { input: JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: 's', cwd: '/w' }),
+    encoding: 'utf8', timeout: 20000, env: { ...process.env, KOSMOS_REPORT_CLI: CLI, TMPDIR: SB, KOSMOS_KILL_GUARD: 'off' } });
+  assert.equal(r.status, 0);
+  let line = '';
+  for (let i = 0; i < 100 && !line; i++) { line = fs.readFileSync(LOG, 'utf8').split('\n').find((l) => l.startsWith('report|')) || ''; if (!line) sleepMs(50); }
+  const words = line.split('|').slice(1).filter((w) => w && !w.startsWith('STDIN='));
+  assert.equal(words[0], 'working');
+  assert.equal(words.filter((w) => w !== '--auto').slice(1).join(' '), toolloop.PROMPT_TEXT, 'the Mac hook: ' + line);
+  const win = require('./engine/kosmos-report-hook').reportFor({ hook_event_name: 'UserPromptSubmit' });
+  assert.equal(win.state, 'working');
+  assert.equal(win.text, toolloop.PROMPT_TEXT, 'the Windows hook');
+});

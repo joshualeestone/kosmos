@@ -119,7 +119,8 @@ function noteFailure(key, failure, opts) {
 
 /*
  * A turn (or session) ended for an agent: the next failure starts a new run. Called by POST /api/report for an
- * automatic idle, stopped or started. Writes only when there is a run not already marked. Never throws.
+ * automatic report that endsTurn: an idle, stopped or started, or the next prompt. Writes only when there is a run
+ * not already marked. Never throws.
  */
 function noteTurnEnd(key, opts) {
   const now = opts && Number.isFinite(opts.now) ? opts.now : Date.now();
