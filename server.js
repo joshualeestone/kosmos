@@ -19288,10 +19288,12 @@ const server = http.createServer(async (req, res) => {
         /* #4926: an agent that read the room with its own token has now SEEN these posts, so none of them is still held
            for it: otherwise its next idle line tells it again about a thread it read and answered (Josh's 0.7.46 report,
            a Grok seat). Only on a GET by an agent identified by its own token (KOSMOS_AGENT_TOKEN; `kosmos room` sends it
-           when the agent has one, and a caller without one is not reached); only the posts this read showed. Every
-           failure errs toward telling again, never toward losing a post: a write that fails leaves them held, and a read
-           during an in-flight delivery (roomhold.take has cleared the ids, messages.js may restore them if the typing
-           fails) drops nothing, so a restore can still name a post this read showed. */
+           when the agent has one, and a caller without one is not reached); only the posts this read showed. A write that
+           fails leaves them held, and a read during an in-flight delivery (roomhold.take has cleared the ids, messages.js
+           may restore them if the typing fails) drops nothing, so a restore can still name a post this read showed. One
+           case goes the other way (review 3): the drop happens before the response is sent, so a read whose response
+           never reaches the agent (a reset, curl's -m 15) has cleared them unseen. The posts are still in the room; only
+           the idle reminder is missed. Moving it to 'finish' would not fix that (it means handed to the OS, not read). */
         if (req.method === 'GET') {
           try {
             const reader = senderFromAgentToken(req, null, safeRoster());
