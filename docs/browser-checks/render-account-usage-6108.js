@@ -160,7 +160,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         if (ps) { ps.value = '/home/.claude-spare'; ps.dispatchEvent(new Event('change')); }
         await paintAccounts();
         const pb2 = box('busy@example.com');
-        const pickKept = !!pb2 && pb2.querySelector('[data-acct-move-to]').value === '/home/.claude-spare' && !pb2.querySelector('[data-acct-move]').disabled;
+        const pb2s = pb2 && pb2.querySelector('[data-acct-move-to]'), pb2b = pb2 && pb2.querySelector('[data-acct-move]');   // absent when the page drew no agents (e.g. it stopped asking ?agents=1)
+        const pickKept = !!pb2s && !!pb2b && pb2s.value === '/home/.claude-spare' && !pb2b.disabled;
         const moved = await runMove('busy@example.com', '/home/.claude-spare', 2);
         if (moved) { moved.msg = msgOf('/home/.claude-busy');   // read AFTER the list repainted with the agents gone
           const ps = document.getElementById('set-accounts-msg'); moved.spoken = ps ? { text: ps.textContent.trim(), role: ps.getAttribute('role') } : null;   // the panel's persistent status line

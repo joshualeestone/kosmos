@@ -27098,12 +27098,15 @@ const ACCT_MOVE = new Map();
 const ACCT_MOVE_SHOW_MS = 2 * 60e3;   // a finished move's sentence stays two minutes, then the row is plain again
 const ACCT_PICK = new Map();          // the target picked in a row's menu, so a poll's repaint does not undo a half-made choice
 function acctUsageHtml(a, list) {
-  if (!a || a.provider !== 'anthropic' || !a.agentsHere) return '';   // an older board sends no agentsHere: show nothing
+  /* An older board sends neither field: show nothing. The meter needs only the weekly fields (always sent on a Claude
+     row); the agents line and the move need agentsHere, which comes only when the page asks (?agents=1). */
+  if (!a || a.provider !== 'anthropic' || (!('weeklyBlocked' in a) && !a.agentsHere)) return '';
+  const here = a.agentsHere && Array.isArray(a.agentsHere.names) ? a.agentsHere : null;
   const w = a.weekly && Number.isFinite(a.weekly.usedPct) ? a.weekly : null;
   /* The setup guide is left out, as everywhere the page lists or counts agents (#3739); it is not moved either. The
      warning, the agents line and the move all count this one list, so they cannot disagree. */
   const known = new Map((Array.isArray(LAST) ? LAST : []).filter((x) => x && x.sessionName).map((x) => [x.sessionName, x]));
-  const sessions = a.agentsHere.names.filter((n) => !(known.get(n) && known.get(n).isGuide));
+  const sessions = (here ? here.names : []).filter((n) => !(known.get(n) && known.get(n).isGuide));
   const names = sessions.map((n) => (known.get(n) && known.get(n).name) || n);
   /* Only accounts a move can land on: shared history (as the agent page's picker requires, #1492: an option that
      always fails is worse than none) and not signed out or refused. */
@@ -27136,8 +27139,8 @@ function acctUsageHtml(a, list) {
             : '<p class="acct-usage-line acct-usage-none">No usage reading for this account yet. Kosmos reads it while an agent on it is working.</p>';
     }
   }
-  const short = a.agentsHere.complete ? '' : ' (some could not be checked)';
-  const agentsLine = names.length
+  const short = here && here.complete ? '' : ' (some could not be checked)';
+  const agentsLine = !here ? '' : names.length
     ? '<p class="acct-agents-line">Its agents on this computer: ' + names.map(esc).join(', ') + esc(short) + '</p>'
     : '<p class="acct-agents-line">No agents on it on this computer' + esc(short) + '.</p>';
   let st = ACCT_MOVE.get(a.dir) || null;
@@ -27155,7 +27158,8 @@ function acctUsageHtml(a, list) {
       + '</select><button type="button" data-acct-move="' + esc(a.dir) + '"' + (busy || !picked ? ' disabled' : '') + '>' + (busy ? esc(st.progress || 'Moving…') : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
       + (names.length ? '<p class="acct-move-note">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p>' : '') + '</div>'   // said before the click; a busy row repainted to no agents says nothing
     : '';
-  /* tabindex -1: after a move the button the person pressed is gone, so focus lands here. The sentence is drawn empty
+  /* tabindex -1 so the sentence can be reached; after a move focus goes to the list instead (it would read this a second
+     time over the panel's status line). The sentence is drawn empty
      while a finished move is being announced (the handler writes it a frame later, so the live region hears a change). */
   /* The row shows the sentence; the panel's own status line (#set-accounts-msg, never replaced by a repaint) speaks
      it, because a live region drawn new by each paint may not be announced at all. */
