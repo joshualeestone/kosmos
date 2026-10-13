@@ -39,7 +39,7 @@ test('projectPath: [] at the top, the chain root first below it, two same-named 
 
 test('projectPath: a parent missing from the read gives [] (top level, as the API leaves it); archived parents count; a loop stops', () => {
   const rows = tasks.allTasks([
-    { id: 'o', name: 'Orphan', parent: 'gone', parentName: 'Ghost Parent', tasks: [task(1)] },
+    { id: 'o', name: 'Orphan', parent: 'gone', tasks: [task(1)] },
     { id: 'ar', name: 'Old book', archived: true, tasks: [] },
     { id: 'k', name: 'Kept', parent: 'ar', tasks: [task(1)] },
     { id: 'x', name: 'X', parent: 'y', tasks: [task(1)] },
