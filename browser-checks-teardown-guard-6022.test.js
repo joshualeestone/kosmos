@@ -151,9 +151,20 @@ function nestedFn(blank, from, at) {
   let m;
   while ((m = re.exec(blank)) && m.index < at) {
     let i = m.index + m[0].length;
-    if (m[0] !== '=>') {   // function (...) {: skip the parameters to the body
+    let params = '';
+    if (m[0] !== '=>') {   // function (...) {: the parameters, then the body
+      const p0 = i;
       let d = 1;
       for (; i < blank.length && d > 0; i += 1) { if (blank[i] === '(') d += 1; else if (blank[i] === ')') d -= 1; }
+      params = blank.slice(p0, i - 1);
+    } else {   // an arrow: its (parameters) or single bare parameter, read backwards from the =>
+      let j = m.index - 1;
+      while (j >= 0 && /\s/.test(blank[j])) j -= 1;
+      if (blank[j] === ')') {
+        let d = 1; const close = j;
+        for (j -= 1; j >= 0 && d > 0; j -= 1) { if (blank[j] === ')') d += 1; else if (blank[j] === '(') d -= 1; }
+        params = blank.slice(j + 2, close);
+      } else { const w = /[A-Za-z_$][\w$]*$/.exec(blank.slice(0, j + 1)); params = w ? w[0] : ''; }
     }
     while (i < blank.length && /\s/.test(blank[i])) i += 1;
     let end;
@@ -167,7 +178,7 @@ function nestedFn(blank, from, at) {
         else if ((ch === ',' || ch === ';') && d === 0) { end = j; break; }
       }
     }
-    if (end > at) best = { open: i, end };
+    if (end > at) best = { open: i, end, params };
   }
   return best;
 }
@@ -290,7 +301,7 @@ function scan(raw) {
     const cleared = new Set();
     // The route's name re-bound as a parameter of the nested function (`new Promise((r) => setTimeout(r, 300))` in a
     // handler whose own parameter is r) is not the route (review 5).
-    const rebound = (fn) => fn && new RegExp('(?:^|[(,]\\s*)' + h.param + '\\s*(?:[,)=]|$)').test(src.slice(Math.max(h.body, fn.open - 120), fn.open).replace(/^[^]*?(\([^()]*\)|\w+)\s*=>\s*\{?\s*$/, '$1'));
+    const rebound = (fn) => !!fn && fn.params.split(/[,=]/).map((x) => x.trim().replace(/^\.\.\./, '')).includes(h.param);   // its own parameter list only (review 6)
     for (const at of lateCandidates) {
       const fn = nestedFn(blank, h.body, at);
       if (!fn) continue;
@@ -299,6 +310,7 @@ function scan(raw) {
       if (insideOpenTry(src, fn.open, at) && awaited(src, at)) continue;
       let chainCaught = false;
       for (const cb of src.slice(h.body, at).matchAll(CB)) {
+        if (!/^\.(then|finally|catch)/.test(cb[0])) continue;   // a timer returns no promise: no chain .catch can see it (review 6)
         const open = h.body + cb.index + cb[0].length - 1;
         const close = routeEnd(blank, open - 1);
         if (close <= at) continue;
@@ -431,6 +443,10 @@ test('#6022 fixtures: the rule can fail, and the safe shapes pass (controls)', (
   assert.deepEqual(scan(reboundWait), [], 'a wait whose resolver is also named r does not hand the route away (#6027 review 5)');
   const chainAfterWait = "await page.route('**/x', async (r) => {\n  await gate;\n  other.then(() => r.fulfill({})).catch(() => {});\n});\n";
   assert.deepEqual(scan(chainAfterWait), [], 'an answer returned to a .catch chain after a wait is handled (#6027 review 5)');
+  const fnExprRebind = "await page.route('**/x', async (r) => {\n  await gate;\n  note('a', r);\n  setTimeout(function () { r.fulfill({}); }, 100);\n});\n";
+  assert.ok(scan(fnExprRebind).includes(4), 'a function expression with no r parameter does not re-bind r (#6027 review 6)');
+  const timerChain = "await page.route('**/x', (r) => {\n  setTimeout(() => r.fulfill({}), 10).catch(() => {});\n});\n";
+  assert.deepEqual(scan(timerChain), [2], 'a .catch after a timer catches nothing (#6027 review 6)');
   const fixtureOnly = "await page.route('**/api/x', (r) => r.fulfill({ json: {} }));\nconst x = await window.fetch('/a');\nawait browser.close();\n";
   assert.deepEqual(scan(fixtureOnly), [], 'a fixture-only handler and window.fetch are not flagged');
   const bareParam = "page.route('**/t', async route => {\n  const r = await route.fetch();\n  route.fulfill({ response: r });\n});\n";
