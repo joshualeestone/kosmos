@@ -660,7 +660,7 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     const feedCalls = calls.filter((c) => c.p.startsWith('/agents/me/following/feed'));
     assert.equal(feedCalls.length, 2, JSON.stringify(calls));
     assert.equal(feedCalls[0].waitMs, undefined, 'the first page lost its default wait');
-    assert.equal(feedCalls[1].waitMs, cf.PAGE_WAIT_MS, 'an older page waits as long as the first');
+    assert.equal(feedCalls[1].waitMs, cf.PAGE_WAIT_MS, 'an older page did not ask for the short PAGE_WAIT_MS wait');
     // Review 3: no older page starts once READ_PAGES_MS has passed since the read began.
     cf._setReadPagesMs(0);
     try {
