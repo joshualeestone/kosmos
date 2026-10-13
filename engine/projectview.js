@@ -222,7 +222,9 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
      work: it errs toward stale.
    - The stretch before the member's first report after the summary is counted as work unless an earlier report shows
      what it was doing then; a history cut short (selfreport's bounded tail) that starts after the summary is unknown,
-     and leaves the summary as it was. */
+     and leaves the summary as it was.
+   - Known, as for idleExcused: reports reach the store only while the board runs, so work while it was down reads as
+     whatever the last report said. Unlike idleExcused this also applies to a member working now. */
 function workExcused(summary, member, readHistory, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied) return summary;
@@ -233,7 +235,9 @@ function workExcused(summary, member, readHistory, nowMs) {
   const wroteAt = Date.parse(summary.at);
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   if (!Number.isFinite(wroteAt) || wroteAt > now) return summary;
-  const valid = rows.filter((r) => r && Number.isFinite(r.at) && r.at <= now && typeof r.state === 'string');
+  // Review 1: in time order (stable, so equal times keep file order); a clock stepped back must not shorten the work.
+  const valid = rows.filter((r) => r && Number.isFinite(r.at) && r.at <= now && typeof r.state === 'string')
+    .map((r, i) => ({ r, i })).sort((a, b) => (a.r.at - b.r.at) || (a.i - b.i)).map((x) => x.r);
   if (rows.truncated === true && (!valid.length || valid[0].at > wroteAt)) return summary;
   const busy = (st) => st !== 'idle' && st !== 'started' && st !== 'stopped';
   let state = null;   // what the member was doing at wroteAt: its last report at or before it; none known reads as busy
@@ -288,13 +292,16 @@ function idleNoted(summary, member, readReport, nowMs) {
  * @param {object} p      one element of projects.list(roster)
  * @param {Array} roster  the cards the list was described against (for each member's model)
  * @param {{ now?: number, folderOf?: (sessionName: string) => string|null, readBrief?: (folder: string) => object,
- *   readReport?: (sessionName: string) => object, allProjects?: Array|null }} [o]
+ *   readReport?: (sessionName: string) => object, readHistory?: (sessionName: string) => Array|null,
+ *   allProjects?: Array|null }} [o]
+ *   readHistory: the member's report history (selfreport.history); when readReport is given and this is not, none.
  *   allProjects: every stored project, for the cross-project check (busyElsewhere); null means the store could not be
  *   read (no member reads quiet); omitted, the store is read when a member first needs it.
  * Each member's `summary` is summaryFreshness's answer, or (#4581 N10, idleExcused) a stale one marked
  * { state: 'idle', idleKind: 'idle'|'started', idleSince, idleMinutes } when it was current as the member stopped, or
  * (#4581 R9, quietExcused) { state: 'quiet', quietKind: 'own'|'project', quietSince, quietMinutes } when it was current
- * as its own tasks here, or the project's, ended.
+ * as its own tasks here, or the project's, ended, or (#5635 F2, workExcused) { state: 'worked', workMinutes } when the
+ * member's reports show at most the rhythm of work since it was written.
  */
 function overviewOf(p, roster, o) {
   const opts = o || {};
@@ -470,7 +477,7 @@ const SUMMARY_WORDS = {
     ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ' and idle since then)'
     : 'current when it went idle (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; idle since ' + ago(s.idleMinutes) + ')',
   // #5635 F2: the rhythm is four hours of work, and the member's reports show less than that since it was written.
-  worked: (s) => 'current for the work since (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; ' + span(s.workMinutes) + ' of work since)',
+  worked: (s) => 'current: ' + span(s.workMinutes) + ' of work since it was written (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
   // #4581 R9: the project has no open task; this summary was current when its last task ended.
   quiet: (s) => (s.quietKind === 'own' ? 'current when its own tasks here ended' : 'current when work on the project\'s tasks ended')
     + ' (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; work ended ' + ago(s.quietMinutes) + ')',

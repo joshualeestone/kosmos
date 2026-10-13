@@ -663,6 +663,15 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
     assert.equal(v.workExcused(stale(331), Object.assign({}, mark, { runner }), woken, NOW).state, 'stale', 'excused runner ' + runner);
   }
   assert.equal(v.workExcused(stale(331), Object.assign({}, claude, { tied: false }), woken, NOW).state, 'stale');
+  // Review 1: rows out of time order (a clock stepped back) are read in time order. Idle at 325 then working from 300 to
+  // now is 6 + 300 min of work: stale. Read in file order, the step back subtracts 25 min and it read 6 min: current.
+  assert.equal(v.workExcused(stale(331), claude, hist([['working', 300], ['idle', 325]]), NOW).state, 'stale');
+  assert.equal(v.workExcused(stale(331), claude, hist([['working', 1], ['idle', 325], ['working', 400]]), NOW).workMinutes, 7, 'CONTROL: sorted, the report timeline');
+  // Boundaries: a report exactly at the summary is its state then; one after now is not read; stopped is not work.
+  assert.equal(v.workExcused(stale(331), claude, hist([['idle', 331]]), NOW).workMinutes, 0);
+  assert.equal(v.workExcused(stale(331), claude, hist([['idle', 331], ['working', -30]]), NOW).workMinutes, 0, 'a report from the future was read');
+  assert.equal(v.workExcused(stale(331), claude, hist([['working', 400], ['stopped', 325], ['idle', 200]]), NOW).workMinutes, 6);
+  assert.equal(v.workExcused(stale(331), claude, hist([['idle', 331], ['working', 1]], true), NOW).state, 'worked', 'a cut history starting at the summary is read');
   // Only a stale summary is touched.
   const cur = { state: 'current', file: 'summaries/x.md', at: new Date(at(30)).toISOString(), ageMinutes: 30 };
   assert.equal(v.workExcused(cur, claude, woken, NOW), cur);
@@ -677,7 +686,7 @@ test('#5635 F2: a working member woken after a quiet stretch reads current for t
     readReport: () => ({ found: true, state: 'working', at: new Date(NOW - 60000).toISOString() }), readHistory });
   const text = v.renderShow({ project: view(() => rows) }).join('\n');
   assert.equal(view(() => rows).members[0].summary.state, 'worked');
-  assert.match(text, /summary: current for the work since \(summaries\/2026-09-29-11\.md, 5h 31m ago; 7 min of work since\)$/m, text);
+  assert.match(text, /summary: current: 7 min of work since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, text);
   // CONTROL: the same member with no history is the old overdue line, so the line above comes from the history.
   assert.match(v.renderShow({ project: view(() => null) }).join('\n'), /summary: older than the 4-hour rhythm \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m);
   // A caller that supplies its own report reader and no history reader gets none (the view never mixes sources).
