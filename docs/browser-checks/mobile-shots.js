@@ -30,7 +30,8 @@
  * --data marketing (#5782) is the store fleet with a shape, for installkosmos.com's product shots: Cleo leads and the
  * others report to her (the org chart draws a team), the person is a made-up "Sam Rivera" (the hub shows an initial),
  * and the tasks are spread across the team, each agent reporting what it is on. --faces DIR seeds pictures from a
- * folder of <claim>.jpg|png|webp|gif (cleo, dana, eli, farah) and you.<ext>, through the engine's own picture writers.
+ * folder of <claim>.jpg|png|webp|gif (the four with licensed faces: cleo, dana, eli, farah; the others keep their
+ * initial) and you.<ext>, through the engine's own picture writers.
  * 🛑 The leak guard reads page TEXT, not images: --faces must only ever hold made-up or licensed faces (the site's own
  * meet/faces), never a photo of a real person from this Mac. desktop2x is 1280x800 always saved at 2x.
  * --data store seeds a clean fleet for App Store and Play screenshots instead
@@ -1595,13 +1596,13 @@ DATA_SETS.marketing = {
 };
 /* #6051: give each card named in `busy` (by its claim) a model and a measured memory reading, in the shapes the engine
    itself produces (engine/status.js measuredResult), so the page renders them exactly as it would a running agent.
-   Walks the whole status body for objects carrying a sessionName, so it does not depend on which key holds the cards. */
+   Walks the whole status body for objects carrying a sessionName, in arrays or under keys, and patches each one. */
 function busyCards(body, busy) {
   const patch = (c) => {
     const key = String(c.claim || String(c.sessionName || '').replace(/-discord$/, '')).toLowerCase();
     const b = busy[key];
     if (!b) return;
-    const percent = Math.round((b.tokens / b.ceiling) * 100);
+    const percent = Math.min(100, Math.round((b.tokens / b.ceiling) * 100));   // measuredResult's clamp
     c.modelName = b.modelName;
     if (b.runner) c.runner = b.runner;   // modelLine names a codex agent's model without the Claude prefix
     if (Number.isInteger(b.postedDaysAgo) && c.communityOn !== false) {
@@ -1614,8 +1615,10 @@ function busyCards(body, busy) {
       confidence: 'structured', because: 'measured, against a limit we have watched it hit' };
   };
   const walk = (v) => {
-    if (Array.isArray(v)) { for (const x of v) { if (x && typeof x === 'object' && 'sessionName' in x) patch(x); else walk(x); } }
-    else if (v && typeof v === 'object') { for (const x of Object.values(v)) walk(x); }
+    if (Array.isArray(v)) { for (const x of v) walk(x); return; }
+    if (!v || typeof v !== 'object') return;
+    if ('sessionName' in v) { patch(v); return; }   // a card, whether it sits in an array or under a key
+    for (const x of Object.values(v)) walk(x);
   };
   walk(body);
 }
@@ -2137,6 +2140,13 @@ async function run() {
   const out = args.out || fs.mkdtempSync(path.join(os.tmpdir(), 'mobile-shots-'));
   fs.mkdirSync(out, { recursive: true });
   DATA = DATA_SETS[args.data];
+  /* #6051: a data set with a busy table names every one of its agents there, and nothing else, so a typo on either
+     side fails here instead of quietly bringing back a "Not yet read" card. */
+  if (DATA.busy) {
+    const claims = DATA.agents.map((a) => a.claim).sort().join(',');
+    const keys = Object.keys(DATA.busy).sort().join(',');
+    if (claims !== keys) throw new Error('--data ' + args.data + ': the busy table names ' + keys + ' but the agents are ' + claims);
+  }
   FACES_DIR = args.faces ? path.resolve(args.faces) : null;
   if (FACES_DIR && !(fs.existsSync(FACES_DIR) && fs.statSync(FACES_DIR).isDirectory())) throw new Error('--faces ' + FACES_DIR + ' is not a folder');
   SEED_LEFTOVER = screens.some((s) => s.name === 'leftover-delete');
