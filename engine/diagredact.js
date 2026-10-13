@@ -10,7 +10,8 @@
       home, as [user];
    3. email addresses, as [email];
    4. this computer's user name and host name (long and short forms), as [user] and [computer], matched whole
-      (not inside a longer name) and in any case. A generic host name (localhost) is not replaced.
+      (not inside a longer name) and in any case. A generic host name (localhost) or account name (root, admin,
+      kosmos) is not replaced; the home folder itself still is.
    A name shorter than MIN_NAME_CHARS is left alone rather than replaced everywhere it appears inside other words. */
 
 const os = require('node:os');
@@ -40,6 +41,8 @@ const CRED_PATTERNS = [
 
 // Host names every computer can have, which name no one: replacing them would only damage lines like a localhost URL.
 const GENERIC_HOSTS = new Set(['localhost', 'localhost.localdomain']);
+// Account names that are ordinary words and name no one: replacing them would rewrite every line that uses the word.
+const GENERIC_USERS = new Set(['root', 'admin', 'administrator', 'user', 'users', 'guest', 'kosmos', 'ubuntu', 'home']);
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -60,7 +63,7 @@ function makeRedactor(who) {
     .sort((a, b) => b.length - a.length);   // the long form first, so its short form does not leave ".local" behind
   const names = [
     ...hosts.map((h) => [wholeName(h), '[computer]']),
-    ...(user && user.length >= MIN_NAME_CHARS ? [[wholeName(user), '[user]']] : []),
+    ...(user && user.length >= MIN_NAME_CHARS && !GENERIC_USERS.has(user.toLowerCase()) ? [[wholeName(user), '[user]']] : []),
   ];
   /* The home folder however a line spells it: any separator (\, a doubled \ as in JSON, or /) and any case (Windows and
      macOS paths ignore case). Its last segment is also a name when it differs from the user name (a "Pat Smith" folder
@@ -71,7 +74,7 @@ function makeRedactor(who) {
     ? new RegExp((/^[\\/]/.test(home) ? SEP : '') + segs.map(escapeRe).join(SEP) + '(?=' + SEP + '|$|[^A-Za-z0-9_.-])', 'gi')
     : null;
   const folder = segs.length ? segs[segs.length - 1] : '';
-  if (folder && folder.length >= MIN_NAME_CHARS && folder.toLowerCase() !== String(user || '').toLowerCase()) {
+  if (folder && folder.length >= MIN_NAME_CHARS && folder.toLowerCase() !== String(user || '').toLowerCase() && !GENERIC_USERS.has(folder.toLowerCase())) {
     names.push([wholeName(folder), '[user]']);
   }
 

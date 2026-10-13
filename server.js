@@ -53,7 +53,7 @@ if (require.main === module) {
   logstamp.install(process.stdout, 1, { shared, logPaths });
   logstamp.install(process.stderr, 2, { shared, logPaths });
   /* #5959: and the board's own lines into memory for the diagnostics file, whatever the streams are (a pipe on Windows
-     too). Tapped after the stamp, so the ring holds the line as the board wrote it. */
+     too). Installed after the stamp, so it wraps it and records each line before the stamp's time is added. */
   const logring = require('./engine/logring');
   logring.board.tap(process.stdout, 'stdout');
   logring.board.tap(process.stderr, 'stderr');
