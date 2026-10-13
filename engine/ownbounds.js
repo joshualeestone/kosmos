@@ -74,6 +74,24 @@ const IDLE_ONLY = Object.freeze({ nudge: true, firstreply: true, quota: false })
 
 function isClass(cls) { return CLASSES.indexOf(cls) !== -1; }
 
+/*
+ * Is this class's give-up MOOT given the agent's current live `state`? A moot give-up is resolved and is
+ * dropped from the /api/status read (peek) and cleared from disk by the 60s sweep. Two rules:
+ *  - an IDLE_ONLY class (nudge/firstreply) is moot the instant the agent is no longer idle;
+ *  - any other class (quota) is moot once the agent is demonstrably `working` again. This closes the residual
+ *    where an agent gives up on the quota, then resumes straight to `working` (e.g. the person messages it) --
+ *    it leaves agyquota's paused-state set, so the helper's `cleared` never fires, and without this the give-up
+ *    would linger as a false needs-you on a visibly-working agent until the STALE_MS backstop. A quota give-up
+ *    on an `idle` agent is NOT mooted here (an idle antigravity agent can still be quota-paused); that
+ *    recovery stays with agyquota's `cleared`.
+ * A null/empty state is never moot (fail toward KEEPING the signal, never toward discounting it).
+ */
+function isMoot(cls, state) {
+  if (typeof state !== 'string' || state === '') return false;
+  if (IDLE_ONLY[cls]) return state !== 'idle';
+  return state === 'working';
+}
+
 function dir() { return path.join(store.ROOT, 'ownbounds'); }
 function fileFor(key) { return path.join(dir(), store.safeKey(key) + '.json'); }
 
@@ -169,7 +187,7 @@ function assess(rec, now, state) {
     const e = rec && rec[cls];
     if (!e) continue;
     if (now - e.lastAt >= STALE_MS) { stale.push(cls); continue; }
-    if (IDLE_ONLY[cls] && stateKnown && state !== 'idle') continue;   // moot: an idle-only give-up on a non-idle agent
+    if (stateKnown && isMoot(cls, state)) continue;   // moot given the live state (idle-only off-idle; quota when working)
     const forMs = now - e.sinceAt;
     if (forMs >= GRACE_MS) items.push({ cls, sinceAt: e.sinceAt, evidence: e.evidence, forMs });
   }
@@ -227,9 +245,10 @@ function tellBounds({ rows, told, now, tell }) {
     for (const cls of a.stale) recovered(row.key, cls);
     const raised = [];
     for (const it of a.items) {
-      // Mootness clear: an idle-only class for an agent that is no longer idle is resolved -- clear it crisply
-      // rather than tell or wait out the staleness window (the chief false-alarm case: a healthy, working agent).
-      if (IDLE_ONLY[it.cls] && row.state && row.state !== 'idle') { recovered(row.key, it.cls); continue; }
+      // Mootness clear: a give-up that is moot given the agent's live state is resolved -- clear it crisply
+      // rather than tell or wait out the staleness window (the chief false-alarm case: a healthy agent). Covers
+      // an idle-only class off-idle AND a quota give-up on a now-working agent (isMoot).
+      if (isMoot(it.cls, row.state)) { recovered(row.key, it.cls); continue; }
       raised.push(it);
     }
     const raisedClasses = new Set(raised.map((it) => it.cls));
@@ -271,4 +290,4 @@ function sweepRoster({ roster, told, now, tell }) {
   return true;
 }
 
-module.exports = { CLASSES, GRACE_MS, STALE_MS, IDLE_ONLY, isClass, dir, fileFor, readRec, writeRec, note, recovered, assess, peek, forget, clearAll, keys, tellBounds, sweepRoster };
+module.exports = { CLASSES, GRACE_MS, STALE_MS, IDLE_ONLY, isClass, isMoot, dir, fileFor, readRec, writeRec, note, recovered, assess, peek, forget, clearAll, keys, tellBounds, sweepRoster };

@@ -145,10 +145,13 @@ test('#5154-B: peek moots an idle-only give-up the instant the agent is no longe
   const k = freshKey('peekmoot'); const t0 = 5_000_000; const at = t0 + GRACE;
   ob.note(k, 'nudge', 'gave up nudging', t0);
   ob.note(k, 'quota', 'gave up resuming', t0);
-  // idle: both the nudge (idle-only) and the quota (not idle-only) give-ups are raised.
+  // idle: both the nudge (idle-only) and the quota give-ups are raised.
   assert.deepEqual(ob.peek(k, 'idle', at).items.map((it) => it.cls).sort(), ['nudge', 'quota']);
-  // working: the nudge give-up is MOOT and drops out at once; the quota give-up (not idle-gated) stays.
-  assert.deepEqual(ob.peek(k, 'working', at).items.map((it) => it.cls), ['quota'], 'idle-only mooted, quota kept');
+  // rate_limited (a quota-pausable state, not idle, not working): the nudge give-up is MOOT and drops out;
+  // the quota give-up stays (an agent paused on the quota can still legitimately be given up on).
+  assert.deepEqual(ob.peek(k, 'rate_limited', at).items.map((it) => it.cls), ['quota'], 'idle-only mooted, quota kept');
+  // working: a demonstrably-running agent moots BOTH (the nudge as idle-only, the quota as resume-to-working).
+  assert.deepEqual(ob.peek(k, 'working', at).items.map((it) => it.cls), [], 'a working agent moots every class');
   // no state supplied (the sweep path): nothing is mooted, so the sweep still sees the nudge item to clear it.
   assert.deepEqual(ob.assess(ob.readRec(k), at).items.map((it) => it.cls).sort(), ['nudge', 'quota'], 'sweep path sees all');
   // peek never writes: the on-disk record still has both classes after the mooting read.
@@ -209,13 +212,28 @@ test('#5154-B mootness: an idle-only give-up (nudge) clears crisply once the age
   assert.equal(ob.readRec('backtowork').nudge, undefined, 'cleared crisply');
 });
 
-test('#5154-B mootness: a quota give-up is NOT idle-gated, so a non-idle state does not clear it', () => {
+test('#5154-B mootness: a quota give-up on a quota-paused state (rate_limited) is NOT mooted and is still told', () => {
   ob.clearAll();
   const told = new Set(); const calls = [];
   ob.note('paused', 'quota', 'gave up resuming', 100);
-  // a quota-paused agent is not "idle"; a non-idle state must NOT moot-clear a quota give-up (relies on recovered/stale)
-  ob.tellBounds({ rows: [{ key: 'paused', shown: 'Paused', state: 'working', ownNeedsYou: false }], told, now: 100 + GRACE, tell: (k, it) => calls.push([k, it.cls]) });
-  assert.deepEqual(calls, [['paused', 'quota']], 'quota give-up still told regardless of idle state');
+  // rate_limited is a quota-pausable state (not idle, not working): the quota give-up stands and is told.
+  ob.tellBounds({ rows: [{ key: 'paused', shown: 'Paused', state: 'rate_limited', ownNeedsYou: false }], told, now: 100 + GRACE, tell: (k, it) => calls.push([k, it.cls]) });
+  assert.deepEqual(calls, [['paused', 'quota']], 'quota give-up on a paused state is told');
+});
+
+test('#5154-B mootness: a quota give-up on a now-WORKING agent is mooted and cleared (resume-to-working residual)', () => {
+  ob.clearAll();
+  const told = new Set(); const calls = [];
+  ob.note('resumed', 'quota', 'gave up resuming', 100);
+  // the agent resumed straight to working (left agyquota's paused set, so no `cleared` fired): the give-up is
+  // moot on a demonstrably-working agent and must clear at once, not linger to the staleness backstop.
+  ob.tellBounds({ rows: [{ key: 'resumed', shown: 'Up', state: 'working', ownNeedsYou: false }], told, now: 100 + GRACE, tell: (k, it) => calls.push([k, it.cls]) });
+  assert.deepEqual(calls, [], 'a working agent’s quota give-up is not told');
+  assert.equal(ob.readRec('resumed').quota, undefined, 'cleared crisply');
+  // and peek moots it instantly on the /api/status read too
+  ob.note('resumed', 'quota', 'gave up resuming', 300);
+  assert.equal(ob.peek('resumed', 'working', 300 + GRACE).raised, false, 'peek moots a quota give-up for a working agent');
+  assert.equal(ob.peek('resumed', 'rate_limited', 300 + GRACE).raised, true, 'but not for a quota-paused one');
 });
 
 test('#5154-B backstop: tellBounds prunes a STALE episode for an agent still on the roster (left the helper view)', () => {

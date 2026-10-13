@@ -3110,6 +3110,11 @@ test('#5688: needsYouReason names each condition needsPerson counts, and none it
   assert.equal(r({ state: 'auth_failed', stuckError: { stuck: true, state: 'auth_failed' } }), 'stuck_auth');
   assert.equal(r({ state: 'rate_limited', stuckError: { stuck: true, state: 'rate_limited' } }), 'stuck_rate');
   assert.equal(r({ state: 'rate_limited', stuckError: { stuck: false, state: 'rate_limited' } }), null, 'CONTROL: a brief rate limit');
+  // #5154 slice B: a Kosmos give-up (ownBound) names own_bound; a not-raised one is not counted; and the agent's
+  // own question wins over a give-up (precedence, parallel to the card sentence and pjAlsoWhy ordering).
+  assert.equal(r({ ownBound: { raised: true } }), 'own_bound', 'a raised Kosmos give-up names own_bound');
+  assert.equal(r({ ownBound: { raised: false } }), null, 'CONTROL: a not-raised give-up is not counted');
+  assert.equal(r({ state: 'needs_you', stateProject: 'p1', ownBound: { raised: true } }), 'question', 'PRECEDENCE: the agent’s own question wins over a give-up');
   assert.equal(r({ state: 'needs_trust', present: false }), null, 'a member Kosmos cannot see');
   assert.equal(r({ state: 'needs_trust', tied: false }), null, 'a pane it cannot tie to this agent');
 });
