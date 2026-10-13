@@ -320,12 +320,14 @@ async function run() {
     const p9 = await page();
     let reads = 0;
     /* Answered here from the page's first read of it, so this arm does not lean on what an earlier check left the
-       shared board's switch at. */
+       shared board's switch at. The answer carries the interval list, as the board's does: the page refuses to save
+       this setting until that list is painted (a default must never be written over a stored value), so without it
+       the press below saves nothing. The first real browser run of this check failed for exactly that. */
     let hbOn = true;
     let hbPuts = 0;
     await p9.route('**/api/heartbeat-setting', (route) => {
       if (route.request().method() === 'PUT') { hbPuts += 1; hbOn = !hbOn; }
-      return answer({ ok: true, on: hbOn, intervalMinutes: 15 })(route);
+      return answer({ ok: true, on: hbOn, intervalMinutes: 15, intervals: [5, 15, 30, 60] })(route);
     });
     const OFF = { ...AVA, owner: { summary: 'The community is off', lines: [{ text: 'The community is off on this computer.' }] } };
     let onNow = false;
