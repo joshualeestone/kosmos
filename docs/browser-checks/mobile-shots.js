@@ -1611,7 +1611,8 @@ function busyCards(body, busy) {
     const assumed = lim ? lim.assumed : false;
     const raw = Math.round((b.tokens / ceiling) * 100);   // measuredResult's arithmetic: clamp the percent, flag the excess
     const percent = Math.min(100, raw);
-    BUSY_SEEN.add(key);
+    // Counted as reached only when every line it asks for can show: a community line needs the community on.
+    if (!(Number.isInteger(b.postedDaysAgo) && c.communityOn === false)) BUSY_SEEN.add(key);
     if (b.modelName) c.modelName = b.modelName;
     if (b.runner) c.runner = b.runner;   // modelLine names a codex agent's model without the Claude prefix
     if (Number.isInteger(b.postedDaysAgo) && c.communityOn !== false) {
