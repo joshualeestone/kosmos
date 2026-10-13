@@ -10,7 +10,8 @@ directly, and a self-reported "blocked" from 09-26 sat on a card until 10-12 wit
 ## Change
 - `engine/cardlabel.js`: the card's word as the person sees it (the page's STATE_COPY / restartingLabel / stateCopyOf,
   ported). `engine/cardlabel-5959.test.js` lifts the page's own functions and compares answers on every state and
-  special case, so the two copies cannot drift.
+  special case it lists. A special case the page gains later (a new stateCopyOf branch keyed on a card field) is
+  compared only once a card for it is added to that list.
 - `GET /api/report`: the text arm starts "Your card on the board shows: <label>."; the JSON arm adds `card: { state,
   label }` and `stale`. A waiting state (needs_you / blocked) standing over a day (selfreport.STALE_WAIT_MS) gets one line saying
   how long and how to clear it. Both CLIs read the text arm, so no CLI change.

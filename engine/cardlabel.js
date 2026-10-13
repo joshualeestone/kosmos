@@ -5,8 +5,9 @@
  *
  * The page owns these words (web/index.html STATE_COPY, restartingLabel, stateCopyOf, and the card render's offline
  * branch). This is a second copy, kept equal by cardlabel-5959.test.js: it lifts the page's functions and compares
- * answers on every state and special case, and pins the offline branch (a template) by its text. A state named like an
- * Object member reads "Can't tell" here, where the page has no word.
+ * answers on every state and special case, and pins the offline branch (a template) by its text. A special case the
+ * page gains later is compared only once the test lists a card for it. A state named like an Object member reads
+ * "Can't tell" here, where the page has no word.
  */
 
 const STATE_COPY = Object.freeze({
