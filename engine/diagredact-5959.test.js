@@ -133,3 +133,16 @@ test('#5959: a secret field keeps nothing after an escaped quote, and authMode o
   assert.equal(redactText('{"password":"a\\"bcdefgh","x":1}'), '{"password":"••••","x":1}');
   assert.equal(redactText('{"author":"Rick","authMode":"antigravity"}'), '{"author":"Rick","authMode":"antigravity"}');
 });
+
+test('#5959: an account named like an ordinary word is not replaced in every line, and its home folder still is', () => {
+  const { redactText } = makeRedactor({ home: '/home/kosmos', user: 'kosmos', host: 'zzz' });
+  assert.equal(redactText('kosmos: started on /home/kosmos/app'), 'kosmos: started on ~/app');
+  const root = makeRedactor({ home: '/root', user: 'root', host: 'zzz' });
+  assert.equal(root.redactText('root cause found'), 'root cause found');
+});
+
+test('#5959: a URL path after a host name is kept; a user folder in a file path is not', () => {
+  const { redactText } = makeRedactor({ home: '/Users/zed', user: 'zzz', host: 'zzz' });
+  assert.equal(redactText('GET https://api.github.com/users/octocat/repos'), 'GET https://api.github.com/users/octocat/repos');
+  assert.equal(redactText('read /Users/ann/notes'), 'read /Users/[user]/notes', 'CONTROL: a file path still is');
+});

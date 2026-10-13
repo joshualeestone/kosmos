@@ -293,3 +293,14 @@ test('#5959: a key body line with logstamp\'s time in front is taken out too', (
   const out = maskKeyBlocks(['2026-10-12T21:00:00.123Z MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7', '2026-10-12T21:00:00.124Z rick: ok'].map((line) => ({ line }))).map((e) => e.line);
   assert.deepEqual(out, [MASKED_BLOCK, '2026-10-12T21:00:00.124Z rick: ok']);
 });
+
+test('#5959: a line cut on its way out ends in [cut], and a long lowercase path is not taken for a key', () => {
+  const { AGENT_LINE_CHARS, maskKeyBlocks } = require('./diagnostics');
+  const file = build({ cards: CARDS, ringLines: [{ at: 't', stream: 'stdout', line: 'rick ' + 'q'.repeat(900) }], redactor: makeRedactor(WHO) });
+  const line = file.agents[0].logLines[0].line;
+  assert.equal(line.length, AGENT_LINE_CHARS);
+  assert.ok(line.endsWith('[cut]'));
+  assert.equal(file.log.tail[0].line.endsWith('[cut]'), false, 'CONTROL: the tail line was not cut');
+  const p = '/var/lib/kosmos/agents/somelongagentname/state';
+  assert.deepEqual(maskKeyBlocks([{ line: p }]).map((e) => e.line), [p]);
+});

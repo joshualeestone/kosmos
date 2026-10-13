@@ -31,10 +31,10 @@ const MASKED_BLOCK = '[a private key, taken out]';
 const BLOCK_BEGIN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/;
 const BLOCK_END = /-----END [A-Z0-9 ]*PRIVATE KEY-----/;
 const MAX_BLOCK_LINES = 100;   // an RSA-4096 body is about 50 lines of 64; a block never takes more than this
-// A PEM body line (64 base64 characters, the last shorter). Not a hex digest alone (a git sha, a sha256): a body line
-// has a letter past f or a + or /.
+// A PEM body line (64 base64 characters, the last shorter): a digit, a capital, and a letter past f or a + or /. Not
+// a hex digest alone (a git sha) and not a lowercase path.
 // A board.log line starts with logstamp's time (engine/logstamp.js), so that is allowed in front.
-const KEY_BODY_LINE = /^\s*(?:\d{4}-\d{2}-\d{2}T[0-9:.]+Z\s+)?(?=[A-Za-z0-9+\/]*[g-zG-Z+\/])[A-Za-z0-9+\/]{40,}={0,2}\s*$/;
+const KEY_BODY_LINE = /^\s*(?:\d{4}-\d{2}-\d{2}T[0-9:.]+Z\s+)?(?=[A-Za-z0-9+\/]*[g-zG-Z+\/])(?=[A-Za-z+\/]*[0-9])(?=[a-z0-9+\/]*[A-Z])[A-Za-z0-9+\/]{40,}={0,2}\s*$/;
 
 /* A private key logged across lines is taken out whole: the line that begins it, every line after, and the line that
    ends it. The redactor sees one line at a time and would mask only the BEGIN line. A block with no END takes at most
@@ -116,7 +116,9 @@ function build(inputs) {
       if (e.line.length >= MAX_LINE_CHARS) text = text.replace(/[A-Za-z0-9_+\/=.-]+$/, '') + CUT_MARK;
       redacted.set(e, text);
     }
-    return { at: e.at, stream: e.stream, line: text.length > max ? text.slice(0, max) : text };
+    // Any line cut on its way out says so, at the end, within its length.
+    if (text.length > max) text = text.slice(0, max - CUT_MARK.length) + CUT_MARK;
+    return { at: e.at, stream: e.stream, line: text };
   };
   const agentLines = [];
   const agents = cards.filter((c) => c && c.sessionName).map((c) => {
