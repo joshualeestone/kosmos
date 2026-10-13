@@ -87,6 +87,12 @@ test('#6083: which titles are near (pure); every #5319 counterexample is never n
     ['Run variant A tests', 'Run variant tests', false, 'review 4: a single letter is a label'],
     ['Check the A records', 'Check the records', false, 'review 4: DNS A records'],
     ['Restart the server now', 'Restart the server', true, 'review 4: now is filler, by decision'],
+    ['Change > to >= in the check', 'Change >= to > in the check', false, 'review 5: swapped symbols'],
+    ['Replace == with === in auth', 'Replace === with == in auth', false, 'review 5: swapped operators'],
+    ['Migrate the parser from C++ to C', 'Migrate the parser from C to C++', false, 'review 5: a symbol keeps its word'],
+    ['\u0930\u093e\u092e \u0915\u093e \u0915\u093e\u092e \u0915\u0930\u094b', '\u0930\u093e\u092e \u0915\u0940 \u0915\u093e\u092e \u0915\u0930\u094b', false, 'review 5: a combining mark is part of its word'],
+    ['Delete the logs?', 'Delete the logs', false, 'review 5: a question is another ask'],
+    ['Run the Meta pass.', 'run the meta pass now', true, 'review 5: a full stop is still set aside'],
   ]) assert.equal(tasks.isNearTitle(a, b), want, `${a} | ${b}: ${why}`);
 });
 
@@ -115,7 +121,7 @@ test('#6083: nearOpen: open, earlier, same parent and people, inside the window,
   assert.deepEqual(tasks.nearOpen(P, made).map((t) => t.number), [1],
     'only #1: #2 is outside the window, #3 is for someone else, #4 under another parent, #5 closed, #6 the same text (#5319 names it), #7 due, #8 another detail, #9 made after, #10 built, #11 a part closed, #12 other checks, #13 on hold, #30 is newer');
   assert.deepEqual(tasks.nearOpen({ tasks: [{ number: 4, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta' }] }, { ...made, parent: 4 }), [],
-    'the task\'s own parent is never named');
+    'the task\'s own parent is never named (the same-parent rule is what excludes it)');
   assert.deepEqual(tasks.nearOpen(P, { ...made, createdAt: 'not a time' }), [], 'no creation time, no window, no note');
 });
 
@@ -135,15 +141,25 @@ test('#6083: the route adds a near task and names the similar one, without telli
   assert.equal(r.code, 200, JSON.stringify(r.json));
   assert.equal(r.json.task.number, 2, 'the task is ADDED as asked');
   assert.equal(r.json.note, 'Note: a similar open task was added in the last few minutes: #1 (Run the Meta pass). '
-    + 'If it is the same ask, close this new one (#2); if it is a different ask, ignore this.');
+    + 'If it is the same ask, close this new one (#2); if it is a different ask, ignore this note.');
   assert.doesNotMatch(r.json.note, /["\\]/, 'the note holds no double quote or backslash');
   const other = await add('Update the onboarding copy');
   assert.equal(other.json.note, undefined, 'CONTROL: a task like no other gets no note');
   const same = await add('Run the Meta pass');
   // The same text as #1: #5319 names #1; the near note names only #2 (near, not the same text), never #1 again.
   // Review 2: the near note comes first, so #5319's copyable command stays the end of the line.
-  assert.match(same.json.note || '', /^Note: a similar open task was added in the last few minutes: #2 \(run the meta pass now\)\. If it is the same ask, close this new one \(#4\); if it is a different ask, ignore this\. Note: an open task with the same text already exists: #1 \(Run the Meta pass\)\. If this is the same ask, close the new one: kosmos task close p6083 4$/, same.json.note);
+  assert.match(same.json.note || '', /^Note: a similar open task was added in the last few minutes: #2 \(run the meta pass now\)\. If it is the same ask, close this new one \(#4\); if it is a different ask, ignore this note\. Note: an open task with the same text already exists: #1 \(Run the Meta pass\)\. If this is the same ask, close the new one: kosmos task close p6083 4$/, same.json.note);
   assert.equal((same.json.note.match(/#1 \(/g) || []).length, 1, 'a task #5319 names is not named again');
+});
+
+test('#6083 review 5: two similar tasks are both named, in one plural note', async () => {
+  const now = new Date().toISOString();
+  seed([{ number: 1, sentence: 'Run the Meta pass', createdAt: now, closedAt: null, who: null },
+    { number: 2, sentence: 'Please run the Meta pass now', createdAt: now, closedAt: null, who: null }]);
+  const r = await add('run the meta pass now');
+  assert.equal(r.code, 200, JSON.stringify(r.json));
+  assert.equal(r.json.note, 'Note: similar open tasks were added in the last few minutes: #1 (Run the Meta pass), '
+    + '#2 (Please run the Meta pass now). If it is the same ask, close this new one (#3); if it is a different ask, ignore this note.');
 });
 
 test('#6083: two near adds sent at the same moment: the later one is told about the earlier', async () => {

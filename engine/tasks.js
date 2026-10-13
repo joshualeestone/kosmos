@@ -1964,7 +1964,6 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
   for (const t of (p && Array.isArray(p.tasks)) ? p.tasks : []) {
     if (!t || t.closedAt || !Number.isInteger(t.number)) continue;
     if (Number.isInteger(beforeNumber) && t.number >= beforeNumber) continue;
-    if (parent !== null && t.number === parent) continue;
     // Review 6: only tasks under the SAME parent (top-level with top-level): "Write tests" under #3 and under #7 are
     // two real tasks.
     if ((Number.isInteger(t.parent) ? t.parent : null) !== (Number.isInteger(parent) ? parent : null)) continue;
@@ -2007,10 +2006,17 @@ const NEGATING = new Set(['not', 'no', 'never', 'none', 'nor', 'without', 'dont'
 const FILLER = new Set(['now', 'please', 'pls', 'asap', 'the', 'an', 'soon', 'quickly', 'kindly', 'urgently']);
 /* Review 1: sentence punctuation is set aside; every other punctuation or symbol character counts, as in #5319 ("C#" is
    not "C", "!=" is not "=", "50%" is not "50"). */
-const SENTENCE_MARKS = new Set(Array.from('.,;:?\'"\u2018\u2019\u201c\u201d()[]-\u2013\u2014'));
+/* Review 5: '?' is not set aside: a question ("Delete the logs?") is another ask than an order. */
+const SENTENCE_MARKS = new Set(Array.from('.,;:\'"\u2018\u2019\u201c\u201d()[]-\u2013\u2014'));
+const edgeMark = (c) => SENTENCE_MARKS.has(c);
 function titleShape(sentence) {
   const raw = String(sentence == null ? '' : sentence).normalize('NFC');
-  const words = raw.split(/\s+/u).map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')).filter(Boolean);
+  /* Review 5: only sentence marks are trimmed from a word's ends. Every other character stays IN its word, in its
+     place: a symbol keeps its position ("C++ to C" / "C to C++", "> to >=" / ">= to >" are never near), and a
+     combining mark is part of its word (Devanagari \u0915\u093e and \u0915\u0940 stay two words). */
+  const trim = (w) => { const c = Array.from(w); let i = 0; let j = c.length;
+    while (i < j && edgeMark(c[i])) i += 1; while (j > i && edgeMark(c[j - 1])) j -= 1; return c.slice(i, j).join(''); };
+  const words = raw.split(/\s+/u).map(trim).filter(Boolean);
   const lower = words.map((w) => w.toLowerCase().replace(/['\u2019\u02bc]/gu, ''));
   // Review 2: a command-line flag ("--dry-run", "-x") changes how a thing runs; its leading dashes are not sentence
   // punctuation, so the flags are compared as written.
@@ -2056,7 +2062,6 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
   const out = [];
   for (const t of (p && Array.isArray(p.tasks)) ? p.tasks : []) {
     if (!t || t.closedAt || !Number.isInteger(t.number) || t.number >= made.number) continue;
-    if (parent !== null && t.number === parent) continue;
     if ((Number.isInteger(t.parent) ? t.parent : null) !== parent) continue;
     if (people(whoOf(t)) !== myWho || sameTaskText(t.detail) !== myDetail || checks(t.doneWhen) !== myChecks) continue;
     const at = Date.parse(t.createdAt || '');
