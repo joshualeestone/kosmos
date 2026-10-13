@@ -264,7 +264,7 @@ function pick(session, projects, taken) {
 /* The Assigner's memory between ticks, empty. */
 function emptyMemory() {
   return { idleSince: new Map(), log: [], asked: new Map(), askLog: [], askFails: new Map(), askedSig: new Map(),
-    limitedSince: new Map(), limitedMiss: new Map() };
+    limitedSince: new Map(), limitedMiss: new Map(), askGaveUp: new Map() };
 }
 
 /* #5161: what a goal ask is about, as one short string. Two installs (and the Feedback and Community project here) were
@@ -298,7 +298,21 @@ function savedForm(mem) {
   const sig = mem && mem.askedSig instanceof Map ? [...mem.askedSig].filter(([k, v]) => typeof k === 'string' && typeof v === 'string') : [];
   // #5382 review 15: each limit's start, so a restart does not move a person's queued work (stalledParts).
   const lim = mem && mem.limitedSince instanceof Map ? [...mem.limitedSince].filter(([k, v]) => typeof k === 'string' && Number.isFinite(v)) : [];
-  return { v: 1, asked: asked.slice(-MEMORY_CAP), askedSig: sig.slice(-MEMORY_CAP), limitedSince: lim.slice(-MEMORY_CAP) };
+  // #6072: each give-up, so a restart does not silently forget that a project's goal stalled today.
+  const gave = mem && mem.askGaveUp instanceof Map ? [...mem.askGaveUp].filter(([k, v]) => typeof k === 'string' && gaveUpRecord(v, Infinity)) : [];
+  return { v: 1, asked: asked.slice(-MEMORY_CAP), askedSig: sig.slice(-MEMORY_CAP), limitedSince: lim.slice(-MEMORY_CAP), askGaveUp: gave.slice(-MEMORY_CAP) };
+}
+
+/* #6072: a give-up record as the Assigner writes it, or null. `now` bounds it: a time in the future is dropped (a bad
+   clock), and so is one a whole GOAL_ASK_MS old (that day is over and the next ask decides afresh). */
+const GAVE_UP_BECAUSE = new Set(['could_not', 'threw']);
+function gaveUpRecord(v, now) {
+  if (!v || typeof v !== 'object') return null;
+  const { at, tries, agent, because } = v;
+  if (!Number.isFinite(at) || !Number.isInteger(tries) || tries < 1 || tries > 1000) return null;
+  if (typeof agent !== 'string' || agent.length > 200 || !GAVE_UP_BECAUSE.has(because)) return null;
+  if (Number.isFinite(now) && (at > now || now - at >= GOAL_ASK_MS)) return null;
+  return { at, tries, agent, because };
 }
 
 /* Read back what savedForm wrote, into a fresh memory. Anything unreadable or malformed is dropped, never trusted:
@@ -318,7 +332,19 @@ function restoredMemory(obj, now) {
   for (const e of (Array.isArray(obj.limitedSince) ? obj.limitedSince : []).slice(-MEMORY_CAP)) {
     if (Array.isArray(e) && typeof e[0] === 'string' && Number.isFinite(e[1]) && e[1] <= now && now - e[1] <= LIMIT_KEEP_MS) mem.limitedSince.set(e[0], e[1]);
   }
+  for (const e of (Array.isArray(obj.askGaveUp) ? obj.askGaveUp : []).slice(-MEMORY_CAP)) {   // #6072
+    const rec = Array.isArray(e) && typeof e[0] === 'string' ? gaveUpRecord(e[1], now) : null;
+    if (rec) mem.askGaveUp.set(e[0], rec);
+  }
   return mem;
+}
+
+/* #6072: what the board says about `project`: the day's give-up, while it stands, or null. Null too once the project
+   has open work by the rule that switches the goal ask off (blocksGoalAsk), since then nothing is stalled. */
+function goalAskGaveUp(mem, project, now) {
+  if (!project || typeof project.id !== 'string' || !mem || !(mem.askGaveUp instanceof Map)) return null;
+  if ((Array.isArray(project.tasks) ? project.tasks : []).some(blocksGoalAsk)) return null;
+  return gaveUpRecord(mem.askGaveUp.get(project.id), now);
 }
 
 function loadMemory(now) {
@@ -555,7 +581,8 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
     toAsk.push({ session, name: a.name || session, ...g });
   }
   const askFails = new Map(base.askFails instanceof Map ? base.askFails : []);
-  return { toAssign, toAsk, next: { idleSince, log, asked, askLog, askFails, askedSig, limitedSince, limitedMiss } };
+  const askGaveUp = new Map(base.askGaveUp instanceof Map ? base.askGaveUp : []);   // #6072
+  return { toAssign, toAsk, next: { idleSince, log, asked, askLog, askFails, askedSig, limitedSince, limitedMiss, askGaveUp } };
 }
 
 /**
@@ -611,13 +638,19 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
     const landed = state !== null && state !== (DELIVERY || chat.DELIVERY).COULD_NOT;
     if (landed) {
       out.next.askFails.delete(item.projectId);
+      out.next.askGaveUp.delete(item.projectId);   // #6072: an ask that lands ends the give-up
     } else {
       unrecord(item);
       const fails = (out.next.askFails.get(item.projectId) || 0) + 1;
       out.next.askFails.set(item.projectId, fails);
       // Retry soon, unless it has failed MAX_ASK_FAILS times in a row: then leave it for the day.
       if (fails < MAX_ASK_FAILS) out.next.asked.set(item.projectId, now - GOAL_ASK_MS + ASK_RETRY_MS);
-      else out.next.askFails.delete(item.projectId);
+      else {
+        out.next.askFails.delete(item.projectId);
+        /* #6072: the project is left for the day with nothing said. Kept per PROJECT (its goal is what stalls), naming
+           the agent last asked and what happened, because that agent is the one Kosmos could not reach. */
+        out.next.askGaveUp.set(item.projectId, { at: now, tries: fails, agent: String(item.name || item.session || ''), because: state === null ? 'threw' : 'could_not' });
+      }
     }
     asks.push({ session: item.session, name: item.name, projectId: item.projectId, verdict: state });
   }
@@ -673,4 +706,4 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
 
 module.exports = { step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
   projectSig, savedForm, restoredMemory, loadMemory, saveMemory, MEMORY_FILE,
-  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, LIMIT_KEEP_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS };
+  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, LIMIT_KEEP_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS, goalAskGaveUp };

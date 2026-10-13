@@ -4024,6 +4024,19 @@ function pathOf(req) {
    when the record or the cursor cannot be read (unknown is not zero), and
    never a 500: a projects list that fails because a bubble could not be
    computed would be the wrong thing to lose. */
+/* #6072: every project on the wire carries `goalAskGaveUp`: when the Assigner tried MAX_ASK_FAILS times today to ask an
+   agent to plan work toward its goal and reached nobody, which agent it was and when; else null. Read from the running
+   Assigner's memory (ASSIGNER_VIEW, set by its sweep), so a board whose Assigner never ran says nothing. Never a 500. */
+const ASSIGNER_VIEW = { mem: null };
+function withGoalAsk(list) {
+  const now = Date.now();
+  return (list || []).map((p) => {
+    let rec = null;
+    try { rec = assigner.goalAskGaveUp(ASSIGNER_VIEW.mem, p, now); } catch { rec = null; }
+    return { ...p, goalAskGaveUp: rec };
+  });
+}
+
 function withUnread(list) {
   let counts = null;
   try { counts = messages.unreadAll(); } catch { counts = null; }
@@ -18353,7 +18366,7 @@ const server = http.createServer(async (req, res) => {
     }
     const roster = safeRoster();
     try {
-      sendJson(res, 200, { projects: withShared(withUnread(projects.list(roster))), agentsUnreadable: roster === null });
+      sendJson(res, 200, { projects: withGoalAsk(withShared(withUnread(projects.list(roster)))), agentsUnreadable: roster === null });
     } catch {
       // The record is still readable when the roster is not, so the projects
       // themselves are served with every member marked unseen rather than the
@@ -18373,7 +18386,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       sendJson(res, 200, {
-        projects: withShared(withUnread(listed)),
+        projects: withGoalAsk(withShared(withUnread(listed))),
         agentsUnreadable: true,
         because: 'we cannot read the agents on this computer right now, so we are not saying anything about how they are doing',
       });
@@ -22851,6 +22864,7 @@ function start(port = PORT) {
       /* #5161: the goal-ask memory is read back from disk, so a restart does not forget which projects were asked about
          (and in what state); written back only when it changes. */
       let assignerPrev = assigner.loadMemory(Date.now());
+      ASSIGNER_VIEW.mem = assignerPrev;   // #6072: the project list reads the day's give-ups from here
       const FAILOVER_TELL_SEEN = new Set();   // #5382: cards idle at the previous tell sweep (engine/failovertell.js)
       /* #5400: and on whatever Kosmos next types into an owed agent (a person's message at the reset, a room post),
          so it is told before it can carry on with a moved part; marked told once that line may have reached it. */
@@ -22893,6 +22907,7 @@ function start(port = PORT) {
             DELIVERY: chat.DELIVERY,
           });
           assignerPrev = out.next;
+          ASSIGNER_VIEW.mem = assignerPrev;   // #6072
           /* #5382 (review 8): tell each idle agent which of its parts the failover gave away (the record is on the part,
              engine/failovertell.js), whatever the failover setting says now: the parts were already moved. */
           try {
@@ -23886,6 +23901,7 @@ module.exports = {
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
   taskFinalWordHint, // #6066: the line a task's holder is told after posting in it, for its test
+  ASSIGNER_VIEW, // #6072: the Assigner memory the project list reads, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
