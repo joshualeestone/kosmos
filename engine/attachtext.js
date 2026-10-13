@@ -698,7 +698,8 @@ function pageText(content, fonts, out, used = {}) {
      tl are the text state; a and d the text matrix's scales; lx and ly the line's origin in user space (Td moves from
      it). Iteration 9: pen is where the drawn text ends, in user space, and it is kept across BT and ET, so a new text
      block on the same line (Chrome writes one per style change; FPDF one per table cell, placed by Td) is a gap only
-     where there is room, and a line ends only where y really changes. exact is false once a glyph since the last move
+     where there is room, and a line ends only where y really changes (y in the text's own space: a cm
+     between blocks is not followed, see the plan's Not done). exact is false once a glyph since the last move
      had no known width. */
   let size = 1;
   let tc = 0;
@@ -755,8 +756,9 @@ function pageText(content, fonts, out, used = {}) {
       s += c.map.has(code) ? c.map.get(code) : (c.codeLen === 1 ? raw[i] : '');
     }
     /* Iteration 9: macOS maps some CJK glyphs to the look-alike Kangxi radicals (U+2F00-U+2FDF), which a search for the
-       real character never finds; NFKC gives the character itself. */
-    return /[\u2F00-\u2FDF]/.test(s) ? s.replace(/[\u2F00-\u2FDF]/g, (ch) => ch.normalize('NFKC')) : s;
+       real character never finds; NFKC gives the character itself. Iteration 10: the same for Arabic and Hebrew
+       presentation forms (U+FB1D-U+FDFF, U+FE70-U+FEFF), which a search for the ordinary letters never matches. */
+    return /[\u2F00-\u2FDF\uFB1D-\uFDFF\uFE70-\uFEFE]/.test(s) ? s.replace(/[\u2F00-\u2FDF\uFB1D-\uFDFF\uFE70-\uFEFE]/g, (ch) => ch.normalize('NFKC')) : s;
   };
   /* Trailing blanks stripped by a backwards loop (iteration 2: `/[ \t]+$/` is quadratic on a long run of spaces). */
   const trimEnd = (x) => { let e = x.length; while (e && (x[e - 1] === ' ' || x[e - 1] === '\t')) e -= 1; return x.slice(0, e); };
@@ -944,7 +946,13 @@ function pdfTextJs(buf) {
     if (page.full || total.length >= MAX_OUT) { cut = (cut ? cut + ' ' : '') + 'The rendering stops at ' + MAX_OUT + ' characters; later pages are not included.'; break; }   // iteration 3
     if (cut) break;
   }
-  return { encrypted: false, pages, cut, undecodable: undecodable.n, ownEncoding: used.ownEncoding, noMap: used.noMap, mapless: [...mapless] };
+  /* Iteration 10: right-to-left text (Hebrew, Arabic) comes out of a content stream in the order it is drawn, which is
+     the reverse of reading order. Marked so a Mac asks PDFKit (which gives reading order) and elsewhere a note says so. */
+  const sample = pages.join('').slice(0, 200000);
+  const rtlCount = (sample.match(/[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFE]/g) || []).length;
+  const letters = (sample.match(/\p{L}/gu) || []).length;
+  const rtl = rtlCount >= 20 && rtlCount >= 0.1 * letters;
+  return { encrypted: false, pages, cut, undecodable: undecodable.n, ownEncoding: used.ownEncoding, noMap: used.noMap, mapless: [...mapless], rtl };
 }
 
 /* Whether extracted text reads as text: mostly letters, digits, spaces and ordinary punctuation, judged on a sample. */
@@ -987,14 +995,15 @@ async function pdfAfter(file, js) {
   let pages = js.pages;
   let cut = js.cut;
   let skip = new Set();
-  if (js.ownEncoding || js.noMap || !readable(pages)) {
+  if (js.ownEncoding || js.noMap || js.rtl || !readable(pages)) {
     const viaKit = await kit();   // iteration 3: PDFKit counts against the same two conversions at once
     if (viaKit === '\u0000locked') return { body: '', notes: ['This PDF is protected with a password, so its text could not be read.'] };
     if (viaKit && viaKit.replace(/\s+/g, '')) { pages = viaKit.split('\n\f\n'); cut = null; }   // PDFKit read the whole file
     else {
       if (js.noMap) notes.push('Some of this PDF\u2019s text is in fonts that carry no character map (common in Chinese, Japanese and Korean documents), so that text could not be read here and is left out.');
       if (js.ownEncoding && pages.join('').trim()) notes.push('Some symbols and punctuation in this PDF may be wrong (its fonts use an encoding Kosmos reads only approximately).');
-      if (!js.noMap && !js.ownEncoding) {
+      if (js.rtl) notes.push('Right-to-left text in this PDF (Hebrew or Arabic) may read in reverse order here, as it is drawn on the page.');
+      if (!js.noMap && !js.ownEncoding && !js.rtl) {
         if (pages.join('').trim()) notes.push('Some of this PDF’s text may not have converted cleanly (an unusual font encoding).');
         else if (js.undecodable) notes.push('This PDF uses a compression Kosmos cannot read, so its text could not be converted.');
       }
