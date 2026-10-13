@@ -21,16 +21,30 @@ review rounds: 18 on the change and the installer runnable guard it needed, then
 
 ### Per-Iteration Breakdown
 
-#### Rounds 1 to 5 (the change)
-- Sandbox gates, a fail-safe reader, removal only after the marker, no removal of an own second icon, the marker as
-  an owner-only hash linked atomically, every dot-name counted. Round 5 converged on the change.
+Severity tags appear only where a review commit recorded one; the other rounds list what was found and fixed.
 
-#### Rounds 6 to 18 (the installer runnable guard)
-- Rounds 6 to 11 narrowed a shell grammar; each found another shape a line scan cannot parse.
-- Round 12 replaced it with a by-name list; rounds 13 to 17 hardened it (per-file key, exactly once, controls).
-- Round 18 converged. Its one concern: gawk unmeasured (macOS awk and mawk pass).
+#### Iterations 1 to 4 (the change)
+- Sandbox gates, a reader that fails safe, removal only after the marker, no removal of an own second icon, the
+  marker as an owner-only hash linked atomically. All fixed (commits 95228da49, 73fe47675, f65057779, a7482d606).
 
-#### Merge rounds 1 to 3 (with #5912 and #5986)
-- Round 1 (opus): a stale shell-test sentence, a note that could invite trashing an icon, the reset order. Fixed.
-- Round 2 (sonnet): the marker was taken at the start of an uninstall that could still fail. Fixed: taken last.
-- Round 3 (opus): no blocker or warning. Concern taken: two order tests anchored on the note's identical elif.
+#### Iteration 5
+- [NIT] every dot-name counts; a directory at the marker name is refused (dc8b89049). Converged on the change.
+
+#### Iterations 6 to 17 (the installer runnable guard the change needed)
+- Rounds 6 to 11 each found a shell shape a line scan could not parse; round 12 replaced the grammar with a by-name
+  list; rounds 13 to 17 hardened it (per-file key, exactly once, controls that can fail). All fixed.
+
+#### Iteration 18
+- No blockers or warnings. [CONCERN] gawk is unmeasured (macOS awk and mawk pass). Recorded, not taken.
+
+#### Merge iteration 1 (opus)
+- [WARNING] and [CONCERN]s: a stale shell-test sentence, a note that could invite trashing an icon, the reset order.
+  Fixed (dc6a0669e).
+
+#### Merge iteration 2 (sonnet)
+- [CONCERN] the reuse marker was taken at the start of an uninstall that could still fail; taken last now. [NIT]s
+  taken (ba2d31f79).
+
+#### Merge iteration 3 (opus)
+- No blockers or warnings. [CONCERN] two order tests anchored on the note's identical elif. Fixed with measured
+  mutants (c2eab250f).
