@@ -15,6 +15,9 @@ process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw
 process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-ppath-workers-'));
 process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-ppath-launch-'));
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+test.after(() => {
+  for (const v of ['AGENT_WORKFORCE_PROJECTS', 'AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_WORKERS', 'AGENT_WORKFORCE_LAUNCH']) fs.rmSync(process.env[v], { recursive: true, force: true });
+});
 const projects = require('./projects');
 const tasks = require('./tasks');
 

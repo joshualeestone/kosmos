@@ -61528,6 +61528,7 @@ function tskMatches(t, q) {
   const needle = String(q || '').trim().toLowerCase();
   if (!needle) return true;
   const hay = [t.sentence, '#' + t.number, String(t.number), t.projectName]
+    .concat(Array.isArray(t.projectPath) ? t.projectPath : [])   // #3029: "Book A" finds Book A › Launch's tasks
     .concat((t.whoNames || []).map((w) => w + ' ' + tskAgentName(w)))
     .join(' \u0001 ').toLowerCase();
   /* Every word must appear somewhere, so "logo april" finds April's logo task. A "#N" word
@@ -61612,6 +61613,8 @@ async function tskLoad(arrival) {
 }
 function tskRow(t, at) {
   const on = TSK.sel.has(tskKey(t));
+  /* #3029: the row names its project by the chain (Book A › Launch), so two same-named subprojects differ. */
+  const projChain = (Array.isArray(t.projectPath) ? t.projectPath : []).concat(String(t.projectName)).join(' › ');
   /* #3861 part 2: where the row sits in its list (taskNest): its indent, whether it says what it
      is part of, and how many of its subtasks are in this same list (the fold toggle). A caller
      that passes nothing gets a plain top-level row. */
@@ -61674,7 +61677,7 @@ function tskRow(t, at) {
       + (t.builtAt && agoWords(Date.now() - Date.parse(t.builtAt)) ? ' ' + esc(agoWords(Date.now() - Date.parse(t.builtAt))) : '')
       + (t.builtNote ? ': ' + esc(t.builtNote) : '')
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
-      + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(t.projectName) + ' not built yet">Not built yet</button></div>';
+      + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(projChain) + ' not built yet">Not built yet</button></div>';
   /* kosmos#4787: a recurring job's row says how often it runs, when it last ran and who ran it, and when it runs next,
      so automated work shows its owner and its rhythm instead of looking idle or ownerless. The rule's words and the next
      run come from the board (taskrepeat.describe / nextAfter), never worked out again here. */
@@ -61685,11 +61688,11 @@ function tskRow(t, at) {
     /* The row no longer repeats its state in a status group (the heading says it), so there the
        label carries it: a screen reader moving between checkboxes still hears where each task is.
        Grouped by project the row shows its state line, so the label does not say it again. */
-    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName)
+    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(projChain)
     + (g && TSK.by !== 'project' ? ' (' + esc(g.l) + ')' : '') + '"></label>'
     + '<div class="t">' + partOf + '<span class="n">#' + Number(t.number) + '</span>'
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
-    + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
+    + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(projChain) + '</button>'
     /* #5864: a BUILT task in a paused project sits in Built but waiting, so its row says the project is paused (the CLI
        prints [project paused]); a held row needs no note, its group already says it. */
     + (t.projectPaused === true && t.state === 'built' ? '<span class="tsk-paused">project paused</span>' : '')
@@ -62036,7 +62039,7 @@ async function tskBulkClose() {
       msg.textContent = asSentence(body.error || 'those tasks were not closed');
     } else if (failed.length) {
       msg.textContent = 'Closed ' + done + ' of ' + results.length + '.' + tail + ' '
-        + failed.map((x) => { const t = (TSK.data || []).find((y) => y.projectId === x.projectId && y.number === x.number); return (t ? t.projectName + ' ' : '') + '#' + x.number + ': ' + x.error; }).join('; ') + '.';
+        + failed.map((x) => { const t = (TSK.data || []).find((y) => y.projectId === x.projectId && y.number === x.number); return (t ? (Array.isArray(t.projectPath) ? t.projectPath : []).concat(String(t.projectName)).join(' › ') + ' ' : '') + '#' + x.number + ': ' + x.error; }).join('; ') + '.';
     } else {
       msg.textContent = 'Closed ' + done + (done === 1 ? ' task.' : ' tasks.') + tail
         + ' Closing a task does not stop an agent that is working on it.';

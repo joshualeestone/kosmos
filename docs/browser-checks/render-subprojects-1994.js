@@ -476,6 +476,13 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       tskPaint();
       const tasksSel = texts('tsk-projsel');
       const heads = Array.from(document.querySelectorAll('#tsk-groups .tsk-grp h3')).map((h) => h.firstChild.textContent);
+      // Under the default Group by: Status, each row's project button names the chain; search finds a parent's name.
+      TSK.by = 'status'; tskPaint();
+      const rowProjects = Array.from(document.querySelectorAll('#tsk-groups .tsk-row .meta [data-open-project]')).map((x) => x.textContent).sort();
+      // Ads matches 'launch' only through its chain (Book A › Launch › Ads); the two Launches match by name.
+      TSK.q = 'launch'; tskPaint();
+      const found = Array.from(document.querySelectorAll('#tsk-groups .tsk-row .meta [data-open-project]')).map((x) => x.textContent).sort();
+      TSK.q = ''; TSK.by = 'project';
       TSK.proj = 'ad'; tskPaint();
       const crumb = document.getElementById('tsk-crumb').textContent;
       const title = document.getElementById('tsk-title').textContent;
@@ -486,7 +493,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         Object.assign(mk('kid', 'Kid', 'olda'), { parentName: 'Old launch', parentArchived: true })]);
       pjPaintParentSelect(PROJECTS.find((x) => x.id === 'kid'));
       const archivedParent = document.getElementById('pjs-parent').selectedOptions[0].textContent;
-      return { create, settings, pick, tasksSel, heads, crumb, title, backLabel, archivedParent };
+      return { create, settings, pick, tasksSel, heads, crumb, title, backLabel, archivedParent, rowProjects, found };
     });
     const order = ['Alpha', 'Alpha › Sub', 'Alpha 2', 'Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B', 'Book B › Launch'];
     ok(t + ' #3029 create parent picker: named by chain, each subproject after its parent', JSON.stringify(chains.create.slice(1)) === JSON.stringify(order), JSON.stringify(chains.create));
@@ -499,6 +506,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' #3029 Tasks crumb names the picked subproject by its chain', /All tasks › Book A › Launch › Ads/.test(chains.crumb), JSON.stringify(chains.crumb));
     ok(t + ' #3029 Tasks title and back chevron name the picked subproject by its chain',
       / on Book A › Launch › Ads$/.test(chains.title.trim()) && chains.backLabel === 'Back to Book A › Launch › Ads', JSON.stringify({ title: chains.title, back: chains.backLabel }));
+    ok(t + ' #3029 Tasks rows (Group by: Status) name their project by its chain',
+      JSON.stringify(chains.rowProjects) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.rowProjects));
+    ok(t + ' #3029 Tasks search for a parent\'s name finds its subproject\'s tasks', JSON.stringify(chains.found) === JSON.stringify(['Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.found));
     ok(t + ' #3029 settings picker names an archived parent that is a subproject by its chain', chains.archivedParent === 'Book A › Old launch (archived)', JSON.stringify(chains.archivedParent));
 
     // ---- Layer 4 removed (#3103/#3104, 6.68) ----

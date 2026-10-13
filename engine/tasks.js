@@ -1538,19 +1538,6 @@ function columnTasks(p) {
    could-not-tell with the reason. Accepting the spelling costs nothing
    before agents are taught it; teaching it is a wording change (#763's
    rule: Splinter, then Josh) and is not in this file. */
-/* #3029: a project's ancestors' names, root first ([] for a top-level project). A parent missing from the
-   read gives [], as the projects API leaves such a child at top level (parentName null). */
-function projectPathOf(p, byId) {
-  const names = [];
-  const seen = new Set(p && p.id ? [p.id] : []);
-  let cur = p && p.parent ? byId.get(p.parent) : null;
-  while (cur && !seen.has(cur.id)) {
-    seen.add(cur.id);
-    names.unshift(String(cur.name));
-    cur = cur.parent ? byId.get(cur.parent) : null;
-  }
-  return names;
-}
 
 /**
  * Every task on every project, for the Tasks view (#3559) and `kosmos tasks`. It was
@@ -1642,6 +1629,20 @@ function allTasks(everyProject) {
   return out.sort((a, b) => (a.isClosed ? 1 : 0) - (b.isClosed ? 1 : 0)
     || String(a.projectName).localeCompare(String(b.projectName))
     || (b.number || 0) - (a.number || 0));
+}
+
+/* #3029: a project's ancestors' names, root first ([] for a top-level project). A parent missing from the
+   read gives [], as the projects API leaves such a child at top level (parentName null). */
+function projectPathOf(p, byId) {
+  const names = [];
+  const seen = new Set(p && p.id ? [p.id] : []);
+  let cur = p && p.parent ? byId.get(p.parent) : null;
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    names.unshift(String(cur.name));
+    cur = cur.parent ? byId.get(cur.parent) : null;
+  }
+  return names;
 }
 
 /* #5705 (user feedback, 2026-10-09): `kosmos task list` was one flat list of every task in every state. The list
