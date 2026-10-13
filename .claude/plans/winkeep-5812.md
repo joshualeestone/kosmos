@@ -34,6 +34,18 @@ That Claude Code on Windows sends `tool_input.file_path` as the same absolute pa
 resolve to (filewriters resolves links and compares case-insensitively on win32). Not measured on a Windows box in
 this slice; the Windows test box (EC2) can check it.
 
+## A new exposure, closed in the hook (review 1)
+The board resolves the path SYNCHRONOUSLY to record the writer (filewriters realpath, level by level), whether the undo
+switch is on or off, and keep lstats and opens it when the switch is on. On Windows a UNC path (`\\server\share`) or a
+mapped drive that is gone can stall the whole board for an SMB timeout, and each such edit reaches out to that server.
+So on win32 the hook does not send a path starting with two slashes of either kind (UNC, `\\?\`, `\\.\pipe`). A project
+folder is never on one. A mapped DRIVE LETTER to a share still goes: it looks like any drive path, and refusing it
+would need a call the hook cannot afford. Server-side hardening of the route is a separate card if wanted.
+
+## Timing budget
+The win32 hook entry's ceiling is 15 s (reporthook.js). Worst case for a PreToolUse edit: the 5 s stdin backstop, the
+3 s keep and the 3 s heartbeat report = 11 s. The 3 s is pinned through main with mock timers.
+
 ## Tests
 `engine/kosmos-report-hook.keepcopy-5812.test.js`, through the exported `main` with an injected fetch:
 - an Edit, a Write, a MultiEdit and a NotebookEdit each POST /api/undo/keep with path, cwd and session, before the
@@ -43,4 +55,7 @@ this slice; the Windows test box (EC2) can check it.
 - a control character in the path or cwd sends nothing;
 - a keep call that throws, refuses (500) or never answers still resolves 0, and the never-answering one returns within
   the 3 s bound (measured with an injected short timeout and a real clock).
-Mutants: drop the keep call; put it after the heartbeat return; drop the control-character refusal.
+- on win32 a UNC, `\\?\` or `\\.\pipe` path sends nothing; off win32 a leading // goes (control);
+- the bound main uses is 3 s (mock timers: waiting at 2999 ms, given up at 3000).
+Mutants, each caught: drop the keep call; put it after the heartbeat return; drop the control-character refusal; no
+timeout (cancelled by the test's own 5 s timeout); no UNC refusal; the 8 s report timeout as the fallback.
