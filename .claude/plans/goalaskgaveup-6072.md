@@ -21,13 +21,22 @@ nothing for the day, and nothing said.
   expired ones (review 2 took paused out of the prune). The newest give-up is re-inserted so MEMORY_CAP keeps it. savedForm's Infinity is said.
 - That pruning made the landed-ask test pass without the clear (its re-ask was a day later, when pruning also removes
   it). The test now re-asks within the day, so only the clear can remove it; dropping the clear reds it again.
-- Not covered: a goal removed from BRIEF.md (step reads goals only for asked candidates, so it cannot tell "no goal"
-  from "not read this tick"). It clears at the latest when the day ends.
+- A goal removed from BRIEF.md: step cannot tell "no goal" from "not read this tick", so review 3 checks it where
+  the record is read instead.
 
 ## Review 2
 - Pruning a PAUSED project's give-up re-hid the stall: its asked time stays, so after a resume nothing re-asks within
   the day. step() now prunes only archived or gone projects (and expired records); a paused one is hidden when read.
   A step test pins it (restoring the paused prune reds it).
+
+## Review 3
+- A goal deleted from BRIEF.md: the project list now reads the goal for a project that has a give-up (only those) and
+  says nothing when it is gone (tested both ways).
+- ASSIGNER_VIEW is set only by a sweep tick that ran, never at load, so a board whose Assigner is off or not opted in
+  to live execution shows no give-up restored from disk. Reasoned from the code, not tested: the sweep is inert under
+  node --test.
+- A new run of tries (a re-ask that fails short of MAX_ASK_FAILS) drops the older give-up (tested).
+- The new server.js block sat between the #670 comment and withUnread; moved above it.
 
 ## Slice 2 (not this branch)
 The words on the page. Not the Issue pill (Issue is an agent needing the person, #4730), and not the project tile

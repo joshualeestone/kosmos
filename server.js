@@ -4019,24 +4019,29 @@ function pathOf(req) {
  * which requests reach a decode is exactly the kind of second-order effect a
  * routing change is prone to.
  */
-/* #670: every project on the wire carries its unread count, derived HERE
-   from the record and the read cursor, never re-counted on the page. null
-   when the record or the cursor cannot be read (unknown is not zero), and
-   never a 500: a projects list that fails because a bubble could not be
-   computed would be the wrong thing to lose. */
 /* #6072: every project on the wire carries `goalAskGaveUp`: when the Assigner tried MAX_ASK_FAILS times today to ask an
-   agent to plan work toward its goal and reached nobody, which agent it was and when; else null. Read from the running
-   Assigner's memory (ASSIGNER_VIEW, set by its sweep), so a board whose Assigner never ran says nothing. Never a 500. */
+   agent to plan work toward its goal and reached nobody, which agent it was and when; else null. Read from the memory
+   of an Assigner that has RUN in this process (ASSIGNER_VIEW, set by its sweep's tick, never at load), so a board whose
+   Assigner is off, or not opted in to live execution, says nothing (review 3). And null once the goal itself is gone
+   from BRIEF.md (review 3), read only for a project that has a give-up. Never a 500. */
 const ASSIGNER_VIEW = { mem: null };
 function withGoalAsk(list) {
   const now = Date.now();
   return (list || []).map((p) => {
     let rec = null;
-    try { rec = assigner.goalAskGaveUp(ASSIGNER_VIEW.mem, p, now); } catch { rec = null; }
+    try {
+      rec = assigner.goalAskGaveUp(ASSIGNER_VIEW.mem, p, now);
+      if (rec && !brief.readGoal(p.folder)) rec = null;
+    } catch { rec = null; }
     return { ...p, goalAskGaveUp: rec };
   });
 }
 
+/* #670: every project on the wire carries its unread count, derived HERE
+   from the record and the read cursor, never re-counted on the page. null
+   when the record or the cursor cannot be read (unknown is not zero), and
+   never a 500: a projects list that fails because a bubble could not be
+   computed would be the wrong thing to lose. */
 function withUnread(list) {
   let counts = null;
   try { counts = messages.unreadAll(); } catch { counts = null; }
@@ -22883,7 +22888,6 @@ function start(port = PORT) {
       /* #5161: the goal-ask memory is read back from disk, so a restart does not forget which projects were asked about
          (and in what state); written back only when it changes. */
       let assignerPrev = assigner.loadMemory(Date.now());
-      ASSIGNER_VIEW.mem = assignerPrev;   // #6072: the project list reads the day's give-ups from here
       const FAILOVER_TELL_SEEN = new Set();   // #5382: cards idle at the previous tell sweep (engine/failovertell.js)
       /* #5400: and on whatever Kosmos next types into an owed agent (a person's message at the reset, a room post),
          so it is told before it can carry on with a moved part; marked told once that line may have reached it. */
@@ -22926,7 +22930,7 @@ function start(port = PORT) {
             DELIVERY: chat.DELIVERY,
           });
           assignerPrev = out.next;
-          ASSIGNER_VIEW.mem = assignerPrev;   // #6072
+          ASSIGNER_VIEW.mem = assignerPrev;   // #6072: set by a tick that ran, never at load (review 3)
           /* #5382 (review 8): tell each idle agent which of its parts the failover gave away (the record is on the part,
              engine/failovertell.js), whatever the failover setting says now: the parts were already moved. */
           try {

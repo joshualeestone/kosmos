@@ -42,6 +42,9 @@ test('a project the Assigner gave up on today carries who it could not reach; an
   assert.ok(echo, 'fixture: no card for the agent');
   const stalled = projects.create({ name: 'Stalled6072' });
   projects.addAgent(stalled.id, echo.sessionName, roster);
+  const folder = projects.readAll().find((p) => p.id === stalled.id).folder;
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(path.join(folder, 'BRIEF.md'), '## Goal\n\nShip the guide.\n');
   const fine = projects.create({ name: 'Fine6072' });
   const mem = assigner.restoredMemory({ v: 1 }, Date.now());
   const at = Date.now() - 60 * 1000;
@@ -55,6 +58,11 @@ test('a project the Assigner gave up on today carries who it could not reach; an
     assert.ok(s && f, 'fixture: a project is missing from the list');
     assert.deepEqual(s.goalAskGaveUp, { at, tries: assigner.MAX_ASK_FAILS, agent: 'Echo', session: echo.sessionName, because: 'could_not' });
     assert.equal(f.goalAskGaveUp, null, 'a project nothing gave up on carries a give-up');
+    // Review 3: a goal deleted from BRIEF.md is no longer stalled.
+    fs.writeFileSync(path.join(folder, 'BRIEF.md'), '## Notes\n\nNo goal now.\n');
+    assert.equal((await listed()).find((p) => p.id === stalled.id).goalAskGaveUp, null, 'a project with no goal reads as stalled');
+    fs.writeFileSync(path.join(folder, 'BRIEF.md'), '## Goal\n\nShip the guide.\n');
+    assert.ok((await listed()).find((p) => p.id === stalled.id).goalAskGaveUp, 'CONTROL: with the goal back it shows again');
     tasks.create(stalled.id, { sentence: 'Plan the next step', made: { via: 'screen' } });
     assert.equal((await listed()).find((p) => p.id === stalled.id).goalAskGaveUp, null, 'open work, yet the goal reads as stalled');
   } finally { ASSIGNER_VIEW.mem = before; }

@@ -975,3 +975,18 @@ test('#6072 review 1: no give-up for an archived or paused project, or naming an
     assert.equal(later.askGaveUp.has(w.pid), false, 'step kept an expired give-up');
   } finally { w.restore(); }
 });
+
+test('#6072 review 3: a new failed ask, short of MAX_ASK_FAILS, drops the older give-up (it no longer describes the run)', () => {
+  const { w, run } = gaveUpWorld('gupfour');
+  try {
+    let mem = run(undefined, T0).next;
+    let now = T0 + a.IDLE_MS;
+    for (let i = 0; i < a.MAX_ASK_FAILS; i++) { mem = run(mem, now).next; now += 61 * 60 * 1000; }
+    assert.ok(mem.askGaveUp.has(w.pid), 'fixture: no give-up to replace');
+    const reask = { ...mem, asked: new Map([...mem.asked].filter(([k]) => k !== w.pid)), askedSig: new Map([...mem.askedSig].filter(([k]) => k !== w.pid)) };
+    const after = run(reask, now);
+    assert.ok(after.asks.some((x) => x.projectId === w.pid), 'fixture: the project was not asked again');
+    assert.equal(after.next.askFails.get(w.pid), 1, 'fixture: this is not the first try of a new run');
+    assert.equal(after.next.askGaveUp.has(w.pid), false, 'a stale give-up outlived the start of a new run');
+  } finally { w.restore(); }
+});
