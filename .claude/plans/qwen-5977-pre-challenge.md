@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: qwen-5977
-diff_hash: 819552dec966dc8ff9f32ca4b2d319e36aa863ce3fefdf39709c18a68747cc05
+diff_hash: 4f9f3764889ed67d237c430bf9458331268a41b550c263899eb1ecbad1034a19
 validation: passed
 timestamp: 2026-10-13T12:32:45Z
 iterations: 7
@@ -47,3 +47,7 @@ Severity tags appear only where a review commit recorded one.
 
 #### After validation (dffae0063)
 - [WARNING] six repo guards the targeted sets never ran. Fixed; full validation then passed.
+
+#### After the PR (CI fix, test only)
+- [WARNING] CI found the Repair test resolving the machine's codex (absent on the runner). Fixed: the sandbox codex.
+  Re-hashed; the full validation above is of the code before this test-only change.
