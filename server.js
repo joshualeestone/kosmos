@@ -4058,14 +4058,22 @@ function attachPluginReach(agents, opts) {
   const personClaudeJson = personHome ? path.join(personHome, '.claude.json') : null;
   const personCodexHome = personHome ? path.join(personHome, '.codex') : null;
   const deps = o.fs ? { fs: o.fs } : undefined;
+  const trust = require('./engine/trust'); // memoized; canonicalOnDisk keys a folder the way Claude Code does
   for (const a of (agents || [])) {
-    a.reach = (personClaudeDir && a && a.account)
-      ? pluginreach.agentPluginReach({
-          runner: a.runner,
-          agentClaudeDir: (a.account.dir || null),
-          personClaudeDir, personClaudeJson, personCodexHome,
-        }, deps)
-      : null;
+    if (!(personClaudeDir && a && a.account)) { if (a) a.reach = null; continue; }
+    // This agent's own working folder, canonicalized the way Claude Code keys .claude.json `projects`
+    // (#5309, Liu Kang's ruling): it selects ONLY the per-project mcpServers added in THIS agent's folder.
+    // Unknown (no name / no worker dir / unresolvable) -> null -> top-level only (the safe, missed direction).
+    let agentWorkFolder = null;
+    try {
+      const wd = (o.workerDir ? o.workerDir(a.sessionName) : (a.sessionName ? create.workerDir(a.sessionName) : null));
+      agentWorkFolder = wd ? trust.canonicalOnDisk(wd) : null;
+    } catch { agentWorkFolder = null; }
+    a.reach = pluginreach.agentPluginReach({
+      runner: a.runner,
+      agentClaudeDir: (a.account.dir || null),
+      personClaudeDir, personClaudeJson, personCodexHome, agentWorkFolder,
+    }, deps);
   }
   return agents;
 }
