@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope');   // #5959: first. Under suite load an aw-usage-route- dir was left twice; this sweeps every temp dir the file makes at exit.
 
 /**
  * The /api/usage route (#853), driven against the real server.
