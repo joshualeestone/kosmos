@@ -21,11 +21,13 @@ A throwaway session in a scratch folder, with no user settings (`--setting-sourc
 
 ## The change
 
-1. `status.claudePermissionPrompt(text)`: the prompt in the question menu's shape `{ at, question, options, count, permission: true }`, only for the `wording` kind (a "Do you want to / Would you like to" question). Refused (null) without its footer, with numbering not 1..N, with other than one highlighted option, with fewer than 2 or more than 9 options, or with a control character in a label.
+1. `status.claudePermissionPrompt(text)`: the prompt in the question menu's shape `{ at, question, options, count, permission: true }`, only for the `wording` kind (a "Do you want to / Would you like to" question), never the safeguards menu. A label wrapped onto indented lines is joined into one whole option (a long Bash command wraps option 2). Refused (null) without its footer, with numbering not 1..N, with other than one highlighted option, with fewer than 2 or more than 9 options, or with a control character in a label.
+   `chat.optionsIn` uses the same reader for this prompt, so the buttons the page draws are exactly the options the key path answers.
 2. `status.claudeAnswerableMenu(text)` = the question menu or the permission prompt. It is used at the four answering sites only: the press route's pressable check (the page's buttons), its not-a-menu check, its answer, and `chat.answerQuestionMenu`'s before and after reads. Closing with Escape stays the question menu's alone, because on a permission prompt Escape means No.
-3. In the press route, words (not a pressed number) while a permission prompt is up are neither closed nor typed; delivery refuses them.
-4. Refusals: `CLAUDE_PERMISSION_SENTENCE` and `CLAUDE_MENU_SENTENCE` end "answer it with the buttons under its question on its page in Kosmos", but ONLY where the page draws buttons (the permission prompt parses, or the menu is the single-select form). Any other form keeps "in its window", because there are no buttons for it. The press route's words-check refusal now points at this page.
-5. `classify`: a permission prompt (`wording`) reads "it is waiting for your approval" (`status.APPROVAL_WAITING`). The three server sites that compare a card's reason with `ASKING_GENERIC` all require `stateReported === true`, and this reason is only ever scraped, so it is never taken for an agent's own question.
+3. **Identity, because the question line repeats.** "Do you want to proceed?" and "1. Yes" are the same on every Bash prompt, so a permission prompt is matched on what is above its options (`chat.questionAbove`, the existing every-meaningful-line rule: the command or the file): the page sends it with a press (`asked`), the route checks it against its read, and `answerQuestionMenu` checks it again on its last look before the key and refuses without it. After the key, "still asking" means the SAME prompt by identity; the next command's prompt is "answered", so the page never invites a second press that would approve it.
+4. **Only a button press answers it.** A typed digit names no command, and "1" is Yes on every prompt, so typed it is words. Words while a permission prompt is up are neither closed (Escape there means No) nor typed; delivery refuses them and points at the buttons.
+5. Refusals: `CLAUDE_PERMISSION_SENTENCE` and `CLAUDE_MENU_SENTENCE` end "answer it with the buttons under its question on its page in Kosmos", but ONLY where the page draws buttons (the permission prompt parses, or the menu is the single-select form). Any other form keeps "in its window", because there are no buttons for it. The press route's words-check refusal now points at this page.
+6. `classify`: a permission prompt (`wording`) reads "it is waiting for your approval" (`status.APPROVAL_WAITING`). The three server sites that compare a card's reason with `ASKING_GENERIC` all require `stateReported === true`, and this reason is only ever scraped, so it is never taken for an agent's own question.
 
 ## Tests
 
@@ -48,7 +50,7 @@ Codex and Gemini approval prompts (not measured), iOS notification actions (#387
 
 ## Weakest premise
 
-That the option numbering and the digit-selects behaviour hold in later Claude Code versions. The key path re-reads the labels before every key, so a change makes it refuse, never press the wrong option.
+That the region above the options tells two prompts apart. It does for the captured Bash and Edit prompts (the command or the file is there), and the key path refuses when it is missing. A prompt whose only text above is the generic question would read as the same prompt, so a second one there could be reported answered or taken for the first. The numbering and the digit-selects behaviour are measured on 2.1.296 only; a change in the labels makes the key path refuse.
 
 ## Rejected
 
