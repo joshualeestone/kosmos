@@ -2589,6 +2589,32 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
   return { usedBy, complete };
 }
 
+/* #6108: every Claude agent on this computer grouped by the account folder it runs on, in ONE pass, for the accounts
+   list (which used to need a full walk per account row). The same reading as enumerateAgentsOnAccount: a job with no
+   configDir runs on the default account; `complete` is false when anything could not be read. */
+function claudeAgentsByAccount() {
+  const known = knownAgentNames();
+  let complete = known.complete;
+  const byDir = new Map(), onDefault = [];
+  for (const sessionName of known.names) {
+    let job = null;
+    try { job = create.readJob(sessionName); } catch { complete = false; continue; }
+    if (!job) { let absent = true; try { absent = create.jobMissing(sessionName); } catch { absent = false; } if (!absent) complete = false; continue; }
+    if (job.runner !== 'claude') continue;
+    if (!job.configDir) { onDefault.push(sessionName); continue; }
+    let key; try { key = path.resolve(job.configDir); } catch { complete = false; continue; }
+    if (!byDir.has(key)) byDir.set(key, []);
+    byDir.get(key).push(sessionName);
+  }
+  return {
+    complete,
+    on(dir, isDefault) {   // the agents on one account row
+      let key = null; try { key = dir ? path.resolve(dir) : null; } catch { key = null; }
+      return [...(isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])];
+    },
+  };
+}
+
 /* #3296/#3391 accounts slice: store a NAMED gemini/grok account from a pasted API
    key. The gemini/grok CLIs read their key from an ENV VAR (GEMINI_API_KEY /
    XAI_API_KEY), NOT a file the config-home points at (codex's auth.json) -- so unlike
@@ -10844,6 +10870,8 @@ const server = http.createServer(async (req, res) => {
         // Only a signed-in row can show its login as good, so only those are read (review iteration 4).
         const loginUntil = new Map(await Promise.all(claudeRows.map(async (a) => [a,
           (a.connection && a.connection.state === 'connected') ? await claudeloginlive.validUntilWithin(a, undefined, nowMs) : null])));
+        let claudeAgents = null;   // #6108: one walk for every row below
+        try { claudeAgents = claudeAgentsByAccount(); } catch { claudeAgents = null; }
         const claude = claudeRows.map((a) => {
           /* #3136: the badge is the FRESHER of a passively-witnessed agent
              observation (obsByDir, filled by the ~60s sweep) and a
@@ -10917,10 +10945,7 @@ const server = http.createServer(async (req, res) => {
             })(),
             /* #6108: the agents on this account on THIS computer, by session name. complete is false when any could not
                be read, so the page can say the list may be short rather than call it whole. */
-            agentsHere: (() => {
-              try { const e = enumerateAgentsOnAccount(a.dir, !!a.isDefault, 'claude'); return { names: e.usedBy, complete: !!e.complete }; }
-              catch { return { names: [], complete: false }; }
-            })(),
+            agentsHere: claudeAgents ? { names: claudeAgents.on(a.dir, !!a.isDefault), complete: !!claudeAgents.complete } : { names: [], complete: false },
           };
         });
         /* 🛑 `offerable` TRAVELS WITH THE ROW, for the same reason `memoryShared` does

@@ -27087,6 +27087,9 @@ function acctFollowUp(n, busy) {
    Only what Kosmos knows: the weekly reading exists for accounts Kosmos set up, while an agent on them runs, so a row
    without one says so plainly instead of guessing. An API key has no weekly limit, so its row shows no meter. */
 const ACCT_WARN_PCT = 75, ACCT_HIGH_PCT = 90;
+/* A move in progress or its outcome, by the source account's dir. The list repaints while agents move and after (a
+   source row with no agents left has no move control), so the sentence lives here, not in the old element. */
+const ACCT_MOVE = new Map();
 function acctUsageHtml(a, list) {
   if (!a || a.provider !== 'anthropic' || !a.agentsHere) return '';   // an older board sends no agentsHere: show nothing
   const w = a.weekly && Number.isFinite(a.weekly.usedPct) ? a.weekly : null;
@@ -27097,44 +27100,54 @@ function acctUsageHtml(a, list) {
       const band = pct >= ACCT_HIGH_PCT ? 'high' : pct >= ACCT_WARN_PCT ? 'warn' : 'ok';
       const resets = new Date(w.resetsAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
       const age = agoWords(Date.now() - w.at);
-      usage = '<div class="acct-usage-meter"><span class="bar" role="img" aria-label="' + pct + '% of its weekly limit used"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
-        + '<p class="acct-usage-line">' + pct + '% of its weekly limit used · resets ' + esc(resets) + (age ? ' · as of ' + esc(age) : '') + '</p></div>'
+      usage = '<div class="acct-usage-meter"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
+        + '<p class="acct-usage-line">' + pct + '% of its weekly limit used · resets ' + esc(resets) + (age ? ' · last read ' + esc(age) : '') + '</p></div>'
         + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">Close to its weekly limit. Move its agents to another account before they stop.</p>' : '');
     } else {
       usage = '<p class="acct-usage-line acct-usage-none" title="Kosmos reads this while an agent on this account is working, on accounts Kosmos set up.">No usage reading for this account yet.</p>';
     }
   }
-  const byName = new Map((Array.isArray(LAST) ? LAST : []).map((x) => [x.sessionName, x.name || x.sessionName]));
-  const names = a.agentsHere.names.map((n) => byName.get(n) || n);
+  /* The setup guide is left out, as everywhere the page lists or counts agents (#3739); it is not moved either. */
+  const known = new Map((Array.isArray(LAST) ? LAST : []).map((x) => [x.sessionName, x]));
+  const sessions = a.agentsHere.names.filter((n) => !(known.get(n) && known.get(n).isGuide));
+  const names = sessions.map((n) => (known.get(n) && known.get(n).name) || n);
   const short = a.agentsHere.complete ? '' : ' (some could not be checked)';
   const agentsLine = names.length
     ? '<p class="acct-agents-line">Its agents on this computer: ' + names.map(esc).join(', ') + esc(short) + '</p>'
     : '<p class="acct-agents-line">No agents on it on this computer' + esc(short) + '.</p>';
   const targets = (list || []).filter((x) => x.provider === 'anthropic' && x.dir && x.dir !== a.dir
     && !(x.connection && (x.connection.badge === 'rejected' || x.connection.badge === 'signed_out')));
-  const move = names.length && targets.length
-    ? '<div class="acct-move"><select data-acct-move-to="' + esc(a.dir) + '" aria-label="Move ' + (names.length === 1 ? 'this agent' : 'these agents') + ' to another account">'
+  const st = ACCT_MOVE.get(a.dir) || null;
+  const busy = !!(st && st.moving);
+  const said = st && st.said ? '<p class="acct-move-msg" role="status" data-acct-move-msg="' + esc(a.dir) + '">' + esc(st.said) + '</p>' : '';
+  const move = (names.length && targets.length) || busy
+    ? '<div class="acct-move"><select' + (busy ? ' disabled' : '') + ' data-acct-move-to="' + esc(a.dir) + '" aria-label="Move ' + (names.length === 1 ? 'this agent' : 'these agents') + ' to another account">'
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
       + targets.map((x) => '<option value="' + esc(x.dir) + '">' + esc(x.email || x.label || x.dir) + (x.weekly && Number.isFinite(x.weekly.usedPct) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
-      + '</select><button type="button" data-acct-move="' + esc(a.dir) + '" disabled>Move</button>'
-      + '<p class="acct-move-msg" role="status" data-acct-move-msg="' + esc(a.dir) + '"></p></div>'
+      + '</select><button type="button" data-acct-move="' + esc(a.dir) + '" disabled>' + (busy ? 'Moving…' : 'Move') + '</button></div>'
     : '';
-  return '<div class="acct-usage">' + usage + agentsLine + move + '</div>';
+  return '<div class="acct-usage">' + usage + agentsLine + move + (said || '<p class="acct-move-msg" role="status" data-acct-move-msg="' + esc(a.dir) + '"></p>') + '</div>';
 }
 /* #6108: move every agent this computer has on `fromDir` to `toDir`, one at a time through the same route the agent's
    own page uses, and say how it went in one line: the engine's own sentence for any that did not move. */
-async function moveAccountAgents(fromDir, toDir, names, msg) {
-  let moved = 0; const misses = [];
-  for (const n of names) {
+async function moveAccountAgents(fromDir, toDir, names, onProgress) {
+  let moved = 0; const restarting = [], misses = new Map();   // reason -> names, so one refusal is said once
+  const nameOf = (n) => (((LAST || []).find((x) => x.sessionName === n) || {}).name || n);
+  for (const [i, n] of names.entries()) {
     try {
       const res = await fetch('/api/agent/' + encodeURIComponent(n) + '/account', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: toDir }) });
       const out = await res.json().catch(() => null);
       if (res.ok && out && out.outcome === 'changed') moved++;
-      else misses.push((((LAST || []).find((x) => x.sessionName === n) || {}).name || n) + ': ' + ((out && (out.because || out.error)) || 'that did not work'));
-    } catch { misses.push(n + ': that did not work'); }
-    if (msg) msg.textContent = 'Moving… ' + (moved + misses.length) + ' of ' + names.length;
+      else if (res.ok && out && out.outcome === 'partial') restarting.push(nameOf(n));   // saved; still on the old one until it restarts
+      else { const why = (out && (out.because || out.error)) || 'that did not work'; if (!misses.has(why)) misses.set(why, []); misses.get(why).push(nameOf(n)); }
+    } catch { const why = 'that did not work'; if (!misses.has(why)) misses.set(why, []); misses.get(why).push(nameOf(n)); }
+    if (onProgress) onProgress(i + 1, names.length);
   }
-  return { moved, misses };
+  const parts = [];
+  if (moved) parts.push('Moved ' + moved + (moved === 1 ? ' agent.' : ' agents.'));
+  if (restarting.length) parts.push('Saved, moving when ' + (restarting.length === 1 ? 'it restarts' : 'they restart') + ': ' + restarting.join(', ') + '.');
+  for (const [why, who] of misses) parts.push('Not moved (' + who.join(', ') + '): ' + why);
+  return parts.join(' ');
 }
 
 async function paintAccounts(opts) {
@@ -27786,14 +27799,23 @@ async function paintAccounts(opts) {
       const row = list.find((x) => String(x.dir) === from);
       const to = sel && sel.value;
       if (!row || !row.agentsHere || !to) return;
-      btn.disabled = true; sel.disabled = true;
-      const { moved, misses } = await moveAccountAgents(from, to, row.agentsHere.names.slice(), msg);
-      const said = (moved ? 'Moved ' + moved + (moved === 1 ? ' agent.' : ' agents.') : '') + (misses.length ? (moved ? ' ' : '') + 'Not moved: ' + misses.join('; ') : '');
-      if (msg) msg.textContent = said;
+      if (ACCT_MOVE.get(from) && ACCT_MOVE.get(from).moving) return;   // a repaint mid-move must not start a second one
+      const guide = new Set((LAST || []).filter((x) => x.isGuide).map((x) => x.sessionName));
+      const names = row.agentsHere.names.filter((n) => !guide.has(n));
+      ACCT_MOVE.set(from, { moving: true, said: 'Moving… 0 of ' + names.length });
+      btn.disabled = true; sel.disabled = true; btn.textContent = 'Moving…';
+      if (msg) msg.textContent = 'Moving… 0 of ' + names.length;
+      const said = await moveAccountAgents(from, to, names, (done, all) => {
+        const t = 'Moving… ' + done + ' of ' + all;
+        ACCT_MOVE.set(from, { moving: true, said: t });
+        const m = document.querySelector('[data-acct-move-msg="' + CSS.escape(from) + '"]');   // the current element, after any repaint
+        if (m) m.textContent = t;
+      });
+      ACCT_MOVE.set(from, { moving: false, said });
       accountsDropped();
-      try { await paintAccounts(); } catch { /* the line above is the answer; a failed refresh must not replace it */ }
-      const again = document.querySelector('[data-acct-move-msg="' + CSS.escape(from) + '"]');
-      if (again && !again.textContent) again.textContent = said;
+      try { await paintAccounts(); } catch { /* the sentence is kept in ACCT_MOVE and drawn by the next paint */ }
+      const m = document.querySelector('[data-acct-move-msg="' + CSS.escape(from) + '"]');
+      if (m && m.textContent !== said) m.textContent = said;
     });
   }
   for (const btn of box.querySelectorAll('[data-reauth]')) {

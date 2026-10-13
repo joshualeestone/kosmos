@@ -31,14 +31,16 @@ const conn = { state: 'connected', badge: 'working', checkedLive: true, because:
 const claude = (email, dir, extra) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email, label: email, dir: '/home/.claude-' + dir,
   organization: null, isDefault: false, keyTail: null, name: null, memoryShared: true, connection: conn, ...extra });
 const ACCOUNTS = [
-  claude('busy@example.com', 'busy', { weekly: { usedPct: 82, resetsAt: now + 50 * H, at: now - 2 * H }, agentsHere: { names: ['s-dana', 's-eli'], complete: true } }),
+  claude('busy@example.com', 'busy', { weekly: { usedPct: 82, resetsAt: now + 50 * H, at: now - 2 * H }, agentsHere: { names: ['s-dana', 's-eli', 's-guide'], complete: true } }),
+  claude('mixed@example.com', 'mixed', { weekly: { usedPct: 95, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-p', 's-r1', 's-r2'], complete: true } }),
   claude('spare@example.com', 'spare', { weekly: { usedPct: 20, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
   claude('fresh@example.com', 'fresh', { weekly: null, agentsHere: { names: ['s-x'], complete: true } }),
   claude('calm@example.com', 'calm', { weekly: { usedPct: 40, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
   claude('key@example.com', 'key', { apiKey: true, weekly: null, agentsHere: { names: [], complete: true } }),
   claude('old@example.com', 'old', {}),   // an older board: no weekly, no agentsHere
 ];
-const AGENTS = [{ sessionName: 's-dana', name: 'Dana' }, { sessionName: 's-eli', name: 'Eli' }, { sessionName: 's-x', name: 'x<b>y' }];
+const AGENTS = [{ sessionName: 's-dana', name: 'Dana' }, { sessionName: 's-eli', name: 'Eli' }, { sessionName: 's-x', name: 'x<b>y' },
+  { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true }, { sessionName: 's-p', name: 'Pia' }, { sessionName: 's-r1', name: 'Rex' }, { sessionName: 's-r2', name: 'Rio' }];
 
 const fails = [];
 const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fails.push(label); };
@@ -57,12 +59,23 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       await page.goto('file://' + PAGE);
       const r = await page.evaluate(async ({ accounts, agents }) => {
         const posts = [];
+        /* The stub behaves like the engine: a 'changed' move takes the agent off its account in the next list. s-p
+           comes back 'partial' (saved, restart pending); s-r1 and s-r2 are refused with the same reason. */
+        const where = new Map(); accounts.forEach((a) => (a.agentsHere ? a.agentsHere.names : []).forEach((n) => where.set(n, a.dir)));
+        const list = () => accounts.map((a) => a.agentsHere ? { ...a, agentsHere: { ...a.agentsHere, names: [...where].filter(([, d]) => d === a.dir).map(([n]) => n) } } : a);
         const realFetch = window.fetch;
         window.fetch = (u, opts) => {
           const url = String(u);
-          if (url.indexOf('/api/accounts') !== -1) return Promise.resolve({ ok: true, json: async () => ({ accounts }) });
+          if (url.indexOf('/api/accounts') !== -1) return Promise.resolve({ ok: true, json: async () => ({ accounts: list() }) });
           const m = url.match(/\/api\/agent\/([^/]+)\/account$/);
-          if (m && opts && opts.method === 'POST') { posts.push({ agent: decodeURIComponent(m[1]), dir: JSON.parse(opts.body).dir }); return Promise.resolve({ ok: true, json: async () => ({ outcome: 'changed', because: 'moved' }) }); }
+          if (m && opts && opts.method === 'POST') {
+            const agent = decodeURIComponent(m[1]), dir = JSON.parse(opts.body).dir;
+            posts.push({ agent, dir });
+            if (agent === 's-p') return new Promise((r) => setTimeout(() => r({ ok: true, json: async () => ({ outcome: 'partial', because: 'saved' }) }), 30));
+            if (agent === 's-r1' || agent === 's-r2') return new Promise((r) => setTimeout(() => r({ ok: false, json: async () => ({ outcome: 'refused', because: 'That account does not share this computer\'s memory.' }) }), 30));
+            where.set(agent, dir);
+            return new Promise((r) => setTimeout(() => r({ ok: true, json: async () => ({ outcome: 'changed', because: 'moved' }) }), 30));
+          }
           return realFetch(u, opts);
         };
         if (typeof paintAccounts !== 'function') return { error: 'paintAccounts is not a function' };
@@ -85,31 +98,39 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
             moveInside: mr ? mr.right <= br.right + 0.5 && mr.left >= br.left - 0.5 : null };
         };
         const before = { busy: read('busy@example.com'), fresh: read('fresh@example.com'), calm: read('calm@example.com'), key: read('key@example.com'), old: read('old@example.com') };
-        // Move busy's agents to spare.
-        const b = box('busy@example.com'); const sel = b && b.querySelector('[data-acct-move-to]'); const btn = b && b.querySelector('[data-acct-move]');
-        let moved = null;
-        if (sel && btn) {
-          sel.value = '/home/.claude-spare'; sel.dispatchEvent(new Event('change'));
+        const msgOf = (d) => { const e = document.querySelector('[data-acct-move-msg="' + d + '"]'); return e ? e.textContent.trim() : null; };
+        const runMove = async (email, toDir, expect) => {
+          const b = box(email); const sel = b && b.querySelector('[data-acct-move-to]'); const btn = b && b.querySelector('[data-acct-move]');
+          if (!sel || !btn) return null;
+          const start = posts.length;
+          sel.value = toDir; sel.dispatchEvent(new Event('change'));
           const enabled = !btn.disabled;
-          btn.click();
-          for (let i = 0; i < 100 && posts.length < 2; i++) await new Promise((r) => setTimeout(r, 20));
-          await new Promise((r) => setTimeout(r, 200));
-          const msg = document.querySelector('[data-acct-move-msg="/home/.claude-busy"]');
-          moved = { enabled, posts: posts.slice(), msg: msg ? msg.textContent.trim() : null };
-        }
-        return { before, moved, sideways: document.documentElement.scrollWidth - window.innerWidth };
+          btn.click(); btn.click();   // a second click while the first is running must not start another move
+          for (let i = 0; i < 150 && posts.length - start < expect; i++) await new Promise((r) => setTimeout(r, 20));
+          await new Promise((r) => setTimeout(r, 400));
+          return { enabled, posts: posts.slice(start) };
+        };
+        const moved = await runMove('busy@example.com', '/home/.claude-spare', 2);
+        if (moved) moved.msg = msgOf('/home/.claude-busy');   // read AFTER the list repainted with the agents gone
+        const busyAfter = read('busy@example.com');
+        const mixed = await runMove('mixed@example.com', '/home/.claude-spare', 3);
+        if (mixed) mixed.msg = msgOf('/home/.claude-mixed');
+        return { before, moved, busyAfter, mixed, sideways: document.documentElement.scrollWidth - window.innerWidth };
       }, { accounts: ACCOUNTS, agents: AGENTS });
       await page.close();
       if (r.error) { say(false, tag + ' ' + r.error); continue; }
       const { busy, fresh, calm, key, old } = r.before;
       say(!!busy && busy.has && busy.fill === '82%', tag + ' an 82% row draws its meter at 82%', JSON.stringify(busy && busy.fill));
-      say(!!busy && /^82% of its weekly limit used · resets .+ · as of 2 hours ago$/.test(busy.line || ''), tag + ' the row says how much is used, when it resets and how old the reading is', JSON.stringify(busy && busy.line));
+      say(!!busy && /^82% of its weekly limit used · resets .+ · last read 2 hours ago$/.test(busy.line || ''), tag + ' the row says how much is used, when it resets and how old the reading is', JSON.stringify(busy && busy.line));
       say(!!busy && busy.warn, tag + ' at 82% the row warns');
-      say(!!busy && busy.agents === 'Its agents on this computer: Dana, Eli', tag + ' it names its agents by display name', JSON.stringify(busy && busy.agents));
+      say(!!busy && busy.agents === 'Its agents on this computer: Dana, Eli', tag + ' it names its agents by display name, leaving out the setup guide', JSON.stringify(busy && busy.agents));
       say(!!busy && Array.isArray(busy.options) && busy.options.some((o) => o === 'spare@example.com (20% used)') && !busy.options.some((o) => o.startsWith('busy@')), tag + ' Move offers the other account with its own reading, never itself', JSON.stringify(busy && busy.options));
       say(!!busy && busy.btnDisabled === true, tag + ' Move is disabled until a target is picked');
-      say(!!r.moved && r.moved.enabled && r.moved.posts.length === 2 && r.moved.posts.every((p) => p.dir === '/home/.claude-spare') && r.moved.posts.map((p) => p.agent).sort().join() === 's-dana,s-eli', tag + ' Move sends one move per agent, to the picked account', JSON.stringify(r.moved));
-      say(!!r.moved && r.moved.msg === 'Moved 2 agents.', tag + ' and says how many moved', JSON.stringify(r.moved && r.moved.msg));
+      say(!!r.moved && r.moved.enabled && r.moved.posts.length === 2 && r.moved.posts.every((p) => p.dir === '/home/.claude-spare') && r.moved.posts.map((p) => p.agent).sort().join() === 's-dana,s-eli', tag + ' Move sends one move per agent to the picked account, once (a second click adds nothing), never the guide', JSON.stringify(r.moved));
+      say(!!r.moved && r.moved.msg === 'Moved 2 agents.', tag + ' and says how many moved, still there after the list repaints with the agents gone', JSON.stringify(r.moved && r.moved.msg));
+      say(!!r.busyAfter && r.busyAfter.agents === 'No agents on it on this computer.', tag + ' after the move the busy row has no agents left (the repaint happened)', JSON.stringify(r.busyAfter && r.busyAfter.agents));
+      say(!!r.mixed && r.mixed.posts.length === 3, tag + ' a mixed move sends one move per agent', JSON.stringify(r.mixed && r.mixed.posts));
+      say(!!r.mixed && r.mixed.msg === "Saved, moving when it restarts: Pia. Not moved (Rex, Rio): That account does not share this computer's memory.", tag + ' a saved-but-restarting agent is not called not moved, and one refusal is said once', JSON.stringify(r.mixed && r.mixed.msg));
       say(!!fresh && fresh.line === 'No usage reading for this account yet.' && !fresh.warn, tag + ' a row with no reading says so, and does not warn', JSON.stringify(fresh));
       say(!!fresh && fresh.agents === 'Its agents on this computer: x<b>y' && fresh.agentsEls === 0, tag + ' an agent name with markup is shown as text', JSON.stringify(fresh && fresh.agents));
       say(!!calm && calm.fill === '40%' && !calm.warn, tag + ' a 40% row does not warn', JSON.stringify(calm));
