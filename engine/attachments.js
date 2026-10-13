@@ -65,7 +65,7 @@ function kindOf(type, name) {
     than code units so a surrogate pair is never halved, and never one of the
     two names this module writes beside the file. A leading `-` is kept: the
     renderer is always handed the absolute path, never the bare name. */
-const RESERVED = new Set(['record.json', 'preview.png']);
+const RESERVED = new Set(['record.json', 'preview.png', 'text.txt']);   // text.txt: #6098's rendering
 function safeName(name) {
   let n = String(name || '').replace(/[/\\\0]/g, '_').replace(/[\u0000-\u001f\u007f]/g, '').replace(/^\.+/, '').trim();
   n = Array.from(n).slice(0, 160).join('');
@@ -337,7 +337,16 @@ function factsOf(r) {
     files), on the send path. */
 function wireNote(recs) {
   const list = Array.isArray(recs) ? recs : (recs ? [recs] : []);
-  return list.filter(Boolean).map((r) => ' [attached file: ' + r.file + ' (' + factsOf(r) + ')]').join('');
+  return list.filter(Boolean).map((r) => ' [attached file: ' + r.file + ' (' + factsOf(r) + ')' + asText(r) + ']').join('');
+}
+/* #6098: an office file (xlsx, docx, pdf) also names its text rendering, written beside it on upload
+   (engine/attachtext.js), so an agent of any model family reads it with the same command as a text file:
+      [attached file: /…/sales.xlsx (application/vnd…, 18 KB); as text: /…/text.txt]
+   Only when the rendering is there: an upload from before #6098, or one that could not be written, says nothing. */
+function asText(r) {
+  if (!r || !r.dir || !require('./attachtext').kindFor(r.name)) return '';
+  const t = path.join(r.dir, 'text.txt');
+  try { return fs.statSync(t).isFile() ? '; as text: ' + t : ''; } catch { return ''; }
 }
 
 /** Resolve a request's attachment ids (either `attachment: id` or
