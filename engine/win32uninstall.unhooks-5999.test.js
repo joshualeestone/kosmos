@@ -122,7 +122,7 @@ function run(h, extra) {
     platform: 'win32', home: h, env: { APPDATA: path.join(base, 'Roaming'), LOCALAPPDATA: path.join(base, 'Local'), USERNAME: 'someone', USERDOMAIN: 'BOX' },
     projectsRoot: path.join(h, 'Kosmos', 'Projects'), port: 9, probe: async () => ({ answering: false, outcome: 'refused', identity: null, startedByTask: null }),
     removeFolder: () => {}, sleep: async () => {}, liveExecutionAllowed: () => true, bundleRoot: BUNDLE,
-    pathExists: (p) => /Kosmos2/.test(p),   // another install is on disk; every other Windows path in here is not
+    pathExists: (p) => p === 'C:\\' || /Kosmos2/.test(p),   // drive C: and another install are there; nothing else in here is
     ...extra,
   });
 }
@@ -199,6 +199,28 @@ test('#5999: an added account\'s hooks left by an EARLIER Kosmos folder (script 
   const r = await run(h);
   assert.deepEqual(readJson(work), { hooks: { Stop: [OTHER_INSTALL], PostToolUse: [PERSONS] } });
   assert.ok(r.done.some((d) => d.includes(work) && /one left by an earlier Kosmos folder/.test(d)), JSON.stringify(r.done));
+});
+
+test('#5999: the broken-script rule keeps anything not provably the script at a provable place (round 2)', () => {
+  const file = path.join(home(), '.claude-work1', 'settings.json');
+  const cmd = (command, args) => ({ matcher: '', hooks: [{ type: 'command', command, ...(args ? { args } : {}) }] });
+  const keep = [
+    cmd('node', ['audit.js', '--skip', 'kosmos-report-hook']),                       // a person's hook that only mentions it
+    cmd('node', ['hooks\\kosmos-report-hook.js']),                                    // relative: resolved against the wrong folder
+    cmd('node', ['%USERPROFILE%\\Kosmos\\app\\engine\\kosmos-report-hook.js']),       // a variable the shell expands
+    cmd('bash ~/bin/kosmos-report-hook.sh'),                                             // a ~ the shell expands
+    cmd('node', ['\\\\server\\share\\Kosmos\\app\\engine\\kosmos-report-hook.js']),  // a network path: never looked at
+    cmd('E:\\Kosmos\\runtime\\node.exe', ['E:\\Kosmos\\app\\engine\\kosmos-report-hook.js']),  // a drive not plugged in
+    cmd('node', ['C:\\tools\\kosmos-report-hook-wrapper.js']),                         // not the script's own file name
+  ];
+  const gone = cmd('C:\\Old\\runtime\\node.exe', ['C:\\Old\\app\\engine\\kosmos-report-hook.js']);   // the control: provably gone
+  writeJson(file, { hooks: { Stop: [...keep, gone] } });
+  const looked = [];
+  const exists = (x) => { looked.push(x); return x === 'C:\\'; };
+  const r = reporthook.unwireInstall(file, [BUNDLE], { exists });
+  assert.deepEqual(r, { ours: true, dead: 1, changed: true }, 'the control was not taken out, so this proves nothing');
+  assert.deepEqual(readJson(file), { hooks: { Stop: keep } }, 'a hook that is not provably a broken script was taken out');
+  assert.ok(!looked.some((x) => x.startsWith('\\\\')), 'a network path was looked at: ' + JSON.stringify(looked));
 });
 
 test('#5999: the folder as Node records it (the real path behind a link) and the settings override are both covered', async () => {
