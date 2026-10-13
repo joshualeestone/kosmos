@@ -2007,7 +2007,7 @@ async function run() {
                  byte still comes from this board. Registered FIRST so the stubs below, registered after it, win
                  (Playwright tries the newest route first); they fetch through fetchBoard, which points back at the board. */
               if (args.remote) {
-                await ctx.route(REMOTE_BASE + '/**', (r) => fetchBoard(r).then((res) => r.fulfill({ response: res }), () => r.abort()).catch(() => {}));   // board gone: fail now, not at the screen's timeout; a late answer after close is quiet (#6022)
+                await ctx.route(REMOTE_BASE + '/**', (r) => fetchBoard(r).then((res) => r.fulfill({ response: res }).catch(() => {}), () => r.abort().catch(() => {})).catch(() => {}));   // board gone: fail now, not at the screen's timeout; a late answer after close is quiet (#6022)
               }
               if (DATA.connected) {
                 await ctx.route('**/api/status', async (r) => {

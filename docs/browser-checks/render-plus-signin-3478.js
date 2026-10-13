@@ -1037,7 +1037,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         if (p === 'signin-register') {
           regTries += 1;
           // #4608: the first answer is held 1.5 s, so the connecting state can be read while it waits.
-          if (regTries === 1) { setTimeout(() => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the name twin-mac is already connected on another computer' }) }), 1500); return; }
+          if (regTries === 1) { setTimeout(() => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the name twin-mac is already connected on another computer' }) }).catch(() => {}), 1500); return; }   // #6027: a late answer after close is caught
           route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'registered', address: 'twin-mac', name: 'twin-mac', standing: 'active' }) }); return;
         }
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'code_sent' }) });
