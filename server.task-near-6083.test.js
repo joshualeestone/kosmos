@@ -55,6 +55,20 @@ test('#6083: which titles are near (pure); every #5319 counterexample is never n
     ['Fix it', 'Fix it now', false, 'two-word titles are too generic for a word more'],
     ['Write tests', 'Write more tests', false, 'two-word titles are too generic for a word more'],
     ['', 'Run the pass', false, 'an empty title is never near'],
+    // Review 1: punctuation that carries meaning counts, as #5319's symbols do.
+    ['Support C#', 'Support C', false, 'review 1: C# is not C'],
+    ['Ship if x != 5', 'Ship if x = 5', false, 'review 1: != is not ='],
+    ['Refund 50% of the order', 'Refund 50 of the order', false, 'review 1: a percent'],
+    // Review 1: one added word that changes the scope or timing.
+    ['Delete all the old logs', 'Delete the old logs', false, 'review 1: all'],
+    ['Email only the sales team', 'Email the sales team', false, 'review 1: only'],
+    ['Run the migration later', 'Run the migration', false, 'review 1: later'],
+    ['Deploy to staging first', 'Deploy to staging', false, 'review 1: first'],
+    // Review 1: more negations, and another apostrophe.
+    ['We havent merged the PR', 'We merged the PR', false, 'review 1: havent'],
+    ['Don\u02bct enable the sync', 'Enable the sync', false, 'review 1: a U+02BC apostrophe'],
+    ['Aktiviere nicht den Sync', 'Aktiviere den Sync', false, 'review 1: German'],
+    ['Ne supprime pas les logs', 'Ne supprime les logs', false, 'review 1: French'],
   ]) assert.equal(tasks.isNearTitle(a, b), want, `${a} | ${b}: ${why}`);
 });
 
@@ -71,9 +85,16 @@ test('#6083: nearOpen: open, earlier, same parent and people, inside the window,
     { number: 6, sentence: 'run the meta pass now', createdAt: at(1), who: 'meta' },
     { number: 7, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta', dueDate: '2026-10-20' },
     { number: 30, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta' },
+    // Review 1: the same title for another target, a time after the new task's, and the other under-way states.
+    { number: 8, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta', detail: 'for PR 15' },
+    { number: 9, sentence: 'Run the Meta pass', createdAt: at(-1), who: 'meta' },
+    { number: 10, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta', builtAt: at(0) },
+    { number: 11, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta', parts: [{ sentence: 'x', closedAt: at(0) }] },
   ] };
   assert.deepEqual(tasks.nearOpen(P, made).map((t) => t.number), [1],
-    'only #1: #2 is outside the window, #3 is for someone else, #4 under another parent, #5 closed, #6 the same text (#5319 names it), #7 under way, #30 is newer');
+    'only #1: #2 is outside the window, #3 is for someone else, #4 under another parent, #5 closed, #6 the same text (#5319 names it), #7 due, #8 another detail, #9 made after, #10 built, #11 a part closed, #30 is newer');
+  assert.deepEqual(tasks.nearOpen({ tasks: [{ number: 4, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta' }] }, { ...made, parent: 4 }), [],
+    'the task\'s own parent is never named');
   assert.deepEqual(tasks.nearOpen(P, { ...made, createdAt: 'not a time' }), [], 'no creation time, no window, no note');
 });
 
@@ -93,7 +114,7 @@ test('#6083: the route adds a near task and names the similar one, without telli
   assert.equal(r.code, 200, JSON.stringify(r.json));
   assert.equal(r.json.task.number, 2, 'the task is ADDED as asked');
   assert.equal(r.json.note, 'Note: a similar open task was added in the last few minutes: #1 (Run the Meta pass). '
-    + 'If it is the same ask as #2, close one of them; if it is a different ask, ignore this.');
+    + 'If it is the same ask, close this new one (#2); if it is a different ask, ignore this.');
   assert.doesNotMatch(r.json.note, /close the new one/, 'the weak note never says close the new one');
   assert.doesNotMatch(r.json.note, /["\\]/, 'the note holds no double quote or backslash');
   const other = await add('Update the onboarding copy');

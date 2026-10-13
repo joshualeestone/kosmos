@@ -1994,15 +1994,25 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
    and a short window keeps the note away from long-lived lookalikes. */
 const NEAR_TASK_WINDOW_MS = 10 * 60 * 1000;
 const NEGATING = new Set(['not', 'no', 'never', 'none', 'nor', 'without', 'dont', 'doesnt', 'didnt', 'isnt', 'arent',
-  'wasnt', 'werent', 'cannot', 'cant', 'wont', 'shouldnt', 'mustnt', 'neither', 'stop', 'skip', 'avoid']);
+  'wasnt', 'werent', 'cannot', 'cant', 'wont', 'shouldnt', 'mustnt', 'neither', 'stop', 'skip', 'avoid', 'hasnt', 'havent',
+  'hadnt', 'couldnt', 'wouldnt', 'neednt', 'shant', 'aint', 'unless', 'except', 'nothing', 'nobody',
+  // Review 1: agents write in other languages too. The common negations of German, French, Spanish and Portuguese.
+  'nicht', 'kein', 'keine', 'keinen', 'nie', 'pas', 'jamais', 'rien', 'nunca', 'nada', 'nao', 'n\u00e3o', 'non']);
+/* Review 1: one ADDED or DROPPED word that changes the scope or the timing of an ask is never near ("Delete all the old
+   logs" / "Delete the old logs", "Run the migration later" / "Run the migration"). */
+const SCOPING = new Set(['all', 'only', 'every', 'each', 'any', 'some', 'both', 'either', 'also', 'again', 'later', 'first',
+  'last', 'before', 'after', 'until', 'unless', 'except', 'instead', 'more', 'less', 'most', 'least', 'just', 'even']);
+/* Review 1: sentence punctuation is set aside; every other punctuation or symbol character counts, as in #5319 ("C#" is
+   not "C", "!=" is not "=", "50%" is not "50"). */
+const SENTENCE_MARKS = new Set(Array.from('.,;:?\'"\u2018\u2019\u201c\u201d()[]-\u2013\u2014'));
 function titleShape(sentence) {
   const raw = String(sentence == null ? '' : sentence).normalize('NFC');
   const words = raw.split(/\s+/u).map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')).filter(Boolean);
-  const lower = words.map((w) => w.toLowerCase().replace(/['\u2019]/gu, ''));
+  const lower = words.map((w) => w.toLowerCase().replace(/['\u2019\u02bc]/gu, ''));
   return {
     bag: lower,
     numbers: (raw.match(/[-+\u2212]?\d[\d.,:]*/gu) || []).join(' '),
-    symbols: Array.from(raw).filter((c) => /\p{S}/u.test(c)).sort().join(''),
+    symbols: Array.from(raw).filter((c) => /[\p{S}\p{P}]/u.test(c) && !SENTENCE_MARKS.has(c)).sort().join(''),
     negating: lower.filter((w) => NEGATING.has(w)).sort().join(' '),
   };
 }
@@ -2016,7 +2026,7 @@ function isNearTitle(a, b) {
   const [long, short] = x.bag.length > y.bag.length ? [x.bag, y.bag] : [y.bag, x.bag];
   if (long.length !== short.length + 1 || short.length < 3) return false;   // both 3+ words: a short title is generic
   for (let i = 0; i < long.length; i += 1) {
-    if (long.slice(0, i).concat(long.slice(i + 1)).join(' ') === short.join(' ')) return true;
+    if (long.slice(0, i).concat(long.slice(i + 1)).join(' ') === short.join(' ')) return !SCOPING.has(long[i]);
   }
   return false;
 }
@@ -2031,12 +2041,16 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
   const people = (list) => [...new Set((list || []).filter((x) => typeof x === 'string' && x))].sort().join('\n');
   const myWho = people(whoOf(made));
   const mine = sameTaskText(made.sentence);
+  // Review 1 (#5319 review 7): the same title for another target is another ask, so the detail and checks must match.
+  const checks = (list) => (Array.isArray(list) ? list : []).map((c) => sameTaskText(c)).join('\n');
+  const myDetail = sameTaskText(made.detail);
+  const myChecks = checks(made.doneWhen);
   const out = [];
   for (const t of (p && Array.isArray(p.tasks)) ? p.tasks : []) {
     if (!t || t.closedAt || !Number.isInteger(t.number) || t.number >= made.number) continue;
     if (parent !== null && t.number === parent) continue;
     if ((Number.isInteger(t.parent) ? t.parent : null) !== parent) continue;
-    if (people(whoOf(t)) !== myWho) continue;
+    if (people(whoOf(t)) !== myWho || sameTaskText(t.detail) !== myDetail || checks(t.doneWhen) !== myChecks) continue;
     const at = Date.parse(t.createdAt || '');
     if (!Number.isFinite(at) || madeAt - at < 0 || madeAt - at > windowMs) continue;
     if (sameTaskText(t.sentence) === mine) continue;

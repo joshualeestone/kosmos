@@ -20012,13 +20012,13 @@ const server = http.createServer(async (req, res) => {
                 + '. If this is the same ask, close the new one: kosmos task close ' + id + ' ' + made.number;
             }
             /* #6083: the weaker note for a NEAR title added in the last few minutes (engine/tasks.js nearOpen). It never
-               says "close the new one": the reader decides whether it is the same ask. Tasks #5319 already named are
-               left out, so a task is never named twice. */
-            const near = raw ? tasks.nearOpen(raw, made).filter((t) => !alike.some((x) => x.number === t.number)) : [];
+               names the similar task and says to close the NEW one only if it is the same ask (review 1: the older may
+               already hold history). nearOpen skips same-text tasks, so a task #5319 names is never named twice. */
+            const near = raw ? tasks.nearOpen(raw, made) : [];
             if (near.length) {
               note = (note ? note + ' ' : '') + 'Note: ' + (near.length === 1 ? 'a similar open task was added in the last few minutes: ' : 'similar open tasks were added in the last few minutes: ')
                 + near.map((t) => '#' + t.number + ' (' + shown(t.sentence) + ')').join(', ')
-                + '. If it is the same ask as #' + made.number + ', close one of them; if it is a different ask, ignore this.';
+                + '. If it is the same ask, close this new one (#' + made.number + '); if it is a different ask, ignore this.';
             }
           } catch { note = ''; }
           // The assignee's managed block now lists this task in the exact
