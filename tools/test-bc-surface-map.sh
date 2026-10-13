@@ -199,9 +199,12 @@ _fbok=1
 for _in in "$TMP/wd-parent" "$TMP/ids-two"; do
   _scan="$(bash "$BCM" covering < "$_in" 2>&1; echo "rc=$?")"
   _fall="$(TMPDIR="$TMP/no-such-dir" bash "$BCM" covering < "$_in" 2>&1; echo "rc=$?")"
-  # The fallback was really taken: under that TMPDIR the scan itself cannot run.
+  # The fallback was really taken: under that TMPDIR the scan itself cannot run, while the same probe with the usual
+  # TMPDIR does (the positive control, so a probe that fails for another reason, a moved lib say, cannot pass this).
   TMPDIR="$TMP/no-such-dir" bash -c '. "$1" && bc_surface_scan_checks "$2" x' _ "$HERE/lib/browser-check-surface-lib.sh" "$HERE/../docs/browser-checks" >/dev/null 2>&1 \
     && { fail "covering: the scan still ran under TMPDIR=$TMP/no-such-dir, so the fallback arm compared the scan with itself"; _fbok=0; }
+  bash -c '. "$1" && bc_surface_scan_checks "$2" x' _ "$HERE/lib/browser-check-surface-lib.sh" "$HERE/../docs/browser-checks" >/dev/null 2>&1 \
+    || { fail "covering: CONTROL: the scan probe failed with the usual TMPDIR too, so the fallback check proves nothing"; _fbok=0; }
   [ "$_scan" = "$_fall" ] && [ "$_scan" != "rc=0" ] || { fail "covering: the fallback answered '$_fall' where the scan path answered '$_scan' (${_in##*/})"; _fbok=0; }
 done
 [ "$_fbok" -eq 1 ] && pass "covering: the fallback (scan unable to run) answers exactly as the scan path, on a diff and an id list"
@@ -216,6 +219,17 @@ if [ -s "$TMP/awk.log" ] && [ -n "$_viascan" ]; then
   pass "covering: a query goes through the one-pass scan by default (its awk ran) and still names the covering checks"
 else
   fail "covering: a plain id-list query never reached the one-pass scan (no awk call logged), so covering is on the slow path"
+fi
+
+# A check whose first token is not plain is SLOW to the scan, and covering still names it (read token by token).
+mkdir -p "$TMP/slowdir"; printf '// Browser-check-surface: foo.bar plain-slow-5907\n' > "$TMP/slowdir/render-slow.js"
+_slow="$(printf '%s\n' 'foo.bar' | bash "$BCM" covering "$TMP/slowdir" 2>&1)"
+_slow2="$(printf '%s\n' 'plain-slow-5907' | bash "$BCM" covering "$TMP/slowdir" 2>&1)"
+_none="$(printf '%s\n' 'fooXbar' | bash "$BCM" covering "$TMP/slowdir" 2>&1)"
+if [ "$_slow" = render-slow.js ] && [ "$_slow2" = render-slow.js ] && [ -z "$_none" ]; then
+  pass "covering: a check with a non-plain first token (SLOW to the scan) is named for either of its tokens, not for a lookalike"
+else
+  fail "covering: SLOW check: foo.bar -> '$_slow', plain-slow-5907 -> '$_slow2', fooXbar -> '$_none'"
 fi
 
 echo "bc-surface-map: $fails FAILED"
