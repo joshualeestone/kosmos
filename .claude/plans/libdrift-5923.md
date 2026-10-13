@@ -53,7 +53,7 @@ Residuals, stated:
   KILL (or ALRM) of the wrapper during the checkout does not stop git, which runs in its own group and usually
   finishes; its pid is written to the lock (gitpid), and a joiner does not take the lock over while that git lives, so
   no run loads a half-written lib (iteration 19, arm "gitlive"). A joiner also waits while the lib's index.lock exists
-  (iteration 21, arm "idxlock"): that covers the instant before the pid is written and a reused gitpid. An index.lock
+  (iteration 21, arm "idxlock"; both arms check the lock while the joiner is IN its lock loop, iteration 22): that covers the instant before the pid is written and a reused gitpid. An index.lock
   left by a git that was itself killed holds joiners until the 5-minute give-up (it blocks every git there anyway). If git is itself killed part way, the tree is left
   mixed and is not repaired automatically. The checkout back runs the same way (own group, INT/TERM/HUP ignored
   until it ends). The checkout back is
@@ -61,6 +61,9 @@ Residuals, stated:
   lock and the working-directory gate make such an edit unlikely). If the checkout back fails too but HEAD is still
   the old commit and no tracked file differs from it, the line says the checkout is unchanged rather than MIXED.
   git runs off the terminal (stdin and stdout /dev/null), so it cannot be stopped by job control and hang the wait.
+  A TERM, INT or HUP sent to the wrapper during the move (about a second) is DROPPED, not deferred: the wrapper then
+  joins the queue and runs the command anyway. Accepted for that window (iteration 22); a caller that must stop a
+  run sends the signal again, as any queue waiter's caller already has to after the move.
 - A move needs an idle queue: any other live queued-heavy.sh blocks it (a queue waiter, and also a run spinning on
   the lib lock, so two joins that overlap move nothing), and any suitewait.* marker blocks it, and run-tests.sh suites write those too (they load
   the lib from their own worktree, not this checkout). On a busy box the move may seldom fire; it never fails
