@@ -3,6 +3,15 @@
    account `provider: 'alibaba'` (server accountForAgent), and the page reads that in three
    places: the provider word (providerOf), the accounts it may move to (acctMoveWorld), and
    the model menu (paintModelPicker). Each test runs the page's own function. */
+/* The agent cards are real, from test-support/fleet (fixture-discipline refuses a hand-written one): the engine card's
+   sessionName, isNamedOurs and runner, with the fields the server's card stage adds for a codex agent (runner, account,
+   modelName, providerWord) spread on, as web.detail-openai-model-2140 does. Sandboxed before the fleet require. */
+const osSb = require('node:os');
+const fsSb = require('node:fs');
+const pathSb = require('node:path');
+const SANDBOX = fsSb.realpathSync(fsSb.mkdtempSync(pathSb.join(osSb.tmpdir(), 'qwen-agent-5977-')));
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.on('exit', () => { try { fsSb.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -10,6 +19,19 @@ const nodePath = require('node:path');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
+const fleet = require('./test-support/fleet');
+const CARDS = (() => {
+  const board = fleet.install([fleet.agent('q', { state: 'idle' }), fleet.agent('o', { state: 'idle' })]);
+  try {
+    const pick = (name) => {
+      const c = board.agents.find((x) => x.name === name);
+      assert.ok(c, 'the fixture produced no card for ' + name);
+      const { sessionName, isNamedOurs, runner } = c;
+      return { sessionName, isNamedOurs, runner };
+    };
+    return { q: pick('q'), o: pick('o') };
+  } finally { board.restore(); }
+})();
 
 function grab(sig) {
   const at = PAGE.indexOf(sig);
@@ -61,13 +83,13 @@ test('#5977: the model menu under a Qwen agent offers no OpenAI list and says th
   const paint = new Function('document', 'paintOpenaiDetailModel', 'menuRunsOn', 'modelLine', 'esc', 'OPENAI_DETAIL_GEN', 'CREATE_MODELS', 'CURRENT',
     body + '\nreturn paintModelPicker;')(
     document, async () => { openaiPainted += 1; }, () => '', (a) => a.modelName, (x) => String(x), 0, [], null);
-  await paint({ ...QWEN, sessionName: 'q' });
+  await paint({ ...CARDS.q, ...QWEN });
   assert.equal(openaiPainted, 0, 'a Qwen agent was handed the OpenAI model picker');
   assert.match(els['d-model'].innerHTML, /The Qwen account names the model/);
   assert.equal(els['d-model'].disabled, true);
-  await paint({ ...QWEN, sessionName: 'q', modelName: 'kosmos-qwen2.5-7b-16k' });
+  await paint({ ...CARDS.q, ...QWEN, modelName: 'kosmos-qwen2.5-7b-16k' });
   assert.match(els['d-model'].innerHTML, /Runs on kosmos-qwen2\.5-7b-16k/);
-  await paint({ ...OPENAI, sessionName: 'o' });
+  await paint({ ...CARDS.o, ...OPENAI });
   assert.equal(openaiPainted, 1, 'CONTROL: an OpenAI codex agent still gets the OpenAI picker');
 });
 
@@ -89,8 +111,8 @@ test('#5977 UI review: modelLine, run, never calls a Qwen agent OpenAI', () => {
 test('#5977 UI review: the At a glance overview gives Qwen its own row, named Qwen', () => {
   const { providersFrom } = require('./engine/worldview');
   const rows = providersFrom([
-    { sessionName: 'q', runner: 'codex', providerWord: 'qwen', state: 'idle' },
-    { sessionName: 'o', runner: 'codex', state: 'idle' },
+    { ...CARDS.q, runner: 'codex', providerWord: 'qwen', state: 'idle' },
+    { ...CARDS.o, runner: 'codex', state: 'idle' },
   ]);
   assert.deepEqual(rows.map((r) => [r.provider, r.agents]), [['codex', 1], ['qwen', 1]]);
   assert.match(PAGE, /muse: 'Meta Muse', qwen: 'Qwen' \}/, 'the page names the qwen row');
