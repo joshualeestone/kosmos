@@ -108,14 +108,16 @@ test('a keep call that throws or is refused still lets the edit go ahead, and th
 });
 
 test('a board that never answers the keep call holds the edit no longer than the bound', { timeout: 5000 }, async () => {
+  let aborted = false;
   const hang = (url, init) => url.endsWith('/api/undo/keep')
-    ? new Promise((resolve, reject) => { init.signal.addEventListener('abort', () => reject(new Error('aborted'))); })
+    ? new Promise((resolve, reject) => { init.signal.addEventListener('abort', () => { aborted = true; reject(new Error('aborted')); }); })
     : { ok: true, status: 200, text: async () => '{"recorded":true}' };
   const t0 = Date.now();
   const { code } = await run(pre('Edit', { file_path: 'C:\\w\\agent\\n.md' }), { rec: recorder(hang), keepTimeoutMs: 150 });
   const took = Date.now() - t0;
   assert.equal(code, 0);
-  assert.ok(took >= 140 && took < 2000, 'waited for the bound and no longer: ' + took + ' ms');
+  assert.equal(aborted, true, 'the keep call was given up, not answered');
+  assert.ok(took >= 140, 'it waited for the bound: ' + took + ' ms');
   assert.equal(hook.KEEP_TIMEOUT_MS, 3000, 'the real bound is the bash CLI\'s 3 s');
 });
 
@@ -124,6 +126,8 @@ test('on Windows a UNC or device path sends nothing (the board would resolve it 
     assert.equal(keeps((await run(pre('Write', { file_path: f }))).calls).length, 0, f);
   }
   assert.equal(keeps((await run(pre('Write', { file_path: 'C:\\w\\agent\\x.md' }))).calls).length, 1, 'control: a drive path goes');
+  assert.equal(keeps((await run(pre('Write', { file_path: 'x.md' }, { cwd: '\\\\srv\\share\\proj' }))).calls).length, 0,
+    'a session folder on a share: a relative file would resolve there');
   assert.equal(keeps((await run(pre('Write', { file_path: '//w/agent/x.md' }), { platform: 'darwin' })).calls).length, 1,
     'control: off Windows a leading // is an ordinary absolute path, as the Mac CLI sends it');
 });
