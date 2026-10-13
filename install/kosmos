@@ -4276,7 +4276,7 @@ kosmos_command_list() {
   printf '  kosmos status        say whether Kosmos is running, and where\n'
   printf '  kosmos open          open the dashboard in your browser, starting Kosmos if needed\n'
   printf '  kosmos agents        list the agent sessions running on this computer\n'
-  printf '  kosmos version       say which version of Kosmos this is\n'
+  printf '  kosmos version       say which version of Kosmos this is (also --version or -v)\n'
   printf '  kosmos update        install a newer Kosmos when one is published (only on a computer set to connect elsewhere; the app runs it)\n'
   printf '  kosmos msg           send a message to one agent\n'
   printf '  kosmos post          post in a project room\n'
