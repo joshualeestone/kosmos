@@ -183,19 +183,32 @@ function sweepOnce(o) {
         if (card.state === 'idle') {
           let pzS = null;
           try { pzS = pauseFor(session); } catch { pzS = null; }
-          let fcS = null;
-          try { fcS = firstContact(read(session), pzS); } catch { fcS = null; }
-          if (fcS && fcS.state === 'owes') {
-            if (bound) { try { bound(session, 'gave up after ' + MAX_TRIES + ' tries that reached nothing'); } catch { /* best-effort */ } }
-          } else if (fcS && fcS.state === 'clear') {
-            // DEFINITELY no longer owes (answered, or an unanswerable thread): resolved -- clear the episode and
-            // drop the stale spent entry. Only on a definite 'clear': an INDETERMINATE read (fcS null = the
-            // thread read threw, or fcS.state 'unknown' = unreadable) must NEITHER raise nor clear -- clearing
-            // on uncertainty would drop a possibly-real give-up AND re-arm the nudge (breaking "one nudge ever").
-            // The indeterminate case leaves the entry and relies on the STALE_MS backstop, matching isMoot's
-            // deliberate refusal to moot on 'unknown'.
-            book.delete(session);
-            if (cleared) { try { cleared(session); } catch { /* best-effort */ } }
+          if (pzS && pzS.paused === true) {
+            // #4354: a switched-off swarm -- the normal path leaves it alone. Neither raise nor clear: it may
+            // come back owing, so do not drop the episode; the STALE_MS backstop covers a persistent pause.
+          } else {
+            let declaredS = null;
+            try { declaredS = channelFor(session); } catch { declaredS = null; }
+            if (declaredS) {
+              // #5805: the agent answers its person on a declared reply-channel, out of Kosmos's sight -- the
+              // normal path never nudges it, so a give-up is moot. Resolve it: clear and drop the stale entry.
+              book.delete(session);
+              if (cleared) { try { cleared(session); } catch { /* best-effort */ } }
+            } else {
+              let fcS = null;
+              try { fcS = firstContact(read(session), pzS); } catch { fcS = null; }
+              if (fcS && fcS.state === 'owes') {
+                if (bound) { try { bound(session, 'gave up after ' + MAX_TRIES + ' tries that reached nothing'); } catch { /* best-effort */ } }
+              } else if (fcS && fcS.state === 'clear') {
+                // DEFINITELY no longer owes: resolved -- clear the episode and drop the stale spent entry. Only on
+                // a definite 'clear': an INDETERMINATE read (fcS null = the thread read threw, or 'unknown' =
+                // unreadable) must NEITHER raise nor clear -- clearing on uncertainty would drop a possibly-real
+                // give-up AND re-arm the nudge (breaking "one nudge ever"). The indeterminate case leaves the
+                // entry and relies on the STALE_MS backstop, matching isMoot's refusal to moot on 'unknown'.
+                book.delete(session);
+                if (cleared) { try { cleared(session); } catch { /* best-effort */ } }
+              }
+            }
           }
         }
         continue;
