@@ -261,7 +261,9 @@ function forgetProject(name, projectId) {
 /* #4926: the member read the room (`kosmos room`) and was SHOWN these post ids, so they are no longer held for it: its
    next idle line must not tell it, again, about a thread it has read (and may have answered in plain words, which R2's
    replyTo rule cannot see). Ids it was not shown (held after the read, or older than the rows it asked for) stay held.
-   Returns how many were dropped; 0 when none, or when the held file could not be read or written (they stay held). */
+   Returns how many were dropped; 0 when none, or when the held file could not be read or written (they stay held).
+   Review 2: the read and the write are one synchronous step, and held lists are written only by the board process
+   (messages.js, server.js, and remove.js through the board), so no hold can land between them and be overwritten. */
 function dropShown(name, projectId, shownIds) {
   try {
     const shown = new Set((Array.isArray(shownIds) ? shownIds : []).filter((x) => typeof x === 'string').map(plainId));
