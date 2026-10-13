@@ -133,7 +133,8 @@ function reachFrom(input) {
  * `deps.fs` is injectable so a test can count reads and prove a second status read re-reads nothing.
  * =========================================================================================== */
 
-const _folderSetCache = new Map(); // cacheKey -> { mtimeKey, value: { ids:Set, readable:bool } }
+const _folderSetCache = new Map(); // codexPersonPresence: cacheKey -> { mtimeKey, value: { present, readable } }
+const _parseCache = new Map();     // `${file}\0${mtime}` -> { obj: parsed-or-null, readable } (folder-INDEPENDENT)
 
 function _mtimeKey(fsDep, ...paths) {
   return paths.map((p) => {
@@ -141,16 +142,21 @@ function _mtimeKey(fsDep, ...paths) {
   }).join('\0');
 }
 
-// Read a JSON file and project it to a list of ids via `pick`. ENOENT -> readable empty (a home with no
-// such file simply enabled nothing). Any other read error, or invalid JSON, -> not readable (UNKNOWN).
-function _idsFromJson(fsDep, file, pick) {
-  let raw;
-  try { raw = fsDep.readFileSync(file, 'utf8'); }
-  catch (e) { return (e && e.code === 'ENOENT') ? { ids: [], readable: true } : { ids: [], readable: false }; }
-  let obj;
-  try { obj = JSON.parse(raw); } catch { return { ids: [], readable: false }; }
-  try { const ids = pick(obj); return { ids: Array.isArray(ids) ? ids.map(String) : [], readable: true }; }
-  catch { return { ids: [], readable: false }; }
+// Read + JSON.parse one file, cached by (path, mtime) and FOLDER-INDEPENDENT, so the SAME file is parsed at
+// most once per poll however many agents/folders consult it (kosmos#5309: the person's ~/.claude.json is
+// shared across every separate-account agent, not re-parsed per agent). ENOENT -> { obj: null, readable: true }
+// (a home with no such file enabled nothing); any other read error or invalid JSON -> { obj: null, readable: false }.
+function _parsedFile(fsDep, file) {
+  const key = String(file) + '\0' + _mtimeKey(fsDep, file);
+  const hit = _parseCache.get(key);
+  if (hit) return hit;
+  let v;
+  try {
+    const raw = fsDep.readFileSync(file, 'utf8');
+    try { v = { obj: JSON.parse(raw), readable: true }; } catch { v = { obj: null, readable: false }; }
+  } catch (e) { v = { obj: null, readable: (e && e.code === 'ENOENT') }; }
+  _parseCache.set(key, v);
+  return v;
 }
 
 // enabledPlugins ids from a settings.json: an object (keys) or an array (entries); anything else -> none.
@@ -191,17 +197,15 @@ function _mcpServerNames(obj, agentFolder) {
  */
 function folderPluginSet(settingsPath, claudeJsonPath, agentFolder, deps) {
   const fsDep = (deps && deps.fs) || fs;
-  // agentFolder is part of the key: the SAME two files yield a DIFFERENT set per agent folder (it selects
-  // which projects entry counts), so two agents sharing one home must not share a cache entry.
-  const cacheKey = String(settingsPath) + '\0' + String(claudeJsonPath) + '\0' + String(agentFolder);
-  const mtimeKey = _mtimeKey(fsDep, settingsPath, claudeJsonPath);
-  const hit = _folderSetCache.get(cacheKey);
-  if (hit && hit.mtimeKey === mtimeKey) return hit.value; // mtimes unchanged -> no readFileSync
-  const sp = _idsFromJson(fsDep, settingsPath, _enabledPluginIds);
-  const cj = _idsFromJson(fsDep, claudeJsonPath, (o) => _mcpServerNames(o, agentFolder));
-  const value = { ids: new Set([...sp.ids, ...cj.ids]), readable: sp.readable && cj.readable };
-  _folderSetCache.set(cacheKey, { mtimeKey, value });
-  return value;
+  // The PARSE is cached per (path, mtime) and folder-independent (so the person's files are read at most
+  // once per poll however many agents consult them); the folder only selects which per-project mcpServers
+  // entry is projected from the ALREADY-PARSED .claude.json (cheap, no I/O) -- read-once-per-poll preserved
+  // across the per-agent folder scoping (kosmos#5309).
+  const s = _parsedFile(fsDep, settingsPath);
+  const c = _parsedFile(fsDep, claudeJsonPath);
+  const spIds = s.obj ? _enabledPluginIds(s.obj) : [];
+  const cjIds = c.obj ? _mcpServerNames(c.obj, agentFolder) : [];
+  return { ids: new Set([...spIds.map(String), ...cjIds.map(String)]), readable: s.readable && c.readable };
 }
 
 /*
@@ -293,7 +297,7 @@ function agentPluginReach(inputs, deps) {
 }
 
 // Test-only: drop the per-folder mtime cache (so a read-count test starts from a known state).
-function _resetCache() { _folderSetCache.clear(); }
+function _resetCache() { _folderSetCache.clear(); _parseCache.clear(); }
 
 module.exports = {
   reachFrom,
