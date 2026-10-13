@@ -1,6 +1,6 @@
 # #6000: removing a Grok account cancels its own unfinished "Sign in again" (the #5994 shape)
 
-**Branch:** `grokreauthcancel-6000` · **Card:** kosmos#6000 · **Mirrors:** #5994 (branch reauthcancel-5994 at d3be57c8, not yet merged; first ported from 3a5e59a2, synced through d3be57c8)
+**Branch:** `grokreauthcancel-6000` · **Card:** kosmos#6000 · **Mirrors:** #5994 (merged as #6005; engine identical to its last commit d3be57c8; this branch rebased onto main after it)
 
 ## The defect
 Pressing Sign in again on a Grok subscription account reserves the account's folder (`activeGrokDirs`). While
