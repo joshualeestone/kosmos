@@ -211,11 +211,12 @@ function runKeyedTurn(opts) {
     let includeDirs = Array.isArray(o.includeDirs) ? o.includeDirs : [];
     if (runner === 'gemini' && !Array.isArray(o.includeDirs) && o.name) {
       try {
-        const r = require('./geminidirs').turnFolders(o.name, o.cwd, (o.env && o.env.GEMINI_CLI_HOME) || '');
+        const gd = require('./geminidirs');
+        const r = gd.turnFolders(o.name, o.cwd, (o.env && o.env.GEMINI_CLI_HOME) || '');
         includeDirs = r.folders;
         /* Each left-out folder is said once per supervisor, as the Mac launch says it, not at every turn. */
         for (const l of r.leftOut) {
-          const line = '#5812: the project folder ' + (l.folder || '(none)') + ' was left out of the Gemini workspace (' + l.because + ')';
+          const line = gd.leftOutLine(l);
           if (!SAID_LEFT_OUT.has(line)) { SAID_LEFT_OUT.add(line); process.stderr.write(line + '\n'); }
         }
       }

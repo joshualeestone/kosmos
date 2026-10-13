@@ -90,7 +90,7 @@ function foldersFor(name, opts) {
       out.leftOut.push({ folder, because: 'Gemini splits folder names on commas and trims spaces, so it would get the wrong folder' });
       continue;
     }
-    if (path.dirname(real) === real || within(os.homedir(), real)) {
+    if (path.dirname(real) === real || within(realDir(os.homedir()) || os.homedir(), real)) {
       out.leftOut.push({ folder, because: 'it holds the whole home folder or the whole disk, which is too wide to open to an agent\'s file tools' });
       continue;
     }
@@ -104,15 +104,24 @@ function foldersFor(name, opts) {
   return out;
 }
 
+/* The one wording of a left-out folder, for the Mac launch log and the Windows turn log alike. */
+function leftOutLine(l) {
+  return '#5812: the project folder ' + ((l && l.folder) || '(none)') + ' was left out of the Gemini workspace (' + ((l && l.because) || 'unknown') + ')';
+}
+
 /* The argv for those folders: one flag per folder, so no folder is joined to another. Pure. */
 function includeArgs(folders) {
   return (Array.isArray(folders) ? folders : []).flatMap((f) => ['--include-directories', String(f)]);
 }
 
-/* gemini's own trust file: <GEMINI_CLI_HOME or home>/.gemini/trustedFolders.json
-   (Storage.getTrustedFoldersPath; GEMINI_CLI_TRUSTED_FOLDERS_PATH moves it). */
+/* The person's own gemini trust file: <GEMINI_CLI_HOME or home>/.gemini/trustedFolders.json
+   (Storage.getTrustedFoldersPath), or where GEMINI_CLI_TRUSTED_FOLDERS_PATH moves it. That variable
+   is NOT honoured when it names one of the agents' own trust files (agentTrustFile): a process started
+   from an agent's pane inherits the pane's, and reading it as the person's would read every folder as
+   trusted and skip their DO_NOT_TRUST marks. */
 function trustFile(cliHome) {
-  if (process.env.GEMINI_CLI_TRUSTED_FOLDERS_PATH) return process.env.GEMINI_CLI_TRUSTED_FOLDERS_PATH;
+  const moved = process.env.GEMINI_CLI_TRUSTED_FOLDERS_PATH;
+  if (moved && !within(path.resolve(moved), agentTrustDir())) return moved;
   return path.join(cliHome || os.homedir(), '.gemini', 'trustedFolders.json');
 }
 
@@ -198,8 +207,9 @@ function turnFolders(name, workdir, cliHome, opts) {
 
 /* The agent's own trust file, in the Kosmos store (one per agent, so trust never spreads to another
    agent or to the person). The name is encoded so it is always one file name. */
+function agentTrustDir() { return path.join(require('./store').ROOT, 'gemini-trust'); }
 function agentTrustFile(name) {
-  return path.join(require('./store').ROOT, 'gemini-trust', encodeURIComponent(String(name || '')) + '.json');
+  return path.join(agentTrustDir(), encodeURIComponent(String(name || '')) + '.json');
 }
 
 /**
@@ -254,7 +264,7 @@ if (require.main === module) {
     const [verb, name, workdir, cliHome] = process.argv.slice(2);
     if (verb === 'launch-args') {
       const r = launchFolders(name, workdir, cliHome || '');
-      for (const l of r.leftOut) process.stderr.write(`#5812: the project folder ${l.folder || '(none)'} was left out of the Gemini workspace (${l.because})\n`);
+      for (const l of r.leftOut) process.stderr.write(leftOutLine(l) + '\n');
       /* The trust file first, as `TRUST <path>` (a folder line is always an absolute path). */
       if (r.folders.length && r.trustFile) fs.writeSync(1, 'TRUST ' + r.trustFile + '\n' + r.folders.join('\n') + '\n');
     }
@@ -264,4 +274,4 @@ if (require.main === module) {
   process.exit(0);
 }
 
-module.exports = { foldersFor, includeArgs, agentTrust, agentTrustFile, trustOf, trustFile, honourMarks, turnFolders, launchFolders, stripComments, MAX_TOTAL_CHARS };
+module.exports = { foldersFor, includeArgs, agentTrust, agentTrustFile, trustOf, trustFile, honourMarks, turnFolders, launchFolders, stripComments, leftOutLine, MAX_TOTAL_CHARS };
