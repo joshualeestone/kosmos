@@ -239,7 +239,8 @@ function workExcused(summary, member, readHistory, nowMs) {
   /* Review 3: an operator's clear is when a person cleared a report, not when the agent stopped (as idleExcused and
      idleNoted refuse it), so it changes nothing here. */
   const read = rows.filter((r) => r && Number.isFinite(r.at) && r.at <= now && typeof r.state === 'string');
-  // Review 3: a cut history is judged by where the file's tail starts (its first row), before any reordering.
+  // Review 3: a cut history is judged by where the file's tail starts (its first row not dated after now), before any
+  // reordering.
   if (rows.truncated === true && (!read.length || read[0].at > wroteAt)) return summary;
   const kept = read.filter((r) => r.by !== 'operator');
   // Review 1: in time order (stable, so equal times keep file order); a clock stepped back must not shorten the work.
@@ -260,7 +261,8 @@ function workExcused(summary, member, readHistory, nowMs) {
   const busyNow = member.state !== 'idle';   // any read but idle (rate limited, unknown too): errs toward stale
   if (state === null || busy(state) || busyNow) worked += now - from;
   if (worked > SUMMARY_RHYTHM_HOURS * 3600000) return summary;
-  return { ...summary, state: 'worked', workMinutes: Math.max(0, Math.round(worked / 60000)) };
+  // Review 5: rounded up, so any reported work reads as at least a minute, never as none.
+  return { ...summary, state: 'worked', workMinutes: Math.max(0, Math.ceil(worked / 60000)) };
 }
 
 /* kosmos#5635 F2 (Josh's multi-model feedback on 0.7.27): every member of a project with no open work read "older than
@@ -424,7 +426,6 @@ function pathText(v) {
     .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b\u200e\u200f\u202a-\u202e\u2060-\u206f\u061c\u00ad\ufeff\ufff9-\ufffb\u115f\u1160\u3164\uffa0]|[\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]|[\u200c\u200d\ufe00-\ufe0f]{3,}/gu, '?');
 }
 function span(minutes) {
-  if (!Number.isFinite(minutes) || minutes < 1) return 'under a minute';
   if (minutes < 60) return minutes + ' min';
   return Math.floor(minutes / 60) + 'h ' + (minutes % 60) + 'm';
 }

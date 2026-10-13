@@ -49,6 +49,10 @@ That the self-report history is complete enough: reports reach the store only wh
 while the board was down leaves no rows and an earlier idle can make that time read as idle (the same known gap
 idleExcused documents). And a wait for a person (needs_you, blocked) counts as work, which errs toward stale.
 
+Also (review 5): a member the board reads busy before its runner's own working report lands counts that stretch as
+work too, so "reported work" there includes the board's own read, and a seat woken a moment ago can read stale until
+its first report. Both err toward stale.
+
 ## Validation
 projectview and the six suites that use it, the file guards, Windows guards, engine.reachable: 166/166. The two new
 tests fail with the rule disabled. Full suite left to CI.

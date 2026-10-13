@@ -689,6 +689,30 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   assert.equal(v.workExcused(cur, claude, woken, NOW), cur);
 });
 
+/* Review 5: the default history reader, as the board calls overviewOf (no options), against the sandboxed report store. */
+test('#5635 F2: overviewOf reads the real report history by default; CONTROL: with none it stays stale', () => {
+  const raw = { id: 'wk3', name: 'Work Time', folder: '/p/wk3', agents: ['mark'], tasks: [] };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const now = Date.now();
+  const f = path.join(DIR, 'mark-wk3');
+  fs.mkdirSync(path.join(f, 'summaries'), { recursive: true });
+  const p = path.join(f, 'summaries', '2026-09-29-11.md');
+  fs.writeFileSync(p, 'x');
+  const t = new Date(now - 331 * 60000);
+  fs.utimesSync(p, t, t);
+  const selfreport = require('./selfreport');
+  const file = selfreport.fileFor('mark');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, JSON.stringify({ state: 'idle', at: new Date(now - 400 * 60000).toISOString() }) + '\n'
+    + JSON.stringify({ state: 'working', at: new Date(now - 60000).toISOString() }) + '\n');
+  try {
+    const m = v.overviewOf(described, BOARD.agents, { now, folderOf: () => f, readBrief: () => ({ found: false }) }).members[0];
+    assert.equal(m.summary.state, 'worked', 'the default reader did not read the report history: ' + JSON.stringify(m.summary));
+    const none = v.overviewOf(described, BOARD.agents, { now, folderOf: () => f, readBrief: () => ({ found: false }), readHistory: () => null }).members[0];
+    assert.equal(none.summary.state, 'stale', 'CONTROL: without history the same member still read current');
+  } finally { fs.rmSync(file, { force: true }); }
+});
+
 test('#5635 F2: a working member woken after a quiet stretch reads current for the work since, in `project show`', () => {
   const raw = { id: 'wk2', name: 'Work Time', folder: '/p/wk2', agents: ['mark'], tasks: [] };
   const described = projects.describe(raw, BOARD.agents, [raw]);
