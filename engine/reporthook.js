@@ -449,7 +449,8 @@ function unwireInstall(settingsPath, roots, opts) {
   };
   /* Only a string that is provably the script, at a provable place, can be judged gone: an absolute drive-letter path
      (a \\\\server path is never looked at, its server may be offline; a mapped drive letter still is, and a disconnected
-     one can be slow to answer), with nothing a shell would expand (%, $, ~), whose file name is the hook script itself,
+     one can be slow to answer), with no %, $ or ~ (a shell would expand them; a ~ also turns away an 8.3 short name such as PROGRA~1, which only
+     errs toward keeping), whose file name is the hook script itself,
      on a drive that is there now (an unplugged drive is not a deleted folder). Anything else is kept. */
   const provablyGone = (x) => {
     if (!/^[A-Za-z]:[\\/]/.test(x) || /[%$~]/.test(x)) return false;
