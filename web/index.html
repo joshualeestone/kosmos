@@ -27100,7 +27100,7 @@ const ACCT_PICK = new Map();          // the target picked in a row's menu, so a
 function acctUsageHtml(a, list) {
   /* An older board sends neither field: show nothing. The meter needs only the weekly fields (always sent on a Claude
      row); the agents line and the move need agentsHere, which comes only when the page asks (?agents=1). */
-  if (!a || a.provider !== 'anthropic' || (!('weeklyBlocked' in a) && !a.agentsHere)) return '';
+  if (!a || a.provider !== 'anthropic' || (!('weekly' in a) && !('weeklyBlocked' in a) && !a.agentsHere)) return '';
   const here = a.agentsHere && Array.isArray(a.agentsHere.names) ? a.agentsHere : null;
   const w = a.weekly && Number.isFinite(a.weekly.usedPct) ? a.weekly : null;
   /* The setup guide is left out, as everywhere the page lists or counts agents (#3739); it is not moved either. The
