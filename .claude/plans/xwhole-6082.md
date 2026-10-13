@@ -15,7 +15,7 @@ tools/post-release-notes.sh: the over-budget branch trims with node (the script 
 page; no node, or an empty or failed answer, keeps the old cut). The note reaches node after `--`, so a leading dash is
 text. A note that fits in code points is returned unchanged (the shell's length test can count bytes). A sentence ends
 at . ! or ?, optionally a closing quote or bracket, a space, and a capital or digit next; e.g., i.e., etc., vs., Mr.,
-Mrs., Dr., approx., incl. and No. (either case, before a closing quote too) never end one. When no whole sentence fits,
+Mrs., Dr., approx., incl. and No. (also with a capital first letter, and before a closing quote) never end one. When no whole sentence fits,
 the cut keeps whole words and drops a trailing comma or colon before the ellipsis.
 tools/test-post-release-notes.sh: fixtures for the 0.7.46 note, a dotted version and domain, curly apostrophes under a
 C locale, an abbreviation, U.S. before a lowercase word, a leading dash, and an over-long sentence; 7b updated.

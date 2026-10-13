@@ -97,7 +97,7 @@ if [ "${#X_BODY}" -gt "$_budget" ]; then
         const len = (s) => [...s].length;
         let out = "";
         // A sentence ends at . ! or ? (a closing quote or bracket may follow), a space, and a capital or digit next;
-        // a few abbreviations (e.g., Mr., No.; either case, before a closing quote too) never end one.
+        // a few abbreviations (e.g., Mr., No., also with a capital first letter, and before a closing quote) never end one.
         for (const p of t.split(/(?<=[.!?]["\x27\u201d\u2019)\]]?)(?<!\b(?:[Ee]\.[Gg]|[Ii]\.[Ee]|[Ee]tc|[Vv]s|M[Rr]|M[Rr][Ss]|D[Rr]|[Aa]pprox|[Ii]ncl|N[Oo])\.["\x27\u201d\u2019)\]]?)\s+(?=["\x27\u201c\u2018(]?[A-Z0-9])/)) {
           const next = out ? out + " " + p : p;
           if (len(next) <= b) out = next; else break;
