@@ -7365,6 +7365,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    introducing a gold button for one control would make this page's Send the
    only gilded commit in the product. Recorded as an alignment item rather than
    silently resolved either way. */
+/* kosmos#6086: the "loading earlier messages" line floats over the thread's top edge and takes no room of its own. */
+.dm-earlier-wrap { position: relative; height: 0; flex: none; z-index: 2; }
+.dm-earlier { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); margin: 0; padding: 4px 12px; width: max-content; max-width: calc(100% - 24px);
+  border-radius: 999px; background: var(--k-surface); border: 1px solid var(--k-rule); color: var(--label-2); font-size: .8125rem; text-align: center; overflow-wrap: anywhere; }
 .dmthread { display: flex; flex-direction: column; gap: 12px; min-height: 7rem;
   max-height: 15rem; overflow-y: auto; padding-right: 4px; padding-block: 2px; }
 /* padding-block 2px (#3743): an unread message's gold outline is drawn 1px OUTSIDE the bubble (a filter), and
@@ -12791,6 +12795,12 @@ window.kosmosMeasureScrollbarWidth();
     </div>
     <!-- #2622: the search moved up beside the caption (.d-talk-caprow above). It still
          sits above the thread (#403) and filters what a row SHOWS. -->
+    <!-- kosmos#6086 (Josh, 2026-10-13): earlier messages load by SCROLLING BACK, as a chat does: reaching the oldest
+         message on screen loads the batch before it, and so on to the first. This is the only sign of it: a small
+         line over the top of the thread WHILE a batch loads (or saying a load failed, with Try again). It replaces
+         the line and button that stood under the newest message on every visit, which read as a notice that would
+         not go away. The wrapper has no height, so showing and hiding the line never moves a message. -->
+    <div class="dm-earlier-wrap"><p class="dm-earlier" id="d-talk-older" role="status" aria-live="polite" hidden><span id="d-talk-older-text"></span> <button type="button" class="btn-quiet" id="d-talk-older-show" hidden>Try again</button></p></div>
     <div class="dmthread" id="d-dmthread"></div>
     <!-- 🔑 "WORKING", NEVER "TYPING". We can see that Claude is producing
          output or is mid-task. We CANNOT see WHAT it is working on, and
@@ -12812,7 +12822,6 @@ window.kosmosMeasureScrollbarWidth();
          read must not be rendered as either. Same rule as the stale badge and
          the memory caption. -->
     <p class="dmbusy" id="d-busy" hidden></p>
-    <p class="dhint" id="d-talk-older" style="margin:10px 0 0;" hidden><span id="d-talk-older-text"></span> <button type="button" class="btn-quiet" id="d-talk-older-show" hidden>Show earlier messages</button> <button type="button" class="btn-quiet" id="d-talk-older-hide" hidden>Hide earlier messages</button></p>
     <div class="dmoff" id="d-dmoff" hidden></div>
     <!-- The room's box, on the agent page too (#385, Josh 2026-08-23): one
          composer drawn one way. The input element and every id stay, so the
@@ -38414,16 +38423,20 @@ document.addEventListener('click', (e) => {
   if (b) dmQuestionClear(b);
 });
 /**
- * kosmos#5841: a direct conversation's EARLIER messages, opened from the "older messages are still kept" line, a page
- * at a time from GET .../thread/older?before=<n>, and drawn IN the thread, before the latest 200, by the thread's own
- * paint. So they look and act like the rest (reactions, reply, copy, search), and there is no second box.
+ * kosmos#5841: a direct conversation's EARLIER messages, a page at a time from GET .../thread/older?before=<n>, drawn
+ * IN the thread, before the latest 200, by the thread's own paint. So they look and act like the rest (reactions,
+ * reply, copy, search), and there is no second box.
+ * kosmos#6086: they load by SCROLLING BACK. Reaching the top of what is loaded asks for the page before it
+ * (earlierNearTop), with a line over the top of the thread while it loads; no button and nothing under the newest
+ * message. The reader is not moved when a page lands: setThread anchors the message they are on (#1926).
  * They are a SNAPSHOT: the 5 s poll refreshes only the latest, so a preview not cached when the page was fetched, or a
- * reaction or delivery change made elsewhere, shows only after Hide and Show (a reaction made HERE is written in).
+ * reaction or delivery change made elsewhere, shows only after the conversation is opened again (a reaction made
+ * HERE is written in).
  * `before` counts from the OLDEST message, so a send cannot shift a page. `end` is the position just after the last
  * earlier row; messages that leave the latest 200 while this is open are fetched into it (earlierFillGap), so nothing
  * falls between. Per agent: a DIFFERENT agent on screen resets it (paintTalk, before any await) and `earlierOn` draws
  * rows only for their own agent. A repaint of the SAME agent (the poll, a return with no other DM opened between)
- * keeps them until Hide; opening another agent's DM and coming back starts closed. `opening` drops an answer that
+ * keeps them; opening another agent's DM and coming back starts closed. `opening` drops an answer that
  * belongs to a reset that came after it.
  */
 const EARLIER = { session: null, open: false, before: 0, end: 0, rows: [], loading: false, filling: false, because: null, opening: 0 };
@@ -38465,16 +38478,35 @@ async function earlierMore() {
   else { EARLIER.rows = r.rows.concat(EARLIER.rows); EARLIER.before = r.olderCount; convPause(); }   // old rows are not news to read aloud
   earlierRepaint();
   if (!r.ok || !r.rows.length) return;
-  /* The person asked to see them: bring the first new row into view (a reader at the floor would otherwise stay
-     pinned to the newest, with the new rows off-screen above), and stop pinning until they scroll back down. */
-  const thread = document.getElementById('d-dmthread');
-  const first = thread && thread.querySelector('[data-at="' + CSS.escape(String(r.rows[0].at || '')) + '"]');
-  const rowEl = first && (first.closest('.msg') || first);
-  if (rowEl) { thread.__heldAtBottom = false; thread.scrollTop = rowEl.getBoundingClientRect().top - thread.getBoundingClientRect().top + thread.scrollTop; }   // the thread only, never the page
-  /* On the last page "Show earlier" goes: keep focus in the line, on Hide. */
-  const show = document.getElementById('d-talk-older-show');
-  if (show.hidden && (document.activeElement === show || document.activeElement === document.body)) document.getElementById('d-talk-older-hide').focus();
+  /* kosmos#6086: nothing here moves the reader. earlierRepaint goes through setThread, which keeps the message they
+     are on where it was (its anchor, #1926), so the page lands ABOVE them and they scroll into it. A thread still
+     too short to scroll asks for the next page itself. */
+  earlierNearTop();
 }
+/* kosmos#6086: is the reader at the top of what is loaded, with more before it? Then load the page before it.
+   Called on the thread's scroll, and after a paint (a thread too short to scroll has no scroll to wait for).
+   Never while a load is in flight, never over a failed read, and never again after a failed load until the person
+   presses Try again: a scroll event must not turn one failure into a stream of requests. */
+const EARLIER_NEAR_TOP = 120;   // px from the top of the thread
+function earlierNearTop() {
+  const thread = document.getElementById('d-dmthread');
+  const session = thread && thread.__lastSession; const body = thread && thread.__lastBody;
+  if (!session || !body || !Array.isArray(body.messages) || thread.__readFailed) return;
+  if (!CURRENT || CURRENT.sessionName !== session) return;   // mid-switch: the thread still holds the last agent's body
+  if (EARLIER.loading || thread.clientHeight <= 0) return;   // a hidden thread measures 0 everywhere: unknown, so no
+  if (thread.scrollTop > EARLIER_NEAR_TOP) return;
+  if (TALK_QUERY && String(TALK_QUERY).trim()) return;   // a search shortens the thread; that is not a reader at the top
+  if (earlierOn(session)) {
+    if (EARLIER.before <= 0 || EARLIER.because) return;   // the first message is loaded, or the last load failed
+  } else {
+    const first = Number(body.olderCount) || 0;
+    if (!first) return;
+    earlierReset(session);
+    Object.assign(EARLIER, { open: true, before: first, end: first });
+  }
+  earlierMore();
+}
+document.addEventListener('scroll', (e) => { if (e.target && e.target.id === 'd-dmthread') earlierNearTop(); }, { capture: true, passive: true });
 /* Messages at [end, olderCount) left the latest 200 while this was open: fetch them, newest pages first, and append. */
 async function earlierFillGap(session, olderCount) {
   if (EARLIER.filling) return;
@@ -38500,62 +38532,32 @@ async function earlierFillGap(session, olderCount) {
   const last = th && th.__lastSession === session ? th.__lastBody : null;
   if (last && Array.isArray(last.messages) && (Number(last.olderCount) || 0) > EARLIER.end) earlierFillGap(session, Number(last.olderCount));
 }
-/* The line under the thread: how many older messages are kept, and the way to them. Two STATIC buttons, toggled and
-   relabelled only on change (a rebuild each poll would take a keyboard user's focus); a load in flight is
-   aria-disabled, not disabled, so the pressed button keeps focus. */
+/* kosmos#6086: the line over the top of the thread. It shows only while a page of earlier messages loads, or to say
+   a load failed (with Try again, the one button left). Nothing stands when there is nothing to say: not a count,
+   not a way in. A static button, relabelled never and toggled only on change (a rebuild each poll would take a
+   keyboard user's focus). */
 function paintOlderLine(body, sessionName) {
   const older = document.getElementById('d-talk-older');
   const textEl = document.getElementById('d-talk-older-text');
-  const show = document.getElementById('d-talk-older-show');
-  const hide = document.getElementById('d-talk-older-hide');
-  if (!older || !textEl || !show || !hide || !body) return;
-  /* A FAILED latest read (messages null): the thread says so, and no count or button stands over it (review 7). */
+  const retry = document.getElementById('d-talk-older-show');
+  if (!older || !textEl || !retry || !body) return;
+  /* A FAILED latest read (messages null): the thread says so, and nothing stands over it (review 7 of #5841). */
   if (!Array.isArray(body.messages)) { older.hidden = true; return; }
-  const shown = Array.isArray(body.messages) ? body.messages.length : 0;
   const on = earlierOn(sessionName);
-  let text = '';
-  if (on) {
-    const n = EARLIER.rows.length;
-    text = EARLIER.because ? pjSentence(EARLIER.because)
-      : EARLIER.loading && !n ? 'Loading earlier messages\u2026'
-        : 'Showing ' + n + ' earlier and the latest ' + shown + '. '
-          + (EARLIER.before ? EARLIER.before + ' older ' + (EARLIER.before === 1 ? 'message is' : 'messages are') + ' still kept.' : 'That is the whole conversation.');
-  } else if (body.olderCount) {
-    text = 'Showing the latest ' + shown + '. ' + body.olderCount + ' older '
-      + (body.olderCount === 1 ? 'message is' : 'messages are') + ' still kept.';
-  }
+  const text = !on ? '' : EARLIER.because ? pjSentence(EARLIER.because) : EARLIER.loading ? 'Loading earlier messages\u2026' : '';
   if (textEl.textContent !== text) textEl.textContent = text;
-  const more = on ? (EARLIER.before > 0 || Boolean(EARLIER.because)) : Boolean(body.olderCount);
-  const label = on && EARLIER.because ? 'Try again' : 'Show earlier messages';
-  if (show.textContent !== label) show.textContent = label;
-  show.hidden = !more;
-  show.setAttribute('aria-disabled', on && EARLIER.loading ? 'true' : 'false');
-  hide.hidden = !on;
+  retry.hidden = !(on && EARLIER.because && !EARLIER.loading);
   older.hidden = !text;
 }
 document.addEventListener('click', (e) => {
-  const t = e.target && e.target.closest ? e.target.closest('#d-talk-older-show, #d-talk-older-hide') : null;
+  const t = e.target && e.target.closest ? e.target.closest('#d-talk-older-show') : null;
   if (!t) return;
   const thread = document.getElementById('d-dmthread');
   const session = thread && thread.__lastSession;
   if (!session || !thread.__lastBody) return;
   if (!CURRENT || CURRENT.sessionName !== session) return;   // mid-switch: the line still shows the last agent's; wait for this one's
-  if (t.id === 'd-talk-older-hide') {
-    earlierReset(session);
-    convPause();
-    earlierRepaint();
-    const show = document.getElementById('d-talk-older-show');
-    if (!show.hidden) show.focus();   // the pressed button went: focus the way back in
-    return;
-  }
-  if (t.getAttribute('aria-disabled') === 'true') return;
-  if (!earlierOn(session)) {
-    const first = Number(thread.__lastBody.olderCount) || 0;
-    if (!first) return;
-    earlierReset(session);
-    Object.assign(EARLIER, { open: true, before: first, end: first });
-  }
-  earlierMore();
+  if (!earlierOn(session) || EARLIER.loading) return;
+  earlierMore();   // Try again: the same page, asked for by the person
 });
 
 function paintTalkThread(body, name) {
@@ -39180,6 +39182,7 @@ async function paintTalk(sessionName, agentName) {
   paintTalkThread(body, name);
 
   paintOlderLine(body, sessionName);
+  earlierNearTop();   // kosmos#6086: a thread too short to scroll has no scroll to wait for
   /* kosmos#5841: messages that left the latest 200 while the earlier ones are open are fetched into them, so none
      falls into a gap between the two. */
   if (earlierOn(sessionName) && (Number(body.olderCount) || 0) > EARLIER.end) earlierFillGap(sessionName, Number(body.olderCount));

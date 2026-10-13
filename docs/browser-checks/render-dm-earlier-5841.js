@@ -1,22 +1,27 @@
-// Browser-check-surface: d-talk-older d-talk-older-text d-talk-older-show d-talk-older-hide d-dmthread
+// Browser-check-surface: d-talk-older d-talk-older-text d-talk-older-show dm-earlier d-dmthread
 'use strict';
 
 /**
- * kosmos#5841: a direct conversation shows its latest 200 messages and says how many older ones are kept; until now
- * there was no way to them. The earlier messages are drawn IN the thread, before the latest, by the thread's own paint.
- * This asserts, on the REAL rendered DM:
- *   - with older messages kept, the line offers "Show earlier messages" (CONTROL: with none, no line and no button);
- *   - pressing it puts the page before the latest at the TOP of the thread, oldest first, fetched with
- *     thread/older?before=<the thread's olderCount>, and focus stays on the button; again pages back to the start,
- *     where "Show earlier" goes and the line says it is the whole conversation;
- *   - the thread's repaint (the 5 s poll) keeps them; a reply among them names its original; Hide takes them away and
- *     focus moves back to "Show earlier messages";
- *   - messages that leave the latest while it is open are fetched into the earlier rows (no gap);
- *   - another agent on screen starts closed, including when that agent's read FAILS (no cross-agent rows);
- *   - Hide then Show while a page loads draws it once.
+ * kosmos#5841 and kosmos#6086: a direct conversation shows its latest 200 messages, and the ones before them load by
+ * SCROLLING BACK, a page at a time, drawn IN the thread by the thread's own paint. No button, and nothing under the
+ * newest message. This asserts, on the REAL rendered DM:
+ *   - opened at the newest message, nothing is asked for and nothing stands on screen about earlier messages
+ *     (CONTROL: the thread really scrolls; and with nothing older, nothing ever is asked);
+ *   - reaching the top asks for the page before the latest (thread/older?before=<the thread's olderCount>); WHILE it
+ *     loads a line over the top of the thread says so, over the thread and never between the newest message and
+ *     the composer; when it lands the rows are at the top, oldest first, the line is gone, and THE MESSAGE THE
+ *     READER WAS ON HAS NOT MOVED;
+ *   - reaching the top again pages back to the first message, where nothing more is asked;
+ *   - the thread's repaint (the 5 s poll) keeps them; a reply among them names its original;
+ *   - messages that leave the latest while earlier ones are loaded are fetched in (no gap);
+ *   - another agent on screen starts with only its own rows, including when that agent's read FAILS;
+ *   - a failed load says so at the top with Try again, and scrolling does not ask again until the person does;
+ *   - a thread too short to scroll loads the earlier pages by itself.
  *
  * Harness posture mirrors render-agentdm-3414.js: load over file://, answer the fetches from fixtures, set CURRENT,
- * call paintTalk. The fixture's pages are 2 rows.
+ * call paintTalk. The fixture's pages are 2 rows, each row several lines tall, in a thread held 300 px high: one
+ * page is taller than the "near the top" distance, as a real page of 200 messages is, so one arrival at the top
+ * loads one page.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-dm-earlier-5841.js
  */
@@ -33,7 +38,9 @@ const chk = (ok, label, extra) => {
 
 const at = (i) => new Date(Date.UTC(2026, 9, 1, 0, 0, i)).toISOString();
 // 'msg-N!' and not 'mN': a bubble's text runs into its time ('m0' then '7:00' read as 'm07').
-const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' } : { at: at(i), text: 'msg-' + i + '!' });
+// Seven lines tall, so two rows (one fixture page) are taller than the thread's "near the top" distance.
+const TALL = '\n.\n.\n.\n.\n.\n.';
+const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' + TALL } : { at: at(i), text: 'msg-' + i + '!' + TALL });
 
 (async () => {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
@@ -49,6 +56,7 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' }
       window.__failThread = null;   // a 404 read (a borrowed name): paintTalk's catch arm
       window.__nullThread = null;   // a 200 read that FAILED: messages null + historyBecause (the shape the guard sees)
       window.__olderDelay = 0;
+      window.__olderFail = false;   // the older route answers 500
       const enc = (o, s) => new Response(JSON.stringify(o), { status: s || 200, headers: { 'content-type': 'application/json' } });
       window.setInterval = () => 0;
       window.fetch = async (url) => {
@@ -59,6 +67,7 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' }
         if (m) {
           window.__asked.push(who + ':' + m[1]);
           if (window.__olderDelay) await new Promise((r) => setTimeout(r, window.__olderDelay));
+          if (window.__olderFail) return enc({ error: 'no' }, 500);
           const before = Math.min(Number(m[1]), all.length);
           const start = Math.max(0, before - 2);
           return enc({ messages: all.slice(start, before), olderCount: start });
@@ -86,110 +95,153 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' }
     const setAll = (who, n, extra) => page.evaluate(([w, list]) => { window.__all[w] = list; }, [who, Array.from({ length: n }, (_, i) => ({ ...row(i), ...((extra && extra[i]) || {}) }))]);
     const state = () => page.evaluate(() => {
       const older = document.getElementById('d-talk-older');
-      const show = document.getElementById('d-talk-older-show');
-      const hide = document.getElementById('d-talk-older-hide');
+      const retry = document.getElementById('d-talk-older-show');
+      const thread = document.getElementById('d-dmthread');
       // A row's label is its LAST "mN": a reply's header quotes its original first.
-      const rows = [...document.querySelectorAll('#d-dmthread .msg')].map((r) => ((r.querySelector('.msg-bd') || r).textContent.match(/msg-\d+!/g) || ['?']).pop().replace(/^msg-(\d+)!$/, 'm$1'));
+      const rows = [...thread.querySelectorAll('.msg')].map((r) => ((r.querySelector('.msg-bd') || r).textContent.match(/msg-\d+!/g) || ['?']).pop().replace(/^msg-(\d+)!$/, 'm$1'));
       return {
         line: older.hidden ? '' : document.getElementById('d-talk-older-text').textContent.trim(),
-        show: !show.hidden && !older.hidden, showLabel: show.textContent.trim(), hide: !hide.hidden && !older.hidden,
+        retry: !retry.hidden && !older.hidden,
         rows, asked: window.__asked.slice(),
-        reply: [...document.querySelectorAll('#d-dmthread .msg-replyto, #d-dmthread .vh')].map((x) => x.textContent.trim()).join(' | '),
-        focus: document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : '',
+        reply: [...thread.querySelectorAll('.msg-replyto, .vh')].map((x) => x.textContent.trim()).join(' | '),
+        scrollTop: Math.round(thread.scrollTop), scrolls: thread.scrollHeight > thread.clientHeight + 1,
+        atBottom: thread.scrollHeight - thread.clientHeight - thread.scrollTop <= 2,
       };
     });
-    const settle = () => page.waitForTimeout(200);
+    const settle = () => page.waitForTimeout(250);
+    /* Where things are painted: the line, the thread, its first and last rows, the composer; and where the row that
+       holds a given message sits in the window (to see whether a page landing above it moved it). */
+    const where = (label) => page.evaluate((lab) => {
+      const r = (e) => { if (!e) return null; const b = e.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom), h: Math.round(b.height) }; };
+      const thread = document.getElementById('d-dmthread'); const rows = [...thread.querySelectorAll('.msg')];
+      const older = document.getElementById('d-talk-older');
+      const of = lab ? rows.find((x) => (x.textContent.match(/msg-\d+!/g) || []).pop() === lab) : null;
+      return { line: older.hidden ? null : r(older), thread: r(thread), first: r(rows[0]), last: r(rows[rows.length - 1]), composer: r(document.getElementById('d-say')), row: r(of) };
+    }, label || '');
+    /* The reader scrolls up to the top of what is loaded. */
+    const toTop = () => page.evaluate(() => { const t = document.getElementById('d-dmthread'); t.scrollTop = 0; t.dispatchEvent(new Event('scroll')); });
+    /* A thread 300 px high, so three tall rows scroll (the real page gives it the height of the window). */
+    await page.addStyleTag({ content: '#d-dmthread { height: 300px !important; max-height: 300px !important; min-height: 0 !important; flex: none !important; }' });
 
-    // CONTROL: three messages, nothing older.
+    // CONTROL: three messages, nothing older. Nothing is asked for, at the bottom or at the top.
     await setAll('april', 3);
-    await open('april', 'April');
+    await open('april', 'April'); await settle();
     let s = await state();
-    chk(!s.line && !s.show && s.rows.join(',') === 'm0,m1,m2', 'CONTROL: with nothing older there is no line and no "Show earlier messages"', JSON.stringify(s));
+    chk(s.scrolls && s.atBottom, 'CONTROL: the thread scrolls, and opens at the newest message', JSON.stringify(s));
+    await toTop(); await settle();
+    s = await state();
+    chk(!s.line && !s.retry && s.rows.join(',') === 'm0,m1,m2' && s.asked.length === 0, 'CONTROL: with nothing older, reaching the top asks for nothing and shows no line', JSON.stringify(s));
 
     // Eight kept (m4 answers m3): the latest 3 show, 5 are older.
+    await page.evaluate(() => { window.__asked.length = 0; });
+    await setAll('mona', 3);
+    await open('mona', 'Mona'); await settle();   // another agent between, so April opens fresh, at the bottom
     await setAll('april', 8, { 4: { replyTo: at(3) } });
-    await open('april', 'April');
+    await open('april', 'April'); await settle();
     s = await state();
-    chk(s.show && /Showing the latest 3\. 5 older messages are still kept\./.test(s.line) && !s.hide, 'with 5 older kept, the line offers "Show earlier messages"', JSON.stringify(s));
+    let w = await where();
+    chk(s.atBottom && s.rows.join(',') === 'm5,m6,m7' && s.asked.length === 0, 'opened at the newest message, nothing earlier is asked for', JSON.stringify(s));
+    chk(!s.line && !s.retry && !w.line, '#6086: and nothing about earlier messages stands on screen: no line, no button', JSON.stringify({ line: s.line, retry: s.retry }));
+    chk(!!w.last && !!w.composer && w.last.h > 0 && w.composer.h > 0, '#6086 CONTROL: the newest message and the composer are painted', JSON.stringify([w.last, w.composer]));
 
-    await page.focus('#d-talk-older-show');
-    await page.click('#d-talk-older-show'); await settle();
-    s = await state();
-    chk(s.rows.join(',') === 'm3,m4,m5,m6,m7' && s.asked.join(',') === 'april:5', 'pressing it puts the page before the latest at the top of the thread, oldest first (before=5)', JSON.stringify(s));
-    chk(/Showing 2 earlier and the latest 3\. 3 older messages are still kept\./.test(s.line) && s.show && s.hide, 'the line says what is shown and offers more and Hide', JSON.stringify(s));
-    chk(s.focus === 'd-talk-older-show', 'focus stays on the button (a load is aria-disabled, never disabled)', s.focus);
+    // The reader scrolls to the top: the page before the latest loads, with a line over the top of the thread meanwhile.
+    await page.evaluate(() => { window.__olderDelay = 500; });
+    await toTop(); await page.waitForTimeout(150);
+    s = await state(); w = await where('msg-5!');
+    const before5 = w.row;
+    chk(/^Loading earlier messages/.test(s.line) && !s.retry, '#6086: while a page loads, a line at the top says so (no button)', JSON.stringify(s));
+    chk(!!w.line && w.line.h > 0 && w.line.top >= w.thread.top - 2 && w.line.bottom <= w.thread.top + 60, '#6086: the line is over the top of the thread', JSON.stringify([w.line, w.thread]));
+    chk(!!w.line && !(w.line.top >= w.last.bottom - 2 && w.line.bottom <= w.composer.top + 2) && w.line.bottom < w.composer.top, '#6086: and not between the newest message and the composer', JSON.stringify([w.line, w.last, w.composer]));
+    const threadTopBefore = w.thread.top;
+    await page.waitForTimeout(900);
+    s = await state(); w = await where('msg-5!');
+    chk(s.rows.join(',') === 'm3,m4,m5,m6,m7' && s.asked.join(',') === 'april:5', 'reaching the top loads the page before the latest, at the top of the thread, oldest first (before=5)', JSON.stringify(s));
+    chk(!s.line && !s.retry, '#6086: when the page has landed the line is gone', JSON.stringify(s));
+    chk(!!before5 && !!w.row && Math.abs(w.row.top - before5.top) <= 2, '#6086: THE VIEW DOES NOT JUMP: the message the reader was on is where it was', JSON.stringify([before5, w.row]));
+    chk(w.thread.top === threadTopBefore, '#6086: showing and hiding the line does not move the thread', JSON.stringify([threadTopBefore, w.thread.top]));
+    chk(s.scrollTop > 120, '#6086 CONTROL: one page is taller than the near-the-top distance, so one arrival loaded one page', String(s.scrollTop));
     chk(/Answers [^|]*msg-3!/.test(s.reply) && !/further back|unavailable/i.test(s.reply), 'a reply among the earlier rows names its original', JSON.stringify(s.reply));
+    await page.evaluate(() => { window.__olderDelay = 0; });
 
-    await page.click('#d-talk-older-show'); await settle();
+    await toTop(); await settle();
     await open('april', 'April'); await settle();   // the 5 s poll's repaint
     s = await state();
-    chk(s.rows.join(',') === 'm1,m2,m3,m4,m5,m6,m7' && s.asked.join(',') === 'april:5,april:3', 'it pages back with before=3, and the repaint keeps the earlier rows', JSON.stringify(s));
+    chk(s.rows.join(',') === 'm1,m2,m3,m4,m5,m6,m7' && s.asked.join(',') === 'april:5,april:3', 'reaching the top again pages back with before=3, and the repaint keeps the earlier rows', JSON.stringify(s));
 
-    await page.click('#d-talk-older-show'); await settle();
+    await toTop(); await settle();
     s = await state();
-    chk(s.rows.join(',') === 'm0,m1,m2,m3,m4,m5,m6,m7' && !s.show && /whole conversation/.test(s.line) && s.hide, 'at the start "Show earlier" goes and the line says it is the whole conversation', JSON.stringify(s));
+    chk(s.rows.join(',') === 'm0,m1,m2,m3,m4,m5,m6,m7' && s.asked.join(',') === 'april:5,april:3,april:1' && !s.line, 'and again reaches the first message', JSON.stringify(s));
+    await toTop(); await settle(); await toTop(); await settle();
+    s = await state();
+    chk(s.asked.join(',') === 'april:5,april:3,april:1' && !s.line && !s.retry, 'at the first message, reaching the top asks for nothing more', JSON.stringify(s));
 
-    // Two new messages arrive while it is open: m5 and m6 leave the latest 3; they must land in the earlier rows.
+    // Two new messages arrive while earlier ones are loaded: m5 and m6 leave the latest 3; they must land in the earlier rows.
     await setAll('april', 10, { 4: { replyTo: at(3) } });
     await open('april', 'April'); await page.waitForTimeout(500);
     s = await state();
-    chk(s.rows.join(',') === 'm0,m1,m2,m3,m4,m5,m6,m7,m8,m9', 'messages that leave the latest while it is open are fetched in: no gap', JSON.stringify(s));
+    chk(s.rows.join(',') === 'm0,m1,m2,m3,m4,m5,m6,m7,m8,m9', 'messages that leave the latest while earlier ones are loaded are fetched in: no gap', JSON.stringify(s));
 
-    await page.click('#d-talk-older-hide'); await settle();
-    s = await state();
-    chk(s.rows.join(',') === 'm7,m8,m9' && s.show && !s.hide, 'Hide takes the earlier rows away and the line offers them again', JSON.stringify(s));
-    chk(s.focus === 'd-talk-older-show', 'hiding moves focus to "Show earlier messages"', s.focus);
-
-    // Open again, then another agent: a successful read, and a FAILING read.
-    await page.click('#d-talk-older-show'); await settle();
+    // Another agent: a successful read, and a FAILING read.
     await setAll('mona', 6);
     await open('mona', 'Mona'); await settle();
     s = await state();
-    chk(!s.hide && s.rows.join(',') === 'm3,m4,m5', 'another agent on screen starts closed, with only its own rows', JSON.stringify(s));
+    chk(s.rows.join(',') === 'm3,m4,m5' && s.atBottom && !s.line, 'another agent on screen starts with only its own rows, at its newest message', JSON.stringify(s));
     await open('april', 'April'); await settle();
-    await page.click('#d-talk-older-show'); await settle();
     s = await state();
-    chk(s.rows.length === 5, 'coming back to an agent starts it closed, so one press shows one page (2 earlier + the latest 3)', JSON.stringify(s));
+    chk(s.rows.join(',') === 'm7,m8,m9' && s.atBottom, 'coming back to an agent starts it at the newest message, with the earlier rows to load again', JSON.stringify(s));
+    await toTop(); await settle();
+    s = await state();
+    chk(s.rows.length === 5, 'and one arrival at the top shows one page (2 earlier + the latest 3)', JSON.stringify(s));
     await page.evaluate(() => { window.__failThread = 'mona'; });
     await open('mona', 'Mona'); await settle();
     s = await state();
-    chk(!s.rows.some((r) => /^m\d+$/.test(r)) && !s.hide, 'switching to an agent whose read is refused (404) shows none of the other agent\'s rows', JSON.stringify(s));
+    chk(!s.rows.some((r) => /^m\d+$/.test(r)) && !s.line, 'switching to an agent whose read is refused (404) shows none of the other agent\'s rows', JSON.stringify(s));
 
-    // April's OWN latest read FAILS (a 200 with messages null) while her earlier rows are open.
+    // April's OWN latest read FAILS (a 200 with messages null) while her earlier rows are loaded.
     await page.evaluate(() => { window.__failThread = null; });
     await open('april', 'April'); await settle();
-    await page.click('#d-talk-older-show'); await settle();
+    await toTop(); await settle();
     await page.evaluate(() => { window.__nullThread = 'april'; });
     await open('april', 'April'); await settle();
     s = await state();
     const note = await page.evaluate(() => document.getElementById('d-dmthread').textContent.trim());
-    chk(s.rows.length === 0 && /cannot read/.test(note), 'when the latest read fails while earlier rows are open, the thread shows the failure, not old rows', JSON.stringify({ rows: s.rows, note: note.slice(0, 80) }));
-    chk(!s.line && !s.show && !s.hide, 'and no count or button stands over the failure', JSON.stringify({ line: s.line, show: s.show, hide: s.hide }));
+    chk(s.rows.length === 0 && /cannot read/.test(note), 'when the latest read fails while earlier rows are loaded, the thread shows the failure, not old rows', JSON.stringify({ rows: s.rows, note: note.slice(0, 80) }));
+    chk(!s.line && !s.retry, 'and no line or button stands over the failure', JSON.stringify({ line: s.line, retry: s.retry }));
     // ...and one failed poll does not throw away the pages already loaded (a failed read reports olderCount 0).
     await page.evaluate(() => { window.__nullThread = null; });
     await open('april', 'April'); await settle();
     s = await state();
-    chk(s.rows.length === 5 && s.hide, 'when the read recovers, the earlier rows are still open (a failed poll is not a shrink)', JSON.stringify(s));
-    await page.click('#d-talk-older-hide'); await settle();
+    chk(s.rows.length === 5, 'when the read recovers, the earlier rows are still there (a failed poll is not a shrink)', JSON.stringify(s));
 
     // The thread SHRINKS below the earlier rows' end (a file set aside): the earlier rows close, nothing doubles.
-    await open('april', 'April'); await settle();
-    await page.click('#d-talk-older-show'); await settle();
     await setAll('april', 4);
     await open('april', 'April'); await settle();
     s = await state();
-    chk(s.rows.join(',') === 'm1,m2,m3' && !s.hide, 'a thread that shrinks below the earlier rows closes them (no duplicate rows)', JSON.stringify(s));
-    await setAll('april', 10, { 4: { replyTo: at(3) } });
+    chk(s.rows.slice(-3).join(',') === 'm1,m2,m3' && new Set(s.rows).size === s.rows.length, 'a thread that shrinks below the earlier rows closes them (no duplicate rows)', JSON.stringify(s));
 
-    // Hide then Show while a page loads draws it once.
-    await page.evaluate(() => { window.__failThread = null; window.__olderDelay = 400; });
-    await open('april', 'April'); await settle();
-    await page.click('#d-talk-older-show');
-    await page.click('#d-talk-older-hide');
-    await page.click('#d-talk-older-show');
-    await page.waitForTimeout(1200);
+    // A load that FAILS: said at the top, with Try again; scrolling does not ask again until the person does.
+    await setAll('june', 8);
+    await page.evaluate(() => { window.__asked.length = 0; window.__olderFail = true; });
+    await open('june', 'June'); await settle();
+    await toTop(); await settle();
+    s = await state(); w = await where();
+    chk(/could not read the earlier messages/i.test(s.line) && s.retry && s.asked.join(',') === 'june:5', '#6086: a failed load says so at the top, with Try again', JSON.stringify(s));
+    chk(!!w.line && w.line.bottom <= w.thread.top + 80 && w.line.bottom < w.composer.top, '#6086: that too is over the top of the thread', JSON.stringify([w.line, w.thread]));
+    await toTop(); await settle(); await toTop(); await settle();
     s = await state();
-    chk(s.rows.join(',') === 'm5,m6,m7,m8,m9', 'Hide then Show during a load draws the page once, not twice', JSON.stringify(s));
+    chk(s.asked.join(',') === 'june:5', '#6086: scrolling at the top does not ask again after a failure', JSON.stringify(s.asked));
+    await page.evaluate(() => { window.__olderFail = false; });
+    await page.click('#d-talk-older-show'); await settle();
+    s = await state();
+    chk(s.asked.join(',') === 'june:5,june:5' && s.rows.join(',') === 'm3,m4,m5,m6,m7' && !s.line && !s.retry, '#6086: Try again asks for the same page, and it lands', JSON.stringify(s));
+
+    // A thread too short to scroll has no scroll to wait for: it loads the earlier pages by itself, to the first message.
+    await page.addStyleTag({ content: '#d-dmthread { height: 4000px !important; max-height: 4000px !important; }' });
+    await setAll('opal', 8);
+    await page.evaluate(() => { window.__asked.length = 0; });
+    await open('opal', 'Opal'); await page.waitForTimeout(900);
+    s = await state();
+    chk(!s.scrolls && s.rows.join(',') === 'm0,m1,m2,m3,m4,m5,m6,m7' && s.asked.join(',') === 'opal:5,opal:3,opal:1', '#6086: a thread too short to scroll loads every earlier page by itself', JSON.stringify(s));
 
     chk(errs.length === 0, 'no page errors', JSON.stringify(errs));
   } finally {
