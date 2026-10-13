@@ -20014,7 +20014,9 @@ const server = http.createServer(async (req, res) => {
             /* #6083: the weaker note for a NEAR title added in the last few minutes (engine/tasks.js nearOpen). It never
                names the similar task and says to close the NEW one only if it is the same ask (review 1: the older may
                already hold history). nearOpen skips same-text tasks, so a task #5319 names is never named twice. */
-            const near = raw ? tasks.nearOpen(raw, made) : [];
+            // Review 3: its own try, so a malformed task that trips nearOpen never costs #5319's note.
+            let near = [];
+            try { near = raw ? tasks.nearOpen(raw, made) : []; } catch { near = []; }
             if (near.length) {
               // Review 2: placed BEFORE #5319's note, whose copyable command must stay the end of the line.
               note = 'Note: ' + (near.length === 1 ? 'a similar open task was added in the last few minutes: ' : 'similar open tasks were added in the last few minutes: ')

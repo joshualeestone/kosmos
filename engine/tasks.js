@@ -1984,7 +1984,7 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
    🔑 #5319's eight review rounds measured why a loose match is dangerous ("Email Alice" / "Email Bob", approve /
    reject, "Do not enable" / "Enable", Dallas to Austin / Austin to Dallas, "-5" / "5", "x > 5" / "x < 5", a check
    mark / a cross, C++ / C). So "near" is narrow, and every one of those is never near:
-   - the same words IN THE SAME ORDER once case and punctuation are set aside, or that with one word added or dropped
+   - the same words IN THE SAME ORDER once case and punctuation are set aside, or that with one FILLER word added or dropped
      (both titles 3+ words: one word changes a two-word ask too much). Order is kept, so swapped places are never near, and a swap of one word for another (Alice /
      Bob, approve / reject) is never near either. A reordered title is a miss, which costs only today's behaviour;
    - and NEVER near when the numbers (with their signs), the symbols or the negating words differ.
@@ -1998,13 +1998,11 @@ const NEGATING = new Set(['not', 'no', 'never', 'none', 'nor', 'without', 'dont'
   'hadnt', 'couldnt', 'wouldnt', 'neednt', 'shant', 'aint', 'unless', 'except', 'nothing', 'nobody',
   // Review 1: agents write in other languages too. The common negations of German, French, Spanish and Portuguese.
   'nicht', 'kein', 'keine', 'keinen', 'nie', 'pas', 'jamais', 'rien', 'nunca', 'nada', 'nao', 'n\u00e3o', 'non']);
-/* Review 1: one ADDED or DROPPED word that changes the scope or the timing of an ask is never near ("Delete all the old
-   logs" / "Delete the old logs", "Run the migration later" / "Run the migration"). */
-const SCOPING = new Set(['all', 'only', 'every', 'each', 'any', 'some', 'both', 'either', 'also', 'again', 'later', 'first',
-  'last', 'before', 'after', 'until', 'unless', 'except', 'instead', 'more', 'less', 'most', 'least', 'just', 'even',
-  // Review 2: which one, how often, how.
-  'other', 'another', 'old', 'new', 'next', 'previous', 'twice', 'once', 'permanently', 'manually', 'nightly', 'daily',
-  'weekly', 'monthly', 'hourly', 'forever', 'temporarily']);
+/* Review 3: the ONE word added or dropped must be filler, from a short allow-list. A deny-list of words that change an
+   ask leaked in every round (prod, staging, admin, second, three, a dropped name: "Email Alice about the launch" /
+   "Email about the launch"), as #5319's rounds found for any loose rule. An allow-list cannot leak that way: anything
+   not on it is a miss, which costs only today's behaviour. */
+const FILLER = new Set(['now', 'please', 'pls', 'asap', 'the', 'a', 'an', 'soon', 'quickly', 'kindly', 'urgently']);
 /* Review 1: sentence punctuation is set aside; every other punctuation or symbol character counts, as in #5319 ("C#" is
    not "C", "!=" is not "=", "50%" is not "50"). */
 const SENTENCE_MARKS = new Set(Array.from('.,;:?\'"\u2018\u2019\u201c\u201d()[]-\u2013\u2014'));
@@ -2034,7 +2032,7 @@ function isNearTitle(a, b) {
   const [long, short] = x.bag.length > y.bag.length ? [x.bag, y.bag] : [y.bag, x.bag];
   if (long.length !== short.length + 1 || short.length < 3) return false;   // both 3+ words: a short title is generic
   for (let i = 0; i < long.length; i += 1) {
-    if (long.slice(0, i).concat(long.slice(i + 1)).join(' ') === short.join(' ')) return !SCOPING.has(long[i]);
+    if (long.slice(0, i).concat(long.slice(i + 1)).join(' ') === short.join(' ')) return FILLER.has(long[i]);
   }
   return false;
 }

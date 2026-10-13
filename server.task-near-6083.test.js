@@ -77,6 +77,13 @@ test('#6083: which titles are near (pure); every #5319 counterexample is never n
     ['Merge the other PR', 'Merge the PR', false, 'review 2: other'],
     ['Run the job twice', 'Run the job', false, 'review 2: twice'],
     ['Delete the logs permanently', 'Delete the logs', false, 'review 2: permanently'],
+    // Review 3: the one word added or dropped must be filler; anything else is a miss.
+    ['Reset the prod database', 'Reset the database', false, 'review 3: prod'],
+    ['Grant admin access to bob', 'Grant access to bob', false, 'review 3: admin'],
+    ['Write the second draft', 'Write the draft', false, 'review 3: an ordinal'],
+    ['Buy the three licenses', 'Buy the licenses', false, 'review 3: a number word'],
+    ['Email Alice about the launch', 'Email about the launch', false, 'review 3: a dropped name'],
+    ['Run the Meta pass please', 'Run the Meta pass', true, 'review 3: filler (please) is near'],
   ]) assert.equal(tasks.isNearTitle(a, b), want, `${a} | ${b}: ${why}`);
 });
 
@@ -98,9 +105,12 @@ test('#6083: nearOpen: open, earlier, same parent and people, inside the window,
     { number: 9, sentence: 'Run the Meta pass', createdAt: at(-1), who: 'meta' },
     { number: 10, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta', builtAt: at(0) },
     { number: 11, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta', parts: [{ sentence: 'x', closedAt: at(0) }] },
+    // Review 3: other done-when checks, and on hold.
+    { number: 12, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta', doneWhen: ['the pass report is posted'] },
+    { number: 13, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta', onHold: true },
   ] };
   assert.deepEqual(tasks.nearOpen(P, made).map((t) => t.number), [1],
-    'only #1: #2 is outside the window, #3 is for someone else, #4 under another parent, #5 closed, #6 the same text (#5319 names it), #7 due, #8 another detail, #9 made after, #10 built, #11 a part closed, #30 is newer');
+    'only #1: #2 is outside the window, #3 is for someone else, #4 under another parent, #5 closed, #6 the same text (#5319 names it), #7 due, #8 another detail, #9 made after, #10 built, #11 a part closed, #12 other checks, #13 on hold, #30 is newer');
   assert.deepEqual(tasks.nearOpen({ tasks: [{ number: 4, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta' }] }, { ...made, parent: 4 }), [],
     'the task\'s own parent is never named');
   assert.deepEqual(tasks.nearOpen(P, { ...made, createdAt: 'not a time' }), [], 'no creation time, no window, no note');
@@ -123,7 +133,6 @@ test('#6083: the route adds a near task and names the similar one, without telli
   assert.equal(r.json.task.number, 2, 'the task is ADDED as asked');
   assert.equal(r.json.note, 'Note: a similar open task was added in the last few minutes: #1 (Run the Meta pass). '
     + 'If it is the same ask, close this new one (#2); if it is a different ask, ignore this.');
-  assert.doesNotMatch(r.json.note, /close the new one/, 'the weak note never says close the new one');
   assert.doesNotMatch(r.json.note, /["\\]/, 'the note holds no double quote or backslash');
   const other = await add('Update the onboarding copy');
   assert.equal(other.json.note, undefined, 'CONTROL: a task like no other gets no note');
