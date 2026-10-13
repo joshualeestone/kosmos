@@ -686,7 +686,7 @@ test('#5635 F2: a working member woken after a quiet stretch reads current for t
     readReport: () => ({ found: true, state: 'working', at: new Date(NOW - 60000).toISOString() }), readHistory });
   const text = v.renderShow({ project: view(() => rows) }).join('\n');
   assert.equal(view(() => rows).members[0].summary.state, 'worked');
-  assert.match(text, /summary: current: 7 min of work since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, text);
+  assert.match(text, /summary: current: 7 min of reported work since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, text);
   // CONTROL: the same member with no history is the old overdue line, so the line above comes from the history.
   assert.match(v.renderShow({ project: view(() => null) }).join('\n'), /summary: older than the 4-hour rhythm \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m);
   // A caller that supplies its own report reader and no history reader gets none (the view never mixes sources).
