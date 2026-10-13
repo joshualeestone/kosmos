@@ -18,6 +18,7 @@ A task or room message longer than the old 700-character spill, whose whole line
 - **DM:** the envelope prefix is built first, and the body spills only when `prefix + body` would pass the limit.
 - **Room:** the decision moved inside the per-member delivery, after that member's whole line is known (envelope, catch-up note, held-posts line). A member whose spill file cannot be written is not reached, and the held posts taken for its line are put back (`roomhold.restore`, as `typingBroke` does). The attachment trailer is left out of the measure, because chat checks it apart from the text.
 - `spillsAt` measures the raw line, never shorter than the whitespace-collapsed text chat checks, so a line it lets through, chat accepts.
+- **Task messages** (review 3; server.js, the task message route): the notification carried a 140-character preview so its line would never pass chat's cap. The whole message now rides it when the whole line fits `messages.spillLimit()`; only past that is it cut to the preview (the task transcript stays the full record). A task message is capped at 2000 characters (tasks.MESSAGE_MAX), so in practice it is always whole.
 
 ## Tests
 
@@ -26,16 +27,19 @@ A task or room message longer than the old 700-character spill, whose whole line
 - the boundary: a body leaving room for the envelope is typed whole, and a body within the limit alone but not with the envelope spills, so nothing is refused;
 - a ~3000-character room post reaches every member whole, with no Inbox files.
 - (review 1) a DM that fits now but not with the kept note is spilled, so the held copy is typed after the reset (engine/limitmsg-5805.test.js);
+- (review 3) a task message well past 140 characters reaches an idle assignee whole (server.limittask-5805.test.js); the DM boundary test is measured from `spillLimit()`, so only the envelope tips the "over" case;
 - (review 1) a member whose spill cannot be written is not reached and gets its held posts back; the held-posts line counts toward the limit (a post that fits alone but not with a long held line is spilled for that member, whole for another) (engine/messages.typingbroke-4926.test.js). #4926 review 3's "spilled, then failed before typing" case no longer exists (the spill sits right before typing) and that test is replaced.
 
 The older spill tests (#4447's Inbox safety, #1264, #4926, #5706 head) now use messages past the new limit, so they still test spilling: `'the lease detail '.repeat(700)` instead of `repeat(80)`. #1264's size control is 4x, not 10x, because MAX_BODY caps the large body at 64 KB.
 
-**Shown failing:** with the old 700 rule back, all three new tests fail. Measuring the body alone instead of the whole line makes the boundary test fail (the body near the limit would be refused by chat). Review 1: no reserve for the kept note, no put-back on a failed spill, and the held line left out of the measure each fail exactly their own test.
+**Shown failing:** with the old 700 rule back, all three new tests fail. Measuring the body alone instead of the whole line makes the boundary test fail (the body near the limit would be refused by chat). Review 1: no reserve for the kept note, no put-back on a failed spill, and the held line left out of the measure each fail exactly their own test. Review 3: measuring the body alone fails the re-aimed boundary test; restoring the 140-character task preview fails the task test.
 
 ## Accepted, with reasons (review 2)
 
 - A room post over the limit to a member that is not running is refused for its length, not for why it cannot be typed: deliver checks the length first. Only that case meets it, and the outcome is the same could-not.
 - chat's one-time "moved" note (#5400) rides in front of a line only when both fit the limit. On a long whole line it waits for the next shorter one; nothing is lost.
+- (review 3) A kept message can now be up to the limit, so an agent's limit-queue file can hold about 2 MB at its 200-entry cap, read on a send to a released agent with a queue and once per kept message typed. Acceptable at fleet scale.
+- (review 3) The kept-note reserve is computed once from keptNote's three forms. A change that makes keptNote depend on more of the entry (a sender name, say) must widen it; the comment at spillLimit says so for new appenders.
 
 ## Not in this card
 
