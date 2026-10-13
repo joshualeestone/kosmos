@@ -75,7 +75,7 @@ const MAX_ERROR = 300;
 
 /* The error line is the tool's own words and can hold a secret (a token in a failing curl URL, an email, a home
    folder). It is stored only after the diagnostics redactor (engine/diagredact.js, #5959) has taken those out, with
-   the board's own held values (the caller's `secrets`) masked by value too; if redaction fails, nothing is stored. */
+   the board's own held values (the caller's `secrets`) masked by value too. */
 function redacted(text, secrets) {
   try {
     return require('./diagredact').makeRedactor(Array.isArray(secrets) ? { secrets } : undefined).redactText(String(text == null ? '' : text));

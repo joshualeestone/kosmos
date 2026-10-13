@@ -67,7 +67,8 @@ function eventsFor(claudeVersion) {
 
 /* `claude --version` ("2.1.296 (Claude Code)") -> "2.1.296", or null when it cannot be read. Cached per program
    (real path, size, mtime) so a prepare does not start a process every time and an upgrade is still seen; a failed
-   read is kept only a minute. On win32 the extensionless name resolveBin answers is tried as .exe too. */
+   read is kept only a minute. Synchronous, because prepare and setup are; hence the short timeout. On win32 the
+   extensionless name resolveBin answers is tried as .exe too. */
 const versionCache = new Map();
 function claudeVersion(bin, opts) {
   if (!bin) return null;
@@ -82,7 +83,7 @@ function claudeVersion(bin, opts) {
     let v = null;
     try {
       const out = require('node:child_process').execFileSync(b, ['--version'],
-        { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+        { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
       const m = /(\d+\.\d+\.\d+)/.exec(String(out || ''));
       v = m ? m[1] : null;
     } catch { v = null; }
