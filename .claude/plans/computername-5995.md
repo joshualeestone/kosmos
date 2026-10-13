@@ -413,3 +413,19 @@ in full and did not read the new test files.
 The loop ends here at 19 rounds. The proof waits for one thing: the browser check green in a real browser at the
 final head. Reviews 16 and 17 each computed its layout and colour assertions from the CSS and found they hold; that
 is reasoning, and the run is the measurement.
+
+## The browser rerun (2026-10-13 05:23 CDT, at b1d8a0ece): one red, and it was the page
+All four checks ran in a browser (headless Chromium, plus WebKit inside the sign-in check). Three exited 0:
+`render-plus-signin-3478.js` (the counts are right at 10 and 11), `render-plus-signin-enter-0929.js`,
+`render-plus-company-5628.js`. This branch's own check: every arm passed except one.
+- The rewritten contrast arm measured 5.25 to 1 over both gradient stops, with 2 stops found and nothing painted
+  between, in dark and at phone width. The first version had said 2.19.
+- The design review's colour and spacing arms passed: the hint is rgb(143,160,196) against a label of
+  rgb(159,176,208); 2px above, 8px below.
+- **FAIL: "the explanation is smaller than its label", [13, 13].** Reviews 16 and 17 and I had each reasoned from the
+  CSS that the hint would be 12px, from `.fhint`'s own rule. It is a `<p>` inside a panel, and `.panel p` (0,1,1)
+  out-ranks `.fhint` (0,1,0), so it came out at body type, 13px. Nobody looked for a rule on the ELEMENT; three
+  readers searched rules that name the class. (The same rule is why the hint first measured the label's colour.)
+  The hint's rule now sets the font to the hint class's own, with the reason beside it.
+- This is the second time on this one line that reasoning said one size and the page had another. The rerun is
+  queued; nothing about the hint's size is claimed until it has been measured at 12.
