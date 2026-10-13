@@ -680,6 +680,9 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   assert.equal(v.workExcused(stale(331), idleNow, hist([['working', 400], ['stopped', 325], ['idle', 200]]), NOW).workMinutes, 6);
   // Review 3: a cut tail is judged by its first row in the file, before the sort (a clock stepped back).
   assert.equal(v.workExcused(stale(331), idleNow, hist([['idle', 300], ['idle', 400]], true), NOW).state, 'stale', 'a cut tail starting after the summary was read');
+  // Review 4: an operator clear as the tail's first row still marks where the tail starts.
+  const opHead = () => { const a = [{ state: 'idle', at: at(400), by: 'operator' }, { state: 'idle', at: at(200) }]; a.truncated = true; return a; };
+  assert.equal(v.workExcused(stale(331), idleNow, opHead, NOW).state, 'worked', 'a cut tail reaching back to the summary through an operator row read as unknown');
   assert.equal(v.workExcused(stale(331), claude, hist([['idle', 331], ['working', 1]], true), NOW).state, 'worked', 'a cut history starting at the summary is read');
   // Only a stale summary is touched.
   const cur = { state: 'current', file: 'summaries/x.md', at: new Date(at(30)).toISOString(), ageMinutes: 30 };
@@ -701,5 +704,8 @@ test('#5635 F2: a working member woken after a quiet stretch reads current for t
   // A caller that supplies its own report reader and no history reader gets none (the view never mixes sources).
   const noHist = v.overviewOf(described, BOARD.agents, { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => ({ found: false }) });
   assert.equal(noHist.members[0].summary.state, 'stale');
+  // Review 4: no work since reads as such, not "under a minute".
+  const zero = v.renderShow({ project: { ...view(() => rows), members: [{ ...view(() => rows).members[0], summary: { ...view(() => rows).members[0].summary, workMinutes: 0 } }] } }).join('\n');
+  assert.match(zero, /summary: current: no reported work since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, zero);
   assert.ok(![0x2014, 0x2013].some((c) => text.includes(String.fromCharCode(c))), 'a dash in product copy');
 });

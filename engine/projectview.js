@@ -238,9 +238,10 @@ function workExcused(summary, member, readHistory, nowMs) {
   if (!Number.isFinite(wroteAt) || wroteAt > now) return summary;
   /* Review 3: an operator's clear is when a person cleared a report, not when the agent stopped (as idleExcused and
      idleNoted refuse it), so it changes nothing here. */
-  const kept = rows.filter((r) => r && Number.isFinite(r.at) && r.at <= now && typeof r.state === 'string' && r.by !== 'operator');
+  const read = rows.filter((r) => r && Number.isFinite(r.at) && r.at <= now && typeof r.state === 'string');
   // Review 3: a cut history is judged by where the file's tail starts (its first row), before any reordering.
-  if (rows.truncated === true && (!kept.length || kept[0].at > wroteAt)) return summary;
+  if (rows.truncated === true && (!read.length || read[0].at > wroteAt)) return summary;
+  const kept = read.filter((r) => r.by !== 'operator');
   // Review 1: in time order (stable, so equal times keep file order); a clock stepped back must not shorten the work.
   const valid = kept.map((r, i) => ({ r, i })).sort((a, b) => (a.r.at - b.r.at) || (a.i - b.i)).map((x) => x.r);
   const busy = (st) => st !== 'idle' && st !== 'started' && st !== 'stopped';
@@ -256,7 +257,7 @@ function workExcused(summary, member, readHistory, nowMs) {
   }
   /* Review 3: the board's own read wins over a reported idle (#1995), so a member it shows busy now is working since its
      last report, whatever that report said. */
-  const busyNow = member.state !== 'idle';
+  const busyNow = member.state !== 'idle';   // any read but idle (rate limited, unknown too): errs toward stale
   if (state === null || busy(state) || busyNow) worked += now - from;
   if (worked > SUMMARY_RHYTHM_HOURS * 3600000) return summary;
   return { ...summary, state: 'worked', workMinutes: Math.max(0, Math.round(worked / 60000)) };
@@ -484,7 +485,8 @@ const SUMMARY_WORDS = {
     ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ' and idle since then)'
     : 'current when it went idle (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; idle since ' + ago(s.idleMinutes) + ')',
   // #5635 F2: the rhythm is four hours of work, and the member's reports show less than that since it was written.
-  worked: (s) => 'current: ' + span(s.workMinutes) + ' of reported work since it was written (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
+  worked: (s) => 'current: ' + (s.workMinutes > 0 ? span(s.workMinutes) + ' of reported work' : 'no reported work') + ' since it was written ('
+    + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
   // #4581 R9: the project has no open task; this summary was current when its last task ended.
   quiet: (s) => (s.quietKind === 'own' ? 'current when its own tasks here ended' : 'current when work on the project\'s tasks ended')
     + ' (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; work ended ' + ago(s.quietMinutes) + ')',
