@@ -195,3 +195,10 @@ export list had gained one name on main (my own #5988) and another here. Main is
   roster (green at first: nothing drove the real pass with a stale entry; the pass test now seeds one). A sixth
   mutant, removing a line that kept the agent being written, stayed green because the line did nothing (the result is
   set after the prune): the line is removed.
+
+## Review 6 (2026-10-12, sonnet): converged
+Nothing at BLOCKER or WARNING. One CONVENTION, which is review 2's again and says itself "no action needed" (the
+`kosmos community read` usage line names neither flag; the verbs carry them). Four NITs, not applied: the `ready`
+branch refuses `status=0` where its sibling reads only `1`; two times formatted unguarded that only a test seam can
+make bad; the per-agent reads (slice 2's to fix, as above); one write per agent at the limit (review 4).
+The loop ends here: six rounds, models alternating, the last two on the branch with main merged in.
