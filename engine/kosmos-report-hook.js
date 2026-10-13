@@ -32,6 +32,7 @@
  *   Stop              -> idle     "finished responding"
  *   StopFailure       -> blocked  --on "provider api (<kind>)" --owner provider
  *   SessionEnd        -> stopped
+ *   PostToolUseFailure -> no report: a digest of the failed call to POST /api/toolfail (#6071)
  *
  * EVERY event sends auto:true -- the machine wrote this, not the agent. The
  * board's reconcileReport (#900/#1949/#2456) refuses an automatic idle/working
