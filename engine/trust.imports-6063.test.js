@@ -92,6 +92,18 @@ test('#6063: an answer already on the new account wins, in both directions', () 
   }
 });
 
+test('#6063: both keys false on the new account is not an answer there, so the old answer is carried', () => {
+  /* false/false is what Claude Code records for a folder before it asks. Reading it as an answer would leave the
+     agent on the question. */
+  const work = folder();
+  const from = acct({ [work]: { [A]: true, [S]: true } });
+  const to = acct({ [work]: { [A]: false, [S]: false, hasTrustDialogAccepted: true } });
+
+  const r = trust.carryExternalImports(work, { fromConfigDir: from, configDir: to });
+  assert.deepEqual(r, { ok: true, carried: true, approved: true });
+  assert.deepEqual(entryOf(to, work), { [A]: true, [S]: true, hasTrustDialogAccepted: true });
+});
+
 test('#6063: the entry is made when the new account has none for the folder', () => {
   const work = folder();
   const from = acct({ [work]: { [A]: true, [S]: true } });

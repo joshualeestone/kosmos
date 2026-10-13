@@ -4430,6 +4430,27 @@ test('#6063: a move carries the old account\'s external imports answer, and carr
   assert.equal(unanswered.hasTrustDialogAccepted, true, 'PRECONDITION: the move reached the new account at all');
   assert.equal('hasClaudeMdExternalIncludesApproved' in unanswered, false, 'Kosmos answered the question for the person');
   assert.equal('hasClaudeMdExternalIncludesWarningShown' in unanswered, false);
+
+  /* The other direction, which is what proves the account being LEFT is read from the job: the answer exists only
+     in the account the agent is on, and the move is back to the default one. */
+  assert.equal(create.createAgent({ ...BINS, name: 'importsback', role: 'pm' }).outcome, create.OUTCOME.CREATED);
+  assert.equal(create.setAccount('importsback', target).imports.carried, false, 'PRECONDITION: nothing to carry on the way out');
+  const workFile = nodePath.join(target, '.claude.json');
+  const w = JSON.parse(fs.readFileSync(workFile, 'utf8'));
+  const backKey = fs.realpathSync.native(create.workerDir('importsback'));
+  Object.assign(w.projects[backKey], { hasClaudeMdExternalIncludesApproved: true, hasClaudeMdExternalIncludesWarningShown: true });
+  fs.writeFileSync(workFile, JSON.stringify(w), 'utf8');
+  assert.equal(entryIn(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, 'importsback').hasClaudeMdExternalIncludesApproved, undefined,
+    'PRECONDITION: the default account has no answer yet');
+  const back = create.setAccount('importsback', '');
+  assert.equal(back.outcome, create.OUTCOME.CREATED, back.because);
+  assert.deepEqual(back.imports, { ok: true, carried: true, approved: true }, 'the account being left was not the one read');
+  assert.equal(entryIn(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, 'importsback').hasClaudeMdExternalIncludesApproved, true);
+
+  /* A move to the account it is already on carries nothing and changes nothing. */
+  const again = create.setAccount('importsback', '');
+  assert.equal(again.outcome, create.OUTCOME.CREATED, again.because);
+  assert.equal(again.imports.carried, false);
 });
 
 test('an agent can be moved to another account, and the model comes with it', WIN_LAUNCHD, () => {
