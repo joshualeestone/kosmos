@@ -125,3 +125,19 @@ but on a fixture of tall rows in a 300 px thread, not on 200 real messages with 
 - **NIT, not taken:** the gap fill's own "moved" path, which predates this branch.
 - The reviewer checked the declaration order of the new counter (no use before it exists) and that asking is
   bounded on every path.
+
+## Review 4 (2026-10-13, sonnet), at 2414678b6: converged
+0 BLOCKER, 0 WARNING, 0 CONVENTION, 3 NIT, none taken (each is wording, and taking them would put a fifth commit
+no reviewer has read on a change a person is waiting for): two places hide the line without clearing a class that
+then has no effect; the check's header and one label still say "at the top"; one CSS comment says "takes no room"
+of a line that takes a row when a load has failed. Asked first whether anything would harm a person using it: no
+wrong or lost message, no unbounded request loop, no state the reader cannot get out of.
+The reviewer confirmed the failed row now depends only on state, not on the scroll position, and that the two
+changed arms fail if that dependence comes back.
+
+## One more check the surface gate names: render-talk-fill-2622.js
+Found when I ran the gate after the sixteen trailers: the Try again handler names the conversation box, a surface
+that check claims. It is about the box filling its height, which this change's new wrapper sits inside, so it is a
+real question and not only a word in a line. NOT RUN when the PR was opened (waiting behind a suite here); CI's
+browser run measures it, and its trailer is added only after it has passed. Until then the PR's `test` workflow is
+red on that gate, on purpose.
