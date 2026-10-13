@@ -14,7 +14,7 @@ A task or room message longer than the old 700-character spill, whose whole line
 
 ## The change
 
-- `SPILL_AT` is gone. `spillsAt(line)` is true when the line chat would type is longer than `chat.MAX_TEXT`.
+- `SPILL_AT` is gone. `spillsAt(line)` is true when the line is longer than `spillLimit()` = `chat.MAX_TEXT` minus the longest kept note (review 1): a message held for an agent out of usage or signed out is typed later with limitqueue's note after it, through the same length check, so a line that fit now and not then would be refused on every sweep until dropped. The reserve is computed from `limitqueue.keptNote` itself, with the longest timestamp toISOString writes (9923 today).
 - **DM:** the envelope prefix is built first, and the body spills only when `prefix + body` would pass the limit.
 - **Room:** the decision moved inside the per-member delivery, after that member's whole line is known (envelope, catch-up note, held-posts line). A member whose spill file cannot be written is not reached, and the held posts taken for its line are put back (`roomhold.restore`, as `typingBroke` does). The attachment trailer is left out of the measure, because chat checks it apart from the text.
 - `spillsAt` measures the raw line, never shorter than the whitespace-collapsed text chat checks, so a line it lets through, chat accepts.
@@ -25,10 +25,12 @@ A task or room message longer than the old 700-character spill, whose whole line
 - a ~3000-character DM is typed whole, with no Inbox file;
 - the boundary: a body leaving room for the envelope is typed whole, and a body within the limit alone but not with the envelope spills, so nothing is refused;
 - a ~3000-character room post reaches every member whole, with no Inbox files.
+- (review 1) a DM that fits now but not with the kept note is spilled, so the held copy is typed after the reset (engine/limitmsg-5805.test.js);
+- (review 1) a member whose spill cannot be written is not reached and gets its held posts back; the held-posts line counts toward the limit (a post that fits alone but not with a long held line is spilled for that member, whole for another) (engine/messages.typingbroke-4926.test.js). #4926 review 3's "spilled, then failed before typing" case no longer exists (the spill sits right before typing) and that test is replaced.
 
 The older spill tests (#4447's Inbox safety, #1264, #4926, #5706 head) now use messages past the new limit, so they still test spilling: `'the lease detail '.repeat(700)` instead of `repeat(80)`. #1264's size control is 4x, not 10x, because MAX_BODY caps the large body at 64 KB.
 
-**Shown failing:** with the old 700 rule back, all three new tests fail. Measuring the body alone instead of the whole line makes the boundary test fail (the body near the limit would be refused by chat).
+**Shown failing:** with the old 700 rule back, all three new tests fail. Measuring the body alone instead of the whole line makes the boundary test fail (the body near the limit would be refused by chat). Review 1: no reserve for the kept note, no put-back on a failed spill, and the held line left out of the measure each fail exactly their own test.
 
 ## Not in this card
 
