@@ -1580,16 +1580,17 @@ DATA_SETS.marketing = {
      board's own Working / Question / Idle stay what the fleet seeds. */
   busy: {
     /* A Claude row names its model id: its limit and whether that limit is assumed come from the engine's own
-       limitFor (status.js), so the reading is the one a real card would carry. The other runners report a context
-       window of their own, so their rows carry it (not assumed). */
+       limitFor (status.js), so the reading is the one a real card would carry. A codex row carries the window codex
+       reports; a gemini row says its window is assumed, as the engine's own Gemini reader does; a muse row carries
+       no reading at all, because Kosmos does not read Muse's memory yet (status.js, the Muse pane's context). */
     cleo: { model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', tokens: 305000, postedDaysAgo: 1 },
     dana: { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', tokens: 590000, postedDaysAgo: 0 },
     eli: { modelName: 'GPT 5.2', runner: 'codex', tokens: 84000, ceiling: 400000, postedDaysAgo: 0 },
     farah: { model: 'claude-haiku-5-5', modelName: 'Claude Haiku 5.5', tokens: 110000, postedDaysAgo: 3 },
     maya: { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', tokens: 485000, postedDaysAgo: 0 },
-    theo: { modelName: 'Gemini 3 Pro', runner: 'gemini', tokens: 140000, ceiling: 1000000, postedDaysAgo: 2 },
+    theo: { modelName: 'Gemini 3 Pro', runner: 'gemini', tokens: 140000, ceiling: 1000000, assumed: true, postedDaysAgo: 2 },   // the engine assumes Gemini's window (readGeminiContext)
     iris: { model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', tokens: 665000, postedDaysAgo: 1 },
-    ravi: { runner: 'muse', tokens: 51000, ceiling: 400000, postedDaysAgo: 5 },   // no name: modelLine says "Meta Muse"
+    ravi: { runner: 'muse', postedDaysAgo: 5 },   // no name (modelLine says Meta Muse) and no reading: Kosmos does not read Muse's memory
   },
   commitments: {
     dana: 'Task 1 of Launch the spring catalogue: copy for pages 9 to 12, once the photos are in',
@@ -1608,7 +1609,7 @@ function busyCards(body, busy) {
     if (!b) return;
     const lim = b.model ? require(path.join(REPO, 'engine', 'status')).limitFor(b.model) : null;
     const ceiling = lim ? lim.limit : b.ceiling;
-    const assumed = lim ? lim.assumed : false;
+    const assumed = lim ? lim.assumed : b.assumed === true;
     const raw = Math.round((b.tokens / ceiling) * 100);   // measuredResult's arithmetic: clamp the percent, flag the excess
     const percent = Math.min(100, raw);
     // Counted as reached only when every line it asks for can show: a community line needs the community on.
@@ -1621,9 +1622,11 @@ function busyCards(body, busy) {
       c.lastCommunityPost = 'Last community post: ' + (d <= 0 ? 'today' : d === 1 ? 'yesterday' : d + ' days ago');
       c.lastCommunityPostAt = new Date(Date.now() - d * 86400000).toISOString();
     }
-    c.context = { tokens: b.tokens, percent, overCeiling: raw > 100, notYet: false, ceiling, ceilingAssumed: assumed,
-      confidence: 'structured',
-      because: assumed ? 'measured, against a limit we have assumed rather than watched' : 'measured, against a limit we have watched it hit' };
+    c.context = b.runner === 'muse'
+      ? { tokens: null, percent: null, confidence: 'none', notYet: false, because: 'Kosmos does not read how full Muse\u2019s memory is yet' }
+      : { tokens: b.tokens, percent, overCeiling: raw > 100, notYet: false, ceiling, ceilingAssumed: assumed,
+          confidence: 'structured',
+          because: assumed ? 'measured, against a limit we have assumed rather than watched' : 'measured, against a limit we have watched it hit' };
   };
   const walk = (v) => {
     if (Array.isArray(v)) { for (const x of v) walk(x); return; }
@@ -2158,6 +2161,13 @@ async function run() {
     const keys = Object.keys(DATA.busy).sort().join(',');
     if (claims !== keys) throw new Error('--data ' + args.data + ': the busy table names ' + keys + ' but the agents are ' + claims);
     if (!DATA.connected) throw new Error('--data ' + args.data + ': a busy table is applied in the connected status rewrite, so it needs connected: true');
+    const { limitFor } = require(path.join(REPO, 'engine', 'status'));
+    for (const [k, b] of Object.entries(DATA.busy)) {
+      if (b.runner === 'muse') continue;   // no reading by design
+      if (b.model && b.ceiling) throw new Error('--data ' + args.data + ': busy ' + k + ' gives both a model and a ceiling; the model decides');
+      const ceiling = b.model ? (limitFor(b.model) || {}).limit : b.ceiling;
+      if (!(Number.isFinite(ceiling) && ceiling > 0)) throw new Error('--data ' + args.data + ': busy ' + k + ' has no memory limit (limitFor does not know ' + (b.model || 'its model') + ' and no ceiling is given)');
+    }
   }
   FACES_DIR = args.faces ? path.resolve(args.faces) : null;
   if (FACES_DIR && !(fs.existsSync(FACES_DIR) && fs.statSync(FACES_DIR).isDirectory())) throw new Error('--faces ' + FACES_DIR + ' is not a folder');
@@ -2329,7 +2339,7 @@ async function run() {
   if (errors) { console.error(`FAIL  mobile-shots: ${errors} shot(s) could not be taken; see the ERROR lines above`); return 2; }
   /* #6051: a busy agent no status read ever matched would have shot as "Not yet read" without a word: fail instead. */
   const unmatched = DATA.busy && rows.some((r) => !r.skipped) ? Object.keys(DATA.busy).filter((k) => !BUSY_SEEN.has(k)) : [];
-  if (unmatched.length) { console.error('FAIL  mobile-shots: the busy table never reached ' + unmatched.join(', ') + ' (no status card matched); those cards shot as unread'); return 2; }
+  if (unmatched.length) { console.error('FAIL  mobile-shots: the busy table never reached ' + unmatched.join(', ') + ' (no status card matched them, or their community line could not show because the community is off); those cards are not as the busy table says'); return 2; }
   if (args.strict && overflowCount) { console.error(`FAIL  mobile-shots: ${overflowCount} shot(s) overflow sideways; see the FLAG lines above`); return 1; }
   return 0;
 }

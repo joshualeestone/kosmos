@@ -21,5 +21,9 @@ up to look full and working." The sandbox agents never run, so every card read "
 ## Decided
 - Page-only, not seeded into the engine: the sandbox has no accounts and no running agents by design (the leak guard
   insists), the same reason `connected` is page-only.
-- Weakest premise: the page rewrite matches cards by `claim` (or a `-discord` session name). If the status shape
-  stops carrying either, the shots silently fall back to "Not yet read" rather than failing.
+- Each runner's reading is the engine's own: Claude from limitFor (assumed 1M for the 5.5 models), Gemini assumed,
+  Codex its reported window, and Muse NO reading (Kosmos does not read Muse's memory yet), so the public shots never
+  show a feature the product does not have.
+- Weakest premise: the page rewrite matches cards by `claim` (or a `-discord` session name). If that stops matching,
+  the run now FAILS (exit 2) naming the agents, rather than shooting unread cards. It counts across the run, so a
+  screen with its own /api/status route still shoots its own cards; the marketing tour's screens have none.
