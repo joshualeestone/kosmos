@@ -172,3 +172,28 @@ test('#3946 /api/accounts says which Claude account is calibrated', async () => 
   assert.ok(row, 'the default Claude account is not listed: ' + JSON.stringify(rows.map((a) => [a.provider, a.dir])));
   assert.equal(row.weeklyTokensPerPoint, 2e6);
 });
+
+/* #6108: a Claude row carries the account's weekly reading (as Kosmos last recorded it) and the agents on it on this
+   computer, so Settings can show both and offer a move before an agent runs out. */
+test('#6108 /api/accounts: a Claude row carries its weekly reading and its agents here', async () => {
+  const def = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
+  fs.mkdirSync(def, { recursive: true });
+  fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com', accountUuid: 'u-6108' } }));
+  const at = Date.now() - 2 * 3600e3;
+  fs.writeFileSync(path.join(def, statusline.FILE), JSON.stringify({ usedPct: 82, resetsAt: FUTURE, at, history: [[at, 82, FUTURE]] }));
+  lead('usage-on-default', { role: 'writer' }, null);   // no configDir: the default account
+  const other = account('acct-6108-other');
+  lead('usage-on-other', { role: 'writer' }, other);    // CONTROL: on another account, must not be listed here
+  const rows = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];
+  const row = rows.find((a) => a && a.provider === 'anthropic' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(def));
+  assert.ok(row, 'the default Claude account is not listed');
+  assert.deepEqual(row.weekly, { usedPct: 82, resetsAt: FUTURE * 1000, at }, 'the weekly reading did not arrive, or not in ms');
+  assert.ok(row.agentsHere && Array.isArray(row.agentsHere.names), 'no agentsHere on the row: ' + JSON.stringify(row.agentsHere));
+  assert.ok(row.agentsHere.names.includes('usage-on-default'), 'the agent on this account is missing: ' + JSON.stringify(row.agentsHere));
+  assert.ok(!row.agentsHere.names.includes('usage-on-other'), 'an agent on ANOTHER account was listed here');
+  // A reading from a week that has already reset is not this week's: the row says there is none.
+  fs.writeFileSync(path.join(def, statusline.FILE), JSON.stringify({ usedPct: 99, resetsAt: Math.floor(Date.now() / 1000) - 60, at }));
+  const rows2 = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];
+  const row2 = rows2.find((a) => a && a.provider === 'anthropic' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(def));
+  assert.equal(row2.weekly, null, 'a reading from a week that has reset was shown as current');
+});

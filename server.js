@@ -10905,6 +10905,22 @@ const server = http.createServer(async (req, res) => {
                 return stops ? { loginStopsAt: stops } : {};
               })()) },
             weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
+            /* #6108: how much of the weekly limit this account has used, as Kosmos last recorded it (the statusline
+               writes it while an agent on the account runs), or null when there is no reading to trust: an account
+               Kosmos did not set up (the default ~/.claude has no statusline), an API key, Windows, or a week that has
+               reset. resetsAt and at are epoch ms here (readWeekly gives resetsAt in seconds). */
+            weekly: (() => {
+              try {
+                const r = a.dir ? require('./engine/allowance').readWeekly(a.dir, nowMs) : null;
+                return r ? { usedPct: r.usedPct, resetsAt: r.resetsAt * 1000, at: r.at } : null;
+              } catch { return null; }
+            })(),
+            /* #6108: the agents on this account on THIS computer, by session name. complete is false when any could not
+               be read, so the page can say the list may be short rather than call it whole. */
+            agentsHere: (() => {
+              try { const e = enumerateAgentsOnAccount(a.dir, !!a.isDefault, 'claude'); return { names: e.usedBy, complete: !!e.complete }; }
+              catch { return { names: [], complete: false }; }
+            })(),
           };
         });
         /* 🛑 `offerable` TRAVELS WITH THE ROW, for the same reason `memoryShared` does
