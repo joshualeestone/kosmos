@@ -253,8 +253,9 @@ _qh_lib_check() {
       $g -c core.hooksPath=/dev/null checkout -q --detach "$main" </dev/null >/dev/null 2>"$gerr" &   # off the terminal: a stopped job (SIGTTIN/TTOU) would hang the wait
       gp=$!
       set +m
-      # git runs in its own group, so it outlives a wrapper KILLed (or ALRMed) mid-checkout. Its pid in the lock keeps
-      # a joiner from taking the lock over (and loading a half-written lib) while git is still writing.
+      # git runs in its own group, so it outlives a wrapper KILLed (or ALRMed) mid-checkout. The pid recorded is the
+      # subshell running git ($g is a function), which lives exactly as long as that git; in the lock it keeps a joiner
+      # from taking the lock over (and loading a half-written lib) while git is still writing.
       [ -n "$QH_LIB_LOCK" ] && echo "$gp" > "$QH_LIB_LOCK/gitpid" 2>/dev/null
       wait "$gp" || mrc=$?
     fi
