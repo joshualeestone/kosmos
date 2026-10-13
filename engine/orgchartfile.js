@@ -237,14 +237,25 @@ function* cells(rowText) {
     at = end + 4;
   }
 }
-/* Remove every <tag ...>...</tag> span, walking with indexOf (the same reason as `cells`). */
+/* Remove every <tag ...>...</tag> span, walking with indexOf (the same reason as `cells`). A self-closed <tag/> is
+   removed alone, and <tagX is not <tag (kosmos#6098 review 14: a self-closed <mc:Fallback/> took the rest of the
+   document up to the next closer, or to its end). */
 function stripBlocks(text, tag) {
   let out = '';
   let at = 0;
   for (;;) {
     const i = text.indexOf('<' + tag, at);
     if (i < 0) return out + text.slice(at);
-    const end = text.indexOf('</' + tag + '>', i);
+    const next = text[i + 1 + tag.length];
+    if (next !== undefined && next !== '>' && next !== '/' && next !== ' ' && next !== '\t' && next !== '\n' && next !== '\r') {
+      out += text.slice(at, i + 1);
+      at = i + 1;
+      continue;
+    }
+    const gt = text.indexOf('>', i);
+    if (gt < 0) return out + text.slice(at, i);
+    if (text[gt - 1] === '/') { out += text.slice(at, i); at = gt + 1; continue; }
+    const end = text.indexOf('</' + tag + '>', gt);
     if (end < 0) return out + text.slice(at, i);
     out += text.slice(at, i);
     at = end + tag.length + 3;
