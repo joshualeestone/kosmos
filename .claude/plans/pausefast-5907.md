@@ -4,10 +4,12 @@ Card: joshualeestone/kosmos#5907 (suites run 30-36 min). `tools/test-setup-pause
 190 s in a queued run on main, one of the slowest shell files left after #5938's family.
 
 ## Where the time went
-Timed per case on main (a copy with a clock around each `chk`, run from the worktree): 12 cases took 12 to 16 s
-each, the rest under 1 s. Those 12 are every case where a listener holds the port. The lifted pause block waits for a
-stopping board with up to ten `sleep 1`s (`while [ "$_tries" -lt 10 ]`), and no stub listener ever lets go of its
-port (they live 120 s), so each such case slept the full 10 s. The other 2 to 6 s per case is the block's own
+Timed per case on main (a copy with a clock around each `chk`, run from the worktree): 13 cases took 12 to 16 s
+each, the rest under 1 s. Those 13 are every case where a listener holds the port outside a sandbox or under profile
+A (under B and C lsof fails, so the loop stops at once; a reviewer counted the waits per call: 13 calls wait ten
+times, 11 never). The lifted pause block waits for a stopping board with up to ten `sleep 1`s
+(`while [ "$_tries" -lt 10 ]`), and no stub listener ever lets go of its port (they live 120 s), so each such case
+slept the full 10 s. (An earlier draft of this plan said 12: a miscount of the same timing table.) The other 2 to 6 s per case is the block's own
 `curl -m 2` probes against a silent listener.
 
 ## The change
