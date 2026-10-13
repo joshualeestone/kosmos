@@ -46,7 +46,7 @@ function chk(ok, label, extra) {
         /* The page polls on its own clock, so a poll can be in flight when the check ends and closes the
            browser; that closed context is the end of the run, not a failure of the page. */
         const res = await route.fetch().catch(() => null);
-        if (!res) return;
+        if (!res) return await route.abort().catch(() => {});   // never leave the request hanging (#6022 review 1)
         const body = await res.json();
         body.engine = restarted
           ? { startedAt: '2026-09-28T16:00:00Z', staleSince: null, canRestart: false }
