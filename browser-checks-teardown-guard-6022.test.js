@@ -26,21 +26,19 @@
  * before EVERY close in a file with several browsers.
  *
  * ⚠️ WEAKEST PART, AND IT IS A HEURISTIC. A handler is found by its `.route(` call and its first parameter, from an
- * arrow (`async (r) =>`, `r =>`) or `function (r)`, or passed by name and found at its `const NAME = ... =>` or
- * `function NAME(` definition in the same file (a handler imported from another file is not read: fails GREEN). A
- * handler with no fetch of its own is not checked at all, even one that awaits a timer or a held promise before it
- * fulfills (that answer can land after close too; outside this card, a follow-up). A catch that rethrows counts as
- * caught, and the abort in the catch is advised, not required (an empty catch passes: no crash, but a real failure
- * then waits for the check's timeout). A statement without semicolons, or a call passed as an argument to an awaited
- * function (await f(r.fulfill(...))), reads as awaited; no check uses either style. The try test is lexical: a call
- * inside a function nested in the try (a setTimeout callback) reads as guarded though its rejection is not caught
- * (fails GREEN). An abort whose argument has its own parentheses is flagged though correct (fails RED). "Inside a
- * try" counts braces from the last `try {` before the fetch, so a brace inside a string between the two can
- * miscount. Comments are blanked first (strings, template literals and regex literals kept). Each call must also be
- * awaited in its own statement, and its try must have a catch (round 1). A handler that fetches through a helper
- * (mobile-shots.js fetchBoard(route)) is not seen: that file's helper-fed handlers were hardened by hand. A
- * handler's span runs to the next `.route(` call, so a nearby helper that reuses the parameter name is read as part
- * of it (fails RED, safe). The fixtures below pin both directions.
+ * arrow (`async (r) =>`, `r =>`) or `function (r)`. A handler written as a named function defined elsewhere is not
+ * read (fails GREEN). #6027 widened the rule: in ANY handler, every answer after its first fetch or its first await (a
+ * timer, a held promise) must be awaited inside a try with a catch, or chain its own .catch; an answer before any
+ * await is immediate and exempt. A handler's span is its .route( call, to the matching paren. A catch that
+ * rethrows counts as caught, and the abort in the catch is advised, not required (an empty catch passes: no crash, but a
+ * real failure then waits for the check's timeout). A statement without semicolons, or a call passed as an argument
+ * to an awaited function (await f(r.fulfill(...))), reads as awaited; no check uses either style. The try test is lexical: a call inside a function nested in the try (a setTimeout
+ * callback) reads as guarded though its rejection is not caught (fails GREEN). An abort whose argument has its own
+ * parentheses is flagged though correct (fails RED). "Inside a try" counts braces from the last `try {` before the fetch, so a brace inside a string
+ * between the two can miscount. Comments are blanked first (strings, template literals and regex literals kept).
+ * Each call must also be awaited in its own statement, and its try must have a catch (round 1). A handler that
+ * fetches through a helper (mobile-shots.js fetchBoard(route)) is not seen: that file's helper-fed handlers were
+ * hardened by hand. The fixtures below pin both directions.
  */
 
 const test = require('node:test');
@@ -85,6 +83,43 @@ function stripComments(src) {
     } else { emit(c); i += 1; }
   }
   return parts.join('');
+}
+
+/* `src` (comments already blanked) with the inside of every string, template literal and regex blanked to spaces,
+   positions kept: a ( or ) inside a literal must not count when the end of a .route( call is matched (#6027). */
+function blankLiterals(src) {
+  const out = src.split('');
+  for (let i = 0; i < src.length;) {
+    const c = src[i];
+    if (c === '"' || c === "'" || c === '`') {
+      let j = i + 1;
+      while (j < src.length && src[j] !== c) { if (src[j] === '\\') j += 1; else if (c !== '`' && src[j] === '\n') break; j += 1; }
+      for (let k = i + 1; k < j && k < src.length; k += 1) if (out[k] !== '\n') out[k] = ' ';
+      i = j + 1;
+    } else if (c === '/' && /[(,=:[!&|?{};]\s*$/.test(src.slice(Math.max(0, i - 4), i)) && src[i + 1] !== '/' && src[i + 1] !== '*') {
+      let j = i + 1; let cls = false;
+      while (j < src.length && src[j] !== '\n') {
+        if (src[j] === '\\') { j += 2; continue; }
+        if (src[j] === '[') cls = true; else if (src[j] === ']') cls = false; else if (src[j] === '/' && !cls) break;
+        j += 1;
+      }
+      for (let k = i + 1; k < j && k < src.length; k += 1) out[k] = ' ';
+      i = j + 1;
+    } else i += 1;
+  }
+  return out.join('');
+}
+
+/* The index of the ) that closes the .route( call starting at `at` (in literal-blanked source), or the source end. */
+function routeEnd(blank, at) {
+  const open = blank.indexOf('(', at);
+  let depth = 0;
+  for (let i = open; i < blank.length; i += 1) {
+    const ch = blank[i];
+    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+    else if (ch === ')' || ch === ']' || ch === '}') { depth -= 1; if (depth === 0) return i; }
+  }
+  return blank.length;
 }
 
 /* The index just after the block that opens at `open` (its matching close brace), or -1. */
@@ -146,7 +181,8 @@ function scan(raw) {
   const starts = [];
   let m;
   HANDLER.lastIndex = 0;
-  while ((m = HANDLER.exec(src))) starts.push({ at: m.index, param: m[1] || m[2] || m[3] });
+  const blank = blankLiterals(src);
+  while ((m = HANDLER.exec(src))) starts.push({ at: m.index, body: m.index + m[0].length, end: routeEnd(blank, m.index), param: m[1] || m[2] || m[3] });
   // A .route( the pattern could not read, whose handler fetches, is a finding (fails RED, round 3): a comma in an
   // unquoted pattern, a handler passed by name, any shape the pattern does not know.
   const read = new Set(starts.map((h) => h.at));
@@ -165,16 +201,27 @@ function scan(raw) {
   starts.sort((x, y) => x.at - y.at);
   for (const r of src.matchAll(/\.route\(/g)) {
     if (read.has(r.index)) continue;
-    const next = src.indexOf('.route(', r.index + 1);
-    if (/\.fetch\(/.test(src.slice(r.index, next < 0 ? src.length : next))) bad.push(src.slice(0, r.index).split('\n').length);
+    const span = src.slice(r.index, routeEnd(blank, r.index));
+    if (/\.fetch\(/.test(span) || (/\bawait\b/.test(span) && /\.(fulfill|continue|fallback)\(/.test(span))) bad.push(src.slice(0, r.index).split('\n').length);
   }
-  starts.forEach((h, i) => {
-    const end = i + 1 < starts.length ? starts[i + 1].at : src.length;
-    const body = src.slice(h.at, end);
-    const first = body.search(new RegExp('\\b' + h.param + '\\.fetch\\('));
-    if (first < 0) return;   // fulfills a fixture only: nothing in flight
+  starts.forEach((h) => {
+    const end = h.end;   // the ) that closes this .route( call (#6027), not the next .route(
+    const body = src.slice(h.body, end);
+    // From the handler's first fetch or first await on (#6027): an answer after it can land after the browser closed.
+    // An answer before any await is immediate and cannot.
+    // An await whose operand IS the answer (`await r.fulfill(`, `return await (x ? r.fulfill(`) does not delay it.
+    const answerNext = new RegExp('^await\\s*\\(?[^;{}]*?\\b' + h.param + '\\.(fulfill|continue|fallback|abort)\\(');
+    let firstWait = -1;
+    for (const w of body.matchAll(/\bawait\b/g)) {
+      const rest = body.slice(w.index);
+      const stmt = rest.slice(0, rest.search(/[;{}]|$/) + 1);
+      if (!answerNext.test(stmt)) { firstWait = w.index; break; }
+    }
+    const hits = [body.search(new RegExp('\\b' + h.param + '\\.fetch\\(')), firstWait].filter((x) => x >= 0);
+    if (!hits.length) return;
+    const first = Math.min(...hits);
     const re = new RegExp('\\b' + h.param + '\\.(fetch|fulfill|continue|fallback|abort)\\(', 'g');
-    re.lastIndex = h.at + first;
+    re.lastIndex = h.body + first;
     let f;
     while ((f = re.exec(src)) && f.index < end) {
       const line = src.slice(0, f.index).split('\n').length;
@@ -183,6 +230,9 @@ function scan(raw) {
         if (!/^abort\([^)]*\)\s*\.catch\(/.test(src.slice(f.index + h.param.length + 1))) bad.push(line);
         continue;
       }
+      // An answer that chains its own .catch( handles its rejection (Baron's #6023 shape), try or not.
+      if (/^\w+\([^;]*?\)\s*\.catch\(/.test(src.slice(f.index + h.param.length + 1, end))
+        && /^(fulfill|continue|fallback)\((?:[^()]|\([^()]*\))*\)\s*\.catch\(/.test(src.slice(f.index + h.param.length + 1, end))) continue;
       if (!insideOpenTry(src, h.at, f.index) || !awaited(src, f.index)) bad.push(line);
     }
   });
@@ -228,10 +278,16 @@ test('#6022 fixtures: the rule can fail, and the safe shapes pass (controls)', (
   assert.ok(scan(unreadable).length > 0, 'a route the pattern cannot read, whose handler fetches, is flagged, not skipped (round 3)');
   const halfAwaited = "await page.route('**/x', async (r) => {\n  try {\n    const res = await r.fetch();\n    return ok ? await r.fulfill({ response: res }) : r.fulfill({ response: res });\n  } catch { await r.abort().catch(() => {}); }\n});\n";
   assert.deepEqual(scan(halfAwaited), [4], 'an await on one branch does not cover the other (round 3)');
-  const byName = "const stampAge = async (route) => {\n  const resp = await route.fetch();\n  await route.fulfill({ response: resp });\n};\nawait page.route('**/x', stampAge);\n";
-  assert.deepEqual(scan(byName), [2, 3], 'a handler passed by name is checked at its definition');
-  const byNameSafe = "const stampAge = async (route) => {\n  try {\n    const resp = await route.fetch();\n    await route.fulfill({ response: resp });\n  } catch { await route.abort().catch(() => {}); }\n};\nawait page.route('**/x', stampAge);\n";
-  assert.deepEqual(scan(byNameSafe), [], 'a safe handler passed by name passes');
+  const timerFirst = "await page.route('**/x', async (r) => {\n  await new Promise((res) => setTimeout(res, 8000));\n  await r.fulfill({ json: {} });\n});\n";
+  assert.deepEqual(scan(timerFirst), [3], 'an answer after a timer can land after close (#6027)');
+  const heldFirst = "await page.route('**/x', async (r) => {\n  await gate;\n  r.fulfill({ json: {} });\n});\n";
+  assert.deepEqual(scan(heldFirst), [3], 'an answer after a held promise, unawaited, is flagged (#6027)');
+  const immediate = "await page.route('**/x', async (r) => {\n  if (r.request().method() !== 'GET') return await r.continue();\n  await r.fulfill({ json: {} });\n});\n";
+  assert.deepEqual(scan(immediate), [], 'an answer awaited directly, with nothing awaited before it, is immediate (#6027)');
+  const chained = "await page.route('**/x', async (r) => {\n  await gate;\n  await r.fulfill({ json: {} }).catch(() => {});\n});\n";
+  assert.deepEqual(scan(chained), [], 'an answer that chains its own .catch handles its rejection (#6027)');
+  const spanEnds = "await page.route('**/x', (r) => r.fulfill({ json: {} }));\nawait page.goto(URL);\nconst r = page;\nr.fulfill({ json: 1 });\n";
+  assert.deepEqual(scan(spanEnds), [], 'a handler ends at its own closing paren; later code is not part of it (#6027)');
   const fixtureOnly = "await page.route('**/api/x', (r) => r.fulfill({ json: {} }));\nconst x = await window.fetch('/a');\nawait browser.close();\n";
   assert.deepEqual(scan(fixtureOnly), [], 'a fixture-only handler and window.fetch are not flagged');
   const bareParam = "page.route('**/t', async route => {\n  const r = await route.fetch();\n  route.fulfill({ response: r });\n});\n";
