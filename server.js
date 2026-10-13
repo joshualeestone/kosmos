@@ -19146,8 +19146,8 @@ const server = http.createServer(async (req, res) => {
        ⚠️ readAll(), not projects.get(): get() routes through describe(), which
        heals everSeen and can writeAll() -- an incidental registry write on a room
        READ would be a real defect. (The one deliberate write below, #4926, is
-       different: per reader, idempotent, and only for an agent's own token.) readAll() is the pure registry read get() itself
-       uses. FAILS OPEN: a transient registry-read throw must not become a false
+       different: per reader, idempotent, and only for an agent's own token.)
+       readAll() is the pure registry read get() itself uses. FAILS OPEN: a transient registry-read throw must not become a false
        "no such project," so on a throw we fall through to the best-effort room
        read below (which already handles an unreadable store), never to a 404. */
     let projectKnown = true;
