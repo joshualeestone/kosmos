@@ -298,7 +298,8 @@ function savedForm(mem) {
   const sig = mem && mem.askedSig instanceof Map ? [...mem.askedSig].filter(([k, v]) => typeof k === 'string' && typeof v === 'string') : [];
   // #5382 review 15: each limit's start, so a restart does not move a person's queued work (stalledParts).
   const lim = mem && mem.limitedSince instanceof Map ? [...mem.limitedSince].filter(([k, v]) => typeof k === 'string' && Number.isFinite(v)) : [];
-  // #6072: each give-up, so a restart does not silently forget that a project's goal stalled today.
+  /* #6072: each give-up, so a restart does not silently forget that a project's goal stalled today. Infinity means no
+     time check here (savedForm has no clock); step() prunes stale ones each tick and restoredMemory checks the time. */
   const gave = mem && mem.askGaveUp instanceof Map ? [...mem.askGaveUp].filter(([k, v]) => typeof k === 'string' && gaveUpRecord(v, Infinity)) : [];
   return { v: 1, asked: asked.slice(-MEMORY_CAP), askedSig: sig.slice(-MEMORY_CAP), limitedSince: lim.slice(-MEMORY_CAP), askGaveUp: gave.slice(-MEMORY_CAP) };
 }
@@ -308,11 +309,12 @@ function savedForm(mem) {
 const GAVE_UP_BECAUSE = new Set(['could_not', 'threw']);
 function gaveUpRecord(v, now) {
   if (!v || typeof v !== 'object') return null;
-  const { at, tries, agent, because } = v;
+  const { at, tries, agent, session, because } = v;
   if (!Number.isFinite(at) || !Number.isInteger(tries) || tries < 1 || tries > 1000) return null;
   if (typeof agent !== 'string' || agent.length > 200 || !GAVE_UP_BECAUSE.has(because)) return null;
+  if (typeof session !== 'string' || !session || session.length > 200) return null;
   if (Number.isFinite(now) && (at > now || now - at >= GOAL_ASK_MS)) return null;
-  return { at, tries, agent, because };
+  return { at, tries, agent, session, because };
 }
 
 /* Read back what savedForm wrote, into a fresh memory. Anything unreadable or malformed is dropped, never trusted:
@@ -343,8 +345,17 @@ function restoredMemory(obj, now) {
    has open work by the rule that switches the goal ask off (blocksGoalAsk), since then nothing is stalled. */
 function goalAskGaveUp(mem, project, now) {
   if (!project || typeof project.id !== 'string' || !mem || !(mem.askGaveUp instanceof Map)) return null;
+  // Review 1: an archived or paused project is not asked about, so it is not stalled either.
+  if (project.archived === true || require('./projects').isPaused(project)) return null;
   if ((Array.isArray(project.tasks) ? project.tasks : []).some(blocksGoalAsk)) return null;
-  return gaveUpRecord(mem.askGaveUp.get(project.id), now);
+  const rec = gaveUpRecord(mem.askGaveUp.get(project.id), now);
+  if (!rec) return null;
+  /* Review 1: and never naming an agent that has since left the project, matched on its session (the key a stored
+     record lists members by; a listed record's member rows carry it as sessionName). */
+  const members = (Array.isArray(project.agents) ? project.agents : [])
+    .map((m) => (typeof m === 'string' ? m : m && typeof m === 'object' ? m.sessionName : null))
+    .filter((x) => typeof x === 'string');
+  return members.includes(rec.session) ? rec : null;
 }
 
 function loadMemory(now) {
@@ -581,7 +592,11 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
     toAsk.push({ session, name: a.name || session, ...g });
   }
   const askFails = new Map(base.askFails instanceof Map ? base.askFails : []);
-  const askGaveUp = new Map(base.askGaveUp instanceof Map ? base.askGaveUp : []);   // #6072
+  /* #6072: carried forward, minus any that no longer stand: expired (or a bad clock), or for a project that is no longer
+     live or is paused, where the Assigner does not ask at all. Review 1. */
+  const liveIds = new Set(projects.filter((p) => !require('./projects').isPaused(p)).map((p) => p.id));
+  const askGaveUp = new Map([...(base.askGaveUp instanceof Map ? base.askGaveUp : new Map())]
+    .filter(([pid, v]) => liveIds.has(pid) && gaveUpRecord(v, now)));
   return { toAssign, toAsk, next: { idleSince, log, asked, askLog, askFails, askedSig, limitedSince, limitedMiss, askGaveUp } };
 }
 
@@ -649,7 +664,8 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
         out.next.askFails.delete(item.projectId);
         /* #6072: the project is left for the day with nothing said. Kept per PROJECT (its goal is what stalls), naming
            the agent last asked and what happened, because that agent is the one Kosmos could not reach. */
-        out.next.askGaveUp.set(item.projectId, { at: now, tries: fails, agent: String(item.name || item.session || ''), because: state === null ? 'threw' : 'could_not' });
+        out.next.askGaveUp.delete(item.projectId);   // review 1: re-set at the end, so the newest survives MEMORY_CAP
+        out.next.askGaveUp.set(item.projectId, { at: now, tries: fails, agent: String(item.name || item.session || ''), session: String(item.session || ''), because: state === null ? 'threw' : 'could_not' });
       }
     }
     asks.push({ session: item.session, name: item.name, projectId: item.projectId, verdict: state });
