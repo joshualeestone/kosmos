@@ -65,8 +65,17 @@ let lateMs = LATE_MS;
 function setLateMsForTests(ms) { lateMs = Number.isFinite(ms) ? ms : LATE_MS; }
 
 const SIG_RE = /^[0-9a-f]{16,128}$/;
+/* The caps that decide what is stored. The hooks and the CLI cut the error line too, but only to bound what they send:
+   the signature is made from the WHOLE error before any cut, so a cap that drifts there changes no signature. */
 const MAX_TOOL = 80;
 const MAX_ERROR = 300;
+
+/* The error line is the tool's own words and can hold a secret (a token in a failing curl URL, an email, a home
+   folder). It is stored only after the diagnostics redactor (engine/diagredact.js, #5959) has taken those out; if
+   redaction fails, nothing is stored. */
+function redacted(text) {
+  try { return require('./diagredact').makeRedactor().redactText(String(text == null ? '' : text)); } catch { return ''; }
+}
 
 function dir() { return path.join(store.ROOT, 'toolloop'); }
 function fileFor(key) { return path.join(dir(), store.safeKey(key) + '.json'); }
@@ -115,7 +124,7 @@ function noteFailure(key, failure, opts) {
   if (!key) return { ok: false, because: 'no agent' };
   if (!SIG_RE.test(sig)) return { ok: false, because: 'not a failure signature we can read' };
   const tool = clean(f.tool, MAX_TOOL) || 'a tool';
-  const error = clean(f.error, MAX_ERROR);
+  const error = clean(redacted(f.error), MAX_ERROR);
   const prev = readRun(key);
   const late = prev && prev.turnEndAt !== null && now - prev.turnEndAt <= lateMs;
   const continues = prev && prev.sig === sig && (prev.turnEndAt === null || late);

@@ -116,3 +116,14 @@ test('a failure arriving just after the turn end it preceded still counts in tha
   toolloop.noteTurnEnd('agent-l', { now: 9100 });
   assert.equal(toolloop.noteFailure('agent-l', { tool: 'Bash', sig: SIG_A }, { now: 9100 + toolloop.LATE_MS + 1 }).count, 1, 'past it: a new turn');
 });
+
+test('a secret in the error line is redacted before it is stored', () => {
+  toolloop.forget('agent-s');
+  toolloop.noteFailure('agent-s', { tool: 'Bash', sig: SIG_A, error: 'curl https://x.example/api?token=sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef0123456789 failed for bob@example.com' });
+  const p = toolloop.peek('agent-s');
+  assert.ok(!p.error.includes('sk-ant-api03'), p.error);
+  assert.ok(!p.error.includes('bob@example.com'), p.error);
+  assert.match(p.error, /^curl https:\/\/x\.example/, 'the rest of the line is kept: ' + p.error);
+  const raw = fs.readFileSync(path.join(store.ROOT, 'toolloop', store.safeKey('agent-s') + '.json'), 'utf8');
+  assert.ok(!raw.includes('sk-ant-api03') && !raw.includes('bob@example.com'), 'nor is it on disk');
+});
