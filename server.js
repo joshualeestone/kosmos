@@ -15141,7 +15141,8 @@ const server = http.createServer(async (req, res) => {
           if (rep.at) line += ' Set ' + rep.at + '.';
           if (stale) {
             // #5959: a waiting state standing over a day says so in the same sentence, not a second one.
-            const age = cardlabel.standingFor(ageMs);
+            // When the question was first made before the latest line, say so, so "Set <time>" above and the age agree.
+            const age = cardlabel.standingFor(ageMs) + (rep.askedAt && rep.askedAt !== rep.at ? ' (first made ' + rep.askedAt + ')' : '');
             // blocked waits on something that is not the person (a deploy, another agent); needs_you waits on a person.
             const passed = rep.state === 'blocked' ? 'If it is no longer in your way' : 'If nobody needs to answer it any more';
             // Who wrote it: the agent ("your own"), Kosmos for it (a permission prompt, a provider error), or someone

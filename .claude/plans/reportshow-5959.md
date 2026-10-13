@@ -25,8 +25,10 @@ That the roster card the route reads carries every field the page's label uses (
 reconnect, disruption, modelName). safeRoster adds crashLoop and reconnect as /api/status does, and a pane card
 carries modelName (status.js); a paneless card has none, so its model-switch restart reads "Switching model".
 
-**The age is the latest line's (review 3).** Re-reporting the same waiting state, or a line rewritten over it, starts the
-clock again, so "standing for N days" can only underestimate. A report Kosmos wrote for the agent (`by` auto: a
+**The age is the waiting run's (post-rebase; review 3 had the latest line's).** It is measured from when the run began
+(selfreport's askedAt: the same state, words and project), so re-reporting the same question does not reset it; when the
+run's start is not known (a cut tail) it is the latest line's, which can only be shorter. When the run began before the
+latest line, the text says when it was first made, so "Set <time>" and the age agree. A report Kosmos wrote for the agent (`by` auto: a
 permission prompt, a provider error) is not called "your own", and is cleared only "if what it was about has passed".
 The label also follows the page's OFFLINE card (running false, not restarting: a trust prompt, an unseen job's "Can't
 tell", or "Not running"), which the page decides before stateCopyOf; that branch is a template, so the test pins its
