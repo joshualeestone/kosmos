@@ -4394,6 +4394,44 @@ test('#1629: moving back to the default account trusts the folder in the default
   assert.equal(back.trust.ok, true, back.trust.because);
 });
 
+/* #6063: Claude Code also asks "allow external imports?" per folder per account. The move carries the answer the
+   person gave on the account the agent is leaving, and gives none of its own (the control arm). */
+test('#6063: a move carries the old account\'s external imports answer, and carries nothing when there was none', WIN_TASK_STUB, () => {
+  const { home } = seedAccounts();
+  recorder();
+  create.setDryRun(false);
+  const target = nodePath.join(home, '.claude-work');
+  const entryIn = (file, name) => (JSON.parse(fs.readFileSync(file, 'utf8')).projects || {})[fs.realpathSync.native(create.workerDir(name))];
+  const answerInDefault = (name, answer) => {
+    const d = JSON.parse(fs.readFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, 'utf8'));
+    const key = fs.realpathSync.native(create.workerDir(name));
+    d.projects = d.projects || {};
+    d.projects[key] = Object.assign({}, d.projects[key] || {}, answer);
+    fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(d), 'utf8');
+  };
+
+  assert.equal(create.createAgent({ ...BINS, name: 'importsyes', role: 'pm' }).outcome, create.OUTCOME.CREATED);
+  answerInDefault('importsyes', { hasClaudeMdExternalIncludesApproved: true, hasClaudeMdExternalIncludesWarningShown: true });
+  const yes = create.setAccount('importsyes', target);
+  assert.equal(yes.outcome, create.OUTCOME.CREATED, yes.because);
+  assert.deepEqual(yes.imports, { ok: true, carried: true, approved: true });
+  const moved = entryIn(nodePath.join(target, '.claude.json'), 'importsyes');
+  assert.equal(moved.hasClaudeMdExternalIncludesApproved, true, 'the agent would come up on the external imports question');
+  assert.equal(moved.hasClaudeMdExternalIncludesWarningShown, true);
+  assert.equal(moved.hasTrustDialogAccepted, true, 'carrying the answer dropped the trust written just before it');
+
+  /* CONTROL: same move, but the person never answered on the old account. */
+  assert.equal(create.createAgent({ ...BINS, name: 'importsnone', role: 'pm' }).outcome, create.OUTCOME.CREATED);
+  answerInDefault('importsnone', { hasClaudeMdExternalIncludesApproved: false, hasClaudeMdExternalIncludesWarningShown: false });
+  const none = create.setAccount('importsnone', target);
+  assert.equal(none.outcome, create.OUTCOME.CREATED, none.because);
+  assert.equal(none.imports.carried, false);
+  const unanswered = entryIn(nodePath.join(target, '.claude.json'), 'importsnone');
+  assert.equal(unanswered.hasTrustDialogAccepted, true, 'PRECONDITION: the move reached the new account at all');
+  assert.equal('hasClaudeMdExternalIncludesApproved' in unanswered, false, 'Kosmos answered the question for the person');
+  assert.equal('hasClaudeMdExternalIncludesWarningShown' in unanswered, false);
+});
+
 test('an agent can be moved to another account, and the model comes with it', WIN_LAUNCHD, () => {
   const { home } = seedAccounts();
   const name = 'mover';
