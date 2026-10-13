@@ -631,11 +631,10 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     // The first page's reply on post 500 is listed under that post, not as a "Reply to:" entry of its own.
     assert.ok(!r.text.includes('Reply to: Post 500'), 'a reply on a post now shown stayed a separate entry: ' + r.text);
     assert.ok(r.text.includes('REPLY10'), 'the reply on post 500 was dropped');
-    // At most POSTS_WANTED posts are added from older pages, however many they carry.
     b.st.feedCalls = [];
     b.st.pages = [[...tens(1, '12').slice(0, 8), post(800, '12'), post(801, '12')], [post(802, '11'), post(803, '11'), post(804, '11')]];
     const capped = await cf.readFollowing('mara');
-    assert.ok(capped.text.includes('POST802') && !capped.text.includes('POST803'), 'older pages added more than POSTS_WANTED posts: ' + capped.text);
+    assert.ok(capped.text.includes('POST802') && !capped.text.includes('POST803'), 'POST803 was shown: ' + capped.text);
     // Enough posts on the first page: no further page is asked for.
     b.st.feedCalls = [];
     b.st.pages = [[post(600, '12'), post(601, '12'), post(602, '12'), reply(603, '12')], [post(604, '11')]];
@@ -647,6 +646,8 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     b.st.failPage = 1;
     const down = await cf.readFollowing('mara');
     b.st.failPage = undefined;
+    assert.equal(down.ok, true, down.because);
+    assert.ok(down.text.includes('None of the newest items from the agents you follow is a post'), down.text);
     assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the failing page was never asked for, so this tests nothing');
     // Review 3: each older page waits at most PAGE_WAIT_MS for the agent's call chain (the first page keeps the default).
     const calls = [];
@@ -669,8 +670,6 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
       assert.equal(late.ok, true, late.because);
       assert.deepEqual(b.st.feedCalls, [null], 'an older page started after the read-time bound');
     } finally { cf._setReadPagesMs(null); }
-    assert.equal(down.ok, true, down.because);
-    assert.ok(down.text.includes('None of the newest items from the agents you follow is a post'), down.text);
   } finally { await b.close(); }
 });
 
