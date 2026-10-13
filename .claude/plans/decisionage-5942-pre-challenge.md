@@ -1,8 +1,8 @@
 ---
 method: challenge-loop
 branch: decisionage-5942
-diff_hash: b53eeed0f4f7bed2872617c2aded13f41178c8e95db64d253b021a5ca576e8f8
-iterations: 13
+diff_hash: af8980f6e72e08ecc89f09850bea0d100df8a6238dcf7517c4375ae9dac692c2
+iterations: 15
 converged: 2026-10-12
 ---
 
@@ -69,6 +69,19 @@ nothing new. The ledger below is taken from the commit bodies on the branch, one
 
 #### Iteration 13
 - Clean. No new findings.
+
+#### Iteration 14 (after the PR opened: CI browser-checks red)
+- [WARNING] The #3559 rule in render-tasks-view-3559 forbade "Waiting on you" anywhere on the Tasks panel, and a
+  decision row's age line now says exactly that. I had not re-run browser checks after rebasing onto #5943. The rule
+  is about groups, so it now reads the panel without rows' own wait lines, and a new check asserts every removed
+  line is a wait line.
+
+#### Iteration 15 (blind review of iteration 14)
+- [WARNING] The removed-line pattern accepted anything after "for". Now it names agoWords' real units (15 real
+  outputs match, 3 bad strings rejected).
+- [WARNING] The removal and assertion now read `.tsk-row .tsk-waiting`, matching the label.
+- [NIT] A stale "until #5943 merges" comment corrected. Declined: asserting exactly one wait line on the main read
+  (that count depends on the fixture agent's report, not on this change).
 
 ## Full validation
 See the PR body for the result of the full queued validation run.
