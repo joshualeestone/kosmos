@@ -283,14 +283,16 @@ test('#6054 review 2: a WORKING card (the page draws no buttons for it) keeps th
   assert.match(await refusalFor('needs_you'), /buttons under its question on its page in Kosmos$/, 'CONTROL: needs_you is told about the buttons');
 });
 
-/* Review 3: a tall heredoc command: its head differs, its long body (over 2000 characters once flattened) does not. */
+/* Review 3: a tall heredoc command whose long body (over 2000 characters once flattened) is the same and whose END differs:
+   the difference sits past any 2000-character prefix of its identity, which is what a prefix cut cannot see. */
 const BODY = Array.from({ length: 60 }, (_, i) => `   echo "line ${i} of the same long generated script body"`).join('\n');
-const tallCommand = (head) => BASH.replace(' /usr/bin/uuidgen\n', ` ${head} <<'EOF'\n${BODY}\n   EOF\n`);
+const tallCommand = (tail) => BASH.replace(' /usr/bin/uuidgen\n', ` cat > gen.sh <<'EOF'\n${BODY}\n   EOF\n   sh gen.sh && ${tail}\n`);
 
-test('#6054 review 3: two tall commands that differ only at their head are told apart through the route (no prefix cut)', async () => {
+test('#6054 review 3: two tall commands that differ only past 2000 characters (their end) are told apart through the route (no prefix cut)', async () => {
   const a = tallCommand('rm -rf build');
   const b = tallCommand('ls build');
   assert.ok(chat.cleanMessage(idOf(a)).length > 2000, 'premise: the identity is longer than the old 2000-character cut');
+  assert.equal(chat.cleanMessage(idOf(a)).slice(0, 2000), chat.cleanMessage(idOf(b)).slice(0, 2000), 'premise: the two agree on their first 2000 characters');
   assert.notEqual(idOf(a), idOf(b));
   await withPrompt(b, async (calls) => {
     const back = await getThread();
