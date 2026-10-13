@@ -130,7 +130,7 @@ function sheetRows(sheet, shared, clip) {
       else {
         const raw = oc.innerOf(cell.inner, 'v');
         if (raw != null && raw !== '') v = type === 's' ? (shared[Number(raw)] || '') : oc.xmlText(raw.slice(0, MAX_CELL));
-        else if (/<(?:\w+:)?f[\s>/]/.test(cell.inner)) {
+        else if (type !== 'str' && /<(?:\w+:)?f[\s>/]/.test(cell.inner)) {   // iteration 16: t="str" with an empty value is a formula that returned "" (Excel's IF(..,""))
           /* Iteration 15: a formula with no saved result (openpyxl writes <v/>) shows as the formula, so a blank is
              never passed off as the value; a shared formula's follower has no text of its own and shows as "=". */
           v = '=' + oc.xmlText((oc.innerOf(cell.inner, 'f') || '').slice(0, MAX_CELL));
@@ -345,9 +345,6 @@ function paraText(p) {
   return s;
 }
 
-/* Iteration 12: a document cut at the part limit ends mid-way, often inside a table, and an unclosed table reads as
-   nothing. Kept up to the last whole paragraph or row, then the tables, rows and cells still open there are closed, so
-   what came before the cut is converted. One pass over the tags. */
 /* Every <tag>...</tag> span removed, nesting counted (iteration 15: a Fallback holding its own AlternateContent left the
    outer one's tail behind, read twice), self-closed ones alone; an unclosed one takes the rest. Linear (finder). */
 function stripNested(text, tag) {
@@ -363,6 +360,10 @@ function stripNested(text, tag) {
     at = e;
   }
 }
+
+/* Iteration 12: a document cut at the part limit ends mid-way, often inside a table, and an unclosed table reads as
+   nothing. Kept up to the last whole paragraph or row, then the tables, rows and cells still open there are closed, so
+   what came before the cut is converted. One pass over the tags. */
 function closeCut(text) {
   const end = Math.max(text.lastIndexOf('</w:p>'), text.lastIndexOf('</w:tr>'));
   if (end < 0) return text;
@@ -1139,7 +1140,7 @@ async function render(rec) {
     /* Iteration 15: the JS reader gave up (time or memory); PDFKit runs in its own process with its own limit, so a Mac
        still asks it. Its text is kept only when there is some. */
     const kit = await pdfAfter(rec.file, { encrypted: false, pages: [], cut: null, undecodable: 0, ownEncoding: false, noMap: false, mapless: [], rtl: false });
-    if (kit && kit.body && kit.body.replace(/--- Page \d+ ---/g, '').trim()) got = { ...kit, notes: [got.failed + ' This text is from macOS\u2019s own PDF reader instead.', ...(kit.notes || [])] };
+    if (kit && kit.body && kit.body.replace(/--- Page \d+ ---/g, '').trim()) got = { ...kit, notes: [got.failed.replace(/\.?$/, '.') + ' This text is from macOS\u2019s own PDF reader instead.', ...(kit.notes || [])] };
   }
   if (!got || got.failed) got = { body: '', notes: [(got && got.failed) || 'Kosmos could not convert this file.'] };
   const notes = (got.notes || []).slice();

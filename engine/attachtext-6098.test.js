@@ -779,3 +779,12 @@ test('#6098 review 15: a Fallback holding its own AlternateContent is removed wh
   assert.ok(!got.body.includes('outerTail') && !got.body.includes('innerFallback'), got.body);
   assert.ok(got.body.includes('after'), got.body);
 });
+
+/* ── review 16 ── */
+test('#6098 review 16: a formula that returned an empty string (Excel, t="str") stays blank, beside an uncalculated one', () => {
+  const excel = at.xlsxText(calcBook('<row r="1"><c r="A1" t="str"><f>IF(B1=1,"x","")</f><v></v></c><c r="B1"><v>2</v></c></row>', '<calcPr calcId="191029"/>'));
+  assert.ok(!excel.body.includes('=IF'), excel.body);
+  assert.ok(!excel.notes.some((n) => /never calculated/.test(n)), JSON.stringify(excel.notes));
+  const openpyxl = at.xlsxText(calcBook('<row r="1"><c r="A1"><f>B1*2</f><v /></c><c r="B1"><v>2</v></c></row>'));
+  assert.ok(openpyxl.body.includes('=B1*2'), openpyxl.body);
+});
