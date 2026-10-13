@@ -136,7 +136,7 @@ test('the list row lays out name, title, status, reported text, model, percentag
   const iName = lrowFn.indexOf('class="lname"');
   const iTitle = lrowFn.indexOf('class="ltitle"');
   const iState = lrowFn.indexOf('class="lstate"');
-  const iTask = lrowFn.indexOf('class="ltask"');
+  const iTask = lrowFn.indexOf('lrowTask(taskLine(');   // #6045: the running row's task cell is drawn by lrowTask
   const iModel = lrowFn.indexOf('class="lmodel"');
   const iMem = lrowFn.indexOf('class="lmem"');
   assert.ok([iName, iTitle, iState, iTask, iModel, iMem].every((i) => i > -1),
