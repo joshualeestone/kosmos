@@ -76,6 +76,11 @@ test('#5977: the Qwen buttons the guide names are the ones the page shows', () =
     assert.ok(page.includes("btn.textContent = '" + label + "'"), 'the page has no button reading ' + label);
   }
   assert.match(page, /<option value="alibaba">Alibaba Qwen<\/option>/, 'Add a provider lists Alibaba Qwen');
+  // Review 1: the guide's "off a Mac" claim, and its "Codex must already be there", against what ships.
+  assert.match(page, /Coming to Windows/, 'the page no longer marks Qwen as coming to Windows');
+  assert.match(flat, /Codex must already be on the computer: adding Qwen does not install it/);
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /we could not find Codex, the runner Qwen agents use/, 'adding Qwen now finds or installs Codex: say so in the guide');
 });
 
 test('#1034: it carries NO machine state, which is the line between part one and part two', () => {
