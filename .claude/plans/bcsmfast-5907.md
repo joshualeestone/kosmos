@@ -51,4 +51,4 @@ was its slowest file at 193 s.
 reportshow-5959, healthline-5959 and bcsgfast-5907. This branch's full validation passed every test and was red only
 on the #4273 leak guard finding that file's `aw-usage-route-` dir (#6017, on this Mac under load). A separate PR would
 join the back of the validation queue; on every branch already queued, the first to pass lands it and the others drop
-it on rebase. The line's own comment names #5959 because it was written there first; the card is #6017.
+it on rebase.
