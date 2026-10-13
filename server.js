@@ -14139,6 +14139,8 @@ const server = http.createServer(async (req, res) => {
 
   /* #5959 slice 4: the diagnostics file, saved by the person from Settings > Advanced (a download, read on demand, never
      polled). Board-token only, like every /api read; not an agent-token route, since it carries every agent's lines.
+     ⚠️ That keeps out a caller holding only an agent token, not every agent: an agent whose CLI can read the board token
+     can read this too, as it can every /api read (#4491, open; see the codex-hooks route).
      engine/diagnostics.js shapes and redacts it. board.log is read only when it is this board's stdout and stderr.
      `?check=1` is the page's look beside the click (isDownloadCheck), as the agent export's is. */
   if (pathname === '/api/diagnostics' && req.method === 'GET') {
@@ -14149,16 +14151,19 @@ const server = http.createServer(async (req, res) => {
       // As many lines as the ring holds, so each agent's own lines are searched as far back on Mac and Linux as on Windows.
       const fileWhy = {};
       const fileLines = diagnostics.readBoardLog(logPath, [1, 2], diagnostics.SEARCH_LINES, fileWhy);   // stdout and stderr
+      const now = new Date();   // one instant for the file's `made` and its name
       const file = diagnostics.build({
-        version: updates.RUNNING, platform: process.platform, now: new Date(),
+        version: updates.RUNNING, platform: process.platform, now,
         cards: safeRoster(), readReport: (n) => selfreport.read(n), accountProblemOf,
         ringLines: logring.board.tail(), fileLines, fileSource: fileLines ? logPath : null, fileWhy: fileWhy.why || null,
       });
       // The page's look beside the click (as the other downloads): the same work, no file.
       if (isDownloadCheck(req)) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
-      const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;   // the person's day, not UTC's
+      const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;   // the person's day, not UTC's
       res.writeHead(200, {
         'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
+        // As the other download route: never sniffed, never run as a page on the board's origin.
+        'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox",
         'content-disposition': `attachment; filename="kosmos-diagnostics-${day}.json"`,
       });
       res.end(JSON.stringify(file, null, 2) + '\n');

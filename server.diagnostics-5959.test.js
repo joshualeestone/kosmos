@@ -88,3 +88,10 @@ test('#5959: the page\'s ?check=1 look answers 204 with no file, behind the same
   assert.equal(look.headers.get('content-disposition'), null, 'no file in a look');
   assert.equal((await fetch(base + '/api/diagnostics?check=1')).status, 403, 'CONTROL: the gate still refuses no credential');
 });
+
+test('#5959: the download is never sniffed or run as a page', async () => {
+  const r = await fetch(base + '/api/diagnostics', { headers: { 'x-kosmos-board-token': BOARD } });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
+  assert.match(r.headers.get('content-security-policy') || '', /sandbox/);
+});

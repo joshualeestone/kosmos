@@ -20,7 +20,7 @@ const MIN_NAME_CHARS = 3;
 const EMAIL = /[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9-]{1,63}\.){1,8}[A-Za-z]{2,24}(?![A-Za-z0-9-])/g;
 // A user folder in any account's path: /Users/x, /home/x, C:\Users\x (any separator, any case). A name with spaces
 // ("Cy Doe") is taken whole when a separator follows it; a bare /Users/x at the end of a phrase stops at the space.
-const OTHER_HOMES = /((?:^|[^A-Za-z0-9_.-])(?:[A-Za-z]:)?(?:\\\\|\\|\/)(?:Users|home)(?:\\\\|\\|\/))(?!\[user\])(?:[^\\\/\s'"`<>:|*?]+(?: [^\\\/\s'"`<>:|*?]+)*(?=\\|\/)|[^\\\/\s'"`<>:|*?]+)/gi;
+const OTHER_HOMES = /((?:^|[^A-Za-z0-9_.-])(?:[A-Za-z]:)?(?:\\\\|\\|\/|%2F|%5C)(?:Users|home)(?:\\\\|\\|\/|%2F|%5C))(?!\[user\])(?:[^\\\/\s'\"`<>:|*?%~]+(?: [^\\\/\s'\"`<>:|*?%~]+)*(?=(?:\\\\|\\|\/|%2F|%5C))|[^\\\/\s'\"`<>:|*?%~]+)/gi;
 // Host names every computer can have, which name no one: replacing them would only damage lines like a localhost URL.
 const GENERIC_HOSTS = new Set(['localhost', 'localhost.localdomain']);
 
@@ -28,7 +28,8 @@ function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 /* A whole-name pattern: not preceded or followed by a name character, so "agent1" never matches inside "agent12". */
 function wholeName(name) {
-  return new RegExp('(?<![A-Za-z0-9_.-])' + escapeRe(name) + '(?![A-Za-z0-9_-])', 'gi');
+  // A name just after a URL-encoded separator (%2F, %5C) is whole too, as in a logged ?path=%2FUsers%2Fpat%2F.
+  return new RegExp('(?:(?<![A-Za-z0-9_.-])|(?<=%2F|%5C))' + escapeRe(name) + '(?![A-Za-z0-9_-])', 'gi');
 }
 
 /* Reads this computer's names once per call to makeRedactor; `who` is the test seam. */
@@ -47,7 +48,7 @@ function makeRedactor(who) {
      macOS paths ignore case). Its last segment is also a name when it differs from the user name (a "Pat Smith" folder
      for a pat.smith account), so it is replaced as [user] too. */
   const segs = typeof home === 'string' ? home.split(/[\\/]+/).filter(Boolean) : [];
-  const SEP = '(?:\\\\\\\\|\\\\|/)';
+  const SEP = '(?:\\\\\\\\|\\\\|/|%2F|%5C)';   // \\, \, /, or URL-encoded / and \ (the 'i' flag takes %2f too)
   const homeRe = segs.length && home.length > 1
     ? new RegExp((/^[\\/]/.test(home) ? SEP : '') + segs.map(escapeRe).join(SEP) + '(?=' + SEP + '|$|[^A-Za-z0-9_.-])', 'gi')
     : null;

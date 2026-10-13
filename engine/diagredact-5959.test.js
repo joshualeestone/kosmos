@@ -94,3 +94,12 @@ test('#5959: another account\'s user folder is taken out too, a name with spaces
   for (const n of ['ann', 'bob', 'Cy Doe']) assert.ok(line.includes(n), 'CONTROL: ' + n + ' is in the line');
   assert.equal(redactText(line), '/Users/[user]/y /home/[user]/z C:\\Users\\[user]\\w C:/Users/[user]/q /Users/[user] said hi');
 });
+
+test('#5959: a home folder or user name in a URL-encoded path is redacted too', () => {
+  const { redactText } = makeRedactor({ home: '/Users/patsmith', user: 'patsmith', host: 'zzz' });
+  const line = 'GET /api/files?path=%2FUsers%2Fpatsmith%2Fwork then %2fUsers%2fann%2fx and ?who=%2Fpatsmith%2F';
+  assert.ok(line.includes('patsmith') && line.includes('ann'), 'CONTROL: the names are in the line');
+  const out = redactText(line);
+  assert.ok(!/patsmith|ann/.test(out), out);
+  assert.equal(out, 'GET /api/files?path=~%2Fwork then %2fUsers%2f[user]%2fx and ?who=%2F[user]%2F');
+});
