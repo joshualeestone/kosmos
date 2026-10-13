@@ -17,8 +17,12 @@ reads these files itself.
     because PDFKit can join a page's lines into one (measured on a cupsfilter PDF).
   - Every rendering starts with what it is and notes what was not converted (charts, pictures, headers and footnotes, an
     encrypted PDF, scanned pages, an unusual font encoding, a cap reached).
-- `engine/attachments.js`: `text.txt` is a reserved name (an upload cannot take it); `wireNote` adds
-  `; as text: <path>` inside the bracket when the rendering exists.
+- **Isolation (challenge iteration 1):** the conversion runs in a worker thread (`convertIsolated`, resourceLimits 256 MB
+  old generation, 30 s timeout, terminated on timeout). A file that would take too long or too much memory ends the
+  worker, never the board's only thread; the rendering then says why. PDFKit runs from the main thread after the worker.
+- `engine/attachments.js`: `wireNote` adds `; as text: <path>` inside the bracket when the rendering exists. text.txt is
+  NOT reserved (iteration 1: each upload has its own folder and a rendering is only written beside an office file, so it
+  cannot collide; reserving it renamed people's own text.txt).
 - `server.js` (the attachment PUT): renders before answering, so the message that carries the file can name it; a
   failure never fails the upload.
 - `engine/orgchartfile.js`: exports its linear zip and XML readers (no behaviour change).
@@ -29,24 +33,28 @@ reads these files itself.
   and for every model family; nothing new to learn.
 - **Rendered on upload, not on read.** The line is typed into the agent's pane synchronously (wireNote); a rendering made
   later could not be named. The upload answers after it (bounded below).
-- **Linear readers only** (#4598): the zip and XML readers are orgchartfile's; the PDF reader walks with indexOf, searches
-  `endstream` inside its own object, walks the page tree to depth 64, and caps inflation (64 MB), pages (2,000), sheet
-  rows (5,000), columns (256) and output (2 M characters). Growth tests pin two of these; measured 2,000 text pages in
-  about 0.1 s.
+- **Linear readers, caps applied while building** (#4598; iteration 1 found the first version was neither): the docx walk
+  is a forward-only finder that counts nesting (nested tables, text boxes; mc:Fallback dropped); output goes through a
+  sink that stops at 2 M characters as it is built, one budget for the whole document; each cell keeps at most 32 K
+  characters; PDF objects are found by walking `obj` with indexOf and reading the numbers backwards (bounded), number
+  patterns elsewhere are bounded (`\d{1,10}`); streams are inflated lazily (only content, ToUnicode and object streams;
+  images never), with overflow charged to the 64 MB budget; a content-byte budget (32 MB) counts a shared stream each
+  time it is used; CMap tokens are one forward pass, with a budget on entries WRITTEN (200 K) and code length at most 4;
+  TJ arrays are kept apart from the operand stack (4,096 items). Growth tests pin each shape the review measured slow.
 - **Formula values, not formulas.** The saved value is what a reader needs; the note says so.
-- **Not done:** pictures (no OCR), charts, docx headers/footers/footnotes/comments, xls/doc/ppt/pptx, an attachment
-  uploaded before this change (it gets no rendering; its line is unchanged).
+- **Not done:** pictures (no OCR), charts, docx headers/footers/footnotes/comments, text inside PDF form XObjects (`Do`),
+  xls/doc/ppt/pptx, an attachment uploaded before this change (it gets no rendering; its line is unchanged).
 
 ## Weakest premise
 That the JS PDF reader's output is right when it "reads as text". A font whose codes happen to land on letters without
 being those letters would pass the readability check and be wrong; PDFKit is only asked when the check fails. Real PDFs
 from common writers carry ToUnicode maps, which the reader uses.
 
-## Tests (engine/attachtext-6098.test.js, 12)
-xlsx (two sheets, a formula, an escaped pipe, a sheet starting at column C, notes); docx (heading, tab, list, table,
-deleted text, picture note); a simple PDF (escapes, TJ spacing, two pages, no PDFKit call); a modern PDF (object stream,
-inherited font resources, two-byte ToUnicode with bfchar and bfrange); an encrypted PDF; a PDF with no text (asks
-PDFKit once, notes scanned pages); the readability check and its control; end to end for all three (saved, rendered,
-named in wireNote); a text file unchanged; a damaged xlsx still gets a rendering that says so; an upload named text.txt
-cannot overwrite it; two growth tests. Mutants red: no ToUnicode use; no "as text" in the line; an unbounded endstream
-search (growth test, 4.1 s). Meta (engine.reachable: setPdfkit excused as a seam) and 37 neighbouring files: 650/650.
+## Tests (engine/attachtext-6098.test.js, 21)
+The first 12 (xlsx, docx, simple and modern PDFs, encrypted, no text, end to end through render and wireNote, a text file
+unchanged, a damaged xlsx, a person's own text.txt kept) plus nine for review 1: docx growth (20,000 paragraphs, 200,000
+empty paragraphs, tables with no paragraphs between); nested table, text box and AlternateContent; a huge shared string
+in every cell (capped, quick, says so); PDF digit runs, CMap brackets and repeated full ranges (bounded); a content
+stream shared by many pages (charged each time, total capped); a two-digit indirect /Length; a TJ array of 80 items and
+two runs on one line; a 70 MB Flate image before the text; a damaged document worded as a document. Meta: engine.reachable
+excuses setPdfkit and pdfText as test seams. Neighbours and meta: 666/666.
