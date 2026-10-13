@@ -29,7 +29,10 @@
  * arrow (`async (r) =>`, `r =>`) or `function (r)`. A handler written as a named function defined elsewhere is not
  * read (fails GREEN). #6027 widened the rule: in ANY handler, every answer after its first fetch or its first await (a
  * timer, a held promise) must be awaited inside a try with a catch, or chain its own .catch; an answer before any
- * await is immediate and exempt. A handler's span is its .route( call, to the matching paren. A catch that
+ * await is immediate and exempt; an answer inside a setTimeout( or .then( callback is late even with no await, and must
+ * chain its own .catch. A handler's span is its .route( call, to the matching paren (a backtick string nested inside
+ * ${...} in the route's URL can cut it short). Code before the wait now sits inside the try, so a throw there aborts
+ * the request quietly instead of crashing; no check relies on that crash. A catch that
  * rethrows counts as caught, and the abort in the catch is advised, not required (an empty catch passes: no crash, but a
  * real failure then waits for the check's timeout). A statement without semicolons, or a call passed as an argument
  * to an awaited function (await f(r.fulfill(...))), reads as awaited; no check uses either style. The try test is lexical: a call inside a function nested in the try (a setTimeout
@@ -85,6 +88,16 @@ function stripComments(src) {
   return parts.join('');
 }
 
+/* True when the / at `i` starts a regex literal, by the same rule stripComments uses: after an operator or opener
+   (=> included) or a keyword like return, not after a name, a number or a closing bracket (#6027 review 1). */
+function regexStart(src, i) {
+  let j = i - 1;
+  while (j >= 0 && /\s/.test(src[j])) j -= 1;
+  if (j < 0) return true;
+  if ('(,=:[!&|?{};><+-*~%^'.includes(src[j])) return true;
+  return /\b(return|typeof|case|in|of|void)$/.test(src.slice(Math.max(0, j - 7), j + 1));
+}
+
 /* `src` (comments already blanked) with the inside of every string, template literal and regex blanked to spaces,
    positions kept: a ( or ) inside a literal must not count when the end of a .route( call is matched (#6027). */
 function blankLiterals(src) {
@@ -96,7 +109,7 @@ function blankLiterals(src) {
       while (j < src.length && src[j] !== c) { if (src[j] === '\\') j += 1; else if (c !== '`' && src[j] === '\n') break; j += 1; }
       for (let k = i + 1; k < j && k < src.length; k += 1) if (out[k] !== '\n') out[k] = ' ';
       i = j + 1;
-    } else if (c === '/' && /[(,=:[!&|?{};]\s*$/.test(src.slice(Math.max(0, i - 4), i)) && src[i + 1] !== '/' && src[i + 1] !== '*') {
+    } else if (c === '/' && src[i + 1] !== '/' && src[i + 1] !== '*' && regexStart(src, i)) {
       let j = i + 1; let cls = false;
       while (j < src.length && src[j] !== '\n') {
         if (src[j] === '\\') { j += 2; continue; }
@@ -210,12 +223,28 @@ function scan(raw) {
     // From the handler's first fetch or first await on (#6027): an answer after it can land after the browser closed.
     // An answer before any await is immediate and cannot.
     // An await whose operand IS the answer (`await r.fulfill(`, `return await (x ? r.fulfill(`) does not delay it.
-    const answerNext = new RegExp('^await\\s*\\(?[^;{}]*?\\b' + h.param + '\\.(fulfill|continue|fallback|abort)\\(');
+    // Only when the answer IS the await's operand: `await r.fulfill(` or `await (cond ? r.fulfill(` (review 1: not an
+    // answer inside .then(, a callback, or after a comma).
+    const answerNext = new RegExp('^await\\s*(?:\\(\\s*[^;{}(),=>]*?\\?\\s*)?' + h.param + '\\.(fulfill|continue|fallback|abort)\\(');
     let firstWait = -1;
     for (const w of body.matchAll(/\bawait\b/g)) {
       const rest = body.slice(w.index);
       const stmt = rest.slice(0, rest.search(/[;{}]|$/) + 1);
       if (!answerNext.test(stmt)) { firstWait = w.index; break; }
+    }
+    // An answer inside a setTimeout( or .then( callback is late too, await or not (review 1): an outer try cannot catch
+    // a rejection from a callback, so it must chain its own .catch.
+    const cbAns = new RegExp('\\b' + h.param + '\\.(fulfill|continue|fallback)\\(', 'g');
+    for (const a of body.matchAll(cbAns)) {
+      const at = h.body + a.index;
+      let late = false;
+      for (const cb of src.slice(h.body, at).matchAll(/(?:\bsetTimeout|\.then)\s*\(/g)) {
+        const open = h.body + cb.index + cb[0].length - 1;
+        if (routeEnd(blank, open - 1) > at) { late = true; break; }
+      }
+      if (late && !/^(?:fulfill|continue|fallback)\((?:[^()]|\([^()]*\)|\((?:[^()]|\([^()]*\))*\))*\)\s*\.catch\(/.test(src.slice(at + h.param.length + 1, end))) {
+        bad.push(src.slice(0, at).split('\n').length);
+      }
     }
     const hits = [body.search(new RegExp('\\b' + h.param + '\\.fetch\\(')), firstWait].filter((x) => x >= 0);
     if (!hits.length) return;
@@ -257,7 +286,7 @@ test('#6022 fixtures: the rule can fail, and the safe shapes pass (controls)', (
   const finallyOnly = "await page.route('**/x', async (r) => {\n  try {\n    const resp = await r.fetch();\n    await r.fulfill({ response: resp });\n  } finally { done(); }\n});\n";
   assert.deepEqual(scan(finallyOnly), [3, 4], 'a try with only a finally does not catch (round 1)');
   const thenChain = "await page.route('**/x', async (r) => {\n  try { r.fetch().then((res) => r.fulfill({ response: res })); } catch {}\n});\n";
-  assert.deepEqual(scan(thenChain), [2, 2], 'a floating .then chain is not awaited (round 1)');
+  assert.deepEqual(scan(thenChain), [2, 2, 2], 'a floating .then chain is not awaited (round 1), and its fulfill sits in a .then callback (#6027)');
   const ternary = "await page.route('**/x', async (r) => {\n  try {\n    const j = await r.fetch();\n    return await (j ? r.fulfill({ json: 1 }) : r.fulfill({ json: 2 }));\n  } catch { await r.abort().catch(() => {}); }\n});\n";
   assert.deepEqual(scan(ternary), [], 'an awaited ternary of fulfills counts as awaited');
   const regexUrl = "await ctx.route(/^http:\\/\\/remote\\.test(:\\d+)?\\//, async (r) => {\n  const res = await r.fetch();\n  await r.fulfill({ response: res });\n});\n";
@@ -288,6 +317,16 @@ test('#6022 fixtures: the rule can fail, and the safe shapes pass (controls)', (
   assert.deepEqual(scan(chained), [], 'an answer that chains its own .catch handles its rejection (#6027)');
   const spanEnds = "await page.route('**/x', (r) => r.fulfill({ json: {} }));\nawait page.goto(URL);\nconst r = page;\nr.fulfill({ json: 1 });\n";
   assert.deepEqual(scan(spanEnds), [], 'a handler ends at its own closing paren; later code is not part of it (#6027)');
+  const timerCallback = "await page.route('**/x', (r) => {\n  setTimeout(() => r.fulfill({ status: 400 }), 1500);\n});\n";
+  assert.deepEqual(scan(timerCallback), [2], 'an answer in a setTimeout callback is late, await or not (#6027 review 1)');
+  const timerCaught = "await page.route('**/x', (r) => {\n  setTimeout(() => r.fulfill({ status: 400 }).catch(() => {}), 1500);\n});\n";
+  assert.deepEqual(scan(timerCaught), [], 'a late answer in a callback that chains its own .catch passes');
+  const gateThen = "await page.route('**/x', async (r) => {\n  await gate.then(() => r.fulfill({ json: {} }));\n});\n";
+  assert.deepEqual(scan(gateThen), [2, 2], 'an answer inside .then( after a wait: a callback answer, and not the await operand (#6027 review 1)');
+  const commaAwait = "await page.route('**/x', async (r) => {\n  await (await gate, r.fulfill({}));\n});\n";
+  assert.ok(scan(commaAwait).length > 0, 'an answer after a comma inside an await is not exempt (#6027 review 1)');
+  const regexParens = "await page.route('**/x', async (r) => {\n  const ok = (u) => /\\)\\)/.test(u);\n  await gate;\n  r.fulfill({});\n});\n";
+  assert.deepEqual(scan(regexParens), [4], 'parens inside a regex after => do not end the handler early (#6027 review 1)');
   const fixtureOnly = "await page.route('**/api/x', (r) => r.fulfill({ json: {} }));\nconst x = await window.fetch('/a');\nawait browser.close();\n";
   assert.deepEqual(scan(fixtureOnly), [], 'a fixture-only handler and window.fetch are not flagged');
   const bareParam = "page.route('**/t', async route => {\n  const r = await route.fetch();\n  route.fulfill({ response: r });\n});\n";
