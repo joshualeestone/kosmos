@@ -94,7 +94,7 @@ function isKeyedRunner(runner) { return KEYED_RUNNERS.includes(String(runner || 
 /**
  * The argv for one turn (after runners.spawnTarget's prefix). Pure.
  * @param {'gemini'|'grok'} runner
- * @param {{ message: string, model?: string, sessionId?: string, newSessionId?: string }} opts
+ * @param {{ message: string, model?: string, sessionId?: string, newSessionId?: string, includeDirs?: string[] }} opts
  *   `sessionId` resumes; otherwise `newSessionId` names the new session.
  */
 function turnArgs(runner, opts) {
@@ -102,7 +102,9 @@ function turnArgs(runner, opts) {
   const model = o.model ? String(o.model) : DEFAULT_MODEL[runner];
   const session = o.sessionId ? ['--resume', String(o.sessionId)] : ['--session-id', String(o.newSessionId)];
   if (runner === 'gemini') {
-    return ['--prompt=' + String(o.message), '-o', 'json', '--approval-mode', 'yolo', '--skip-trust', '-m', model, ...session];
+    /* #5812: the agent's project folders join its workspace (engine/geminidirs.js), one flag each. */
+    return ['--prompt=' + String(o.message), '-o', 'json', '--approval-mode', 'yolo', '--skip-trust', '-m', model, ...session,
+      ...require('./geminidirs').includeArgs(o.includeDirs)];
   }
   if (runner === 'grok') {
     return ['--single=' + String(o.message), '--output-format', 'json',
@@ -187,6 +189,8 @@ function spawner() { return spawnFn || spawn; }
  * @param {string}  [opts.cwd]
  * @param {object}  [opts.env]        the full child environment (turnEnv)
  * @param {string}  [opts.platform]   seam for runners.spawnTarget
+ * @param {string}  [opts.name]       the agent, for its project folders (gemini, #5812)
+ * @param {string[]} [opts.includeDirs] seam: those folders, instead of reading projects.json
  * @returns {Promise<{ ok: boolean, response?: string, sessionId: string|null,
  *                     resetSession?: boolean, error?: string }>}
  *   `sessionId` is the conversation the NEXT turn should resume, or null to start fresh.
@@ -198,7 +202,13 @@ function runKeyedTurn(opts) {
     const resuming = Boolean(o.sessionId);
     const newSessionId = resuming ? null : (o.newSessionId || crypto.randomUUID());
     let args;
-    try { args = turnArgs(runner, { message: o.message, model: o.model, sessionId: o.sessionId, newSessionId }); }
+    /* #5812: read at EVERY turn, so a project joined since the last one is already in its workspace.
+       A headless turn adds them without a trust question, so folder trust does not apply here. */
+    let includeDirs = Array.isArray(o.includeDirs) ? o.includeDirs : [];
+    if (runner === 'gemini' && !Array.isArray(o.includeDirs) && o.name) {
+      try { includeDirs = require('./geminidirs').foldersFor(o.name, { workdir: o.cwd }).folders; } catch { includeDirs = []; }
+    }
+    try { args = turnArgs(runner, { message: o.message, model: o.model, sessionId: o.sessionId, newSessionId, includeDirs }); }
     catch (e) { return resolve({ ok: false, error: String((e && e.message) || e), sessionId: o.sessionId || null }); }
     const target = runners.spawnTarget(o.bin, o.platform || process.platform);
     let child;

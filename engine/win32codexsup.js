@@ -103,7 +103,7 @@ function superviseCodexStreaming(spec, opts) {
   const runTurn = typeof o.runTurn === 'function' ? o.runTurn
     : runner === 'codex' ? win32codex.runCodexTurn
       : runner === 'antigravity' ? (t) => require('./win32agy').runAgyTurn(Object.assign({ name: s.name }, t))
-        : (t) => win32keyed.runKeyedTurn(Object.assign({ runner }, t));
+        : (t) => win32keyed.runKeyedTurn(Object.assign({ runner, name: s.name }, t));
   const prepare = typeof o.prepare === 'function' ? o.prepare : (meta) => win32create.prepareSession(meta);
   const retireRun = typeof o.retireRun === 'function' ? o.retireRun
     : (name, instance) => win32create.retireRun(name, instance);
