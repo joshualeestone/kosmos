@@ -675,3 +675,40 @@ test('#6098 review 11: a PDF that reaches the text cap says so once in the rende
   const head = fs.readFileSync(out, 'utf8').slice(0, 2000);
   assert.equal((head.match(/stops at/g) || []).length, 1, head.slice(0, 600));
 });
+
+/* ── review 12 ── */
+test('#6098 review 12: a document cut at the part limit inside a table keeps the rows before the cut', () => {
+  const row = (i) => '<w:tr><w:tc><w:p><w:r><w:t>row ' + i + '</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>' + 'x'.repeat(600) + '</w:t></w:r></w:p></w:tc></w:tr>';
+  const rows = [];
+  for (let i = 0; i < 40000; i += 1) rows.push(row(i));
+  const body = '<w:p><w:r><w:t>intro</w:t></w:r></w:p><w:tbl>' + rows.join('') + '</w:tbl>';
+  assert.ok(body.length > 21 * 1024 * 1024, 'over the part limit: ' + body.length);
+  const got = at.docxText(docxOf(body));
+  assert.ok(got.body.includes('| row 1 |'), got.body.slice(0, 200));
+  assert.ok(got.notes.some((n) => /larger than Kosmos reads/.test(n)), JSON.stringify(got.notes));
+});
+
+test('#6098 review 12: a locale tag on a date format is not a currency; a currency in brackets still is', () => {
+  const sheet = XML + '<worksheet><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData></worksheet>';
+  const noted = (code) => at.xlsxText(book1(sheet, '<numFmts><numFmt numFmtId="164" formatCode="' + code + '"/></numFmts>')).notes.some((n) => /without their formats/.test(n));
+  assert.equal(noted('[$-409]mmm d, yyyy'), false);
+  assert.equal(noted('[$-F800]dddd, mmmm dd, yyyy'), false);
+  assert.equal(noted('[$€-407]#,##0.00'), true);
+});
+
+test('#6098 review 12: a stored (not deflated) sheet over the part limit, and shared text over it, are read in part with notes', () => {
+  const rows = [];
+  for (let i = 1; i <= 60000; i += 1) rows.push('<row r="' + i + '"><c r="A' + i + '" t="s"><v>' + (i % 3) + '</v></c><c r="B' + i + '"><v>' + '9'.repeat(300) + '</v></c></row>');
+  const sheet = XML + '<worksheet><sheetData>' + rows.join('') + '</sheetData></worksheet>';
+  const sst = XML + '<sst>' + ['<si><t>alpha</t></si>', '<si><t>beta</t></si>', '<si><t>gamma</t></si>'].join('') + '<si><t>' + 'z'.repeat(21 * 1024 * 1024) + '</t></si></sst>';
+  const stored = (name, text) => ({ name, data: Buffer.from(text, 'utf8'), method: 0 });
+  const book = buildZip([
+    entry('xl/workbook.xml', XML + '<workbook xmlns:r="r"><sheets><sheet name="Data" r:id="rId1"/></sheets></workbook>'),
+    entry('xl/_rels/workbook.xml.rels', XML + '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
+    stored('xl/worksheets/sheet1.xml', sheet), stored('xl/sharedStrings.xml', sst),
+  ]);
+  const got = at.xlsxText(book);
+  assert.ok(got.body.includes('| beta |'), got.body.slice(0, 200));
+  assert.ok(got.notes.some((n) => /A sheet is larger/.test(n)), JSON.stringify(got.notes));
+  assert.ok(got.notes.some((n) => /text is larger than Kosmos reads/.test(n)), JSON.stringify(got.notes));
+});
