@@ -22,6 +22,8 @@ Output is still `sort -u`, so order is unchanged.
   takes accented letters. On a check file with an invalid byte on its first key line, the scan and the sed could read
   different annotation lines, in either direction; the checks are valid UTF-8.
 - The map test forces the fallback (TMPDIR pointed at a directory that does not exist, so the scan's mktemp fails) and
-  asserts the same answer as the scan path, it asserts the scan really failed there; and an `awk` logged first on PATH shows a
+  asserts the same answer as the scan path; it asserts the scan really failed there (and, as a control, runs with the
+  usual TMPDIR); and an `awk` logged first on PATH shows a
   plain id-list query goes through the scan by default (the original path runs no awk for it), so a covering that stopped
-  calling the scan goes red.
+  calling the scan goes red. A synthetic check with a non-plain first token is named through the SLOW branch for either
+  of its tokens and not for a lookalike.
