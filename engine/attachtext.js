@@ -657,6 +657,19 @@ function* tokens(s) {
     if (!m) { i += 1; continue; }
     const w = m[0];
     i += w.length;
+    if (w === 'ID') {
+      /* Iteration 9: an inline image's bytes (BI ... ID <bytes> EI) are not content: a ( or % in them swallowed the rest
+         of the page. Skip to the EI that has white space on both sides, one forward search. */
+      let j = i + 1;
+      for (;;) {
+        j = s.indexOf('EI', j);
+        if (j < 0 || (/\s/.test(s[j - 1] || '') && (j + 2 >= n || /\s/.test(s[j + 2])))) break;
+        j += 2;
+      }
+      i = j < 0 ? n : j + 2;
+      yield { op: 'EI' };
+      continue;
+    }
     if (/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(w)) yield { num: Number(w) }; else yield { op: w };
   }
 }
@@ -679,37 +692,52 @@ function winAnsi(raw) {
 
 function pageText(content, fonts, out, used = {}) {
   let font = null;
-  let lastY = null;
   let line = '';
   /* Iteration 7: where the text is, so a sideways move adds a space only where there is a gap. Writers that place text a
-     glyph or a kerned chunk at a time (Chrome, Ghostscript) made every move a space ("C op yright"). All in text space:
-     size is the Tf size, drawn the advance shown since the line start, a and x the text matrix's scale and the line
-     start's x in user space. exact is false once a glyph had no known width (a wider margin is then needed). */
+     glyph or a kerned chunk at a time (Chrome, Ghostscript) made every move a space ("C op yright"). size, tc, tw, th and
+     tl are the text state; a and d the text matrix's scales; lx and ly the line's origin in user space (Td moves from
+     it). Iteration 9: pen is where the drawn text ends, in user space, and it is kept across BT and ET, so a new text
+     block on the same line (Chrome writes one per style change; FPDF one per table cell, placed by Td) is a gap only
+     where there is room, and a line ends only where y really changes. exact is false once a glyph since the last move
+     had no known width. */
   let size = 1;
   let tc = 0;
   let tw = 0;
   let th = 1;
+  let tl = 0;
   let a = 1;
-  let x = 0;
-  let drawn = 0;
+  let d = 1;
+  let lx = 0;
+  let ly = 0;
+  let pen = null;
   let exact = true;
   const measure = (f, raw) => {
+    if (!pen) pen = { x: lx, y: ly };
     const len = (f && f.codeLen) || 1;
     for (let i = 0; i + len <= raw.length; i += len) {
       let code = 0;
       for (let k = 0; k < len; k += 1) code = code * 256 + raw.charCodeAt(i + k);
       let w = f && f.width ? f.width(code) : null;
       if (w == null) { w = 500; exact = false; }
-      drawn += ((w / 1000) * size + tc + (len === 1 && code === 32 ? tw : 0)) * th;
+      pen.x += ((w / 1000) * size + tc + (len === 1 && code === 32 ? tw : 0)) * th * a;
     }
   };
-  /* A move on the same line: a space only when it leaves (or goes back over) real room. Iteration 8: with a glyph of
-     unknown width since the line start (a standard font with no /Widths, mostly) the gap cannot be measured, and an
-     estimate is off by as much as a word gap, so every move is a space there, as before iteration 7. */
-  const moved = (gap) => {
-    if (!exact || Math.abs(gap) > 0.12 * (Math.abs(size) || 1)) space();
+  /* A new origin for the text. Another y (by more than 0.4 of the font's height) ends the line; on the same line a space
+     only where the move leaves (or goes back over) real room. Iteration 8: with a glyph of unknown width since the last
+     move (a standard font with no /Widths, mostly) the gap cannot be measured, and an estimate is off by as much as a
+     word gap, so every move is a space there, as before iteration 7. */
+  const place = (nx, ny) => {
+    if (pen && line) {
+      if (Math.abs(ny - pen.y) > 0.4 * (Math.abs(size * d) || 1)) { if (!flush()) return false; }
+      else if (!exact || Math.abs((nx - pen.x) / (a || 1)) > 0.12 * (Math.abs(size) || 1)) space();
+    }
+    lx = nx;
+    ly = ny;
+    pen = { x: nx, y: ny };
+    exact = true;
+    return true;
   };
-  const restart = () => { drawn = 0; exact = true; };
+  const newline = () => { if (!flush()) return false; ly -= tl * d; pen = { x: lx, y: ly }; exact = true; return true; };
   const operands = [];
   let arr = null;   // items of the TJ array being read, kept apart from the operands (review 1: 64+ items lost the array)
   const decode = (raw) => {
@@ -726,7 +754,9 @@ function pageText(content, fonts, out, used = {}) {
       for (let k = 0; k < c.codeLen; k += 1) code = code * 256 + raw.charCodeAt(i + k);
       s += c.map.has(code) ? c.map.get(code) : (c.codeLen === 1 ? raw[i] : '');
     }
-    return s;
+    /* Iteration 9: macOS maps some CJK glyphs to the look-alike Kangxi radicals (U+2F00-U+2FDF), which a search for the
+       real character never finds; NFKC gives the character itself. */
+    return /[\u2F00-\u2FDF]/.test(s) ? s.replace(/[\u2F00-\u2FDF]/g, (ch) => ch.normalize('NFKC')) : s;
   };
   /* Trailing blanks stripped by a backwards loop (iteration 2: `/[ \t]+$/` is quadratic on a long run of spaces). */
   const trimEnd = (x) => { let e = x.length; while (e && (x[e - 1] === ' ' || x[e - 1] === '\t')) e -= 1; return x.slice(0, e); };
@@ -751,32 +781,26 @@ function pageText(content, fonts, out, used = {}) {
     else if (op === 'Tc') { const v = lastNum(); if (v != null) tc = v; }
     else if (op === 'Tw') { const v = lastNum(); if (v != null) tw = v; }
     else if (op === 'Tz') { const v = lastNum(); if (v != null) th = v / 100; }
-    else if (op === 'BT') { a = 1; x = 0; restart(); }
+    else if (op === 'TL') { const v = lastNum(); if (v != null) tl = v; }
+    else if (op === 'BT') { a = 1; d = 1; lx = 0; ly = 0; }   // the text matrix starts again; the pen stays where it is
     else if (op === 'Tj') { const s = lastOf('str'); if (s && !append(decode(s.str))) return; }
     else if (op === "'" || op === '"') {
       if (op === '"') { const v = nums(2); if (v) { tw = v[0]; tc = v[1]; } }   // aw ac string " sets the word and character spacing
-      if (!flush()) return;
-      restart(); const s = lastOf('str'); if (s && !append(decode(s.str))) return; }
+      if (!newline()) return;
+      const s = lastOf('str'); if (s && !append(decode(s.str))) return; }
     else if (op === 'TJ') {
       const ta = lastOf('arr');
       if (ta) for (const e of ta.arr) {
-        if (e.str != null) { if (!append(decode(e.str))) return; } else if (e.num != null) { drawn -= (e.num / 1000) * size * th; if (e.num < -200) space(); }
+        if (e.str != null) { if (!append(decode(e.str))) return; } else if (e.num != null) { if (pen) pen.x -= (e.num / 1000) * size * th * a; if (e.num < -200) space(); }
       }
     } else if (op === 'Td' || op === 'TD') {
       const v = nums(2);
-      if (v && v[1]) { if (!flush()) return; } else if (v) moved(v[0] - drawn); else space();
-      if (v) x += v[0] * a;
-      restart();
-    } else if (op === 'T*') { if (!flush()) return; restart(); }
+      if (v) { if (op === 'TD') tl = -v[1]; if (!place(lx + v[0] * a, ly + v[1] * d)) return; } else space();
+    } else if (op === 'T*') { if (!newline()) return; }
     else if (op === 'Tm') {   // review 1: same line, a space (iteration 7: only where there is room)
       const v = nums(6);
-      const y = v ? v[5] : lastNum();
-      if (lastY != null && y != null && y !== lastY) { if (!flush()) return; } else if (v && lastY != null && a) moved((v[4] - x) / a - drawn); else space();
-      if (v) { a = v[0] || 1; x = v[4]; }
-      lastY = y;
-      restart();
+      if (v) { a = v[0] || 1; d = v[3] || 1; if (!place(v[4], v[5])) return; } else space();
     }
-    else if (op === 'ET') space();
     if (line.length > MAX_CELL * 4 && !flush()) return;
     operands.length = 0;
   }

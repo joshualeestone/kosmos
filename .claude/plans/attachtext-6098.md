@@ -74,6 +74,12 @@ reads these files itself.
   as before iteration 7 (an estimate is off by a word gap); Type0 widths share a 262144-entry document budget (200 fonts
   of [0 65535 500] filled the worker) and a width the budget left out is unknown; inline /DescendantFonts read; the "
   operator sets Tw and Tc. 115 local PDFs against the pre-iteration-7 commit: none gained words.
+- **Iteration 9:** the pen (where drawn text ends, user space) is kept across BT/ET and ET adds no space, so a style
+  change mid-line (Chrome writes a block per style) is a space only where there is room, and BT x y Td cells (FPDF,
+  TCPDF) stay on their line; a line ends only where y moves by more than 0.4 of the font height. Inline images
+  (BI ... ID bytes EI) are skipped to the EI with white space on both sides. Kangxi radicals (U+2F00-U+2FDF) from a
+  ToUnicode map are NFKC-normalized (macOS Chinese PDFs). 118 local PDFs against bc58a170e: space-before-punctuation
+  2309 -> 610, Kangxi 7168 -> 0; the Arabic License's lines, split in two at the same y before, are whole.
 - **Not done:** pictures (no OCR), charts, inline (not referenced) PDF font dictionaries, /Differences glyph names (pdfTeX
   ligatures), LZW, lists and headings applied only through a paragraph style (no numId; localized heading style ids), docx headers/footers/footnotes/comments, text inside PDF form XObjects (`Do`),
   xls/doc/ppt/pptx, an attachment uploaded before this change (it gets no rendering; its line is unchanged).
@@ -92,4 +98,4 @@ empty paragraphs, tables with no paragraphs between); nested table, text box and
 in every cell (capped, quick, says so); PDF digit runs, CMap brackets and repeated full ranges (bounded); a content
 stream shared by many pages (charged each time, total capped); a two-digit indirect /Length; a TJ array of 80 items and
 two runs on one line; a 70 MB Flate image before the text; a damaged document worded as a document. Meta: engine.reachable
-excuses setPdfkit and pdfText as test seams. Neighbours and meta: 678/678. Tests: 44 (iteration 8 added a no-/Widths standard font and the shared width budget; iteration 7 added glyph-at-a-time words, kerned chunks, Type3 FontMatrix, Type0 /W, symbolic fonts, notes; iteration 6 added an unused mapless font, mixed Latin and mapless text, and PDFKit locked; iteration 5 added CJK no-map and encrypted-through-PDFKit). Iteration 4 added two arms (MacRoman asks PDFKit; [Red] is not a date).
+excuses setPdfkit and pdfText as test seams. Neighbours and meta: 678/678. Tests: 48 (iteration 9 added style-change blocks, Td cells, inline images, Kangxi; iteration 8 added a no-/Widths standard font and the shared width budget; iteration 7 added glyph-at-a-time words, kerned chunks, Type3 FontMatrix, Type0 /W, symbolic fonts, notes; iteration 6 added an unused mapless font, mixed Latin and mapless text, and PDFKit locked; iteration 5 added CJK no-map and encrypted-through-PDFKit). Iteration 4 added two arms (MacRoman asks PDFKit; [Red] is not a date).
