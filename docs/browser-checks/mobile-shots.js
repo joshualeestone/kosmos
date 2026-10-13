@@ -1570,10 +1570,10 @@ DATA_SETS.marketing = {
      reading in the engine's own shapes (modelDisplayName's names; status.js measuredResult). State is untouched: the
      board's own Working / Question / Idle stay what the fleet seeds. */
   busy: {
-    cleo: { modelName: 'Claude Opus 5.5', tokens: 61000, ceiling: 200000 },
-    dana: { modelName: 'Claude Sonnet 5.5', tokens: 118000, ceiling: 200000 },
-    eli: { modelName: 'GPT 5.2', runner: 'codex', tokens: 84000, ceiling: 400000 },
-    farah: { modelName: 'Claude Haiku 5.5', tokens: 22000, ceiling: 200000 },
+    cleo: { modelName: 'Claude Opus 5.5', tokens: 61000, ceiling: 200000, postedDaysAgo: 1 },
+    dana: { modelName: 'Claude Sonnet 5.5', tokens: 118000, ceiling: 200000, postedDaysAgo: 0 },
+    eli: { modelName: 'GPT 5.2', runner: 'codex', tokens: 84000, ceiling: 400000, postedDaysAgo: 0 },
+    farah: { modelName: 'Claude Haiku 5.5', tokens: 22000, ceiling: 200000, postedDaysAgo: 3 },
   },
   commitments: {
     dana: 'Task 1 of Launch the spring catalogue: copy for pages 9 to 12, once the photos are in',
@@ -1592,6 +1592,12 @@ function busyCards(body, busy) {
     const percent = Math.round((b.tokens / b.ceiling) * 100);
     c.modelName = b.modelName;
     if (b.runner) c.runner = b.runner;   // modelLine names a codex agent's model without the Claude prefix
+    if (Number.isInteger(b.postedDaysAgo) && c.communityOn !== false) {
+      // The server's own wording for the card's community line (server.js, lastCommunityPost).
+      const d = b.postedDaysAgo;
+      c.lastCommunityPost = 'Last community post: ' + (d <= 0 ? 'today' : d === 1 ? 'yesterday' : d + ' days ago');
+      c.lastCommunityPostAt = new Date(Date.now() - d * 86400000).toISOString();
+    }
     c.context = { tokens: b.tokens, percent, overCeiling: false, notYet: false, ceiling: b.ceiling, ceilingAssumed: false,
       confidence: 'structured', because: 'measured, against a limit we have watched it hit' };
   };
