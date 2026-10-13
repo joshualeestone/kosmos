@@ -1666,13 +1666,43 @@ test('#4941: a comment and a post written in emoji, within the service\'s charac
   assert.equal(cr.POST_COMMENT_CAP, 4000);
 });
 
-/* #4941 review 1: only the single-post read asks for the larger comment cap; the digest reads (read --replies, the
-   nudge's count), which page in up to 20 replies per comment across many posts, keep COMMENT_CAP (source pin). */
-test('#4941: only the single-post read uses POST_COMMENT_CAP; the digest reads keep COMMENT_CAP', () => {
+/* #4941 review 1: the nudge's count, which pages in up to 20 replies per comment across many posts and shows no text,
+   keeps COMMENT_CAP (source pin). #5636 (0.7.46 report): the agent's own replies read shows each reply whole, at
+   POST_COMMENT_CAP, like the single-post read: it shows at most REPLIES_SHOWN_MAX replies, and agents answer from it. */
+test('#4941/#5636: the single-post read and the replies read use POST_COMMENT_CAP; the count keeps COMMENT_CAP', () => {
   const src = fs.readFileSync(path.join(__dirname, 'communityread.js'), 'utf8');
-  assert.equal((src.match(/commentOf\(c, false, POST_COMMENT_CAP\)/g) || []).length, 1);
-  assert.equal((src.match(/POST_COMMENT_CAP\)/g) || []).length, 1, 'another read asks for the larger cap');
+  assert.equal((src.match(/commentOf\(c, false, POST_COMMENT_CAP\)/g) || []).length, 2);
+  assert.equal((src.match(/commentOf\(x, true, POST_COMMENT_CAP\)/g) || []).length, 1);
+  assert.equal((src.match(/POST_COMMENT_CAP\)/g) || []).length, 3, 'another read asks for the larger cap');
+  const from = src.indexOf('async function freshReplies');
+  const fresh = src.slice(from, src.indexOf('\nasync function ', from + 1));
+  assert.ok(fresh.length > 100 && !fresh.includes('POST_COMMENT_CAP'), 'the count asks for the larger cap');
   assert.equal(cr.COMMENT_CAP, 1000);
+});
+
+test('#5636: --replies shows a long reply whole (the question is often at its end); past the service limit it is cut', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Kim5636', remoteId: RP(1), sentAt: '2026-09-30T10:00:00Z' } },
+    { Kim5636: { name: 'kim-writes', remoteId: 'x', apiKey: 'K', token: 'K' } });
+  const long = 'para one. '.repeat(120) + 'So what would you do next?';   // 1226 characters: past COMMENT_CAP
+  const page = 'p'.repeat(cr.POST_COMMENT_CAP + 50);
+  serve({
+    ['/posts/' + RP(1) + '/comments']: () => ({ status: 200, json: { comments: [
+      comment({ id: CID(1), created_at: T(9), agent: { name: 'Ann' }, body: long, replies: [
+        comment({ id: CID(2), parent_id: CID(1), created_at: T(10), agent: { name: 'Bo' }, body: long + ' (Bo)' }),
+      ], reply_count: 3, replies_cursor: 'cur1' }),
+    ] } }),
+    ['/posts/' + RP(1) + '/comments/' + CID(1) + '/replies']: () => ({ status: 200, json: { replies: [
+      comment({ id: CID(3), parent_id: CID(1), created_at: T(11), agent: { name: 'Cy' }, body: long + ' (Cy)' }),
+      comment({ id: CID(4), parent_id: CID(1), created_at: T(12), agent: { name: 'Di' }, body: page }),
+    ] } }),
+  });
+  assert.ok(long.length > cr.COMMENT_CAP, 'CONTROL: the fixture is not longer than the old cap, so this tests nothing');
+  const r = await cr.readReplies('Kim5636', { now: NOW });
+  assert.equal(r.ok, true, r.because);
+  const ends = (r.text.match(/So what would you do next\?/g) || []).length;
+  assert.equal(ends, 3, 'a long comment or reply was cut before its question: ' + ends + ' of 3 whole');
+  assert.ok(!r.text.includes('p'.repeat(cr.POST_COMMENT_CAP + 1)), 'a reply past the service limit was not cut');
 });
 
 test('#5623 review 14: a person comment the agent still owes is shown again, in its own section, after the mark has passed it', async () => {
