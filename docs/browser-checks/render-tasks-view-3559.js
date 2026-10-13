@@ -855,11 +855,13 @@ function chk(ok, label, extra) {
         /* kosmos#5942: a decision row says how long it has waited. The route's own rows, with the one field #5943's
            askedAt fills (#5943 has merged), stamped to a fixed time, so the real row renders it through the real page. */
         const stampAge = async (route) => {
-          const resp = await route.fetch();
-          const json = await resp.json();
-          const since = new Date(Date.now() - (12 * 86400 + 3600) * 1000).toISOString();
-          json.tasks = json.tasks.map((t) => (t.state === 'decision' ? Object.assign({}, t, { waitingSince: since }) : t));
-          await route.fulfill({ response: resp, json });
+          try {   // #6022: a poll in flight at close is caught, not a crash after the check passed
+            const resp = await route.fetch();
+            const json = await resp.json();
+            const since = new Date(Date.now() - (12 * 86400 + 3600) * 1000).toISOString();
+            json.tasks = json.tasks.map((t) => (t.state === 'decision' ? Object.assign({}, t, { waitingSince: since }) : t));
+            await route.fulfill({ response: resp, json });
+          } catch { await route.abort().catch(() => {}); }
         };
         await page.route('**/api/tasks?view=tasks*', stampAge);
         let aged;
@@ -876,10 +878,12 @@ function chk(ok, label, extra) {
         /* No known start: the same rows with waitingSince forced to null on the decision row, so this half means the
            same before and after #5943 gives real cards a start. */
         const noAge = async (route) => {
-          const resp = await route.fetch();
-          const json = await resp.json();
-          json.tasks = json.tasks.map((t) => (t.state === 'decision' ? Object.assign({}, t, { waitingSince: null }) : t));
-          await route.fulfill({ response: resp, json });
+          try {   // #6022
+            const resp = await route.fetch();
+            const json = await resp.json();
+            json.tasks = json.tasks.map((t) => (t.state === 'decision' ? Object.assign({}, t, { waitingSince: null }) : t));
+            await route.fulfill({ response: resp, json });
+          } catch { await route.abort().catch(() => {}); }
         };
         await page.route('**/api/tasks?view=tasks*', noAge);
         let agedBack;

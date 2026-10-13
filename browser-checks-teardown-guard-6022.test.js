@@ -26,8 +26,8 @@
  * before EVERY close in a file with several browsers.
  *
  * ⚠️ WEAKEST PART, AND IT IS A HEURISTIC. A handler is found by its `.route(` call and its first parameter, from an
- * arrow (`async (r) =>`, `r =>`) or `function (r)`. A handler written as a named function defined elsewhere is not
- * read (fails GREEN). A handler with no fetch of its own is not checked at all, even one that awaits a timer or a held
+ * arrow (`async (r) =>`, `r =>`) or `function (r)`, or passed by name and found at its `const NAME = ... =>` or
+ * `function NAME(` definition in the same file (a handler imported from another file is not read: fails GREEN). A handler with no fetch of its own is not checked at all, even one that awaits a timer or a held
  * promise before it fulfills (that answer can land after close too; outside this card, a follow-up). A catch that
  * rethrows counts as caught, and the abort in the catch is advised, not required (an empty catch passes: no crash, but a
  * real failure then waits for the check's timeout). A statement without semicolons, or a call passed as an argument
@@ -148,6 +148,16 @@ function scan(raw) {
   // A .route( the pattern could not read, whose handler fetches, is a finding (fails RED, round 3): a comma in an
   // unquoted pattern, a handler passed by name, any shape the pattern does not know.
   const read = new Set(starts.map((h) => h.at));
+  // A handler passed by name (`page.route(url, stampAge)`) is checked at its definition (`const stampAge = async (r) =>`
+  // or `function stampAge(r)`), by the same rules (after #6024 added two such handlers).
+  for (const r of src.matchAll(/\.route\(\s*(?:'[^'\n]*'|"[^"\n]*"|`[^`]*`|[^,'"`]){1,300},\s*([A-Za-z_$][\w$]*)\s*\)/g)) {
+    const name = r[1];
+    const def = new RegExp('\\b(?:(?:const|let|var)\\s+' + name + '\\s*=\\s*(?:async\\s+)?(?:\\(\\s*(\\w+)[^)]*\\)|(\\w+))\\s*=>|(?:async\\s+)?function\\s+' + name + '\\s*\\(\\s*(\\w+))').exec(src);
+    if (!def) continue;
+    starts.push({ at: def.index, param: def[1] || def[2] || def[3] });
+    read.add(r.index);
+  }
+  starts.sort((x, y) => x.at - y.at);
   for (const r of src.matchAll(/\.route\(/g)) {
     if (read.has(r.index)) continue;
     const next = src.indexOf('.route(', r.index + 1);
@@ -213,6 +223,10 @@ test('#6022 fixtures: the rule can fail, and the safe shapes pass (controls)', (
   assert.ok(scan(unreadable).length > 0, 'a route the pattern cannot read, whose handler fetches, is flagged, not skipped (round 3)');
   const halfAwaited = "await page.route('**/x', async (r) => {\n  try {\n    const res = await r.fetch();\n    return ok ? await r.fulfill({ response: res }) : r.fulfill({ response: res });\n  } catch { await r.abort().catch(() => {}); }\n});\n";
   assert.deepEqual(scan(halfAwaited), [4], 'an await on one branch does not cover the other (round 3)');
+  const byName = "const stampAge = async (route) => {\n  const resp = await route.fetch();\n  await route.fulfill({ response: resp });\n};\nawait page.route('**/x', stampAge);\n";
+  assert.deepEqual(scan(byName), [2, 3], 'a handler passed by name is checked at its definition');
+  const byNameSafe = "const stampAge = async (route) => {\n  try {\n    const resp = await route.fetch();\n    await route.fulfill({ response: resp });\n  } catch { await route.abort().catch(() => {}); }\n};\nawait page.route('**/x', stampAge);\n";
+  assert.deepEqual(scan(byNameSafe), [], 'a safe handler passed by name passes');
   const fixtureOnly = "await page.route('**/api/x', (r) => r.fulfill({ json: {} }));\nconst x = await window.fetch('/a');\nawait browser.close();\n";
   assert.deepEqual(scan(fixtureOnly), [], 'a fixture-only handler and window.fetch are not flagged');
   const bareParam = "page.route('**/t', async route => {\n  const r = await route.fetch();\n  route.fulfill({ response: r });\n});\n";
