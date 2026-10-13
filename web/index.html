@@ -7368,7 +7368,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* kosmos#6086: the "loading earlier messages" line floats over the thread's top edge and takes no room of its own. */
 .dm-earlier-wrap { position: relative; height: 0; flex: none; z-index: 2; }
 .dm-earlier { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); margin: 0; padding: 4px 12px; width: max-content; max-width: calc(100% - 24px);
-  border-radius: 999px; background: var(--k-surface); border: 1px solid var(--k-rule); color: var(--label-2); font-size: .8125rem; text-align: center; overflow-wrap: anywhere; }
+  border-radius: 999px; background: var(--k-surface); border: 1px solid var(--k-rule); color: var(--label-2); font-size: .8125rem; text-align: center; overflow-wrap: anywhere;
+  pointer-events: none; }   /* it lies over the first message on screen: a tap goes through to that message */
+.dm-earlier button { pointer-events: auto; }
 .dmthread { display: flex; flex-direction: column; gap: 12px; min-height: 7rem;
   max-height: 15rem; overflow-y: auto; padding-right: 4px; padding-block: 2px; }
 /* padding-block 2px (#3743): an unread message's gold outline is drawn 1px OUTSIDE the bubble (a filter), and
@@ -38473,9 +38475,16 @@ async function earlierMore() {
   const r = await earlierFetch(session, EARLIER.before);
   if (EARLIER.session !== session || EARLIER.opening !== opening) return;
   EARLIER.loading = false;
-  if (r.moved) { earlierReset(session); earlierRepaint(); return; }   // the thread changed under the page: start again
+  if (r.moved) {
+    /* The thread changed under the page: start again, ONCE. Reaching the top asks by itself now (kosmos#6086), so a
+       thread and an older route that keep disagreeing would be asked on every scroll and every poll, for ever. The
+       second time running it is a failed load, which stops the asking until the person presses Try again. */
+    EARLIER_MOVED.n = EARLIER_MOVED.session === session ? EARLIER_MOVED.n + 1 : 1; EARLIER_MOVED.session = session;
+    if (EARLIER_MOVED.n < 2) { earlierReset(session); earlierRepaint(); return; }
+    EARLIER.because = r.because; earlierRepaint(); return;
+  }
   if (!r.ok) EARLIER.because = r.because;
-  else { EARLIER.rows = r.rows.concat(EARLIER.rows); EARLIER.before = r.olderCount; convPause(); }   // old rows are not news to read aloud
+  else { EARLIER.rows = r.rows.concat(EARLIER.rows); EARLIER.before = r.olderCount; EARLIER_MOVED.n = 0; convPause(); }   // old rows are not news to read aloud
   earlierRepaint();
   if (!r.ok || !r.rows.length) return;
   /* kosmos#6086: nothing here moves the reader. earlierRepaint goes through setThread, which keeps the message they
@@ -38488,6 +38497,7 @@ async function earlierMore() {
    Never while a load is in flight, never over a failed read, and never again after a failed load until the person
    presses Try again: a scroll event must not turn one failure into a stream of requests. */
 const EARLIER_NEAR_TOP = 120;   // px from the top of the thread
+const EARLIER_MOVED = { session: null, n: 0 };   // "the thread changed under the page" answers in a row, across resets
 function earlierNearTop() {
   const thread = document.getElementById('d-dmthread');
   const session = thread && thread.__lastSession; const body = thread && thread.__lastBody;
@@ -38506,7 +38516,11 @@ function earlierNearTop() {
   }
   earlierMore();
 }
-document.addEventListener('scroll', (e) => { if (e.target && e.target.id === 'd-dmthread') earlierNearTop(); }, { capture: true, passive: true });
+document.addEventListener('scroll', (e) => {
+  if (!e.target || e.target.id !== 'd-dmthread') return;
+  earlierNearTop();
+  if (EARLIER.because && e.target.__lastBody) paintOlderLine(e.target.__lastBody, e.target.__lastSession);   // a failure shows only at the top
+}, { capture: true, passive: true });
 /* Messages at [end, olderCount) left the latest 200 while this was open: fetch them, newest pages first, and append. */
 async function earlierFillGap(session, olderCount) {
   if (EARLIER.filling) return;
@@ -38532,10 +38546,10 @@ async function earlierFillGap(session, olderCount) {
   const last = th && th.__lastSession === session ? th.__lastBody : null;
   if (last && Array.isArray(last.messages) && (Number(last.olderCount) || 0) > EARLIER.end) earlierFillGap(session, Number(last.olderCount));
 }
-/* kosmos#6086: the line over the top of the thread. It shows only while a page of earlier messages loads, or to say
-   a load failed (with Try again, the one button left). Nothing stands when there is nothing to say: not a count,
-   not a way in. A static button, relabelled never and toggled only on change (a rebuild each poll would take a
-   keyboard user's focus). */
+/* kosmos#6086: the line over the top of the thread. It shows only while a page of earlier messages loads, or, with the
+   reader at the top, to say a load failed (with Try again, the one button left). Nothing stands when there is nothing
+   to say: not a count, not a way in. The button is one static element, shown and hidden, never rebuilt (a rebuild
+   each poll would take a keyboard user's focus). */
 function paintOlderLine(body, sessionName) {
   const older = document.getElementById('d-talk-older');
   const textEl = document.getElementById('d-talk-older-text');
@@ -38544,9 +38558,14 @@ function paintOlderLine(body, sessionName) {
   /* A FAILED latest read (messages null): the thread says so, and nothing stands over it (review 7 of #5841). */
   if (!Array.isArray(body.messages)) { older.hidden = true; return; }
   const on = earlierOn(sessionName);
-  const text = !on ? '' : EARLIER.because ? pjSentence(EARLIER.because) : EARLIER.loading ? 'Loading earlier messages\u2026' : '';
+  /* A failed load is said only while the reader is at the top, where it happened and where Try again belongs. Left
+     standing wherever they scroll, the line would sit over the first message on screen for the rest of the visit. */
+  const thread = document.getElementById('d-dmthread');
+  const atTop = !thread || thread.scrollTop <= EARLIER_NEAR_TOP;
+  const failed = on && Boolean(EARLIER.because) && !EARLIER.loading && atTop;
+  const text = !on ? '' : failed ? pjSentence(EARLIER.because) : EARLIER.loading ? 'Loading earlier messages\u2026' : '';
   if (textEl.textContent !== text) textEl.textContent = text;
-  retry.hidden = !(on && EARLIER.because && !EARLIER.loading);
+  retry.hidden = !failed;
   older.hidden = !text;
 }
 document.addEventListener('click', (e) => {
@@ -38557,7 +38576,16 @@ document.addEventListener('click', (e) => {
   if (!session || !thread.__lastBody) return;
   if (!CURRENT || CURRENT.sessionName !== session) return;   // mid-switch: the line still shows the last agent's; wait for this one's
   if (!earlierOn(session) || EARLIER.loading) return;
-  earlierMore();   // Try again: the same page, asked for by the person
+  /* The button goes when the load starts, so focus would fall to the page: hand it to the conversation box (already
+     focusable), where the keyboard is still inside the conversation. */
+  if (document.activeElement === t) { const box = document.getElementById('d-talk-box'); if (box) box.focus({ preventScroll: true }); }
+  if (EARLIER.because && EARLIER.before > 0 && EARLIER_MOVED.n >= 2) {   // the thread had moved: start from where it is now
+    const first = Number(thread.__lastBody.olderCount) || 0;
+    earlierReset(session); EARLIER_MOVED.n = 0;
+    if (!first) { earlierRepaint(); return; }
+    Object.assign(EARLIER, { open: true, before: first, end: first });
+  }
+  earlierMore();   // Try again: asked for by the person
 });
 
 function paintTalkThread(body, name) {

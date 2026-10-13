@@ -57,6 +57,9 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' +
       window.__nullThread = null;   // a 200 read that FAILED: messages null + historyBecause (the shape the guard sees)
       window.__olderDelay = 0;
       window.__olderFail = false;   // the older route answers 500
+      window.__olderHold = false;   // the older route waits until the check calls __olderRelease(): no timing in the arms
+      window.__olderRelease = () => {};
+      window.__olderMoved = false;  // the older route answers a DIFFERENT range than asked (the thread changed under it)
       const enc = (o, s) => new Response(JSON.stringify(o), { status: s || 200, headers: { 'content-type': 'application/json' } });
       window.setInterval = () => 0;
       window.fetch = async (url) => {
@@ -67,7 +70,9 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' +
         if (m) {
           window.__asked.push(who + ':' + m[1]);
           if (window.__olderDelay) await new Promise((r) => setTimeout(r, window.__olderDelay));
+          if (window.__olderHold) await new Promise((r) => { window.__olderRelease = r; });
           if (window.__olderFail) return enc({ error: 'no' }, 500);
+          if (window.__olderMoved) return enc({ messages: all.slice(0, 1), olderCount: 0 });
           const before = Math.min(Number(m[1]), all.length);
           const start = Math.max(0, before - 2);
           return enc({ messages: all.slice(start, before), olderCount: start });
@@ -155,15 +160,16 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' +
     chk(!!w.last && !!w.composer && w.last.h > 0 && w.composer.h > 0, '#6086 CONTROL: the newest message and the composer are painted', JSON.stringify([w.last, w.composer]));
 
     // The reader scrolls to the top: the page before the latest loads, with a line over the top of the thread meanwhile.
-    await page.evaluate(() => { window.__olderDelay = 500; });
-    await toTop(); await page.waitForTimeout(150);
+    await page.evaluate(() => { window.__olderHold = true; });
+    await toTop(); await settle();
     s = await state(); w = await where('msg-5!');
     const before5 = w.row;
     chk(/^Loading earlier messages/.test(s.line) && !s.retry, '#6086: while a page loads, a line at the top says so (no button)', JSON.stringify(s));
     chk(!!w.line && w.line.h > 0 && w.line.top >= w.thread.top - 2 && w.line.bottom <= w.thread.top + 60, '#6086: the line is over the top of the thread', JSON.stringify([w.line, w.thread]));
     chk(!!w.line && !(w.line.top >= w.last.bottom - 2 && w.line.bottom <= w.composer.top + 2) && w.line.bottom < w.composer.top, '#6086: and not between the newest message and the composer', JSON.stringify([w.line, w.last, w.composer]));
     const threadTopBefore = w.thread.top;
-    await page.waitForTimeout(900);
+    chk(s.asked.join(',') === 'april:5', 'CONTROL: the page was asked for and has not come back yet', JSON.stringify(s.asked));
+    await page.evaluate(() => { window.__olderHold = false; window.__olderRelease(); }); await settle();
     s = await state(); w = await where('msg-5!');
     chk(s.rows.join(',') === 'm3,m4,m5,m6,m7' && s.asked.join(',') === 'april:5', 'reaching the top loads the page before the latest, at the top of the thread, oldest first (before=5)', JSON.stringify(s));
     chk(!s.line && !s.retry, '#6086: when the page has landed the line is gone', JSON.stringify(s));
@@ -171,12 +177,15 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' +
     chk(w.thread.top === threadTopBefore, '#6086: showing and hiding the line does not move the thread', JSON.stringify([threadTopBefore, w.thread.top]));
     chk(s.scrollTop > 120, '#6086 CONTROL: one page is taller than the near-the-top distance, so one arrival loaded one page', String(s.scrollTop));
     chk(/Answers [^|]*msg-3!/.test(s.reply) && !/further back|unavailable/i.test(s.reply), 'a reply among the earlier rows names its original', JSON.stringify(s.reply));
-    await page.evaluate(() => { window.__olderDelay = 0; });
 
-    await toTop(); await settle();
+    // Near the top is enough: the reader does not have to land on 0 exactly. And far from it asks nothing.
+    await page.evaluate(() => { const t = document.getElementById('d-dmthread'); t.scrollTop = 200; t.dispatchEvent(new Event('scroll')); }); await settle();
+    s = await state();
+    chk(s.asked.join(',') === 'april:5', '#6086 CONTROL: 200 px from the top asks for nothing', JSON.stringify(s.asked));
+    await page.evaluate(() => { const t = document.getElementById('d-dmthread'); t.scrollTop = 60; t.dispatchEvent(new Event('scroll')); }); await settle();
     await open('april', 'April'); await settle();   // the 5 s poll's repaint
     s = await state();
-    chk(s.rows.join(',') === 'm1,m2,m3,m4,m5,m6,m7' && s.asked.join(',') === 'april:5,april:3', 'reaching the top again pages back with before=3, and the repaint keeps the earlier rows', JSON.stringify(s));
+    chk(s.rows.join(',') === 'm1,m2,m3,m4,m5,m6,m7' && s.asked.join(',') === 'april:5,april:3', 'coming within 60 px of the top pages back with before=3, and the repaint keeps the earlier rows', JSON.stringify(s));
 
     await toTop(); await settle();
     s = await state();
@@ -240,10 +249,50 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' +
     await toTop(); await settle(); await toTop(); await settle();
     s = await state();
     chk(s.asked.join(',') === 'june:5', '#6086: scrolling at the top does not ask again after a failure', JSON.stringify(s.asked));
+    await page.evaluate(() => { const t = document.getElementById('d-dmthread'); t.scrollTop = t.scrollHeight; t.dispatchEvent(new Event('scroll')); }); await settle();
+    s = await state();
+    chk(!s.line && !s.retry, '#6086: away from the top the failure does not stand over the messages', JSON.stringify(s));
+    await toTop(); await settle();
+    s = await state();
+    chk(/could not read the earlier messages/i.test(s.line) && s.retry && s.asked.join(',') === 'june:5', '#6086: back at the top it is said again, still without asking', JSON.stringify(s));
     await page.evaluate(() => { window.__olderFail = false; });
     await page.click('#d-talk-older-show'); await settle();
     s = await state();
     chk(s.asked.join(',') === 'june:5,june:5' && s.rows.join(',') === 'm3,m4,m5,m6,m7' && !s.line && !s.retry, '#6086: Try again asks for the same page, and it lands', JSON.stringify(s));
+
+    // The older route keeps answering a different range (the thread and the route disagree): asked twice, then it is
+    // a failed load. Not once per scroll or per poll, for ever.
+    await setAll('nora', 8);
+    await page.evaluate(() => { window.__asked.length = 0; window.__olderMoved = true; });
+    await switchTo('nora', 'Nora'); await settle();
+    for (let i = 0; i < 6; i++) { await toTop(); await settle(); await open('nora', 'Nora'); await settle(); }
+    s = await state();
+    chk(s.asked.length === 2 && s.asked.every((a) => a === 'nora:5'), '#6086: a thread that keeps changing under the page is asked twice, not without end', JSON.stringify(s.asked));
+    chk(/could not read the earlier messages/i.test(s.line) && s.retry && s.rows.join(',') === 'm5,m6,m7', '#6086: then it says so, with Try again, and the latest rows stand', JSON.stringify(s));
+    await page.evaluate(() => { window.__olderMoved = false; });
+    await page.click('#d-talk-older-show'); await settle();
+    s = await state();
+    chk(s.rows.join(',') === 'm3,m4,m5,m6,m7' && !s.line, '#6086: Try again starts from where the thread is now, and the page lands', JSON.stringify(s));
+
+    // A search on: the thread is short because it is filtered, not because the reader is at the top. Nothing is asked.
+    await setAll('pia', 8);
+    await page.evaluate(() => { window.__asked.length = 0; });
+    await switchTo('pia', 'Pia'); await settle();
+    await page.evaluate(() => { TALK_QUERY = 'msg-7'; });
+    await toTop(); await settle(); await open('pia', 'Pia'); await settle();
+    s = await state();
+    chk(s.asked.length === 0, '#6086: with a search on, reaching the top asks for nothing', JSON.stringify(s.asked));
+    await page.evaluate(() => { TALK_QUERY = ''; });
+
+    // Another agent opened while a page is still on its way: the page is dropped, not drawn under the new name.
+    await setAll('quin', 8); await setAll('rae', 3);
+    await page.evaluate(() => { window.__asked.length = 0; window.__olderHold = true; });
+    await switchTo('quin', 'Quin'); await settle();
+    await toTop(); await settle();
+    await switchTo('rae', 'Rae'); await settle();
+    await page.evaluate(() => { window.__olderHold = false; window.__olderRelease(); }); await settle();
+    s = await state();
+    chk(s.asked.join(',') === 'quin:5' && s.rows.join(',') === 'm0,m1,m2' && !s.line, '#6086: a page that lands after another agent was opened is dropped (only that agent\'s rows, no line)', JSON.stringify(s));
 
     // A thread too short to scroll has no scroll to wait for: it loads the earlier pages by itself, to the first message.
     await page.addStyleTag({ content: '#d-dmthread { height: 4000px !important; max-height: 4000px !important; }' });
