@@ -303,25 +303,33 @@ ok "#5923: a lib lock whose holder has died is taken over, and the run moves the
 # NOT taken over until that git exits, so no joiner loads a half-written lib. A sleep stands in for the live git and
 # ends after 3 s; the joiner must wait for it, then take over and move.
 sh -c 'exit 0' & DEADG5923=$!; wait $DEADG5923
-sleep 6 & GIT5923=$!
+sleep 60 & GIT5923=$!
 mkdir -p $S/ml5923-gitlive/queued-heavy-lib.lock && echo $DEADG5923 > $S/ml5923-gitlive/queued-heavy-lib.lock/pid && echo $GIT5923 > $S/ml5923-gitlive/queued-heavy-lib.lock/gitpid
 GL_OLD5923=$(lh5923 gitlive)
-# Watched WHILE the stand-in git lives (not by elapsed time, which a slow box can pass on its own): 3 s in, the lock
-# still names the dead holder and the lib has not moved.
-( sleep 3; if [ "$(cat $S/ml5923-gitlive/queued-heavy-lib.lock/pid 2>/dev/null)" = "$DEADG5923" ] && [ "$(lh5923 gitlive)" = "$GL_OLD5923" ] && kill -0 $GIT5923 2>/dev/null; then echo held; else echo taken; fi > $S/gitlive5923.watch ) &
-GLW5923=$!
-run5923 gitlive; wait $GLW5923 2>/dev/null; wait $GIT5923 2>/dev/null
-ok "#5923: a dead holder whose git is still checking out keeps the lock while that git lives, then the run takes over and moves" '[ "$rc" = 0 ] && [ "$(cat $S/gitlive5923.watch 2>/dev/null)" = held ] && [ "$(lh5923 gitlive)" = "$(lm5923 gitlive)" ] && [[ "$o" != *"stayed taken"* ]]'
+( run5923 gitlive; printf '%s\n' "$o" > $S/gitlive5923.out; echo "$rc" > $S/gitlive5923.rc ) &
+GLR5923=$!
+# Checked once the joiner is IN its lock loop (as the live arm does), never on a timer a slow box could beat: past
+# perl and the re-exec, then sleeping between lock reads, which it only does while it has NOT taken the lock.
+until_true 30 'pgrep -f "^/bin/bash $REAL_QH --queued-args" >/dev/null'
+glw5923="$(pgrep -f "^/bin/bash $REAL_QH --queued-args" | head -1)"
+until_true 30 '[ -n "$glw5923" ] && pgrep -P "$glw5923" -x sleep >/dev/null'; gl_inloop5923=$?
+if [ "$gl_inloop5923" = 0 ] && [ "$(cat $S/ml5923-gitlive/queued-heavy-lib.lock/pid 2>/dev/null)" = "$DEADG5923" ] && [ "$(lh5923 gitlive)" = "$GL_OLD5923" ]; then gl_held5923=held; else gl_held5923=taken; fi
+kill $GIT5923 2>/dev/null; wait $GIT5923 2>/dev/null; wait $GLR5923
+ok "#5923: a dead holder whose git is still checking out keeps the lock while that git lives, then the run takes over and moves" '[ "$gl_held5923" = held ] && [ "$(cat $S/gitlive5923.rc)" = 0 ] && [ "$(lh5923 gitlive)" = "$(lm5923 gitlive)" ] && ! grep -q "stayed taken" $S/gitlive5923.out'
 # Iteration 21: the instant before the pid reaches the lock (or a reused gitpid): no gitpid at all, but the lib's
 # index.lock exists, as it does for any running checkout. Not taken over until it is gone (removed here after 6 s).
 sh -c 'exit 0' & DEADI5923=$!; wait $DEADI5923
 mkdir -p $S/ml5923-idxlock/queued-heavy-lib.lock && echo $DEADI5923 > $S/ml5923-idxlock/queued-heavy-lib.lock/pid
 IDX5923="$($GE git -C $S/l5923-idxlock/work/kosmos-bc-main-4610 rev-parse --absolute-git-dir)/index.lock"; : > "$IDX5923"
 IL_OLD5923=$(lh5923 idxlock)
-( sleep 3; if [ "$(cat $S/ml5923-idxlock/queued-heavy-lib.lock/pid 2>/dev/null)" = "$DEADI5923" ] && [ "$(lh5923 idxlock)" = "$IL_OLD5923" ]; then echo held; else echo taken; fi > $S/idxlock5923.watch; sleep 3; rm -f "$IDX5923" ) &
-ILW5923=$!
-run5923 idxlock; wait $ILW5923 2>/dev/null
-ok "#5923: a dead holder with no gitpid but a live index.lock keeps the lock until index.lock is gone, then the run takes over and moves" '[ "$rc" = 0 ] && [ "$(cat $S/idxlock5923.watch 2>/dev/null)" = held ] && [ "$(lh5923 idxlock)" = "$(lm5923 idxlock)" ] && [[ "$o" != *"stayed taken"* ]]'
+( run5923 idxlock; printf '%s\n' "$o" > $S/idxlock5923.out; echo "$rc" > $S/idxlock5923.rc ) &
+ILR5923=$!
+until_true 30 'pgrep -f "^/bin/bash $REAL_QH --queued-args" >/dev/null'
+ilw5923="$(pgrep -f "^/bin/bash $REAL_QH --queued-args" | head -1)"
+until_true 30 '[ -n "$ilw5923" ] && pgrep -P "$ilw5923" -x sleep >/dev/null'; il_inloop5923=$?
+if [ "$il_inloop5923" = 0 ] && [ "$(cat $S/ml5923-idxlock/queued-heavy-lib.lock/pid 2>/dev/null)" = "$DEADI5923" ] && [ "$(lh5923 idxlock)" = "$IL_OLD5923" ]; then il_held5923=held; else il_held5923=taken; fi
+rm -f "$IDX5923"; wait $ILR5923
+ok "#5923: a dead holder with no gitpid but a live index.lock keeps the lock until index.lock is gone, then the run takes over and moves" '[ "$il_held5923" = held ] && [ "$(cat $S/idxlock5923.rc)" = 0 ] && [ "$(lh5923 idxlock)" = "$(lm5923 idxlock)" ] && ! grep -q "stayed taken" $S/idxlock5923.out'
 # A checkout AHEAD of origin/main (a lib fix not merged yet) differs too, and is never moved back.
 d5923=$S/l5923-ahead/work/kosmos-bc-main-4610; $GE git -C $d5923 checkout -q --detach origin/main && echo '# ahead' >> $d5923/tools/lib/cut-guard.sh && $GE git -C $d5923 -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qam ahead
 run5923 ahead
