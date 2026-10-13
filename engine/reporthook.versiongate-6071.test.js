@@ -171,3 +171,16 @@ test('oldestClaudeVersion: once the time budget is spent, the answer is unknown'
   assert.equal(reporthook.oldestClaudeVersion([a, b], { versionOf: slow, budgetMs: 10 }), null);
   assert.equal(reporthook.oldestClaudeVersion([a, b], { versionOf: slow, budgetMs: 5000 }), '2.1.296', 'CONTROL: in budget');
 });
+
+test('one rule per folder: the default folder takes the oldest claude found, an added account folder only Kosmos\'s', () => {
+  const accounts = require('./accounts');
+  const bin = path.join(SANDBOX, '.nvm', 'versions', 'node', 'v22.0.0', 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  try { fs.symlinkSync(process.execPath, path.join(bin, 'claude')); } catch { /* made by the test above */ }
+  assert.equal(accounts.claudeVersionForFolder(path.join(SANDBOX, '.claude'), 'darwin', { PATH: '' }), process.versions.node,
+    'the default folder sees the nvm claude');
+  const added = accounts.prepare('vg6071-rule');
+  assert.equal(added.ok, true);
+  assert.equal(accounts.claudeVersionForFolder(added.dir, 'darwin', { PATH: '' }), null,
+    'an added folder asks only Kosmos\'s claude, which this sandbox does not have');
+});

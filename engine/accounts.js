@@ -458,7 +458,7 @@ function prepare(label) {
      while a refused prepare would be a worse failure for a smaller cause.
      The field in the return is what lets a screen say which happened.
      Reused spots get this free: the connect route re-runs prepare. */
-  const hooks = reporthook.ensureWired(path.join(dir, 'settings.json'), reporthook.hookScriptPath(), { claudeVersion: claudeVersionNow() });
+  const hooks = reporthook.ensureWired(path.join(dir, 'settings.json'), reporthook.hookScriptPath(), { claudeVersion: claudeVersionForFolder(dir) });
   /* #3946: and with the statusline that records its weekly usage, so a swarm
      on it can be limited in "% of weekly allowance". Same fail-soft posture:
      an account that already has its own statusline keeps it and simply has
@@ -480,6 +480,13 @@ function prepare(label) {
 function claudeVersionNow(plat) {
   try { return reporthook.claudeVersion(require('./runners').resolveBin('claude').bin, { platform: plat }); }
   catch { return null; }
+}
+
+/* #6071: THE rule for which claude decides a folder's hooks, used by prepare, wireDefaultHooks and setup.sh alike:
+   the default folder (~/.claude) is read by the person's own claude too, so it takes the oldest claude found; an
+   added account folder takes Kosmos's own claude. One function, so the callers cannot disagree and undo each other. */
+function claudeVersionForFolder(dir, plat, env) {
+  return isDefaultDir(dir) === true ? defaultFolderClaudeVersion(plat, env) : claudeVersionNow(plat);
 }
 
 /* #6071: for the DEFAULT folder (~/.claude), which the person's own claude reads too: the oldest version among
@@ -532,7 +539,7 @@ function wireDefaultHooks(opts) {
     fs.mkdirSync(path.dirname(settings), { recursive: true });
     const BUSY = 'another writer held the settings file';
     // Read before the lock: it may start a process, and the lock is held only around the file.
-    const claudeVersion = o.claudeVersion !== undefined ? o.claudeVersion : defaultFolderClaudeVersion(plat);
+    const claudeVersion = o.claudeVersion !== undefined ? o.claudeVersion : claudeVersionForFolder(path.dirname(settings), plat);
     const locked = require('./filelock').withFileLock(settings,
       () => reporthook.ensureWired(settings, script, { platform: plat, node: o.node, claudeVersion }),
       { busy: BUSY, cannotAccess: 'the settings folder refused the lock file, so the hooks were not written', waitMs: o.waitMs });
@@ -971,5 +978,5 @@ function removeAccount(dir, usedBy) {
   return { ok: true, removed: true, because: null };
 }
 
-module.exports = { homeDir, wireDefaultHooks, defaultFolderClaudeVersion, list, listLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, dirForLabel, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+module.exports = { homeDir, wireDefaultHooks, claudeVersionForFolder, defaultFolderClaudeVersion, list, listLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, dirForLabel, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); } };
