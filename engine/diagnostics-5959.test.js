@@ -335,3 +335,12 @@ test('#5959: each agent carries the card word the person saw, when it was last s
   const extra = build({ cards: [{ ...CARDS[0], lastWorked: { at, why: null, other: 'not carried' } }], redactor: makeRedactor(WHO) });
   assert.deepEqual(extra.agents[0].lastWorked, { at, why: null });
 });
+
+test('#5959: a label that carries a value from the card (the model it is switching to) is redacted too', () => {
+  const switching = { ...CARDS[0], state: 'restarting', disruption: { cause: 'model' }, modelName: '/Users/pat/models/custom' };
+  const raw = require('./cardlabel').labelOf(switching);
+  assert.ok(raw.includes('/Users/pat'), 'CONTROL: the page\'s label carries the model name: ' + raw);
+  const file = build({ cards: [switching], redactor: makeRedactor(WHO) });
+  assert.match(file.agents[0].card.label, /^Switching to ~\/models\/custom/, file.agents[0].card.label);
+  assert.ok(!JSON.stringify(file).includes('/Users/pat'), 'nowhere in the file');
+});

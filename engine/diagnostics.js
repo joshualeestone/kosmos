@@ -64,8 +64,8 @@ function maskKeyBlocks(entries) {
   });
 }
 
-// A card whose fields cannot be read gives no label (null), and the file is still made. The module itself is required
-// at the top, so a broken cardlabel fails loudly rather than blanking every label.
+// A label that cannot be worked out (any error inside labelOf) reads null for that agent, by design, and the file is still
+// made. Only a cardlabel module that fails to load is loud (it is required at the top).
 function labelOf(card) {
   try { return cardlabel.labelOf(card); } catch { return null; }
 }
@@ -139,6 +139,7 @@ function build(inputs) {
       sessionName: c.sessionName,
       runner: c.runner || null,
       // label: the card's word as the page shows it (engine/cardlabel, #5959 slice 1), so a builder reads what the person saw.
+      // One label carries a value from the card ("Switching to <model name>"); it is redacted like every other string.
       card: { state: c.state || null, label: labelOf(c), stateReported: c.stateReported || null, stateReportedBy: c.stateReportedBy || null },
       // When it was last seen working (#5959 slice 2, status.js lastWorkedOf): { at, why }, or null when the card has none
       // (no pane, or a pane that is not ours). The two fields are named, so a field added there later is not carried here.

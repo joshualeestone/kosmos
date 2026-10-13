@@ -9,7 +9,8 @@ from slices 1 and 2, which were not on main yet. Both are now (#6035, #6021), so
   no pane, or a pane that is not ours).
 - `report.askedAt`: when a waiting question was first made (selfreport's askedAt, #5943), the time report show ages a
   stale report from.
-All three are times or the page's own words: nothing the agent or the person wrote, so the file's rule (states and
+All three are times, a fixed reason word, or the page's own words (one label, "Switching to <model name>", carries the
+card's model name, which goes through the redactor like every string): nothing the agent or the person wrote, so the file's rule (states and
 failures, not the conversation) holds, and they pass through the same redactor as everything else.
 
 Test: engine/diagnostics-5959.test.js, on real fleet cards with the slice 1/2 values injected (the label is derived
