@@ -39,8 +39,11 @@ shows "Launch", "Launch" in every picker.
   project's own name). If shots show it, put the own name first ("Launch, in Book A").
 
 ## Tests
-  Phone shots: NOT taken yet. The row button and the group heading get longer text too, so the
-  shots should cover a two-level chain in the Tasks dropdown, a row and a heading at phone width.
+  Measured at 390 px (iPhone width) with a two-level chain of long names: the Project: dropdown grew to
+  525 px and the page scrolled sideways (563 wide). The Tasks controls now shrink to the row and the closed
+  select ends in an ellipsis (the open list shows the whole chain); after, the page is 390 wide. Guarded in
+  the browser arm, width-independent (without the cap it fails: 1748 px page in a 1200 window). Design
+  shots still to take before the PR.
 - engine/tasks.projectpath-3029.test.js: the engine walk, with a negative control (projectPathOf returning
   [] fails every test).
 - web.subpick-3029.test.js: the shipped page helpers; its control shows a joined-string sort misorders

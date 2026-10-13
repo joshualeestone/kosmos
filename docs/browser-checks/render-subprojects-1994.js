@@ -518,6 +518,22 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' #3029 a subproject row\'s checkbox and Not built yet labels speak the chain with commas',
       !!chains.rowLabels && /^Select task 1 of Book A, Launch, Ads( \(|$)/.test(chains.rowLabels.sel) && chains.rowLabels.unbuild === 'Mark task 1 of Book A, Launch, Ads not built yet', JSON.stringify(chains.rowLabels));
     ok(t + ' #3029 a project door into a subproject with no tasks names it by its chain', /All tasks › Book A › Launch/.test(chains.doorCrumb), JSON.stringify(chains.doorCrumb));
+    // A chain far longer than any window: the Tasks controls must shrink to the page, never scroll it sideways.
+    const fit = await page.evaluate(() => {
+      const panel = document.getElementById('panel-tasks');
+      const wasHidden = panel.hidden;
+      panel.hidden = false;   // shown directly: showTab would start a real tasks read that could repaint over the fixture
+      const long = 'Spring catalogue relaunch with the regional sales teams and the new print partner';
+      TSK.data = [{ projectId: 'lng', projectName: long, projectPath: [long, long], number: 1, sentence: 'x', state: 'nobody', who: [], whoNames: [] }];
+      TSK.proj = null; TSK.by = 'status'; tskPaint();
+      const sel = document.getElementById('tsk-projsel');
+      const out = { shown: sel.getClientRects().length > 0, selRight: Math.round(sel.getBoundingClientRect().right),
+        inner: window.innerWidth, docW: document.documentElement.scrollWidth };
+      TSK.data = null; tskPaint();
+      panel.hidden = wasHidden;
+      return out;
+    });
+    ok(t + ' #3029 a very long chain in the Project: dropdown never widens the page', fit.shown && fit.selRight <= fit.inner && fit.docW <= fit.inner, JSON.stringify(fit));
     ok(t + ' #3029 settings picker names an archived parent that is a subproject by its chain', chains.archivedParent === 'Book A › Old launch (archived)', JSON.stringify(chains.archivedParent));
 
     // ---- Layer 4 removed (#3103/#3104, 6.68) ----

@@ -4193,6 +4193,10 @@ body:not(.consolidated) #docs-chev { display: none; }
 .tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 14px 0 4px; }
 #tsk-under { margin: 12px 0 4px; }
 .tsk-ctl { display: flex; align-items: center; }
+/* #3029: a project picker names subprojects by their chain, which can outgrow a phone; the control shrinks
+   to its row and the closed select ends in an ellipsis (the open list shows the whole chain). */
+.tsk-ctl { min-width: 0; max-width: 100%; }
+.tsk-ctl select.tsk-sel { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
 .tsk-cl { font: 600 .875rem var(--font-ui); color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
 .tsk-search { position: relative; margin: 0; max-width: 100%; }
 .tsk-search svg { position: absolute; left: 11px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--k-ink-2); pointer-events: none; }
@@ -60610,7 +60614,7 @@ function pjAncestry(p) {
   if (!cur && p && p.parentName) return [p.parentName];   // parent record not loaded
   while (cur && !seen.has(cur.id)) {
     seen.add(cur.id);
-    names.unshift(cur.name);
+    names.unshift(cur.name == null ? '' : cur.name);   // #3029: never the text undefined in a chain
     cur = cur.parent ? pjById(cur.parent) : null;
   }
   return names;
@@ -63439,7 +63443,7 @@ let NT_FOR = null;
 let NT_ORIGIN = 'project';
 let NT_PROJECT = null;
 let NT_PARENT = null;   // #3861 part 2: the task "+ Add subtask" was pressed on, or null
-/* The projects the All-tasks picker offers: every project that is not archived, by name. The
+/* The projects the All-tasks picker offers: every project that is not archived, in chain order (#3029). The
    rails set archived projects aside, and so does this list. A view SCOPED to an archived project
    (its own View-all door) files there without the picker, exactly as that project's own page
    does: the person is standing in that project on purpose. */
@@ -63464,7 +63468,7 @@ function openNewTask(projectId, origin, parent) {
   let p = pjById(projectId === undefined ? PJ_CURRENT : projectId);
   if (NT_ORIGIN === 'tasks' && !p) {
     /* All tasks: ask which project, in the dialog. A kept draft's project (one with anything in
-       it) is offered first, since the person was aiming it there; else the first by name. Either
+       it) is offered first, since the person was aiming it there; else the first in the list. Either
        way the draft is never wiped here: the person has not chosen anything yet, so the words
        follow the pick (below) exactly as they do when the person changes it. */
     const choices = ntChoices();
