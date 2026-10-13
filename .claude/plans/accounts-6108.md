@@ -67,6 +67,9 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
 - weeklyBlocked 'unreadable-settings' (a settings file that cannot be parsed): says Kosmos cannot read the account's
   settings, since setup could not wire it either.
 
+- Round 21 nits, deferred with reasons: (1) the note does not say a working agent's current task is interrupted by the restart. The copy never promises otherwise, and the agent page's own Move says the same thing the same way; fix both together if Josh wants it said. (2) A target's "(N% used)" in the menu carries no age. Only a full (100%) target is left out; the row of that account shows the age one line away. Weakest premise: a days-old low reading can hide a target that is now nearly full. What would change it: a report of a move onto a nearly-full account. (3) The browser check's route replies are the harness's own; the stopped-agent sentence is pinned against the real route by the server test, not by the check.
+- Move reads the account's agents afresh at click time (round 21): the drawn list can be a poll old, and the route moves an agent from wherever it is, so an agent moved on its own page meanwhile would be moved again. If the fresh list cannot be read, nothing moves (refuse, never guess).
+
 ## Not in slice 1 (follow-ups after it ships)
 - A bulk move blocks the server once per agent (removal.restart runs inside the route); a bulk route could batch it.
 - After a 'partial' move the server already lists the agent under the new account, though it still runs on the old
