@@ -3,6 +3,7 @@
 /* #6071: PostToolUseFailure is wired only for a Claude Code that knows it (2.1.0+). A Claude Code before 2.1.0
    validates `hooks` against its own event list and, on a failure, drops the WHOLE settings file, so an unknown or
    older version must never get the key. */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
