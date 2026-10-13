@@ -146,3 +146,11 @@ test('#5959: a URL path after a host name is kept; a user folder in a file path 
   assert.equal(redactText('GET https://api.github.com/users/octocat/repos'), 'GET https://api.github.com/users/octocat/repos');
   assert.equal(redactText('read /Users/ann/notes'), 'read /Users/[user]/notes', 'CONTROL: a file path still is');
 });
+
+test('#5959: another person\'s folder that starts with the home folder\'s name is taken whole, and a cut secret value too', () => {
+  const { redactText } = makeRedactor({ home: '/Users/pat', user: 'pat', host: 'zzz' });
+  assert.equal(redactText('C:\\Users\\Pat Smith\\Desktop and /Users/pat smith/x'), 'C:\\Users\\[user]\\Desktop and /Users/[user]/x');
+  assert.ok(!/smith/i.test(redactText('/Users/pat smith/x')));
+  assert.equal(redactText('/Users/pat/x'), '~/x', 'CONTROL: the home folder itself is still ~');
+  assert.equal(redactText('{"password":"abc'), '{"password":"••••', 'a value cut before its quote is taken to the end');
+});
