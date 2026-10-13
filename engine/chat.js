@@ -1198,7 +1198,7 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   const before = look();
   // Review 32: a screen that could not be read is not "the question went": say which (nothing was sent either way).
   if (!before) return { ok: false, because: 'we could not see its screen to answer its question, so nothing was sent; try again' };
-  const menu = status.claudeQuestionMenu(before);
+  const menu = status.claudeAnswerableMenu(before);   // #6054: a permission prompt is answered the same way
   if (!menu) return { ok: false, because: 'its question is no longer on its screen, so nothing was sent' };
   const opt = menu.options.find((o) => o.n === Number(n));
   const e = expect || {};
@@ -1209,7 +1209,7 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   if (got.spawnFailed || !got.ran || got.status !== 0) return { ok: false, because: 'we could not answer its question; look at its window' };
   await qmenuWait(QMENU_SETTLE_MS);
   const after = look();
-  const still = after ? status.claudeQuestionMenu(after) : null;
+  const still = after ? status.claudeAnswerableMenu(after) : null;
   // Review 3: a screen that could not be read after the key is not "answered": the record says unconfirmed.
   return { ok: true, key: String(opt.n), label: opt.label, answered: !!after && !(still && still.question === menu.question), screen: after };
 }
@@ -1444,6 +1444,11 @@ const CLAUDE_WAITING_SENTENCE = 'it is waiting for an answer on its screen, and 
    option (usually Yes), so a typed line would approve a command or an edit nobody chose. */
 const CLAUDE_PERMISSION_SENTENCE = 'it is asking for permission on its screen, and a message typed now would answer that '
   + '(usually Yes), so we did not type anything; answer it in its window first';
+/* #6054: the ending for a screen the agent page answers with buttons (status.claudeAnswerableMenu reads it), in place of
+   "in its window", which a person using Kosmos cannot reach. Only when the buttons are really drawn: another form of the
+   menu, or a permission prompt whose options do not read cleanly, keeps the window ending. */
+const ON_ITS_PAGE = 'answer it with the buttons under its question on its page in Kosmos';
+const onItsPage = (sentence) => sentence.replace(/answer (?:the question|it) in its window first$/, ON_ITS_PAGE);
 function claudeMenuRefusal(card, sessionName, roster) {
   if ((DRY_RUN && !runner) || !card || String(card.runner || 'claude') !== 'claude' || card.reachedByChannel === true) return null;
   /* needs_you, and working too (review 11): an agent usually reaches a permission prompt mid-turn, while its card still
@@ -1459,10 +1464,13 @@ function claudeMenuRefusal(card, sessionName, roster) {
   if (status.claudeSafeguardsMenuUp(view.text)) return CLAUDE_SAFEGUARDS_SENTENCE;   // its own reading (#5051), never pressed
   if (status.claudeQuestionMenuUp(view.text)) {   // first: its free-answer row is the stricter signal
     /* The direct-message route answers by number only when the card reads needs_you (it reads the screen only then). */
-    return CLAUDE_MENU_SENTENCE + (card.state === status.STATE.NEEDS_YOU && status.claudeQuestionMenu(view.text) ? CLAUDE_MENU_DM_CLAUSE : '');
+    // #6054: the page draws buttons for the single-select form (status.claudeQuestionMenu) only.
+    const single = Boolean(status.claudeQuestionMenu(view.text));
+    return (single ? onItsPage(CLAUDE_MENU_SENTENCE) : CLAUDE_MENU_SENTENCE)
+      + (card.state === status.STATE.NEEDS_YOU && single ? CLAUDE_MENU_DM_CLAUSE : '');
   }
   const kind = status.claudePermissionPromptKind(view.text);   // #5754
-  if (kind === 'wording') return CLAUDE_PERMISSION_SENTENCE;
+  if (kind === 'wording') return status.claudePermissionPrompt(view.text) ? onItsPage(CLAUDE_PERMISSION_SENTENCE) : CLAUDE_PERMISSION_SENTENCE;   // #6054
   return kind === 'shape' ? CLAUDE_WAITING_SENTENCE : null;   // other wording, or one of Claude Code's own pickers
 }
 
