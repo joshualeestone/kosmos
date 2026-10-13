@@ -41,3 +41,9 @@ test('it falls back to real appends for a differing field, a text the engine wou
   assert.equal(appendMany(chat, chat.DIRECT, 'cap', near).via, 'appendMessage');
   assert.equal(appendMany(chat, chat.DIRECT, 'ok', [{ text: 'a' }, { text: 'b' }]).via, 'one write', 'CONTROL: the fast path is taken when nothing forbids it');
 });
+
+test('review 2: a first entry whose time does not parse sends the rest through real appends (no made-up times from NaN)', () => {
+  const out = appendMany(chat, chat.DIRECT, 'badtime', [{ text: 'a', at: 'not a time' }, { text: 'b' }, { text: 'c' }]);
+  assert.equal(out.via, 'appendMessage');
+  assert.deepEqual(rows('badtime').map((m) => m.text), ['a', 'b', 'c']);
+});
