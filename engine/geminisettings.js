@@ -3,8 +3,8 @@
 /**
  * Prepare a Gemini agent's settings.json at birth (#3296): the auth pre-seed
  * that skips the interactive first-run auth picker, and the five lifecycle hooks
- * that make the agent self-report to the board. Since then also the tool hook
- * (#5812) and the CLI's own updater switched off (#6058). This is the Gemini analog of
+ * that make the agent self-report to the board. The same file also carries the
+ * tool hook (#5812) and the switch-off of the CLI's own updater (#6058). This is the Gemini analog of
  * engine/reporthook.js (the Claude report-hook merge) fused with the codex
  * trust/pre-accept writes -- one module because gemini needs BOTH written into the
  * SAME file before launch, and two writers of one file is this codebase's

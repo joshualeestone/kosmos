@@ -97,7 +97,7 @@ would move again): the measurement above is how to find out, on the new version.
   second run that changes nothing; another asks of nine files whether the CLI can still install afterwards.
 - No test goes through a caller (`create.js`'s write at an agent's creation): the five tests call `ensurePrepared`
   with a file, as the module's other tests do.
-- Every `engine/*gemini*.test.js` and `engine/win32keyed*.test.js`: 187 tests, 183 pass, 0 fail (4 skipped).
+- Every `engine/*gemini*.test.js` and `engine/win32keyed*.test.js`: 188 tests, 184 pass, 0 fail (4 skipped).
 - The live two-arm measurement above.
 - NOT RUN: the full suite (queued).
 
@@ -142,3 +142,10 @@ would move again): the measurement above is how to find out, on the new version.
 - The reviewer enumerated every pairing of install and check choice against the code (no explicit choice is
   overridden in any), and tried three wrong implementations against the two table tests by reading: always write
   both, never write, fill independently. Each fails named rows.
+
+## Review 4 (2026-10-13, sonnet), at 2e34688f9: converged
+0 BLOCKER, 0 WARNING, 0 CONVENTION, 3 NIT. Two taken in one commit AFTER this review, which no reviewer has read:
+the module header's wording (a comment), and a stale test count in this file. Not taken: a row for `null` under
+the new install key. It counts as the person's choice, the CLI reads it as off, and the pin holds.
+The reviewer read the long comment against the code line by line, counted the two tables (thirteen rows and nine),
+and checked this file's sections against each other.
