@@ -28,6 +28,7 @@ const { start, server, ASSIGNER_VIEW } = require('./server');
 const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
 const assigner = require('./engine/assigner');
+const fleet = require('./test-support/fleet');
 
 let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
@@ -36,11 +37,15 @@ test.after(() => { server.close(); fs.rmSync(SANDBOX, { recursive: true, force: 
 const listed = async () => (await (await fetch(`${base}/api/projects`)).json()).projects;
 
 test('a project the Assigner gave up on today carries who it could not reach; another carries null', async () => {
+  const roster = fleet.install([fleet.agent('echo6072', { state: 'idle' })]).agents;
+  const echo = roster.find((c) => (c.sessionName || '').startsWith('echo6072'));
+  assert.ok(echo, 'fixture: no card for the agent');
   const stalled = projects.create({ name: 'Stalled6072' });
+  projects.addAgent(stalled.id, echo.sessionName, roster);
   const fine = projects.create({ name: 'Fine6072' });
   const mem = assigner.restoredMemory({ v: 1 }, Date.now());
   const at = Date.now() - 60 * 1000;
-  mem.askGaveUp.set(stalled.id, { at, tries: assigner.MAX_ASK_FAILS, agent: 'Echo', because: 'could_not' });
+  mem.askGaveUp.set(stalled.id, { at, tries: assigner.MAX_ASK_FAILS, agent: 'Echo', session: echo.sessionName, because: 'could_not' });
   const before = ASSIGNER_VIEW.mem;
   ASSIGNER_VIEW.mem = mem;
   try {
@@ -48,7 +53,7 @@ test('a project the Assigner gave up on today carries who it could not reach; an
     const s = rows.find((p) => p.id === stalled.id);
     const f = rows.find((p) => p.id === fine.id);
     assert.ok(s && f, 'fixture: a project is missing from the list');
-    assert.deepEqual(s.goalAskGaveUp, { at, tries: assigner.MAX_ASK_FAILS, agent: 'Echo', because: 'could_not' });
+    assert.deepEqual(s.goalAskGaveUp, { at, tries: assigner.MAX_ASK_FAILS, agent: 'Echo', session: echo.sessionName, because: 'could_not' });
     assert.equal(f.goalAskGaveUp, null, 'a project nothing gave up on carries a give-up');
     tasks.create(stalled.id, { sentence: 'Plan the next step', made: { via: 'screen' } });
     assert.equal((await listed()).find((p) => p.id === stalled.id).goalAskGaveUp, null, 'open work, yet the goal reads as stalled');
