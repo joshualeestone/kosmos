@@ -83,7 +83,7 @@ function claudeVersion(bin, opts) {
     let v = null;
     try {
       const out = require('node:child_process').execFileSync(b, ['--version'],
-        { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+        { encoding: 'utf8', timeout: Math.max(1, Math.min(2000, (opts && opts.timeoutMs) || 2000)), stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
       const m = /(\d+\.\d+\.\d+)/.exec(String(out || ''));
       v = m ? m[1] : null;
     } catch { v = null; }
@@ -116,8 +116,10 @@ function oldestClaudeVersion(bins, opts) {
       seen.add(real);
       // A .cmd or .ps1 cannot be run without a shell, so its version is unknown, and so is the answer.
       if (/\.(cmd|ps1)$/i.test(real)) return null;
-      if (Date.now() > deadline) return null;
-      const v = (opts && typeof opts.versionOf === 'function' ? opts.versionOf : claudeVersion)(real, opts);
+      const left = deadline - Date.now();
+      if (left <= 0) return null;
+      // Each read gets only what is left of the budget, so the whole list never takes longer than the budget.
+      const v = (opts && typeof opts.versionOf === 'function' ? opts.versionOf : claudeVersion)(real, Object.assign({}, opts, { timeoutMs: left }));
       if (!v) return null;
       if (oldest === null || !versionAtLeast(v, oldest)) oldest = v;
     }

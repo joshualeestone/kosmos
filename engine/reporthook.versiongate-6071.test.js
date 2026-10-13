@@ -184,3 +184,15 @@ test('one rule per folder: the default folder takes the oldest claude found, an 
   assert.equal(accounts.claudeVersionForFolder(added.dir, 'darwin', { PATH: '' }), null,
     'an added folder asks only Kosmos\'s claude, which this sandbox does not have');
 });
+
+test('oldestClaudeVersion: each read is given only what is left of the budget as its timeout', () => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'left-'));
+  const a = path.join(dir, 'a'); const b = path.join(dir, 'b');
+  fs.writeFileSync(a, ''); fs.writeFileSync(b, '');
+  const given = [];
+  const versionOf = (p, o) => { given.push(o.timeoutMs); const until = Date.now() + 20; while (Date.now() < until) { /* slow */ } return '2.1.296'; };
+  reporthook.oldestClaudeVersion([a, b], { versionOf, budgetMs: 1000 });
+  assert.equal(given.length, 2);
+  assert.ok(given.every((t) => t > 0 && t <= 1000), 'timeouts ' + given.join(','));
+  assert.ok(given[1] < given[0], 'the second read gets less than the first: ' + given.join(','));
+});
