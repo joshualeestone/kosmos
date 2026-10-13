@@ -296,11 +296,17 @@ test('#6065 review 1: a member whose spill cannot be written is not reached, kee
     roomhold.withoutStale = (p, ids) => ids;   // keep the seeded id, which no real post backs
     assert.ok(roomhold.hold('cy', 'room4926', 'p-held-before'), 'premise: a held post for cy');
     let d;
-    try { d = await agentPost(roster, 'long '.repeat(2200), false); } finally { roomhold.withoutStale = realStale; }
-    assert.equal(d.outcomes.cy, chat.DELIVERY.COULD_NOT, JSON.stringify(d.outcomes));
-    assert.deepEqual(roomhold.heldIn('cy', 'room4926'), ['p-held-before'], 'cy\'s held post was lost when its spill failed');
-    const bixInbox = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'bix', 'Inbox');
-    assert.ok(fs.existsSync(bixInbox) && fs.readdirSync(bixInbox).includes(d.id + '.txt'), 'CONTROL: the post spilled for a member with a folder');
+    try {
+      try { d = await agentPost(roster, 'long '.repeat(2200), false); } finally { roomhold.withoutStale = realStale; }
+      assert.equal(d.outcomes.cy, chat.DELIVERY.COULD_NOT, JSON.stringify(d.outcomes));
+      assert.deepEqual(roomhold.heldIn('cy', 'room4926'), ['p-held-before'], 'cy\'s held post was lost when its spill failed');
+      const bixInbox = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'bix', 'Inbox');
+      assert.ok(fs.existsSync(bixInbox) && fs.readdirSync(bixInbox).includes(d.id + '.txt'), 'CONTROL: the post spilled for a member with a folder');
+    } finally {
+      // Review 2: leave nothing for a neighbour (the plain file where cy's Inbox goes, and the seeded held post).
+      fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'cy', 'Inbox'), { recursive: true, force: true });
+      roomhold.forget('cy', 'room4926');
+    }
   });
 });
 
@@ -415,7 +421,7 @@ test('#6065 review 1: the held-posts line counts toward the limit, so a post tha
     assert.ok(roomhold.hold('bix', 'room4926', 'p-bix-held'));
     const text = 'x'.repeat(messages.spillLimit() - 4000);
     let d;
-    try { d = await agentPost(roster, text, false); } finally { roomhold.withoutStale = realStale; roomhold.clauseFor = realClause; }
+    try { d = await agentPost(roster, text, false); } finally { roomhold.withoutStale = realStale; roomhold.clauseFor = realClause; roomhold.forget('bix', 'room4926'); }
     assert.notEqual(d.outcomes.bix, chat.DELIVERY.COULD_NOT, 'chat refused a line the held-posts line pushed past its limit: ' + JSON.stringify(d.outcomes));
     const bixInbox = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'bix', 'Inbox');
     assert.ok(fs.existsSync(bixInbox) && fs.readdirSync(bixInbox).includes(d.id + '.txt'), 'bix\'s post was not spilled');
