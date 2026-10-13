@@ -191,6 +191,7 @@ test('#6108 /api/accounts: a Claude row carries its weekly reading and its agent
   assert.ok(row.agentsHere && Array.isArray(row.agentsHere.names), 'no agentsHere on the row: ' + JSON.stringify(row.agentsHere));
   assert.ok(row.agentsHere.names.includes('usage-on-default'), 'the agent on this account is missing: ' + JSON.stringify(row.agentsHere));
   assert.ok(!row.agentsHere.names.includes('usage-on-other'), 'an agent on ANOTHER account was listed here');
+  assert.equal(row.agentsHere.complete, true, 'every agent here was readable, so the list is complete');
   // A reading from a week that has already reset is not this week's: the row says there is none.
   fs.writeFileSync(path.join(def, statusline.FILE), JSON.stringify({ usedPct: 99, resetsAt: Math.floor(Date.now() / 1000) - 60, at }));
   const rows2 = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];

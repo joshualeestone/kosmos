@@ -27094,6 +27094,11 @@ const ACCT_MOVE_SHOW_MS = 2 * 60e3;   // a finished move's sentence stays two mi
 function acctUsageHtml(a, list) {
   if (!a || a.provider !== 'anthropic' || !a.agentsHere) return '';   // an older board sends no agentsHere: show nothing
   const w = a.weekly && Number.isFinite(a.weekly.usedPct) ? a.weekly : null;
+  /* Only accounts a move can land on: shared history (as the agent page's picker requires, #1492: an option that
+     always fails is worse than none) and not signed out or refused. */
+  const targets = (list || []).filter((x) => x.provider === 'anthropic' && x.dir && x.dir !== a.dir && x.memoryShared
+    && !(x.connection && (x.connection.badge === 'rejected' || x.connection.badge === 'signed_out')));
+  const canMove = a.agentsHere.names.length > 0 && targets.length > 0;
   let usage = '';
   if (!a.apiKey) {
     if (w) {
@@ -27103,7 +27108,7 @@ function acctUsageHtml(a, list) {
       const age = agoWords(Date.now() - w.at);
       usage = '<div class="acct-usage-meter"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
         + '<p class="acct-usage-line">' + pct + '% of its weekly limit used · resets ' + esc(resets) + (age ? ' · last changed ' + esc(age) : '') + '</p></div>'
-        + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">Close to its weekly limit.' + (a.agentsHere.names.length ? ' Move its agents to another account before they stop.' : '') + '</p>' : '');
+        + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">Close to its weekly limit.' + (canMove ? ' Move its agents to another account before they stop.' : '') + '</p>' : '');
     } else {
       usage = a.isDefault
         ? '<p class="acct-usage-line acct-usage-none">Kosmos cannot read usage for this account.</p>'   // the default account gets no statusline (#6108 follow-up)
@@ -27118,16 +27123,12 @@ function acctUsageHtml(a, list) {
   const agentsLine = names.length
     ? '<p class="acct-agents-line">Its agents on this computer: ' + names.map(esc).join(', ') + esc(short) + '</p>'
     : '<p class="acct-agents-line">No agents on it on this computer' + esc(short) + '.</p>';
-  /* Only accounts a move can land on: shared history (as the agent page's picker requires, #1492: an option that
-     always fails is worse than none) and not signed out or refused. */
-  const targets = (list || []).filter((x) => x.provider === 'anthropic' && x.dir && x.dir !== a.dir && x.memoryShared
-    && !(x.connection && (x.connection.badge === 'rejected' || x.connection.badge === 'signed_out')));
   let st = ACCT_MOVE.get(a.dir) || null;
   if (st && !st.moving && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) { ACCT_MOVE.delete(a.dir); st = null; }
   const busy = !!(st && st.moving);
   const said = st && st.said ? '<p class="acct-move-msg" role="status" data-acct-move-msg="' + esc(a.dir) + '">' + esc(st.said) + '</p>' : '';
   const move = (names.length && targets.length) || busy
-    ? '<div class="acct-move"><select' + (busy ? ' disabled' : '') + ' data-acct-move-to="' + esc(a.dir) + '" aria-label="Move ' + (names.length === 1 ? 'this agent' : 'these agents') + ' to another account">'
+    ? '<div class="acct-move"><select' + (busy ? ' disabled' : '') + ' data-acct-move-to="' + esc(a.dir) + '" aria-label="Move the agents on ' + esc(a.email || a.label || 'this account') + ' to another account">'
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
       + targets.map((x) => '<option value="' + esc(x.dir) + '">' + esc(x.email || x.label || x.dir) + (x.weekly && Number.isFinite(x.weekly.usedPct) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
       + '</select><button type="button" data-acct-move="' + esc(a.dir) + '" aria-label="Move the agents on ' + esc(a.email || a.label || 'this account') + '" disabled>' + (busy ? 'Moving…' : 'Move') + '</button></div>'

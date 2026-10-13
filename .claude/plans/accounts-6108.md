@@ -2,7 +2,7 @@
 
 ## Done when (slice 1)
 Settings > AI Models: each Claude account row shows (a) its weekly limit used as a meter and "N% of its weekly limit
-used · resets <day time> · as of <age>" when Kosmos has a reading, or "No usage reading for this account yet." when
+used · resets <day time> · last changed <age>" when Kosmos has a reading, or "No usage reading for this account yet." when
 it does not (no meter for an API key); (b) a warning at 75% or more; (c) its agents on this computer by display name;
 (d) "Move them to…" that moves each of those agents to the picked Claude account through the existing per-agent
 route and says how many moved and why any did not. Tested: server route test and a browser check, both proven red on
@@ -17,10 +17,14 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
 - Thresholds: warn at 75% (the card's number), red meter at 90%.
 - Move = the existing one-agent route in a loop, not a new bulk route: one tested path, the engine's own refusal
   sentence per agent. Rejected: a server bulk route (more surface for slice 1).
-- Targets exclude rejected/signed-out accounts; the engine still refuses a target without shared memory and the row
-  shows that sentence.
-- Weakest premise: the weekly reading is only as fresh as the last running agent on that account, so the row shows
-  "as of <age>".
+- Targets: other Claude accounts with shared history (as the agent page's picker requires, #1492) that are not
+  signed out or refused. Any other refusal is the engine's own sentence, said once per reason.
+- Weakest premise: the reading only moves when an agent on that account runs and its usage rises (the statusline
+  records a change, not a look), so the row says "last changed <age>", never "as of".
+- The warning's "Move its agents" sentence appears only when a move is offered.
+- The default account (no statusline) says "Kosmos cannot read usage for this account."; others without a reading
+  say "No usage reading for this account yet."
+- A finished move's sentence stays two minutes; moving restarts the agents on the new account, and the line says so.
 
 ## Not in slice 1 (follow-ups after it ships)
 Default ~/.claude reading (no statusline), the 5-hour limit, OpenAI/Gemini/Grok percentages, Windows, agents on other
