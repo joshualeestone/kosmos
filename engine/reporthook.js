@@ -4,9 +4,10 @@
  * Wiring the Layer 1 reporting hook into a Claude Code settings.json (#561).
  *
  * The hook script (install/kosmos-report-hook.sh, staged to app/bin/ in the
- * bundle) is what makes #526's verb speak: Claude Code fires it on seven
- * events and it runs `kosmos report`. This module is THE ONE merge
- * implementation that wires those seven entries into a settings file --
+ * bundle) is what makes #526's verb speak: Claude Code fires it on the
+ * events in HOOK_EVENTS (seven report events, plus PostToolUseFailure, #6071)
+ * and it runs `kosmos report`. This module is THE ONE merge
+ * implementation that wires those entries into a settings file --
  * required by `accounts.prepare` (an account dir is born with its hooks, the
  * #248 born-correct-or-not-born rule) and invoked by install/setup.sh
  * through the bundled node for the default `~/.claude` and every existing
