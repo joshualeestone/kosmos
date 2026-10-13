@@ -21,12 +21,14 @@
 #                        permission prompt, once the turn moves on; #900/#1949/#2456)
 #   StopFailure       -> blocked --on "provider api (<kind>)" --owner provider
 #   SessionEnd        -> stopped
+#   PostToolUseFailure -> no report: `kosmos tool-failed`, a digest of the failed call the
+#                        board counts for the same failure repeating in one turn (#6071)
 #
 # ⚠️ THE TABLE ABOVE IS THE WHOLE TABLE, AND IT USED TO BE SPLIT. StopFailure
 # and SessionEnd sat BELOW the prose block that followed, so a sentence reading
 # "every line above" was true of five rows and silently false of seven (#1466).
 #
-# EVERY ONE OF THE SEVEN passes --auto, and that is the point rather than a
+# EVERY ONE OF THE SEVEN REPORTS passes --auto, and that is the point rather than a
 # detail: --auto means THE MACHINE WROTE THIS, not the agent (install/kosmos,
 # above cmd_report). This hook is the machine. It was once passed on the Stop
 # line alone, because it was added for #900's rule rather than for what it
@@ -470,6 +472,24 @@ case "$EVENT" in
       mkdir -p "$THROTTLE_DIR" 2>/dev/null; date +%s > "$MARK" 2>/dev/null || true
       report working --auto "running ${TOOL}"
     else report needs_you --auto "asking permission to use ${TOOL}${CMD:+: $CMD}"; fi ;;
+  PostToolUseFailure)
+    # #6071 (slice D1): one failed tool call, sent to the board as a digest so it can count the SAME failure repeating
+    # inside one turn (engine/toolloop.js). The signature is a hash of the tool, its input and the error's first line,
+    # made here, so the input itself never leaves this Mac. Without jq, the whole payload with its per-call
+    # tool_use_id taken out is hashed instead (identical for identical failures in one session). An interrupt is the
+    # person stopping the call, not a failure, so it is not sent. Waits at most 3 s, like keep-copy.
+    if [ -n "$KOSMOS" ] && ! printf '%s' "$INPUT" | grep -q '"is_interrupt"[[:space:]]*:[[:space:]]*true'; then
+      TF_TOOL=$(json_field '.tool_name' 'tool_name'); TF_TOOL="${TF_TOOL:-a tool}"
+      # The sed fallback (no jq) returns the error still JSON-escaped, so its first line also ends at a literal \n.
+      TF_ERR=$(json_field '.error' 'error' | head -1 | sed 's/\\n.*//' | cut -c1-300)
+      if command -v shasum >/dev/null 2>&1; then TF_HASH='shasum -a 256'; else TF_HASH='sha256sum'; fi
+      if [ -n "$JQ" ]; then
+        TF_SIG=$(printf '%s' "$INPUT" | "$JQ" -cS '[.tool_name, .tool_input, ((.error // "") | tostring | split("\n")[0])]' 2>/dev/null | $TF_HASH 2>/dev/null | cut -c1-64)
+      else
+        TF_SIG=$(printf '%s' "$INPUT" | sed 's/"tool_use_id"[[:space:]]*:[[:space:]]*"[^"]*"//g' | $TF_HASH 2>/dev/null | cut -c1-64)
+      fi
+      [ -n "$TF_SIG" ] && "$KOSMOS" tool-failed "$TF_TOOL" "$TF_SIG" "$TF_ERR" </dev/null >/dev/null 2>&1 || true
+    fi ;;
   Stop)
     rm -f "$MARK" 2>/dev/null || true
     # #900: --auto, so this end-of-turn idle cannot erase a `blocked` or

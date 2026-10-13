@@ -4618,7 +4618,7 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    as any agent holding the board token already can. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/community/read',
-  'POST /api/undo/keep', 'POST /api/agent/reply-channel']);   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler
+  'POST /api/undo/keep', 'POST /api/agent/reply-channel', 'POST /api/toolfail']);   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler; toolfail: #6071, its handler resolves the caller token-first (resolveAgentSender)
 /* kosmos#5805 part 2: `kosmos reply-channel` (POST /api/agent/reply-channel) joins: its handler names the caller
    (processCaller) and sets only that agent's own channel; no name in the body is read. Every Windows agent holds a
    token and no board token, and the report came from there. */
@@ -15348,6 +15348,39 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
+  if (pathname === '/api/toolfail' && req.method === 'POST') {
+    /* #6071 (slice D1): the report hook's digest of one failed tool call (Claude Code's PostToolUseFailure),
+       counted by engine/toolloop.js. The sender is resolved exactly as POST /api/report resolves it (token
+       first, then pane, the same pane refusal on an enforcing board), so a failure lands on the same agent its
+       reports do. Records only: nothing is raised yet. The first time a run reaches the threshold is logged,
+       so the threshold can be read against real boards before it is shown to anyone. */
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { recorded: false, because: 'that request is not the shape we expect' }); return; }
+        const roster = safeRoster();
+        if (roster === null) { sendJson(res, 200, { recorded: false, because: 'we could not check which agents are running, so we could not tell who this is from' }); return; }
+        const denyPaneFallback = boardAuthState.on
+          && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+        const sender = resolveAgentSender(req, body, roster, {
+          denyPaneFallback,
+          denyBecause: 'this board only records a failed tool call from the account that started it, or one that presents an agent token',
+        });
+        if (!sender.ok) { sendJson(res, 200, { recorded: false, because: sender.because }); return; }
+        const who = sender.card.sessionName;
+        const r = require('./engine/toolloop').noteFailure(who, { tool: body.tool, sig: body.sig, error: body.error });
+        if (!r.ok) { sendJson(res, 200, { recorded: false, because: r.because }); return; }
+        if (r.reached) {
+          const tool = String(body.tool || 'a tool').replace(/[\u0000-\u001f\u007f]+/g, ' ').slice(0, 80);
+          console.log(`[toolloop] ${who}: ${tool} failed the same way ${r.count} times in one turn (#6071, recorded only)`);
+        }
+        sendJson(res, 200, { recorded: true, count: r.count, looping: r.looping });
+      })
+      .catch(() => sendJson(res, 400, { recorded: false, because: 'that request is not something we can read' }));
+    return;
+  }
+
   if (pathname === '/api/report' && req.method === 'POST') {
     /* #188's third verb: records rather than delivers. The agent says what
        it is DOING (one of selfreport.STATES); nothing is typed anywhere,

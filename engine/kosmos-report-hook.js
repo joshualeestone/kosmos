@@ -247,6 +247,51 @@ async function keepCopy(req, io) {
   }
 }
 
+/* #6071 (slice D1): a value with its object keys sorted at every level, so the same input always hashes the same. */
+function sortedKeys(v) {
+  if (Array.isArray(v)) return v.map(sortedKeys);
+  if (v && typeof v === 'object') {
+    const out = {};
+    for (const k of Object.keys(v).sort()) out[k] = sortedKeys(v[k]);
+    return out;
+  }
+  return v;
+}
+
+/** #6071 (slice D1): the digest of a failed tool call (PostToolUseFailure) that the board counts, or null. The
+ *  signature hashes the tool, its input and the error's first line, here, so the input never leaves the computer.
+ *  An interrupt is the person stopping the call, not a failure, so it gives null. The bash hook's twin. */
+function failureRequestFor(evt) {
+  if (field(evt, 'hook_event_name') !== 'PostToolUseFailure' || !evt || evt.is_interrupt === true) return null;
+  const tool = field(evt, 'tool_name') || 'a tool';
+  const error = String(evt.error == null ? '' : (typeof evt.error === 'string' ? evt.error : JSON.stringify(evt.error))).split('\n')[0].slice(0, 300);
+  const sig = crypto.createHash('sha256').update(JSON.stringify([tool, sortedKeys(evt.tool_input === undefined ? null : evt.tool_input), error])).digest('hex');
+  return { tool, sig, error };
+}
+
+/** POST one failure digest to /api/toolfail, the call `kosmos tool-failed` makes on the Mac. Same headers and bound
+ *  as keepCopy; never throws, and never holds the agent longer than KEEP_TIMEOUT_MS. */
+async function toolFailed(req, io) {
+  const o = io || {};
+  const headers = { 'content-type': 'application/json' };
+  if (o.boardToken) headers['x-kosmos-board-token'] = o.boardToken;
+  if (o.agentToken) headers['x-kosmos-agent-token'] = o.agentToken;
+  const { WORLD_HEADER, worldIdForHeader } = require('./launchidentity');
+  headers[WORLD_HEADER] = worldIdForHeader(o.world);
+  const doFetch = o.fetchImpl || ((typeof fetch === 'function') ? fetch : null);
+  if (!doFetch) return { ok: false, error: 'no fetch available' };
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), o.timeoutMs || KEEP_TIMEOUT_MS);
+  try {
+    const res = await doFetch(o.url + '/api/toolfail', { method: 'POST', headers, body: JSON.stringify(req), signal: ctl.signal });
+    return { ok: !!(res && res.ok), status: res && res.status };
+  } catch (err) {
+    return { ok: false, error: (err && err.message) ? err.message : String(err) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** The POST timeout, per event: the loud SessionStart send needs its verdict, so
  *  it gets the full window; every other event is a fire-report whose loss is
  *  harmless (the next event re-reports), so it uses a short window to bound the
@@ -396,6 +441,15 @@ async function main(io) {
       fetchImpl: o.fetchImpl, timeoutMs: o.keepTimeoutMs });
   }
 
+  /* #6071: a failed tool call goes to the board as a digest (no report), as the bash hook's PostToolUseFailure does. */
+  const failed = failureRequestFor(evt);
+  if (failed) {
+    const c = connection();
+    await toolFailed(failed, { url: c.url, boardToken: c.boardToken, agentToken: c.agentToken, world: c.world,
+      fetchImpl: o.fetchImpl, timeoutMs: o.keepTimeoutMs });
+    return 0;
+  }
+
   // Throttle bookkeeping mirrors the bash hook: PreToolUse consults the mark;
   // every state-change event clears it; UserPromptSubmit sets it (a prompt is a
   // fresh "working", so the next PreToolUse heartbeat waits a full window).
@@ -481,7 +535,7 @@ function attachStdin(stream, onDone) {
 module.exports = {
   parseInput, field, reportFor, buildBody, resolvePort, resolveUrl,
   readBoardToken, agentToken, deliver, timeoutFor, throttleKey, heartbeatDue,
-  attachStdin, main, kosmosAllows, keepRequestFor, keepCopy, KEEP_TIMEOUT_MS,
+  attachStdin, main, kosmosAllows, keepRequestFor, keepCopy, KEEP_TIMEOUT_MS, failureRequestFor, toolFailed,
   HEARTBEAT_SECONDS, DEFAULT_PORT, DEFAULT_TIMEOUT_MS, SHORT_TIMEOUT_MS,
 };
 

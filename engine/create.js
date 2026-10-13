@@ -5307,6 +5307,7 @@ function createAgentInner(opts) {
   try { require('./crashloop').forget(name); } catch { /* #5154: a new agent never inherits an old loop */ }
   try { require('./observed').forgetAgent(name); } catch { /* #5959 slice 2: nor the old name's last-seen time */ }
   try { require('./stuckterminal').forget(name); } catch { /* #5154 slice C: nor an old stuck-terminal episode's clock */ }
+  try { require('./toolloop').forget(name); } catch { /* #6071: nor a run of repeated tool failures */ }
   try { require('./liveness').forget(name); } catch { /* #5957 slice 3: nor an old agent's last report */ }
   const priorTokens = sendertoken.revoke(name);
   if (priorTokens.ok !== true) {
