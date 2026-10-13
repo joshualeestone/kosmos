@@ -158,7 +158,14 @@ async function run(action, opts) {
   if (action === 'look' && consent !== 'on') return done(['newer', version]);
 
   const r = await (o.begin || win32update.begin)({ ...common, expectVersion: version });
-  if (!r || !r.ok) return done(['refused', oneLine((r && r.because) || 'the update could not be started')]);
+  if (!r || !r.ok) {
+    const because = oneLine((r && r.because) || 'the update could not be started');
+    /* The window's own look with updates on: the newer build is still offered, so the person learns it is
+       there and hears why it would not install when they pick Update. Silence here would hide it for good
+       on a computer where begin() always refuses (a Kosmos folder in OneDrive, say). */
+    if (action === 'look') { log(`the automatic update to ${version} was not started: ${because}`); return done(['newer', version]); }
+    return done(['refused', because]);
+  }
   const outcome = await outcomeOf(r.journal, probe, o.wait);
   if (outcome.outcome === 'updated') return done(['updated', outcome.to || r.version || version]);
   return done(['failed', version, oneLine(outcome.sentence || outcome.because || `the update ended as ${outcome.outcome || 'unknown'}`)]);

@@ -196,7 +196,7 @@ test('#4382: the release switch stays off on main: turning the first-run choice 
 /* Each stdin line is one row: a command, then fields split by |. "-" is null.
      report|<report lines joined by \n>
      state|offer;installed;rollback;dismissed|<report lines>|<action>
-     notnow|offer;installed;rollback;dismissed
+     notnow|offer;installed;rollback;dismissed|<the bar's button or ->
      due|offer;installed;rollback;dismissed
      picked|offer;installed;rollback;dismissed|<inflight 0/1>
      disk|<lock age s or ->|<journal text or ->|<journal age s or -> */
@@ -235,7 +235,7 @@ static class UpdateProbe
                 Console.WriteLine(got.Kind + "|" + Show(got.Version) + "|" + Show(got.Value) + "|" + Show(got.RollbackVersion));
             }
             else if (f[0] == "state") Console.WriteLine(State(KosmosLauncher.AfterConnectUpdate(Before(f[1]), KosmosLauncher.ReadConnectUpdateReport(Lines(f[2])), f[3])));
-            else if (f[0] == "notnow") Console.WriteLine(State(KosmosLauncher.AfterNotNow(Before(f[1]))));
+            else if (f[0] == "notnow") { var b = Before(f[1]); b.BarNote = "a bar"; b.BarButton = N(f[2]); Console.WriteLine(State(KosmosLauncher.AfterNotNow(b))); }
             else if (f[0] == "due") Console.WriteLine(KosmosLauncher.UpdateLookIsDue(Before(f[1])) ? "due" : "not-due");
             else if (f[0] == "picked") Console.WriteLine(Show(KosmosLauncher.UpdatePickedAction(Before(f[1]), f[2] == "1")));
             else if (f[0] == "disk")
@@ -339,6 +339,8 @@ test('#4382: what each answer does: the same consent as the board, never a resta
     ['state|0.7.50;-;-;-|board|look', { O: '0.7.50', btn: 'Update' }],
     /* current: nothing newer, and the rollback offer follows the answer */
     ['state|0.7.50;-;0.7.46;-|current 0.7.46|look', { O: '-', R: '-', bar: '-', btn: '-' }],
+    /* the person picked Update and nothing is newer any more: said, not a bar that silently vanishes */
+    ['state|0.7.50;-;-;-|current 0.7.46|install', { O: '-', btn: '-' }],
     /* a version put away with Not now stays off the bar (the menu keeps it) */
     ['state|-;-;-;0.7.50|newer 0.7.50|look', { O: '0.7.50', bar: '-' }],
   ];
@@ -352,19 +354,22 @@ test('#4382: what each answer does: the same consent as the board, never a resta
   assert.doesNotMatch(stateOf(got[5]).bar, /Press Update/, 'a note that names a button the bar does not have');
   assert.match(stateOf(got[6]).msg, /^Kosmos could not roll back \(no\)\./);
   assert.notEqual(stateOf(got[9]).bar, '-', 'the person asked and heard nothing');
+  assert.equal(stateOf(got[13]).bar, 'Kosmos is up to date.', 'the person pressed Update and saw nothing happen');
 });
 
 test('#4382: Not now, the daily look, and Update: pure decisions', WINDOWS_ONLY, (t) => {
   if (!needsProbe(t)) return;
   const got = runProbe([
-    'notnow|0.7.50;-;-;-', 'notnow|-;0.7.50;-;-',
+    'notnow|0.7.50;-;-;-|Update', 'notnow|-;0.7.50;-;-|Restart', 'notnow|0.7.50;-;-;-|-',
     'due|-;-;-;-', 'due|0.7.50;-;-;-', 'due|-;0.7.50;-;-',
     'picked|0.7.50;-;-;-|0', 'picked|-;0.7.50;-;-|0', 'picked|0.7.50;-;-;-|1', 'picked|-;-;-;-|0',
   ]);
   assert.deepEqual([stateOf(got[0]).D, stateOf(got[0]).bar, stateOf(got[1]).D], ['0.7.50', '-', '0.7.50'], 'Not now puts the offer, or the Restart, away');
   /* MUST FIX 2: no look (so no second install, whose cleanup would delete the folder this window runs from) while a Restart waits */
-  assert.deepEqual(got.slice(2, 5), ['due', 'due', 'not-due']);
-  assert.deepEqual(got.slice(5, 9), ['install', 'restart', 'busy', '-'], 'Update installs, restarts into an installed one, or says a run is under way');
+  assert.deepEqual(got.slice(3, 6), ['due', 'due', 'not-due']);
+  assert.deepEqual(got.slice(6, 10), ['install', 'restart', 'busy', '-'], 'Update installs, restarts into an installed one, or says a run is under way');
+  /* Not now on a note with no button (could not reach the host, say) puts away the note, not the offer under it. */
+  assert.deepEqual([stateOf(got[2]).D, stateOf(got[2]).bar, stateOf(got[2]).O], ['-', '-', '0.7.50']);
 });
 
 test('#4382: an update on its way on disk holds Run agents, a stale or finished one does not', WINDOWS_ONLY, (t) => {

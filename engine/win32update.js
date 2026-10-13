@@ -1854,7 +1854,8 @@ async function applyCli(a, out, seams) {
   if (!r.ok) { report('REFUSED ' + r.because); return 1; }
   if (!a.wait) { report('STARTED ' + root); return 0; }
   const token = (require('./win32apply').readJournal(r.journal).journal || {}).token;
-  const status = await waitForOutcome(r.journal, token, { probe: s.probe, ...(s.wait || {}) });
+  /* #4382: on a connect computer no board is started to answer as the new build, so the journal's record counts. */
+  const status = await waitForOutcome(r.journal, token, { probe: s.probe, noBoard: Boolean(boardRule.connectComputer), ...(s.wait || {}) });
   out(JSON.stringify(status, null, 2) + '\n');
   report(status.outcome === 'updated' ? 'UPDATED ' + root : 'REFUSED ' + (status.because || `the update ended as ${status.outcome || 'unknown'}`));
   return status.outcome === 'updated' ? 0 : 1;

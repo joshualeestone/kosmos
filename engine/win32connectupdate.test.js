@@ -418,3 +418,39 @@ test('#4382: something other than a Kosmos board answering on the port is not a 
   assert.deepEqual(s.urls, []);
   assert.deepEqual(c.spawned, []);
 });
+
+test('#4382: updates on, but the update would not start: the newer build is still offered, and the reason waits for the person to pick it', T, async () => {
+  setMode('connect\n');
+  setConsent(true);
+  const c = freshCase();
+  const sim = stoppedBoard(c);
+  const refusing = { ...seamsFor(c, site(NEXT), sim), log: (line) => c.log.push(line), begin: async () => ({ ok: false, because: 'the Kosmos folder is inside OneDrive' }) };
+  const look = await connectUpdate.run('look', refusing);
+  assert.deepEqual(look.answer, ['newer', NEXT], 'the look hides a newer build it could not install');
+  assert.ok(c.log.some((l) => /the automatic update to .* was not started: the Kosmos folder is inside OneDrive/.test(l)));
+  const picked = await connectUpdate.run('install', refusing);
+  assert.deepEqual(picked.answer, ['refused', 'the Kosmos folder is inside OneDrive'], 'the person who picked Update hears why');
+});
+
+test('#4382: a newer download run on a connect computer with --wait reports the update as done even when its status was not written', T, async () => {
+  setMode('connect\n');
+  const c = freshCase();
+  const sim = stoppedBoard(c);
+  const seams = seamsFor(c, site(NEXT), sim);
+  const report = path.join(c.dir, 'report.txt');
+  let pending = null;
+  let clock = 0;
+  const statusAt = path.join(c.anchor, win32anchor.UPDATE_STATUS_NAME);
+  const code = await win32update.cliMain(['--apply', '--root', c.root, '--port', String(PORT), '--wait', '--report', report, '--yes'], () => {}, {
+    probe: sim.probe,
+    boardStatus: () => ({ known: true, registered: true, enabled: false }),
+    readsConnect: () => win32apply.readsConnect(c.env),
+    begin: { ...seams.helperOptions, env: c.env, home: os.homedir(), spawn: (file, args) => { pending = win32apply.applyJournal(args[2], sim.deps()); return { pid: 1, on() {}, unref() {} }; } },
+    /* As if finishUpdated's writeStatus had thrown: the helper finishes, then its status is gone. */
+    wait: { now: () => clock, sleep: async (ms) => { clock += ms; await pending; fs.rmSync(statusAt, { force: true }); }, waitMs: 5000 },
+  });
+  assert.equal(fs.readFileSync(report, 'utf8'), `UPDATED ${c.root}\r\n`, 'the update went in, and the report says so');
+  assert.equal(code, 0);
+  assert.equal(versionIn(c.root), NEXT);
+  assert.deepEqual(sim.calls, []);
+});

@@ -2853,18 +2853,20 @@ class KosmosLauncher
         }
         else
         {
-            // Current: nothing newer. An installed update still waits for its Restart.
+            // Current: nothing newer. An installed update still waits for its Restart. Asked, it is said.
             s.Offer = null;
             ShowOfferBar(s);
+            if (asked && s.BarNote == null) s.BarNote = UpToDateNote;
         }
         return s;
     }
 
-    // PURE: Not now on the bar. The version on offer leaves the bar (the menu keeps it); a note goes away.
+    // PURE: Not now on the bar. A bar that offers something (it has a button) puts that version away (the
+    // menu keeps it); a note with no button only goes away, and the offer under it is not dismissed.
     internal static ConnectUpdateState AfterNotNow(ConnectUpdateState before)
     {
         ConnectUpdateState s = before.Carried();
-        s.Dismissed = s.Installed ?? s.Offer;
+        if (s.BarButton != null) s.Dismissed = s.Installed ?? s.Offer;
         s.BarNote = null;
         s.BarButton = null;
         return s;
@@ -2904,7 +2906,9 @@ class KosmosLauncher
     }
 
     // The update journal's folder: the engine's anchor (engine/win32anchor.js anchorDir), the data folder's
-    // Kosmos\runtime when AGENT_WORKFORCE_DATA is set, else %LOCALAPPDATA%\Kosmos\runtime.
+    // Kosmos\runtime when AGENT_WORKFORCE_DATA is set, else %LOCALAPPDATA%\Kosmos\runtime. anchorDir's other
+    // branch (AGENT_WORKFORCE_HOME, a developer's sandbox) is left out on purpose: no installed Kosmos.exe
+    // runs with it, and missing it only means this guard looks in the wrong folder there.
     internal static string UpdateJournalPath()
     {
         string data = Environment.GetEnvironmentVariable("AGENT_WORKFORCE_DATA");
@@ -2954,6 +2958,7 @@ class KosmosLauncher
     {
         return "Kosmos could not roll back" + (string.IsNullOrEmpty(why) ? "" : " (" + why + ")") + ". It is still on the version it was.";
     }
+    internal const string UpToDateNote = "Kosmos is up to date.";
     internal const string UpdateUnreachableNote = "Kosmos could not check for updates. Check this computer's internet connection, then try again.";
     internal static string UpdateNotStartedNote(string why)
     {
