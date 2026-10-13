@@ -377,7 +377,8 @@
       ],
       "rank": 5,
       "since": "0.7.47",
-      "status": "pending"
+      "status": "held",
+      "why": "every Qwen account add is refused on main (#6043 asks resolveBin('codex')); Pete's fix on qwenguide-5977. Set back to pending in the What's New after it merges"
     },
     {
       "title": "Long task and room messages arrive whole",

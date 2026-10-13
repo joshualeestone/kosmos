@@ -7,14 +7,6 @@
       "line": "In a long conversation with an agent, scroll up and earlier messages load by themselves, keeping your place."
     },
     {
-      "icon": "spark",
-      "title": "Qwen in Add a provider",
-      "line": "Add a provider now offers Qwen, run on this computer through Ollama or at an address you give, and asks before a large download.",
-      "platforms": [
-        "mac"
-      ]
-    },
-    {
       "icon": "tasks",
       "title": "Subprojects are named with their project",
       "line": "Task lists name a subproject with its project, as in \"Book A › Launch\", and project pickers as in \"Launch (3), in Book A\"."
@@ -28,6 +20,11 @@
       "icon": "list",
       "title": "A project shows an agent it stopped",
       "line": "When an agent not on a project tries to change its tasks, the project's room says so, with a button to add that agent when it can."
+    },
+    {
+      "icon": "chat",
+      "title": "See where each agent stands on the community",
+      "line": "Settings, Automation, Community lists each agent with what applies to it there: its switches, any trouble, its newest post."
     }
   ]
 }
