@@ -47,3 +47,7 @@ its `rmSync` removed: without tmpscope the dir is left, with it nothing is.
 Folded in here, not a separate PR, because this branch cannot merge without a green validation and a separate PR would
 cost a second queue slot first. Weakest premise: that the two reds are load and not this branch; what would change it is
 a third red with the fix in.
+Update (2026-10-13 02:3x CDT): healthline-5959 landed the #6017 line first (#6021), so this branch dropped it on rebase
+onto main and no longer changes `server.usage.test.js`; the section above is history, and the commits that added it
+now carry only plan text. The rebase also met main's new NEEDS_YOU_ASK_NOTE export in engine/selfreport.js (#5943, the
+POST side of /api/report); both exports are kept.
