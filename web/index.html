@@ -730,7 +730,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-org, .acct-keytail { display: block; color: var(--label-2); font-size: .8125rem; }
 /* #6108: how much of its weekly limit a Claude account has used, and the agents on it here. The meter is the memory
    meter's own .bar, so the two read as one family. The paragraph rules are scoped under #set-accounts so they outrank
-   `.panel p` (body size, grey, a large bottom margin), as .acct-expiring-line already is. */
+   `.panel p` (body size, grey, a large bottom margin), the way the row's sign-in line is scoped. */
 .acct-usage { display: flex; flex-direction: column; gap: 8px; }
 .acct-usage-meter { display: flex; align-items: center; gap: 10px; }
 .acct-usage-meter .bar { flex: 0 0 120px; }
@@ -27155,15 +27155,16 @@ function acctUsageHtml(a, list) {
   return '<div class="acct-usage">' + usage + agentsLine + move
     + '<p class="acct-move-msg"' + (said ? '' : ' role="status"') + ' tabindex="-1" data-acct-move-msg="' + esc(a.dir) + '">' + said + '</p></div>';
 }
-/* #6108: what a move does to these agents, before the click. The route restarts each one, which STARTS a stopped one,
-   so a stopped agent is named as such rather than folded into "restarts". */
+/* #6108: what a move does to these agents, before the click. The route restarts a running agent on the new account; a
+   STOPPED one is moved but not started (the account route never starts a dead agent; that is a separate decision in
+   engine/remove.js), so it is named as staying stopped. */
 function acctMoveNote(cards) {
   const n = cards.length;
   const stopped = cards.filter((c) => c && cardStOf(c).pres === 'off').length;
   const all = n === 1 ? 'it' : n === 2 ? 'both' : 'all ' + n;
   if (!stopped) return 'Moving restarts ' + all + ' on the new account.';
-  if (stopped === n) return 'Moving starts ' + all + ' on the new account, though ' + (n === 1 ? 'it is' : 'they are') + ' stopped now.';
-  return 'Moving restarts them on the new account, and starts the ' + (stopped === 1 ? 'one that is' : stopped + ' that are') + ' stopped.';
+  if (stopped === n) return 'Moving sets ' + (n === 1 ? 'it' : 'them') + ' up on the new account. ' + (n === 1 ? 'It stays' : 'They stay') + ' stopped until you start ' + (n === 1 ? 'it' : 'them') + '.';
+  return 'Moving restarts the running ones on the new account. The ' + (stopped === 1 ? 'one that is stopped stays' : stopped + ' that are stopped stay') + ' stopped.';
 }
 /* #6108: move every agent this computer has on `fromDir` to `toDir`, one at a time through the same route the agent's
    own page uses, and say how it went in one line: the engine's own sentence for any that did not move. */

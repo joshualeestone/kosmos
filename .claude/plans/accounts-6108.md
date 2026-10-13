@@ -43,7 +43,8 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
   their exact sentence, so they merge only when the engine words them the same (its sentences often name the agent).
 
 - No confirm step before a bulk move (the agent page's own Move has none; the card asks for a quick move before the
-  limit). The note beside the control says how many restart, before the click.
+  limit). The note beside the control says how many restart, before the click, and that a stopped agent is moved but stays
+  stopped (the account route never starts a dead agent; engine/remove.js keeps that a separate decision).
 - Cost: the accounts list now walks the agents once per request. The route is press-driven by contract (server.js:
   "every caller is A PERSON PRESSING SOMETHING ... a TIMER is not"); follow-up reads stop at ACCT_FOLLOWUP.max (6).
 

@@ -40,11 +40,12 @@ const ACCOUNTS = [
   claude('old@example.com', 'old', {}),   // an older board: no weekly, no agentsHere
   claude('guideonly@example.com', 'guideonly', { weekly: { usedPct: 80, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-guide2'], complete: true } }),
   claude('full@example.com', 'full', { weekly: { usedPct: 100, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-q'], complete: true } }),
+  claude('sleepy@example.com', 'sleepy', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-z'], complete: true } }),
   claude('default@example.com', 'default', { isDefault: true, weekly: null, agentsHere: { names: [], complete: true } }),
   claude('noshare@example.com', 'noshare', { memoryShared: false, weekly: { usedPct: 5, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
 ];
 const AGENTS = [{ sessionName: 's-dana', name: 'Dana' }, { sessionName: 's-eli', name: 'Eli' }, { sessionName: 's-x', name: 'x<b>y' },
-  { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true }, { sessionName: 's-guide2', name: 'Kosmos Guide', isGuide: true }, { sessionName: 's-q', name: 'Quinn' }, { sessionName: 's-p', name: 'Pia' }, { sessionName: 's-r1', name: 'Rex' }, { sessionName: 's-r2', name: 'Rio' }, { sessionName: 's-slow', name: 'Sol' }];
+  { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true }, { sessionName: 's-guide2', name: 'Kosmos Guide', isGuide: true }, { sessionName: 's-q', name: 'Quinn' }, { sessionName: 's-z', name: 'Zed', state: 'stopped' }, { sessionName: 's-p', name: 'Pia' }, { sessionName: 's-r1', name: 'Rex' }, { sessionName: 's-r2', name: 'Rio' }, { sessionName: 's-slow', name: 'Sol' }];
 
 const fails = [];
 const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fails.push(label); };
@@ -120,7 +121,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
             options: sel ? [...sel.options].map((o) => o.textContent.trim()) : null, btnDisabled: btn ? btn.disabled : null,
             moveInside: mr ? mr.right <= br.right + 0.5 && mr.left >= br.left - 0.5 : null };
         };
-        const before = { busy: read('busy@example.com'), fresh: read('fresh@example.com'), calm: read('calm@example.com'), key: read('key@example.com'), old: read('old@example.com'), def: read('default@example.com'), guideonly: read('guideonly@example.com'), full: read('full@example.com') };
+        const before = { busy: read('busy@example.com'), fresh: read('fresh@example.com'), calm: read('calm@example.com'), key: read('key@example.com'), old: read('old@example.com'), def: read('default@example.com'), guideonly: read('guideonly@example.com'), full: read('full@example.com'), sleepy: read('sleepy@example.com') };
         const msgOf = (d) => { const e = document.querySelector('[data-acct-move-msg="' + d + '"]'); return e ? e.textContent.trim() : null; };
         const runMove = async (email, toDir, expect) => {
           const b = box(email); const sel = b && b.querySelector('[data-acct-move-to]'); const btn = b && b.querySelector('[data-acct-move]');
@@ -166,13 +167,14 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       }, { accounts: ACCOUNTS, agents: AGENTS });
       await page.close();
       if (r.error) { say(false, tag + ' ' + r.error); continue; }
-      const { busy, fresh, calm, key, old, def, guideonly, full } = r.before;
+      const { busy, fresh, calm, key, old, def, guideonly, full, sleepy } = r.before;
       say(!!busy && busy.has && busy.fill === '82%', tag + ' an 82% row draws its meter at 82%', JSON.stringify(busy && busy.fill));
       say(!!busy && busy.vis && busy.font === '13px' && busy.color === busy.labelRgb && busy.margin === '0px', tag + ' inside the real Settings panel the usage line keeps its own size, ink and spacing (the panel\'s paragraph rule does not win)', JSON.stringify(busy && { vis: busy.vis, font: busy.font, color: busy.color, label: busy.labelRgb, margin: busy.margin }));
       say(!!busy && /^82% of its weekly limit used · resets .+ · last changed 2 hours ago$/.test(busy.line || ''), tag + ' the row says how much is used, when it resets and how old the reading is', JSON.stringify(busy && busy.line));
       say(!!busy && busy.warn && busy.warnText === 'Close to its weekly limit. Move its agents to another account before they stop.', tag + ' at 82% the row warns, and says what to do', JSON.stringify(busy && busy.warnText));
       say(!!busy && busy.note === 'Moving restarts both on the new account.', tag + ' the restart is said before the click, beside the control', JSON.stringify(busy && busy.note));
       say(!!guideonly && guideonly.warnText === 'Close to its weekly limit.' && guideonly.agents === 'No agents on it on this computer.' && guideonly.options === null, tag + ' a guide-only row warns but never says to move agents it does not show', JSON.stringify(guideonly));
+      say(!!sleepy && sleepy.note === 'Moving sets it up on the new account. It stays stopped until you start it.', tag + ' a stopped agent is said to stay stopped (the account route does not start it)', JSON.stringify(sleepy && sleepy.note));
       say(!!full && full.warnText === 'At its weekly limit. Move its agents to another account to get them working again.', tag + ' at 100% the row says it is at its limit', JSON.stringify(full && full.warnText));
       say(!!busy && busy.agents === 'Its agents on this computer: Dana, Eli', tag + ' it names its agents by display name, leaving out the setup guide', JSON.stringify(busy && busy.agents));
       say(!!busy && Array.isArray(busy.options) && busy.options.some((o) => o === 'spare@example.com (20% used)') && !busy.options.some((o) => o.startsWith('busy@')), tag + ' Move offers the other account with its own reading, never itself', JSON.stringify(busy && busy.options));
