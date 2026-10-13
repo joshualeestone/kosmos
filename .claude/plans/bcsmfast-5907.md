@@ -52,3 +52,6 @@ reportshow-5959, healthline-5959 and bcsgfast-5907. This branch's full validatio
 on the #4273 leak guard finding that file's `aw-usage-route-` dir (#6017, on this Mac under load). A separate PR would
 join the back of the validation queue; on every branch already queued, the first to pass lands it and the others drop
 it on rebase.
+Update (2026-10-13 02:3x CDT): healthline-5959 landed that line first (#6021), so this branch dropped it on rebase onto
+main and no longer changes `server.usage.test.js`; the section above is history. Every file this branch changes is
+byte-identical to the head it had before the rebase (7745cf8b).
