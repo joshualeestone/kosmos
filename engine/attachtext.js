@@ -129,7 +129,13 @@ function sheetRows(sheet, shared, clip) {
       if (type === 'inlineStr') v = oc.xmlText((oc.innerOf(cell.inner, 'is') || '').slice(0, MAX_CELL * 4));
       else {
         const raw = oc.innerOf(cell.inner, 'v');
-        if (raw != null) v = type === 's' ? (shared[Number(raw)] || '') : oc.xmlText(raw.slice(0, MAX_CELL));
+        if (raw != null && raw !== '') v = type === 's' ? (shared[Number(raw)] || '') : oc.xmlText(raw.slice(0, MAX_CELL));
+        else if (/<(?:\w+:)?f[\s>/]/.test(cell.inner)) {
+          /* Iteration 15: a formula with no saved result (openpyxl writes <v/>) shows as the formula, so a blank is
+             never passed off as the value; a shared formula's follower has no text of its own and shows as "=". */
+          v = '=' + oc.xmlText((oc.innerOf(cell.inner, 'f') || '').slice(0, MAX_CELL));
+          clip.uncalc = true;
+        }
       }
       if (v.length > MAX_CELL) clip.cell = true;
       row[i] = v.slice(0, MAX_CELL);
@@ -160,7 +166,7 @@ function xlsxText(buf) {
   let formulas = false;
   let first = true;
   const seen = new Set();
-  const clip = { cols: false, cell: false };
+  const clip = { cols: false, cell: false, uncalc: false };
   let sheets = 0;
   for (const m of wb.matchAll(/<(?:\w+:)?sheet\b[^<>]*>/g)) {
     if (out.full) break;
@@ -185,7 +191,11 @@ function xlsxText(buf) {
     tableInto(out, rows);
     if (truncated) out.add('\n(only the first ' + MAX_SHEET_ROWS + ' rows with values are shown)\n');
   }
-  if (formulas) notes.add('Formulas are shown as the values they had when the file was last saved.');
+  /* Iteration 15: a writer that never calculates (openpyxl leaves results empty, xlsxwriter stores 0) marks the workbook
+     for calculation on open; then the saved values are not results, and the note says so instead. */
+  if (clip.uncalc || /<(?:\w+:)?calcPr\b[^<>]*fullCalcOnLoad="(?:1|true)"/.test(wb)) {
+    if (formulas) notes.add('Some formulas were never calculated by the program that made this file, so they show as formulas (or as 0), not as results.');
+  } else if (formulas) notes.add('Formulas are shown as the values they had when the file was last saved.');
   if (clip.cols) notes.add('Only the first ' + MAX_COLS + ' columns of a sheet are converted.');
   if (clip.cell) notes.add('A cell longer than ' + MAX_CELL + ' characters is cut short.');
   let styles = null;
@@ -338,6 +348,21 @@ function paraText(p) {
 /* Iteration 12: a document cut at the part limit ends mid-way, often inside a table, and an unclosed table reads as
    nothing. Kept up to the last whole paragraph or row, then the tables, rows and cells still open there are closed, so
    what came before the cut is converted. One pass over the tags. */
+/* Every <tag>...</tag> span removed, nesting counted (iteration 15: a Fallback holding its own AlternateContent left the
+   outer one's tail behind, read twice), self-closed ones alone; an unclosed one takes the rest. Linear (finder). */
+function stripNested(text, tag) {
+  const f = finder(text, tag);
+  let out = '';
+  let at = 0;
+  for (;;) {
+    const i = f.open(at);
+    if (i < 0) return out + text.slice(at);
+    const e = endOf(text, i, f);
+    if (e < 0) return out + text.slice(at, i);
+    out += text.slice(at, i);
+    at = e;
+  }
+}
 function closeCut(text) {
   const end = Math.max(text.lastIndexOf('</w:p>'), text.lastIndexOf('</w:tr>'));
   if (end < 0) return text;
@@ -358,10 +383,10 @@ function closeCut(text) {
 function docxText(buf) {
   const get = zipOf(buf, 'document');
   const docPart = prefixPart(get, 'word/document.xml', 'document');
-  const doc = docPart.cut ? closeCut(oc.stripBlocks(docPart.text, 'mc:Fallback')) : docPart.text;   // iteration 13: an unclosed Fallback tail first, or its later strip would take the closers too
+  const doc = docPart.cut ? closeCut(stripNested(docPart.text, 'mc:Fallback')) : docPart.text;   // iteration 13: an unclosed Fallback tail first, or its later strip would take the closers too
   if (!doc) throw new Error('it is not a Word document');
   /* mc:AlternateContent carries the same content twice (Choice and Fallback): keep the Choice (review 1). */
-  const body = oc.stripBlocks(oc.innerOf(doc, 'w:body') || doc, 'mc:Fallback');
+  const body = stripNested(oc.innerOf(doc, 'w:body') || doc, 'mc:Fallback');
   const out = sink();
   const state = { broken: false };
   for (const b of bodyBlocks(body, state)) {
@@ -1110,6 +1135,12 @@ async function render(rec) {
   if (!kind) return null;
   let got = await convertIsolated(rec.file, kind);
   if (got && got.js) got = await pdfAfter(rec.file, got.js);
+  else if (kind === 'pdf' && got && got.failed) {
+    /* Iteration 15: the JS reader gave up (time or memory); PDFKit runs in its own process with its own limit, so a Mac
+       still asks it. Its text is kept only when there is some. */
+    const kit = await pdfAfter(rec.file, { encrypted: false, pages: [], cut: null, undecodable: 0, ownEncoding: false, noMap: false, mapless: [], rtl: false });
+    if (kit && kit.body && kit.body.replace(/--- Page \d+ ---/g, '').trim()) got = { ...kit, notes: [got.failed + ' This text is from macOS\u2019s own PDF reader instead.', ...(kit.notes || [])] };
+  }
   if (!got || got.failed) got = { body: '', notes: [(got && got.failed) || 'Kosmos could not convert this file.'] };
   const notes = (got.notes || []).slice();
   if (got.full && !notes.some((n) => /stops at/.test(n))) notes.push('The rendering stops at ' + MAX_OUT + ' characters.');   // iteration 11: said once

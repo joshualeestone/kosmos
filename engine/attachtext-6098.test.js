@@ -734,3 +734,48 @@ test('#6098 review 14: a self-closed Fallback (or a longer tag name) does not ta
   assert.ok(got.body.includes('IMPORTANT TAIL'), got.body);
   assert.ok(got.body.includes('kept too'), got.body);
 });
+
+/* ── review 15 ── */
+const calcBook = (cells, calcPr) => buildZip([
+  entry('xl/workbook.xml', XML + '<workbook xmlns:r="r"><sheets><sheet name="S" r:id="rId1"/></sheets>' + (calcPr || '') + '</workbook>'),
+  entry('xl/_rels/workbook.xml.rels', XML + '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
+  entry('xl/worksheets/sheet1.xml', XML + '<worksheet><sheetData>' + cells + '</sheetData></worksheet>'),
+]);
+
+test('#6098 review 15: a formula never calculated (openpyxl) shows as the formula, its row is kept, and the note says so', () => {
+  const got = at.xlsxText(calcBook('<row r="1"><c r="A1" t="inlineStr"><is><t>Apples</t></is></c><c r="B1"><v>3</v></c><c r="C1"><f>B1*2</f><v /></c></row>'
+    + '<row r="2"><c r="C2"><f>SUM(C1:C1)</f><v></v></c></row>', '<calcPr fullCalcOnLoad="1"/>'));
+  assert.ok(got.body.includes('| Apples | 3 | =B1*2 |'), got.body);
+  assert.ok(got.body.includes('=SUM(C1:C1)'), 'a row of formulas only is kept: ' + got.body);
+  assert.ok(got.notes.some((n) => /never calculated/.test(n)), JSON.stringify(got.notes));
+  assert.ok(!got.notes.some((n) => /last saved/.test(n)), JSON.stringify(got.notes));
+});
+
+test('#6098 review 15: a workbook marked for calculation on open (xlsxwriter stores 0) does not claim its values were saved results', () => {
+  const cells = '<row r="1"><c r="A1"><f>1+1</f><v>0</v></c></row>';
+  assert.ok(at.xlsxText(calcBook(cells, '<calcPr calcId="124519" fullCalcOnLoad="1"/>')).notes.some((n) => /never calculated/.test(n)));
+  assert.ok(at.xlsxText(calcBook(cells, '<calcPr calcId="191029"/>')).notes.some((n) => /last saved/.test(n)), 'a calculated workbook keeps the saved-values note');
+});
+
+test('#6098 review 15: a PDF the worker gave up on is still offered to PDFKit', async () => {
+  at.setWorkerLimits({ timeoutMs: 1 });
+  at.setPdfkit(async () => 'Read by PDFKit');
+  try {
+    const rec = attachments.save('project', 'p6098', { name: 'gaveup.pdf', type: 'application/pdf', bytes: simplePdf() });
+    const text = fs.readFileSync(await at.render(rec), 'utf8');
+    assert.ok(text.includes('Read by PDFKit'), text.slice(0, 400));
+    assert.ok(/macOS’s own PDF reader/.test(text), text.slice(0, 400));
+  } finally {
+    at.setWorkerLimits({ timeoutMs: 30000 });
+    at.setPdfkit(async () => { kitCalls += 1; return null; });
+  }
+});
+
+test('#6098 review 15: a Fallback holding its own AlternateContent is removed whole (no text read twice)', () => {
+  const inner = '<mc:AlternateContent><mc:Choice><w:p><w:r><w:t>innerChoice</w:t></w:r></w:p></mc:Choice><mc:Fallback><w:p><w:r><w:t>innerFallback</w:t></w:r></w:p></mc:Fallback></mc:AlternateContent>';
+  const body = '<w:p><w:r><w:t>before</w:t></w:r></w:p><mc:AlternateContent><mc:Choice><w:p><w:r><w:t>box</w:t></w:r></w:p></mc:Choice>'
+    + '<mc:Fallback>' + inner + '<w:p><w:r><w:t>outerTail</w:t></w:r></w:p></mc:Fallback></mc:AlternateContent><w:p><w:r><w:t>after</w:t></w:r></w:p>';
+  const got = at.docxText(docxOf(body));
+  assert.ok(!got.body.includes('outerTail') && !got.body.includes('innerFallback'), got.body);
+  assert.ok(got.body.includes('after'), got.body);
+});
