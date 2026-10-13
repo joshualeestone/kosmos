@@ -2,13 +2,12 @@
 /**
  * Seed a long conversation for a server test without holding the event loop (kosmos#6059).
  *
- * WHY: every `chat.appendMessage` reads and rewrites the whole thread file, so a loop of 200 appends takes 2 to 3 s
- * here and about 6 s on CI. When a test does that BETWEEN two requests to its in-process server, the next request on
- * a pooled socket has come back `fetch failed` / `ECONNRESET` on CI: runs 38158076792 and 38184258270 (dm-rollover-5841
- * and dm-older-5841), then server.dm-owes-4340.test.js and server.projects.test.js. What closes the socket is not
- * settled (it recurred with the server's keep-alive at 120 s, per server.dm-rollover-5841.test.js); the long gap is
- * what every failure shares, and this removes it. A file that sends each request on a new connection (agent: false)
- * avoids it the other way.
+ * WHY: every `chat.appendMessage` reads and rewrites the whole thread file, so a loop of 205 appends took 4 to 8.5 s
+ * on this Mac (the three tests this replaced). When a test does that BETWEEN two requests to its in-process server,
+ * the next request on a pooled socket has come back `fetch failed` / `ECONNRESET` on CI (runs 38158076792 and
+ * 38184258270; PR #5751; #6059; PR #6079). What closes the socket is not settled: it recurred with the server's
+ * keep-alive at 120 s (server.dm-rollover-5841.test.js, which now uses a new connection per request instead). This
+ * removes the gap; it does not claim to remove the cause.
  *
  * HOW: the FIRST message goes through `chat.appendMessage`, so the row on disk is the engine's own shape. The rest are
  * that row with only `text` and `at` changed, written in one go. It falls back to real appends whenever the shortcut
@@ -43,6 +42,14 @@ function appendMany(chat, projectId, agent, entries, bornAt) {
   const row = kept.messages[kept.messages.length - 1];
   if (!row || kept.messages.length !== before + 1) throw new Error('fixture: appendMessage did not add exactly one row');
   const t0 = Date.parse(row.at);
+  // Review 2: a first row whose time does not parse cannot seed the made-up times, so the rest go the slow way.
+  if (!Number.isFinite(t0) && list.slice(1).some((e) => !e.at)) {
+    for (const e of list.slice(1)) {
+      const r = chat.appendMessage(projectId, agent, e, bornAt);
+      if (!r || r.recorded === false) throw new Error('fixture: appendMessage refused: ' + JSON.stringify(r));
+    }
+    return { recorded: list.length, via: 'appendMessage' };
+  }
   list.slice(1).forEach((e, i) => {
     kept.messages.push({ ...row, text: e.text, at: e.at || new Date(t0 + i + 1).toISOString() });
   });

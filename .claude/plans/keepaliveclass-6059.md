@@ -15,8 +15,7 @@ Card: joshualeestone/kosmos#6059. PR #6078 fixed one test; the same `fetch faile
 ## The call
 - test-support/thread-fixture.js `appendMany(chat, projectId, agent, entries, bornAt)`: the first entry through
   appendMessage (the engine's own row), the rest that row with only text and at changed, in one write. Falls back to
-  real appends when the shortcut could change a test's meaning: a field other than text/at differs, text that is not
-  plain printable ASCII (appendMessage normalises stored text), a thread that would reach MAX_MESSAGES (rollover), or a
+  real appends when the shortcut could change a test's meaning: a field other than text/at differs, a thread that would reach MAX_MESSAGES (rollover), or a
   refused first append, or a text that is not already what appendMessage would store (`chat.storedWithin`;
   review 1: it collapses spaces and trims). Entries with no time get the first row's time plus their index in ms (a time is a row's
   identity for replies).
