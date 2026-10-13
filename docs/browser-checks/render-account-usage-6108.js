@@ -32,6 +32,8 @@ const claude = (email, dir, extra) => ({ provider: 'anthropic', providerName: 'A
   organization: null, isDefault: false, keyTail: null, name: null, memoryShared: true, connection: conn, ...extra });
 const ACCOUNTS = [
   claude('busy@example.com', 'busy', { weekly: { usedPct: 82, resetsAt: now + 50 * H, at: now - 2 * H }, agentsHere: { names: ['s-dana', 's-eli', 's-guide'], complete: true } }),
+  claude('stale@example.com', 'stale', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-st1', 's-st2'], complete: true } }),
+  claude('nocheck@example.com', 'nocheck', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-nc'], complete: true } }),
   claude('mixed@example.com', 'mixed', { weekly: { usedPct: 95, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-p', 's-r1', 's-r2', 's-slow'], complete: true } }),
   claude('spare@example.com', 'spare', { weekly: { usedPct: 20, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
   claude('fresh@example.com', 'fresh', { weekly: null, agentsHere: { names: ['s-x'], complete: true } }),
@@ -74,6 +76,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         window.fetch = (u, opts) => {
           const url = String(u);
           /* Like the server: agentsHere only when the page asks (?agents=1), so a page that stopped asking draws nothing. */
+          if (url.indexOf('/api/accounts') !== -1 && window.__failNextAccounts) { window.__failNextAccounts = false; return Promise.resolve({ ok: false, status: 503, json: async () => ({}) }); }
           if (url.indexOf('/api/accounts') !== -1) return Promise.resolve({ ok: true, json: async () => ({ accounts: /[?&]agents=1\b/.test(url) ? list() : list().map(({ agentsHere, ...rest }) => rest) }) });
           const m = url.match(/\/api\/agent\/([^/]+)\/account$/);
           if (m && opts && opts.method === 'POST') {
@@ -135,7 +138,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           moveText: (() => { const b = box('busy@example.com'); const btn = b && b.querySelector('[data-acct-move]'); return btn ? ratio(getComputedStyle(btn).color, getComputedStyle(btn).backgroundColor) : null; })() };
         const before = { busy: read('busy@example.com'), fresh: read('fresh@example.com'), calm: read('calm@example.com'), key: read('key@example.com'), old: read('old@example.com'), def: read('default@example.com'), guideonly: read('guideonly@example.com'), full: read('full@example.com'), sleepy: read('sleepy@example.com') };
         const msgOf = (d) => { const e = document.querySelector('[data-acct-move-msg="' + d + '"]'); return e ? e.textContent.trim() : null; };
-        const runMove = async (email, toDir, expect) => {
+        const runMove = async (email, toDir, expect, once) => {   // once: no forced second click (a move that ends at once would just start again)
           const b = box(email); const sel = b && b.querySelector('[data-acct-move-to]'); const btn = b && b.querySelector('[data-acct-move]');
           if (!sel || !btn) return null;
           const start = posts.length;
@@ -150,7 +153,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           const againSel = box(email) && box(email).querySelector('[data-acct-move-to]');
           const drawnBusy = !!again && again.disabled && again.textContent.trim() === 'Moving…';
           const quietMid = (msgOf(box(email).getAttribute('data-acct-dir')) || '') === '';   // progress is on the button, not the live region
-          if (again) { if (againSel) { againSel.disabled = false; againSel.value = toDir; } again.disabled = false; again.click(); }
+          if (again && !once) { if (againSel) { againSel.disabled = false; againSel.value = toDir; } again.disabled = false; again.click(); }
           for (let i = 0; i < 150 && posts.length - start < expect; i++) await new Promise((r) => setTimeout(r, 20));
           await new Promise((r) => setTimeout(r, 400));
           return { enabled, drawnBusy, quietMid, posts: posts.slice(start) };
@@ -175,6 +178,14 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         if (mixed) mixed.msg = msgOf('/home/.claude-mixed');
         const sleepyMove = await runMove('sleepy@example.com', '/home/.claude-spare', 1);
         if (sleepyMove) sleepyMove.msg = msgOf('/home/.claude-sleepy');
+        /* An agent moved on its own page since the last paint must not be moved again: Move asks for the list afresh. */
+        where.set('s-st2', '/home/.claude-spare');
+        const staleMove = await runMove('stale@example.com', '/home/.claude-spare', 1);
+        if (staleMove) staleMove.msg = msgOf('/home/.claude-stale');
+        /* And when that fresh list cannot be had, nothing moves. */
+        window.__failNextAccounts = true;
+        const ncMove = await runMove('nocheck@example.com', '/home/.claude-spare', 0, true);
+        if (ncMove) ncMove.msg = msgOf('/home/.claude-nocheck');
         const mine = read('mine@example.com'), unwired = read('unwired@example.com');
         const unsureNote = acctMoveNote([{ sessionName: 'a', state: 'working' }, { sessionName: 'b', state: 'unknown' }]);
         // Two minutes on, a repaint shows the row plain again.
@@ -182,7 +193,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         await paintAccounts();
         const expired = msgOf('/home/.claude-busy');
         /* Sideways overflow of the page itself, with the list in its real place. */
-        return { contrast, sleepyMove, mine, unwired, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
+        return { contrast, staleMove, ncMove, sleepyMove, mine, unwired, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
       }, { accounts: ACCOUNTS, agents: AGENTS });
       await page.close();
       if (r.error) { say(false, tag + ' ' + r.error); continue; }
@@ -216,6 +227,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!r.moved && !!r.moved.redrawn && r.moved.redrawn.text === 'Moved 2 agents. They restart on the new account.' && r.moved.redrawn.role === null, tag + ' a later repaint keeps the sentence but does not announce it again', JSON.stringify(r.moved && r.moved.redrawn));
       say(r.expired === '', tag + ' two minutes on, a repaint shows the row plain again', JSON.stringify(r.expired));
       say(!!r.busyAfter && r.busyAfter.agents === 'No agents on it on this computer.', tag + ' after the move the busy row has no agents left (the repaint happened)', JSON.stringify(r.busyAfter && r.busyAfter.agents));
+      say(!!r.staleMove && r.staleMove.posts.length === 1 && r.staleMove.posts[0].agent === 's-st1' && /^Moved 1 agent\b/.test(r.staleMove.msg || ''), tag + ' an agent moved elsewhere since the list was drawn is not moved again (Move reads the list afresh)', JSON.stringify(r.staleMove));
+      say(!!r.ncMove && r.ncMove.posts.length === 0 && r.ncMove.msg === 'Nothing moved: Kosmos could not check which agents are on this account. Try again in a moment.', tag + ' when the fresh list cannot be read, nothing moves and the row says so', JSON.stringify(r.ncMove));
       say(!!r.mixed && r.mixed.posts.length === 4, tag + ' a mixed move sends one move per agent', JSON.stringify(r.mixed && r.mixed.posts));
       say(!!r.mixed && r.mixed.msg === "Not restarted yet (Pia): We saved spare@example.com, but could not start it again: the session is busy. It is still on the old account until it restarts. Not moved (Rex, Rio): That account does not share this computer's memory. No answer yet for Sol. Check its account in a moment.",
         tag + ' saved-but-restarting keeps the engine\'s reason, one refusal is said once, and an unanswered move is not called a failure', JSON.stringify(r.mixed && r.mixed.msg));
