@@ -81,14 +81,14 @@ A report of an update that died with "Permission denied" under the app folder; a
 up in the second measurement; the Linux workflow going red on this branch.
 
 ## Verify
-- `sh tools/test-update-locked-app-4455.sh`: 28 passed, run under the installer's own `set -eu` and pipefail lines
+- `sh tools/test-update-locked-app-4455.sh`: 31 passed, run under the installer's own `set -eu` and pipefail lines
   (extracted from the shipped file). Its CONTROL arm runs the old line on the locked fixture and loses `bin` before
   stopping at `app`.
-- Seven mutants of the installer, each in a scratch copy, BASE green first, each red BY ITS OWN ARM: the search given
+- Eight mutants of the installer, each in a scratch copy, BASE green first, each red BY ITS OWN ARM: the search given
   back the fallback that clears what it found (NOISY); `! -empty` taken out (EMPTY); the lift back to `u+w` (both
   NOREAD arms); the locked-file search switched off (LOCKED and RELOCK); the refusal's `return 1` removed (NODIR,
   NOISY, LOCKED); the lock not put back on refusal (RELOCK, the read-only arm); the lock put on whatever the app
-  was before (RELOCK, the writable arm).
+  was before (RELOCK, the writable arm); the search test taken out of the folder walk (NOSEARCH).
   **An eighth mutant is GREEN and is meant to be:** the `|| true` inside the two substitutions taken out. It changes
   nothing while the function is called with `||` after it, which both the installer and the test do (review 2
   measured this; I had described NOISY as proving it).
@@ -96,7 +96,8 @@ up in the second measurement; the Linux workflow going red on this branch.
 - The what's-new tests (4 files): 54 pass. (My first wording was 151 characters; the window allows 140.) The line no
   longer says how to remove Kosmos: nobody has emptied a Trash holding a read-only app (review 1).
 - `tools.shell-shard-4317.test.js`, `tools.every-test-runs.test.js`: 22 pass.
-- NOT RUN YET: `tools/test-install.sh` against the flip, the full suite, the Linux workflow. Queued.
+- NOT RUN YET: `tools/test-install.sh` against the flip, the rest of the shell suite, the Linux workflow. Queued
+  again (see the last section).
 
 ## Review 1 (2026-10-13, default model), at c9aee9941
 0 BLOCKER, 6 WARNING, 0 CONVENTION, 6 NIT. Not converged.
@@ -175,3 +176,22 @@ The reviewer measured the sampling line on this Mac for seven folder modes, and 
 meet: the first update after this ships, the second, one the board starts, a failure after the swap, the uninstall,
 hand-edited files under the app. Worst case: the one under Weakest premise, an installer from before 0.7.45 meeting
 an app this release locked. Stated, not tested, and nothing guards it.
+
+## The first full validation: RED, and it was mine (2026-10-13, finished 12:03 CDT, at c2a105dc2)
+- The node suite: 20109 tests, 19874 passed, 0 failed.
+- The shell suite stopped at its 21st command of 234: `tools/test-installer-runnable-guard.sh`. That guard reads
+  every `-x` test in the installer and wants the two-step form it can judge (`[ -f P ] && [ -x P ]`), because a
+  bare one passes for a folder. My folder walk used a bare one inside a `find`, on a folder, on purpose, and the
+  guard cannot tell.
+- **So 213 of the 234 shell commands did not run, `tools/test-install.sh` among them.** Nothing about the flip in a
+  real install is measured yet.
+- Why I did not see it first: I ran the installer's node tests and the static check, not this guard. Five reviewers
+  did not run it either; none was told it exists.
+- The fix: "may this user search the folder" is asked as "does <folder>/. exist", which needs the search bit to
+  answer and is not the spelling the guard reserves. A new arm, NOSEARCH (a folder with read and write and no
+  search bit, with a control that rm really cannot empty it), and a mutant that takes the test out: red at NOSEARCH.
+- Before queueing again I ran, by name, 29 of the shell suite's commands whose scripts read the installer (the
+  guard, both static checks, the plist, postinstall, pkg, report-hook and update tests among them): 29 passed.
+  NOT among the 29: the ones that boot a board or a real install (`test-install.sh`, the pause sandbox, the
+  put-back, the deploy-site and release tests). Those run in the validation.
+- No reviewer has read this commit.

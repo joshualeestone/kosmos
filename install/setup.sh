@@ -1351,7 +1351,9 @@ install_kosmos() {
   #     check asked only after a failed chmod and let a locked file through). So every part is searched, on macOS.
   #   a folder with something in it that this user may not read, write or search. Only possible where the lift
   #     failed, so only those parts are walked (a `test` per folder is slow on a big tree and the usual update
-  #     never pays it). An EMPTY such folder is not stuck: rm removes it through its parent.
+  #     never pays it). An EMPTY such folder is not stuck: rm removes it through its parent. "May search" is asked
+  #     as "does <folder>/. exist", which needs the search bit to answer; the usual spelling of that test is the
+  #     one tools/test-installer-runnable-guard.sh reserves for runnable FILES, and it cannot judge one on a folder.
   # A chmod that fails is not by itself a reason to refuse: a file somebody else owns, in a folder this user may
   # write to, is removed fine.
   # 🛑 NEVER GIVE THESE TWO ASSIGNMENTS A FALLBACK THAT CLEARS THE VARIABLE (`|| _stuck_at=""`). find exits non-zero
@@ -1380,7 +1382,7 @@ install_kosmos() {
   fi
   for part in $_lift_failed; do
     [ -z "$_stuck_at" ] || break
-    _stuck_at="$(find "$dest/$part" -type d ! -empty ! \( -exec test -r {} \; -exec test -w {} \; -exec test -x {} \; \) -print 2>/dev/null | sed -n '1p' || true)"
+    _stuck_at="$(find "$dest/$part" -type d ! -empty ! \( -exec test -r {} \; -exec test -w {} \; -exec test -e {}/. \; \) -print 2>/dev/null | sed -n '1p' || true)"
     [ -z "$_stuck_at" ] || _stuck_why=permissions
   done
   if [ -n "$_stuck_at" ]; then

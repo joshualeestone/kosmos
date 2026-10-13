@@ -14,6 +14,7 @@
 #   NOREAD    a folder with no permissions at all, owned by this user, is lifted and CAN then be removed
 #   LOCKED    a locked file in app/ (chflags uchg, macOS): refused, the path named, nothing removed   (the card's case)
 #   NODIR     a folder that cannot be made writable (chmod stubbed to fail): refused, nothing removed
+#   NOSEARCH  a folder this user may read and write but not search (chmod stubbed): refused. rm needs all three.
 #   NOISY     the same, beside a folder find cannot read (find exits non-zero): STILL refused. It goes red if the
 #             search is ever given back a fallback that clears what it found (`|| _stuck_at=""`), which is the
 #             fault it was written for. It does NOT depend on the `|| true` inside the substitution (review 2).
@@ -126,6 +127,17 @@ case "$OUT" in *"Nothing was removed"*) ok "NODIR: it says nothing was removed" 
 case "$OUT" in *"may not change that folder"*) ok "NODIR: it says why in words that fit (not the Finder's Locked box)" ;; *) bad "NODIR: the wrong reason: $OUT" ;; esac
 all_there "$D" && ok "NODIR: bin, app and runtime are all still there" || bad "NODIR: a part was removed"
 [ ! -e "$D/.kosmos.stage.1" ] && ok "NODIR: the stage is cleared, as every other refusal of the swap does" || bad "NODIR: the stage was left behind"
+
+# ---- NOSEARCH: read and write but no search bit, with something in it. rm cannot reach what is inside.
+D="$(mk_install nosearch)"; in_sb "$D"; /bin/chmod 600 "${D:?}/app/engine"
+if rm -f "${D:?}/app/engine/x.js" 2>/dev/null; then
+  bad "CONTROL NOSEARCH: the file inside could be removed, so the fixture blocks nothing (running as root?)"
+else
+  ok "CONTROL NOSEARCH: rm cannot remove what is inside a folder with no search bit"
+  OUT="$(run_block "$D" "$STUB")"
+  case "$OUT" in *"RC=1"*) ok "NOSEARCH: a folder that cannot be searched refuses the update" ;; *) bad "NOSEARCH: not refused: $OUT" ;; esac
+  case "$OUT" in *"$D/app/engine"*) ok "NOSEARCH: the refusal names the folder" ;; *) bad "NOSEARCH: the folder is not named: $OUT" ;; esac
+fi
 
 # ---- NOISY: the same stuck folder, beside one find cannot read, so find exits non-zero AFTER printing the stuck
 # one. Under the installer's pipefail that status used to discard the path, and the update went on.
