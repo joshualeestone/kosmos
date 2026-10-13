@@ -4194,7 +4194,10 @@ body:not(.consolidated) #docs-chev { display: none; }
    gone, and the search sits compact to the right of Sort (below). */
 .tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 14px 0 4px; }
 #tsk-under { margin: 12px 0 4px; }
-.tsk-ctl { display: flex; align-items: center; }
+/* #3029: a picked subproject's name can outgrow a phone; the control shrinks to its row. overflow: hidden on the
+   select is what stops WebKit (the Mac app) widening the page by the selected text (render-subprojects-1994). */
+.tsk-ctl { display: flex; align-items: center; min-width: 0; max-width: 100%; }
+.tsk-ctl select.tsk-sel { min-width: 0; max-width: min(100%, 22rem); overflow: hidden; text-overflow: ellipsis; }
 .tsk-cl { font: 600 .875rem var(--font-ui); color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
 .tsk-search { position: relative; margin: 0; max-width: 100%; }
 .tsk-search svg { position: absolute; left: 11px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--k-ink-2); pointer-events: none; }
@@ -60806,10 +60809,45 @@ function pjAncestry(p) {
   if (!cur && p && p.parentName) return [p.parentName];   // parent record not loaded
   while (cur && !seen.has(cur.id)) {
     seen.add(cur.id);
-    names.unshift(cur.name);
+    names.unshift(cur.name == null ? '' : cur.name);   // #3029: never the text undefined in a chain
     cur = cur.parent ? pjById(cur.parent) : null;
   }
   return names;
+}
+/* #3029: every place a person PICKS or reads a project from a flat list (the Tasks Project: dropdown, its
+   Group by: Project headings and crumb, New task's project, both parent pickers) names it by its chain, so a
+   subproject never reads as top-level and two same-named subprojects under different parents are told apart:
+   root first where it is read ("Book A › Launch", the grid's ancestry line in words), own name first in a
+   select option (pjChainOption, "Launch, in Book A"). Lists are ordered by the chain, segment by
+   segment, so each subproject follows its parent (a joined-string sort puts a sibling named "Alpha - old"
+   between "Alpha" and "Alpha › Sub"; web.subpick-3029.test.js shows it). A top-level project's chain is just its name, so it reads exactly as before. */
+function pjChainOf(p) {
+  return p ? pjAncestry(p).concat(p.name == null ? '' : String(p.name)) : [];
+}
+function pjChainCompare(a, b) {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i += 1) {
+    const c = String(a[i]).localeCompare(String(b[i]));
+    if (c) return c;
+  }
+  return a.length - b.length;
+}
+function pjChainText(names) {
+  return names.join(' › ');
+}
+function pjChainSpoken(names) {
+  return names.join(', ');   // #3029: the chain in aria-labels
+}
+function pjChainOption(names, after) {
+  /* #3029: an option's words. Its own name first, so a closed select cut short on a phone still says which
+     project is picked: "Launch, in Book A". A top-level project is its bare name. `after` (the Tasks open count)
+     sits right after the own name it belongs to: "Ads (3), in Book A › Launch". */
+  const own = (names.length ? names[names.length - 1] : '') + (after || '');
+  return names.length < 2 ? own : own + ', in ' + pjChainText(names.slice(0, -1));
+}
+function pjSortByChain(list) {
+  const chain = new Map(list.map((p) => [p, pjChainOf(p)]));   // each chain built once, not per comparison
+  return list.slice().sort((a, b) => pjChainCompare(chain.get(a), chain.get(b)));
 }
 function projectCard(p, unreadable, depth, childCount, lastKid) {
   const s = p.summary || {};
@@ -61700,10 +61738,15 @@ function tskInWindow(t, days, now) {
   const c = Date.parse(t && t.createdAt);
   return Number.isFinite(c) && (now - c) <= days * 86400000;
 }
+/* #3029: a Tasks row's project chain (Book A › Launch), from the engine's projectPath on the row. */
+function tskChainOf(t) {
+  return (Array.isArray(t.projectPath) ? t.projectPath : []).concat(t.projectName == null ? '' : String(t.projectName));
+}
 function tskMatches(t, q) {
   const needle = String(q || '').trim().toLowerCase();
   if (!needle) return true;
   const hay = [t.sentence, '#' + t.number, String(t.number), t.projectName]
+    .concat(Array.isArray(t.projectPath) ? t.projectPath : [])   // #3029: "Book A" finds Book A › Launch's tasks
     .concat((t.whoNames || []).map((w) => w + ' ' + tskAgentName(w)))
     .join(' \u0001 ').toLowerCase();
   /* Every word must appear somewhere, so "logo april" finds April's logo task. A "#N" word
@@ -61788,6 +61831,9 @@ async function tskLoad(arrival) {
 }
 function tskRow(t, at) {
   const on = TSK.sel.has(tskKey(t));
+  /* #3029: the row names its project by the chain (Book A › Launch), so two same-named subprojects differ. */
+  const rowChain = tskChainOf(t);
+  const projChain = pjChainText(rowChain);
   /* #3861 part 2: where the row sits in its list (taskNest): its indent, whether it says what it
      is part of, and how many of its subtasks are in this same list (the fold toggle). A caller
      that passes nothing gets a plain top-level row. */
@@ -61850,7 +61896,7 @@ function tskRow(t, at) {
       + (t.builtAt && agoWords(Date.now() - Date.parse(t.builtAt)) ? ' ' + esc(agoWords(Date.now() - Date.parse(t.builtAt))) : '')
       + (t.builtNote ? ': ' + esc(t.builtNote) : '')
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
-      + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(t.projectName) + ' not built yet">Not built yet</button></div>';
+      + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(rowChain)) + ' not built yet">Not built yet</button></div>';
   /* kosmos#4787: a recurring job's row says how often it runs, when it last ran and who ran it, and when it runs next,
      so automated work shows its owner and its rhythm instead of looking idle or ownerless. The rule's words and the next
      run come from the board (taskrepeat.describe / nextAfter), never worked out again here. */
@@ -61861,11 +61907,11 @@ function tskRow(t, at) {
     /* The row no longer repeats its state in a status group (the heading says it), so there the
        label carries it: a screen reader moving between checkboxes still hears where each task is.
        Grouped by project the row shows its state line, so the label does not say it again. */
-    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName)
+    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(rowChain))
     + (g && TSK.by !== 'project' ? ' (' + esc(g.l) + ')' : '') + '"></label>'
     + '<div class="t">' + partOf + '<span class="n">#' + Number(t.number) + '</span>'
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
-    + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
+    + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(projChain) + '</button>'
     /* #5864: a BUILT task in a paused project sits in Built but waiting, so its row says the project is paused (the CLI
        prints [project paused]); a held row needs no note, its group already says it. */
     + (t.projectPaused === true && t.state === 'built' ? '<span class="tsk-paused">project paused</span>' : '')
@@ -61943,19 +61989,20 @@ function tskPaint() {
   const all = tskVisible(TSK.data, TSK.proj);
   const projMap = new Map();
   for (const t of all) {
-    if (!projMap.has(t.projectId)) projMap.set(t.projectId, { id: t.projectId, name: t.projectName, open: 0 });
+    if (!projMap.has(t.projectId)) projMap.set(t.projectId, { id: t.projectId, open: 0,
+      chain: tskChainOf(t) });   // #3029
     if (t.state !== 'closed') projMap.get(t.projectId).open += 1;
   }
   /* A project door can scope us to a project with no tasks yet: it is still the project, with 0. */
   if (TSK.proj && !projMap.has(TSK.proj) && TSK.projHint && TSK.projHint.id === TSK.proj
       && PROJECTS.some((x) => x && x.id === TSK.proj)) {   // only while the project still exists
-    projMap.set(TSK.proj, { id: TSK.proj, name: TSK.projHint.name, open: 0 });
+    projMap.set(TSK.proj, { id: TSK.proj, open: 0, chain: pjChainOf(pjById(TSK.proj)) });
   }
   /* A scope to a project that is gone falls back to All tasks, but only once the tasks are read:
      before the first read there is no data to judge by, and dropping it then would lose the
      project a door just asked for (#3703). */
   if (TSK.data && TSK.proj && !projMap.has(TSK.proj)) TSK.proj = null;
-  const projectsList = [...projMap.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const projectsList = [...projMap.values()].sort((a, b) => pjChainCompare(a.chain, b.chain));   // #3029: each subproject after its parent
   /* #3949: the project picker is this dropdown at every width (the left rail is gone). Each option keeps
      the rail's open count of that project's tasks, whatever Created: and the search hide (#1346 held it
      equal to what picking it shows with neither set). */
@@ -61963,21 +62010,21 @@ function tskPaint() {
   if (sel) {
     /* Mona's design review: a count here sat under "N open tasks across M projects" and read as a number
        of projects. The count stays on each project's own option. */
-    tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + ' (' + p.open + ')</option>').join(''), TSK.proj || '');
+    tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(pjChainOption(p.chain, ' (' + p.open + ')')) + '</option>').join(''), TSK.proj || '');
   }
   const picked = TSK.proj ? projMap.get(TSK.proj) : null;
   /* #5072: the separator and Open project are one unit, so the phone rule can put Open project on its own line and
      drop the dot together (see .tsk-crumb-open). The dot is aria-hidden with a vh comma beside it, the pairing
      .pj-crumb-sep uses, so a screen reader hears a pause rather than a dot. */
   document.getElementById('tsk-crumb').innerHTML = picked
-    ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' <span class="tsk-crumb-open"><span class="tsk-crumb-sep" aria-hidden="true">·</span><span class="vh">, </span> <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button></span>'
+    ? '<button type="button" data-proj="">All tasks</button> › ' + esc(pjChainText(picked.chain)) + ' <span class="tsk-crumb-open"><span class="tsk-crumb-sep" aria-hidden="true">·</span><span class="vh">, </span> <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button></span>'
     : '';
   /* #4586: the chevron beside the title is the crumb's Open project, shown exactly when that is: the
      panel's delegated [data-open-project] click opens the room, so there is one way in, not two. */
   const back = document.getElementById('tsk-back');
   if (back) {
     back.hidden = !picked;
-    if (picked) { back.dataset.openProject = picked.id; back.setAttribute('aria-label', 'Back to ' + picked.name); }
+    if (picked) { back.dataset.openProject = picked.id; back.setAttribute('aria-label', 'Back to ' + pjChainSpoken(picked.chain)); }
     else delete back.dataset.openProject;
   }
   const scoped = tskScoped(all, TSK, now);
@@ -61992,7 +62039,8 @@ function tskPaint() {
   const onProjects = new Set(open.map((t) => t.projectId)).size;
   document.getElementById('tsk-title').textContent = !TSK.data ? 'Tasks'
     : open.length + (open.length === 1 ? ' Task' : ' Tasks')
-      + (picked ? ' on ' + picked.name : open.length ? ' on ' + onProjects + (onProjects === 1 ? ' Project' : ' Projects') : '');
+      /* #3029: the picked project's own name; the crumb above carries the path. */
+      + (picked ? ' on ' + picked.chain[picked.chain.length - 1] : open.length ? ' on ' + onProjects + (onProjects === 1 ? ' Project' : ' Projects') : '');
   tskSearchOpen();   // the compact search's open state follows TSK.q on every paint, whoever changed it
   /* #3949: Created: and Group by are dropdowns (they were button rows). */
   tskOptions(document.getElementById('tsk-win'), TSK_WINDOWS.map(([l, d]) => '<option value="' + d + '"' + (TSK.win === d ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), String(TSK.win));
@@ -62041,10 +62089,12 @@ function tskPaint() {
   if (TSK.by === 'project') {
     const byP = new Map();
     for (const t of sorted) { if (!byP.has(t.projectId)) byP.set(t.projectId, []); byP.get(t.projectId).push(t); }
-    groups.innerHTML = [...byP.entries()].sort((a, b) => String(a[1][0].projectName).localeCompare(String(b[1][0].projectName)))
+    /* #3029: a group is named and ordered by its project's chain, so a subproject's group follows its parent's. */
+    const chainOfGroup = new Map([...byP.entries()].map(([id, ts]) => [id, tskChainOf(ts[0])]));   // built once, as pjSortByChain does
+    groups.innerHTML = [...byP.entries()].sort((a, b) => pjChainCompare(chainOfGroup.get(a[0]), chainOfGroup.get(b[0])))
       .map(([, ts]) => {
         const n = ts.filter((t) => t.state !== 'closed').length;
-        return '<section class="tsk-grp"><h3>' + esc(ts[0].projectName) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
+        return '<section class="tsk-grp"><h3>' + esc(pjChainText(chainOfGroup.get(ts[0].projectId))) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
       }).join('') || '<p class="tsk-empty">' + (TSK.tile || TSK.proj || TSK.win ? 'No tasks match.' : 'No tasks yet.') + '</p>';
   } else {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
@@ -62209,7 +62259,7 @@ async function tskBulkClose() {
       msg.textContent = asSentence(body.error || 'those tasks were not closed');
     } else if (failed.length) {
       msg.textContent = 'Closed ' + done + ' of ' + results.length + '.' + tail + ' '
-        + failed.map((x) => { const t = (TSK.data || []).find((y) => y.projectId === x.projectId && y.number === x.number); return (t ? t.projectName + ' ' : '') + '#' + x.number + ': ' + x.error; }).join('; ') + '.';
+        + failed.map((x) => { const t = (TSK.data || []).find((y) => y.projectId === x.projectId && y.number === x.number); return (t ? pjChainText(tskChainOf(t)) + ' ' : '') + '#' + x.number + ': ' + x.error; }).join('; ') + '.';
     } else {
       msg.textContent = 'Closed ' + done + (done === 1 ? ' task.' : ' tasks.') + tail
         + ' Closing a task does not stop an agent that is working on it.';
@@ -63597,13 +63647,12 @@ let NT_FOR = null;
 let NT_ORIGIN = 'project';
 let NT_PROJECT = null;
 let NT_PARENT = null;   // #3861 part 2: the task "+ Add subtask" was pressed on, or null
-/* The projects the All-tasks picker offers: every project that is not archived, by name. The
+/* The projects the All-tasks picker offers: every project that is not archived, in chain order (#3029). The
    rails set archived projects aside, and so does this list. A view SCOPED to an archived project
    (its own View-all door) files there without the picker, exactly as that project's own page
    does: the person is standing in that project on purpose. */
 function ntChoices() {
-  return PROJECTS.filter((p) => p && p.archived !== true)
-    .slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  return pjSortByChain(PROJECTS.filter((p) => p && p.archived !== true));   // #3029: each subproject after its parent
 }
 async function openNewTaskFromTasks() {
   await loadProjects();
@@ -63623,12 +63672,12 @@ function openNewTask(projectId, origin, parent) {
   let p = pjById(projectId === undefined ? PJ_CURRENT : projectId);
   if (NT_ORIGIN === 'tasks' && !p) {
     /* All tasks: ask which project, in the dialog. A kept draft's project (one with anything in
-       it) is offered first, since the person was aiming it there; else the first by name. Either
+       it) is offered first, since the person was aiming it there; else the first in the list. Either
        way the draft is never wiped here: the person has not chosen anything yet, so the words
        follow the pick (below) exactly as they do when the person changes it. */
     const choices = ntChoices();
     const sel = document.getElementById('nt-proj');
-    sel.innerHTML = choices.map((c) => '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>').join('');
+    sel.innerHTML = choices.map((c) => '<option value="' + esc(c.id) + '">' + esc(pjChainOption(pjChainOf(c))) + '</option>').join('');
     row.hidden = false;
     said.hidden = true;
     pick.hidden = false;
@@ -63944,11 +63993,12 @@ function pjPaintParentSelect(p) {
   const banned = pjDescendantIds(p.id);
   const opts = ['<option value="">Top level (none)</option>'];
   let hasCurrent = !p.parent;   // "Top level (none)" always represents no parent
-  for (const q of sortProjects(PROJECTS.filter((x) => !x.archived), PJ_SORT)) {
+  /* #3029: in chain order and named by the chain, so the parent being picked is unmistakable. */
+  for (const q of pjSortByChain(PROJECTS.filter((x) => !x.archived))) {
     if (q.id === p.id || banned.has(q.id)) continue;
     if (q.id === p.parent) hasCurrent = true;
     opts.push('<option value="' + esc(q.id) + '"' + (q.id === p.parent ? ' selected' : '') + '>'
-      + esc(q.name) + '</option>');
+      + esc(pjChainOption(pjChainOf(q))) + '</option>');
   }
   /* Keep the select HONEST about the current parent even when it is not among
      the offered options. The engine explicitly ALLOWS archiving a project that
@@ -63962,8 +64012,9 @@ function pjPaintParentSelect(p) {
      else (the active filter still excludes archived), only shown as the
      existing one here. */
   if (!hasCurrent && p.parent) {
+    const par = pjById(p.parent);   // #3029: an archived parent that is itself a subproject keeps its chain
     const label = p.parentName
-      ? p.parentName + (p.parentArchived ? ' (archived)' : '')
+      ? (par ? pjChainOption(pjChainOf(par)) : p.parentName) + (p.parentArchived ? ' (archived)' : '')
       : 'Current parent (no longer available)';
     opts.splice(1, 0, '<option value="' + esc(p.parent) + '" selected>' + esc(label) + '</option>');
   }
@@ -72175,8 +72226,8 @@ function pjPaintCreateParentSelect() {
   const sel = document.getElementById('pj-add-parent');
   if (!sel) return;
   const opts = ['<option value="">Top level (none)</option>'];
-  for (const q of sortProjects(PROJECTS.filter((x) => !x.archived), PJ_SORT)) {
-    opts.push('<option value="' + esc(q.id) + '">' + esc(q.name) + '</option>');
+  for (const q of pjSortByChain(PROJECTS.filter((x) => !x.archived))) {   // #3029
+    opts.push('<option value="' + esc(q.id) + '">' + esc(pjChainOption(pjChainOf(q))) + '</option>');
   }
   sel.innerHTML = opts.join('');
   sel.value = '';   // a fresh create starts top-level

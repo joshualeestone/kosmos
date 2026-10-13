@@ -25,12 +25,43 @@
  *      (HEADED=0 on a machine with no console session)
  */
 const path = require('node:path');
-const { chromium } = require('playwright');
+const { chromium, webkit } = require('playwright');
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
 
 const problems = [];
 let pass = 0;
 function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name + (detail ? ' -- ' + detail : '')); }
+
+/* #3029: runs in the page. A very long chain, picked; reports whether the page stays inside the window. */
+const FIT_LONG_CHAIN = () => {
+  const panel = document.getElementById('panel-tasks');
+  const wasHidden = panel.hidden;
+  panel.hidden = false;   // shown directly: showTab would start a real tasks read that could repaint over the fixture
+  const long = 'Spring catalogue relaunch with the regional sales teams and the new print partner';
+  TSK.data = [{ projectId: 'lng', projectName: long, projectPath: [long, long], number: 1, sentence: 'x', state: 'nobody', who: [], whoNames: [] }];
+  TSK.proj = 'lng'; TSK.by = 'status'; tskPaint();
+  const sel = document.getElementById('tsk-projsel');
+  const out = { shown: sel.getClientRects().length > 0, selRight: Math.round(sel.getBoundingClientRect().right),
+    inner: window.innerWidth, docW: document.documentElement.scrollWidth };
+  TSK.proj = null; TSK.data = null; tskPaint();
+  panel.hidden = wasHidden;
+  return out;
+};
+
+/* #3029: runs in the page. One dialog picker holding a long chain, picked, made visible; reports its fit. */
+const FIT_DIALOG_PICKER = (which) => {
+  const long = 'Spring catalogue relaunch with the regional sales teams and the new print partner';
+  const mk = (id, name, parent) => ({ id, name, parent: parent || null, parentName: null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+  PROJECTS = [mk('fa', long), mk('fb', long, 'fa'), mk('fc', long, 'fb'), mk('fd', 'Short')];
+  let sel = null;
+  if (which === 'create') { openAddProject(); sel = document.getElementById('pj-add-parent'); }
+  if (which === 'settings') { pjPaintParentSelect(PROJECTS[3]); sel = document.getElementById('pjs-parent'); }
+  if (which === 'newtask') { openNewTask(null, 'tasks'); sel = document.getElementById('nt-proj'); }
+  for (let a = sel; a && a !== document.body; a = a.parentElement) { if (a.hidden) a.hidden = false; }
+  sel.value = 'fc';
+  const r = sel.getBoundingClientRect();
+  return { which, shown: r.width > 0 && sel.value === 'fc', selRight: Math.round(r.right), inner: window.innerWidth, docW: document.documentElement.scrollWidth };
+};
 
 (async () => {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] });
@@ -454,6 +485,78 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // CONTROL: top-level MUST omit parent, not send parent:null (absent-not-null discipline).
     ok(t + ' top-level create OMITS parent (absent, not null)', create.topLevel && !('parent' in create.topLevel), JSON.stringify(create.topLevel));
 
+    // ---- #3029: every project picker, and the Tasks screen's project names, read by the chain ----
+    // Two same-named subprojects (Launch under Book A and under Book B), a grandchild, and an "Alpha - old" that a
+    // joined-string sort would wedge between Alpha and Alpha's own child. Read through the page's own painters.
+    const chains = await page.evaluate(() => {
+      const mk = (id, name, parent) => ({ id, name, parent: parent || null, parentName: null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('bb', 'Book B'), mk('ba', 'Book A'), mk('lb', 'Launch', 'bb'), mk('la', 'Launch', 'ba'), mk('ad', 'Ads', 'la'),
+        mk('al2', 'Alpha - old'), mk('al', 'Alpha'), mk('als', 'Sub', 'al')];
+      const texts = (id) => Array.from(document.getElementById(id).options).map((o) => o.textContent);
+      openAddProject();
+      const create = texts('pj-add-parent');
+      pjPaintParentSelect(PROJECTS.find((x) => x.id === 'al2'));
+      const settings = texts('pjs-parent');
+      openNewTask(null, 'tasks');   // All tasks: the dialog asks which project, in #nt-proj
+      const pick = texts('nt-proj');
+      leaveNewTask();
+      // The Tasks screen reads its names off the rows (projectPath), not PROJECTS.
+      const row = (id, name, path) => ({ projectId: id, projectName: name, projectPath: path, number: 1, sentence: 'x', state: 'nobody', who: [], whoNames: [] });
+      TSK.data = [row('la', 'Launch', ['Book A']), row('lb', 'Launch', ['Book B']), Object.assign(row('ad', 'Ads', ['Book A', 'Launch']), { state: 'built', builtAt: new Date().toISOString() }), row('ba', 'Book A', [])];
+      TSK.proj = null; TSK.by = 'project';
+      tskPaint();
+      const tasksSel = texts('tsk-projsel');
+      const heads = Array.from(document.querySelectorAll('#tsk-groups .tsk-grp h3')).map((h) => h.firstChild.textContent);
+      // Under the default Group by: Status, each row's project button names the chain; search finds a parent's name.
+      TSK.by = 'status'; tskPaint();
+      const rowProjects = Array.from(document.querySelectorAll('#tsk-groups .tsk-row .meta [data-open-project]')).map((x) => x.textContent).sort();
+      const adRow = Array.from(document.querySelectorAll('#tsk-groups .tsk-row')).find((r) => r.querySelector('[data-unbuild]'));
+      const rowLabels = adRow ? { sel: (adRow.querySelector('[aria-label^="Select task"]') || {}).getAttribute?.('aria-label'),
+        unbuild: adRow.querySelector('[data-unbuild]').getAttribute('aria-label') } : null;
+      // Ads matches 'launch' only through its chain (Book A › Launch › Ads); the two Launches match by name.
+      TSK.q = 'launch'; tskPaint();
+      const found = Array.from(document.querySelectorAll('#tsk-groups .tsk-row .meta [data-open-project]')).map((x) => x.textContent).sort();
+      TSK.q = ''; TSK.by = 'project';
+      TSK.proj = 'ad'; tskPaint();
+      const crumb = document.getElementById('tsk-crumb').textContent;
+      const title = document.getElementById('tsk-title').textContent;
+      const backLabel = document.getElementById('tsk-back').getAttribute('aria-label');
+      // A project door into a subproject with no tasks yet: the one Tasks arm whose chain comes from PROJECTS.
+      TSK.data = []; TSK.proj = 'la'; TSK.projHint = { id: 'la', name: 'Launch' }; tskPaint();
+      const doorCrumb = document.getElementById('tsk-crumb').textContent;
+      TSK.projHint = null; TSK.proj = null; TSK.by = 'status'; TSK.data = null;
+      // A project whose ARCHIVED parent is itself a subproject: the settings picker keeps the parent's chain.
+      PROJECTS = PROJECTS.concat([Object.assign(mk('olda', 'Old launch', 'ba'), { archived: true }),
+        Object.assign(mk('kid', 'Kid', 'olda'), { parentName: 'Old launch', parentArchived: true })]);
+      pjPaintParentSelect(PROJECTS.find((x) => x.id === 'kid'));
+      const archivedParent = document.getElementById('pjs-parent').selectedOptions[0].textContent;
+      return { create, settings, pick, tasksSel, heads, crumb, title, backLabel, archivedParent, rowProjects, found, rowLabels, doorCrumb };
+    });
+    // Pickers order by chain and word each option own name first (pjChainOption), so a cut-short closed select still names it.
+    const asOption = (chain, after) => { const n = chain.split(' › '); const own = n[n.length - 1] + (after || ''); return n.length < 2 ? own : own + ', in ' + n.slice(0, -1).join(' › '); };
+    const order = ['Alpha', 'Alpha › Sub', 'Alpha - old', 'Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B', 'Book B › Launch'].map((c) => asOption(c));
+    ok(t + ' #3029 create parent picker: named by chain, each subproject after its parent', JSON.stringify(chains.create.slice(1)) === JSON.stringify(order), JSON.stringify(chains.create));
+    ok(t + ' #3029 settings parent picker: the same, minus the project itself', JSON.stringify(chains.settings.slice(1)) === JSON.stringify(order.filter((x) => x !== 'Alpha - old')), JSON.stringify(chains.settings));
+    ok(t + ' #3029 New task project picker: the same chains and order', JSON.stringify(chains.pick) === JSON.stringify(order), JSON.stringify(chains.pick));
+    ok(t + ' #3029 Tasks Project: dropdown: the two Launches are told apart, in chain order',
+      JSON.stringify(chains.tasksSel.slice(1)) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch'].map((c) => asOption(c, ' (1)'))), JSON.stringify(chains.tasksSel));
+    ok(t + ' #3029 Tasks Group by: Project headings are named and ordered by chain',
+      JSON.stringify(chains.heads) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.heads));
+    ok(t + ' #3029 Tasks crumb names the picked subproject by its chain', /All tasks › Book A › Launch › Ads/.test(chains.crumb), JSON.stringify(chains.crumb));
+    ok(t + ' #3029 Tasks title names the picked subproject (the crumb carries the path); the back chevron speaks the chain',
+      / on Ads$/.test(chains.title.trim()) && chains.backLabel === 'Back to Book A, Launch, Ads', JSON.stringify({ title: chains.title, back: chains.backLabel }));
+    ok(t + ' #3029 Tasks rows (Group by: Status) name their project by its chain',
+      JSON.stringify(chains.rowProjects) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.rowProjects));
+    ok(t + ' #3029 Tasks search for a parent\'s name finds its subproject\'s tasks', JSON.stringify(chains.found) === JSON.stringify(['Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.found));
+    ok(t + ' #3029 a subproject row\'s checkbox and Not built yet labels speak the chain with commas',
+      !!chains.rowLabels && /^Select task 1 of Book A, Launch, Ads( \(|$)/.test(chains.rowLabels.sel) && chains.rowLabels.unbuild === 'Mark task 1 of Book A, Launch, Ads not built yet', JSON.stringify(chains.rowLabels));
+    ok(t + ' #3029 a project door into a subproject with no tasks names it by its chain', /All tasks › Book A › Launch \u00b7/.test(chains.doorCrumb), JSON.stringify(chains.doorCrumb));
+    // A chain far longer than any window, PICKED (the selected text is what WebKit widened the page by): the Tasks
+    // controls must shrink to the page, never scroll it sideways. Run again in WebKit below, the Mac app's engine.
+    const fit = await page.evaluate(FIT_LONG_CHAIN);
+    ok(t + ' #3029 a very long chain in the Project: dropdown never widens the page', fit.shown && fit.selRight <= fit.inner && fit.docW <= fit.inner, JSON.stringify(fit));
+    ok(t + ' #3029 settings picker names an archived parent that is a subproject by its chain', chains.archivedParent === 'Old launch, in Book A (archived)', JSON.stringify(chains.archivedParent));
+
     // ---- Layer 4 removed (#3103/#3104, 6.68) ----
     // The old #2848 wiring layer drove showTab -> placeSubProjects to prove the
     // shipped code nested the consolidated strip. Both the strip and placeSubProjects
@@ -464,6 +567,28 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     await page.close();
   }
   await browser.close();
+  // #3029 in WebKit, the Mac app's engine: Chromium alone passed while WebKit scrolled the page sideways by 140 px.
+  let wk = null;
+  // The Mac app renders in WebKit, so WebKit is not optional here (as render-computers-4648): a launch failure is a failure.
+  try { wk = await webkit.launch({ headless: process.env.HEADED === '0' }); } catch (e) { problems.push('[webkit] #3029 could not launch WebKit, so the long-chain fit is NOT CHECKED: ' + String(e.message || e).split('\n')[0]); }
+  if (wk) {
+    const wp = await wk.newPage({ viewport: { width: 390, height: 844 } });
+    await wp.goto(PAGE);
+    await wp.waitForFunction(() => typeof tskPaint === 'function');
+    const wfit = await wp.evaluate(FIT_LONG_CHAIN);
+    ok('[webkit 390] #3029 a very long chain, picked, never widens the page', wfit.shown && wfit.selRight <= wfit.inner && wfit.docW <= wfit.inner, JSON.stringify(wfit));
+    // The three dialog pickers carry the same long options; measured inside the window today, guarded so a CSS change cannot undo it.
+    for (const which of ['create', 'settings', 'newtask']) {
+      // A fresh page per picker, so one picker's overflow can never be blamed on the next.
+      const dp = await wk.newPage({ viewport: { width: 390, height: 844 } });
+      await dp.goto(PAGE);
+      await dp.waitForFunction(() => typeof openAddProject === 'function');
+      const d = await dp.evaluate(FIT_DIALOG_PICKER, which);
+      await dp.close();
+      ok('[webkit 390] #3029 the ' + which + ' picker with a long chain picked never widens the page', d.shown && d.selRight <= d.inner && d.docW <= d.inner, JSON.stringify(d));
+    }
+    await wk.close();
+  }
   if (problems.length) {
     console.log('problems:\n  ' + problems.join('\n  '));
     console.log('\n' + pass + ' passed, ' + problems.length + ' FAILED');

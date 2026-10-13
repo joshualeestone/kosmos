@@ -1565,7 +1565,7 @@ function columnTasks(p) {
  * them because one number came from the DATA and the other from a
  * document-wide DOM query.
  *
- * `projectName` and `whoNames` are ADDED, never merged over the task's own
+ * `projectName`, `projectPath` (#3029) and `whoNames` are ADDED, never merged over the task's own
  * fields: a task that stores parts has no `who` at all, and overwriting it
  * with the derived list would make two different facts share one name.
  */
@@ -1573,17 +1573,23 @@ function allTasks(everyProject) {
   const out = [];
   /* #3559: a caller that already read the store passes that snapshot, so the
      rows and anything it joins onto them come from ONE read. */
-  for (const p of (Array.isArray(everyProject) ? everyProject : projects.readAll()) || []) {
+  const all = (Array.isArray(everyProject) ? everyProject : projects.readAll()) || [];
+  /* #3029: the project's ancestors, root first, from the same read, so a subproject is named by its chain
+     on the Tasks screen (Book A › Launch) as the grid's ancestry line names it. */
+  const byId = new Map(all.filter((x) => x && x.id).map((x) => [x.id, x]));
+  for (const p of all) {
     /* #3861: the project's tree is built once (treeOf), so each row's parent and subtask
        count is a lookup rather than a re-scan of the project per task. */
     const tree = treeOf(p);
     const members = new Set(Array.isArray(p.agents) ? p.agents : []);   // #5678
     const owners = treeOwners(tree, members);
+    const path = projectPathOf(p, byId);
     for (const t of p.tasks || []) {
       const up = tree.up(t);
       out.push(Object.assign({}, t, {
         projectId: p.id,
         projectName: p.name,
+        projectPath: path.slice(),   // each row its own copy
         /* #3559: the Tasks view leaves archived projects' tasks out, as the rails tuck them away. */
         projectArchived: p.archived === true,
         /* #4771: whether the task's project is paused. taskState and listGroup decide what that means: on hold, unless
@@ -1622,6 +1628,20 @@ function allTasks(everyProject) {
   return out.sort((a, b) => (a.isClosed ? 1 : 0) - (b.isClosed ? 1 : 0)
     || String(a.projectName).localeCompare(String(b.projectName))
     || (b.number || 0) - (a.number || 0));
+}
+
+/* #3029: a project's ancestors' names, root first ([] for a top-level project). The walk stops at the first
+   ancestor missing from the read (tested for a missing direct parent). */
+function projectPathOf(p, byId) {
+  const names = [];
+  const seen = new Set(p && p.id ? [p.id] : []);
+  let cur = p && p.parent ? byId.get(p.parent) : null;
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    names.unshift(cur.name == null ? '' : String(cur.name));
+    cur = cur.parent ? byId.get(cur.parent) : null;
+  }
+  return names;
 }
 
 /* #5705 (user feedback, 2026-10-09): `kosmos task list` was one flat list of every task in every state. The list

@@ -29,7 +29,7 @@ test.after(() => { try { BOARD.restore(); } catch { /* restored */ } fs.rmSync(S
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 const GROUPS = SCRIPT.match(/const TSK_GROUPS = \[[\s\S]*?\n\];/)[0];
-const FNS = page.liftAll(SCRIPT, ['claimNotReported', 'tskAgentName', 'tskRow']);
+const FNS = page.liftAll(SCRIPT, ['claimNotReported', 'tskAgentName', 'pjChainText', 'pjChainSpoken', 'tskChainOf', 'tskRow']);
 const rowOf = (t, by) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey',
   GROUPS + '\n' + FNS + '\nreturn tskRow;')(
   { sel: new Set(), by }, [REX], (s) => String(s), () => '1 hour ago',
