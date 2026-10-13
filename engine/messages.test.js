@@ -298,7 +298,7 @@ test('a long body spills to a file and the pane gets the head and the path; the 
     workerFolders(['mara']);
     armSender('leo-discord');
     const tmux = arm([ok(), ok()]);
-    const long = 'brief: ' + 'the lease detail '.repeat(80);
+    const long = 'brief: ' + 'the lease detail '.repeat(700);
     const sent = messages.send({ fromPane: '%7', to: 'mara', text: long }, board.agents);
     assert.equal(sent.state, chat.DELIVERY.PLACED);
     const typed = tmux.pastedMessages()[0];
@@ -315,7 +315,7 @@ test('a long body spills to a file and the pane gets the head and the path; the 
       'the pane carries the end of the body, so it got the wall this feature exists to avoid');
     // #5706: the head the agent reads is the opening at a whole word ("detail", never "detai"), with its size.
     assert.ok(typed.includes('brief: the lease detail the lease detail'), typed.slice(0, 160));
-    assert.match(typed, /(?:the|lease|detail)\u2026 \(long message, 241 words; /, typed.slice(0, 300));
+    assert.match(typed, /(?:the|lease|detail)\u2026 \(long message, 2101 words; /, typed.slice(0, 300));
     assert.match(typed, /long message, \d+ words; the full text is in your own folder at /,   // #5706: with its size
       'the pointer does not say where the rest is');
     const spilled = typed.match(/full text is in your own folder at ([^)]+)\)/)[1];
@@ -351,6 +351,63 @@ test('a long body spills to a file and the pane gets the head and the path; the 
  * decoupling is not real. If the head or the pointer ever becomes
  * variable-length this needs a tolerance rather than a bigger number.
  */
+/* #6065: a message longer than the old 700-character spill, but whose whole line fits what chat types (chat.MAX_TEXT),
+   reaches the agent WHOLE: no Inbox file, no head and pointer. Only a line past chat's limit spills. */
+const midBody = (n) => 'brief ' + n + ': ' + 'the lease detail '.repeat(180);   // about 3000 characters
+test('#6065: a DM past the old 700-character spill but within chat\'s limit is typed whole, with no Inbox file', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    workerFolders(['mara']);
+    armSender('leo-discord');
+    const tmux = arm([ok(), ok()]);
+    const text = midBody(1);
+    assert.ok(text.length > 700 && text.length < chat.MAX_TEXT - 200, 'premise: between the old spill and chat\'s limit');
+    const sent = messages.send({ fromPane: '%7', to: 'mara', text }, board.agents);
+    assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+    const typed = tmux.pastedMessages()[0];
+    assert.ok(typed.includes(chat.cleanMessage(text)), 'the whole message did not reach the pane');
+    assert.doesNotMatch(typed, /long message, \d+ words/, 'it was cut to a head and a pointer');
+    assert.equal(fs.existsSync(inboxOf('mara')) ? messageFiles(inboxOf('mara')).length : 0, 0, 'a file was written for a message that was typed whole');
+  });
+});
+
+test('#6065: the spill happens exactly where the whole line would pass chat\'s limit (envelope included)', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    workerFolders(['mara']);
+    armSender('leo-discord');
+    let tmux = arm([ok(), ok()]);
+    // Room for the envelope ("[message from your colleague leo · <id>] "): typed whole.
+    const fits = 'w'.repeat(chat.MAX_TEXT - 200);
+    let sent = messages.send({ fromPane: '%7', to: 'mara', text: fits }, board.agents);
+    assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+    assert.ok(tmux.pastedMessages()[0].includes(fits), 'a line within chat\'s limit was spilled');
+    // Within chat's limit as a body, but not with the envelope in front of it: spilled, so nothing is refused.
+    tmux = arm([ok(), ok()]);
+    const over = 'v'.repeat(chat.MAX_TEXT - 5);
+    sent = messages.send({ fromPane: '%7', to: 'mara', text: over }, board.agents);
+    assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+    assert.match(tmux.pastedMessages()[0], /long message, 1 word; the full text is in your own folder at /, 'a line past chat\'s limit was not spilled');
+  });
+});
+
+test('#6065: a room post past the old 700 but within chat\'s limit reaches every member whole, with no Inbox files', () => {
+  withFleet(room3(), (board) => {
+    workerFolders(['leo', 'mara', 'april']);
+    const tmux = arm([]);
+    const text = midBody(2);
+    const out = messages.sendPost({ operator: true, project: 'henderson-lease', text }, board.agents, MEMBERS);
+    assert.ok(out && out.id, JSON.stringify(out));
+    const typed = tmux.pastedMessages();
+    assert.ok(typed.length >= 1, 'nothing was typed');
+    for (const line of typed) {
+      assert.ok(line.includes(chat.cleanMessage(text)), 'a member got less than the whole post');
+      assert.doesNotMatch(line, /long message, \d+ words/);
+    }
+    for (const who of ['leo', 'mara', 'april']) {
+      assert.equal(fs.existsSync(inboxOf(who)) ? messageFiles(inboxOf(who)).length : 0, 0, who + ' got a file for a post typed whole');
+    }
+  });
+});
+
 test('#1264: the pane line does not grow with the body, however long the body gets', () => {
   withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
     const typedFor = (repeats) => {
@@ -360,17 +417,17 @@ test('#1264: the pane line does not grow with the body, however long the body ge
         { fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(repeats) },
         board.agents,
       );
-      assert.equal(sent.state, chat.DELIVERY.PLACED, 'the send did not get as far as the pane');
+      assert.equal(sent.state, chat.DELIVERY.PLACED, 'the send did not get as far as the pane (' + repeats + '): ' + JSON.stringify(sent));
       return tmux.pastedMessages()[0];
     };
-    /* 1.4 KB against 59 KB: a 43x difference in body, and both under MAX_BODY so
+    /* 12 KB against 59 KB (#6065: both past chat's 10000, so both spill): a 5x difference in body, both under MAX_BODY so
        neither is refused as a document. */
     /* #5706: the line now says how many words the whole has, the one part that grows with the body (by digits, not
        by text). It is blanked before the comparison, which stays an equality; that it is there is asserted below. */
     const sized = (line) => line.replace(/long message, \d+ words;/, 'long message, N words;');
-    const smallRaw = typedFor(80);
+    const smallRaw = typedFor(700);
     const hugeRaw = typedFor(3500);
-    assert.match(smallRaw, /long message, 241 words;/, 'the line does not say how long the message is');
+    assert.match(smallRaw, /long message, 2101 words;/, 'the line does not say how long the message is');
     assert.match(hugeRaw, /long message, 10501 words;/, 'the line does not say how long the message is');
     const small = sized(smallRaw);
     const huge = sized(hugeRaw);
@@ -379,7 +436,7 @@ test('#1264: the pane line does not grow with the body, however long the body ge
       + 'decoupling what the agent is handed from how much was written');
     /* CONTROL: the two really were different sizes, so the equality above is
        about the pane and not about two identical sends. */
-    assert.ok(messages.list('mara')[1].text.length > messages.list('mara')[0].text.length * 10,
+    assert.ok(messages.list('mara')[1].text.length > messages.list('mara')[0].text.length * 4,   // #6065: 12 KB vs 59 KB (MAX_BODY caps the big one)
       'the two bodies were not actually different sizes, so the assertion above proves nothing');
   });
 });
@@ -2621,7 +2678,7 @@ test('#4447: a long room post leaves exactly one file in each member\'s own Inbo
     workerFolders(MEMBERS);
     const before = oldSpillFiles().length;
     const tmux = arm([]);
-    const long = 'brief for the room: ' + 'the lease detail '.repeat(80);
+    const long = 'brief for the room: ' + 'the lease detail '.repeat(700);
     const out = messages.sendPost({ operator: true, project: 'henderson-lease', text: long }, board.agents, MEMBERS);
     assert.equal(out.state, chat.DELIVERY.PLACED, out.because || '');
     const cleaned = chat.cleanMessage(long);
@@ -2655,7 +2712,7 @@ test('#4447: a long room post leaves exactly one file in each member\'s own Inbo
 /* #4580: identical sends inside five minutes are one message now, so each spill brief is numbered: the
    tests are about where a long message lands, not about repeats. */
 let briefN = 0;
-const brief = () => 'brief ' + (++briefN) + ': ' + 'the lease detail '.repeat(80);
+const brief = () => 'brief ' + (++briefN) + ': ' + 'the lease detail '.repeat(700);
 
 test('#4447: a long DM leaves one file, in the recipient\'s own Inbox, and nothing in the old folder or the sender\'s', () => {
   withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
