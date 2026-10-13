@@ -41,7 +41,9 @@ read-only app. The card turns it on one release after the lifting reached the `/
   fine, and refusing there would break updates that work today. Refused only when one of two things is found: a
   locked or append-only entry (macOS), or a folder WITH SOMETHING IN IT that this user may not read, write or
   search. An empty such folder is not refused (rm removes it through its parent; review 1 measured the old updater
-  getting through it).
+  getting through it). One corner stays refused: an empty folder find cannot even open reads as not empty.
+- **A refusal puts the lock back.** The lift opens the app to look; a refused update must not leave it open to an
+  agent's edit until the next good update (review 2). One function, `_kosmos_lock_app`, does it in both places.
 - **The lift is `u+rwX`, not `u+w`.** rm needs read and search as well as write to empty a folder (review 1).
 - **The folder walk runs only where the lift failed.** One `test` per folder; the usual update never pays it. The
   locked-file search runs on every update on macOS: measured at under 0.01 s on this install (341 entries).
@@ -71,13 +73,16 @@ A report of an update that died with "Permission denied" under the app folder; a
 up in the second measurement; the Linux workflow going red on this branch.
 
 ## Verify
-- `sh tools/test-update-locked-app-4455.sh`: 26 passed, run under the installer's own `set -eu` and pipefail lines
+- `sh tools/test-update-locked-app-4455.sh`: 28 passed, run under the installer's own `set -eu` and pipefail lines
   (extracted from the shipped file). Its CONTROL arm runs the old line on the locked fixture and loses `bin` before
   stopping at `app`.
-- Five mutants of the block, each in a scratch copy, BASE green first: the search's `|| true` taken out (NOISY
-  red), `! -empty` taken out (EMPTY red), the locked-file search switched off (three LOCKED arms red), the lift
-  back to `u+w` and the refusal's `return 1` removed (both red at the test's own check that it extracted the
-  shipped block, so NOT by the NOREAD or NODIR arm: for those two the arm itself is unproven by a mutant).
+- Seven mutants of the installer, each in a scratch copy, BASE green first, each red BY ITS OWN ARM: the search given
+  back the fallback that clears what it found (NOISY); `! -empty` taken out (EMPTY); the lift back to `u+w` (both
+  NOREAD arms); the locked-file search switched off (LOCKED and RELOCK); the refusal's `return 1` removed (NODIR,
+  NOISY, LOCKED); the lock not put back on refusal (RELOCK).
+  **One mutant is GREEN and is meant to be:** the `|| true` inside the two substitutions taken out. It changes
+  nothing while the function is called with `||` after it, which both the installer and the test do (review 2
+  measured this; I had described NOISY as proving it).
 - Every `install*.test.js` (23 files): 218 pass. `bash tools/test-install-static.sh`: 23 passed.
 - The what's-new tests (4 files): 54 pass. (My first wording was 151 characters; the window allows 140.) The line no
   longer says how to remove Kosmos: nobody has emptied a Trash holding a read-only app (review 1).
@@ -106,3 +111,19 @@ up in the second measurement; the Linux workflow going red on this branch.
   ("only 0 is off") is one comparison, read by the reviewer and stated in the header.
 - The reviewer found nothing else that reads the switch, and that the later writers under the app (the icon, the
   launcher) each set their own modes. A reading.
+
+## Review 2 (2026-10-13, sonnet), at 64fc0ea89
+0 BLOCKER, 2 WARNING, 0 CONVENTION, 3 NIT. Not converged.
+- **WARNING, taken, and it corrects me:** I wrote that the `|| true` inside the substitutions is what saves the path
+  under pipefail, and that NOISY proves it. The reviewer removed both and all arms stayed green: the call site
+  suspends errexit, so the status never mattered. What the first version got wrong was its fallback
+  (`|| _stuck_at=""`), which cleared the variable. The comment now says that, NOISY's label says what it does and
+  does not depend on, and the green mutant is in the Verify list.
+- **WARNING, taken:** a refusal left the app writable (the lift runs first). The lock is put back on refusal, by the
+  same function that locks after a swap; two arms (RELOCK), one with the switch at 0.
+- **NIT, taken:** the unlock advice says a lock an administrator set needs one to remove it.
+- **NIT, stated:** the empty-but-unopenable folder (in Decided).
+- **NIT, taken:** the test's extraction check no longer names `u+rwX`, so the write-only-lift mutant reaches the
+  NOREAD arm and reds it there.
+- The reviewer checked the find expression's precedence on both finds, the block's syntax in both shells, every
+  writer under the app after the lock, and every way the switch can arrive. A reading, plus one run of the test.

@@ -1194,6 +1194,14 @@ fetch_tmux() {
   return 0
 }
 
+# #4449/#4455: leave the installed app read-only, unless KOSMOS_READONLY_APP=0. $1 = the install folder. ONE copy,
+# because two places lock it: the end of a finished swap, and a swap that refused before it removed anything (it
+# had already lifted the app to look, and must not leave it open to an agent's edit).
+_kosmos_lock_app() {
+  [ "${KOSMOS_READONLY_APP:-1}" != 0 ] || return 0
+  chmod -R a-w "$1/app" 2>/dev/null
+}
+
 install_kosmos() {
   local dest="$1"
   local stage="$dest/.kosmos.stage.$$"
@@ -1353,9 +1361,12 @@ install_kosmos() {
   #     failed, so only those parts are walked (a `test` per folder is slow on a big tree and the usual update
   #     never pays it). An EMPTY such folder is not stuck: rm removes it through its parent.
   # A chmod that fails is not by itself a reason to refuse: a file somebody else owns, in a folder this user may
-  # write to, is removed fine. Each search's own exit status is ignored (`|| true` INSIDE the substitution): find
-  # exits non-zero when it meets a folder it cannot read, and under this script's pipefail that would otherwise
-  # throw away the very path it had just printed (review 1, measured).
+  # write to, is removed fine.
+  # 🛑 NEVER GIVE THESE TWO ASSIGNMENTS A FALLBACK THAT CLEARS THE VARIABLE (`|| _stuck_at=""`). find exits non-zero
+  # when it meets a folder it cannot read, which under this script's pipefail fails the whole pipeline AFTER the
+  # stuck path was printed, and the first version's fallback then threw that path away and the update went on
+  # (review 1, measured). What was printed is what counts; the status says nothing. The `|| true` inside each
+  # substitution only keeps a failed search from ending the script if this is ever called without `||` after it.
   # NOT caught ahead of time: a deny-delete ACL, another user's file in a sticky folder, an immutable file on Linux.
   local _lift_failed="" _stuck_at="" _stuck_why=""
   for part in bin app runtime; do
@@ -1378,11 +1389,14 @@ install_kosmos() {
     info "the installed Kosmos cannot be replaced, because this cannot be removed:"
     info "  $_stuck_at"
     if [ "$_stuck_why" = locked ]; then
-      info "It is locked. Unlock it (in the Finder: Get Info, untick Locked), then paste the install line again."
+      info "It is locked. Unlock it (in the Finder: Get Info, untick Locked; a lock set by an administrator needs"
+      info "one to remove it), then paste the install line again."
     else
       info "This account may not change that folder. Give it back to this account, then paste the install line again."
     fi
     info "Nothing was removed."
+    # The lift above opened the app to look. Put the lock back, as a finished update would have left it.
+    _kosmos_lock_app "$dest" || true
     rm -rf "$stage"
     return 1
   fi
@@ -1410,9 +1424,7 @@ install_kosmos() {
   # STILL TRUE: a /setup rolled back to before 0.7.45, meeting an install this one locked, fails that way. The
   # way out for that person is the lift by hand, `chmod -R u+w` on the app folder, then the install line again.
   # KOSMOS_READONLY_APP=0 leaves the app writable (anything but 0, or unset, is on).
-  if [ "${KOSMOS_READONLY_APP:-1}" != 0 ]; then
-    chmod -R a-w "$dest/app" 2>/dev/null || info "note: the Kosmos app folder could not be made read-only; the install is otherwise complete"
-  fi
+  _kosmos_lock_app "$dest" || info "note: the Kosmos app folder could not be made read-only; the install is otherwise complete"
   # 🛑 THE READ-BACK IS THE PROOF. Every claim above is about what this
   # run DID; this is the only line that looks at what the destination
   # HOLDS. A landed version that differs from the run's target means some
