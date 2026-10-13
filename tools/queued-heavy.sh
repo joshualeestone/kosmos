@@ -161,7 +161,7 @@ _qh_lib_check() {
   [ -e "$LIB_CHECKOUT/.git" ] || return 0   # not a git checkout (a test fixture): nothing to say, and nothing above it is read
   head="$($g rev-parse --verify -q HEAD 2>/dev/null)" || {
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT: git could not read this checkout, so it is loaded unchecked (#5923)"; return 0; }
-  main="$($g rev-parse --verify -q origin/main 2>/dev/null)" || { echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9}; it has no origin/main to compare with (#5923)"; return 0; }
+  main="$($g rev-parse --verify -q refs/remotes/origin/main 2>/dev/null)" || { echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9}; it has no origin/main to compare with (#5923)"; return 0; }
   # The files on disk (what is sourced), against origin/main's.
   for f in $files; do
     $g diff --quiet "$main" -- "$f" >/dev/null 2>&1 || diff="${diff:+$diff, }${f##*/}"

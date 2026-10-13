@@ -304,7 +304,10 @@ ok "#5923: a lib lock whose holder has died is taken over, and the run moves the
 # ends after 3 s; the joiner must wait for it, then take over and move.
 sh -c 'exit 0' & DEADG5923=$!; wait $DEADG5923
 sleep 60 & GIT5923=$!
-mkdir -p $S/ml5923-gitlive/queued-heavy-lib.lock && echo $DEADG5923 > $S/ml5923-gitlive/queued-heavy-lib.lock/pid && echo $GIT5923 > $S/ml5923-gitlive/queued-heavy-lib.lock/gitpid
+# Iteration 25: the shape production writes, gitcmd (what that pid runs) before gitpid, so the matching-command branch
+# is the one exercised; with no gitcmd the arm would only reach the ps-failed branch.
+mkdir -p $S/ml5923-gitlive/queued-heavy-lib.lock && echo $DEADG5923 > $S/ml5923-gitlive/queued-heavy-lib.lock/pid \
+  && ps -ww -o command= -p $GIT5923 > $S/ml5923-gitlive/queued-heavy-lib.lock/gitcmd && echo $GIT5923 > $S/ml5923-gitlive/queued-heavy-lib.lock/gitpid
 GL_OLD5923=$(lh5923 gitlive)
 ( run5923 gitlive; printf '%s\n' "$o" > $S/gitlive5923.out; echo "$rc" > $S/gitlive5923.rc ) &
 GLR5923=$!
@@ -333,12 +336,14 @@ ok "#5923: a dead holder with no gitpid but a live index.lock keeps the lock unt
 # Iteration 23: the dead holder's gitpid now names an UNRELATED live process (a reused pid): its recorded gitcmd does not
 # match what that pid runs, so it is not that git, and the run takes the lock over at once instead of waiting 5 minutes.
 sh -c 'exit 0' & DEADR5923=$!; wait $DEADR5923
-sleep 60 & OTHER5923=$!
+sleep 600 & OTHER5923=$!   # iteration 25: outlives the run's deadline, so a wrong hold cannot end by itself and pass
 mkdir -p $S/ml5923-gitreuse/queued-heavy-lib.lock && echo $DEADR5923 > $S/ml5923-gitreuse/queued-heavy-lib.lock/pid \
   && echo $OTHER5923 > $S/ml5923-gitreuse/queued-heavy-lib.lock/gitpid && echo "/bin/bash /x/queued-heavy.sh lib-gone" > $S/ml5923-gitreuse/queued-heavy-lib.lock/gitcmd
+gr_t0_5923=$(date +%s)
 run5923 gitreuse
+gr_secs5923=$(( $(date +%s) - gr_t0_5923 ))
 kill $OTHER5923 2>/dev/null; wait $OTHER5923 2>/dev/null
-ok "#5923: a dead holder's gitpid reused by an unrelated live process does not hold the lock; the run takes over and moves" '[ "$rc" = 0 ] && [ "$(lh5923 gitreuse)" = "$(lm5923 gitreuse)" ] && [[ "$o" != *"stayed taken"* ]] && [ ! -e $S/ml5923-gitreuse/queued-heavy-lib.lock ]'
+ok "#5923: a dead holder's gitpid reused by an unrelated live process does not hold the lock; the run takes over at once and moves" '[ "$rc" = 0 ] && [ "$gr_secs5923" -lt 60 ] && [ "$(lh5923 gitreuse)" = "$(lm5923 gitreuse)" ] && [[ "$o" != *"stayed taken"* ]] && [ ! -e $S/ml5923-gitreuse/queued-heavy-lib.lock ]'
 # A checkout AHEAD of origin/main (a lib fix not merged yet) differs too, and is never moved back.
 d5923=$S/l5923-ahead/work/kosmos-bc-main-4610; $GE git -C $d5923 checkout -q --detach origin/main && echo '# ahead' >> $d5923/tools/lib/cut-guard.sh && $GE git -C $d5923 -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qam ahead
 run5923 ahead
