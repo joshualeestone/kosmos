@@ -31,8 +31,10 @@
  * timer, a held promise) must be awaited inside a try with a catch, or chain its own .catch; an answer before any
  * await is immediate and exempt; an answer inside a scheduled or chained callback (setTimeout, setInterval,
  * setImmediate, queueMicrotask, nextTick, .then, .finally) is late even with no await, and needs a .catch on it or on
- * the callback's chain, or an awaited try inside the callback. A helper defined first and scheduled later
- * (`const f = () => r.fulfill(); setTimeout(f)`) is not seen (fails GREEN). A handler's span is its .route( call, to the matching paren (a backtick string nested inside
+ * the callback's chain, or an awaited try inside the callback. More generally (review 4), an answer inside ANY function
+ * nested in the handler (a parked callback, a helper scheduled by name) needs its own .catch or an awaited try inside
+ * that function. Aliases (`const rt = r`), destructured or optional-chained answers, and a route passed to a helper as
+ * a later argument are not read (fail GREEN; none in the folder). A handler's span is its .route( call, to the matching paren (a backtick string nested inside
  * ${...} in the route's URL can cut it short). Code before the wait now sits inside the try, so a throw there aborts
  * the request quietly instead of crashing; no check relies on that crash. A catch that
  * rethrows counts as caught, and the abort in the catch is advised, not required (an empty catch passes: no crash, but a
@@ -136,6 +138,36 @@ function routeEnd(blank, at) {
     else if (ch === ')' || ch === ']' || ch === '}') { depth -= 1; if (depth === 0) return i; }
   }
   return blank.length;
+}
+
+/* The innermost function nested after `from` whose body contains `at` (an arrow, block or concise, or a function
+   expression), as { open, end }, or null (#6027 review 4: an answer in any nested function can run later). */
+function nestedFn(blank, from, at) {
+  let best = null;
+  const re = /=>|\bfunction\b[^(]*\(/g;
+  re.lastIndex = from;
+  let m;
+  while ((m = re.exec(blank)) && m.index < at) {
+    let i = m.index + m[0].length;
+    if (m[0] !== '=>') {   // function (...) {: skip the parameters to the body
+      let d = 1;
+      for (; i < blank.length && d > 0; i += 1) { if (blank[i] === '(') d += 1; else if (blank[i] === ')') d -= 1; }
+    }
+    while (i < blank.length && /\s/.test(blank[i])) i += 1;
+    let end;
+    if (blank[i] === '{') end = blockEnd(blank, i);
+    else {   // a concise body: to the comma, semicolon or closing bracket that ends the expression
+      let d = 0; end = blank.length;
+      for (let j = i; j < blank.length; j += 1) {
+        const ch = blank[j];
+        if ('([{'.includes(ch)) d += 1;
+        else if (')]}'.includes(ch)) { if (d === 0) { end = j; break; } d -= 1; }
+        else if ((ch === ',' || ch === ';') && d === 0) { end = j; break; }
+      }
+    }
+    if (end > at) best = { open: i, end };
+  }
+  return best;
 }
 
 /* The index just after the block that opens at `open` (its matching close brace), or -1. */
@@ -247,23 +279,27 @@ function scan(raw) {
     // or the answer must be awaited inside a try inside the callback.
     const cbAns = new RegExp('\\b' + h.param + '\\.(fulfill|continue|fallback|abort)\\(', 'g');
     const CB = /(?:\bsetTimeout|\bsetInterval|\bsetImmediate|\bqueueMicrotask|\bprocess\.nextTick|\.then|\.finally|\.catch)\s*\(/g;
-    for (const a of body.matchAll(cbAns)) {
-      const at = h.body + a.index;
-      let lateCb = null;
+    // Every answer (and every helper handed the route) inside a function nested in the handler can run later: a timer,
+    // a .then, a parked callback, a helper scheduled by name (review 4). It needs its own .catch, an awaited try inside
+    // that function, or to be returned to a callback chain that ends in .catch.
+    const helperCall = new RegExp('\\b(?!' + h.param + '\\b)([A-Za-z_$][\\w$]*)\\(\\s*' + h.param + '\\s*[,)]', 'g');
+    const lateCandidates = [...body.matchAll(cbAns)].map((x) => h.body + x.index)
+      .concat([...body.matchAll(helperCall)].map((x) => h.body + x.index));
+    for (const at of lateCandidates) {
+      const fn = nestedFn(blank, h.body, at);
+      if (!fn) continue;
+      if (catchesAfter(callClose(at))) continue;
+      if (insideOpenTry(src, fn.open, at) && awaited(src, at)) continue;
+      let chainCaught = false;
       for (const cb of src.slice(h.body, at).matchAll(CB)) {
         const open = h.body + cb.index + cb[0].length - 1;
         const close = routeEnd(blank, open - 1);
-        if (close > at) lateCb = { open, close };
+        if (close <= at) continue;
+        const lead = src.slice(open + 1, at);
+        const returned = /^\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>\s*\(?\s*$/.test(lead) || /\breturn\s+(?:await\s+)?$/.test(lead);
+        if (returned && catchesAfter(close)) chainCaught = true;
       }
-      if (!lateCb) continue;
-      const own = catchesAfter(callClose(at));
-      // A .catch on the callback's chain sees the answer only when the callback RETURNS it (review 3): a concise arrow
-      // whose body starts with the answer, or `return [await] r.fulfill(` in a block.
-      const lead = src.slice(lateCb.open + 1, at);
-      const returned = /^\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>\s*\(?\s*$/.test(lead) || /\breturn\s+(?:await\s+)?$/.test(lead);
-      const outer = returned && catchesAfter(lateCb.close);
-      const tried = insideOpenTry(src, lateCb.open, at) && awaited(src, at);
-      if (!own && !outer && !tried) bad.push(src.slice(0, at).split('\n').length);
+      if (!chainCaught) bad.push(src.slice(0, at).split('\n').length);
     }
     const hits = [body.search(new RegExp('\\b' + h.param + '\\.fetch\\(')), firstWait].filter((x) => x >= 0);
     if (!hits.length) return;
@@ -375,6 +411,12 @@ test('#6022 fixtures: the rule can fail, and the safe shapes pass (controls)', (
   assert.deepEqual(scan(catchFallback), [2], 'an answer in a .catch( callback is late too (#6027 review 3)');
   const unreadTimer = "await page.route(/api\\/x{1,2}/, (r) => { setTimeout(() => r.fulfill({}), 1500); });\n";
   assert.ok(scan(unreadTimer).length > 0, 'an unreadable route with a callback answer is flagged (#6027 review 3)');
+  const scheduledByName = "await page.route('**/x', (r) => {\n  const f = () => r.fulfill({});\n  setTimeout(f, 2500);\n});\n";
+  assert.deepEqual(scan(scheduledByName), [2], 'a helper defined first and scheduled by name is a nested answer (#6027 review 4)');
+  const parked = "await page.route('**/x', (r) => {\n  held.push(() => r.fulfill({}));\n});\n";
+  assert.deepEqual(scan(parked), [2], 'a parked callback answer is nested (#6027 review 4)');
+  const helperCaught = "await page.route('**/x', (r) => {\n  const json = (b) => r.fulfill({ json: b }).catch(() => {});\n  setTimeout(() => json({}), 2500);\n});\n";
+  assert.deepEqual(scan(helperCaught), [], 'a nested answer that catches its own rejection passes');
   const fixtureOnly = "await page.route('**/api/x', (r) => r.fulfill({ json: {} }));\nconst x = await window.fetch('/a');\nawait browser.close();\n";
   assert.deepEqual(scan(fixtureOnly), [], 'a fixture-only handler and window.fetch are not flagged');
   const bareParam = "page.route('**/t', async route => {\n  const r = await route.fetch();\n  route.fulfill({ response: r });\n});\n";
