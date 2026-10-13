@@ -34,6 +34,9 @@
  *             also name.
  *             Deleting a post, and finishing a release or a discard, read it again too: the rows name the newest
  *             post and what waits.
+ *   HANG      the dot hangs in the margin: a dotted summary's words start where a plain summary's do, and the dotted
+ *             first line's words where the line under it does; each dot sits left of its words and on the screen.
+ *             At the desktop width and at 390 px.
  *   PHONE     at 390 px wide, nothing in the list is wider than the screen, the words under a short, a middling and a
  *             very long name have a line of their own as wide as the row (the longest summary the board can send
  *             included), the mark stays with the name, and each summary is at least 44 px tall
@@ -158,6 +161,41 @@ const CY = agent('cy', 'Cy', { summary: '2 items waiting for you · Has not post
   { text: 'It has not posted yet.' },
 ] });
 
+/* The hanging dot (design review, second pass): where the WORDS start, in a row whose summary and first line carry
+   the dot, against a row and a line that carry none. Read from the first text the eye meets (the dot and the
+   screen reader's words are skipped), so it is the letters that are compared, not the boxes around them. */
+function hang(pg, dotted, plain) {
+  return pg.evaluate(([dottedS, plainS]) => {
+    const row = (s) => document.querySelector('#community-ready-list details[data-session="' + s + '"]');
+    const textLeft = (el) => {
+      for (const n of el.childNodes) {
+        if (n.nodeType !== 3 || !n.textContent.trim()) continue;
+        const r = document.createRange(); r.selectNodeContents(n);
+        const rects = r.getClientRects(); if (rects.length) return Math.round(rects[0].left * 10) / 10;
+      }
+      return null;
+    };
+    const d = row(dottedS); const pl = row(plainS);
+    d.open = true;
+    const ps = [...d.querySelectorAll(':scope > p')];
+    const sumDot = d.querySelector('summary .tsk-dot'); const lineDot = ps[0] && ps[0].querySelector('.tsk-dot');
+    const box = (e) => { const r = e.getBoundingClientRect(); return { left: Math.round(r.left * 10) / 10, right: Math.round(r.right * 10) / 10 }; };
+    const list = document.getElementById('community-ready-list');
+    return { viewport: window.innerWidth,
+      summaryDotted: textLeft(d.querySelector('.community-ready-words')), summaryPlain: textLeft(pl.querySelector('.community-ready-words')),
+      lineDotted: ps[0] ? textLeft(ps[0]) : null, linePlain: ps[1] ? textLeft(ps[1]) : null,
+      sumDot: sumDot ? box(sumDot) : null, lineDot: lineDot ? box(lineDot) : null, listLeft: Math.round(list.getBoundingClientRect().left * 10) / 10 };
+  }, [dotted, plain]);
+}
+function checkHang(where, h) {
+  const same = (a, b) => a !== null && b !== null && Math.abs(a - b) <= 0.5;
+  check('HANG CONTROL (' + where + '): both rows, both lines and both dots were found', h.summaryDotted !== null && h.summaryPlain !== null && h.lineDotted !== null && h.linePlain !== null && !!h.sumDot && !!h.lineDot, JSON.stringify(h));
+  check('HANG (' + where + '): a dotted summary\'s words start on the same edge as a plain summary\'s', same(h.summaryDotted, h.summaryPlain), JSON.stringify([h.summaryDotted, h.summaryPlain]));
+  check('HANG (' + where + '): the dotted first line\'s words start on the same edge as the line under it', same(h.lineDotted, h.linePlain), JSON.stringify([h.lineDotted, h.linePlain]));
+  check('HANG (' + where + '): each dot sits wholly to the left of its words, with its gap', !!h.sumDot && !!h.lineDot && h.sumDot.right <= h.summaryDotted - 4 && h.lineDot.right <= h.lineDotted - 4, JSON.stringify([h.sumDot, h.summaryDotted, h.lineDot, h.lineDotted]));
+  check('HANG (' + where + '): no dot is pushed off the screen; the summary\'s sits in the margin left of the list, the line\'s inside it', !!h.sumDot && !!h.lineDot && h.sumDot.left >= 0 && h.sumDot.right <= h.listLeft && h.lineDot.left >= h.listLeft, JSON.stringify([h.listLeft, h.sumDot, h.lineDot]));
+}
+
 async function run() {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
   /* A fixed zone that is not UTC, and a fixed locale: the TIME arm asserts an hour, and on a runner in UTC a page that
@@ -210,6 +248,9 @@ async function run() {
     check('OPEN: the items sit as close as a paragraph\'s own lines: no gap between one item and the next', openLook.gaps.length === CY.owner.lines.length - 1 && openLook.gaps.every((g) => g >= 0 && g <= 1), JSON.stringify(openLook.gaps));
     check('OPEN: the row holds every line the board sent, in order', o.rows[2].lines.length === CY.owner.lines.length
       && o.rows[2].lines.every((t, i) => t.startsWith((CY.owner.lines[i].needsYou ? NEEDS : '') + CY.owner.lines[i].text) && t.endsWith(CY.owner.lines[i].after || CY.owner.lines[i].text)), JSON.stringify(o.rows[2].lines));
+
+    // HANG, at the desktop width (Cy is open here; Ava carries no dot)
+    checkHang('desktop', await hang(p1, 'cy', 'ava'));
 
     // TIME
     const tm = o.rows[2].times;
@@ -446,6 +487,10 @@ async function run() {
     check('PHONE: the mark stays on the name\'s line, never alone above it', ph.rows.every((x) => x.markBesideName === true), JSON.stringify(ph.rows.map((x) => x.markBesideName)));
     check('PHONE: no row is wider than the screen or scrolls sideways', ph.rows.every((x) => x.right <= ph.viewport && !x.scrollWide) && !ph.pageWide, JSON.stringify(ph.rows.map((x) => [x.right, x.scrollWide]).concat([ph.pageWide])));
     check('PHONE: each summary is at least 44 px tall', ph.rows.every((x) => x.sumHeight >= 44), JSON.stringify(ph.rows.map((x) => x.sumHeight)));
+    /* HANG, at 390 px: Cy's summary and first line are dotted, the long-named agent's are not. */
+    const phHang = await hang(p8, 'cy', 'long');
+    check('HANG CONTROL (390 px): the page is 390 wide', phHang.viewport === 390, String(phHang.viewport));
+    checkHang('390 px', phHang);
     await p8.close();
   } finally {
     await browser.close();
