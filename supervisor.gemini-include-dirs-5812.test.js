@@ -40,7 +40,8 @@ function run({ runner = 'gemini', projects, trust, session = 'gem-agent', world 
     fs.writeFileSync(nodePath.join(tree, '.gemini', 'trustedFolders.json'), JSON.stringify(trust));
   }
   const fake = nodePath.join(tree, 'rec-tmux.sh');
-  fs.writeFileSync(fake, ['#!/bin/bash', 'case "$1" in', '  new-session) printf "%s\\n" "$*" >> "$REC"; exit 0 ;;', '  has-session) exit 1 ;;', '  *) exit 0 ;;', 'esac'].join('\n') + '\n', { mode: 0o755 });
+  /* new-session's argv, one argument per line in $REC.args, so an argument holding a space shows whole. */
+  fs.writeFileSync(fake, ['#!/bin/bash', 'case "$1" in', '  new-session) printf "%s\\n" "$*" >> "$REC"; printf "%s\\n" "$@" >> "$REC.args"; exit 0 ;;', '  has-session) exit 1 ;;', '  *) exit 0 ;;', 'esac'].join('\n') + '\n', { mode: 0o755 });
   const r = spawnSync('/bin/bash', [nodePath.join(tree, 'bin', 'agent-supervisor.sh'), session, work, '/usr/bin/true', fake, '', 'gemini-2.5-flash', runner], { env, encoding: 'utf8', timeout: 30000 });
   const rec = fs.existsSync(env.REC) ? fs.readFileSync(env.REC, 'utf8') : '';
   const theirFile = nodePath.join(tree, '.gemini', 'trustedFolders.json');
@@ -48,7 +49,8 @@ function run({ runner = 'gemini', projects, trust, session = 'gem-agent', world 
   const m = /-e GEMINI_CLI_TRUSTED_FOLDERS_PATH=(\S+)/.exec(rec);
   const agentFile = m ? m[1] : null;
   const agentTrust = agentFile && fs.existsSync(agentFile) ? JSON.parse(fs.readFileSync(agentFile, 'utf8')) : null;
-  return { rec, stderr: r.stderr || '', tree, root, theirs, agentFile, agentTrust };
+  const args = fs.existsSync(env.REC + '.args') ? fs.readFileSync(env.REC + '.args', 'utf8').split('\n') : [];
+  return { rec, args, stderr: r.stderr || '', tree, root, theirs, agentFile, agentTrust };
 }
 
 test('a gemini agent on a project launches with that project\'s folder in its workspace', () => {
@@ -91,6 +93,14 @@ test('an agent in a named world is matched by its roster name, not its world lau
   const out = run({ projects: [{ name: 'W', folder: proj, agents: ['gem-agent'] }], session: 'gem-agent+w5812', world: 'w5812' });
   assert.ok(out.rec.includes('new-session'), out.stderr.slice(-400));
   assert.ok(out.rec.includes('--include-directories ' + proj), out.rec);
+});
+
+test('a project folder with spaces in its path reaches the launch as one argument', () => {
+  const proj = nodePath.join(SANDBOX, 'My Projects', 'a b');
+  fs.mkdirSync(proj, { recursive: true });
+  const out = run({ projects: [{ name: 'S', folder: proj, agents: ['gem-agent'] }] });
+  const i = out.args.indexOf('--include-directories');
+  assert.ok(i >= 0 && out.args[i + 1] === proj, JSON.stringify(out.args.slice(-6)));
 });
 
 test('a grok agent gets no gemini folders', () => {

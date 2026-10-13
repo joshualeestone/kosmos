@@ -193,6 +193,16 @@ test('Windows: turnFolders honours the person\'s DO_NOT_TRUST marks, as the Mac 
   assert.equal(fs.readFileSync(theirTrust(home), 'utf8'), before);
 });
 
+test('agentTrust: a trust file that cannot be written includes nothing, and says why', () => {
+  const a = mk('t-wfail-a');
+  const blocker = path.join(SANDBOX, 't-wfail-file');
+  fs.writeFileSync(blocker, 'a file where the folder would go');
+  const r = dirs.agentTrust('gem', [a], trustHome('t-wfail-home'), { file: path.join(blocker, 'gem.json') });
+  assert.deepEqual(r.folders, []);
+  assert.equal(r.file, null);
+  assert.match(r.leftOut[0].because, /could not be written/);
+});
+
 test('launchFolders: the Mac launch returns the folders and the agent trust file', () => {
   const p = mk('l-proj');
   const file = path.join(SANDBOX, 'l-agent.json');
@@ -237,14 +247,22 @@ test('Windows: the real turn path (no folder seam) reads the agent\'s projects b
     retireRun: () => ({ ok: true }), sessions: { pruneName: () => ({ ok: true, removed: 0 }) }, supervisorPid: 1,
     prepare: () => ({ ok: true, sessionId: 'k1', name: 'gem', token: 't', instance: 'i' }),
   });
+  const said = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = function (chunk, ...rest) { if (String(chunk).includes('#5812')) { said.push(String(chunk)); return true; } return realWrite.call(this, chunk, ...rest); };
   try {
     await new Promise((res) => h.send('hello', res));
     for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r));
-    assert.equal(seen.length, 1);
+    await new Promise((res) => h.send('again', res));
+    for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r));
+    process.stderr.write = realWrite;
+    assert.equal(seen.length, 2);
+    assert.equal(said.length, 1, 'the left-out folder is said once, not at every turn: ' + JSON.stringify(said));
+    assert.match(said[0], /w-denied was left out .*do not trust/);
     const i = seen[0].indexOf('--include-directories');
     assert.ok(i >= 0 && seen[0][i + 1] === proj, JSON.stringify(seen[0]));
     assert.ok(!seen[0].includes(denied), 'the folder the person marked do not trust is not passed');
-  } finally { h.stop(); keyed.setSpawn(null); fs.rmSync(path.join(store.ROOT, 'projects.json'), { force: true }); }
+  } finally { process.stderr.write = realWrite; h.stop(); keyed.setSpawn(null); fs.rmSync(path.join(store.ROOT, 'projects.json'), { force: true }); }
 });
 
 test('Windows: a gemini turn carries the folders; grok and an empty list do not', () => {

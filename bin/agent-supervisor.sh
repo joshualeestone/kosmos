@@ -1235,6 +1235,8 @@ if [ -z "$adopt" ]; then
         esac
       done < <("$NODE_BIN" "$_eng/geminidirs.js" launch-args "$(token_roster_name)" "$WORKDIR" "${GEMINI_CLI_HOME:-}" || true)
       unset _gdir
+    else
+      say "$SESSION: #5812: no project folders were added to the Gemini workspace (the engine or node was not found)"
     fi
     launch_pane "$CLAUDE" --approval-mode yolo --skip-trust -m "$GEMINI_MODEL" ${GEMINI_INCLUDE[@]+"${GEMINI_INCLUDE[@]}"} || exit 1
   elif [ "$RUNNER" = grok ]; then
