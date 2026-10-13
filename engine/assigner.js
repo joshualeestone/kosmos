@@ -661,8 +661,10 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
       const fails = (out.next.askFails.get(item.projectId) || 0) + 1;
       out.next.askFails.set(item.projectId, fails);
       // Retry soon, unless it has failed MAX_ASK_FAILS times in a row: then leave it for the day.
-      if (fails < MAX_ASK_FAILS) out.next.asked.set(item.projectId, now - GOAL_ASK_MS + ASK_RETRY_MS);
-      else {
+      if (fails < MAX_ASK_FAILS) {
+        out.next.asked.set(item.projectId, now - GOAL_ASK_MS + ASK_RETRY_MS);
+        out.next.askGaveUp.delete(item.projectId);   // #6072 review 3: a new run of tries; an older give-up no longer describes it
+      } else {
         out.next.askFails.delete(item.projectId);
         /* #6072: the project is left for the day with nothing said. Kept per PROJECT (its goal is what stalls), naming
            the agent last asked and what happened, because that agent is the one Kosmos could not reach. */
