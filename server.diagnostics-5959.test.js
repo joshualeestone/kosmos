@@ -122,3 +122,28 @@ test('#5959: a click\'s two halves share one file, and two downloads in a row ea
   assert.ok(!a.log.tail.some((e) => /probe-5959-second/.test(e.line)), 'CONTROL: the first file predates the second line');
   assert.ok(b.log.tail.some((e) => /probe-5959-second/.test(e.line)), 'a later download is made fresh');
 });
+
+test('#5959: when one half of a click fails, the other half gives the same answer', async () => {
+  const H = { 'x-kosmos-board-token': BOARD };
+  const diagnostics = require('./engine/diagnostics');
+  const real = diagnostics.build;
+  // Empty the click slot an earlier test may have left: a download, then the look that takes it.
+  await get(H);
+  assert.equal((await fetch(base + '/api/diagnostics?check=1', { headers: H })).status, 204);
+  // The look fails first: the download that follows refuses too, never saving a file the page called not saved.
+  diagnostics.build = () => { throw new Error('probe failure 5959'); };
+  try {
+    const look = await fetch(base + '/api/diagnostics?check=1', { headers: H });
+    assert.equal(look.status, 500);
+    assert.match((await look.json()).because || '', /could not make the diagnostics file/);
+  } finally { diagnostics.build = real; }
+  const after = await get(H);
+  assert.notEqual(after.code, 200, 'the download half of the same click refuses as the look did');
+  // CONTROL: the slot is spent, so the next download is made fresh.
+  assert.equal((await get(H)).code, 200);
+  // The download fails first: the look that follows says so.
+  diagnostics.build = () => { throw new Error('probe failure 5959'); };
+  try { assert.notEqual((await get(H)).code, 200); } finally { diagnostics.build = real; }
+  const look2 = await fetch(base + '/api/diagnostics?check=1', { headers: H });
+  assert.equal(look2.status, 500, 'the look half of the same click says the download failed');
+});
