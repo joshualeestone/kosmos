@@ -1585,7 +1585,7 @@ DATA_SETS.marketing = {
     maya: { modelName: 'Claude Sonnet 5.5', tokens: 97000, ceiling: 200000, postedDaysAgo: 0 },
     theo: { modelName: 'Gemini 3 Pro', runner: 'gemini', tokens: 140000, ceiling: 1000000, postedDaysAgo: 2 },
     iris: { modelName: 'Claude Opus 5.5', tokens: 133000, ceiling: 200000, postedDaysAgo: 1 },
-    ravi: { modelName: 'GPT 5.2', runner: 'codex', tokens: 51000, ceiling: 400000, postedDaysAgo: 5 },
+    ravi: { modelName: 'Meta Muse', runner: 'muse', tokens: 51000, ceiling: 400000, postedDaysAgo: 5 },   // the page's own word for a Muse agent (modelLine)
   },
   commitments: {
     dana: 'Task 1 of Launch the spring catalogue: copy for pages 9 to 12, once the photos are in',
