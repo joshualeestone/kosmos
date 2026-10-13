@@ -786,6 +786,23 @@ const SCREENS = [
   { name: 'plus-signing-in-name', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
     await plusSigningIn(page, false);
   }, after: async (page) => { await plusSigningInEnd(page); } },
+  /* kosmos#5995 item 4: the sign-in's email step with its "Name for this computer" box, as the page shows it once
+     the name has been read. The read is answered HERE with a sample name: the board's own answer is this Mac's real
+     name, which must not be in a shot (the leak guard would stop the run, rightly). Reached with the page's own
+     functions, as the two screens above are; the sign-in flag keeps the card up across the status tick. */
+  { name: 'plus-signin-email', owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/remote/computer-name', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, name: 'Studio Mac', fromComputer: true }) }));
+    await at(page, '?tab=settings&sec=plus');
+    await page.waitForSelector('#plus-state2', { state: 'attached', timeout: 8000 });
+    await page.evaluate(() => {
+      for (const id of ['plus-state1', 'plus-state3']) { const el = document.getElementById(id); if (el) el.hidden = true; }
+      PLUS_SIGNIN_ACTIVE = true;
+      document.getElementById('plus-state2').hidden = false;
+      plusSiShow('plus-si-email');
+      document.getElementById('plus-signin-email').value = 'you@example.com';
+    });
+    await page.waitForFunction(() => { const f = document.getElementById('plus-si-computer-field'); return f && !f.hidden && document.getElementById('plus-si-computer').value === 'Studio Mac'; }, null, { timeout: 8000 });
+  }, after: async (page) => { await plusSigningInEnd(page); await page.unroute('**/api/remote/computer-name'); } },
   { name: 'connect-connected', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '?tab=settings&sec=plus');
     await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]', { state: 'visible', timeout: 8000 });
     await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]');

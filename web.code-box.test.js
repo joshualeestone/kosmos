@@ -42,12 +42,42 @@ function boxWorld(fetchImpl) {
   vm.runInNewContext([
     slice('const PLUS_CODE_WORDS', 'function plusCountdown'),
     slice('function plusSiMsg', 'async function plusSiPostRaw'),
+    slice('const PLUS_SI_COMPUTER', 'function plusSiComputerSent'),   // #5995: the start asks it what name to send
     slice('async function plusSiRequestCode', 'async function plusSiRequestCode'),
     'this.plusSiRequestCode = plusSiRequestCode;',
   ].join('\n'), ctx);
   const btn = el('plus-signin-code');
   return { ctx, el, staged, btn, click: () => ctx.plusSiRequestCode(btn), line: () => el('plus-signin-msg').textContent };
 }
+
+test('#5995: after a start that carried a name, the name box shows the name as it was kept', async () => {
+  const w = boxWorld(async () => ({ ok: true, json: async () => ({ stage: 'code_sent', computer_name: 'Studio Mac' }) }));
+  w.el('plus-signin-email').value = 'her@example.com';
+  w.el('plus-si-computer').value = '  Studio   Mac  ';
+  await w.click();
+  assert.equal(w.el('plus-si-computer').value, 'Studio Mac');
+  // An answer with no name (an older board, a start that named nothing) leaves the box as it is.
+  const o = boxWorld(async () => ({ ok: true, json: async () => ({ stage: 'code_sent' }) }));
+  o.el('plus-signin-email').value = 'her@example.com';
+  o.el('plus-si-computer').value = 'typed';
+  await o.click();
+  assert.equal(o.el('plus-si-computer').value, 'typed');
+});
+
+test('#5995: a start whose name could not be kept still goes to the code step, and says so there', async () => {
+  const w = boxWorld(async () => ({ ok: true, json: async () => ({ stage: 'code_sent', computer_name_kept: false }) }));
+  w.el('plus-signin-email').value = 'her@example.com';
+  w.el('plus-si-computer').value = 'Studio Mac';
+  await w.click();
+  assert.deepEqual(w.staged.map((s) => s[0]), ['code_sent']);
+  assert.match(w.line(), /^We sent the code\. We could not save the name you gave this computer/);
+  assert.equal(w.el('plus-si-computer').value, 'Studio Mac', 'the box was changed though no name came back');
+  // CONTROL: an ordinary good ask leaves that line empty.
+  const ok = boxWorld(async () => ({ ok: true, json: async () => ({ stage: 'code_sent', computer_name: 'Studio Mac' }) }));
+  ok.el('plus-signin-email').value = 'her@example.com';
+  await ok.click();
+  assert.equal(ok.line(), '');
+});
 
 test('a good ask goes to the code step, naming the address the code went to', async () => {
   const asked = [];

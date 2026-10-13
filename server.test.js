@@ -11961,6 +11961,136 @@ test('#4756: GET /api/remote/signin-addresses needs the held sign-in, answers th
   }
 });
 
+/* kosmos#5995 item 4: the sign-in's "Name for this computer" field. The page reads the name before anything is sent
+   (GET /api/remote/computer-name) and posts what the person left in the field with the start (computer_name), which
+   names that start and is kept once the start has gone out. */
+test('#5995: the name this computer is sent under can be read first, rides the start and is kept after it, and is refused to another website', async () => {
+  const sb = fs.realpathSync(mkTemp('computer-name-'));
+  const fakeBin = nodePath.join(sb, 'fake-tunnel');
+  const argvLog = nodePath.join(sb, 'argv.jsonl');
+  fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
+    'const a = process.argv.slice(2);',
+    // The start goes out, and the settings file stops being readable while it does (the save after it must fail).
+    "if (a[0] === 'signin' && a[1] === 'start' && process.env.FAKE_NAME_LOCK) { require('node:fs').chmodSync(process.env.FAKE_NAME_LOCK, 0); require('node:fs').appendFileSync(process.env.FAKE_NAME_ARGV, JSON.stringify(a) + '\\n'); console.log(JSON.stringify({ stage: 'code_sent' })); process.exit(0); }",
+    "if (a[0] === 'signin' && a[1] === 'start' && process.env.FAKE_NAME_FAIL) { process.stderr.write('error: the coordinator is not answering\\n'); process.exit(1); }",
+    // Fails the first start that finds the marker file (and removes it), after a pause; later starts go out.
+    "if (a[0] === 'signin' && a[1] === 'start' && process.env.FAKE_NAME_FAIL_ONCE && require('node:fs').existsSync(process.env.FAKE_NAME_FAIL_ONCE)) { require('node:fs').rmSync(process.env.FAKE_NAME_FAIL_ONCE); setTimeout(() => { process.stderr.write('error: the coordinator is not answering\\n'); process.exit(1); }, 400); return; }",
+    "if (a[0] === 'signin' && a[1] === 'start') { require('node:fs').appendFileSync(process.env.FAKE_NAME_ARGV, JSON.stringify(a) + '\\n'); console.log(JSON.stringify({ stage: 'code_sent' })); process.exit(0); }",
+    // An older tunnel refuses the device-key verb as a usage error (exit 2), as real ones do (kosmos#5422).
+    "if (a[0] === 'signin' && a[1] === 'device-id') { process.stderr.write(\"error: unrecognized subcommand 'device-id'\\n\"); process.exit(2); }",
+    'process.exit(0);', ''].join('\n'));
+  fs.chmodSync(fakeBin, 0o755);
+  const keys = ['AGENT_WORKFORCE_TUNNEL_BIN', 'AGENT_WORKFORCE_TUNNEL_STATE', 'FAKE_NAME_ARGV', 'FAKE_NAME_FAIL', 'FAKE_NAME_FAIL_ONCE', 'FAKE_NAME_LOCK'];
+  const prev = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeBin;
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(sb, 'state');
+  process.env.FAKE_NAME_ARGV = argvLog;
+  const remoteEngine = require('./engine/remote');
+  const sentNames = () => (fs.existsSync(argvLog) ? fs.readFileSync(argvLog, 'utf8').trim().split('\n') : [])
+    .map((line) => { const a = JSON.parse(line); return a[a.indexOf('--device-name') + 1]; });
+  const start = (extra) => postJson('/api/remote/signin-start', Object.assign({ email: 'person@example.com' }, extra));
+  const shown = async () => JSON.parse((await req('/api/remote/computer-name', { headers: { 'sec-fetch-site': 'same-origin' } })).body);
+  let ownName = null;
+  try {
+    await postJson('/api/remote/signin-cancel', {});
+    const first = await shown();
+    assert.equal(first.ok, true, 'the name route did not answer ok');
+    if (first.fromComputer === true) ownName = first.name;
+    assert.equal(first.fromComputer, true, 'a name was already kept before this test');
+    assert.equal(first.name + ' (Kosmos app)', remoteEngine.thisComputerDeviceName(), 'the route shows another name than the one that is sent');
+    assert.notEqual(first.name, 'Studio Mac', 'CONTROL: this computer has the test\'s name, so nothing below is told apart');
+    const foreign = await req('/api/remote/computer-name', { headers: { 'sec-fetch-site': 'cross-site' } });
+    assert.equal(foreign.status, 403, 'another website read this computer\'s name');
+    assert.ok(!foreign.body.includes(first.name), 'the refusal carries the name');
+
+    // An older page, or a script: no computer_name in the body, and nothing is kept.
+    const plain = await start({});
+    assert.equal(plain.status, 200, 'the start failed: ' + plain.body);
+    assert.equal(remoteEngine.read().computer_name, null, 'a start that named nothing kept a name');
+    // The person typed one: this start sends it, it is kept once the start went out, and it is shown next time.
+    const typed = await start({ computer_name: ' Studio Mac ' });
+    assert.equal(typed.status, 200);
+    assert.equal(JSON.parse(typed.body).computer_name, 'Studio Mac', 'the start does not answer with the name as kept');
+    assert.deepEqual(await shown(), { ok: true, name: 'Studio Mac', fromComputer: false });
+    // A later start that names nothing (the quiet paths, an older page) still sends the kept name.
+    assert.equal((await start({})).status, 200);
+    // They cleared it: the plain name goes, the box is told to stay empty, and the next sign-in shows an empty box.
+    const cleared = await start({ computer_name: '' });
+    assert.equal(cleared.status, 200);
+    assert.equal(JSON.parse(cleared.body).computer_name, '', 'a cleared box is told to show a name');
+    assert.deepEqual(await shown(), { ok: true, name: '', fromComputer: false }, 'a cleared choice is not shown as an empty box');
+    // Not text: ignored, as an absent field is.
+    assert.equal((await start({ computer_name: 7 })).status, 200);
+    // Compared as "own" or the literal, so a failing line never prints this computer's real name.
+    const told = sentNames().map((n) => (n === first.name + ' (Kosmos app)' ? 'OWN' : n));
+    assert.deepEqual(told, ['OWN', 'Studio Mac (Kosmos app)', 'Studio Mac (Kosmos app)', 'This computer (Kosmos app)', 'This computer (Kosmos app)']);
+    // Sent with a device_name too, computer_name is the one that names this start.
+    assert.equal((await start({ computer_name: 'Both Given', device_name: 'Ignored Label' })).status, 200);
+    assert.equal(sentNames().at(-1), 'Both Given (Kosmos app)', 'device_name named a start that also carried computer_name');
+    assert.equal((await start({ computer_name: '' })).status, 200);
+    // A start that does not go out keeps nothing: the name is kept only after a start carried it.
+    assert.equal(remoteEngine.read().computer_name, '', 'CONTROL: the cleared choice is not what is kept going in');
+    process.env.FAKE_NAME_FAIL = '1';
+    const failed = await start({ computer_name: 'Never Sent' });
+    assert.equal(failed.status, 400, 'CONTROL: the start that should fail went out: ' + failed.body);
+    assert.equal(remoteEngine.read().computer_name, '', 'a name typed for a start that never went out was kept');
+    delete process.env.FAKE_NAME_FAIL;
+    assert.equal((await start({ computer_name: 'Never Sent' })).status, 200);
+    assert.equal(remoteEngine.read().computer_name, 'Never Sent', 'CONTROL: the same name on a start that went out was not kept');
+    assert.equal(sentNames().at(-1), 'Never Sent (Kosmos app)');
+    /* Two starts at once with the same new name, one failing late: the other carried the name, so it is kept, and
+       the failing one changes nothing. The stand-in fails only the FIRST start it sees, after a pause. */
+    assert.equal((await start({ computer_name: '' })).status, 200);
+    process.env.FAKE_NAME_FAIL_ONCE = nodePath.join(sb, 'fail-once');
+    fs.writeFileSync(process.env.FAKE_NAME_FAIL_ONCE, '');
+    const [slowFail, second] = await Promise.all([start({ computer_name: 'Two Tabs' }), start({ computer_name: 'Two Tabs' })]);
+    delete process.env.FAKE_NAME_FAIL_ONCE;
+    assert.deepEqual([slowFail.status, second.status].sort(), [200, 400], 'CONTROL: one of the two starts did not fail and one go out');
+    assert.equal(remoteEngine.read().computer_name, 'Two Tabs', 'a start that failed undid the name another start carried');
+    /* A settings file that cannot be read at all: the name could not be kept, so the start is refused BEFORE it goes
+       out (no code is emailed for it), while a start that names nothing new still goes. */
+    /* Whether this host can make that state is probed, not assumed from the platform: one that still reads a
+       mode-0 file (an administrator, a file system with no modes) skips these two arms. */
+    fs.chmodSync(remoteEngine.FILE, 0o000);
+    let modeZeroReads = true;
+    try { fs.readFileSync(remoteEngine.FILE, 'utf8'); } catch { modeZeroReads = false; }
+    fs.chmodSync(remoteEngine.FILE, 0o600);
+    if (!modeZeroReads) {
+      const whole = fs.readFileSync(remoteEngine.FILE, 'utf8');
+      const sentBefore = sentNames().length;
+      fs.chmodSync(remoteEngine.FILE, 0o000);
+      try {
+        const refused = await start({ computer_name: 'Cannot Keep' });
+        assert.equal(refused.status, 400, refused.body);
+        assert.match(JSON.parse(refused.body).error, /could not keep that name just now/);
+        assert.equal(sentNames().length, sentBefore, 'a start went out (a code was emailed) for a name that could not be kept');
+        assert.equal((await start({})).status, 200, 'CONTROL: on the same unreadable file, a start that names nothing was refused too');
+      } finally { fs.chmodSync(remoteEngine.FILE, 0o600); }
+      assert.equal(fs.readFileSync(remoteEngine.FILE, 'utf8'), whole, 'the unreadable settings file was rewritten');
+      /* The one gap: the name could be kept when asked, the start went out, and the save then failed. The person is
+         told a code was sent and the name was not kept; nothing claims the typed name was. */
+      const keptBefore = remoteEngine.read().computer_name;
+      const sentGap = sentNames().length;
+      process.env.FAKE_NAME_LOCK = remoteEngine.FILE;
+      let gap;
+      try { gap = await start({ computer_name: 'Lost In The Gap' }); }
+      finally { delete process.env.FAKE_NAME_LOCK; fs.chmodSync(remoteEngine.FILE, 0o600); }
+      assert.equal(sentNames().length, sentGap + 1, 'CONTROL: the start in the gap arm did not go out');
+      // The code was emailed and works: the answer is the code step, saying the name was not kept.
+      assert.equal(gap.status, 200, gap.body);
+      assert.deepEqual(JSON.parse(gap.body), { ok: true, stage: 'code_sent', computer_name_kept: false });
+      assert.equal(remoteEngine.read().computer_name, keptBefore, 'the name that could not be saved reads as kept');
+    }
+    // Leaving the computer's own name in the field goes back to following the computer.
+    assert.equal((await start({ computer_name: first.name })).status, 200);
+    assert.equal(remoteEngine.read().computer_name, null, 'the computer\'s own name was kept as a choice');
+  } finally {
+    if (ownName !== null) remoteEngine.keepComputerNameChoice(remoteEngine.computerNameChoice(ownName));   // the computer's own name keeps nothing
+    await postJson('/api/remote/signin-cancel', {});
+    for (const k of keys) { if (prev[k] === undefined) delete process.env[k]; else process.env[k] = prev[k]; }
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // In-app sign-in routes (#3149 increment 3a): the engine<->server seam. The
 // bearer material is held engine-side; these assert the routes relay only the
