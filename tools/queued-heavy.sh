@@ -256,7 +256,7 @@ _qh_lib_check() {
       # git runs in its own group, so it outlives a wrapper KILLed (or ALRMed) mid-checkout. The pid recorded is the
       # subshell running git ($g is a function), which lives exactly as long as that git; in the lock it keeps a joiner
       # from taking the lock over (and loading a half-written lib) while git is still writing.
-      [ -n "$QH_LIB_LOCK" ] && { echo "$gp" > "$QH_LIB_LOCK/gitpid"; ps -ww -o command= -p "$gp" > "$QH_LIB_LOCK/gitcmd"; } 2>/dev/null
+      [ -n "$QH_LIB_LOCK" ] && { ps -ww -o command= -p "$gp" > "$QH_LIB_LOCK/gitcmd"; echo "$gp" > "$QH_LIB_LOCK/gitpid"; } 2>/dev/null
       wait "$gp" || mrc=$?
       [ -n "$QH_LIB_LOCK" ] && rm -f "$QH_LIB_LOCK/gitpid" "$QH_LIB_LOCK/gitcmd"   # git has exited: nothing left to wait for
     fi
@@ -276,7 +276,7 @@ _qh_lib_check() {
       $g -c core.hooksPath=/dev/null checkout -q -f --detach "$head" </dev/null >/dev/null 2>&1 &
       rp=$!
       set +m
-      [ -n "$QH_LIB_LOCK" ] && { echo "$rp" > "$QH_LIB_LOCK/gitpid"; ps -ww -o command= -p "$rp" > "$QH_LIB_LOCK/gitcmd"; } 2>/dev/null
+      [ -n "$QH_LIB_LOCK" ] && { ps -ww -o command= -p "$rp" > "$QH_LIB_LOCK/gitcmd"; echo "$rp" > "$QH_LIB_LOCK/gitpid"; } 2>/dev/null
       wait "$rp" && [ -z "$($g status --porcelain --untracked-files=no 2>/dev/null)" ] && rok=yes
       [ -n "$QH_LIB_LOCK" ] && rm -f "$QH_LIB_LOCK/gitpid" "$QH_LIB_LOCK/gitcmd"
     fi
@@ -320,12 +320,14 @@ else
          || { [ -s "$QH_LIB_LOCK/cmd" ] && [ -n "$_qh_oc" ] && [ "$_qh_oc" != "$(cat "$QH_LIB_LOCK/cmd" 2>/dev/null)" ]; }; then
         # Only if it is still that holder's lock (another joiner may have just taken it over), and no git it started is
         # still checking out (a dead holder's git keeps writing in its own group).
-        # Also not while the lib's index.lock exists: a running checkout always holds it, which covers the instant
-        # between git starting and its pid reaching the lock. A lock left by a git that was itself killed blocks until
-        # the 5-minute give-up below, as it blocks every git in that checkout anyway.
+        # Also not while the lib's index.lock exists: a running checkout holds it once git has started, which covers
+        # the instant between git creating it and its pid reaching the lock. Not covered: a holder KILLed after the
+        # fork and before git creates index.lock (tens of ms; the accepted wrapper-KILL residual, iteration 24). A lock
+        # left by a git that was itself killed blocks until the 5-minute give-up below, as it blocks every git anyway.
         # The gitpid is removed once git exits, and a live pid running another command than the one recorded
         # (gitcmd) is a reused pid, not that git (iteration 23): so a dead holder's long-gone git cannot hold the
-        # lock for good by its number landing on an unrelated process.
+        # lock for good by its number landing on an unrelated process. gitcmd is written before gitpid (iteration 24),
+        # so a pid is never on record without its command.
         _qh_gp="$(cat "$QH_LIB_LOCK/gitpid" 2>/dev/null)"
         _qh_gl=no
         if [ -n "$_qh_gp" ] && kill -0 "$_qh_gp" 2>/dev/null; then
