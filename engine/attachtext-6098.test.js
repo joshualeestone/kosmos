@@ -693,6 +693,9 @@ test('#6098 review 12: a locale tag on a date format is not a currency; a curren
   const noted = (code) => at.xlsxText(book1(sheet, '<numFmts><numFmt numFmtId="164" formatCode="' + code + '"/></numFmts>')).notes.some((n) => /without their formats/.test(n));
   assert.equal(noted('[$-409]mmm d, yyyy'), false);
   assert.equal(noted('[$-F800]dddd, mmmm dd, yyyy'), false);
+  assert.equal(noted('[$-x-sysdate]dddd, mmmm dd, yyyy'), false);
+  assert.equal(noted('[$-x-systime]h:mm:ss AM/PM'), false);
+  assert.equal(noted('[$$-409]#,##0.00'), true);
   assert.equal(noted('[$€-407]#,##0.00'), true);
 });
 
@@ -711,4 +714,14 @@ test('#6098 review 12: a stored (not deflated) sheet over the part limit, and sh
   assert.ok(got.body.includes('| beta |'), got.body.slice(0, 200));
   assert.ok(got.notes.some((n) => /A sheet is larger/.test(n)), JSON.stringify(got.notes));
   assert.ok(got.notes.some((n) => /text is larger than Kosmos reads/.test(n)), JSON.stringify(got.notes));
+});
+
+/* ── review 13 ── */
+test('#6098 review 13: a cut that lands inside a text box\'s Fallback copy still keeps the table rows before it', () => {
+  const box = '<w:r><mc:AlternateContent><mc:Choice><w:txbxContent><w:p><w:r><w:t>box</w:t></w:r></w:p></w:txbxContent></mc:Choice>'
+    + '<mc:Fallback><w:txbxContent><w:p><w:r><w:t>box</w:t></w:r></w:p>' + 'y'.repeat(22 * 1024 * 1024);   // the cut falls in here
+  const rows = Array.from({ length: 200 }, (_, i) => '<w:tr><w:tc><w:p><w:r><w:t>row ' + i + '</w:t></w:r></w:p></w:tc></w:tr>').join('');
+  const body = '<w:p><w:r><w:t>intro</w:t></w:r></w:p><w:tbl>' + rows + '<w:tr><w:tc><w:p>' + box;
+  const got = at.docxText(docxOf(body));
+  assert.ok(got.body.includes('| row 199 |'), got.body.slice(0, 200));
 });
