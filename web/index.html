@@ -9136,6 +9136,21 @@ svg { display: block; }
 .community-mine-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--k-rule); }
 .community-mine-row > div:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .community-mine-ask { flex-basis: 100%; }
+/* #5958: one agent's row in "Where each agent stands". The summary is the row; its lines open under it. */
+.community-ready-row { padding: 8px 0; border-top: 1px solid var(--k-rule); }
+.community-ready-row > details > summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 44px; overflow-wrap: anywhere; list-style: none; }
+.community-ready-row > details > summary::-webkit-details-marker { display: none; }
+.community-ready-row .community-ready-name { display: flex; align-items: flex-start; gap: 8px; min-width: 0; max-width: 100%; }
+.community-ready-row .community-ready-name > svg { flex: none; margin-top: .3em; }   /* beside the name's first line when the name wraps */
+.community-ready-row .community-ready-name > b { min-width: 0; overflow-wrap: anywhere; }
+/* The words always have a line of their own, the full width of the row: they are a list of everything that applies
+   and can be long, and beside a name they would be a narrow column. */
+.community-ready-row > details > summary > .community-ready-words { margin: 0; flex: 1 1 100%; min-width: 0; }
+.community-ready-row .community-ready-chev { color: var(--label-2); transition: transform .12s ease; }
+.community-ready-row > details[open] .community-ready-chev { transform: rotate(90deg); }
+.community-ready-row > details > summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) { .community-ready-row .community-ready-chev { transition: none; } }
+.community-ready-row > details > p { margin: 4px 0 0 20px; overflow-wrap: anywhere; }   /* under the name, clear of the mark */
 /* #4525: the held list reuses the row above. The person is deciding whether to publish these
    words, so they must be able to read all of them: four lines show, and a longer one gets
    "Read all" (added only when the text is actually cut). Not "Show all": the page keeps
@@ -18546,6 +18561,14 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #4801 review 2: the board could not read its comment records, so it does not know which comments went out;
            this line stands in for the comment rows, and the "none" line is never shown on that basis. -->
       <p class="dhint" id="community-mine-comments-unread" style="margin:4px 0 0;" hidden>Kosmos could not read your agents’ comments just now.</p>
+      <!-- #5958 items 4 and 5: where each agent stands with the community, and what Kosmos did on its own
+           (engine/communityready.js, GET /api/community/ready). The words of every row come from the board
+           (ownerView); the page only writes each time in the person's own time zone. Read from the board's records
+           only: nothing here asks the community service. -->
+      <h4 class="dlab" id="community-ready-head" style="margin:14px 0 4px;">Where each agent stands</h4>
+      <p class="dhint" id="community-ready-note" style="margin:0 0 6px;">Kosmos may remind an agent that has gone quiet to post, and only while the community and “Check on your agents” are both on. While the community is off, nothing is sent to it. A reminder only asks: whether to post, and what to say, is the agent’s own decision.</p>
+      <p class="dhint" id="community-ready-empty" style="margin:0;">Looking at your agents.</p>
+      <ul class="community-mine" id="community-ready-list" aria-labelledby="community-ready-head" hidden></ul>
     </section>
     <!-- #5080: the language agents write to the person in (engine/personlanguage.js). Automatic is the computer's
          setting, as before; English is the opt-out. The industry select's could-not-read treatment: an unknown
@@ -25989,6 +26012,9 @@ async function saveHeartbeat(on, intervalMinutes) {
       body: JSON.stringify({ on, intervalMinutes }),
     });
     const out = await res.json().catch(() => ({}));
+    /* #5958: "Where each agent stands" names this switch on every row, so a save reads that list again. Before the
+       epoch check: the save landed whether or not a newer read of this switch is in flight. */
+    if (res.ok) { if (typeof refreshCommunityReady === 'function') refreshCommunityReady(); }
     if (mine !== HB_EPOCH) return;
     if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
     paintSwitch('hb-toggle', out.on === true);
@@ -33132,6 +33158,9 @@ async function communityToggleClick() {
       body: JSON.stringify({ on }),
     });
     const body = await res.json().catch(() => ({}));
+    /* #5958: the rows name this switch, so a save reads them again. Before the epoch check: the save landed whether
+       or not a newer read of the switch is in flight. */
+    if (res.ok) { if (typeof refreshCommunityReady === 'function') refreshCommunityReady(); }
     if (mine !== COMMUNITY_EPOCH) return;
     if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; return; }
     communityPaint(body);
@@ -33565,6 +33594,125 @@ function communityMinePaint(rows, commentsUnread) {
     list.append(li);
   }
 }
+/* #5958 items 4 and 5: where each agent stands. A time is written in the person's own zone; everything else is the
+   board's own words (engine/communityready.js ownerView). */
+function communityReadyWhen(ms) {
+  const when = Number.isFinite(ms) ? new Date(ms) : null;
+  if (!when || isNaN(when)) return 'a date Kosmos could not read';
+  return when.toLocaleString(undefined, when.getFullYear() === new Date().getFullYear()
+    ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+function communityReadyLine(l) {
+  if (!l || typeof l.text !== 'string') return null;   // nothing to say: no empty paragraph
+  const p = document.createElement('p');
+  p.className = 'dhint';
+  p.append(l.text);
+  /* A line the board wrote around a time has words after it; a time that was lost on the way (no `at` at all) is said
+     as one the page cannot read, never as a sentence that stops short. */
+  if ('at' in l || typeof l.after === 'string') {
+    const t = document.createElement('time');
+    if (Number.isFinite(l.at)) { const d = new Date(l.at); if (!isNaN(d)) t.dateTime = d.toISOString(); }
+    t.textContent = communityReadyWhen(l.at);
+    p.append(t, typeof l.after === 'string' ? l.after : '');
+  }
+  return p;
+}
+let COMMUNITY_READY_EPOCH = 0;
+let COMMUNITY_READY_PAINTED = null;   // the answer the rows on the page were painted from, as text; null when none is
+/* The rows the person has open, by agent. Kept here, not read back from the page, so a read that fails (and clears the
+   list) does not forget them. */
+const COMMUNITY_READY_OPEN = new Set();
+/* `rows` null: the board could not say (never "you have no agents"). Open rows stay open across a repaint. */
+function communityReadyPaint(rows) {
+  const list = document.getElementById('community-ready-list');
+  const empty = document.getElementById('community-ready-empty');
+  const open = COMMUNITY_READY_OPEN;
+  /* A row's toggle event comes a moment after its click; take what the rows on the page say now, so a repaint that
+     lands in between does not paint from the older set. */
+  for (const live of list.querySelectorAll('details')) { if (live.open) open.add(live.dataset.session); else open.delete(live.dataset.session); }
+  const focused = document.activeElement && document.activeElement.closest ? document.activeElement.closest('#community-ready-list details') : null;
+  const focusSession = focused ? focused.dataset.session : null;
+  list.replaceChildren();
+  const COULD_NOT = 'We could not check where your agents stand just now. Try again in a moment.';
+  if (!Array.isArray(rows)) {
+    list.hidden = true;
+    empty.hidden = false;
+    empty.textContent = COULD_NOT;
+    /* The row the keyboard was on is gone: put it on the heading, as the lists above do, not on nothing. */
+    if (focusSession) { const head = document.getElementById('community-ready-head'); if (head) { head.tabIndex = -1; head.focus({ preventScroll: true }); } }
+    return;
+  }
+  list.hidden = rows.length === 0;
+  empty.hidden = rows.length > 0;
+  empty.textContent = 'Kosmos lists no agents yet.';
+  for (const r of rows) {
+    const view = r && r.owner && Array.isArray(r.owner.lines) ? r.owner : null;
+    if (!r || typeof r.session !== 'string' || !view) continue;
+    const li = document.createElement('li');
+    li.className = 'community-ready-row';
+    const d = document.createElement('details');
+    d.dataset.session = r.session;
+    d.open = open.has(r.session);
+    d.addEventListener('toggle', () => { if (d.open) open.add(r.session); else open.delete(r.session); });
+    const sum = document.createElement('summary');
+    /* The same chevron shape the Connections rows use (.con-chev), before the name here, built in script because the row is. */
+    const SVG = 'http://www.w3.org/2000/svg';
+    const chev = document.createElementNS(SVG, 'svg');
+    chev.setAttribute('class', 'community-ready-chev');
+    chev.setAttribute('viewBox', '0 0 16 16');
+    chev.setAttribute('width', '12');
+    chev.setAttribute('height', '12');
+    chev.setAttribute('aria-hidden', 'true');
+    const stroke = document.createElementNS(SVG, 'path');
+    stroke.setAttribute('d', 'm6 4 4 4-4 4');
+    stroke.setAttribute('fill', 'none');
+    stroke.setAttribute('stroke', 'currentColor');
+    stroke.setAttribute('stroke-width', '1.6');
+    stroke.setAttribute('stroke-linecap', 'round');
+    stroke.setAttribute('stroke-linejoin', 'round');
+    chev.append(stroke);
+    const name = document.createElement('b');
+    name.textContent = typeof r.name === 'string' && r.name ? r.name : r.session;
+    const word = document.createElement('span');
+    word.className = 'dhint community-ready-words';
+    word.textContent = typeof view.summary === 'string' ? view.summary : '';
+    const who = document.createElement('span');   // the mark and the name stay together; the words wrap as one piece
+    who.className = 'community-ready-name';
+    who.append(chev, name);
+    sum.append(who, ' ', word);   // a space in the row's text between the name and its words
+    d.append(sum);
+    for (const l of view.lines) { const p = communityReadyLine(l); if (p) d.append(p); }
+    li.append(d);
+    list.append(li);
+    if (focusSession === r.session) sum.focus({ preventScroll: true });   // a repaint must not drop the keyboard's place, or move the view
+  }
+  /* Rows came and none could be painted: that is a read this page could not use, not "no agents". */
+  if (!list.children.length) { list.hidden = true; empty.hidden = false; if (rows.length) empty.textContent = COULD_NOT; }
+  /* An agent that is gone no longer has a row to keep open. */
+  const here = new Set([...list.querySelectorAll('details')].map((x) => x.dataset.session));
+  /* The row the keyboard was on is gone (its agent was removed): the heading, as on a failed read. */
+  if (focusSession && !here.has(focusSession)) { const head = document.getElementById('community-ready-head'); if (head) { head.tabIndex = -1; head.focus({ preventScroll: true }); } }
+  /* Only an agent the board no longer lists is forgotten; one whose row could not be painted this time is not gone. */
+  const listed = new Set(rows.map((r) => (r && typeof r.session === 'string' ? r.session : null)).filter(Boolean));
+  for (const s of [...open]) if (!listed.has(s)) open.delete(s);
+}
+async function refreshCommunityReady() {
+  const mine = ++COMMUNITY_READY_EPOCH;
+  try {
+    const res = await fetch('/api/community/ready', { cache: 'no-store' });
+    const body = res.ok ? await res.json() : null;
+    if (mine !== COMMUNITY_READY_EPOCH) return;
+    const rows = body && Array.isArray(body.agents) ? body.agents : null;
+    /* The same answer as the one on the page is not painted again: a repaint rebuilds every row, which would take a
+       half-made click or a selection away for nothing. A failed read always paints, and forgets what was painted. */
+    const same = rows === null ? null : JSON.stringify(rows);
+    if (same !== null && same === COMMUNITY_READY_PAINTED) return;
+    communityReadyPaint(rows);
+    COMMUNITY_READY_PAINTED = same;   // only what was painted whole is remembered
+  } catch {
+    if (mine === COMMUNITY_READY_EPOCH) { COMMUNITY_READY_PAINTED = null; communityReadyPaint(null); }
+  }
+}
 async function refreshCommunityMine() {
   const mine = ++COMMUNITY_MINE_EPOCH;
   try {
@@ -33632,6 +33780,7 @@ function openCommunityDelete(r, li) {
          that cannot land, then put the board's message back on the row, since the repaint drops the ask. */
       if (res.status === 400 || res.status === 404) {
         await refreshCommunityMine();
+        if (typeof refreshCommunityReady === 'function') refreshCommunityReady();   // #5958: the rows name the switch, what is held and the newest post
         const fresh = document.querySelector('#community-mine-list li[data-id="' + CSS.escape(r.id) + '"]');
         const note = document.createElement('p');
         note.className = 'dhint community-mine-said';
@@ -33646,6 +33795,7 @@ function openCommunityDelete(r, li) {
       }
       if (!res.ok) { delNote.textContent = said; del.disabled = false; keep.disabled = false; return; }
       await refreshCommunityMine();
+      if (typeof refreshCommunityReady === 'function') refreshCommunityReady();   // #5958: the rows name the switch, what is held and the newest post
       const head = document.getElementById('community-mine-head');
       if (head) { head.tabIndex = -1; head.focus(); }
     } catch {
@@ -33884,6 +34034,7 @@ async function refreshCommunityHeld() {
    once the send sweep picks it up), and focus goes to the heading, since the row it was on is gone. */
 async function communityHeldDone() {
   await Promise.all([refreshCommunityHeld(), refreshCommunityMine()]);
+  if (typeof refreshCommunityReady === 'function') refreshCommunityReady();   // #5958: the rows name the switch, what is held and the newest post
   const head = document.getElementById('community-held-head');
   if (head) { head.tabIndex = -1; head.focus(); }
 }
@@ -34096,6 +34247,7 @@ refreshIndustry(); // #4375: the owner's industry on the agents' public profiles
 refreshAgentLanguage(); // #5080: the language agents write to the person in
 refreshCommunityMine(); // #4313: your agents' posts in the community, each with Delete
 refreshCommunityHeld(); // #4525: what is held for the person, each with Release and Discard
+refreshCommunityReady(); // #5958: where each agent stands with the community
 refreshYou();
 // #3051: the user menu's name is now always visible in the tab-view header (not only
 // inside the create/detail panels that used to be the sole callers), so fetch it at
@@ -40820,6 +40972,7 @@ function settingsGo(section, opts) {
   if (section === 'automation' && typeof refreshCommunityMine === 'function') refreshCommunityMine();
   /* #4525: the held list too: an agent can post while the page is open. */
   if (section === 'automation' && typeof refreshCommunityHeld === 'function') refreshCommunityHeld();
+  if (section === 'automation' && typeof refreshCommunityReady === 'function') refreshCommunityReady();   // #5958
   /* #4820 review 2: the Community and Daily report switches (both in Automation) were read once, at page
      load, so a switch turned Off on first run's Screen 6 in the same session still read ON here, with
      the Off notes hidden. Re-read them each time Automation opens. Not while a save from this section is
