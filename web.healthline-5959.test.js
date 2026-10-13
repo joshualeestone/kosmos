@@ -71,6 +71,12 @@ test('#5959 slice 2: the health line says sign-in, usage and when Kosmos last sa
   assert.match(healthLine({ state: 'auth_failed', runner: 'claude', stateConfidence: 'structured', lastWorked: old }, NOW), /^Sign-in: isn't working · Last seen working: /);
   const edge = { at: new Date(NOW - 3600e3).toISOString(), why: null };
   assert.match(healthLine({ state: 'idle', runner: 'claude', lastWorked: edge }, NOW), /^Sign-in: no problem showing · /, 'CONTROL: exactly an hour ago still counts');
+  // Stamped ahead of the viewer's clock (a Kosmos+ view of a computer whose clock runs fast): within the hour it counts,
+  // beyond it it does not, so a sighting is never recent for ever.
+  const fast = { at: new Date(NOW + 2 * 3600e3).toISOString(), why: null };
+  assert.doesNotMatch(healthLine({ state: 'idle', runner: 'claude', lastWorked: fast }, NOW), /no problem showing/);
+  const near = { at: new Date(NOW + 5 * 60e3).toISOString(), why: null };
+  assert.match(healthLine({ state: 'idle', runner: 'claude', lastWorked: near }, NOW), /^Sign-in: no problem showing · /, 'CONTROL: five minutes ahead still counts');
   // A clock time, not "N minutes ago": an idle card's line changes rarely, so a relative time would age.
   // Not today: the weekday too; over six days: the date.
   const day = 86400e3;
