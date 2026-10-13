@@ -107,7 +107,7 @@ test('#5959: a waiting state standing over a day is pointed out; a fresh one is 
     assert.match(old.text, /Your own `blocked` report has been standing for 2 days\. If it is no longer in your way, clear it/, old.text);
     assert.doesNotMatch(old.text, /waiting-on-a-person state/, 'two overlapping instructions: ' + old.text);
     assert.equal((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.stale, true);
-    // CONTROL: the same state reported now is not stale.
+    // CONTROL: a new waiting report (other words) made now is not stale.
     await post('/api/report', { headers: { 'x-kosmos-agent-token': tok }, body: { state: 'blocked', on: 'the deploy' } });
     const fresh = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } });
     assert.doesNotMatch(fresh.text, /has been standing/, fresh.text);
@@ -151,8 +151,10 @@ test('#5959 review 2: a report time in the future, or one that cannot be read, i
     const tok = sendertoken.mint(WHO).token;
     backdate(WHO, 'blocked', new Date(Date.now() + 3 * 24 * 3600e3).toISOString());
     assert.equal((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.stale, false, 'a future time read stale');
+    // On its own: stacked on the future line it would be the same run, aged from that line, and this arm would test nothing.
+    clearStores();
     backdate(WHO, 'blocked', 'not a time');
-    const j = await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } });
+    const j = await get('/api/report', { headers: { 'x-kosmos-agent-token': sendertoken.mint(WHO).token } });
     assert.equal(j.json.stale, false, JSON.stringify(j.json));
   });
 });
@@ -165,9 +167,10 @@ test('#5959 review 3: a waiting report Kosmos wrote (by auto) is not called "you
     const t = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } });
     assert.match(t.text, /A `blocked` report Kosmos wrote for you has been standing for 3 days\. If what it was about has passed, clear it with `kosmos report clear`\./, t.text);
     assert.doesNotMatch(t.text, /Your own/, t.text);
-    // CONTROL: the agent's own report says so.
+    // CONTROL: the agent's own report says so (on its own: one run's lines would add when it was first made).
+    clearStores();
     backdate(WHO, 'blocked', new Date(Date.now() - 3 * 24 * 3600e3).toISOString(), 'agent');
-    assert.match((await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } })).text, /Your own `blocked` report has been standing for 3 days\..*`kosmos report clear`/);
+    assert.match((await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': sendertoken.mint(WHO).token } })).text, /Your own `blocked` report has been standing for 3 days\..*`kosmos report clear`/);
   });
 });
 
@@ -175,10 +178,10 @@ test('#5959 review 4: a waiting report a person or an unknown writer left is sai
   // Defensive: today no operator path writes a waiting state (the #2575 and #5034 writers clear), and null is a legacy line.
   boardAuthState.on = false;
   await withLeo(async () => {
-    const tok = sendertoken.mint(WHO).token;
     for (const by of ['operator', null]) {
+      clearStores();   // each writer on its own (one run's lines would add when it was first made)
       backdate(WHO, 'blocked', new Date(Date.now() - 3 * 24 * 3600e3).toISOString(), by);
-      const t = (await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } })).text;
+      const t = (await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': sendertoken.mint(WHO).token } })).text;
       assert.match(t, /This `blocked` report has been standing for 3 days\./, String(by) + ': ' + t);
       assert.doesNotMatch(t, /Your own|Kosmos wrote/, String(by) + ': ' + t);
     }
@@ -192,7 +195,7 @@ test('#5959: a waiting question re-reported since is aged from when it was first
     backdate(WHO, 'blocked', new Date(Date.now() - 3 * 24 * 3600e3).toISOString());
     backdate(WHO, 'blocked', new Date(Date.now() - 3600e3).toISOString());   // the same question, re-reported an hour ago
     const t = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } });
-    assert.match(t.text, /has been standing for 3 days\./, t.text);
+    assert.match(t.text, /has been standing for 3 days \(first made 20\d\d-\d\d-\d\dT[0-9:.]+Z\)\./, t.text);
     // CONTROL: a different question an hour ago is a new run, so it is not stale.
     clearStores();
     backdate(WHO, 'blocked', new Date(Date.now() - 3 * 24 * 3600e3).toISOString());
