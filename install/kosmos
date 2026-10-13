@@ -3091,7 +3091,7 @@ cmd_keep_copy() {
 cmd_tool_failed() {
   local _tool="${1:-}" _sig="${2:-}" _err
   case "$_sig" in ''|*[!0-9a-f]*) exit 0 ;; esac
-  _err="$(head -c 2000 2>/dev/null | head -1)"
+  _err=""; [ -t 0 ] || _err="$(head -c 2000 2>/dev/null | head -1)"
   # Cut BEFORE escaping, so a cut can never split an escape pair and leave the body unreadable.
   # LC_ALL=C: a cut that lands inside a multibyte character must not make sed refuse the line.
   _tf_esc() { printf '%s' "$1" | LC_ALL=C tr '\000-\037\177' ' ' | LC_ALL=C cut -c1-300 | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g'; }

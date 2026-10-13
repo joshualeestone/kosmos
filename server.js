@@ -3399,10 +3399,11 @@ const outbox = require('./engine/outbox');
    sends the header on EVERY call, including person-side ones such as `kosmos
    open`'s board-nonce run from a terminal with no KOSMOS_WORLD, and those must
    never be refused for it. */
+const WORLD_CHECKED_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail']);   // toolfail: #6071, a digest meant for another Kosmos is refused like a report
+
 /* #6071: when POST /api/toolfail last said each kind of line (a refusal reason, an agent's first failure of a run). */
 const TOOLFAIL_SAID = new Map();
 const TOOLFAIL_SAY_MS = 10 * 60 * 1000;
-const WORLD_CHECKED_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail']);   // toolfail: #6071, a digest meant for another Kosmos is refused like a report
 
 /* 421 Misdirected Request: the request is well formed and was sent to a server
    that cannot answer for it, which is exactly "this board is serving another
@@ -15470,7 +15471,7 @@ const server = http.createServer(async (req, res) => {
           denyPaneFallback,
           denyBecause: 'this board only records a failed tool call from the account that started it, or one that presents an agent token',
         });
-        if (!sender.ok) { toolfailSay('refused', `[toolloop] a failed-call digest was refused: ${sender.because}`); sendJson(res, 200, { recorded: false, because: sender.because }); return; }
+        if (!sender.ok) { toolfailSay('refused:' + sender.because, `[toolloop] a failed-call digest was refused: ${sender.because}`); sendJson(res, 200, { recorded: false, because: sender.because }); return; }
         const who = sender.card.sessionName;
         /* The values this board holds, masked by value in the stored error line, as the diagnostics file masks them. */
         const secrets = [boardAuthState.token, ...(KNOWN_WORLD_TOKENS ? [...KNOWN_WORLD_TOKENS.values()].filter(Boolean) : []), ...sendertoken.heldValues()];
