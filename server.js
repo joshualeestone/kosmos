@@ -2814,8 +2814,10 @@ function handleQwenAccountStore(req, res) {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-      if (!runners.resolveBin('codex').present || runners.installing('codex')) {
-        sendJson(res, 400, { error: 'we could not find Codex, the runner Qwen agents use, on this computer', needsRunner: true, provider: 'codex' });
+      /* Codex is filed under its PROVIDER, 'openai': resolveBin('codex') answers present:false for every machine,
+         which refused every Qwen add (found by the 0.7.47 guide review). */
+      if (!runners.resolveBin('openai').present || runners.installing('openai')) {
+        sendJson(res, 400, { error: 'we could not find Codex, the runner Qwen agents use, on this computer', needsRunner: true, provider: 'openai' });
         return;
       }
       const ep = {

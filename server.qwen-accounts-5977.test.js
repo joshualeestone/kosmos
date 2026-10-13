@@ -30,7 +30,12 @@ const runners = require('./engine/runners');
 const { start, server } = require('./server');
 
 const _origResolveBin = runners.resolveBin;
-runners.resolveBin = (p) => ({ present: true, bin: `/mock/${p}` });
+/* Shaped like the real resolveBin: Codex is found under its provider, 'openai', and every other name answers
+   present:false (engine/runners.js). A mock that answered present for ANY name hid a route asking for 'codex'. */
+let codexHere = true;
+runners.resolveBin = (p) => (p === 'openai' && codexHere
+  ? { present: true, bin: '/mock/codex', managed: false, overridden: false }
+  : { bin: null, present: false, managed: false, overridden: false });
 
 let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
@@ -48,6 +53,20 @@ const post = (p, obj) => fetch(base + p, { method: 'POST', headers: { 'content-t
 const del = (p, obj) => fetch(base + p, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });
 const MODEL = 'kosmos-qwen2.5-7b-16k:latest';
 const hasModel = async () => ({ status: 200, body: { data: [{ id: MODEL }] } });
+
+test('add: with no Codex on the computer, nothing is stored and the person is told why', async () => {
+  qwen.setFetcher(hasModel);
+  codexHere = false;
+  try {
+    const r = await post('/api/accounts/qwen', { baseUrl: 'http://localhost:11434/v1', model: MODEL, label: 'nocodex' });
+    assert.equal(r.status, 400);
+    const b = await r.json();
+    assert.equal(b.needsRunner, true);
+    assert.match(b.error, /could not find Codex/);
+    assert.equal(qwen.list().some((a) => a.label === 'nocodex'), false, 'nothing is stored');
+    assert.equal(fs.existsSync(nodePath.join(SANDBOX, '.kosmos-qwen-nocodex')), false);
+  } finally { codexHere = true; }
+});
 
 test('add: the local endpoint with its model is stored as "local", connected, with no key in the response', async () => {
   qwen.setFetcher(hasModel);
