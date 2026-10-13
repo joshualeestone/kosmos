@@ -36,7 +36,8 @@ const CRED_PATTERNS = [
   [/\b((?:set-)?cookie["']?\s*[:=]\s*["']?)[^\r\n"']+/gi, '$1'],
   // "authToken": "x", "client_secret": "x", "password": "x", "apiKey": "x"
   // (not any name with "auth" in it: authMode and author are facts a builder needs; an escaped quote stays in the value)
-  [/("[A-Za-z0-9_-]*(?:token|secret|password|passwd|apikey|api_key|authorization)[A-Za-z0-9_-]*"\s*:\s*")(?:[^"\\]|\\.)*(")/gi, '$1$2'],
+  // (a value cut before its closing quote, at a line's end, is taken to the end)
+  [/("[A-Za-z0-9_-]*(?:token|secret|password|passwd|apikey|api_key|authorization)[A-Za-z0-9_-]*"\s*:\s*")(?:[^"\\]|\\.)*("|$)/gi, '$1$2'],
 ];
 
 // Host names every computer can have, which name no one: replacing them would only damage lines like a localhost URL.
@@ -71,7 +72,8 @@ function makeRedactor(who) {
   const segs = typeof home === 'string' ? home.split(/[\\/]+/).filter(Boolean) : [];
   const SEP = '(?:\\\\\\\\|\\\\|/|%2F|%5C)';   // \\, \, /, or URL-encoded / and \ (the 'i' flag takes %2f too)
   const homeRe = segs.length && home.length > 1
-    ? new RegExp((/^[\\/]/.test(home) ? SEP : '') + segs.map(escapeRe).join(SEP) + '(?=' + SEP + '|$|[^A-Za-z0-9_.-])', 'gi')
+    // Not when a space and another word follow: "/Users/pat smith" is another person's folder, taken by OTHER_HOMES.
+    ? new RegExp((/^[\\/]/.test(home) ? SEP : '') + segs.map(escapeRe).join(SEP) + '(?=' + SEP + '|$|(?! [A-Za-z0-9])[^A-Za-z0-9_.-])', 'gi')
     : null;
   const folder = segs.length ? segs[segs.length - 1] : '';
   if (folder && folder.length >= MIN_NAME_CHARS && folder.toLowerCase() !== String(user || '').toLowerCase() && !GENERIC_USERS.has(folder.toLowerCase())) {
