@@ -201,3 +201,29 @@ test('#6108 /api/accounts: a Claude row carries its weekly reading and its agent
   const row2 = rows2.find((a) => a && a.provider === 'anthropic' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(def));
   assert.equal(row2.weekly, null, 'a reading from a week that has reset was shown as current');
 });
+
+test('#6108 the shared walk: a guard counts the setup guide, the accounts list does not', () => {
+  const { enumerateAgentsOnAccount, claudeAgentsByAccount } = require('./server');
+  const acct = account('acct-6108-guide');
+  lead('guide-on-acct', { role: 'setup' }, acct);
+  fs.writeFileSync(path.join(create.workerDir('guide-on-acct'), '.kosmos-setup-guide'), '');
+  lead('worker-on-acct', { role: 'writer' }, acct);
+  const guard = enumerateAgentsOnAccount(acct, false, 'claude');
+  assert.ok(guard.usedBy.includes('guide-on-acct'), 'the disconnect guard no longer counts the guide: removing its account would strand it');
+  assert.ok(guard.usedBy.includes('worker-on-acct'), 'CONTROL: the guard counts an ordinary agent');
+  const list = claudeAgentsByAccount().on(acct, false);
+  assert.ok(!list.includes('guide-on-acct'), 'the accounts list shows the setup guide');
+  assert.ok(list.includes('worker-on-acct'), 'CONTROL: the list shows an ordinary agent');
+});
+
+test('#6108 the shared walk is fail-closed: an agent whose job cannot be read makes the list incomplete', () => {
+  const { claudeAgentsByAccount } = require('./server');
+  assert.equal(claudeAgentsByAccount().complete, true, 'CONTROL: with every job readable the list is complete');
+  store.writeProfile('unreadable-6108', { role: 'writer' });
+  fs.mkdirSync(create.workerDir('unreadable-6108'), { recursive: true });
+  const jp = jobfix.jobPath('unreadable-6108');
+  fs.mkdirSync(jp, { recursive: true });   // a folder where the job file should be: present, but not readable as a job
+  try {
+    assert.equal(claudeAgentsByAccount().complete, false, 'an agent whose job could not be read was treated as absent, so the list claimed to be whole');
+  } finally { fs.rmSync(jp, { recursive: true, force: true }); }
+});

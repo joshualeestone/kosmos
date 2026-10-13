@@ -130,6 +130,12 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           await new Promise((r) => setTimeout(r, 400));
           return { enabled, drawnBusy, quietMid, posts: posts.slice(start) };
         };
+        /* A pick survives a poll's repaint: choose a target, repaint, and the menu still holds it with Move awake. */
+        const pb = box('busy@example.com'), ps = pb && pb.querySelector('[data-acct-move-to]');
+        if (ps) { ps.value = '/home/.claude-spare'; ps.dispatchEvent(new Event('change')); }
+        await paintAccounts();
+        const pb2 = box('busy@example.com');
+        const pickKept = !!pb2 && pb2.querySelector('[data-acct-move-to]').value === '/home/.claude-spare' && !pb2.querySelector('[data-acct-move]').disabled;
         const moved = await runMove('busy@example.com', '/home/.claude-spare', 2);
         if (moved) { moved.msg = msgOf('/home/.claude-busy');   // read AFTER the list repainted with the agents gone
           const ae = document.activeElement; moved.focus = ae ? (ae.getAttribute('data-acct-move-msg') || ae.getAttribute('data-acct-move-to') || ae.tagName) : null; }
@@ -141,7 +147,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         await paintAccounts();
         const expired = msgOf('/home/.claude-busy');
         /* Sideways overflow is measured on the frame the rows live in: the page itself cannot scroll past a fixed frame. */
-        return { before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - frame.clientWidth };
+        return { pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - frame.clientWidth };
       }, { accounts: ACCOUNTS, agents: AGENTS });
       await page.close();
       if (r.error) { say(false, tag + ' ' + r.error); continue; }
@@ -157,6 +163,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('noshare@')), tag + ' an account without shared history is not offered (a move there always fails)', JSON.stringify(busy && busy.options));
       say(!!def && def.line === 'Kosmos cannot read usage for this account.', tag + ' the default account says Kosmos cannot read it, not "yet"', JSON.stringify(def && def.line));
       say(!!busy && busy.btnDisabled === true, tag + ' Move is disabled until a target is picked');
+      say(r.pickKept === true, tag + ' a picked target survives a repaint, with Move awake');
       say(!!r.moved && r.moved.enabled && r.moved.posts.length === 2 && r.moved.posts.every((p) => p.dir === '/home/.claude-spare') && r.moved.posts.map((p) => p.agent).sort().join() === 's-dana,s-eli', tag + ' Move sends one move per agent to the picked account, once (a forced click on the repainted button adds nothing), never the guide', JSON.stringify(r.moved));
       say(!!r.moved && r.moved.drawnBusy, tag + ' a repaint mid-move draws the button busy ("Moving…", disabled)', JSON.stringify(r.moved));
       say(!!r.moved && r.moved.quietMid, tag + ' mid-move the live region is silent (a screen reader hears the result once)', JSON.stringify(r.moved));

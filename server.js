@@ -2545,22 +2545,6 @@ function knownAgentNames() {
   }
   return { names, complete, roster };
 }
-/* #3296/#3391 accounts slice: the fail-closed "which agents run on this account
-   directory" enumeration, shared by EVERY provider's disconnect/remove route so the
-   safety property lives in ONE place rather than being copied per provider (the
-   "two derivations of the fleet" habit this file's own comments call its worst).
-   Returns { usedBy, complete }:
-     - `usedBy`: the running-or-known agents of runner `runner` whose account home
-       resolves to `dir` (or the default account, when `isDefault` and the agent
-       carries no configDir).
-     - `complete`: FALSE whenever ANYTHING could not be read -- an unreadable roster,
-       a launch file that threw, a non-ENOENT job miss, or a path that would not
-       resolve. A caller MUST refuse the destructive act when `complete` is false:
-       an enumeration that cannot tell "nobody" from "I could not look" is not a
-       safety check (Renet Tilley, reviewing #1447 -- AMBIGUITY WAS SILENTLY NONE).
-   `runner` scopes the walk to ONE provider's agents (a codex account is never held
-   by a gemini agent). This is the exact logic the OpenAI DELETE route grew inline;
-   that route now calls this so the four providers cannot drift. */
 /* #6108: the ONE walk over this computer's agents and the account folder each runs on, so the account guards and the
    accounts list cannot drift (Opus review, round 6). Fail-closed: `complete` is false whenever anything could not be
    read. `skipGuide` leaves the setup guide out (lists, #3739); a guard that must count every agent leaves it in. */
@@ -2595,6 +2579,22 @@ function agentsByAccountWalk(runner, { skipGuide = false } = {}) {
   }
   return { entries, complete };
 }
+/* #3296/#3391 accounts slice: the fail-closed "which agents run on this account
+   directory" enumeration, shared by EVERY provider's disconnect/remove route so the
+   safety property lives in ONE place rather than being copied per provider (the
+   "two derivations of the fleet" habit this file's own comments call its worst).
+   Returns { usedBy, complete }:
+     - `usedBy`: the running-or-known agents of runner `runner` whose account home
+       resolves to `dir` (or the default account, when `isDefault` and the agent
+       carries no configDir).
+     - `complete`: FALSE whenever ANYTHING could not be read -- an unreadable roster,
+       a launch file that threw, a non-ENOENT job miss, or a path that would not
+       resolve. A caller MUST refuse the destructive act when `complete` is false:
+       an enumeration that cannot tell "nobody" from "I could not look" is not a
+       safety check (Renet Tilley, reviewing #1447 -- AMBIGUITY WAS SILENTLY NONE).
+   `runner` scopes the walk to ONE provider's agents (a codex account is never held
+   by a gemini agent). This is the exact logic the OpenAI DELETE route grew inline;
+   that route now calls this so the four providers cannot drift. */
 function enumerateAgentsOnAccount(dir, isDefault, runner) {
   const walk = agentsByAccountWalk(runner);
   let complete = walk.complete;
@@ -10954,7 +10954,7 @@ const server = http.createServer(async (req, res) => {
                reset. resetsAt and at are epoch ms here (readWeekly gives resetsAt in seconds). */
             weekly: (() => {
               try {
-                const r = a.dir ? require('./engine/allowance').readWeekly(a.dir, nowMs) : null;
+                const r = a.dir && !a.apiKey ? require('./engine/allowance').readWeekly(a.dir, nowMs) : null;   // a key has no weekly limit
                 return r ? { usedPct: r.usedPct, resetsAt: r.resetsAt * 1000, at: r.at } : null;
               } catch { return null; }
             })(),
@@ -23802,6 +23802,7 @@ module.exports = {
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
+  enumerateAgentsOnAccount, claudeAgentsByAccount, // #6108: the shared walk's two readings (guards count the guide, lists do not), for their tests
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests

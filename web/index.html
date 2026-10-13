@@ -27094,7 +27094,8 @@ const ACCT_WARN_PCT = 75, ACCT_HIGH_PCT = 90;
 /* A move in progress or its outcome, by the source account's dir. The list repaints while agents move and after (a
    source row with no agents left has no move control), so the sentence lives here, not in the old element. */
 const ACCT_MOVE = new Map();
-const ACCT_MOVE_SHOW_MS = 2 * 60e3;   // a finished move's sentence stays two minutes, then the row is plain again
+const ACCT_MOVE_SHOW_MS = 2 * 60e3;
+const ACCT_PICK = new Map();   // the target picked in a row's menu, so a poll's repaint does not undo a half-made choice   // a finished move's sentence stays two minutes, then the row is plain again
 function acctUsageHtml(a, list) {
   if (!a || a.provider !== 'anthropic' || !a.agentsHere) return '';   // an older board sends no agentsHere: show nothing
   const w = a.weekly && Number.isFinite(a.weekly.usedPct) ? a.weekly : null;
@@ -27133,11 +27134,12 @@ function acctUsageHtml(a, list) {
   if (st && !st.moving && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) { ACCT_MOVE.delete(a.dir); st = null; }
   const busy = !!(st && st.moving);
   const who = esc(a.email || a.label || 'this account');
+  const picked = targets.some((x) => x.dir === ACCT_PICK.get(a.dir)) ? ACCT_PICK.get(a.dir) : '';
   const move = canMove || busy
     ? '<div class="acct-move"><select' + (busy ? ' disabled' : '') + ' data-acct-move-to="' + esc(a.dir) + '" aria-label="Move the agents on ' + who + ' to another account">'
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
-      + targets.map((x) => '<option value="' + esc(x.dir) + '">' + esc(x.email || x.label || x.dir) + (x.weekly && Number.isFinite(x.weekly.usedPct) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
-      + '</select><button type="button" data-acct-move="' + esc(a.dir) + '" aria-label="Move the agents on ' + who + '" disabled>' + (busy ? 'Moving…' : 'Move') + '</button>'
+      + targets.map((x) => '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + '>' + esc(x.email || x.label || x.dir) + (x.weekly && Number.isFinite(x.weekly.usedPct) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
+      + '</select><button type="button" data-acct-move="' + esc(a.dir) + '" aria-label="Move the agents on ' + who + '"' + (busy || !picked ? ' disabled' : '') + '>' + (busy ? 'Moving…' : 'Move') + '</button>'
       + '<p class="acct-move-note">' + (names.length === 1 ? 'It restarts' : 'They restart') + ' on the new account.</p></div>'   // said before the click, not only after
     : '';
   /* tabindex -1: after a move the button the person pressed is gone, so focus lands here. The sentence is drawn empty
@@ -27818,7 +27820,7 @@ async function paintAccounts(opts) {
      repaints, then the repaint shows where the agents now are. */
   for (const sel of box.querySelectorAll('[data-acct-move-to]')) {
     const btn = box.querySelector('[data-acct-move="' + CSS.escape(sel.dataset.acctMoveTo) + '"]');
-    sel.addEventListener('change', () => { if (btn) btn.disabled = !sel.value; });
+    sel.addEventListener('change', () => { if (sel.value) ACCT_PICK.set(sel.dataset.acctMoveTo, sel.value); else ACCT_PICK.delete(sel.dataset.acctMoveTo); if (btn) btn.disabled = !sel.value; });
   }
   for (const btn of box.querySelectorAll('[data-acct-move]')) {
     btn.addEventListener('click', async () => {
@@ -27840,6 +27842,7 @@ async function paintAccounts(opts) {
         if (b) b.textContent = 'Moving ' + done + ' of ' + all + '…';
       });
       ACCT_MOVE.set(from, { moving: false, said, doneAt: Date.now(), announce: true });
+      ACCT_PICK.delete(from);
       accountsDropped();
       try { await paintAccounts(); } catch { /* the sentence is kept in ACCT_MOVE and drawn by the next paint */ }
       const st = ACCT_MOVE.get(from); if (st) st.announce = false;
