@@ -10,7 +10,11 @@
  * arm sees exactly the state it names:
  *   ROWS      three agents: each row shows its name and summary, closed; this arm is the control for the others (it
  *             proves the list is found and painted) and checks the heading sits below the posts-and-comments list.
- *   OPEN      clicking a summary opens that row only and shows every line the board sent, in order.
+ *   LOOK      the design review's asks, measured: the name is larger than its summary and semibold, the two differ in
+ *             colour, only the row with something waiting carries the dot (once, before its words, a round painted
+ *             mark), and nothing in the list has a left bar.
+ *   OPEN      clicking a summary opens that row only and shows every line the board sent, in order. The line that needs
+ *             the person is first and the only one with the dot, and the items have no gap between them.
  *   KEYS      the summary takes focus by Tab order and Enter opens it.
  *   TIME      a line with a time is written as <time> with a machine datetime, in the page's own zone, between the
  *             board's words; a time in another year shows its year; a time the page cannot read says so and is
@@ -44,6 +48,9 @@ const { chromium } = require('playwright');
 const BASE = process.argv[2] || process.env.KOSMOS_URL || 'http://127.0.0.1:17461';
 const READY = '**/api/community/ready';
 
+/* The line about the last reminder, found by its opening words: its place in the row moves with what else the board
+   sends (the line that needs the person is first when there is one). Empty when the row has none. */
+const remindLine = (row) => row.lines.find((t) => t.startsWith('Kosmos last went to remind it on ')) || '';
 /* What a screen reader hears before words the board marked as needing the person; it is in the row's text. */
 const NEEDS = 'Needs you: ';
 
@@ -210,7 +217,7 @@ async function run() {
     const local = await p1.evaluate((ms) => new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }), T1);
     // 15:04 UTC on the 12th is 00:04 on the 13th in Tokyo: the page's zone, not UTC and not this runner's.
     check('TIME CONTROL: the page is in a zone that is not UTC', /Jun 13/.test(local) && /12:04\s?AM/.test(local), local);
-    check('TIME: it is written in the page\'s own zone, between the board\'s words', tm[0].text === local && o.rows[2].lines[2] === 'Kosmos last went to remind it on ' + local + '. Not sent: this computer had reached its hourly limit for messages to agents.', JSON.stringify([tm[0].text, local, o.rows[2].lines[2]]));
+    check('TIME: it is written in the page\'s own zone, between the board\'s words', tm[0].text === local && remindLine(o.rows[2]) === 'Kosmos last went to remind it on ' + local + '. Not sent: this computer had reached its hourly limit for messages to agents.', JSON.stringify([tm[0].text, local, remindLine(o.rows[2])]));
 
     // MARK
     check('MARK: every row shows a mark that it opens, hidden from a screen reader', o.rows.every((x) => x.mark && x.mark.shown && x.mark.w >= 8 && x.mark.h >= 8 && x.mark.hidden === 'true'), JSON.stringify(o.rows.map((x) => x.mark)));
@@ -427,7 +434,7 @@ async function run() {
     ] });
     /* The longest summary the board can send: every part at once. Beside a name it would be a narrow column. */
     const ALL = ['2 items waiting for you', 'The community is off', 'This computer’s community address is not one Kosmos sends to', '“Check on your agents” is off', 'No community section in its instructions', 'The community has refused this agent', 'Newest post has not gone to the community', 'Kosmos could not check everything just now'].join(' · ');
-    const MID = agent('mid', 'Quartermaster of the northern depot', { summary: ALL, lines: [{ text: 'No community section in its instructions.' }] });
+    const MID = agent('mid', 'Quartermaster of the northern depot', { summary: ALL, needsYou: '2 items waiting for you', lines: [{ text: 'No community section in its instructions.' }] });
     await p8.route(READY, answer({ agents: [LONG, CY, MID] }));
     await openAutomation(p8);
     await p8.evaluate(() => document.querySelectorAll('#community-ready-list details').forEach((d) => { d.open = true; }));

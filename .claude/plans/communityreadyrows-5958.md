@@ -50,9 +50,31 @@ decides which words need the person; the page reads no wording to find them.
 - NOT RUN: the full suite; new design shots.
 
 ## Weakest premise
-That the secondary colour (`--label-2`) is defined, and readable, in Settings in both themes. It is used by the
-chevron in this same list already, which is why I believe it; the browser check asserts only that it differs from the
-name's colour, not that it is readable.
+That the summary, one step smaller and in the secondary colour, is still easy to read in the dark theme. Read from
+the source by review 1: `--label-2` is defined on `:root` and in every theme and contrast mode, and in the light
+theme it is the same value the summary had before, so only the dark theme's summary changes colour. The browser
+check asserts that it differs from the name's colour, not that it is readable; the shots are where that is judged.
 
 ## What would change this
 A second thing on a row that needs the person. Then `needsYou` is a list of parts, not the first one.
+
+## A third size in the open row, said here because the change list did not
+The open row's lines are `<p class="dhint">` inside the Settings panel, and `.panel p` out-ranks `.dhint`, so they are
+13px where the name is 15px and the summary 14px. That is from slice 2, not from this change, and it is why the
+review measured the items 25px apart: 13px at the panel's 1.6 line height, plus the 4px this change removes. The row
+is three sizes; the design reviewer will see it in the new shots.
+
+## Review 1 (2026-10-13, default model), at b1938a6ab
+0 BLOCKER, 1 WARNING, 2 CONVENTION, 4 NIT. Not converged.
+- **WARNING, taken:** the check's TIME arm read the reminder line by its place in the row, and this change moves it
+  down one (the line that needs the person is first now). The check had not run, so nothing had shown it. The line is
+  found by its opening words now.
+- **CONVENTION, taken:** a test comment still said the parts are joined by a full stop.
+- **CONVENTION, taken:** the check's header lists the new LOOK arm and what OPEN now holds.
+- **NIT, taken:** the weakest premise, rewritten from what the reviewer read in the source.
+- **NIT, taken by saying it:** the third size (the section above).
+- **NIT, taken:** the phone arm's longest-summary row sends `needsYou` as the board would.
+- **NIT, not taken:** a markup case for `needsYou` in the HOSTILE arm. It is appended as a text node, like every
+  other string in the row; the arm covers the name, the summary, a line and the words after a time.
+- The reviewer traced every rule that can apply to the name and the summary and found the LOOK arms would hold. A
+  reading: the run is the measurement.

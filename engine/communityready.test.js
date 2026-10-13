@@ -585,7 +585,7 @@ test('slice 2 review 10: each state\'s place is TRUE of it, not only present: no
 
 
 /* Review 12 took the last claim out of the closed row: it never says nothing is wrong. It is a list of parts joined by
-   ". ", always including where the newest post is. These tests read it as that list. */
+   a middle dot (ready.SUMMARY_JOIN), always including where the newest post is. These tests read it as that list. */
 const parts = (over) => view(over).summary.split(ready.SUMMARY_JOIN);
 const POSTED_IN = { lastPost: { title: 't', at: '', state: 'sent' } };
 
