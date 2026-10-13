@@ -29638,10 +29638,7 @@ function oaCard(a, c, off) {
   nm.textContent = name;
   const sub = document.createElement('span');
   sub.className = 'oa-sub';
-  /* #6091 review 1: through stateCopyOf where the page has it, so a special case (a permission prompt's "Waiting for
-     you", an agent's own "Question") reads here as on the agent's card. */
-  const copy = typeof STATE_COPY !== 'undefined' && typeof a.state === 'string' && Object.prototype.hasOwnProperty.call(STATE_COPY, a.state)
-    ? (typeof stateCopyOf === 'function' ? stateCopyOf(a) : STATE_COPY[a.state]) : null;
+  const copy = typeof STATE_COPY !== 'undefined' && typeof a.state === 'string' && Object.prototype.hasOwnProperty.call(STATE_COPY, a.state) ? STATE_COPY[a.state] : null;
   sub.textContent = c.name + (copy && copy.label && !off ? ' · ' + copy.label : '');
   el.append(nm, sub);
   return el;

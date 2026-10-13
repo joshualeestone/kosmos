@@ -15,8 +15,7 @@ report's words. So the signal is a separate field, read from the screen before t
   reconciled state is still needs_you. The pane card carries `awaitingApproval` from it; the paneless card carries false.
 - `engine/projects.js`: project members carry it, under the same isNamedOurs gate as stateReportedBy.
 - `web/index.html`: `STATE_COPY.approval = { label: 'Waiting for you', attn: true }`; `stateCopyOf` returns it for a
-  needs_you card with `awaitingApproval === true`, after the #2808 agent-question case. The other-account rows (oa-sub)
-  now go through stateCopyOf, so they say the same.
+  needs_you card with `awaitingApproval === true`, after the #2808 agent-question case.
 - `engine/cardlabel.js` (the second copy, for an agent's own `kosmos report show`, kept equal by cardlabel-5959.test.js):
   the same key and case.
 
@@ -31,6 +30,11 @@ report's words. So the signal is a separate field, read from the screen before t
   copy of the engine's sentence.
 - **The triangle's accessible name stays "Issue"** (LROW_WARN, iteration 1 nit): it belongs to the needs-you look,
   which is kept on purpose; the visible word beside it is "Waiting for you". Changes with the look if Josh wants calm.
+- **Rows for another computer's agents (oa-sub) still say "Issue"** (iteration 2): the sibling endpoint
+  (server.js statusForSibling) sends only name and state, as strings, by design, so no flag reaches them. Adding one is a
+  change to that endpoint's contract; left for a follow-up if it matters.
+- **Not gated to Claude** (iteration 2 nit): #6054's detector can in principle read another runner's similar prompt as a
+  permission prompt; only the word changes, so no gate is added here.
 - **Out of scope: the collapsed request bubble after Yes** (the card's "also seen"; its Done-when is the pill only).
   Noted on the card for a follow-up.
 
@@ -39,11 +43,11 @@ That the red needs-you look with the words "Waiting for you" no longer reads as 
 is the next step (see above).
 
 ## Tests
-- web.approval-pill-6091.test.js (12): engine, on the real 2.1.296 permission-prompt capture with the hook's report
+- web.approval-pill-6091.test.js (11): engine, on the real 2.1.296 permission-prompt capture with the hook's report
   reconciled in (review 1's path; a control shows `because` no longer carries it) and with no report; controls (another
   question menu on screen, a non-needs_you reconciled state); both card builders and project members carry the field;
   page: the label, still attn and the needs-you look, controls (false, absent, the string "true", non-needs_you), #2808
-  first, the other-account rows; cardlabel.js agrees.
+  first; cardlabel.js agrees.
 - engine/cardlabel-5959.test.js: four new parity cards.
 - Mutants: awaitingApprovalOf keyed on the reconciled `because` turns the engine test red; the page line and the
   cardlabel line each turn tests red.

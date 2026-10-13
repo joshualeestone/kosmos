@@ -127,10 +127,6 @@ test('#6091 page: an agent\'s own deliberate question still reads "Question" (#2
   assert.equal(derive.stateCopyOf(card({ stateReportedBy: 'agent' })).label, 'Question');
 });
 
-test('#6091 page: the other-account rows go through stateCopyOf, so they say the same', () => {
-  assert.ok(/typeof stateCopyOf === 'function' \? stateCopyOf\(a\) : STATE_COPY\[a\.state\]/.test(PAGE), 'the oa-sub label reads STATE_COPY directly again');
-});
-
 test('#6091: engine/cardlabel.js (an agent\'s own `kosmos report show`) says the same', () => {
   const { labelOf } = require('./engine/cardlabel');
   assert.equal(labelOf(card()), 'Waiting for you');
