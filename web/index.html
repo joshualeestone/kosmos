@@ -19384,6 +19384,16 @@ window.kosmosMeasureScrollbarWidth();
         <button class="toggle" id="look-toggle" role="switch" aria-label="Try the new look" aria-checked="false"><i></i></button>
       </div>
     </section>
+    <!-- #5959 slice 4: one file for the people who build Kosmos. Made on this computer when pressed (GET /api/diagnostics,
+         engine/diagnostics.js), redacted there, and saved here; nothing is sent anywhere. -->
+    <section class="dbox">
+      <h3 class="dlab">Diagnostics</h3>
+      <div class="setrow" id="diag-row">
+        <div><b>Save a diagnostics file</b>
+          <p class="dhint" style="margin:2px 0 0;">For the people who build Kosmos: each agent's state, recent problems and the board's last log lines. Keys, email addresses, your home folder and this computer's names are taken out first, and no messages are in it. It is saved on this computer; nothing is sent anywhere.</p></div>
+        <a class="btn-quiet" id="diag-save" href="/api/diagnostics" download>Save diagnostics</a>
+      </div>
+    </section>
 
   <div class="dremove">
     <div>

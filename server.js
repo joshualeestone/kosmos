@@ -52,6 +52,11 @@ if (require.main === module) {
   const logPaths = [path.join(__dirname, '..', 'logs', 'board.log')];
   logstamp.install(process.stdout, 1, { shared, logPaths });
   logstamp.install(process.stderr, 2, { shared, logPaths });
+  /* #5959: and the board's own lines into memory for the diagnostics file, whatever the streams are (a pipe on Windows
+     too). Tapped after the stamp, so the ring holds the line as the board wrote it. */
+  const logring = require('./engine/logring');
+  logring.board.tap(process.stdout, 'stdout');
+  logring.board.tap(process.stderr, 'stderr');
 }
 /* #5450: who started this board (install/kosmos board-run and start), taken out of the environment before anything
    can start a process that would inherit it (the log stamp above starts none; #4199 keeps it right after the bootstrap); engine/restartnote.js atStart reads these values. (engine/worldenv.js
@@ -14133,6 +14138,32 @@ const server = http.createServer(async (req, res) => {
      a constant, no update check, no fetch. Behind the board token like every /api/* route. */
   if (pathname === '/api/version' && (req.method === 'GET' || req.method === 'HEAD')) {
     sendJson(res, 200, { running: updates.RUNNING });
+    return;
+  }
+
+  /* #5959 slice 4: the diagnostics file, saved by the person from Settings > Advanced (a download, read on demand, never
+     polled). Board-token only, like every /api read; not an agent-token route, since it carries every agent's lines.
+     engine/diagnostics.js shapes and redacts it. board.log is read only when it is this board's stdout. */
+  if (pathname === '/api/diagnostics' && req.method === 'GET') {
+    try {
+      const diagnostics = require('./engine/diagnostics');
+      const logring = require('./engine/logring');
+      const logPath = path.join(__dirname, '..', 'logs', 'board.log');   // as the stamp above names it
+      const fileLines = diagnostics.readBoardLog(logPath, 1);
+      const file = diagnostics.build({
+        version: updates.RUNNING, platform: process.platform, now: new Date(),
+        cards: safeRoster(), readReport: (n) => selfreport.read(n), accountProblemOf,
+        ringLines: logring.board.tail(), fileLines, fileSource: fileLines ? logPath : null,
+      });
+      const day = file.made.slice(0, 10);
+      res.writeHead(200, {
+        'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
+        'content-disposition': `attachment; filename="kosmos-diagnostics-${day}.json"`,
+      });
+      res.end(JSON.stringify(file, null, 2) + '\n');
+    } catch {
+      sendJson(res, 500, { error: 'we could not make the diagnostics file right now' });
+    }
     return;
   }
 

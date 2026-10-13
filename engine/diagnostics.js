@@ -82,4 +82,27 @@ function build(inputs) {
   return redactor.redactDeep(out);
 }
 
-module.exports = { build, namesAgent, FILE_VERSION, AGENT_LOG_LINES, LOG_TAIL_LINES };
+const READ_TAIL_BYTES = 256 * 1024;
+
+/* The last `max` lines of board.log, only when it is this board's own output: the file `logPath` names must be the
+   open file on `outFd` (same device and inode). A board.log left by another run (a board started from a terminal, say)
+   is not this board's log and gives null, as does a missing or unreadable file. Reads at most READ_TAIL_BYTES. */
+function readBoardLog(logPath, outFd, max) {
+  const fs = require('node:fs');
+  let fd = null;
+  try {
+    fd = fs.openSync(logPath, 'r');
+    const file = fs.fstatSync(fd), out = fs.fstatSync(outFd);
+    if (!file.isFile() || file.dev !== out.dev || file.ino !== out.ino) return null;
+    const start = Math.max(0, file.size - READ_TAIL_BYTES);
+    const buf = Buffer.alloc(file.size - start);
+    const got = fs.readSync(fd, buf, 0, buf.length, start);
+    const lines = buf.subarray(0, got).toString('utf8').split('\n');
+    if (start > 0) lines.shift();   // the first line read is cut at the window's edge
+    if (lines.length && lines[lines.length - 1] === '') lines.pop();
+    return lines.map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l)).slice(-(Number.isInteger(max) && max > 0 ? max : LOG_TAIL_LINES));
+  } catch { return null; }
+  finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
+}
+
+module.exports = { build, namesAgent, readBoardLog, FILE_VERSION, AGENT_LOG_LINES, LOG_TAIL_LINES, READ_TAIL_BYTES };
