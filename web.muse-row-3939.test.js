@@ -68,7 +68,7 @@ test('#3939 3c-2 / #4569: the server builds the row only when Muse is on and ins
   assert.match(block, /badge: 'signed_in_unverified'/);
   // Round 1: the row must reach the response, not only be built.
   const send = src.slice(src.indexOf('sendJson(res, 200, { accounts:', at), src.indexOf('\n', src.indexOf('sendJson(res, 200, { accounts:', at)));
-  assert.match(send, /\.\.\.museSub\]/, 'the Meta Muse row is built but never sent');
+  assert.match(send, /\.\.\.museSub[,\]]/, 'the Meta Muse row is built but never sent');
 });
 
 test('#3939 3c-2 round 3: the move picker never offers the Meta Muse row, to a Claude agent or a keyed one', () => {

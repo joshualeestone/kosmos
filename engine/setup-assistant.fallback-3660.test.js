@@ -24,7 +24,7 @@ const there = () => true;
 
 test('#3660 guideFailure: the three #3723 states are a failure, with the runner; every other state is not', () => {
   for (const state of ['rate_limited', 'auth_failed', 'connection_lost']) {
-    assert.deepEqual(sa.guideFailure({ state, runner: 'codex' }), { problem: state, runner: 'codex' }, state);
+    assert.deepEqual(sa.guideFailure({ state, runner: 'codex' }), { problem: state, runner: 'codex', providerName: 'OpenAI' }, state);   // #5977: the name rides along
   }
   for (const state of ['working', 'idle', 'needs_you', 'restarting', 'stopped', 'unknown', 'blocked']) {
     assert.equal(sa.guideFailure({ state, runner: 'codex' }), null, state + ' read as their model failing');

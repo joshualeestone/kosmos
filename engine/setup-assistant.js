@@ -3105,7 +3105,8 @@ function listedModels({ listFor = (mod) => require(mod).list() } = {}) {
 function guideFailure(card) {
   const { STATE } = require('./status');   // lazy: status requires create, which the seed uses
   if (!card || ![STATE.RATE_LIMITED, STATE.AUTH_FAILED, STATE.CONNECTION_LOST].includes(card.state)) return null;
-  return { problem: card.state, runner: typeof card.runner === 'string' && card.runner ? card.runner : null };
+  return { problem: card.state, runner: typeof card.runner === 'string' && card.runner ? card.runner : null,
+    providerName: require('./accountproblem').providerOf(card) };   // #5977: a guide on Qwen is named Qwen, not OpenAI
 }
 
 /* #3660: whether the bubble may use the hosted assistant (Kosmos's own model) here. Before the person has any

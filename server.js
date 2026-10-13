@@ -1043,6 +1043,7 @@ const claudeAccounts = require('./engine/claudeaccounts');
 const geminiAccounts = require('./engine/geminiaccounts'); // #3296 accounts slice
 const grokAccounts = require('./engine/grokaccounts');     // #3391 accounts slice
 const qwenAccounts = require('./engine/qwenaccounts');     // #5977
+const qwenLocal = require('./engine/qwenlocal');         // #5977 slice 3
 const codexupdate = require('./engine/codexupdate');
 const runners = require('./engine/runners');
 const github = require('./engine/github');
@@ -2260,6 +2261,9 @@ function whoamiProjectsClause(projectNames) {
 function accountForAgent(name, known) {
   const job = create.readJob(name);
   if (!job) return null;
+  /* #5977 UI review 2: Qwen is decided from the job (a codex job on a Qwen home), the one fact every other surface
+     reads, so an agent whose Qwen account was disconnected (no row any more) still reads as Qwen, not OpenAI. */
+  const qwenJob = job.runner === 'codex' && create.jobProvider(job) === 'alibaba';
   const dir = job.configDir;
   const list = Array.isArray(known) ? known : [];
   /* 🛑 THE PROVIDER GATES THE DIR-LESS MATCH, AND WITHOUT IT THIS IS THE CARD'S
@@ -2298,6 +2302,9 @@ function accountForAgent(name, known) {
   if (found) {
     return {
       dir: found.dir, email: found.email, label: found.label,
+      /* #5977: a Qwen agent runs on codex, so its runner says OpenAI; its account is the only thing that says Qwen.
+         Only a Qwen row carries it: every other runner already names its provider, and their shape stays as it was. */
+      ...(qwenJob || found.provider === 'alibaba' ? { provider: 'alibaba' } : {}),
       keyTail: found.keyTail || null,   // #4603: an xAI/Google key account names itself by its last four
       /* #2225: the human-chosen account name (`.kosmos-name` sidecar), the same
          value the pickers/Settings row have shown since #2095. Read here off the
@@ -2335,7 +2342,8 @@ function accountForAgent(name, known) {
      from whichever list matched, which is that list's own notion and correct for
      both providers. */
   return dir
-    ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: foreign ? null : accounts.isDefaultDir(dir), keyTail: null }
+    ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: foreign ? null : accounts.isDefaultDir(dir), keyTail: null,
+      ...(qwenJob ? { provider: 'alibaba' } : {}) }
     : null;
 }
 
@@ -6566,7 +6574,11 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/worlds/overview' && (req.method === 'GET' || req.method === 'HEAD')) {
     let base;
     try { base = worldBase(); } catch (_e) { sendJson(res, 500, { because: 'the world registry is not readable on this machine' }); return; }
-    const cards = safeRoster();   // null when the cards could not be read
+    const roster = safeRoster();   // null when the cards could not be read
+    /* #5977: a codex card on a Qwen home is Qwen (its job says so; codex cards only, one read each). */
+    const cards = Array.isArray(roster)
+      ? roster.map((c) => (c && c.runner === 'codex' && create.agentProvider(c.sessionName, 'codex') === 'alibaba' ? { ...c, providerWord: 'qwen' } : c))
+      : roster;
     try {
       const runningId = require('./engine/worldenv').bootedWorld() || worlds.DEFAULT_ID;
       sendJson(res, 200, { worlds: worldview.overview({ base, runningId, cards }) });
@@ -11558,6 +11570,47 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not check that Qwen account' }));
     return;
   }
+  /* #5977 slice 3: Qwen on this computer. GET says what is missing (Ollama, the qwen2.5:7b download, Kosmos's 16k
+     model) and how a download is going; POST .../model makes the 16k model (seconds, no download); POST
+     .../download starts the download only with { confirm: true }, the person's own yes to about 4.7 GB, and makes
+     the 16k model when it finishes. A status read never changes anything. */
+  if (pathname === '/api/accounts/qwen/local' && req.method === 'GET') {
+    qwenLocal.status()
+      .then((s) => sendJson(res, 200, { state: s.state, because: s.because, model: qwenAccounts.LOCAL.model, download: qwenLocal.pullProgress() }))
+      .catch(() => sendJson(res, 200, { state: qwenLocal.STATE.UNKNOWN, because: 'we could not check Ollama just now', download: qwenLocal.pullProgress() }));
+    return;
+  }
+  /* UI review 4: Kosmos cannot start a Qwen agent on Windows yet, so nothing is set up or downloaded there, even on a
+     direct request the page never makes. */
+  if ((pathname === '/api/accounts/qwen/local/model' || pathname === '/api/accounts/qwen/local/download') && req.method === 'POST'
+    && (qwenLocal.platformForTest || process.platform) === 'win32') {
+    sendJson(res, 409, { ok: false, started: false, because: 'Kosmos cannot start a Qwen agent on Windows yet, so it does not set Qwen up here' });
+    return;
+  }
+  if (pathname === '/api/accounts/qwen/local/model' && req.method === 'POST') {
+    (async () => {
+      const s = await qwenLocal.status();
+      if (s.state === qwenLocal.STATE.READY) { sendJson(res, 200, { ok: true, because: s.because }); return; }
+      if (s.state !== qwenLocal.STATE.NEEDS_MODEL) { sendJson(res, 409, { ok: false, state: s.state, because: s.because }); return; }
+      const made = await qwenLocal.makeModel();
+      sendJson(res, made.ok ? 200 : 400, { ok: made.ok, because: made.because });
+    })().catch(() => sendJson(res, 400, { ok: false, because: 'we could not set Qwen up just now' }));
+    return;
+  }
+  if (pathname === '/api/accounts/qwen/local/download' && req.method === 'POST') {
+    readBody(req)
+      .then(async (raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || body.confirm !== true) { sendJson(res, 400, { started: false, because: 'a download starts only when the person says yes to it' }); return; }
+        const s = await qwenLocal.status();
+        if (s.state !== qwenLocal.STATE.NEEDS_DOWNLOAD) { sendJson(res, 409, { started: false, state: s.state, because: s.because }); return; }
+        const out = qwenLocal.startDownload();
+        sendJson(res, out.started ? 202 : 409, out);
+      })
+      .catch(() => sendJson(res, 400, { started: false, because: 'we could not start the download' }));
+    return;
+  }
   /* #3391: connect a Grok account with a SUBSCRIPTION (device sign-in, no key). The
      grok mirror of /api/accounts/openai/subscription/*: `start` spawns `grok login
      --device-auth` into a fresh account dir and returns a session; the screen polls
@@ -13165,7 +13218,7 @@ const server = http.createServer(async (req, res) => {
            cross-home link), so their chat stays behind exactly as Codex's does. The word
            names the chat the person would look for. */
         const moveChatWord = wrote.account
-          && ({ openai: 'Codex', google: 'Gemini', xai: 'Grok' })[String(wrote.account.provider || '').toLowerCase()];
+          && ({ openai: 'Codex', google: 'Gemini', xai: 'Grok', alibaba: 'Qwen' })[String(wrote.account.provider || '').toLowerCase()];
         const isPerHomeMove = !!moveChatWord;
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
@@ -19561,7 +19614,7 @@ const server = http.createServer(async (req, res) => {
     try { failing = guideCardFailing(found.name); } catch { sendJson(res, 200, { ok: true, name: found.name, hosted: false, hostedWhy: 'unchecked' }); return; }
     if (failing) {
       const w = setupAssistant.hostedWhy({ failing: () => failing });
-      sendJson(res, 200, { ok: true, name: found.name, hosted: w.ok, hostedWhy: w.why, problem: failing.problem, runner: failing.runner });
+      sendJson(res, 200, { ok: true, name: found.name, hosted: w.ok, hostedWhy: w.why, problem: failing.problem, runner: failing.runner, providerName: failing.providerName || null });
       return;
     }
     sendJson(res, 200, { ok: true, name: found.name });

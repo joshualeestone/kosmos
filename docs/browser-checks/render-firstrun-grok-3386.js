@@ -80,7 +80,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' #3708 the Settings pickers get the same Grok mark, not a letter chip', res.pickerSvg === true && res.pickerChip === false, JSON.stringify(res));
     ok(t + ' #3708 Grok names how it connects (not "works today": its tool is not installed by Kosmos yet)', res.grokCompany === 'xAI \u00b7 subscription or API key today', JSON.stringify(res));
     ok(t + ' #3386/#3658 Grok sits right under Gemini, in one list with no tier divider', res.geminiIdx >= 0 && res.grokIdx === res.geminiIdx + 1 && res.dividerIdx === -1, JSON.stringify(res));
-    ok(t + ' #3658 seven not-yet-available tiles in the model step', res.offCount === 7, JSON.stringify(res));
+    // #5977: Qwen is live in the model step now, so six are still coming, not seven.
+    ok(t + ' #3658/#5977 six not-yet-available tiles in the model step', res.offCount === 6, JSON.stringify(res));
     // Visual: only meaningful if the pane actually laid out (file:// nav can bail). This is a flat
     // assertion harness with no real gating, so the two arms below are companion diagnostics, not a
     // gate: if the pane did not lay out BOTH fail, and the first tells you WHY (not laid out) vs the
