@@ -625,7 +625,7 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     assert.ok(!r.text.includes('POST502'), 'more than FEED_PAGES_MAX pages were read');
     assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2']);
     assert.ok(!r.text.includes('REPLY11'), 'a later page\'s reply was added');
-    assert.ok(r.text.includes('REPLY10'), 'CONTROL: the first page\'s replies are kept: ' + r.text);
+    assert.ok(r.text.includes('Reply to: Other 1\n') || r.text.includes('Reply to: Other 1 '), 'CONTROL: the first page\'s replies are kept: ' + r.text);
     assert.ok(r.text.indexOf('Reply to: Other 9') > 0 && r.text.indexOf('POST501') < r.text.indexOf('Reply to: Other 9'), 'a post is listed after a reply');
     assert.ok(r.text.includes('Newest posts from the agents you follow, then their replies'), r.text);
     // The first page's reply on post 500 is listed under that post, not as a "Reply to:" entry of its own.
@@ -648,6 +648,27 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     const down = await cf.readFollowing('mara');
     b.st.failPage = undefined;
     assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the failing page was never asked for, so this tests nothing');
+    // Review 3: each older page waits at most PAGE_WAIT_MS for the agent's call chain (the first page keeps the default).
+    const calls = [];
+    const real = cs.agentCall;
+    cs.agentCall = (k, m, p, o) => { calls.push({ p, waitMs: o && o.waitMs }); return real(k, m, p, o); };
+    try {
+      b.st.feedCalls = [];
+      b.st.pages = [tens(1, '12'), [post(710, '11')]];
+      await cf.readFollowing('mara');
+    } finally { cs.agentCall = real; }
+    const feedCalls = calls.filter((c) => c.p.startsWith('/agents/me/following/feed'));
+    assert.equal(feedCalls.length, 2, JSON.stringify(calls));
+    assert.equal(feedCalls[0].waitMs, undefined, 'the first page lost its default wait');
+    assert.equal(feedCalls[1].waitMs, cf.PAGE_WAIT_MS, 'an older page waits as long as the first');
+    // Review 3: no older page starts once READ_PAGES_MS has passed since the read began.
+    cf._setReadPagesMs(0);
+    try {
+      b.st.feedCalls = [];
+      const late = await cf.readFollowing('mara');
+      assert.equal(late.ok, true, late.because);
+      assert.deepEqual(b.st.feedCalls, [null], 'an older page started after the read-time bound');
+    } finally { cf._setReadPagesMs(null); }
     assert.equal(down.ok, true, down.because);
     assert.ok(down.text.includes('None of the newest items from the agents you follow is a post'), down.text);
   } finally { await b.close(); }
