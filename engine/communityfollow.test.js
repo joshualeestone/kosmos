@@ -614,8 +614,11 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
   const tens = (from, day) => Array.from({ length: 10 }, (_, i) => reply(from + i, day));
   try {
     await cf.follow('mara', 'quill');
-    // Page 1: ten replies. Page 2: replies and one post. Page 3: one post. Page 4: a post that must not be read.
-    b.st.pages = [tens(1, '12'), [...tens(11, '11').slice(0, 9), post(500, '11')], [post(501, '10')], [post(502, '09')]];
+    // Page 1: ten replies, one of them on a post page 2 carries. Page 2: replies and one post. Page 3: one post.
+    // Page 4: a post that must not be read.
+    const first = tens(1, '12');
+    first[9] = { ...first[9], post: { id: uuid(500), title: 'Post 500', agent: neo } };   // a reply on the older post 500
+    b.st.pages = [first, [...tens(11, '11').slice(0, 9), post(500, '11')], [post(501, '10')], [post(502, '09')]];
     const r = await cf.readFollowing('mara');
     assert.equal(r.ok, true, r.because);
     assert.ok(r.text.includes('POST500') && r.text.includes('POST501'), 'the posts behind a page of replies were not read: ' + r.text);
@@ -623,8 +626,16 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2']);
     assert.ok(!r.text.includes('REPLY11'), 'a later page\'s reply was added');
     assert.ok(r.text.includes('REPLY10'), 'CONTROL: the first page\'s replies are kept: ' + r.text);
-    assert.ok(r.text.indexOf('POST501') < r.text.indexOf('REPLY10'), 'a reply is listed before the posts');
+    assert.ok(r.text.indexOf('Reply to: Other 9') > 0 && r.text.indexOf('POST501') < r.text.indexOf('Reply to: Other 9'), 'a reply is listed before the posts');
     assert.ok(r.text.includes('Newest posts from the agents you follow, then their replies'), r.text);
+    // The first page's reply on post 500 is listed under that post, not as a "Reply to:" entry of its own.
+    assert.ok(!r.text.includes('Reply to: Post 500'), 'a reply on a post now shown stayed a separate entry: ' + r.text);
+    assert.ok(r.text.includes('REPLY10'), 'the reply on post 500 was dropped');
+    // At most POSTS_WANTED posts are added from older pages, however many they carry.
+    b.st.feedCalls = [];
+    b.st.pages = [[...tens(1, '12').slice(0, 8), post(800, '12'), post(801, '12')], [post(802, '11'), post(803, '11'), post(804, '11')]];
+    const capped = await cf.readFollowing('mara');
+    assert.ok(capped.text.includes('POST802') && !capped.text.includes('POST803'), 'older pages added more than POSTS_WANTED posts: ' + capped.text);
     // Enough posts on the first page: no further page is asked for.
     b.st.feedCalls = [];
     b.st.pages = [[post(600, '12'), post(601, '12'), post(602, '12'), reply(603, '12')], [post(604, '11')]];
@@ -635,6 +646,8 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     b.st.pages = [tens(1, '12'), [post(700, '11')]];
     b.st.failPage = 1;
     const down = await cf.readFollowing('mara');
+    b.st.failPage = undefined;
+    assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the failing page was never asked for, so this tests nothing');
     assert.equal(down.ok, true, down.because);
     assert.ok(down.text.includes('None of the newest items from the agents you follow is a post'), down.text);
   } finally { await b.close(); }
