@@ -32,6 +32,16 @@ cat > "$PAGE" <<'HTML'
         <span class="rel-d">September 1, 2026, 1:00 PM CDT</span></div>
       <p>Onewordsentencethatistoolongtofitanywhereatallbecauseithasnospaces and then a great many ordinary words that keep this single sentence going far past the budget for any post on X without ever reaching a full stop or any other sentence end at all, which is the case where nothing whole fits so the post must be cut at a word instead</p>
     </article>
+    <article class="rel" id="v0-9-4">
+      <div class="rel-h"><h2 class="rel-v"><a href="#v0-9-4"><span class="num">0.9.4</span></a></h2>
+        <span class="rel-d">August 30, 2026, 1:00 PM CDT</span></div>
+      <p>Version 0.7.46 on installkosmos.com fixes the sign in, so a person who left it half done can finish it later from Settings without starting again from the beginning of the setup. It also adds a second long sentence here that cannot fit beside the first one in a post.</p>
+    </article>
+    <article class="rel" id="v0-9-3">
+      <div class="rel-h"><h2 class="rel-v"><a href="#v0-9-3"><span class="num">0.9.3</span></a></h2>
+        <span class="rel-d">August 29, 2026, 1:00 PM CDT</span></div>
+      <p>It’s the agent’s window, the board’s list, the person’s room, the team’s plan, the day’s work, the week’s notes, the month’s view, the year’s end, it’s all here, it’s fine, it’s done, it’s whole and it’s short enough.</p>
+    </article>
     <article class="rel" id="v0-9-5">
       <div class="rel-h"><h2 class="rel-v"><a href="#v0-9-5"><span class="num">0.9.5</span></a></h2>
         <span class="rel-d">August 31, 2026, 1:00 PM CDT</span></div>
@@ -147,8 +157,18 @@ X5="$(xpost 0.9.5)"
 X6="$(xpost 0.9.6)"
 X6N="$(node -e 'process.stdout.write(String([...process.argv[1]].length))' "$X6" 2>/dev/null)"
 W6="$(printf '%s' "$X6" | sed 's/… https.*//' | awk '{print $NF}')"
-{ has "$X6" "… https://installkosmos.com/versions.html" && [ -n "$X6N" ] && [ "$X6N" -le 280 ] && has " a great many ordinary words that keep this single sentence going far past the budget for any post on X without ever reaching a full stop or any other sentence end at all, which is the case where nothing whole fits so the post must be cut at a word instead " " $W6 "; } \
+NOTE6="$(sed -n '/id="v0-9-6"/,/<\/article>/p' "$PAGE" | sed -n 's/.*<p>\(.*\)<\/p>.*/\1/p')"
+{ has "$X6" "… https://installkosmos.com/versions.html" && [ -n "$X6N" ] && [ "$X6N" -le 280 ] && [ -n "$W6" ] && has " $NOTE6 " " $W6 "; } \
   && pass "#6082: no whole sentence fits -> cut at a whole word with an ellipsis ($X6N)" || bad "#6082: word cut wrong (last word '$W6', len=$X6N): $X6"
+
+# 7e. #6082 review 1: a dotted token (a version, a domain) before the first full stop loses nothing.
+X4="$(xpost 0.9.4)"
+{ has "$X4" "Kosmos 0.9.4 is out. Version 0.7.46 on installkosmos.com fixes the sign in," && has "$X4" "setup. https://installkosmos.com/versions.html"; } \
+  && pass "#6082: a version number before the first sentence end keeps the sentence whole" || bad "#6082: dotted token dropped text: $X4"
+# 7f. #6082 review 1: a note that fits in characters but not in bytes (curly apostrophes) under a C locale is unchanged.
+X3="$(env LC_ALL=C KOSMOS_VERSIONS_PAGE="$PAGE" KOSMOS_SOCIAL_PREVIEW_DIR="$PREVIEW" bash "$SCRIPT" 0.9.3 2>&1 | awk 'index($0, "   Kosmos 0.9.3 is out.") == 1 {print; exit}')"
+{ has "$X3" "short enough. https://installkosmos.com/versions.html" && has "$X3" "It’s the agent’s window"; } \
+  && pass "#6082: a fitting note with multi-byte characters is not trimmed under a C locale" || bad "#6082: multi-byte note trimmed: $X3"
 
 # 8. a version with NO page entry -> generic note, still dry-run exit 0
 run_missing() {
