@@ -302,6 +302,22 @@
       "status": "pending"
     },
     {
+      "title": "Decisions say how long they have waited",
+      "line": "A task under Needs Your Decision now says how long it has waited on you, such as \"Waiting on you for 12 days\".",
+      "icon": "tasks",
+      "rank": 5,
+      "since": "0.7.45",
+      "status": "pending"
+    },
+    {
+      "title": "Agents not run in two weeks say so",
+      "line": "A stopped agent that has not run for 14 days or more says so on its card and points you to Remove on its page.",
+      "icon": "list",
+      "rank": 7.5,
+      "since": "0.7.45",
+      "status": "pending"
+    },
+    {
       "title": "Company backup keeps Grok conversations",
       "line": "The company backup now includes the conversations of Grok agents.",
       "icon": "shield",

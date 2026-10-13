@@ -1,5 +1,5 @@
 {
-  "version": "0.7.44",
+  "version": "0.7.45",
   "highlights": [
     {
       "icon": "shield",
@@ -28,9 +28,9 @@
       "line": "New task asks \"How will you know it is done?\" and Create waits for your answer; a parent task says when all its subtasks are built."
     },
     {
-      "icon": "shield",
-      "title": "Removing an account works mid sign-in",
-      "line": "If you left a Sign in again unfinished on an OpenAI account, you can now remove that account instead of waiting for it to time out."
+      "icon": "tasks",
+      "title": "Decisions say how long they have waited",
+      "line": "A task under Needs Your Decision now says how long it has waited on you, such as \"Waiting on you for 12 days\"."
     }
   ]
 }
