@@ -112,3 +112,21 @@ I ran the gate here because the same gate, unrun after a last fix, turned kosmos
 ## Not run
 The full suite on this branch (CI runs it on the PR). A person or the design reviewer looking at the new shots:
 asked, not yet answered when the PR was opened.
+
+## The design review's second pass, and the hanging dot (2026-10-13)
+Mona Lisa looked at the four shots and approved with ONE change (on #5958): hang the dot in the margin, so the words
+it marks start on the same edge as the lines around them. Both things I had flagged in the shots had that one cause.
+She kept the two dots in the open row (the summary marks the row, the first line marks the item) and the 13px third
+size (a later card).
+- Built at 408cb5c3e: the dot is pulled back by its own 8px and the 6px after it.
+- The browser check has a new arm, HANG, at the desktop width and at 390 px: where the WORDS start (the first text
+  the eye meets, not the box), dotted against plain, in the summary and in the open row; each dot wholly left of its
+  words; no dot off the screen.
+- **Measured by CI's browser-checks run on the PR at 408cb5c3e (run 38434115121), all ten HANG arms passed:**
+  desktop, the dotted and the plain summary both start at 546.5 and the dotted first line and the line under it both
+  at 566.5; at 390 px, 49 and 49, 69 and 69. The dots sit 6px left of their words (532.5 to 540.5, 552.5 to 560.5;
+  35 to 43, 55 to 63).
+- My own run of the check and the new shots are still waiting for a turn on this machine. Nothing here rests on
+  them; when they come they go on the card for her.
+- At that head CI's four workflows on the PR are green (test, browser-checks, linux-setup, windows).
+- No reviewer has read 408cb5c3e. It is one CSS property, a comment, and the check's new arm.
