@@ -32,14 +32,18 @@ const MAX_OUT = 2 * 1024 * 1024;           // characters in a rendering
 const MAX_CELL = 32 * 1024;                // characters kept from one cell
 const MAX_SHEET_ROWS = 5000;
 const MAX_COLS = 256;
+const MAX_SHEETS = 256;
 const MAX_PDF_INFLATE = 64 * 1024 * 1024;  // decompressed bytes a PDF may cost, charged even for a stream that overflows
 const MAX_PDF_CONTENT = 32 * 1024 * 1024;  // content-stream bytes a PDF may have tokenised, shared streams counted each time
 const MAX_PDF_PAGES = 2000;
 const MAX_CMAP_ENTRIES = 200000;           // ToUnicode entries per font
 const MAX_ARRAY = 4096;                    // items kept from one TJ array
 const PDFKIT_TIMEOUT_MS = 20000;
-const WORKER_TIMEOUT_MS = 30000;
-const WORKER_HEAP_MB = 256;
+let WORKER_TIMEOUT_MS = 30000;
+let WORKER_HEAP_MB = 256;
+const MAX_WORKERS = 2;   // conversions at once (iteration 2: a burst of hostile uploads ran all in parallel)
+/* Test seam: tests shorten the limits to reach the timeout path without waiting 30 s. */
+function setWorkerLimits({ timeoutMs, heapMb } = {}) { if (timeoutMs) WORKER_TIMEOUT_MS = timeoutMs; if (heapMb) WORKER_HEAP_MB = heapMb; }
 
 const KINDS = { xlsx: 'xlsx', xlsm: 'xlsx', docx: 'docx', docm: 'docx', pdf: 'pdf' };
 const kindFor = (name) => KINDS[path.extname(String(name || '')).toLowerCase().slice(1)] || null;
@@ -104,7 +108,7 @@ function zipOf(buf, what) {
 
 /* ── xlsx ──────────────────────────────────────────────────────────────────────────────────── */
 
-function sheetRows(sheet, shared) {
+function sheetRows(sheet, shared, clip) {
   const rows = [];
   let truncated = false;
   for (const rowText of oc.blocks(sheet, 'row')) {
@@ -114,7 +118,7 @@ function sheetRows(sheet, shared) {
       const tag = '<c' + cell.attrs + '>';
       const at = oc.colIndex(oc.attr(tag, 'r'));
       const i = at == null ? next : at;
-      if (i >= MAX_COLS) break;
+      if (i >= MAX_COLS) { clip.cols = true; break; }
       const type = oc.attr(tag, 't');
       let v = '';
       if (type === 'inlineStr') v = oc.xmlText((oc.innerOf(cell.inner, 'is') || '').slice(0, MAX_CELL * 4));
@@ -122,6 +126,7 @@ function sheetRows(sheet, shared) {
         const raw = oc.innerOf(cell.inner, 'v');
         if (raw != null) v = type === 's' ? (shared[Number(raw)] || '') : oc.xmlText(raw.slice(0, MAX_CELL));
       }
+      if (v.length > MAX_CELL) clip.cell = true;
       row[i] = v.slice(0, MAX_CELL);
       next = i + 1;
     }
@@ -147,8 +152,13 @@ function xlsxText(buf) {
   const notes = new Set();
   let formulas = false;
   let first = true;
+  const seen = new Set();
+  const clip = { cols: false, cell: false };
+  let sheets = 0;
   for (const m of wb.matchAll(/<(?:\w+:)?sheet\b[^<>]*>/g)) {
     if (out.full) break;
+    sheets += 1;
+    if (sheets > MAX_SHEETS) { notes.add('Only the first ' + MAX_SHEETS + ' sheets are converted.'); break; }
     const name = oc.xmlText(oc.attr(m[0], 'name') || 'Sheet');
     const rid = oc.attr(m[0], 'r:id') || oc.attr(m[0], 'id');
     const target = targets.get(rid);
@@ -156,15 +166,22 @@ function xlsxText(buf) {
     const part = target.startsWith('/') ? target.slice(1) : 'xl/' + target.replace(/^\.\//, '');
     out.add((first ? '' : '\n') + '## Sheet: ' + name + '\n\n');
     first = false;
+    if (seen.has(part)) { out.add('(the same sheet as one above)\n'); continue; }   // iteration 2: one part listed many times is read once
+    seen.add(part);
     let sheet = null;
     try { sheet = get(part); } catch { sheet = null; }   // one unreadable sheet does not lose the others (review 1)
     if (!sheet) { out.add('(this sheet could not be read)\n'); continue; }
     if (/<(?:\w+:)?f[\s>]/.test(sheet)) formulas = true;
-    const { rows, truncated } = sheetRows(sheet, shared);
+    const { rows, truncated } = sheetRows(sheet, shared, clip);
     tableInto(out, rows);
     if (truncated) out.add('\n(only the first ' + MAX_SHEET_ROWS + ' rows with values are shown)\n');
   }
   if (formulas) notes.add('Formulas are shown as the values they had when the file was last saved.');
+  if (clip.cols) notes.add('Only the first ' + MAX_COLS + ' columns of a sheet are converted.');
+  if (clip.cell) notes.add('A cell longer than ' + MAX_CELL + ' characters is cut short.');
+  let styles = null;
+  try { styles = get('xl/styles.xml'); } catch { styles = null; }
+  if (styles && (/numFmtId="(?:1[4-9]|2[0-2]|4[5-7])"/.test(styles) || /formatCode="[^"<>]*[dy][^"<>]*"/i.test(styles))) notes.add('Dates may appear as Excel day numbers (for example 45123), not as dates.');
   if (hasPart(buf, /^xl\/(charts|drawings|media)\//)) notes.add('Charts, pictures and drawings are not converted.');
   return { body: out.text().trim(), notes: [...notes], full: out.full };
 }
@@ -252,7 +269,7 @@ function* topLevel(text, tag) {
 }
 
 /* The body's top-level paragraphs and tables, in document order, each with its nested content. */
-function* bodyBlocks(body) {
+function* bodyBlocks(body, state) {
   const fp = finder(body, 'w:p');
   const ft = finder(body, 'w:tbl');
   let at = 0;
@@ -262,12 +279,12 @@ function* bodyBlocks(body) {
     if (p < 0 && t < 0) return;
     if (t >= 0 && (p < 0 || t < p)) {
       const end = endOf(body, t, ft);
-      if (end < 0) return;
+      if (end < 0) { if (state) state.broken = true; return; }
       yield { tbl: body.slice(t, end) };
       at = end;
     } else {
       const end = endOf(body, p, fp);
-      if (end < 0) return;
+      if (end < 0) { if (state) state.broken = true; return; }
       yield { p: body.slice(p, end) };
       at = end;
     }
@@ -283,11 +300,12 @@ function runsText(span) {
 }
 
 function paraText(p) {
-  const s = runsText(p);
+  const s = runsText(p.replace(/<\/w:p>(?!$)/g, '<w:t> </w:t></w:p>')).replace(/ {2,}/g, ' ');   // text-box paragraphs keep a space between them
   const style = /<w:pStyle\b[^<>]*w:val="([^"]*)"/.exec(p);
   const heading = style && /^(?:Heading|Title)(\d?)$/i.exec(style[1]);
   if (heading && s.trim()) return '#'.repeat(Math.min(6, Number(heading[1] || 1))) + ' ' + s.trim();
-  if (/<w:numPr\b/.test(p) && s.trim()) return '- ' + s.trim();
+  const num = /<w:numId\b[^<>]*w:val="(\d+)"/.exec(p);
+  if (num && num[1] !== '0' && s.trim()) return '- ' + s.trim();   // numId 0 is the no-list marker
   return s;
 }
 
@@ -298,7 +316,8 @@ function docxText(buf) {
   /* mc:AlternateContent carries the same content twice (Choice and Fallback): keep the Choice (review 1). */
   const body = oc.stripBlocks(oc.innerOf(doc, 'w:body') || doc, 'mc:Fallback');
   const out = sink();
-  for (const b of bodyBlocks(body)) {
+  const state = { broken: false };
+  for (const b of bodyBlocks(body, state)) {
     if (b.tbl != null) {
       const rows = [];
       for (const tr of topLevel(b.tbl.slice(b.tbl.indexOf('>') + 1), 'w:tr')) {
@@ -310,6 +329,7 @@ function docxText(buf) {
     } else if (!out.add(paraText(b.p) + '\n')) break;
   }
   const notes = [];
+  if (state.broken) notes.push('Part of this document is damaged; the text after that point is not included.');
   if (hasPart(buf, /^word\/media\//)) notes.push('Pictures are not converted.');
   if (hasPart(buf, /^word\/(header|footer|footnotes|endnotes|comments)\d*\.xml$/)) notes.push('Headers, footers, footnotes and comments are not included.');
   return { body: out.text().replace(/\n{3,}/g, '\n\n').trim(), notes, full: out.full };
@@ -393,7 +413,7 @@ function pdfObjects(buf) {
     if (!o.flate) { o.stream = data; return data; }
     if (inflated >= MAX_PDF_INFLATE) return null;
     try {
-      o.stream = zlib.inflateSync(data, { maxOutputLength: MAX_PDF_INFLATE - inflated });
+      o.stream = zlib.inflateSync(data, { maxOutputLength: MAX_PDF_INFLATE - inflated, finishFlush: zlib.constants.Z_SYNC_FLUSH });   // a truncated tail keeps what came before it
       inflated += o.stream.length;
     } catch (e) {
       if (e && e.code === 'ERR_BUFFER_TOO_LARGE') inflated = MAX_PDF_INFLATE;   // the work was done: charge it (review 1)
@@ -409,11 +429,19 @@ function pdfObjects(buf) {
     const n = Math.min(100000, Number((/\/N\s+(\d{1,7})\b/.exec(o.dict) || [])[1] || 0));
     const first = Number((/\/First\s+(\d{1,10})\b/.exec(o.dict) || [])[1] || 0);
     const head = s.slice(0, Math.min(first, s.length)).trim().split(/\s+/).map(Number);
+    /* Offsets must rise (iteration 2: an object spanning the whole stream, repeated, cost the page walk 5 ms each); each
+       object ends where the next begins, and the text kept is charged to the same budget as inflation. */
+    let prev = -1;
     for (let k = 0; k < n && 2 * k + 1 < head.length; k += 1) {
       const onum = head[2 * k];
       const off = first + head[2 * k + 1];
-      const next = 2 * k + 3 < head.length ? first + head[2 * k + 3] : s.length;
-      if (!objs.has(onum) && off >= first && next >= off) objs.set(onum, { dict: s.slice(off, next), raw: null });
+      if (!(off > prev) || off > s.length) break;
+      prev = off;
+      const nx = 2 * k + 3 < head.length ? first + head[2 * k + 3] : s.length;
+      const next = Math.min(s.length, nx > off ? nx : s.length);
+      inflated += next - off;
+      if (inflated > MAX_PDF_INFLATE) break;
+      if (!objs.has(onum)) objs.set(onum, { dict: s.slice(off, next), raw: null });
     }
   }
   return { objs, stream };
@@ -451,6 +479,7 @@ function pagesInOrder(objs) {
   const top = root ? ref(root.dict, 'Pages') : null;
   if (top != null) walk(top, '', 0);
   if (!out.length) for (const [, o] of objs) if (/\/Type\s*\/Page\b/.test(o.dict) && out.length < MAX_PDF_PAGES) out.push({ o, resources: o.dict });
+  out.capped = out.length >= MAX_PDF_PAGES;
   return out;
 }
 
@@ -588,7 +617,10 @@ function pageText(content, fonts, out) {
     }
     return s;
   };
-  const flush = () => { if (line) { const ok = out.add(line.replace(/[ \t]+$/, '') + '\n'); line = ''; return ok; } return true; };
+  /* Trailing blanks stripped by a backwards loop (iteration 2: `/[ \t]+$/` is quadratic on a long run of spaces). */
+  const trimEnd = (x) => { let e = x.length; while (e && (x[e - 1] === ' ' || x[e - 1] === '\t')) e -= 1; return x.slice(0, e); };
+  const flush = () => { if (line) { const ok = out.add(trimEnd(line) + '\n'); line = ''; return ok; } return true; };
+  const append = (x) => { line += x.length > MAX_CELL * 4 ? x.slice(0, MAX_CELL * 4) : x; if (line.length > MAX_CELL * 4) return flush(); return true; };
   const space = () => { if (line && !/\s$/.test(line)) line += ' '; };
   const lastNum = () => { for (let i = operands.length - 1; i >= 0; i -= 1) if (operands[i].num != null) return operands[i].num; return null; };
   const lastOf = (k) => { for (let i = operands.length - 1; i >= 0; i -= 1) if (operands[i][k] != null) return operands[i]; return null; };
@@ -604,11 +636,11 @@ function pageText(content, fonts, out) {
     }
     const op = t.op;
     if (op === 'Tf') { const nm = lastOf('name'); if (nm) font = nm.name; }
-    else if (op === 'Tj') { const s = lastOf('str'); if (s) line += decode(s.str); }
-    else if (op === "'" || op === '"') { if (!flush()) return; const s = lastOf('str'); if (s) line += decode(s.str); }
+    else if (op === 'Tj') { const s = lastOf('str'); if (s && !append(decode(s.str))) return; }
+    else if (op === "'" || op === '"') { if (!flush()) return; const s = lastOf('str'); if (s && !append(decode(s.str))) return; }
     else if (op === 'TJ') {
       const a = lastOf('arr');
-      if (a) for (const e of a.arr) { if (e.str != null) line += decode(e.str); else if (e.num != null && e.num < -200) space(); }
+      if (a) for (const e of a.arr) { if (e.str != null) { if (!append(decode(e.str))) return; } else if (e.num != null && e.num < -200) space(); }
     } else if (op === 'Td' || op === 'TD') { const ty = lastNum(); if (ty) { if (!flush()) return; } else space(); }
     else if (op === 'T*') { if (!flush()) return; }
     else if (op === 'Tm') { const y = lastNum(); if (lastY != null && y != null && y !== lastY) { if (!flush()) return; } else space(); lastY = y; }   // review 1: same line, a space
@@ -638,8 +670,10 @@ function pdfTextJs(buf) {
   let content = 0;
   let cut = null;
   const total = sink();
-  for (const { o, resources } of pagesInOrder(objs)) {
-    if (total.full) { cut = 'The rendering stops at ' + MAX_OUT + ' characters.'; break; }
+  const ordered = pagesInOrder(objs);
+  if (ordered.capped) cut = 'Only the first ' + MAX_PDF_PAGES + ' pages are converted.';
+  for (const { o, resources } of ordered) {
+    if (total.full) { cut = (cut ? cut + ' ' : '') + 'The rendering stops at ' + MAX_OUT + ' characters.'; break; }
     const fonts = new Map();
     let fontDict = subDict(resources, 'Font');
     if (fontDict == null && ref(resources, 'Font') != null) fontDict = (objs.get(ref(resources, 'Font')) || {}).dict || '';
@@ -651,7 +685,7 @@ function pdfTextJs(buf) {
       const st = stream(n);
       if (!st) continue;
       content += st.length;   // a stream shared by many pages is charged each time (review 1)
-      if (content > MAX_PDF_CONTENT) { cut = 'The PDF has more page content than Kosmos will convert; the rest is not included.'; break; }
+      if (content > MAX_PDF_CONTENT) { cut = (cut ? cut + ' ' : '') + 'The PDF has more page content than Kosmos will convert; the rest is not included.'; break; }
       parts.push(st.toString('latin1'));
     }
     const page = sink(MAX_OUT - total.length);   // one budget for the whole document, not one per page (iteration 2)
@@ -707,7 +741,15 @@ async function pdfAfter(file, js) {
 
 /* The conversion in a worker thread, with a memory and a time limit. Resolves to { body, notes, full } for xlsx and docx,
    { js } for pdf (the main thread may still ask PDFKit), or { failed: sentence }. */
-function convertIsolated(file, kind) {
+let running = 0;
+const waiting = [];
+function slot() { return new Promise((r) => { if (running < MAX_WORKERS) { running += 1; r(); } else waiting.push(r); }); }
+function release() { const next = waiting.shift(); if (next) next(); else running -= 1; }
+async function convertIsolated(file, kind) {
+  await slot();
+  try { return await convertOnce(file, kind); } finally { release(); }
+}
+function convertOnce(file, kind) {
   return new Promise((resolve) => {
     let done = false;
     let timer = null;
@@ -759,4 +801,4 @@ async function render(rec) {
   return out;
 }
 
-module.exports = { TEXT_NAME, kindFor, render, xlsxText, docxText, pdfTextJs, pdfText, parseCmap, setPdfkit, readable, MAX_SHEET_ROWS, MAX_OUT, WORKER_TIMEOUT_MS };
+module.exports = { TEXT_NAME, kindFor, render, xlsxText, docxText, pdfTextJs, pdfText, parseCmap, setPdfkit, setWorkerLimits, readable, MAX_SHEET_ROWS, MAX_OUT };

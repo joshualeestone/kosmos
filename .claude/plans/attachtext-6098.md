@@ -42,7 +42,13 @@ reads these files itself.
   time it is used; CMap tokens are one forward pass, with a budget on entries WRITTEN (200 K) and code length at most 4;
   TJ arrays are kept apart from the operand stack (4,096 items). Growth tests pin each shape the review measured slow.
 - **Formula values, not formulas.** The saved value is what a reader needs; the note says so.
-- **Not done:** pictures (no OCR), charts, docx headers/footers/footnotes/comments, text inside PDF form XObjects (`Do`),
+- **Iteration 2:** trailing blanks stripped by a loop (a regex was quadratic on a run of spaces) and each PDF line capped while
+  built; object-stream offsets must rise and each object ends at the next (text charged to the inflate budget); a sheet part
+  listed many times is read once, at most 256 sheets; page, column and cell caps now say so; dates note; conversions limited to
+  2 at once; a worker-limits test seam reaches the timeout path; numId 0 is not a list; text-box paragraphs keep a space; a
+  damaged docx body says so; a truncated Flate tail keeps what came before. Accepted: per-page resource lookups on a huge Pages
+  dict scale with size x pages (measured 0.76 s at 4 MB x 2,000, bounded by the 25 MB upload and the 30 s worker limit).
+- **Not done:** pictures (no OCR), charts, inline (not referenced) PDF font dictionaries, docx headers/footers/footnotes/comments, text inside PDF form XObjects (`Do`),
   xls/doc/ppt/pptx, an attachment uploaded before this change (it gets no rendering; its line is unchanged).
 
 ## Weakest premise
@@ -50,11 +56,12 @@ That the JS PDF reader's output is right when it "reads as text". A font whose c
 being those letters would pass the readability check and be wrong; PDFKit is only asked when the check fails. Real PDFs
 from common writers carry ToUnicode maps, which the reader uses.
 
-## Tests (engine/attachtext-6098.test.js, 21)
+## Tests (engine/attachtext-6098.test.js, 26; five added in iteration 2: a 100k-space line, falling ObjStm offsets, a sheet
+listed 300 times with 300 columns, the worker timeout through render, docx list/text-box/damaged)
 The first 12 (xlsx, docx, simple and modern PDFs, encrypted, no text, end to end through render and wireNote, a text file
 unchanged, a damaged xlsx, a person's own text.txt kept) plus nine for review 1: docx growth (20,000 paragraphs, 200,000
 empty paragraphs, tables with no paragraphs between); nested table, text box and AlternateContent; a huge shared string
 in every cell (capped, quick, says so); PDF digit runs, CMap brackets and repeated full ranges (bounded); a content
 stream shared by many pages (charged each time, total capped); a two-digit indirect /Length; a TJ array of 80 items and
 two runs on one line; a 70 MB Flate image before the text; a damaged document worded as a document. Meta: engine.reachable
-excuses setPdfkit and pdfText as test seams. Neighbours and meta: 666/666.
+excuses setPdfkit and pdfText as test seams. Neighbours and meta: 671/671.

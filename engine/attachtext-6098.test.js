@@ -314,3 +314,51 @@ test('#6098 review 1 (W3): a large Flate image before the text does not use up t
 test('#6098 review 1 (N3): a damaged document is described in its own words, not a spreadsheet\'s', () => {
   assert.throws(() => at.docxText(Buffer.from('not a zip')), (e) => /document/.test(e.message) && !/spreadsheet|people/.test(e.message));
 });
+
+/* ── review 2 ── */
+test('#6098 review 2: a long run of spaces in a PDF string is linear', () => {
+  const buf = pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'], [3, '<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>'],
+    [4, streamObj('', 'BT (' + ' '.repeat(100000) + 'x) Tj ET')]]);   // under the per-line cap, and about 4 s with the old pattern
+  let got;
+  assert.ok(timed(() => { got = at.pdfTextJs(buf); }) < 2000);
+  assert.ok(got.pages[0].endsWith('x'));
+});
+
+test('#6098 review 2: packed objects with overlapping or falling offsets are refused, not spanned', () => {
+  const body = 'x'.repeat(200000);
+  const head = Array.from({ length: 200 }, (_, k) => (100 + k) + ' ' + (k % 2 ? 1000 : 0)).join(' ') + ' ';
+  const buf = pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [] /Count 0 >>'], [7, streamObj('/Type /ObjStm /N 200 /First ' + head.length, head + body)]]);
+  assert.ok(timed(() => at.pdfTextJs(buf)) < 2000);
+});
+
+test('#6098 review 2: one sheet part listed many times is read once; more than 256 columns says so', () => {
+  const wide = '<row r="1">' + Array.from({ length: 300 }, (_, c) => '<c t="inlineStr"><is><t>v' + c + '</t></is></c>').join('') + '</row>';
+  const book = buildZip([
+    entry('xl/workbook.xml', XML + '<workbook xmlns:r="r"><sheets>' + Array.from({ length: 300 }, (_, i) => '<sheet name="S' + i + '" r:id="rId1"/>').join('') + '</sheets></workbook>'),
+    entry('xl/_rels/workbook.xml.rels', XML + '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
+    entry('xl/worksheets/sheet1.xml', XML + '<worksheet><sheetData>' + wide + '</sheetData></worksheet>'),
+  ]);
+  const got = at.xlsxText(book);
+  assert.equal((got.body.match(/\| v0 \|/g) || []).length, 1, 'the part is converted once');
+  assert.ok(got.body.includes('(the same sheet as one above)'));
+  assert.ok(got.notes.some((n) => /256 columns/.test(n)), JSON.stringify(got.notes));
+  assert.ok(got.notes.some((n) => /256 sheets/.test(n)), 'the sheet cap says so');
+});
+
+test('#6098 review 2: a conversion that runs past the time limit ends the worker and says so', async () => {
+  at.setWorkerLimits({ timeoutMs: 1 });
+  try {
+    const rec = attachments.save('project', 'p6098', { name: 'slow.docx', type: 'application/octet-stream', bytes: docxOf('<w:p><w:r><w:t>x</w:t></w:r></w:p>'.repeat(50000)) });
+    const out = await at.render(rec);
+    assert.match(fs.readFileSync(out, 'utf8'), /stopped converting this file after/);
+  } finally { at.setWorkerLimits({ timeoutMs: 30000 }); }
+});
+
+test('#6098 review 2: numId 0 is not a list; text-box paragraphs keep a space; a damaged body says so', () => {
+  const { body } = at.docxText(docxOf('<w:p><w:pPr><w:numPr><w:numId w:val="0"/></w:numPr></w:pPr><w:r><w:t>Not a list item</w:t></w:r></w:p>'
+    + '<w:p><w:r><w:t>Outer</w:t><w:txbxContent><w:p><w:r><w:t>Box one</w:t></w:r></w:p><w:p><w:r><w:t>Box two</w:t></w:r></w:p></w:txbxContent></w:r></w:p>'));
+  assert.equal(body.split('\n')[0], 'Not a list item');
+  assert.ok(/Box one Box two/.test(body), body);
+  const broken = at.docxText(docxOf('<w:p><w:r><w:t>Kept</w:t></w:r></w:p><w:p><w:r><w:t>never closes'));
+  assert.ok(broken.notes.some((n) => /damaged/.test(n)));
+});
