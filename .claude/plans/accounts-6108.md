@@ -22,7 +22,6 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
 - Weakest premise: the reading only moves when an agent on that account runs and its usage rises (the statusline
   records a change, not a look), so the row says "last changed <age>", never "as of".
 - The warning's "Move its agents" sentence appears only when a move is offered.
-  say "No usage reading for this account yet."
 - A finished move's sentence stays until the first repaint after two minutes; the restart is said beside the control
   before the click and in the result after; focus goes to the row's menu, or its sentence when the menu is gone.
 
@@ -56,12 +55,14 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
 
 - API-key accounts are not bulk-move targets (a bulk move onto a key changes who pays); one agent can still be moved
   to a key from its own page.
-- A moved stopped agent "starts there the next time" (the engine starts it when the computer is on), matched only on
-  the route's own "is not running, so there is nothing to restart" refusal.
+- A moved stopped agent is said to "stay stopped", with no promise of when it starts (the engine itself does not
+  guarantee that for every stopped agent), matched only on the route's own "is not running, so there is nothing to
+  restart" refusal.
+- Agents per account are walked only when the caller asks (/api/accounts?agents=1, Settings), so the other pages that
+  read the list do not pay for it.
 
 ## Not in slice 1 (follow-ups after it ships)
 - A bulk move blocks the server once per agent (removal.restart runs inside the route); a bulk route could batch it.
 - After a 'partial' move the server already lists the agent under the new account, though it still runs on the old
   one until it restarts.
-the 5-hour limit, OpenAI/Gemini/Grok percentages, Windows, agents on other
-computers, a bulk route.
+- The 5-hour limit, OpenAI/Gemini/Grok percentages, Windows, and agents on other computers.

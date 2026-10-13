@@ -27149,7 +27149,7 @@ function acctUsageHtml(a, list) {
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
       + targets.map((x) => '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + '>' + esc(nameOf(x)) + (x.weekly && Number.isFinite(x.weekly.usedPct) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
       + '</select><button type="button" data-acct-move="' + esc(a.dir) + '"' + (busy || !picked ? ' disabled' : '') + '>' + (busy ? 'Moving…' : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
-      + '<p class="acct-move-note">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p></div>'   // said before the click
+      + (names.length ? '<p class="acct-move-note">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p>' : '') + '</div>'   // said before the click; a busy row repainted to no agents says nothing
     : '';
   /* tabindex -1: after a move the button the person pressed is gone, so focus lands here. The sentence is drawn empty
      while a finished move is being announced (the handler writes it a frame later, so the live region hears a change). */
@@ -27168,9 +27168,9 @@ function acctMoveNote(cards) {
   const stopped = pres.filter((p) => p === 'off').length, unsure = pres.filter((p) => p !== 'on' && p !== 'off').length;
   const all = n === 1 ? 'it' : n === 2 ? 'both' : 'all ' + n;
   if (!stopped && !unsure) return 'Moving restarts ' + all + ' on the new account.';
-  if (stopped === n) return 'Moving sets ' + (n === 1 ? 'it' : 'them') + ' up on the new account. ' + (n === 1 ? 'It stays' : 'They stay') + ' stopped for now and ' + (n === 1 ? 'starts' : 'start') + ' there the next time.';
+  if (stopped === n) return 'Moving sets ' + (n === 1 ? 'it' : 'them') + ' up on the new account. ' + (n === 1 ? 'It stays' : 'They stay') + ' stopped.';
   /* Some are stopped or their state is not known: no count of restarts that the route may not keep. */
-  return 'Moving restarts the running ones on the new account.' + (stopped ? ' Any that are stopped start there the next time.' : '');
+  return 'Moving restarts the running ones on the new account.' + (stopped ? ' Any that are stopped stay stopped.' : '');
 }
 /* #6108: move every agent this computer has on `fromDir` to `toDir`, one at a time through the same route the agent's
    own page uses, and say how it went in one line: the engine's own sentence for any that did not move. */
@@ -27202,7 +27202,7 @@ async function moveAccountAgents(fromDir, toDir, names, onProgress, stoppedAtCli
   }
   const parts = [];
   if (moved) parts.push('Moved ' + moved + (moved === 1 ? ' agent. It restarts on the new account.' : ' agents. They restart on the new account.'));
-  if (movedStopped.length) parts.push('Moved ' + movedStopped.join(', ') + ' (stopped). ' + (movedStopped.length === 1 ? 'It starts' : 'They start') + ' on the new account the next time.');
+  if (movedStopped.length) parts.push('Moved ' + movedStopped.join(', ') + ' (stopped). ' + (movedStopped.length === 1 ? 'It stays' : 'They stay') + ' stopped.');
   for (const [why, who] of restarting) parts.push('Not restarted yet (' + who.join(', ') + ')' + (why ? ': ' + end(why) : '.'));   // the engine's sentence says what was saved and why
   for (const [why, who] of misses) parts.push('Not moved (' + who.join(', ') + '): ' + end(why));
   if (silent.length) parts.push('No answer yet for ' + silent.join(', ') + '. Check ' + (silent.length === 1 ? 'its' : 'their') + ' account in a moment.');
@@ -27244,7 +27244,7 @@ async function paintAccounts(opts) {
   if (msg && !followUp) msg.textContent = 'Checking your accounts…';
   let list = [];
   try {
-    const res = await fetch('/api/accounts', { cache: 'no-store' });
+    const res = await fetch('/api/accounts?agents=1', { cache: 'no-store' });   // #6108: only Settings asks for each account's agents
     if (mine !== ACCT_EPOCH) return;
     if (!res.ok) throw new Error('no');
     list = ((await res.json()) || {}).accounts || [];

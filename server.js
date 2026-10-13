@@ -10885,8 +10885,12 @@ const server = http.createServer(async (req, res) => {
         // Only a signed-in row can show its login as good, so only those are read (review iteration 4).
         const loginUntil = new Map(await Promise.all(claudeRows.map(async (a) => [a,
           (a.connection && a.connection.state === 'connected') ? await claudeloginlive.validUntilWithin(a, undefined, nowMs) : null])));
-        let claudeAgents = null;   // #6108: one walk for every row below
-        try { claudeAgents = claudeAgentsByAccount(); } catch { claudeAgents = null; }
+        /* #6108: one walk for every row below, and only when the caller asks (?agents=1, Settings): the other pages that
+           read this list never show the agents, so they do not pay for the walk. */
+        let wantAgents = false;
+        try { wantAgents = new URL(req.url, ROUTING_BASE).searchParams.get('agents') === '1'; } catch { wantAgents = false; }
+        let claudeAgents = null;
+        if (wantAgents) { try { claudeAgents = claudeAgentsByAccount(); } catch { claudeAgents = null; } }
         const claude = claudeRows.map((a) => {
           /* #3136: the badge is the FRESHER of a passively-witnessed agent
              observation (obsByDir, filled by the ~60s sweep) and a
@@ -10972,7 +10976,7 @@ const server = http.createServer(async (req, res) => {
             })(),
             /* #6108: the agents on this account on THIS computer, by session name. complete is false when any could not
                be read, so the page can say the list may be short rather than call it whole. */
-            agentsHere: claudeAgents ? { names: claudeAgents.on(a.dir, !!a.isDefault), complete: !!claudeAgents.complete } : { names: [], complete: false },
+            ...(wantAgents ? { agentsHere: claudeAgents ? { names: claudeAgents.on(a.dir, !!a.isDefault), complete: !!claudeAgents.complete } : { names: [], complete: false } } : {}),
           };
         });
         /* 🛑 `offerable` TRAVELS WITH THE ROW, for the same reason `memoryShared` does

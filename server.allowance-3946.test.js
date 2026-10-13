@@ -165,7 +165,7 @@ test('#3946 /api/accounts says which Claude account is calibrated', async () => 
   // A signed-in default account, so the list has a row for it.
   fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com', accountUuid: 'u-3946' } }));
   fs.writeFileSync(path.join(def, allowance.CALIBRATION_FILE), JSON.stringify({ tokensPerPoint: 2e6, at: Date.now() }));
-  const r = await fetch(base + '/api/accounts');
+  const r = await fetch(base + '/api/accounts?agents=1');
   assert.equal(r.status, 200);
   const rows = ((await r.json()) || {}).accounts || [];
   const row = rows.find((a) => a && a.provider === 'anthropic' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(def));
@@ -186,7 +186,7 @@ test('#6108 /api/accounts: a Claude row carries its weekly reading and its agent
   fs.writeFileSync(path.join(create.workerDir('usage-guide'), '.kosmos-setup-guide'), '');
   const other = account('acct-6108-other');
   lead('usage-on-other', { role: 'writer' }, other);    // CONTROL: on another account, must not be listed here
-  const rows = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];
+  const rows = ((await (await fetch(base + '/api/accounts?agents=1')).json()) || {}).accounts || [];
   const row = rows.find((a) => a && a.provider === 'anthropic' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(def));
   assert.ok(row, 'the default Claude account is not listed');
   assert.deepEqual(row.weekly, { usedPct: 82, resetsAt: FUTURE * 1000, at }, 'the weekly reading did not arrive, or not in ms');
@@ -197,7 +197,7 @@ test('#6108 /api/accounts: a Claude row carries its weekly reading and its agent
   assert.ok(!row.agentsHere.names.includes('usage-guide'), 'the setup guide was listed among the account\'s agents');
   // A reading from a week that has already reset is not this week's: the row says there is none.
   fs.writeFileSync(path.join(def, statusline.FILE), JSON.stringify({ usedPct: 99, resetsAt: Math.floor(Date.now() / 1000) - 60, at }));
-  const rows2 = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];
+  const rows2 = ((await (await fetch(base + '/api/accounts?agents=1')).json()) || {}).accounts || [];
   const row2 = rows2.find((a) => a && a.provider === 'anthropic' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(def));
   assert.equal(row2.weekly, null, 'a reading from a week that has reset was shown as current');
 });
@@ -234,7 +234,7 @@ test('#6108 /api/accounts says when an account cannot have a reading: its own st
   fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com', accountUuid: 'u-6108b' } }));
   const settings = path.join(def, 'settings.json');
   const blockedOf = async () => {
-    const rows = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];
+    const rows = ((await (await fetch(base + '/api/accounts?agents=1')).json()) || {}).accounts || [];
     const row = rows.find((a) => a && a.provider === 'anthropic' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(def));
     assert.ok(row, 'the default Claude account is not listed');
     return row.weeklyBlocked;
@@ -269,4 +269,11 @@ test('#6108 the account route moves a stopped agent without starting it, and say
   assert.equal(out.outcome, 'partial', 'a stopped agent did not come back partial: ' + JSON.stringify(out));
   assert.match(String(out.because || ''), /\bis not running\b/, 'the reason no longer says the agent is not running, which the page keys on');
   assert.equal(path.resolve(create.readJob('sleeper-6108').configDir), path.resolve(to), 'the account was not saved');
+});
+
+test('#6108 /api/accounts walks the agents only when asked (?agents=1): other pages do not pay for it', async () => {
+  const rows = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];
+  const claude = rows.filter((a) => a && a.provider === 'anthropic');
+  assert.ok(claude.length > 0, 'CONTROL: there is a Claude row to look at');
+  assert.ok(claude.every((a) => !('agentsHere' in a)), 'a caller that did not ask got agentsHere');
 });
