@@ -127,6 +127,10 @@ function chk(ok, label, extra) {
     return {
       visible: !panel.hidden && panel.getClientRects().length > 0,
       text: panel.innerText,
+      /* #5942: a row's own wait line says "Waiting on you for ..." from a recorded start, which is provable;
+         the #3559 rule below is about GROUPS and categories, so it reads the panel without those lines. */
+      waitLines: [...panel.querySelectorAll('.tsk-waiting')].map((el) => el.textContent),
+      textNoWait: (() => { const c = panel.cloneNode(true); c.querySelectorAll('.tsk-waiting').forEach((el) => el.remove()); return c.textContent; })(),
       tiles,
       rows,
       fold: !!document.querySelector('#tsk-groups .tsk-fold'),
@@ -419,7 +423,8 @@ function chk(ok, label, extra) {
       chk(gaps.aboveTitle >= 16 && gaps.aboveTitle <= 32, `${tag} the gap above the title is about half the old 51px`, JSON.stringify(gaps));
       chk(gaps.hintToGroup >= 16 && gaps.hintToGroup <= 32, `${tag} the gap from the Group by row to the first group is about half the old 49px`, JSON.stringify(gaps));
       chk(a.tiles.every((t) => t.n === EXPECT[t.k]), `${tag} each tile counts its group`, JSON.stringify(a.tiles));
-      chk(!/Waiting on you|Done, check it|Categor/i.test(a.text), `${tag} no unprovable group or category is drawn`);
+      chk(!/Waiting on you|Done, check it|Categor/i.test(a.textNoWait), `${tag} no unprovable group or category is drawn`);
+      chk(a.waitLines.every((t) => /^(Waiting on you for \S.*|Just started waiting on you)$/.test(t)), `${tag} the only lines that rule leaves out are rows' own wait lines`, JSON.stringify(a.waitLines));
       const cover = a.rows.find((r) => r.text === 'Approve the cover');
       chk(cover && /Needs Your Decision/.test(cover.group), `${tag} the task whose agent needs the person is under Needs Your Decision`, JSON.stringify(cover));
       chk(!/Archived away task|Old catalog/.test(a.text), `${tag} an archived project's tasks are left out`);
