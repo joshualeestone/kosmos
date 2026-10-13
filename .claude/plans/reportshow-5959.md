@@ -35,3 +35,14 @@ which adds crashLoop and reconnect with the same expressions /api/status uses; s
 ("Question"); the labels themselves are pinned by the parity test.
 Deferred (review 8): the parity test reads the page with \n anchors; it is not in the Windows job (tools/windows-tests.js)
 and Windows CI checks out with core.autocrlf false. The route's card fields remain the stated premise above.
+
+## Added after two full validations (2026-10-12 20:2x CDT)
+Both full validations of this branch went red on one thing only: the suite's leak guard (#4273) found one
+`aw-usage-route-` temp dir, which `server.usage.test.js` (a file this branch does not otherwise touch) makes and
+removes in `test.after`. All tests passed both times. Alone it leaves nothing, on main and on this branch (4 runs each).
+`engine/cardlabel.js` has no requires, fs calls or timers, so this branch has no path into that file's shutdown.
+The fix is the guard's own advice: `require('./test-support/tmpscope')` first in `server.usage.test.js`. Measured with
+its `rmSync` removed: without tmpscope the dir is left, with it nothing is.
+Folded in here, not a separate PR, because this branch cannot merge without a green validation and a separate PR would
+cost a second queue slot first. Weakest premise: that the two reds are load and not this branch; what would change it is
+a third red with the fix in.
