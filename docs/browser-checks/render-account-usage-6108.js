@@ -152,7 +152,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           const again = box(email) && box(email).querySelector('[data-acct-move]');
           const againSel = box(email) && box(email).querySelector('[data-acct-move-to]');
           const drawnBusy = !!again && again.disabled && again.textContent.trim() === 'Moving…';
-          const quietMid = (msgOf(box(email).getAttribute('data-acct-dir')) || '') === '';   // progress is on the button, not the live region
+          const quietMid = !!box(email) && (msgOf(box(email).getAttribute('data-acct-dir')) || '') === '';   // progress is on the button, not the live region
           if (again && !once) { if (againSel) { againSel.disabled = false; againSel.value = toDir; } again.disabled = false; again.click(); }
           for (let i = 0; i < 150 && posts.length - start < expect; i++) await new Promise((r) => setTimeout(r, 20));
           await new Promise((r) => setTimeout(r, 400));
