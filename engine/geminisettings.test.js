@@ -94,6 +94,58 @@ test('an ABSENT selectedType is filled with gemini-api-key', () => {
   assert.equal(s.security.auth.enforcedType, 'x', 'a sibling auth field was lost');
 });
 
+/* #6058: gemini-cli updates itself unless its settings say not to, and Kosmos pins the version it measured. */
+test('#6058: a fresh settings.json switches off the CLI\'s own update and its update check', () => {
+  const { file } = tmpSettings();
+  geminisettings.ensurePrepared(file, BRIDGE, POSIX);
+  const s = readJSON(file);
+  assert.strictEqual(s.general.enableAutoUpdate, false);
+  assert.strictEqual(s.general.enableAutoUpdateNotification, false);
+  assert.deepEqual([...geminisettings.UPDATE_KEYS].sort(), ['enableAutoUpdate', 'enableAutoUpdateNotification']);
+});
+
+test('#6058: a file an earlier Kosmos prepared (hooks and auth, no general) gains the two keys once, then nothing', () => {
+  const { file } = tmpSettings();
+  geminisettings.ensurePrepared(file, BRIDGE, POSIX);
+  const prepared = readJSON(file);
+  delete prepared.general;   // as every file written before #6058 is
+  fs.writeFileSync(file, JSON.stringify(prepared, null, 2) + '\n');
+  const r = geminisettings.ensurePrepared(file, BRIDGE, POSIX);
+  assert.deepEqual(r, { prepared: true, changed: true }, 'the only thing missing is the update keys, and that alone is a change');
+  const after = readJSON(file);
+  assert.deepEqual(after.general, { enableAutoUpdate: false, enableAutoUpdateNotification: false });
+  assert.deepEqual(after.hooks, prepared.hooks, 'the hooks are as they were');
+  assert.deepEqual(geminisettings.ensurePrepared(file, BRIDGE, POSIX), { prepared: true, changed: false });
+});
+
+test('#6058: a value the person set, true included, is left alone; only the absent key is filled', () => {
+  const { file } = tmpSettings();
+  fs.writeFileSync(file, JSON.stringify({ general: { enableAutoUpdate: true, vimMode: true } }, null, 2));
+  geminisettings.ensurePrepared(file, BRIDGE, POSIX);
+  let s = readJSON(file);
+  assert.strictEqual(s.general.enableAutoUpdate, true, 'their own choice to keep updating is theirs');
+  assert.strictEqual(s.general.enableAutoUpdateNotification, false, 'the key they never set is filled');
+  assert.strictEqual(s.general.vimMode, true, 'the rest of their general block is untouched');
+  /* And the other way round, with a value that is not a boolean: still theirs. */
+  fs.writeFileSync(file, JSON.stringify({ general: { enableAutoUpdateNotification: 'yes' } }, null, 2));
+  geminisettings.ensurePrepared(file, BRIDGE, POSIX);
+  s = readJSON(file);
+  assert.strictEqual(s.general.enableAutoUpdateNotification, 'yes');
+  assert.strictEqual(s.general.enableAutoUpdate, false);
+});
+
+test('#6058: a general block that is not an object is somebody\'s own arrangement and nothing is written under it', () => {
+  for (const odd of ['off', 7, null, ['x']]) {
+    const { file } = tmpSettings();
+    fs.writeFileSync(file, JSON.stringify({ general: odd }, null, 2));
+    const r = geminisettings.ensurePrepared(file, BRIDGE, POSIX);
+    assert.equal(r.prepared, true, 'the hooks and the auth type are still written');
+    const s = readJSON(file);
+    assert.deepEqual(s.general, odd, `general ${JSON.stringify(odd)} was changed`);
+    assert.ok(Array.isArray(s.hooks.AfterAgent), 'CONTROL: this run did write the file');
+  }
+});
+
 test('an entry of ours aimed at an OLD bridge path is repointed, not doubled', () => {
   const { file } = tmpSettings();
   const old = '/old/path/gemini-report-bridge.js';
