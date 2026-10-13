@@ -130,9 +130,12 @@ function unzip(buf) {
     at += 46 + nameLen + extraLen + commentLen;
     files.set(name, { method, csize, usize, local });
   }
-  return (name) => {
+  /* opts.prefix (kosmos#6098, attachments as text): a part larger than the limit gives its first MAX_PART_BYTES as
+     { text, cut: true } instead of refusing, so a big sheet still shows its first rows. Without it, unchanged. */
+  return (name, opts = {}) => {
     const f = files.get(name);
     if (!f) return null;
+    if (opts.prefix) return prefixOf(buf, f);
     if (f.usize > MAX_PART_BYTES) throw new Error('this spreadsheet is too large to read here; export just the people as CSV');
     const lnameLen = buf.readUInt16LE(f.local + 26);
     const lextraLen = buf.readUInt16LE(f.local + 28);
@@ -148,6 +151,30 @@ function unzip(buf) {
     }
     throw new Error('this spreadsheet uses a compression we cannot read');
   };
+}
+
+/* The first MAX_PART_BYTES of a part: whole if it fits, else inflated from a prefix of its compressed bytes, smaller
+   prefixes tried while the output is still too large (at most 8 tries, each bounded by maxOutputLength). */
+function prefixOf(buf, f) {
+  const lnameLen = buf.readUInt16LE(f.local + 26);
+  const lextraLen = buf.readUInt16LE(f.local + 28);
+  const start = f.local + 30 + lnameLen + lextraLen;
+  const raw = buf.subarray(start, start + f.csize);
+  if (f.method === 0) return { text: raw.subarray(0, MAX_PART_BYTES).toString('utf8'), cut: raw.length > MAX_PART_BYTES };
+  if (f.method !== 8) throw new Error('this spreadsheet uses a compression we cannot read');
+  try { return { text: zlib.inflateRawSync(raw, { maxOutputLength: MAX_PART_BYTES }).toString('utf8'), cut: false }; } catch (e) {
+    if (!(e && e.code === 'ERR_BUFFER_TOO_LARGE')) throw new Error('this spreadsheet is damaged (a part would not decompress)');
+  }
+  let k = Math.min(raw.length, Math.floor(raw.length / 2));
+  for (let tries = 0; tries < 8 && k > 0; tries += 1, k = Math.floor(k / 2)) {
+    try {
+      const out = zlib.inflateRawSync(raw.subarray(0, k), { maxOutputLength: MAX_PART_BYTES, finishFlush: zlib.constants.Z_SYNC_FLUSH });
+      return { text: out.toString('utf8'), cut: true };
+    } catch (e) {
+      if (!(e && e.code === 'ERR_BUFFER_TOO_LARGE')) throw new Error('this spreadsheet is damaged (a part would not decompress)');
+    }
+  }
+  return { text: '', cut: true };
 }
 
 /* A character reference outside Unicode is dropped rather than failing the whole sheet. */

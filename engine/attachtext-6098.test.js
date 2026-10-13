@@ -626,3 +626,52 @@ test('#6098 review 10: Arabic presentation forms read as the ordinary letters', 
     [6, '<< /Type /Font /Subtype /CIDFontType2 /DW 500 >>'], [7, streamObj('', cmap)]]);
   assert.equal(at.pdfTextJs(doc).pages[0], 'ا');
 });
+
+/* ── review 11 ── */
+const book1 = (sheetXml, styles) => buildZip([
+  entry('xl/workbook.xml', XML + '<workbook xmlns:r="r"><sheets><sheet name="Data" r:id="rId1"/></sheets></workbook>'),
+  entry('xl/_rels/workbook.xml.rels', XML + '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
+  entry('xl/worksheets/sheet1.xml', sheetXml),
+  ...(styles ? [entry('xl/styles.xml', XML + '<styleSheet>' + styles + '</styleSheet>')] : []),
+]);
+
+test('#6098 review 11: a sheet larger than the part limit shows its first rows and says so, not "could not be read"', () => {
+  const row = (i) => '<row r="' + i + '">' + Array.from({ length: 10 }, (_, c) => '<c r="' + String.fromCharCode(65 + c) + i + '"><v>' + (i * 10 + c) + '</v></c>').join('') + '</row>';
+  const rows = [];
+  for (let i = 1; i <= 90000; i += 1) rows.push(row(i));
+  const xml = XML + '<worksheet><sheetData>' + rows.join('') + '</sheetData></worksheet>';
+  assert.ok(xml.length > 21 * 1024 * 1024, 'the sheet must exceed the 20 MB part limit: ' + xml.length);
+  const got = at.xlsxText(book1(xml));
+  assert.ok(!got.body.includes('could not be read'), got.body.slice(0, 200));
+  assert.ok(got.body.includes('| 10 | 11 | 12 |'), got.body.slice(0, 200));
+  assert.ok(got.notes.some((n) => /larger than Kosmos reads/.test(n)), JSON.stringify(got.notes));
+});
+
+test('#6098 review 11: percentages and currency say they are shown without their formats; a plain number format does not', () => {
+  const sheet = XML + '<worksheet><sheetData><row r="1"><c r="A1" s="1"><v>1</v></c></row></sheetData></worksheet>';
+  const withFmt = (code) => at.xlsxText(book1(sheet, '<numFmts><numFmt numFmtId="164" formatCode="' + code + '"/></numFmts>')).notes.some((n) => /without their formats/.test(n));
+  assert.equal(withFmt('0.0%'), true);
+  assert.equal(withFmt('&quot;$&quot;#,##0'), true);
+  assert.equal(withFmt('#,##0.00'), false);
+  assert.equal(at.xlsxText(book1(sheet, '<cellXfs><xf numFmtId="9"/></cellXfs>')).notes.some((n) => /without their formats/.test(n)), true, 'built-in 0%');
+});
+
+test('#6098 review 11: Latin ligatures read as their letters', () => {
+  const cmap = '/CIDInit /ProcSet findresource begin 12 dict begin begincmap 1 begincodespacerange <0000> <FFFF> endcodespacerange 2 beginbfchar <0001> <0050> <0002> <FB01> endbfchar endcmap end end';
+  const doc = pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>'], [4, streamObj('', 'BT /F1 10 Tf 72 700 Td <00010002> Tj ET')],
+    [5, '<< /Type /Font /Subtype /Type0 /Encoding /Identity-H /DescendantFonts [6 0 R] /ToUnicode 7 0 R >>'],
+    [6, '<< /Type /Font /Subtype /CIDFontType2 /DW 500 >>'], [7, streamObj('', cmap)]]);
+  assert.equal(at.pdfTextJs(doc).pages[0], 'Pfi');
+});
+
+test('#6098 review 11: a PDF that reaches the text cap says so once in the rendering', async () => {
+  const line = '(' + 'word '.repeat(200) + ') Tj T*';
+  const pageStream = streamObj('', 'BT /F1 9 Tf ' + Array.from({ length: 300 }, () => line).join(' ') + ' ET');
+  const objs = [[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [' + Array.from({ length: 12 }, (_, i) => (10 + i) + ' 0 R').join(' ') + '] /Count 12 >>'], [3, pageStream]];
+  for (let i = 0; i < 12; i += 1) objs.push([10 + i, '<< /Type /Page /Parent 2 0 R /Contents 3 0 R >>']);
+  const rec = attachments.save('project', 'p6098', { name: 'long.pdf', type: 'application/pdf', bytes: pdf(objs) });
+  const out = await at.render(rec);
+  const head = fs.readFileSync(out, 'utf8').slice(0, 2000);
+  assert.equal((head.match(/stops at/g) || []).length, 1, head.slice(0, 600));
+});
