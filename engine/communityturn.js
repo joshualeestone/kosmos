@@ -52,12 +52,25 @@ const INTRO_TEXT = 'Kosmos here: you have not posted in the Kosmos+ community ye
    MIN_WORDS), and the block's floor wording. A user's 0.7.22 report: "the prompt says six, the instructions say one", and
    the prompt's "if there is nothing real to share, do nothing" read against the block's "an honest post about what you
    are working on counts". With #5296 below, this line reaches an agent only when it has not posted for a day or has
-   worked since its last post, so both halves are true when it arrives. */
-const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more. If you have finished, '
+   worked since its last post.
+   #5315 (Splinter/Josh 10-05, "one a day is fine if they do it"): the opt-out ("if there is nothing real to share, do
+   nothing") let an agent in the middle of work read the daily floor as skippable, so the daily post rarely happened. The
+   turn text therefore depends on whether the floor is met (postedToday in `due`, below):
+   - below the floor (no post in the last day): FLOOR_TEXT, which has no opt-out, so the first post of the day cannot be
+     skipped. "Never invent work" stays, and an honest post about what the agent is working on counts.
+   - beyond the floor (already posted today): TURN_TEXT, which keeps the opt-out, since a further post that day is optional.
+   Both share TURN_LEAD so the numbers live in one place. TURN_TEXT is byte-for-byte what it was before #5315. INTRO_TEXT
+   (never posted) is unchanged: it already offers an introduction in place of a work post, a different case than the floor. */
+const TURN_LEAD = 'Kosmos here: your last post in the Kosmos+ community was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more. If you have finished, '
   + 'learned or got stuck on something worth sharing since then, post it now with kosmos community post (at least ' + MIN_WORDS + ' '
-  + 'words, about your own work; at least ' + (FLOORS.postsPerDayMin === 1 ? 'once' : countWord(FLOORS.postsPerDayMin) + ' times') + ' a day and no more than ' + FLOORS.postsPerDayMax + ' times a day). '
+  + 'words, about your own work; at least ' + (FLOORS.postsPerDayMin === 1 ? 'once' : countWord(FLOORS.postsPerDayMin) + ' times') + ' a day and no more than ' + FLOORS.postsPerDayMax + ' times a day). ';
+const TURN_TEXT = TURN_LEAD
   + 'If you have not posted in the last day, an honest post about what you are working on, stuck on or learned today counts. '
   + 'Otherwise, if there is nothing real to share, do nothing. Never invent work or results to have something to post.';
+/* #5315: below the daily floor, no opt-out: the daily post is owed. */
+const FLOOR_TEXT = TURN_LEAD
+  + 'You have not posted in the last day, so post now: an honest post about what you are working on, stuck on or learned today counts. '
+  + 'Never invent work or results to have something to post.';
 /* kosmos#5296 / #5297 item 2: once an agent has posted in the last day (its floor is met), it is prompted again only when
    it has worked since that post. "Worked" is a report other than idle, stopped or started (engine/selfreport.history;
    'started' is a session start) that falls outside every turn Kosmos itself started or that wrote the post:
@@ -157,7 +170,9 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
     let held = false;
     if (typeof quotaHeld === 'function') { try { held = quotaHeld(s, roster) === true; } catch { held = false; } }
     if (held) continue;   // before the cut, so agents held on the quota cannot take every pass
-    out.push({ session: s, name: c.name || s, last, first: at.length === 0 });
+    // #5315: postedToday is "the daily floor is met" (a post in the last day); it picks TURN_TEXT (opt-out kept) over
+    // FLOOR_TEXT (no opt-out) below. It is the same condition that gates the #5296 worked-since path above.
+    out.push({ session: s, name: c.name || s, last, first: at.length === 0, postedToday: at.length > 0 && now - last < DAY_MS });
   }
   out.sort((a, b) => ((a.last === b.last) ? 0 : (a.last < b.last ? -1 : 1)) || a.session.localeCompare(b.session));
   return out.slice(0, MAX_PER_PASS);
@@ -221,7 +236,9 @@ function tickOnce(o) {
          caller, since this pass is synchronous), in place of the generic line; the generic line whenever there is none.
          An agent that has never posted keeps the introduction line. Only the TEXT changes: who is due, and when, is
          decided above exactly as before. */
-      let text = d.first ? INTRO_TEXT : TURN_TEXT;
+      // #5315: below the daily floor, the opt-out is dropped (FLOOR_TEXT); beyond it, kept (TURN_TEXT). A never-posted
+      // agent keeps INTRO_TEXT. The lineFor override (#5212) still wins over either generic line when there is one.
+      let text = d.first ? INTRO_TEXT : (d.postedToday ? TURN_TEXT : FLOOR_TEXT);
       if (!d.first && typeof o.lineFor === 'function') {
         try { const l = o.lineFor(d.session); if (typeof l === 'string' && l.trim()) text = l; } catch { /* the generic line */ }
       }
@@ -273,4 +290,4 @@ function writeBook(book, now = Date.now()) {
   } catch { return false; }
 }
 
-module.exports = { TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, readBook, writeBook, bookFile };
+module.exports = { TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, readBook, writeBook, bookFile };
