@@ -296,6 +296,15 @@ ok "#5923: a checkout on a branch is not moved" '[ "$rc" = 0 ] && [ "$(lh5923 br
 mkdir -p $S/ml5923-claim && : > $S/ml5923-claim/machine-claim
 run5923 claim KOSMOS_IGNORE_MACHINE_CLAIM=1
 ok "#5923: a machine claim blocks the move like a waiter marker" '[ "$(lh5923 claim)" != "$(lm5923 claim)" ] && [[ "$o" == *"not moved (a queue marker is present (machine-claim))"* ]]'
+# The INSTALLED copy (in this HOME's .cache) names a function origin/main's lib lacks: no move, and the line names it.
+for n in inst instold; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; mkdir -p $S/l5923-$n/.cache/claude-handoffs; done
+printf '#!/bin/bash\nQH_NEED_BASE="kosmos_wait_until_clear kosmos_gone_fn5923"\n' > $S/l5923-inst/.cache/claude-handoffs/queued-heavy.sh
+run5923 inst
+ok "#5923: the installed copy needs a function origin/main's lib lacks: not moved, names it, the run runs" '[ "$rc" = 0 ] && [ -e $S/l5923-inst-ran ] && [ "$(lh5923 inst)" != "$(lm5923 inst)" ] && [[ "$o" == *"has no kosmos_gone_fn5923, which the installed copy"* ]]'
+# An installed copy older than this check (no QH_NEED_BASE line): its needs are unknown, so no move.
+printf '#!/bin/bash\necho old\n' > $S/l5923-instold/.cache/claude-handoffs/queued-heavy.sh
+run5923 instold
+ok "#5923: an installed copy that predates the check blocks the move until it is reinstalled" '[ "$rc" = 0 ] && [ "$(lh5923 instold)" != "$(lm5923 instold)" ] && [[ "$o" == *"predates this check"* ]]'
 # origin/main's lib dropped a function this copy calls: moving would make every later join exit 3, so it does not move.
 d5923=$S/l5923-need/work/kosmos-bc-main-4610; $GE git -C $d5923 checkout -q --detach origin/main && sed -i.bak 's/^kosmos_release_machine()/kosmos_release_machine_gone()/' $d5923/tools/lib/cut-guard.sh && rm -f $d5923/tools/lib/cut-guard.sh.bak && $GE git -C $d5923 $GC5923 commit -qam drop && $GE git -C $d5923 update-ref refs/remotes/origin/main HEAD && $GE git -C $d5923 checkout -q --detach HEAD~2
 run5923 need
@@ -502,7 +511,7 @@ sed 's|  exec /bin/bash "${BASH_SOURCE\[0\]}" --queued-args "$_qh_af"|  exec /no
 mkdir -p $S/tmpx; o=$(TMPDIR=$S/tmpx KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash $S/qh-noexec.sh "noexec" true 2>&1); r=$?
 ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"could not restart itself"* ]] && [ -z "$(ls $S/tmpx)" ] && grep -q /nonexistent/bash $S/qh-noexec.sh'
 
-EXPECTED=135   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty #5923 lib-drift arms
+EXPECTED=137   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-two #5923 lib-drift arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"

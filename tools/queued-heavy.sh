@@ -16,7 +16,8 @@
 # #4977: this file in the repo (tools/queued-heavy.sh) is the reviewed source; tools/test-queued-heavy-4977.sh pins it
 # in CI. The copy agents run, ~/.cache/claude-handoffs/queued-heavy.sh, is installed separately, and nothing checks
 # that the two match. heavy-gate.sh's BUSY hint names that installed copy when it AND its lib exist, and a repo copy
-# otherwise (#5446). It does not check that lib is new enough, and the installed copy is not reviewed here.
+# otherwise (#5446). That hint does not check that the lib is new enough (this script's own #5923 check below does),
+# and the installed copy is not reviewed here.
 # TO CHANGE THE INSTALLED COPY: write the new version beside it and mv it over. Never edit it in place: waiters are
 # running it, and bash reads a script by byte offset, so an in-place edit kills them.
 set -u
@@ -143,7 +144,8 @@ QH_LIB_LOCK=""
 # are looked for in origin/main's cut-guard.sh only, as `name()` or `function name()` at the start of a line: one moved
 # to process-fixture.sh, or indented, would refuse every move (safely, and the line names it) until this check follows.
 QH_NEED_BASE="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_suite_waiting kosmos_refuse_if_earlier_suite_waiter _kosmos_suite_waiter_file kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
-_qh_libgit() { env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git -C "$LIB_CHECKOUT" "$@"; }
+# GIT_OPTIONAL_LOCKS=0: a status here must not take the index lock another git in that checkout may want.
+_qh_libgit() { env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE GIT_OPTIONAL_LOCKS=0 git -C "$LIB_CHECKOUT" "$@"; }
 _qh_lib_check() {
   # The files the queue loads: cut-guard.sh and what it sources itself (process-fixture.sh, at its top).
   local files="tools/lib/cut-guard.sh tools/lib/process-fixture.sh" f head main diff="" why="" p="" g=_qh_libgit
@@ -195,7 +197,8 @@ _qh_lib_check() {
         p="$(printf '%s\n' "$cw" | awk -v a="n$real" -v b="n$LIB_CHECKOUT" '
           /^p/ { pid = substr($0, 2) }
           $0 == a || $0 == b || index($0, a "/") == 1 || index($0, b "/") == 1 { print pid; exit }')"
-        [ -n "$p" ] && why="a process is working inside it (pid $p)"
+        if [ -n "$p" ] && { [ "$p" = "$$" ] || [ "$p" = "$PPID" ]; }; then why="this run or its caller is working inside it (pid $p)"
+        elif [ -n "$p" ]; then why="a process is working inside it (pid $p)"; fi
       fi
     fi
   fi
@@ -211,6 +214,19 @@ _qh_lib_check() {
       [ -n "$why" ] && break
       printf '%s\n' "$tgt" | grep -qE "^(function )?$fn ?\(\)" || { why="origin/main's cut-guard.sh has no $fn, which this copy calls; update this copy first"; break; }
     done
+    # The INSTALLED copy (what agents run) must also find every function it calls unguarded, or a repo copy's move
+    # would make every join of the installed copy exit 3 until someone reinstalls it. It names them in its own
+    # QH_NEED_BASE; an installed copy with no such line predates this check, so its needs are unknown: no move.
+    local inst="$HOME/.cache/claude-handoffs/queued-heavy.sh" ineed
+    if [ -z "$why" ] && [ -f "$inst" ] && ! [ "$inst" -ef "${BASH_SOURCE[0]}" ]; then
+      ineed="$(sed -n 's/^QH_NEED_BASE="\(.*\)"$/\1/p' "$inst" 2>/dev/null | head -1)"
+      if [ -z "$ineed" ]; then why="the installed copy $inst predates this check, so what it needs is unknown; install this copy first"
+      else
+        for fn in $ineed; do
+          printf '%s\n' "$tgt" | grep -qE "^(function )?$fn ?\(\)" || { why="origin/main's cut-guard.sh has no $fn, which the installed copy $inst calls; update it first"; break; }
+        done
+      fi
+    fi
   fi
   if [ -z "$why" ]; then
     # The checkout runs as its own process group (job control on for this one start), so a Ctrl-C at the terminal
@@ -262,7 +278,8 @@ _qh_marker_dir_raw() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cach
 # Removes the lib lock only while it is still this run's (a joiner may have taken it over).
 _qh_lib_unlock() { [ -n "$QH_LIB_LOCK" ] && [ "$(cat "$QH_LIB_LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$QH_LIB_LOCK"; return 0; }
 mkdir -p "$(_qh_marker_dir_raw)" 2>/dev/null
-if ! command -v git >/dev/null 2>&1; then :
+if ! command -v git >/dev/null 2>&1; then
+  echo "QUEUED-HEAVY $(date '+%H:%M:%S') git is not installed, so the lib is loaded unchecked (#5923)"
 elif [ ! -w "$(_qh_marker_dir_raw)" ]; then
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') the marker dir $(_qh_marker_dir_raw) is not writable, so the lib is loaded unchecked (#5923)"
 else

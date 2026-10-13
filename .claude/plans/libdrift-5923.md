@@ -79,7 +79,13 @@ Residuals, stated:
   A lock whose pid was reused by another command is taken over (the holder records its command line).
 
 ## Tests
-tools/test-queued-heavy-4977.sh, thirty #5923 arms (EXPECTED 135), listed in the file. Two use the REAL ps under a
+tools/test-queued-heavy-4977.sh, thirty-two #5923 arms (EXPECTED 137), listed in the file. Two use the REAL ps under a
 private script name (QH_TEST_PS_NAME): the run does not count itself (perturbed by removing the ppid exclusion: that
 arm went red), and its control, a live process of that name, blocks the move. The rest use the QH_TEST_PS and
 QH_TEST_CWD seams so real processes on the box cannot sway them.
+
+- The installed copy (~/.cache/claude-handoffs/queued-heavy.sh, what agents run) is checked too: a move needs
+  origin/main's lib to define every function in the installed copy's QH_NEED_BASE, and an installed copy with no such
+  line (older than #5923) blocks every move until this copy is installed. So the drift is only fixed after install.
+- Not tested: the 5-minute give-up of the lock, and the not-default refusal through the #5446 fallback (only through
+  QUEUED_HEAVY_LIB). Unchanged from earlier rounds.
