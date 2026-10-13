@@ -3,15 +3,17 @@
  * Seed a long conversation for a server test without holding the event loop (kosmos#6059).
  *
  * WHY: every `chat.appendMessage` reads and rewrites the whole thread file, so a loop of 200 appends takes 2 to 3 s
- * here and about 6 s on CI. A test that does that BETWEEN two requests to its in-process server holds the loop past
- * the server's 5 s keep-alive, and the next fetch reuses the socket the server is closing: `fetch failed`,
- * `ECONNRESET`. Diagnosed on CI run 38158076792 (server.dm-older-5841.test.js), and seen again in
- * server.dm-owes-4340.test.js and server.projects.test.js.
+ * here and about 6 s on CI. When a test does that BETWEEN two requests to its in-process server, the next request on
+ * a pooled socket has come back `fetch failed` / `ECONNRESET` on CI: runs 38158076792 and 38184258270 (dm-rollover-5841
+ * and dm-older-5841), then server.dm-owes-4340.test.js and server.projects.test.js. What closes the socket is not
+ * settled (it recurred with the server's keep-alive at 120 s, per server.dm-rollover-5841.test.js); the long gap is
+ * what every failure shares, and this removes it. A file that sends each request on a new connection (agent: false)
+ * avoids it the other way.
  *
  * HOW: the FIRST message goes through `chat.appendMessage`, so the row on disk is the engine's own shape. The rest are
  * that row with only `text` and `at` changed, written in one go. It falls back to real appends whenever the shortcut
- * could change what the test means: entries that differ in any field other than text and at, a text that is not plain
- * printable ASCII (appendMessage normalises stored text, and a copy would skip that), a thread that would reach
+ * could change what the test means: entries that differ in any field other than text and at, a text that is not
+ * already what appendMessage would store (it normalises stored text, and a copy would skip that), a thread that would reach
  * chat.MAX_MESSAGES (where appendMessage rolls over), or a first append that was not recorded. An entry with no `at`
  * gets the first row's time plus its index in milliseconds, since a row's time is its identity for replies.
  */
@@ -21,7 +23,8 @@ function appendMany(chat, projectId, agent, entries, bornAt) {
   const list = Array.isArray(entries) ? entries : [];
   if (!list.length) return { recorded: 0, via: 'none' };
   const rest = (e) => { const { text, at, ...other } = e || {}; return JSON.stringify(other); };
-  const sameShape = list.every((e) => rest(e) === rest(list[0]) && typeof e.text === 'string' && /^[\x20-\x7e]*$/.test(e.text));
+  // Review 1: the copy stores the text as given, so it must already be what appendMessage would store (storedWithin).
+  const sameShape = list.every((e) => rest(e) === rest(list[0]) && typeof e.text === 'string' && chat.storedWithin(e.text, chat.MAX_TEXT) === e.text);
   const slow = () => {
     for (const e of list) {
       const r = chat.appendMessage(projectId, agent, e, bornAt);

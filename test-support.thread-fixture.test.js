@@ -33,9 +33,10 @@ test('entries with no time get distinct, increasing times', () => {
   assert.deepEqual([...ats].sort((x, y) => x - y), ats, 'times are not increasing');
 });
 
-test('it falls back to real appends for a differing field, non-ASCII text, or a thread that would reach the cap', () => {
+test('it falls back to real appends for a differing field, a text the engine would store differently, or a thread at the cap', () => {
   assert.equal(appendMany(chat, chat.DIRECT, 'mixed', [{ text: 'a', from: null }, { text: 'b', wire: '1' }]).via, 'appendMessage');
-  assert.equal(appendMany(chat, chat.DIRECT, 'uni', [{ text: 'café' }, { text: 'x' }]).via, 'appendMessage');
+  assert.equal(appendMany(chat, chat.DIRECT, 'spaced', [{ text: 'a  b' }, { text: 'x' }]).via, 'appendMessage', 'a text appendMessage would collapse was copied raw');
+  assert.equal(appendMany(chat, chat.DIRECT, 'uni', [{ text: 'café' }, { text: 'x' }]).via, 'one write', 'a text the engine stores unchanged was refused');
   const near = Array.from({ length: chat.MAX_MESSAGES }, (_, i) => ({ text: 'c ' + i }));
   assert.equal(appendMany(chat, chat.DIRECT, 'cap', near).via, 'appendMessage');
   assert.equal(appendMany(chat, chat.DIRECT, 'ok', [{ text: 'a' }, { text: 'b' }]).via, 'one write', 'CONTROL: the fast path is taken when nothing forbids it');

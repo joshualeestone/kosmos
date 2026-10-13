@@ -195,8 +195,8 @@ test('#5841 a reaction on a row that lives only in an earlier file says so, rath
 test('#5841 a reaction made on a carried row survives when that row pages out of the latest (the newer copy is served)', async () => {
   const who = 'reactbot';
   // r990 was reacted to in the CURRENT file's carried copy; the full file's copy has no reaction. Push it out of the tail.
-  // #6059: one write after the first append, not 205 appends between two requests (the loop held past the server's
-  // 5 s keep-alive on CI, ECONNRESET).
+  // #6059: one write after the first append, not 205 appends, for speed (about 4 s to 0.1 s locally). This file sends
+  // every request on a new connection, so the gap cannot reset a pooled socket here.
   const seeded = appendMany(chat, chat.DIRECT, who, Array.from({ length: 205 }, (_, i) => ({ text: 'push ' + i })));
   assert.equal(seeded.via, 'one write', 'fixture: the fast seed fell back to 205 appends');
   const t = await get(`/api/agent/${who}/thread`);
