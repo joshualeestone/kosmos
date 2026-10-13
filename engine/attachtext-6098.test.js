@@ -595,3 +595,34 @@ test('#6098 review 9: Kangxi radicals from a ToUnicode map read as the character
     [6, '<< /Type /Font /Subtype /CIDFontType2 /DW 1000 >>'], [7, streamObj('', cmap)]]);
   assert.equal(at.pdfTextJs(doc).pages[0], '使用');
 });
+
+/* ── review 10 ── */
+const hebrewPdf = () => {
+  const word = 'שלום עולם טוב מאוד ';
+  const pairs = Array.from(word).map((ch, i) => '<' + (i + 1).toString(16).padStart(4, '0') + '> <' + ch.codePointAt(0).toString(16).padStart(4, '0') + '>');
+  const cmap = '/CIDInit /ProcSet findresource begin 12 dict begin begincmap 1 begincodespacerange <0000> <FFFF> endcodespacerange ' + pairs.length + ' beginbfchar ' + pairs.join(' ') + ' endbfchar endcmap end end';
+  const codes = Array.from(word).map((_, i) => (i + 1).toString(16).padStart(4, '0')).join('');
+  return pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>'], [4, streamObj('', 'BT /F1 10 Tf 72 700 Td <' + codes + codes + '> Tj ET')],
+    [5, '<< /Type /Font /Subtype /Type0 /Encoding /Identity-H /DescendantFonts [6 0 R] /ToUnicode 7 0 R >>'],
+    [6, '<< /Type /Font /Subtype /CIDFontType2 /DW 500 >>'], [7, streamObj('', cmap)]]);
+};
+
+test('#6098 review 10: right-to-left text is not trusted in drawn order (PDFKit is asked; off a Mac a note says so)', async () => {
+  kitCalls = 0;
+  const f = path.join(SANDBOX, 'hebrew.pdf');
+  fs.writeFileSync(f, hebrewPdf());
+  const got = await at.pdfText(f, fs.readFileSync(f));
+  assert.equal(kitCalls, 1, 'PDFKit is asked');
+  assert.ok(got.notes.some((n) => /Right-to-left/.test(n)), JSON.stringify(got.notes));
+  assert.ok(!got.notes.some((n) => /converted cleanly/.test(n)), JSON.stringify(got.notes));
+});
+
+test('#6098 review 10: Arabic presentation forms read as the ordinary letters', () => {
+  const cmap = '/CIDInit /ProcSet findresource begin 12 dict begin begincmap 1 begincodespacerange <0000> <FFFF> endcodespacerange 1 beginbfchar <0001> <FE8D> endbfchar endcmap end end';
+  const doc = pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>'], [4, streamObj('', 'BT /F1 10 Tf 72 700 Td <0001> Tj ET')],
+    [5, '<< /Type /Font /Subtype /Type0 /Encoding /Identity-H /DescendantFonts [6 0 R] /ToUnicode 7 0 R >>'],
+    [6, '<< /Type /Font /Subtype /CIDFontType2 /DW 500 >>'], [7, streamObj('', cmap)]]);
+  assert.equal(at.pdfTextJs(doc).pages[0], 'ا');
+});
