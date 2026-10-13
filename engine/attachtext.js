@@ -200,7 +200,11 @@ function xlsxText(buf) {
   if (styles && (/numFmtId="(?:1[4-9]|2[0-2]|4[5-7])"/.test(styles) || dateFormat())) notes.add('Dates may appear as Excel day numbers (for example 45123), not as dates.');
   /* Iteration 11: a percentage shows as the fraction stored (100% as 1) and currency without its symbol. */
   const numberFormat = () => {
-    for (const m of styles.matchAll(/formatCode="([^"<>]*)"/g)) if (/[%$\u00a3\u20ac\u00a5]|\[\$/.test(m[1].replace(/&quot;([^&]*)&quot;/g, '$1'))) return true;
+    for (const m of styles.matchAll(/formatCode="([^"<>]*)"/g)) {
+      // iteration 12: [$-409] is a locale tag (common on dates), not a currency; [$€-407] is one
+      const code = m[1].replace(/&quot;([^&]*)&quot;/g, '$1').replace(/\[\$-[0-9A-Fa-f]+\]/g, '');
+      if (/[%$\u00a3\u20ac\u00a5]/.test(code)) return true;
+    }
     return false;
   };
   if (styles && (/<xf\b[^<>]*numFmtId="(?:9|10|[5-8]|4[1-4])"/.test(styles) || numberFormat())) notes.add('Numbers are shown as stored, without their formats: a percentage shows as a fraction (100% as 1) and currency has no symbol.');
@@ -331,10 +335,30 @@ function paraText(p) {
   return s;
 }
 
+/* Iteration 12: a document cut at the part limit ends mid-way, often inside a table, and an unclosed table reads as
+   nothing. Kept up to the last whole paragraph or row, then the tables, rows and cells still open there are closed, so
+   what came before the cut is converted. One pass over the tags. */
+function closeCut(text) {
+  const end = Math.max(text.lastIndexOf('</w:p>'), text.lastIndexOf('</w:tr>'));
+  if (end < 0) return text;
+  const kept = text.slice(0, text.indexOf('>', end) + 1);
+  const open = [];
+  for (const m of kept.matchAll(/<(\/?)w:(tbl|tr|tc)\b[^<>]*?(\/?)>/g)) {
+    if (m[3]) continue;   // self-closed
+    if (m[1]) { if (open.length && open[open.length - 1] === m[2]) open.pop(); } else open.push(m[2]);
+  }
+  let close = '';
+  while (open.length) {
+    const t = open.pop();
+    close += t === 'tc' ? '<w:p></w:p></w:tc>' : '</w:' + t + '>';   // a cell must hold a paragraph
+  }
+  return kept + close;
+}
+
 function docxText(buf) {
   const get = zipOf(buf, 'document');
   const docPart = prefixPart(get, 'word/document.xml', 'document');
-  const doc = docPart.text;
+  const doc = docPart.cut ? closeCut(docPart.text) : docPart.text;
   if (!doc) throw new Error('it is not a Word document');
   /* mc:AlternateContent carries the same content twice (Choice and Fallback): keep the Choice (review 1). */
   const body = oc.stripBlocks(oc.innerOf(doc, 'w:body') || doc, 'mc:Fallback');
