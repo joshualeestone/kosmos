@@ -27,7 +27,7 @@ test('#5959: the line under it says what is in the file, that it is redacted, an
   const row = PAGE.slice(PAGE.indexOf('id="diag-row"'), PAGE.indexOf('id="diag-save"'));
   assert.ok(row.length > 0, 'CONTROL: the row is found');
   assert.match(row, /taken out first/);
-  assert.match(row, /no messages are in it/);
+  assert.match(row, /Your messages are not collected, though a log line can quote a few words of one\./);
   assert.match(row, /nothing is sent anywhere/);
   assert.doesNotMatch(row, /this Mac/);
 });

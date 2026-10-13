@@ -135,3 +135,21 @@ test('#5959: board.log is read only when it is this board\'s own output, and onl
     } finally { fs.closeSync(same); fs.closeSync(elsewhere); }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('#5959: an agent\'s own lines are searched beyond the 300-line tail, and a huge board.log line is cut', () => {
+  const fileLines = ['rick: an early failure', ...Array.from({ length: 1500 }, (_, n) => 'sweep ' + n)];
+  const file = build({ cards: CARDS, fileLines, fileSource: 'board.log', redactor: makeRedactor(WHO) });
+  assert.equal(file.log.tail.length, 300);
+  assert.ok(!file.log.tail.some((e) => /early failure/.test(e.line)), 'CONTROL: the line is older than the tail');
+  assert.deepEqual(file.agents[0].logLines.map((e) => e.line), ['rick: an early failure'], 'still found for its agent');
+  const fs = require('node:fs'), path2 = require('node:path');
+  const { readBoardLog } = require('./diagnostics');
+  const { MAX_LINE_CHARS } = require('./logring');
+  const dir = fs.mkdtempSync(path2.join(os.tmpdir(), 'aw-diag-cut-5959-'));
+  try {
+    const log = path2.join(dir, 'board.log');
+    fs.writeFileSync(log, 'y'.repeat(MAX_LINE_CHARS * 3) + '\nshort\n');
+    const fd = fs.openSync(log, 'a');
+    try { assert.deepEqual(readBoardLog(log, fd).map((l) => l.length), [MAX_LINE_CHARS, 5]); } finally { fs.closeSync(fd); }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

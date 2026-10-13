@@ -41,7 +41,7 @@ function accountOf(accountProblemOf, card) {
      readReport(sessionName)                       engine/selfreport read
      accountProblemOf(card)                        engine/accountproblem
      ringLines   [{at, stream, line}]              engine/logring, since this board started
-     fileLines   [string] | null                   the tail of board.log, when the board can find it
+     fileLines   [string] | null                   the tail of board.log (as many lines as the ring holds), when it is this board's
      fileSource  string | null                     where fileLines came from, for the reader
      redactor    { redactDeep }                    engine/diagredact (this computer's own when not given) */
 function build(inputs) {
@@ -83,6 +83,7 @@ function build(inputs) {
 }
 
 const READ_TAIL_BYTES = 256 * 1024;
+const { MAX_LINE_CHARS, MAX_LINES } = require('./logring');
 
 /* The last `max` lines of board.log, only when it is this board's own output: the file `logPath` names must be the
    open file on `outFd` (same device and inode). A board.log left by another run (a board started from a terminal, say)
@@ -100,9 +101,11 @@ function readBoardLog(logPath, outFd, max) {
     const lines = buf.subarray(0, got).toString('utf8').split('\n');
     if (start > 0) lines.shift();   // the first line read is cut at the window's edge
     if (lines.length && lines[lines.length - 1] === '') lines.pop();
-    return lines.map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l)).slice(-(Number.isInteger(max) && max > 0 ? max : LOG_TAIL_LINES));
+    // Cut as the ring cuts a line, so one huge line cannot fill the file or stall the redactor.
+    return lines.map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l)).map((l) => (l.length > MAX_LINE_CHARS ? l.slice(0, MAX_LINE_CHARS) : l))
+      .slice(-(Number.isInteger(max) && max > 0 ? max : LOG_TAIL_LINES));
   } catch { return null; }
   finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
 
-module.exports = { build, namesAgent, readBoardLog, FILE_VERSION, AGENT_LOG_LINES, LOG_TAIL_LINES, READ_TAIL_BYTES };
+module.exports = { build, namesAgent, readBoardLog, FILE_VERSION, AGENT_LOG_LINES, LOG_TAIL_LINES, READ_TAIL_BYTES, SEARCH_LINES: MAX_LINES };

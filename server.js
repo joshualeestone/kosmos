@@ -14149,13 +14149,14 @@ const server = http.createServer(async (req, res) => {
       const diagnostics = require('./engine/diagnostics');
       const logring = require('./engine/logring');
       const logPath = path.join(__dirname, '..', 'logs', 'board.log');   // as the stamp above names it
-      const fileLines = diagnostics.readBoardLog(logPath, 1);
+      // As many lines as the ring holds, so each agent's own lines are searched as far back on Mac and Linux as on Windows.
+      const fileLines = diagnostics.readBoardLog(logPath, 1, diagnostics.SEARCH_LINES);
       const file = diagnostics.build({
         version: updates.RUNNING, platform: process.platform, now: new Date(),
         cards: safeRoster(), readReport: (n) => selfreport.read(n), accountProblemOf,
         ringLines: logring.board.tail(), fileLines, fileSource: fileLines ? logPath : null,
       });
-      const day = file.made.slice(0, 10);
+      const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;   // the person's day, not UTC's
       res.writeHead(200, {
         'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
         'content-disposition': `attachment; filename="kosmos-diagnostics-${day}.json"`,
