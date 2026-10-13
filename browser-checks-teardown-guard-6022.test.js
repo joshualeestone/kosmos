@@ -29,7 +29,9 @@
  * arrow (`async (r) =>`, `r =>`) or `function (r)`. A handler written as a named function defined elsewhere is not
  * read (fails GREEN). A handler with no fetch of its own is not checked at all, even one that awaits a timer or a held
  * promise before it fulfills (that answer can land after close too; outside this card, a follow-up). A catch that
- * rethrows counts as caught. "Inside a try" counts braces from the last `try {` before the fetch, so a brace inside a string
+ * rethrows counts as caught. The try test is lexical: a call inside a function nested in the try (a setTimeout
+ * callback) reads as guarded though its rejection is not caught (fails GREEN). An abort whose argument has its own
+ * parentheses is flagged though correct (fails RED). "Inside a try" counts braces from the last `try {` before the fetch, so a brace inside a string
  * between the two can miscount. Comments are blanked first (strings, template literals and regex literals kept).
  * Each call must also be awaited in its own statement, and its try must have a catch (round 1). A handler that
  * fetches through a helper (mobile-shots.js fetchBoard(route)) is not seen: that file's helper-fed handlers were
@@ -43,7 +45,7 @@ const fs = require('node:fs');
 const nodePath = require('node:path');
 
 const DIR = nodePath.join(__dirname, 'docs', 'browser-checks');
-const HANDLER = /\.route\(\s*[^,]{1,300},\s*(?:async\s+)?(?:function\s*\w*\s*\(\s*(\w+)|\(\s*(\w+)[^)]*\)\s*=>|(\w+)\s*=>)/g;
+const HANDLER = /\.route\(\s*(?:'[^'\n]*'|"[^"\n]*"|`[^`]*`|[^,'"`]){1,300},\s*(?:async\s+)?(?:function\s*\w*\s*\(\s*(\w+)|\(\s*(\w+)[^)]*\)\s*=>|(\w+)\s*=>)/g;
 
 /* The source with every comment blanked (newlines kept, so line numbers hold): a comment that mentions r.fetch() is
    not code. Strings and template literals are skipped intact, so a // inside a URL is not read as a comment. */
@@ -103,7 +105,18 @@ function awaited(src, at) {
     else if (ch === '{') { if (depth > 0) depth -= 1; else break; }
     else if (ch === ';' && depth === 0) break;
   }
-  return /\bawait\b/.test(src.slice(i + 1, at));
+  const seg = src.slice(i + 1, at);
+  let k = -1;
+  for (const m of seg.matchAll(/\bawait\b/g)) k = m.index;
+  if (k < 0) return false;
+  // That await must cover the call: no ? : , || or && at its own level between them (round 3).
+  let d = 0;
+  for (let j = k + 5; j < seg.length; j += 1) {
+    const ch = seg[j];
+    if ('([{'.includes(ch)) d += 1; else if (')]}'.includes(ch)) d -= 1;
+    else if (d === 0 && ('?:,'.includes(ch) || (ch === '|' && seg[j + 1] === '|') || (ch === '&' && seg[j + 1] === '&'))) return false;
+  }
+  return true;
 }
 
 function insideOpenTry(src, from, at) {
@@ -113,11 +126,11 @@ function insideOpenTry(src, from, at) {
   if (t < 0) return false;
   const open = seg.indexOf('{', t);
   if (open < 0 || !/^try\s*$/.test(seg.slice(t, open))) return insideOpenTry(src, from, from + t);
-  let depth = 0;
-  for (let i = open; i < seg.length; i += 1) { if (seg[i] === '{') depth += 1; else if (seg[i] === '}') depth -= 1; }
   // An inner try that already closed may sit inside an outer one that is still open: keep walking back.
-  // Open here, and it must be a try ... catch: a try with only a finally lets the rejection through (round 1).
-  if (depth > 0) { const e = blockEnd(src, from + open); if (e > 0 && /^\s*catch\b/.test(src.slice(e))) return true; }
+  // Inside the try's own block (not its catch, round 3), and the block must be followed by a catch (a finally alone
+  // lets the rejection through, round 1).
+  const e = blockEnd(src, from + open);
+  if (e > 0 && from + open < at && at < e && /^\s*catch\b/.test(src.slice(e))) return true;
   return insideOpenTry(src, from, from + t);
 }
 
@@ -130,6 +143,14 @@ function scan(raw) {
   let m;
   HANDLER.lastIndex = 0;
   while ((m = HANDLER.exec(src))) starts.push({ at: m.index, param: m[1] || m[2] || m[3] });
+  // A .route( the pattern could not read, whose handler fetches, is a finding (fails RED, round 3): a comma in an
+  // unquoted pattern, a handler passed by name, any shape the pattern does not know.
+  const read = new Set(starts.map((h) => h.at));
+  for (const r of src.matchAll(/\.route\(/g)) {
+    if (read.has(r.index)) continue;
+    const next = src.indexOf('.route(', r.index + 1);
+    if (/\.fetch\(/.test(src.slice(r.index, next < 0 ? src.length : next))) bad.push(src.slice(0, r.index).split('\n').length);
+  }
   starts.forEach((h, i) => {
     const end = i + 1 < starts.length ? starts[i + 1].at : src.length;
     const body = src.slice(h.at, end);
@@ -182,6 +203,14 @@ test('#6022 fixtures: the rule can fail, and the safe shapes pass (controls)', (
   assert.deepEqual(scan(arrowRegex), [2, 3], 'a regex after => ending in \\/\\/ does not blank the fetch on its line (round 2)');
   const named = "await page.route('**/x', async function handle(r) {\n  const resp = await r.fetch();\n  await r.fulfill({ response: resp });\n});\n";
   assert.deepEqual(scan(named), [2, 3], 'a named function handler is read (round 2)');
+  const retryInCatch = "await page.route('**/x', async (r) => {\n  try {\n    const res = await r.fetch();\n    await r.fulfill({ response: res });\n  } catch {\n    const again = await r.fetch();\n    await r.fulfill({ response: again });\n  }\n});\n";
+  assert.deepEqual(scan(retryInCatch), [6, 7], 'a retry inside the catch is not inside the try (round 3)');
+  const commaGlob = "await page.route('**/api/{status,projects}', async (r) => {\n  const res = await r.fetch();\n  await r.fulfill({ response: res });\n});\n";
+  assert.deepEqual(scan(commaGlob), [2, 3], 'a quoted glob with a comma is read (round 3)');
+  const unreadable = "await page.route(/api\\/x{1,2}/, async (r) => {\n  const res = await r.fetch();\n  await r.fulfill({ response: res });\n});\n";
+  assert.ok(scan(unreadable).length > 0, 'a route the pattern cannot read, whose handler fetches, is flagged, not skipped (round 3)');
+  const halfAwaited = "await page.route('**/x', async (r) => {\n  try {\n    const res = await r.fetch();\n    return ok ? await r.fulfill({ response: res }) : r.fulfill({ response: res });\n  } catch { await r.abort().catch(() => {}); }\n});\n";
+  assert.deepEqual(scan(halfAwaited), [4], 'an await on one branch does not cover the other (round 3)');
   const fixtureOnly = "await page.route('**/api/x', (r) => r.fulfill({ json: {} }));\nconst x = await window.fetch('/a');\nawait browser.close();\n";
   assert.deepEqual(scan(fixtureOnly), [], 'a fixture-only handler and window.fetch are not flagged');
   const bareParam = "page.route('**/t', async route => {\n  const r = await route.fetch();\n  route.fulfill({ response: r });\n});\n";

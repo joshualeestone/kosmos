@@ -66,11 +66,15 @@ const PHASES = [
     page.on('pageerror', (e) => errs.push(e.message));
     let phase = PHASES[0];
     const borderOf = {};
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await page.route('**/api/status', async (route) => {
-      const res = await route.fetch();
-      const body = await res.json();
-      for (const a of body.agents || []) if (a.state === 'connection_lost') { a.reconnect = phase.reconnect; a.crashLoop = phase.crashLoop || null; }
-      await route.fulfill({ response: res, json: body });
+      try {
+        const res = await route.fetch();
+        const body = await res.json();
+        for (const a of body.agents || []) if (a.state === 'connection_lost') { a.reconnect = phase.reconnect; a.crashLoop = phase.crashLoop || null; }
+        await route.fulfill({ response: res, json: body });
+      } catch { await route.abort().catch(() => {}); }
     });
     for (const p of PHASES) {
       phase = p;
