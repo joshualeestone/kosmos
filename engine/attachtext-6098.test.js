@@ -485,3 +485,63 @@ test('#6098 review 6: an encrypted PDF that PDFKit reports locked says it needs 
     assert.ok(got.notes.some((n) => /protected with a password/.test(n)), JSON.stringify(got.notes));
   } finally { at.setPdfkit(async () => { kitCalls += 1; return null; }); }
 });
+
+/* ── review 7 ── */
+const onePage = (content, fonts) => pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+  [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << ' + fonts.map((f, i) => '/F' + (i + 1) + ' ' + (5 + i) + ' 0 R').join(' ') + ' >> >> /Contents 4 0 R >>'],
+  [4, streamObj('', content)], ...fonts.map((f, i) => [5 + i, f])]);
+/* Widths for 32..121: space 278, then a flat 500 for every letter, so a glyph's advance at size 10 is 5. */
+const FLAT = '<< /Type /Font /Subtype /TrueType /BaseFont /Flat /FirstChar 32 /Widths [278 ' + Array(89).fill(500).join(' ') + '] >>';
+const glyphs = (word, x0, step) => word.split('').map((ch, i) => (i ? step + ' 0 Td ' : '') + '(' + ch + ') Tj').join(' ');
+
+test('#6098 review 7: text placed a glyph at a time (Chrome, Ghostscript) reads as words; a real gap is a space', () => {
+  const content = 'BT /F1 10 Tf 72 700 Td ' + glyphs('Hello', 72, 5) + ' 8 0 Td ' + glyphs('world', 0, 5) + ' ET';
+  assert.equal(at.pdfTextJs(onePage(content, [FLAT])).pages[0], 'Hello world');
+});
+
+test('#6098 review 7: a kerned chunk (a move a little short of the drawn width) is not a space', () => {
+  const content = 'BT /F1 10 Tf 72 700 Td (Cop) Tj 14.8 0 Td (yright) Tj 33 0 Td (holder) Tj ET';
+  assert.equal(at.pdfTextJs(onePage(content, [FLAT])).pages[0], 'Copyright holder');
+});
+
+test('#6098 review 7: a Type3 font\'s widths are scaled by its FontMatrix; placement by Tm reads as words', () => {
+  const t3 = '<< /Type /Font /Subtype /Type3 /FontMatrix [0.00048828125 0 0 0.00048828125 0 0] /FirstChar 32 /Widths [570 ' + Array(89).fill(1024).join(' ') + '] >>';
+  // size 1, the matrix scales by 20: a letter advances 1024/2048*20 = 10 in user space
+  const at20 = (x, ch) => '20 0 0 20 ' + x + ' 700 Tm (' + ch + ') Tj';
+  const content = 'BT /F1 1 Tf ' + [at20(100, 'A'), at20(110, 'b'), at20(120, 'c'), at20(150, 'd')].join(' ') + ' ET';
+  assert.equal(at.pdfTextJs(onePage(content, [t3])).pages[0], 'Abc d');
+});
+
+test('#6098 review 7: a Type0 font\'s /W widths are read (Tm placement, two-byte codes)', () => {
+  const cmap = '/CIDInit /ProcSet findresource begin 12 dict begin begincmap 1 begincodespacerange <0000> <FFFF> endcodespacerange 3 beginbfchar <0041> <0041> <0042> <0042> <0043> <0043> endbfchar endcmap end end';
+  const content = 'BT /F1 10 Tf 1 0 0 1 50 700 Tm <0041> Tj 1 0 0 1 56 700 Tm <0042> Tj 1 0 0 1 70 700 Tm <0043> Tj ET';
+  const doc = pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>'], [4, streamObj('', content)],
+    [5, '<< /Type /Font /Subtype /Type0 /Encoding /Identity-H /DescendantFonts [6 0 R] /ToUnicode 7 0 R >>'],
+    [6, '<< /Type /Font /Subtype /CIDFontType2 /DW 1000 /W [65 [600] 66 67 600] >>'], [7, streamObj('', cmap)]]);
+  assert.equal(at.pdfTextJs(doc).pages[0], 'AB C');
+});
+
+test('#6098 review 7: a symbolic font with no /Encoding is not trusted as WinAnsi (PDFKit is asked)', async () => {
+  kitCalls = 0;
+  const f = path.join(SANDBOX, 'symbolic.pdf');
+  fs.writeFileSync(f, pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>'], [4, streamObj('', 'BT /F1 12 Tf (\\214le) Tj ET')],
+    [5, '<< /Type /Font /Subtype /Type1 /BaseFont /XYZ+Times /FontDescriptor 6 0 R >>'], [6, '<< /Type /FontDescriptor /Flags 131076 >>']]));
+  const got = await at.pdfText(f, fs.readFileSync(f));
+  assert.equal(kitCalls, 1, 'PDFKit is asked');
+  assert.ok(got.notes.some((n) => /symbols and punctuation/.test(n)), JSON.stringify(got.notes));
+});
+
+test('#6098 review 7: a page emptied by a mapless font is not called scanned, a really empty page still is, and both font notes show', async () => {
+  const f = path.join(SANDBOX, 'mixed-notes.pdf');
+  const mac = '<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman /Encoding /MacRomanEncoding >>';
+  const cjk = '<< /Type /Font /Subtype /Type0 /BaseFont /HYGoThic /Encoding /Identity-H >>';
+  fs.writeFileSync(f, pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 /Resources << /Font << /F1 8 0 R /F2 9 0 R >> >> >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Contents 6 0 R >>'], [4, '<< /Type /Page /Parent 2 0 R /Contents 7 0 R >>'], [5, '<< /Type /Page /Parent 2 0 R >>'],
+    [6, streamObj('', 'BT /F1 12 Tf (Plain words here) Tj ET')], [7, streamObj('', 'BT /F2 12 Tf <00340058> Tj ET')], [8, mac], [9, cjk]]));
+  const got = await at.pdfText(f, fs.readFileSync(f));
+  assert.ok(got.notes.some((n) => /no character map/.test(n)), JSON.stringify(got.notes));
+  assert.ok(got.notes.some((n) => /symbols and punctuation/.test(n)), JSON.stringify(got.notes));
+  assert.ok(got.notes.some((n) => /^1 of its 3 pages had no text/.test(n)), JSON.stringify(got.notes));
+});

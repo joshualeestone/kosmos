@@ -681,19 +681,47 @@ function pageText(content, fonts, out, used = {}) {
   let font = null;
   let lastY = null;
   let line = '';
+  /* Iteration 7: where the text is, so a sideways move adds a space only where there is a gap. Writers that place text a
+     glyph or a kerned chunk at a time (Chrome, Ghostscript) made every move a space ("C op yright"). All in text space:
+     size is the Tf size, drawn the advance shown since the line start, a and x the text matrix's scale and the line
+     start's x in user space. exact is false once a glyph had no known width (a wider margin is then needed). */
+  let size = 1;
+  let tc = 0;
+  let tw = 0;
+  let th = 1;
+  let a = 1;
+  let x = 0;
+  let drawn = 0;
+  let exact = true;
+  const measure = (f, raw) => {
+    const len = (f && f.codeLen) || 1;
+    for (let i = 0; i + len <= raw.length; i += len) {
+      let code = 0;
+      for (let k = 0; k < len; k += 1) code = code * 256 + raw.charCodeAt(i + k);
+      let w = f && f.width ? f.width(code) : null;
+      if (w == null) { w = 500; exact = false; }
+      drawn += ((w / 1000) * size + tc + (len === 1 && code === 32 ? tw : 0)) * th;
+    }
+  };
+  const moved = (gap) => {   // a move on the same line: a space only when it leaves (or goes back over) real room
+    if (Math.abs(gap) > (exact ? 0.12 : 0.3) * (Math.abs(size) || 1)) space();
+  };
+  const restart = () => { drawn = 0; exact = true; };
   const operands = [];
   let arr = null;   // items of the TJ array being read, kept apart from the operands (review 1: 64+ items lost the array)
   const decode = (raw) => {
     const f = font && fonts.get(font);
-    if (!f) return winAnsi(raw);
+    measure(f, raw);
+    if (!f || (!f.cmap && !f.flag)) return winAnsi(raw);
     /* iteration 6: a font is judged when the page draws with it, not when it is merely listed in shared resources. */
     if (f.flag === 'noMap') { used.noMap = true; return ''; }   // glyph numbers, not characters: only this font's text is lost
     if (f.flag === 'ownEncoding') { used.ownEncoding = true; return winAnsi(raw); }
+    const c = f.cmap;
     let s = '';
-    for (let i = 0; i + f.codeLen <= raw.length; i += f.codeLen) {
+    for (let i = 0; i + c.codeLen <= raw.length; i += c.codeLen) {
       let code = 0;
-      for (let k = 0; k < f.codeLen; k += 1) code = code * 256 + raw.charCodeAt(i + k);
-      s += f.map.has(code) ? f.map.get(code) : (f.codeLen === 1 ? raw[i] : '');
+      for (let k = 0; k < c.codeLen; k += 1) code = code * 256 + raw.charCodeAt(i + k);
+      s += c.map.has(code) ? c.map.get(code) : (c.codeLen === 1 ? raw[i] : '');
     }
     return s;
   };
@@ -703,6 +731,7 @@ function pageText(content, fonts, out, used = {}) {
   const append = (x) => { line += x.length > MAX_CELL * 4 ? x.slice(0, MAX_CELL * 4) : x; if (line.length > MAX_CELL * 4) return flush(); return true; };
   const space = () => { if (line && !/\s$/.test(line)) line += ' '; };
   const lastNum = () => { for (let i = operands.length - 1; i >= 0; i -= 1) if (operands[i].num != null) return operands[i].num; return null; };
+  const nums = (n) => { const r = []; for (let i = operands.length - 1; i >= 0 && r.length < n; i -= 1) if (operands[i].num != null) r.unshift(operands[i].num); return r.length === n ? r : null; };
   const lastOf = (k) => { for (let i = operands.length - 1; i >= 0; i -= 1) if (operands[i][k] != null) return operands[i]; return null; };
   for (const t of tokens(content)) {
     if (out.full) return;
@@ -715,15 +744,32 @@ function pageText(content, fonts, out, used = {}) {
       continue;
     }
     const op = t.op;
-    if (op === 'Tf') { const nm = lastOf('name'); if (nm) font = nm.name; }
+    if (op === 'Tf') { const nm = lastOf('name'); if (nm) font = nm.name; const z = lastNum(); if (z != null) size = z; }
+    else if (op === 'Tc') { const v = lastNum(); if (v != null) tc = v; }
+    else if (op === 'Tw') { const v = lastNum(); if (v != null) tw = v; }
+    else if (op === 'Tz') { const v = lastNum(); if (v != null) th = v / 100; }
+    else if (op === 'BT') { a = 1; x = 0; restart(); }
     else if (op === 'Tj') { const s = lastOf('str'); if (s && !append(decode(s.str))) return; }
-    else if (op === "'" || op === '"') { if (!flush()) return; const s = lastOf('str'); if (s && !append(decode(s.str))) return; }
+    else if (op === "'" || op === '"') { if (!flush()) return; restart(); const s = lastOf('str'); if (s && !append(decode(s.str))) return; }
     else if (op === 'TJ') {
-      const a = lastOf('arr');
-      if (a) for (const e of a.arr) { if (e.str != null) { if (!append(decode(e.str))) return; } else if (e.num != null && e.num < -200) space(); }
-    } else if (op === 'Td' || op === 'TD') { const ty = lastNum(); if (ty) { if (!flush()) return; } else space(); }
-    else if (op === 'T*') { if (!flush()) return; }
-    else if (op === 'Tm') { const y = lastNum(); if (lastY != null && y != null && y !== lastY) { if (!flush()) return; } else space(); lastY = y; }   // review 1: same line, a space
+      const ta = lastOf('arr');
+      if (ta) for (const e of ta.arr) {
+        if (e.str != null) { if (!append(decode(e.str))) return; } else if (e.num != null) { drawn -= (e.num / 1000) * size * th; if (e.num < -200) space(); }
+      }
+    } else if (op === 'Td' || op === 'TD') {
+      const v = nums(2);
+      if (v && v[1]) { if (!flush()) return; } else if (v) moved(v[0] - drawn); else space();
+      if (v) x += v[0] * a;
+      restart();
+    } else if (op === 'T*') { if (!flush()) return; restart(); }
+    else if (op === 'Tm') {   // review 1: same line, a space (iteration 7: only where there is room)
+      const v = nums(6);
+      const y = v ? v[5] : lastNum();
+      if (lastY != null && y != null && y !== lastY) { if (!flush()) return; } else if (v && lastY != null && a) moved((v[4] - x) / a - drawn); else space();
+      if (v) { a = v[0] || 1; x = v[4]; }
+      lastY = y;
+      restart();
+    }
     else if (op === 'ET') space();
     if (line.length > MAX_CELL * 4 && !flush()) return;
     operands.length = 0;
@@ -746,7 +792,89 @@ function pdfTextJs(buf) {
     cmaps.set(fontNum, c);
     return c;
   };
+  /* The [...] after /key, written inline or one reference away; brackets counted, at most 1 MB read. */
+  const arrayOf = (dict, key) => {
+    const m = new RegExp('/' + key + '\\s*(?:(\\[)|(\\d{1,10})\\s+\\d{1,5}\\s+R)').exec(dict || '');
+    if (!m) return null;
+    const src = m[1] ? dict : ((objs.get(Number(m[2])) || {}).dict || '');
+    const start = m[1] ? m.index + m[0].length - 1 : src.indexOf('[');
+    if (start < 0) return null;
+    let depth = 0;
+    const stop = Math.min(src.length, start + 1024 * 1024);
+    for (let i = start; i < stop; i += 1) {
+      if (src[i] === '[') depth += 1;
+      else if (src[i] === ']') { depth -= 1; if (depth === 0) return src.slice(start + 1, i); }
+    }
+    return null;
+  };
+  const numAt = (dict, key) => { const m = new RegExp('/' + key + '\\s+(-?\\d{1,9}(?:\\.\\d{1,9})?)').exec(dict || ''); return m ? Number(m[1]) : null; };
+  /* Glyph widths (iteration 7), so a move can be told from a word gap. A simple font's /FirstChar and /Widths; a Type0
+     font's descendant /W and /DW. At most 65536 widths a font. A Type3 font (Chrome writes these) gives its widths in its own
+     glyph units, which its /FontMatrix turns into text space: they are scaled to thousandths like the others. */
+  const widthsOf = (fd, type0) => {
+    if (!type0) {
+      const w = arrayOf(fd, 'Widths');
+      const first = numAt(fd, 'FirstChar');
+      if (w == null || first == null) return null;
+      let scale = 1;
+      if (/\/Subtype\s*\/Type3/.test(fd)) {
+        const m = (arrayOf(fd, 'FontMatrix') || '').match(/-?\d*\.?\d+(?:[eE]-?\d+)?/);
+        scale = m && Number(m[0]) ? Number(m[0]) * 1000 : 1;
+      }
+      const list = (w.match(/-?\d*\.?\d+/g) || []).slice(0, 256).map((v) => Number(v) * scale);
+      return (code) => (code >= first && code < first + list.length ? list[code - first] : null);
+    }
+    const desc = arrayOf(fd, 'DescendantFonts');
+    const dn = desc ? refs(desc)[0] : null;
+    const dd = dn != null ? (objs.get(dn) || {}).dict || '' : '';
+    const dw = numAt(dd, 'DW');
+    const map = new Map();
+    const w = arrayOf(dd, 'W');
+    if (w) {
+      const toks = w.match(/\[|\]|-?\d*\.?\d+/g) || [];
+      let budget = 65536;
+      for (let i = 0; i < toks.length && budget > 0;) {
+        const c1 = Number(toks[i]);
+        if (toks[i + 1] === '[') {
+          let j = i + 2;
+          for (let c = c1; j < toks.length && toks[j] !== ']' && budget > 0; j += 1, c += 1, budget -= 1) map.set(c, Number(toks[j]));
+          while (j < toks.length && toks[j] !== ']') j += 1;
+          i = j + 1;
+        } else if (i + 2 < toks.length && toks[i + 1] !== ']' && toks[i + 2] !== '[' && toks[i + 2] !== ']') {
+          const c2 = Number(toks[i + 1]);
+          const v = Number(toks[i + 2]);
+          for (let c = c1; c <= c2 && budget > 0; c += 1, budget -= 1) map.set(c, v);
+          i += 3;
+        } else i += 1;
+      }
+    }
+    return (code) => (map.has(code) ? map.get(code) : (dw != null ? dw : 1000));
+  };
+  const infos = new Map();
+  const fontInfo = (num) => {
+    if (infos.has(num)) return infos.get(num);
+    const fd = (objs.get(num) || {}).dict || '';
+    const type0 = /\/Subtype\s*\/Type0/.test(fd);
+    const cmap = cmapOf(num);
+    let flag = null;
+    if (!cmap) {
+      /* iteration 5: a two-byte (Type0 / Identity) font with no ToUnicode has glyph numbers, not characters: what the JS
+         reader makes of it is garbage that looks like text. A Mac asks PDFKit; elsewhere that font's text is not kept. */
+      if (type0 || /\/Identity-/.test(fd)) flag = 'noMap';
+      /* iteration 4: no ToUnicode, and an encoding of its own (MacRoman from a Mac, or /Differences): read as WinAnsi it
+         would be wrong without looking wrong, so the text is marked as not to be trusted (a Mac then asks PDFKit).
+         Iteration 7: so is a symbolic font (its descriptor's Flags bit 3) with no /Encoding, whose codes are its own. */
+      else if (/\/MacRomanEncoding|\/Differences|\/MacExpertEncoding/.test(fd) || (ref(fd, 'Encoding') != null && /\/Differences/.test((objs.get(ref(fd, 'Encoding')) || {}).dict || ''))) flag = 'ownEncoding';
+      else if (!/\/Encoding\b/.test(fd) && ((numAt((objs.get(ref(fd, 'FontDescriptor')) || {}).dict, 'Flags') || 0) & 4)) flag = 'ownEncoding';
+    }
+    /* Iteration 6: the marks count only when a page draws with the font (see decode), so an unused font listed in shared
+       resources changes nothing. */
+    const info = { cmap, flag, codeLen: cmap ? cmap.codeLen : (flag === 'noMap' ? 2 : 1), width: widthsOf(fd, type0) };
+    infos.set(num, info);
+    return info;
+  };
   const pages = [];
+  const mapless = new Set();   // pages that lost text to a font with no character map (not scanned pages)
   let content = 0;
   let cut = null;
   const used = { ownEncoding: false, noMap: false };
@@ -758,19 +886,7 @@ function pdfTextJs(buf) {
     const fonts = new Map();
     let fontDict = subDict(resources, 'Font');
     if (fontDict == null && ref(resources, 'Font') != null) fontDict = (objs.get(ref(resources, 'Font')) || {}).dict || '';
-    for (const fm of String(fontDict || '').matchAll(/\/([^\s/<>\[\]()]{1,64})\s+(\d{1,10})\s+\d{1,5}\s+R\b/g)) {
-      const c = cmapOf(Number(fm[2]));
-      if (c) { fonts.set(fm[1], c); continue; }
-      /* iteration 4: no ToUnicode, and an encoding of its own (MacRoman from a Mac, or /Differences): read as WinAnsi it
-         would be wrong without looking wrong, so the text is marked as not to be trusted (a Mac then asks PDFKit). */
-      const fd = (objs.get(Number(fm[2])) || {}).dict || '';
-      /* iteration 5: a two-byte (Type0 / Identity) font with no ToUnicode has glyph numbers, not characters: what the JS
-         reader makes of it is garbage that looks like text. A Mac asks PDFKit; elsewhere that font's text is not kept.
-         Iteration 6: both marks are set only when a page draws with the font (see decode), so an unused font listed in
-         shared resources changes nothing. */
-      if (/\/Subtype\s*\/Type0|\/Identity-/.test(fd)) fonts.set(fm[1], { flag: 'noMap' });
-      else if (/\/MacRomanEncoding|\/Differences|\/MacExpertEncoding/.test(fd) || (ref(fd, 'Encoding') != null && /\/Differences/.test((objs.get(ref(fd, 'Encoding')) || {}).dict || ''))) fonts.set(fm[1], { flag: 'ownEncoding' });
-    }
+    for (const fm of String(fontDict || '').matchAll(/\/([^\s/<>\[\]()]{1,64})\s+(\d{1,10})\s+\d{1,5}\s+R\b/g)) fonts.set(fm[1], fontInfo(Number(fm[2])));
     const contents = /\/Contents\s*\[([^\]]*)\]/.exec(o.dict);
     const nums = contents ? refs(contents[1]) : (ref(o.dict, 'Contents') != null ? [ref(o.dict, 'Contents')] : []);
     const parts = [];
@@ -782,14 +898,18 @@ function pdfTextJs(buf) {
       parts.push(st.toString('latin1'));
     }
     const page = sink(MAX_OUT - total.length);   // one budget for the whole document, not one per page (iteration 2)
+    const before = used.noMap;
+    used.noMap = false;
     pageText(parts.join('\n'), fonts, page, used);
+    if (used.noMap) mapless.add(pages.length);
+    used.noMap = used.noMap || before;
     const text = page.text().trim();
     pages.push(text);
     total.add(text);
     if (page.full || total.length >= MAX_OUT) { cut = (cut ? cut + ' ' : '') + 'The rendering stops at ' + MAX_OUT + ' characters; later pages are not included.'; break; }   // iteration 3
     if (cut) break;
   }
-  return { encrypted: false, pages, cut, undecodable: undecodable.n, ownEncoding: used.ownEncoding, noMap: used.noMap };
+  return { encrypted: false, pages, cut, undecodable: undecodable.n, ownEncoding: used.ownEncoding, noMap: used.noMap, mapless: [...mapless] };
 }
 
 /* Whether extracted text reads as text: mostly letters, digits, spaces and ordinary punctuation, judged on a sample. */
@@ -803,9 +923,10 @@ function readable(pages) {
 }
 
 /* Pages to a rendering, with the notes a reader needs. */
-function pdfFinish(pages, notes) {
-  const empty = pages.filter((p) => !String(p).trim()).length;
-  if (notes.some((n) => /compression Kosmos cannot read|no character map/.test(n))) { /* said already */ } else if (!pages.length || empty === pages.length) notes.push('No text was found in this PDF. It may be scanned pages (pictures of text), which are not converted.');
+function pdfFinish(pages, notes, skip = new Set()) {
+  /* Pages emptied by a font with no character map are said by their own note, not called scanned (iteration 7). */
+  const empty = pages.filter((p, i) => !String(p).trim() && !skip.has(i)).length;
+  if (notes.some((n) => /compression Kosmos cannot read/.test(n)) || (skip.size && empty === 0)) { /* said already */ } else if (!pages.length || empty === pages.length) notes.push('No text was found in this PDF. It may be scanned pages (pictures of text), which are not converted.');
   else if (empty) notes.push(empty + ' of its ' + pages.length + ' pages had no text (scanned pages or pictures are not converted).');
   notes.push('Pictures are not converted, and the layout of columns and tables may not be kept.');
   const out = sink();
@@ -830,16 +951,23 @@ async function pdfAfter(file, js) {
   }
   let pages = js.pages;
   let cut = js.cut;
+  let skip = new Set();
   if (js.ownEncoding || js.noMap || !readable(pages)) {
     const viaKit = await kit();   // iteration 3: PDFKit counts against the same two conversions at once
     if (viaKit === '\u0000locked') return { body: '', notes: ['This PDF is protected with a password, so its text could not be read.'] };
     if (viaKit && viaKit.replace(/\s+/g, '')) { pages = viaKit.split('\n\f\n'); cut = null; }   // PDFKit read the whole file
-    else if (js.noMap) notes.push('Some of this PDF\u2019s text is in fonts that carry no character map (common in Chinese, Japanese and Korean documents), so that text could not be read here and is left out.');
-    else if (pages.join('').trim()) notes.push(js.ownEncoding ? 'Some symbols and punctuation in this PDF may be wrong (its fonts use an encoding Kosmos reads only approximately).' : 'Some of this PDF’s text may not have converted cleanly (an unusual font encoding).');
-    else if (js.undecodable) notes.push('This PDF uses a compression Kosmos cannot read, so its text could not be converted.');
+    else {
+      if (js.noMap) notes.push('Some of this PDF\u2019s text is in fonts that carry no character map (common in Chinese, Japanese and Korean documents), so that text could not be read here and is left out.');
+      if (js.ownEncoding && pages.join('').trim()) notes.push('Some symbols and punctuation in this PDF may be wrong (its fonts use an encoding Kosmos reads only approximately).');
+      if (!js.noMap && !js.ownEncoding) {
+        if (pages.join('').trim()) notes.push('Some of this PDF’s text may not have converted cleanly (an unusual font encoding).');
+        else if (js.undecodable) notes.push('This PDF uses a compression Kosmos cannot read, so its text could not be converted.');
+      }
+      skip = new Set(js.mapless || []);
+    }
   }
   if (cut) notes.push(cut);
-  return pdfFinish(pages, notes);
+  return pdfFinish(pages, notes, skip);
 }
 
 /* ── the rendering ─────────────────────────────────────────────────────────────────────────── */
