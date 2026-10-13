@@ -408,7 +408,7 @@ function ensureWired(settingsPath, scriptPath, opts) {
  * stays: another install's hooks, a person's own, and a person's hook that shares an entry with ours (the entry is
  * kept with theirs alone). An event left empty is removed, and `hooks` too when nothing is left in it.
  * `exists` (round 1): when given, a hook carrying the marker whose script path does not exist is removed too, whatever
- * folder it names (an added account keeps the folder Kosmos ran from when the account was added, and nothing repoints
+ * folder it names (round 2: only an absolute drive-letter path to the script itself, on a drive that is there) (an added account keeps the folder Kosmos ran from when the account was added, and nothing repoints
  * it after a move). It is ours by the marker and already broken, so taking it out only takes out an error.
  * `dryRun` only says whether the file holds any. Returns { ours, dead, changed, because? } (`dead`: how many of the
  * hooks taken out were broken ones outside `roots`); never throws for a shape.
@@ -445,10 +445,20 @@ function unwireInstall(settingsPath, roots, opts) {
     }
     return out;
   };
+  /* Round 2: only a string that is provably the script, at a provable place, can be judged gone: an absolute
+     drive-letter path (never a network path, whose server may be offline and whose look can hang), with nothing a
+     shell would expand (%, $, ~), whose file name is the hook script itself, on a drive that is there now (an
+     unplugged drive is not a deleted folder). Anything else is kept: not provably ours, or not provably broken. */
+  const provablyGone = (x) => {
+    if (!/^[A-Za-z]:[\\/]/.test(x) || /[%$~]/.test(x)) return false;
+    const base = x.split(/[\\/]/).pop();
+    if (base !== MARKER + '.js' && base !== MARKER + '.sh') return false;
+    try { return o.exists(x.slice(0, 2) + '\\') && !o.exists(x); } catch { return false; }
+  };
   const isDead = (h) => {
     if (typeof o.exists !== 'function' || !h) return false;
     const paths = scriptPaths(h);
-    return paths.length > 0 && paths.every((x) => { try { return !o.exists(x); } catch { return false; } });
+    return paths.length > 0 && paths.every(provablyGone);
   };
   let dead = 0;
   const hookIsOurs = (h) => inRoots(h) || isDead(h);

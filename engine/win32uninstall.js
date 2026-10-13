@@ -595,7 +595,11 @@ async function uninstall(opts) {
     const exists = typeof o.pathExists === 'function' ? o.pathExists : fs.existsSync;
     /* The launcher always passes --root, so no root is only a hand-run CLI: said as a note, not left, which would keep
        the removal unfinished for good (round 1). */
-    if (o.bundleRoot) unwireHooks(o.bundleRoot, home, env, exists, done, left);
+    if (o.bundleRoot) {
+      // Round 2: nothing in this step may stop the removal before the folders and the report.
+      try { unwireHooks(o.bundleRoot, home, env, exists, done, left); }
+      catch { left.push('Kosmos\'s entries in Claude Code\'s settings, which could not be checked. ' + hooksByHand('the settings.json files in your .claude folders')); }
+    }
     else notes.push('Kosmos\'s entries in Claude Code\'s settings were not checked, because Kosmos could not tell which folder it was installed in. ' + hooksByHand('the settings.json files in your .claude folders') + '.');
   }
 
