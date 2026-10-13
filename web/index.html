@@ -23741,7 +23741,8 @@ function healthLine(a, nowMs) {
      on an agent it has seen work within the last hour (HEALTH_QUIET_MS): otherwise it would be a health claim resting
      on an absence, or on a sighting old enough for a sign-in to have lapsed since. */
   const looks = a.stateConfidence === 'scraped';
-  const quiet = HEALTH_READ_STATES.has(a.state) && Number.isFinite(at) && nowMs - at <= HEALTH_QUIET_MS;
+  // Within the hour either way: a sighting stamped ahead of this clock (another computer's) is not recent for ever.
+  const quiet = HEALTH_READ_STATES.has(a.state) && Number.isFinite(at) && Math.abs(nowMs - at) <= HEALTH_QUIET_MS;
   const parts = [];
   if (a.state === 'auth_failed') parts.push('Sign-in: ' + (looks ? 'looks like it isn\'t working' : 'isn\'t working'));
   /* Only a Claude agent's state can show a sign-in that stopped working on this computer (a Codex 401 loop reads as
