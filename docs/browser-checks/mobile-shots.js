@@ -325,9 +325,17 @@ async function subprojectFixture(page, data) {
       const hit = list.find((p) => p && p.name === name && (p.parent || null) === (parent || null));
       return hit ? hit.id : null;
     };
+    // A new project's folder is named from its name, so two projects called Launch would share one folder (refused).
+    // Each is made under a one-off name, which gives it its own folder, then renamed: a rename keeps the folder.
+    let seq = 0;
     const make = async (name, parent) => {
-      const r = await post('/api/projects', parent ? { name, parent } : { name });
+      const first = name + ' fixture ' + (++seq);
+      const r = await post('/api/projects', parent ? { name: first, parent } : { name: first });
       if (r.status !== 200 && r.status !== 201) throw new Error('could not make ' + name + ' (status ' + r.status + ': ' + ((await r.json().catch(() => ({}))).error || '') + ')');
+      const made = await find(first, parent);
+      if (!made) throw new Error('made ' + name + ' but could not read it back');
+      const ren = await fetch('/api/project/' + encodeURIComponent(made), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+      if (ren.status !== 200) throw new Error('could not name ' + name + ' (status ' + ren.status + ')');
       const id = await find(name, parent);
       if (!id) throw new Error('made ' + name + ' but could not read it back');
       return id;
