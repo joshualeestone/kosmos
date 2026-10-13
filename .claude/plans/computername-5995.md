@@ -442,3 +442,17 @@ All four checks ran in a browser (headless Chromium, plus WebKit inside the sign
   a158331ef), the mutants (at 2d417473b and after), the design shots (Mona Lisa approved the ones at a158331ef and
   again after her two changes). The branch is 187 commits behind main with no conflict (`git merge-tree`); CI
   tests the merge.
+
+## CI red on the PR (kosmos#6057), and what it was (2026-10-13)
+- CI's `test` workflow failed at 10:42 CDT, in all three suite jobs, on ONE thing: the browser-check surface gate.
+  The node suite in that run: 20128 tests, 0 failed.
+- The cause was my last fix. 80d8c9a16 added `#plus-state2 #plus-si-computer-hint { ... }` to `web/index.html`, and
+  the sign-in card's id is a surface two checks claim: `render-plus-company-5628.js` and
+  `render-plus-asks-signin-4610.js`. I had run the gate alone at a158331ef and NOT again after 80d8c9a16. Run alone
+  on this branch afterwards, it reproduces the red.
+- Neither check asserts anything about the new hint. Rather than say so from reading (that is how the hint's size
+  was wrong twice), both were run in a browser at the PR's head:
+  - `render-plus-company-5628.js`: exit 0, in the 10:06 run at 80d8c9a16 (the code is unchanged since).
+  - `render-plus-asks-signin-4610.js`: exit 0 at 5acb99041, 12:20 CDT, 20 arms passed, 0 failed.
+- The two per-check trailers the gate asks for are on an empty commit after this one. After it the gate, run alone,
+  exits 0.
