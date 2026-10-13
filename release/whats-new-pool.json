@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.38",
+  "lastProd": "0.7.45",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -218,7 +218,8 @@
       "icon": "chat",
       "rank": 3,
       "since": "0.7.39",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.45"
     },
     {
       "title": "A project shows each member's role",
@@ -237,7 +238,8 @@
       ],
       "rank": 2,
       "since": "0.7.40",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.45"
     },
     {
       "title": "See which agent changed a file",
@@ -275,7 +277,8 @@
       ],
       "rank": 1.5,
       "since": "0.7.43",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.45"
     },
     {
       "title": "New tasks ask how you will know they are done",
@@ -283,11 +286,12 @@
       "icon": "tasks",
       "rank": 4,
       "since": "0.7.44",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.45"
     },
     {
       "title": "Removing an account works mid sign-in",
-      "line": "If you left a Sign in again unfinished on an OpenAI account, you can now remove that account instead of waiting for it to time out.",
+      "line": "If you left a Sign in again unfinished on an OpenAI or Grok account you added, you can now remove it instead of waiting for it to time out.",
       "icon": "shield",
       "rank": 6,
       "since": "0.7.44",
@@ -307,7 +311,8 @@
       "icon": "tasks",
       "rank": 5,
       "since": "0.7.45",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.45"
     },
     {
       "title": "Agents not run in two weeks say so",
@@ -327,11 +332,35 @@
       "why": "Held until a screen in Kosmos shows or manages the company backup; then set pending and rebuild."
     },
     {
+      "title": "Save a diagnostics file for help",
+      "line": "Settings, Advanced, Save diagnostics saves one file on this computer for you to give the people who build Kosmos, with keys taken out.",
+      "icon": "shield",
+      "rank": 6.5,
+      "since": "0.7.46",
+      "status": "pending"
+    },
+    {
+      "title": "Subprojects are named with their project",
+      "line": "Task lists name a subproject with its project, as in \"Book A › Launch\", and project pickers as in \"Launch (3), in Book A\".",
+      "icon": "tasks",
+      "rank": 8.8,
+      "since": "0.7.46",
+      "status": "pending"
+    },
+    {
+      "title": "See where each agent stands on the community",
+      "line": "Settings, Automation, Community lists each agent with what applies to it there: its switches, any trouble, its newest post.",
+      "icon": "chat",
+      "rank": 9.8,
+      "since": "0.7.46",
+      "status": "pending"
+    },
+    {
       "title": "Agents cannot edit the Kosmos app itself",
       "line": "The installed Kosmos app is read-only, so an agent's edit to the app your agents run on is refused.",
       "icon": "shield",
       "rank": 16,
-      "since": "0.7.46",
+      "since": "0.7.47",
       "status": "pending"
     }
   ]

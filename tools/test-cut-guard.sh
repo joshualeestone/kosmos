@@ -27,6 +27,13 @@ fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
 has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
+# q_ready <pid> [glob]: waits (up to 3 s) until <pid> has exec'd sleep (or a command matching [glob]). Between the fork and the exec, ps shows the forking
+# shell's command (this script's). A marker that records that command reads as stale once the exec has happened, so the
+# guard deletes it and the arm tests a box with no waiter (#5914: measured 1 read in 600 on a loaded box, and one red
+# on CI). So a stand-in whose command goes into a marker is waited for first, and one that never gets there FAILS by
+# name instead. The check at the end of this file sees only some shapes of a missing wait (it says which).
+q_ready() { local j g="${2:-sleep*}"; for j in $(seq 1 30); do case "$(ps -ww -o command= -p "$1")" in $g) return 0 ;; esac; sleep 0.1; done
+  fail "FIXTURE: stand-in process $1 never showed as ${2:-sleep}, so the arms after it cannot be trusted"; return 1; }
 # A pid named in OUT as a whole number: plain has() would pass if pid 123 were only a substring of a
 # sibling pid 91234 printed there instead (#4206 review 8).
 has_pid() { case " $1 " in *[!0-9]"$2"[!0-9]*) return 0;; *) return 1;; esac; }
@@ -375,7 +382,7 @@ fi
 # --- dir and probe-quiet (the NAME arm clean), so ONLY the marker arm can fire --
 # --- proving it works independently of the pgrep detection.
 # A live foreign-cookie marker refuses even when the name arm is clean.
-M1="$T/m1"; mkdir -p "$M1"; ( sleep 30 ) & p1=$!; printf 'FOREIGN\n%s\n' "$(ps -ww -o command= -p "$p1" 2>/dev/null)" > "$M1/cut.$p1"
+M1="$T/m1"; mkdir -p "$M1"; ( exec sleep 30 ) & p1=$!; q_ready "$p1"; printf 'FOREIGN\n%s\n' "$(ps -ww -o command= -p "$p1" 2>/dev/null)" > "$M1/cut.$p1"
 out="$(KOSMOS_RUN_MARKER_DIR="$M1" KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] && pass "#1796 a live marked cut (foreign cookie) refuses with the name arm clean" \
   || fail "#1796 marked cut did not refuse (rc=$rc, $out)"
@@ -383,7 +390,7 @@ has_pid "$out" "$p1" && pass "#1796 and it names the marked run's pid" || fail "
 kill "$p1" 2>/dev/null; wait "$p1" 2>/dev/null
 
 # The caller's OWN marker (matching cookie) is excluded -- the self-refuse outage.
-M2="$T/m2"; mkdir -p "$M2"; ( sleep 30 ) & p2=$!; printf 'MINE\n%s\n' "$(ps -ww -o command= -p "$p2" 2>/dev/null)" > "$M2/cut.$p2"
+M2="$T/m2"; mkdir -p "$M2"; ( exec sleep 30 ) & p2=$!; q_ready "$p2"; printf 'MINE\n%s\n' "$(ps -ww -o command= -p "$p2" 2>/dev/null)" > "$M2/cut.$p2"
 out="$(KOSMOS_RUN_MARKER_DIR="$M2" KOSMOS_RUN_COOKIE_CUT=MINE KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#1796 the caller's OWN marker (matching cookie) is not a reason to refuse" \
   || fail "#1796 own marker refused itself (rc=$rc, $out)"
@@ -591,6 +598,7 @@ out="$(KOSMOS_WAIT_SLEEP=false kosmos_wait_until_clear "a test run" wcheck 2>&1)
 
 # A waiting suite is not a live suite. The stand-in waiter is a real process of ours, stopped by pid.
 sleep 60 & wp=$!
+q_ready "$wp"
 printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$wp" > "$T/sprobe-waiter"; chmod +x "$T/sprobe-waiter"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-waiter" kosmos_refuse_if_suite_live "this test run" 2>&1)"; rc=$?
@@ -617,6 +625,7 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=99
 # waiter is dropped. A real process tree of ours: sh -> sh -> sleep, all stopped by pid below.
 # Each level runs a second command, so no shell execs straight into its child.
 sh -c 'sh -c "sleep 60; :" & wait; :' & deep=$!
+q_ready "$deep" 'sh -c*'
 sleep 1; mid="$(pgrep -P "$deep" | head -1)"; leaf="$(pgrep -P "$mid" 2>/dev/null | head -1)"
 printf '100 %s\n%s\n%s\n%s\n' "$deep" "$(ps -ww -o command= -p "$deep")" "$(_kosmos_pid_started_local "$deep")" "$(_kosmos_pid_started "$deep")" > "$W/markers/suitewait.$deep"
 if [ -n "$leaf" ]; then
@@ -728,7 +737,10 @@ rm -f "$W/markers/suitewait.$wp"
 bash "$CT/main/tools/run-tests.sh" & g1=$!
 bash "$CT/main/tools/run-tests.sh" & g2=$!
 bash "$CT/branch/tools/run-tests.sh" & g3=$!
-sleep 0.3   # each stand-in's command line must read as its run-tests.sh: bash stays the process (no exec)
+# Each stand-in's command line must read as its run-tests.sh before cw records it (bash stays the process once it has
+# exec'd). The glob needs the absolute tree, so it cannot match this script's own command, which is what ps shows
+# between the fork and the exec.
+for g in "$g1" "$g2" "$g3"; do q_ready "$g" 'bash /*/tools/run-tests.sh*'; done
 NOW="$(date +%s)"
 cw "$g1" $((NOW - 10)) canary                         # a real main canary, newest of all
 kosmos_mark_suite_waiting $((NOW - 3000))              # this run: heavy, STARVING
@@ -812,11 +824,7 @@ out="$(WPASS_AFTER=99 KOSMOS_WAIT_MAX_S=30 KOSMOS_WAIT_SLEEP=: kosmos_wait_until
 # Three live stand-in waiters with earlier queue times sit ahead of this run. A waiter leaves the queue by removing its
 # marker (what a waiter that starts does), and the stand-in sleeper removes one on chosen calls. A fake clock
 # (KOSMOS_WAIT_NOW) moves by QSTEP per sleep, so the wall-clock arm of the bound is exercised as well as the sleep count.
-# q_ready <pid>: waits (up to 3 s) until <pid> has exec'd sleep. Until then ps shows the forking shell's command, and a
-# marker recording that reads as stale, which would silently shift every call count below: so a stand-in that never
-# gets there FAILS by name instead.
-q_ready() { local j; for j in $(seq 1 30); do case "$(ps -ww -o command= -p "$1")" in sleep*) return 0 ;; esac; sleep 0.1; done
-  fail "#4574 FIXTURE: stand-in waiter $1 never showed as sleep, so the arms after it cannot be trusted"; return 1; }
+# (q_ready, used below, is defined at the top of this file.)
 q_ahead() { local i; : > "$W/ahead"; for i in $(seq 1 "${1:-3}"); do sleep 300 & echo "$!" >> "$W/ahead"
   q_ready "$!"
   printf '%s %s\n%s\n%s\n%s\n' "$((10 + i))" "$!" "$(ps -ww -o command= -p "$!")" "$(_kosmos_pid_started_local "$!")" "$(_kosmos_pid_started "$!")" > "$W/markers/suitewait.$!"; done; }
@@ -1017,6 +1025,7 @@ rm -f "$W/calls"
 
 # The loop itself honours the queue: the box is clear, but an older suite is waiting, so this one waits.
 sleep 60 & wp=$!
+q_ready "$wp"
 printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 rm -f "$W/calls"
 out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
@@ -1036,6 +1045,7 @@ RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; RT2=""; RP_LIVE=""; trap 'kill "${SUITE:-}
 mkdir -p "$RT/tools/lib" "$RT/sub"; cp "$HERE/run-tests.sh" "$RT/tools/"; cp "$HERE"/lib/*.sh "$RT/tools/lib/"
 : > "$RT/sub/stray.test.js"
 sleep 60 & wp=$!
+q_ready "$wp"
 printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 # The caller reads as a fixture (a node --test ancestor), except the stand-in pids $DEAD and $SUITE (see the wiring test below).
 printf '#!/bin/sh\n{ [ "$1" = '"$DEAD"' ] || [ "$1" = '"$SUITE"' ]; } || printf "node --test tools.x.test.js\\n"\n' > "$T/ancestor-all"; chmod +x "$T/ancestor-all"
@@ -1079,6 +1089,7 @@ _seen_all=1; for v in $KOSMOS_WAIT_CONTROL_VARS; do has "$out" "SEEN $v=unset" |
 _rt_marker_class() {   # <tree> [class]: start its run-tests.sh (class light by default) queued behind a waiter, print its marker's line 5, stop it
   local tree="$1" qc="${2:-light}" rp i cls="" wq
   sleep 60 & wq=$!
+  q_ready "$wq"
   printf '100 %s\n%s\n%s\n%s\n' "$wq" "$(ps -ww -o command= -p "$wq")" "$(_kosmos_pid_started_local "$wq")" "$(_kosmos_pid_started "$wq")" > "$(_kosmos_marker_dir)/suitewait.$wq"
   (cd "$tree" && exec env KOSMOS_QUEUE_CLASS="$qc" KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
     KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= bash tools/run-tests.sh) >/dev/null 2>&1 &
@@ -1161,4 +1172,28 @@ out="$(cd "$HERE/.." && KOSMOS_HARNESS_MIN_FREE_MB=999999999 KOSMOS_NO_WAIT=1 KO
 { [ "$rc" -eq 2 ] && has "$out" "unknown argument '--nowait'"; } && pass "#4498 test-install.sh refuses a mistyped --no-wait instead of waiting" \
   || fail "#4498 test-install.sh took an unknown argument (rc=$rc, $out)"
 
+# #5914: a tripwire for the shape that went red, not a proof that no marker can be written early. It reads this file
+# and fails when a process started with `& name=$!` has its command read (ps with `command= -p` and that name, quoted) on that line or one
+# of the next eight with no q_ready "$name" before the read. Its limits, decided once (#5914 review 2): it sees the
+# first such start on a line and only a read written that way; a later start ends its watch on the one before; the
+# text q_ready "$name" counts wherever it stands, a comment included; and a read inside a helper (cw "$g1") or further
+# than eight lines on is not seen.
+unready() { awk '
+  function chk(s,   r, p) { if (!v) return; r = index(s, "q_ready \"$" v "\""); p = index(s, "command= -p \"$" v "\"")
+    if (p && (!r || r > p)) { print at ": " v; v = "" } else if (r) v = "" }
+  match($0, /& *[A-Za-z_][A-Za-z0-9_]*=\$!/) { v = substr($0, RSTART, RLENGTH); sub(/^& */, "", v); sub(/=.*/, "", v); at = NR; chk(substr($0, RSTART + RLENGTH)); next }
+  v && NR <= at + 8 { chk($0) }
+' "$1"; }
+bad="$(unready "$0")"
+[ -z "$bad" ] && pass "#5914 no marker here reads a stand-in command within eight lines of its start without waiting for it" \
+  || fail "#5914 a marker is written from a process that may not have exec'd yet (line: name): $bad"
+# CONTROL, two mutations: the waits on their own line removed (every q_ready "$wp" line), and a wait on the same line
+# as the read removed (p1). The check must name each site.
+sed '/^q_ready "\$wp"$/d' "$0" > "$T/unready-mut.sh"
+nwp="$(grep -c '^q_ready "\$wp"$' "$0")"
+{ [ "$nwp" -ge 3 ] && [ "$(unready "$T/unready-mut.sh" | grep -c ': wp$')" = "$nwp" ]; } && pass "#5914 CONTROL: with the waits removed the check names every such site" \
+  || fail "#5914 CONTROL: the check did not see the waits removed ($nwp waits; $(unready "$T/unready-mut.sh" | tr '\n' ' '))"
+sed 's/ q_ready "\$p1";//' "$0" > "$T/unready-mut.sh"
+[ "$(unready "$T/unready-mut.sh" | grep -c ': p1$')" = 1 ] && pass "#5914 CONTROL: a wait removed from the line of the read is named too" \
+  || fail "#5914 CONTROL: the check did not see a same-line wait removed ($(unready "$T/unready-mut.sh" | tr '\n' ' '))"
 echo "cut guard: $fails failures"; [ "$fails" -eq 0 ]

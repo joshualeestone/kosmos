@@ -3978,6 +3978,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .lstate .ansgo { margin-left: 10px; }
 .ltask { font-size: .9375rem; color: var(--k-ink-2); overflow: hidden;
          text-overflow: ellipsis; white-space: nowrap; }
+/* #6045: a note in the task cell (rules behind, not run in N days) is the model column's size, not a task line's. */
+.ltask.lnote { font-size: .75rem; }
 .lmem { display: flex; align-items: center; gap: 10px; }
 .bar { flex: 1; height: 6px; border-radius: 100px; background: rgba(20,22,26,.10);
        overflow: hidden; display: block; }
@@ -20955,6 +20957,13 @@ function idleLine(a) {
   if (!(a && Number.isSafeInteger(a.idleDays) && a.idleDays > 0)) return '';
   return 'Has not run in ' + a.idleDays + ' days. If it is no longer needed, remove it under AI Settings on its page.';
 }
+/* #6045 (Josh, 0.7.45 review): the list row's task cell. When what it holds is one of the notes above (rules behind,
+   not run in N days), it is drawn at the model column's size (.lnote), not as a task line, and carries the whole note
+   as its title since the cell ends in an ellipsis. Any other text (a task, a state sentence) is unchanged. */
+function lrowTask(text, note) {
+  const isNote = !!text && text === note;
+  return '<div class="ltask' + (isNote ? ' lnote' : '') + '"' + (isNote ? ' title="' + esc(text) + '"' : '') + '>' + esc(text || '') + '</div>';
+}
 /* The offline card and list row's one note: rules behind, then not run in N days, whichever apply. */
 function offlineNote(a) {
   return [rulesBehindLine(a, true), idleLine(a)].filter(Boolean).join(' ');
@@ -22240,7 +22249,7 @@ function lrow(a) {
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
-      <div class="ltask"${a.jobRunningUnseen !== true && offlineNote(a) ? ` title="${esc(offlineNote(a))}"` : ''}>${esc(a.jobRunningUnseen === true ? '' : offlineNote(a))}</div>
+      ${a.jobRunningUnseen === true ? '<div class="ltask"></div>' : lrowTask(offlineNote(a), offlineNote(a))}
       <div class="lmodel"></div>
       <div class="lmem"></div>
     </div>`;
@@ -22315,7 +22324,7 @@ function lrow(a) {
          because they are actions, not status text. This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
     <div class="lstate"><span class="vh">${glyphOf(a)}${esc(copy.label)}</span><span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}">${glyphOf(a)}</span>${answerBtn(a)}${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
-    <div class="ltask">${esc(taskLine(a, { noQuote: true, card: true }))}</div>
+    ${lrowTask(taskLine(a, { noQuote: true, card: true }), rulesBehindLine(a, false))}
     <div class="lmodel">${esc(modelLine(a))}</div>
     <div class="lmem">${mem}</div>
   </div>`;

@@ -306,8 +306,8 @@ test('#5406 slice C: a press whose words fail the bounds is still checked by its
   } finally { chat.resetForTests(); board.restore(); }
 });
 
-test('#5406 slice C: a permission prompt draws no buttons, and a press at one is refused with nothing typed', async () => {
-  const PERM = '⏺ Update(a.js)\n\n Edit file\n a.js\n\n Do you want to make this edit to a.js?\n ❯ 1. Yes\n   2. Yes, allow all edits during this session (shift+tab)\n   3. No, and tell Claude what to do differently (esc)\n\n Enter to select · ↑/↓ to navigate · Esc to cancel';
+test('#5406 slice C + #6054: a permission prompt draws its buttons, and a press at one goes out as the bare digit', async () => {
+  const PERM = '⏺ Update(a.js)\n\n────────────────────────────────\n Edit file\n a.js\n\n Do you want to make this edit to a.js?\n ❯ 1. Yes\n   2. Yes, allow all edits during this session (shift+tab)\n   3. No, and tell Claude what to do differently (esc)\n\n Enter to select · ↑/↓ to navigate · Esc to cancel';
   const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: PERM })]);
   try {
     const calls = [];
@@ -320,14 +320,14 @@ test('#5406 slice C: a permission prompt draws no buttons, and a press at one is
     chat.setDryRun(false); chat.setPauser(() => {});
     const back = await (await fetch(`${base}/api/agent/casey/thread`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
     assert.equal(back.asking, true, 'premise: the prompt reads as asking');
-    assert.ok(Array.isArray(back.options) && back.options.length === 3, 'premise: the prompt reads as numbered options: ' + JSON.stringify(back.options));
-    assert.equal(back.asked, null, 'a permission prompt was offered as answer buttons');
-    // A crafted press with the identity the screen would give: refused, nothing typed or pasted.
-    const q = chat.questionIn(PERM, 'claude');
-    const r = await post({ text: '3', chose: back.options[2].label, asked: chat.questionAbove(q.text) });
-    assert.equal(r.status, 409, JSON.stringify(r.json));
-    assert.match(r.json.error, /cannot be answered with a button/);
-    assert.deepEqual(calls.filter((a) => a[0] === 'set-buffer' || a[0] === 'paste-buffer' || a[0] === 'send-keys'), [], 'a press at a permission prompt was typed');
+    // #6054 review 5: Yes and No only (option 2 saves a lasting choice and is not a button).
+    assert.ok(Array.isArray(back.options) && back.options.length === 2, 'premise: the prompt reads as Yes and No: ' + JSON.stringify(back.options));
+    // #6054: it is offered as buttons now (status.claudePermissionPrompt), and a press is its option's bare digit.
+    assert.ok(back.asked, 'the permission prompt was not offered as answer buttons');
+    const r = await post({ text: '3', chose: back.options[1].label, asked: back.asked });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.deepEqual(calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]), ['3'], 'the press did not go out as the bare 3');
+    assert.equal(calls.filter((a) => a[0] === 'set-buffer' || a[0] === 'paste-buffer').length, 0, 'the press was pasted');
   } finally { chat.resetForTests(); board.restore(); }
 });
 
@@ -382,12 +382,13 @@ test('#5406 slice C: a question identity that is not text is refused, nothing ty
     const bad = await post({ text: '1', chose: 'Yes', asked: { q: 'x' } });
     assert.equal(bad.status >= 400, true, JSON.stringify(bad.json));
     assert.match(String(bad.json && bad.json.error), /a question identity is text/, 'refused for some other reason');
-    // Review 18: at a permission prompt a press whose words also fail their check hears the TRUE reason (not a button
-    // question), not "could not check that choice's words ... or type its number" (typing its number is refused too).
+    // Review 18, updated by #6054: a permission prompt IS answered with buttons now, so a press whose words fail their
+    // check hears that true reason, which points at this page (never at a window), and nothing is typed.
     const q = chat.questionIn(PERM, 'claude');
     const both = await post({ text: '1', chose: 'Yes\u0007', asked: chat.questionAbove(q.text) });
     assert.equal(both.status, 409, JSON.stringify(both.json));
-    assert.match(String(both.json && both.json.error), /cannot be answered with a button/, 'the words refusal answered first');
+    assert.match(String(both.json && both.json.error), /could not check that choice's words/, 'refused for some other reason');
+    assert.doesNotMatch(String(both.json && both.json.error), /in its window/, 'the refusal points at a window');
     assert.deepEqual(calls.filter((a) => a[0] === 'set-buffer' || a[0] === 'paste-buffer' || a[0] === 'send-keys'), [], 'a button send was typed into a permission prompt');
   } finally { chat.resetForTests(); board.restore(); }
 });

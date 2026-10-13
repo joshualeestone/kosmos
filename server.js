@@ -16627,11 +16627,13 @@ const server = http.createServer(async (req, res) => {
     const guideName = guideThread ? ((card && card.sessionName) || name) : null;
     const servedRows = dmServeRows(servedMessages, name, card);   // kosmos#5841: shared with the older route
     /* #5406 slice C: may this screen's options be offered as buttons (see `asked` below)? Every condition must hold. */
-    const cqNow = view && view.text ? require('./engine/status').claudeQuestionMenu(view.text) : null;
+    const cqNow = view && view.text ? require('./engine/status').claudeAnswerableMenu(view.text) : null;   // #6054: a permission prompt too
     const pressable = !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude'
       && Array.isArray(options) && Boolean(question) && typeof question.text === 'string'
       && options.every((o) => o && typeof o.label === 'string' && !chat.messageProblem(o.label))   // a label a press could never carry
       && Boolean(cqNow)
+      // #6054 review 3: a permission prompt only with its whole box on screen (its identity must be the whole request).
+      && (!cqNow.permission || chat.permissionAnswerable(view.text))
       // Both menu readers agree on the options, so a drawn button is one the key path will accept (review 21).
       && cqNow.options.length === options.length
       && cqNow.options.every((o, k) => o.n === options[k].n && chat.cleanMessage(o.label) === chat.cleanMessage(options[k].label));
@@ -16669,8 +16671,8 @@ const server = http.createServer(async (req, res) => {
          the setup guide's thread: everything served there is masked (#3769), and this is unmasked screen text. Claude
          cards only: the key-answer path a press relies on is Claude's (the runner half of questionMenuKeysAllowed; the
          page draws no buttons where the composer is closed, and the POST refuses what a key cannot reach).
-         And only for the single-select question menu that path answers (status.claudeQuestionMenu): a permission prompt
-         also reads as numbered options, but a press there would be pasted, and its Enter picks the highlighted option. */
+         And only for a menu that path answers by key (status.claudeAnswerableMenu): the single-select question menu, or
+         (#6054) Claude Code's permission prompt, whose press must carry this identity (its question line repeats). */
       asked: pressable ? chat.questionAbove(question.text) : null,
     });
     return;
@@ -16825,7 +16827,7 @@ const server = http.createServer(async (req, res) => {
           /* #5406 slice C review 18: the press-kind refusals FIRST, so their sentence is the true one (a press for another
              runner, or at a screen that is not the single-select menu, would otherwise be told its question is gone or
              its words could not be checked). */
-          const notMenu = askedGiven && seen && seen.text && !require('./engine/status').claudeQuestionMenu(seen.text);
+          const notMenu = askedGiven && seen && seen.text && !require('./engine/status').claudeAnswerableMenu(seen.text);
           if (askedGiven && ((card && String(card.runner || 'claude') !== 'claude') || notMenu)) {
             /* Review 24: at a screen that is not the menu, say which is true. The same question on another kind of screen
                cannot be answered with a button; a DIFFERENT (or no) question there means the screen moved on. */
@@ -16860,7 +16862,9 @@ const server = http.createServer(async (req, res) => {
              drift from the screen. */
           if (chose) chose = chat.cleanMessage(chose);
           if (menu && askedGiven && !chose) {   // #5406 slice C: words that failed their check are not "a changed question"
-            const unchecked = new Error('we could not check that choice\'s words, so we did not send it. Answer it in its window, or type its number.');
+            // #6054 review 3: a permission prompt is answered only by a press, so typing its number is not offered there.
+            const typing = require('./engine/status').claudePermissionPrompt(asked.text) ? '' : '; you can also answer it by typing its number';
+            const unchecked = new Error('we could not check that choice\'s words, so we did not send it. Its current question is on this page' + typing + '.');
             unchecked.status = 409;
             throw unchecked;
           }
@@ -16899,7 +16903,10 @@ const server = http.createServer(async (req, res) => {
            * so the right treatment is to bound BOTH SIDES identically and
            * compare what is left, rather than to stop looking.
            */
-          const bound = (v) => chat.cleanMessage(v).slice(0, 2000);
+          /* #6054 review 3: uncut for a permission prompt, whose distinguishing text (the command's head) can sit past any
+             prefix of a tall box; still the same on both sides. */
+          const permNow = Boolean(asked && require('./engine/status').claudePermissionPrompt(asked.text));
+          const bound = (v) => (permNow ? chat.cleanMessage(v) : chat.cleanMessage(v).slice(0, 2000));
           const askedAbove = askedGiven ? bound(body.asked) : null;   // the one test for a press that named its question
           const nowAbove = asked ? chat.questionAbove(asked.text) : null;
           const nowClean = nowAbove ? bound(nowAbove) : null;
@@ -17044,10 +17051,13 @@ const server = http.createServer(async (req, res) => {
         let qmenuClosed = false;
         // Review 2: a Claude card only (Codex and Gemini answer their own menus by their own keys).
         if (!automatic && seenNow && askingCard && String(askingCard.runner || 'claude') === 'claude') {
-          const cq = seenNow.text ? require('./engine/status').claudeQuestionMenu(seenNow.text) : null;
+          const cq = seenNow.text ? require('./engine/status').claudeAnswerableMenu(seenNow.text) : null;   // #6054
           if (cq) {
             const said = String(body.text).trim();
-            const opt = /^\d$/.test(said) ? cq.options.find((o) => String(o.n) === said) : null;
+            /* #6054 review 1: a permission prompt is answered only by a press of its button, which carries the prompt's identity
+               (`asked`): a typed digit names no command, and "1" is Yes on every prompt, so it could approve one the person
+               never saw. Typed, it is words: delivery refuses it and points at the buttons. */
+            const opt = (/^\d$/.test(said) && (!cq.permission || askedGiven)) ? cq.options.find((o) => String(o.n) === said) : null;
             /* A press is answered only as the option the live menu shows under that number, with the words the page
                drew for it: the two menu readers (optionsIn above, claudeQuestionMenu here) must agree. */
             if (opt && chose && chat.cleanMessage(opt.label) !== chose) {
@@ -17055,17 +17065,20 @@ const server = http.createServer(async (req, res) => {
               e.status = 409; throw e;
             }
             if (!opt && (chose || askedGiven)) {
-              const e = new Error('that is not one of the numbers on the menu its screen shows now, so we did not send it. Answer it in its window.');
+              const e = new Error('that is not one of the numbers on the menu its screen shows now, so we did not send it. Its current question is on this page.');
               e.status = 409; throw e;
             }
             if (opt && !files.recs.length && !answered) {
-              const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label });
+              const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}) });
               if (!r.ok) { const e = new Error(r.because); e.status = 409; throw e; }
               qmenuAnswer = r;
             } else if (chose || askedGiven) {
               // Review round 1: a button is a choice; one carrying files or a reply is not sent as a dismissal.
               const e = new Error('a choice is sent on its own; send the files or the reply as a message after it');
               e.status = 409; throw e;
+            } else if (cq.permission) {
+              /* #6054: words, not a pressed option, while a permission prompt is up. Not closed: Escape there means No,
+                 a refusal nobody chose. Delivery below refuses to type and says to answer with the buttons. */
             } else {
               const c = await chat.closeQuestionMenu(name, roster, { question: cq.question });
               if (!c.ok) { const e = new Error(c.because); e.status = 409; throw e; }
@@ -17128,7 +17141,7 @@ const server = http.createServer(async (req, res) => {
         }
         let delivery = qmenuAnswer
           ? { state: qmenuAnswer.answered ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED,
-            because: qmenuAnswer.answered ? null : 'its question was still on its screen after the answer; look at its window',
+            because: qmenuAnswer.answered ? null : 'its question was still on its screen after the answer; look at this page again in a moment before pressing anything',   // #6054: no window to look at
             at: new Date().toISOString() }
           : await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
             envelope, (attachments.wireNote(files.recs) || '') + reactionNote, ...(automatic ? [{ cap: false }] : []));
@@ -22465,6 +22478,22 @@ function start(port = PORT) {
       });
       const firstreplySweep = setInterval(firstreplyTick, Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) : 60 * 1000); // the env is the test seam only
       if (firstreplySweep && typeof firstreplySweep.unref === 'function') firstreplySweep.unref();
+      /* #5959 slice 3: an agent whose `blocked` report has stood on its card over a day is told ONCE per report (kept
+         on disk), typed into its session (engine/stalereport-nudge.js), in the words `kosmos report show` uses.
+         Same gating as the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
+         AGENT_WORKFORCE_STALEREPORT_NUDGE_OFF=1, own timer (a report a few minutes past a day is late by that much),
+         unref'd, best-effort. */
+      const STALEREPORT_BOOK = new Map();
+      const stalereportTick = require('./engine/stalereport-nudge').makeTick({
+        allowed: () => liveExecution.liveExecutionAllowed(),
+        roster: () => safeRoster(),
+        book: STALEREPORT_BOOK,
+        deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
+        DELIVERY: chat.DELIVERY,
+        log: (r) => process.stdout.write(`stalereport-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`),
+      });
+      const stalereportSweep = setInterval(stalereportTick, Number(process.env.AGENT_WORKFORCE_STALEREPORT_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_STALEREPORT_NUDGE_MS) : 5 * 60 * 1000); // the env is the test seam only
+      if (stalereportSweep && typeof stalereportSweep.unref === 'function') stalereportSweep.unref();
       /* #4588: Antigravity agents paused on their Google account's shared quota get ONE carry-on line after the reset,
          one agent at a time (engine/agyquota.js). Same gating as the sweeps above: inert under `node --test` and before
          the live-execution opt-in, operator brake AGENT_WORKFORCE_AGY_QUOTA_RESUME_OFF=1, own ~1-min timer, unref'd,

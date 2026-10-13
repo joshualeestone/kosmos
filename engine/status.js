@@ -2339,6 +2339,8 @@ const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEED
    wording changes. It is deliberately NOT a real question, so a caller can tell
    "the board is asking, in general" from "the agent told us this". */
 const ASKING_GENERIC = 'it is asking you something';
+/* #6054: a Claude agent stopped on its permission prompt (claudePermissionPromptKind `wording`). */
+const APPROVAL_WAITING = 'it is waiting for your approval';
 
 /* #5039: Claude Code's safeguards model-switch menu, which stops a session until the person picks. Observed on Angel's
    pane 2026-10-02 ~11:07 (Claude Code 2.1.287, Opus 5.5):
@@ -2520,6 +2522,69 @@ function claudePermissionPromptKind(text) {
     return null;
   }
   return null;
+}
+
+/* #6054: Claude Code's permission prompt, read into the same shape as claudeQuestionMenu, so the agent page can offer
+   its options as buttons and answer it by key. Measured on 2.1.296 (2026-10-13, a Write that needed approval):
+   "Do you want to create notes-a.txt?", then "❯ 1. Yes" / "  2. Yes, and switch to accept edits (...)" / "  3. No",
+   over "Esc to cancel · Tab to amend". A bare digit answers at once: 1 approved the write, 3 rejected it ("User
+   rejected write to ...") and the agent went back to its prompt. Only the `wording` kind (claudePermissionPromptKind):
+   a highlighted option in other wording may be one of Claude Code's own pickers, which is not pressed on a guess.
+   Returns { at, question, options: [{ n, label }], count, permission: true } or null. Refused (null): no footer within
+   the last three non-blank lines, numbering that is not 1..count in order, not exactly one highlighted option, fewer than
+   2 or more than 9 options (every answer is ONE key), or a control character in a label. A label wrapped onto
+   indented next lines is joined into one whole option (the page shows and the key path checks the whole label). */
+function claudePermissionPrompt(text) {
+  if (safeguardsMenuAt(String(text == null ? '' : text))) return null;   // never the safeguards menu (#5051), as claudeQuestionMenu
+  if (claudePermissionPromptKind(text) !== 'wording') return null;
+  const lines = String(text == null ? '' : text).split('\n');
+  let foot = -1;
+  let seen = 0;
+  for (let i = lines.length - 1; i >= 0 && seen < 3; i -= 1) {
+    if (!lines[i].trim()) continue;
+    seen += 1;
+    if (CLAUDE_PERMISSION_FOOTER.test(lines[i])) { foot = i; break; }
+  }
+  if (foot < 0) return null;
+  const opts = [];
+  let selected = 0;
+  let q = -1;
+  /* Walked upward, so a wrapped label's next lines (indented, not an option) are met BEFORE their own option: they
+     wait in `wrap` and join that option's label, so the label is the whole option as drawn (review 1: a long Bash
+     command wraps option 2, and a first line alone would be a different label from the one the page shows). */
+  let wrap = [];
+  for (let i = foot - 1; i >= Math.max(0, foot - 30); i -= 1) {
+    const l = lines[i];
+    if (!l.trim()) continue;
+    const m = CLAUDE_QMENU_OPTION.exec(l);
+    if (m) {
+      const label = [m[3], ...wrap.map((w) => w.trim())].join(' ');
+      wrap = [];
+      // eslint-disable-next-line no-control-regex
+      if (/[\u0000-\u001f\u007f]/.test(label)) return null;
+      opts.unshift({ n: Number(m[2]), label });
+      if (m[1]) selected += 1;
+      continue;
+    }
+    if (CLAUDE_PERMISSION_QUESTION.test(l)) { q = i; break; }
+    if (/^\s{3,}\S/.test(l)) { wrap.unshift(l); continue; }   // a wrapped option label's next line
+    return null;   // anything else between the options and the question: not the prompt as measured
+  }
+  if (wrap.length) return null;   // indented text directly under the question, above the first option
+  if (q < 0 || opts.length < 2 || opts.length > 9 || selected !== 1) return null;
+  if (opts.some((o, k) => o.n !== k + 1)) return null;
+  /* Review 5 (decided, reversible): only the options that decide THIS request are answerable, "Yes" and the "No" one.
+     The others ("Yes, and don't ask again for ...", "Yes, and switch to auto mode", "Yes, and switch to accept edits")
+     save a lasting choice in the agent's settings or session, and the rule for those is #5051's: never a one-tap button,
+     so a mis-tap on a phone cannot change what the agent may do from now on. They stay on screen in the question text. */
+  const answerable = opts.filter((o) => o.label === 'Yes' || /^No\b/.test(o.label));
+  if (answerable.length !== 2 || answerable[0].label !== 'Yes') return null;
+  return { at: q, question: lines[q].trim(), options: answerable, count: opts.length, permission: true };
+}
+/* #6054: a menu the agent page may answer by key: the question menu, or a permission prompt. Only for answering by a
+   pressed number. Closing with Escape stays the question menu's alone: on a permission prompt Escape means No. */
+function claudeAnswerableMenu(text) {
+  return claudeQuestionMenu(text) || claudePermissionPrompt(text);
 }
 
 /* #5743 review 10: the safeguards model-switch menu (#5051) LIVE at the bottom of the screen. claudeQuestionMenuUp leaves
@@ -5021,6 +5086,9 @@ function classify(pane, paneText) {
   if (drawsOptionMenu(tail)) {
     const flagged = safeguardsMenu(tail);
     if (flagged) return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, ...flagged };
+    /* #6054: Claude Code's permission prompt says what it is waiting for, so the card and page do not read it as an open
+       question: the person answers it with its buttons on the agent page. */
+    if (claudePermissionPromptKind(paneText) === 'wording') return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: APPROVAL_WAITING };
     return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: ASKING_GENERIC };
   }
   /* #5749: Claude Code's question menu with NO numbered highlighted row in the tail: the highlight on the multi-select
@@ -9401,7 +9469,7 @@ module.exports = {
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
      placeholder as if the agent had said it. */
-  ASKING_GENERIC, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudeSafeguardsMenuUp,
+  ASKING_GENERIC, APPROVAL_WAITING, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudePermissionPrompt, claudeAnswerableMenu, claudeSafeguardsMenuUp,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,

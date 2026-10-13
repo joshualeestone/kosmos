@@ -4,7 +4,8 @@
 # annotations in docs/browser-checks/*.js (added by #2518) -- the FROZEN contract this and
 # tools/lib/browser-check-surface-gate.sh both read; the annotation FORMAT is the single
 # source of truth. The annotation-parse sed and the whole-token boundary match are the SHARED
-# primitives in tools/lib/browser-check-surface-lib.sh (bc_surface_tokens_of / bc_surface_token_hits),
+# primitives in tools/lib/browser-check-surface-lib.sh (bc_surface_tokens_of / bc_surface_token_hits,
+# and the one-pass bc_surface_scan_checks that covering reads, #5907),
 # which this helper AND the gate source -- so they cannot byte-drift; there is one definition.
 # The DRIFT-DETECTOR arms in test-bc-surface-map.sh (3/3c/3d/4b) survive the extraction as a
 # WIRING check: they assert the helper and the gate still agree BEHAVIOURALLY on plain-token
@@ -65,7 +66,7 @@ _bcm_map() {
 }
 
 _bcm_covering() {
-  local dir changed base toks tok tab
+  local dir changed base toks tab
   dir="$1"
   tab="$(printf '\t')"
   changed="$(cat)"                                   # stdin
@@ -96,16 +97,36 @@ _bcm_covering() {
     changed="$(printf '%s\n' "$changed" | grep -E '^[+-]' | grep -Ev '^(\+\+\+|---)' 2>/dev/null || true)"
   fi
   [ -n "$changed" ] || return 0
+  # #5907: every check in one pass (bc_surface_scan_checks, the scan shared with the gate): a HIT is covering, a MISS is not, and
+  # only a SLOW check (a non-plain token before any plain hit, or a key line the scan's C-locale match refuses) is read the original
+  # way, token by token. If the scan cannot run, every check is read that way, as before.
+  local scan verdict _hit ann   # _hit: the scan's token, not needed here
+  if scan="$(bc_surface_scan_checks "$dir" "$changed")"; then
+    while IFS="$tab" read -r ann verdict _hit; do
+      [ -n "$ann" ] || continue
+      case "$verdict" in
+        HIT) printf '%s\n' "${ann##*/}" ;;
+        SLOW) toks="$(bc_surface_tokens_of "$ann")"; [ -n "$toks" ] && _bcm_covers "${ann##*/}" "$toks" "$changed" ;;
+      esac
+    done <<< "$scan" | sort -u
+    return 0
+  fi
   while IFS="$tab" read -r base toks; do
     [ -n "$base" ] || continue
-    while IFS= read -r tok; do
-      [ -n "$tok" ] || continue
-      if bc_surface_token_hits "$tok" "$changed"; then   # shared whole-token match (== the gate)
-        printf '%s\n' "$base"
-        break
-      fi
-    done <<< "$(printf '%s' "$toks" | tr ' \t' '\n\n')"
+    _bcm_covers "$base" "$toks" "$changed"
   done <<< "$(_bcm_map "$dir")" | sort -u
+}
+
+# Print $1 (a check's basename) when any of its tokens $2 occurs whole in $3, token by token (the original path).
+_bcm_covers() {
+  local tok
+  while IFS= read -r tok; do
+    [ -n "$tok" ] || continue
+    if bc_surface_token_hits "$tok" "$3"; then   # shared whole-token match (== the gate)
+      printf '%s\n' "$1"
+      return 0
+    fi
+  done <<< "$(printf '%s' "$2" | tr ' \t' '\n\n')"
 }
 
 main() {

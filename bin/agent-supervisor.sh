@@ -1218,7 +1218,27 @@ if [ -z "$adopt" ]; then
       unset _gkey
     fi
     GEMINI_MODEL="${MODEL:-gemini-2.5-flash}"
-    launch_pane "$CLAUDE" --approval-mode yolo --skip-trust -m "$GEMINI_MODEL" || exit 1
+    # #5812: the folders of the projects this agent is on join its workspace, so gemini's own
+    # write_file/replace can change project files (it refuses any path outside the workspace,
+    # and a shell write records nothing). engine/geminidirs.js decides which folders, writes
+    # them into this agent's OWN gemini trust file (else gemini's trust dialog would wait in
+    # front of the pane; the person's trustedFolders.json is only read), prints that file as
+    # `TRUST <path>` then one folder per line, and logs the ones it leaves out with why. Membership
+    # is keyed by the roster name, not the launch key ($SESSION can carry +world or -discord).
+    # Read at launch: a project joined later reaches this agent at its next start.
+    GEMINI_INCLUDE=()
+    if [ -n "$_eng" ] && [ -n "${NODE_BIN:-}" ] && [ -f "$_eng/geminidirs.js" ]; then
+      while IFS= read -r _gdir; do
+        case "$_gdir" in
+          "TRUST "*) PANE_ENV+=(-e "GEMINI_CLI_TRUSTED_FOLDERS_PATH=${_gdir#TRUST }") ;;
+          /*) GEMINI_INCLUDE+=(--include-directories "$_gdir") ;;
+        esac
+      done < <("$NODE_BIN" "$_eng/geminidirs.js" launch-args "$(token_roster_name)" "$WORKDIR" "${GEMINI_CLI_HOME:-}" || true)
+      unset _gdir
+    else
+      say "$SESSION: #5812: no project folders were added to the Gemini workspace (the engine or node was not found)"
+    fi
+    launch_pane "$CLAUDE" --approval-mode yolo --skip-trust -m "$GEMINI_MODEL" ${GEMINI_INCLUDE[@]+"${GEMINI_INCLUDE[@]}"} || exit 1
   elif [ "$RUNNER" = grok ]; then
     # #3391: the Grok runner. Like gemini, self-reporting is NOT a launch flag (as
     # codex's notify is) -- Grok Build has its own hook system, and engine/create.js

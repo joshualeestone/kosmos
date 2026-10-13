@@ -94,7 +94,7 @@ function isKeyedRunner(runner) { return KEYED_RUNNERS.includes(String(runner || 
 /**
  * The argv for one turn (after runners.spawnTarget's prefix). Pure.
  * @param {'gemini'|'grok'} runner
- * @param {{ message: string, model?: string, sessionId?: string, newSessionId?: string }} opts
+ * @param {{ message: string, model?: string, sessionId?: string, newSessionId?: string, includeDirs?: string[] }} opts
  *   `sessionId` resumes; otherwise `newSessionId` names the new session.
  */
 function turnArgs(runner, opts) {
@@ -102,7 +102,9 @@ function turnArgs(runner, opts) {
   const model = o.model ? String(o.model) : DEFAULT_MODEL[runner];
   const session = o.sessionId ? ['--resume', String(o.sessionId)] : ['--session-id', String(o.newSessionId)];
   if (runner === 'gemini') {
-    return ['--prompt=' + String(o.message), '-o', 'json', '--approval-mode', 'yolo', '--skip-trust', '-m', model, ...session];
+    /* #5812: the agent's project folders join its workspace (engine/geminidirs.js), one flag each. */
+    return ['--prompt=' + String(o.message), '-o', 'json', '--approval-mode', 'yolo', '--skip-trust', '-m', model, ...session,
+      ...require('./geminidirs').includeArgs(o.includeDirs)];
   }
   if (runner === 'grok') {
     return ['--single=' + String(o.message), '--output-format', 'json',
@@ -169,6 +171,9 @@ function parseTurn(runner, stdout) {
    conversation rather than failing the same way forever. */
 const LOST_SESSION = /no previous sessions found|invalid session identifier|session[^\n]{0,40}not found|no session/i;
 
+/* #5812: the left-out project folders already written to stderr by this process. */
+const SAID_LEFT_OUT = new Set();
+
 /* The spawn seam. Tests replace it; nothing else does. Mirrors win32codex.setSpawn. */
 let spawnFn = null;
 function setSpawn(fn) { spawnFn = typeof fn === 'function' ? fn : null; }
@@ -187,6 +192,8 @@ function spawner() { return spawnFn || spawn; }
  * @param {string}  [opts.cwd]
  * @param {object}  [opts.env]        the full child environment (turnEnv)
  * @param {string}  [opts.platform]   seam for runners.spawnTarget
+ * @param {string}  [opts.name]       the agent, for its project folders (gemini, #5812)
+ * @param {string[]} [opts.includeDirs] seam: those folders, instead of reading projects.json
  * @returns {Promise<{ ok: boolean, response?: string, sessionId: string|null,
  *                     resetSession?: boolean, error?: string }>}
  *   `sessionId` is the conversation the NEXT turn should resume, or null to start fresh.
@@ -198,7 +205,28 @@ function runKeyedTurn(opts) {
     const resuming = Boolean(o.sessionId);
     const newSessionId = resuming ? null : (o.newSessionId || crypto.randomUUID());
     let args;
-    try { args = turnArgs(runner, { message: o.message, model: o.model, sessionId: o.sessionId, newSessionId }); }
+    /* #5812: read at EVERY turn, so a project joined since the last one is already in its workspace.
+       A headless turn adds them without a trust question, so no trust file is written; the person's
+       DO_NOT_TRUST marks are honoured as on the Mac (geminidirs.turnFolders). */
+    let includeDirs = Array.isArray(o.includeDirs) ? o.includeDirs : [];
+    if (runner === 'gemini' && !Array.isArray(o.includeDirs) && o.name) {
+      try {
+        const gd = require('./geminidirs');
+        const r = gd.turnFolders(o.name, o.cwd, (o.env && o.env.GEMINI_CLI_HOME) || '', { env: o.env || process.env });
+        includeDirs = r.folders;
+        /* Each left-out folder is said once per supervisor, as the Mac launch says it, not at every turn. */
+        for (const l of r.leftOut) {
+          const line = gd.leftOutLine(l);
+          if (!SAID_LEFT_OUT.has(line)) { SAID_LEFT_OUT.add(line); process.stderr.write(line + '\n'); }
+        }
+      }
+      catch (e) {
+        includeDirs = [];
+        const line = '#5812: no project folders for this gemini turn (' + ((e && e.message) || e) + ')';
+        if (!SAID_LEFT_OUT.has(line)) { SAID_LEFT_OUT.add(line); process.stderr.write(line + '\n'); }
+      }
+    }
+    try { args = turnArgs(runner, { message: o.message, model: o.model, sessionId: o.sessionId, newSessionId, includeDirs }); }
     catch (e) { return resolve({ ok: false, error: String((e && e.message) || e), sessionId: o.sessionId || null }); }
     const target = runners.spawnTarget(o.bin, o.platform || process.platform);
     let child;

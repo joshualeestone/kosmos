@@ -79,7 +79,7 @@ test('the two views Josh named ask for it without the quote, and #3043 drops it 
   /* Pinned by CALL SITE: the derivation being correct is no use if the card
      stops passing the option. */
   const grid = PAGE.match(/<div class="atask">\$\{esc\(taskLine\([^)]*\)\)\}<\/div>/);
-  const list = PAGE.match(/<div class="ltask">\$\{esc\(taskLine\([^)]*\)\)\}<\/div>/);
+  const list = PAGE.match(/\$\{lrowTask\(taskLine\([^)]*\), [^)]*\)\)\}/);   // #6045: the list cell is drawn by lrowTask
   assert.ok(grid, 'the grid card no longer renders .atask this way; re-derive this test');
   assert.ok(list, 'the list row no longer renders .ltask this way; re-derive this test');
   assert.match(grid[0], /noQuote/, 'the GRID card is asking for the quoted line again');

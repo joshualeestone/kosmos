@@ -1198,10 +1198,24 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   const before = look();
   // Review 32: a screen that could not be read is not "the question went": say which (nothing was sent either way).
   if (!before) return { ok: false, because: 'we could not see its screen to answer its question, so nothing was sent; try again' };
-  const menu = status.claudeQuestionMenu(before);
+  const menu = status.claudeAnswerableMenu(before);   // #6054: a permission prompt is answered the same way
   if (!menu) return { ok: false, because: 'its question is no longer on its screen, so nothing was sent' };
   const opt = menu.options.find((o) => o.n === Number(n));
   const e = expect || {};
+  /* #6054 review 1: a permission prompt's question line and labels repeat from one command to the next ("Do you want to
+     proceed?", "1. Yes"), so it is matched on what is above them (questionAbove: the command or the file), read on THIS
+     last look, and refused without one. A redraw to another command between the route's read and this one is then a
+     refusal, never a Yes to a command the person did not see. */
+  /* Review 3: the WHOLE identity, uncut (a tall command's distinguishing head can sit past any prefix), and only for a box
+     whose top is on screen (permissionAnswerable). */
+  const idOf = (text) => { const q = questionIn(text, 'claude'); const a = q ? questionAbove(q.text) : null; return a ? cleanMessage(a) : null; };
+  const idBefore = menu.permission && permissionAnswerable(before) ? idOf(before) : null;
+  if (menu.permission && (!e.identity || !idBefore)) {
+    return { ok: false, because: 'we could not tell which request its screen is asking about, so nothing was sent; look at this page again in a moment' };
+  }
+  if (menu.permission && idBefore !== cleanMessage(e.identity)) {
+    return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
+  }
   if (!opt || (e.question && e.question !== menu.question) || (e.label && cleanMessage(e.label) !== cleanMessage(opt.label))) {
     return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
   }
@@ -1209,9 +1223,14 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   if (got.spawnFailed || !got.ran || got.status !== 0) return { ok: false, because: 'we could not answer its question; look at its window' };
   await qmenuWait(QMENU_SETTLE_MS);
   const after = look();
-  const still = after ? status.claudeQuestionMenu(after) : null;
+  const still = after ? status.claudeAnswerableMenu(after) : null;
   // Review 3: a screen that could not be read after the key is not "answered": the record says unconfirmed.
-  return { ok: true, key: String(opt.n), label: opt.label, answered: !!after && !(still && still.question === menu.question), screen: after };
+  /* #6054 review 1: the same prompt still showing, by identity for a permission prompt: the NEXT command's prompt has the
+     same question line, and reading that as "not answered" would invite a second press that approves it. A redraw
+     that changes the box's text reads as answered too: the safe direction, since "unconfirmed" invites a second press,
+     though the record then says placed for a prompt that may still be pending. */
+  const same = still && (menu.permission ? (still.permission && idOf(after) === idBefore) : still.question === menu.question);
+  return { ok: true, key: String(opt.n), label: opt.label, answered: !!after && !same, screen: after };
 }
 /* Close the live question menu with Escape before a message goes (the person answered in their own words). Resolves
    { ok: true, closed } (closed: there was a menu and it went) or { ok: false, because }. No menu: { ok: true, closed: false }. */
@@ -1444,6 +1463,20 @@ const CLAUDE_WAITING_SENTENCE = 'it is waiting for an answer on its screen, and 
    option (usually Yes), so a typed line would approve a command or an edit nobody chose. */
 const CLAUDE_PERMISSION_SENTENCE = 'it is asking for permission on its screen, and a message typed now would answer that '
   + '(usually Yes), so we did not type anything; answer it in its window first';
+/* #6054: the ending for a screen the agent page answers with buttons (status.claudeAnswerableMenu reads it), in place of
+   "in its window", which a person using Kosmos cannot reach. Only when the buttons are really drawn: another form of the
+   menu, or a permission prompt whose options do not read cleanly, keeps the window ending. */
+const ON_ITS_PAGE = 'answer it with the buttons under its question on its page in Kosmos';
+const onItsPage = (sentence) => sentence.replace(/answer (?:the question|it) in its window first$/, ON_ITS_PAGE);
+/* #6054 review 2: the page reads the screen and draws buttons only for a needs_you card, and never in the setup guide's
+   thread (everything there is masked). A working card or the guide keeps the window ending. */
+/* #6054 review 4: and every label is one a press can carry (the GET's `pressable` refuses a menu with one that is not). */
+const labelsPressable = (menu) => Boolean(menu) && menu.options.every((o) => typeof o.label === 'string' && !messageProblem(o.label));
+function pageDrawsButtons(card, sessionName) {
+  if (!card || card.state !== status.STATE.NEEDS_YOU) return false;
+  if (card.disruption && card.disruption.failed === true) return false;   // review 3: the page's `asking` excludes it
+  try { return !require('./setup-assistant').isGuideFolder(sessionName); } catch { return false; }
+}
 function claudeMenuRefusal(card, sessionName, roster) {
   if ((DRY_RUN && !runner) || !card || String(card.runner || 'claude') !== 'claude' || card.reachedByChannel === true) return null;
   /* needs_you, and working too (review 11): an agent usually reaches a permission prompt mid-turn, while its card still
@@ -1459,10 +1492,14 @@ function claudeMenuRefusal(card, sessionName, roster) {
   if (status.claudeSafeguardsMenuUp(view.text)) return CLAUDE_SAFEGUARDS_SENTENCE;   // its own reading (#5051), never pressed
   if (status.claudeQuestionMenuUp(view.text)) {   // first: its free-answer row is the stricter signal
     /* The direct-message route answers by number only when the card reads needs_you (it reads the screen only then). */
-    return CLAUDE_MENU_SENTENCE + (card.state === status.STATE.NEEDS_YOU && status.claudeQuestionMenu(view.text) ? CLAUDE_MENU_DM_CLAUSE : '');
+    // #6054: the page draws buttons for the single-select form (status.claudeQuestionMenu) only.
+    const qm = status.claudeQuestionMenu(view.text);
+    const single = Boolean(qm);
+    return (single && labelsPressable(qm) && pageDrawsButtons(card, sessionName) ? onItsPage(CLAUDE_MENU_SENTENCE) : CLAUDE_MENU_SENTENCE)
+      + (card.state === status.STATE.NEEDS_YOU && single ? CLAUDE_MENU_DM_CLAUSE : '');
   }
   const kind = status.claudePermissionPromptKind(view.text);   // #5754
-  if (kind === 'wording') return CLAUDE_PERMISSION_SENTENCE;
+  if (kind === 'wording') return permissionAnswerable(view.text) && labelsPressable(status.claudePermissionPrompt(view.text)) && pageDrawsButtons(card, sessionName) ? onItsPage(CLAUDE_PERMISSION_SENTENCE) : CLAUDE_PERMISSION_SENTENCE;   // #6054
   return kind === 'shape' ? CLAUDE_WAITING_SENTENCE : null;   // other wording, or one of Claude Code's own pickers
 }
 
@@ -2273,6 +2310,27 @@ function viewport(sessionName, roster) {
  * `runner` (#4034): the card's runner. For 'gemini' the slice starts at Gemini's question box when one is up
  * (status.geminiQuestionReading); for any other runner, or none, only the markers are read.
  */
+/* #6054 review 3: a permission prompt and where its box starts: the line under the nearest full-width rule above its
+   question (top -1 when it is not on screen: a box taller than the pane). Review 4: the box never holds Claude Code's
+   transcript marks ('⏺' a reply, '⎿' a result, '✻' its status line), and anything reaching back into an earlier turn
+   does, so meeting one before the rule means this box's own rule has scrolled away and an older one is above it: top -1. */
+function permissionBox(text) {
+  const pp = status.claudePermissionPrompt(text);
+  if (!pp) return null;
+  const lines = String(text == null ? '' : text).split('\n');
+  for (let i = pp.at - 1; i >= 0; i -= 1) {
+    if (/^\s*─{8,}\s*$/.test(lines[i])) return { pp, top: i + 1 };
+    if (/^\s*[⏺⎿✻]/.test(lines[i])) return { pp, top: -1 };
+  }
+  return { pp, top: -1 };
+}
+/* #6054 review 3: may this screen's permission prompt be answered by key? Only when its whole box is on screen, so its
+   identity is the whole request. A box whose top has scrolled away could share its visible tail with another command's,
+   so it gets no buttons, no key, and no promise of buttons. */
+function permissionAnswerable(text) {
+  const box = permissionBox(text);
+  return Boolean(box && box.top >= 0);
+}
 function questionIn(text, runner) {
   const whole = String(text == null ? '' : text);
   if (!whole.trim()) return null;
@@ -2291,6 +2349,12 @@ function questionIn(text, runner) {
      together are Claude's); the thread route answers it by key for a Claude card only. */
   const cq = status.claudeQuestionMenu(whole);
   if (cq) return { text: lines.slice(cq.at).join('\n').replace(/\s+$/, '') };
+  /* #6054 review 2: Claude Code's permission prompt, as its whole box: from under the full-width rule that opens it
+     ("Bash command", "Create file") to its footer. The person reads the whole command, and questionAbove's identity is
+     every line of it: the six-line run-up below cut a long command's head off, so two commands with the same tail
+     could share an identity. No rule within 60 rows: the 40 rows above its question, the same bound on every read. */
+  const box = permissionBox(whole);
+  if (box) return { text: lines.slice(box.top >= 0 ? box.top : Math.max(0, box.pp.at - 40)).join('\n').replace(/\s+$/, '') };
   // The LAST match, not the first: a pane accumulates, and an older question
   // that has already been answered may still be on screen above the live one.
   let at = -1;
@@ -2427,7 +2491,12 @@ const ANY_NUMBERED = new RegExp(`^(?:[${status.SELECTOR_GLYPHS}]\\s*)?\\d+[.)]\\
 function questionAbove(questionText) {
   // #5406 part 2: the question menu's identity is its question line.
   { const cq = status.claudeQuestionMenu(String(questionText == null ? '' : questionText)); if (cq) return cq.question; }
-  const opts = optionsIn(questionText);
+  /* #6054: a permission prompt's identity is every meaningful line above its options, by the same rule as below, and
+     NOT its question line: "Do you want to proceed?" is the same for every command, so only the command above it tells
+     one prompt from the next. Its options start right under its question line (status.claudePermissionPrompt), which
+     holds even where a wrapped label makes the line rule below refuse the menu. */
+  const pp = status.claudePermissionPrompt(String(questionText == null ? '' : questionText));
+  const opts = pp ? pp.options : optionsIn(questionText);
   if (!opts) return null;
   const lines = String(questionText == null ? '' : questionText).split('\n');
   /* Same glyph class as OPTION_LINE (#998), and it MUST be: this finds where
@@ -2442,7 +2511,7 @@ function questionAbove(questionText) {
      the consequence is a refused press, not a wrong one -- but a half-widened
      parser is still worse than an unwidened one. */
   const OPTION_START = new RegExp(`^(?:[${status.SELECTOR_GLYPHS}]\\s*)?[1-9][.)]\\s+\\S.*$`);
-  const first = lines.findIndex((l) => OPTION_START.test(
+  const first = pp ? pp.at + 1 : lines.findIndex((l) => OPTION_START.test(
     l.replace(/^\s*│\s?/, '').replace(/[\s│]+$/, '').replace(/^\s+/, '')));
   /**
    * ⚠️ EVERY MEANINGFUL LINE ABOVE THE RUN, and this rule has had three shapes.
@@ -2498,6 +2567,9 @@ function optionsIn(questionText) {
   /* #5406 part 2: Claude Code's question menu, read by its own parser (descriptions under options, and the
      "Type something." / "Chat about this" entries, which are not answers and get no button). */
   { const cq = status.claudeQuestionMenu(whole); if (cq) return cq.options.map((o) => ({ n: o.n, label: o.label })); }
+  /* #6054: Claude Code's permission prompt, by its own reader too, so the buttons the page draws are the options the key
+     path answers (a wrapped label is one whole option here, where the line rule below would refuse the menu). */
+  { const pp = status.claudePermissionPrompt(whole); if (pp) return pp.options.map((o) => ({ n: o.n, label: o.label })); }
   const found = [];
   let marked = false;
   const lines = whole.split('\n');
@@ -4097,7 +4169,7 @@ module.exports = {
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   dmStandingQuestionNote, dmQuestionTold, markDmQuestionTold,   // #5943
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,
