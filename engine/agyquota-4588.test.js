@@ -95,6 +95,16 @@ test('#5154-B: cleared fires only on a RESOLVED plan outcome, never on reset-age
   assert.ok(!q.plan(paused(), { until: RESET, tries: q.MAX_TRIES }, AT + 3600e3).resolved, 'a give-up is not resolved');
 });
 
+test('#5154-B: a NEW quota reset (different until) supersedes an old give-up episode -> the sweep clears it', () => {
+  const RESET2 = '2026-09-29T10:00:00.000Z';
+  const w = world({ 'agy-a': paused(RESET2) });            // agy-a is now paused on a NEW reset R2
+  w.book.set('agy-a', { until: RESET, tries: q.MAX_TRIES }); // but the book still tracks the OLD reset R1 give-up
+  const cleared = [];
+  q.sweepOnce({ roster: w.roster, book: w.book, now: Date.parse(RESET2) + q.GRACE_MS, readReport: w.readReport,
+    deliver: w.deliver, DELIVERY: D, bound: () => {}, cleared: (s) => cleared.push(s) });
+  assert.ok(cleared.includes('agy-a'), 'the stale give-up from reset R1 is superseded by reset R2 and cleared');
+});
+
 test('#4588: three agents paused on one reset are resumed one at a time, STAGGER_MS apart, and nobody else is touched', () => {
   const w = world({ 'agy-a': paused(), 'agy-b': paused(), 'agy-c': paused(), 'agy-free': { found: true, state: 'idle', by: 'auto', until: '' }, 'claude-x': paused() });
   const t0 = AT + q.GRACE_MS;

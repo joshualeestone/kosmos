@@ -295,6 +295,14 @@ function sweepOnce(o) {
       try { report = read(session); } catch { report = null; }
       const entry = book.get(session);
       const p = plan(report, entry, now, holdOff ? null : heldBackBy(pausedUntil(report), o.memo || POOL_MEMO));
+      // #5154 slice B: a give-up episode belongs to the reset it was raised for. If the book entry still tracks a
+      // DIFFERENT `until` than the current report, a NEW quota reset has arrived and any old give-up is SUPERSEDED
+      // -- clear it, so the card does not keep showing "gave up after the quota reset" for a reset Kosmos is now
+      // actively retrying (plan returns 'nudge'/'wait' for the new reset, neither gaveUp nor resolved). Cheap
+      // no-op when no episode is open; `report.until`/`entry.until` are the same field the book stores.
+      if (cleared && entry && report && entry.until != null && report.until != null && entry.until !== report.until) {
+        try { cleared(session); } catch { /* never breaks a sweep */ }
+      }
       if (p.act === 'nudge') due.push({ card, session, report, entry, because: p.because, at: pausedUntil(report) });
       // #5154 slice B: an agent we have already GIVEN UP resuming (plan returns gaveUp) is not in `due` (it gets
       // no fresh attempt), so the one-shot gave-up record at the delivery path below never fires again for it.

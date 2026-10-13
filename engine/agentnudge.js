@@ -193,8 +193,10 @@ function sweepOnce(o) {
         const p = plan(card, openParts(session, o.projects), entry, now, intervalMs, ask);
         // #5154 slice B: the nudge gave up (tries exhausted). Signal the board via `bound` (not `say`), so the
         // give-up surfaces on the card without the sweep otherwise just `continue`-ing past it, and without a
-        // per-sweep stdout line. `bound` fires every sweep it stays given up, keeping the board clock fresh.
-        if (p.gaveUp && bound) { try { bound(session, p.because); } catch { /* best-effort: a board-signal failure never breaks the sweep */ } }
+        // per-sweep stdout line. Gated on `card.state === 'idle'` (like firstreply): a nudge give-up only applies
+        // to an idle agent, so this avoids writing a record for a spent-but-working agent that isMoot would just
+        // clear (churn with no push). `bound` fires every idle sweep it stays given up, keeping the clock fresh.
+        if (p.gaveUp && bound && card.state === 'idle') { try { bound(session, p.because); } catch { /* best-effort: a board-signal failure never breaks the sweep */ } }
         if (p.act !== 'nudge') continue;
         const text = nudgeText(p.part);
         if (sent.length >= cap) { say({ name: display, session, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }

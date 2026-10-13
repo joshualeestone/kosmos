@@ -50,8 +50,12 @@ as the same needs-you surface slices A/C established.
 
 ## Known residuals (bounded, all backstopped by STALE_MS = 2h)
 These are give-up episodes that clear only via the 2h staleness backstop rather than crisply, because the
-helper that owns the signal cannot cheaply tell us the agent resolved. All are bounded and fail toward
-keeping a real signal (never toward a missed one):
+helper that owns the signal cannot cheaply tell us the agent resolved. All are bounded. Note the direction
+honestly: where the agent is NOT re-noted for 2h while still stuck (the pool-hold and heartbeat-off cases
+below), the episode CAN clear early and then RE-RAISE with a duplicate push when the helper resumes noting.
+So the backstop may briefly MISS a real signal and later duplicate it; it does not silently drop it forever.
+(The crisp paths -- recovered, isMoot, the superseded-reset clear -- do not have this; only the no-re-note
+residuals do.)
 - **quota, agent not in agyquota's paused set** (auth_failed / connection_lost / stopped), or **during a
   pool-hold / spacing gate**: the quota sweep does not re-note or fire `cleared`, so a still-stuck give-up
   rides the 2h backstop. The common resume paths (to idle via `cleared`, to working via `isMoot`) are crisp.

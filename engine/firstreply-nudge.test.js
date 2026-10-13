@@ -142,6 +142,32 @@ test('#5154-B: a spent firstreply entry is raised only while the agent still OWE
   assert.equal(book.has(s), false, 'and the stale spent entry is dropped');
 });
 
+test('#5154-B: a spent firstreply give-up on an agent with a declared reply-channel is cleared, not raised', () => {
+  const s = idleCard().sessionName;
+  const book = new Map([[s, { nudgedAt: null, tries: nudge.MAX_TRIES }]]);
+  const bound = []; const cleared = [];
+  // the agent answers its person on a declared reply-channel (out of Kosmos's sight): the normal path never
+  // nudges it, so a give-up is moot. The thread still reads 'owes', so without the channel guard it would raise.
+  nudge.sweepOnce({ roster: rosterOf('idle'), book, now: NOW, thread: () => ({ messages: [personRow()] }),
+    replyChannel: () => 'slack', deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY,
+    bound: (x) => bound.push(x), cleared: (x) => cleared.push(x) });
+  assert.deepEqual(bound, [], 'a declared-channel agent is not raised');
+  assert.deepEqual(cleared, [s], 'it is cleared (resolved out of sight)');
+  assert.equal(book.has(s), false, 'and the stale spent entry is dropped');
+});
+
+test('#5154-B: a spent firstreply give-up on a PAUSED (switched-off) agent is neither raised nor cleared', () => {
+  const s = idleCard().sessionName;
+  const book = new Map([[s, { nudgedAt: null, tries: nudge.MAX_TRIES }]]);
+  const bound = []; const cleared = [];
+  nudge.sweepOnce({ roster: rosterOf('idle'), book, now: NOW, thread: () => ({ messages: [personRow()] }),
+    paused: () => ({ paused: true }), deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY,
+    bound: (x) => bound.push(x), cleared: (x) => cleared.push(x) });
+  assert.deepEqual(bound, [], 'a switched-off agent is not raised (cannot nudge it)');
+  assert.deepEqual(cleared, [], 'nor cleared -- it may come back owing; STALE_MS backstops a persistent pause');
+  assert.equal(book.has(s), true, 'the entry is kept');
+});
+
 test('#5154-B: an INDETERMINATE firstreply read (unknown/threw) neither raises nor clears a spent give-up', () => {
   const s = idleCard().sessionName;
   const book = new Map([[s, { nudgedAt: null, tries: nudge.MAX_TRIES }]]);
