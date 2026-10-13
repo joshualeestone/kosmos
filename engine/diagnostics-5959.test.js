@@ -257,3 +257,33 @@ test('#5959: a window that starts inside a key block still takes out its body an
   const out = maskKeyBlocks([body.slice(0, 64), body.slice(10, 70), '-----END PRIVATE KEY-----', 'rick: after', 'sha 3f2a'].map((line) => ({ line }))).map((e) => e.line);
   assert.deepEqual(out, [MASKED_BLOCK, MASKED_BLOCK, MASKED_BLOCK, 'rick: after', 'sha 3f2a']);
 });
+
+test('#5959: a line cut when stored ends in no piece of a key, however much redaction shortened it', () => {
+  const { MAX_LINE_CHARS } = require('./logring');
+  const { createRing } = require('./logring');
+  const tok = 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9';
+  const prefix = 'rick ' + '/Users/pat/ '.repeat(150);   // shrinks a lot when each /Users/pat becomes ~
+  const raw = prefix + 'x'.repeat(MAX_LINE_CHARS - prefix.length - 30) + ' ' + tok + ' tail';
+  const ring = createRing();
+  const s = { write() { return true; } };
+  ring.tap(s, 'stdout');
+  s.write(raw + '\n');
+  const stored = ring.tail()[0].line;
+  assert.equal(stored.length, MAX_LINE_CHARS, 'CONTROL: the ring cut the line inside the token');
+  const piece = stored.slice(stored.lastIndexOf(' ') + 1);
+  assert.ok(piece.length >= 10 && tok.startsWith(piece), 'CONTROL: what is stored ends in a piece of the token');
+  const r = makeRedactor({ ...WHO, secrets: [tok] });
+  assert.ok(r.redactText(stored).endsWith(piece), 'CONTROL: redaction alone leaves the piece (it matches no key)');
+  const file = build({ cards: CARDS, ringLines: ring.tail(), redactor: r });
+  for (const line of [file.log.tail[0].line, file.agents[0].logLines[0].line]) {
+    assert.ok(!line.includes(piece.slice(0, 10)), 'no piece of the token: ' + line.slice(-40));
+  }
+  assert.ok(file.log.tail[0].line.endsWith('[cut]'));
+});
+
+test('#5959: a hex digest alone on a line (a git sha) is kept, a key body line is not', () => {
+  const { maskKeyBlocks, MASKED_BLOCK } = require('./diagnostics');
+  const sha = '3f2a9c1e7b6d5a4f3e2d1c0b9a8f7e6d5c4b3a29';
+  const out = maskKeyBlocks([sha, 'MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7'].map((line) => ({ line }))).map((e) => e.line);
+  assert.deepEqual(out, [sha, MASKED_BLOCK]);
+});

@@ -14184,10 +14184,16 @@ const server = http.createServer(async (req, res) => {
         version: updates.RUNNING, platform: process.platform, now,
         cards: safeRoster(), readReport: (n) => selfreport.read(n), accountProblemOf,
         ringLines: logring.board.tail(), fileLines, fileSource: fileLines ? logPath : null, fileWhy: fileWhy.why || null,
-        // The values this board holds are masked by value too: a bare hex token in a line has no shape to find it by.
+        /* The values this board holds are masked by value too: a bare hex token in a line has no shape to find it by.
+           The board's other held values (connect tokens, account keys) are masked by secretmask's held set, which the
+           board loads from knownsecrets.collect(); another world's token is not held by this board and is left to the
+           shape pass. */
         redactor: require('./engine/diagredact').makeRedactor({ secrets: [boardAuthState.token, ...sendertoken.heldValues()] }),
       });
       DIAG_LAST = { at: Date.now(), file, now, look };
+      // Not kept past its few seconds when the other half never comes (curl, or a browser that skips the look).
+      const mine = DIAG_LAST;
+      setTimeout(() => { if (DIAG_LAST === mine) DIAG_LAST = null; }, DIAG_REUSE_MS).unref();
       // The page's look beside the click (as the other downloads): the same work, no file.
       if (look) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
       sendDiagnostics(res, file, now);
