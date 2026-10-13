@@ -123,7 +123,7 @@ function run(h, extra) {
     platform: 'win32', home: h, env: { APPDATA: path.join(base, 'Roaming'), LOCALAPPDATA: path.join(base, 'Local'), USERNAME: 'someone', USERDOMAIN: 'BOX' },
     projectsRoot: path.join(h, 'Kosmos', 'Projects'), port: 9, probe: async () => ({ answering: false, outcome: 'refused', identity: null, startedByTask: null }),
     removeFolder: () => {}, sleep: async () => {}, liveExecutionAllowed: () => true, bundleRoot: BUNDLE,
-    pathGone: (p) => !(p === 'C:\\' || /Kosmos2/.test(p)),   // drive C: and another install are there; nothing else in here is
+    pathGone: () => false,   // nothing is gone: every removal here is by the folder match (the earlier-folder test sets its own)
     ...extra,
   });
 }
@@ -197,7 +197,7 @@ test('#5999: an added account\'s hooks left by an EARLIER Kosmos folder (script 
   const earlier = { matcher: '', hooks: [{ type: 'command', command: 'C:\\Users\\someone\\Desktop\\Kosmos\\runtime\\node.exe', args: ['C:\\Users\\someone\\Desktop\\Kosmos\\app\\engine\\kosmos-report-hook.js'], timeout: 15 }] };
   writeJson(work, { hooks: { Stop: [earlier, OTHER_INSTALL], PostToolUse: [PERSONS] } });
   stubSchedulers([listing([])]);
-  const r = await run(h);
+  const r = await run(h, { pathGone: (p) => !(p === 'C:\\' || /Kosmos2/.test(p)) });   // drive C: and another install are there
   assert.deepEqual(readJson(work), { hooks: { Stop: [OTHER_INSTALL], PostToolUse: [PERSONS] } });
   assert.ok(r.done.some((d) => d.includes(work) && /entries left by an earlier Kosmos folder/.test(d)), JSON.stringify(r.done));
 });

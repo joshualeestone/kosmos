@@ -349,7 +349,8 @@ function unwireHooks(bundleRoot, home, env, gone, done, left, notes) {
   /* Every spelling of the folder the hook paths could carry: as given (made absolute), as Node records __dirname (the
      JS realpath, which is how the board built the hook path) and as Windows resolves it (realpath.native); a junction
      or a short 8.3 name can make those differ. */
-  const given = path.resolve(bundleRoot);
+  // A Windows-absolute folder is used as given (path.resolve off Windows would glue it onto the current folder).
+  const given = /^([A-Za-z]:[\\/]|\\\\)/.test(bundleRoot) ? bundleRoot : path.resolve(bundleRoot);
   const roots = [given];
   for (const real of [fs.realpathSync, fs.realpathSync.native]) {
     try { const r = real(given); if (!roots.includes(r)) roots.push(r); } catch { /* the given path is enough */ }
