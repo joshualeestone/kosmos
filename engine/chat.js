@@ -1227,7 +1227,8 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   // Review 3: a screen that could not be read after the key is not "answered": the record says unconfirmed.
   /* #6054 review 1: the same prompt still showing, by identity for a permission prompt: the NEXT command's prompt has the
      same question line, and reading that as "not answered" would invite a second press that approves it. A redraw
-     that changes the box's text reads as answered too: the safe direction, since "unconfirmed" invites a second press. */
+     that changes the box's text reads as answered too: the safe direction, since "unconfirmed" invites a second press,
+     though the record then says placed for a prompt that may still be pending. */
   const same = still && (menu.permission ? (still.permission && idOf(after) === idBefore) : still.question === menu.question);
   return { ok: true, key: String(opt.n), label: opt.label, answered: !!after && !same, screen: after };
 }
@@ -1469,6 +1470,8 @@ const ON_ITS_PAGE = 'answer it with the buttons under its question on its page i
 const onItsPage = (sentence) => sentence.replace(/answer (?:the question|it) in its window first$/, ON_ITS_PAGE);
 /* #6054 review 2: the page reads the screen and draws buttons only for a needs_you card, and never in the setup guide's
    thread (everything there is masked). A working card or the guide keeps the window ending. */
+/* #6054 review 4: and every label is one a press can carry (the GET's `pressable` refuses a menu with one that is not). */
+const labelsPressable = (menu) => Boolean(menu) && menu.options.every((o) => typeof o.label === 'string' && !messageProblem(o.label));
 function pageDrawsButtons(card, sessionName) {
   if (!card || card.state !== status.STATE.NEEDS_YOU) return false;
   if (card.disruption && card.disruption.failed === true) return false;   // review 3: the page's `asking` excludes it
@@ -1491,11 +1494,11 @@ function claudeMenuRefusal(card, sessionName, roster) {
     /* The direct-message route answers by number only when the card reads needs_you (it reads the screen only then). */
     // #6054: the page draws buttons for the single-select form (status.claudeQuestionMenu) only.
     const single = Boolean(status.claudeQuestionMenu(view.text));
-    return (single && pageDrawsButtons(card, sessionName) ? onItsPage(CLAUDE_MENU_SENTENCE) : CLAUDE_MENU_SENTENCE)
+    return (single && labelsPressable(status.claudeQuestionMenu(view.text)) && pageDrawsButtons(card, sessionName) ? onItsPage(CLAUDE_MENU_SENTENCE) : CLAUDE_MENU_SENTENCE)
       + (card.state === status.STATE.NEEDS_YOU && single ? CLAUDE_MENU_DM_CLAUSE : '');
   }
   const kind = status.claudePermissionPromptKind(view.text);   // #5754
-  if (kind === 'wording') return permissionAnswerable(view.text) && pageDrawsButtons(card, sessionName) ? onItsPage(CLAUDE_PERMISSION_SENTENCE) : CLAUDE_PERMISSION_SENTENCE;   // #6054
+  if (kind === 'wording') return permissionAnswerable(view.text) && labelsPressable(status.claudePermissionPrompt(view.text)) && pageDrawsButtons(card, sessionName) ? onItsPage(CLAUDE_PERMISSION_SENTENCE) : CLAUDE_PERMISSION_SENTENCE;   // #6054
   return kind === 'shape' ? CLAUDE_WAITING_SENTENCE : null;   // other wording, or one of Claude Code's own pickers
 }
 
@@ -2307,12 +2310,17 @@ function viewport(sessionName, roster) {
  * (status.geminiQuestionReading); for any other runner, or none, only the markers are read.
  */
 /* #6054 review 3: a permission prompt and where its box starts: the line under the nearest full-width rule above its
-   question, searched all the way up (top -1 when the rule is not on screen: a box taller than the pane). */
+   question (top -1 when it is not on screen: a box taller than the pane). Review 4: the box never holds Claude Code's
+   transcript marks ('⏺' a reply, '⎿' a result, '✻' its status line), and anything reaching back into an earlier turn
+   does, so meeting one before the rule means this box's own rule has scrolled away and an older one is above it: top -1. */
 function permissionBox(text) {
   const pp = status.claudePermissionPrompt(text);
   if (!pp) return null;
   const lines = String(text == null ? '' : text).split('\n');
-  for (let i = pp.at - 1; i >= 0; i -= 1) if (/^\s*─{8,}\s*$/.test(lines[i])) return { pp, top: i + 1 };
+  for (let i = pp.at - 1; i >= 0; i -= 1) {
+    if (/^\s*─{8,}\s*$/.test(lines[i])) return { pp, top: i + 1 };
+    if (/^\s*[⏺⎿✻]/.test(lines[i])) return { pp, top: -1 };
+  }
   return { pp, top: -1 };
 }
 /* #6054 review 3: may this screen's permission prompt be answered by key? Only when its whole box is on screen, so its
