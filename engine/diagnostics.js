@@ -102,7 +102,8 @@ function build(inputs) {
   };
   const agentLines = [];
   const agents = cards.filter((c) => c && c.sessionName).map((c) => {
-    const names = [...new Set([c.sessionName, c.name].filter((n) => typeof n === 'string' && n.length >= 2))].map(namePattern);
+    // At least 3 characters, as the redactor's names: a two-letter name would claim unrelated lines.
+    const names = [...new Set([c.sessionName, c.name].filter((n) => typeof n === 'string' && n.length >= 3))].map(namePattern);
     // Cut shorter than the tail's lines, so a large fleet's file stays small (the full line is in the tail when recent).
     agentLines.push(all.filter((e) => namesAgent(e.line, names)).slice(-AGENT_LOG_LINES).map((e) => shown(e, AGENT_LINE_CHARS)));
     return {
