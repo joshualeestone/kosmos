@@ -83,8 +83,24 @@ X_SUFFIX=" $HOST/versions.html"
 X_PREFIX="Kosmos $V is out. "
 _budget=$((280 - ${#X_PREFIX} - ${#X_SUFFIX}))
 X_BODY="$NOTE"
+# #6082: a note over the budget keeps its whole sentences that fit, so the post never stops mid-word under Josh's name.
+# Only when not even its first sentence fits is it cut, at a word, with an ellipsis. Counted in characters (code
+# points), as X counts. With no node, the old character cut.
 if [ "${#X_BODY}" -gt "$_budget" ]; then
-  X_BODY="$(printf '%s' "$X_BODY" | cut -c1-$((_budget-1)))…"
+  if [ -n "$NODE" ]; then
+    X_BODY="$("$NODE" -e '
+      const t = process.argv[1]; const b = Number(process.argv[2]);
+      const len = (s) => [...s].length;
+      const parts = t.match(/[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g) || [t];
+      let out = "";
+      for (const p of parts) { if (len((out + p).trim()) <= b) out += p; else break; }
+      out = out.trim();
+      if (!out) { const c = [...t].slice(0, b - 1).join(""); out = (c.replace(/\s+\S*$/, "") || c).trimEnd() + "\u2026"; }
+      process.stdout.write(out);
+    ' "$X_BODY" "$_budget")"
+  else
+    X_BODY="$(printf '%s' "$X_BODY" | cut -c1-$((_budget-1)))…"
+  fi
 fi
 X_POST="${X_PREFIX}${X_BODY}${X_SUFFIX}"
 # LinkedIn: the full note + a link, no length pressure.
