@@ -446,7 +446,11 @@ test('task message does not tell an assignee that has left the project, and says
   tasksEngine.whoOf = () => ['mara'];
   const alone = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-agent-token': sendertoken.mint('mara').token }, body: { text: 'just me' } });
   assert.equal(alone.code, 200, alone.text.slice(0, 160));
-  assert.equal(JSON.parse(alone.text).summary, 'Nobody else is assigned to it, so no agent was told.');
+  /* #6066: the sender holds this open task, so the summary goes on to say how to finish it; the delivery sentence is
+     unchanged and still leads. */
+  const aloneSummary = JSON.parse(alone.text).summary;
+  assert.ok(aloneSummary.startsWith('Nobody else is assigned to it, so no agent was told.'), aloneSummary);
+  assert.match(aloneSummary, / If that is your final word on it, kosmos task built /);
 });
 
 test('task message: an unreadable project list at the record step is a 503, not a 400 (#4491 slice 3)', async (t) => {
