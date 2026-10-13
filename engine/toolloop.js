@@ -25,6 +25,13 @@
  * deliberate wait refuses an automatic idle, so the self-report record cannot be the source. The next
  * failure after a turn end starts a new run.
  *
+ * TRUST, stated before D2 shows anything to a person: a turn end is an AUTOMATIC report, and `--auto` is what the
+ * request says, as it is for the self-report guard (#900). So an agent can end its own run early by reporting
+ * `idle --auto` itself. It can only make a loop look shorter, never invent one; D2 decides whether that is enough.
+ *
+ * noteFailure and noteTurnEnd are fully synchronous (a sync read, then an atomic sync write), so two requests on
+ * the board's one event loop never interleave their read and write: parallel failures cannot lose a count.
+ *
  * ON DISK (store.ROOT/toolloop/<key>.json), like stuckterminal, so `forget` is reachable from create.js,
  * remove.js and delete-leftover.js: a removed-and-recreated agent of the same name never inherits a run.
  * `dir()` reads store.ROOT at call time.
