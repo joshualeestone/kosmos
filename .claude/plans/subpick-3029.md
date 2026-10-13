@@ -33,17 +33,21 @@ shows "Launch", "Launch" in every picker.
 - Tasks search matches a row's ancestors too, so searching a parent's name finds its subprojects'
   tasks: the chain is what the row shows, so it is what search reads.
 - The chain, not indentation: a closed native select would show an indent with no parent.
+- Select options read own name first ("Launch, in Book A") so a cut-short closed select still says which
+  project is picked; everything that is not a select reads the chain root first.
 - Rejected a custom tree picker: far bigger, and the native select is what keyboards, screen readers
   and the phone picker handle.
 - Weakest premise: a long chain is cut off in a narrow select on a phone, losing the tail (the
   project's own name). If shots show it, put the own name first ("Launch, in Book A").
 
 ## Tests
-  Measured at 390 px (iPhone width) with a two-level chain of long names: the Project: dropdown grew to
-  525 px and the page scrolled sideways (563 wide). The Tasks controls now shrink to the row and the closed
-  select ends in an ellipsis (the open list shows the whole chain); after, the page is 390 wide. Guarded in
-  the browser arm, width-independent (without the cap it fails: 1748 px page in a 1200 window). Design
-  shots still to take before the PR.
+  It happened. At 390 px a picked long chain is cut short in the closed select in Chromium (ellipsis) and
+  WebKit (hard clip), and the part lost was the project's own name. So every select option is worded own
+  name first ("Launch, in Book A"), still ordered by the chain; headings, crumb, title and rows keep the
+  chain. WebKit (the Mac app's engine) also scrolled the page 140 px sideways by the picked option's text
+  even with the select capped; overflow: hidden on the select fixes it. The browser arm runs the picked
+  long-chain fit check in Chromium and in WebKit (without the fix WebKit fails: a 1653 px page at 390).
+  Design shots of the finished screens are still to take before the PR.
 - engine/tasks.projectpath-3029.test.js: the engine walk, with a negative control (projectPathOf returning
   [] fails every test).
 - web.subpick-3029.test.js: the shipped page helpers; its control shows a joined-string sort misorders

@@ -25,12 +25,28 @@
  *      (HEADED=0 on a machine with no console session)
  */
 const path = require('node:path');
-const { chromium } = require('playwright');
+const { chromium, webkit } = require('playwright');
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
 
 const problems = [];
 let pass = 0;
 function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name + (detail ? ' -- ' + detail : '')); }
+
+/* #3029: runs in the page. A very long chain, picked; reports whether the page stays inside the window. */
+const FIT_LONG_CHAIN = () => {
+  const panel = document.getElementById('panel-tasks');
+  const wasHidden = panel.hidden;
+  panel.hidden = false;   // shown directly: showTab would start a real tasks read that could repaint over the fixture
+  const long = 'Spring catalogue relaunch with the regional sales teams and the new print partner';
+  TSK.data = [{ projectId: 'lng', projectName: long, projectPath: [long, long], number: 1, sentence: 'x', state: 'nobody', who: [], whoNames: [] }];
+  TSK.proj = 'lng'; TSK.by = 'status'; tskPaint();
+  const sel = document.getElementById('tsk-projsel');
+  const out = { shown: sel.getClientRects().length > 0, selRight: Math.round(sel.getBoundingClientRect().right),
+    inner: window.innerWidth, docW: document.documentElement.scrollWidth };
+  TSK.proj = null; TSK.data = null; tskPaint();
+  panel.hidden = wasHidden;
+  return out;
+};
 
 (async () => {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] });
@@ -501,12 +517,14 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       const archivedParent = document.getElementById('pjs-parent').selectedOptions[0].textContent;
       return { create, settings, pick, tasksSel, heads, crumb, title, backLabel, archivedParent, rowProjects, found, rowLabels, doorCrumb };
     });
-    const order = ['Alpha', 'Alpha › Sub', 'Alpha - old', 'Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B', 'Book B › Launch'];
+    // Pickers order by chain and word each option own name first (pjChainOption), so a cut-short closed select still names it.
+    const asOption = (chain) => { const n = chain.split(' › '); return n.length < 2 ? n[0] : n[n.length - 1] + ', in ' + n.slice(0, -1).join(' › '); };
+    const order = ['Alpha', 'Alpha › Sub', 'Alpha - old', 'Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B', 'Book B › Launch'].map(asOption);
     ok(t + ' #3029 create parent picker: named by chain, each subproject after its parent', JSON.stringify(chains.create.slice(1)) === JSON.stringify(order), JSON.stringify(chains.create));
     ok(t + ' #3029 settings parent picker: the same, minus the project itself', JSON.stringify(chains.settings.slice(1)) === JSON.stringify(order.filter((x) => x !== 'Alpha - old')), JSON.stringify(chains.settings));
     ok(t + ' #3029 New task project picker: the same chains and order', JSON.stringify(chains.pick) === JSON.stringify(order), JSON.stringify(chains.pick));
     ok(t + ' #3029 Tasks Project: dropdown: the two Launches are told apart, in chain order',
-      JSON.stringify(chains.tasksSel.slice(1).map((s) => s.replace(/ \(\d+\)$/, ''))) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.tasksSel));
+      JSON.stringify(chains.tasksSel.slice(1).map((s) => s.replace(/ \(\d+\)$/, ''))) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch'].map(asOption)), JSON.stringify(chains.tasksSel));
     ok(t + ' #3029 Tasks Group by: Project headings are named and ordered by chain',
       JSON.stringify(chains.heads) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.heads));
     ok(t + ' #3029 Tasks crumb names the picked subproject by its chain', /All tasks › Book A › Launch › Ads/.test(chains.crumb), JSON.stringify(chains.crumb));
@@ -517,24 +535,12 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' #3029 Tasks search for a parent\'s name finds its subproject\'s tasks', JSON.stringify(chains.found) === JSON.stringify(['Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.found));
     ok(t + ' #3029 a subproject row\'s checkbox and Not built yet labels speak the chain with commas',
       !!chains.rowLabels && /^Select task 1 of Book A, Launch, Ads( \(|$)/.test(chains.rowLabels.sel) && chains.rowLabels.unbuild === 'Mark task 1 of Book A, Launch, Ads not built yet', JSON.stringify(chains.rowLabels));
-    ok(t + ' #3029 a project door into a subproject with no tasks names it by its chain', /All tasks › Book A › Launch/.test(chains.doorCrumb), JSON.stringify(chains.doorCrumb));
-    // A chain far longer than any window: the Tasks controls must shrink to the page, never scroll it sideways.
-    const fit = await page.evaluate(() => {
-      const panel = document.getElementById('panel-tasks');
-      const wasHidden = panel.hidden;
-      panel.hidden = false;   // shown directly: showTab would start a real tasks read that could repaint over the fixture
-      const long = 'Spring catalogue relaunch with the regional sales teams and the new print partner';
-      TSK.data = [{ projectId: 'lng', projectName: long, projectPath: [long, long], number: 1, sentence: 'x', state: 'nobody', who: [], whoNames: [] }];
-      TSK.proj = null; TSK.by = 'status'; tskPaint();
-      const sel = document.getElementById('tsk-projsel');
-      const out = { shown: sel.getClientRects().length > 0, selRight: Math.round(sel.getBoundingClientRect().right),
-        inner: window.innerWidth, docW: document.documentElement.scrollWidth };
-      TSK.data = null; tskPaint();
-      panel.hidden = wasHidden;
-      return out;
-    });
+    ok(t + ' #3029 a project door into a subproject with no tasks names it by its chain', /All tasks › Book A › Launch \u00b7/.test(chains.doorCrumb), JSON.stringify(chains.doorCrumb));
+    // A chain far longer than any window, PICKED (the selected text is what WebKit widened the page by): the Tasks
+    // controls must shrink to the page, never scroll it sideways. Run again in WebKit below, the Mac app's engine.
+    const fit = await page.evaluate(FIT_LONG_CHAIN);
     ok(t + ' #3029 a very long chain in the Project: dropdown never widens the page', fit.shown && fit.selRight <= fit.inner && fit.docW <= fit.inner, JSON.stringify(fit));
-    ok(t + ' #3029 settings picker names an archived parent that is a subproject by its chain', chains.archivedParent === 'Book A › Old launch (archived)', JSON.stringify(chains.archivedParent));
+    ok(t + ' #3029 settings picker names an archived parent that is a subproject by its chain', chains.archivedParent === 'Old launch, in Book A (archived)', JSON.stringify(chains.archivedParent));
 
     // ---- Layer 4 removed (#3103/#3104, 6.68) ----
     // The old #2848 wiring layer drove showTab -> placeSubProjects to prove the
@@ -546,6 +552,17 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     await page.close();
   }
   await browser.close();
+  // #3029 in WebKit, the Mac app's engine: Chromium alone passed while WebKit scrolled the page sideways by 140 px.
+  let wk = null;
+  try { wk = await webkit.launch(); } catch (e) { console.log('NOT CHECKED in WebKit (#3029 long chain): ' + String(e.message || e).split('\n')[0]); }
+  if (wk) {
+    const wp = await wk.newPage({ viewport: { width: 390, height: 844 } });
+    await wp.goto(PAGE);
+    await wp.waitForFunction(() => typeof tskPaint === 'function');
+    const wfit = await wp.evaluate(FIT_LONG_CHAIN);
+    ok('[webkit 390] #3029 a very long chain, picked, never widens the page', wfit.shown && wfit.selRight <= wfit.inner && wfit.docW <= wfit.inner, JSON.stringify(wfit));
+    await wk.close();
+  }
   if (problems.length) {
     console.log('problems:\n  ' + problems.join('\n  '));
     console.log('\n' + pass + ' passed, ' + problems.length + ' FAILED');

@@ -1589,7 +1589,7 @@ function allTasks(everyProject) {
       out.push(Object.assign({}, t, {
         projectId: p.id,
         projectName: p.name,
-        projectPath: path,
+        projectPath: path.slice(),   // each row its own copy
         /* #3559: the Tasks view leaves archived projects' tasks out, as the rails tuck them away. */
         projectArchived: p.archived === true,
         /* #4771: whether the task's project is paused. taskState and listGroup decide what that means: on hold, unless

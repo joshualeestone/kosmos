@@ -13,8 +13,8 @@ const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 const make = (projects) => new Function('PROJECTS',
   'const pjById = (id) => PROJECTS.find((p) => p && p.id === id) || null;\n'
-  + page.liftAll(SCRIPT, ['pjAncestry', 'pjChainOf', 'pjChainCompare', 'pjChainText', 'pjChainSpoken', 'pjSortByChain', 'tskChainOf'])
-  + '\nreturn { pjChainOf, pjChainCompare, pjChainText, pjChainSpoken, pjSortByChain, tskChainOf };')(projects);
+  + page.liftAll(SCRIPT, ['pjAncestry', 'pjChainOf', 'pjChainCompare', 'pjChainText', 'pjChainSpoken', 'pjChainOption', 'pjSortByChain', 'tskChainOf'])
+  + '\nreturn { pjChainOf, pjChainCompare, pjChainText, pjChainSpoken, pjChainOption, pjSortByChain, tskChainOf };')(projects);
 
 const mk = (id, name, parent) => ({ id, name, parent: parent || null });
 const PROJECTS = [mk('al2', 'Alpha - old'), mk('bb', 'Book B'), mk('als', 'Sub', 'al'), mk('ba', 'Book A'),
@@ -64,4 +64,11 @@ test('pjChainSpoken joins with commas for accessible names; pjChainText with the
 test('pjChainOf on a project with no name gives an empty name, never the text undefined', () => {
   const F = make([{ id: 'top', name: 'Top' }, { id: 'nn', parent: 'top' }]);
   assert.deepEqual(F.pjChainOf({ id: 'nn', parent: 'top' }), ['Top', '']);
+});
+
+test('pjChainOption words an option own name first, so a closed select cut short still names the project', () => {
+  const F = make([]);
+  assert.equal(F.pjChainOption(['Book A', 'Launch', 'Ads']), 'Ads, in Book A › Launch');
+  assert.equal(F.pjChainOption(['Book A']), 'Book A');
+  assert.equal(F.pjChainOption([]), '');
 });
