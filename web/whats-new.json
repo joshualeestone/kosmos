@@ -1,33 +1,33 @@
 {
-  "version": "0.7.46",
+  "version": "0.7.47",
   "highlights": [
     {
-      "icon": "shield",
-      "title": "Removing an account works mid sign-in",
-      "line": "If you left a Sign in again unfinished on an OpenAI or Grok account you added, you can now remove it instead of waiting for it to time out."
-    },
-    {
-      "icon": "shield",
-      "title": "Save a diagnostics file for help",
-      "line": "Settings, Advanced, Save diagnostics saves one file on this computer for you to give the people who build Kosmos, with keys taken out."
-    },
-    {
-      "icon": "tasks",
-      "title": "Late recurring runs say what they missed",
-      "line": "When a recurring task runs after scheduled runs that never happened, its activity now counts the runs it missed."
-    },
-    {
-      "icon": "list",
-      "title": "Agents not run in two weeks say so",
-      "line": "An agent that is not running and has not run for 14 days or more says so on its card, and says where to remove it."
-    },
-    {
       "icon": "chat",
-      "title": "Reply to Claude questions by number",
-      "line": "When a Claude agent asks you to pick one option, replying with its number reaches it as your answer, not the highlighted default.",
+      "title": "Scroll back for earlier messages",
+      "line": "In a long conversation, scroll up and earlier messages load by themselves, and the message you were reading stays where it was."
+    },
+    {
+      "icon": "spark",
+      "title": "Qwen in Add a provider",
+      "line": "Add a provider now offers Qwen, run on this computer through Ollama or at an address you give, and asks before a large download.",
       "platforms": [
         "mac"
       ]
+    },
+    {
+      "icon": "list",
+      "title": "Moved agents keep your imports answer",
+      "line": "Moving a Claude agent to another Claude account carries your answer to the allow external imports question with it."
+    },
+    {
+      "icon": "tasks",
+      "title": "Long task and room messages arrive whole",
+      "line": "A message from a colleague or a room now reaches an agent in one piece, unless it is longer than a chat message can be."
+    },
+    {
+      "icon": "shield",
+      "title": "Gemini stays on the tested version",
+      "line": "A Gemini agent no longer updates the gemini program on its own, so it keeps the version Kosmos was tested with."
     }
   ]
 }
