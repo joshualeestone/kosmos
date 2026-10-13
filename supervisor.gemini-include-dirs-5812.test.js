@@ -18,7 +18,7 @@ const SUP = nodePath.join(__dirname, 'bin', 'agent-supervisor.sh');
 const SANDBOX = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-sup-gemdirs-5812-')));
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
-function run({ runner = 'gemini', projects, trustOn = false }) {
+function run({ runner = 'gemini', projects, trust, session = 'gem-agent', world }) {
   const tree = fs.mkdtempSync(nodePath.join(SANDBOX, 'tree-'));
   fs.mkdirSync(nodePath.join(tree, 'bin'), { recursive: true });
   fs.symlinkSync(nodePath.join(__dirname, 'engine'), nodePath.join(tree, 'engine'));
@@ -27,19 +27,25 @@ function run({ runner = 'gemini', projects, trustOn = false }) {
   fs.mkdirSync(work);
   const data = nodePath.join(tree, 'data');
   const env = { PATH: process.env.PATH, HOME: tree, AGENT_WORKFORCE_HOME: tree, AGENT_WORKFORCE_DATA: data, REC: nodePath.join(tree, 'rec.txt') };
-  const root = spawnSync(process.execPath, ['-e', 'process.stdout.write(require(process.argv[1]).ROOT)', nodePath.join(__dirname, 'engine', 'store.js')], { env, encoding: 'utf8' }).stdout;
+  if (world) env.KOSMOS_WORLD = world;
+  /* The store root the supervisor's own node will read: the world's, when it has one. */
+  const root = spawnSync(process.execPath, ['-e',
+    'require(process.argv[1]).applyAgentWorldEnv(process.env); process.stdout.write(require(process.argv[2]).ROOT)',
+    nodePath.join(__dirname, 'engine', 'worlds.js'), nodePath.join(__dirname, 'engine', 'store.js')], { env, encoding: 'utf8' }).stdout;
   assert.ok(root && root.startsWith(data), 'the store root is in the sandbox: ' + root);
   fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(nodePath.join(root, 'projects.json'), JSON.stringify(projects));
-  if (trustOn) {
+  if (trust) {
     fs.mkdirSync(nodePath.join(tree, '.gemini'), { recursive: true });
-    fs.writeFileSync(nodePath.join(tree, '.gemini', 'settings.json'), JSON.stringify({ security: { folderTrust: { enabled: true } } }));
+    fs.writeFileSync(nodePath.join(tree, '.gemini', 'trustedFolders.json'), JSON.stringify(trust));
   }
   const fake = nodePath.join(tree, 'rec-tmux.sh');
   fs.writeFileSync(fake, ['#!/bin/bash', 'case "$1" in', '  new-session) printf "%s\\n" "$*" >> "$REC"; exit 0 ;;', '  has-session) exit 1 ;;', '  *) exit 0 ;;', 'esac'].join('\n') + '\n', { mode: 0o755 });
-  const r = spawnSync('/bin/bash', [nodePath.join(tree, 'bin', 'agent-supervisor.sh'), 'gem-agent', work, '/usr/bin/true', fake, '', 'gemini-2.5-flash', runner], { env, encoding: 'utf8', timeout: 30000 });
+  const r = spawnSync('/bin/bash', [nodePath.join(tree, 'bin', 'agent-supervisor.sh'), session, work, '/usr/bin/true', fake, '', 'gemini-2.5-flash', runner], { env, encoding: 'utf8', timeout: 30000 });
   const rec = fs.existsSync(env.REC) ? fs.readFileSync(env.REC, 'utf8') : '';
-  return { rec, stderr: r.stderr || '', tree };
+  const trustFile = nodePath.join(tree, '.gemini', 'trustedFolders.json');
+  const trusted = fs.existsSync(trustFile) ? JSON.parse(fs.readFileSync(trustFile, 'utf8')) : null;
+  return { rec, stderr: r.stderr || '', tree, trusted };
 }
 
 test('a gemini agent on a project launches with that project\'s folder in its workspace', () => {
@@ -51,6 +57,7 @@ test('a gemini agent on a project launches with that project\'s folder in its wo
   assert.ok(out.rec.includes('new-session'), 'the gemini arm reached tmux: ' + out.stderr.slice(-400));
   assert.ok(out.rec.includes('--approval-mode yolo --skip-trust -m gemini-2.5-flash --include-directories ' + proj), out.rec);
   assert.ok(!out.rec.includes(other), 'a project the agent is not on is not included');
+  assert.deepEqual(out.trusted, { [proj]: 'TRUST_FOLDER' }, 'recorded as trusted first, so gemini asks nothing');
 });
 
 test('a missing project folder is left out of the launch and logged; the agent still launches', () => {
@@ -61,13 +68,22 @@ test('a missing project folder is left out of the launch and logged; the agent s
   assert.match(out.stderr, /#5812: the project folder .*gone-folder was left out .*not there/);
 });
 
-test('folder trust switched on in the account: nothing included, and the log says why', () => {
-  const proj = nodePath.join(SANDBOX, 'proj-trust');
+test('a folder the person marked do not trust in Gemini is left out, logged, and its record kept', () => {
+  const proj = nodePath.join(SANDBOX, 'proj-deny');
   fs.mkdirSync(proj, { recursive: true });
-  const out = run({ projects: [{ name: 'T', folder: proj, agents: ['gem-agent'] }], trustOn: true });
+  const out = run({ projects: [{ name: 'D', folder: proj, agents: ['gem-agent'] }], trust: { [proj]: 'DO_NOT_TRUST' } });
   assert.ok(out.rec.includes('new-session'));
   assert.ok(!out.rec.includes('--include-directories'), out.rec);
-  assert.match(out.stderr, /folder trust is switched on/);
+  assert.match(out.stderr, /proj-deny was left out .*do not trust/);
+  assert.deepEqual(out.trusted, { [proj]: 'DO_NOT_TRUST' });
+});
+
+test('an agent in a named world is matched by its roster name, not its world launch key', () => {
+  const proj = nodePath.join(SANDBOX, 'proj-world');
+  fs.mkdirSync(proj, { recursive: true });
+  const out = run({ projects: [{ name: 'W', folder: proj, agents: ['gem-agent'] }], session: 'gem-agent+w5812', world: 'w5812' });
+  assert.ok(out.rec.includes('new-session'), out.stderr.slice(-400));
+  assert.ok(out.rec.includes('--include-directories ' + proj), out.rec);
 });
 
 test('a grok agent gets no gemini folders', () => {
