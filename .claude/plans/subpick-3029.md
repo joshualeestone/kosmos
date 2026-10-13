@@ -5,7 +5,8 @@ Everywhere a person picks or reads a project from a flat list, a subproject is n
 ("Book A › Launch") and follows its parent in the order, so it never reads as top-level and two
 same-named subprojects under different parents are told apart. A top-level project reads exactly as
 before. The places:
-- Tasks: the Project: dropdown, the Group by: Project headings, the "All tasks › ..." crumb
+- Tasks: the Project: dropdown, the Group by: Project headings, the "All tasks › ..." crumb, the
+  "N Tasks on ..." title and the back chevron's label
 - New task from All tasks: the "which project" picker (ntChoices / #nt-proj)
 - Project Settings: the parent picker (#pjs-parent)
 - Create project: the parent picker (#pj-add-parent)
@@ -18,8 +19,8 @@ shows "Launch", "Launch" in every picker.
 
 ## Approach
 - engine/tasks.js allTasks: each row gains `projectPath` (ancestor names, root first), from the same
-  snapshot it already reads. Same walk as the page's pjAncestry (parentName stands in for a parent
-  missing from the read; a stored loop stops). The Tasks screen reads names off rows, not PROJECTS.
+  snapshot it already reads. A parent missing from the read gives [] (tested); a stored loop stops.
+  The Tasks screen reads names off rows, not PROJECTS.
 - web/index.html: pjChainOf / pjChainCompare / pjChainText beside pjAncestry. Lists sort segment by
   segment, so "Alpha 2" never sits between "Alpha" and "Alpha › Sub".
 - The parent pickers switch from the list's sort (PJ_SORT, default newest) to chain order: a picker

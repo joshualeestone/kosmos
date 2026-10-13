@@ -478,8 +478,15 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       const heads = Array.from(document.querySelectorAll('#tsk-groups .tsk-grp h3')).map((h) => h.firstChild.textContent);
       TSK.proj = 'ad'; tskPaint();
       const crumb = document.getElementById('tsk-crumb').textContent;
+      const title = document.getElementById('tsk-title').textContent;
+      const backLabel = document.getElementById('tsk-back').getAttribute('aria-label');
       TSK.proj = null; TSK.by = 'status'; TSK.data = null;
-      return { create, settings, pick, tasksSel, heads, crumb };
+      // A project whose ARCHIVED parent is itself a subproject: the settings picker keeps the parent's chain.
+      PROJECTS = PROJECTS.concat([Object.assign(mk('olda', 'Old launch', 'ba'), { archived: true }),
+        Object.assign(mk('kid', 'Kid', 'olda'), { parentName: 'Old launch', parentArchived: true })]);
+      pjPaintParentSelect(PROJECTS.find((x) => x.id === 'kid'));
+      const archivedParent = document.getElementById('pjs-parent').selectedOptions[0].textContent;
+      return { create, settings, pick, tasksSel, heads, crumb, title, backLabel, archivedParent };
     });
     const order = ['Alpha', 'Alpha › Sub', 'Alpha 2', 'Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B', 'Book B › Launch'];
     ok(t + ' #3029 create parent picker: named by chain, each subproject after its parent', JSON.stringify(chains.create.slice(1)) === JSON.stringify(order), JSON.stringify(chains.create));
@@ -490,6 +497,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' #3029 Tasks Group by: Project headings are named and ordered by chain',
       JSON.stringify(chains.heads) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.heads));
     ok(t + ' #3029 Tasks crumb names the picked subproject by its chain', /All tasks › Book A › Launch › Ads/.test(chains.crumb), JSON.stringify(chains.crumb));
+    ok(t + ' #3029 Tasks title and back chevron name the picked subproject by its chain',
+      / on Book A › Launch › Ads$/.test(chains.title.trim()) && chains.backLabel === 'Back to Book A › Launch › Ads', JSON.stringify({ title: chains.title, back: chains.backLabel }));
+    ok(t + ' #3029 settings picker names an archived parent that is a subproject by its chain', chains.archivedParent === 'Book A › Old launch (archived)', JSON.stringify(chains.archivedParent));
 
     // ---- Layer 4 removed (#3103/#3104, 6.68) ----
     // The old #2848 wiring layer drove showTab -> placeSubProjects to prove the

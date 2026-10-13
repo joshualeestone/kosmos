@@ -61802,7 +61802,7 @@ function tskPaint() {
   const back = document.getElementById('tsk-back');
   if (back) {
     back.hidden = !picked;
-    if (picked) { back.dataset.openProject = picked.id; back.setAttribute('aria-label', 'Back to ' + picked.name); }
+    if (picked) { back.dataset.openProject = picked.id; back.setAttribute('aria-label', 'Back to ' + pjChainText(picked.chain)); }
     else delete back.dataset.openProject;
   }
   const scoped = tskScoped(all, TSK, now);
@@ -61817,7 +61817,7 @@ function tskPaint() {
   const onProjects = new Set(open.map((t) => t.projectId)).size;
   document.getElementById('tsk-title').textContent = !TSK.data ? 'Tasks'
     : open.length + (open.length === 1 ? ' Task' : ' Tasks')
-      + (picked ? ' on ' + picked.name : open.length ? ' on ' + onProjects + (onProjects === 1 ? ' Project' : ' Projects') : '');
+      + (picked ? ' on ' + pjChainText(picked.chain) : open.length ? ' on ' + onProjects + (onProjects === 1 ? ' Project' : ' Projects') : '');
   tskSearchOpen();   // the compact search's open state follows TSK.q on every paint, whoever changed it
   /* #3949: Created: and Group by are dropdowns (they were button rows). */
   tskOptions(document.getElementById('tsk-win'), TSK_WINDOWS.map(([l, d]) => '<option value="' + d + '"' + (TSK.win === d ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), String(TSK.win));
@@ -63790,8 +63790,9 @@ function pjPaintParentSelect(p) {
      else (the active filter still excludes archived), only shown as the
      existing one here. */
   if (!hasCurrent && p.parent) {
+    const par = pjById(p.parent);   // #3029: an archived parent that is itself a subproject keeps its chain
     const label = p.parentName
-      ? p.parentName + (p.parentArchived ? ' (archived)' : '')
+      ? (par ? pjChainText(pjChainOf(par)) : p.parentName) + (p.parentArchived ? ' (archived)' : '')
       : 'Current parent (no longer available)';
     opts.splice(1, 0, '<option value="' + esc(p.parent) + '" selected>' + esc(label) + '</option>');
   }
