@@ -489,8 +489,9 @@ case "$EVENT" in
       fi
       if [ "$TF_INTR" != true ]; then
         TF_TOOL=$(json_field '.tool_name' 'tool_name'); TF_TOOL="${TF_TOOL:-a tool}"
-        # The sed fallback (no jq) returns the error still JSON-escaped, so its first line also ends at a literal \n.
-        TF_ERR=$(json_field '.error' 'error' | head -1 | sed 's/\\n.*//' | cut -c1-300)
+        # The sed fallback (no jq) returns the error still JSON-escaped, so there its first line also ends at a literal \n.
+        if [ -n "$JQ" ]; then TF_ERR=$(json_field '.error' 'error' | head -1 | cut -c1-300)
+        else TF_ERR=$(json_field '.error' 'error' | sed 's/\\n.*//' | cut -c1-300); fi
         if command -v shasum >/dev/null 2>&1; then TF_HASH='shasum -a 256'; else TF_HASH='sha256sum'; fi
         # What is hashed must not be empty: the hash of nothing is one constant, which would make every unreadable
         # payload "the same failure".
