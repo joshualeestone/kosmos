@@ -35,6 +35,9 @@ function accountState(a, now = Date.now()) {
   if (c.badge === 'signed_in_unverified') return 'signed in by Kosmos\'s record, not yet confirmed by a real request';
   if (c.badge === 'rejected') return 'not signed in: its last request was refused. The person signs in again in Settings > AI Models';
   if (c.badge === 'signed_out') return 'not signed in' + why;
+  // #5948: an account Kosmos does not list and cannot call signed out: its credential could not be read or sits outside
+  // the folder Kosmos looks in, its folder could not be looked into, or a shared key may stand in for it.
+  if (c.badge === 'unlisted') return 'not checked by Kosmos' + why;
   if (c.badge === 'unchecked') return 'could not be checked just now' + why;
   if (c.liveCheckPending === true) return 'being checked now; run it once more in a few seconds for the answer';
   if (a.authMode === 'chatgpt' && c.state === 'unknown') return 'signed in by its own record, not yet confirmed by a real request';
@@ -61,8 +64,17 @@ function answer(status, json, now = Date.now()) {
   if (status >= 500 || (status >= 400 && !err)) return { fail: 'Kosmos could not read its accounts just now' + (err ? ': ' + err : '') + '. Try again in a minute.' };
   if (status >= 400) return { fail: 'Kosmos refused that request: ' + err + '.' };
   if (!json || !Array.isArray(json.accounts)) return { fail: 'Kosmos gave an answer we could not read about its accounts.' };
-  if (!json.accounts.length) return { lines: ['No provider accounts are set up on this board yet. The person adds one in Settings > AI Models.'] };
-  return { lines: json.accounts.filter((a) => a && typeof a === 'object').map((a) => accountLine(a, now)) };
+  // #5948: accounts an agent uses whose sign-in or key is gone, sent apart from `accounts` so no picker offers them.
+  const gone = (Array.isArray(json.unlistedAccounts) ? json.unlistedAccounts : []).filter((a) => a && typeof a === 'object');
+  // #5948: the unlisted check failed, so "none set up" is not something Kosmos can say.
+  if (!json.accounts.length && !gone.length && json.unlistedComplete === false) {
+    return { lines: ['No provider accounts are listed, and Kosmos could not check the accounts its agents use just now. Try again in a minute.'] };
+  }
+  if (!json.accounts.length && !gone.length) return { lines: ['No provider accounts are set up on this board yet. The person adds one in Settings > AI Models.'] };
+  const lines = [...json.accounts, ...gone].filter((a) => a && typeof a === 'object').map((a) => accountLine(a, now));
+  // #5948: the check for accounts its agents use but Kosmos does not list did not finish, so the list may be short.
+  if (json.unlistedComplete === false) lines.push('Kosmos could not check every account its agents use just now, so one may be missing here. Try again in a minute.');
+  return { lines };
 }
 
 module.exports = { accountLine, accountName, accountState, answer, clean };

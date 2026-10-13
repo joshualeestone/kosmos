@@ -29,7 +29,9 @@ const VERSION_MAX_BUFFER = 64 * 1024;
    WHOLE trimmed output must be that line (round 1): a banner around it is not a version. */
 const VERSION_RE = /^Muse Code (\d+\.\d+\.\d+)(?: \(([^)\s]+)\))?$/;
 const VERSION_UNKNOWN_BECAUSE = 'Kosmos could not read which Muse Code this is';
-const NOT_INSTALLED_BECAUSE = 'Muse Code is not on this computer';
+// #3939: with Meta on by default, this is what most Macs see, so it says what to do.
+// Neutral on purpose: it also reaches an existing Muse agent's turn (engine/muserun.js) when Muse Code was removed.
+const NOT_INSTALLED_BECAUSE = 'Muse Code is not on this computer. Install it from Meta, then try again';
 const CHECK_FAILED_BECAUSE = 'Kosmos could not check for Muse Code';
 /* The one command this module runs; the refusal message and the run both use it (round 3). */
 const VERSION_ARGS = Object.freeze(['--version']);
@@ -82,21 +84,22 @@ function version() {
 
 /* ---- #3939 slice 3: the flag and the sign-in -------------------------------------------------- */
 
-/** Whether Meta Muse shows anywhere: on a Mac (the only platform the runner is built for), turned on by
-    AGENT_WORKFORCE_MUSE=1 or by the preview marker file in the Kosmos data folder (store.ROOT). Off by default, so
-    every screen is as before until someone turns it on. */
+/** Whether Meta Muse shows anywhere: on a Mac (the only platform the runner is built for), ON by default since
+    #3939's Muse Wonder release (2026-10-12): every provider list offers Meta, and a computer without Muse Code
+    is told to install Muse Code first. Two ways off, both support switches rather than settings:
+    AGENT_WORKFORCE_MUSE=0 (or false, off, no, as AGENT_WORKFORCE_ANTIGRAVITY reads) for one run, and the OFF MARKER (a file named muse-off in the Kosmos data folder),
+    which lasts, because every install and update rewrites the board's launchd job with a fixed list of
+    variables and so drops the variable. The old preview marker (muse-preview-on) is no longer read. */
 function enabled(platform = process.platform) {
   if (platform !== 'darwin') return false;
-  if (process.env.AGENT_WORKFORCE_MUSE === '1') return true;
-  try { return fs.existsSync(previewMarker()); } catch { return false; }
+  if (/^(0|false|off|no)$/i.test(String(process.env.AGENT_WORKFORCE_MUSE || '').trim())) return false;
+  // An unreadable data folder leaves it on: on is the default, and the marker is only ever a way off.
+  try { return !fs.existsSync(offMarker()); } catch { return true; }
 }
-/* #3939: the preview marker. The board's launchd job is rewritten on every install and update with a
-   fixed list of variables, so an environment variable set there does not last; this file does. Read on
-   every check (one existsSync; store.ROOT's first read per root may run its one-time legacy-store
-   migration, as signinFolder's does): creating or deleting it needs no restart. store.ROOT is read at call time on purpose, so
-   the path follows the AGENT_WORKFORCE_HOME / _DATA seams (a module-level constant would freeze it). */
-const PREVIEW_MARKER = 'muse-preview-on';
-function previewMarker() { return path.join(require('./store').ROOT, PREVIEW_MARKER); }
+/* Read on every check, store.ROOT at call time (the AGENT_WORKFORCE_HOME / _DATA seams), as the preview marker was:
+   creating or deleting it needs no restart. */
+const OFF_MARKER = 'muse-off';
+function offMarker() { return path.join(require('./store').ROOT, OFF_MARKER); }
 
 /* The mark Kosmos leaves when ITS sign-in ended "Logged in." (engine/musesignin.js writes it). On a
    Mac, Muse keeps the sign-in in the login Keychain, which Kosmos never reads: an item named "meta"
@@ -311,4 +314,4 @@ const REAL = { runVersion };
 function setRunnerForTests(fn, opts) { if (fn) runVersion = fn; if (opts && opts.hardCapMs) hardCapMs = opts.hardCapMs; if (opts && opts.timeoutMs) timeoutMs = opts.timeoutMs; }
 function resetForTests() { runVersion = REAL.runVersion; hardCapMs = VERSION_HARD_CAP_MS; timeoutMs = VERSION_TIMEOUT_MS; }
 
-module.exports = { installed, version, parseVersion, enabled, previewMarker, PREVIEW_MARKER, NOT_INSTALLED_BECAUSE, signedIn, lastSeenWorking, refused, signinFolder, signedInMarker, eventsFolder, latest, markSignedOut, markTurnSignedIn, markKosmosSignedIn, markSaveFailed, fileAtStart, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };
+module.exports = { installed, version, parseVersion, enabled, offMarker, OFF_MARKER, NOT_INSTALLED_BECAUSE, signedIn, lastSeenWorking, refused, signinFolder, signedInMarker, eventsFolder, latest, markSignedOut, markTurnSignedIn, markKosmosSignedIn, markSaveFailed, fileAtStart, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };

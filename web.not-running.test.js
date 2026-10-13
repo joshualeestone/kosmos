@@ -126,7 +126,7 @@ function render(which, a) {
      reads the CURRENT global -- lift it like face, and pass CURRENT (null: no
      agent is open in this isolated render) as an arg so the eval has both. */
   const fn = new Function('a', 'esc', 'GLYPH', 'PRESSAY', 'roleLine', 'discTint', 'discInk', 'initials', 'ROLE_TITLES', 'CURRENT',
-    `${page.lift(SCRIPT, 'agentNeedsAttention')}\n${page.lift(SCRIPT, 'face')}\n${page.lift(SCRIPT, 'dmBadge')}\n${page.lift(SCRIPT, which)}\nreturn ${which}(a);`);
+    `${page.lift(SCRIPT, 'agentNeedsAttention')}\n${page.lift(SCRIPT, 'face')}\n${page.lift(SCRIPT, 'dmBadge')}\n${page.lift(SCRIPT, 'rulesBehindLine')}\n${page.lift(SCRIPT, which)}\nreturn ${which}(a);`);
   return fn(a, (x) => String(x == null ? '' : x), { stopped: '<span class="stop"></span>' },
     { off: 'Not running' }, (x) => x.role || '', () => '#eee', () => '#111', (n) => n[0], null, null);
 }
@@ -318,3 +318,26 @@ test('on a partial read the headline tiles are marked as floors, never printed a
   // And the engine really produces the gate on the mangled fixture (control).
   assert.ok(board({ mangle: true }).counts.unreadableLines > 0, 'the mangled fixture no longer yields an unreadable line, so the gate is untestable');
 });
+
+/* kosmos#5957 slice 2: an offline agent is the likeliest to be far behind, and its card and list row draw no task line
+   of their own, so they say it themselves. The real row from the route (strict) carries rulesBehind null, so nothing is
+   drawn; the same row 13 versions behind draws the sentence in each renderer's own slot. */
+for (const which of ['card', 'lrow']) {
+  test(`#5957 ${which}: a stopped agent far behind says its working rules are behind; the real row (null) says nothing`, () => {
+    // Offline: the fact only (the page's update is refused for an agent not in the roster), no 'Open it to update them'.
+    const SAID = 'Its working rules are 13 versions behind.';
+    assert.ok(!render(which, offlineRow()).includes('working rules'), 'a row with no number drew the sentence');
+    const html = render(which, { ...offlineRow({ strict: false }), rulesBehind: 13 });
+    assert.ok(html.includes(SAID), `${which} did not draw the sentence: ${html.slice(0, 200)}`);
+    assert.ok(html.includes(which === 'card' ? '<div class="arules">' + SAID : '<div class="ltask">' + SAID), `${which} drew it outside its slot`);
+    assert.ok(!html.includes('Open it to update'), `${which} promised an update the page would refuse`);
+    // Not when launchd says a process may be running (the "could not check" split): the update restarts it.
+    // The split branch names its label from the page's STATE_COPY, which render() does not supply: given here only.
+    globalThis.STATE_COPY = { unknown: { label: 'Could not check' } };
+    let split;
+    try { split = render(which, { ...offlineRow({ strict: false }), rulesBehind: 13, jobRunningUnseen: true }); }
+    finally { delete globalThis.STATE_COPY; }
+    assert.ok(split.includes('Could not check') || split.includes('st-unknown'), `fixture: ${which} did not take the split branch`);
+    assert.ok(!split.includes('working rules'), `${which} said it on the could-not-check split`);
+  });
+}

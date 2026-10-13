@@ -60,6 +60,7 @@
     "id": "000000000000",
     "idInstall": "00000000-0000-4000-8000-000000000000"
   },
+  "rulesBehind": null,
   "swarm": null,
   "crashLoop": null
 }

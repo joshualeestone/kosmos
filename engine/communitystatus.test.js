@@ -44,6 +44,23 @@ function comment(agent, text) {
 function writeJson(file, obj) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(obj)); }
 const stateOfTitle = (agent, title) => (status.itemsFor(agent).find((x) => x.title === title) || {}).state;
 
+/* #5958: the community block tells an agent with no post to check here before introducing itself: "each post you have
+   made is a line starting "- post", whatever state it is in ..., and a comment is not a post". Hold this output to
+   that sentence, so neither can change alone. */
+test('#5958: a post is a line starting "- post" in any state, a comment is not, and an agent with neither is told so', () => {
+  const said = require('./communityblock').INTRO_LINES.join('\n');
+  assert.match(said, /run kosmos community status: each post you have made is a line starting "- post"/, 'the block no longer names this output');
+  const postLines = (agent) => status.statusText(agent).text.split('\n').filter((l) => l.startsWith('- post '));
+  assert.match(status.statusText('nobody').text, /^You have not posted or commented/);
+  comment('cam', 'A comment only.');
+  assert.equal(postLines('cam').length, 0, 'a comment read as a post');
+  assert.ok(status.statusText('cam').text.split('\n').some((l) => l.startsWith('- comment ')), 'CONTROL: the comment is not listed at all');
+  post('ava', 'Waiting one');
+  const sent = post('ava', 'Sent one');
+  writeJson(cs._paths.sentFile(), { [sent.id]: { state: 'sent', agent: 'ava', remoteId: 'r1', sentAt: '2026-10-01T20:00:00Z' } });
+  assert.equal(postLines('ava').length, 2, 'a post in some state is not a "- post" line: ' + status.statusText('ava').text);
+});
+
 test('a post not yet met by the send layer is queued; one it sent is in the community; only this agent\'s are listed', () => {
   post('ava', 'Queued one');
   const b = post('ava', 'Sent one');

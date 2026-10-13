@@ -20,9 +20,10 @@
  * Codex agent's rollout files in its runtime home (<data root>/codex-homes/<key>/sessions), taken by name as
  * sessions/<id>/codex-runtime (#5883), never anything beside them.
  * Transcripts are read from every home an agent's Codex or Gemini sessions can be in, from its launch job (kosmos#5883
- * slice 1). KNOWN GAPS still open on #5883, each leaving that agent's FOLDER backed up but not its transcripts: Grok
- * (no session reader), Antigravity (Gemini on a Google subscription), and a move between two NAMED accounts (the first
- * account's sessions stay unread).
+ * slices 1 and 2, Grok included). KNOWN GAPS still open on #5883, each leaving that agent's FOLDER backed up but not its
+ * transcripts: Antigravity (Gemini on a Google subscription: live SQLite files, which need a consistent copy), a
+ * move between two NAMED accounts (the first account's sessions stay unread), and Grok sessions run in a Grok
+ * WORKTREE (their launch folder is the worktree, not the agent's folder).
  * `left` names what was not added and why (an id or slug a root name cannot carry), never a path.
  *
  * startTick(deps) -> stop(). Every `everyMs` (an hour): only while deps.enrolled() is true (the board passes mayBackUp:
@@ -230,6 +231,8 @@ function inputsHere(deps = {}) {
   let agentCodexHome = codexHome, agentGeminiHome = geminiHome;
   try { agentCodexHome = create.defaultAgentCodexHome(); } catch { /* the board's */ }
   try { agentGeminiHome = create.geminiStorageHome(null); } catch { /* the board's */ }
+  let agentGrokHome = null;
+  try { agentGrokHome = require('./grokaccounts').defaultDir(); } catch { /* none */ }
   // Each agent's OWN provider homes (kosmos#5883), from its launch job. The board reads ONE home (the current session);
   // a backup owes EVERY conversation (review 1), so it reads each home the agent's sessions can be in. Each root is
   // named for its FOLDER, never its role (review 2: a role name moved to another folder when the agent changed account,
@@ -260,8 +263,11 @@ function inputsHere(deps = {}) {
       } catch { /* left */ }
     } else if (job && job.runner === 'gemini' && job.configDir) {
       try { moreHomes.push({ provider: 'gemini', home: create.geminiStorageHome(job.configDir), tag: acctTag(job.configDir) }); } catch { /* left */ }
+    } else if (job && job.runner === 'grok' && job.configDir) {
+      // kosmos#5883 slice 2: a Grok agent on a named account (its GROK_HOME is the account folder).
+      try { moreHomes.push({ provider: 'grok', home: job.configDir, tag: acctTag(job.configDir) }); } catch { /* left */ }
     }
-    return (deps.sessionsFor || require('./backupsessions').sessionsFor)(dir, { id, claudeRoots, geminiHome: gm, codexHome: cx, moreHomes });
+    return (deps.sessionsFor || require('./backupsessions').sessionsFor)(dir, { id, claudeRoots, geminiHome: gm, codexHome: cx, grokHome: agentGrokHome, moreHomes });
   };
   // Never inside a root, never holding one (reviews 1 and 5): Kosmos's own data, every provider's config home and every
   // ACCOUNT folder (~/.codex-<label>, ~/.gemini-<label>, ~/.grok and its accounts), and every hidden entry directly in

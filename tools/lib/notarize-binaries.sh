@@ -25,9 +25,11 @@
 #
 # #5896 slice 3: an argument ending in .app is the sealed Kosmos.app, submitted whole in the same zip. After Apple
 # accepts, its ticket is STAPLED to it (stapler staple, then stapler validate), and a copy with a quarantine flag must
-# be accepted by `spctl -a -t exec -vv` as "Notarized Developer ID". That is the check that would have caught Josh's
-# 0.7.42 "Kosmos is damaged": a quarantined app whose bundle was never sealed. Stapling adds the ticket inside the
-# bundle; it does not change the signed executable or the bare binaries, whose checksums the build re-checks.
+# be accepted by `spctl -a -t exec -vv` as "Notarized Developer ID". Measured 2026-10-12 on a real submission: a
+# quarantined copy that is sealed and signed but NOT notarised is rejected ("Unnotarized Developer ID"); notarised and
+# stapled, it is accepted. (What caused Josh's own 0.7.42 "Kosmos is damaged" is NOT established: his copy carried no
+# quarantine flag and an ad-hoc reseal did not clear it; #5896.) Stapling adds the ticket inside the bundle; it does
+# not change the signed executable or the bare binaries, whose checksums the build re-checks.
 #
 # Usage: notarize_binaries <binary or .app>...   returns non-zero on any failure, after
 # printing why. Sourced by build-kosmos-bundle.sh under set -euo pipefail; call it
@@ -79,8 +81,9 @@ _notarize_app_exe() {
 
 # #5896 slice 3: after Apple accepted submission <id> holding <app>, staple its ticket to it (so Gatekeeper finds it
 # offline, on any Mac), validate the staple, then assess a copy carrying a quarantine flag, as a download, AirDrop or
-# zip would leave it: the case that showed Josh "Kosmos is damaged" on 0.7.42. (spctl -a assesses signature,
-# notarisation and staple with or without the flag; the flag makes the copy what a user actually opens.) <scratch> is a
+# zip would leave it, which spctl rejects when it is not notarised (measured; see the file header). (spctl -a
+# assesses signature, notarisation and staple with or without the flag; the flag makes the copy what a user actually
+# opens.) <scratch> is a
 # folder the copy may be made in. A ticket can reach the staple service a while after acceptance, and a cut that fails
 # here has already pushed its version bump, so stapling has its OWN, longer schedule (KOSMOS_STAPLER_RETRY_DELAYS,
 # default 30 60 120 300 seconds, refused at a cut like the other seams), and a final failure names the submission.
@@ -114,7 +117,7 @@ _notarize_staple_app() {
      && printf '%s\n' "$out" | grep -q "^origin=Developer ID Application: .*($KOSMOS_SIGN_TEAM_ID)\$"; then
     echo "==> stapled and assessed quarantined: ${app##*/} is accepted as Notarized Developer ID, team $KOSMOS_SIGN_TEAM_ID (#5896)"
   else
-    echo "notarize: a quarantined copy of $app is not accepted as Notarized Developer ID of team $KOSMOS_SIGN_TEAM_ID (spctl rc=$rc, above). A user who downloads it would be told it is damaged or cannot be checked." >&2
+    echo "notarize: a quarantined copy of $app is not accepted as Notarized Developer ID of team $KOSMOS_SIGN_TEAM_ID (spctl rc=$rc, above). Gatekeeper (spctl) rejects a quarantined copy of it." >&2
     return 1
   fi
 }

@@ -2502,23 +2502,10 @@ function safeRoster() {
   }
 }
 
-/* #3296/#3391 accounts slice: the fail-closed "which agents run on this account
-   directory" enumeration, shared by EVERY provider's disconnect/remove route so the
-   safety property lives in ONE place rather than being copied per provider (the
-   "two derivations of the fleet" habit this file's own comments call its worst).
-   Returns { usedBy, complete }:
-     - `usedBy`: the running-or-known agents of runner `runner` whose account home
-       resolves to `dir` (or the default account, when `isDefault` and the agent
-       carries no configDir).
-     - `complete`: FALSE whenever ANYTHING could not be read -- an unreadable roster,
-       a launch file that threw, a non-ENOENT job miss, or a path that would not
-       resolve. A caller MUST refuse the destructive act when `complete` is false:
-       an enumeration that cannot tell "nobody" from "I could not look" is not a
-       safety check (Renet Tilley, reviewing #1447 -- AMBIGUITY WAS SILENTLY NONE).
-   `runner` scopes the walk to ONE provider's agents (a codex account is never held
-   by a gemini agent). This is the exact logic the OpenAI DELETE route grew inline;
-   that route now calls this so the four providers cannot drift. */
-function enumerateAgentsOnAccount(dir, isDefault, runner) {
+/* The agents an account walk looks at: the roster's cards, plus every profile Kosmos knows that is not removed.
+   { names, complete, roster }; `complete` is false whenever any source could not be read (see below). #5948: shared
+   with GET /api/accounts' unlisted rows, so the two walks read one set of names. */
+function knownAgentNames() {
   const roster = safeRoster();
   let complete = roster !== null;
   // register.known() separates "nothing was ever written" (ok, empty) from "we
@@ -2539,6 +2526,28 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
       if (!goneNames.has(n)) names.add(n);
     }
   }
+  return { names, complete, roster };
+}
+/* #3296/#3391 accounts slice: the fail-closed "which agents run on this account
+   directory" enumeration, shared by EVERY provider's disconnect/remove route so the
+   safety property lives in ONE place rather than being copied per provider (the
+   "two derivations of the fleet" habit this file's own comments call its worst).
+   Returns { usedBy, complete }:
+     - `usedBy`: the running-or-known agents of runner `runner` whose account home
+       resolves to `dir` (or the default account, when `isDefault` and the agent
+       carries no configDir).
+     - `complete`: FALSE whenever ANYTHING could not be read -- an unreadable roster,
+       a launch file that threw, a non-ENOENT job miss, or a path that would not
+       resolve. A caller MUST refuse the destructive act when `complete` is false:
+       an enumeration that cannot tell "nobody" from "I could not look" is not a
+       safety check (Renet Tilley, reviewing #1447 -- AMBIGUITY WAS SILENTLY NONE).
+   `runner` scopes the walk to ONE provider's agents (a codex account is never held
+   by a gemini agent). This is the exact logic the OpenAI DELETE route grew inline;
+   that route now calls this so the four providers cannot drift. */
+function enumerateAgentsOnAccount(dir, isDefault, runner) {
+  const known = knownAgentNames();
+  let complete = known.complete;
+  const names = known.names;
   const usedBy = [];
   for (const sessionName of names) {
     let job = null;
@@ -5819,6 +5828,8 @@ const server = http.createServer(async (req, res) => {
                    a terminal-error clock is kept only by the 60s sweep over RUNNING agents (stuckterminal.peek
                    in safeRoster), and this row is an agent with no live session to be stuck. */
                 stuckError: null,
+                /* kosmos#5957 slice 2: a stopped agent is the likeliest to be far behind, so its offline row says so too. */
+                rulesBehind: require('./engine/doctrine').rulesBehind(k.name, profile),
                 stateConfidence: unseen ? 'none' : 'structured',
                 /* #310: when the job exists and launchd holds an override
                    against it, the Login Items switch is the story, and it is
@@ -11012,7 +11023,41 @@ const server = http.createServer(async (req, res) => {
             }
           }
         } catch { museSub = []; }
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub] });
+        /* #5948: an account an agent uses whose sign-in or key is gone is not in the lists above (they list a folder only
+           when it holds a credential). Sent apart, so no account picker offers it; `kosmos accounts` prints it. */
+        let unlistedAccounts = [];
+        let unlistedComplete = true;
+        try {
+          const readers = { openai: openaiAccounts, google: geminiAccounts, xai: grokAccounts };
+          const soa = require('./engine/signedoutaccounts');
+          const tokendoor = require('./engine/tokendoor');
+          // The account walk's names (knownAgentNames): the roster's cards, then known profiles not on it.
+          const known = knownAgentNames();
+          // A walk that could not read the roster or the profiles is incomplete: kosmos accounts must not then say none.
+          unlistedComplete = known.complete !== false;
+          const onRoster = new Set((known.roster || []).map((c) => c && c.sessionName));
+          const cards = [...(known.roster || []), ...[...known.names].filter((n) => !onRoster.has(n)).map((n) => ({ sessionName: n, name: n }))];
+          const runnerOf = new Map((known.roster || []).filter((c) => c && c.sessionName).map((c) => [c.sessionName, c.runner || null]));
+          unlistedAccounts = soa.signedOutRows(cards,
+            { openai: openaiRows, google: geminiRows, xai: grokRows },
+            // A job that could not be READ (not one that is absent) leaves the walk incomplete, as enumerateAgentsOnAccount
+            // counts it: a lapsed account behind it must not turn into "none set up".
+            (n) => {
+              // The job is always read (it is the authority: an untagged gemini pane's card says claude). Only the walk's
+              // completeness is scoped: a card whose roster runner is not keyed does not mark it incomplete.
+              const cardRunner = runnerOf.get(n);
+              const counts = !cardRunner || Object.prototype.hasOwnProperty.call(soa.PROVIDER_OF_RUNNER, cardRunner);
+              let j;
+              try { j = create.readJob(n); } catch (e) { if (counts) unlistedComplete = false; throw e; }
+              if (!j && counts) { let absent = false; try { absent = create.jobMissing(n); } catch { absent = false; } if (!absent) unlistedComplete = false; }
+              return j;
+            },
+            (p, d) => readers[p].readName(d),
+            undefined, (p) => readers[p].defaultDir(),
+            // The secrets/env door a launch falls back to when a folder's own key is missing (tokendoor.fileFor).
+            (v) => soa.fileThere(tokendoor.fileFor(v)));   // any other fault: unsure, never "gone"
+        } catch { unlistedAccounts = []; unlistedComplete = false; }
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub], unlistedAccounts, unlistedComplete });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;
@@ -12124,7 +12169,8 @@ const server = http.createServer(async (req, res) => {
              `removeAccount` deletes the default `.codex` (whole-dir) and
              `forgetAccount` renames it aside, both AFTER the agents check. What
              both share as PRE-agents refusals is the path guard and the
-             sign-in-in-progress guard. So without this, a request
+             sign-in-in-progress guard (any hold but the account's own Sign in again,
+             which #5994 cancels once the account is gone). So without this, a request
              naming the default account stopped every agent on it, for real, wrote
              each to the removed list, and then answered 400 with a refusal that
              never mentioned the stop. Deterministic, not a race. The default row renders live
@@ -12148,7 +12194,9 @@ const server = http.createServer(async (req, res) => {
              depend on the agents comes BEFORE the agents guard"). Two refusals
              precede the agents guard and are therefore visible here: the path
              guard and the OpenAI sign-in-in-progress guard (#2684 removed the
-             default-account guard; the default is agents-gated like any row now). The IDENTITY refusal ("that is not a
+             default-account guard; the default is agents-gated like any row now). Since #5994 that guard
+             no longer covers the account's own Sign in again, which is cancelled once the account is gone.
+             The IDENTITY refusal ("that is not a
              Claude/OpenAI account on this computer") does NOT, in any of the
              four, and it cannot be hoisted: `engine/accounts.js` states why at
              the guard itself, that `identityOf` answers null for a missing
@@ -15268,6 +15316,7 @@ const server = http.createServer(async (req, res) => {
           for (const c of roster || []) for (const n of [c && c.sessionName, c && c.name]) if (typeof n === 'string' && n) agentNames.push(n);
           note = selfreport.blockedOwnerNote(body.state, body.owner, { personName, agentNames });
         } catch { note = ''; }
+        if (body.state === 'needs_you' && body.auto !== true) note = selfreport.NEEDS_YOU_ASK_NOTE;   // #5943: an agent asking, not a hook
         sendJson(res, 200, note ? { recorded: true, note } : { recorded: true });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
@@ -16305,8 +16354,25 @@ const server = http.createServer(async (req, res) => {
        the integration test below pins. */
     /* #3723: and Kosmos's own line while the agent is stopped by its account (out of usage or
        credits, a sign-in that stopped working), derived from the same card, so it clears itself. */
+    /* #5943: a question the agent REPORTED is dated from when it was first asked (selfreport askedAt), so it sits in
+       time instead of under every later message, and the person may clear it from the bubble (clear-selfreport, the
+       same route as the Engineering-mode control). A question only read off the screen has neither. */
+    let questionRow = question;
+    /* Review 1: only when the question SERVED is the reported one. A question read off the screen (a permission
+       menu, a later prompt) wins over the report and is answered on that screen: it stays undated, last, and has no
+       clear button, even while some report stands. */
+    if (question && question === reportedQuestion && card && card.stateReported === true) {
+      let askedAt = null;
+      let permissionWait = false;
+      try {
+        const rep = selfreport.read(card.sessionName);
+        askedAt = rep && rep.found ? rep.askedAt : null;
+        permissionWait = Boolean(rep && rep.found && selfreport.isAutoPermissionWait(rep));   // answered on the screen (review 2)
+      } catch { askedAt = null; }
+      if (!permissionWait) questionRow = { ...question, clearable: true, ...(askedAt ? { at: askedAt } : {}) };
+    }
     const servedMessages = Array.isArray(messages)
-      ? chat.withAccountRow(chat.withQuestionRow(messages, (card && card.sessionName) || name, question),
+      ? chat.withAccountRow(chat.withQuestionRow(messages, (card && card.sessionName) || name, questionRow),
         (card && card.sessionName) || name, accountProblemOf(card))
       : messages;
     /* #3650: the person's reactions on the agent's messages, in the room's pill shape
@@ -16699,7 +16765,28 @@ const server = http.createServer(async (req, res) => {
         /* Not on a numbered menu answer (chat.dmNoteMayRide); the note waits for the next
            ordinary message. */
         const news = chat.dmNoteMayRide(body.text, chose) ? chat.dmReactionNews(name) : { note: '', named: {} };
-        const reactionNote = news.note;
+        /* #5943: a reported question standing while the person writes: the agent is told to decide whether this answers
+           it (clear it, or leave it open and say what it still needs). Rides with the reaction note, under the same rule
+           (never on a numbered menu answer), and never on the automatic hello, which answers nothing. Only a question
+           the agent REPORTED: one read off its screen is answered by this message going into that screen. */
+        /* Review 1: never for a permission wait the hook filed (it is answered on the screen, not cleared), never while
+           a question stands on the screen itself, and ONCE per ask (keyed on when it was asked), recorded only once the
+           message is placed, like the reactions: a person chatting about other things is not asked again and again. */
+        let questionNote = '';
+        let questionAsk = null;
+        if (!automatic && chat.dmNoteMayRide(body.text, chose) && askingCard
+          && askingCard.state === STATE.NEEDS_YOU && askingCard.stateReported === true
+          && typeof askingCard.because === 'string' && askingCard.because !== ASKING_GENERIC
+          && !(seenNow && typeof seenNow.text === 'string' && chat.questionIn(seenNow.text, askingCard.runner))) {
+          let rep = null;
+          try { rep = selfreport.read(askingCard.sessionName); } catch { rep = null; }
+          if (rep && rep.found && rep.state === 'needs_you' && !selfreport.isAutoPermissionWait(rep) && rep.askedAt
+            && !chat.dmQuestionTold(askingCard.sessionName, rep.askedAt)) {
+            questionNote = chat.dmStandingQuestionNote(rep.because || askingCard.because);   // the fresh report's words (review 2)
+            questionAsk = rep.askedAt;
+          }
+        }
+        const reactionNote = news.note + questionNote;
         /* #4256: the quote is Kosmos's framing, so it rides in the ENVELOPE, after the operator's bracket: the
            person's words reach deliver unchanged, so their length budget and the paused-agent command check see
            exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
@@ -16775,7 +16862,7 @@ const server = http.createServer(async (req, res) => {
             const at = new Date().toISOString();
             const signin = !!hold && hold.heldFor === 'signin';   // #5948: no reset to wait for, only a sign-in
             const until = hold && !signin && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
-            const trailer = (attachments.wireNote(files.recs) || '') + reactionNote;
+            const trailer = (attachments.wireNote(files.recs) || '') + news.note;   // #5943 review 1: no question note in a held message: by the reset it may be untrue
             const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');   // two sends in one millisecond stay two
             if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at, signin: signin && !behind })) {
               const heldDelivery = {
@@ -16832,9 +16919,10 @@ const server = http.createServer(async (req, res) => {
            send (a paste that failed part-way, a pane that changed before Enter) is the case
            most likely to have lost it. Telling twice costs one extra note; not telling is
            silent. A failed mark (the thread lock busy) also just tells again next time. */
-        if (reactionNote && delivery && delivery.state === chat.DELIVERY.PLACED) {
+        if (news.note && delivery && delivery.state === chat.DELIVERY.PLACED) {   // #5943: the reactions' own part, not the question note riding with it
           chat.markDmReactionsTold(name, news.named);
         }
+        if (questionAsk && delivery && delivery.state === chat.DELIVERY.PLACED) chat.markDmQuestionTold(askingCard.sessionName, questionAsk);   // #5943: once per ask
         const kept = chat.appendMessage(chat.DIRECT, name, {
           ...attachments.rowFields(files.recs),
           text: chose || body.text,
@@ -17686,6 +17774,13 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
         const current = selfreport.read(name);
         const waiting = current.found === true && selfreport.WAITING_ON_A_PERSON.includes(current.state);
+        /* #5943 review 3: the DM's "Answered, clear this" names the ask it was drawn for. A different question standing
+           now (reported since the page last painted) is NOT cleared: the person never saw it. Without askedAt (the
+           Engineering-mode control) nothing changes. */
+        if (waiting && typeof body.askedAt === 'string' && body.askedAt && current.askedAt && current.askedAt !== body.askedAt) {
+          sendJson(res, 200, { ok: true, cleared: false, stale: true, state: current.state });
+          return;
+        }
         if (!waiting) {
           /* Idempotent: nothing sticky to clear (never reported, already idle,
              or working). Not an error -- a second click, or a race with the
@@ -18320,9 +18415,7 @@ const server = http.createServer(async (req, res) => {
         if (federationLinked) fedseats.ensure(made.id).catch(() => {});
         let project = null;
         try { project = projects.get(made.id, roster); } catch { project = null; }
-        // #4583: made with two coordinators already on it: the same warning as adding the second one.
-        const coordinators = project ? projects.coordinatorWarning(project, null) : null;
-        sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked, ...(coordinators ? { coordinators } : {}) });
+        sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked });
       })
       .catch((err) => sendJson(res, (err && err.code === 'UNREADABLE') ? 500 : 400,
         { error: String((err && err.message) || 'we could not read that request'), ...(err && err.code === 'FOLDER_TAKEN' ? { code: 'folder_taken' } : {}) }));
@@ -20855,9 +20948,7 @@ const server = http.createServer(async (req, res) => {
     if (moved && project) {
       said = await projects.speakOfMembershipAsync(name, project, req.method === 'POST' ? 'joined' : 'left', roster);
     }
-    // #4583: a second coordinator joining is warned about, never refused.
-    const coordinators = (req.method === 'POST' && moved && project) ? projects.coordinatorWarning(project, name) : null;
-    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null, ...(coordinators ? { coordinators } : {}), ...(leftBehind ? { leftBehind } : {}) });
+    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null, ...(leftBehind ? { leftBehind } : {}) });
     return;
   }
 

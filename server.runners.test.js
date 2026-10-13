@@ -330,12 +330,29 @@ test('#3998 round 15: a throw while starting the sign-in is a 500, not a board t
   } finally { signin.resetForTests(); delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('#3939 slice 3: /api/muse is off without the flag; with it, the sign-in starts, reads back, refuses another tab, and stops', { skip: process.platform !== 'darwin' && 'the Muse flag is Mac only' }, async () => {
+test('#3939: with nothing set, a Mac board offers Meta Muse, and one without Muse Code says what to do', { skip: process.platform !== 'darwin' && 'Meta Muse is Mac only' }, async () => {
+  const musestatus = require('./engine/musestatus');
+  const was = process.env.AGENT_WORKFORCE_MUSE;
+  const wasBin = process.env.AGENT_WORKFORCE_MUSE_BIN;
+  delete process.env.AGENT_WORKFORCE_MUSE;
+  process.env.AGENT_WORKFORCE_MUSE_BIN = path.join(SANDBOX, 'no-muse-here', 'muse');   // not on this computer
+  try {
+    assert.ok(!fs.existsSync(musestatus.offMarker()), 'control: no off marker in the sandbox');
+    assert.deepEqual(json(await req('/api/muse')), { enabled: true, installed: false, because: musestatus.NOT_INSTALLED_BECAUSE, signedIn: false },
+      'an ordinary Mac board does not offer Meta Muse');
+    assert.match(musestatus.NOT_INSTALLED_BECAUSE, /Install it from Meta, then try again/, 'the not-installed answer does not say what to do');
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_MUSE; else process.env.AGENT_WORKFORCE_MUSE = was;
+    if (wasBin === undefined) delete process.env.AGENT_WORKFORCE_MUSE_BIN; else process.env.AGENT_WORKFORCE_MUSE_BIN = wasBin;
+  }
+});
+
+test('#3939 slice 3: /api/muse is off with AGENT_WORKFORCE_MUSE=0; on, the sign-in starts, reads back, refuses another tab, and stops', { skip: process.platform !== 'darwin' && 'the Muse flag is Mac only' }, async () => {
   const dir = path.join(SANDBOX, 'museroutes'); fs.mkdirSync(dir, { recursive: true });
   const bin = path.join(dir, 'muse');
   fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   process.env.AGENT_WORKFORCE_MUSE_BIN = bin;
-  delete process.env.AGENT_WORKFORCE_MUSE;
+  process.env.AGENT_WORKFORCE_MUSE = '0';   // off is =0 since Muse is on by default on a Mac
   const signin = require('./engine/musesignin');
   const calls = [];
   signin.setForTests({ tmux: (args) => { calls.push(args.join(' ')); if (args[0] === 'capture-pane') throw new Error('none'); return ''; } });
@@ -373,7 +390,7 @@ test('#3939 3c-2 / #4569: /api/accounts lists Meta Muse only when it is on and i
   const clean = () => { fs.rmSync(musestatus.signedInMarker(), { force: true }); fs.rmSync(musestatus.eventsFolder(), { recursive: true, force: true }); };
   const xdg = process.env.XDG_CONFIG_HOME; delete process.env.XDG_CONFIG_HOME;   // Muse's own file from the sandbox home only
   process.env.AGENT_WORKFORCE_MUSE_BIN = bin;
-  delete process.env.AGENT_WORKFORCE_MUSE;
+  process.env.AGENT_WORKFORCE_MUSE = '0';   // off is =0 since Muse is on by default on a Mac
   try {
     clean();
     const t = Date.now() - 60000;

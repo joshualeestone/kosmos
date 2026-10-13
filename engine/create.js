@@ -953,7 +953,7 @@ function antigravityEnabled() {
   // Off by 0, false or off (review round 7: an operator writing false meant off); anything else is on.
   return !/^(0|false|off|no)$/i.test(String(process.env.AGENT_WORKFORCE_ANTIGRAVITY || '').trim());
 }
-/* #3939 slice 3c-3a: Meta Muse agents. Off unless Muse is switched on, and on a Mac only
+/* #3939 slice 3c-3a: Meta Muse agents. On a Mac only, and only while Muse is on (on by default since 2026-10-12)
    (engine/musestatus.enabled decides, the same switch the sign-in and the Settings row read). Switching an
    existing agent to Meta (setProvider) is not offered yet, so that route refuses 'meta' as it always has. */
 function museEnabled(platform) {
@@ -4550,7 +4550,8 @@ function createAgentInner(opts) {
     // #3939: the same "could this machine ever start it" preflight. A Muse agent's pane runs Kosmos's
     // front under node, and every turn it runs needs Muse Code, so an absent muse is refused here.
     if (!DRY_RUN && !runnerRunnable(museBin)) {
-      return { outcome: OUTCOME.REFUSED, because: 'we could not find Muse Code on this computer, so an agent made now would never start', steps };
+      // #3939: says what to do, now that most Macs (Muse on by default) reach this without Muse Code.
+      return { outcome: OUTCOME.REFUSED, because: 'Muse Code is not on this computer yet, so an agent made now would never start. Install it from Meta, then try again', steps };
     }
   }
   if (provider === 'google') {

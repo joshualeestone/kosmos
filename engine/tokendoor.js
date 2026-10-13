@@ -31,10 +31,12 @@ const store = require('./store');
 const securewrite = require('./securewrite');
 
 const DIR = path.join(store.ROOT, 'secrets', 'env');
+/* The door's file for one variable. One derivation: makeTokenDoor and #5948's shared-key check both read it. */
+function fileFor(envVar) { return path.join(DIR, envVar); }
 
 function makeTokenDoor(spec) {
   if (!/^[A-Z][A-Z0-9_]*$/.test(spec.envVar)) throw new Error('envVar must be an environment variable name: ' + spec.envVar);
-  const FILE = path.join(DIR, spec.envVar);
+  const FILE = fileFor(spec.envVar);
   let fetcher = null; // test seam: (req, token) => Promise<{ok, status, body}>
   const setFetcher = (fn) => { fetcher = typeof fn === 'function' ? fn : null; };
   const url = () => (spec.verifyUrlEnv && process.env[spec.verifyUrlEnv]) || spec.verify.url;
@@ -123,4 +125,4 @@ function makeTokenDoor(spec) {
   return { spec, state, held, connect, forget, verify, setFetcher, FILE };
 }
 
-module.exports = { makeTokenDoor, DIR };
+module.exports = { makeTokenDoor, DIR, fileFor };

@@ -296,11 +296,10 @@ function forgetAccount(dir, usedBy) {
     return { ok: false, forgotten: false, because: 'that is not an OpenAI account on this computer' };
   }
 
-  /* #2584: refuse while a reauth of this account is in flight (its dir is reserved in
-     activeChatgptDirs). A rename now would pull the live dir out from under the pending
-     promote, so this refusal keeps the reservation whole. Without it the reauth still
-     fails safely (renameSync throws once the dir is gone, the account is left
-     unchanged), but with a confusing error rather than this upfront one.
+  /* #2584: refuse while another sign-in holds this dir (activeChatgptDirs). Since #5994 the
+     account's OWN unfinished Sign in again is not such a hold: it is cancelled once the
+     move succeeds (see below), and cancelling settles it, so it can no longer promote into
+     the moved dir.
 
      🛑 IT SITS BEFORE THE AGENTS GUARD, AND THAT ORDER IS LOAD-BEARING (#2570). This
      refusal has nothing to do with which agents are on the account, and #2570's
@@ -311,7 +310,12 @@ function forgetAccount(dir, usedBy) {
      in flight really stopped every agent on it and THEN refused. Its own comment
      already said it mirrors the agents refusal; mirroring means beside, not after.
      `server.disconnect-stop-2570.test.js` pins this ordering. */
-  if (activeChatgptDirs.has(clean)) {
+  /* #5994: the account's OWN unfinished "Sign in again" no longer refuses. A person who abandoned it had no cancel
+     they could reach and was refused for up to the watchdog's limit; wanting the account gone overrides finishing a
+     sign-in into it. It is cancelled below, after the move succeeds, so a refused call (the #2570 pre-flight) or a
+     failed move cancels nothing. Any other hold still refuses here. */
+  const ownReauth = isHeldByOwnReauth(clean);
+  if (activeChatgptDirs.has(clean) && !ownReauth) {
     return { ok: false, forgotten: false, because: 'a sign-in is in progress for this account; finish or cancel it first.' };
   }
 
@@ -334,6 +338,7 @@ function forgetAccount(dir, usedBy) {
   }
 
   if (!fs.existsSync(clean)) {
+    if (ownReauth) releaseOwnReauth(clean);   // #5994: the account is gone, so its sign-in has nothing to finish
     return { ok: true, forgotten: false, because: 'that account is already gone from this computer' };
   }
 
@@ -387,6 +392,7 @@ function forgetAccount(dir, usedBy) {
   }
   try { fs.renameSync(clean, target); }
   catch { return { ok: false, forgotten: false, because: 'we could not move that account out of the way' }; }
+  if (ownReauth) releaseOwnReauth(clean);   // #5994: the move happened
 
   return {
     ok: true,
@@ -440,8 +446,8 @@ function forgetAccount(dir, usedBy) {
  * history), an OpenAI account's identity + config live inside its own `.codex` dir
  * with no cross-account sharing, and disconnect already renames the whole default
  * dir aside -- so delete is the same whole-dir rmSync for the default as for a
- * secondary, gated by the same running-agents / sign-in-in-flight / arbitrary-path
- * guards. Only the final step differs from
+ * secondary, gated by the same running-agents / another-sign-in-holds-it / arbitrary-path
+ * guards (the account's own Sign in again is cancelled once the account is gone, #5994). Only the final step differs from
  * forget: rmSync instead of renameSync. Irreversible on purpose; the UI asks
  * with a destructive confirm.
  */
@@ -469,19 +475,20 @@ function removeAccount(dir, usedBy) {
      sharing, and disconnect (forgetAccount) already moves the whole default dir
      aside. So deleting the default is the same act as deleting a secondary: the
      rmSync below takes the whole dir. Every real guard still stands -- the
-     arbitrary-path defence above, the sign-in-in-flight refusal, and the
+     arbitrary-path defence above, the refusal while another sign-in holds the dir, and the
      running-agents refusal below -- so a default the user has moved every agent
      off (Josh's #2684 use case) is deletable, while one still in use is refused.
      The env-aware `defaultDir()` comparison survives only to set `wasDefault` on
      the success return, for the caller's history messaging. */
-  /* #2584: refuse while a reauth of this account is in flight (its dir is reserved), so
-     a delete cannot pull the live dir out from under the pending promote.
+  /* #2584: refuse while another sign-in holds this dir. The account's own Sign in again is
+     cancelled after the delete instead (#5994), which settles it before it could promote.
 
      🛑 BEFORE THE AGENTS GUARD, same reason as in forgetAccount (#2570): a refusal that
      does not depend on the agents must be reachable by a pre-flight call made with a
      NON-EMPTY `usedBy`, or the disconnect-and-stop route stops every agent on the
      account and only then learns it was never going to be deleted. */
-  if (activeChatgptDirs.has(clean)) {
+  const ownReauth = isHeldByOwnReauth(clean);   // #5994: as in forgetAccount
+  if (activeChatgptDirs.has(clean) && !ownReauth) {
     return { ok: false, removed: false, because: 'a sign-in is in progress for this account; finish or cancel it first.' };
   }
   const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
@@ -498,13 +505,20 @@ function removeAccount(dir, usedBy) {
   }
 
   if (!fs.existsSync(clean)) {
+    if (ownReauth) releaseOwnReauth(clean);   // #5994: the account is gone, so its sign-in has nothing to finish
     return { ok: true, removed: false, because: 'that account is already gone from this computer' };
   }
   if (!identityOf(clean)) {
     return { ok: false, removed: false, because: 'that is not an OpenAI account on this computer' };
   }
   try { fs.rmSync(clean, { recursive: true, force: true }); }
-  catch { return { ok: false, removed: false, because: 'we could not delete that account from this computer' }; }
+  catch {
+    /* #5994: a delete that failed part way may already have taken auth.json. Then the folder is no longer an account,
+       and its own sign-in must not finish into it: cancel it. While the account is still whole, cancel nothing. */
+    if (ownReauth && !fs.existsSync(authFile(clean))) releaseOwnReauth(clean);
+    return { ok: false, removed: false, because: 'we could not delete that account from this computer' };
+  }
+  if (ownReauth) releaseOwnReauth(clean);   // #5994: the delete happened
   /* #2684: wasDefault so the caller's history messaging matches forgetAccount's.
      Env-aware, matching the `defaultDir()` comparison the refusal used to make. */
   return { ok: true, removed: true, wasDefault: clean === path.resolve(defaultDir()), because: null };
@@ -1058,7 +1072,7 @@ function startChatgptLogin({ label, mode, codexBin, reauthDir, platform } = {}) 
     return { ok: false, because: 'we could not start the OpenAI sign-in' };
   }
   const sessionId = crypto.randomBytes(16).toString('hex');
-  const session = { id: sessionId, child, dir: spot.dir, label: reauth ? null : label, madeDir: spot.madeDir, mode: m, state: 'starting', buf: '', account: null, error: null, timer: null, forceKillTimer: null, exited: false, reaped: false, reauthDir: reauth ? reauth.dir : null, reauthIsDefault: reauth ? reauth.isDefault : false, expectEmail: reauth ? reauth.expectEmail : null };
+  const session = { id: sessionId, child, dir: spot.dir, label: reauth ? null : label, madeDir: spot.madeDir, mode: m, state: 'starting', buf: '', account: null, error: null, timer: null, forceKillTimer: null, exited: false, reaped: false, reauthDir: reauth ? reauth.dir : null, reauthReleased: false, holdFreed: false, reauthIsDefault: reauth ? reauth.isDefault : false, expectEmail: reauth ? reauth.expectEmail : null };
   chatgptSessions.set(sessionId, session);
   // Anti-litter a sign-in that did NOT land a subscription account:
   //   - a dir WE created -> remove it whole;
@@ -1083,7 +1097,7 @@ function startChatgptLogin({ label, mode, codexBin, reauthDir, platform } = {}) 
   // Free the work slot and drop a temp dir. Call ONLY when the child is confirmed
   // gone (its `exit`, or a spawn that produced no child), never right after a
   // still-async kill(). Idempotent: Set.delete and rmSync(force) both no-op twice.
-  const freeSlotAndDir = () => { activeChatgptDirs.delete(session.dir); if (session.reauthDir) activeChatgptDirs.delete(session.reauthDir); dropDirIfOurs(); };
+  const freeSlotAndDir = () => { session.holdFreed = true; activeChatgptDirs.delete(session.dir); if (session.reauthDir && !session.reauthReleased) activeChatgptDirs.delete(session.reauthDir); dropDirIfOurs(); };
   const onData = (d) => {
     session.buf += String(d);
     const parsed = parseChatgptLoginOutput(session.buf);
@@ -1204,6 +1218,37 @@ function chatgptLoginStatus(sessionId) {
     if (said) out.instructions = said;
   }
   return out;
+}
+
+/* #5994: the sign-ins whose "Sign in again" still holds this live account dir, settled or not (a watchdog or a cancel
+   that just fired leaves the hold until the child exits; it can no longer promote, so it is still only the account's
+   own hold). Only sessions still in chatgptSessions are seen: one reaped after sessionTtlMs whose child still lives is
+   not, and its hold then refuses as any other would. That needs forceKillMs >= sessionTtlMs or a child that survives
+   SIGKILL; the defaults are 3 s and 2 min. */
+function ownReauthsOf(dir) {
+  const out = [];
+  for (const [id, s] of chatgptSessions) if (s.reauthDir === dir && !s.reauthReleased && !s.holdFreed) out.push(id);
+  return out;
+}
+/* #5994: true when `dir` is held by its own reauth. No other sign-in can be staging into the same path: a live account
+   dir holds an auth.json, so resolveFreshChatgptDir refuses it as a label and nextWorkDir skips it, and a dir another
+   sign-in already holds is refused for a reauth by startChatgptLogin (activeChatgptDirs.has(reauth.dir)). */
+function isHeldByOwnReauth(dir) {
+  return activeChatgptDirs.has(dir) && ownReauthsOf(dir).length > 0;
+}
+/* #5994: cancel the account's own reauths and drop their hold on the live dir now. Cancelling settles the session,
+   so its exit can no longer promote into the dir; the staging slot stays reserved, and is cleaned, when the child
+   exits, as on any cancel. reauthReleased stops that late exit from releasing a hold someone takes on this path
+   afterwards. */
+function releaseOwnReauth(dir) {
+  for (const id of ownReauthsOf(dir)) {
+    cancelChatgptLogin(id);
+    chatgptSessions.get(id).reauthReleased = true;   // still in the Map: the reap is a timer
+  }
+  // Drop the hold unless another live sign-in is staging into this same path. Defence only: isHeldByOwnReauth's premise
+  // says that cannot happen, and no test can reach this branch.
+  for (const s of chatgptSessions.values()) if (s.dir === dir && !s.holdFreed) return;
+  activeChatgptDirs.delete(dir);
 }
 
 /** Cancel a PENDING subscription sign-in: kill the child; the exit handler then
@@ -1842,4 +1887,5 @@ module.exports = {
   chatgptDeviceLinkToOpen, setChatgptBrowserOpener,   // 0.6.96: win32 opens the device page itself; the link guard and the test seam
   accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist, openaiModelClass,
   readName, writeName,   // #2095: the human-chosen display name (sidecar file)
+  authFile,   // #5948: the credential file, so signedoutaccounts can be pinned to it
 };

@@ -126,6 +126,12 @@ const BLOCK = [
   '  and it is the one that matters most**, because it is the only state that says somebody has to come',
   '  and do something. **Report it and carry on with something else** - it marks',
   '  the item, it does not park you.',
+  '  **Before you ask, run the two questions under "Before you do something you',
+  '  cannot take back".** If both are yes, it is not a question for the person:',
+  '  decide it, do it, and tell them as a Decided. Ask only for what fails that',
+  '  test, or for what only they have: a password, a payment, a sign-in, a',
+  '  preference about their own business. Every question you raise is one more',
+  '  thing a person has to stop and answer.',
   '',
   '⚠️ **Neither of these means you have stopped, and they used to say so.** Both',
   'were once described as things you do AFTER stopping, which made stopping the',
@@ -137,7 +143,8 @@ const BLOCK = [
   'two are the only ones it cannot see for itself**, because nothing on your screen',
   'separates a question you are waiting on from a sentence you happened to write.',
   '',
-  '**Clear it when it is answered.** A card reading needs_you after you have the',
+  '**Clear it when it is answered** (`kosmos report clear`), **wherever the answer',
+  'came**: a message here, a room, another app. A card reading needs_you after you have the',
   'answer is worse than one saying nothing: the board has one red state, and a red',
   'that is always on gets walked past, including the time somebody really is',
   'waiting.',
@@ -452,7 +459,12 @@ const BLOCK = [
   '',
   '(or `hourly`, or `weekly --on mon --at 09:00`). **Kosmos shows when each run is',
   'due; it does not start the run for you.** Run it when it is due, and if nothing',
-  'will bring you back at that time, tell the person so. After each run, record',
+  'will bring you back at that time, tell the person so. **Record each run while',
+  'more than 15 minutes remain before the next one is due** (or a quarter of the',
+  'time between runs, if that is shorter; a reminder from Kosmos names the time):',
+  'if a run (a retry included) is still going then, stop it, record it as it',
+  'stands with what stopped it, and start the next run, so one slow run never',
+  'holds up the ones after it. After each run, record',
   'what it found and how the checks went:',
   '',
   '`kosmos task ran <project-id> <task-number> "what this run found"`',
@@ -1028,8 +1040,37 @@ function block() {
  *     WEAKEST PREMISE, NAMED: not measured with test agents (as v27 was not). That
  *     an agent runs `told` after telling the person: if it forgets, every later
  *     reading reads as changed, so it over-reports rather than missing a change.
+ *  29. kosmos#5920. A user's recurring monitor hit a provider error; its retry held
+ *     the agent for hours and the scheduled runs after it never ran, with nothing to
+ *     show they were missed. The repeating-work paragraph now says to record each run
+ *     while more than 15 minutes (or a quarter of the gap, if shorter) remain before
+ *     the next is due, which is at least as early as the board's miss grace (for
+ *     uneven daily times the code uses the shortest gap): a run recorded inside the
+ *     grace answers the next slot early. The due-run nudge names the exact time
+ *     (taskrepeat.recordBy); the rule stands without it, since an agent stuck in a
+ *     retry is never nudged. And what to do when a run runs over: record it as it
+ *     stands, with what stopped it, and start the next. (The board records the misses
+ *     a late run comes after: same card.)
+ *     WEAKEST PREMISE, NAMED: an agent deep in a retry notices the time. The board
+ *     does not interrupt a working agent (the Prompter never types into one, #4544),
+ *     so this is the agent's own rule; if it is not followed, the misses still show.
+ *  30. kosmos#5943. Josh, 2026-10-12: an agent's question stood for 12 days, and
+ *     "if we can automatically approve these things then they wont appear for
+ *     non-technical users". The needs_you paragraph said "an answer only a person
+ *     can give" and never pointed at the reversibility test in the same block, so
+ *     a reversible choice reached the person as a question. It now does: both
+ *     answers yes means decide it and report a Decided; ask only for what fails the
+ *     test or what only the person has. "Clear it when it is answered" now names
+ *     the command and says wherever the answer came (one answered in another app
+ *     stood until a person cleared it by hand). `kosmos report needs_you` says the
+ *     test back when an agent asks. No new heading: the text sits in an existing
+ *     section, so an agent's EDITED copy is not re-offered it (missingFrom matches
+ *     by heading); the board's report answer carries the same reminder (both CLIs print its note).
+ *     WEAKEST PREMISE, NAMED: that wording plus the echo lowers how often agents
+ *     ask. Not measured; the board's needs_you count per agent-day before and after
+ *     is the measure.
  */
-const DOCTRINE_VERSION = 28;
+const DOCTRINE_VERSION = 30;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
