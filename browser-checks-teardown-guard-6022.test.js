@@ -29,7 +29,9 @@
  * arrow (`async (r) =>`, `r =>`) or `function (r)`. A handler written as a named function defined elsewhere is not
  * read (fails GREEN). A handler with no fetch of its own is not checked at all, even one that awaits a timer or a held
  * promise before it fulfills (that answer can land after close too; outside this card, a follow-up). A catch that
- * rethrows counts as caught. The try test is lexical: a call inside a function nested in the try (a setTimeout
+ * rethrows counts as caught, and the abort in the catch is advised, not required (an empty catch passes: no crash, but a
+ * real failure then waits for the check's timeout). A statement without semicolons, or a call passed as an argument
+ * to an awaited function (await f(r.fulfill(...))), reads as awaited; no check uses either style. The try test is lexical: a call inside a function nested in the try (a setTimeout
  * callback) reads as guarded though its rejection is not caught (fails GREEN). An abort whose argument has its own
  * parentheses is flagged though correct (fails RED). "Inside a try" counts braces from the last `try {` before the fetch, so a brace inside a string
  * between the two can miscount. Comments are blanked first (strings, template literals and regex literals kept).

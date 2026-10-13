@@ -55,10 +55,10 @@ const MADE = {
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e.message)));
 
-  /* A board that never contains Rosie: the exact machine state this ending is
-     about. Everything else on it is left alone. */
   /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
      (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
+  /* A board that never contains Rosie: the exact machine state this ending is
+     about. Everything else on it is left alone. */
   await page.route('**/api/status**', async (r) => {
     try {
       const res = await r.fetch();
