@@ -644,7 +644,14 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   assert.equal(r.state, 'worked', 'the seat woken after a quiet afternoon read stale');
   assert.equal(r.workMinutes, 7);
   // Short prompted turns while otherwise idle (the latest idle report moves on, which idleExcused cannot see past).
-  assert.equal(v.workExcused(stale(900), claude, hist([['idle', 890], ['working', 600], ['idle', 590], ['working', 300], ['idle', 280]]), NOW).state, 'worked');
+  const idleNow = Object.assign({}, claude, { state: 'idle' });
+  assert.equal(v.workExcused(stale(900), idleNow, hist([['idle', 890], ['working', 600], ['idle', 590], ['working', 300], ['idle', 280]]), NOW).state, 'worked');
+  // Review 3: the board reads it busy now, so the time since its last (idle) report is work: 30 + 280 min, stale.
+  assert.equal(v.workExcused(stale(900), claude, hist([['idle', 890], ['working', 600], ['idle', 590], ['working', 300], ['idle', 280]]), NOW).state, 'stale');
+  // Review 3: an operator's clear is not the agent stopping; it changes nothing (working from 400 to now: stale).
+  const cleared = () => { const a = [{ state: 'working', at: at(400) }, { state: 'idle', at: at(325), by: 'operator' }]; a.truncated = false; return a; };
+  assert.equal(v.workExcused(stale(331), idleNow, cleared, NOW).state, 'stale', 'an operator clear read as the agent stopping');
+  assert.equal(v.workExcused(stale(331), idleNow, hist([['working', 400], ['idle', 325]]), NOW).state, 'worked', 'CONTROL: the agent\'s own idle');
   // CONTROL: more than four hours of work since: stale. 331 min, idle for only 60 of them.
   assert.equal(v.workExcused(stale(331), claude, hist([['working', 400], ['idle', 200], ['working', 140]]), NOW).state, 'stale');
   // A wait for a person counts as work (errs toward stale).
@@ -652,7 +659,7 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   // No report at or before the summary: the stretch up to the first one counts as work (300 min here): stale.
   assert.equal(v.workExcused(stale(600), claude, hist([['idle', 300]]), NOW).state, 'stale');
   // ...and with a report before it saying idle, the same timeline is current.
-  assert.equal(v.workExcused(stale(600), claude, hist([['idle', 700], ['idle', 300]]), NOW).state, 'worked');
+  assert.equal(v.workExcused(stale(600), idleNow, hist([['idle', 700], ['idle', 300]]), NOW).state, 'worked');
   // A history cut short that starts after the summary is unknown: left stale. One that reaches back is read.
   assert.equal(v.workExcused(stale(331), claude, hist([['idle', 325], ['working', 1]], true), NOW).state, 'stale');
   assert.equal(v.workExcused(stale(331), claude, hist([['working', 400], ['idle', 325], ['working', 1]], true), NOW).state, 'worked');
@@ -668,9 +675,11 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   assert.equal(v.workExcused(stale(331), claude, hist([['working', 300], ['idle', 325]]), NOW).state, 'stale');
   assert.equal(v.workExcused(stale(331), claude, hist([['working', 1], ['idle', 325], ['working', 400]]), NOW).workMinutes, 7, 'CONTROL: sorted, the report timeline');
   // Boundaries: a report exactly at the summary is its state then; one after now is not read; stopped is not work.
-  assert.equal(v.workExcused(stale(331), claude, hist([['idle', 331]]), NOW).workMinutes, 0);
-  assert.equal(v.workExcused(stale(331), claude, hist([['idle', 331], ['working', -30]]), NOW).workMinutes, 0, 'a report from the future was read');
-  assert.equal(v.workExcused(stale(331), claude, hist([['working', 400], ['stopped', 325], ['idle', 200]]), NOW).workMinutes, 6);
+  assert.equal(v.workExcused(stale(331), idleNow, hist([['idle', 331]]), NOW).workMinutes, 0);
+  assert.equal(v.workExcused(stale(331), idleNow, hist([['idle', 331], ['working', -30]]), NOW).workMinutes, 0, 'a report from the future was read');
+  assert.equal(v.workExcused(stale(331), idleNow, hist([['working', 400], ['stopped', 325], ['idle', 200]]), NOW).workMinutes, 6);
+  // Review 3: a cut tail is judged by its first row in the file, before the sort (a clock stepped back).
+  assert.equal(v.workExcused(stale(331), idleNow, hist([['idle', 300], ['idle', 400]], true), NOW).state, 'stale', 'a cut tail starting after the summary was read');
   assert.equal(v.workExcused(stale(331), claude, hist([['idle', 331], ['working', 1]], true), NOW).state, 'worked', 'a cut history starting at the summary is read');
   // Only a stale summary is touched.
   const cur = { state: 'current', file: 'summaries/x.md', at: new Date(at(30)).toISOString(), ageMinutes: 30 };

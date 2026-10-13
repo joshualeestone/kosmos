@@ -487,4 +487,9 @@ test('#5297 history: every state and time in the tail, oldest first; a bad line 
   assert.ok(h.every((r) => Number.isFinite(r.at)));
   assert.ok(h[0].at <= h[1].at && h[1].at <= h[2].at);
   assert.equal(h.truncated, false, 'a short record read as cut');
+  // #5635 F2: an operator's clear carries its mark; the agent's own rows carry none.
+  selfreport.record('hist-5297', { state: 'idle', because: 'cleared', by: 'operator' });
+  const h2 = selfreport.history('hist-5297');
+  assert.equal(h2[h2.length - 1].by, 'operator', 'an operator clear lost its mark');
+  assert.ok(h2.slice(0, -1).every((r) => r.by === undefined), 'an agent row carries a by');
 });

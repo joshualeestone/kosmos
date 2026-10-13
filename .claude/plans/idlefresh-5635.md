@@ -10,10 +10,13 @@ next starts working.
 
 ## Finished looks like
 A summary of a member whose own reports show at most four hours of work since it was written reads current
-("current for the work since (file, age; N of work since)"), whether the member is working or idle now; one with more
+("current: N of reported work since it was written (file, age)"), whether the member is working or idle now; one with more
 work since, or whose history cannot show it, reads as before. Tests pin the report's timeline and each control.
 
 ## Change
+Review 3: selfreport.history marks an operator's clear (by: 'operator'), and workExcused skips it, as idleExcused and
+idleNoted do; and a member the board reads busy now counts the time since its last report as work (#1995: the board's
+read wins over a reported idle).
 engine/projectview.js: workExcused(summary, member, readHistory, now), applied after idleExcused and quietExcused,
 before idleNoted. Sums the busy time in selfreport.history since the summary was written. Busy is any state but idle,
 started and stopped (as communityturn.workedSince). Only REPORTS_WORKING runners. A history cut short that starts
