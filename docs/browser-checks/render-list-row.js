@@ -2,6 +2,7 @@
 
 /**
  * The not-running row in the LIST layout, measured against its neighbour.
+ * And (#6053) every row at phone width: the model whole and on its own line.
  *
  * 🛑 IT SHIPPED IN THE WRONG COLUMNS. `.lrow` is a five-column grid and the
  * not-running row supplied four children, so every cell moved one column
@@ -94,8 +95,8 @@ const { chromium } = require('playwright');
      go red if somebody changes a track to `auto`, and they cannot go red from
      the emptying itself.
      🛑 SO THE CASE #986 ACTUALLY CHANGED IS NOT COVERED HERE, AND SAYING SO IS
-     the point of this paragraph. Under 900px `.lrow` collapses to `34px 1fr`
-     and `.lstate`, `.ltask` and `.lmem` stack in column 2 as separate rows. An
+     the point of this paragraph. Under 56rem `.lrow` collapses to `34px 1fr`
+     and `.lstate`, `.ltask`, `.lmodel` and `.lmem` stack in column 2 as separate rows. An
      empty `.ltask` there is an empty ROW, and `row-gap: 8px` is still spent on
      it. The 1400x900 arm will never see that, and the phone arm below reads
      the model and memory cells, not the empty task row. It has been true

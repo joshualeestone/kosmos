@@ -23,5 +23,8 @@ memory bar still fits on its own line, and the page has no sideways scroll.
 - Model sits just above the memory bar (auto-placement order), not directly under the role.
   Keeps model beside its memory reading (#856 order). Rejected: explicit grid-row numbers, which
   break on rows whose row count varies. Weakest premise: Josh may prefer it under the role.
-- .ltitle also sits in column 1 at this width; not changed here (reads fine, separate call).
-- The kremote phone layout (html.kremote) has its own more specific placement and is unaffected.
+- .ltitle also sits in column 1 at this width; not changed here and not measured (separate call).
+- The kremote phone layout (html.kremote) places .lmodel itself; the wrap and :empty rules skip it
+  (html:not(.kremote)), so it is unchanged.
+- Under 56rem the model wraps (white-space normal, overflow-wrap anywhere) instead of being cut,
+  so a long name (a Gemini 'x (set to y)' line) still reads in full.
