@@ -447,3 +447,41 @@ test('#6098 review 5: an encrypted PDF that PDFKit can open is read through it',
     assert.ok(got.body.includes('Opened by PDFKit'), JSON.stringify(got));
   } finally { at.setPdfkit(async () => { kitCalls += 1; return null; }); }
 });
+
+/* ── review 6 ── */
+const mixedPdf = (content) => pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'],
+  [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 /Resources << /Font << /F2 5 0 R /F3 6 0 R >> >> >>'],
+  [3, '<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>'], [4, streamObj('', content)],
+  [5, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'],
+  [6, '<< /Type /Font /Subtype /Type0 /BaseFont /HYGoThic /Encoding /Identity-H >>']]);
+
+test('#6098 review 6: a mapless font listed in shared resources but never drawn with changes nothing', async () => {
+  kitCalls = 0;
+  const f = path.join(SANDBOX, 'unused-cjk.pdf');
+  fs.writeFileSync(f, mixedPdf('BT /F2 12 Tf (Hello plain latin text) Tj ET'));
+  const got = await at.pdfText(f, fs.readFileSync(f));
+  assert.equal(got.body, '--- Page 1 ---\nHello plain latin text');
+  assert.equal(kitCalls, 0, 'an unused font does not send the file to PDFKit');
+  assert.ok(!got.notes.some((n) => /character map/.test(n)), JSON.stringify(got.notes));
+});
+
+test('#6098 review 6: text in a mapless font is left out, and only that text', async () => {
+  kitCalls = 0;
+  const f = path.join(SANDBOX, 'mixed-cjk.pdf');
+  fs.writeFileSync(f, mixedPdf('BT /F2 12 Tf (Latin kept) Tj 0 -20 Td /F3 12 Tf <00340058004400550057> Tj ET'));
+  const got = await at.pdfText(f, fs.readFileSync(f));
+  assert.equal(kitCalls, 1, 'PDFKit is asked');
+  assert.equal(got.body, '--- Page 1 ---\nLatin kept');
+  assert.ok(got.notes.some((n) => /no character map/.test(n)), JSON.stringify(got.notes));
+});
+
+test('#6098 review 6: an encrypted PDF that PDFKit reports locked says it needs a password', async () => {
+  const f = path.join(SANDBOX, 'user-password.pdf');
+  fs.writeFileSync(f, pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [] /Count 0 >>'], [3, '<< /Filter /Standard /V 2 >>']], '/Encrypt 3 0 R'));
+  at.setPdfkit(async () => '\u0000locked');
+  try {
+    const got = await at.pdfText(f, fs.readFileSync(f));
+    assert.equal(got.body, '');
+    assert.ok(got.notes.some((n) => /protected with a password/.test(n)), JSON.stringify(got.notes));
+  } finally { at.setPdfkit(async () => { kitCalls += 1; return null; }); }
+});
