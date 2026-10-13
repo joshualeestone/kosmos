@@ -477,7 +477,7 @@ const SUMMARY_WORDS = {
     ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ' and idle since then)'
     : 'current when it went idle (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; idle since ' + ago(s.idleMinutes) + ')',
   // #5635 F2: the rhythm is four hours of work, and the member's reports show less than that since it was written.
-  worked: (s) => 'current: ' + span(s.workMinutes) + ' of work since it was written (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
+  worked: (s) => 'current: ' + span(s.workMinutes) + ' of reported work since it was written (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
   // #4581 R9: the project has no open task; this summary was current when its last task ended.
   quiet: (s) => (s.quietKind === 'own' ? 'current when its own tasks here ended' : 'current when work on the project\'s tasks ended')
     + ' (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; work ended ' + ago(s.quietMinutes) + ')',

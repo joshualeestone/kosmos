@@ -21,7 +21,14 @@ after the summary is unknown (left stale). No report at or before the summary: t
 as work. New state 'worked' with workMinutes and its line in SUMMARY_WORDS; span() formats a duration.
 overviewOf takes opts.readHistory (default selfreport.history); a caller that injects readReport and no readHistory
 gets none, so a view never mixes an injected report source with the store's timeline (this also keeps the existing
-tests hermetic: one read history rows an earlier test left in the sandbox).
+tests hermetic: without it, one existing test read history rows that an earlier test had left in the sandbox).
+
+## Decided
+- No cap on the summary's clock age. The rhythm is four hours of work and an idle agent is not expected to write, so
+  a summary days old with little reported work since reads current; the line still shows its age ("3 days ago").
+- The line says "reported work": work while the board was down leaves no reports (the gap below), so the number is
+  what the reports show, not a claim about all work. Not measured from the board's start: that would read every idle
+  member stale after each restart, which idleExcused's review 6 rejected for the same reason.
 
 ## Rejected
 - Changing idleExcused to look at the first idle after the summary: it would still not cover a member working now.
