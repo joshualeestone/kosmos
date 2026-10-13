@@ -346,7 +346,7 @@
     },
     {
       "title": "Subprojects are named with their project",
-      "line": "Task lists name a subproject with its project, as in \"Book A \u203a Launch\", and project pickers as in \"Launch (3), in Book A\".",
+      "line": "Task lists name a subproject with its project, as in \"Book A › Launch\", and project pickers as in \"Launch (3), in Book A\".",
       "icon": "tasks",
       "rank": 8.8,
       "since": "0.7.46",
@@ -397,7 +397,7 @@
     },
     {
       "title": "Gemini agents stop updating gemini",
-      "line": "A new Gemini agent no longer lets the gemini program update itself, unless you chose to allow its updates.",
+      "line": "A new Gemini agent stops gemini updating itself unless you allowed it, and on your default Gemini account so does your own.",
       "icon": "shield",
       "rank": 16,
       "since": "0.7.47",
