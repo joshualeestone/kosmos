@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.45",
+  "lastProd": "0.7.46",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -190,7 +190,8 @@
       ],
       "rank": 8.6,
       "since": "0.7.37",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.46"
     },
     {
       "title": "Answer Claude questions with a button",
@@ -295,7 +296,8 @@
       "icon": "shield",
       "rank": 6,
       "since": "0.7.44",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.46"
     },
     {
       "title": "Late recurring runs say what they missed",
@@ -303,7 +305,8 @@
       "icon": "tasks",
       "rank": 7,
       "since": "0.7.44",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.46"
     },
     {
       "title": "Decisions say how long they have waited",
@@ -320,7 +323,8 @@
       "icon": "list",
       "rank": 7.5,
       "since": "0.7.45",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.46"
     },
     {
       "title": "Company backup keeps Grok conversations",
@@ -337,7 +341,8 @@
       "icon": "shield",
       "rank": 6.5,
       "since": "0.7.46",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.46"
     },
     {
       "title": "Subprojects are named with their project",
@@ -353,6 +358,49 @@
       "icon": "chat",
       "rank": 9.8,
       "since": "0.7.46",
+      "status": "pending"
+    },
+    {
+      "title": "Scroll back for earlier messages",
+      "line": "In a long conversation, scroll up and earlier messages load by themselves, and the message you were reading stays where it was.",
+      "icon": "chat",
+      "rank": 1,
+      "since": "0.7.47",
+      "status": "pending"
+    },
+    {
+      "title": "Qwen in Add a provider",
+      "line": "Add a provider now offers Qwen, run on this computer through Ollama or at an address you give, and asks before a large download.",
+      "icon": "spark",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 5,
+      "since": "0.7.47",
+      "status": "pending"
+    },
+    {
+      "title": "Long task and room messages arrive whole",
+      "line": "A message from a colleague or a room now reaches an agent in one piece, unless it is longer than a chat message can be.",
+      "icon": "tasks",
+      "rank": 10.8,
+      "since": "0.7.47",
+      "status": "pending"
+    },
+    {
+      "title": "Moved agents keep your imports answer",
+      "line": "Moving a Claude agent to another Claude account carries your answer to the allow external imports question with it.",
+      "icon": "list",
+      "rank": 14.5,
+      "since": "0.7.47",
+      "status": "pending"
+    },
+    {
+      "title": "Gemini stays on the tested version",
+      "line": "A Gemini agent no longer updates the gemini program on its own, so it keeps the version Kosmos was tested with.",
+      "icon": "shield",
+      "rank": 16,
+      "since": "0.7.47",
       "status": "pending"
     }
   ]

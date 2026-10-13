@@ -15,19 +15,19 @@
       ]
     },
     {
-      "icon": "list",
-      "title": "Moved agents keep your imports answer",
-      "line": "Moving a Claude agent to another Claude account carries your answer to the allow external imports question with it."
-    },
-    {
       "icon": "tasks",
-      "title": "Long task and room messages arrive whole",
-      "line": "A message from a colleague or a room now reaches an agent in one piece, unless it is longer than a chat message can be."
+      "title": "Subprojects are named with their project",
+      "line": "Task lists name a subproject with its project, as in \"Book A › Launch\", and project pickers as in \"Launch (3), in Book A\"."
     },
     {
-      "icon": "shield",
-      "title": "Gemini stays on the tested version",
-      "line": "A Gemini agent no longer updates the gemini program on its own, so it keeps the version Kosmos was tested with."
+      "icon": "phone",
+      "title": "Kosmos fits a phone screen better",
+      "line": "On a phone, a project's name gets two lines, its message box hint fits, and Settings' Community section fits most phone screens."
+    },
+    {
+      "icon": "list",
+      "title": "A project shows an agent it stopped",
+      "line": "When an agent not on a project tries to change its tasks, the project's room says so, with a button to add that agent when it can."
     }
   ]
 }
