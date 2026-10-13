@@ -404,3 +404,12 @@ behind invisible characters): every label was valid, none began with a hyphen, e
 - **NIT, not taken:** `keepComputerNameChoice` answers a `name` only tests read (also raised in review 14).
 - **NIT, not taken:** a `fetch` that throws synchronously would leave the name read stuck. Real `fetch` rejects.
 - **NIT, noted:** commit subjects with a colon. The merge is a squash under a `computername-5995 -- ...` title.
+
+## Review 19 (2026-10-13, sonnet), at 345e025d9: converged
+0 BLOCKER, 0 WARNING, 0 CONVENTION, 2 NIT, neither applied (both are couplings the code's own comments already
+name: the device name is read from disk per call, and "untouched box on an unreadable file writes nothing" rests on
+the blank read answering null, which a test pins). The reviewer read the three product files and the check changes
+in full and did not read the new test files.
+The loop ends here at 19 rounds. The proof waits for one thing: the browser check green in a real browser at the
+final head. Reviews 16 and 17 each computed its layout and colour assertions from the CSS and found they hold; that
+is reasoning, and the run is the measurement.
