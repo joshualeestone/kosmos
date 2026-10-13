@@ -1964,6 +1964,7 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
   for (const t of (p && Array.isArray(p.tasks)) ? p.tasks : []) {
     if (!t || t.closedAt || !Number.isInteger(t.number)) continue;
     if (Number.isInteger(beforeNumber) && t.number >= beforeNumber) continue;
+    if (parent !== null && t.number === parent) continue;
     // Review 6: only tasks under the SAME parent (top-level with top-level): "Write tests" under #3 and under #7 are
     // two real tasks.
     if ((Number.isInteger(t.parent) ? t.parent : null) !== (Number.isInteger(parent) ? parent : null)) continue;
@@ -2027,7 +2028,8 @@ function titleShape(sentence) {
     flags,
     bag: lower,
     // Review 6: an en or em dash before a digit is a minus sign (typographic autocorrect writes one).
-    numbers: (raw.match(/[-+\u2212\u2013\u2014]?\d[\d.,:]*/gu) || []).map((n) => n.replace(/^[\u2212\u2013\u2014]/u, '-')).join(' '),
+    // Review 7: a point or comma before the digit (".5") and a foot or inch mark after it (5' and 5") are part of it.
+    numbers: (raw.match(/[-+\u2212\u2013\u2014]?[.,]?\d[\d.,:]*['"]?/gu) || []).map((n) => n.replace(/^[\u2212\u2013\u2014]/u, '-')).join(' '),
     symbols: Array.from(raw).filter((c) => /[\p{S}\p{P}]/u.test(c) && !SENTENCE_MARKS.has(c)).sort().join(''),
     // Review 2: a hyphenated negation ("do-not") counts too.
     negating: lower.flatMap((w) => w.split('-')).filter((w) => NEGATING.has(w)).sort().join(' '),

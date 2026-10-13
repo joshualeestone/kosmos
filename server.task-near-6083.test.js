@@ -97,6 +97,8 @@ test('#6083: which titles are near (pure); every #5319 counterexample is never n
     ['Run the migrations (--dry-run)', 'Run the migrations dry-run', false, 'review 6: a bracketed flag'],
     ['Remove the file "-f"', 'Remove the file f', false, 'review 6: a double-quoted flag'],
     ['Set the limit to \u20135', 'Set the limit to 5', false, 'review 6: an en-dash minus'],
+    ['Set the timeout to .5', 'Set the timeout to 5', false, 'review 7: a leading point'],
+    ['Cut the board to 5\'', 'Cut the board to 5"', false, 'review 7: feet and inches'],
   ]) assert.equal(tasks.isNearTitle(a, b), want, `${a} | ${b}: ${why}`);
 });
 
