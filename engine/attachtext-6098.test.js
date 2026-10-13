@@ -725,3 +725,12 @@ test('#6098 review 13: a cut that lands inside a text box\'s Fallback copy still
   const got = at.docxText(docxOf(body));
   assert.ok(got.body.includes('| row 199 |'), got.body.slice(0, 200));
 });
+
+/* ── review 14 ── */
+test('#6098 review 14: a self-closed Fallback (or a longer tag name) does not take the rest of the document', () => {
+  const body = '<w:p><w:r><w:t>A</w:t></w:r></w:p><mc:AlternateContent><mc:Choice Requires="wps"><w:p><w:r><w:t>box</w:t></w:r></w:p></mc:Choice><mc:Fallback/></mc:AlternateContent>'
+    + '<w:p><w:r><w:t>IMPORTANT TAIL</w:t></w:r></w:p><mc:FallbackX><w:p><w:r><w:t>kept too</w:t></w:r></w:p></mc:FallbackX>';
+  const got = at.docxText(docxOf(body));
+  assert.ok(got.body.includes('IMPORTANT TAIL'), got.body);
+  assert.ok(got.body.includes('kept too'), got.body);
+});
