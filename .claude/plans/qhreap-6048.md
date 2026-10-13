@@ -16,7 +16,7 @@ A killed command left as an unreaped zombie, which would keep `_qh_end`'s `kill 
 
 ## What the red was, and why this is a diagnosis, not a cure
 
-**Not established.** Two causes fit the CI log, and it cannot tell them apart: a runner slow enough to stretch a ~1 s release past 15 s (over 15 times slower, which is a lot), or the KILL-by-pid really missing once on that runner. A missed KILL leaves `_qh_stop_capper` waiting out its 10 s loop, twice if the test's TERM lands during the first, before it says "did not stop" and releases. The old 15 s bound could cut the arm off before that line, so the red said neither. Measured here: with the KILL-by-pid removed, the teardown took exactly 15 s.
+**Not established.** Two causes fit the CI log, and it cannot tell them apart: a runner slow enough to stretch a ~1 s release past 15 s (over 15 times slower, which is a lot), or the KILL-by-pid really missing once on that runner. A missed KILL leaves `_qh_stop_capper` waiting out its 10 s loop (longer if the test's TERM lands mid-teardown; the exact path was not measured) before it says "did not stop" and releases. The old 15 s bound could cut the arm off before that line, so the red said neither. Measured here: with the KILL-by-pid removed, the teardown took exactly 15 s.
 
 **So this change makes the next red say which.** With 30 s, a missed KILL ends in "did not stop", which the arm refuses, so it stays red and names itself; a slow release passes and shows its time. The card stays open until a run says which it was.
 
@@ -33,4 +33,4 @@ A killed command left as an unreaped zombie, which would keep `_qh_end`'s `kill 
 
 ## Weakest premise
 
-That a missed KILL ends within 30 s (two 10 s loops plus process calls). If it ever does not, the arm reds as "not done after 30 s", which is still the defect's shape, not a false pass.
+That a missed KILL ends within 30 s (measured here at 15 s; the 10 s loop plus other waits). If it ever does not, the arm reds as "not done after 30 s", which is still the defect's shape, not a false pass.

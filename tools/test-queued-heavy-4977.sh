@@ -292,7 +292,7 @@ side5331() {   # $1 the copy, $2 its marker dir, $3 the reap bound in 0.25 s pol
   echo $r > "$m.r"
 }
 # kosmos#6048: the copy under test gets B5331 polls (30 s). A healthy teardown takes about 1 s. When the KILL misses,
-# _qh_stop_capper waits out its 10 s loop, twice if this test's TERM lands during the first, then says "did not stop" and
+# _qh_stop_capper waits out its 10 s loop (longer if this test's TERM lands mid-teardown), then says "did not stop" and
 # releases; with 15 s the arm could be cut off before that line, so a red did not say which. With 30 s a missed KILL
 # is caught by "did not stop", not by the clock, and a slow release shows its time. The control keeps 15 s: its old
 # teardown waits for ever, so a longer bound would only make every run slower.
@@ -304,7 +304,7 @@ r5331="$(cat $S/m5331.r)"; c5331="$(cat $S/m5331c.r)"
 if [ "$r5331" = 2 ]; then rm -rf $S/m5331 $S/m5331.log; side5331 $S/qh-nojc5331.sh $S/m5331 $B5331; r5331="$(cat $S/m5331.r)"; fi
 if [ "$c5331" = 2 ]; then rm -rf $S/m5331c $S/m5331c.log; side5331 $S/qh-old5331.sh $S/m5331c 60; c5331="$(cat $S/m5331c.r)"; fi
 o="$(tail -6 $S/m5331.log 2>/dev/null)"; t5331="$(cat $S/m5331.t 2>/dev/null)"
-ok "#5331: a capper that is not a group leader and is stopped is KILLed by pid, so the teardown releases at once (got $r5331: 0 reaped, 1 hung, 2 never started; $( [ "$r5331" = 1 ] && echo "not done after" || echo "teardown") ${t5331:-?} s of $((B5331 / 4)))" '[ "$r5331" = 0 ] && [ ! -e $S/m5331/light-side-claim ] && grep -q "claim released" $S/m5331.log && ! grep -q "did not stop" $S/m5331.log'
+ok "#5331: a capper that is not a group leader and is stopped is KILLed by pid, so the teardown releases at once (got $r5331: 0 reaped, 1 hung, 2 never started; $(case "$r5331" in (1) echo "not done after";; (2) echo "no teardown, bound";; (*) echo "teardown";; esac) ${t5331:-?} s of $((B5331 / 4)))" '[ "$r5331" = 0 ] && [ ! -e $S/m5331/light-side-claim ] && grep -q "claim released" $S/m5331.log && ! grep -q "did not stop" $S/m5331.log'
 # kosmos#5839: the value and the control's own log are printed on a BAD, so a red says which shape it was.
 o="$(tail -6 $S/m5331c.log 2>/dev/null)"
 ok "#5331 CONTROL: with the old teardown the same capper holds it (the arm above is not vacuous) (got $c5331: 0 reaped, 1 hung, 2 never started)" '[ "$c5331" = 1 ] && grep -q "SIDE TURN: running" $S/m5331c.log'
