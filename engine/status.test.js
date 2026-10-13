@@ -6108,7 +6108,8 @@ test('#6063 CONTROL: a confirm dialog nobody labelled keeps the generic reason, 
   assert.equal(g.because, 'it is waiting for you to answer a prompt');
 
   /* The heading inside a sentence, above a different live dialog that nobody labelled: that dialog is not this
-     question. (Above the bypass dialog this would prove nothing: its own label comes first in the list.) */
+     question. (Above the bypass dialog this would prove nothing: its last "Yes" row is "Yes, I accept", so the
+     imports entry never applies there, anchored or not.) */
   const quoted = ' Earlier it asked "Allow external CLAUDE.md file imports?" and I said No.\n' + unlabelled;
   const q = consentPrompt(quoted);
   assert.ok(q, 'the dialog beneath is still a dialog');
