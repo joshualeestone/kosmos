@@ -1630,8 +1630,8 @@ function allTasks(everyProject) {
     || (b.number || 0) - (a.number || 0));
 }
 
-/* #3029: a project's ancestors' names, root first ([] for a top-level project). A parent missing from the
-   read gives [], as the projects API leaves such a child at top level (parentName null). */
+/* #3029: a project's ancestors' names, root first ([] for a top-level project). The walk stops at the first
+   ancestor missing from the read (tested for a missing direct parent). */
 function projectPathOf(p, byId) {
   const names = [];
   const seen = new Set(p && p.id ? [p.id] : []);

@@ -471,7 +471,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       leaveNewTask();
       // The Tasks screen reads its names off the rows (projectPath), not PROJECTS.
       const row = (id, name, path) => ({ projectId: id, projectName: name, projectPath: path, number: 1, sentence: 'x', state: 'nobody', who: [], whoNames: [] });
-      TSK.data = [row('la', 'Launch', ['Book A']), row('lb', 'Launch', ['Book B']), row('ad', 'Ads', ['Book A', 'Launch']), row('ba', 'Book A', [])];
+      TSK.data = [row('la', 'Launch', ['Book A']), row('lb', 'Launch', ['Book B']), Object.assign(row('ad', 'Ads', ['Book A', 'Launch']), { state: 'built', builtAt: new Date().toISOString() }), row('ba', 'Book A', [])];
       TSK.proj = null; TSK.by = 'project';
       tskPaint();
       const tasksSel = texts('tsk-projsel');
@@ -479,6 +479,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       // Under the default Group by: Status, each row's project button names the chain; search finds a parent's name.
       TSK.by = 'status'; tskPaint();
       const rowProjects = Array.from(document.querySelectorAll('#tsk-groups .tsk-row .meta [data-open-project]')).map((x) => x.textContent).sort();
+      const adRow = Array.from(document.querySelectorAll('#tsk-groups .tsk-row')).find((r) => r.querySelector('[data-unbuild]'));
+      const rowLabels = adRow ? { sel: (adRow.querySelector('[aria-label^="Select task"]') || {}).getAttribute?.('aria-label'),
+        unbuild: adRow.querySelector('[data-unbuild]').getAttribute('aria-label') } : null;
       // Ads matches 'launch' only through its chain (Book A › Launch › Ads); the two Launches match by name.
       TSK.q = 'launch'; tskPaint();
       const found = Array.from(document.querySelectorAll('#tsk-groups .tsk-row .meta [data-open-project]')).map((x) => x.textContent).sort();
@@ -487,13 +490,16 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       const crumb = document.getElementById('tsk-crumb').textContent;
       const title = document.getElementById('tsk-title').textContent;
       const backLabel = document.getElementById('tsk-back').getAttribute('aria-label');
-      TSK.proj = null; TSK.by = 'status'; TSK.data = null;
+      // A project door into a subproject with no tasks yet: the one Tasks arm whose chain comes from PROJECTS.
+      TSK.data = []; TSK.proj = 'la'; TSK.projHint = { id: 'la', name: 'Launch' }; tskPaint();
+      const doorCrumb = document.getElementById('tsk-crumb').textContent;
+      TSK.projHint = null; TSK.proj = null; TSK.by = 'status'; TSK.data = null;
       // A project whose ARCHIVED parent is itself a subproject: the settings picker keeps the parent's chain.
       PROJECTS = PROJECTS.concat([Object.assign(mk('olda', 'Old launch', 'ba'), { archived: true }),
         Object.assign(mk('kid', 'Kid', 'olda'), { parentName: 'Old launch', parentArchived: true })]);
       pjPaintParentSelect(PROJECTS.find((x) => x.id === 'kid'));
       const archivedParent = document.getElementById('pjs-parent').selectedOptions[0].textContent;
-      return { create, settings, pick, tasksSel, heads, crumb, title, backLabel, archivedParent, rowProjects, found };
+      return { create, settings, pick, tasksSel, heads, crumb, title, backLabel, archivedParent, rowProjects, found, rowLabels, doorCrumb };
     });
     const order = ['Alpha', 'Alpha › Sub', 'Alpha - old', 'Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B', 'Book B › Launch'];
     ok(t + ' #3029 create parent picker: named by chain, each subproject after its parent', JSON.stringify(chains.create.slice(1)) === JSON.stringify(order), JSON.stringify(chains.create));
@@ -509,6 +515,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' #3029 Tasks rows (Group by: Status) name their project by its chain',
       JSON.stringify(chains.rowProjects) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.rowProjects));
     ok(t + ' #3029 Tasks search for a parent\'s name finds its subproject\'s tasks', JSON.stringify(chains.found) === JSON.stringify(['Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.found));
+    ok(t + ' #3029 a subproject row\'s checkbox and Not built yet labels speak the chain with commas',
+      !!chains.rowLabels && /^Select task 1 of Book A, Launch, Ads( \(|$)/.test(chains.rowLabels.sel) && chains.rowLabels.unbuild === 'Mark task 1 of Book A, Launch, Ads not built yet', JSON.stringify(chains.rowLabels));
+    ok(t + ' #3029 a project door into a subproject with no tasks names it by its chain', /All tasks › Book A › Launch/.test(chains.doorCrumb), JSON.stringify(chains.doorCrumb));
     ok(t + ' #3029 settings picker names an archived parent that is a subproject by its chain', chains.archivedParent === 'Book A › Old launch (archived)', JSON.stringify(chains.archivedParent));
 
     // ---- Layer 4 removed (#3103/#3104, 6.68) ----

@@ -60636,7 +60636,7 @@ function pjChainText(names) {
   return names.join(' › ');
 }
 function pjChainSpoken(names) {
-  return names.join(', ');   // for accessible names: a screen reader would read the › aloud
+  return names.join(', ');   // #3029: the chain in aria-labels
 }
 function pjSortByChain(list) {
   const chain = new Map(list.map((p) => [p, pjChainOf(p)]));   // each chain built once, not per comparison
