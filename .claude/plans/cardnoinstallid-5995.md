@@ -125,3 +125,14 @@ never names it, which is the kind of caller that premise said would not be found
   grep skips a text file it takes for binary, and did so for `engine/worldimport.js`). The reviewer re-ran it with
   `command grep -a -rn idInstall` over the tree less tests, plans and node_modules, and the claim holds: outside
   `engine/store.js` the name is only in comments and in `tools/capture-agent-card.js`.
+
+## Review 6 (2026-10-12, sonnet), at f678fbe1a: converged
+0 BLOCKER, 0 WARNING, 0 CONVENTION, 3 NIT. The reviewer read every non-test caller of `store.readProfile` and found
+none that writes its result back to a profile file by hand, so the key cannot be lost from disk through a read.
+- **NIT, not taken:** two comments (`docs/browser-checks/render-talk.js`, `render-talk-goldencard-2519.test.js`) say
+  17 of 18 cards carried `id/idInstall/instructionsWrite/updatedAt`. Each sentence begins "MEASURED on an 18-agent
+  board": it is a dated measurement that explains why a guard was removed, and it was true when taken. Editing the key
+  list would change a record of what was measured.
+- **NIT, not taken:** one comment line in `engine/store.js` is about ten characters longer than its neighbours.
+- **NIT, not taken:** the new test's header says the three exits were "found one review at a time". It names the three
+  places a profile is served, which is the durable part; the clause is history.
