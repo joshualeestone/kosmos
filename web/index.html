@@ -27878,13 +27878,17 @@ async function paintAccounts(opts) {
       btn.disabled = true; sel.disabled = true; btn.textContent = 'Moving…';
       if (moveMsg) moveMsg.textContent = '';
       const stoppedAtClick = new Set(names.filter((n) => { const c = (LAST || []).find((x) => x && x.sessionName === n); return c && cardStOf(c).pres === 'off'; }));
-      const said = await moveAccountAgents(from, to, names, (done, all) => {
-        const b = document.querySelector('[data-acct-move="' + CSS.escape(from) + '"]');   // the current button, after any repaint
-        const t = 'Moving ' + done + ' of ' + all + '…';
-        const cur = ACCT_MOVE.get(from); if (cur && cur.moving) cur.progress = t;   // a repaint mid-move draws the same count
-        if (b) b.textContent = t;
-      }, stoppedAtClick);
-      ACCT_MOVE.set(from, { moving: false, said, doneAt: Date.now(), announce: true });
+      /* try/finally: whatever happens inside, the row is released (never left "Moving…" for the life of the page). */
+      let said = '';
+      try {
+        said = await moveAccountAgents(from, to, names, (done, all) => {
+          const b = document.querySelector('[data-acct-move="' + CSS.escape(from) + '"]');   // the current button, after any repaint
+          const t = 'Moving ' + done + ' of ' + all + '…';
+          const cur = ACCT_MOVE.get(from); if (cur && cur.moving) cur.progress = t;   // a repaint mid-move draws the same count
+          if (b) b.textContent = t;
+        }, stoppedAtClick);
+      } catch { said = 'The move stopped part way. Check where the agents are now.'; }
+      finally { ACCT_MOVE.set(from, { moving: false, said, doneAt: Date.now(), announce: true }); }
       ACCT_PICK.delete(from);
       accountsDropped();
       try { await paintAccounts(); } catch { /* the sentence is kept in ACCT_MOVE and spoken by the next paint */ }

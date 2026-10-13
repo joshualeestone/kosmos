@@ -57,9 +57,9 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     let browser;
     try { browser = await pw[engine].launch({ headless: process.env.HEADED === '0' }); }
     catch (err) { say(false, '[' + engine + '] could not start a browser', err && err.message ? err.message.split('\n')[0] : String(err)); continue; }
-    for (const [w, h] of [[1100, 900], [390, 844]]) {
-      const tag = '[' + engine + ' ' + w + ']';
-      const page = await browser.newPage({ viewport: { width: w, height: h } });
+    for (const [w, h, scheme] of [[1100, 900, 'light'], [390, 844, 'light'], [1100, 900, 'dark']]) {
+      const tag = '[' + engine + ' ' + w + (scheme === 'dark' ? ' dark' : '') + ']';
+      const page = await browser.newPage({ viewport: { width: w, height: h }, colorScheme: scheme });
       /* A file:// page has no board behind it, so the page's own background reads (/api/status and friends) fail; WebKit
          reports each as "... due to access control checks". Those are this harness, not the change; any other error counts. */
       const errs = []; page.on('pageerror', (e) => { if (!/due to access control checks/.test(e.message)) errs.push(e.message); });
@@ -124,6 +124,14 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
             options: sel ? [...sel.options].map((o) => o.textContent.trim()) : null, btnDisabled: btn ? btn.disabled : null,
             moveInside: mr ? mr.right <= br.right + 0.5 && mr.left >= br.left - 0.5 : null };
         };
+        /* Contrast against the row's own card, in whichever theme this page is in (a dot or fill is a graphic: 3:1). */
+        const rgb = (c) => (c.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+        const lum = ([r, g, b]) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+        const ratio = (a, b) => { const x = lum(rgb(a)), y = lum(rgb(b)); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+        const cardBg = (el) => { for (let e = el; e; e = e.parentElement) { const c = getComputedStyle(e).backgroundColor; if (c && !/rgba\(0, 0, 0, 0\)|transparent/.test(c)) return c; } return 'rgb(255, 255, 255)'; };
+        const dotOf = (email) => { const w = box(email) && box(email).querySelector('.acct-usage-warn'); return w ? ratio(getComputedStyle(w, '::before').backgroundColor, cardBg(w)) : null; };
+        const contrast = { warnDot: dotOf('busy@example.com'), highDot: dotOf('mixed@example.com'),
+          moveText: (() => { const b = box('busy@example.com'); const btn = b && b.querySelector('[data-acct-move]'); return btn ? ratio(getComputedStyle(btn).color, getComputedStyle(btn).backgroundColor) : null; })() };
         const before = { busy: read('busy@example.com'), fresh: read('fresh@example.com'), calm: read('calm@example.com'), key: read('key@example.com'), old: read('old@example.com'), def: read('default@example.com'), guideonly: read('guideonly@example.com'), full: read('full@example.com'), sleepy: read('sleepy@example.com') };
         const msgOf = (d) => { const e = document.querySelector('[data-acct-move-msg="' + d + '"]'); return e ? e.textContent.trim() : null; };
         const runMove = async (email, toDir, expect) => {
@@ -171,7 +179,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         await paintAccounts();
         const expired = msgOf('/home/.claude-busy');
         /* Sideways overflow of the page itself, with the list in its real place. */
-        return { sleepyMove, mine, unwired, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
+        return { contrast, sleepyMove, mine, unwired, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
       }, { accounts: ACCOUNTS, agents: AGENTS });
       await page.close();
       if (r.error) { say(false, tag + ' ' + r.error); continue; }
@@ -214,6 +222,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!old && !old.has, tag + ' an older board\'s row draws no usage block', JSON.stringify(old));
       say(!!busy && busy.vis && busy.moveInside === true, tag + ' the move control fits inside its (visible, measured) row', JSON.stringify(busy && { vis: busy.vis, inside: busy.moveInside }));
       say(r.sideways <= 0, tag + ' the page does not scroll sideways', String(r.sideways));
+      say(r.contrast.warnDot >= 3 && r.contrast.highDot >= 3, tag + ' the warning dots stand out from the card (3:1 or more) in this theme', JSON.stringify(r.contrast));
+      say(r.contrast.moveText >= 4.5, tag + ' Move\'s label is readable on its button in this theme (4.5:1 or more)', JSON.stringify(r.contrast));
       say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
     }
     await browser.close();
