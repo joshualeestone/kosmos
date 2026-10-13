@@ -16,8 +16,10 @@ MANIFEST.gemini): the hooks, the trust dialog, the session format and the model 
   installed and no banner is drawn in the agent's pane.
 - `handleAutoUpdate` installs only when `enableAutoUpdate` is true; with it false and the notification on, it prints
   "Please run npm install -g ... to update" and installs nothing.
-Either key alone stops the install. Both are written so the pane also shows no banner, and so one key a later
-release renames still leaves the other.
+Either key alone stops the install. Where the person has chosen nothing, both are written, so the pane also shows
+no banner: with the check on, every Gemini agent's pane says "Please run npm install -g @google/gemini-cli@latest to
+update", an instruction in front of an agent that can run commands. Where the person chose something, the banner
+is whatever their choice makes it (with only installs off, it draws, as in the control arm below).
 
 ## Measured (2026-10-13, about 10:54 CDT, this computer, the real gemini 0.61.0 with 0.63.0 available)
 Two real interactive launches, each in its own throwaway home (`GEMINI_CLI_HOME`, the per-account shape Kosmos uses)
@@ -55,14 +57,18 @@ changes the shared install.
 
 ## What this costs, said plainly
 On the default account the person's OWN `gemini`, run by hand outside Kosmos, also stops updating itself, because it
-reads the same file. They turn it back on by setting the key to true, which Kosmos then leaves alone.
+reads the same file. To turn it back on they set BOTH keys to true. `enableAutoUpdate: true` alone is not enough
+where Kosmos wrote both: the check is still off, and with no check nothing installs (review 3; the branch's own
+test row says so). Kosmos then leaves both alone.
 
 ## Weakest premise
 That a file with these keys absent is the common case. Three kinds of file get no protection, and their agents can
 still move the shared gemini: one where the person chose to keep installing (`enableAutoUpdate: true` or the old
 `disableAutoUpdate: false`) and has not switched the check off; one with comments in it (the CLI reads those, Kosmos's `JSON.parse` does not, so the whole file is left
-alone, as before this change); and one this change wrote that a running gemini then saves over (below). I have no
-count of any of them.
+alone, as before this change); and one this change wrote that a running gemini then saves over (below). Two rarer
+ones: a `general` that is not an object (left alone whole), and a new-name install key holding something truthy
+that is not a boolean, such as the string "false" (it counts as their choice, and the CLI reads it as on). I have
+no count of any of them.
 
 ## Residuals
 - **Gemini agents that already exist on a Mac get this only when the next Gemini agent is created on the same
@@ -87,7 +93,8 @@ would move again): the measurement above is how to find out, on the new version.
 
 ## Verify
 - `engine/geminisettings.test.js` and `engine/geminisettings.toolhook-5812.test.js`: 33 pass, 0 fail. One of the
-  five new tests is a table of eleven files a person might have, each with what must be there afterwards.
+  five new tests is a table of thirteen files a person might have, each with what must be there afterwards and a
+  second run that changes nothing; another asks of nine files whether the CLI can still install afterwards.
 - No test goes through a caller (`create.js`'s write at an agent's creation): the five tests call `ensurePrepared`
   with a file, as the module's other tests do.
 - Every `engine/*gemini*.test.js` and `engine/win32keyed*.test.js`: 187 tests, 183 pass, 0 fail (4 skipped).
@@ -122,3 +129,16 @@ would move again): the measurement above is how to find out, on the new version.
 - The reviewer walked `migrateBoolean` for every pairing of old and new key, and checked the Residuals sentence by
   sentence against the source (the key-deleting save, the merge order, the check living only in the interactive
   entry): each is consistent.
+
+## Review 3 (2026-10-13, default model), at 705989fe8
+0 BLOCKER, 1 WARNING, 0 CONVENTION, 6 NIT. Not converged.
+- **WARNING, taken:** I told the person that setting `enableAutoUpdate` to true turns their updates back on. Where
+  Kosmos wrote both keys that is false: the check stays off. The comment and this file say both keys. Rejected:
+  writing only the install key when nobody chose, which would make the way back one key but put "please run npm
+  install" in every Gemini agent's pane.
+- **NIT, all six taken or stated:** when the banner does and does not draw; two more kinds of unprotected file;
+  the limit of the test's model of the CLI; two more rows in the table (a non-boolean old check key, an old install
+  key beside a check key); the module's header; the second table named under Verify.
+- The reviewer enumerated every pairing of install and check choice against the code (no explicit choice is
+  overridden in any), and tried three wrong implementations against the two table tests by reading: always write
+  both, never write, fill independently. Each fails named rows.

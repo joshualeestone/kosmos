@@ -3,7 +3,8 @@
 /**
  * Prepare a Gemini agent's settings.json at birth (#3296): the auth pre-seed
  * that skips the interactive first-run auth picker, and the five lifecycle hooks
- * that make the agent self-report to the board. This is the Gemini analog of
+ * that make the agent self-report to the board. Since then also the tool hook
+ * (#5812) and the CLI's own updater switched off (#6058). This is the Gemini analog of
  * engine/reporthook.js (the Claude report-hook merge) fused with the codex
  * trust/pre-accept writes -- one module because gemini needs BOTH written into the
  * SAME file before launch, and two writers of one file is this codebase's
@@ -228,9 +229,13 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
        they chose only about the CHECK        ->  installs are switched off; their check setting is left as it is.
        they chose neither                     ->  both are switched off (no install, no banner in the pane).
      🛑 WHAT THIS COSTS, SAID PLAINLY: on the default account it also stops the person's OWN `gemini` (run by
-     hand, outside Kosmos) from updating itself, because it reads the same file. They turn it back on by setting
-     enableAutoUpdate to true, which this then leaves alone. A `general` that is present but not an object is
-     somebody's own arrangement and is left alone, with nothing written under it. */
+     hand, outside Kosmos) from updating itself, because it reads the same file. To turn it back on they set
+     BOTH keys to true (enableAutoUpdate alone is not enough where this wrote both: the check would still be off,
+     and with no check nothing installs). This then leaves both alone. A `general` that is present but not an
+     object is somebody's own arrangement and is left alone, with nothing written under it.
+     Why the check goes off too when nobody chose: with it on, every Gemini agent's pane shows "update available!
+     Please run npm install -g @google/gemini-cli@latest to update", which is an instruction sitting in front of
+     an agent that can run commands. */
   if (data.general === undefined) data.general = {};
   if (data.general && typeof data.general === 'object' && !Array.isArray(data.general)) {
     const chose = (key) => data.general[key] !== undefined || typeof data.general[LEGACY_UPDATE_KEYS[key]] === 'boolean';

@@ -138,6 +138,9 @@ test('#6058: a choice the person made is never overridden, through either key or
     [{ vimMode: true }, { vimMode: true, enableAutoUpdate: false, enableAutoUpdateNotification: false }],
     // CONTROL: an old-name key that is not a boolean is not a choice the CLI reads, so both go off
     [{ disableAutoUpdate: 'no' }, { disableAutoUpdate: 'no', enableAutoUpdate: false, enableAutoUpdateNotification: false }],
+    [{ disableUpdateNag: 'x' }, { disableUpdateNag: 'x', enableAutoUpdate: false, enableAutoUpdateNotification: false }],
+    // an old-name INSTALL choice beside a CHECK choice: both theirs, nothing written
+    [{ disableAutoUpdate: false, enableAutoUpdateNotification: true }, { disableAutoUpdate: false, enableAutoUpdateNotification: true }],
   ];
   for (const [before, after] of rows) {
     const { file } = tmpSettings();
@@ -152,6 +155,9 @@ test('#6058: a choice the person made is never overridden, through either key or
    BOTH effective values are on (0.61.0: no check means nothing to install, and handleAutoUpdate needs the install
    key on). The only rows where it still can are the ones where the person said so. */
 test('#6058: after the write, the CLI can still install only where the person chose to keep installing', () => {
+  /* A model of 0.61.0 for BOOLEAN values only, which is all these cases use: the old key counts only when it is a
+     boolean and the new key is not, and both default to on. The real CLI reads the new key by truthiness, so a
+     non-boolean there (null, 0, a string) behaves as its truthiness says; no case here relies on that. */
   const effective = (g, key, legacy) => (typeof g[key] === 'boolean' ? g[key] : (typeof g[legacy] === 'boolean' ? !g[legacy] : true));
   const installs = (g) => effective(g, 'enableAutoUpdate', 'disableAutoUpdate') && effective(g, 'enableAutoUpdateNotification', 'disableUpdateNag');
   const cases = [
