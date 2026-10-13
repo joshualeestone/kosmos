@@ -60615,6 +60615,26 @@ function pjAncestry(p) {
   }
   return names;
 }
+/* #3029: every place a person PICKS or reads a project from a flat list (the Tasks Project: dropdown, its
+   Group by: Project headings and crumb, New task's project, both parent pickers) names it by its chain,
+   "Book A › Launch", the grid's ancestry line in words, so a subproject never reads as top-level and two
+   same-named subprojects under different parents are told apart. Lists are ordered by the chain, segment by
+   segment, so each subproject follows its parent (a joined-string sort would put "Alpha 2" between "Alpha"
+   and "Alpha › Sub"). A top-level project's chain is just its name, so it reads exactly as before. */
+function pjChainOf(p) {
+  return p ? pjAncestry(p).concat(String(p.name)) : [];
+}
+function pjChainCompare(a, b) {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i += 1) {
+    const c = String(a[i]).localeCompare(String(b[i]));
+    if (c) return c;
+  }
+  return a.length - b.length;
+}
+function pjChainText(names) {
+  return names.join(' › ');
+}
 function projectCard(p, unreadable, depth, childCount, lastKid) {
   const s = p.summary || {};
   const folder = pjFolderLine(p);
@@ -61747,19 +61767,20 @@ function tskPaint() {
   const all = tskVisible(TSK.data, TSK.proj);
   const projMap = new Map();
   for (const t of all) {
-    if (!projMap.has(t.projectId)) projMap.set(t.projectId, { id: t.projectId, name: t.projectName, open: 0 });
+    if (!projMap.has(t.projectId)) projMap.set(t.projectId, { id: t.projectId, name: t.projectName, open: 0,
+      chain: (Array.isArray(t.projectPath) ? t.projectPath : []).concat(String(t.projectName)) });   // #3029
     if (t.state !== 'closed') projMap.get(t.projectId).open += 1;
   }
   /* A project door can scope us to a project with no tasks yet: it is still the project, with 0. */
   if (TSK.proj && !projMap.has(TSK.proj) && TSK.projHint && TSK.projHint.id === TSK.proj
       && PROJECTS.some((x) => x && x.id === TSK.proj)) {   // only while the project still exists
-    projMap.set(TSK.proj, { id: TSK.proj, name: TSK.projHint.name, open: 0 });
+    projMap.set(TSK.proj, { id: TSK.proj, name: TSK.projHint.name, open: 0, chain: pjChainOf(pjById(TSK.proj)) });
   }
   /* A scope to a project that is gone falls back to All tasks, but only once the tasks are read:
      before the first read there is no data to judge by, and dropping it then would lose the
      project a door just asked for (#3703). */
   if (TSK.data && TSK.proj && !projMap.has(TSK.proj)) TSK.proj = null;
-  const projectsList = [...projMap.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const projectsList = [...projMap.values()].sort((a, b) => pjChainCompare(a.chain, b.chain));   // #3029: each subproject after its parent
   /* #3949: the project picker is this dropdown at every width (the left rail is gone). Each option keeps
      the rail's open count of that project's tasks, whatever Created: and the search hide (#1346 held it
      equal to what picking it shows with neither set). */
@@ -61767,14 +61788,14 @@ function tskPaint() {
   if (sel) {
     /* Mona's design review: a count here sat under "N open tasks across M projects" and read as a number
        of projects. The count stays on each project's own option. */
-    tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + ' (' + p.open + ')</option>').join(''), TSK.proj || '');
+    tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(pjChainText(p.chain)) + ' (' + p.open + ')</option>').join(''), TSK.proj || '');
   }
   const picked = TSK.proj ? projMap.get(TSK.proj) : null;
   /* #5072: the separator and Open project are one unit, so the phone rule can put Open project on its own line and
      drop the dot together (see .tsk-crumb-open). The dot is aria-hidden with a vh comma beside it, the pairing
      .pj-crumb-sep uses, so a screen reader hears a pause rather than a dot. */
   document.getElementById('tsk-crumb').innerHTML = picked
-    ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' <span class="tsk-crumb-open"><span class="tsk-crumb-sep" aria-hidden="true">·</span><span class="vh">, </span> <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button></span>'
+    ? '<button type="button" data-proj="">All tasks</button> › ' + esc(pjChainText(picked.chain)) + ' <span class="tsk-crumb-open"><span class="tsk-crumb-sep" aria-hidden="true">·</span><span class="vh">, </span> <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button></span>'
     : '';
   /* #4586: the chevron beside the title is the crumb's Open project, shown exactly when that is: the
      panel's delegated [data-open-project] click opens the room, so there is one way in, not two. */
@@ -61845,10 +61866,12 @@ function tskPaint() {
   if (TSK.by === 'project') {
     const byP = new Map();
     for (const t of sorted) { if (!byP.has(t.projectId)) byP.set(t.projectId, []); byP.get(t.projectId).push(t); }
-    groups.innerHTML = [...byP.entries()].sort((a, b) => String(a[1][0].projectName).localeCompare(String(b[1][0].projectName)))
+    /* #3029: a group is named and ordered by its project's chain, so a subproject's group follows its parent's. */
+    const chainOf = (t) => (Array.isArray(t.projectPath) ? t.projectPath : []).concat(String(t.projectName));
+    groups.innerHTML = [...byP.entries()].sort((a, b) => pjChainCompare(chainOf(a[1][0]), chainOf(b[1][0])))
       .map(([, ts]) => {
         const n = ts.filter((t) => t.state !== 'closed').length;
-        return '<section class="tsk-grp"><h3>' + esc(ts[0].projectName) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
+        return '<section class="tsk-grp"><h3>' + esc(pjChainText(chainOf(ts[0]))) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
       }).join('') || '<p class="tsk-empty">' + (TSK.tile || TSK.proj || TSK.win ? 'No tasks match.' : 'No tasks yet.') + '</p>';
   } else {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
@@ -63407,7 +63430,7 @@ let NT_PARENT = null;   // #3861 part 2: the task "+ Add subtask" was pressed on
    does: the person is standing in that project on purpose. */
 function ntChoices() {
   return PROJECTS.filter((p) => p && p.archived !== true)
-    .slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    .slice().sort((a, b) => pjChainCompare(pjChainOf(a), pjChainOf(b)));   // #3029: each subproject after its parent
 }
 async function openNewTaskFromTasks() {
   await loadProjects();
@@ -63432,7 +63455,7 @@ function openNewTask(projectId, origin, parent) {
        follow the pick (below) exactly as they do when the person changes it. */
     const choices = ntChoices();
     const sel = document.getElementById('nt-proj');
-    sel.innerHTML = choices.map((c) => '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>').join('');
+    sel.innerHTML = choices.map((c) => '<option value="' + esc(c.id) + '">' + esc(pjChainText(pjChainOf(c))) + '</option>').join('');
     row.hidden = false;
     said.hidden = true;
     pick.hidden = false;
@@ -63748,11 +63771,12 @@ function pjPaintParentSelect(p) {
   const banned = pjDescendantIds(p.id);
   const opts = ['<option value="">Top level (none)</option>'];
   let hasCurrent = !p.parent;   // "Top level (none)" always represents no parent
-  for (const q of sortProjects(PROJECTS.filter((x) => !x.archived), PJ_SORT)) {
+  /* #3029: in chain order and named by the chain, so the parent being picked is unmistakable. */
+  for (const q of PROJECTS.filter((x) => !x.archived).sort((a, b) => pjChainCompare(pjChainOf(a), pjChainOf(b)))) {
     if (q.id === p.id || banned.has(q.id)) continue;
     if (q.id === p.parent) hasCurrent = true;
     opts.push('<option value="' + esc(q.id) + '"' + (q.id === p.parent ? ' selected' : '') + '>'
-      + esc(q.name) + '</option>');
+      + esc(pjChainText(pjChainOf(q))) + '</option>');
   }
   /* Keep the select HONEST about the current parent even when it is not among
      the offered options. The engine explicitly ALLOWS archiving a project that
@@ -71979,8 +72003,8 @@ function pjPaintCreateParentSelect() {
   const sel = document.getElementById('pj-add-parent');
   if (!sel) return;
   const opts = ['<option value="">Top level (none)</option>'];
-  for (const q of sortProjects(PROJECTS.filter((x) => !x.archived), PJ_SORT)) {
-    opts.push('<option value="' + esc(q.id) + '">' + esc(q.name) + '</option>');
+  for (const q of PROJECTS.filter((x) => !x.archived).sort((a, b) => pjChainCompare(pjChainOf(a), pjChainOf(b)))) {   // #3029
+    opts.push('<option value="' + esc(q.id) + '">' + esc(pjChainText(pjChainOf(q))) + '</option>');
   }
   sel.innerHTML = opts.join('');
   sel.value = '';   // a fresh create starts top-level

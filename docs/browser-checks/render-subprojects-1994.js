@@ -454,6 +454,43 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // CONTROL: top-level MUST omit parent, not send parent:null (absent-not-null discipline).
     ok(t + ' top-level create OMITS parent (absent, not null)', create.topLevel && !('parent' in create.topLevel), JSON.stringify(create.topLevel));
 
+    // ---- #3029: every project picker, and the Tasks screen's project names, read by the chain ----
+    // Two same-named subprojects (Launch under Book A and under Book B), a grandchild, and an "Alpha 2" that a
+    // joined-string sort would wedge between Alpha and Alpha's own child. Read through the page's own painters.
+    const chains = await page.evaluate(() => {
+      const mk = (id, name, parent) => ({ id, name, parent: parent || null, parentName: null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('bb', 'Book B'), mk('ba', 'Book A'), mk('lb', 'Launch', 'bb'), mk('la', 'Launch', 'ba'), mk('ad', 'Ads', 'la'),
+        mk('al2', 'Alpha 2'), mk('al', 'Alpha'), mk('als', 'Sub', 'al')];
+      const texts = (id) => Array.from(document.getElementById(id).options).map((o) => o.textContent);
+      openAddProject();
+      const create = texts('pj-add-parent');
+      pjPaintParentSelect(PROJECTS.find((x) => x.id === 'al2'));
+      const settings = texts('pjs-parent');
+      openNewTask(null, 'tasks');   // All tasks: the dialog asks which project, in #nt-proj
+      const pick = texts('nt-proj');
+      leaveNewTask();
+      // The Tasks screen reads its names off the rows (projectPath), not PROJECTS.
+      const row = (id, name, path) => ({ projectId: id, projectName: name, projectPath: path, number: 1, sentence: 'x', state: 'nobody', who: [], whoNames: [] });
+      TSK.data = [row('la', 'Launch', ['Book A']), row('lb', 'Launch', ['Book B']), row('ad', 'Ads', ['Book A', 'Launch']), row('ba', 'Book A', [])];
+      TSK.proj = null; TSK.by = 'project';
+      tskPaint();
+      const tasksSel = texts('tsk-projsel');
+      const heads = Array.from(document.querySelectorAll('#tsk-groups .tsk-grp h3')).map((h) => h.firstChild.textContent);
+      TSK.proj = 'ad'; tskPaint();
+      const crumb = document.getElementById('tsk-crumb').textContent;
+      TSK.proj = null; TSK.by = 'status'; TSK.data = null;
+      return { create, settings, pick, tasksSel, heads, crumb };
+    });
+    const order = ['Alpha', 'Alpha › Sub', 'Alpha 2', 'Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B', 'Book B › Launch'];
+    ok(t + ' #3029 create parent picker: named by chain, each subproject after its parent', JSON.stringify(chains.create.slice(1)) === JSON.stringify(order), JSON.stringify(chains.create));
+    ok(t + ' #3029 settings parent picker: the same, minus the project itself', JSON.stringify(chains.settings.slice(1)) === JSON.stringify(order.filter((x) => x !== 'Alpha 2')), JSON.stringify(chains.settings));
+    ok(t + ' #3029 New task project picker: the same chains and order', JSON.stringify(chains.pick) === JSON.stringify(order), JSON.stringify(chains.pick));
+    ok(t + ' #3029 Tasks Project: dropdown: the two Launches are told apart, in chain order',
+      JSON.stringify(chains.tasksSel.slice(1).map((s) => s.replace(/ \(\d+\)$/, ''))) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.tasksSel));
+    ok(t + ' #3029 Tasks Group by: Project headings are named and ordered by chain',
+      JSON.stringify(chains.heads) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.heads));
+    ok(t + ' #3029 Tasks crumb names the picked subproject by its chain', /All tasks › Book A › Launch › Ads/.test(chains.crumb), JSON.stringify(chains.crumb));
+
     // ---- Layer 4 removed (#3103/#3104, 6.68) ----
     // The old #2848 wiring layer drove showTab -> placeSubProjects to prove the
     // shipped code nested the consolidated strip. Both the strip and placeSubProjects

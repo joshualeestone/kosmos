@@ -23,7 +23,7 @@ test.after(() => { try { BOARD.restore(); } catch { /* restored */ } fs.rmSync(S
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
-const FNS = page.liftAll(SCRIPT, ['pjById', 'ntChoices', 'openNewTask', 'ntAimAt', 'ntFillParents', 'leaveNewTask', 'ntGoState']);
+const FNS = page.liftAll(SCRIPT, ['pjById', 'pjAncestry', 'pjChainOf', 'pjChainCompare', 'pjChainText', 'ntChoices', 'openNewTask', 'ntAimAt', 'ntFillParents', 'leaveNewTask', 'ntGoState']);
 
 function world(projects, { current = null, readFailed = false } = {}) {
   const els = {};
