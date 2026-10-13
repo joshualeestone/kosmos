@@ -2499,7 +2499,8 @@ const DEVICE_SUFFIX = ' (Kosmos app)';
    "the box was left as it was" can be told by comparing the two. */
 const oneLine = (raw) => String(raw == null ? '' : raw).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
 /** The label for this computer from a raw name. Pure, so every edge is testable:
-    one line, no control characters, cut to fit DEVICE_NAME's 60 UTF-16 units with
+    one line, none of the ASCII control characters (the range oneLine clears; the 8-bit C1 controls are
+    left as typed), cut to fit DEVICE_NAME's 60 UTF-16 units with
     the suffix (never splitting a surrogate pair), and a plain fallback when
     nothing usable is left. */
 function deviceNameFrom(raw) {

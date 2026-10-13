@@ -9943,8 +9943,9 @@ const server = http.createServer(async (req, res) => {
            - Whether the name can be kept is asked BEFORE the start, so no code is emailed for one that cannot be.
            - If the save fails all the same after the start went out, the answer is still the code step (the
              code was emailed and works), with computer_name_kept: false for the page to say so.
-           - Two starts with different names that BOTH go out keep whichever is saved last (the engine refuses
-             a start while another step is busy, so that takes two that do not overlap there).
+           - Two starts with different names that BOTH go out keep whichever is saved last. Two starts CAN
+             overlap (the engine holds a start back only during a Forget or a register), so the last save may
+             belong to the start that was sent first: from two tabs, the kept name can be the older tab's.
            - Absent (an older page, a script): nothing changes. With both, computer_name takes device_name's
              place: the request is naming THIS computer.
            One choice is worked out and used three times (asked, sent, kept), so the three cannot differ. */

@@ -389,3 +389,18 @@ in the code for it.
   height 44. Nothing since has changed the box, its class or the card's padding.
 - **NIT, not taken:** one boolean folds "the hint stays inside the card" and "the page does not scroll sideways".
 - **NIT, not taken:** a comment that `toWellFormed` needs the Node the repo already pins.
+
+## Review 18 (2026-10-13, default model), at f7b12275b
+0 BLOCKER, 0 WARNING, 1 CONVENTION, 4 NIT. A new convention finding, so not converged.
+The reviewer ran this branch's `#5995` tests in `engine/remote.test.js` (8 pass) and `server.test.js` (1 pass), and
+a 20-input probe of `computerNameChoice` (direction controls, typed endings, cuts at the limit, leading hyphens
+behind invisible characters): every label was valid, none began with a hyphen, each was stable when fed back in.
+- **CONVENTION, taken:** a comment in `server.js` said the engine refuses a start while another step is busy, so two
+  starts cannot overlap. They can: a start is held back only during a Forget or a register, and this branch's own
+  two-tabs test depends on the overlap. The comment now states the real rule and its consequence: from two tabs, the
+  kept name can be the older tab's. The behaviour is unchanged and stays as "last save wins".
+- **NIT, taken by saying it:** the doc promised "no control characters"; the class clears the ASCII ones. The 8-bit
+  C1 controls are left as typed, as they always were for the computer's own name. The doc says so.
+- **NIT, not taken:** `keepComputerNameChoice` answers a `name` only tests read (also raised in review 14).
+- **NIT, not taken:** a `fetch` that throws synchronously would leave the name read stuck. Real `fetch` rejects.
+- **NIT, noted:** commit subjects with a colon. The merge is a squash under a `computername-5995 -- ...` title.
