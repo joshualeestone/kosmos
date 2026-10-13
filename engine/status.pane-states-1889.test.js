@@ -178,7 +178,7 @@ test('the live permission prompt classifies needs_you', () => {
   assert.equal(r.state, STATE.NEEDS_YOU,
     'a live 2.1.263 permission prompt read as ' + r.state);
   assert.equal(r.confidence, CONFIDENCE.SCRAPED);
-  assert.equal(r.because, 'it is asking you something');
+  assert.equal(r.because, 'it is waiting for your approval');   // #6054: a permission prompt says what it waits for
 });
 
 /* The exact option row the live 2.1.263 pane drew, verbatim (leading space and

@@ -150,3 +150,15 @@ test('#6054: the page ending is said only where buttons are drawn; a prompt whos
     assert.equal(calls.pasted(), '', 'the words were pasted into the prompt');
   });
 });
+
+test('#6054 status: a permission prompt reads "waiting for your approval", even mid-turn; the question menu keeps its own reason', () => {
+  const PANE = { command: '2.1.296', title: '✶ working', session: 'x', name: 'x' };   // a native Claude pane, its title still spinning
+  for (const screen of [BASH, EDIT]) {
+    const c = status.classify(PANE, screen);
+    assert.equal(c.state, 'needs_you');
+    assert.equal(c.because, status.APPROVAL_WAITING);
+  }
+  // CONTROL: the question menu is not a permission request.
+  const MENU = fs.readFileSync(path.join(SCREENS, 'question-menu-2.1.29x.txt'), 'utf8');
+  assert.equal(status.classify(PANE, MENU).because, status.ASKING_GENERIC);
+});
