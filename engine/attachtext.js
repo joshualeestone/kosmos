@@ -102,6 +102,14 @@ function partOf(get, name, what) {
     throw new Error(/too large|expands/.test(m) ? 'a part of this ' + what + ' is larger than Kosmos will convert' : 'this ' + what + ' is damaged');
   }
 }
+/* Iteration 17: SpreadsheetML written with a prefix on its main namespace (<x:worksheet>, <x:row>, <x:c>, as some .NET
+   and Java writers do) is read as the plain form: the root's prefix is dropped from every tag, one linear pass. */
+function unprefix(xml, root) {
+  if (!xml) return xml;
+  const m = new RegExp('<([A-Za-z_][\\w.-]{0,30}):' + root + '\\b').exec(xml.slice(0, 4096));
+  if (!m) return xml;
+  return xml.split('<' + m[1] + ':').join('<').split('</' + m[1] + ':').join('</');
+}
 /* Iteration 11: a big part (a sheet of 100,000 rows, a long document) gives its first MAX_PART_BYTES rather than
    nothing; `cut` says it was cut. A damaged part still throws, worded as damaged. */
 function prefixPart(get, name, what) {
@@ -158,7 +166,7 @@ function xlsxText(buf) {
   for (const m of rels.matchAll(/<Relationship\b[^<>]*>/g)) targets.set(oc.attr(m[0], 'Id'), oc.attr(m[0], 'Target'));
   const shared = [];
   const sstPart = prefixPart(get, 'xl/sharedStrings.xml', 'workbook');
-  const sst = sstPart.text;
+  const sst = unprefix(sstPart.text, 'sst');
   if (sst) for (const si of oc.blocks(sst, 'si')) shared.push(oc.xmlText(oc.stripBlocks(si, 'rPh').replace(/<\/t>\s*<t[^<>]*>/g, '')).slice(0, MAX_CELL));
   const out = sink();
   const notes = new Set();
@@ -183,7 +191,7 @@ function xlsxText(buf) {
     seen.add(part);
     let sheet = null;
     let big = false;
-    try { const got = get(part, { prefix: true }); sheet = got && got.text; big = !!(got && got.cut); } catch { sheet = null; }   // one unreadable sheet does not lose the others (review 1)
+    try { const got = get(part, { prefix: true }); sheet = unprefix(got && got.text, 'worksheet'); big = !!(got && got.cut); } catch { sheet = null; }   // one unreadable sheet does not lose the others (review 1)
     if (!sheet) { out.add('(this sheet could not be read)\n'); continue; }
     if (big) notes.add('A sheet is larger than Kosmos reads, so only its first rows are shown.');   // iteration 11: its first rows, not nothing
     if (/<(?:\w+:)?f[\s>]/.test(sheet)) formulas = true;
@@ -329,7 +337,8 @@ function* bodyBlocks(body, state) {
 
 /* The text of a span: its <w:t> runs, with tabs and line breaks where Word put them. */
 function runsText(span) {
-  const marked = span.replace(/<w:tab\/>/g, '<w:t>\t</w:t>').replace(/<w:(?:br|cr)\b[^<>]*\/>/g, '<w:t>\n</w:t>');
+  const marked = span.replace(/<w:(?:tab|ptab)\b[^<>]*\/>/g, '<w:t>\t</w:t>').replace(/<w:(?:br|cr)\b[^<>]*\/>/g, '<w:t>\n</w:t>')
+    .replace(/<w:noBreakHyphen\b[^<>]*\/>/g, '<w:t>-</w:t>');   // iteration 17: "2026-10-13" kept; a soft hyphen is nothing
   let s = '';
   for (const t of oc.blocks(marked, 'w:t')) { s += oc.xmlText(t); if (s.length > MAX_OUT) break; }
   return s;
@@ -387,7 +396,8 @@ function docxText(buf) {
   const doc = docPart.cut ? closeCut(stripNested(docPart.text, 'mc:Fallback')) : docPart.text;   // iteration 13: an unclosed Fallback tail first, or its later strip would take the closers too
   if (!doc) throw new Error('it is not a Word document');
   /* mc:AlternateContent carries the same content twice (Choice and Fallback): keep the Choice (review 1). */
-  const body = stripNested(oc.innerOf(doc, 'w:body') || doc, 'mc:Fallback');
+  /* Iteration 17: a moved passage is written twice (moveFrom and moveTo): only where it now stands is kept. */
+  const body = stripNested(stripNested(oc.innerOf(doc, 'w:body') || doc, 'mc:Fallback'), 'w:moveFrom');
   const out = sink();
   const state = { broken: false };
   for (const b of bodyBlocks(body, state)) {
@@ -406,6 +416,8 @@ function docxText(buf) {
   else if (state.broken) notes.push('Part of this document is damaged; the text after that point is not included.');
   if (hasPart(buf, /^word\/media\//)) notes.push('Pictures are not converted.');
   if (hasPart(buf, /^word\/(header|footer|footnotes|endnotes|comments)\d*\.xml$/)) notes.push('Headers, footers, footnotes and comments are not included.');
+  /* Iteration 17: a redline read as text would pass for a clean document. */
+  if (/<w:(?:ins|del|moveTo|moveFrom)\b/.test(doc)) notes.push('This document has tracked changes; the text shows them accepted (deleted text left out, inserted text kept), so what changed cannot be seen here.');
   return { body: out.text().replace(/\n{3,}/g, '\n\n').trim(), notes, full: out.full };
 }
 

@@ -788,3 +788,31 @@ test('#6098 review 16: a formula that returned an empty string (Excel, t="str") 
   const openpyxl = at.xlsxText(calcBook('<row r="1"><c r="A1"><f>B1*2</f><v /></c><c r="B1"><v>2</v></c></row>'));
   assert.ok(openpyxl.body.includes('=B1*2'), openpyxl.body);
 });
+
+/* ── review 17 ── */
+test('#6098 review 17: a redline says it has tracked changes, and a moved passage is read once', () => {
+  const body = '<w:p><w:r><w:t>Kept </w:t></w:r><w:del><w:r><w:delText>gone </w:delText></w:r></w:del><w:ins><w:r><w:t>added</w:t></w:r></w:ins></w:p>'
+    + '<w:moveFrom><w:p><w:r><w:t>Moved passage</w:t></w:r></w:p></w:moveFrom><w:p><w:r><w:t>Middle</w:t></w:r></w:p>'
+    + '<w:moveTo><w:p><w:r><w:t>Moved passage</w:t></w:r></w:p></w:moveTo>';
+  const got = at.docxText(docxOf(body));
+  assert.ok(got.notes.some((n) => /tracked changes/.test(n)), JSON.stringify(got.notes));
+  assert.equal((got.body.match(/Moved passage/g) || []).length, 1, got.body);
+  assert.ok(got.body.startsWith('Kept added'), got.body);
+  assert.ok(!at.docxText(docxOf('<w:p><w:r><w:t>plain</w:t></w:r></w:p>')).notes.some((n) => /tracked/.test(n)), 'a plain document says nothing');
+});
+
+test('#6098 review 17: a spreadsheet written with a namespace prefix (<x:row>) reads its cells', () => {
+  const book = buildZip([
+    entry('xl/workbook.xml', XML + '<x:workbook xmlns:x="m" xmlns:r="r"><x:sheets><x:sheet name="Data" r:id="rId1"/></x:sheets></x:workbook>'),
+    entry('xl/_rels/workbook.xml.rels', XML + '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
+    entry('xl/worksheets/sheet1.xml', XML + '<x:worksheet xmlns:x="m"><x:sheetData><x:row r="1"><x:c r="A1" t="s"><x:v>0</x:v></x:c><x:c r="B1"><x:v>42</x:v></x:c></x:row></x:sheetData></x:worksheet>'),
+    entry('xl/sharedStrings.xml', XML + '<x:sst xmlns:x="m"><x:si><x:t>Widgets</x:t></x:si></x:sst>'),
+  ]);
+  const got = at.xlsxText(book);
+  assert.ok(got.body.includes('| Widgets | 42 |'), got.body);
+});
+
+test('#6098 review 17: a non-breaking hyphen and a positioned tab are kept', () => {
+  const got = at.docxText(docxOf('<w:p><w:r><w:t>2026</w:t><w:noBreakHyphen/><w:t>10</w:t><w:ptab w:relativeTo="margin" w:alignment="right" w:leader="none"/><w:t>end</w:t></w:r></w:p>'));
+  assert.equal(got.body, '2026-10\tend');
+});
