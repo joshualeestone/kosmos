@@ -201,8 +201,22 @@ function unspill(file) {
    send-keys era, when long sends landed collapsed and unsent while looking delivered. #3419 (2026-09-22) replaced that
    transport with a chunked paste that scales to any size, and #3562 then raised the person's cap to 10000 on it, so
    the 700 rule outlived its reason, and agents reported that opening a file for every long task or room message cost
-   them handoffs (#6065). The full text still goes in the LOG either way (the screens draw from the log). */
-const spillsAt = (line) => String(line == null ? '' : line).length > chat.MAX_TEXT;
+   them handoffs (#6065). The full text still goes in the LOG either way (the screens draw from the log).
+   Review 1: the limit is for the LONGEST line any path will type, not only now. A message held for an agent out of
+   usage or signed out is typed later with limitqueue's kept note after it, through the same length check, so the room
+   for the longest note is left here: a line that fit now and not then would be refused on every sweep until dropped. */
+let keptRoom = null;
+function laterRoom() {
+  if (keptRoom === null) {
+    const lq = require('./limitqueue');   // lazy: limitqueue reads this module too
+    const at = new Date(8.64e15).toISOString();   // the longest timestamp toISOString writes
+    keptRoom = Math.max(...[{}, { behind: true }, { signin: true }].map((e) => lq.keptNote({ ...e, at }).length));
+  }
+  return keptRoom;
+}
+// The longest line typed whole (tests read it, so a boundary is measured, not guessed).
+const spillLimit = () => chat.MAX_TEXT - laterRoom();
+const spillsAt = (line) => String(line == null ? '' : line).length > spillLimit();
 /* #5706 (user feedback, 2026-10-09): what the pane shows of a long message, so the agent can tell from the line alone
    whether to open the file. The envelope already names the sender; this is the message's first sentence when it is a
    real one and ends within SPILL_HEAD characters, else the opening cut at a whole word, plus how long the whole is.
@@ -2356,8 +2370,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     /* #6065: the post is typed whole unless this member's whole line (envelope, catch-up, held posts) would be longer
        than chat types (spillsAt); only then does its full text go into this member's own Inbox (#4447) and the line
-       carry its head and the path (#5706). A member that cannot be typed into is refused by deliver below with its
-       reason and gets no file. A file that cannot be written: not reached, its taken held posts put back. */
+       carry its head and the path (#5706). A member that cannot be typed into gets no file and is refused by deliver
+       below. A file that cannot be written: not reached, its taken held posts put back. */
     if (spillsAt(envelope + catchUp + heldLine) && chat.addressable(name, roster).ok) {
       const spill = spillInto(name, id, cleaned);
       if (!spill.file) {
@@ -3397,6 +3411,7 @@ function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, n
 function resetOwnPostNudgesForTests() { ownPostNudgedAt.clear(); }
 
 module.exports = {
+  spillLimit,   // #6065: the longest line typed whole
   HELD_STATE, heldAccepted, logHeldDelivered, logHeldDropped, tellHeldDropped,   // kosmos#5805 slice 2a
   keepTaskLine, tellTaskLineDropped, recordTaskLineOutcome,   // kosmos#5805: task messages; #5842: their outcome on the task
   NOT_ON_PROJECT_FIX,   // kosmos#5752 slice 2
