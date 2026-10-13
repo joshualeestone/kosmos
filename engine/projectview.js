@@ -218,13 +218,14 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
    since the summary was written. At or under the rhythm, the summary reads 'worked' with workMinutes.
    - Only a runner that reports working too (REPORTS_WORKING): for one that reports idle only, idle rows would read as
      no work at all.
-   - Busy is any report but idle, started and stopped (as communityturn's workedSince), so a wait for a person counts as
-     work: it errs toward stale.
+   - Busy is any report but idle, started and stopped (as communityturn's workedSince), so a wait (needs_you, blocked,
+     a provider failure) counts as work: it errs toward stale.
    - The stretch before the member's first report after the summary is counted as work unless an earlier report shows
      what it was doing then; a history cut short (selfreport's bounded tail) that starts after the summary is unknown,
      and leaves the summary as it was.
    - Known, as for idleExcused: reports reach the store only while the board runs, so work while it was down reads as
-     whatever the last report said. Unlike idleExcused this also applies to a member working now. */
+     whatever the last report said, and with no cap on the clock age (decided in the plan) that holds however long the
+     outage. Unlike idleExcused this also applies to a member working now. */
 function workExcused(summary, member, readHistory, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied) return summary;
@@ -235,10 +236,13 @@ function workExcused(summary, member, readHistory, nowMs) {
   const wroteAt = Date.parse(summary.at);
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   if (!Number.isFinite(wroteAt) || wroteAt > now) return summary;
+  /* Review 3: an operator's clear is when a person cleared a report, not when the agent stopped (as idleExcused and
+     idleNoted refuse it), so it changes nothing here. */
+  const kept = rows.filter((r) => r && Number.isFinite(r.at) && r.at <= now && typeof r.state === 'string' && r.by !== 'operator');
+  // Review 3: a cut history is judged by where the file's tail starts (its first row), before any reordering.
+  if (rows.truncated === true && (!kept.length || kept[0].at > wroteAt)) return summary;
   // Review 1: in time order (stable, so equal times keep file order); a clock stepped back must not shorten the work.
-  const valid = rows.filter((r) => r && Number.isFinite(r.at) && r.at <= now && typeof r.state === 'string')
-    .map((r, i) => ({ r, i })).sort((a, b) => (a.r.at - b.r.at) || (a.i - b.i)).map((x) => x.r);
-  if (rows.truncated === true && (!valid.length || valid[0].at > wroteAt)) return summary;
+  const valid = kept.map((r, i) => ({ r, i })).sort((a, b) => (a.r.at - b.r.at) || (a.i - b.i)).map((x) => x.r);
   const busy = (st) => st !== 'idle' && st !== 'started' && st !== 'stopped';
   let state = null;   // what the member was doing at wroteAt: its last report at or before it; none known reads as busy
   for (const r of valid) { if (r.at <= wroteAt) state = r.state; }
@@ -250,7 +254,10 @@ function workExcused(summary, member, readHistory, nowMs) {
     state = r.state;
     from = r.at;
   }
-  if (state === null || busy(state)) worked += now - from;
+  /* Review 3: the board's own read wins over a reported idle (#1995), so a member it shows busy now is working since its
+     last report, whatever that report said. */
+  const busyNow = member.state !== 'idle';
+  if (state === null || busy(state) || busyNow) worked += now - from;
   if (worked > SUMMARY_RHYTHM_HOURS * 3600000) return summary;
   return { ...summary, state: 'worked', workMinutes: Math.max(0, Math.round(worked / 60000)) };
 }
