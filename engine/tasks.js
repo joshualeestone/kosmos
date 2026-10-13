@@ -1538,6 +1538,20 @@ function columnTasks(p) {
    could-not-tell with the reason. Accepting the spelling costs nothing
    before agents are taught it; teaching it is a wording change (#763's
    rule: Splinter, then Josh) and is not in this file. */
+/* #3029: a project's ancestors' names, root first ([] for a top-level project). A parent missing from the
+   read gives [], as the projects API leaves such a child at top level (parentName null). */
+function projectPathOf(p, byId) {
+  const names = [];
+  const seen = new Set(p && p.id ? [p.id] : []);
+  let cur = p && p.parent ? byId.get(p.parent) : null;
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    names.unshift(String(cur.name));
+    cur = cur.parent ? byId.get(cur.parent) : null;
+  }
+  return names;
+}
+
 /**
  * Every task on every project, for the Tasks view (#3559) and `kosmos tasks`. It was
  * written for the all-tasks screen (#1382), which #3703 retired for the Tasks view.
@@ -1565,26 +1579,10 @@ function columnTasks(p) {
  * them because one number came from the DATA and the other from a
  * document-wide DOM query.
  *
- * `projectName` and `whoNames` are ADDED, never merged over the task's own
+ * `projectName`, `projectPath` (#3029) and `whoNames` are ADDED, never merged over the task's own
  * fields: a task that stores parts has no `who` at all, and overwriting it
  * with the derived list would make two different facts share one name.
  */
-/* #3029: a project's ancestors' names, root first ([] for a top-level project). The same walk as the page's
-   pjAncestry: when the parent record is not in the read, the stored parentName stands in, and a loop in the
-   stored parents stops rather than hangs. */
-function projectPathOf(p, byId) {
-  const names = [];
-  const seen = new Set(p && p.id ? [p.id] : []);
-  let cur = p && p.parent ? byId.get(p.parent) : null;
-  if (!cur && p && p.parent && typeof p.parentName === 'string' && p.parentName) return [p.parentName];
-  while (cur && !seen.has(cur.id)) {
-    seen.add(cur.id);
-    names.unshift(String(cur.name));
-    cur = cur.parent ? byId.get(cur.parent) : null;
-  }
-  return names;
-}
-
 function allTasks(everyProject) {
   const out = [];
   /* #3559: a caller that already read the store passes that snapshot, so the

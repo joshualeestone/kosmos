@@ -37,15 +37,16 @@ test('projectPath: [] at the top, the chain root first below it, two same-named 
   assert.equal(rows.find((r) => r.projectId === 'ad').projectName, 'Ads');
 });
 
-test('projectPath: a parent missing from the read stands in by its stored name, else nothing; a loop stops', () => {
+test('projectPath: a parent missing from the read gives [] (top level, as the API leaves it); archived parents count; a loop stops', () => {
   const rows = tasks.allTasks([
     { id: 'o', name: 'Orphan', parent: 'gone', parentName: 'Ghost Parent', tasks: [task(1)] },
-    { id: 'n', name: 'Nameless orphan', parent: 'gone', tasks: [task(1)] },
+    { id: 'ar', name: 'Old book', archived: true, tasks: [] },
+    { id: 'k', name: 'Kept', parent: 'ar', tasks: [task(1)] },
     { id: 'x', name: 'X', parent: 'y', tasks: [task(1)] },
     { id: 'y', name: 'Y', parent: 'x', tasks: [task(1)] },
   ]);
-  assert.deepEqual(pathOf(rows, 'o'), ['Ghost Parent']);
-  assert.deepEqual(pathOf(rows, 'n'), []);
+  assert.deepEqual(pathOf(rows, 'o'), [], 'a parent nobody can read has no name to show');
+  assert.deepEqual(pathOf(rows, 'k'), ['Old book']);
   assert.deepEqual(pathOf(rows, 'x'), ['Y'], 'a stored loop must stop, never hang or repeat');
 });
 
