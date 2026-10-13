@@ -27,3 +27,63 @@ Mona Lisa approved the shots at a158331ef with two changes, both taken, and appr
 
 ### Not verified
 Nobody has seen this on a running board. A real sign-in to the live coordinator with a changed name has not been done. The branch is 187 commits behind main with no conflict; CI tests the merge.
+
+### Per-Iteration Breakdown
+Counts as each reviewer gave them. What each finding was, and what was done with it, is in the plan under the same round number.
+
+#### Iteration 1 (default)
+[WARNING] x4, [CONVENTION] x3, [NIT] x3. FIXED (a damaged remote.json blocked the start; an untouched box wrote a file; the page's words beside a box that had read no name).
+
+#### Iteration 2 (sonnet)
+[WARNING] x3, [CONVENTION] x1, [NIT] x2. FIXED. Superseded in part by the redesign at iteration 4.
+
+#### Iteration 3 (default)
+[WARNING] x2, [CONVENTION] x2, [NIT] x6. FIXED. Superseded in part by the redesign at iteration 4.
+
+#### Iteration 4 (sonnet)
+[WARNING] x3, [CONVENTION] x1, [NIT] x3. FIXED by a design change: the name rides the sign-in start and is kept only after it.
+
+#### Iteration 5 (default)
+[WARNING] x4, [CONVENTION] x2, [NIT] x4. FIXED.
+
+#### Iteration 6 (sonnet)
+[WARNING] x2, [CONVENTION] x1, [NIT] x3. FIXED.
+
+#### Iteration 7 (default)
+[BLOCKER] x1, [WARNING] x3, [CONVENTION] x4. FIXED. The round that showed what the unrun full suite was hiding.
+
+#### Iteration 8 (sonnet)
+[WARNING] x3, [NIT] x3. FIXED or answered in the plan. The first round after the rebase onto main.
+
+#### Iteration 9 (default)
+[WARNING] x3, [CONVENTION] x5, [NIT] x4. FIXED.
+
+#### Iteration 10 (sonnet)
+[WARNING] x2, [NIT] x3. FIXED.
+
+#### Iteration 11 (default)
+[WARNING] x3, [CONVENTION] x2, [NIT] x4. FIXED. Two warnings were against a strip added one round earlier.
+
+#### Iteration 12 (sonnet)
+[WARNING] x1, [NIT] x4, nothing new. Converged.
+
+#### Iteration 13 (default)
+[WARNING] x2, [NIT] x5. FIXED. After two wrappers only tests called were removed.
+
+#### Iteration 14 (sonnet)
+[NIT] x3. Converged.
+
+#### Iteration 15 (sonnet)
+[NIT] x6 over two passes, on the two changed browser checks.
+
+#### Iteration 16 (default)
+[BLOCKER] x1, [CONVENTION] x2, [NIT] x3. FIXED. After the design review's two changes.
+
+#### Iteration 17 (sonnet)
+[WARNING] x1, [NIT] x2. FIXED.
+
+#### Iteration 18 (default)
+[CONVENTION] x1, [NIT] x4. FIXED.
+
+#### Iteration 19 (sonnet)
+[NIT] x2, neither applied (both are couplings the code's own comments already state). Converged: 0 BLOCKER, 0 WARNING, 0 CONVENTION.
