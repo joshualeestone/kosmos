@@ -96,7 +96,8 @@ const { chromium } = require('playwright');
      the emptying itself.
      🛑 SO THE CASE #986 ACTUALLY CHANGED IS NOT COVERED HERE, AND SAYING SO IS
      the point of this paragraph. Under 56rem `.lrow` collapses to `34px 1fr`
-     and `.lstate`, `.ltask`, `.lmodel` and `.lmem` stack in column 2 as separate rows. An
+     and the cells after the name stack in column 2 as separate rows (a not-running
+     row's empty `.lmodel` excepted, which takes none). An
      empty `.ltask` there is an empty ROW, and `row-gap: 8px` is still spent on
      it. The 1400x900 arm will never see that, and the phone arm below reads
      the model and memory cells, not the empty task row. It has been true
@@ -127,11 +128,12 @@ const { chromium } = require('playwright');
      is `34px 1fr` and .lmodel was not sent to column 2, so it auto-placed into
      the avatar's 34px column beside the memory bar. Every model, whatever its
      name, read as three letters and an ellipsis.
-     🔑 Per running row: the model's text is present, its cell is at least
-     150px wide (the cut cell was 34 to 49px; the model now wraps at this width,
-     so a no-overflow test alone would pass in any column), it starts where the
-     name starts and sits below the name, and the memory bar starts there too,
-     on a line below the model. Per not-running row (which has no model): the
+     🔑 Per running row: the role starts where the name starts, below it (it
+     too was in the avatar column); the model's text is present and its cell is
+     at least 150px wide (the cut cell was 34 to 49px; column 2 at 360 is about
+     230px; the model wraps at this width, so an overflow test would pass in any
+     column), it starts where the name starts and sits below the name, and the
+     memory bar starts there too, on a line below the model. Per not-running row (which has no model): the
      empty model cell takes no line. And the page has no sideways scroll. Read
      at 390 and 360, the two widths the card names. At least one row of each
      kind is required, so neither loop can pass by having nothing to measure. */
@@ -147,15 +149,17 @@ const { chromium } = require('playwright');
       const box = (sel) => { const e = row.querySelector(sel); if (!e || !e.getClientRects().length) return null; const r = e.getBoundingClientRect(); return { left: Math.round(r.left), top: Math.round(r.top), bottom: Math.round(r.bottom), width: Math.round(r.width) }; };
       const m = row.querySelector('.lmodel');
       return { agent: row.dataset.agent, running: !row.classList.contains('notrunning'),
-        text: m ? m.textContent.trim() : null, whole: !!m && m.scrollWidth <= m.clientWidth,
-        name: box('.lname'), model: box('.lmodel'), mem: box('.lmem') };
+        text: m ? m.textContent.trim() : null,
+        name: box('.lname'), title: box('.ltitle'), model: box('.lmodel'), mem: box('.lmem') };
     }));
     const sideways = await ph.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     const on = rows.filter((r) => r.running);
     say(on.length > 0, 'at ' + width + 'px the list has running rows to read', rows.length + ' rows, ' + on.length + ' running');
     for (const r of on) {
       const at = 'at ' + width + 'px ' + r.agent;
-      say(!!r.text && r.whole && !!r.model && r.model.width >= 150, at + "'s model has a full-width line of its own", JSON.stringify(r));
+      say(!!r.title && !!r.name && r.title.left === r.name.left && r.title.top >= r.name.bottom,
+        at + "'s role sits under the name, not in the avatar column", JSON.stringify(r));
+      say(!!r.text && !!r.model && r.model.width >= 150, at + "'s model has a full-width line of its own", JSON.stringify(r));
       say(!!r.model && !!r.name && r.model.left === r.name.left && r.model.top >= r.name.bottom,
         at + "'s model sits under the name, not in the avatar column", JSON.stringify(r));
       say(!!r.mem && !!r.model && r.mem.left === r.name.left && r.mem.top >= r.model.bottom,
