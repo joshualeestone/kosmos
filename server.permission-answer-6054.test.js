@@ -67,15 +67,16 @@ async function withPrompt(screen, fn) {
   try { return await fn(calls); } finally { chat.resetForTests(); board.restore(); }
 }
 
-test('#6054 status: the real permission prompts read as answerable menus, with Claude\'s own options', () => {
+test('#6054 status: the real permission prompts read as answerable menus: Yes and No, at their own numbers', () => {
   const b = status.claudeAnswerableMenu(BASH);
   assert.ok(b && b.permission, 'the Bash prompt is not answerable');
-  assert.deepEqual(b.options.map((o) => o.n), [1, 2, 3, 4]);
-  assert.equal(b.options[0].label, 'Yes');
-  assert.equal(b.options[3].label, 'No');
+  assert.deepEqual(b.options, [{ n: 1, label: 'Yes' }, { n: 4, label: 'No' }]);
+  assert.equal(b.count, 4, 'premise: the prompt draws four options');
   const e = status.claudeAnswerableMenu(EDIT);
   assert.equal(e.question, 'Do you want to create edit-probe.txt?');
-  assert.deepEqual(e.options.map((o) => o.label), ['Yes', 'Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)', 'No']);
+  assert.deepEqual(e.options, [{ n: 1, label: 'Yes' }, { n: 3, label: 'No' }]);
+  // Review 5: the options that save a lasting choice (an allow rule, auto mode, accept edits) are never answerable.
+  for (const m of [b, e]) assert.ok(!m.options.some((o) => /^Yes, and /.test(o.label)), JSON.stringify(m.options));
   // CONTROL: the question menu's own reader still refuses it (it is not that menu), so the answer comes from the new reader.
   assert.equal(status.claudeQuestionMenu(BASH), null);
 });
@@ -96,7 +97,7 @@ test('#6054: the thread serves the prompt\'s options as pressable, and a press o
   await withPrompt(EDIT, async (calls) => {
     const back = await getThread();
     assert.equal(back.asking, true, 'premise: the agent reads as asking');
-    assert.deepEqual(back.options.map((o) => o.n), [1, 2, 3], JSON.stringify(back.options));
+    assert.deepEqual(back.options.map((o) => o.n), [1, 3], JSON.stringify(back.options));
     assert.ok(back.asked, 'no asked: the page would draw no buttons for the prompt');
     const r = await post({ text: '1', chose: 'Yes', asked: back.asked });
     assert.equal(r.status, 200, JSON.stringify(r.json));
@@ -183,16 +184,18 @@ function armSequence(screens) {
 const idOf = (screen) => chat.questionAbove(chat.questionIn(screen, 'claude').text);
 
 test('#6054 review 1: a wrapped option still gets its button, with its whole label, and a press of it goes out as its digit', async () => {
-  const wrapped = BASH.replace('   2. Yes, and don’t ask again for: /usr/bin/uuidgen *', '   2. Yes, and don’t ask again for: /usr/bin/uuidgen --a-very-long-flag\n      --and-more *');
-  assert.equal(status.claudePermissionPrompt(wrapped).options[1].label, 'Yes, and don’t ask again for: /usr/bin/uuidgen --a-very-long-flag --and-more *');
+  // Both a lasting option (2) and the No option (4) wrap; No is the button, with its whole label.
+  const wrapped = BASH.replace('   2. Yes, and don’t ask again for: /usr/bin/uuidgen *', '   2. Yes, and don’t ask again for: /usr/bin/uuidgen --a-very-long-flag\n      --and-more *')
+    .replace('   4. No', '   4. No, and tell Claude what to do\n      differently (esc)');
+  assert.deepEqual(status.claudePermissionPrompt(wrapped).options, [{ n: 1, label: 'Yes' }, { n: 4, label: 'No, and tell Claude what to do differently (esc)' }]);
   await withPrompt(wrapped, async (calls) => {
     const back = await getThread();
-    assert.ok(back.asked, 'a wrapped option left the prompt without buttons');
-    assert.equal(back.options.length, 4);
-    const two = back.options.find((o) => o.n === 2);
-    const r = await post({ text: '2', chose: two.label, asked: back.asked });
+    assert.ok(back.asked, 'wrapped options left the prompt without buttons');
+    assert.deepEqual(back.options.map((o) => o.n), [1, 4]);
+    const no = back.options.find((o) => o.n === 4);
+    const r = await post({ text: '4', chose: no.label, asked: back.asked });
     assert.equal(r.status, 200, JSON.stringify(r.json));
-    assert.deepEqual(calls.keys(), ['2']);
+    assert.deepEqual(calls.keys(), ['4']);
   });
 });
 
@@ -300,6 +303,8 @@ test('#6054 review 3: two tall commands that differ only past 2000 characters (t
     // The person saw `b`; the press carries `a`'s identity (the screen moved between the GET and the press).
     const r = await post({ text: '1', chose: 'Yes', asked: idOf(a) });
     assert.equal(r.status, 409, 'a press for rm -rf build was taken for ls build: ' + JSON.stringify(r.json));
+    // Review 5: the ROUTE's own refusal, so this pins the route's uncut comparison, not only the last look's behind it.
+    assert.match(r.json.error, /its screen moved between drawing that button and sending it/, JSON.stringify(r.json));
     assert.deepEqual(calls.keys(), []);
   });
 });
@@ -359,4 +364,16 @@ test('#6054 review 4: a prompt with a label a press could never carry keeps the 
     const r = await post({ text: 'yes go ahead' });
     assert.match(JSON.stringify(r.json), /answer it in its window first/, 'a refusal promised buttons the page does not draw');
   });
+});
+
+test('#6054 review 5: the question menu\'s refusal says buttons only for the single-select form the page draws them for', async () => {
+  const SINGLE = fs.readFileSync(path.join(SCREENS, 'question-menu-2.1.29x.txt'), 'utf8');
+  const MULTI = fs.readFileSync(path.join(SCREENS, 'question-menu-multiselect-2.1.29x.txt'), 'utf8');
+  const refusalOn = async (screen) => {
+    const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen })]);
+    armSequence([screen]);
+    try { return String((await chat.deliver('casey', 'something else', board.agents)).because); } finally { chat.resetForTests(); board.restore(); }
+  };
+  assert.match(await refusalOn(SINGLE), /answer it with the buttons under its question on its page in Kosmos, or by its number in its direct messages$/);
+  assert.match(await refusalOn(MULTI), /answer the question in its window first$/, 'the multi-select form (no buttons) was promised buttons');
 });
