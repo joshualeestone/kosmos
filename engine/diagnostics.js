@@ -23,12 +23,15 @@ function namesAgent(line, names) {
 }
 
 const AGENT_LINE_CHARS = 500;
-const TAIL_LINE_CHARS = 2000;   // logring keeps 256 more, so the redactor sees past this cut
+const TAIL_LINE_CHARS = 2000;
+const CUT_MARK = '[cut]';   // logring keeps 256 more, so the redactor sees past this cut
 const MASKED_BLOCK = '[a private key, taken out]';
 const BLOCK_BEGIN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/;
 const BLOCK_END = /-----END [A-Z0-9 ]*PRIVATE KEY-----/;
-const MAX_BLOCK_LINES = 100;
-const KEY_BODY_LINE = /^\s*[A-Za-z0-9+\/]{40,}={0,2}\s*$/;   // a PEM body line (64 base64 characters, the last shorter)   // an RSA-4096 body is about 50 lines of 64; a block never takes more than this
+const MAX_BLOCK_LINES = 100;   // an RSA-4096 body is about 50 lines of 64; a block never takes more than this
+// A PEM body line (64 base64 characters, the last shorter). Not a hex digest alone (a git sha, a sha256): a body line
+// has a letter past f or a + or /.
+const KEY_BODY_LINE = /^\s*(?=[A-Za-z0-9+\/]*[g-zG-Z+\/])[A-Za-z0-9+\/]{40,}={0,2}\s*$/;
 
 /* A private key logged across lines is taken out whole: the line that begins it, every line after, and the line that
    ends it. The redactor sees one line at a time and would mask only the BEGIN line. A block with no END takes at most
@@ -102,7 +105,14 @@ function build(inputs) {
   const redacted = new Map();
   const shown = (e, max) => {
     let text = redacted.get(e);
-    if (text === undefined) { text = redactor.redactText(e.line); redacted.set(e, text); }
+    if (text === undefined) {
+      text = redactor.redactText(e.line);
+      /* A line the ring or board.log cut when it was stored ends in a piece of whatever was there. Redaction can shorten
+         a line (a home path becomes ~), so that piece can come inside the shown length, and a piece of a key matches
+         no key. The trailing run of key characters is dropped and the cut said, whatever the shrinkage. */
+      if (e.line.length >= MAX_LINE_CHARS) text = text.replace(/[A-Za-z0-9_+\/=.-]+$/, '') + CUT_MARK;
+      redacted.set(e, text);
+    }
     return { at: e.at, stream: e.stream, line: text.length > max ? text.slice(0, max) : text };
   };
   const agentLines = [];
