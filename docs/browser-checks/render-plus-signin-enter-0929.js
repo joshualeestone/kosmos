@@ -89,22 +89,26 @@ async function openPlus(page, remote) {
       let verifyAnswer = { ok: true, stage: 'second', second_kind: 'totp', sent_to: '' };
       let holdStart = null;   // when set, signin-start waits on this promise (a busy button)
       await openPlus(page, UNENROLLED);
+      /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+         its late rejection is caught instead of crashing the check after it passed. */
       await page.route('**/api/remote/signin-**', async (route, rq) => {
-        const req = rq || route.request();
-        const step = new URL(req.url()).pathname.replace('/api/remote/', '');
-        let body = null; try { body = JSON.parse(req.postData() || 'null'); } catch { body = null; }
-        posts.push({ step, body });
-        if (step === 'signin-start' && holdStart) await holdStart;
-        const answers = {
-          'signin-start': { ok: true, stage: 'code_sent' },
-          'signin-verify': verifyAnswer,
-          'signin-second': { ok: true, stage: 'session' },
-          'signin-enrol': { ok: true, stage: 'enrolment_started', kind: 'sms', sent_to: '(•••) •••-4321' },
-          'signin-confirm-enrol': { ok: true, stage: 'session' },
-          'signin-register': { ok: true, stage: 'registered', address: 'enter-test', name: 'enter-test', standing: 'active' },
-          'signin-cancel': { ok: true, stage: 'cancelled' },
-        };
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(answers[step] || { ok: true }) });
+        try {
+          const req = rq || route.request();
+          const step = new URL(req.url()).pathname.replace('/api/remote/', '');
+          let body = null; try { body = JSON.parse(req.postData() || 'null'); } catch { body = null; }
+          posts.push({ step, body });
+          if (step === 'signin-start' && holdStart) await holdStart;
+          const answers = {
+            'signin-start': { ok: true, stage: 'code_sent' },
+            'signin-verify': verifyAnswer,
+            'signin-second': { ok: true, stage: 'session' },
+            'signin-enrol': { ok: true, stage: 'enrolment_started', kind: 'sms', sent_to: '(•••) •••-4321' },
+            'signin-confirm-enrol': { ok: true, stage: 'session' },
+            'signin-register': { ok: true, stage: 'registered', address: 'enter-test', name: 'enter-test', standing: 'active' },
+            'signin-cancel': { ok: true, stage: 'cancelled' },
+          };
+          await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(answers[step] || { ok: true }) });
+        } catch { await route.abort().catch(() => {}); }
       });
       const sent = (step) => posts.filter((p) => p.step === step);
 

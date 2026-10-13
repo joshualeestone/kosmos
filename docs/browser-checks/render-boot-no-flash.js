@@ -82,9 +82,13 @@ async function arm(browser, label, firstRunPayload, expect) {
   const page = await browser.newPage();
   let released;
   const gate = new Promise((r) => { released = r; });
+  /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+     its late rejection is caught instead of crashing the check after it passed. */
   await page.route('**/api/first-run', async (route) => {
-    await gate; // hold the response until we have observed the covered window
-    route.fulfill({ json: firstRunPayload });
+    try {
+      await gate; // hold the response until we have observed the covered window
+      await route.fulfill({ json: firstRunPayload });
+    } catch { await route.abort().catch(() => {}); }
   });
   // domcontentloaded returns before the held fetch resolves, so we observe the
   // page WHILE the gate is still pending.
@@ -122,7 +126,9 @@ async function whatsNewArm(browser, label, hold) {
   const gate = new Promise((r) => { released = r; });
   if (!hold) released();
   let seen = 0;
-  await page.route('**/api/first-run', async (route) => { await gate; route.fulfill({ json: { done: true } }); });
+  await page.route('**/api/first-run', async (route) => {
+    try { await gate; await route.fulfill({ json: { done: true } }); } catch { await route.abort().catch(() => {}); }
+  });
   await page.route((u) => u.pathname === '/api/tips', (route) => (route.request().method() === 'GET'
     ? route.fulfill({ json: { ok: true, seen: [], off: true } }) : route.fulfill({ json: { ok: true } })));
   await page.route('**/api/whats-new/seen', (route) => { seen += 1; route.fulfill({ json: { ok: true } }); });

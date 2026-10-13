@@ -491,18 +491,22 @@ async function run() {
     let releaseFirst = () => {};
     const firstHeld = new Promise((res) => { releaseFirst = res; });
     let heldOnce = false;
+    /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+       its late rejection is caught instead of crashing the check after it passed. */
     await pk.route('**/api/orgchart/read*', async (r) => {
-      const u = new URL(r.request().url());
-      const n = decodeURIComponent(r.request().headers()['x-orgchart-name'] || '');
-      if (/\.pdf$/.test(n)) return r.fulfill({ status: 200, json: { unavailable: true, problems: [grokPdf] } });
-      if (u.searchParams.get('consent') === '1') {
-        sentReader = u.searchParams.get('reader');
-        // The board's answer when the reader changed while the box was open: its sentence must reach the person.
-        if (changed) return r.fulfill({ status: 409, json: { error: 'Who reads this file changed since you were asked. Choose the file again to see who reads it now.' } });
-        if (!heldOnce) { heldOnce = true; await firstHeld; }
-        return r.fulfill({ status: 200, json: { source: 'model', provider: 'xAI Grok (work)', rows: PICTURE_ROWS, problems: [] } });
-      }
-      return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'xAI Grok (work)', reader: 'xai:0123456789ab', uses: 'billed to your xAI Grok key', keeps: grokKeeps } });
+      try {
+        const u = new URL(r.request().url());
+        const n = decodeURIComponent(r.request().headers()['x-orgchart-name'] || '');
+        if (/\.pdf$/.test(n)) return await r.fulfill({ status: 200, json: { unavailable: true, problems: [grokPdf] } });
+        if (u.searchParams.get('consent') === '1') {
+          sentReader = u.searchParams.get('reader');
+          // The board's answer when the reader changed while the box was open: its sentence must reach the person.
+          if (changed) return await r.fulfill({ status: 409, json: { error: 'Who reads this file changed since you were asked. Choose the file again to see who reads it now.' } });
+          if (!heldOnce) { heldOnce = true; await firstHeld; }
+          return await r.fulfill({ status: 200, json: { source: 'model', provider: 'xAI Grok (work)', rows: PICTURE_ROWS, problems: [] } });
+        }
+        return await r.fulfill({ status: 200, json: { needsConsent: true, provider: 'xAI Grok (work)', reader: 'xai:0123456789ab', uses: 'billed to your xAI Grok key', keeps: grokKeeps } });
+      } catch { await r.abort().catch(() => {}); }
     });
     await openPanel(pk);
     if (await pk.$('#orgchart-file-btn')) {
@@ -606,10 +610,12 @@ async function run() {
     const plc = await page();
     const putsL = [];
     await plc.route('**/api/team', async (r) => {
-      const body = JSON.parse(r.request().postData() || '{}');
-      await new Promise((ok) => setTimeout(ok, 1500));   // a create that takes a moment
-      r.fulfill({ status: 200, json: { outcome: 'created',
-        created: body.members.map((m) => ({ name: m.name === 'head-of-sales' ? 'head-of-sales-2' : m.name, shownAs: m.label })), refused: [] } });
+      try {
+        const body = JSON.parse(r.request().postData() || '{}');
+        await new Promise((ok) => setTimeout(ok, 1500));   // a create that takes a moment
+        await r.fulfill({ status: 200, json: { outcome: 'created',
+          created: body.members.map((m) => ({ name: m.name === 'head-of-sales' ? 'head-of-sales-2' : m.name, shownAs: m.label })), refused: [] } });
+      } catch { await r.abort().catch(() => {}); }
     });
     await plc.route('**/api/agent/*/profile', (r) => { putsL.push(decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]) + '=' + r.request().postData()); r.fulfill({ status: 200, json: { ok: true } }); });
     await plc.route('**/api/orgchart/read*', (r) => r.fulfill({ status: 200, json: { source: 'file', rows: PICTURE_ROWS.map((x) => ({ ...x, why: null })), problems: [] } }));
@@ -653,9 +659,11 @@ async function run() {
     let releaseTeam;
     const teamHeld = new Promise((ok) => { releaseTeam = ok; });
     await prb.route('**/api/team', async (r) => {
-      const body = JSON.parse(r.request().postData() || '{}');
-      await teamHeld;
-      r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
+      try {
+        const body = JSON.parse(r.request().postData() || '{}');
+        await teamHeld;
+        await r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
+      } catch { await r.abort().catch(() => {}); }
     });
     await openPanel(prb);
     if (await prb.$('#orgchart-file-btn')) {
@@ -691,11 +699,13 @@ async function run() {
       r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
     });
     await pud.route('**/api/agent/*/removal', async (r) => {
-      const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
-      if (r.request().method() === 'GET') return r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
-      deletes += 1;
-      if (deletes === 4) await delHeld;
-      r.fulfill({ status: 200, json: { outcome: 'removed', because: name + ' has been removed.' } });
+      try {
+        const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
+        if (r.request().method() === 'GET') return await r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
+        deletes += 1;
+        if (deletes === 4) await delHeld;
+        await r.fulfill({ status: 200, json: { outcome: 'removed', because: name + ' has been removed.' } });
+      } catch { await r.abort().catch(() => {}); }
     });
     await pud.route('**/api/removed', (r) => r.fulfill({ status: 200, json: { agents: [] } }));
     await openPanel(pud);
@@ -734,11 +744,13 @@ async function run() {
       r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
     });
     await pur.route('**/api/agent/*/removal', async (r) => {
-      const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
-      if (r.request().method() === 'GET') return r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
-      deletesR += 1;
-      if (deletesR === 4) await delHeldR;
-      r.fulfill({ status: 200, json: { outcome: 'removed', because: name + ' has been removed.' } });
+      try {
+        const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
+        if (r.request().method() === 'GET') return await r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
+        deletesR += 1;
+        if (deletesR === 4) await delHeldR;
+        await r.fulfill({ status: 200, json: { outcome: 'removed', because: name + ' has been removed.' } });
+      } catch { await r.abort().catch(() => {}); }
     });
     await pur.route('**/api/removed', (r) => r.fulfill({ status: 200, json: { agents: [] } }));
     await openPanel(pur);
@@ -782,11 +794,13 @@ async function run() {
         r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
       });
       await pua.route('**/api/agent/*/removal', async (r) => {
-        const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
-        if (r.request().method() === 'GET') return r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
-        deletesA += 1;
-        if (deletesA === heldAt) await delHeldA;
-        r.fulfill({ status: 200, json: { outcome: 'removed', because: name + ' has been removed.' } });
+        try {
+          const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
+          if (r.request().method() === 'GET') return await r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
+          deletesA += 1;
+          if (deletesA === heldAt) await delHeldA;
+          await r.fulfill({ status: 200, json: { outcome: 'removed', because: name + ' has been removed.' } });
+        } catch { await r.abort().catch(() => {}); }
       });
       await pua.route('**/api/removed', (r) => r.fulfill({ status: 200, json: { agents: [] } }));
       await openPanel(pua);
@@ -840,9 +854,11 @@ async function run() {
     let releaseNone;
     const noneHeld = new Promise((ok) => { releaseNone = ok; });
     await pnz.route('**/api/team', async (r) => {
-      const body = JSON.parse(r.request().postData() || '{}');
-      await noneHeld;
-      r.fulfill({ status: 200, json: { outcome: 'created', created: [], refused: body.members.map((m) => ({ name: m.name, because: 'taken' })) } });
+      try {
+        const body = JSON.parse(r.request().postData() || '{}');
+        await noneHeld;
+        await r.fulfill({ status: 200, json: { outcome: 'created', created: [], refused: body.members.map((m) => ({ name: m.name, because: 'taken' })) } });
+      } catch { await r.abort().catch(() => {}); }
     });
     await openPanel(pnz);
     if (await pnz.$('#orgchart-file-btn')) {

@@ -346,7 +346,14 @@ const STATES = {
           const bodyEsc = await page.evaluate(() => document.getElementById('plus-lost-modal').hidden);
           chk(wrapped === 'plus-lost-close' && bodyEsc, `${t} #4080: Tab stays inside the dialog, and Escape closes it even with focus on the page`, JSON.stringify({ wrapped, closed: bodyEsc }));
           /* Review round 2: a reset that finishes while the dialog is closed keeps its answer for the next open. */
-          await page.route('**/api/remote/second-reset', async (route) => { await new Promise((r) => setTimeout(r, 700)); await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
+          /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+             its late rejection is caught instead of crashing the check after it passed. */
+          await page.route('**/api/remote/second-reset', async (route) => {
+            try {
+              await new Promise((r) => setTimeout(r, 700));
+              await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+            } catch { await route.abort().catch(() => {}); }
+          });
           await page.click('#plus-lost-open');
           await page.click('#plus-second-reset');   // arms
           await page.click('#plus-second-reset');   // confirms: the request is out

@@ -84,9 +84,13 @@ const PORT = freePort();
     // local round trip is otherwise instant, which would let a regression that
     // dropped the spinner injection still pass). Only the PUT is delayed; the
     // GET /api/projects reload is untouched.
+    /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+       its late rejection is caught instead of crashing the check after it passed. */
     await p.route('**/api/project/**', async (route) => {
-      if (route.request().method() === 'PUT') { await new Promise((r) => setTimeout(r, 500)); }
-      await route.continue();
+      try {
+        if (route.request().method() === 'PUT') { await new Promise((r) => setTimeout(r, 500)); }
+        await route.continue();
+      } catch { await route.abort().catch(() => {}); }
     });
     await p.fill('#pjs-name', 'Settings Drive Renamed');
     await p.click('#pjs-save');
@@ -172,8 +176,10 @@ const PORT = freePort();
     // first save's timer was cleared only on the success path, so it fired here
     // and navigated to #pj-one-view -- the dangerous answer this guards.
     await p.route('**/api/project/**', async (route) => {
-      if (route.request().method() === 'PUT') { await new Promise((r) => setTimeout(r, 300)); }
-      await route.continue();
+      try {
+        if (route.request().method() === 'PUT') { await new Promise((r) => setTimeout(r, 300)); }
+        await route.continue();
+      } catch { await route.abort().catch(() => {}); }
     });
     await p.fill('#pjs-desc', 'interleave test: the first save schedules the advance');
     await p.click('#pjs-save');
@@ -192,8 +198,10 @@ const PORT = freePort();
     // 'settings' -- the panel-hidden guard suppressed the advance. Without that
     // guard the timer would flip PJ_VIEW to 'one' invisibly (the dangerous answer).
     await p.route('**/api/project/**', async (route) => {
-      if (route.request().method() === 'PUT') { await new Promise((r) => setTimeout(r, 300)); }
-      await route.continue();
+      try {
+        if (route.request().method() === 'PUT') { await new Promise((r) => setTimeout(r, 300)); }
+        await route.continue();
+      } catch { await route.abort().catch(() => {}); }
     });
     await p.fill('#pjs-desc', 'tab-switch test: the save schedules the advance');
     await p.click('#pjs-save');
@@ -218,8 +226,10 @@ const PORT = freePort();
     await p.click('#pj-settings-link');
     await p.waitForSelector('#pj-settings-view', { state: 'visible' });
     await p.route('**/api/project/**', async (route) => {
-      if (route.request().method() === 'PUT') { await new Promise((r) => setTimeout(r, 300)); }
-      await route.continue();
+      try {
+        if (route.request().method() === 'PUT') { await new Promise((r) => setTimeout(r, 300)); }
+        await route.continue();
+      } catch { await route.abort().catch(() => {}); }
     });
     await p.fill('#pjs-desc', 're-open test unique change 987');    // a real change, so the save is not a no-op
     await p.click('#pjs-save');

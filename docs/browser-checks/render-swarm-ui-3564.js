@@ -130,24 +130,28 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
        tokensToday or helperTokenRatio; stop adds { stopped, because }. */
     const settingsOf = (x) => ({ maxHelpers: x.maxHelpers, dailyTokenLimit: x.dailyTokenLimit, active: x.active, pausedBecause: x.pausedBecause,
       pausedAt: x.active === false ? new Date().toISOString() : null, pausedAtLimit: x.pausedBecause === 'limit', limitOverrideDay: null });   // engine/swarm.js settingsOf
+    /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+       its late rejection is caught instead of crashing the check after it passed. */
     await page.route('**/api/agent/crew/swarm**', async (route) => {
-      const q = route.request();
-      const body = JSON.parse(q.postData() || '{}');
-      sent.push({ method: q.method(), url: new URL(q.url()).pathname, body });
-      if (slowPut) await new Promise((res) => setTimeout(res, slowPut));
-      if (q.method() === 'PUT' && putFail) return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify(putFail) });
-      if (q.method() === 'PUT') {
-        crewSwarm = { ...crewSwarm, ...body };
-        /* As applyPatch: a person's pause is 'person', and back to Active clears it. */
-        if (body.active === false) crewSwarm.pausedBecause = 'person';
-        if (body.active === true) crewSwarm.pausedBecause = null;
-      }
-      if (q.url().endsWith('/stop')) {
-        if (stopAnswer) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(stopAnswer) });
-        crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'stopped' };
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stopped: true, because: null, swarm: settingsOf(crewSwarm) }) });
-      }
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, swarm: settingsOf(crewSwarm), ...(putTold ? { told: putTold } : {}) }) });
+      try {
+        const q = route.request();
+        const body = JSON.parse(q.postData() || '{}');
+        sent.push({ method: q.method(), url: new URL(q.url()).pathname, body });
+        if (slowPut) await new Promise((res) => setTimeout(res, slowPut));
+        if (q.method() === 'PUT' && putFail) return await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify(putFail) });
+        if (q.method() === 'PUT') {
+          crewSwarm = { ...crewSwarm, ...body };
+          /* As applyPatch: a person's pause is 'person', and back to Active clears it. */
+          if (body.active === false) crewSwarm.pausedBecause = 'person';
+          if (body.active === true) crewSwarm.pausedBecause = null;
+        }
+        if (q.url().endsWith('/stop')) {
+          if (stopAnswer) return await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(stopAnswer) });
+          crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'stopped' };
+          return await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stopped: true, because: null, swarm: settingsOf(crewSwarm) }) });
+        }
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, swarm: settingsOf(crewSwarm), ...(putTold ? { told: putTold } : {}) }) });
+      } catch { await route.abort().catch(() => {}); }
     });
     /* S33/S34 (#3946 items 9, 10): while `calibrated` is on, the default Claude account's weekly allowance reads as
        one million tokens a point. The board's own answer is kept; a sandbox with no default Claude row gets one. */

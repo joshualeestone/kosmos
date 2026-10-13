@@ -505,10 +505,14 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     page.on('pageerror', (e) => fails.push('JS ERROR: ' + e.message));
     await mockGatesUncheckable(page);
     let posts = 0;
+    /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+       its late rejection is caught instead of crashing the check after it passed. */
     await page.route('**/api/first-run/complete', async (r) => {
-      posts += 1;
-      await new Promise((res) => setTimeout(res, 1200));   // hold it open
-      r.fulfill({ json: { done: true } });
+      try {
+        posts += 1;
+        await new Promise((res) => setTimeout(res, 1200));   // hold it open
+        await r.fulfill({ json: { done: true } });
+      } catch { await r.abort().catch(() => {}); }
     });
     await page.route('**/api/first-run', (r) => r.fulfill({ json: { done: false, fleetKnown: true, fleetCount: 0, fleetNames: [], path: 'create', subscription: { state: 'connected', plan: 'Claude Max', because: '' } } }));
     await page.goto(BASE + '/', { waitUntil: 'networkidle' });

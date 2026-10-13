@@ -150,14 +150,18 @@ function chk(ok, label, extra) {
             return r.fulfill({ status: 404, json: { error: 'the Content Writer of the Marketing Team has no portrait yet' } });
           });
           await page.route('**/avatars/**', (r) => { staticAsks.push(r.request().url()); return r.fulfill({ status: 404, body: 'no' }); });
+          /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+             its late rejection is caught instead of crashing the check after it passed. */
           await page.route('**/api/agent/*/avatar', async (r) => {
-            if (r.request().method() !== 'PUT') return r.continue();
-            // `URL` in this file is the board's address (a string), so the agent's name is cut from the path by hand.
-            const pname = decodeURIComponent(r.request().url().split('/api/agent/')[1].split('/')[0]);
-            pictures.push({ name: pname, type: r.request().headers()['content-type'] || '' });
-            if (pictureHold[pname]) await pictureHold[pname];
-            if (pictureFail.has(pname)) return r.fulfill({ status: 500, json: { error: 'no' } });
-            return r.fulfill({ status: 200, json: { ok: true } });
+            try {
+              if (r.request().method() !== 'PUT') return await r.continue();
+              // `URL` in this file is the board's address (a string), so the agent's name is cut from the path by hand.
+              const pname = decodeURIComponent(r.request().url().split('/api/agent/')[1].split('/')[0]);
+              pictures.push({ name: pname, type: r.request().headers()['content-type'] || '' });
+              if (pictureHold[pname]) await pictureHold[pname];
+              if (pictureFail.has(pname)) return await r.fulfill({ status: 500, json: { error: 'no' } });
+              return await r.fulfill({ status: 200, json: { ok: true } });
+            } catch { await r.abort().catch(() => {}); }
           });
           /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
              (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
@@ -186,19 +190,21 @@ function chk(ok, label, extra) {
             return r.continue();
           });
           await page.route('**/api/agents', async (r) => {
-            if (r.request().method() !== 'POST') return r.continue();
-            const b = JSON.parse(r.request().postData() || '{}');
-            posted.push(b);
-            if (slow[b.name]) await new Promise((res) => setTimeout(res, slow[b.name]));
-            if (gate[b.name]) { const g = gate[b.name]; delete gate[b.name]; await g.p; }
-            const s = script[b.name];
-            if (s) { delete script[b.name]; return r.fulfill({ status: 400, json: { outcome: 'refused', because: s } }); }
-            if (drop[b.name]) { delete drop[b.name]; made.push(slug(b.name)); return r.abort('failed'); }
-            // Like the real create: a name that is now an agent is refused on the name field.
-            if (made.includes(slug(b.name))) return r.fulfill({ status: 400, json: { outcome: 'refused', field: 'name', because: 'there is already an agent called ' + b.name + '.' } });
-            made.push(slug(b.name));
-            const steps = warnSteps[b.name] ? [{ label: warnSteps[b.name], ok: false }] : [];
-            return r.fulfill({ status: 200, json: { outcome: 'created', name: slug(b.name), shownAs: b.name, steps, projects: (b.projects || []).map((id) => ({ id, added: true })) } });
+            try {
+              if (r.request().method() !== 'POST') return await r.continue();
+              const b = JSON.parse(r.request().postData() || '{}');
+              posted.push(b);
+              if (slow[b.name]) await new Promise((res) => setTimeout(res, slow[b.name]));
+              if (gate[b.name]) { const g = gate[b.name]; delete gate[b.name]; await g.p; }
+              const s = script[b.name];
+              if (s) { delete script[b.name]; return await r.fulfill({ status: 400, json: { outcome: 'refused', because: s } }); }
+              if (drop[b.name]) { delete drop[b.name]; made.push(slug(b.name)); return await r.abort('failed').catch(() => {}); }
+              // Like the real create: a name that is now an agent is refused on the name field.
+              if (made.includes(slug(b.name))) return await r.fulfill({ status: 400, json: { outcome: 'refused', field: 'name', because: 'there is already an agent called ' + b.name + '.' } });
+              made.push(slug(b.name));
+              const steps = warnSteps[b.name] ? [{ label: warnSteps[b.name], ok: false }] : [];
+              return await r.fulfill({ status: 200, json: { outcome: 'created', name: slug(b.name), shownAs: b.name, steps, projects: (b.projects || []).map((id) => ({ id, added: true })) } });
+            } catch { await r.abort().catch(() => {}); }
           });
           /* Round 1: the step now waits for the BOARD to see each member before it says Running (and before
              the portrait and project tell). The real /api/status passes through, with each intercepted member
@@ -224,19 +230,21 @@ function chk(ok, label, extra) {
           const helloHang = new Set();   // names whose hello the board takes and never answers
           const helloHeld = new Set();   // #4959: names whose hello the server holds on the shared quota (could_not, held:true)
           await page.route('**/api/agent/*/thread', async (r) => {
-            if (r.request().method() !== 'POST') return r.continue();
-            const who = decodeURIComponent(r.request().url().split('/api/agent/')[1].split('/')[0]);
-            const sentBody = JSON.parse(r.request().postData() || '{}');
-            hellos.push({ who, text: sentBody.text, automatic: sentBody.automatic });   // #4959: the hello must go as automatic
-            if (helloHold[who]) await helloHold[who];
-            if (helloHang.has(who)) return;   // never answered: the page must give up on its own
-            if (helloStatus[who]) return r.fulfill({ status: helloStatus[who], json: { error: 'refused here' } });
-            if (helloHeld.has(who)) {
-              return r.fulfill({ status: 200, json: { ok: true, recorded: false, delivery: { state: 'could_not', held: true,
-                heldUntil: new Date(Date.now() + 40 * 60e3).toISOString(), because: "held: this machine's Google account's shared Antigravity quota is out" } } });
-            }
-            const state = helloFail.has(who) ? 'could_not' : (helloUnsure.has(who) ? 'unconfirmed' : 'placed');
-            return r.fulfill({ status: 200, json: { ok: true, delivery: { state } } });
+            try {
+              if (r.request().method() !== 'POST') return await r.continue();
+              const who = decodeURIComponent(r.request().url().split('/api/agent/')[1].split('/')[0]);
+              const sentBody = JSON.parse(r.request().postData() || '{}');
+              hellos.push({ who, text: sentBody.text, automatic: sentBody.automatic });   // #4959: the hello must go as automatic
+              if (helloHold[who]) await helloHold[who];
+              if (helloHang.has(who)) return;   // never answered: the page must give up on its own
+              if (helloStatus[who]) return await r.fulfill({ status: helloStatus[who], json: { error: 'refused here' } });
+              if (helloHeld.has(who)) {
+                return await r.fulfill({ status: 200, json: { ok: true, recorded: false, delivery: { state: 'could_not', held: true,
+                  heldUntil: new Date(Date.now() + 40 * 60e3).toISOString(), because: "held: this machine's Google account's shared Antigravity quota is out" } } });
+              }
+              const state = helloFail.has(who) ? 'could_not' : (helloUnsure.has(who) ? 'unconfirmed' : 'placed');
+              return await r.fulfill({ status: 200, json: { ok: true, delivery: { state } } });
+            } catch { await r.abort().catch(() => {}); }
           });
           await page.goto(URL, { waitUntil: 'networkidle' });
           await clearFirstRun(page);
@@ -313,7 +321,7 @@ function chk(ok, label, extra) {
         {
           const { page, errs } = await newPage(1280);
           const OA = { provider: 'openai', dir: '/acct/openai-late', email: 'me@example.com', isDefault: true, state: 'connected' };
-          await page.route('**/api/accounts*', async (r) => { await new Promise((res) => setTimeout(res, 8000)); return r.fulfill({ status: 200, json: { accounts: [OA] } }); });
+          await page.route('**/api/accounts*', async (r) => { await new Promise((res) => setTimeout(res, 8000)); return await r.fulfill({ status: 200, json: { accounts: [OA] } }).catch(() => {}); });
           await page.evaluate(() => { CREATE_ACCOUNTS = []; CREATE_ACCOUNTS_KNOWN = false; });
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);

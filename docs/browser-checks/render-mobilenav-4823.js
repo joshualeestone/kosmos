@@ -275,7 +275,14 @@ const teardownFails = [];
         // Switch Computers, a third level. Its read is slowed here, so the arm can see the level BEFORE the answer: an
         // earlier read's "Online" link must not be offered while a fresh one is on its way (review round 5).
         await page.unroute('**/api/remote/computers*');
-        await page.route('**/api/remote/computers*', async (r) => { await new Promise((res) => setTimeout(res, 1500)); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TWO) }); });
+        /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+           its late rejection is caught instead of crashing the check after it passed. */
+        await page.route('**/api/remote/computers*', async (r) => {
+          try {
+            await new Promise((res) => setTimeout(res, 1500));
+            return await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TWO) });
+          } catch { await r.abort().catch(() => {}); }
+        });
         const stale = await page.evaluate(() => document.querySelectorAll('#worldsw-computers-list a').length);
         chk(stale > 0, T + 'C0 precondition: an earlier read left an Online link that the fresh read must clear', String(stale));
         await page.click('#pnav-computers');

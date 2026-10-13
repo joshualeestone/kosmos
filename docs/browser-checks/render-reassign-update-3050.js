@@ -81,15 +81,19 @@ const V2 = 'NEW instructions now on disk (post-reassign)';
     let served = V1;
     let servedVersion = 'v1';
     let delayMs = 0;
+    /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+       its late rejection is caught instead of crashing the check after it passed. */
     await page.route('**/api/agent/*/instructions*', async (route) => {
-      if (route.request().method() !== 'GET') return route.continue();
-      if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
-      route.fulfill({
-        json: {
-          exists: true, editable: true, text: served, version: servedVersion,
-          hasPrevious: false, staleness: { state: 'current' },
-        },
-      });
+      try {
+        if (route.request().method() !== 'GET') return await route.continue();
+        if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+        await route.fulfill({
+          json: {
+            exists: true, editable: true, text: served, version: servedVersion,
+            hasPrevious: false, staleness: { state: 'current' },
+          },
+        });
+      } catch { await route.abort().catch(() => {}); }
     });
 
     await page.goto(URL, { waitUntil: 'networkidle' });
