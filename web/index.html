@@ -7371,6 +7371,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   border-radius: 999px; background: var(--k-surface); border: 1px solid var(--k-rule); color: var(--label-2); font-size: .8125rem; text-align: center; overflow-wrap: anywhere;
   pointer-events: none; }   /* it lies over the first message on screen: a tap goes through to that message */
 .dm-earlier button { pointer-events: auto; }
+.dm-earlier-wrap.dm-earlier-failed { height: auto; }
+.dm-earlier-wrap.dm-earlier-failed .dm-earlier { position: static; transform: none; margin: 0 auto 8px; pointer-events: auto; }
 .dmthread { display: flex; flex-direction: column; gap: 12px; min-height: 7rem;
   max-height: 15rem; overflow-y: auto; padding-right: 4px; padding-block: 2px; }
 /* padding-block 2px (#3743): an unread message's gold outline is drawn 1px OUTSIDE the bubble (a filter), and
@@ -38442,7 +38444,9 @@ document.addEventListener('click', (e) => {
  * belongs to a reset that came after it.
  */
 const EARLIER = { session: null, open: false, before: 0, end: 0, rows: [], loading: false, filling: false, because: null, opening: 0 };
+const EARLIER_MOVED = { session: null, n: 0 };   // kosmos#6086: "the thread changed under the page" answers in a row, across resets for one agent
 function earlierReset(session) {
+  if (session !== EARLIER.session) EARLIER_MOVED.n = 0;   // kosmos#6086: the count of moved answers belongs to one agent's visit
   Object.assign(EARLIER, { session, open: false, before: 0, end: 0, rows: [], loading: false, filling: false, because: null, opening: EARLIER.opening + 1 });
 }
 function earlierOn(session) { return EARLIER.open && Boolean(session) && EARLIER.session === session; }
@@ -38497,7 +38501,6 @@ async function earlierMore() {
    Never while a load is in flight, never over a failed read, and never again after a failed load until the person
    presses Try again: a scroll event must not turn one failure into a stream of requests. */
 const EARLIER_NEAR_TOP = 120;   // px from the top of the thread
-const EARLIER_MOVED = { session: null, n: 0 };   // "the thread changed under the page" answers in a row, across resets
 function earlierNearTop() {
   const thread = document.getElementById('d-dmthread');
   const session = thread && thread.__lastSession; const body = thread && thread.__lastBody;
@@ -38566,6 +38569,10 @@ function paintOlderLine(body, sessionName) {
   const text = !on ? '' : failed ? pjSentence(EARLIER.because) : EARLIER.loading ? 'Loading earlier messages\u2026' : '';
   if (textEl.textContent !== text) textEl.textContent = text;
   retry.hidden = !failed;
+  /* While a page loads the line FLOATS over the thread's top edge and takes no room, so nothing moves. A failure
+     is different: it stays until the person acts, and floating it would leave it lying over the first message.
+     So a failure takes a row of its own above the thread. */
+  if (older.parentNode) older.parentNode.classList.toggle('dm-earlier-failed', failed);
   older.hidden = !text;
 }
 document.addEventListener('click', (e) => {

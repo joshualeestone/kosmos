@@ -245,7 +245,8 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' +
     await toTop(); await settle();
     s = await state(); w = await where();
     chk(/could not read the earlier messages/i.test(s.line) && s.retry && s.asked.join(',') === 'june:5', '#6086: a failed load says so at the top, with Try again', JSON.stringify(s));
-    chk(!!w.line && w.line.bottom <= w.thread.top + 80 && w.line.bottom < w.composer.top, '#6086: that too is over the top of the thread', JSON.stringify([w.line, w.thread]));
+    chk(!!w.line && w.line.bottom <= w.thread.top + 2 && w.line.bottom < w.composer.top, '#6086: a failure has a row of its own ABOVE the thread, so it does not lie over the first message', JSON.stringify([w.line, w.thread, w.first]));
+    chk(!!w.line && !!w.first && w.line.bottom <= w.first.top + 2, '#6086: the first message on screen is clear of it', JSON.stringify([w.line, w.first]));
     await toTop(); await settle(); await toTop(); await settle();
     s = await state();
     chk(s.asked.join(',') === 'june:5', '#6086: scrolling at the top does not ask again after a failure', JSON.stringify(s.asked));
