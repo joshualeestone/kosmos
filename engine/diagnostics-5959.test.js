@@ -226,3 +226,27 @@ test('#5959: an agent\'s own lines are cut shorter than the tail\'s', () => {
   assert.equal(file.agents[0].logLines[0].line.length, AGENT_LINE_CHARS);
   assert.equal(file.log.tail[0].line.length, long.length, 'CONTROL: the tail keeps the line');
 });
+
+test('#5959: a line is redacted whole and cut after, so a key straddling either cut is not left in pieces', () => {
+  const { AGENT_LINE_CHARS, TAIL_LINE_CHARS } = require('./diagnostics');
+  const key = 'sk-ant-api03-' + 'Q7w9Zk2Lm4Np6Rt8Vx0Yb3Cd5Fg7Hj9'.repeat(2);
+  const atAgentCut = 'rick ' + 'x'.repeat(AGENT_LINE_CHARS - 5 - 10) + ' ' + key;   // the key starts 10 chars before the cut
+  const atTailCut = 'y'.repeat(TAIL_LINE_CHARS - 12) + ' ' + key;
+  const file = build({ cards: CARDS, ringLines: [atAgentCut, atTailCut].map((line) => ({ at: 't', stream: 'stdout', line })), redactor: makeRedactor(WHO) });
+  const text = JSON.stringify(file);
+  assert.ok(atAgentCut.slice(0, AGENT_LINE_CHARS).includes('sk-ant-a'), 'CONTROL: a cut-first line would keep the key\'s start');
+  assert.ok(!text.includes('sk-ant-a'), 'no piece of the key is in the file');
+  assert.equal(file.agents[0].logLines[0].line.length <= AGENT_LINE_CHARS, true);
+  assert.ok(file.log.tail.every((e) => e.line.length <= TAIL_LINE_CHARS));
+});
+
+test('#5959: a key logged on one line (escaped newlines) masks that line only, and a block without END is capped', () => {
+  const { maskKeyBlocks, MASKED_BLOCK, MAX_BLOCK_LINES } = require('./diagnostics');
+  const one = 'dump {"key":"-----BEGIN PRIVATE KEY-----\\nMIIEvQ...cut by the 2,000-char limit';
+  const out = maskKeyBlocks([one, 'rick crashed: ENOENT', 'rick restarted'].map((line) => ({ line }))).map((e) => e.line);
+  assert.deepEqual(out, [MASKED_BLOCK, 'rick crashed: ENOENT', 'rick restarted'], 'later failures are kept');
+  const open = ['-----BEGIN PRIVATE KEY-----', ...Array.from({ length: MAX_BLOCK_LINES + 20 }, (_, n) => 'line ' + n)];
+  const capped = maskKeyBlocks(open.map((line) => ({ line }))).map((e) => e.line);
+  assert.equal(capped.filter((l) => l === MASKED_BLOCK).length, MAX_BLOCK_LINES + 1, 'BEGIN and at most MAX_BLOCK_LINES after it');
+  assert.equal(capped.at(-1), 'line ' + (MAX_BLOCK_LINES + 19));
+});

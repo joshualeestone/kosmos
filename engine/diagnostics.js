@@ -23,21 +23,30 @@ function namesAgent(line, names) {
 }
 
 const AGENT_LINE_CHARS = 500;
+const TAIL_LINE_CHARS = 2000;   // logring keeps 256 more, so the redactor sees past this cut
 const MASKED_BLOCK = '[a private key, taken out]';
 const BLOCK_BEGIN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/;
 const BLOCK_END = /-----END [A-Z0-9 ]*PRIVATE KEY-----/;
+const MAX_BLOCK_LINES = 100;   // an RSA-4096 body is about 50 lines of 64; a block never takes more than this
 
 /* A private key logged across lines is taken out whole: the line that begins it, every line after, and the line that
-   ends it. The redactor sees one line at a time and would mask only the BEGIN line. An unended block runs to the end. */
+   ends it. The redactor sees one line at a time and would mask only the BEGIN line. A block with no END takes at most
+   MAX_BLOCK_LINES lines. */
 function maskKeyBlocks(entries) {
-  let inside = false;
+  let inside = 0;   // lines a block may still take
   return entries.map((e) => {
-    if (!inside && BLOCK_BEGIN.test(e.line)) {
-      inside = !BLOCK_END.test(e.line.slice(e.line.search(BLOCK_BEGIN)));
+    const begin = e.line.search(BLOCK_BEGIN);
+    if (!inside && begin >= 0) {
+      const rest = e.line.slice(begin).replace(BLOCK_BEGIN, '');
+      /* A block starts only when the line ENDS at its BEGIN marker (the body follows on the next lines). A key on one line
+         (escaped \n in a JSON dump, say) is this line only: secretmask's pattern takes it, and a cut that lost its END
+         must not turn every later line into a key. */
+      if (/^\s*$/.test(rest)) inside = MAX_BLOCK_LINES;
       return { ...e, line: MASKED_BLOCK };
     }
     if (inside) {
-      if (BLOCK_END.test(e.line)) inside = false;
+      inside -= 1;
+      if (BLOCK_END.test(e.line)) inside = 0;
       return { ...e, line: MASKED_BLOCK };
     }
     return e;
@@ -71,6 +80,7 @@ function accountOf(accountProblemOf, card) {
      redactor    { redactDeep }                    engine/diagredact (this computer's own when not given) */
 function build(inputs) {
   const i = inputs || {};
+  const redactor = i.redactor && typeof i.redactor.redactDeep === 'function' ? i.redactor : require('./diagredact').makeRedactor();
   // A roster that could not be read (safeRoster's null) is said so, never shown as a board with no agents.
   const cardsRead = Array.isArray(i.cards);
   const cards = cardsRead ? i.cards : [];
@@ -81,8 +91,20 @@ function build(inputs) {
   const all = maskKeyBlocks(fileLines
     ? fileLines.map((line) => ({ at: null, stream: null, line }))   // one shape either way; board.log lines carry their own stamp
     : ring.map((e) => ({ at: e.at || null, stream: e.stream || null, line: e.line })));
+  /* Lines are chosen from the text as written, then each chosen line is redacted WHOLE and only then cut, so a key or a
+     name that straddles the cut is redacted, not cut into a piece the redactor cannot recognise. Each line is redacted
+     once, however many lists it is in. */
+  const redacted = new Map();
+  const shown = (e, max) => {
+    let text = redacted.get(e);
+    if (text === undefined) { text = redactor.redactText(e.line); redacted.set(e, text); }
+    return { at: e.at, stream: e.stream, line: text.length > max ? text.slice(0, max) : text };
+  };
+  const agentLines = [];
   const agents = cards.filter((c) => c && c.sessionName).map((c) => {
     const names = [...new Set([c.sessionName, c.name].filter((n) => typeof n === 'string' && n.length >= 2))].map(namePattern);
+    // Cut shorter than the tail's lines, so a large fleet's file stays small (the full line is in the tail when recent).
+    agentLines.push(all.filter((e) => namesAgent(e.line, names)).slice(-AGENT_LOG_LINES).map((e) => shown(e, AGENT_LINE_CHARS)));
     return {
       name: c.name || c.sessionName,
       sessionName: c.sessionName,
@@ -91,12 +113,10 @@ function build(inputs) {
       report: reportOf(i.readReport || (() => null), c.sessionName),
       crashLoop: c.crashLoop || null,
       account: accountOf(i.accountProblemOf || (() => null), c),
-      // Cut shorter than the tail's lines, so a large fleet's file stays small (the full line is in the tail when recent).
-      logLines: all.filter((e) => namesAgent(e.line, names)).slice(-AGENT_LOG_LINES)
-        .map((e) => (e.line.length > AGENT_LINE_CHARS ? { ...e, line: e.line.slice(0, AGENT_LINE_CHARS) } : e)),
     };
   });
-  const out = {
+  // Everything but the lines is redacted here; the lines were redacted above.
+  const out = redactor.redactDeep({
     kosmosDiagnostics: FILE_VERSION,
     made: (i.now instanceof Date ? i.now : new Date()).toISOString(),
     board: { version: i.version || null, platform: i.platform || null },
@@ -107,11 +127,11 @@ function build(inputs) {
       source: fileLines ? (i.fileSource || 'board.log') : 'since this board started',
       // Why board.log was not used, when it was not: missing, not this board's output, or unreadable.
       boardLog: fileLines ? 'read' : (i.fileWhy || 'missing'),
-      tail: all.slice(-LOG_TAIL_LINES),
     },
-  };
-  const redactor = i.redactor && typeof i.redactor.redactDeep === 'function' ? i.redactor : require('./diagredact').makeRedactor();
-  return redactor.redactDeep(out);
+  });
+  out.agents.forEach((a, n) => { a.logLines = agentLines[n]; });
+  out.log.tail = all.slice(-LOG_TAIL_LINES).map((e) => shown(e, TAIL_LINE_CHARS));
+  return out;
 }
 
 const READ_TAIL_BYTES = 256 * 1024;
@@ -145,4 +165,4 @@ function readBoardLog(logPath, outFd, max, why) {
   finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
 
-module.exports = { build, namesAgent, readBoardLog, maskKeyBlocks, MASKED_BLOCK, AGENT_LINE_CHARS, FILE_VERSION, AGENT_LOG_LINES, LOG_TAIL_LINES, READ_TAIL_BYTES, SEARCH_LINES: MAX_LINES };
+module.exports = { build, namesAgent, readBoardLog, maskKeyBlocks, MASKED_BLOCK, AGENT_LINE_CHARS, TAIL_LINE_CHARS, MAX_BLOCK_LINES, FILE_VERSION, AGENT_LOG_LINES, LOG_TAIL_LINES, READ_TAIL_BYTES, SEARCH_LINES: MAX_LINES };

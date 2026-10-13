@@ -15,7 +15,9 @@
 const { StringDecoder } = require('node:string_decoder');
 
 const MAX_LINES = 2000;
-const MAX_LINE_CHARS = 2000;
+/* 2,000 shown (engine/diagnostics cuts there) plus 256 kept past it, so a key or a name that straddles the cut is still
+   whole when the diagnostics redactor reads it: it redacts first and cuts after. */
+const MAX_LINE_CHARS = 2256;
 
 function createRing(options) {
   const settings = options || {};
