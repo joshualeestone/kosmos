@@ -327,7 +327,7 @@ async function subprojectFixture(page, data) {
     };
     const make = async (name, parent) => {
       const r = await post('/api/projects', parent ? { name, parent } : { name });
-      if (r.status !== 200 && r.status !== 201) throw new Error('could not make ' + name + ' (status ' + r.status + ')');
+      if (r.status !== 200 && r.status !== 201) throw new Error('could not make ' + name + ' (status ' + r.status + ': ' + ((await r.json().catch(() => ({}))).error || '') + ')');
       const id = await find(name, parent);
       if (!id) throw new Error('made ' + name + ' but could not read it back');
       return id;
