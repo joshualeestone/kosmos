@@ -29,7 +29,8 @@
  * arrow (`async (r) =>`, `r =>`) or `function (r)`. A handler written as a named function defined elsewhere is not
  * read (fails GREEN). A handler that only fulfills a fixture is not checked: its answer is immediate, with no await
  * before it. "Inside a try" counts braces from the last `try {` before the fetch, so a brace inside a string
- * between the two can miscount. Comments are blanked first (strings and template literals kept). A handler that
+ * between the two can miscount. Comments are blanked first (strings, template literals and regex literals kept).
+ * Each call must also be awaited in its own statement, and its try must have a catch (round 1). A handler that
  * fetches through a helper (mobile-shots.js fetchBoard(route)) is not seen: that file's helper-fed handlers were
  * hardened by hand. A handler's span runs to the next `.route(` call, so a nearby helper that reuses the parameter
  * name is read as part of it (fails RED, safe). The fixtures below pin both directions.
@@ -41,31 +42,67 @@ const fs = require('node:fs');
 const nodePath = require('node:path');
 
 const DIR = nodePath.join(__dirname, 'docs', 'browser-checks');
-const HANDLER = /\.route\(\s*[^,]+,\s*(?:async\s+)?(?:function\s*\(\s*(\w+)|\(\s*(\w+)[^)]*\)\s*=>|(\w+)\s*=>)/g;
+const HANDLER = /\.route\(\s*[^,]{1,300},\s*(?:async\s+)?(?:function\s*\(\s*(\w+)|\(\s*(\w+)[^)]*\)\s*=>|(\w+)\s*=>)/g;
 
 /* The source with every comment blanked (newlines kept, so line numbers hold): a comment that mentions r.fetch() is
    not code. Strings and template literals are skipped intact, so a // inside a URL is not read as a comment. */
 function stripComments(src) {
-  let out = '';
+  const parts = [];
+  let tail = '';   // the last few characters emitted, for the regex-or-division decision (never the whole output)
+  const emit = (str) => { parts.push(str); tail = (tail + str).slice(-24); };
   for (let i = 0; i < src.length;) {
     const c = src[i];
     const n = src[i + 1];
-    if (c === '"' || c === "'" || c === '`') {
+    const code = tail.replace(/\s+$/, '');
+    const prev = code.slice(-1);
+    if (c === '/' && n !== '/' && n !== '*' && (prev === '' || '(,=:[!&|?{};'.includes(prev) || /\breturn$/.test(code))) {
+      // A regex literal: skipped intact, so /^http:\/\/x\// is not read as a comment (round 1).
+      let j = i + 1; let cls = false;
+      while (j < src.length && src[j] !== '\n') {
+        if (src[j] === '\\') { j += 2; continue; }
+        if (src[j] === '[') cls = true; else if (src[j] === ']') cls = false; else if (src[j] === '/' && !cls) break;
+        j += 1;
+      }
+      emit(src.slice(i, j + 1)); i = j + 1;
+    } else if (c === '"' || c === "'" || c === '`') {
       let j = i + 1;
       while (j < src.length && src[j] !== c) { if (src[j] === '\\') j += 1; else if (c !== '`' && src[j] === '\n') break; j += 1; }
-      out += src.slice(i, j + 1); i = j + 1;
+      emit(src.slice(i, j + 1)); i = j + 1;
     } else if (c === '/' && n === '/') {
       let j = i; while (j < src.length && src[j] !== '\n') j += 1;
-      out += ' '.repeat(j - i); i = j;
+      emit(' '.repeat(j - i)); i = j;
     } else if (c === '/' && n === '*') {
       let j = src.indexOf('*/', i + 2); j = j < 0 ? src.length : j + 2;
-      out += src.slice(i, j).replace(/[^\n]/g, ' '); i = j;
-    } else { out += c; i += 1; }
+      emit(src.slice(i, j).replace(/[^\n]/g, ' ')); i = j;
+    } else { emit(c); i += 1; }
   }
-  return out;
+  return parts.join('');
 }
 
-/* True when any `try {` after `from` is still open at `at` in `src` (braces counted from each `try {` before it). */
+/* The index just after the block that opens at `open` (its matching close brace), or -1. */
+function blockEnd(src, open) {
+  let depth = 0;
+  for (let i = open; i < src.length; i += 1) { if (src[i] === '{') depth += 1; else if (src[i] === '}') { depth -= 1; if (depth === 0) return i + 1; } }
+  return -1;
+}
+
+/* True when the call at `at` is awaited in its own statement (`await r.fulfill(`, `return await (x ? r.fulfill(`):
+   a promise returned or left floating inside a try rejects OUTSIDE it (round 1). */
+function awaited(src, at) {
+  // Walk back to the start of the statement, skipping balanced (), [] and {} groups: an unmatched ( is still the same
+  // expression (`await (x ? r.fulfill(`), an unmatched { is the block the statement sits in, a ; ends the last one.
+  let i = at - 1;
+  let depth = 0;
+  for (; i >= 0; i -= 1) {
+    const ch = src[i];
+    if (ch === ')' || ch === ']' || ch === '}') depth += 1;
+    else if (ch === '(' || ch === '[') { if (depth > 0) depth -= 1; }
+    else if (ch === '{') { if (depth > 0) depth -= 1; else break; }
+    else if (ch === ';' && depth === 0) break;
+  }
+  return /\bawait\b/.test(src.slice(i + 1, at));
+}
+
 function insideOpenTry(src, from, at) {
   const seg = src.slice(from, at);
   const t = seg.lastIndexOf('try');
@@ -75,7 +112,9 @@ function insideOpenTry(src, from, at) {
   let depth = 0;
   for (let i = open; i < seg.length; i += 1) { if (seg[i] === '{') depth += 1; else if (seg[i] === '}') depth -= 1; }
   // An inner try that already closed may sit inside an outer one that is still open: keep walking back.
-  return depth > 0 || insideOpenTry(src, from, from + t);
+  // Open here, and it must be a try ... catch: a try with only a finally lets the rejection through (round 1).
+  if (depth > 0) { const e = blockEnd(src, from + open); if (e > 0 && /^\s*catch\b/.test(src.slice(e))) return true; }
+  return insideOpenTry(src, from, from + t);
 }
 
 /* The findings for one file's source: the lines of route-handler calls that can reject after the browser closes
@@ -96,7 +135,7 @@ function scan(raw) {
     re.lastIndex = h.at + first;
     let f;
     while ((f = re.exec(src)) && f.index < end) {
-      if (!insideOpenTry(src, h.at, f.index)) bad.push(src.slice(0, f.index).split('\n').length);
+      if (!insideOpenTry(src, h.at, f.index) || !awaited(src, f.index)) bad.push(src.slice(0, f.index).split('\n').length);
     }
   });
   return bad;
@@ -115,6 +154,16 @@ test('#6022 fixtures: the rule can fail, and the safe shapes pass (controls)', (
   assert.deepEqual(scan(nested), [], 'a closed inner try inside an open outer try still guards (review: the editor of batch 2)');
   const commented = "await page.route('**/api/a', async (r) => {\n  // the r.fetch() answer is not used here\n  /* nor r.fulfill() */\n  await r.fulfill({ json: { url: 'http://x//y' } });\n});\n";
   assert.deepEqual(scan(commented), [], 'a comment naming r.fetch() is not a fetch, and a // inside a string is not a comment');
+  const returned = "await page.route('**/x', async (r) => {\n  try {\n    const resp = await r.fetch();\n    return r.fulfill({ response: resp });\n  } catch { await r.abort().catch(() => {}); }\n});\n";
+  assert.deepEqual(scan(returned), [4], 'a fulfill returned without await inside the try still rejects outside it (round 1)');
+  const finallyOnly = "await page.route('**/x', async (r) => {\n  try {\n    const resp = await r.fetch();\n    await r.fulfill({ response: resp });\n  } finally { done(); }\n});\n";
+  assert.deepEqual(scan(finallyOnly), [3, 4], 'a try with only a finally does not catch (round 1)');
+  const thenChain = "await page.route('**/x', async (r) => {\n  try { r.fetch().then((res) => r.fulfill({ response: res })); } catch {}\n});\n";
+  assert.deepEqual(scan(thenChain), [2, 2], 'a floating .then chain is not awaited (round 1)');
+  const ternary = "await page.route('**/x', async (r) => {\n  try {\n    const j = await r.fetch();\n    return await (j ? r.fulfill({ json: 1 }) : r.fulfill({ json: 2 }));\n  } catch { await r.abort().catch(() => {}); }\n});\n";
+  assert.deepEqual(scan(ternary), [], 'an awaited ternary of fulfills counts as awaited');
+  const regexUrl = "await ctx.route(/^http:\\/\\/remote\\.test(:\\d+)?\\//, async (r) => {\n  const res = await r.fetch();\n  await r.fulfill({ response: res });\n});\n";
+  assert.deepEqual(scan(regexUrl), [2, 3], 'a regex route ending in \\/\\/ is not read as a comment, so its handler is checked (round 1)');
   const fixtureOnly = "await page.route('**/api/x', (r) => r.fulfill({ json: {} }));\nconst x = await window.fetch('/a');\nawait browser.close();\n";
   assert.deepEqual(scan(fixtureOnly), [], 'a fixture-only handler and window.fetch are not flagged');
   const bareParam = "page.route('**/t', async route => {\n  const r = await route.fetch();\n  route.fulfill({ response: r });\n});\n";

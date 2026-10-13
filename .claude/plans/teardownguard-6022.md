@@ -12,7 +12,9 @@ in flight when the browser closed, and a guard test refuses the shape coming bac
 ## What changes
 - `browser-checks-teardown-guard-6022.test.js` (new): in every docs/browser-checks/*.js route handler that calls
   `<param>.fetch(`, that fetch and every later `<param>.fulfill/continue/fetch(` sit inside an open `try {`.
-  Comments are blanked first (strings kept); a closed inner try inside an open outer one counts. Fixtures pin each
+  Each call must also be awaited in its own statement (a promise returned or left floating inside a try rejects
+  outside it), and its try must have a catch (a finally alone lets it through). Comments are blanked first (strings,
+  template literals and regex literals kept); a closed inner try inside an open outer one counts. Fixtures pin each
   direction (bare, fixed, fulfill after the try, closed try, nested, comment, fixture-only, bare-parameter arrow).
 - 21 checks: each fetching handler's body wrapped in `try { ... } catch { await r.abort().catch(() => {}); }`, with
   every fulfill/continue awaited inside it. No assertion, fixture value or route pattern changed (diff reviewed for
@@ -33,6 +35,17 @@ in flight when the browser closed, and a guard test refuses the shape coming bac
   but had the fetch or the answer outside a try; they were hardened too, for the fail-fast half and so the guard has
   one rule.
 
+## Merge order (review 1 BLOCKER)
+This PR does NOT merge until #6023 has merged and the remaining #6023 files (render-connlost-reconnect-3410,
+render-made-endings, render-swarm-ui-3564; render-rename-say passes once #6023 is in) are hardened here: the guard runs
+in CI's test job, so merging earlier turns main red. Rebase onto main after #6023, fix those three, re-run the guard.
+
+## Left as decided (review 1 NITs)
+- A catch now aborts quietly where a bug in a handler's own logic used to crash loudly; the check then fails at its
+  next assertion instead. Accepted: every changed check has positive assertions (none asserts only absence).
+- mobile-shots.js's remote route gained `.catch(() => {})`, so a fulfill rejecting mid-run no longer aborts that one
+  request. Accepted: mobile-shots is a screenshot tool, not a cut gate, and its screens wait on what they shoot.
+
 ## Weakest premise
 The guard reads source text. A handler written as a named function defined elsewhere, or fetching through a helper
 (mobile-shots fetchBoard), is not seen; a handler's span runs to the next `.route(`, so a nearby helper reusing the
@@ -40,7 +53,7 @@ parameter name is read as part of it (fails red, safe). Behaviour under the cut'
 mechanism repro, not measured per check under load.
 
 ## Tests
-- The guard: fixtures pass; red on main (22 files), and after this branch red only on #6023's four files until it
+- The guard: fixtures pass; red on main (25 files), and after this branch red only on #6023's four files until it
   merges and they are hardened here.
 - Every changed check run on this branch (self-booting ones directly; render-update-abort-2055 with the runner's
   board).
