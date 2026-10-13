@@ -3,11 +3,13 @@
 /* #5959 slice 4: the diagnostics file a person saves for the builders (GET /api/diagnostics, Settings > Advanced).
 
    build() shapes what the route gathered and redacts it (engine/diagredact) before it is returned, so no string
-   leaves this module unredacted. It reads nothing itself: the route passes the cards, the report reader, the account
+   leaves this module unredacted. build() reads nothing itself (readBoardLog, beside it, is the one reader): the route passes the cards, the report reader, the account
    reader and the log lines in, which keeps it testable without a board.
 
    What is NOT in it, on purpose: message text, instructions, a report's `on` text, and an account problem's own
    sentence (it quotes the vendor). A builder needs states and failures, not the conversation. */
+
+const { MAX_LINE_CHARS, MAX_LINES } = require('./logring');
 
 const FILE_VERSION = 1;
 const AGENT_LOG_LINES = 50;
@@ -153,7 +155,6 @@ function build(inputs) {
 }
 
 const READ_TAIL_BYTES = 256 * 1024;
-const { MAX_LINE_CHARS, MAX_LINES } = require('./logring');
 
 /* The last `max` lines of board.log, only when it is this board's own output: the file `logPath` names must be the
    open file on `outFd` (one descriptor, or each of a list; same device and inode). A board.log left by another run (a board started from a terminal, say)
