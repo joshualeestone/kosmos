@@ -330,6 +330,8 @@ test('#5959: each agent carries the card word the person saw, when it was last s
   const oddFile = build({ cards: [odd, { ...CARDS[1] }], redactor: makeRedactor(WHO) });
   assert.equal(oddFile.agents[0].card.label, null);
   assert.equal(oddFile.agents[1].card.label, 'Sign-in isn\'t working', 'the other agents keep their label');
-  // CONTROL: a card with no pane carries no lastWorked, and that is null, not a made-up time.
+  // A card with no lastWorked gives null, not a made-up time; and only { at, why } is carried from the card's object.
   assert.equal(build({ cards: [{ ...CARDS[0], lastWorked: undefined }], redactor: makeRedactor(WHO) }).agents[0].lastWorked, null);
+  const extra = build({ cards: [{ ...CARDS[0], lastWorked: { at, why: null, other: 'not carried' } }], redactor: makeRedactor(WHO) });
+  assert.deepEqual(extra.agents[0].lastWorked, { at, why: null });
 });

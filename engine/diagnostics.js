@@ -140,8 +140,9 @@ function build(inputs) {
       runner: c.runner || null,
       // label: the card's word as the page shows it (engine/cardlabel, #5959 slice 1), so a builder reads what the person saw.
       card: { state: c.state || null, label: labelOf(c), stateReported: c.stateReported || null, stateReportedBy: c.stateReportedBy || null },
-      // When it was last seen working (#5959 slice 2, status.js lastWorkedOf): { at, why } or null for a card with no pane.
-      lastWorked: c.lastWorked || null,
+      // When it was last seen working (#5959 slice 2, status.js lastWorkedOf): { at, why }, or null when the card has none
+      // (no pane, or a pane that is not ours). The two fields are named, so a field added there later is not carried here.
+      lastWorked: c.lastWorked ? { at: c.lastWorked.at || null, why: c.lastWorked.why || null } : null,
       report: reportOf(i.readReport || (() => null), c.sessionName),
       crashLoop: c.crashLoop || null,
       stuckError: c.stuckError || null,   // a terminal error that keeps coming back (#5154), as the roster carries it
