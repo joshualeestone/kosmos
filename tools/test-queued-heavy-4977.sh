@@ -254,7 +254,7 @@ qh_nogit5923() {
   $GE git -C "$w" update-ref refs/remotes/origin/main HEAD && $GE git -C "$w" checkout -q --detach HEAD~1
 }
 printf 'p1\nn/\n' > $S/cwd5923
-for n in mv mk ps sh set dirty nops cwd nocwd reuse dead gitlive ahead same branch claim need psx nopid live mvfail mvkeep mvmix noorig unw sideneed; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
+for n in mv mk ps sh set dirty nops cwd nocwd reuse dead gitlive idxlock ahead same branch claim need psx nopid live mvfail mvkeep mvmix noorig unw sideneed; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
 run5923 mv
 ok "#5923: the default lib checkout behind origin/main, nothing live: moved to origin/main, said so, run runs, lock gone" '[ "$rc" = 0 ] && [ -e $S/l5923-mv-ran ] && [ "$(lh5923 mv)" = "$(lm5923 mv)" ] && [[ "$o" == *"moved"*"-> origin/main"*"cut-guard.sh differed"* ]] && [ ! -e $S/ml5923-mv/queued-heavy-lib.lock ]'
 run5923 mv
@@ -303,10 +303,25 @@ ok "#5923: a lib lock whose holder has died is taken over, and the run moves the
 # NOT taken over until that git exits, so no joiner loads a half-written lib. A sleep stands in for the live git and
 # ends after 3 s; the joiner must wait for it, then take over and move.
 sh -c 'exit 0' & DEADG5923=$!; wait $DEADG5923
-sleep 3 & GIT5923=$!
+sleep 6 & GIT5923=$!
 mkdir -p $S/ml5923-gitlive/queued-heavy-lib.lock && echo $DEADG5923 > $S/ml5923-gitlive/queued-heavy-lib.lock/pid && echo $GIT5923 > $S/ml5923-gitlive/queued-heavy-lib.lock/gitpid
-T0_5923=$(date +%s); run5923 gitlive; T1_5923=$(date +%s); wait $GIT5923 2>/dev/null
-ok "#5923: a dead holder whose git is still checking out keeps the lock until that git exits, then the run takes over and moves" '[ "$rc" = 0 ] && [ $((T1_5923 - T0_5923)) -ge 2 ] && [ "$(lh5923 gitlive)" = "$(lm5923 gitlive)" ] && [[ "$o" != *"stayed taken"* ]]'
+GL_OLD5923=$(lh5923 gitlive)
+# Watched WHILE the stand-in git lives (not by elapsed time, which a slow box can pass on its own): 3 s in, the lock
+# still names the dead holder and the lib has not moved.
+( sleep 3; if [ "$(cat $S/ml5923-gitlive/queued-heavy-lib.lock/pid 2>/dev/null)" = "$DEADG5923" ] && [ "$(lh5923 gitlive)" = "$GL_OLD5923" ] && kill -0 $GIT5923 2>/dev/null; then echo held; else echo taken; fi > $S/gitlive5923.watch ) &
+GLW5923=$!
+run5923 gitlive; wait $GLW5923 2>/dev/null; wait $GIT5923 2>/dev/null
+ok "#5923: a dead holder whose git is still checking out keeps the lock while that git lives, then the run takes over and moves" '[ "$rc" = 0 ] && [ "$(cat $S/gitlive5923.watch 2>/dev/null)" = held ] && [ "$(lh5923 gitlive)" = "$(lm5923 gitlive)" ] && [[ "$o" != *"stayed taken"* ]]'
+# Iteration 21: the instant before the pid reaches the lock (or a reused gitpid): no gitpid at all, but the lib's
+# index.lock exists, as it does for any running checkout. Not taken over until it is gone (removed here after 6 s).
+sh -c 'exit 0' & DEADI5923=$!; wait $DEADI5923
+mkdir -p $S/ml5923-idxlock/queued-heavy-lib.lock && echo $DEADI5923 > $S/ml5923-idxlock/queued-heavy-lib.lock/pid
+IDX5923="$($GE git -C $S/l5923-idxlock/work/kosmos-bc-main-4610 rev-parse --absolute-git-dir)/index.lock"; : > "$IDX5923"
+IL_OLD5923=$(lh5923 idxlock)
+( sleep 3; if [ "$(cat $S/ml5923-idxlock/queued-heavy-lib.lock/pid 2>/dev/null)" = "$DEADI5923" ] && [ "$(lh5923 idxlock)" = "$IL_OLD5923" ]; then echo held; else echo taken; fi > $S/idxlock5923.watch; sleep 3; rm -f "$IDX5923" ) &
+ILW5923=$!
+run5923 idxlock; wait $ILW5923 2>/dev/null
+ok "#5923: a dead holder with no gitpid but a live index.lock keeps the lock until index.lock is gone, then the run takes over and moves" '[ "$rc" = 0 ] && [ "$(cat $S/idxlock5923.watch 2>/dev/null)" = held ] && [ "$(lh5923 idxlock)" = "$(lm5923 idxlock)" ] && [[ "$o" != *"stayed taken"* ]]'
 # A checkout AHEAD of origin/main (a lib fix not merged yet) differs too, and is never moved back.
 d5923=$S/l5923-ahead/work/kosmos-bc-main-4610; $GE git -C $d5923 checkout -q --detach origin/main && echo '# ahead' >> $d5923/tools/lib/cut-guard.sh && $GE git -C $d5923 -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qam ahead
 run5923 ahead
@@ -538,7 +553,7 @@ sed 's|  exec /bin/bash "${BASH_SOURCE\[0\]}" --queued-args "$_qh_af"|  exec /no
 mkdir -p $S/tmpx; o=$(TMPDIR=$S/tmpx KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash $S/qh-noexec.sh "noexec" true 2>&1); r=$?
 ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"could not restart itself"* ]] && [ -z "$(ls $S/tmpx)" ] && grep -q /nonexistent/bash $S/qh-noexec.sh'
 
-EXPECTED=140   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-five #5923 lib-drift arms
+EXPECTED=141   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-six #5923 lib-drift arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
