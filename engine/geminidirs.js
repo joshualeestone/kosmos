@@ -26,8 +26,10 @@
  *     asking, so it writes nothing.
  *
  * Membership is read raw from projects.json (projects.readAll), never through describe, which
- * can write. The Mac reads it at each launch, so a project joined mid-session reaches a running
- * Mac agent at its next start; Windows reads it at every turn.
+ * can write. The Mac reads it at each launch, so a change reaches a running Mac agent at its next
+ * start, in BOTH directions: a project joined mid-session is not writable yet, and one it was
+ * removed from (or archived, or marked do not trust) stays in its workspace until then, because
+ * gemini holds the folders it was started with. Windows reads it at every turn.
  */
 const fs = require('node:fs');
 const os = require('node:os');
@@ -77,6 +79,9 @@ function foldersFor(name, opts) {
   let total = 0;
   for (const p of all) {
     if (!p || !Array.isArray(p.agents) || !p.agents.includes(key)) continue;
+    /* An archived project is closed, so its folder is not opened to the agent's file tools (the
+       live-project test assigner.liveProjects uses). A paused one is still the agent's and stays. */
+    if (p.archived === true) continue;
     const folder = typeof p.folder === 'string' ? p.folder : '';
     if (!folder) continue;
     if (!path.isAbsolute(folder)) { out.leftOut.push({ folder, because: 'its folder is not a full path' }); continue; }
@@ -119,8 +124,8 @@ function includeArgs(folders) {
    is NOT honoured when it names one of the agents' own trust files (agentTrustFile): a process started
    from an agent's pane inherits the pane's, and reading it as the person's would read every folder as
    trusted and skip their DO_NOT_TRUST marks. */
-function trustFile(cliHome) {
-  const moved = process.env.GEMINI_CLI_TRUSTED_FOLDERS_PATH;
+function trustFile(cliHome, env) {
+  const moved = (env || process.env).GEMINI_CLI_TRUSTED_FOLDERS_PATH;
   if (moved && !within(path.resolve(moved), agentTrustDir())) return moved;
   return path.join(cliHome || os.homedir(), '.gemini', 'trustedFolders.json');
 }
@@ -182,11 +187,11 @@ function readRules(file) {
  * rule on the Mac and on Windows. Never throws.
  * @returns {{ folders: string[], leftOut: Array<{ folder: string, because: string }> }}
  */
-function honourMarks(folders, cliHome) {
+function honourMarks(folders, cliHome, env) {
   const list = Array.isArray(folders) ? folders : [];
   const out = { folders: [], leftOut: [] };
   if (list.length === 0) return out;
-  const theirs = readRules(trustFile(cliHome));
+  const theirs = readRules(trustFile(cliHome, env));
   if (!theirs.rules) return { folders: [], leftOut: list.map((folder) => ({ folder, because: theirs.because })) };
   for (const f of list) {
     if (trustOf(theirs.rules, f) === false) out.leftOut.push({ folder: f, because: 'the folder is marked do not trust in Gemini, and that is left as it is' });
@@ -198,10 +203,12 @@ function honourMarks(folders, cliHome) {
 /**
  * What a Windows turn passes: the project folders, minus the person's DO_NOT_TRUST marks. A headless
  * turn asks no trust question, so no trust file is written. Never throws.
+ * @param {object} [opts] seams, and `env`: the environment the gemini child runs under, so the trust
+ *   file checked is the one that child would read
  */
 function turnFolders(name, workdir, cliHome, opts) {
   const r = foldersFor(name, Object.assign({}, opts, { workdir }));
-  const m = honourMarks(r.folders, cliHome);
+  const m = honourMarks(r.folders, cliHome, opts && opts.env);
   return { folders: m.folders, leftOut: r.leftOut.concat(m.leftOut) };
 }
 
@@ -264,12 +271,12 @@ if (require.main === module) {
     const [verb, name, workdir, cliHome] = process.argv.slice(2);
     if (verb === 'launch-args') {
       const r = launchFolders(name, workdir, cliHome || '');
-      for (const l of r.leftOut) process.stderr.write(leftOutLine(l) + '\n');
+      for (const l of r.leftOut) fs.writeSync(2, leftOutLine(l) + '\n');
       /* The trust file first, as `TRUST <path>` (a folder line is always an absolute path). */
       if (r.folders.length && r.trustFile) fs.writeSync(1, 'TRUST ' + r.trustFile + '\n' + r.folders.join('\n') + '\n');
     }
   } catch (err) {
-    process.stderr.write(`#5812: no project folders were added to the Gemini workspace (${err && err.message})\n`);
+    try { fs.writeSync(2, `#5812: no project folders were added to the Gemini workspace (${err && err.message})\n`); } catch { /* nowhere to say it */ }
   }
   process.exit(0);
 }
