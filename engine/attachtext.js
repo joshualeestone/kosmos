@@ -9,7 +9,7 @@
  *   xlsx  every sheet, in workbook order, under its name, as a table (formulas as their last saved values)
  *   docx  the body's paragraphs and tables, in order (headings marked, list items bulleted)
  *   pdf   the text of each page, with page breaks, from the reader below (Flate streams, object streams, the page tree,
- *         fonts with a ToUnicode map). Where its text does not read as text, a Mac asks macOS's own PDFKit, which knows
+ *         fonts with a ToUnicode map). Where its text does not read as text, or a font uses its own encoding or has no character map, a Mac asks macOS's own PDFKit, which knows
  *         more font encodings; the JS reader goes first because PDFKit can join a page's lines into one.
  * Every rendering starts by saying what it is, and says what could not be converted.
  *
@@ -747,6 +747,7 @@ function pdfTextJs(buf) {
   let content = 0;
   let cut = null;
   let ownEncoding = false;
+  let noMap = false;
   const total = sink();
   const ordered = pagesInOrder(objs);
   if (ordered.capped) cut = 'Only the first ' + MAX_PDF_PAGES + ' pages are converted.';
@@ -762,6 +763,9 @@ function pdfTextJs(buf) {
          would be wrong without looking wrong, so the text is marked as not to be trusted (a Mac then asks PDFKit). */
       const fd = (objs.get(Number(fm[2])) || {}).dict || '';
       if (/\/MacRomanEncoding|\/Differences|\/MacExpertEncoding/.test(fd) || (ref(fd, 'Encoding') != null && /\/Differences/.test((objs.get(ref(fd, 'Encoding')) || {}).dict || ''))) ownEncoding = true;
+      /* iteration 5: a two-byte (Type0 / Identity) font with no ToUnicode has glyph numbers, not characters: what the JS
+         reader makes of it is garbage that looks like text. A Mac asks PDFKit; elsewhere that text is not kept. */
+      if (/\/Subtype\s*\/Type0|\/Identity-/.test(fd)) noMap = true;
     }
     const contents = /\/Contents\s*\[([^\]]*)\]/.exec(o.dict);
     const nums = contents ? refs(contents[1]) : (ref(o.dict, 'Contents') != null ? [ref(o.dict, 'Contents')] : []);
@@ -781,7 +785,7 @@ function pdfTextJs(buf) {
     if (page.full || total.length >= MAX_OUT) { cut = (cut ? cut + ' ' : '') + 'The rendering stops at ' + MAX_OUT + ' characters; later pages are not included.'; break; }   // iteration 3
     if (cut) break;
   }
-  return { encrypted: false, pages, cut, undecodable: undecodable.n, ownEncoding };
+  return { encrypted: false, pages, cut, undecodable: undecodable.n, ownEncoding, noMap };
 }
 
 /* Whether extracted text reads as text: mostly letters, digits, spaces and ordinary punctuation, judged on a sample. */
@@ -797,7 +801,7 @@ function readable(pages) {
 /* Pages to a rendering, with the notes a reader needs. */
 function pdfFinish(pages, notes) {
   const empty = pages.filter((p) => !String(p).trim()).length;
-  if (notes.some((n) => /compression Kosmos cannot read/.test(n))) { /* said already */ } else if (!pages.length || empty === pages.length) notes.push('No text was found in this PDF. It may be scanned pages (pictures of text), which are not converted.');
+  if (notes.some((n) => /compression Kosmos cannot read|no character map/.test(n))) { /* said already */ } else if (!pages.length || empty === pages.length) notes.push('No text was found in this PDF. It may be scanned pages (pictures of text), which are not converted.');
   else if (empty) notes.push(empty + ' of its ' + pages.length + ' pages had no text (scanned pages or pictures are not converted).');
   notes.push('Pictures are not converted, and the layout of columns and tables may not be kept.');
   const out = sink();
@@ -805,22 +809,28 @@ function pdfFinish(pages, notes) {
   return { body: out.text(), notes, full: out.full };
 }
 
-/* The JS reader, then PDFKit (on a Mac) when its text does not read as text. pdfText runs both in the calling thread
+/* The JS reader, then PDFKit (on a Mac) when its text does not read as text, a font has its own encoding or no character
+   map, or the file is encrypted. pdfText runs both in the calling thread
    (tests); render runs the JS half in a worker and asks PDFKit from the main thread (pdfAfter). */
 async function pdfText(file, buf) {
   return pdfAfter(file, pdfTextJs(buf));
 }
 async function pdfAfter(file, js) {
   const notes = [];
-  if (js.encrypted) return { body: '', notes: ['This PDF is encrypted, so its text could not be read.'] };
+  /* iteration 5: an encrypted PDF that only restricts permissions opens without a password; PDFKit reads it on a Mac. */
+  const kit = async () => { await slot(); try { return await pdfkit(file); } finally { release(); } };
+  if (js.encrypted) {
+    const v = await kit();
+    if (v && v !== '\u0000locked' && v.replace(/\s+/g, '')) return pdfFinish(v.split('\n\f\n'), []);
+    return { body: '', notes: [v === '\u0000locked' ? 'This PDF is protected with a password, so its text could not be read.' : 'This PDF is encrypted, so its text could not be read.'] };
+  }
   let pages = js.pages;
   let cut = js.cut;
-  if (js.ownEncoding || !readable(pages)) {
-    await slot();   // iteration 3: PDFKit counts against the same two conversions at once
-    let viaKit;
-    try { viaKit = await pdfkit(file); } finally { release(); }
+  if (js.ownEncoding || js.noMap || !readable(pages)) {
+    const viaKit = await kit();   // iteration 3: PDFKit counts against the same two conversions at once
     if (viaKit === '\u0000locked') return { body: '', notes: ['This PDF is protected with a password, so its text could not be read.'] };
     if (viaKit && viaKit.replace(/\s+/g, '')) { pages = viaKit.split('\n\f\n'); cut = null; }   // PDFKit read the whole file
+    else if (js.noMap) { pages = pages.map(() => ''); notes.push('This PDF\u2019s fonts carry no character map (common in Chinese, Japanese and Korean documents), so its text could not be read here.'); }
     else if (pages.join('').trim()) notes.push(js.ownEncoding ? 'Some symbols and punctuation in this PDF may be wrong (its fonts use an encoding Kosmos reads only approximately).' : 'Some of this PDF’s text may not have converted cleanly (an unusual font encoding).');
     else if (js.undecodable) notes.push('This PDF uses a compression Kosmos cannot read, so its text could not be converted.');
   }
