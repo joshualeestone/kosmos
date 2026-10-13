@@ -34,7 +34,8 @@ function fnSource(name) {
   const end = SETUP.indexOf('\n}\n', at);
   return SETUP.slice(at + 1, end + 3);
 }
-const FNS = ['bundle_is_ours', 'shared_sealed_stays', 'sealed_opens_another', 'sealed_config_reaches', 'bundle_looks_sealed', 'sealed_serves_this_install', 'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'app_bundle_into'].map(fnSource).join('\n');
+// #5912 + #5913 merged: Angel's shared_sealed_stays/sealed_opens_another, and the reader shared_sealed_stays now calls.
+const FNS = ['file_owner_uid', 'bundle_is_ours', 'shared_sealed_stays', 'sealed_opens_another', 'sealed_icon_other_users', 'sealed_config_reaches', 'bundle_looks_sealed', 'sealed_serves_this_install', 'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'app_bundle_into'].map(fnSource).join('\n');
 
 let tmpRoot, SYS;   // SYS: the stand-in for the shared /Applications (setup.sh's SYS_APP_DIR)
 test.before(() => {
@@ -72,6 +73,9 @@ const REMOVE = 'SEALED_REQ="$(sealed_requirement)"; ';   // what uninstall() set
 
 function run(env, body) {
   env = { _SEALED_SRC_OK: '', _SEALED_REQ_RUN: '', _kosmos_home_default: '/nonexistent-default-home', ...env };   // #5912: setup.sh sets it at the top
+  // #5913 (merged): shared_sealed_stays asks sealed_icon_other_users, which reads SEALED_USERS_DIR (setup.sh sets it at
+  // the top too). An absent folder in this run's temp root means "no other account", so every #5912 arm keeps its meaning.
+  if (!('SEALED_USERS_DIR' in env)) env = { ...env, SEALED_USERS_DIR: path.join(tmpRoot, 'no-sealed-icon-users') };
   if (env.KOSMOS_HOME && !('INSTALL_CONFIG_DIR' in env)) env = { ...env, INSTALL_CONFIG_DIR: cfgFor(env.KOSMOS_HOME) };
   const script = ['set -u', 'build_app_bundle() { /bin/mkdir -p "$1/Contents"; : > "$1/Contents/BUILT"; }', FNS, body].join('\n');
   try {
@@ -136,8 +140,11 @@ it('#5896: a bundle that carries a per-install file is still judged by it, never
 test('#5896: uninstall checks for the shared sealed icon BEFORE the branch that removes it', () => {
   const at = SETUP.indexOf('if shared_sealed_stays "$SYS_APP_DIR/Kosmos.app" "$_board_label"; then');
   assert.notEqual(at, -1, 'the uninstall no longer asks whether the shared icon is the sealed one');
-  const rm = SETUP.indexOf('elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then', at);
-  assert.ok(rm > at && rm - at < 900, 'the sealed check is not directly before the removal branch');
+  // #5913 merge review 3: the 6-space indent is the removal branch; the uninstall note has an 8-space elif with the
+  // same text inside the kept-icon block, and an unindented anchor landed on that note instead.
+  const rm = SETUP.indexOf('\n      elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then', at);
+  // 1800: the kept branch now holds the #5912/#5913 note (three cases and their comments) before the removal elif.
+  assert.ok(rm > at && rm - at < 1800, 'the sealed check is not directly before the removal branch');
   const code = SETUP.slice(at, rm).split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');   // comments may say rm -rf
   assert.doesNotMatch(code, /rm -rf/, 'the sealed branch removes something');
 });
@@ -173,8 +180,10 @@ it('#5896: residue sweeps take this account\'s own sealed leftover; a sealed pro
   assert.doesNotMatch(SETUP, /BUNDLE_SEALED_OK/, 'a VAR=x prefix flag came back');
   // Another account's sealed bundle cannot be made here without root, so the ownership rule is pinned by its text.
   const fn = fnSource('bundle_is_ours');
-  assert.match(fn, /\[ "\$\(\/usr\/bin\/stat -f %u "\$1" 2>\/dev\/null\)" = "\$\(\/usr\/bin\/id -u\)" \] \|\| return 1/, 'the sealed proof no longer requires this account to own the bundle');
-  assert.ok(fn.indexOf('/usr/bin/stat -f %u') < fn.indexOf('bundle_is_sealed "$1"'), 'ownership is not checked before the signature');
+  // #5913: the owner comes from file_owner_uid, the one lookup (which a test can stand in for another account).
+  assert.match(fn, /\[ "\$\(file_owner_uid "\$1"\)" = "\$\(\/usr\/bin\/id -u\)" \] \|\| return 1/, 'the sealed proof no longer requires this account to own the bundle');
+  assert.ok(fn.indexOf('file_owner_uid "$1"') < fn.indexOf('bundle_is_sealed "$1"'), 'ownership is not checked before the signature');
+  assert.match(fnSource('file_owner_uid'), /\/usr\/bin\/stat -f %u "\$1"/, 'file_owner_uid no longer reads the owner from disk');
 });
 
 it('#5896: the sealed app is placed only where the app will read the config, judged for the icon\'s own folder', () => {
@@ -307,7 +316,7 @@ test('#5896: setup.sh ordering and mode invariants (text only, every platform)',
   assert.ok(sweeps.every((l) => l.includes(' anchored;')), 'a residue sweep does not say it is one');
   assert.doesNotMatch(SETUP, /BUNDLE_SEALED_OK/, 'a VAR=x prefix flag came back');
   const fn = fnSource('bundle_is_ours');
-  assert.ok(fn.indexOf('/usr/bin/stat -f %u') !== -1 && fn.indexOf('/usr/bin/stat -f %u') < fn.indexOf('bundle_is_sealed "$1"'), 'ownership is not checked before the signature');
+  assert.ok(fn.indexOf('file_owner_uid "$1"') !== -1 && fn.indexOf('file_owner_uid "$1"') < fn.indexOf('bundle_is_sealed "$1"'), 'ownership is not checked before the signature');   // #5913: the one owner lookup
   assert.ok(fn.indexOf('sealed_serves_this_install') < fn.indexOf('bundle_is_sealed "$1"'), 'the config is not checked before the signature');
   assert.match(SETUP, /bundle_is_ours "\$SYS_APP_DIR\/Kosmos\.app" own; then APP_OWN_SEALED=yes; fi/, 'the transcript line no longer asks in own mode');
   assert.match(SETUP, /elif bundle_is_ours "\$SYS_APP_DIR\/Kosmos\.app" own; then   # own:/, 'the stale-probe transcript check no longer asks in own mode');
@@ -392,6 +401,15 @@ it('#5912: shared_sealed_stays: removed unless the default install, still presen
   fs.mkdirSync(path.join(legacy, 'Contents', 'Resources'), { recursive: true });
   fs.writeFileSync(path.join(legacy, 'Contents', 'Resources', 'kosmos-install.json'), '{}');
   assert.match(run(env, `shared_sealed_stays "${legacy}" com.kosmos.board; echo "rc=$?"`).out, /rc=1/, 'a per-install icon was handled as a sealed one');
+  // #5913, wired as the second to land: another account's marker beside the icon keeps it, though this account would
+  // remove it; a folder holding only this account's own marker does not.
+  const users = fs.mkdtempSync(path.join(tmpRoot, 'sealed-users-'));
+  fs.chmodSync(users, 0o1777);
+  const me = String(process.getuid());
+  fs.writeFileSync(path.join(users, me), '');
+  assert.match(stays({ SEALED_USERS_DIR: users }), /rc=1/, 'CONTROL: only this account\'s own marker, the icon is removed');
+  fs.writeFileSync(path.join(users, '99999'), '');
+  assert.match(stays({ SEALED_USERS_DIR: users }), /rc=0/, 'another account\'s marker is there and the icon was removed anyway');
 });
 
 test('#5912: the uninstall asks shared_sealed_stays before the removal branch, with this install\'s board label', () => {
@@ -400,5 +418,5 @@ test('#5912: the uninstall asks shared_sealed_stays before the removal branch, w
   assert.notEqual(ask, -1, 'the uninstall no longer asks shared_sealed_stays');
   assert.notEqual(un.indexOf('_board_label=com.kosmos.board'), -1, 'the uninstall no longer sets _board_label');
   assert.ok(un.indexOf('_board_label=com.kosmos.board') < ask, '_board_label is set after it is used');
-  assert.ok(ask < un.indexOf('elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then'), 'the removal branch comes first');
+  assert.ok(ask < un.indexOf('\n      elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then'), 'the removal branch comes first');   // 6 spaces: not the note's elif
 });

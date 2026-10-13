@@ -1,7 +1,8 @@
 #!/bin/bash
 # #1716: [ -x "$p" ] succeeds on a DIRECTORY, so a directory named like a binary
 # reads as an installed program. Every executable test in the shipped installer
-# must guard the SAME path with -f. This test (1) demonstrates the class and
+# must guard the SAME path with -f (a folder search test is listed by name instead;
+# see section 2). This test (1) demonstrates the class and
 # (2) asserts no bare, unguarded [ -x "P" ] remains in the three installer files.
 #
 # Sibling #1616 is the same class for fs.existsSync in JavaScript; #1592 fixed
@@ -10,6 +11,10 @@ set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 FILES="install/kosmos install/setup.sh install/kosmos-report-hook.sh"
 fails=0
+# Every scratch file below lands in one folder, removed by an EXIT trap (a normal end, a failure or a TERM; a KILL cannot be trapped).
+_tmproot="$(mktemp -d)" || { echo "installer runnable-guard: could not make a scratch folder"; exit 1; }
+trap 'rm -rf "$_tmproot"' EXIT
+export TMPDIR="$_tmproot"
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails + 1)); }
 
@@ -53,7 +58,38 @@ rm -rf "$_td"
 #    on a code line (a trailing comment included) is flagged as a form the scan cannot judge: write it as
 #    [ -f P ] && [ -x P ]. The guard must itself be a command, so "echo [ -f P ] && [ -x P ]" is flagged.
 #    Any missing guard is a directory-accepting site. Red if any is added.
+#    NOT covered (a line scan of the bracket form only): `test -x P`, `[ P1 -a -x P ]`, `[  -x P ]` with two
+#    spaces, and an -f excuse placed behind || or in a comment (#5986).
+#
+#    #5913: a test of whether a FOLDER can be entered uses -x on purpose. A line scan cannot parse shell well
+#    enough to tell a safe folder test from an unsafe one (a || list, a heredoc or a comment on the line before,
+#    an unquoted variable, and more), so no shape is excused. Each folder test is listed by name below instead,
+#    and the scan of the installer requires each listed test to appear exactly once where it is listed.
+#    The listed line is trusted to gate its own -x with [ -d P ]: read it before listing it.
+#    To add one, append three lines to FOLDER_SEARCH_TESTS: the file (as in FILES), the code line before the
+#    test, and the test line itself, both trimmed of leading and trailing space. "The code line before" skips
+#    blank and comment-only lines; a trailing comment is part of a line, so editing either line, its comment
+#    included, reds this guard too. A line holding ' needs it written '\'' here. Only [ -x P ] can be listed:
+#    a negated [ ! -x P ] is never excused. A test with no code line before it in its file cannot be listed.
+FOLDER_SEARCH_TESTS="$(printf '%s\n' \
+  'install/setup.sh' \
+  'while [ ! -e "$a" ] && [ ! -L "$a" ] && [ "$a" != / ]; do a="$(/usr/bin/dirname "$a")"; done' \
+  '[ -d "$a" ] && [ -x "$a" ] || return 0   # a folder search test, listed in tools/test-installer-runnable-guard.sh' \
+  'install/setup.sh' \
+  'fi' \
+  '[ -d "$SEALED_USERS_DIR" ] && [ ! -L "$SEALED_USERS_DIR" ] && [ -r "$SEALED_USERS_DIR" ] && [ -x "$SEALED_USERS_DIR" ] || return 0')"
+export FOLDER_SEARCH_TESTS
+# With -v whole=1 (the installer scan), each listed test must be excused exactly once: a copy (a heredoc, a paste)
+# or a stale entry is reported. The controls that only count flags leave it off.
 _scan='
+# #5913 (merged onto the #5986 scanner): the folder search tests in the installer ([ -d P ] && [ -x P ], entering a folder,
+# not running a program) are excused BY NAME: FOLDER_SEARCH_TESTS lists each as its file, the exact code line before
+# it (comment and blank lines skipped) and its exact line. Anything else, including a listed line anywhere else, is
+# judged as before. With -v whole=1 (the installer scan) each listed test must be found exactly once.
+BEGIN {
+  n = split(ENVIRON["FOLDER_SEARCH_TESTS"], a, "\n")
+  for (i = 1; i + 2 <= n; i += 3) { key = a[i] "\n" a[i + 1] "\n" a[i + 2]; listed[key] = 1; seen[key] = 0 }
+}
 # skel: the line with every quoted string (and everything in it) replaced by X, same length. A backslash
 # outside single quotes escapes the next character, so an escaped quote opens nothing and \\ before a quote
 # does not escape it.
@@ -108,7 +144,7 @@ function scanline(full, cut, n, f,   s, t, u, off, at, len, p, g) {
     at = RSTART; len = RLENGTH   # reaches() calls match(), which resets RSTART and RLENGTH
     p = substr(s, at, len); sub(/^\[ -x /, "", p); sub(/ \]$/, "", p)
     g = "[ -f " p " ]"
-    if (!reaches(cut, lastat(cut, g, off + at), length(g), off + at, p, "&&", "||"))
+    if (!excused && !reaches(cut, lastat(cut, g, off + at), length(g), off + at, p, "&&", "||"))
       printf "%s:%d: bare [ -x %s ] (a directory passes)\n", f, n, p
     off += at + len - 1; s = substr(s, at + len)
   }
@@ -130,7 +166,17 @@ function scanline(full, cut, n, f,   s, t, u, off, at, len, p, g) {
 }
 FNR == 1 && buf != "" { scanline(buf, buf, bufn, buff); buf = "" }
 # A line that is only a comment runs nothing (and may sit inside a continued command).
+# #5913 (merge review): reset before the comment skip, which a file whose first line is #! would otherwise hide.
+FNR == 1 { prevcode = "" }
 /^[ \t]*#/ { next }
+# #5913: the key of this physical line (FILENAME, the code line before, this line trimmed); comment lines never get here.
+{
+  tl = $0; sub(/^[ \t]+/, "", tl); sub(/[ \t]+$/, "", tl)
+  key = FILENAME "\n" prevcode "\n" tl
+  excused = (key in listed)
+  if (excused) seen[key]++
+  if (tl != "") prevcode = tl
+}
 {
   full = $0; code = $0
   if (match(skel(code), /(^|[ \t])#/)) code = substr(code, 1, RSTART - 1)
@@ -145,13 +191,18 @@ FNR == 1 && buf != "" { scanline(buf, buf, bufn, buff); buf = "" }
   }
   if (buf != "") { scanline(full, code, bufn, buff); buf = "" } else scanline(full, code, FNR, FILENAME)
 }
-END { if (buf != "") scanline(buf, buf, bufn, buff) }'
+END {
+  if (buf != "") scanline(buf, buf, bufn, buff)
+  if (whole) for (key in seen) if (seen[key] != 1) {
+    split(key, k, "\n"); printf "%s: listed folder test found %d times, not once: %s\n", k[1], seen[key], k[3]
+  }
+}'
 for _f in $FILES; do [ -f "$HERE/$_f" ] || fail "installer file $_f is missing: the scan below would pass on nothing"; done
-bare="$(cd "$HERE" && awk "$_scan" $FILES 2>/dev/null)" || fail "the scan itself failed (awk exit $?), so a clean result below means nothing"
+bare="$(cd "$HERE" && awk -v whole=1 "$_scan" $FILES 2>/dev/null)" || fail "the scan itself failed (awk exit $?), so a clean result below means nothing"
 if [ -z "$bare" ]; then
-    pass "no unguarded executable test in the installer (positive or negated, quoted or unquoted)"
+    pass "no unguarded executable test in the installer (positive or negated, quoted or unquoted), and each listed folder test found once"
 else
-    fail "unguarded executable test site(s) remain:"
+    fail "unguarded executable test site(s) remain, or a listed folder test is not found exactly once:"
     printf '%s\n' "$bare" | sed 's/^/        /'
 fi
 
@@ -168,7 +219,75 @@ if [ "$_hits" -eq 2 ]; then pass "the scan flags both a planted unquoted [ -x ] 
 else fail "the scan missed a planted bare form (flagged $_hits of 2), so it is vacuous for some form"; fi
 rm -f "$_ctl"
 
-# 4. #5986: each shape the old same-line substring rule excused (or never looked at) is flagged, and the real
+# 4. #5913: each listed folder test is excused in its own file after its own line, once, and nothing else is.
+_nl=$(printf '%s\n' "$FOLDER_SEARCH_TESTS" | grep -c .)
+[ $((_nl % 3)) -eq 0 ] && [ "$_nl" -ge 3 ] && pass "the folder test list holds $((_nl / 3)) entries of three lines" || fail "the folder test list is not entries of three lines ($_nl lines)"
+_cdir="$(mktemp -d)"; mkdir -p "$_cdir/install"
+# rel <entry> <line within it>: one line of one list entry.
+rel() { printf '%s\n' "$FOLDER_SEARCH_TESTS" | sed -n "$((($1 - 1) * 3 + $2))p"; }
+# Each entry, written as it appears in its file (indented, a blank and a comment line between), in a scratch tree.
+for _e in $(seq 1 $((_nl / 3))); do
+  { printf '    %s\n\n    # a comment\n    %s\n' "$(rel "$_e" 2)" "$(rel "$_e" 3)"; } >> "$_cdir/$(rel "$_e" 1)"
+done
+_out="$(cd "$_cdir" && awk -v whole=1 "$_scan" $(printf '%s\n' "$FOLDER_SEARCH_TESTS" | awk 'NR % 3 == 1' | sort -u) 2>/dev/null)"; _awk_rc=$?
+if [ "$_awk_rc" -eq 0 ] && [ -z "$_out" ]; then pass "each listed folder test is excused once in its file after its listed line (a blank and a comment between)"
+else fail "a listed folder test was not excused as listed: $(printf '%s' "$_out" | head -1)"; fi
+# The same, with every listed test copied once more inside a heredoc: the copies are reported (found twice).
+for _e in $(seq 1 $((_nl / 3))); do
+  { printf 'cat <<X\n%s\n%s\nX\n' "$(rel "$_e" 2)" "$(rel "$_e" 3)"; } >> "$_cdir/$(rel "$_e" 1)"
+done
+_out="$(cd "$_cdir" && awk -v whole=1 "$_scan" $(printf '%s\n' "$FOLDER_SEARCH_TESTS" | awk 'NR % 3 == 1' | sort -u) 2>/dev/null)"
+if [ "$(printf '%s\n' "$_out" | grep -c 'found 2 times')" -eq "$((_nl / 3))" ]; then pass "a listed folder test copied a second time (in a heredoc) is reported, for every entry"
+else fail "a copied listed folder test was not reported: $_out"; fi
+# And with every listed file emptied: each entry is now stale and is reported (found 0 times).
+for _e in $(seq 1 $((_nl / 3))); do : > "$_cdir/$(rel "$_e" 1)"; done
+_out="$(cd "$_cdir" && awk -v whole=1 "$_scan" $(printf '%s\n' "$FOLDER_SEARCH_TESTS" | awk 'NR % 3 == 1' | sort -u) 2>/dev/null)"
+if [ "$(printf '%s\n' "$_out" | grep -c 'found 0 times')" -eq "$((_nl / 3))" ]; then pass "a listed folder test that is no longer in its file is reported (a stale entry), for every entry"
+else fail "a stale listed folder test was not reported: $_out"; fi
+rm -rf "$_cdir"
+# Every listed test after any other line, or alone, IN ITS OWN LISTED FILE (so only the line before differs), with its
+# own line but in another file, and every unlisted folder test, is flagged. flagged <file> <text>: scan <text> as <file>.
+_cdir="$(mktemp -d)"; mkdir -p "$_cdir/install"
+_n=0; _total=0
+flagged() {
+  _total=$((_total + 1)); printf '%s\n' "$2" > "$_cdir/$1"
+  if [ "$(cd "$_cdir" && awk "$_scan" "$1" 2>/dev/null | grep -c .)" -ge 1 ]; then _n=$((_n + 1))
+  else fail "this was not flagged as $1: $(printf '%s' "$2" | tr '\n' '/')"; fi
+}
+for _e in $(seq 1 $((_nl / 3))); do
+  _f="$(rel "$_e" 1)"; _t="$(rel "$_e" 3)"
+  flagged "$_f" "  true ||
+  $_t"
+  flagged "$_f" "  cat >f <<X ||
+body
+X
+  $_t"
+  flagged "$_f" "  [ -n \"\$F\" ] ||#c
+  $_t"
+  flagged "$_f" "  $_t"
+  flagged install/not-listed.sh "  $(rel "$_e" 2)
+  $_t"
+done
+_f="$(rel 1 1)"
+flagged "$_f" '  [ -d $P ] && [ -x $P ] || return 0'
+flagged "$_f" '  [ -d "$P" ] && [ -x "$P" ] || return 0'
+flagged "$_f" '  [ -d "$P" ] || [ -x "$P" ] && run "$P"'
+flagged "$_f" '  ! [ -d "$P" ] && [ -x "$P" ] && run "$P"'
+[ "$_n" -eq "$_total" ] && pass "in its own file, a listed test after any other line before it (the scan does not parse || or heredocs; only the exact line before counts) or alone is flagged; so is it in another file, and every unlisted folder test ($_total controls)"
+# The line before does not carry across files: the first file ends with a listed line-before, the second starts with
+# its listed test, and the test is flagged.
+# Both start with #! as the installer files do (merge review: a #! first line hid the reset when it sat below the
+# comment skip).
+printf '#!/bin/sh\n  %s\n' "$(rel 1 2)" > "$_cdir/install/a-first.sh"; printf '#!/bin/sh\n  %s\n' "$(rel 1 3)" > "$_cdir/$(rel 1 1)"
+if [ "$(cd "$_cdir" && awk "$_scan" install/a-first.sh "$(rel 1 1)" 2>/dev/null | grep -c .)" -ge 1 ]; then pass "the line before a listed test does not carry over from the previous file"
+else fail "a listed test at the top of a file was excused by the last line of the file before it"; fi
+rm -rf "$_cdir"
+# A negated [ ! -x P ] is never excused, even when listed: a scan with a list naming one still flags it.
+_ctl="$(mktemp)"; printf '  true\n  [ -d "$Q" ] && [ ! -x "$Q" ] || return 0\n' > "$_ctl"
+_neg_list="$(printf '%s\n' "$_ctl" 'true' '[ -d "$Q" ] && [ ! -x "$Q" ] || return 0')"
+if [ "$(FOLDER_SEARCH_TESTS="$_neg_list" awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -eq 1 ]; then pass "a listed negated [ ! -x ] is still flagged (only [ -x ] can be listed)"
+else fail "a listed negated [ ! -x ] was excused"; fi
+# 5. #5986: each shape the old same-line substring rule excused (or never looked at) is flagged, and the real
 #    shapes the installer uses are not. _old is the rule before #5986, kept here so every must-flag line is shown
 #    to pass it: a control that the old rule also fails would prove nothing about the change.
 _old='{ l=$0; s=l; while (match(s, /\[ -x ("[^"]+"|[^] ]+) \]/)) { p=substr(s,RSTART,RLENGTH); sub(/^\[ -x /,"",p); sub(/ \]$/,"",p); if (index(l,"[ -f " p " ]")==0) print "x"; s=substr(s,RSTART+RLENGTH) } t=l; while (match(t, /\[ ! -x ("[^"]+"|[^] ]+) \]/)) { p=substr(t,RSTART,RLENGTH); sub(/^\[ ! -x /,"",p); sub(/ \]$/,"",p); if (index(l,"[ ! -f " p " ]")==0) print "x"; t=substr(t,RSTART+RLENGTH) } }'
