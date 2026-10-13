@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: qwenui-5977
-diff_hash: 2a5c06eb68f1aa9aa7123abb94a43ce1712140968c86842d41b46ef396521b3e
+diff_hash: 456fc2dec832b8b75ceb9b1fce7b1436cd5b802a9ee6f1bbbdc0e8b31cd11fc0
 validation: passed
 timestamp: 2026-10-13T16:35:28Z
 iterations: 4
@@ -42,3 +42,5 @@ Severity tags appear only where a review commit recorded one.
 #### After validation
 - [WARNING] nine repo guards and pinned shapes the targeted sets never ran. Fixed (5a61d1d2b); full validation then
   passed at d83e244e6.
+- [WARNING] CI browser-checks: two checks still expected the page before Qwen went live (seven coming-soon tiles;
+  the intro ending at Grok). Updated. Re-hashed.
