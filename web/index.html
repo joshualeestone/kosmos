@@ -60298,10 +60298,12 @@ function pjKeepOpenFocus(box, paint) {
 function pjAlsoWhy(m) {
   if (m.restartFailed) return ['Kosmos restarted it, and it did not come back.', 'Open'];
   if (m.crashLoop && m.crashLoop.looping === true) return [PJ_NEEDS_WHY.crash_loop[0], 'Open'];
-  if (m.ownBound && m.ownBound.raised === true) return ['Kosmos tried to get it going and gave up. Open it to see.', 'Open'];   // #5154 slice B
   if (m.state === 'needs_you' && m.stateProject) return ['Waiting for your answer about another project.', 'Answer'];
   // Review 1: a needs-you naming no project (often read off its screen) is not known to be about another project.
   if (m.state === 'needs_you') return ['Waiting for you. It did not say which project.', 'Open'];
+  // #5154 slice B: AFTER the needs_you branches (precedence, parallel to stateReason): a Kosmos give-up only
+  // speaks for an agent that is not already asking the person its own question.
+  if (m.ownBound && m.ownBound.raised === true) return [PJ_NEEDS_WHY.own_bound[0], 'Open'];
   if (m.state === 'connection_lost') return [PJ_NEEDS_WHY.gave_up[0], 'Open'];
   if (m.state === 'needs_trust') return [PJ_NEEDS_WHY.trust[0], 'Open'];
   return [PJ_NEEDS_WHY.other[0], 'Open'];

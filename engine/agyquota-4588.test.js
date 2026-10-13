@@ -60,6 +60,32 @@ test('#4588: plan waits until the reset plus grace, then nudges, once per reset'
   assert.equal(q.plan({ found: false }, undefined, AT + 3600e3).act, 'none');
 });
 
+test('#5154-B: plan flags gaveUp only out of tries; the sweep fires `bound` for a given-up agent and `cleared` on recovery', () => {
+  // plan: gaveUp is set ONLY on the out-of-tries branch, not on the other 'none' outcomes.
+  assert.equal(q.plan(paused(), { until: RESET, tries: q.MAX_TRIES }, AT + 3600e3).gaveUp, true, 'out of tries -> gaveUp');
+  assert.ok(!q.plan(paused(), { until: RESET, nudgedAt: AT }, AT + 3600e3).gaveUp, 'already resumed is not a give-up');
+  assert.ok(!q.plan({ found: false }, undefined, AT + 3600e3).gaveUp, 'not paused is not a give-up');
+  assert.ok(!q.plan(paused(), undefined, AT + q.GRACE_MS).gaveUp, 'a due nudge is not a give-up');
+
+  // sweep: drive agy-a to give up (refused deliveries past MAX_TRIES), with a `bound` spy.
+  const w = world({ 'agy-a': paused() });
+  const bound = [];
+  const refuse = (s, text) => { w.sent.push({ s, text }); return { state: D.COULD_NOT }; };
+  for (let s = 0; s <= 20 * 60; s += 30) {
+    q.sweepOnce({ roster: w.roster, book: w.book, now: AT + q.GRACE_MS + s * 1000, readReport: w.readReport, deliver: refuse, DELIVERY: D, bound: (sess) => bound.push(sess) });
+  }
+  assert.ok(bound.includes('agy-a'), 'bound fires for the given-up agent once it is out of tries');
+  assert.ok(!bound.includes('agy-b'), 'bound never fires for an agent that did not give up');
+
+  // recovery: a later sweep where agy-a is no longer paused fires `cleared`, not `bound`.
+  const cleared = [];
+  const boundAfter = [];
+  q.sweepOnce({ roster: w.roster, book: w.book, now: AT + q.GRACE_MS + 25 * 60 * 1000, readReport: () => ({ found: false }),
+    deliver: w.deliver, DELIVERY: D, bound: (sess) => boundAfter.push(sess), cleared: (sess) => cleared.push(sess) });
+  assert.ok(cleared.includes('agy-a'), 'cleared fires when the agent is no longer paused on the quota');
+  assert.ok(!boundAfter.includes('agy-a'), 'and bound does not fire on the recovery sweep');
+});
+
 test('#4588: three agents paused on one reset are resumed one at a time, STAGGER_MS apart, and nobody else is touched', () => {
   const w = world({ 'agy-a': paused(), 'agy-b': paused(), 'agy-c': paused(), 'agy-free': { found: true, state: 'idle', by: 'auto', until: '' }, 'claude-x': paused() });
   const t0 = AT + q.GRACE_MS;

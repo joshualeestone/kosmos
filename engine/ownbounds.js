@@ -57,10 +57,13 @@ const CLASSES = Object.freeze(['quota', 'nudge', 'firstreply']);
 // are the chief risk (slice A/C), but here the conservatism lives in the helpers' MAX_TRIES, not a long clock.
 const GRACE_MS = 60 * 1000;
 
-// The staleness backstop (see the header): an episode not re-noted within this is treated as resolved. Set
-// above the slowest helper sweep (the idle nudge, ~15 min) by a wide margin so a still-giving-up agent is
-// always re-noted first; the explicit recovered() is the prompt clear, this only catches a left-the-view agent.
-const STALE_MS = 45 * 60 * 1000;
+// The staleness backstop (see the header): an episode not re-noted within this is treated as resolved. It MUST
+// exceed the slowest helper sweep interval, or a still-stuck agent goes stale BETWEEN re-notes and re-raises
+// (a duplicate push + a card that blinks off). The idle nudge runs at the heartbeat interval, whose MAX choice
+// is 60 min (engine/heartbeat-setting.js INTERVAL_CHOICES = [5,10,15,30,60]) -- NOT the 15 min default. So this
+// is 2 h: comfortably above a 60-min re-note gap with margin for a delayed sweep. The crisp clears (explicit
+// recovered() and the IDLE_ONLY mootness) handle the common recovery; this only backstops a left-the-view agent.
+const STALE_MS = 2 * 60 * 60 * 1000;
 
 // Classes that ONLY apply to an idle agent: the idle-nudge and the first-reply nudge both fire only while the
 // agent is idle (engine/agentnudge.js, firstreply-nudge.js gate on card.state idle). So the moment such an

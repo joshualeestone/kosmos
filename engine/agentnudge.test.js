@@ -89,6 +89,29 @@ test('fixture control: the real Prompter opens a stall for an idle agent (toAsk 
   } finally { w.restore(); }
 });
 
+test('#5154-B: plan flags gaveUp only out of tries; the sweep fires `bound` for a given-up agent', () => {
+  const w = world([{ name: 'gaveup' }]);
+  try {
+    taskOn(w, w.key.gaveup, 'write the notes');
+    const hb = stalled(w.cards);
+    const ask = hb.toAsk.find((x) => x.session === w.key.gaveup);
+    assert.ok(ask, 'fixture: the agent is in toAsk');
+    const card = w.cards.find((c) => c.sessionName === w.key.gaveup);
+    const parts = nudge.openParts(w.key.gaveup, projects.readAll());
+    const now = Date.now() + INTERVAL + 1000;
+    // plan: gaveUp only on the out-of-tries branch.
+    assert.equal(nudge.plan(card, parts, { nudgedAt: null, tries: nudge.MAX_TRIES }, now, INTERVAL, ask).gaveUp, true, 'out of tries -> gaveUp');
+    assert.ok(!nudge.plan(card, parts, undefined, now, INTERVAL, ask).gaveUp, 'a fresh nudge is not a give-up');
+    // sweep: a spent book entry fires `bound` for that session (the give-up would otherwise be invisible --
+    // the sweep `continue`s past a non-'nudge' plan).
+    const bound = [];
+    nudge.sweepOnce({ toAsk: hb.toAsk, next: hb.next, roster: w.cards, projects: projects.readAll(),
+      book: new Map([[w.key.gaveup, { nudgedAt: null, tries: nudge.MAX_TRIES }]]), sent: [], now, intervalMs: INTERVAL,
+      limit: { on: false }, deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY, bound: (s) => bound.push(s) });
+    assert.ok(bound.includes(w.key.gaveup), 'bound fires for the given-up agent');
+  } finally { w.restore(); }
+});
+
 test('an idle agent with an open task gets exactly one nudge naming it; one with nothing gets none', () => {
   const w = world([{ name: 'hastask' }, { name: 'notask' }]);
   try {

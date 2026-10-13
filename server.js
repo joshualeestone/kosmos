@@ -22748,6 +22748,7 @@ function start(port = PORT) {
           try { if (r.act === 'gave-up') ownbounds.note(r.session, 'quota', r.because); else if (r.act === 'nudge' && r.delivered) ownbounds.recovered(r.session, 'quota'); } catch { /* best-effort */ }
         },
         bound: (session, because) => { try { ownbounds.note(session, 'quota', because); } catch { /* best-effort */ } },   // #5154 slice B: periodic give-up signal, no stdout spam
+        cleared: (session) => { try { ownbounds.recovered(session, 'quota'); } catch { /* best-effort */ } },   // #5154 slice B: recovery when the agent is no longer paused on the quota (not idle-gated, so no cheap board mootness)
       });
       const agyQuotaSweep = setInterval(agyQuotaTick, Number(process.env.AGENT_WORKFORCE_AGY_QUOTA_RESUME_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_AGY_QUOTA_RESUME_MS) : 60 * 1000); // the env is the test seam only
       if (agyQuotaSweep && typeof agyQuotaSweep.unref === 'function') agyQuotaSweep.unref();
