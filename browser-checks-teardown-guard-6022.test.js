@@ -218,7 +218,8 @@ function scan(raw) {
   for (const r of src.matchAll(/\.route\(/g)) {
     if (read.has(r.index)) continue;
     const span = src.slice(r.index, routeEnd(blank, r.index));
-    if (/\.fetch\(/.test(span) || (/\bawait\b/.test(span) && /\.(fulfill|continue|fallback)\(/.test(span))) bad.push(src.slice(0, r.index).split('\n').length);
+    const cbAnswer = /(?:\bsetTimeout|\bsetInterval|\bsetImmediate|\bqueueMicrotask|\bnextTick|\.then|\.finally|\.catch)\s*\([^]*\.(fulfill|continue|fallback)\(/.test(span);
+    if (/\.fetch\(/.test(span) || cbAnswer || (/\bawait\b/.test(span) && /\.(fulfill|continue|fallback)\(/.test(span))) bad.push(src.slice(0, r.index).split('\n').length);
   }
   starts.forEach((h) => {
     const end = h.end;   // the ) that closes this .route( call (#6027), not the next .route(
@@ -228,7 +229,7 @@ function scan(raw) {
     // An await whose operand IS the answer (`await r.fulfill(`, `return await (x ? r.fulfill(`) does not delay it.
     // Only when the answer IS the await's operand: `await r.fulfill(` or `await (cond ? r.fulfill(` (review 1: not an
     // answer inside .then(, a callback, or after a comma).
-    const answerNext = new RegExp('^await\\s*(?:\\(\\s*[^;{}(),=>]*?\\?\\s*)?' + h.param + '\\.(fulfill|continue|fallback|abort)\\(');
+    const answerNext = new RegExp('^await\\s*(?:\\(\\s*[^;{}(),=>]*?\\?\\s*)?(?:' + h.param + '\\.(fulfill|continue|fallback|abort)|[A-Za-z_$][\\w$]*\\(\\s*' + h.param + '\\s*[,)])');
     // The ) that closes the call starting at `at`, and whether a .catch( follows it.
     const callClose = (at) => routeEnd(blank, at);
     const catchesAfter = (close) => /^\s*\.catch\(/.test(src.slice(close + 1, close + 40));
@@ -238,14 +239,14 @@ function scan(raw) {
       const stmt = rest.slice(0, rest.search(/[;{}]|$/) + 1);
       if (!answerNext.test(stmt)) { firstWait = w.index; break; }
       // The answer IS the operand, but an await inside its own arguments runs first, so the answer is late (review 2).
-      const call = h.body + w.index + rest.search(new RegExp(h.param + '\\.'));
+      const call = h.body + w.index + rest.search(new RegExp('\\b' + h.param + '\\.|\\b[A-Za-z_$][\\w$]*\\(\\s*' + h.param + '\\s*[,)]'));
       if (/\bawait\b/.test(src.slice(call, callClose(call)))) { firstWait = w.index; break; }
     }
     // An answer inside a scheduled or chained callback is late too, await or not (review 1, widened in review 2): an
     // outer try cannot catch a rejection from a callback, so the answer, or the callback's own call, must chain .catch,
     // or the answer must be awaited inside a try inside the callback.
     const cbAns = new RegExp('\\b' + h.param + '\\.(fulfill|continue|fallback|abort)\\(', 'g');
-    const CB = /(?:\bsetTimeout|\bsetInterval|\bsetImmediate|\bqueueMicrotask|\bprocess\.nextTick|\.then|\.finally)\s*\(/g;
+    const CB = /(?:\bsetTimeout|\bsetInterval|\bsetImmediate|\bqueueMicrotask|\bprocess\.nextTick|\.then|\.finally|\.catch)\s*\(/g;
     for (const a of body.matchAll(cbAns)) {
       const at = h.body + a.index;
       let lateCb = null;
@@ -256,7 +257,11 @@ function scan(raw) {
       }
       if (!lateCb) continue;
       const own = catchesAfter(callClose(at));
-      const outer = catchesAfter(lateCb.close);
+      // A .catch on the callback's chain sees the answer only when the callback RETURNS it (review 3): a concise arrow
+      // whose body starts with the answer, or `return [await] r.fulfill(` in a block.
+      const lead = src.slice(lateCb.open + 1, at);
+      const returned = /^\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>\s*\(?\s*$/.test(lead) || /\breturn\s+(?:await\s+)?$/.test(lead);
+      const outer = returned && catchesAfter(lateCb.close);
       const tried = insideOpenTry(src, lateCb.open, at) && awaited(src, at);
       if (!own && !outer && !tried) bad.push(src.slice(0, at).split('\n').length);
     }
@@ -266,6 +271,14 @@ function scan(raw) {
     const re = new RegExp('\\b' + h.param + '\\.(fetch|fulfill|continue|fallback|abort)\\(', 'g');
     re.lastIndex = h.body + first;
     let f;
+    // A call that hands the route to a helper (`answer(route, x)`) answers through it (review 3): the same rules.
+    const helper = new RegExp('\\b(?!' + h.param + '\\b)([A-Za-z_$][\\w$]*)\\(\\s*' + h.param + '\\s*[,)]', 'g');
+    helper.lastIndex = h.body + first;
+    let hf;
+    while ((hf = helper.exec(src)) && hf.index < end) {
+      if (catchesAfter(callClose(hf.index))) continue;
+      if (!insideOpenTry(src, h.at, hf.index) || !awaited(src, hf.index)) bad.push(src.slice(0, hf.index).split('\n').length);
+    }
     while ((f = re.exec(src)) && f.index < end) {
       const line = src.slice(0, f.index).split('\n').length;
       if (f[1] === 'abort') {
@@ -350,6 +363,18 @@ test('#6022 fixtures: the rule can fail, and the safe shapes pass (controls)', (
   assert.deepEqual(scan(triedInCb), [], 'an answer awaited in a try inside the callback is handled (#6027 review 2)');
   const deepArgs = "await page.route('**/x', async (r) => {\n  await gate;\n  await r.fulfill({ json: { a: f(g(h(i(1)))) } }).catch(() => {});\n});\n";
   assert.deepEqual(scan(deepArgs), [], 'a .catch after deeply nested arguments is found by paren matching (#6027 review 2)');
+  const helperAnswer = "await page.route('**/x', async (route) => {\n  await new Promise((r) => { held.push(r); });\n  await answer(route, {});\n});\n";
+  assert.deepEqual(scan(helperAnswer), [3], 'an answer through a helper after a wait is late (#6027 review 3)');
+  const helperImmediate = "await page.route('**/x', async (route) => {\n  await answer(route, {});\n});\n";
+  assert.deepEqual(scan(helperImmediate), [], 'a helper answer awaited with nothing before it is immediate');
+  const blockDrop = "await page.route('**/x', (r) => {\n  gate.then(() => { r.fulfill({}); }).catch(() => {});\n});\n";
+  assert.deepEqual(scan(blockDrop), [2], 'a block callback that drops the answer is not covered by the chain .catch (#6027 review 3)');
+  const voidDrop = "await page.route('**/x', (r) => {\n  gate.then(() => void r.fulfill({})).catch(() => {});\n});\n";
+  assert.deepEqual(scan(voidDrop), [2], 'a void answer is dropped, not returned (#6027 review 3)');
+  const catchFallback = "await page.route('**/x', (r) => {\n  gate.catch(() => r.fulfill({ status: 500 }));\n});\n";
+  assert.deepEqual(scan(catchFallback), [2], 'an answer in a .catch( callback is late too (#6027 review 3)');
+  const unreadTimer = "await page.route(/api\\/x{1,2}/, (r) => { setTimeout(() => r.fulfill({}), 1500); });\n";
+  assert.ok(scan(unreadTimer).length > 0, 'an unreadable route with a callback answer is flagged (#6027 review 3)');
   const fixtureOnly = "await page.route('**/api/x', (r) => r.fulfill({ json: {} }));\nconst x = await window.fetch('/a');\nawait browser.close();\n";
   assert.deepEqual(scan(fixtureOnly), [], 'a fixture-only handler and window.fetch are not flagged');
   const bareParam = "page.route('**/t', async route => {\n  const r = await route.fetch();\n  route.fulfill({ response: r });\n});\n";
