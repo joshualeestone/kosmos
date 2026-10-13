@@ -77,9 +77,13 @@ test('with jq, key order in the input does not change the signature', () => {
   assert.equal(a, b);
 });
 
-test('with jq, an is_interrupt key inside the tool input does not hide a real failure', () => {
-  assert.equal(run(fail('mcp__x__do', { is_interrupt: true }, 'boom')).failed.length, 1);
-});
+for (const [label, env] of [['with jq', {}], ['without jq', { KOSMOS_REPORT_HOOK_NO_JQ: '1' }]]) {
+  test('an is_interrupt key inside the tool input or the error does not hide a real failure (' + label + ')', () => {
+    assert.equal(run(fail('mcp__x__do', { is_interrupt: true }, 'boom'), env).failed.length, 1, 'in the input');
+    assert.equal(run(fail('Bash', { command: 'x' }, 'saw "is_interrupt": true in the log'), env).failed.length, 1, 'in the error');
+    assert.deepEqual(run(fail('mcp__x__do', { is_interrupt: false }, 'stop', { is_interrupt: true }), env, 0).failed, [], 'the real top-level key still wins');
+  });
+}
 
 test('with no runnable CLI the hook still exits 0 and sends nothing', () => {
   fs.writeFileSync(LOG, '');

@@ -481,7 +481,12 @@ case "$EVENT" in
     # The error line goes to the CLI on stdin, not in its arguments, where `ps` would show it.
     if [ -n "$KOSMOS" ]; then
       if [ -n "$JQ" ]; then TF_INTR=$(printf '%s' "$INPUT" | "$JQ" -r '.is_interrupt == true' 2>/dev/null)
-      elif printf '%s' "$INPUT" | grep -q '"is_interrupt"[[:space:]]*:[[:space:]]*true'; then TF_INTR=true; else TF_INTR=false; fi
+      # Without jq: the LAST unescaped "is_interrupt" key in the payload is the top-level one. Claude Code writes it after
+      # tool_input, and a key inside a string (the error) is escaped (\"), so it cannot match; an input key of that
+      # name comes earlier and is outvoted.
+      else
+        TF_INTR=$(printf '%s' "$INPUT" | grep -o '"is_interrupt"[[:space:]]*:[[:space:]]*[a-z]*' | tail -1 | sed 's/.*:[[:space:]]*//')
+      fi
       if [ "$TF_INTR" != true ]; then
         TF_TOOL=$(json_field '.tool_name' 'tool_name'); TF_TOOL="${TF_TOOL:-a tool}"
         # The sed fallback (no jq) returns the error still JSON-escaped, so its first line also ends at a literal \n.
