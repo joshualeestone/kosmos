@@ -186,7 +186,7 @@ function engineDir(here) {
 }
 
 /* The headers every POST to the board carries (the report and, #5812, the keep call). */
-function headersFor(env) {
+function headersFor(env, readBoardToken) {
 
   /* Present the launch token when we have one (the supervisor mints it per launch
      and puts it in the pane env). Same hex shape-test as the codex bridge: a
@@ -206,7 +206,7 @@ function headersFor(env) {
   /* #4491 slice 8: with KOSMOS_AGENT_TOKEN_ONLY exactly '1' and the agent's own token above, the report goes with that
      token alone and the board token is not read (POST /api/report takes the agent's token; the same switch slice 7 gives the two CLIs, on its own branch until it merges). */
   if (!(headers['x-kosmos-agent-token'] && env.KOSMOS_AGENT_TOKEN_ONLY === '1')) try {
-    const boardTok = require(require('node:path').join(engine, 'boardauth')).readToken();
+    const boardTok = readBoardToken ? readBoardToken() : require(require('node:path').join(engine, 'boardauth')).readToken();
     if (typeof boardTok === 'string' && boardTok) headers['x-kosmos-board-token'] = boardTok;
   } catch { /* a missed board token must never become a failed turn */ }
 
@@ -240,7 +240,7 @@ async function main(io) {
   /* #5812: a file about to be written. Nothing is printed: gemini runs the tool when the hook answers nothing. */
   const keep = keepRequestFor(event, o.platform);
   if (keep) {
-    await post(port, '/api/undo/keep', headersFor(env), JSON.stringify(keep), o.keepTimeoutMs || KEEP_TIMEOUT_MS, o.fetchImpl);
+    await post(port, '/api/undo/keep', headersFor(env, o.readBoardToken), JSON.stringify(keep), o.keepTimeoutMs || KEEP_TIMEOUT_MS, o.fetchImpl);
     return;
   }
 
@@ -248,7 +248,7 @@ async function main(io) {
   if (!mapped) return;
   const { state, text } = mapped;
   const body = JSON.stringify(buildBody(state, text, env));
-  await post(port, '/api/report', headersFor(env), body, TIMEOUT_MS, o.fetchImpl);
+  await post(port, '/api/report', headersFor(env, o.readBoardToken), body, TIMEOUT_MS, o.fetchImpl);
 }
 
 

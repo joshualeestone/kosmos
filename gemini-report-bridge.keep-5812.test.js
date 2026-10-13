@@ -23,7 +23,7 @@ async function run(evt, opts = {}) {
   process.stdout.write = (s, ...a) => { out.push(String(s)); return true; };
   try {
     await bridge.main({ input: JSON.stringify(evt), env: { KOSMOS_PORT: '16999', KOSMOS_AGENT_TOKEN: 'ab12', ...(opts.env || {}) },
-      fetchImpl: r.fetchImpl, platform: opts.platform || 'darwin', keepTimeoutMs: opts.keepTimeoutMs });
+      fetchImpl: r.fetchImpl, platform: opts.platform || 'darwin', keepTimeoutMs: opts.keepTimeoutMs, readBoardToken: () => 'BT5812' });
   } finally { process.stdout.write = orig; }
   return { calls: r.calls, stdout: out.join('') };
 }
@@ -51,6 +51,7 @@ test('it carries the agent token, the board-token rule and the world header the 
   assert.equal(k.init.headers['x-kosmos-agent-token'], 'ab12');
   const { WORLD_HEADER } = require('./engine/launchidentity');
   assert.ok(k.init.headers[WORLD_HEADER], 'the world header is sent');
+  assert.equal(k.init.headers['x-kosmos-board-token'], 'BT5812', 'control: without token-only the board token IS sent');
   const only = keeps((await run(before('write_file', { file_path: 'x' }), { env: { KOSMOS_AGENT_TOKEN_ONLY: '1' } })).calls)[0];
   assert.equal(only.init.headers['x-kosmos-board-token'], undefined, 'token-only: no board token');
 });
