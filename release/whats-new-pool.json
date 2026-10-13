@@ -303,7 +303,7 @@
     },
     {
       "title": "Decisions say how long they have waited",
-      "line": "A task under Needs Your Decision now says how long it has waited on you, such as \"Waiting on you for 12 days\".",
+      "line": "When an agent's question is waiting on you, its task under Needs Your Decision now says for how long, such as \"Waiting on you for 12 days\".",
       "icon": "tasks",
       "rank": 5,
       "since": "0.7.45",
@@ -311,7 +311,7 @@
     },
     {
       "title": "Agents not run in two weeks say so",
-      "line": "A stopped agent that has not run for 14 days or more says so on its card and points you to Remove on its page.",
+      "line": "An agent that is not running and has not run for 14 days or more says so on its card, and says where to remove it.",
       "icon": "list",
       "rank": 7.5,
       "since": "0.7.45",
