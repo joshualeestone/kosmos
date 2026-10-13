@@ -96,7 +96,11 @@ test('#5995: the card of an agent with no pane carries its profile, and not the 
   assert.equal(onDisk('winbox').idInstall, id, 'serving the card changed the stored profile');
 });
 
-test('#5995: only engine/store.js reads the record whole', () => {
+/* What this holds is the store's own exports, nothing wider. Other files open a profile file themselves and parse it
+   (doctrine, worldimport, remove, discover, feedbacksend, as of this change); each takes a few named fields or strips
+   identity, and none hands the record on. This test cannot see one of them starting to, nor the same helper exported
+   under another name. */
+test('#5995: the store exports no door to the whole record', () => {
   assert.equal(store.storedProfile, undefined, 'the whole record is exported, so anything can hand it on');
   assert.equal(store.withoutInstallId, undefined);
 });

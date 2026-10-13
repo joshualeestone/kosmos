@@ -700,10 +700,9 @@ function storedProfile(name) {
 }
 
 /* kosmos#5995: A PROFILE LEAVES THIS FILE WITHOUT THE INSTALL'S ID, on every door (readProfile, and what writeProfile
-   answers). The file keeps a copy of that id beside each agent's own (`idInstall`), and nothing outside this file reads
-   it. It used to ride along in every whole profile handed on, and whole profiles are served: in each agent's card, in a
-   stopped agent's row, in the answer to a profile save. Three exits were found one review at a time, so the rule is
-   here, where the record is read, and not at each place that serves one.
+   answers). The file keeps a copy of that id beside each agent's own (`idInstall`), and no engine or server
+   code outside this file reads that key. Whole profiles are served (in each agent's card, in a stopped agent's row, in the answer to a profile
+   save), so the rule is here, where the record is read, and not at each place that serves one.
    A copy, never the parsed object; a value that is not a record passes through as it is. */
 function withoutInstallId(profile) {
   if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return profile;

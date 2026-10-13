@@ -135,7 +135,7 @@ test('#170: the board carries this install\'s agent ids and refuses to speak ano
     "the board spoke another install's id, which names a different agent (#170's decided restore semantics)");
 
   /* kosmos#5995: the answer holds neither install's id anywhere. Both seeded agents are STOPPED, so these are the rows
-     server.js builds itself (not the cards engine/status.js makes), and each row carries its profile whole. */
+     server.js builds itself (not the cards engine/status.js makes), and each row carries its profile as the store hands it on. */
   assert.equal(homegrown.profile && homegrown.profile.role, 'PM', 'CONTROL: the stopped agent\'s row carries no profile, so the sweep below reads nothing');
   assert.equal(blowin.profile && blowin.profile.role, 'PM', 'CONTROL: the restored agent\'s row carries no profile');
   const served = JSON.stringify(status);

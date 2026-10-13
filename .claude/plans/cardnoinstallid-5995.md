@@ -107,3 +107,21 @@ never names it, which is the kind of caller that premise said would not be found
 - The source-sweep guards: 180 pass. Every `web*.test.js`: 2752 pass.
 - NOT run on the merged tree: the full suite (PR CI is that run), and any browser check.
 - The fsync test, the two sentences and the set entry are changes no reviewer had seen before review 5.
+
+## Review 5 (2026-10-12, default model), at 09561413c
+0 BLOCKER, 0 WARNING, 2 CONVENTION, 4 NIT. Two new convention findings, so not converged; review 6 counts from here.
+- **CONVENTION, taken:** a test titled "only engine/store.js reads the record whole" was not true of the tree: five
+  other files open a profile file and parse it themselves. The reviewer read each and none hands the record on. The
+  test is retitled to what it holds (the store exports no door to the whole record) and its comment names those
+  readers as outside what it can see.
+- **CONVENTION, taken at the merge:** this branch's commit subjects use a colon, and the repo's form is
+  `<branch> -- <message>`. The squash title is the one that lands and it uses that form.
+- **NIT, taken:** a test comment said a row carries its profile "whole" in the block asserting it does not.
+- **NIT, taken:** the store's comment carried review history; that is here, and the comment describes the code.
+- **NIT, not taken:** an assertion on the profile save route's answer over HTTP. The real-server test starts a board,
+  reads one answer and stops; a save through it is a second harness for one line the store test already holds at the
+  door the route answers from. Said under Verify as NOT driven.
+- **NIT, taken by recording it:** the search behind "Weakest premise" must be binary-safe on this machine (the default
+  grep skips a text file it takes for binary, and did so for `engine/worldimport.js`). The reviewer re-ran it with
+  `command grep -a -rn idInstall` over the tree less tests, plans and node_modules, and the claim holds: outside
+  `engine/store.js` the name is only in comments and in `tools/capture-agent-card.js`.
