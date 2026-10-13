@@ -1579,14 +1579,17 @@ DATA_SETS.marketing = {
      reading in the engine's own shapes (modelDisplayName's names; status.js measuredResult). State is untouched: the
      board's own Working / Question / Idle stay what the fleet seeds. */
   busy: {
-    cleo: { modelName: 'Claude Opus 5.5', tokens: 61000, ceiling: 200000, postedDaysAgo: 1 },
-    dana: { modelName: 'Claude Sonnet 5.5', tokens: 118000, ceiling: 200000, postedDaysAgo: 0 },
+    /* A Claude row names its model id: its limit and whether that limit is assumed come from the engine's own
+       limitFor (status.js), so the reading is the one a real card would carry. The other runners report a context
+       window of their own, so their rows carry it (not assumed). */
+    cleo: { model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', tokens: 305000, postedDaysAgo: 1 },
+    dana: { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', tokens: 590000, postedDaysAgo: 0 },
     eli: { modelName: 'GPT 5.2', runner: 'codex', tokens: 84000, ceiling: 400000, postedDaysAgo: 0 },
-    farah: { modelName: 'Claude Haiku 5.5', tokens: 22000, ceiling: 200000, postedDaysAgo: 3 },
-    maya: { modelName: 'Claude Sonnet 5.5', tokens: 97000, ceiling: 200000, postedDaysAgo: 0 },
+    farah: { model: 'claude-haiku-5-5', modelName: 'Claude Haiku 5.5', tokens: 110000, postedDaysAgo: 3 },
+    maya: { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', tokens: 485000, postedDaysAgo: 0 },
     theo: { modelName: 'Gemini 3 Pro', runner: 'gemini', tokens: 140000, ceiling: 1000000, postedDaysAgo: 2 },
-    iris: { modelName: 'Claude Opus 5.5', tokens: 133000, ceiling: 200000, postedDaysAgo: 1 },
-    ravi: { modelName: 'Meta Muse', runner: 'muse', tokens: 51000, ceiling: 400000, postedDaysAgo: 5 },   // the page's own word for a Muse agent (modelLine)
+    iris: { model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', tokens: 665000, postedDaysAgo: 1 },
+    ravi: { runner: 'muse', tokens: 51000, ceiling: 400000, postedDaysAgo: 5 },   // no name: modelLine says "Meta Muse"
   },
   commitments: {
     dana: 'Task 1 of Launch the spring catalogue: copy for pages 9 to 12, once the photos are in',
@@ -1597,13 +1600,19 @@ DATA_SETS.marketing = {
 /* #6051: give each card named in `busy` (by its claim) a model and a measured memory reading, in the shapes the engine
    itself produces (engine/status.js measuredResult), so the page renders them exactly as it would a running agent.
    Walks the whole status body for objects carrying a sessionName, in arrays or under keys, and patches each one. */
+const BUSY_SEEN = new Set();   // #6051: the busy claims a status read actually matched, checked when the run ends
 function busyCards(body, busy) {
   const patch = (c) => {
     const key = String(c.claim || String(c.sessionName || '').replace(/-discord$/, '')).toLowerCase();
     const b = busy[key];
     if (!b) return;
-    const percent = Math.min(100, Math.round((b.tokens / b.ceiling) * 100));   // measuredResult's clamp
-    c.modelName = b.modelName;
+    const lim = b.model ? require(path.join(REPO, 'engine', 'status')).limitFor(b.model) : null;
+    const ceiling = lim ? lim.limit : b.ceiling;
+    const assumed = lim ? lim.assumed : false;
+    const raw = Math.round((b.tokens / ceiling) * 100);   // measuredResult's arithmetic: clamp the percent, flag the excess
+    const percent = Math.min(100, raw);
+    BUSY_SEEN.add(key);
+    if (b.modelName) c.modelName = b.modelName;
     if (b.runner) c.runner = b.runner;   // modelLine names a codex agent's model without the Claude prefix
     if (Number.isInteger(b.postedDaysAgo) && c.communityOn !== false) {
       // The server's own wording for the card's community line (server.js, lastCommunityPost).
@@ -1611,8 +1620,9 @@ function busyCards(body, busy) {
       c.lastCommunityPost = 'Last community post: ' + (d <= 0 ? 'today' : d === 1 ? 'yesterday' : d + ' days ago');
       c.lastCommunityPostAt = new Date(Date.now() - d * 86400000).toISOString();
     }
-    c.context = { tokens: b.tokens, percent, overCeiling: false, notYet: false, ceiling: b.ceiling, ceilingAssumed: false,
-      confidence: 'structured', because: 'measured, against a limit we have watched it hit' };
+    c.context = { tokens: b.tokens, percent, overCeiling: raw > 100, notYet: false, ceiling, ceilingAssumed: assumed,
+      confidence: 'structured',
+      because: assumed ? 'measured, against a limit we have assumed rather than watched' : 'measured, against a limit we have watched it hit' };
   };
   const walk = (v) => {
     if (Array.isArray(v)) { for (const x of v) walk(x); return; }
@@ -2146,6 +2156,7 @@ async function run() {
     const claims = DATA.agents.map((a) => a.claim).sort().join(',');
     const keys = Object.keys(DATA.busy).sort().join(',');
     if (claims !== keys) throw new Error('--data ' + args.data + ': the busy table names ' + keys + ' but the agents are ' + claims);
+    if (!DATA.connected) throw new Error('--data ' + args.data + ': a busy table is applied in the connected status rewrite, so it needs connected: true');
   }
   FACES_DIR = args.faces ? path.resolve(args.faces) : null;
   if (FACES_DIR && !(fs.existsSync(FACES_DIR) && fs.statSync(FACES_DIR).isDirectory())) throw new Error('--faces ' + FACES_DIR + ' is not a folder');
@@ -2315,6 +2326,9 @@ async function run() {
   console.log(`\n${rows.length} shots, ${overflowCount} with overflow, ${errors} errors, ${skipped.length} skipped -> ${out}`);
   /* tools/browser-checks.sh quotes a red's reason from lines starting FAIL. */
   if (errors) { console.error(`FAIL  mobile-shots: ${errors} shot(s) could not be taken; see the ERROR lines above`); return 2; }
+  /* #6051: a busy agent no status read ever matched would have shot as "Not yet read" without a word: fail instead. */
+  const unmatched = DATA.busy && rows.some((r) => !r.skipped) ? Object.keys(DATA.busy).filter((k) => !BUSY_SEEN.has(k)) : [];
+  if (unmatched.length) { console.error('FAIL  mobile-shots: the busy table never reached ' + unmatched.join(', ') + ' (no status card matched); those cards shot as unread'); return 2; }
   if (args.strict && overflowCount) { console.error(`FAIL  mobile-shots: ${overflowCount} shot(s) overflow sideways; see the FLAG lines above`); return 1; }
   return 0;
 }
