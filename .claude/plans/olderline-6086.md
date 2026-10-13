@@ -143,7 +143,7 @@ browser run measures it, and its trailer is added only after it has passed. Unti
 red on that gate, on purpose.
 
 ## Run at the final code head (2026-10-13, 15:59 and 16:00 CDT, at c847bc9eb), in a real browser
-- This branch's own check, with review 3's change in it: exit 0, 43 arms passed, 0 failed. The failure still stands
+- This branch's own check, with review 3's change in it: exit 0, 42 arms passed, 0 failed. The failure still stands
   when the reader scrolls to the newest message, and neither it nor the thread moved with the scroll.
 - `render-talk-fill-2622.js` (the conversation box filling its height, which the new wrapper sits inside): exit 0,
   59 arms passed, 0 failed. Its trailer is on an empty commit after this one.
