@@ -1564,12 +1564,42 @@ DATA_SETS.marketing = {
   /* The work spread across the team, and each agent's own report of what it is on (engine/commitments, the record an
      agent writes), so a task card says who is doing it instead of "has not reported what it is working on yet". */
   tasks: [['Draft the product copy for every page', 'dana'], ['Check the prices against the spreadsheet', 'eli'], ['Book the photographer', 'cleo']],
+  /* #6051 (Josh 10-13: "let's not show this as a bunch of agents we can't read. It should be mocked up to look full and
+     working."): the sandbox agents have never run, so every card read "Not yet read" with its model squeezed to "Cla...".
+     In the PAGE only (the same /api/status rewrite as `connected`), each agent gets a model and a measured memory
+     reading in the engine's own shapes (modelDisplayName's names; status.js measuredResult). State is untouched: the
+     board's own Working / Question / Idle stay what the fleet seeds. */
+  busy: {
+    cleo: { modelName: 'Claude Opus 5.5', tokens: 61000, ceiling: 200000 },
+    dana: { modelName: 'Claude Sonnet 5.5', tokens: 118000, ceiling: 200000 },
+    eli: { modelName: 'GPT 5.2', tokens: 84000, ceiling: 400000 },
+    farah: { modelName: 'Claude Haiku 5.5', tokens: 22000, ceiling: 200000 },
+  },
   commitments: {
     dana: 'Task 1 of Launch the spring catalogue: copy for pages 9 to 12, once the photos are in',
     eli: 'Task 2 of Launch the spring catalogue: checking the linen prices against the March sheet',
     cleo: 'Task 3 of Launch the spring catalogue: booking the photographer for Thursday',
   },
 };
+/* #6051: give each card named in `busy` (by its claim) a model and a measured memory reading, in the shapes the engine
+   itself produces (engine/status.js measuredResult), so the page renders them exactly as it would a running agent.
+   Walks the whole status body for objects carrying a sessionName, so it does not depend on which key holds the cards. */
+function busyCards(body, busy) {
+  const patch = (c) => {
+    const key = String(c.claim || String(c.sessionName || '').replace(/-discord$/, '')).toLowerCase();
+    const b = busy[key];
+    if (!b) return;
+    const percent = Math.round((b.tokens / b.ceiling) * 100);
+    c.modelName = b.modelName;
+    c.context = { tokens: b.tokens, percent, overCeiling: false, notYet: false, ceiling: b.ceiling, ceilingAssumed: false,
+      confidence: 'structured', because: 'measured, against a limit we have watched it hit' };
+  };
+  const walk = (v) => {
+    if (Array.isArray(v)) { for (const x of v) { if (x && typeof x === 'object' && 'sessionName' in x) patch(x); else walk(x); } }
+    else if (v && typeof v === 'object') { for (const x of Object.values(v)) walk(x); }
+  };
+  walk(body);
+}
 let FACES_DIR = null;   // --faces: pictures for the seeded agents and the person
 /* #5782 review: an agent's report is a claim stamped when it is made, and the board calls it stale after 30 minutes
    (engine/commitments.js STALE_AFTER_MS). A long sweep or a --keep board would then show "last reported N minutes ago"
@@ -2138,6 +2168,7 @@ async function run() {
                     const body = await res.json().catch(() => null);
                     if (!body || typeof body !== 'object') return await r.fulfill({ response: res });
                     body.connection = { ...(body.connection || {}), state: 'connected' };
+                    if (DATA.busy) busyCards(body, DATA.busy);   // #6051: page only, like `connected`
                     return await r.fulfill({ response: res, json: body });
                   } catch { await r.abort().catch(() => {}); }
                 });
