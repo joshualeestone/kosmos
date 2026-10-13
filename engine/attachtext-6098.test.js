@@ -208,9 +208,11 @@ test('#6098: a damaged office file still gets a rendering that says it could not
   assert.match(fs.readFileSync(out, 'utf8'), /could not read this file as xlsx/);
 });
 
-test('#6098: an upload named text.txt cannot overwrite the rendering', () => {
+test('#6098: a person\'s own text.txt keeps its name (the rendering is only ever written beside an office file, in its own folder)', async () => {
   const rec = attachments.save('project', 'p6098', { name: 'text.txt', type: 'text/plain', bytes: Buffer.from('mine') });
-  assert.notEqual(path.basename(rec.file), 'text.txt');
+  assert.equal(path.basename(rec.file), 'text.txt');
+  assert.equal(await at.render(rec), null, 'a text file is never rendered, so nothing is written over it');
+  assert.equal(fs.readFileSync(rec.file, 'utf8'), 'mine');
 });
 
 /* #4598's rule for a reader of a person's file: linear, so a crafted file cannot freeze the board's only thread. */
@@ -225,4 +227,90 @@ test('#6098 growth: many stream objects with no endstream read in linear time', 
   const t = Date.now();
   at.pdfTextJs(buf);
   assert.ok(Date.now() - t < 2000, 'took ' + (Date.now() - t) + ' ms');
+});
+
+/* ── review 1 (each finding pinned; the growth arms use shapes measured slow before the fix) ── */
+const timed = (fn) => { const t = Date.now(); fn(); return Date.now() - t; };
+const docxOf = (body) => buildZip([entry('word/document.xml', XML + '<w:document xmlns:w="w"><w:body>' + body + '</w:body></w:document>')]);
+
+test('#6098 review 1 (B1): a long manuscript and a crafted run of empty paragraphs read in linear time', () => {
+  const long = Array.from({ length: 20000 }, (_, i) => '<w:p><w:r><w:t>Paragraph ' + i + ' of a long manuscript, with some ordinary words in it.</w:t></w:r></w:p>').join('');
+  assert.ok(timed(() => at.docxText(docxOf(long))) < 3000, '20,000 paragraphs took 17.7 s before');
+  assert.ok(timed(() => at.docxText(docxOf('<w:p/>'.repeat(200000)))) < 3000, '200,000 empty paragraphs took 121 s before');
+  assert.ok(timed(() => at.docxText(docxOf('<w:tbl><w:tr><w:tc><w:p><w:r><w:t>x</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'.repeat(20000)))) < 3000, 'tables with no paragraphs between');
+});
+
+test('#6098 review 1 (W4): a nested table, a text box and AlternateContent read right', () => {
+  const nested = '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>A1</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>inner</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:tc>'
+    + '<w:tc><w:p><w:r><w:t>B1</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>A2</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>B2</w:t></w:r></w:p></w:tc></w:tr></w:tbl>';
+  const box = '<w:p><w:r><w:t xml:space="preserve">Before box </w:t></w:r><w:r><mc:AlternateContent><mc:Choice><w:txbxContent><w:p><w:r><w:t>in box</w:t></w:r></w:p></w:txbxContent></mc:Choice>'
+    + '<mc:Fallback><w:txbxContent><w:p><w:r><w:t>in box</w:t></w:r></w:p></w:txbxContent></mc:Fallback></mc:AlternateContent></w:r><w:r><w:t xml:space="preserve"> after box.</w:t></w:r></w:p>';
+  const { body } = at.docxText(docxOf(nested + box));
+  const lines = body.split('\n');
+  assert.equal(lines[0], '| A1 inner | B1 |', body);
+  assert.equal(lines[2], '| A2 | B2 |', body);
+  assert.equal(lines[3], 'Before box in box after box.', 'the text box stays in its paragraph, once, and the rest of the paragraph is kept');
+});
+
+test('#6098 review 1 (B2): one huge shared string repeated in every cell is capped as it is built, quickly', () => {
+  const big = 'x'.repeat(1024 * 1024);
+  const row = (r) => '<row r="' + r + '">' + Array.from({ length: 256 }, (_, c) => '<c t="s"><v>0</v></c>').join('') + '</row>';
+  const book = buildZip([
+    entry('xl/workbook.xml', XML + '<workbook xmlns:r="r"><sheets><sheet name="S" r:id="rId1"/></sheets></workbook>'),
+    entry('xl/_rels/workbook.xml.rels', XML + '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
+    entry('xl/sharedStrings.xml', XML + '<sst><si><t>' + big + '</t></si></sst>'),
+    entry('xl/worksheets/sheet1.xml', XML + '<worksheet><sheetData>' + Array.from({ length: 40 }, (_, r) => row(r + 1)).join('') + '</sheetData></worksheet>'),
+  ]);
+  let got;
+  assert.ok(timed(() => { got = at.xlsxText(book); }) < 5000);
+  assert.ok(got.body.length <= at.MAX_OUT, 'never more than the cap');
+  assert.equal(got.full, true, 'and it says it stopped');
+});
+
+test('#6098 review 1 (B3, B4, B5): crafted PDF number runs, CMap brackets and huge ranges are linear and bounded', () => {
+  assert.ok(timed(() => at.pdfTextJs(Buffer.from('%PDF-1.4\n' + '1'.repeat(80000) + ' 0 obj\n<<>>\nendobj\n', 'latin1'))) < 2000, '80k digits took 2.4 s before');
+  assert.ok(timed(() => at.parseCmap('beginbfrange\n' + '<00><01>['.repeat(80000) + '\nendbfrange')) < 2000, 'took 37 s before');
+  let m;
+  assert.ok(timed(() => { m = at.parseCmap('beginbfrange\n' + '<0000><FFFF><0041>\n'.repeat(2000) + 'endbfrange'); }) < 3000);
+  assert.ok(m.map.size <= 200000, 'the entries are capped');
+  assert.equal(at.parseCmap('beginbfchar <0102030405060708> <0041> endbfchar').codeLen, 4, 'a code is at most 4 bytes');
+});
+
+test('#6098 review 1 (B6): a content stream shared by many pages is charged each time, and the output is capped', () => {
+  const content = 'BT /F1 12 Tf ' + '(' + 'word '.repeat(50) + ') Tj T* '.repeat(1) + ET_REPEAT() + ' ET';
+  function ET_REPEAT() { return Array.from({ length: 4000 }, () => '(' + 'word '.repeat(50) + ') Tj T*').join(' '); }
+  const objs = [[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [' + Array.from({ length: 300 }, (_, i) => (10 + i) + ' 0 R').join(' ') + '] /Count 300 >>'], [3, streamObj('', content)]];
+  for (let i = 0; i < 300; i += 1) objs.push([10 + i, '<< /Type /Page /Parent 2 0 R /Contents [3 0 R 3 0 R] >>']);
+  const buf = pdf(objs);
+  let got;
+  assert.ok(timed(() => { got = at.pdfTextJs(buf); }) < 8000);
+  assert.ok(got.pages.join('').length <= at.MAX_OUT, 'the text never passes the cap, across all pages');
+  assert.ok(got.cut, 'and says it stopped');
+});
+
+test('#6098 review 1 (W1): a stream whose /Length is an indirect object numbered 10 or more still reads', async () => {
+  const z = zlib.deflateSync(Buffer.from('BT /F1 12 Tf (Hello world) Tj ET', 'latin1'));
+  const s = Buffer.concat([Buffer.from('<< /Filter /FlateDecode /Length 12 0 R >>\nstream\n', 'latin1'), z, Buffer.from('\nendstream', 'latin1')]);
+  const buf = pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'], [3, '<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>'], [4, s], [12, String(z.length)]]);
+  assert.deepEqual(at.pdfTextJs(buf).pages, ['Hello world']);
+});
+
+test('#6098 review 1 (W2, N4): a TJ array of more than 64 items keeps its text; runs on one line placed by Tm keep a space', () => {
+  const items = Array.from({ length: 80 }, (_, i) => '(' + String.fromCharCode(97 + (i % 26)) + ') -10').join(' ');
+  const buf = pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'], [3, '<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>'],
+    [4, streamObj('', 'BT 1 0 0 1 72 700 Tm /F1 12 Tf [' + items + '] TJ ET BT 1 0 0 1 72 600 Tm (Hello) Tj 1 0 0 1 120 600 Tm (world) Tj ET')]]);   // real text is always placed
+  const [page] = at.pdfTextJs(buf).pages;
+  assert.equal(page.split('\n')[0].replace(/\s/g, '').length, 80, 'all 80 items: ' + page);
+  assert.ok(/Hello world/.test(page), 'two runs on one line: ' + page);
+});
+
+test('#6098 review 1 (W3): a large Flate image before the text does not use up the budget', () => {
+  const img = zlib.deflateSync(Buffer.alloc(70 * 1024 * 1024));   // 70 MB of pixels, over the 64 MB budget
+  const imgObj = Buffer.concat([Buffer.from('<< /Type /XObject /Subtype /Image /Filter /FlateDecode /Length ' + img.length + ' >>\nstream\n', 'latin1'), img, Buffer.from('\nendstream', 'latin1')]);
+  const buf = pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'], [5, imgObj], [3, '<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>'], [4, streamObj('', 'BT /F1 12 Tf (After the picture) Tj ET')]]);
+  assert.deepEqual(at.pdfTextJs(buf).pages, ['After the picture']);
+});
+
+test('#6098 review 1 (N3): a damaged document is described in its own words, not a spreadsheet\'s', () => {
+  assert.throws(() => at.docxText(Buffer.from('not a zip')), (e) => /document/.test(e.message) && !/spreadsheet|people/.test(e.message));
 });

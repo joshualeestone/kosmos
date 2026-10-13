@@ -65,7 +65,7 @@ function kindOf(type, name) {
     than code units so a surrogate pair is never halved, and never one of the
     two names this module writes beside the file. A leading `-` is kept: the
     renderer is always handed the absolute path, never the bare name. */
-const RESERVED = new Set(['record.json', 'preview.png', 'text.txt']);   // text.txt: #6098's rendering
+const RESERVED = new Set(['record.json', 'preview.png']);
 function safeName(name) {
   let n = String(name || '').replace(/[/\\\0]/g, '_').replace(/[\u0000-\u001f\u007f]/g, '').replace(/^\.+/, '').trim();
   n = Array.from(n).slice(0, 160).join('');
