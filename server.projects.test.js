@@ -970,25 +970,6 @@ test('an agent the person removed does not appear on a project row', async () =>
 const chat = require('./engine/chat');
 
 /**
- * Seed a long thread through the ENGINE, without its per-append disk flush.
- *
- * #5434 slice 18 made every appendMessage rewrite the thread through
- * store.saveFlushed (the file and its folder flushed before and after the
- * rename). Measured on this Mac: about 10 ms an append flushed, 0.5 ms not.
- * One flush per message a person sends is the intended cost, but a test that
- * appends 205 in a synchronous loop blocks the board in this same process for
- * seconds, longer on CI's disk, and the next request met a socket the board
- * had already dropped (ECONNRESET, PR #5751). The rows are still produced by
- * appendMessage, so the fixture keeps the producer's shape; only the flush,
- * which these bounding tests do not test, is skipped while seeding.
- */
-function seedUnflushed(fn) {
-  const real = fs.fsyncSync;
-  fs.fsyncSync = () => {};
-  try { fn(); } finally { fs.fsyncSync = real; }
-}
-
-/**
  * Arm the chat seam with a scripted tmux, and hand back what was called.
  *
  * ⚠️ THE JUST-BEFORE-SENDING PROBE IS ANSWERED SEPARATELY, and healthy by
@@ -1972,8 +1953,9 @@ test('the thread GET returns a bounded tail with the older count stated, never t
   reset();
   await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
     const chat = require('./engine/chat');
-    /* #6059: one write after the first append, not 205 appends: those held the loop past the server's 5 s keep-alive
-       on CI (ECONNRESET). The rows are the engine's own first row with only the text and time changed. */
+    /* #6059: one write after the first append, not 205 appends: that loop between two requests is the gap every CI
+       ECONNRESET of this kind shares (test-support/thread-fixture.js). The rows are the engine's own first row with
+       only the text and time changed. */
     const seeded = appendMany(chat, project.id, 'zeta', Array.from({ length: 205 }, (_, i) => ({
       text: 'row ' + i, delivery: { state: chat.DELIVERY.PLACED },
     })), project.createdAt);
@@ -2500,7 +2482,7 @@ test('the thread is bounded, and the page is told how many it is not showing', a
     // Written through the ENGINE, so the fixture cannot hold a shape the
     // producer does not make: the first row is appendMessage's, and the rest
     // copy it with only the text and time changed (#6059: 205 appends here
-    // held the loop past the server's 5 s keep-alive on CI, ECONNRESET).
+    // were the gap before this test's ECONNRESET on CI, PR #6079).
     const seeded = appendMany(chat, chat.DIRECT, 'zeta', many);
     assert.equal(seeded.via, 'one write', 'fixture: the fast seed fell back to 205 appends');
     const body = json(await req('/api/agent/zeta/thread'));
