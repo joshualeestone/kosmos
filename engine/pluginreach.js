@@ -157,21 +157,25 @@ function _idsFromJson(fsDep, file, pick) {
 function _enabledPluginIds(obj) {
   const e = obj && obj.enabledPlugins;
   if (Array.isArray(e)) return e;
-  if (e && typeof e === 'object') return Object.keys(e);
+  // An object maps plugin id -> enabled bool; ONLY an enabled (truthy) entry loads tools, so a `false`
+  // value is a plugin the person turned OFF and must not count as "added" (kosmos#5309: it is a false notice).
+  if (e && typeof e === 'object') return Object.keys(e).filter((k) => e[k]);
   return [];
 }
 
-// mcpServers names from a .claude.json: top-level + every project's own mcpServers map.
-function _mcpServerNames(obj) {
+// mcpServers names from a .claude.json: top-level ALWAYS, plus the per-project map keyed EXACTLY by this
+// agent's own working folder (kosmos#5309, Liu Kang's ruling). A per-project server applies only to the
+// folder it was added from, so one added in another repo was never this agent's to use -- counting it is
+// the false warning. The caller passes agentFolder already canonicalized the way Claude Code keys projects
+// (exact match, no prefix/ancestor); a null/unknown agentFolder falls back to top-level only (safe, missed).
+function _mcpServerNames(obj, agentFolder) {
   const names = [];
   const top = obj && obj.mcpServers;
   if (top && typeof top === 'object' && !Array.isArray(top)) names.push(...Object.keys(top));
   const projects = obj && obj.projects;
-  if (projects && typeof projects === 'object' && !Array.isArray(projects)) {
-    for (const proj of Object.values(projects)) {
-      const m = proj && proj.mcpServers;
-      if (m && typeof m === 'object' && !Array.isArray(m)) names.push(...Object.keys(m));
-    }
+  if (agentFolder && projects && typeof projects === 'object' && !Array.isArray(projects)) {
+    const m = projects[agentFolder] && projects[agentFolder].mcpServers;
+    if (m && typeof m === 'object' && !Array.isArray(m)) names.push(...Object.keys(m));
   }
   return names;
 }
@@ -180,17 +184,21 @@ function _mcpServerNames(obj) {
  * The enabled-plugin + MCP-server id set for one Claude home, cached by the mtimes of its two files.
  * `settingsPath` is <dir>/settings.json. `claudeJsonPath` is the home's .claude.json -- which the CALLER
  * locates, because it differs: at the HOME ROOT (~/.claude.json) for the default home, INSIDE the config
- * dir (<CLAUDE_CONFIG_DIR>/.claude.json) for a non-default account (per the plugin-location rule). Returns
- * { ids: Set<string>, readable: bool }; readable is false if EITHER file errored unreadably (-> UNKNOWN).
+ * dir (<CLAUDE_CONFIG_DIR>/.claude.json) for a non-default account (per the plugin-location rule).
+ * `agentFolder` is this agent's own working folder (canonical), selecting WHICH per-project mcpServers entry
+ * counts (kosmos#5309); null -> top-level mcpServers only. Returns { ids: Set<string>, readable: bool };
+ * readable is false if EITHER file errored unreadably (-> UNKNOWN).
  */
-function folderPluginSet(settingsPath, claudeJsonPath, deps) {
+function folderPluginSet(settingsPath, claudeJsonPath, agentFolder, deps) {
   const fsDep = (deps && deps.fs) || fs;
-  const cacheKey = String(settingsPath) + '\0' + String(claudeJsonPath);
+  // agentFolder is part of the key: the SAME two files yield a DIFFERENT set per agent folder (it selects
+  // which projects entry counts), so two agents sharing one home must not share a cache entry.
+  const cacheKey = String(settingsPath) + '\0' + String(claudeJsonPath) + '\0' + String(agentFolder);
   const mtimeKey = _mtimeKey(fsDep, settingsPath, claudeJsonPath);
   const hit = _folderSetCache.get(cacheKey);
   if (hit && hit.mtimeKey === mtimeKey) return hit.value; // mtimes unchanged -> no readFileSync
   const sp = _idsFromJson(fsDep, settingsPath, _enabledPluginIds);
-  const cj = _idsFromJson(fsDep, claudeJsonPath, _mcpServerNames);
+  const cj = _idsFromJson(fsDep, claudeJsonPath, (o) => _mcpServerNames(o, agentFolder));
   const value = { ids: new Set([...sp.ids, ...cj.ids]), readable: sp.readable && cj.readable };
   _folderSetCache.set(cacheKey, { mtimeKey, value });
   return value;
@@ -252,6 +260,8 @@ function gateOnEvidence(reach, evidence) {
  *   inputs.personClaudeDir / inputs.personClaudeJson -> the person's ~/.claude dir and its .claude.json
  *                                            (at the home ROOT), resolved ONCE per poll by the caller
  *   inputs.personCodexHome                 -> the person's ~/.codex, for the Codex categorical check
+ *   inputs.agentWorkFolder                 -> this agent's own working folder (canonical), selecting which
+ *                                            per-project mcpServers count (kosmos#5309); null -> top-level only
  * The agent's own .claude.json is <agentClaudeDir>/.claude.json (inside the config dir). Reads are
  * mtime-cached (folderPluginSet / codexPersonPresence), so this is cheap to call per agent every poll.
  */
@@ -266,8 +276,8 @@ function agentPluginReach(inputs, deps) {
   const reach = reachFrom({ runner, agentClaudeDir: i.agentClaudeDir, personClaudeHome: i.personClaudeDir });
   if (!reach || reach.reaches !== false) return reach;
   if (reach.reason === SEPARATE_ACCOUNT) {
-    const personSet = folderPluginSet(path.join(i.personClaudeDir, 'settings.json'), i.personClaudeJson, deps);
-    const agentSet = folderPluginSet(path.join(i.agentClaudeDir, 'settings.json'), path.join(i.agentClaudeDir, '.claude.json'), deps);
+    const personSet = folderPluginSet(path.join(i.personClaudeDir, 'settings.json'), i.personClaudeJson, i.agentWorkFolder, deps);
+    const agentSet = folderPluginSet(path.join(i.agentClaudeDir, 'settings.json'), path.join(i.agentClaudeDir, '.claude.json'), i.agentWorkFolder, deps);
     return gateOnEvidence(reach, { personSet, agentSet });
   }
   if (reach.reason === CODEX_ISOLATED) {

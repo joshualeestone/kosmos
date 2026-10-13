@@ -137,28 +137,45 @@ test('#5309 p2: a DEFAULT launch with a non-absolute/empty/non-string person-hom
 
 // ---------- #5309 slice 2: the evidence gate ----------
 
-test('#5309 p2 evidence: folderPluginSet unions enabledPlugins (settings.json) + mcpServers (top + per-project)', () => {
+test('#5309 p2 evidence: folderPluginSet counts ENABLED plugins (not disabled) + top-level mcpServers + the agent-folder project', () => {
   _resetCache();
   const fs = fakeFs({
     '/h/settings.json': JSON.stringify({ enabledPlugins: { 'crm@acme': true, 'notes@x': false } }),
     '/h/.claude.json': JSON.stringify({ mcpServers: { tickets: {} }, projects: { '/p': { mcpServers: { calendar: {} } } } }),
   }, { '/h/settings.json': 1, '/h/.claude.json': 1 });
-  const r = folderPluginSet('/h/settings.json', '/h/.claude.json', { fs });
+  // agentFolder '/p' == the project the `calendar` server was added in, so it counts; `notes@x: false` is a
+  // DISABLED plugin and must NOT count (kosmos#5309).
+  const r = folderPluginSet('/h/settings.json', '/h/.claude.json', '/p', { fs });
   assert.equal(r.readable, true);
-  assert.deepEqual([...r.ids].sort(), ['calendar', 'crm@acme', 'notes@x', 'tickets']);
+  assert.deepEqual([...r.ids].sort(), ['calendar', 'crm@acme', 'tickets']);
+});
+
+test('#5309 p2 evidence (Liu Kang ruling): a per-project mcpServer counts ONLY for the agent whose own folder it is', () => {
+  _resetCache();
+  const files = {
+    '/h/settings.json': JSON.stringify({ enabledPlugins: { 'crm@acme': true } }),
+    '/h/.claude.json': JSON.stringify({ mcpServers: { tickets: {} }, projects: { '/p': { mcpServers: { calendar: {} } } } }),
+  };
+  const mt = { '/h/settings.json': 1, '/h/.claude.json': 1 };
+  // an agent working in ANOTHER folder never had /p's server -> no false warning
+  const other = folderPluginSet('/h/settings.json', '/h/.claude.json', '/elsewhere', { fs: fakeFs(files, mt) });
+  assert.deepEqual([...other.ids].sort(), ['crm@acme', 'tickets']);
+  // unknown folder -> top-level only (the safe, missed direction)
+  const unknown = folderPluginSet('/h/settings.json', '/h/.claude.json', null, { fs: fakeFs(files, mt) });
+  assert.deepEqual([...unknown.ids].sort(), ['crm@acme', 'tickets']);
 });
 
 test('#5309 p2 evidence: enabledPlugins as an ARRAY is also read (shape-tolerant)', () => {
   _resetCache();
   const fs = fakeFs({ '/h/settings.json': JSON.stringify({ enabledPlugins: ['a@m', 'b@m'] }), '/h/.claude.json': '{}' },
     { '/h/settings.json': 1, '/h/.claude.json': 1 });
-  assert.deepEqual([...folderPluginSet('/h/settings.json', '/h/.claude.json', { fs }).ids].sort(), ['a@m', 'b@m']);
+  assert.deepEqual([...folderPluginSet('/h/settings.json', '/h/.claude.json', null, { fs }).ids].sort(), ['a@m', 'b@m']);
 });
 
 test('#5309 p2 evidence: a MISSING file is readable-empty (a home enabled nothing), not UNKNOWN', () => {
   _resetCache();
   const fs = fakeFs({}, {}); // both files ENOENT
-  const r = folderPluginSet('/h/settings.json', '/h/.claude.json', { fs });
+  const r = folderPluginSet('/h/settings.json', '/h/.claude.json', null, { fs });
   assert.equal(r.readable, true);
   assert.equal(r.ids.size, 0);
 });
@@ -166,7 +183,7 @@ test('#5309 p2 evidence: a MISSING file is readable-empty (a home enabled nothin
 test('#5309 p2 evidence: invalid JSON is NOT readable (-> UNKNOWN upstream), never a silent empty set', () => {
   _resetCache();
   const fs = fakeFs({ '/h/settings.json': '{not json', '/h/.claude.json': '{}' }, { '/h/settings.json': 1, '/h/.claude.json': 1 });
-  assert.equal(folderPluginSet('/h/settings.json', '/h/.claude.json', { fs }).readable, false);
+  assert.equal(folderPluginSet('/h/settings.json', '/h/.claude.json', null, { fs }).readable, false);
 });
 
 test('#5309 p2 evidence: folderPluginSet does NOT re-read on unchanged mtime, and DOES re-read when mtime changes', () => {
@@ -174,12 +191,12 @@ test('#5309 p2 evidence: folderPluginSet does NOT re-read on unchanged mtime, an
   const files = { '/h/settings.json': JSON.stringify({ enabledPlugins: { 'a@m': true } }), '/h/.claude.json': '{}' };
   const mtimes = { '/h/settings.json': 10, '/h/.claude.json': 10 };
   const fs = fakeFs(files, mtimes);
-  folderPluginSet('/h/settings.json', '/h/.claude.json', { fs });
+  folderPluginSet('/h/settings.json', '/h/.claude.json', null, { fs });
   const afterFirst = fs.counts.read;
-  folderPluginSet('/h/settings.json', '/h/.claude.json', { fs });   // unchanged mtime
+  folderPluginSet('/h/settings.json', '/h/.claude.json', null, { fs });   // unchanged mtime
   assert.equal(fs.counts.read, afterFirst, 'second call with unchanged mtime must not readFileSync again');
   mtimes['/h/settings.json'] = 11;                                   // the file changed
-  folderPluginSet('/h/settings.json', '/h/.claude.json', { fs });
+  folderPluginSet('/h/settings.json', '/h/.claude.json', null, { fs });
   assert.ok(fs.counts.read > afterFirst, 'a changed mtime MUST trigger a re-read (cache is not stale-blind)');
 });
 
