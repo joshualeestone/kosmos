@@ -272,8 +272,9 @@ sed -e 's/^  set -m$/  :/' -e 's/^  _qh_stop_capper$/  if [ -n "$CAPPER" ]; then
 # The capper is the wrapper's only child with a `sleep 7` of its own (QUEUED_HEAVY_SIDE_POLL_S=7 below): the short-lived
 # $(...) subshells the wrapper forks carry the same command line, so a match on that alone could stop the wrong one.
 capper_of() { local c k; for c in $(pgrep -P "$1"); do for k in $(pgrep -P "$c"); do [ "$(ps -o command= -p "$k" 2>/dev/null)" = "sleep 7" ] && { echo "$c"; return 0; }; done; done; return 1; }
-side5331() {   # $1 the copy, $2 its marker dir: writes 0 (reaped in time), 1 (hung, KILLed) or 2 (never started) to $2.r
-  local q="$1" m="$2" w cap r
+side5331() {   # $1 the copy, $2 its marker dir, $3 the reap bound in 0.25 s polls: writes 0 (reaped in time), 1 (hung, KILLed)
+  # or 2 (never started) to $2.r, and the teardown's seconds to $2.t
+  local q="$1" m="$2" w cap r t0
   mkdir -p "$m"; printf '%s-%s-1 %s %s host queued run (not a cut): fake heavy\n' $H $((NOW-300)) $H $((NOW+1800)) > "$m/machine-claim"
   ( cd /tmp && KOSMOS_RUN_MARKER_DIR="$m" QUEUED_HEAVY_SIDE_POLL_S=7 exec /bin/bash "$q" --light "c5331" sleep $((U+3)) ) > "$m.log" 2>&1 & w=$!; BG="$BG $w"
   # kosmos#5839: the capper is taken from the SAME look that found it. A second capper_of could land between its
@@ -285,19 +286,23 @@ side5331() {   # $1 the copy, $2 its marker dir: writes 0 (reaped in time), 1 (h
   kill -STOP "$cap" 2>/dev/null
   case "$(ps -o stat= -p "$cap" 2>/dev/null)" in T*) ;; *) kill -CONT "$cap" 2>/dev/null; kill -KILL $w 2>/dev/null; echo 2 > "$m.r"; return ;; esac
   for p in $(pgrep -f "^sleep $((U+3))$"); do kill -KILL $p; done
-  kill $w 2>/dev/null; reap $w 60; r=$?
+  kill $w 2>/dev/null; t0=$(date +%s); reap $w "$3"; r=$?; echo $(( $(date +%s) - t0 )) > "$m.t"
   # The control's capper is left stopped: KILLed here, only while it is still the copy's subshell (a pid can be reused).
   case "$(ps -o command= -p "$cap" 2>/dev/null)" in *qh-*5331.sh*) kill -KILL "$cap" 2>/dev/null;; esac
   echo $r > "$m.r"
 }
-side5331 $S/qh-nojc5331.sh $S/m5331; side5331 $S/qh-old5331.sh $S/m5331c
+# kosmos#6048: the copy under test gets 30 s (120 polls). Its own teardown is bounded at about 10 s (_qh_stop_capper's
+# loop) plus a few ps and pgrep calls, which a loaded CI runner stretched past the old 15 s once. A KILL that missed is
+# still caught, and not by the clock: the copy then says "did not stop", which the arm refuses. The control keeps 15 s:
+# its old teardown waits for ever, so a longer bound would only make every run slower.
+side5331 $S/qh-nojc5331.sh $S/m5331 120; side5331 $S/qh-old5331.sh $S/m5331c 60
 r5331="$(cat $S/m5331.r)"; c5331="$(cat $S/m5331c.r)"
 # kosmos#5839: a 2 is a run that never reached its side turn (a busy runner past the 40 s setup), not a teardown that
 # released: one more try before judging, for either copy. A 0 or 1 is judged as it came.
-if [ "$r5331" = 2 ]; then rm -rf $S/m5331 $S/m5331.log; side5331 $S/qh-nojc5331.sh $S/m5331; r5331="$(cat $S/m5331.r)"; fi
-if [ "$c5331" = 2 ]; then rm -rf $S/m5331c $S/m5331c.log; side5331 $S/qh-old5331.sh $S/m5331c; c5331="$(cat $S/m5331c.r)"; fi
-o="$(tail -6 $S/m5331.log 2>/dev/null)"
-ok "#5331: a capper that is not a group leader and is stopped is KILLed by pid, so the teardown releases at once (got $r5331: 0 reaped, 1 hung, 2 never started)" '[ "$r5331" = 0 ] && [ ! -e $S/m5331/light-side-claim ] && grep -q "claim released" $S/m5331.log && ! grep -q "did not stop" $S/m5331.log'
+if [ "$r5331" = 2 ]; then rm -rf $S/m5331 $S/m5331.log; side5331 $S/qh-nojc5331.sh $S/m5331 120; r5331="$(cat $S/m5331.r)"; fi
+if [ "$c5331" = 2 ]; then rm -rf $S/m5331c $S/m5331c.log; side5331 $S/qh-old5331.sh $S/m5331c 60; c5331="$(cat $S/m5331c.r)"; fi
+o="$(tail -6 $S/m5331.log 2>/dev/null)"; t5331="$(cat $S/m5331.t 2>/dev/null)"
+ok "#5331: a capper that is not a group leader and is stopped is KILLed by pid, so the teardown releases at once (got $r5331: 0 reaped, 1 hung, 2 never started; teardown ${t5331:-?} s of 30)" '[ "$r5331" = 0 ] && [ ! -e $S/m5331/light-side-claim ] && grep -q "claim released" $S/m5331.log && ! grep -q "did not stop" $S/m5331.log'
 # kosmos#5839: the value and the control's own log are printed on a BAD, so a red says which shape it was.
 o="$(tail -6 $S/m5331c.log 2>/dev/null)"
 ok "#5331 CONTROL: with the old teardown the same capper holds it (the arm above is not vacuous) (got $c5331: 0 reaped, 1 hung, 2 never started)" '[ "$c5331" = 1 ] && grep -q "SIDE TURN: running" $S/m5331c.log'
