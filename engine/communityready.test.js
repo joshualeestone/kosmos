@@ -283,6 +283,9 @@ test('the real turn pass records what each reminder did, with no help from its c
   const NOW = Date.parse('2026-10-02T19:30:00Z');
   const H = 3600e3;
   const D = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
+  // A result kept for an agent this board no longer has: the pass, handing over its own roster, clears it (review 5).
+  ready.noteTurn({ session: 'gone', act: 'prompted', delivery: 'placed' }, NOW - 9 * H);
+  assert.ok('gone' in ready.readTurns(), 'CONTROL: the removed agent\'s result was not there to begin with');
   const done = ct.tickOnce({
     allowed: () => true, env: {}, switchOn: () => true, prompterOn: () => true,
     roster: () => cards.filter((c) => c.sessionName === 'ann' || c.sessionName === 'bea'), readProjects: () => [], now: NOW, book: new Map(), sent: [],

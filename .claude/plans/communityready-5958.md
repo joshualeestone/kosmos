@@ -190,3 +190,8 @@ export list had gained one name on main (my own #5988) and another here. Main is
 - **NITs, not taken:** the lines mix "you" and "this agent" (slice 2 rewrote these words; that slice is stacked on
   this one); an address read that throws reads as "not one Kosmos sends to" (the read swallows its own errors today);
   the off-and-absent pair of lines; one write per agent at the limit (review 4's answer); two comments.
+- Mutants for the two fixes, in a throwaway worktree, each red by name: an unconfirmed paste counted as reached; the
+  reached time not carried forward; the record never pruned; an empty roster pruning; the pass not handing over its
+  roster (green at first: nothing drove the real pass with a stale entry; the pass test now seeds one). A sixth
+  mutant, removing a line that kept the agent being written, stayed green because the line did nothing (the result is
+  set after the prune): the line is removed.

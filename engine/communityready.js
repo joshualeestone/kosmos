@@ -96,8 +96,7 @@ function noteTurn(r, now = Date.now(), known = null) {
     const before = own(cur, r.session) ? cur[r.session] : null;
     const reachedAt = landed(r) ? at : before ? (landed(before) ? before.at : before.reachedAt) : undefined;
     if (Array.isArray(known) && known.length) {
-      const keepNames = new Set(known.map(String));
-      keepNames.add(r.session);
+      const keepNames = new Set(known.map(String));   // the result being written is set just below, whoever it is for
       for (const k of Object.keys(cur)) if (!keepNames.has(k)) delete cur[k];
     }
     cur[r.session] = { at, act: r.act,
