@@ -1978,8 +1978,75 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
   return out.slice(0, 3);
 }
 
+/* #6083: two agents added the same ask in the same minute in OTHER words, so #5319's same-text note never fired. A
+   second, weaker note covers that case, and it can never cost a task: it never says "close the new one", it names
+   the similar task and says to close one only if it is the same ask.
+   🔑 #5319's eight review rounds measured why a loose match is dangerous ("Email Alice" / "Email Bob", approve /
+   reject, "Do not enable" / "Enable", Dallas to Austin / Austin to Dallas, "-5" / "5", "x > 5" / "x < 5", a check
+   mark / a cross, C++ / C). So "near" is narrow, and every one of those is never near:
+   - the same words once case, punctuation and order are set aside, or one word more or fewer (titles of 3+ words);
+   - and NEVER near when the numbers (with their signs), the symbols, the negating words, or the names (capitalized
+     words after the first, IN ORDER) differ.
+   And only within NEAR_TASK_WINDOW_MS of the open task's creation: the report's case is two adds in the same minute,
+   and a short window keeps the note away from long-lived lookalikes. */
+const NEAR_TASK_WINDOW_MS = 10 * 60 * 1000;
+const NEGATING = new Set(['not', 'no', 'never', 'none', 'nor', 'without', 'dont', 'doesnt', 'didnt', 'isnt', 'arent',
+  'wasnt', 'werent', 'cannot', 'cant', 'wont', 'shouldnt', 'mustnt', 'neither', 'stop', 'skip', 'avoid']);
+function titleShape(sentence) {
+  const raw = String(sentence == null ? '' : sentence).normalize('NFC');
+  const words = raw.split(/\s+/u).map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')).filter(Boolean);
+  const lower = words.map((w) => w.toLowerCase().replace(/['\u2019]/gu, ''));
+  return {
+    bag: lower,
+    numbers: (raw.match(/[-+\u2212]?\d[\d.,:]*/gu) || []).join(' '),
+    symbols: Array.from(raw).filter((c) => /\p{S}/u.test(c)).sort().join(''),
+    negating: lower.filter((w) => NEGATING.has(w)).sort().join(' '),
+    names: words.slice(1).filter((w) => /^\p{Lu}/u.test(w)).join(' '),
+  };
+}
+function isNearTitle(a, b) {
+  const x = titleShape(a);
+  const y = titleShape(b);
+  if (!x.bag.length || !y.bag.length) return false;
+  if (x.numbers !== y.numbers || x.symbols !== y.symbols || x.negating !== y.negating || x.names !== y.names) return false;
+  const count = new Map();
+  for (const w of x.bag) count.set(w, (count.get(w) || 0) + 1);
+  for (const w of y.bag) count.set(w, (count.get(w) || 0) - 1);
+  let extra = 0;
+  for (const v of count.values()) extra += Math.abs(v);
+  if (extra === 0) return true;
+  return extra === 1 && Math.max(x.bag.length, y.bag.length) >= 3;
+}
+/* Open tasks, numbered below the new one (the later of two adds is the one told), under the same parent, for the same
+   people, added within the window, whose title is near but NOT the same text (#5319 names those), and not already under
+   way. At most three, oldest first. `made` is the stored task (its createdAt sets the window). */
+function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
+  if (!made || !Number.isInteger(made.number)) return [];
+  const madeAt = Date.parse(made.createdAt || '');
+  if (!Number.isFinite(madeAt)) return [];
+  const parent = Number.isInteger(made.parent) ? made.parent : null;
+  const people = (list) => [...new Set((list || []).filter((x) => typeof x === 'string' && x))].sort().join('\n');
+  const myWho = people(whoOf(made));
+  const mine = sameTaskText(made.sentence);
+  const out = [];
+  for (const t of (p && Array.isArray(p.tasks)) ? p.tasks : []) {
+    if (!t || t.closedAt || !Number.isInteger(t.number) || t.number >= made.number) continue;
+    if (parent !== null && t.number === parent) continue;
+    if ((Number.isInteger(t.parent) ? t.parent : null) !== parent) continue;
+    if (people(whoOf(t)) !== myWho) continue;
+    const at = Date.parse(t.createdAt || '');
+    if (!Number.isFinite(at) || madeAt - at < 0 || madeAt - at > windowMs) continue;
+    if (sameTaskText(t.sentence) === mine) continue;
+    if (isOnHold(t) || t.dueDate || t.builtAt || partsOf(t).some((x) => x && x.closedAt)) continue;
+    if (!isNearTitle(t.sentence, made.sentence)) continue;
+    out.push({ number: t.number, sentence: t.sentence });
+  }
+  out.sort((a, b) => a.number - b.number);
+  return out.slice(0, 3);
+}
+
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
