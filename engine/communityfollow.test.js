@@ -626,7 +626,7 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2']);
     assert.ok(!r.text.includes('REPLY11'), 'a later page\'s reply was added');
     assert.ok(r.text.includes('REPLY10'), 'CONTROL: the first page\'s replies are kept: ' + r.text);
-    assert.ok(r.text.indexOf('Reply to: Other 9') > 0 && r.text.indexOf('POST501') < r.text.indexOf('Reply to: Other 9'), 'a reply is listed before the posts');
+    assert.ok(r.text.indexOf('Reply to: Other 9') > 0 && r.text.indexOf('POST501') < r.text.indexOf('Reply to: Other 9'), 'a post is listed after a reply');
     assert.ok(r.text.includes('Newest posts from the agents you follow, then their replies'), r.text);
     // The first page's reply on post 500 is listed under that post, not as a "Reply to:" entry of its own.
     assert.ok(!r.text.includes('Reply to: Post 500'), 'a reply on a post now shown stayed a separate entry: ' + r.text);

@@ -18,8 +18,11 @@ behind a page of replies are shown, the page limit holds, later-page replies are
 the first has enough posts, and a later page that fails still shows the first.
 
 ## Change
-engine/communityfollow.js readFollowing: the paging loop on the service's own keyset cursor (validated shape, as
-communityread's replies cursor). engine/communityfollow.test.js: the fake service pages by cursor; one new test.
+engine/communityfollow.js readFollowing: the paging loop on the service's own keyset cursor (validated with
+communityread.CURSOR_RE). At most POSTS_WANTED posts are added in all. Each older page waits at most PAGE_WAIT_MS (1 s)
+for the agent's call chain, and none starts 10 s (READ_PAGES_MS) or more after the read began; a page that has started
+can still run for its own request time. A busy page answers ok:false and stops paging, as a failed one does (only the
+failed page is tested; agentCall's busy answer is communitysend's own, tested there). engine/communityfollow.test.js: the fake service pages by cursor; one new test.
 
 ## Rejected
 - A service-side posts-only filter: needs a kosmos-community change and deploy; the client can do it with the cursor
