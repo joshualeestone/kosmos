@@ -19,6 +19,18 @@
 const PROVIDER_NAME = Object.freeze({ codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok', antigravity: 'Google', muse: 'Meta' });   // #3568: the name the person picked is Google's
 
 function providerOf(card) {
+  /* #5977: Qwen runs on the codex runner too, so a codex card is Qwen when its launch job's account is a Qwen home
+     (create.jobProvider, the one every other Qwen decision reads; review 2: the profile is written best-effort and an
+     older agent has none, so it is only the fallback). Any failure to read either keeps the runner's name. */
+  if (card && card.runner === 'codex' && card.sessionName) {
+    /* Review 3: a job that was read is the answer either way (a stale 'alibaba' profile after a switch to OpenAI must
+       not win); the profile speaks only when there is no job to read. */
+    // Review 6: through create's memo (this runs for every card on every notify sweep).
+    let fromJob = null;
+    try { fromJob = require('./create').codexJobProvider(card.sessionName); } catch { fromJob = null; }
+    if (fromJob) return fromJob === 'alibaba' ? 'Qwen' : 'OpenAI';
+    try { if (require('./store').readProfile(card.sessionName).provider === 'alibaba') return 'Qwen'; } catch { /* no profile */ }
+  }
   return PROVIDER_NAME[card && card.runner] || 'Claude';
 }
 
@@ -126,6 +138,11 @@ function accountProblemOf(card) {
     };
   }
   if (card.state === 'auth_failed') {
+    // #5977: a Qwen account is an endpoint, with no sign-in to renew: what fails is reaching it.
+    if (provider === 'Qwen') {
+      const qtext = `${who} cannot get answers from its Qwen endpoint, so it cannot do anything. Check that the endpoint is running (for Qwen on this computer, that Ollama is open), then restart it.`;
+      return { kind: 'signin', provider, notify: true, text: qtext, summary: qtext };
+    }
     const text = `${who}'s ${provider} sign-in has stopped working, so it cannot do anything. Open its page and choose Sign in again.`;
     return { kind: 'signin', provider, notify: true, text, summary: text };
   }

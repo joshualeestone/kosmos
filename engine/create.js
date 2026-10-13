@@ -186,6 +186,9 @@ const MODELS = [
 const REFUSE_NAME = 'that is not a name we can act on';
 const REFUSE_PROVIDER = 'pick a provider from the list';
 const REFUSE_ANTIGRAVITY_WIN32 = 'Kosmos cannot start an Antigravity agent on Windows yet'; // #3568
+/* #5977 review 3: the Windows codex launch (win32codexsup) has no endpoint arguments, so a Qwen agent there would start
+   codex against OpenAI. Refused until it reads qwenaccounts.launchArgs. */
+const REFUSE_QWEN_WIN32 = 'Kosmos cannot start a Qwen agent on Windows yet';
 const REFUSE_ACCOUNT = 'we do not know that account on this computer';
 
 function modelsFor(provider) {
@@ -233,9 +236,14 @@ function defaultModelKeyFor(provider) {
  * asked about; Claude Code, Codex and Antigravity choose their own (it depends on the account), so no list can name it and a
  * provider with a model list refuses a model-less agent. A failure inside the policy code never blocks a create.
  */
-function policyAllows(provider, modelKey) {
+function policyAllows(provider, modelKey, accountDir) {
   try {
-    const given = modelKey == null ? '' : String(modelKey).trim();
+    let given = modelKey == null ? '' : String(modelKey).trim();
+    // #5977: a Qwen agent runs its account's model, so a policy on Qwen models is checked against that one.
+    if (provider === 'alibaba' && !given && accountDir) {
+      const got = require('./qwenaccounts').readEndpoint(accountDir);
+      if (got.kind === 'ok') given = got.endpoint.model;
+    }
     const pinned = require('./win32keyed').DEFAULT_MODEL;
     const key = given || (provider === 'google' ? pinned.gemini : provider === 'xai' ? pinned.grok : '');
     // Both names of a model in this provider's own list (modelsFor answers Claude's list for providers without one).
@@ -896,6 +904,7 @@ function providerRunner(provider) {
   if (provider === 'xai') return 'grok';
   if (provider === 'antigravity') return 'antigravity'; // #3568
   if (provider === 'meta') return 'muse'; // #3939: Meta Muse, run one turn at a time by engine/musefront.js
+  if (provider === 'alibaba') return 'codex'; // #5977: Qwen, codex pointed at its account's endpoint
   return 'claude';
 }
 /* #3519: the INVERSE of providerRunner -- the ONE runner -> provider map. The
@@ -916,6 +925,42 @@ function runnerProvider(runner) {
   if (runner === 'antigravity') return 'antigravity'; // #3568
   if (runner === 'muse') return 'meta'; // #3939
   return 'anthropic';
+}
+/* #5977: the provider a launch job runs on. Qwen shares the codex runner with OpenAI, so the runner alone cannot
+   say which: a codex job whose account home holds a Qwen endpoint is Qwen. Read from the job itself, so the
+   switch's "already runs on" check and the job cannot disagree. Every other runner maps one-to-one. */
+function jobProvider(job) {
+  const runner = job && job.runner ? job.runner : 'claude';
+  if (runner === 'codex' && job && job.configDir && require('./qwenaccounts').isQwenHome(job.configDir)) return 'alibaba';
+  return runnerProvider(runner);
+}
+/* #5977 review 2: the provider of a NAMED agent, for a caller that holds its runner and its name but not its job
+   (the failover, the project view, the org rollup). Only a codex agent needs its job read; any failure to read it
+   keeps the runner's own provider, the answer every one of those callers gave before Qwen existed. */
+/* Review 4: several readers ask this per codex agent on every board tick, and readJob parses the job file each time.
+   An answer is kept for AGENT_PROVIDER_MS, and every job write here (rewriteAgentJob, installJob) drops that
+   agent's entry, so a switch is seen at once and the cache only collapses the reads within one tick. */
+const AGENT_PROVIDER_MS = 2000;
+const agentProviderMemo = new Map();
+function forgetAgentProvider(name) { if (name) agentProviderMemo.delete(String(name)); }
+/* Review 6: the provider a codex agent's JOB names ('alibaba' or 'openai'), or null when there is no job to read, so
+   a caller with its own fallback (the profile) can tell "the job says OpenAI" from "there is no job". Same memo. */
+function codexJobProvider(sessionName) {
+  if (!sessionName) return null;
+  const key = String(sessionName);
+  const hit = agentProviderMemo.get(key);
+  const now = Date.now();
+  if (hit && now - hit.at >= 0 && now - hit.at < AGENT_PROVIDER_MS) return hit.provider;
+  let job = null;
+  try { job = readJob(sessionName); } catch { job = null; }
+  const provider = job ? jobProvider({ ...job, runner: 'codex' }) : null;
+  agentProviderMemo.set(key, { at: now, provider });
+  return provider;
+}
+function agentProvider(sessionName, runner) {
+  const r = runner || 'claude';
+  if (r !== 'codex' || !sessionName) return runnerProvider(r);
+  return codexJobProvider(sessionName) || runnerProvider(r);
 }
 /* #3296/#3391: the ONE "is this a non-claude runner" predicate -- the recognized set
    {codex, gemini, grok, antigravity}. plistFor (which slots run only for a non-claude runner),
@@ -942,6 +987,7 @@ function providerLabel(provider) {
   // program ("an Antigravity agent", "signs in to Antigravity") say Antigravity on purpose.
   if (provider === 'antigravity') return 'Gemini (Google subscription)';
   if (provider === 'meta') return 'Meta Muse'; // #3939
+  if (provider === 'alibaba') return 'Qwen'; // #5977
   return 'Anthropic';
 }
 /* #3568: the Antigravity runner (Google's agy): Gemini on a Google subscription. ON by default
@@ -1298,6 +1344,7 @@ function noJobRefusal(clean, spoken, verdict, macSentence) {
  * Returns null on success, or a REFUSED outcome naming what went wrong.
  */
 function rewriteAgentJob(clean, spoken, fields, platform) {
+  forgetAgentProvider(clean);   // review 4: the job is about to change
   const f = fields || {};
   const plat = platform || process.platform;
   if (plat === 'linux') {
@@ -1531,6 +1578,16 @@ function setAccount(name, dir, opts) {
   if (!job) {
     return noJobRefusal(clean, spoken, verdict, `we could not read how ${spoken} is started, so we have not changed it.`);
   }
+  /* #5977: a Qwen agent (codex on a Qwen account) moves between Qwen accounts only; an OpenAI agent never lands on a
+     Qwen folder here. Changing which provider it runs on is a provider switch (setProvider), which checks policy and
+     records the provider; letting the account route do it would leave the job and the profile disagreeing. */
+  if (job.runner === 'codex' && jobProvider(job) === 'alibaba') {
+    if ((platform || process.platform) === 'win32') return { outcome: OUTCOME.REFUSED, because: REFUSE_QWEN_WIN32 };   // #5977 review 3
+    return setQwenAccount(clean, spoken, dir, job, platform);
+  }
+  if (job.runner === 'codex' && dir && require('./qwenaccounts').isQwenHome(dir)) {
+    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on OpenAI; to move it to Qwen, switch its provider to Qwen` };
+  }
   if (job.runner === 'codex') return setCodexAccount(clean, spoken, dir, job, platform);
   /* #3296 accounts slice: gemini accounts now exist (engine/geminiaccounts.js), so a
      gemini agent's account swap is resolved in ITS OWN world (~/.gemini* dirs), not
@@ -1748,6 +1805,40 @@ function setGeminiAccount(clean, spoken, dir, job, platform) {
  * trust writes (grok clears its own with `--trust` at launch); the per-account KEY is
  * injected by the supervisor from the account dir's key file.
  */
+/* #5977: move a Qwen agent to another Qwen account. A named, usable Qwen account only: there is no default, and an
+   OpenAI folder here is refused (that is a provider switch, see setAccount). */
+function setQwenAccount(clean, spoken, dir, job, platform) {
+  const qwen = require('./qwenaccounts');
+  if (dir === '' || dir == null) return { outcome: OUTCOME.REFUSED, because: 'pick which Qwen account it should run on, so nothing was changed' };
+  const wanted = path.resolve(String(dir));
+  if (!qwen.isQwenHome(wanted)) {
+    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on Qwen; to move it to another provider, switch its provider` };
+  }
+  const acct = qwen.list().find((a) => a.dir === wanted);
+  if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal('Qwen') };
+  if (acct.endpointProblem) return { outcome: OUTCOME.REFUSED, because: `that Qwen account cannot be used: ${acct.endpointProblem}` };
+  /* Review 3: the account names the model, so a move is a model change and the company policy holds here too. */
+  const allowed = policyAllows('alibaba', '', acct.dir);
+  if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because };
+  // Review 7: belt-and-braces only (the supervisor trusts the folder in the private runtime home codex reads, #4592).
+  try { trustCodexFolder(workerDir(clean), acct.dir, false); } catch { /* the launch writes the one codex reads */ }
+  /* Review 6: the account Repair would rebuild on is recorded BEFORE the job moves, and must land: a job on B with a
+     profile still naming A would later be rebuilt on A, another endpoint and model, with nothing said. If the record
+     cannot be written nothing moves; if the job cannot be rewritten the old record is put back. */
+  let before = null;
+  try { before = store.readProfile(clean).qwenAccount || null; } catch { before = null; }
+  try { store.writeProfile(clean, { qwenAccount: acct.dir }); }
+  catch { return { outcome: OUTCOME.REFUSED, because: `we could not record which Qwen account ${spoken} is on, so nothing was changed` }; }
+  const unwritten = rewriteAgentJob(clean, spoken, {
+    runnerBin: job.claude, tmux: job.tmux, model: null, configDir: acct.dir, runner: 'codex',
+  }, platform);
+  if (unwritten) {
+    try { store.writeProfile(clean, { qwenAccount: before }); } catch { /* the job did not move, so Repair finds it */ }
+    return unwritten;
+  }
+  return { outcome: OUTCOME.CREATED, because: null, account: acct };
+}
+
 function setGrokAccount(clean, spoken, dir, job, platform) {
   const grok = require('./grokaccounts');
   const wanted = dir === '' || dir == null ? null : path.resolve(String(dir));
@@ -1857,15 +1948,20 @@ function setProvider(name, provider, opts) {
   /* #3296/#3391: the four-way guard createAgentInner already uses. google launches
      the gemini runner, xai the grok runner; the switch path was the last post-birth
      setter still refusing both (setAccount/setModel already handle them). */
-  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai'
+  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai' && provider !== 'alibaba'
     && !(provider === 'antigravity' && antigravityEnabled())) { // #3568: behind its flag
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER };
+  }
+  /* #5977: Qwen runs on the account a person set up (an endpoint), so a switch onto it names one; there is no
+     default Qwen account to fall back to. */
+  if (provider === 'alibaba' && !(opts && typeof opts.accountDir === 'string' && opts.accountDir !== '')) {
+    return { outcome: OUTCOME.REFUSED, because: 'pick which Qwen account it should run on, so nothing was changed' };
   }
   /* #5534: switching an agent onto a provider the company policy does not allow is refused like creating one there. */
   {
     // The model the person picked with the switch (set right after it, #5429); none picked is what the runner picks.
     const picked = opts && typeof opts.model === 'string' ? opts.model.trim() : '';
-    const allowed = policyAllows(provider, picked);
+    const allowed = policyAllows(provider, picked, opts && opts.accountDir);
     if (!allowed.ok) {
       // Gemini and Grok take no model with a switch (they start on their pinned default), so say that is what was asked.
       const pinnedNote = !picked && (provider === 'google' || provider === 'xai')
@@ -1886,6 +1982,7 @@ function setProvider(name, provider, opts) {
   if (provider === 'antigravity' && (platform || process.platform) === 'win32' && !win32AgyOn()) {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_ANTIGRAVITY_WIN32 };
   }
+  if (provider === 'alibaba' && (platform || process.platform) === 'win32') return { outcome: OUTCOME.REFUSED, because: REFUSE_QWEN_WIN32 };   // #5977 review 3
   const verdict = readJobVerdict(clean, undefined, platform);
   const job = verdict.job;
   if (!job) {
@@ -1894,7 +1991,9 @@ function setProvider(name, provider, opts) {
   /* The ONE provider -> runner map (providerRunner), shared with createAgentInner
      and recordedRunner, so the routes to a runner cannot disagree. */
   const runner = providerRunner(provider);
-  if (job.runner === runner) {
+  /* #5977: compared by PROVIDER, read from the job (jobProvider), not by runner: OpenAI and Qwen share codex, so a
+     runner comparison would refuse every switch between them. For every other provider the two are the same test. */
+  if (jobProvider(job) === provider) {
     /* The vendor word a person reads, from the shared providerLabel map. */
     const already = providerLabel(provider);
     return {
@@ -1930,7 +2029,7 @@ function setProvider(name, provider, opts) {
   if (!DRY_RUN && !runnerRunnable(runnerBin)) {
     /* The existing OpenAI/Claude wording is kept verbatim (create.runner-dir-1616
        asserts `/could not find the OpenAI runner/`); gemini/grok get the same shape. */
-    const missing = runner === 'codex' ? 'the OpenAI runner'
+    const missing = provider === 'alibaba' ? 'Codex, the runner Qwen agents use' : runner === 'codex' ? 'the OpenAI runner'
       : runner === 'gemini' ? 'the Gemini runner'
         : runner === 'grok' ? 'the Grok runner'
           : runner === 'antigravity' ? 'Antigravity'
@@ -1974,7 +2073,7 @@ function setProvider(name, provider, opts) {
    * is the ACCOUNT check.
    */
   let openaiAccount = null;
-  if (runner === 'codex' && !DRY_RUN) {
+  if (runner === 'codex' && provider === 'openai' && !DRY_RUN) { // #5977: not Qwen, which shares codex
     const openai = require('./openaiaccounts');
     /* 🛑 `list()`, NOT `defaultDir()` (#1313). I wrote the default-home version
        in #1211 and it refused Josh's switch on a freshly wiped Mac while his
@@ -2189,6 +2288,20 @@ function setProvider(name, provider, opts) {
     return { outcome: OUTCOME.REFUSED, because: 'an Antigravity agent signs in to Antigravity in its own window, so it cannot be given an account here yet' };
   }
   let switchAccount = null;
+  /* #5977: a Qwen account, by name only (checked above), fail-closed like the gemini and grok arms below: an unknown
+     or unusable account refuses, since the only alternative is an agent started on nothing. */
+  if (provider === 'alibaba' && !DRY_RUN) {
+    const qwen = require('./qwenaccounts');
+    const wantDir = path.resolve(opts.accountDir);
+    const acct = qwen.list().find((a) => a.dir === wantDir);
+    if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal('Qwen') };
+    if (acct.endpointProblem) return { outcome: OUTCOME.REFUSED, because: `that Qwen account cannot be used (${acct.endpointProblem}), so nothing was changed` };
+    switchAccount = { ...acct, chosen: opts.pickedByPerson === true };
+    /* Review 3, corrected in review 7: the supervisor runs codex on a private runtime home (#4592) and writes the
+       folder-trust entry there on every launch, which is the one codex reads. This entry in the account folder only
+       mirrors the OpenAI arm, so a failure here never refuses the switch. */
+    try { trustCodexFolder(workerDir(clean), acct.dir, false); } catch { /* the launch writes the one codex reads */ }
+  }
   if ((runner === 'gemini' || runner === 'grok') && !DRY_RUN) {
     const mod = runner === 'gemini' ? require('./geminiaccounts') : require('./grokaccounts');
     const providerName = runner === 'gemini' ? 'Gemini' : 'Grok';
@@ -2224,6 +2337,17 @@ function setProvider(name, provider, opts) {
       }
       switchAccount = { ...acct, chosen };
     }
+  }
+  /* #5977 review 7: Repair rebuilds a lost job from the profile, so a switch to or from Qwen records the new
+     { provider, qwenAccount } BEFORE the job moves, as setQwenAccount does: a failed record moves nothing, and a failed
+     job rewrite puts the old record back. (Other switches keep the best-effort write below: their Repair needs only the
+     provider, which a failed write leaves pointing at the old runner, the #1159 behaviour.) */
+  const qwenSide = provider === 'alibaba' || jobProvider(job) === 'alibaba';
+  let qwenBefore = null;
+  if (qwenSide && !DRY_RUN) {
+    try { const p0 = store.readProfile(clean) || {}; qwenBefore = { provider: p0.provider || null, qwenAccount: p0.qwenAccount || null }; } catch { qwenBefore = null; }
+    try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null }); }
+    catch { return { outcome: OUTCOME.REFUSED, because: `we could not record which provider ${spoken} is on, so nothing was changed` }; }
   }
   /* ⚠️ `job.tmux` is kept (the recorded path is the working one); the model
      and the account are NOT, in either direction: they are provider-shaped
@@ -2268,10 +2392,14 @@ function setProvider(name, provider, opts) {
          default is an env-key door, not a home a launchd job resolves differently
          from the server). claude carries no account, so null. */
         runner === 'codex'
-          ? (openaiAccount && !(openaiAccount.isDefault && !codexHomeOverridden()) ? openaiAccount.dir : null)
+          ? (provider === 'alibaba' ? (switchAccount ? switchAccount.dir : null)   // #5977: always the named Qwen account
+            : (openaiAccount && !(openaiAccount.isDefault && !codexHomeOverridden()) ? openaiAccount.dir : null))
           : (switchAccount && !switchAccount.isDefault ? switchAccount.dir : null),
     }, platform);
-    if (unwritten) return unwritten;
+    if (unwritten) {
+      if (qwenBefore) { try { store.writeProfile(clean, qwenBefore); } catch { /* the job did not move */ } }
+      return unwritten;
+    }
   }
   /* #2245: the brief FILENAME is runner-aware (codex boots AGENTS.md, claude
      boots CLAUDE.md), so a runner CHANGE must MOVE the brief to the file the
@@ -2307,7 +2435,7 @@ function setProvider(name, provider, opts) {
     try { fs.renameSync(oldBrief, newBrief); }
     catch { /* plist is the launch truth; a same-dir rename of an existing source effectively cannot fail */ }
   }
-  try { store.writeProfile(clean, { provider }); }
+  try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null }); }   // #5977 review 5
   catch { /* the plist is the launch truth; the profile record catches up on the next write */ }
   /* #5091: the picked Claude account, through the Move path. The switch above is written (on the main account), so
      a refusal here is PARTIAL, said as such: it runs on Claude, on the main account, not the one picked. */
@@ -2363,6 +2491,10 @@ function setModel(name, modelKey, opts) {
      derivation, the same direction `createAgent` goes in reverse (#3296 adds the
      gemini arm). */
   const agentProvider = job.runner === 'codex' ? 'openai' : job.runner === 'gemini' ? 'google' : job.runner === 'grok' ? 'xai' : job.runner === 'antigravity' ? 'antigravity' : job.runner === 'muse' ? 'meta' : 'anthropic';
+  // #5977: a Qwen agent runs the model its account names (the supervisor ignores the job's model for it).
+  if (jobProvider(job) === 'alibaba') {
+    return { outcome: OUTCOME.REFUSED, because: `${spoken} is on Qwen, which runs the model its Qwen account names; change the model on the account instead` };
+  }
   // #3939: before the Claude arm below, which would otherwise write a Claude model into a Muse job.
   if (agentProvider === 'meta') return { outcome: OUTCOME.REFUSED, because: REFUSE_MUSE_MODEL };
   let m;
@@ -3699,6 +3831,7 @@ function win32StartViaJob(name, o) {
 
 function installJob(name, opts) {
   const clean = String(name == null ? '' : name);
+  forgetAgentProvider(clean);   // review 4
   if (!NAME_RE.test(clean)) {
     return { ok: false, because: 'that is not a name this product can build a job from' };
   }
@@ -3752,6 +3885,18 @@ function installJob(name, opts) {
   }
   if (wantRunner === 'antigravity' && jobPlatform === 'win32' && !win32AgyOn()) {
     return { ok: false, because: REFUSE_ANTIGRAVITY_WIN32 };
+  }
+  /* #5977 review 5: a Qwen agent (its profile says alibaba) rebuilt with no Qwen account folder would be a plain
+     OpenAI agent. Only when no job is there to keep its folder: a job that exists is the truth and is re-read. */
+  if (wantRunner === 'codex' && !(opts && typeof opts.configDir === 'string' && opts.configDir) && !readJob(clean)) {
+    let prov = null;
+    try { prov = store.readProfile(clean).provider; } catch { prov = null; }
+    if (prov === 'alibaba') return { ok: false, because: `${spokenName(clean)} runs on Qwen and its Qwen account is not known here; switch it to Qwen again to pick one` };
+  }
+  // #5977 review 3: a codex job on a Qwen home cannot be launched on Windows (no endpoint arguments there).
+  if (wantRunner === 'codex' && jobPlatform === 'win32' && opts && typeof opts.configDir === 'string' && opts.configDir
+    && require('./qwenaccounts').isQwenHome(opts.configDir)) {
+    return { ok: false, because: REFUSE_QWEN_WIN32 };
   }
   // #3939: the Muse flag holds here too (connect, repair and backfill all reach installJob).
   if (wantRunner === 'muse' && !museEnabled(jobPlatform)) {
@@ -4223,6 +4368,22 @@ async function accountConnectable({ provider, accountDir } = {}) {
      routing a bogus provider into the Claude arm below would surface a Claude
      sign-in error for what is really a provider mistake. */
   const prov = (provider !== undefined && provider !== null && String(provider) !== '') ? String(provider) : 'anthropic';
+  /* #5977 review 5: a Qwen account whose endpoint positively refuses (its key, or it lacks the model) is refused
+     here, as the other keyed providers are (#1315); one that cannot be reached is not (Ollama may simply be closed). */
+  if (prov === 'alibaba') {
+    if (!dir) return { ok: true };   // createAgentInner refuses a Qwen create with no account
+    try {
+      const qwen = require('./qwenaccounts');
+      // Review 7: only a listed account is asked; an unknown folder is createAgentInner's to refuse in its own words.
+      const listed = qwen.list().find((a) => a.dir === require('path').resolve(dir));
+      if (!listed) return { ok: true };
+      const live = await qwen.checkLive(listed.dir);
+      if (live && live.state === qwen.STATE.NONE) return { ok: false, because: `that Qwen account cannot be used: ${live.because}` };
+    } catch (err) {
+      console.error('#1916: account liveness precheck errored in qwen (failing open):', (err && err.stack) || err);
+    }
+    return { ok: true };
+  }
   if (prov !== 'anthropic' && prov !== 'openai' && prov !== 'google' && prov !== 'xai') return { ok: true };
 
   /* #3566: Gemini and Grok, now creatable from the page. A NAMED account is checked live
@@ -4412,6 +4573,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
 }
 
 function createAgent(opts) {
+  forgetAgentProvider(opts && opts.name);   // review 4: a new job for this name
   /* #4475: did a token already stand for this name when we were asked? A live remote agent holds no folder, job or
      pane, so create can take its name, and its own revoke then clears that agent's tokens. The birth says so, and the
      removal route never lets the asking agent remove such a name. */
@@ -4515,7 +4677,7 @@ function createAgentInner(opts) {
   const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : runner === 'antigravity' ? antigravityBin : runner === 'muse' ? museBin : claudeBin;
 
   const steps = [];
-  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai'
+  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai' && provider !== 'alibaba'
     && !(provider === 'antigravity' && antigravityEnabled())   // #3568: behind its flag
     && !(provider === 'meta' && museEnabled(opts && opts.platform))) { // #3939: behind its flag, Mac only
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER, steps };
@@ -4523,7 +4685,7 @@ function createAgentInner(opts) {
   // #5534 (Enterprise E0.5): a company policy in force on this board may not allow this provider or model. Refused
   // before anything is written, with the policy's own sentence; agents already running are never stopped by it.
   {
-    const allowed = policyAllows(provider, opts && opts.model);
+    const allowed = policyAllows(provider, opts && opts.model, wantAccountDir);
     if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because, steps };
   }
   /* #3564: an Agent or a Swarm. A swarm is refused here, before anything is written,
@@ -4572,6 +4734,15 @@ function createAgentInner(opts) {
     // respawns forever. Kept beside the provider decision for symmetry.
     if (!DRY_RUN && !runnerRunnable(grokBin)) {
       return { outcome: OUTCOME.REFUSED, because: 'we could not find the Grok runner on this computer, so an agent made now would never start', steps };
+    }
+  }
+  /* #5977: Qwen runs on codex, against the account's endpoint. The account is required (there is no default Qwen
+     account) and checked in the account block below; the runner is checked here, as for OpenAI. */
+  if (provider === 'alibaba') {
+    // #5977 review 3: Windows first, as for Antigravity: its codex launch has no endpoint arguments.
+    if ((opts && opts.platform ? opts.platform : process.platform) === 'win32') return { outcome: OUTCOME.REFUSED, because: REFUSE_QWEN_WIN32, steps };
+    if (!DRY_RUN && !runnerRunnable(codexBin)) {
+      return { outcome: OUTCOME.REFUSED, because: 'we could not find Codex, the runner Qwen agents use, on this computer, so an agent made now would never start', steps };
     }
   }
   if (provider === 'openai') {
@@ -4715,7 +4886,11 @@ function createAgentInner(opts) {
   if (provider === 'meta' && wantModelKey !== undefined && wantModelKey !== null && String(wantModelKey).trim() !== '') {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_MUSE_MODEL, steps };
   }
-  if (wantModelKey !== undefined && provider !== 'meta') {
+  // #5977: a Qwen agent runs the model its account names; the account is where a person changes it.
+  if (provider === 'alibaba' && wantModelKey !== undefined && wantModelKey !== null && String(wantModelKey).trim() !== '') {
+    return { outcome: OUTCOME.REFUSED, because: 'a Qwen agent runs the model its Qwen account names; change the model on the account instead', steps };
+  }
+  if (wantModelKey !== undefined && provider !== 'meta' && provider !== 'alibaba') {
     if (provider === 'openai' || provider === 'google' || provider === 'xai' || provider === 'antigravity') {
       /* #2140/#3296/#3391: OpenAI, Gemini and Grok models are FREE-FORM ids, not
          entries in the static MODELS list `modelFor` reads (OpenAI's are per-account
@@ -4827,6 +5002,16 @@ function createAgentInner(opts) {
       .find((a) => a.dir === path.resolve(String(wantAccountDir)));
     if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal('Grok'), steps };
     configDir = acct.isDefault ? null : acct.dir;
+  } else if (provider === 'alibaba') {
+    /* #5977: a NAMED Qwen account, required and fail-closed. configDir is always the account folder: it is the
+       codex account home the supervisor reads the endpoint from, and there is no default Qwen home. */
+    if (wantAccountDir === undefined || wantAccountDir === null || String(wantAccountDir) === '') {
+      return { outcome: OUTCOME.REFUSED, because: 'pick which Qwen account it should run on', steps };
+    }
+    const acct = require('./qwenaccounts').list().find((a) => a.dir === path.resolve(String(wantAccountDir)));
+    if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal('Qwen'), steps };
+    if (acct.endpointProblem) return { outcome: OUTCOME.REFUSED, because: `that Qwen account cannot be used: ${acct.endpointProblem}`, steps };
+    configDir = acct.dir;
   } else if (provider === 'meta' && wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_MUSE_ACCOUNT, steps };   // #3939
   } else if (provider === 'antigravity' && wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
@@ -5843,6 +6028,8 @@ function createAgentInner(opts) {
    * the agent IS that consent: the folder is ours, made three steps up.
    * Append-only, once, into the same CODEX_HOME codexsession.js reads.
    */
+  /* #5977 review 7: not for Qwen. The supervisor trusts the folder in codex's private runtime home (#4592) on every
+     launch, which is the copy codex reads; an entry in the Qwen account folder would be unread. */
   const trustedFolder = provider !== 'openai'
     || ((wroteInstructions && installedSupervisor) && step('let the OpenAI runner work in its folder', () => {
       if (DRY_RUN) return true;
@@ -5988,7 +6175,7 @@ function createAgentInner(opts) {
        agent with `--trust` at launch (agent-supervisor.sh), and their birth writes go
        to their own config branches below, so running a claude trust write for a
        gemini/grok worker folder would write into the wrong tool's config. */
-    if (provider !== 'google' && provider !== 'xai' && provider !== 'antigravity' && provider !== 'meta') { // #3568, #3939: not a Claude Code folder either
+    if (provider !== 'google' && provider !== 'xai' && provider !== 'antigravity' && provider !== 'meta' && provider !== 'alibaba') { // #3568, #3939, #5977 review 3: not a Claude Code folder either
       try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir, createIfAbsent: provider !== 'openai', agentDefaultAccount: provider !== 'openai' && !configDir }); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
     }
@@ -6259,6 +6446,9 @@ function createAgentInner(opts) {
     /* The provider, recorded at birth beside the id (#245, per the OpenAI
        outline): never inferred from what happens to be running in a pane. */
     profile.provider = provider;
+    /* #5977 review 5: which Qwen account, so Repair can rebuild the job on it (the job is the only other record, and
+       Repair runs exactly when the job is gone). */
+    if (provider === 'alibaba') profile.qwenAccount = configDir;
     /* #3564: a swarm's kind and settings, from birth (engine/swarm.js). */
     if (kind === 'swarm') Object.assign(profile, require('./swarm').birthProfile({ maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit, dailyAllowancePct: opts.dailyAllowancePct }));
     /* Which revision of the working rules this agent was born with (#539),
@@ -6468,6 +6658,9 @@ module.exports = {
   briefFilename,
   providerRunner,
   runnerProvider,
+  jobProvider,   // #5977
+  agentProvider,   // #5977 review 2
+  codexJobProvider,   // #5977 review 6
   providerLabel,
   isNonClaudeRunner,
   antigravityEnabled,

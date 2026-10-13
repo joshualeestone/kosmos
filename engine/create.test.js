@@ -3967,7 +3967,8 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   assert.equal(launches.length, 2, 'the supervisor launch seams moved; update this test with them');
   for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch seam does not pass the pane environment: ' + l);
   const helperCalls = script.split('\n').filter((l) => /^\s+launch_pane(?!\(\))\b/.test(l));
-  assert.equal(helperCalls.length, 7, 'a provider stopped using the shared pane launch that carries PANE_ENV');
+  // #5977: 8 with the codex endpoint (Qwen) launch, which uses the same helper.
+  assert.equal(helperCalls.length, 8, 'a provider stopped using the shared pane launch that carries PANE_ENV');
   // The names handed into the pane, pinned as a list so a new one cannot be forgotten silently
   // (#577, #540, #529). #3296/#3391 added GEMINI_CLI_HOME + GROK_HOME so a per-account gemini/grok
   // home reaches the pane the same way CODEX_HOME does.
@@ -6935,4 +6936,56 @@ test('#5534 slice 3: a new agent gets the company\'s AI policy at birth, and non
   const bare = create.createAgent({ ...BINS, name: 'pol-bare', role: 'pm' });
   assert.equal(bare.outcome, create.OUTCOME.CREATED, bare.because);
   assert.equal(projects.findBlock(fs.readFileSync(create.instructionFile('pol-bare'), 'utf8'), policy.START, policy.END), null, 'a block was written with no policy');
+});
+
+/* #5977: creating an agent on Qwen (provider alibaba, the codex runner on a Qwen account). The account is required
+   and becomes the codex account home; a model is refused (the account names it); an unknown or unusable account is
+   refused before anything is written. */
+// #5977: these drive the launchd job, so they skip on a Windows host like the rest of this file's (WIN_LAUNCHD).
+// Windows refuses Qwen (review 3); that refusal has its own test (engine/qwen-review2-5977, platform 'win32').
+test('#5977: createAgent on Qwen runs codex with the named Qwen account as its home, and refuses without one', WIN_LAUNCHD, () => {
+  recorder();
+  create.setDryRun(false);
+  const qwen = require('./qwenaccounts');
+  const acct = nodePath.join(process.env.AGENT_WORKFORCE_HOME, qwen.DIR_PREFIX + 'create-test');
+  qwen.storeEndpoint(acct, { baseUrl: 'http://localhost:11434/v1', model: 'kosmos-qwen2.5-7b-16k:latest', contextWindow: 16384 });
+  const made = create.createAgent({ ...BINS, name: 'qw-create', role: 'pm', provider: 'alibaba', codexBin: CODEX_BIN, account: acct });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  assert.equal(plistArgs('qw-create')[8], 'codex');
+  assert.equal(jobEnv('qw-create', 'CODEX_HOME'), acct, 'the Qwen account folder is the codex account home');
+  assert.equal(store.readProfile('qw-create').provider, 'alibaba');
+  assert.equal(create.jobProvider(create.readJob('qw-create')), 'alibaba');
+
+  const none = create.createAgent({ ...BINS, name: 'qw-create-none', role: 'pm', provider: 'alibaba', codexBin: CODEX_BIN });
+  assert.equal(none.outcome, create.OUTCOME.REFUSED);
+  assert.match(none.because, /pick which Qwen account/);
+  const unknown = create.createAgent({ ...BINS, name: 'qw-create-unknown', role: 'pm', provider: 'alibaba', codexBin: CODEX_BIN, account: nodePath.join(process.env.AGENT_WORKFORCE_HOME, qwen.DIR_PREFIX + 'nope') });
+  assert.match(unknown.because, /do not know that Qwen account/);
+  const model = create.createAgent({ ...BINS, name: 'qw-create-model', role: 'pm', provider: 'alibaba', codexBin: CODEX_BIN, account: acct, model: 'gpt-5.2' });
+  assert.match(model.because, /runs the model its Qwen account names/);
+  for (const n of ['qw-create-none', 'qw-create-unknown', 'qw-create-model']) {
+    assert.equal(create.readJob(n), null, `${n}: nothing was written for a refused create`);
+  }
+});
+
+test('#5977: a Qwen agent moves between Qwen accounts with setAccount, refuses an OpenAI folder there, and refuses a model change', WIN_LAUNCHD, () => {
+  recorder();
+  create.setDryRun(false);
+  const qwen = require('./qwenaccounts');
+  const a = nodePath.join(process.env.AGENT_WORKFORCE_HOME, qwen.DIR_PREFIX + 'move-a');
+  const b = nodePath.join(process.env.AGENT_WORKFORCE_HOME, qwen.DIR_PREFIX + 'move-b');
+  for (const d of [a, b]) qwen.storeEndpoint(d, { baseUrl: 'http://localhost:11434/v1', model: 'kosmos-qwen2.5-7b-16k:latest', contextWindow: 16384 });
+  assert.equal(create.createAgent({ ...BINS, name: 'qw-move', role: 'pm', provider: 'alibaba', codexBin: CODEX_BIN, account: a }).outcome, create.OUTCOME.CREATED);
+  const moved = create.setAccount('qw-move', b);
+  assert.equal(moved.outcome, create.OUTCOME.CREATED, moved.because);
+  assert.equal(jobEnv('qw-move', 'CODEX_HOME'), b);
+  const openaiHome = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-qw-move');
+  fs.mkdirSync(openaiHome, { recursive: true });
+  const toOpenai = create.setAccount('qw-move', openaiHome);
+  assert.equal(toOpenai.outcome, create.OUTCOME.REFUSED);
+  assert.match(toOpenai.because, /switch its provider/);
+  assert.equal(jobEnv('qw-move', 'CODEX_HOME'), b, 'the refused move changed nothing');
+  const m = create.setModel('qw-move', 'gpt-5.2');
+  assert.equal(m.outcome, create.OUTCOME.REFUSED);
+  assert.match(m.because, /change the model on the account instead/);
 });

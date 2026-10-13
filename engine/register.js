@@ -420,10 +420,21 @@ function repair(opts) {
           : provider === 'antigravity' ? { runner: 'antigravity' } // #3568
             : provider === 'meta' ? { runner: 'muse' } // #3939
               : {};
+    /* #5977 review 5: a Qwen agent is codex ON ITS QWEN ACCOUNT. Rebuilt without that folder it would be a plain
+       OpenAI agent on the default sign-in (billing OpenAI, a different model) and nothing would say so. The account
+       is the one the profile recorded; with none, or one that is gone, Repair refuses and says how to fix it. */
+    if (provider === 'alibaba') {
+      const rec = (store.readProfile(name) || {}).qwenAccount;
+      if (typeof rec !== 'string' || !rec || !require('./qwenaccounts').isQwenHome(rec) || !fs.existsSync(rec)) {
+        return { name, shownAs: shownName(name), ok: false, because: 'it runs on Qwen and Kosmos does not know which Qwen account any more; switch it to Qwen again to pick one' };
+      }
+      runnerOpt.runner = 'codex';
+      runnerOpt.configDir = rec;
+    }
     /* #5534: an imported agent the company policy held never ran here, so Repair does not start it either while
        the policy still says no. An agent that ran before is restored as always (nothing is bricked). */
     if ((store.readProfile(name) || {}).policyHeld === true) {
-      const allowed = create.policyAllows(provider || 'anthropic', model);
+      const allowed = create.policyAllows(provider || 'anthropic', model, runnerOpt.configDir);   // review 6: a Qwen account names its model
       if (!allowed.ok) return { name, shownAs: shownName(name), ok: false, because: allowed.because };
     }
     const r = create.installJob(name, { model, platform, ...runnerOpt });

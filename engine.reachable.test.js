@@ -20,6 +20,7 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  resetLiveCacheForTest: 'test seam (#5977): engine/qwenaccounts.js clears the remembered endpoint answers (a minute for an unreachable one), so engine/qwenaccounts-5977.test.js and engine/qwen-review2-5977.test.js can change the fake endpoint between checks. Production keeps the cache.',
   _readState: 'engine/agentevents.js (#5683 slice 1, review 37): the state reader, so engine/agentevents-5683.test.js can check that a bad queue entry or send size is dropped on read without a tick in between (a tick drained the queue and hid the check).',
   _enrollmentKey: 'engine/agentevents.js (#5683 slice 3, rebase onto slice 1): the key a state is kept under, so engine/manipcheck-5683.test.js can write a queued state under exactly the key the tick computes rather than a second copy of its format (a copy in the old \'|\' form reset every state and emptied the queue).',
   _defaultSources: 'engine/agentevents.js (#5683 slice 1, review 17): the board\'s real sources, so engine/agentevents-5683.test.js can check its guard-in-force test against a folder guardTokenOnlyFolder actually wrote (a stub would agree with itself).',

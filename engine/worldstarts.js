@@ -527,11 +527,13 @@ function firstStartOfImport(entry, platform) {
   const runner = create.isNonClaudeRunner(entry.runner) ? entry.runner : 'claude';
   /* #5534: an imported agent is new to this Kosmos, so a company policy that does not allow its provider or model
      keeps it from starting here (it is not stopped where it came from). */
-  const allowed = create.policyAllows(create.runnerProvider(runner), entry.model);
+  // #5977: the provider from the entry's own account folder (a codex entry on a Qwen account is Qwen), as for a job.
+  const entryProvider = create.jobProvider({ runner, configDir: typeof entry.configDir === 'string' ? entry.configDir : null });
+  const allowed = create.policyAllows(entryProvider, entry.model, typeof entry.configDir === 'string' ? entry.configDir : null);
   /* Marked on its profile, so Repair (which restores agents that lost their job, and is not gated) does not start
      the agent the policy just held; the mark clears when the policy allows it. */
   if (!allowed.ok) {
-    try { store.writeProfile(entry.name, { policyHeld: true, provider: create.runnerProvider(runner) }); } catch { /* the held entry still retries here */ }
+    try { store.writeProfile(entry.name, { policyHeld: true, provider: entryProvider }); } catch { /* the held entry still retries here */ }
     return `${entry.name} was not started here: ${allowed.because}`;
   }
   const configDir = typeof entry.configDir === 'string' && entry.configDir ? entry.configDir : null;

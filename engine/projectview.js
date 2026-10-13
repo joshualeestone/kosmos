@@ -101,10 +101,10 @@ function summaryFreshness(folder, nowMs) {
    runner -> provider -> vendor map is create.js's; "Claude" is the product word for Anthropic, as the
    families themselves were named (Claude, GPT via OpenAI, Gemini, Grok, Meta Muse). Null when the board
    could not tie a program to the member. */
-function familyOf(runner) {
+function familyOf(runner, sessionName) {
   if (typeof runner !== 'string' || !runner) return null;
   const create = require('./create');
-  const provider = create.runnerProvider(runner);
+  const provider = create.agentProvider(sessionName, runner);   // #5977 review 2: a Qwen member is Qwen, not GPT
   return provider === 'anthropic' ? 'Claude' : create.providerLabel(provider);
 }
 
@@ -285,7 +285,7 @@ function overviewOf(p, roster, o) {
       roleHere: typeof m.roleHere === 'string' && m.roleHere ? m.roleHere : null,
       state: m.present && m.tied ? m.state : 'unknown',
       present: Boolean(m.present),
-      family: m.tied ? familyOf(m.runner) : null,
+      family: m.tied ? familyOf(m.runner, m.sessionName) : null,
       model: (card && (card.modelName || card.model)) || null,
       /* Only for a member tied to its pane (round 1): a stranger's pane holding the name must not have a folder
          derived from that name reported as this member's summary. */
@@ -317,7 +317,7 @@ function overviewOf(p, roster, o) {
 function listOf(described) {
   return (Array.isArray(described) ? described : []).map((p) => {
     const members = p.agents || [];
-    const families = [...new Set(members.filter((m) => m.tied).map((m) => familyOf(m.runner)).filter(Boolean))];
+    const families = [...new Set(members.filter((m) => m.tied).map((m) => familyOf(m.runner, m.sessionName)).filter(Boolean))];
     return {
       id: p.id,
       name: p.name,

@@ -520,6 +520,7 @@ if [ -z "$adopt" ]; then
   # runs on (CLAUDE_CONFIG_DIR for claude, CODEX_HOME for codex). Absent
   # means the default, the plist's own rule, so nothing is passed for it.
   PANE_ENV=()
+  ENDPOINT_ARGS=()   # #5977: set by the codex block for a Qwen account; empty means the OpenAI launch
   SECRET_ENV=()
   SECRET_ENTRY=()
   SECRET_FILE=""
@@ -1028,6 +1029,45 @@ if [ -z "$adopt" ]; then
     fi
     _codex_source_auth="$EFFECTIVE_CODEX_HOME/auth.json"
     _codex_runtime_auth="$_codex_runtime_home/auth.json"
+    # #5977: a Qwen account home holds kosmos-endpoint.json instead of an OpenAI sign-in. engine/qwenaccounts.js
+    # turns it into codex arguments (the endpoint, its model, the 16k-or-more context, web search off), NUL-separated
+    # so no value can split or inject. A file it cannot use stops the launch: starting codex against OpenAI with no
+    # sign-in would only fail later, in words about OpenAI.
+    # A home named like a Qwen account is one even when its endpoint file is missing or a link (qwenaccounts
+    # isQwenHome): launch-args then refuses it with the reason, rather than this launching codex against OpenAI.
+    ENDPOINT_ARGS=()
+    _ep_qwen=0
+    case "$(basename "$EFFECTIVE_CODEX_HOME")" in .kosmos-qwen-*) _ep_qwen=1 ;; esac
+    if [ -f "$EFFECTIVE_CODEX_HOME/kosmos-endpoint.json" ] && [ ! -L "$EFFECTIVE_CODEX_HOME/kosmos-endpoint.json" ]; then _ep_qwen=1; fi
+    if [ "$_ep_qwen" -eq 1 ]; then
+      _ep_file="$(mktemp)" || { say "$SESSION: could not read its Qwen endpoint; the agent was not started"; exit 1; }
+      _ep_rc=0
+      "$NODE_BIN" "$_eng/qwenaccounts.js" launch-args "$EFFECTIVE_CODEX_HOME" > "$_ep_file" 2>/dev/null || _ep_rc=$?
+      if [ "$_ep_rc" -ne 0 ]; then
+        _ep_why="$(head -c 300 "$_ep_file" | tr -d '\n')"
+        say "$SESSION: ${_ep_why:-Kosmos could not read this Qwen account}; the agent was not started"
+        rm -f -- "$_ep_file"
+        exit 1
+      fi
+      while IFS= read -r -d '' _ep_arg; do ENDPOINT_ARGS+=("$_ep_arg"); done < "$_ep_file"
+      rm -f -- "$_ep_file"
+      if [ "${#ENDPOINT_ARGS[@]}" -eq 0 ]; then
+        say "$SESSION: its Qwen endpoint gave no launch settings; the agent was not started"
+        exit 1
+      fi
+      # A key named in the arguments (env_key) must reach the pane, or codex starts and fails later with nothing said.
+      _ep_wants_key=0
+      for _ep_arg in "${ENDPOINT_ARGS[@]}"; do case "$_ep_arg" in *.env_key=*) _ep_wants_key=1 ;; esac; done
+      # Review 7: the key only from a launch-key that succeeded; a refusal's sentence must never become the key.
+      _ep_key="$("$NODE_BIN" "$_eng/qwenaccounts.js" launch-key "$EFFECTIVE_CODEX_HOME" 2>/dev/null)" || _ep_key=""
+      if [ "$_ep_wants_key" -eq 1 ] && [ -z "$_ep_key" ]; then
+        say "$SESSION: could not read its Qwen account's key; the agent was not started"
+        exit 1
+      fi
+      [ -n "$_ep_key" ] && add_launch_secret KOSMOS_ENDPOINT_KEY "$_ep_key"
+      unset _ep_file _ep_rc _ep_arg _ep_key _ep_why _ep_wants_key
+    fi
+    unset _ep_qwen
 
     if [ -n "$_codex_runtime_home" ] && [ ! -L "$_codex_runtime_home" ] \
       && mkdir -p "$_codex_runtime_home" 2>/dev/null && chmod 700 "$_codex_runtime_home" 2>/dev/null; then
@@ -1050,6 +1090,9 @@ if [ -z "$adopt" ]; then
       _codex_source_physical="$(cd "$EFFECTIVE_CODEX_HOME" 2>/dev/null && pwd -P || true)"
       if [ -n "$_codex_runtime_physical" ] && [ "$_codex_runtime_physical" = "$_codex_source_physical" ]; then
         say "$SESSION: refused a private Codex home that resolves to the selected account home"
+      elif [ "${#ENDPOINT_ARGS[@]}" -gt 0 ]; then
+        # #5977: an endpoint account has no OpenAI sign-in to link, and an old link must not survive a switch to one.
+        rm -f -- "$_codex_runtime_auth" 2>/dev/null || true
       elif [ -e "$_codex_source_auth" ]; then
         if [ -e "$_codex_runtime_auth" ] || [ -L "$_codex_runtime_auth" ]; then
           rm -f -- "$_codex_runtime_auth" 2>/dev/null || true
@@ -1133,7 +1176,10 @@ if [ -z "$adopt" ]; then
       # CODEX_HOME, so the dismiss must target the SAME home the pane reads or it writes the
       # update-notice dismissal into a different home than the running agent.
       if [ -f "$DISMISS" ] && [ -n "${NODE_BIN:-}" ]; then "$NODE_BIN" "$DISMISS" "${EFFECTIVE_CODEX_HOME:-}" >/dev/null 2>&1 || true; fi
-    if [ -n "$MODEL" ]; then
+    if [ "${#ENDPOINT_ARGS[@]}" -gt 0 ]; then
+      # #5977: the endpoint's arguments carry their own -m (the account's model), so the agent's $MODEL is not used.
+      launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" "${ENDPOINT_ARGS[@]}" || exit 1
+    elif [ -n "$MODEL" ]; then
       launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" -m "$MODEL" || exit 1
     else
       launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" || exit 1

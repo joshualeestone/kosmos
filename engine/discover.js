@@ -1863,6 +1863,11 @@ function connect(dir, opts) {
      through the shared provider<->runner maps rather than a fourth hand-written case,
      so a fifth provider works here for free (Convention #5). claude normalizes back
      to null, the loop's own claude value. */
+  /* #5977 review 2: Qwen shares codex with OpenAI, and a Qwen agent is only Qwen through a Qwen account, which a
+     connected folder does not have. Mapping the hint to its runner would quietly make an OpenAI agent, so say so. */
+  if (opts && String(opts.provider || '').toLowerCase() === 'alibaba') {
+    return { ok: false, because: 'a folder cannot be connected as a Qwen agent yet; make a new agent on Qwen instead' };
+  }
   if (instructionsFile !== null && opts && opts.provider) {
     const hinted = create.providerRunner(String(opts.provider));
     // #3568: an Antigravity hint counts only with its flag on, like every other way to make one.
