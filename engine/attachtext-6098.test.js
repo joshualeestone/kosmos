@@ -424,3 +424,26 @@ test('#6098 review 4: the date note ignores [Red] colour codes; a real date form
   assert.ok(!at.xlsxText(book('#,##0;[Red]-#,##0')).notes.some((n) => /Dates/.test(n)));
   assert.ok(at.xlsxText(book('dd/mm/yyyy')).notes.some((n) => /Dates/.test(n)));
 });
+
+/* ── review 5 ── */
+test('#6098 review 5: a two-byte font with no character map is not passed off as text', async () => {
+  kitCalls = 0;
+  const f = path.join(SANDBOX, 'cjk.pdf');
+  fs.writeFileSync(f, pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>'], [4, streamObj('', 'BT /F1 12 Tf <00340058004400550057> Tj ET')],
+    [5, '<< /Type /Font /Subtype /Type0 /BaseFont /HYGoThic /Encoding /Identity-H >>']]));
+  const got = await at.pdfText(f, fs.readFileSync(f));
+  assert.equal(kitCalls, 1, 'PDFKit is asked');
+  assert.equal(got.body.replace(/--- Page \d+ ---/g, '').trim(), '', 'no garbage kept: ' + got.body);
+  assert.ok(got.notes.some((n) => /no character map/.test(n)), JSON.stringify(got.notes));
+});
+
+test('#6098 review 5: an encrypted PDF that PDFKit can open is read through it', async () => {
+  const f = path.join(SANDBOX, 'owner-only.pdf');
+  fs.writeFileSync(f, pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [] /Count 0 >>'], [3, '<< /Filter /Standard /V 2 >>']], '/Encrypt 3 0 R'));
+  at.setPdfkit(async () => 'Opened by PDFKit');
+  try {
+    const got = await at.pdfText(f, fs.readFileSync(f));
+    assert.ok(got.body.includes('Opened by PDFKit'), JSON.stringify(got));
+  } finally { at.setPdfkit(async () => { kitCalls += 1; return null; }); }
+});

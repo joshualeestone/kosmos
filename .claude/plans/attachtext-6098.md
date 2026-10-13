@@ -56,6 +56,10 @@ reads these files itself.
 - **Iteration 4:** a font with no ToUnicode and its own encoding (MacRoman from a Mac, /Differences) marks the JS text as not
   trusted: a Mac asks PDFKit; elsewhere a note says symbols may be wrong (a MacRoman table was the alternative). ASCII85 output
   is bounded and charged to the inflate budget; the date note ignores [Red]-style codes and quoted literals.
+- **Iteration 5:** a two-byte (Type0/Identity) font with no ToUnicode marks the text untrusted: a Mac asks PDFKit, and elsewhere
+  that text is dropped with a note (it would be garbage that reads as text); an encrypted PDF is first offered to PDFKit, which
+  opens permission-only PDFs. PDFKit is asked when text does not read as text, a font has its own encoding or no character
+  map, or the file is encrypted.
 - **Not done:** pictures (no OCR), charts, inline (not referenced) PDF font dictionaries, /Differences glyph names (pdfTeX
   ligatures), LZW, lists and headings applied only through a paragraph style (no numId; localized heading style ids), docx headers/footers/footnotes/comments, text inside PDF form XObjects (`Do`),
   xls/doc/ppt/pptx, an attachment uploaded before this change (it gets no rendering; its line is unchanged).
@@ -74,4 +78,4 @@ empty paragraphs, tables with no paragraphs between); nested table, text box and
 in every cell (capped, quick, says so); PDF digit runs, CMap brackets and repeated full ranges (bounded); a content
 stream shared by many pages (charged each time, total capped); a two-digit indirect /Length; a TJ array of 80 items and
 two runs on one line; a 70 MB Flate image before the text; a damaged document worded as a document. Meta: engine.reachable
-excuses setPdfkit and pdfText as test seams. Neighbours and meta: 676/676. Iteration 4 added two arms (MacRoman asks PDFKit; [Red] is not a date).
+excuses setPdfkit and pdfText as test seams. Neighbours and meta: 678/678. Tests: 33 (iteration 5 added CJK no-map and encrypted-through-PDFKit). Iteration 4 added two arms (MacRoman asks PDFKit; [Red] is not a date).
