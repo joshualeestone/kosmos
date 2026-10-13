@@ -16669,8 +16669,8 @@ const server = http.createServer(async (req, res) => {
          the setup guide's thread: everything served there is masked (#3769), and this is unmasked screen text. Claude
          cards only: the key-answer path a press relies on is Claude's (the runner half of questionMenuKeysAllowed; the
          page draws no buttons where the composer is closed, and the POST refuses what a key cannot reach).
-         And only for the single-select question menu that path answers (status.claudeQuestionMenu): a permission prompt
-         also reads as numbered options, but a press there would be pasted, and its Enter picks the highlighted option. */
+         And only for a menu that path answers by key (status.claudeAnswerableMenu): the single-select question menu, or
+         (#6054) Claude Code's permission prompt, whose press must carry this identity (its question line repeats). */
       asked: pressable ? chat.questionAbove(question.text) : null,
     });
     return;
@@ -17047,7 +17047,10 @@ const server = http.createServer(async (req, res) => {
           const cq = seenNow.text ? require('./engine/status').claudeAnswerableMenu(seenNow.text) : null;   // #6054
           if (cq) {
             const said = String(body.text).trim();
-            const opt = /^\d$/.test(said) ? cq.options.find((o) => String(o.n) === said) : null;
+            /* #6054 review 1: a permission prompt is answered only by a press of its button, which carries the prompt's identity
+               (`asked`): a typed digit names no command, and "1" is Yes on every prompt, so it could approve one the person
+               never saw. Typed, it is words: delivery refuses it and points at the buttons. */
+            const opt = (/^\d$/.test(said) && (!cq.permission || askedGiven)) ? cq.options.find((o) => String(o.n) === said) : null;
             /* A press is answered only as the option the live menu shows under that number, with the words the page
                drew for it: the two menu readers (optionsIn above, claudeQuestionMenu here) must agree. */
             if (opt && chose && chat.cleanMessage(opt.label) !== chose) {
@@ -17059,7 +17062,7 @@ const server = http.createServer(async (req, res) => {
               e.status = 409; throw e;
             }
             if (opt && !files.recs.length && !answered) {
-              const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label });
+              const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}) });
               if (!r.ok) { const e = new Error(r.because); e.status = 409; throw e; }
               qmenuAnswer = r;
             } else if (chose || askedGiven) {
@@ -17131,7 +17134,7 @@ const server = http.createServer(async (req, res) => {
         }
         let delivery = qmenuAnswer
           ? { state: qmenuAnswer.answered ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED,
-            because: qmenuAnswer.answered ? null : 'its question was still on its screen after the answer; look at its window',
+            because: qmenuAnswer.answered ? null : 'its question was still on its screen after the answer; look at this page again in a moment before pressing anything',   // #6054: no window to look at
             at: new Date().toISOString() }
           : await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
             envelope, (attachments.wireNote(files.recs) || '') + reactionNote, ...(automatic ? [{ cap: false }] : []));
