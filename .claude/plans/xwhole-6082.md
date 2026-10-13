@@ -20,9 +20,13 @@ note, 0.9.6 a single over-long sentence) and three checks; 7b updated (whole sen
 - Counting the link as X does (23 characters): it gives about 20 more characters, but X's rule is X's, and the budget
   here is a safe upper bound; left as is.
 
+Review 1: sentences are split on the space after . ! or ?, so text before a dotted token (a version, a domain) is never
+dropped; a note that fits in characters is returned unchanged (the shell's length test can count bytes); a cut that
+lands on a space keeps the last word.
+
 ## Weakest premise
-That splitting on ". " is good enough for release notes: an abbreviation ("e.g. ") would end a sentence early, which
-only makes the post shorter, never cut mid-word.
+That splitting after ". " is good enough for release notes: an abbreviation ("e.g. ") ends a sentence early, which only
+makes the post shorter, never cut mid-word or drop text.
 
 ## Validation
 tools/test-post-release-notes.sh: 32/32; the three new or changed checks fail on the old script. bash -n on both.

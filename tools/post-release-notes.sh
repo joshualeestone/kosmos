@@ -90,13 +90,19 @@ if [ "${#X_BODY}" -gt "$_budget" ]; then
   if [ -n "$NODE" ]; then
     X_BODY="$("$NODE" -e '
       const t = process.argv[1]; const b = Number(process.argv[2]);
+      const cps = [...t];
+      process.stdout.write(cps.length <= b ? t : trim());   // fits in characters: unchanged (the shell may count bytes)
+      function trim() {
       const len = (s) => [...s].length;
-      const parts = t.match(/[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g) || [t];
       let out = "";
-      for (const p of parts) { if (len((out + p).trim()) <= b) out += p; else break; }
-      out = out.trim();
-      if (!out) { const c = [...t].slice(0, b - 1).join(""); out = (c.replace(/\s+\S*$/, "") || c).trimEnd() + "\u2026"; }
-      process.stdout.write(out);
+      for (const p of t.split(/(?<=[.!?])\s+/)) { const next = out ? out + " " + p : p; if (len(next) <= b) out = next; else break; }
+      if (!out) {
+        // A word is kept whole: cut where a space falls, else back to the last space; one unbroken token is cut in it.
+        const c = cps.slice(0, b - 1).join("");
+        out = (/\s/.test(cps[b - 1] || "") ? c : (c.replace(/\s+\S*$/, "") || c)).trimEnd() + "\u2026";
+      }
+      return out;
+      }
     ' "$X_BODY" "$_budget")"
   else
     X_BODY="$(printf '%s' "$X_BODY" | cut -c1-$((_budget-1)))…"
