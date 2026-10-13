@@ -383,3 +383,19 @@ diffs line by line.
 - **NIT, taken:** this file's header.
 - **NIT, not taken:** the sample rows' raw fields do not all agree with their words (the page paints only `owner`);
   and one request reads the moderation queue once in each of two readers ("once" is per reader).
+
+## Review 20 (2026-10-13, sonnet), at d18879748: converged
+0 BLOCKER, 0 WARNING, 0 CONVENTION, 3 NIT, none applied: the held count also takes a row whose author's shown name
+equals the session name (on purpose, said at the reader); the one-agent wrappers rebuild the whole read per call, so
+"read once" rests on `rowsFor` passing the shared readers (a test holds it); a row left open across New Year keeps
+its year-less time until the next repaint. The reviewer read the whole diff and ran no tests.
+
+## The runs at the final code, d18879748 (2026-10-13)
+- **The browser check, in a browser at last** (04:38 CDT): `render-community-ready-5958.js` against a throwaway board
+  booted from this tree: 54 PASS, 0 FAIL, exit 0. Headless Chromium (`HEADED=0`), so it is a real page and real
+  layout but not a headed browser on real hardware. This is the run reviews 17, 18 and 19 each said was missing.
+  Its only earlier run (old head, 2026-10-12 19:36) was 50 pass, 2 fail, both the check's own stand-in.
+- **The repo's full validation** (05:15 CDT): node 19870 tests, 19635 passed, 0 failed, 235 skipped; shell 232 of
+  232; both browser-check gates passed; exit 0. Subdirectory audit exit 0.
+- **NOT run yet:** the design-shot screen `community-ready` (queued). Nobody has LOOKED at this list: the check
+  measures it, and a design review needs the shots.
