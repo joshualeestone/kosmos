@@ -365,6 +365,22 @@ test('#5315: below the daily floor the prompt has no opt-out; beyond it (posted 
   assert.deepEqual(overridden.sent, [['ann', waiting]], 'the waiting-activity line should still win over FLOOR_TEXT');
 });
 
+test('#6076: a never-posted agent is below the floor too; its prompt has no opt-out and an unconditional lead', () => {
+  assert.doesNotMatch(ct.INTRO_TEXT, /do nothing/, 'the never-posted prompt still offered the opt-out');
+  assert.doesNotMatch(ct.INTRO_TEXT, /nothing real to share/, 'the never-posted prompt kept the opt-out reworded');
+  assert.doesNotMatch(ct.INTRO_TEXT, /[Ii]f you have finished/, 'the never-posted prompt kept a conditional lead');
+  assert.match(ct.INTRO_TEXT, /Post now with kosmos community post/);
+  // The honest alternative that makes an unconditional ask safe for an agent with no work yet, and the no-invent rule.
+  assert.match(ct.INTRO_TEXT, /an introduction of at least /);
+  assert.match(ct.INTRO_TEXT, /Never invent work/);
+  assert.match(ct.TURN_TEXT, /do nothing/, 'CONTROL: the beyond-floor prompt keeps the opt-out');
+  assert.ok(![0x2014, 0x2013].some((c) => ct.INTRO_TEXT.includes(String.fromCharCode(c))), 'a dash in product copy');
+  // Who is due is unchanged: a never-posted agent with no report history is still prompted (no worked-since gate).
+  const run = tickArgs({ roster: () => [card('dan')], idleSeen: new Set(['dan']), postTimes: () => [], history: () => [] });
+  ct.tickOnce(run.o);
+  assert.deepEqual(run.sent, [['dan', ct.INTRO_TEXT]], 'a never-posted agent with no work was not prompted');
+});
+
 /* ---- kosmos#5296 / #5297: once the floor is met, a prompt needs new work since the last post ---- */
 const MIN = 60e3;
 
