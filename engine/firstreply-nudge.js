@@ -187,8 +187,14 @@ function sweepOnce(o) {
           try { fcS = firstContact(read(session), pzS); } catch { fcS = null; }
           if (fcS && fcS.state === 'owes') {
             if (bound) { try { bound(session, 'gave up after ' + MAX_TRIES + ' tries that reached nothing'); } catch { /* best-effort */ } }
-          } else {
-            book.delete(session);                         // obligation resolved: drop the stale spent entry
+          } else if (fcS && fcS.state === 'clear') {
+            // DEFINITELY no longer owes (answered, or an unanswerable thread): resolved -- clear the episode and
+            // drop the stale spent entry. Only on a definite 'clear': an INDETERMINATE read (fcS null = the
+            // thread read threw, or fcS.state 'unknown' = unreadable) must NEITHER raise nor clear -- clearing
+            // on uncertainty would drop a possibly-real give-up AND re-arm the nudge (breaking "one nudge ever").
+            // The indeterminate case leaves the entry and relies on the STALE_MS backstop, matching isMoot's
+            // deliberate refusal to moot on 'unknown'.
+            book.delete(session);
             if (cleared) { try { cleared(session); } catch { /* best-effort */ } }
           }
         }

@@ -142,6 +142,19 @@ test('#5154-B: a spent firstreply entry is raised only while the agent still OWE
   assert.equal(book.has(s), false, 'and the stale spent entry is dropped');
 });
 
+test('#5154-B: an INDETERMINATE firstreply read (unknown/threw) neither raises nor clears a spent give-up', () => {
+  const s = idleCard().sessionName;
+  const book = new Map([[s, { nudgedAt: null, tries: nudge.MAX_TRIES }]]);
+  const bound = []; const cleared = [];
+  // the thread read yields an unknown firstContact (null messages): the obligation cannot be determined. The
+  // give-up must NOT be cleared (that would drop a possibly-real signal and re-arm the nudge), nor raised.
+  nudge.sweepOnce({ roster: rosterOf('idle'), book, now: NOW, thread: () => null,
+    deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY, bound: (x) => bound.push(x), cleared: (x) => cleared.push(x) });
+  assert.deepEqual(bound, [], 'an indeterminate read does not raise');
+  assert.deepEqual(cleared, [], 'and does not clear (fail toward keeping the signal)');
+  assert.equal(book.has(s), true, 'the spent entry is kept, not dropped/re-armed');
+});
+
 function sweepWith(opts) {
   const sent = [];
   const logs = [];

@@ -21084,19 +21084,6 @@ function stateReason(a, opts) {
     if (a.stuckError.state === 'auth_failed') return 'Kosmos has seen this agent unable to sign in for about ' + mins + ' minutes. It cannot work until you reconnect its account. Open Settings to reconnect it.';
     if (a.stuckError.state === 'rate_limited') return 'Kosmos has seen this agent paused by a rate limit for about ' + mins + ' minutes. It will keep trying when the limit lifts. You can wait, or switch its model.';
   }
-  /* #5154 slice B: one of Kosmos's own helpers (quota resume / idle nudge / first-reply nudge) tried to help
-     this agent along, capped its retries, and gave up -- a give-up that used to live only in a log. The card now
-     names what Kosmos tried. Same DELIBERATE scope as slice C: this escalates the SENTENCE, the Issue-filter
-     membership (agentNeedsAttention / needsPerson) and one phone push -- not the card's look or pill. Placeholder
-     copy, plain words; Mona Lisa to refine (as slices A and C were). Oldest-standing give-up wins (items[0]). */
-  if (a && a.ownBound && a.ownBound.raised === true && Array.isArray(a.ownBound.items) && a.ownBound.items.length
-      && a.state !== 'needs_you' && !(a.stateReported === true && a.because)) {   // #5154 slice B PRECEDENCE: the agent's own question wins over a Kosmos give-up. `state !== needs_you` matches the pill/push precedence (status.js needsYouReason, tellBounds ownNeedsYou); the `stateReported && because` clause matches the own-question arm rendered just below. Either way a give-up never masks the person's actual question.
-    const it = a.ownBound.items[0];
-    const mins = Math.max(1, Math.round((Number(it.forMs) || 0) / 60000));
-    if (it.cls === 'quota') return 'Kosmos tried to get this agent going again after its quota reset and gave up about ' + mins + ' minutes ago. Its turn is unfinished. Open it to see what it shows, or message it.';
-    if (it.cls === 'nudge') return 'Kosmos nudged this idle agent to pick up its open task and gave up about ' + mins + ' minutes ago. Open it to see what it shows, or message it.';
-    if (it.cls === 'firstreply') return 'Kosmos reminded this agent to answer its first message and gave up about ' + mins + ' minutes ago. Open it to see what it shows, or message it.';
-  }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists
      to answer. Placed FIRST so it is not swallowed by the rate_limited guard
@@ -21173,6 +21160,24 @@ function stateReason(a, opts) {
     /* "Has asked": an attempt was made, not that it landed (the sweep counts every attempt). */
     if (ph === 'retried') return lost + '. Kosmos has asked it to try again.';
     return lost;
+  }
+  /* #5154 slice B: one of Kosmos's own helpers (quota resume / idle nudge / first-reply nudge) tried to help
+     this agent along, capped its retries, and gave up -- a give-up that used to live only in a log. Placed LOW,
+     below the live-state sentences (restart / own question / auth / connection): a give-up is the LOWEST-priority
+     specific reason, so a live problem on the agent always wins the wording (consistent with engine/projects.js
+     needsYouReason and pjAlsoWhy, which both rank own_bound last). It still fires for the normal case -- an idle
+     or quota-paused agent with no competing live-state sentence -- and for a non-stuck rate_limited agent it wins
+     over the plain rate-limit sentence below, because the give-up is the relevant quota escalation. Same DELIBERATE
+     scope as slice C: it escalates the SENTENCE + the Issue filter + one push, not the card's look or pill. The
+     needs_you / own-question precedence is handled above (that arm returns first). Placeholder copy; Mona Lisa to
+     refine, as slices A/C were. Oldest-standing give-up wins (items[0]). */
+  if (a && a.ownBound && a.ownBound.raised === true && Array.isArray(a.ownBound.items) && a.ownBound.items.length
+      && a.state !== 'needs_you') {   // precedence: a needs_you agent (reported question handled above, or a bare needs_you) keeps its own reason, matching the pill (needsYouReason)
+    const it = a.ownBound.items[0];
+    const mins = Math.max(1, Math.round((Number(it.forMs) || 0) / 60000));
+    if (it.cls === 'quota') return 'Kosmos tried to get this agent going again after its quota reset and gave up about ' + mins + ' minutes ago. Its turn is unfinished. Open it to see what it shows, or message it.';
+    if (it.cls === 'nudge') return 'Kosmos nudged this idle agent to pick up its open task and gave up about ' + mins + ' minutes ago. Open it to see what it shows, or message it.';
+    if (it.cls === 'firstreply') return 'Kosmos reminded this agent to answer its first message and gave up about ' + mins + ' minutes ago. Open it to see what it shows, or message it.';
   }
   /* #5957 slice 2: its working rules are far behind, and its own page offers the update (a.rulesBehind, from
      engine/doctrine.js rulesBehind: a number only then). Only on a CARD (opts.card: the agent's own page has the
