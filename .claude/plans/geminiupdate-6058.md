@@ -33,6 +33,10 @@ The arm with nothing set (which updates) is the one the card's author measured; 
 changes the shared install.
 
 ## Decided
+- **The older spelling counts as the person's choice.** gemini still reads `general.disableAutoUpdate` and
+  `general.disableUpdateNag` and migrates them to the two keys above, inverted (`migrateDeprecatedSettings`; I read
+  the mapping in the 0.61.0 source after review 1 found it). With the new key also in the file the CLI keeps the
+  new one and deletes theirs. So a boolean under the old name leaves the new key unwritten.
 - **Only when absent.** On the default account this file is the person's own `~/.gemini/settings.json`, and the
   module's rule is never to overwrite what a person chose (the auth type has the same rule). A person who set
   `enableAutoUpdate: true` keeps it. Rejected: forcing false. It would keep the pin against a person's stated
@@ -47,25 +51,53 @@ On the default account the person's OWN `gemini`, run by hand outside Kosmos, al
 reads the same file. They turn it back on by setting the key to true, which Kosmos then leaves alone.
 
 ## Weakest premise
-That a file with these keys absent is the common case. A person who already set `enableAutoUpdate: true` gets no
-protection, and their agents can still move the shared gemini. I have no count of such files.
+That a file with these keys absent is the common case. Three kinds of file get no protection, and their agents can
+still move the shared gemini: one where the person set `enableAutoUpdate: true` (or the old `disableAutoUpdate:
+false`); one with comments in it (the CLI reads those, Kosmos's `JSON.parse` does not, so the whole file is left
+alone, as before this change); and one this change wrote that a running gemini then saves over (below). I have no
+count of any of them.
 
 ## Residuals
 - **Gemini agents that already exist on a Mac get this only when the next Gemini agent is created on the same
   account**, because the settings are prepared at creation (the same residual #5812's hook has, and the deferred
   re-apply at launch from #3136 would close both). Until then an existing agent can still update the CLI.
+- **A gemini that was already running when the keys were written can delete them.** The CLI saves its settings by
+  comparing the file with the copy it loaded and removing what that copy lacks (`applyKeyDiff`; review 1 read it).
+  So an existing agent, or the person's own gemini, that was started earlier and then saves a setting takes the
+  two keys out again, until the next Gemini agent is created. The #5812 hooks in the same file have the same
+  exposure. A re-apply at each launch (#3136, deferred) would close this and the residual above together.
 - The Kosmos-managed copy of gemini (the card's open question: does it try to update, and what happens with no
-  npm?) is not measured here. The two keys stop the attempt wherever the CLI came from, since the check is skipped
-  before it looks at how it was installed.
-- Windows: `win32keyed.js` calls the same `ensurePrepared` on a keyed turn, so the keys are written there too.
-  Not run on Windows.
+  npm?) is not measured here. The check is skipped before the CLI looks at how it was installed, so the keys apply
+  to it the same way. From reading, not from a run.
+- A settings file that outranks this one can turn it back on: gemini merges the user file under a trusted
+  `.gemini/settings.json` in the agent's own folder and under a system settings file. Kosmos writes neither.
+- Windows: an agent's settings get the keys at creation, as on a Mac. A headless Windows turn never checks for
+  updates anyway (the check lives only in the CLI's interactive entry, read by review 1). Not run on Windows.
 
 ## What would change this
 A gemini release that renames or drops both keys (the settings file would then be silently ignored, and the pin
 would move again): the measurement above is how to find out, on the new version.
 
 ## Verify
-- `engine/geminisettings.test.js` and `engine/geminisettings.toolhook-5812.test.js`: 32 pass, 0 fail.
+- `engine/geminisettings.test.js` and `engine/geminisettings.toolhook-5812.test.js`: 33 pass, 0 fail.
+- No test goes through a caller (`create.js`'s write at an agent's creation): the five tests call `ensurePrepared`
+  with a file, as the module's other tests do.
 - Every `engine/*gemini*.test.js` and `engine/win32keyed*.test.js`: 187 tests, 183 pass, 0 fail (4 skipped).
 - The live two-arm measurement above.
 - NOT RUN: the full suite (queued).
+
+## Review 1 (2026-10-13, default model), at 33e212558
+0 BLOCKER, 2 WARNING, 0 CONVENTION, 7 NIT. Not converged.
+- **WARNING, taken:** the older spelling of each key. With `disableAutoUpdate: false` in a person's file my change
+  wrote `enableAutoUpdate: false` beside it, the CLI kept mine and deleted theirs: the opposite of "never overwrite
+  what a person chose". A boolean under the old name now stops the write; a test with a control.
+- **WARNING, stated (not fixable here):** a gemini already running can delete the keys when it saves its settings.
+  In Residuals, with the #5812 hooks' same exposure.
+- **NIT, three stated:** a workspace or system settings file outranks this one; what Windows does and does not do;
+  a file with comments in it is left alone whole.
+- **NIT, taken:** the array arm of one test could not fail (JSON drops a key set on an array); removed. A line that
+  only restated the constant; removed. The quoted update message, as the CLI prints it.
+- **NIT, stated:** no test through a caller.
+- The reviewer confirmed from the 0.61.0 source what the plan says the two keys do, that both default to true, that
+  the only install command is the one `handleAutoUpdate` runs, and that a legacy key never overrides a new boolean
+  key. It could not rerun the live measurement (it must never launch gemini) and found it consistent with the source.

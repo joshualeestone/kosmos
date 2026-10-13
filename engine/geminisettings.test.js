@@ -101,7 +101,27 @@ test('#6058: a fresh settings.json switches off the CLI\'s own update and its up
   const s = readJSON(file);
   assert.strictEqual(s.general.enableAutoUpdate, false);
   assert.strictEqual(s.general.enableAutoUpdateNotification, false);
-  assert.deepEqual([...geminisettings.UPDATE_KEYS].sort(), ['enableAutoUpdate', 'enableAutoUpdateNotification']);
+});
+
+test('#6058: the OLDER spelling of a key is the person\'s choice too, and its new key is then not written', () => {
+  /* gemini reads general.disableAutoUpdate / disableUpdateNag as the same two choices, inverted, and when the new
+     key is also there it keeps the new one and deletes theirs. So a boolean under the old name must stop the write. */
+  const { file } = tmpSettings();
+  fs.writeFileSync(file, JSON.stringify({ general: { disableAutoUpdate: false } }, null, 2));
+  geminisettings.ensurePrepared(file, BRIDGE, POSIX);
+  let s = readJSON(file);
+  assert.strictEqual(s.general.disableAutoUpdate, false, 'their key is still there');
+  assert.ok(!('enableAutoUpdate' in s.general), 'they said keep updating, under the old name: no new key beside it');
+  assert.strictEqual(s.general.enableAutoUpdateNotification, false, 'the other choice they never made is filled');
+  fs.writeFileSync(file, JSON.stringify({ general: { disableUpdateNag: true } }, null, 2));
+  geminisettings.ensurePrepared(file, BRIDGE, POSIX);
+  s = readJSON(file);
+  assert.ok(!('enableAutoUpdateNotification' in s.general), 'the old name for the check, set: no new key');
+  assert.strictEqual(s.general.enableAutoUpdate, false);
+  /* CONTROL: an old-name key that is not a boolean is not a choice the CLI would read, so the new key IS written. */
+  fs.writeFileSync(file, JSON.stringify({ general: { disableAutoUpdate: 'no' } }, null, 2));
+  geminisettings.ensurePrepared(file, BRIDGE, POSIX);
+  assert.strictEqual(readJSON(file).general.enableAutoUpdate, false);
 });
 
 test('#6058: a file an earlier Kosmos prepared (hooks and auth, no general) gains the two keys once, then nothing', () => {
@@ -135,7 +155,7 @@ test('#6058: a value the person set, true included, is left alone; only the abse
 });
 
 test('#6058: a general block that is not an object is somebody\'s own arrangement and nothing is written under it', () => {
-  for (const odd of ['off', 7, null, ['x']]) {
+  for (const odd of ['off', 7, null]) {   // not an array: JSON drops a key set on one, so that arm could not fail
     const { file } = tmpSettings();
     fs.writeFileSync(file, JSON.stringify({ general: odd }, null, 2));
     const r = geminisettings.ensurePrepared(file, BRIDGE, POSIX);

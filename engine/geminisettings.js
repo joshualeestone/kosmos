@@ -54,13 +54,16 @@ const TOOL_MATCHER = '^(write_file|replace)$';   // gemini tests it as an unanch
    nobody discovers it. Same doctrine as reporthook.js's MARKER. */
 const MARKER = 'gemini-report-bridge';
 
-/* #6058: gemini-cli updates ITSELF. Launched from an npm-global install it prints "Attempting to automatically
-   update now..." and replaces that install with the latest release about ten seconds later (measured on the card:
+/* #6058: gemini-cli updates ITSELF. Launched from an npm-global install it prints "Installed with npm. Attempting
+   to automatically update now..." and replaces that install with the latest release about ten seconds later (measured on the card:
    0.61.0 became 0.63.0). Kosmos pins the version it was measured on (runners.js MANIFEST.gemini), so each agent's
    settings switch that off. Both keys are read from `general` (gemini-cli 0.61.0: `checkForUpdates` returns
    nothing when enableAutoUpdateNotification is false, so no check is made and no banner drawn in the pane;
-   `handleAutoUpdate` installs only when enableAutoUpdate is true). Both default to true when absent. */
+   `handleAutoUpdate` installs only when enableAutoUpdate is true). Both default to true when absent.
+   Each key has an OLDER spelling the CLI still reads and migrates (`migrateDeprecatedSettings`): the same choice,
+   inverted. A person's file may hold either, so "did they choose?" asks about both (review 1). */
 const UPDATE_KEYS = Object.freeze(['enableAutoUpdate', 'enableAutoUpdateNotification']);
+const LEGACY_UPDATE_KEYS = Object.freeze({ enableAutoUpdate: 'disableAutoUpdate', enableAutoUpdateNotification: 'disableUpdateNag' });
 
 /* The command gemini runs for a hook. Gemini executes a command hook as a SHELL
    STRING (measured: it spawns the shell with the command as the last arg), so
@@ -219,11 +222,16 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
      🛑 WHAT THIS COSTS, SAID PLAINLY: on the default account it also stops the person's OWN `gemini` (run by
      hand, outside Kosmos) from updating itself, because it reads the same file. They turn it back on by setting
      the key to true, which this then leaves alone. A `general` that is present but not an object is somebody's
-     own arrangement and is left alone, with nothing written under it. */
+     own arrangement and is left alone, with nothing written under it.
+     The OLDER spelling of a key counts as their choice too: with `disableAutoUpdate: false` in the file ("keep
+     updating"), writing enableAutoUpdate: false beside it would win inside the CLI, which then DELETES their key
+     from the file (measured in the 0.61.0 source by review 1). So a boolean under the old name leaves the new one
+     unwritten. */
   if (data.general === undefined) data.general = {};
   if (data.general && typeof data.general === 'object' && !Array.isArray(data.general)) {
     for (const key of UPDATE_KEYS) {
-      if (data.general[key] === undefined) { data.general[key] = false; changed = true; }
+      const chosen = data.general[key] !== undefined || typeof data.general[LEGACY_UPDATE_KEYS[key]] === 'boolean';
+      if (!chosen) { data.general[key] = false; changed = true; }
     }
   }
 
@@ -274,4 +282,4 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
   return { prepared: true, changed: true };
 }
 
-module.exports = { AUTH_TYPE, HOOK_EVENTS, TOOL_EVENT, TOOL_MATCHER, MARKER, UPDATE_KEYS, commandFor, unsafeForCommand, entryIsOurs, ensurePrepared };
+module.exports = { AUTH_TYPE, HOOK_EVENTS, TOOL_EVENT, TOOL_MATCHER, MARKER, UPDATE_KEYS, LEGACY_UPDATE_KEYS, commandFor, unsafeForCommand, entryIsOurs, ensurePrepared };
