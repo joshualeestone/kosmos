@@ -224,7 +224,9 @@ function sessionsFor(agentDir, opts) {
     const r = x.provider === 'codex' ? codexRoot(agentDir, x.home, o.id, belongs, x.tag)
       : x.provider === 'gemini' ? geminiRoot(agentDir, x.home, o.id, x.tag)
       : x.provider === 'grok' ? grokRoot(agentDir, x.home, o.id, x.tag) : null;
-    if (r && (!r.path || !seenReal.has(r.path))) { roots.push(r); if (r.path) seenReal.add(r.path); }
+    // Never two roots under one name (a refused root has no path, so the folder rule alone cannot catch it, and a
+    // repeated name fails the whole snapshot).
+    if (r && (!r.path || !seenReal.has(r.path)) && !roots.some((x) => x.name === r.name)) { roots.push(r); if (r.path) seenReal.add(r.path); }
   }
   // Every name actually built must be one the snapshot accepts; if any is not, none is returned (a refused name would
   // fail the whole world's snapshot).

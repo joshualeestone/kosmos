@@ -91,7 +91,16 @@ for (const [name, write] of WRITERS) {
 
 test('#5434: the bytes written are unchanged (the same JSON, no trailing newline added)', () => {
   const p = store.writeProfile('bea', { role: 'x' });
-  assert.equal(fs.readFileSync(path.join(store.PROFILES, store.profileFileName('bea')), 'utf8'), JSON.stringify(p, null, 2));
+  /* kosmos#5995: the answer no longer carries the install's id and the file still does, so the answer cannot stand in
+     for the bytes. The file is compared to its own record re-serialized (the format, and no trailing newline), and
+     the answer to that record less the one key. */
+  const raw = fs.readFileSync(path.join(store.PROFILES, store.profileFileName('bea')), 'utf8');
+  const onDisk = JSON.parse(raw);
+  assert.equal(raw, JSON.stringify(onDisk, null, 2));
+  assert.ok(typeof onDisk.idInstall === 'string' && onDisk.idInstall, 'CONTROL: the file holds the install id, so the next line compares two different records');
+  const { idInstall, ...served } = onDisk;
+  assert.deepEqual(p, served);
+  assert.equal(JSON.stringify(p, null, 2), JSON.stringify(served, null, 2), 'the answer keeps the file\'s key order');
   const s = store.writeSettings({ tz: 'America/Chicago' });
   assert.equal(fs.readFileSync(store.settingsPath(), 'utf8'), JSON.stringify(s, null, 2));
 });

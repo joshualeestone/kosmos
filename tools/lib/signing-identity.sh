@@ -10,7 +10,8 @@
 #
 # Switching teams (#3643, Kosmos Agent Manager, Inc.) is an edit HERE, plus the new team's certs in
 # the cutting keychain and its App Store Connect API key (.p8) filed in the secrets map under the
-# target named below.
+# target named below. ios/Signing.xcconfig carries this Team ID for the interim iOS preview app (#4089);
+# that is the iOS app's own setting and moves with it, not with this file.
 #
 # This file is a hashed input of the installer .pkg (lib/pkg-inputs.sh): changing any VALUE line
 # makes the next cut rebuild, sign and notarise the pkg (minutes; it needs the Installer identity and

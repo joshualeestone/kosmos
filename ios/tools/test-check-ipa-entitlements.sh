@@ -13,7 +13,7 @@ make_ipa() {
   local dir="$work/$1"
   mkdir -p "$dir/Payload/Kosmos.app"
   cp /usr/bin/true "$dir/Payload/Kosmos.app/Kosmos"
-  /usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string Kosmos' -c 'Add :CFBundleIdentifier string io.kosmos.app' "$dir/Payload/Kosmos.app/Info.plist" >/dev/null
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string Kosmos' -c "Add :CFBundleIdentifier string ${4#*.}" "$dir/Payload/Kosmos.app/Info.plist" >/dev/null   # the id the fixture signs (#4089)
   local ents="$dir/ents.plist"
   /usr/libexec/PlistBuddy -c 'Clear dict' "$ents" >/dev/null 2>&1 || true
   [ -n "$2" ] && /usr/libexec/PlistBuddy -c "Add :aps-environment string $2" "$ents" >/dev/null
@@ -25,10 +25,10 @@ make_ipa() {
 }
 
 fail=0
-# expect NAME WANT(0|1) APS GTA APPID SIGNED-TEAM CHECK-TEAM
+# expect NAME WANT(0|1) APS GTA APPID SIGNED-TEAM CHECK-TEAM [CHECK-BUNDLE]
 expect() {
   make_ipa "$1" "$3" "$4" "$5" "$6" || { echo "FAIL  $1: fixture not built"; fail=1; return; }
-  out=$("$here/check-ipa-entitlements.sh" "$work/$1.ipa" "$7")
+  out=$("$here/check-ipa-entitlements.sh" "$work/$1.ipa" "$7" "${8:-}")
   rc=$?
   last=$(printf '%s\n' "$out" | tail -1)
   if [ "$2" -eq 0 ]; then want_last="VERDICT: PASS"; else want_last="VERDICT: FAIL"; fi
@@ -51,6 +51,12 @@ expect wrong-bundle         1 production  false $T.io.kosmos.other   $T         
 expect other-team-appid     1 production  false ZZZZZ99999.io.kosmos.app ZZZZZ99999 $T
 expect other-team-only      1 production  false $T.io.kosmos.app     ZZZZZ99999 $T
 expect no-team-identifier   1 production  false $T.io.kosmos.app     ""         $T
+# #4089: the interim TestFlight app is io.kosmos.app.preview. It passes only when that is the id expected,
+# and the two ids never stand in for each other.
+expect preview-build        0 production  false $T.io.kosmos.app.preview $T     $T io.kosmos.app.preview
+expect preview-as-default   1 production  false $T.io.kosmos.app.preview $T     $T
+expect real-as-preview      1 production  false $T.io.kosmos.app     $T         $T io.kosmos.app.preview
+expect preview-other-team   1 production  false ZZZZZ99999.io.kosmos.app.preview ZZZZZ99999 $T io.kosmos.app.preview
 
 # An unsigned app is refused, and for that reason, not read as "no entitlements, nothing wrong".
 make_ipa unsigned production false $T.io.kosmos.app $T >/dev/null

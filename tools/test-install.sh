@@ -200,8 +200,8 @@ DATA_PATHS_BEFORE="$(data_paths)"
 # ⇒ ping.json (#3038, kosmos): the beacon reads the install's random installId on board
 #   start (engine/ping.js writes store.ROOT/ping.json, minted once), and this gate boots the
 #   installed board, so the id file lands on first boot -- the same set-once-boot-marker case
-#   as .world-confirmed.json above. It is a local random id (never a machine fingerprint) and
-#   only leaves the Mac via the opt-out feedback report. #3038 added the boot-time read without
+#   as .world-confirmed.json above. It is a local random id (never a machine fingerprint);
+#   engine/ping.js lists the files that send it. #3038 added the boot-time read without
 #   updating this list, so the first cut carrying it red-flagged ping.json here; blessed now.
 # ⇒ prompter-nudges.json (#3508, kosmos): the in-app check-in store. The runner tick writes the
 #   current nudge set to store.ROOT/prompter-nudges.json each tick (store.ROOT already ends in the

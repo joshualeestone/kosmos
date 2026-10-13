@@ -82,16 +82,38 @@ runner, which has the runtime.
 ## Signing, archive and upload (#4089)
 
 - **The Team ID lives in one place: `Signing.xcconfig`** (`DEVELOPMENT_TEAM`), the app target's
-  base configuration. It is empty until Apple approves Kosmos Agent Manager, Inc. (#3643); then it
-  is set to that org's Team ID and nothing else changes.
+  base configuration. So does the bundle id (`KOSMOS_BUNDLE_ID`). For now (Josh, 2026-10-12) they
+  are the Stone Syndicate team's and `io.kosmos.app.preview`: an interim TestFlight app. The real
+  app is created fresh as `io.kosmos.app` under Kosmos Agent Manager, Inc. once Apple approves
+  #3643, and both lines change then (docs/phone-push-go-live.md, "Interim").
+  - A preview build's push registration is refused by the coordinator (its `KOSMOS_APNS_BUNDLE_IDS`
+    is unset today, and is planned to allow only `io.kosmos.app`; kosmos-relay
+    `coordinator/src/apns.rs` refuses any bundle id not on that list with HTTP 400, and its env
+    template says an unset list refuses every app). The app logs `[Push] register failed with HTTP 400` and carries on,
+    with no banner (`PushRegistrar.swift`). It still shows the notification-permission prompt.
+  - Building for a real device in Xcode now signs as that team too, so Xcode provisions
+    `io.kosmos.app.preview` under Stone Syndicate for a person signed in to that team. A bundle id
+    belongs to one team across all of Apple, so anyone else passes their own team AND their own id
+    on the command line (`xcodebuild ... DEVELOPMENT_TEAM=<theirs> KOSMOS_BUNDLE_ID=<their own id>`).
+    Never set either in Xcode's Signing or General pane: that writes them into `project.pbxproj`,
+    which must not be committed (`tools/test-archive-config.sh` fails if the project's bundle id is
+    anything but `$(KOSMOS_BUNDLE_ID)`). A device build registers for push as its bundle id, so a
+    local or staging coordinator must list that id in `KOSMOS_APNS_BUNDLE_IDS` and hold an APNs key
+    from the same team to test push on a device.
 - `tools/archive.sh --build <N>` archives the Release app, exports it for App Store Connect with
   `tools/ExportOptions.plist` (the Team ID is added from `Signing.xcconfig`), and runs
   `tools/check-ipa-entitlements.sh` on the exported `.ipa`: `aps-environment` must be
   `production`, `get-task-allow` must not be `true`, and the app must be signed by the team in
-  `Signing.xcconfig` (app identifier `<team>.io.kosmos.app`, team identifier `<team>`). `--upload` then sends that same checked `.ipa` to App Store Connect
+  `Signing.xcconfig` (app identifier `<team>.<KOSMOS_BUNDLE_ID>`, team identifier `<team>`). `--upload` then sends that same checked `.ipa` to App Store Connect
   (it needs an App Store Connect API key: `ASC_KEY_PATH`, `ASC_KEY_ID`, `ASC_ISSUER_ID`).
 - `--build` is required: App Store Connect refuses a build number it has already seen.
-- Until the Team ID is set, `archive.sh` stops at that first check and says so.
+- `archive.sh` refuses a malformed bundle id, or an empty or malformed Team ID, before it archives anything,
+  and refuses `io.kosmos.app` under the Stone Syndicate team (Apple cannot transfer a never-released
+  app). That refusal covers `archive.sh` only: an archive made from Xcode's menus or a hand-run
+  `xcodebuild` never reaches it, and the second guard is CI's `tools/test-cut-sign-preflight.sh`,
+  which fails once `Signing.xcconfig` names Stone Syndicate with any bundle id but the preview one.
+  `archive.sh --check-config` runs only those checks; `tools/test-archive-config.sh` (in iOS CI) shows each
+  can refuse.
 - `-scheme Kosmos` uses the shared scheme committed under `Kosmos.xcodeproj/xcshareddata/`, so
   archiving does not depend on Xcode creating one.
 - iOS CI builds an unsigned archive with the same command, and runs
