@@ -13,14 +13,16 @@ of the behaviour is removed. needs-browser stays only for the real-Mac sign-up w
 
 Staging 0.7.44 (`dist/latest-staging.json`, tarball sha256 `eec99bb0...`, hash matches the pointer).
 The tests below were run on a scratch tree with the SHIPPED `server.js`, `engine/` and `web/`
-overlaid (byte-compared after the copy): 10/10 pass.
+overlaid (byte-compared after the copy), with
+`node --test --test-name-pattern='3326|1585|2645' server.connect.test.js web.firstrun-model.test.js`:
+all 10 matching tests pass (the #3326, #1585 and #2645 arms in both files).
 
 Three layers, each read in code:
 1. **Page.** `frConnectStartConfirmed` posts `{ installConfirmed, reauth: true }` on every sign-up
    start, and `frPaintSubscription` paints the green "Connected" only once `FR_SUB_LOGIN_VERIFIED`
    is set, which happens only when the watch sees a login it ran finish.
-2. **Route.** The default `/api/connect/start` forwards `reauth` to `connect.start` (no probe gate,
-   #3646).
+2. **Route.** The default `/api/connect/start` forwards `reauth` to `connect.start` (the probe gate,
+   #3367, was removed by PR #3646).
 3. **Engine.** `connect.start` skips the already-connected short-circuit when `reauth` is set and
    launches `claude auth login --claudeai`; every finish needs login evidence (login-done screen,
    a dead-to-live transition, or the refresh expiry moving).
@@ -30,7 +32,10 @@ Three layers, each read in code:
 Existing tests covered reauth over a LIVE credential and a dead credential WITHOUT reauth. Nothing
 drove the card's case through sign-up, and nothing pinned what the page sends. Added:
 - `server.connect.test.js`: sign-up with reauth over an EXPIRED and an UNVERIFIABLE credential
-  launches a real login and never reads connected.
+  answers something other than connected on the first response and launches `claude auth login
+  --claudeai`. Those two are what the tests pin; how the flow ends after the launch is not asserted
+  here (it takes several engine ticks, and the engine tests in `engine/connect.test.js` cover
+  the finish gates).
 - `web.firstrun-model.test.js`: the sign-up start body, evaluated (not matched), carries
   `reauth: true` for both install-confirm values.
 

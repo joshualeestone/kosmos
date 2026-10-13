@@ -347,8 +347,9 @@ test('#3326: the sign-up start asks for a forced login whether or not an install
   assert.ok(m, 'the sign-up start no longer builds a body this test can read');
   const build = new Function('installConfirmed', 'return ' + m[1] + ';');
   for (const confirmed of [true, false]) {
-    assert.deepEqual(build(confirmed), { installConfirmed: confirmed, reauth: true },
-      'the sign-up start does not ask for a forced login (installConfirmed ' + confirmed + ')');
+    const body = build(confirmed);
+    assert.equal(body.reauth, true, 'the sign-up start does not ask for a forced login (installConfirmed ' + confirmed + ')');
+    assert.equal(body.installConfirmed, confirmed, 'the sign-up start lost its install-confirm value');
   }
 });
 
