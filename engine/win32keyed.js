@@ -220,7 +220,11 @@ function runKeyedTurn(opts) {
           if (!SAID_LEFT_OUT.has(line)) { SAID_LEFT_OUT.add(line); process.stderr.write(line + '\n'); }
         }
       }
-      catch (e) { includeDirs = []; process.stderr.write('#5812: no project folders for this gemini turn (' + ((e && e.message) || e) + ')\n'); }
+      catch (e) {
+        includeDirs = [];
+        const line = '#5812: no project folders for this gemini turn (' + ((e && e.message) || e) + ')';
+        if (!SAID_LEFT_OUT.has(line)) { SAID_LEFT_OUT.add(line); process.stderr.write(line + '\n'); }
+      }
     }
     try { args = turnArgs(runner, { message: o.message, model: o.model, sessionId: o.sessionId, newSessionId, includeDirs }); }
     catch (e) { return resolve({ ok: false, error: String((e && e.message) || e), sessionId: o.sessionId || null }); }
