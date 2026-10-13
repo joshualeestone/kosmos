@@ -482,6 +482,18 @@ function claudeVersionNow(plat) {
   catch { return null; }
 }
 
+/* #6071: for the DEFAULT folder (~/.claude), which the person's own claude reads too: the oldest version among
+   Kosmos's claude, every claude on PATH, and the old ~/.claude/local install; null if any of them cannot be read. */
+function defaultFolderClaudeVersion(plat, env) {
+  const p = plat || process.platform;
+  const e = env || process.env;
+  try {
+    const bins = [require('./runners').resolveBin('claude').bin, path.join(homeDir(), '.claude', 'local', 'claude')];
+    for (const d of String(e.PATH || e.Path || '').split(p === 'win32' ? ';' : ':')) if (d) bins.push(path.join(d, 'claude'));
+    return reporthook.oldestClaudeVersion(bins, { platform: p });
+  } catch { return null; }
+}
+
 /**
  * kosmos#5612: the DEFAULT account's reporting hooks, on Windows. On a Mac install/setup.sh wires them into every
  * account folder, and prepare() above wires an added one; nothing on Windows ever wired the default folder, so a
@@ -510,9 +522,10 @@ function wireDefaultHooks(opts) {
     if (!script) return { wired: false, skipped: false, because: 'the reporting hook script is not on this machine' };
     fs.mkdirSync(path.dirname(settings), { recursive: true });
     const BUSY = 'another writer held the settings file';
+    // Read before the lock: it may start a process, and the lock is held only around the file.
+    const claudeVersion = o.claudeVersion !== undefined ? o.claudeVersion : defaultFolderClaudeVersion(plat);
     const locked = require('./filelock').withFileLock(settings,
-      () => reporthook.ensureWired(settings, script, { platform: plat, node: o.node,
-        claudeVersion: o.claudeVersion !== undefined ? o.claudeVersion : claudeVersionNow(plat) }),
+      () => reporthook.ensureWired(settings, script, { platform: plat, node: o.node, claudeVersion }),
       { busy: BUSY, cannotAccess: 'the settings folder refused the lock file, so the hooks were not written', waitMs: o.waitMs });
     if (!locked || locked.ok !== true) {
       // Only a held lock is worth trying again; a folder that refuses the lock file will refuse it next time too.
@@ -949,5 +962,5 @@ function removeAccount(dir, usedBy) {
   return { ok: true, removed: true, because: null };
 }
 
-module.exports = { homeDir, wireDefaultHooks, list, listLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, dirForLabel, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+module.exports = { homeDir, wireDefaultHooks, defaultFolderClaudeVersion, list, listLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, dirForLabel, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); } };

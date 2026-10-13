@@ -4544,9 +4544,10 @@ const reporthook = require(path.join(kosmosHome, 'app', 'engine', 'reporthook.js
 const accounts = require(path.join(kosmosHome, 'app', 'engine', 'accounts.js'));
 const script = reporthook.hookScriptPath();
 /* #6071: PostToolUseFailure is wired only for a Claude Code that knows it (2.1.0+); an older one drops a settings
-   file naming it. Unknown (no claude yet, or it would not answer): left out. */
+   file naming it. ~/.claude is read by the person's own claude too, so this is the OLDEST claude found (Kosmos's, every
+   one on PATH, ~/.claude/local); unknown (none yet, or one would not answer): left out. */
 let claudeVersion = null;
-try { claudeVersion = reporthook.claudeVersion(require(path.join(kosmosHome, 'app', 'engine', 'runners.js')).resolveBin('claude').bin); }
+try { claudeVersion = accounts.defaultFolderClaudeVersion(); }
 catch { claudeVersion = null; }
 /* ⚠️ ONE HOME FOR BOTH HALVES of this loop: accounts.list() scans the HOME
    accounts resolved (AGENT_WORKFORCE_HOME first, for sandboxing), so the

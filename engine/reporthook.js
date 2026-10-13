@@ -67,8 +67,8 @@ function eventsFor(claudeVersion) {
 
 /* `claude --version` ("2.1.296 (Claude Code)") -> "2.1.296", or null when it cannot be read. Cached per program
    (real path, size, mtime) so a prepare does not start a process every time and an upgrade is still seen; a failed
-   read is kept only a minute. Synchronous, because prepare and setup are; hence the short timeout. On win32 the
-   extensionless name resolveBin answers is tried as .exe too. */
+   read is kept as long, so a program that hangs costs one timeout per ten minutes. Synchronous, because prepare and
+   setup are; hence the short timeout. On win32 the extensionless name resolveBin answers is tried as .exe too. */
 const versionCache = new Map();
 function claudeVersion(bin, opts) {
   if (!bin) return null;
@@ -79,7 +79,7 @@ function claudeVersion(bin, opts) {
     try { const real = fs.realpathSync(b); const st = fs.statSync(real); key = [real, st.size, st.mtimeMs].join('\u0000'); }
     catch { continue; }   // not there under this spelling
     const hit = versionCache.get(key);
-    if (hit && Date.now() - hit.at < (hit.v ? 10 * 60 * 1000 : 60 * 1000)) return hit.v;
+    if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.v;
     let v = null;
     try {
       const out = require('node:child_process').execFileSync(b, ['--version'],
@@ -91,6 +91,28 @@ function claudeVersion(bin, opts) {
     return v;
   }
   return null;
+}
+
+/* The OLDEST version among the claude programs in `bins` that exist (each counted once, by real path), or null when
+   none exists or any one that exists cannot be read. For a settings file more than one Claude Code reads: the
+   default ~/.claude is read by the person's own claude too, which need not be the one Kosmos runs.
+   `opts.versionOf` (real path -> version or null) replaces the reader, for tests. */
+function oldestClaudeVersion(bins, opts) {
+  const plat = (opts && opts.platform) || process.platform;
+  const seen = new Set();
+  let oldest = null;
+  for (const bin of bins || []) {
+    if (!bin) continue;
+    const spellings = plat === 'win32' && !/\.[A-Za-z0-9]+$/.test(bin) ? [bin, bin + '.exe'] : [bin];
+    let real = null;
+    for (const b of spellings) { try { real = fs.realpathSync(b); break; } catch { /* not this spelling */ } }
+    if (!real || seen.has(real)) continue;
+    seen.add(real);
+    const v = (opts && typeof opts.versionOf === 'function' ? opts.versionOf : claudeVersion)(real, opts);
+    if (!v) return null;
+    if (oldest === null || !versionAtLeast(v, oldest)) oldest = v;
+  }
+  return oldest;
 }
 
 /* The dedup key: any hook command containing this is "ours". Matching on
@@ -575,5 +597,5 @@ function goneOnDisk(p) {
   catch (e) { return !!e && (e.code === 'ENOENT' || e.code === 'ENOTDIR'); }
 }
 
-module.exports = { HOOK_EVENTS, VERSIONED_EVENTS, versionAtLeast, eventsFor, claudeVersion, MARKER, hookScriptPath, entryFor, unsafeForCommand, entryIsOurs, ensureWired,
+module.exports = { HOOK_EVENTS, VERSIONED_EVENTS, versionAtLeast, eventsFor, claudeVersion, oldestClaudeVersion, MARKER, hookScriptPath, entryFor, unsafeForCommand, entryIsOurs, ensureWired,
   ephemeralMismatch, readSettings, writeSettings, unwireInstall, goneOnDisk };
