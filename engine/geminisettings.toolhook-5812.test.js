@@ -74,3 +74,15 @@ test('on win32 the tool hook uses the PowerShell form, like the lifecycle hooks'
   assert.equal(h.BeforeTool[0].hooks[0].command, h.SessionStart[0].hooks[0].command);
   assert.equal(h.BeforeTool[0].hooks[0].command, "& 'C:\\K\\runtime\\node.exe' 'C:\\K\\bin\\gemini-report-bridge.js'");
 });
+
+test('ONE entry of ours with the wrong matcher, or none, is corrected (it would start the bridge for other tools)', () => {
+  for (const wrong of [undefined, 'run_shell_command', 'write_file']) {
+    const f = fresh();
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    const entry = { hooks: [{ type: 'command', command: 'node "' + BRIDGE + '"' }] };
+    if (wrong) entry.matcher = wrong;
+    fs.writeFileSync(f, JSON.stringify({ hooks: { BeforeTool: [entry] } }));
+    assert.equal(gs.ensurePrepared(f, BRIDGE).changed, true, String(wrong));
+    assert.equal(read(f).hooks.BeforeTool[0].matcher, 'write_file|replace', String(wrong));
+  }
+});
