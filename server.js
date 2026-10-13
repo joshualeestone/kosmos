@@ -1163,6 +1163,7 @@ const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
 const crashloop = require('./engine/crashloop'); // #5154 slice A: an agent that keeps crashing on start, said on its card
 const stuckterminal = require('./engine/stuckterminal'); // #5154 slice C: an agent stuck on a recurring terminal error (auth_failed / rate_limited), said on its card
+const ownbounds = require('./engine/ownbounds'); // #5154 slice B: a Kosmos helper (quota resume / idle nudge / first-reply nudge) gave up on an agent, said on its card instead of only in a log
 const firstreplyNudge = require('./engine/firstreply-nudge'); // #3226: one reminder to an agent that has not answered its first message
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
 /* #3410: the self-heal's per-agent record, at module scope so /api/status can say where a
@@ -2512,6 +2513,7 @@ function safeRoster() {
         ? Object.assign({}, withReconnect, {
             crashLoop: crashloop.read(a.sessionName),
             stuckError: stuckterminal.peek(a.sessionName, a.state, Date.now()),   // peek returns not-stuck unless the anchor matches the CURRENT state
+            ownBound: ownbounds.peek(a.sessionName, Date.now()),                  // #5154 slice B: a Kosmos helper gave up on this agent (READ-ONLY; the 60s sweep is the only writer)
           })
         : withReconnect;
     });
@@ -5763,6 +5765,10 @@ const server = http.createServer(async (req, res) => {
            unless the stored anchor matches the agent's CURRENT state, so a just-recovered or just-switched
            agent drops "stuck" (and the stale sentence) immediately. */
         stuckError: a.isNamedOurs ? stuckterminal.peek(a.sessionName, a.state, Date.now()) : null,
+        /* #5154 slice B: whether a Kosmos helper (quota resume / idle nudge / first-reply nudge) has given up
+           on this agent and said so only in a log. READ-ONLY (ownbounds.peek); the 60s sweep is the only writer,
+           so the board cannot advance or clear an episode by polling. Only for an agent we started. */
+        ownBound: a.isNamedOurs ? ownbounds.peek(a.sessionName, Date.now()) : null,
         // The name only. `plannedModelArg` returns null for "we do not know",
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
@@ -5986,6 +5992,11 @@ const server = http.createServer(async (req, res) => {
                    a terminal-error clock is kept only by the 60s sweep over RUNNING agents (stuckterminal.peek
                    in safeRoster), and this row is an agent with no live session to be stuck. */
                 stuckError: null,
+                /* #5154 slice B: and ownBound, as a matched pair with crashLoop/stuckError, so needsPerson /
+                   agentNeedsAttention can read it on this row without a strict-shape miss. Always null here: a
+                   give-up episode is kept only by the helper sweeps over RUNNING agents, and this row is a
+                   stopped agent with no live session for a Kosmos helper to have given up on. */
+                ownBound: null,
                 /* kosmos#5957 slice 2: a stopped agent is the likeliest to be far behind, so its offline row says so too. */
                 rulesBehind: require('./engine/doctrine').rulesBehind(k.name, profile),
                 /* kosmos#5957 slice 3: and how long it has gone without running, once that is two weeks or more
@@ -22689,7 +22700,12 @@ function start(port = PORT) {
         book: FIRSTREPLY_BOOK,
         deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
-        log: (r) => process.stdout.write(`firstreply-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`),
+        log: (r) => {
+          process.stdout.write(`firstreply-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`);
+          // #5154 slice B: a delivered reminder clears any give-up episode (the give-up signal itself comes via `bound`).
+          try { if (r.act === 'nudge' && r.delivered) ownbounds.recovered(r.session, 'firstreply'); } catch { /* best-effort */ }
+        },
+        bound: (session, because) => { try { ownbounds.note(session, 'firstreply', because); } catch { /* best-effort */ } },   // #5154 slice B: give-up signal, no stdout spam
       });
       const firstreplySweep = setInterval(firstreplyTick, Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) : 60 * 1000); // the env is the test seam only
       if (firstreplySweep && typeof firstreplySweep.unref === 'function') firstreplySweep.unref();
@@ -22725,7 +22741,13 @@ function start(port = PORT) {
         movedAway: (session, roster) => require('./engine/failovertell').owedFor(session, projects.readAll(), roster),
         movedTold: (session, items) => require('./engine/failovertell').markAll(session, items, tasks.markMoveTold),
         DELIVERY: chat.DELIVERY,
-        log: (r) => process.stdout.write(`agy-quota-resume: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}${r.waiting ? '; ' + r.waiting + ' more waiting' : ''}\n`),
+        log: (r) => {
+          process.stdout.write(`agy-quota-resume: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}${r.waiting ? '; ' + r.waiting + ' more waiting' : ''}\n`);
+          // #5154 slice B: the one-shot gave-up record (the MAX-th failed resume) raises it immediately; a
+          // delivered resume (a later reset cycle that succeeds) clears it. Steady-state re-notes come via `bound`.
+          try { if (r.act === 'gave-up') ownbounds.note(r.session, 'quota', r.because); else if (r.act === 'nudge' && r.delivered) ownbounds.recovered(r.session, 'quota'); } catch { /* best-effort */ }
+        },
+        bound: (session, because) => { try { ownbounds.note(session, 'quota', because); } catch { /* best-effort */ } },   // #5154 slice B: periodic give-up signal, no stdout spam
       });
       const agyQuotaSweep = setInterval(agyQuotaTick, Number(process.env.AGENT_WORKFORCE_AGY_QUOTA_RESUME_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_AGY_QUOTA_RESUME_MS) : 60 * 1000); // the env is the test seam only
       if (agyQuotaSweep && typeof agyQuotaSweep.unref === 'function') agyQuotaSweep.unref();
@@ -23103,7 +23125,12 @@ function start(port = PORT) {
             book: AGENT_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, now: Date.now(),
             deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
             DELIVERY: chat.DELIVERY,
-            log: (r) => process.stdout.write(`agent-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
+            log: (r) => {
+              process.stdout.write(`agent-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`);
+              // #5154 slice B: a delivered nudge clears any give-up episode (the give-up signal itself comes via `bound`).
+              try { if (r.act === 'nudge' && r.delivered) ownbounds.recovered(r.session, 'nudge'); } catch { /* best-effort */ }
+            },
+            bound: (session, because) => { try { ownbounds.note(session, 'nudge', because); } catch { /* best-effort */ } },   // #5154 slice B: give-up signal, no stdout spam
           });
         } catch { /* best-effort, like the nudge sweep */ }
         const delay = setting.on ? setting.intervalMinutes * 60 * 1000 : HEARTBEAT_OFF_POLL_MS;
@@ -23244,6 +23271,11 @@ function start(port = PORT) {
          can be tuned from real boards. Reading the run files only; it never restarts or stops anything. unref'd. */
       const CRASHLOOP_TOLD = new Set();
       const STUCK_TOLD = new Set();   // #5154 slice C: told once per stuck-terminal episode (cleared on recovery)
+      const OWNBOUNDS_TOLD = new Set();   // #5154 slice B: told once per own-bound give-up episode (cleared on recovery)
+      // #5154 slice B: wipe own-bound records once at boot, for the same reason as slice C below: the record is a
+      // derived give-up clock, not ground truth, so a board that was down must re-learn give-ups from the live
+      // helpers rather than judge on a clock from before the downtime (the chief false-alarm risk).
+      try { ownbounds.clearAll(); } catch { /* never block boot */ }
       // #5154 slice C: wipe stuck-terminal anchors once at boot so a RESTART re-anchors from the live state.
       // The anchor is a derived clock, not ground truth: a board that was down must not judge an agent stuck
       // on a clock from before the downtime (the chief false-alarm risk). This runs only on real startup
@@ -23286,6 +23318,21 @@ function start(port = PORT) {
             tell: (key, r, shown) => {
               process.stdout.write(`stuck-terminal: ${shown} (${key}) stuck on ${r.state} for ${Math.round(r.forMs / 60000)} min; told the person\n`);
               phonenotify.happened({ kind: 'needs_you', id: 'stuckterminal:' + key + ':' + r.sinceAt, agent: shown, session: key, project: null });
+            },
+          });
+          /* #5154 slice B: the own-bounds sweep, over the SAME roster read. sweepRoster owns the null-skip
+             SAFETY INVARIANT (a FAILED snapshot never prunes a live give-up record -- only a genuinely empty []
+             prunes) and the our-own-named-agents filter, then tells the person ONCE per episode (naming which
+             helper gave up and what it tried), clears a stale/recovered episode, and respects precedence: an
+             agent in its OWN needs_you is suppressed (not told over) rather than masked. The give-up records are
+             WRITTEN by the helper sweeps below (agy-quota / agent-nudge / firstreply-nudge, via ownbounds.note
+             /recovered in their log callbacks); this sweep only raises and prunes them. Lifecycle-forget of a
+             removed agent is ownbounds.forget (wired into create/remove/delete-leftover beside stuckterminal.forget). */
+          ownbounds.sweepRoster({
+            roster: roster, told: OWNBOUNDS_TOLD, now: Date.now(),
+            tell: (key, it, shown) => {
+              process.stdout.write(`own-bound: ${shown} (${key}) ${it.cls} gave up ${Math.round(it.forMs / 60000)} min ago (${it.evidence}); told the person\n`);
+              phonenotify.happened({ kind: 'needs_you', id: 'ownbounds:' + it.cls + ':' + key + ':' + it.sinceAt, agent: shown, session: key, project: null });
             },
           });
         } catch { /* never breaks the board */ }

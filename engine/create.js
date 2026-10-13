@@ -5322,6 +5322,7 @@ function createAgentInner(opts) {
   try { require('./observed').forgetAgent(name); } catch { /* #5959 slice 2: nor the old name's last-seen time */ }
   try { require('./stuckterminal').forget(name); } catch { /* #5154 slice C: nor an old stuck-terminal episode's clock */ }
   try { require('./toolloop').forget(name); } catch { /* #6071: nor a run of repeated tool failures */ }
+  try { require('./ownbounds').forget(name); } catch { /* #5154 slice B: nor an old own-bound give-up episode */ }
   try { require('./liveness').forget(name); } catch { /* #5957 slice 3: nor an old agent's last report */ }
   const priorTokens = sendertoken.revoke(name);
   if (priorTokens.ok !== true) {

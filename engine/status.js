@@ -9246,7 +9246,12 @@ function needsPerson(a) {
     // of an absent field is the silent-`undefined` defect that test-support/fleet.js's strict proxy throws on; the
     // hasOwnProperty check handles the absence explicitly instead of relying on `undefined` coercion. (agentNeedsAttention
     // needs no guard: it runs over wire rows that always carry stuckError, never bare snapshot rows.)
-    || (Object.prototype.hasOwnProperty.call(a, 'stuckError') && Boolean(a.stuckError) && a.stuckError.stuck === true));
+    || (Object.prototype.hasOwnProperty.call(a, 'stuckError') && Boolean(a.stuckError) && a.stuckError.stuck === true)
+    // #5154 slice B: a Kosmos helper (quota resume / idle nudge / first-reply nudge) gave up on this agent and
+    // said so only in a log -- now it counts as needing the person. Like stuckError, ownBound is NOT normalised
+    // into snapshot()'s shape (server.js attaches it via ownbounds.peek only to the /api/status rows, where
+    // `raised` can be true), so the read is GUARDED on presence for the same bare-snapshot-row reason.
+    || (Object.prototype.hasOwnProperty.call(a, 'ownBound') && Boolean(a.ownBound) && a.ownBound.raised === true));
 }
 /**
  * The numbers on the summary line, for a given set of cards.

@@ -147,7 +147,7 @@ function nudgeableCard(a) {
  */
 function plan(card, parts, entry, now, intervalMs, ask) {
   if (entry && entry.nudgedAt != null) return { act: 'none', because: 'already nudged in this stall' };
-  if (entry && Number.isInteger(entry.tries) && entry.tries >= MAX_TRIES) return { act: 'none', because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };
+  if (entry && Number.isInteger(entry.tries) && entry.tries >= MAX_TRIES) return { act: 'none', gaveUp: true, because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };   // #5154 slice B: gaveUp lets the sweep surface this on the board
   if (!nudgeableCard(card)) return { act: 'none', because: 'not an idle card of ours' };
   if (!ask || ask.to !== 'idle') return { act: 'none', because: 'the Prompter did not read it as idle' };
   if (ask.from === 'working') return { act: 'none', because: 'went idle this interval; asked at the next one' };
@@ -173,6 +173,10 @@ function sweepOnce(o) {
     const intervalMs = Number.isFinite(o.intervalMs) && o.intervalMs > 0 ? o.intervalMs : 15 * 60 * 1000;
     const next = o.next instanceof Map ? o.next : new Map();
     const say = (r) => { if (typeof o.log === 'function') { try { o.log(r); } catch { /* never breaks a pass */ } } };
+    // #5154 slice B: the give-up SIGNAL to the board (ownbounds), SEPARATE from `say`/`log` (which stays the
+    // deliberate once-at-give-up stdout line, never per-sweep). `bound` fires every sweep the agent is given up,
+    // so the board's staleness clock stays fresh; it writes no stdout. Optional: unset in tests and anywhere not wired.
+    const bound = typeof o.bound === 'function' ? o.bound : null;
     releaseClosed(book, next);
     // The board-wide hour, for Agent Communication's limit.
     while (sent.length && now - sent[0] >= HOUR_MS) sent.shift();
@@ -187,6 +191,10 @@ function sweepOnce(o) {
       try {
         const entry = book.get(session);
         const p = plan(card, openParts(session, o.projects), entry, now, intervalMs, ask);
+        // #5154 slice B: the nudge gave up (tries exhausted). Signal the board via `bound` (not `say`), so the
+        // give-up surfaces on the card without the sweep otherwise just `continue`-ing past it, and without a
+        // per-sweep stdout line. `bound` fires every sweep it stays given up, keeping the board clock fresh.
+        if (p.gaveUp && bound) { try { bound(session, p.because); } catch { /* best-effort: a board-signal failure never breaks the sweep */ } }
         if (p.act !== 'nudge') continue;
         const text = nudgeText(p.part);
         if (sent.length >= cap) { say({ name: display, session, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
@@ -268,7 +276,7 @@ function prompterTick(o) {
       out.nudged = sweepOnce({
         toAsk, next: o.outcome.next, roster: o.roster, projects: records, book: o.book, sent: o.sent,
         now: Number.isFinite(o.now) ? o.now : Date.now(), intervalMs: Number(setting.intervalMinutes) * 60 * 1000, limit,
-        deliver: o.deliver, DELIVERY: o.DELIVERY, log: o.log,
+        deliver: o.deliver, DELIVERY: o.DELIVERY, log: o.log, bound: o.bound,   // #5154 slice B: give-up -> board
       }).results;
     }
   } catch { /* never throws into the tick */ }

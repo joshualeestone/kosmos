@@ -1417,6 +1417,10 @@ if boot_board "$sb7" "$P8"; then
   # not lifted) names what is wrong + what to do and counts as an Issue; a brief one does not. Read-only (drives
   # card() + agentNeedsAttention() with fixture agents carrying stuckError, reads the DOM), so it runs on this board.
   run_one "render-stuck-terminal-5154" node docs/browser-checks/render-stuck-terminal-5154.js "$B8"
+  # #5154 slice B: a Kosmos helper (quota resume / idle nudge / first-reply nudge) that gave up on an agent
+  # names what it tried on the card and counts as an Issue; an agent with no raised give-up does not. Read-only
+  # (drives card() + agentNeedsAttention() with fixture agents carrying ownBound, reads the DOM), runs on this board.
+  run_one "render-own-bounds-5154" node docs/browser-checks/render-own-bounds-5154.js "$B8"
   # #1652: the import-my-existing-agent walk. A create-flow check like
   # render-create-form (fills the form, never presses Create, so it persists
   # nothing on this shared board). It POSTs /api/first-run/complete itself, so

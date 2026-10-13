@@ -534,6 +534,7 @@ function del(name, opts) {
   try { require('./observed').forgetAgent(p.name); } catch { /* #5959 slice 2: nor the old name's last-seen time */ }
   try { require('./stuckterminal').forget(p.name); } catch { /* #5154 slice C: its stuck-terminal anchor goes too */ }
   try { require('./toolloop').forget(p.name); } catch { /* #6071: nor a run of repeated tool failures */ }
+  try { require('./ownbounds').forget(p.name); } catch { /* #5154 slice B: its own-bound give-up episodes go too */ }
   try { require('./liveness').forget(p.name); } catch { /* #5957 slice 3: and its last report */ }
   try { tokens = sendertoken.revoke(p.name); } catch (err) {
     tokens = { ok: false, because: String((err && err.message) || err) };

@@ -211,7 +211,7 @@ function plan(report, entry, now, heldBackUntil) {
   if (at === null) return { act: 'none', because: 'not paused on the quota' };
   if (entry && entry.until === report.until) {
     if (entry.nudgedAt != null) return { act: 'none', because: 'already resumed once for this reset' };
-    if ((entry.tries || 0) >= MAX_TRIES) return { act: 'none', because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };
+    if ((entry.tries || 0) >= MAX_TRIES) return { act: 'none', gaveUp: true, because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };   // #5154 slice B: gaveUp lets the sweep re-surface this each tick while the agent stays paused
     /* A refusal backs off, STAGGER_MS per try so far, so a short-lived one (another message still being placed) cannot
        spend the whole budget on consecutive ticks (review 3). */
     if (Number.isFinite(entry.lastTryAt) && now - entry.lastTryAt < STAGGER_MS * (entry.tries || 1)) {
@@ -267,6 +267,9 @@ function sweepOnce(o) {
     const now = Number.isFinite(o.now) ? o.now : Date.now();
     const read = typeof o.readReport === 'function' ? o.readReport : (s) => require('./selfreport').read(s);
     const log = typeof o.log === 'function' ? o.log : null;
+    // #5154 slice B: the give-up SIGNAL to the board (ownbounds), SEPARATE from `log`. Fires every sweep an
+    // already-given-up agent stays paused (keeps the board's staleness clock fresh); writes no stdout. Optional.
+    const bound = typeof o.bound === 'function' ? o.bound : null;
     /* #4588 PR B: one pool. While any antigravity card is still inside its pause, a resume into another one would spend
        a turn against the same empty pool, so nobody is resumed until the latest reset has passed. */
     /* Under the quota-hold brake (quotaHoldOff) the pool gate is lifted: each agent is resumed on its own reset, PR A's
@@ -288,6 +291,11 @@ function sweepOnce(o) {
       const entry = book.get(session);
       const p = plan(report, entry, now, holdOff ? null : heldBackBy(pausedUntil(report), o.memo || POOL_MEMO));
       if (p.act === 'nudge') due.push({ card, session, report, entry, because: p.because, at: pausedUntil(report) });
+      // #5154 slice B: an agent we have already GIVEN UP resuming (plan returns gaveUp) is not in `due` (it gets
+      // no fresh attempt), so the one-shot gave-up record at the delivery path below never fires again for it.
+      // Signal the board via `bound` every sweep it stays paused-and-given-up, so the episode stays alive instead
+      // of going stale while the agent is still stuck -- without a per-sweep stdout line. Rare; best-effort.
+      else if (p.gaveUp && bound) { try { bound(session, p.because); } catch { /* never breaks a sweep */ } }
     }
     if (!due.length) return { results };
     due.sort((a, b) => (a.at - b.at) || String(a.session).localeCompare(String(b.session)));
@@ -334,7 +342,7 @@ function makeTick(deps) {
       if (!resumeEnabled(deps.allowed() === true, deps.env)) return null;
       const roster = deps.roster();
       if (!Array.isArray(roster)) return null;
-      return sweepOnce({ roster, book: deps.book, now: deps.now ? deps.now() : Date.now(), env: deps.env || process.env, readReport: deps.readReport, deliver: deps.deliver, movedAway: deps.movedAway, movedTold: deps.movedTold, DELIVERY: deps.DELIVERY, log: deps.log });
+      return sweepOnce({ roster, book: deps.book, now: deps.now ? deps.now() : Date.now(), env: deps.env || process.env, readReport: deps.readReport, deliver: deps.deliver, movedAway: deps.movedAway, movedTold: deps.movedTold, DELIVERY: deps.DELIVERY, log: deps.log, bound: deps.bound });   // #5154 slice B: give-up -> board
     } catch { return null; }
   };
 }

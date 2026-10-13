@@ -894,6 +894,7 @@ function needsYouReason(m, projectId) {
     if (m.stuckError.state === 'auth_failed') return 'stuck_auth';
     if (m.stuckError.state === 'rate_limited') return 'stuck_rate';
   }
+  if (m.ownBound && m.ownBound.raised === true) return 'own_bound';   // #5154 slice B: a Kosmos helper gave up on it
   if (m.state === 'connection_lost' && m.reconnect && m.reconnect.phase === 'gave_up') return 'gave_up';
   return 'other';   // needsPerson learned a condition this list has not: still counted, worded generally
 }
@@ -998,6 +999,7 @@ function describe(project, roster, all) {
       reconnect: (card && card.isNamedOurs && 'reconnect' in card && card.reconnect) ? card.reconnect : null,   // `in`: a raw snapshot() roster has no reconnect field
       crashLoop: (card && card.isNamedOurs && 'crashLoop' in card && card.crashLoop) ? card.crashLoop : null,   // #5154: as reconnect (safeRoster carries it; `in` for a raw snapshot roster)
       stuckError: (card && card.isNamedOurs && 'stuckError' in card && card.stuckError) ? card.stuckError : null,   // #5154 slice C: carried like crashLoop so needsPerson lights the project's Issue pill too (two-derivations rule)
+      ownBound: (card && card.isNamedOurs && 'ownBound' in card && card.ownBound) ? card.ownBound : null,   // #5154 slice B: carried the same way, so an own-bound give-up lights the project's Issue pill too
       /* #2808 class 2: carry the card's `stateReportedBy` onto the member (same isNamedOurs gate
          as `state`), so pjMember's shared `cardStOf(m).st==='attn'` render de-alarms a deliberate
          agent question here just as it does on the home card / list row / org node. WITHOUT this,

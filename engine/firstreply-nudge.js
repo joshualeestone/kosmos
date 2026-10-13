@@ -124,7 +124,7 @@ function firstContact(thread, pause) {
  */
 function plan(card, fc, entry, now) {
   if (nudged(entry)) return { act: 'none', because: 'already reminded once' };
-  if (spent(entry)) return { act: 'none', because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };
+  if (spent(entry)) return { act: 'none', gaveUp: true, because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };   // #5154 slice B: gaveUp lets the sweep surface this on the board
   if (!card || card.state !== 'idle') return { act: 'none', because: 'not idle' };
   if (!fc || fc.state !== 'owes') return { act: 'none', because: (fc && fc.because) || 'owes no first reply' };
   const heard = typeof fc.heardAt === 'string' ? Date.parse(fc.heardAt) : NaN;
@@ -158,12 +158,25 @@ function sweepOnce(o) {
     const channelFor = typeof o.replyChannel === 'function' ? o.replyChannel : (s) => require('./replychannel').forAgent(s);
     const log = typeof o.log === 'function' ? o.log : null;
     const say = (r) => { if (log) { try { log(r); } catch { /* never breaks a sweep */ } } };
+    // #5154 slice B: the give-up SIGNAL to the board (ownbounds), SEPARATE from `say`/`log`. Fires every sweep
+    // the agent is given up (keeps the board's staleness clock fresh); writes no stdout. Optional: unset in tests.
+    const bound = typeof o.bound === 'function' ? o.bound : null;
     for (const card of o.roster) {
       const session = card && card.sessionName;
       if (!session) continue;
       const entry = book.get(session);
-      // The cheap conjuncts first, so a thread file is read only for an idle agent still in budget.
-      if (nudged(entry) || spent(entry) || card.state !== 'idle') continue;
+      // The cheap conjuncts first, so a thread file is read only for an idle agent still in budget. Split from
+      // the original single `continue` so the give-up case can be surfaced -- the control flow is identical
+      // (each arm still continues); only the #5154-B say is new.
+      if (nudged(entry)) continue;                        // already reminded once: not a give-up
+      if (spent(entry)) {
+        // #5154 slice B: gave up reminding this agent. Signal the board via `bound` (not `say`, which would spam
+        // stdout every sweep); meaningful only while the card is idle (the board's mootness clear drops it once
+        // the agent is no longer idle). `bound` fires every sweep it stays given up, keeping the board clock fresh.
+        if (card.state === 'idle' && bound) { try { bound(session, 'gave up after ' + MAX_TRIES + ' tries that reached nothing'); } catch { /* best-effort */ } }
+        continue;
+      }
+      if (card.state !== 'idle') continue;
       /* #4354: a switched-off swarm is left alone before anything is read or tried: its pane refuses the text, and
          each refusal would spend one of MAX_TRIES, leaving it never nudged once it runs again. */
       let pz = null;
@@ -226,7 +239,7 @@ function makeTick(deps) {
       if (!Array.isArray(roster)) return null;
       return sweepOnce({
         roster, book: deps.book, now: deps.now ? deps.now() : Date.now(),
-        thread: deps.thread, paused: deps.paused, replyChannel: deps.replyChannel, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
+        thread: deps.thread, paused: deps.paused, replyChannel: deps.replyChannel, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log, bound: deps.bound,   // #5154 slice B: give-up -> board
       });
     } catch { return null; }
   };
