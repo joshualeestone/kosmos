@@ -108,7 +108,17 @@ function unprefix(xml, root) {
   if (!xml) return xml;
   const m = new RegExp('<([A-Za-z_][\\w.-]{0,30}):' + root + '\\b').exec(xml.slice(0, 4096));
   if (!m) return xml;
-  return xml.split('<' + m[1] + ':').join('<').split('</' + m[1] + ':').join('</');
+  /* Iteration 18: in 1 MB pieces, so neither split's array nor a global replace's match list holds millions of strings
+     at once; a piece ends before any '<' in its last 40 characters, so a tag is never cut between two pieces. */
+  const re = new RegExp('(</?)' + m[1].replace(/\./g, '\\.') + ':', 'g');
+  const parts = [];
+  for (let at = 0; at < xml.length;) {
+    let end = Math.min(xml.length, at + 1024 * 1024);
+    if (end < xml.length) { const lt = xml.lastIndexOf('<', end); if (lt > end - 40 && lt > at) end = lt; }
+    parts.push(xml.slice(at, end).replace(re, '$1'));
+    at = end;
+  }
+  return parts.join('');
 }
 /* Iteration 11: a big part (a sheet of 100,000 rows, a long document) gives its first MAX_PART_BYTES rather than
    nothing; `cut` says it was cut. A damaged part still throws, worded as damaged. */
@@ -207,7 +217,7 @@ function xlsxText(buf) {
   if (clip.cols) notes.add('Only the first ' + MAX_COLS + ' columns of a sheet are converted.');
   if (clip.cell) notes.add('A cell longer than ' + MAX_CELL + ' characters is cut short.');
   let styles = null;
-  try { styles = get('xl/styles.xml'); } catch { styles = null; }
+  try { styles = unprefix(get('xl/styles.xml'), 'styleSheet'); } catch { styles = null; }
   const dateFormat = () => {
     for (const m of styles.matchAll(/formatCode="([^"<>]*)"/g)) {
       const code = m[1].replace(/\[[^\]]*\]/g, '').replace(/&quot;[^&]*&quot;/g, '');   // iteration 4: [Red] is not a date
@@ -337,7 +347,7 @@ function* bodyBlocks(body, state) {
 
 /* The text of a span: its <w:t> runs, with tabs and line breaks where Word put them. */
 function runsText(span) {
-  const marked = span.replace(/<w:(?:tab|ptab)\b[^<>]*\/>/g, '<w:t>\t</w:t>').replace(/<w:(?:br|cr)\b[^<>]*\/>/g, '<w:t>\n</w:t>')
+  const marked = span.replace(/<w:tab\s*\/>|<w:ptab\b[^<>]*\/>/g, '<w:t>\t</w:t>').replace(/<w:(?:br|cr)\b[^<>]*\/>/g, '<w:t>\n</w:t>')
     .replace(/<w:noBreakHyphen\b[^<>]*\/>/g, '<w:t>-</w:t>');   // iteration 17: "2026-10-13" kept; a soft hyphen is nothing
   let s = '';
   for (const t of oc.blocks(marked, 'w:t')) { s += oc.xmlText(t); if (s.length > MAX_OUT) break; }

@@ -816,3 +816,21 @@ test('#6098 review 17: a non-breaking hyphen and a positioned tab are kept', () 
   const got = at.docxText(docxOf('<w:p><w:r><w:t>2026</w:t><w:noBreakHyphen/><w:t>10</w:t><w:ptab w:relativeTo="margin" w:alignment="right" w:leader="none"/><w:t>end</w:t></w:r></w:p>'));
   assert.equal(got.body, '2026-10\tend');
 });
+
+/* ── review 18 ── */
+test('#6098 review 18: a paragraph\'s tab-stop settings are not tabs in its text; a run tab still is', () => {
+  const p = (text, stops) => '<w:p><w:pPr><w:tabs>' + stops + '</w:tabs></w:pPr><w:r><w:t>' + text + '</w:t></w:r></w:p>';
+  const got = at.docxText(docxOf(p('Hello', '<w:tab w:val="left" w:pos="720"/>') + p('World', '<w:tab w:val="left" w:pos="720"/><w:tab w:val="right" w:pos="9000"/>')
+    + '<w:p><w:r><w:t>a</w:t><w:tab/><w:t>b</w:t></w:r></w:p>'));
+  assert.equal(got.body, 'Hello\nWorld\na\tb');
+});
+
+test('#6098 review 18: a prefixed styles part still gives the number-format note', () => {
+  const book = buildZip([
+    entry('xl/workbook.xml', XML + '<x:workbook xmlns:x="m" xmlns:r="r"><x:sheets><x:sheet name="D" r:id="rId1"/></x:sheets></x:workbook>'),
+    entry('xl/_rels/workbook.xml.rels', XML + '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
+    entry('xl/worksheets/sheet1.xml', XML + '<x:worksheet xmlns:x="m"><x:sheetData><x:row r="1"><x:c r="A1" s="1"><x:v>1</x:v></x:c></x:row></x:sheetData></x:worksheet>'),
+    entry('xl/styles.xml', XML + '<x:styleSheet xmlns:x="m"><x:cellXfs><x:xf numFmtId="9"/></x:cellXfs></x:styleSheet>'),
+  ]);
+  assert.ok(at.xlsxText(book).notes.some((n) => /without their formats/.test(n)));
+});
