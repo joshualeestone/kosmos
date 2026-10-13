@@ -1558,7 +1558,15 @@ DATA_SETS.marketing = {
   ...DATA_SETS.store,
   /* Farah shows as Farid: the four pictures the site already publishes (meet/faces) are two women and two men. */
   /* reportsTo is the profile key (the claim), the same key server.js walks for loops; the chart matches it to the card. */
-  agents: STORE_AGENTS.map((a) => (a.claim === 'cleo' ? a : { ...a, ...(a.claim === 'farah' ? { name: 'Farid' } : {}), reportsTo: 'cleo' })),
+  /* #6051: four more made-up people, so a desktop board fills two rows rather than half the frame. They have no
+     --faces picture (the site has four licensed faces), so they show the app's own initial, as a real team's
+     newer agents do. Working ones carry a spinner title, the same signal the fleet's own working agents carry. */
+  agents: STORE_AGENTS.concat([
+    { claim: 'maya', title: '⠹ Drafting this week\'s newsletter', name: 'Maya', role: 'Marketing' },
+    { claim: 'theo', title: '', name: 'Theo', role: 'Customer support' },
+    { claim: 'iris', title: '⠸ Laying out the lookbook pages', name: 'Iris', role: 'Designer' },
+    { claim: 'ravi', title: '', name: 'Ravi', role: 'Analyst' },
+  ]).map((a) => (a.claim === 'cleo' ? a : { ...a, ...(a.claim === 'farah' ? { name: 'Farid' } : {}), reportsTo: 'cleo' })),
   /* The person at the hub: a made-up name, so the hub shows an initial (Josh's ruled empty-disc rule otherwise). */
   you: { name: 'Sam Rivera', does: 'Runs a small home goods business' },
   /* The work spread across the team, and each agent's own report of what it is on (engine/commitments, the record an
@@ -1574,6 +1582,10 @@ DATA_SETS.marketing = {
     dana: { modelName: 'Claude Sonnet 5.5', tokens: 118000, ceiling: 200000, postedDaysAgo: 0 },
     eli: { modelName: 'GPT 5.2', runner: 'codex', tokens: 84000, ceiling: 400000, postedDaysAgo: 0 },
     farah: { modelName: 'Claude Haiku 5.5', tokens: 22000, ceiling: 200000, postedDaysAgo: 3 },
+    maya: { modelName: 'Claude Sonnet 5.5', tokens: 97000, ceiling: 200000, postedDaysAgo: 0 },
+    theo: { modelName: 'Gemini 3 Pro', runner: 'gemini', tokens: 140000, ceiling: 1000000, postedDaysAgo: 2 },
+    iris: { modelName: 'Claude Opus 5.5', tokens: 133000, ceiling: 200000, postedDaysAgo: 1 },
+    ravi: { modelName: 'GPT 5.2', runner: 'codex', tokens: 51000, ceiling: 400000, postedDaysAgo: 5 },
   },
   commitments: {
     dana: 'Task 1 of Launch the spring catalogue: copy for pages 9 to 12, once the photos are in',
