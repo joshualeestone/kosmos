@@ -27,7 +27,8 @@ const fleet = require('./test-support/fleet');
 const sendertoken = require('./engine/sendertoken');
 const toolloop = require('./engine/toolloop');
 
-test.before(async () => { await start(0); });
+/* The late-digest window (toolloop.LATE_MS) is a real-time 2 s; these requests cross a turn end in milliseconds. */
+test.before(async () => { toolloop.setLateMsForTests(0); await start(0); });
 test.after(() => {
   server.closeAllConnections(); server.close();
   for (const d of [SANDBOX, process.env.HOME]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
