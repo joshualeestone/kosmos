@@ -312,6 +312,40 @@ const heldReopenAt = () => {
   return 'covered by ' + (named ? named.tagName.toLowerCase() + '#' + named.id : top ? top.tagName.toLowerCase() : 'nothing readable');
 };
 
+/* #3029: the subproject fixture for tasks-subprojects and tasks-subproject-picked, made once per run (there is no
+   project delete here) and cached on data. Projects are found again by name and parent on a fresh read, so this
+   does not depend on the create route's response shape. */
+async function subprojectFixture(page, data) {
+  if (data.subprojects) return data.subprojects;
+  const made = await page.evaluate(async (topId) => {
+    const post = (pth, b) => fetch(pth, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
+    const find = async (name, parent) => {
+      const all = await (await fetch('/api/projects')).json();
+      const list = Array.isArray(all) ? all : (all.projects || []);
+      const hit = list.find((p) => p && p.name === name && (p.parent || null) === (parent || null));
+      return hit ? hit.id : null;
+    };
+    const make = async (name, parent) => {
+      const r = await post('/api/projects', parent ? { name, parent } : { name });
+      if (r.status !== 200 && r.status !== 201) throw new Error('could not make ' + name + ' (status ' + r.status + ')');
+      const id = await find(name, parent);
+      if (!id) throw new Error('made ' + name + ' but could not read it back');
+      return id;
+    };
+    const bookB = await make('Book B');
+    const launchA = await make('Launch', topId);
+    const launchB = await make('Launch', bookB);
+    const grandchild = await make('Spring catalogue relaunch with the regional sales teams', launchA);
+    for (const [id, sentence] of [[launchA, 'Draft the launch email'], [launchB, 'Book the venue'], [grandchild, 'Proof the catalogue pages']]) {
+      const r = await post('/api/project/' + encodeURIComponent(id) + '/tasks', { sentence });
+      if (r.status !== 200) throw new Error('could not add a task to ' + id + ' (status ' + r.status + ')');
+    }
+    return { bookB, launchA, launchB, grandchild };
+  }, data.projectId);
+  data.subprojects = made;
+  return made;
+}
+
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -929,6 +963,25 @@ const SCREENS = [
   { name: 'tasks', owner: 'Mona Lisa / April', go: async (page) => {
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+  } },
+  /* #3029: subprojects on the Tasks view, named by their chain. Two subprojects both called Launch (one under the
+     fixture project, one under a new Book B) and a long grandchild, each with a task; made ONCE per run through the
+     board's own API and reused by every size and theme. tasks-subprojects groups by project with nothing picked;
+     tasks-subproject-picked picks the long grandchild, so the closed select, crumb and title show it. */
+  { name: 'tasks-subprojects', owner: 'Mona Lisa', go: async (page, data) => {
+    await subprojectFixture(page, data);
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+    await page.selectOption('#tsk-by', 'project');
+    await page.waitForFunction(() => document.querySelectorAll('#tsk-groups .tsk-grp h3').length > 1, null, { timeout: 5000 });
+  } },
+  { name: 'tasks-subproject-picked', owner: 'Mona Lisa', go: async (page, data) => {
+    const ids = await subprojectFixture(page, data);
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+    await page.waitForFunction((id) => !!document.querySelector('#tsk-projsel option[value="' + id + '"]'), ids.grandchild, { timeout: 5000 });
+    await page.selectOption('#tsk-projsel', ids.grandchild);
+    await page.waitForFunction(() => document.getElementById('tsk-crumb').textContent.includes('›'), null, { timeout: 5000 });
   } },
   /* #5456: the Tasks view with a repeating task nobody is named on, under On a schedule (not Unassigned). The task is made
      and given its rule here, and the rule is cleared after the shot. The task is made ONCE per run and reused by every
