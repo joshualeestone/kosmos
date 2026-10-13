@@ -3,7 +3,8 @@
 /**
  * Prepare a Gemini agent's settings.json at birth (#3296): the auth pre-seed
  * that skips the interactive first-run auth picker, and the five lifecycle hooks
- * that make the agent self-report to the board. This is the Gemini analog of
+ * that make the agent self-report to the board. The same file also carries the
+ * tool hook (#5812) and the switch-off of the CLI's own updater (#6058). This is the Gemini analog of
  * engine/reporthook.js (the Claude report-hook merge) fused with the codex
  * trust/pre-accept writes -- one module because gemini needs BOTH written into the
  * SAME file before launch, and two writers of one file is this codebase's
@@ -53,6 +54,17 @@ const TOOL_MATCHER = '^(write_file|replace)$';   // gemini tests it as an unanch
    one; the cost is that such a change needs its own migration, stated here so
    nobody discovers it. Same doctrine as reporthook.js's MARKER. */
 const MARKER = 'gemini-report-bridge';
+
+/* #6058: gemini-cli updates ITSELF. Launched from an npm-global install it prints "Installed with npm. Attempting
+   to automatically update now..." and replaces that install with the latest release about ten seconds later (measured on the card:
+   0.61.0 became 0.63.0). Kosmos pins the version it was measured on (runners.js MANIFEST.gemini), so each agent's
+   settings switch that off. Both keys are read from `general` (gemini-cli 0.61.0: `checkForUpdates` returns
+   nothing when enableAutoUpdateNotification is false, so no check is made and no banner drawn in the pane;
+   `handleAutoUpdate` installs only when enableAutoUpdate is true). Both default to true when absent.
+   Each key has an OLDER spelling the CLI still reads and migrates (`migrateDeprecatedSettings`): the same choice,
+   inverted. A person's file may hold either, so "did they choose?" asks about both (review 1). */
+const UPDATE_KEYS = Object.freeze(['enableAutoUpdate', 'enableAutoUpdateNotification']);   // [the install, the check], in this order
+const LEGACY_UPDATE_KEYS = Object.freeze({ enableAutoUpdate: 'disableAutoUpdate', enableAutoUpdateNotification: 'disableUpdateNag' });
 
 /* The command gemini runs for a hook. Gemini executes a command hook as a SHELL
    STRING (measured: it spawns the shell with the command as the last arg), so
@@ -205,6 +217,36 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
     changed = true;
   }
 
+  /* #6058: the CLI's own updater, off, without overriding anything the person chose. On the default account this
+     file is the person's own ~/.gemini/settings.json, so the rule is the auth type's: never overwrite a choice.
+     There are two choices here, each with an older spelling the CLI still reads (LEGACY_UPDATE_KEYS):
+       INSTALL  enableAutoUpdate (or a boolean disableAutoUpdate)
+       CHECK    enableAutoUpdateNotification (or a boolean disableUpdateNag)
+     and EITHER ONE being off stops the install (no check means nothing to install). So the two cannot be filled
+     independently: writing "no check" beside a person's "keep installing" would switch their updates off through
+     the other key (review 2). The rule:
+       they chose about INSTALL (either way)  ->  nothing is written. Off, the pin is safe; on, it is theirs.
+       they chose only about the CHECK        ->  installs are switched off; their check setting is left as it is.
+       they chose neither                     ->  both are switched off (no install, no banner in the pane).
+     🛑 WHAT THIS COSTS, SAID PLAINLY: on the default account it also stops the person's OWN `gemini` (run by
+     hand, outside Kosmos) from updating itself, because it reads the same file. To turn it back on they set
+     BOTH keys to true (enableAutoUpdate alone is not enough where this wrote both: the check would still be off,
+     and with no check nothing installs). This then leaves both alone. A `general` that is present but not an
+     object is somebody's own arrangement and is left alone, with nothing written under it.
+     Why the check goes off too when nobody chose: with it on, every Gemini agent's pane shows "update available!
+     Please run npm install -g @google/gemini-cli@latest to update", which is an instruction sitting in front of
+     an agent that can run commands. */
+  if (data.general === undefined) data.general = {};
+  if (data.general && typeof data.general === 'object' && !Array.isArray(data.general)) {
+    const chose = (key) => data.general[key] !== undefined || typeof data.general[LEGACY_UPDATE_KEYS[key]] === 'boolean';
+    const [installKey, checkKey] = UPDATE_KEYS;
+    if (!chose(installKey)) {
+      if (!chose(checkKey)) data.general[checkKey] = false;
+      data.general[installKey] = false;
+      changed = true;
+    }
+  }
+
   /* The five report hooks. Same idempotent/repoint logic as reporthook.js: an
      event already carrying OUR entry at the current bridge path is left alone; an
      entry that is ours but aimed at a DIFFERENT bridge path is repointed (so a
@@ -252,4 +294,4 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
   return { prepared: true, changed: true };
 }
 
-module.exports = { AUTH_TYPE, HOOK_EVENTS, TOOL_EVENT, TOOL_MATCHER, MARKER, commandFor, unsafeForCommand, entryIsOurs, ensurePrepared };
+module.exports = { AUTH_TYPE, HOOK_EVENTS, TOOL_EVENT, TOOL_MATCHER, MARKER, UPDATE_KEYS, LEGACY_UPDATE_KEYS, commandFor, unsafeForCommand, entryIsOurs, ensurePrepared };
