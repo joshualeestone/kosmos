@@ -93,6 +93,10 @@ _kosmos_linux_unit_killmode() { :; }
 # As setup.sh sets them above the block (the block reads them).
 _kosmos_was_running=no; _kosmos_paused_board=no; _kosmos_marker_ours=no; _kosmos_putback_unsure=no
 if [ -n "${PRESTOPPED:-}" ]; then : > "$KOSMOS_HOME/board.stopped"; fi
+# #5907: the block waits for a stopping board with up to ten 'sleep 1's. No listener here ever lets go of its port, so
+# every held-port case slept the full ten seconds (12 cases, about 2 of this file's 3 minutes). The wait is said, not
+# slept; the loop still makes its ten port checks. Printed rather than written to a file: profile C denies temp writes.
+sleep() { echo "WAITED $*"; }
 . "$T/pause.sh"
 echo "PASSED THE PAUSE"
 EOF
@@ -128,11 +132,14 @@ chk() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; echo "      ou
 # CONTROL: outside a sandbox, a free port passes the pause (the harness can pass, so a DIE below is the block's).
 P="$(free_port)"; OUT="$(run_pause "" "$P")"
 chk "control: outside a sandbox, a free port passes the pause" '[[ "$OUT" == *"PASSED THE PAUSE"* ]]'
+chk "control: a free port is not waited on" '[[ "$OUT" != *"WAITED"* ]]'
 
 # CONTROL: outside a sandbox, a listener that accepts but never answers keeps the existing kill advice.
 P="$(free_port)"; start_listener "$P" silent; OUT="$(run_pause "" "$P")"; stop_listener
 chk "control: outside a sandbox, a silent listener still gets the existing pid advice" '[[ "$OUT" == *"is still holding port"* && "$OUT" != *"normal Terminal"* ]]'
 chk "control: the third stop (a process that answers) is not marked unsure" '[[ "$OUT" == *"STATE put-back=yes unsure=no"* ]]'
+# #5907: the sleep stub above is reached (a real 'sleep 1' prints nothing), and the held port still gets all ten checks.
+chk "a held port: the block still waits ten times before it stops" '[ "$(printf "%s\n" "$OUT" | grep -c "^WAITED 1$")" -eq 10 ]'
 
 # Outside a sandbox, a listener that speaks first and not HTTP keeps the existing pid advice too.
 P="$(free_port)"; start_listener "$P" banner; OUT="$(run_pause "" "$P")"; stop_listener
