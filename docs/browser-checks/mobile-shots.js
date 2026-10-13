@@ -30,7 +30,8 @@
  * --data marketing (#5782) is the store fleet with a shape, for installkosmos.com's product shots: Cleo leads and the
  * others report to her (the org chart draws a team), the person is a made-up "Sam Rivera" (the hub shows an initial),
  * and the tasks are spread across the team, each agent reporting what it is on. --faces DIR seeds pictures from a
- * folder of <claim>.jpg|png|webp|gif (cleo, dana, eli, farah) and you.<ext>, through the engine's own picture writers.
+ * folder of <claim>.jpg|png|webp|gif (the four with licensed faces: cleo, dana, eli, farah; the others keep their
+ * initial) and you.<ext>, through the engine's own picture writers.
  * 🛑 The leak guard reads page TEXT, not images: --faces must only ever hold made-up or licensed faces (the site's own
  * meet/faces), never a photo of a real person from this Mac. desktop2x is 1280x800 always saved at 2x.
  * --data store seeds a clean fleet for App Store and Play screenshots instead
@@ -1558,18 +1559,87 @@ DATA_SETS.marketing = {
   ...DATA_SETS.store,
   /* Farah shows as Farid: the four pictures the site already publishes (meet/faces) are two women and two men. */
   /* reportsTo is the profile key (the claim), the same key server.js walks for loops; the chart matches it to the card. */
-  agents: STORE_AGENTS.map((a) => (a.claim === 'cleo' ? a : { ...a, ...(a.claim === 'farah' ? { name: 'Farid' } : {}), reportsTo: 'cleo' })),
+  /* #6051: four more made-up people, so a desktop board fills two rows rather than half the frame. They have no
+     --faces picture (the site has four licensed faces), so they show the app's own initial, as a real team's
+     newer agents do. Working ones carry a spinner title, the same signal the fleet's own working agents carry. */
+  agents: STORE_AGENTS.concat([
+    { claim: 'maya', title: '⠹ Drafting this week\'s newsletter', name: 'Maya', role: 'Marketing' },
+    { claim: 'theo', title: '', name: 'Theo', role: 'Customer support' },
+    { claim: 'iris', title: '⠸ Laying out the lookbook pages', name: 'Iris', role: 'Designer' },
+    { claim: 'ravi', title: '', name: 'Ravi', role: 'Analyst' },
+  ]).map((a) => (a.claim === 'cleo' ? a : { ...a, ...(a.claim === 'farah' ? { name: 'Farid' } : {}), reportsTo: 'cleo' })),
   /* The person at the hub: a made-up name, so the hub shows an initial (Josh's ruled empty-disc rule otherwise). */
   you: { name: 'Sam Rivera', does: 'Runs a small home goods business' },
   /* The work spread across the team, and each agent's own report of what it is on (engine/commitments, the record an
      agent writes), so a task card says who is doing it instead of "has not reported what it is working on yet". */
   tasks: [['Draft the product copy for every page', 'dana'], ['Check the prices against the spreadsheet', 'eli'], ['Book the photographer', 'cleo']],
+  /* #6051 (Josh 10-13: "let's not show this as a bunch of agents we can't read. It should be mocked up to look full and
+     working."): the sandbox agents have never run, so every card read "Not yet read" with its model squeezed to "Cla...".
+     In the PAGE only (the same /api/status rewrite as `connected`), each agent gets a model and a measured memory
+     reading in the engine's own shapes (modelDisplayName's names; status.js measuredResult). State is untouched: the
+     board's own Working / Question / Idle stay what the fleet seeds. */
+  busy: {
+    /* A Claude row names its model id: its limit and whether that limit is assumed come from the engine's own
+       limitFor (status.js), so the reading is the one a real card would carry. A codex row carries the window codex
+       reports; a gemini row says its window is assumed, as the engine's own Gemini reader does; a muse row carries
+       no reading at all, because Kosmos does not read Muse's memory yet (status.js, the Muse pane's context). */
+    cleo: { model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', tokens: 305000, postedDaysAgo: 1 },
+    dana: { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', tokens: 590000, postedDaysAgo: 0 },
+    eli: { modelName: 'GPT 5.2', runner: 'codex', tokens: 84000, ceiling: 400000, postedDaysAgo: 0 },
+    farah: { model: 'claude-haiku-5-5', modelName: 'Claude Haiku 5.5', tokens: 110000, postedDaysAgo: 3 },
+    maya: { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', tokens: 485000, postedDaysAgo: 0 },
+    theo: { modelName: 'Gemini 3 Pro', runner: 'gemini', tokens: 140000, ceiling: 1048576, assumed: true, postedDaysAgo: 2 },   // the engine's assumed Gemini window (status.js GEMINI_TEXT_WINDOW)
+    iris: { model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', tokens: 665000, postedDaysAgo: 1 },
+    ravi: { runner: 'muse', postedDaysAgo: 5 },   // no name (modelLine says Meta Muse) and no reading: Kosmos does not read Muse's memory
+  },
   commitments: {
     dana: 'Task 1 of Launch the spring catalogue: copy for pages 9 to 12, once the photos are in',
     eli: 'Task 2 of Launch the spring catalogue: checking the linen prices against the March sheet',
     cleo: 'Task 3 of Launch the spring catalogue: booking the photographer for Thursday',
   },
 };
+/* #6051: give each card named in `busy` (by its claim) a model and a measured memory reading, in the shapes the engine
+   itself produces (engine/status.js measuredResult), so the page renders them exactly as it would a running agent.
+   Walks the whole status body for objects carrying a sessionName, in arrays or under keys, and patches each one. */
+const BUSY_SEEN = new Set();   // #6051: the busy claims a status read actually matched, checked when the run ends
+function busyCards(body, busy) {
+  const patch = (c) => {
+    const key = String(c.claim || String(c.sessionName || '').replace(/-discord$/, '')).toLowerCase();
+    const b = busy[key];
+    if (!b) return;
+    const lim = b.model ? require(path.join(REPO, 'engine', 'status')).limitFor(b.model) : null;
+    const ceiling = lim ? lim.limit : b.ceiling;
+    const assumed = lim ? lim.assumed : b.assumed === true;
+    const raw = Math.round((b.tokens / ceiling) * 100);   // measuredResult's arithmetic: clamp the percent, flag the excess
+    const percent = Math.min(100, raw);
+    // Counted as reached only when every line it asks for can show: a community line needs the community on.
+    const lineCanShow = !Number.isInteger(b.postedDaysAgo) || c.communityOn !== false;
+    if (lineCanShow) BUSY_SEEN.add(key);
+    if (b.modelName) { c.modelName = b.modelName; c.plannedModelName = b.modelName; }   // modelLine reads the planned one on a stopped card
+    // A Muse card with no model of its own says "Meta Muse" (modelLine's fallback); the sandbox's seeded Claude model
+    // must not stand in for it.
+    else if (b.runner === 'muse') { c.modelName = null; c.plannedModelName = null; }
+    if (b.runner) c.runner = b.runner;   // modelLine names a codex agent's model without the Claude prefix
+    if (Number.isInteger(b.postedDaysAgo) && c.communityOn !== false) {
+      // The server's own wording for the card's community line (server.js, lastCommunityPost).
+      const d = b.postedDaysAgo;
+      c.lastCommunityPost = 'Last community post: ' + (d <= 0 ? 'today' : d === 1 ? 'yesterday' : d + ' days ago');
+      c.lastCommunityPostAt = new Date(Date.now() - d * 86400000).toISOString();
+    }
+    c.context = b.runner === 'muse'
+      ? { tokens: null, percent: null, confidence: 'none', notYet: false, because: 'Kosmos does not read how full Muse\u2019s memory is yet' }
+      : { tokens: b.tokens, percent, overCeiling: raw > 100, notYet: false, ceiling, ceilingAssumed: assumed,
+          confidence: 'structured',
+          because: assumed ? 'measured, against a limit we have assumed rather than watched' : 'measured, against a limit we have watched it hit' };
+  };
+  const walk = (v) => {
+    if (Array.isArray(v)) { for (const x of v) walk(x); return; }
+    if (!v || typeof v !== 'object') return;
+    if ('sessionName' in v) { patch(v); return; }   // a card, whether it sits in an array or under a key
+    for (const x of Object.values(v)) walk(x);
+  };
+  walk(body);
+}
 let FACES_DIR = null;   // --faces: pictures for the seeded agents and the person
 /* #5782 review: an agent's report is a claim stamped when it is made, and the board calls it stale after 30 minutes
    (engine/commitments.js STALE_AFTER_MS). A long sweep or a --keep board would then show "last reported N minutes ago"
@@ -2088,11 +2158,30 @@ async function run() {
   const out = args.out || fs.mkdtempSync(path.join(os.tmpdir(), 'mobile-shots-'));
   fs.mkdirSync(out, { recursive: true });
   DATA = DATA_SETS[args.data];
+  /* #6051: a data set with a busy table names every one of its agents there, and nothing else, so a typo on either
+     side fails here instead of quietly bringing back a "Not yet read" card. */
+  if (DATA.busy) {
+    const claims = DATA.agents.map((a) => a.claim).sort().join(',');
+    const keys = Object.keys(DATA.busy).sort().join(',');
+    if (claims !== keys) throw new Error('--data ' + args.data + ': the busy table names ' + keys + ' but the agents are ' + claims);
+    if (!DATA.connected) throw new Error('--data ' + args.data + ': a busy table is applied in the connected status rewrite, so it needs connected: true');
+  }
   FACES_DIR = args.faces ? path.resolve(args.faces) : null;
   if (FACES_DIR && !(fs.existsSync(FACES_DIR) && fs.statSync(FACES_DIR).isDirectory())) throw new Error('--faces ' + FACES_DIR + ' is not a folder');
   SEED_LEFTOVER = screens.some((s) => s.name === 'leftover-delete');
 
   const board = await startBoard();
+  if (DATA.busy) {
+    /* #6051: every busy row can produce its reading. Here, not at the start: status.js may only load once the
+       sandbox is set (the leak guard refuses an engine module loaded before it). */
+    const { limitFor } = require(path.join(REPO, 'engine', 'status'));
+    for (const [k, b] of Object.entries(DATA.busy)) {
+      if (b.runner === 'muse') continue;   // no reading by design
+      if (b.model && b.ceiling) throw new Error('--data ' + args.data + ': busy ' + k + ' gives both a model and a ceiling; the model decides');
+      const ceiling = b.model ? (limitFor(b.model) || {}).limit : b.ceiling;
+      if (!(Number.isFinite(ceiling) && ceiling > 0)) throw new Error('--data ' + args.data + ': busy ' + k + ' has no memory limit (limitFor does not know ' + (b.model || 'its model') + ' and no ceiling is given)');
+    }
+  }
   const rows = [];
   const skipped = [];   // phone-only screens at desktop, desktop-only ones at a phone size: listed in both reports, never silently absent
   let overflowCount = 0, errors = 0;
@@ -2138,6 +2227,7 @@ async function run() {
                     const body = await res.json().catch(() => null);
                     if (!body || typeof body !== 'object') return await r.fulfill({ response: res });
                     body.connection = { ...(body.connection || {}), state: 'connected' };
+                    if (DATA.busy) busyCards(body, DATA.busy);   // #6051: page only, like `connected`
                     return await r.fulfill({ response: res, json: body });
                   } catch { await r.abort().catch(() => {}); }
                 });
@@ -2255,6 +2345,9 @@ async function run() {
   console.log(`\n${rows.length} shots, ${overflowCount} with overflow, ${errors} errors, ${skipped.length} skipped -> ${out}`);
   /* tools/browser-checks.sh quotes a red's reason from lines starting FAIL. */
   if (errors) { console.error(`FAIL  mobile-shots: ${errors} shot(s) could not be taken; see the ERROR lines above`); return 2; }
+  /* #6051: a busy agent no status read ever matched would have shot as "Not yet read" without a word: fail instead. */
+  const unmatched = DATA.busy && rows.some((r) => !r.skipped) ? Object.keys(DATA.busy).filter((k) => !BUSY_SEEN.has(k)) : [];
+  if (unmatched.length) { console.error('FAIL  mobile-shots: the busy table never reached ' + unmatched.join(', ') + ' (no status card matched them, or their community line could not show because the community is off); those cards are not as the busy table says'); return 2; }
   if (args.strict && overflowCount) { console.error(`FAIL  mobile-shots: ${overflowCount} shot(s) overflow sideways; see the FLAG lines above`); return 1; }
   return 0;
 }
