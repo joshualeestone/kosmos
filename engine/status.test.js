@@ -6139,12 +6139,45 @@ test('#6063 CONTROL: an answered copy of the question still on screen does not l
 
   /* The heading alone on a row (a log line, a printed fixture) above a different live one. */
   const printed = consentPrompt('Allow external CLAUDE.md file imports?\n...\n' + other);
+  assert.ok(printed, 'the dialog beneath is still a dialog');
   assert.equal(printed.because, GENERIC, 'a printed heading row labelled the live dialog');
 
   /* The other way up, the question IS the live one and keeps its label. */
   const live = consentPrompt(other + '\n\n' + answered);
   assert.match(live.because, /import files from outside its folder/);
   assert.equal(live.evidence, 'Allow external CLAUDE.md file imports?');
+
+  /* The heading only BELOW the answer row is not this dialog's heading. */
+  const below = consentPrompt(answered.replace('  Allow external CLAUDE.md file imports?', '  Something nobody has seen yet?')
+    + '\nAllow external CLAUDE.md file imports?\n  Enter to confirm · Esc to cancel');
+  assert.ok(below, 'still a dialog');
+  assert.equal(below.because, GENERIC, 'a heading row under the answer row labelled the dialog');
+});
+
+test('#6063: words about bypass permissions elsewhere on the screen do not relabel the imports question', () => {
+  const IMPORTS = /import files from outside its folder/;
+  /* A mode footer left from the session before, above the live question. */
+  const footer = '$ claude\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n' + EXTERNAL_IMPORTS_LIVE;
+  const a = classify(pane(), footer);
+  assert.equal(a.state, STATE.NEEDS_YOU);
+  assert.match(a.because, IMPORTS, 'an old mode footer made this the bypass question');
+  assert.doesNotMatch(a.because, /default answer exits/, 'a default was claimed for a dialog where it is not verified');
+  /* An imported file whose path holds the words. */
+  const path = EXTERNAL_IMPORTS_LIVE.replace('/Users/someone/notes/outside/note.md', '/Users/someone/notes/bypass permissions/note.md');
+  assert.notEqual(path, EXTERNAL_IMPORTS_LIVE, 'the fixture edit took');
+  assert.match(classify(pane(), path).because, IMPORTS, 'a file path made this the bypass question');
+  /* And the bypass dialog itself is still the bypass dialog, with an answered imports copy above it. */
+  const b = classify(pane(), EXTERNAL_IMPORTS_LIVE.replace(/\n+$/, '') + '\n\n' + BYPASS_CONSENT_LIVE);
+  assert.match(b.because, /Bypass Permissions/);
+});
+
+test('#6063: a list of imports too long for the tail falls back to the generic reason, still needs_you', () => {
+  const many = EXTERNAL_IMPORTS_LIVE.replace('    /Users/someone/notes/outside/note.md',
+    Array.from({ length: 30 }, (_, i) => `    /Users/someone/notes/outside/note-${i}.md`).join('\n'));
+  assert.notEqual(many, EXTERNAL_IMPORTS_LIVE, 'the fixture edit took');
+  const r = classify(pane(), many);
+  assert.equal(r.state, STATE.NEEDS_YOU);
+  assert.equal(r.because, 'it is waiting for you to answer a prompt');
 });
 
 test('#1919: consentPrompt returns {because, evidence} for a live dialog and null for a non-dialog', () => {
