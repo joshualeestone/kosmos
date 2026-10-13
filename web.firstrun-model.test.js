@@ -333,6 +333,25 @@ test('the Connect button says Connected once it is, and stops saying it if we lo
   assert.equal(btn.disabled, false);
 });
 
+test('#3326: the sign-up start asks for a forced login whether or not an install was confirmed', () => {
+  /* The painter above keeps the button an action until a watched login succeeds; this pins
+     what pressing it sends. Without reauth, a credential the live check cannot verify answers
+     connected straight away (server.connect.test.js "#1585 CONTROL"), so sign-up would never
+     run a login over it. Evaluated rather than matched, so a body that only mentions reauth in
+     a comment, or sets it false, fails. */
+  const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  const at = page.indexOf('async function frConnectStartConfirmed(');
+  assert.notEqual(at, -1, 'frConnectStartConfirmed moved; re-point this test');
+  const end = page.indexOf('\nasync function ', at + 1);
+  const m = codeOnly(page.slice(at, end === -1 ? at + 6000 : end)).match(/fetch\('\/api\/connect\/start'[\s\S]*?body: JSON\.stringify\((.+?)\),\n/);
+  assert.ok(m, 'the sign-up start no longer builds a body this test can read');
+  const build = new Function('installConfirmed', 'return ' + m[1] + ';');
+  for (const confirmed of [true, false]) {
+    assert.deepEqual(build(confirmed), { installConfirmed: confirmed, reauth: true },
+      'the sign-up start does not ask for a forced login (installConfirmed ' + confirmed + ')');
+  }
+});
+
 test('frPaintOpenai marks the row Connected, told directly or by asking the machine', async () => {
   const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const at = page.indexOf('async function frPaintOpenai(');
