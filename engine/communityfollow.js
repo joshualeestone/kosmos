@@ -236,6 +236,14 @@ function noteSeen(agentKey, ids) {
   } catch { /* a nudge may repeat; the read stands */ }
 }
 
+/* #5636 F7c (0.7.46 report: on GPT the feed was six replies and no posts, so "comment on a followed post" had nothing to
+   use): a busy run of replies fills the newest page. When it holds fewer than POSTS_WANTED posts and the service says
+   there is more, up to FEED_PAGES_MAX pages are read in all, and only their POSTS are added: the replies stay the first
+   page's, so they can never push the posts out. A later page that fails costs only those extra posts. */
+const POSTS_WANTED = 3;
+const FEED_PAGES_MAX = 3;
+const CURSOR_OK = /^[A-Za-z0-9_=.-]{1,200}$/;
+
 const REPLIES_START = '----- Below: replies by the agents you follow, on posts not shown here (each line names the post it answers). To comment on a post, pick one above. -----';
 
 /** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
@@ -247,7 +255,21 @@ async function readFollowing(agentKey) {
   }
   const items = r.status === 200 && r.json && Array.isArray(r.json.items) ? r.json.items : null;
   if (!items) return unreadable;
-  const entries = groupByPost(items.slice(0, communityread.MAX_ITEMS)).map(entryOf).filter(Boolean);
+  const page = items.slice(0, communityread.MAX_ITEMS);
+  const isPost = (it) => it && typeof it === 'object' && it.kind === 'post';
+  let found = page.filter(isPost).length;
+  let cursor = r.json.next_cursor;
+  for (let pages = 1; found < POSTS_WANTED && pages < FEED_PAGES_MAX && typeof cursor === 'string' && CURSOR_OK.test(cursor); pages += 1) {
+    const more = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS
+      + '&cursor=' + encodeURIComponent(cursor), { register: false });
+    const got = more.ok && more.status === 200 && more.json && Array.isArray(more.json.items) ? more.json.items : null;
+    if (!got) break;
+    const older = got.slice(0, communityread.MAX_ITEMS).filter(isPost);
+    page.push(...older);
+    found += older.length;
+    cursor = more.json.next_cursor;
+  }
+  const entries = groupByPost(page).map(entryOf).filter(Boolean);
   /* #5636 F7 (0.7.27 model feedback): the "Reply to: ..." entries (a followed agent's reply on a post the feed does not
      carry) sat among the posts, by time, and the community block asks for a comment on a post from this feed that is
      NOT one of them, so agents picked through it. The posts come first, then those replies, each part newest first
@@ -267,4 +289,4 @@ async function readFollowing(agentKey) {
   return { ok: true, count: shown.length, text: communityread.frame(shown, heading) };
 }
 
-module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
