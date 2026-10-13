@@ -703,8 +703,11 @@ function pageText(content, fonts, out, used = {}) {
       drawn += ((w / 1000) * size + tc + (len === 1 && code === 32 ? tw : 0)) * th;
     }
   };
-  const moved = (gap) => {   // a move on the same line: a space only when it leaves (or goes back over) real room
-    if (Math.abs(gap) > (exact ? 0.12 : 0.3) * (Math.abs(size) || 1)) space();
+  /* A move on the same line: a space only when it leaves (or goes back over) real room. Iteration 8: with a glyph of
+     unknown width since the line start (a standard font with no /Widths, mostly) the gap cannot be measured, and an
+     estimate is off by as much as a word gap, so every move is a space there, as before iteration 7. */
+  const moved = (gap) => {
+    if (!exact || Math.abs(gap) > 0.12 * (Math.abs(size) || 1)) space();
   };
   const restart = () => { drawn = 0; exact = true; };
   const operands = [];
@@ -750,7 +753,10 @@ function pageText(content, fonts, out, used = {}) {
     else if (op === 'Tz') { const v = lastNum(); if (v != null) th = v / 100; }
     else if (op === 'BT') { a = 1; x = 0; restart(); }
     else if (op === 'Tj') { const s = lastOf('str'); if (s && !append(decode(s.str))) return; }
-    else if (op === "'" || op === '"') { if (!flush()) return; restart(); const s = lastOf('str'); if (s && !append(decode(s.str))) return; }
+    else if (op === "'" || op === '"') {
+      if (op === '"') { const v = nums(2); if (v) { tw = v[0]; tc = v[1]; } }   // aw ac string " sets the word and character spacing
+      if (!flush()) return;
+      restart(); const s = lastOf('str'); if (s && !append(decode(s.str))) return; }
     else if (op === 'TJ') {
       const ta = lastOf('arr');
       if (ta) for (const e of ta.arr) {
@@ -809,8 +815,10 @@ function pdfTextJs(buf) {
   };
   const numAt = (dict, key) => { const m = new RegExp('/' + key + '\\s+(-?\\d{1,9}(?:\\.\\d{1,9})?)').exec(dict || ''); return m ? Number(m[1]) : null; };
   /* Glyph widths (iteration 7), so a move can be told from a word gap. A simple font's /FirstChar and /Widths; a Type0
-     font's descendant /W and /DW. At most 65536 widths a font. A Type3 font (Chrome writes these) gives its widths in its own
+     font's descendant /W and /DW. At most 65536 widths a font, and 262144 in the document (iteration 8: a budget per font
+     alone let 200 fonts of `[0 65535 500]` fill the worker's memory); a width the budget left out is unknown, not /DW. A Type3 font (Chrome writes these) gives its widths in its own
      glyph units, which its /FontMatrix turns into text space: they are scaled to thousandths like the others. */
+  const wBudget = { n: 262144 };
   const widthsOf = (fd, type0) => {
     if (!type0) {
       const w = arrayOf(fd, 'Widths');
@@ -826,13 +834,14 @@ function pdfTextJs(buf) {
     }
     const desc = arrayOf(fd, 'DescendantFonts');
     const dn = desc ? refs(desc)[0] : null;
-    const dd = dn != null ? (objs.get(dn) || {}).dict || '' : '';
+    const dd = dn != null ? (objs.get(dn) || {}).dict || '' : (desc || '');   // or written inline
     const dw = numAt(dd, 'DW');
     const map = new Map();
     const w = arrayOf(dd, 'W');
+    let short = false;
     if (w) {
       const toks = w.match(/\[|\]|-?\d*\.?\d+/g) || [];
-      let budget = 65536;
+      let budget = Math.min(65536, wBudget.n);
       for (let i = 0; i < toks.length && budget > 0;) {
         const c1 = Number(toks[i]);
         if (toks[i + 1] === '[') {
@@ -847,8 +856,10 @@ function pdfTextJs(buf) {
           i += 3;
         } else i += 1;
       }
+      wBudget.n -= map.size;
+      short = budget <= 0;
     }
-    return (code) => (map.has(code) ? map.get(code) : (dw != null ? dw : 1000));
+    return (code) => (map.has(code) ? map.get(code) : (short ? null : (dw != null ? dw : 1000)));
   };
   const infos = new Map();
   const fontInfo = (num) => {

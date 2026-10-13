@@ -545,3 +545,25 @@ test('#6098 review 7: a page emptied by a mapless font is not called scanned, a 
   assert.ok(got.notes.some((n) => /symbols and punctuation/.test(n)), JSON.stringify(got.notes));
   assert.ok(got.notes.some((n) => /^1 of its 3 pages had no text/.test(n)), JSON.stringify(got.notes));
 });
+
+/* ── review 8 ── */
+test('#6098 review 8: a standard font with no /Widths keeps a space at every sideways move (its gaps cannot be measured)', () => {
+  const helv = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>';
+  assert.equal(at.pdfTextJs(onePage('BT /F1 10 Tf 72 700 Td (Hello) Tj 25.56 0 Td (World) Tj ET', [helv])).pages[0], 'Hello World');
+});
+
+test('#6098 review 8: Type0 widths share one budget across the document (300 fonts of [0 65535 500] stay small)', () => {
+  const n = 300;
+  const objs = [[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << ' + Array.from({ length: n }, (_, i) => '/F' + i + ' ' + (10 + 2 * i) + ' 0 R').join(' ') + ' >> >> /Contents 4 0 R >>'],
+    [4, streamObj('', 'BT /F0 10 Tf (x) Tj ET')]];
+  for (let i = 0; i < n; i += 1) {
+    objs.push([10 + 2 * i, '<< /Type /Font /Subtype /Type0 /Encoding /Identity-H /DescendantFonts [' + (11 + 2 * i) + ' 0 R] >>']);
+    objs.push([11 + 2 * i, '<< /Type /Font /Subtype /CIDFontType2 /W [0 65535 500] >>']);
+  }
+  const doc = pdf(objs);
+  const before = process.memoryUsage().heapUsed;
+  const ms = timed(() => at.pdfTextJs(doc));
+  assert.ok(ms < 3000, 'took ' + ms + ' ms');
+  assert.ok(process.memoryUsage().heapUsed - before < 200 * 1024 * 1024, 'heap grew too much');
+});
