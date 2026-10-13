@@ -19,7 +19,7 @@ MANIFEST.gemini): the hooks, the trust dialog, the session format and the model 
 Either key alone stops the install. Both are written so the pane also shows no banner, and so one key a later
 release renames still leaves the other.
 
-## Measured (2026-10-13, about 11:00 CDT, this computer, the real gemini 0.61.0 with 0.63.0 available)
+## Measured (2026-10-13, about 10:54 CDT, this computer, the real gemini 0.61.0 with 0.63.0 available)
 Two real interactive launches, each in its own throwaway home (`GEMINI_CLI_HOME`, the per-account shape Kosmos uses)
 and its own detached tmux session, 30 s each, then 15 s more before reading the installed version:
 - CONTROL, only `enableAutoUpdate: false` in the file: the screen shows "Gemini CLI update available! 0.61.0 →
