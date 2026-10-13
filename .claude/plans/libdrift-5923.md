@@ -55,7 +55,10 @@ Residuals, stated:
   no run loads a half-written lib (iteration 19, arm "gitlive"). A joiner also waits while the lib's index.lock exists
   (iteration 21, arm "idxlock"; both arms check the lock while the joiner is IN its lock loop, iteration 22). The gitpid is removed once git exits, and a live gitpid
   running another command than the one recorded beside it (gitcmd) is a reused pid and does not hold the lock
-  (iteration 23, arm "gitreuse"): that covers the instant before the pid is written. An index.lock
+  (iteration 23, arm "gitreuse"); gitcmd is written before gitpid, so a pid is never on record without its command
+  (iteration 24). The index.lock covers the instant between git creating it and its pid being written; a holder KILLed
+  after the fork and before git creates index.lock (tens of ms) is not covered, the accepted wrapper-KILL residual
+  (iteration 24). An index.lock
   left by a git that was itself killed holds joiners until the 5-minute give-up (it blocks every git there anyway). If git is itself killed part way, the tree is left
   mixed and is not repaired automatically. The checkout back runs the same way (own group, INT/TERM/HUP ignored
   until it ends). The checkout back is
