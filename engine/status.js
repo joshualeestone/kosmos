@@ -3182,6 +3182,19 @@ function activeWhileWaitingFrom(state, freshest, askedAtMs) {
 }
 
 /**
+ * kosmos#5942: when the standing wait began, for the task list's "Waiting on you for 12 days". The self-report's
+ * `askedAt` (#5943: the first of the trailing run of identical waiting reports, so re-reporting the same question
+ * does not re-date it). Kept only when the report's own state is the card's state, so a question read off the screen
+ * over an older blocked report gets no start. A missing, unparseable or future value is null too.
+ */
+function waitingSinceFrom(waitReport, cardState, nowMs = Date.now()) {
+  if (!waitReport || waitReport.found !== true || typeof waitReport.askedAt !== 'string') return null;
+  if (waitReport.state !== cardState) return null;
+  const at = Date.parse(waitReport.askedAt);
+  return Number.isFinite(at) && at <= nowMs ? new Date(at).toISOString() : null;
+}
+
+/**
  * #1884. Claude Code's FRIENDLY (non-JSON) auth-failure line, the shape a real
  * external tester was stuck on, 2026-09-02. Their pane, verbatim:
  *
@@ -8152,10 +8165,12 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
      beats liveness even on a refused auto-working: a Windows/Codex agent working
      under a sticky needs_you has nothing else to show it is alive AND active. */
   let activeWhileWaiting = false;
+  let waitingSince = null;   // kosmos#5942: when this wait began (selfreport's askedAt, #5943), else null
   if (status.state === STATE.NEEDS_YOU || status.state === STATE.BLOCKED) {
     const waitReport = selfreport.read(key);
     const fresh = freshestActivity(key, { nowMs, paneWorking: false });
     activeWhileWaiting = activeWhileWaitingFrom(status.state, fresh, waitReport.found === true ? Date.parse(waitReport.at || '') : NaN);
+    waitingSince = waitingSinceFrom(waitReport, status.state, nowMs);
   }
   return {
     name: identity.displayName,
@@ -8209,6 +8224,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     /* #2146: additive coexistence flag; on a paneless card it can only be set by
        the heartbeat leg (there is no pane to read working off of). */
     activeWhileWaiting,
+    waitingSince,   // kosmos#5942
     stateReported: status.reported === true,
     waiting: status.waiting || null,   // #4569 fix 4
     /* #2808 class 2: same field as the pane card carries, for shape parity, so a consumer reads
@@ -8839,6 +8855,7 @@ function snapshot() {
        any past ask, so it always counts. Mutually exclusive with an in-flight
        disruption (that lives on RESTARTING); a failed one reads needs_you (#4006). */
     let activeWhileWaiting = false;
+    let waitingSince = null;   // kosmos#5942: when this wait began (selfreport's askedAt, #5943), else null
     if (status.state === STATE.NEEDS_YOU || status.state === STATE.BLOCKED) {
       const waitReport = tied ? selfreport.read(pane.name) : { found: false };
       const fresh = freshestActivity(tied ? pane.name : null, {
@@ -8846,6 +8863,7 @@ function snapshot() {
         paneWorking: scrapedStatus.state === STATE.WORKING,
       });
       activeWhileWaiting = activeWhileWaitingFrom(status.state, fresh, waitReport.found === true ? Date.parse(waitReport.at || '') : NaN);
+      waitingSince = waitingSinceFrom(waitReport, status.state, now);
     }
     /* Read once: the card carries it, and #3564's swarm field is computed from it. */
     const rowProfile = tied ? store.readProfile(pane.name) : null;
@@ -8953,6 +8971,7 @@ function snapshot() {
          working animation alongside the pending needs_you. False for every other
          state and whenever there is no fresh post-ask activity. */
       activeWhileWaiting,
+      waitingSince,   // kosmos#5942
       /* Whether the state above is the agent's own account (#188's third
          verb) rather than a pane reading. */
       stateReported: status.reported === true,
@@ -9316,6 +9335,7 @@ function sessionStartedAtFromTmux(sessionName, now = Date.now()) {
 }
 
 module.exports = {
+  waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
   waitingTotal,   // #3996: the Dock badge's number
   waitingBadgeOn, // #4025: the switch for it
   /* #1500: exported so discover.foundCodex can honour the same refusal.

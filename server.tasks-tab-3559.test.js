@@ -249,6 +249,36 @@ test('#3949 GET /api/tasks?view=tasks: a task whose agent asks about ITS project
   assert.ok(plain.tasks.every((t) => t.state !== 'decision' && t.waitingOnPerson === false), JSON.stringify(plain.tasks.map((t) => t.state)));
 });
 
+test('kosmos#5942 GET /api/tasks?view=tasks: a decision row carries waitingSince from its waiting agent; other rows carry null', async () => {
+  const fleet = require('./test-support/fleet');
+  const selfreport = require('./engine/selfreport');
+  const p = projects.create({ name: 'Aged decisions' });
+  for (const a of ['agedask', 'agedidle']) projects.addAgent(p.id, a, null);
+  tasks.create(p.id, { sentence: 'Aged question', who: 'agedask' });
+  tasks.create(p.id, { sentence: 'Not waiting', who: 'agedidle' });
+  assert.equal(selfreport.record('agedask', { state: 'needs_you', project: p.id, because: 'which cover?' }).recorded, true);
+  /* origin/main's self-report has no askedAt yet (#5943 adds it); the read is wrapped to carry it the way #5943 will. */
+  const ASKED = '2026-10-01T10:00:00.000Z';
+  const realRead = selfreport.read;
+  let body;
+  let board = null;
+  try {
+    selfreport.read = function () {
+      const out = realRead.apply(this, arguments);
+      return out && out.found === true && out.state === 'needs_you' ? Object.assign({}, out, { askedAt: ASKED }) : out;
+    };
+    board = fleet.install([fleet.agent('agedask', { state: 'needs_you' }), fleet.agent('agedidle', { state: 'idle' })]);
+    body = await all(`?view=tasks&project=${encodeURIComponent(p.id)}`);
+  } finally {
+    if (board) board.restore();
+    selfreport.read = realRead;   // restored even if the install throws
+  }
+  const by = Object.fromEntries(body.tasks.map((t) => [t.sentence, t]));
+  assert.equal(by['Aged question'].state, 'decision', 'PRE-CONTROL: ' + JSON.stringify(by['Aged question']));
+  assert.equal(by['Aged question'].waitingSince, ASKED);
+  assert.equal(by['Not waiting'].waitingSince, null, 'CONTROL: not a decision, no start');
+});
+
 test('GET /api/tasks?view=tasks: an unreadable roster is reported (rosterUnreadable), so the page can say it cannot tell (review round 11)', async () => {
   const status = require('./engine/status');
   // Force safeRoster() -> null by making snapshot()'s pane source throw (as server.team-agent-token-1279 does).

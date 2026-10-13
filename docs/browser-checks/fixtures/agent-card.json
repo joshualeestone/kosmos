@@ -33,6 +33,7 @@
   "because": "it says it is working",
   "disruption": null,
   "activeWhileWaiting": false,
+  "waitingSince": null,
   "stateReported": true,
   "waiting": null,
   "stateReportedBy": null,

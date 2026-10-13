@@ -61639,6 +61639,12 @@ function tskRow(t, at) {
     : notReported && t.claim.about
       ? '<div class="why">' + esc(tskAgentName(t.claim.about)) + ' ' + notReported + '.</div>'
       : t.claim.because ? '<div class="why">We cannot tell whether it started: ' + esc(t.claim.because) + '.</div>' : '';
+  /* kosmos#5942: a decision row says how long it has waited on the person. agoWords gives the age; its " ago" is
+     dropped for "for". When the route sends no start (nothing knows it), the row shows no age. */
+  const waitWords = t.state === 'decision' && typeof t.waitingSince === 'string'
+    ? agoWords(Date.now() - Date.parse(t.waitingSince)) : '';
+  const waitLine = !waitWords ? ''
+    : '<div class="why tsk-waiting">' + (waitWords === 'just now' ? 'Just started waiting on you' : 'Waiting on you for ' + esc(waitWords.replace(/ ago$/, ''))) + '</div>';
   /* #3951: a built row says who marked it and what is left, the agent's own words. */
   /* On any marked open task, not only in the Built group (review round 5: a built task whose agent needs the person
      sits under Needs Your Decision, and still says who marked it and offers the undo). */
@@ -61673,7 +61679,7 @@ function tskRow(t, at) {
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
-    + '</div>' + cannot + repeatLine + builtLine + '</div>'
+    + '</div>' + cannot + waitLine + repeatLine + builtLine + '</div>'
     + '<div class="tsk-side">' + whoHtml
     /* Said once per row (Mona): inside a status group the heading already names the state, so the
        row's state line shows only when grouping by project, where it is information. */

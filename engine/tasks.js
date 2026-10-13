@@ -1705,6 +1705,13 @@ function taskState(task) {
  */
 function waitingOnPerson(task, roster, members) {
   if (!task || progressOf(task).closed || !Array.isArray(roster)) return false;
+  return cardsNeedingPerson(task, roster, members).length > 0;
+}
+
+/* The one rule for which cards make a task wait on the person (kosmos#5942), shared by waitingOnPerson (any) and
+   waitingSinceOf (the oldest start), so the red and the age can never come from different cards. */
+function cardsNeedingPerson(task, roster, members) {
+  if (!task || progressOf(task).closed || !Array.isArray(roster)) return [];
   /* #5034: `members` (the task's project's agents, when the caller has them) leaves out a holder that was taken off
      the project. Removal does not unassign, so without this the agent's question kept the old project's card red,
      with nobody on the project waiting on it (projects.joinTaskClaims already says a departed holder's report
@@ -1713,14 +1720,36 @@ function waitingOnPerson(task, roster, members) {
      them on the agent, not on a project it has left. Omitted: every holder, as before. */
   const onProject = Array.isArray(members) ? new Set(members) : null;
   const holders = new Set(partsOf(task).filter((x) => x && x.who && !x.closedAt && (!onProject || onProject.has(x.who))).map((x) => x.who));
-  if (!holders.size) return false;
+  if (!holders.size) return [];
   // Required here rather than at the top, as projects.js does: status is loaded lazily from this layer.
   const status = require('./status');
-  return roster.some((card) => card && holders.has(card.sessionName) && card.isNamedOurs === true
+  return roster.filter((card) => card && holders.has(card.sessionName) && card.isNamedOurs === true
     && status.needsPerson(card)
     /* Only a question names a project. A trust wait or a connection given up on is about the agent itself,
        so it counts on every task the agent holds, as it does on the project page (#3726). */
     && (card.state === status.STATE.NEEDS_YOU ? card.stateProject === task.projectId : true));
+}
+
+/**
+ * kosmos#5942: since when this open task has needed the person, for the task list's "Waiting on you for 12 days": the OLDEST
+ * `waitingSince` among the cards that make waitingOnPerson true (the same holders and the same project rule), as an
+ * ISO string, or null when none of them knows when its wait began. Null is shown as no age, never as "just now".
+ * When any of those cards has no known start (it never said when, or it waits for a reason that has none, such as
+ * a trust wait), the answer is null: an age taken from the others could be shorter than the real wait. The start is
+ * the self-report's askedAt (#5943), dated per run of identical reports about the same project.
+ */
+function waitingSinceOf(task, roster, members) {
+  let oldest = null;
+  const status = require('./status');
+  for (const card of cardsNeedingPerson(task, roster, members)) {
+    /* Only a question's start is the start of this wait. A card that needs the person for another reason (a trust
+       wait, a given-up connection, a crash loop, a stuck error) may still carry an older blocked report's start, which
+       is not when it began needing the person, so it counts as unknown. */
+    const at = card.state === status.STATE.NEEDS_YOU && typeof card.waitingSince === 'string' ? Date.parse(card.waitingSince) : NaN;
+    if (!Number.isFinite(at)) return null;   // one wait of unknown length: any age shown could be too short
+    if (oldest === null || at < oldest) oldest = at;
+  }
+  return oldest === null ? null : new Date(oldest).toISOString();
 }
 
 /**
@@ -1930,7 +1959,7 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
 }
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
+  taskState, waitingOnPerson, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
