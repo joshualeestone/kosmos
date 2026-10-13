@@ -5,7 +5,7 @@
  *
  * The hook script (install/kosmos-report-hook.sh, staged to app/bin/ in the
  * bundle) is what makes #526's verb speak: Claude Code fires it on the
- * events in HOOK_EVENTS (seven report events, plus PostToolUseFailure, #6071)
+ * events in HOOK_EVENTS (seven report events), plus PostToolUseFailure on a Claude Code new enough (#6071)
  * and it runs `kosmos report`. This module is THE ONE merge
  * implementation that wires those entries into a settings file --
  * required by `accounts.prepare` (an account dir is born with its hooks, the
@@ -32,13 +32,65 @@ const path = require('node:path');
 const os = require('node:os');
 const securewrite = require('./securewrite');
 
-/* #6071: PostToolUseFailure (a failed tool call) joins the seven report events. It writes no report; the hook sends
-   a digest of the failure to the board (`kosmos tool-failed`). Claude Code 2.1.296 logs an event it does not know as
-   "unknown hook event; entry ignored" rather than refusing the file; older versions were not checked. */
 const HOOK_EVENTS = Object.freeze([
   'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest',
-  'Stop', 'StopFailure', 'SessionEnd', 'PostToolUseFailure',
+  'Stop', 'StopFailure', 'SessionEnd',
 ]);
+
+/* #6071: events wired only for a Claude Code new enough to know them, each with the first version that does.
+   PostToolUseFailure (a failed tool call) writes no report; the hook sends a digest of the failure to the board
+   (`kosmos tool-failed`).
+   🛑 WHY IT IS GATED: Claude Code before 2.1.0 validates `hooks` as a record keyed by its own event list, and on a
+   validation failure its settings loader returns null, so the WHOLE file is dropped (every hook and permission in
+   the person's own settings, not just ours). Measured from npm-packed cli.js: 1.0.100 .. 2.0.50 have no
+   PostToolUseFailure, 2.1.0 has it; 2.1.296 logs an unknown event as "entry ignored" instead. So: wired when the
+   version is known and new enough; left out when it is unknown (nothing counted, nothing broken); and taken back
+   out (ours only) when the version is known and older, since that file is already being dropped. */
+const VERSIONED_EVENTS = Object.freeze({ PostToolUseFailure: '2.1.0' });
+
+/* a >= b for dotted numeric versions ("2.1.296" vs "2.1.0"); false when either is not one. */
+function versionAtLeast(a, b) {
+  const pa = /^(\d+)\.(\d+)\.(\d+)/.exec(String(a || ''));
+  const pb = /^(\d+)\.(\d+)\.(\d+)/.exec(String(b || ''));
+  if (!pa || !pb) return false;
+  for (let i = 1; i <= 3; i += 1) {
+    if (Number(pa[i]) !== Number(pb[i])) return Number(pa[i]) > Number(pb[i]);
+  }
+  return true;
+}
+
+/* The events to wire for this Claude Code version: the seven, plus each versioned event the version is known to
+   support. An unknown version (null, unparseable) gets the seven only. */
+function eventsFor(claudeVersion) {
+  return HOOK_EVENTS.concat(Object.keys(VERSIONED_EVENTS).filter((e) => versionAtLeast(claudeVersion, VERSIONED_EVENTS[e])));
+}
+
+/* `claude --version` ("2.1.296 (Claude Code)") -> "2.1.296", or null when it cannot be read. Cached per program
+   (real path, size, mtime) so a prepare does not start a process every time and an upgrade is still seen; a failed
+   read is kept only a minute. On win32 the extensionless name resolveBin answers is tried as .exe too. */
+const versionCache = new Map();
+function claudeVersion(bin, opts) {
+  if (!bin) return null;
+  const plat = (opts && opts.platform) || process.platform;
+  const tries = plat === 'win32' && !/\.[A-Za-z0-9]+$/.test(bin) ? [bin, bin + '.exe'] : [bin];
+  for (const b of tries) {
+    let key;
+    try { const real = fs.realpathSync(b); const st = fs.statSync(real); key = [real, st.size, st.mtimeMs].join('\u0000'); }
+    catch { continue; }   // not there under this spelling
+    const hit = versionCache.get(key);
+    if (hit && Date.now() - hit.at < (hit.v ? 10 * 60 * 1000 : 60 * 1000)) return hit.v;
+    let v = null;
+    try {
+      const out = require('node:child_process').execFileSync(b, ['--version'],
+        { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+      const m = /(\d+\.\d+\.\d+)/.exec(String(out || ''));
+      v = m ? m[1] : null;
+    } catch { v = null; }
+    versionCache.set(key, { v, at: Date.now() });
+    return v;
+  }
+  return null;
+}
 
 /* The dedup key: any hook command containing this is "ours". Matching on
    the script NAME rather than the full command means a future change to
@@ -309,7 +361,7 @@ function writeSettings(target, data, prevMode) {
 }
 
 /**
- * Merge the seven hook entries into one settings.json. Idempotent: an event
+ * Merge the seven hook entries (plus the versioned ones `opts.claudeVersion` supports, #6071) into one settings.json. Idempotent: an event
  * already carrying our entry is left exactly as it is (so a hand-installed
  * or older wiring is never doubled), and a partial wiring is completed
  * rather than restarted. Returns { wired:true, changed } or
@@ -382,7 +434,16 @@ function ensureWired(settingsPath, scriptPath, opts) {
   const sameHook = (h) => !!(h && h.command === want.command
     && JSON.stringify(h.args === undefined ? null : h.args)
        === JSON.stringify(want.args === undefined ? null : want.args));
-  for (const event of HOOK_EVENTS) {
+  /* #6071: a versioned event the known version is too old for is taken back out (ours only; a person's own entry for
+     it is theirs to keep). Unknown version: left exactly as it is. */
+  for (const event of Object.keys(VERSIONED_EVENTS)) {
+    if (!/^\d+\.\d+\.\d+/.test(String(o.claudeVersion || '')) || versionAtLeast(o.claudeVersion, VERSIONED_EVENTS[event])) continue;
+    if (!Array.isArray(data.hooks[event]) || !data.hooks[event].some(entryIsOurs)) continue;
+    const rest = data.hooks[event].filter((e) => !entryIsOurs(e));
+    if (rest.length) data.hooks[event] = rest; else delete data.hooks[event];
+    changed = true;
+  }
+  for (const event of eventsFor(o.claudeVersion)) {
     const existing = Array.isArray(data.hooks[event]) ? data.hooks[event] : [];
     const mine = existing.filter(entryIsOurs);
     if (mine.length) {
@@ -513,5 +574,5 @@ function goneOnDisk(p) {
   catch (e) { return !!e && (e.code === 'ENOENT' || e.code === 'ENOTDIR'); }
 }
 
-module.exports = { HOOK_EVENTS, MARKER, hookScriptPath, entryFor, unsafeForCommand, entryIsOurs, ensureWired,
+module.exports = { HOOK_EVENTS, VERSIONED_EVENTS, versionAtLeast, eventsFor, claudeVersion, MARKER, hookScriptPath, entryFor, unsafeForCommand, entryIsOurs, ensureWired,
   ephemeralMismatch, readSettings, writeSettings, unwireInstall, goneOnDisk };
