@@ -1,17 +1,40 @@
 'use strict';
+require('../test-support/tmpscope');   // first: every temp dir this file makes is swept at exit (#4273)
 
 /* #5959 slice 4: engine/diagnostics.js shapes the diagnostics file and redacts every string in it. */
 
+const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
+// Sandbox every root BEFORE requiring any engine module (they resolve roots at require time).
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-diag-5959-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fleet = require('../test-support/fleet');
+const status = require('./status');
 const { build, namesAgent } = require('./diagnostics');
 const { makeRedactor } = require('./diagredact');
 
 const WHO = { home: '/Users/pat', user: 'pat', host: 'Pats-Desk.local' };
 const NOW = new Date('2026-10-12T21:00:00.000Z');
+// Real cards from the real producer (fixture-discipline.test.js: no hand-built cards), copied with only the fields a
+// case is about.
+const REAL = (() => {
+  const board = fleet.install([fleet.agent('rick', { runner: 'claude' }), fleet.agent('bob', { state: 'unknown', runner: 'codex', command: 'codex', screen: '' })]);
+  try {
+    const agents = status.snapshot().agents;
+    const find = (n) => { const c = agents.find((x) => x.sessionName === n); assert.ok(c, 'fixture: no real card for ' + n); return { ...c }; };
+    return { rick: find('rick'), bob: find('bob') };
+  } finally { board.restore(); }
+})();
 const CARDS = [
-  { sessionName: 'rick', name: 'Rick', runner: 'claude', state: 'needs_you', stateReported: 'needs_you', stateReportedBy: 'agent' },
-  { sessionName: 'bob', name: 'Bob', runner: 'codex', state: 'auth_failed', crashLoop: { runs: 3 } },
+  { ...REAL.rick, name: 'Rick', state: 'needs_you', stateReported: 'needs_you', stateReportedBy: 'agent' },
+  { ...REAL.bob, name: 'Bob', state: 'auth_failed', crashLoop: { runs: 3 } },
 ];
 const REPORTS = { rick: { found: true, state: 'needs_you', by: 'agent', at: '2026-10-12T20:00:00Z', on: 'the private question text' } };
 const readReport = (n) => REPORTS[n] || { found: false };
@@ -72,7 +95,7 @@ test('#5959: the file is bounded: 50 lines an agent, 300 in the tail', () => {
 
 test('#5959: every string is redacted, and a file made with no redactor given is redacted too', () => {
   const planted = 'pat on Pats-Desk read /Users/pat/x for pat@example.com';
-  const cards = [{ sessionName: 'rick', name: 'Rick', state: 'idle' }];
+  const cards = [{ ...REAL.rick, name: 'Rick', state: 'idle' }];
   const ringLines = [{ at: 't', stream: 'stdout', line: 'rick: ' + planted }];
   const file = build({ cards, ringLines, redactor: makeRedactor(WHO) });
   const text = JSON.stringify(file);
@@ -89,4 +112,26 @@ test('#5959: namesAgent matches a name whole', () => {
   assert.equal(namesAgent('agent rick stopped', ['rick']), true);
   assert.equal(namesAgent('maverick stopped', ['rick']), false);
   assert.equal(namesAgent('rick-2 stopped', ['rick']), false);
+});
+
+test('#5959: board.log is read only when it is this board\'s own output, and only its tail', () => {
+  const { readBoardLog, READ_TAIL_BYTES } = require('./diagnostics');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-diag-5959-'));
+  try {
+    const log = path.join(dir, 'board.log');
+    fs.writeFileSync(log, 'one\r\ntwo\nthree\n');
+    const same = fs.openSync(log, 'a');   // stands in for the board's stdout, redirected to board.log
+    const other = path.join(dir, 'other.log');
+    fs.writeFileSync(other, 'x\n');
+    const elsewhere = fs.openSync(other, 'a');
+    try {
+      assert.deepEqual(readBoardLog(log, same), ['one', 'two', 'three']);
+      assert.deepEqual(readBoardLog(log, same, 2), ['two', 'three']);
+      assert.equal(readBoardLog(log, elsewhere), null, 'a board.log that is not where this board writes is not its log');
+      assert.equal(readBoardLog(path.join(dir, 'missing.log'), same), null);
+      // A file longer than the window: only its tail is read, and the line cut at the window's edge is dropped.
+      fs.writeFileSync(log, 'cut-'.repeat(READ_TAIL_BYTES / 4) + '\nkept\n');
+      assert.deepEqual(readBoardLog(log, same), ['kept']);
+    } finally { fs.closeSync(same); fs.closeSync(elsewhere); }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
