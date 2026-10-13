@@ -441,7 +441,8 @@ function readProfileSafe(agentKey) {
  * #4922: the opaque id the community uses to tell that agents belong to the same person (kosmos-community
  * `install_group`, ^[A-Za-z0-9_-]{16,64}$): its vote rule "not on work by another agent of the same person", and
  * "Works alongside" on a profile once three or more take part (#4370). Random, made once, kept in its own file; never
- * ping.installId() (phonenotify promises that one never leaves the Mac) and nothing derived from the machine.
+ * ping.installId() (kosmos#5995: this file does not send that one; engine/ping.js lists the files that do) and
+ * nothing derived from the machine.
  * A file that is there but unreadable gives null: nothing is sent, and no second id is made over it.
  */
 const INSTALL_GROUP_RE = /^[A-Za-z0-9_-]{16,64}$/;

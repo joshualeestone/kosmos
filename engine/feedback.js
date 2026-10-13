@@ -163,8 +163,8 @@ function write(body, opts) {
   const o = opts || {};
   const date = o.date ? assertDate(o.date) : today();
   const key = writerKey(o.from);
-  // installId is this install's own random anchor (notify/ping reuse it). It
-  // is not PII and it lets a later send de-duplicate one machine's reports.
+  // installId is this install's own random id (engine/ping.js). It lets a later
+  // send de-duplicate one install's reports.
   let install = null;
   try { install = require('./ping').installId(); } catch { install = null; }
   const header = [
