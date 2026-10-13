@@ -327,9 +327,14 @@ async function subprojectFixture(page, data) {
     };
     // A new project's folder is named from its name, so two projects called Launch would share one folder (refused).
     // Each is made under a one-off name, which gives it its own folder, then renamed: a rename keeps the folder.
+    // The one-off name is short (a folder name is capped at 60 characters) and unique to this run, and a project already
+    // made by an earlier screen of the same run is found and reused, so a retry never meets its own folders.
+    const runTag = Date.now().toString(36);
     let seq = 0;
     const make = async (name, parent) => {
-      const first = name + ' fixture ' + (++seq);
+      const existing = await find(name, parent);
+      if (existing) return existing;
+      const first = 'fixture ' + runTag + ' ' + (++seq);
       const r = await post('/api/projects', parent ? { name: first, parent } : { name: first });
       if (r.status !== 200 && r.status !== 201) throw new Error('could not make ' + name + ' (status ' + r.status + ': ' + ((await r.json().catch(() => ({}))).error || '') + ')');
       const made = await find(first, parent);
