@@ -129,8 +129,8 @@ function chk(ok, label, extra) {
       text: panel.innerText,
       /* #5942: a row's own wait line says "Waiting on you for ..." from a recorded start, which is provable;
          the #3559 rule below is about GROUPS and categories, so it reads the panel without those lines. */
-      waitLines: [...panel.querySelectorAll('.tsk-waiting')].map((el) => el.textContent),
-      textNoWait: (() => { const c = panel.cloneNode(true); c.querySelectorAll('.tsk-waiting').forEach((el) => el.remove()); return c.textContent; })(),
+      waitLines: [...panel.querySelectorAll('.tsk-row .tsk-waiting')].map((el) => el.textContent),
+      textNoWait: (() => { const c = panel.cloneNode(true); c.querySelectorAll('.tsk-row .tsk-waiting').forEach((el) => el.remove()); return c.textContent; })(),
       tiles,
       rows,
       fold: !!document.querySelector('#tsk-groups .tsk-fold'),
@@ -424,7 +424,7 @@ function chk(ok, label, extra) {
       chk(gaps.hintToGroup >= 16 && gaps.hintToGroup <= 32, `${tag} the gap from the Group by row to the first group is about half the old 49px`, JSON.stringify(gaps));
       chk(a.tiles.every((t) => t.n === EXPECT[t.k]), `${tag} each tile counts its group`, JSON.stringify(a.tiles));
       chk(!/Waiting on you|Done, check it|Categor/i.test(a.textNoWait), `${tag} no unprovable group or category is drawn`);
-      chk(a.waitLines.every((t) => /^(Waiting on you for \S.*|Just started waiting on you)$/.test(t)), `${tag} the only lines that rule leaves out are rows' own wait lines`, JSON.stringify(a.waitLines));
+      chk(a.waitLines.every((t) => /^(Waiting on you for \d+ (seconds|minutes?|hours?|days?)|Just started waiting on you)$/.test(t)), `${tag} the only lines that rule leaves out are rows' own wait lines`, JSON.stringify(a.waitLines));
       const cover = a.rows.find((r) => r.text === 'Approve the cover');
       chk(cover && /Needs Your Decision/.test(cover.group), `${tag} the task whose agent needs the person is under Needs Your Decision`, JSON.stringify(cover));
       chk(!/Archived away task|Old catalog/.test(a.text), `${tag} an archived project's tasks are left out`);
@@ -849,7 +849,7 @@ function chk(ok, label, extra) {
         chk(wire.num === '?' && wire.flag === true && wire.group && /cannot tell/.test(wire.group) && wireBack.num === '1' && wireBack.flag === false,
           `${tag} an unreadable roster from the route reaches the tile and its group through the page's own read, and a good read clears it`, JSON.stringify({ wire, wireBack }));
         /* kosmos#5942: a decision row says how long it has waited. The route's own rows, with the one field #5943's
-           askedAt will fill (until it merges no card carries it), so the real row renders it through the real page. */
+           askedAt fills (#5943 has merged), stamped to a fixed time, so the real row renders it through the real page. */
         const stampAge = async (route) => {
           const resp = await route.fetch();
           const json = await resp.json();
