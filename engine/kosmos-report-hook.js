@@ -259,14 +259,15 @@ function sortedKeys(v) {
 }
 
 /** #6071 (slice D1): the digest of a failed tool call (PostToolUseFailure) that the board counts, or null. The
- *  signature hashes the tool, its input and the error's first line, here, so the input never leaves the computer.
- *  An interrupt is the person stopping the call, not a failure, so it gives null. The bash hook's twin. */
+ *  signature hashes the tool, its input and the WHOLE error, here, so the input never leaves the computer; only the
+ *  error's first line is sent, to be shown. An interrupt is the person stopping the call, not a failure, so it gives
+ *  null. The bash hook's twin. */
 function failureRequestFor(evt) {
   if (field(evt, 'hook_event_name') !== 'PostToolUseFailure' || !evt || evt.is_interrupt === true) return null;
   const tool = field(evt, 'tool_name') || 'a tool';
-  const error = String(evt.error == null ? '' : (typeof evt.error === 'string' ? evt.error : JSON.stringify(evt.error))).split('\n')[0].slice(0, 300);
-  const sig = crypto.createHash('sha256').update(JSON.stringify([tool, sortedKeys(evt.tool_input === undefined ? null : evt.tool_input), error])).digest('hex');
-  return { tool, sig, error };
+  const whole = String(evt.error == null ? '' : (typeof evt.error === 'string' ? evt.error : JSON.stringify(evt.error)));
+  const sig = crypto.createHash('sha256').update(JSON.stringify([tool, sortedKeys(evt.tool_input === undefined ? null : evt.tool_input), whole])).digest('hex');
+  return { tool, sig, error: whole.split('\n')[0].slice(0, 300) };
 }
 
 /** POST one failure digest to /api/toolfail, the call `kosmos tool-failed` makes on the Mac. Same headers and bound

@@ -3085,20 +3085,23 @@ cmd_keep_copy() {
 # #6071 (slice D1): INTERNAL, the report hook's call when a Claude agent's tool call fails (PostToolUseFailure), not
 # for people, so no help row (like keep-copy). Sends the hook's digest (the tool, a signature of tool + input + error,
 # and the error's first line) to the board, which counts repeats of the same failure inside one turn
-# (engine/toolloop.js). Never the tool's input itself. At most 3 s, and always exits 0: it never holds the agent.
-#   kosmos tool-failed <tool> <signature> [<error line>]
+# (engine/toolloop.js). Never the tool's input itself. The error line arrives on STDIN and the request body leaves on
+# curl's stdin, so neither is in an argument list `ps` shows. At most 3 s, and always exits 0.
+#   printf '%s' <error line> | kosmos tool-failed <tool> <signature>
 cmd_tool_failed() {
-  local _tool="${1:-}" _sig="${2:-}" _err="${3:-}"
+  local _tool="${1:-}" _sig="${2:-}" _err
   case "$_sig" in ''|*[!0-9a-f]*) exit 0 ;; esac
-  _tf_esc() { printf '%s' "$1" | tr '\000-\037\177' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g' | cut -c1-300; }
+  _err="$(head -c 2000 2>/dev/null | head -1)"
+  # Cut BEFORE escaping, so a cut can never split an escape pair and leave the body unreadable.
+  _tf_esc() { printf '%s' "$1" | tr '\000-\037\177' ' ' | cut -c1-300 | sed 's/\\/\\\\/g; s/"/\\"/g'; }
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in
     ''|*[!0-9a-f]*) ;;
     *) _tok="$KOSMOS_AGENT_TOKEN" ;;
   esac
   local _bt; _bt="$(agent_board_token || true)"
-  kosmos_curl "$_bt" "$_tok" -sS -m 3 -X POST "$URL/api/toolfail" -H 'content-type: application/json' \
-    --data "{\"tool\":\"$(_tf_esc "$_tool")\",\"sig\":\"$_sig\",\"error\":\"$(_tf_esc "$_err")\",\"from_pane\":\"$(_tf_esc "${TMUX_PANE:-}")\"}" >/dev/null 2>&1 || true
+  printf '{"tool":"%s","sig":"%s","error":"%s","from_pane":"%s"}' "$(_tf_esc "$_tool")" "$_sig" "$(_tf_esc "$_err")" "$(_tf_esc "${TMUX_PANE:-}")" \
+    | kosmos_curl "$_bt" "$_tok" -sS -m 3 -X POST "$URL/api/toolfail" -H 'content-type: application/json' --data-binary @- >/dev/null 2>&1 || true
   exit 0
 }
 
