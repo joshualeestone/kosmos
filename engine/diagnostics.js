@@ -27,7 +27,8 @@ const TAIL_LINE_CHARS = 2000;   // logring keeps 256 more, so the redactor sees 
 const MASKED_BLOCK = '[a private key, taken out]';
 const BLOCK_BEGIN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/;
 const BLOCK_END = /-----END [A-Z0-9 ]*PRIVATE KEY-----/;
-const MAX_BLOCK_LINES = 100;   // an RSA-4096 body is about 50 lines of 64; a block never takes more than this
+const MAX_BLOCK_LINES = 100;
+const KEY_BODY_LINE = /^\s*[A-Za-z0-9+\/]{40,}={0,2}\s*$/;   // a PEM body line (64 base64 characters, the last shorter)   // an RSA-4096 body is about 50 lines of 64; a block never takes more than this
 
 /* A private key logged across lines is taken out whole: the line that begins it, every line after, and the line that
    ends it. The redactor sees one line at a time and would mask only the BEGIN line. A block with no END takes at most
@@ -49,6 +50,9 @@ function maskKeyBlocks(entries) {
       if (BLOCK_END.test(e.line)) inside = 0;
       return { ...e, line: MASKED_BLOCK };
     }
+    /* A window that starts inside a block (the ring's oldest lines dropped, or board.log's tail cut) has no BEGIN to
+       start from: a line that is only a key body's base64, or that ends a block, is taken out on its own. */
+    if (KEY_BODY_LINE.test(e.line) || BLOCK_END.test(e.line)) return { ...e, line: MASKED_BLOCK };
     return e;
   });
 }
@@ -77,7 +81,8 @@ function accountOf(accountProblemOf, card) {
      fileLines   [string] | null                   the tail of board.log (as many lines as the ring holds), when it is this board's
      fileSource  string | null                     where fileLines came from, for the reader
      fileWhy     string | null                     why there are no fileLines (readBoardLog's `why`)
-     redactor    { redactDeep }                    engine/diagredact (this computer's own when not given) */
+     redactor    { redactText, redactDeep }        engine/diagredact; when not given, this computer's own, which masks
+                                                   no held values (only a caller that passes `secrets` gets those) */
 function build(inputs) {
   const i = inputs || {};
   const redactor = i.redactor && typeof i.redactor.redactDeep === 'function' ? i.redactor : require('./diagredact').makeRedactor();
