@@ -19,9 +19,10 @@
  * Not needs_you: that is a question waiting on the person, and for a runner other than Claude nothing holds a typed
  * line out of an open question (chat's menu hold is Claude-only), so the reminder would answer it.
  *
- * How often: once per report line, kept on disk (REMINDED_FILE, session -> the report's `at`), so a board restart or
- * an update does not repeat it. A fresh report starts a new day. A delivery that reached nothing is retried on later
- * sweeps, up to MAX_TRIES (that count is in memory, so a restart allows three more).
+ * How often: once per waiting run, kept on disk (remindedFile(), session -> the run's start, runOf below), so a board
+ * restart or an update does not repeat it. Re-reporting the same question is the same run; a new question starts a new
+ * day. A delivery that reached nothing is retried on later sweeps, up to MAX_TRIES (that count is in memory, so a
+ * restart allows three more).
  *
  * The planner is pure; the reads and the delivery are injected, so tests drive it without a pane.
  */
@@ -36,7 +37,7 @@ const REMINDED_STATE = 'blocked';
 /* How old a record of an agent no longer on the board must be before it is dropped. */
 const PRUNE_MS = 30 * 24 * 3600 * 1000;
 
-/* The reminders that reached the agent: { session: the report's at }. Under the data root, so a sandboxed test never
+/* The reminders that reached the agent: { session: the run's start (runOf) }. Under the data root, so a sandboxed test never
    reads the live one. Unreadable or absent reads as empty; a reminder is then possible again, never refused. */
 function remindedFile() { return require('node:path').join(require('./store').ROOT, 'stalereport-reminded.json'); }
 function fileReminded() {
@@ -71,13 +72,13 @@ function fileReminded() {
   };
 }
 
-/* The line typed into the agent, in the words `kosmos report show` uses for the same report (server.js), so the agent
-   is taught one command. Kosmos's own words only: the report's `on` text is the agent's and is not repeated to it. */
 /* The time a waiting report is aged and remembered by: when its run began (selfreport's askedAt, #5943: the same state,
    words and project), as `kosmos report show` ages it, or the latest line when that is not known. Re-reporting the same
    question is the same run, so it is neither made fresh nor reminded again. */
 function runOf(rep) { return (rep && (rep.askedAt || rep.at)) || null; }
 
+/* The line typed into the agent, in the words `kosmos report show` uses for the same report (server.js), so the agent
+   is taught one command. Kosmos's own words only: the report's `on` text is the agent's and is not repeated to it. */
 function nudgeText(rep, ageMs) {
   const age = cardlabel.standingFor(ageMs);
   // Who wrote it, as report show says it: the agent, or someone else / no writer recorded ("This").

@@ -10,9 +10,9 @@ runs `kosmos report show`; this says it without being asked. Stacked on slice 1 
   `makeTick`. Told: a Claude card of ours reading `blocked` that shows the agent's report (`stateReported`), whose latest report
   (`selfreport.read`) is `blocked`, not written by Kosmos, over `selfreport.STALE_WAIT_MS` (a day) old with the comparison
   report show uses, not mid-turn (`activeWhileWaiting`: a later sweep tells it), and whose swarm is not switched off.
-- Once per report line, kept on disk: `stalereport-reminded.json` under the data root (session -> the report's `at`,
+- Once per waiting run, kept on disk: `stalereport-reminded.json` under the data root (session -> the run's start, askedAt else at,
   an entry dropped only when its agent is off the board and its report over 30 days old), so a board restart or an update does not repeat it; a write that
-  fails is logged, since a restart may then repeat it. A fresh report starts a new day. A delivery that reached nothing
+  fails is logged, since a restart may then repeat it. A re-report of the same question is the same run; a new question starts a new day. A delivery that reached nothing
   is retried up to MAX_TRIES (3, in memory), and the give-up is logged; an unconfirmed delivery counts as reached.
 - A held delivery (deliverAutomatic's holds: an answer awaited on screen, a usage limit, a quota, the Gemini cap)
   spends no try and is logged once per report with what held it.
@@ -73,3 +73,7 @@ recorded against. That keeps the promise that report show and the reminder agree
 question re-reported every few hours is reminded once, not after every re-report. Test: a re-reported question is
 aged from its first line and reminded once; CONTROL: with no askedAt an hour is not a day; mutation: the latest line
 alone reds it.
+Weakest premise added: selfreport.read gives askedAt only while the run's first line is inside the tail it reads; a
+run re-reported until it spans more than that tail falls back to the latest line, which no longer matches the recorded
+start, so such an agent can be reminded a second time for the same run. Rare, and the age then errs young. A `blocked`
+report with an `until` still ahead is reminded after a day, as report show points it out: kept consistent on purpose.
