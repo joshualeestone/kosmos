@@ -2300,7 +2300,6 @@ const CONSENT_PROMPT_ACCEPT = /^Yes\b/;            // "Yes, I accept" / "Yes, co
 /* Headings that LABEL a recognised dialog for evidence + `because`. NOT the detection
    key (the chrome above is); an unlabelled confirm dialog still reads needs_you, generically. */
 const CONSENT_PROMPT_HEADINGS = Object.freeze([
-  { re: /Bypass Permissions/i, because: 'it is asking you to accept Bypass Permissions mode before it can start, and the default answer exits' },
   /* #6063: Claude Code's question about instructions that import files from outside the agent's folder. The family
      detector already read it as needs_you; this says WHAT it asks. Two rows must agree, because a label is only
      true for the dialog that is live: the whole heading row, and `accept`, which must be the LAST "Yes ..." row on
@@ -2308,8 +2307,15 @@ const CONSENT_PROMPT_HEADINGS = Object.freeze([
      screen above a different one, labels nothing. No claim about the default: the detector does not read the
      highlight. Kosmos never presses it: the answer is the person's. Screen captured 2026-10-13 on Claude Code
      2.1.296; the same version stores the answer per folder in each account's own config, which is why a move can
-     ask again. */
+     ask again.
+     FIRST in the list on purpose (review round 2): the entry below matches its words anywhere on the screen, so
+     an old `bypass permissions on` mode footer, or an imported file with those words in its path, used to label
+     this dialog as the bypass one. When this entry's two rows agree it is this dialog and nothing else. Its
+     limits, all falling back to the generic reason or needing a screen nobody has seen: a heading wrapped by a
+     narrow pane; twelve or more imported files (the heading leaves the 25-row tail); and an answered copy above
+     a live dialog that has no "Yes" row of its own, which would keep this label. */
   { re: /^Allow external CLAUDE\.md file imports\?$/, accept: /^Yes, allow external imports$/, because: 'it is asking whether its instructions may import files from outside its folder' },
+  { re: /Bypass Permissions/i, because: 'it is asking you to accept Bypass Permissions mode before it can start, and the default answer exits' },
 ]);
 /* No "and the default answer exits" here: that is verified only for the LABELLED
    dialogs (bypass, trust), which default to `No, exit`. An unlabelled confirm dialog the
@@ -4521,12 +4527,11 @@ function consentPrompt(tail) {
   let lastAccept = -1;
   rows.forEach((row, i) => { if (CONSENT_PROMPT_ACCEPT.test(row)) lastAccept = i; });
   for (const h of CONSENT_PROMPT_HEADINGS) {
-    let idx = rows.findIndex((row) => h.re.test(row));
     /* #6063: a heading that names its own answer row labels only the live dialog (see the list above). */
-    if (h.accept) {
-      idx = lastAccept !== -1 && h.accept.test(rows[lastAccept])
-        ? rows.slice(0, lastAccept).map((row) => h.re.test(row)).lastIndexOf(true) : -1;
-    }
+    let idx;
+    if (!h.accept) idx = rows.findIndex((row) => h.re.test(row));
+    else if (lastAccept !== -1 && h.accept.test(rows[lastAccept])) idx = rows.slice(0, lastAccept).map((row) => h.re.test(row)).lastIndexOf(true);
+    else idx = -1;
     if (idx !== -1) { because = h.because; headingRow = rows[idx]; break; }
   }
   /* Evidence, in preference order: a recognised heading (most informative), else the
