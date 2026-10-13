@@ -11598,8 +11598,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2.plus-si-busy #plus-si-title, #plus-state2.plus-si-busy #plus-si-owned, #plus-state2.plus-si-busy #plus-si-k-note { text-align: center; }
 #plus-state2 .flabel { color: var(--k-ink-2); font-weight: 500; margin-top: 1rem; }
 /* kosmos#5995 (design review): on this card a hint took the label's own colour and read as more label. This one is the
-   card's placeholder colour, a little smaller, close under its label (the label's own 2px) and 8px above its box. */
-#plus-state2 #plus-si-computer-hint { color: #8fa0c4; font-size: .85rem; margin: 0 0 8px; }
+   card's placeholder colour, close under its label (the label's own 2px) and 8px above its box. Its size is .fhint's
+   own (--text-callout, 12px), one step under the label's 13px: no size is set here, and .85rem would be 13.6px. */
+#plus-state2 #plus-si-computer-hint { color: #8fa0c4; margin: 0 0 8px; }
 #plus-state2 .plus-si-lead b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
 #plus-state2 .tk-inp:not(select), #plus-org .tk-inp:not(select) { --danger: #E8705E; background: #16223e; color: #E6EBF7; -webkit-text-fill-color: #E6EBF7;
   caret-color: #E6EBF7; border: 1px solid #5c78a6; border-radius: 10px; }

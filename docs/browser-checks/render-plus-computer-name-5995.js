@@ -169,7 +169,7 @@ async function codeStep(page) {
         return { label: lab.color, hint: h.color, labelPx: parseFloat(lab.fontSize), hintPx: parseFloat(h.fontSize),
           above: r('#plus-si-computer-hint').top - r('label[for="plus-si-computer"]').bottom, below: r('#plus-si-computer').top - r('#plus-si-computer-hint').bottom };
       });
-      chk(look.hint !== look.label && look.hint === 'rgb(143, 160, 196)', 'the explanation is its own colour, not the label\'s', JSON.stringify([look.label, look.hint]));
+      chk(look.hint !== look.label && look.hint === 'rgb(143, 160, 196)', 'the explanation is its own colour, not the label\'s (pinned to the card\'s placeholder colour, #8fa0c4)', JSON.stringify([look.label, look.hint]));
       chk(look.hintPx < look.labelPx, 'the explanation is smaller than its label', JSON.stringify([look.labelPx, look.hintPx]));
       chk(look.above >= 0 && look.above < look.below && look.below >= 6 && look.below <= 12, 'the explanation sits closer to its label than to its box (about 8px above the box)', JSON.stringify([look.above, look.below]));
       chk(!!email && !!name && !!go && email.bottom <= name.top && name.bottom <= go.top, 'it sits between the email box and the button', JSON.stringify({ email, name, go }));
@@ -266,7 +266,7 @@ async function codeStep(page) {
       chk(remote.read().computer_name === null, 'CONTROL: nothing is kept going into the unread arm');
       const page = await openWizard(browser, BASE, errs, (pg) => pg.route('**/api/remote/computer-name', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"no"}' })));
       await page.waitForTimeout(600);
-      chk((await box(page, '#plus-si-computer')) === null && (await box(page, '#plus-si-computer-hint')) === null, 'with the name unread, the box and its "An empty box sends..." line are not on screen');
+      chk((await box(page, '#plus-si-computer')) === null && (await box(page, '#plus-si-computer-hint')) === null, 'with the name unread, the box and its line of explanation are not on screen');
       await page.fill('#plus-signin-email', 'person@example.com');
       const before = sentNames().length;
       await page.focus('#plus-signin-email');

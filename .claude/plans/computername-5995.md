@@ -359,3 +359,20 @@ would not read color() or oklch (it fails closed).
 - At this tree: `web.computer-name-5995.test.js` and `web.code-box.test.js` 13 pass; guards 145 pass; every
   `web*.test.js` 2759 pass. NOT run: any browser check (the rerun is queued), the full suite since this change.
 - These are changes no reviewer has seen. One round follows.
+- Wherever this file, above this section, quotes the box's words as "An empty box sends This computer", that was the
+  copy at the time; the one sentence in this section is what the page says now.
+
+## Review 16 (2026-10-13, default model), at dc3ff2afa
+1 BLOCKER, 0 WARNING, 2 CONVENTION, 3 NIT. Not converged.
+- **BLOCKER, taken, and it was mine:** the design review asked for the hint "a little smaller, about .85rem". On this
+  page the label is 13px (`--text-body`) and the root is 16px, so `.85rem` is 13.6px: LARGER than the label, and the
+  arm I had just added ("the explanation is smaller than its label") would have gone red in the browser. I applied a
+  number without computing it against the label it had to be smaller than. No size is set now: the hint keeps
+  `.fhint`'s own 12px, one step under the label. Read from the CSS by the reviewer and again by me; NOT seen in a
+  browser yet.
+- **CONVENTION, taken:** an arm's label still quoted the sentence the page no longer says.
+- **CONVENTION, taken:** the doc comment for `deviceNameFrom` sat above `oneLine`. The two are in order now (moved,
+  not retyped: the file's bytes are the same set).
+- **NIT, taken:** the colour arm's label says the literal is a pin. **NIT, taken:** this file marks the old copy.
+- **NIT, not taken:** `box()` answers "not on screen" from the `hidden` attribute. It holds through the page's
+  `[hidden] { display: none !important }`.

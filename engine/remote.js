@@ -2494,14 +2494,14 @@ function absorbSession(data) {
    2026-09-25). So it is named after this computer: the name the person gave it
    (macOS: scutil ComputerName), else the host name, plus "(Kosmos app)". */
 const DEVICE_SUFFIX = ' (Kosmos app)';
-/** The label for this computer from a raw name. Pure, so every edge is testable:
-    one line, no control characters, cut to fit DEVICE_NAME's 60 UTF-16 units with
-    the suffix (never splitting a surrogate pair), and a plain fallback when
-    nothing usable is left. */
 /* A name as ONE line: control characters become spaces, runs of white space become one, the ends are trimmed. The
    one derivation of that (kosmos#5995): the computer's own name and a name the person types both go through it, so
    "the box was left as it was" can be told by comparing the two. */
 const oneLine = (raw) => String(raw == null ? '' : raw).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+/** The label for this computer from a raw name. Pure, so every edge is testable:
+    one line, no control characters, cut to fit DEVICE_NAME's 60 UTF-16 units with
+    the suffix (never splitting a surrogate pair), and a plain fallback when
+    nothing usable is left. */
 function deviceNameFrom(raw) {
   let name = oneLine(raw);
   const room = 60 - DEVICE_SUFFIX.length;
