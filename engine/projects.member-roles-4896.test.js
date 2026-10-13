@@ -77,7 +77,7 @@ test('#4896: a role the person saved on one member wins for that member only', (
 
 /* #5300 (10-05 user diagnostic R10): five agents made as Project Managers read as five Project Managers on every
    project. A member can say what it does on one project (roleHere). It is shown beside the member and changes
-   nothing else: `role` (who a room opens on, the coordinators warning, a person-saved role winning) is untouched. */
+   nothing else: `role` (who a room opens on, a person-saved role winning) is untouched. */
 test('#5300: a role set for one project is that member\'s roleHere there only; role itself is unchanged', () => {
   projects.writeAll([]);
   store.writeProfile('cw', { role: 'Account Manager' });

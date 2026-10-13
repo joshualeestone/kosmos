@@ -24086,7 +24086,7 @@ function paintRailPjNotice() {
   const rn = document.getElementById('alist-pj-notice');
   if (!rn) return;
   const op = (document.body.classList.contains('consolidated') && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
-  pjKeepOpenFocus(rn, () => setIfChanged(rn, op ? pjNeedsNotice(op.agents || [], pjRedHere) + pjCoordNotice(op) + pjNotice(op.agents || [], op.id) : ''));   // #5688: who needs you, first
+  pjKeepOpenFocus(rn, () => setIfChanged(rn, op ? pjNeedsNotice(op.agents || [], pjRedHere) + pjNotice(op.agents || [], op.id) : ''));   // #5688: who needs you, first
   const rs = document.getElementById('alist-pj-notice-said');
   if (rs && rs.dataset.pj && (!op || rs.dataset.pj !== String(op.id))) { rs.textContent = ''; rs.dataset.pj = ''; }
 }
@@ -59388,24 +59388,6 @@ function pjNoticeStill(r, projectId) {
   return PJ_NOTICE_TRIED.get(k) === r.because ? ' It still did not work.' : '';
 }
 
-/* #4583: the two-coordinator warning, shown after an add or a create that brought a second coordinator on (the
-   server says so in that answer), until it no longer holds (the project read's `coordinators` is null) or the
-   person dismisses it. Remembered for this tab only: a warning, never a refusal, and never a nag on every visit. */
-/* id -> the projects-read number current when the add or create answered. Review round 2: a repaint can run on a
-   read that STARTED before the add (coordinators still null), and that null says nothing about the add; only a
-   read started after it (a higher number, PJ_READ_SHOWN) can say the warning no longer holds. */
-const PJ_COORD_WARN = new Map();
-let PJ_READ_SEQ = 0;     // numbers each /api/projects read as it starts
-let PJ_READ_SHOWN = 0;   // the number of the read whose answer is in PROJECTS now
-function pjCoordNotice(p) {
-  const id = p && p.id;
-  if (!id || !PJ_COORD_WARN.has(String(id))) return '';
-  if (!p.coordinators) { if (PJ_READ_SHOWN > PJ_COORD_WARN.get(String(id))) PJ_COORD_WARN.delete(String(id)); return ''; }
-  return '<div class="pnotice pn-coord"><span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>Two coordinators on this project.</b>'
-    + '<div class="pnrow"><span class="pnwhy">' + esc(pjSentence(p.coordinators) || String(p.coordinators)) + '</span>'
-    + '<button class="qopt" type="button" data-pn-coord-dismiss="' + esc(String(id)) + '">Dismiss</button></div></div></div>';
-}
-
 /* #5688 (Josh, 10-09 08:45: "There's some issue and I don't know what an issue would be"): the project's Issue
    count, said member by member. Each reason is the engine's needsYouHere (projects.js needsYouReason), so the block's
    first group is exactly the members the red pill counts (#5692 adds red rows it does not count, after them). One Open per row: the agent's own page holds the fix (the answer box,
@@ -60752,7 +60734,6 @@ async function loadProjects() {
   // it). Callers that branch on PJ_READ_FAILED right after awaiting need to
   // know the flag is their read's, not a predecessor's -- see pjAnswerFrom
   // (round 21).
-  const readNo = ++PJ_READ_SEQ;   // #4583: which read this is, for the coordinator warning
   try {
     const res = await fetch('/api/projects');
     reached = true;
@@ -60776,7 +60757,6 @@ async function loadProjects() {
       throw new Error(body.error || 'we cannot read your projects right now');
     }
     PROJECTS = body.projects || [];
-    PJ_READ_SHOWN = readNo;
     /* #5551 review: an agent page opened from a project names it; a rename (or a list that arrives late) repaints it. */
     /* typeof first: loadProjects is lifted and run alone by tests (web.projects-signed-out-718), where this global is absent. */
     if (typeof DETAIL_FROM_PROJECT !== 'undefined' && DETAIL_FROM_PROJECT && typeof detailBackPaint === 'function') detailBackPaint();
@@ -64530,7 +64510,7 @@ function paintOneProject() {
   paintRoomBusy(roster.map((a) => (a && a.sessionName) || a), p.id);
   /* #3923: an agent that could not be given the folder is said once, in the project notice
      above the list (Mona's design), not on its row: every member row passes suppressTold. */
-  const notice = pjNeedsNotice(roster, pjRedHere) + pjCoordNotice(p) + pjNotice(roster, p.id);   // #5688: who needs you, first
+  const notice = pjNeedsNotice(roster, pjRedHere) + pjNotice(roster, p.id);   // #5688: who needs you, first
   const noticeBox = document.getElementById('pj-one-notice');
   // The region is never hidden (see the CSS note): only its content comes and goes.
   pjKeepOpenFocus(noticeBox, () => setIfChanged(noticeBox, notice));   // #5688: a repaint keeps a focused Open
@@ -72565,7 +72545,6 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     // land the person INSIDE the new project. openProject also carries the
     // read-back-failure case (body.id set, body.project null) with its notice.
     const newProjectId = (body.project && body.project.id) || body.id;
-    if (body.coordinators && newProjectId) PJ_COORD_WARN.set(String(newProjectId), PJ_READ_SEQ);   // #4583
     openProject(newProjectId);
   } catch (err) {
     // Through pjSentence like every other engine `because` on this screen
@@ -72620,7 +72599,6 @@ async function addMemberToProject(who, msg) {
     const res = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/agent/' + encodeURIComponent(who), { method: 'POST' });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not change that project');
-    if (body.coordinators) PJ_COORD_WARN.set(String(PJ_CURRENT), PJ_READ_SEQ);   // #4583: shown in the project notice
     return true;
   } catch (err) {
     // Through pjSentence like every sibling on this screen (round 24): the
@@ -72731,16 +72709,6 @@ function pjNeedsOpenClick(e) {
 }
 document.getElementById('pj-one-notice').addEventListener('click', pjNeedsOpenClick);
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNeedsOpenClick); }
-/* #4583: Dismiss on the two-coordinator warning, in either notice. */
-function pjCoordDismissClick(e) {
-  const btn = e.target && e.target.closest ? e.target.closest('[data-pn-coord-dismiss]') : null;
-  if (!btn) return;
-  PJ_COORD_WARN.delete(btn.dataset.pnCoordDismiss);
-  paintOneProject();
-  paintRailPjNotice();
-}
-document.getElementById('pj-one-notice').addEventListener('click', pjCoordDismissClick);
-{ const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjCoordDismissClick); }
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
 document.getElementById('pj-one-add-go').addEventListener('click', async () => {
   // #2429 (Josh, 0.6.45): once the member is added there is nothing more to do in the
