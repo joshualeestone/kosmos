@@ -24,9 +24,13 @@ Review 1: sentences are split on the space after . ! or ?, so text before a dott
 dropped; a note that fits in characters is returned unchanged (the shell's length test can count bytes); a cut that
 lands on a space keeps the last word.
 
+Review 2: e.g., i.e., etc. and vs. do not end a sentence, and one may end before a closing quote or bracket; the note
+reaches node after `--`, so a leading dash is text; an empty or failed node answer falls back to the old cut; a word cut
+drops a trailing comma or colon before the ellipsis.
+
 ## Weakest premise
-That splitting after ". " is good enough for release notes: an abbreviation ("e.g. ") ends a sentence early, which only
-makes the post shorter, never cut mid-word or drop text.
+That the short list of abbreviations covers release notes. Another abbreviation ("approx. ") would end a sentence early,
+so a post could stop on it, shorter but unmarked. The notes are written by us, and the list is easy to extend.
 
 ## Validation
 tools/test-post-release-notes.sh: 32/32; the three new or changed checks fail on the old script. bash -n on both.

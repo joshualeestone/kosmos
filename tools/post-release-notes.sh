@@ -84,28 +84,34 @@ X_PREFIX="Kosmos $V is out. "
 _budget=$((280 - ${#X_PREFIX} - ${#X_SUFFIX}))
 X_BODY="$NOTE"
 # #6082: a note over the budget keeps its whole sentences that fit, so the post never stops mid-word under Josh's name.
-# Only when not even its first sentence fits is it cut, at a word, with an ellipsis. Counted in characters (code
-# points), as X counts. With no node, the old character cut.
+# Only when not even its first sentence fits is it cut, at a word, with an ellipsis. Counted in code points, the same
+# count the length test uses (X weighs some characters and links differently; the budget stays under 280 either way).
+# With no node, or node giving nothing back, the old character cut.
 if [ "${#X_BODY}" -gt "$_budget" ]; then
   if [ -n "$NODE" ]; then
-    X_BODY="$("$NODE" -e '
+    _trimmed="$("$NODE" -e '
       const t = process.argv[1]; const b = Number(process.argv[2]);
       const cps = [...t];
       process.stdout.write(cps.length <= b ? t : trim());   // fits in characters: unchanged (the shell may count bytes)
       function trim() {
-      const len = (s) => [...s].length;
-      let out = "";
-      for (const p of t.split(/(?<=[.!?])\s+/)) { const next = out ? out + " " + p : p; if (len(next) <= b) out = next; else break; }
-      if (!out) {
-        // A word is kept whole: cut where a space falls, else back to the last space; one unbroken token is cut in it.
-        const c = cps.slice(0, b - 1).join("");
-        out = (/\s/.test(cps[b - 1] || "") ? c : (c.replace(/\s+\S*$/, "") || c)).trimEnd() + "\u2026";
+        const len = (s) => [...s].length;
+        let out = "";
+        // A sentence ends at . ! or ? (a closing quote or bracket may follow) and a space; e.g., i.e., etc. and vs. do not end one.
+        for (const p of t.split(/(?<=[.!?]["\x27\u201d\u2019)\]]?)(?<!\b(?:e\.g|i\.e|etc|vs)\.)\s+/)) {
+          const next = out ? out + " " + p : p;
+          if (len(next) <= b) out = next; else break;
+        }
+        if (!out) {
+          // A word is kept whole: cut where a space falls, else back to the last space; one unbroken token is cut in it.
+          const c = cps.slice(0, b - 1).join("");
+          out = (/\s/.test(cps[b - 1] || "") ? c : (c.replace(/\s+\S*$/, "") || c)).trimEnd().replace(/[,;:]+$/, "") + "\u2026";
+        }
+        return out;
       }
-      return out;
-      }
-    ' "$X_BODY" "$_budget")"
-  else
-    X_BODY="$(printf '%s' "$X_BODY" | cut -c1-$((_budget-1)))…"
+    ' -- "$X_BODY" "$_budget")" || _trimmed=""
+  fi
+  if [ -n "${_trimmed:-}" ]; then X_BODY="$_trimmed"
+  else X_BODY="$(printf '%s' "$X_BODY" | cut -c1-$((_budget-1)))…"
   fi
 fi
 X_POST="${X_PREFIX}${X_BODY}${X_SUFFIX}"
