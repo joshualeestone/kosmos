@@ -17,6 +17,10 @@
  *   - interactive only (the Mac pane): folder trust is ON unless switched off (the settings
  *     schema's default is `enabled: true`), and each included folder with no record in the trust
  *     file opens a "trust these folders?" dialog that an unattended agent would sit in front of.
+ *     --skip-trust does not prevent it: that trusts the WORKSPACE (checkPathTrust), while the
+ *     included-folders hook (useIncludeDirsTrust) reads the trust file directly. Measured on 0.61.0,
+ *     2026-10-13, in a private tmux with a fake key: the dialog shows without a trust record for the
+ *     folder and does not show with one (the #5812 card has both captures).
  *     So the Mac launch gives the agent ITS OWN trust file (GEMINI_CLI_TRUSTED_FOLDERS_PATH, which
  *     gemini reads instead of <home>/.gemini/trustedFolders.json), holding exactly its current
  *     project folders, rewritten at every launch (agentTrust below). The person's own trust file
@@ -130,7 +134,8 @@ function trustFile(cliHome, env) {
   return path.join(cliHome || os.homedir(), '.gemini', 'trustedFolders.json');
 }
 
-const TRUST_LEVELS = Object.freeze(['TRUST_FOLDER', 'TRUST_PARENT', 'DO_NOT_TRUST']);
+const TRUST_FOLDER = 'TRUST_FOLDER';
+const TRUST_LEVELS = Object.freeze([TRUST_FOLDER, 'TRUST_PARENT', 'DO_NOT_TRUST']);
 
 /* gemini's LoadedTrustedFolders.isPathTrusted, over a parsed file: the LONGEST matching rule wins,
    TRUST_PARENT covers its rule's parent folder. true, false (DO_NOT_TRUST), or undefined (no rule). */
@@ -194,7 +199,7 @@ function honourMarks(folders, cliHome, env) {
   const theirs = readRules(trustFile(cliHome, env));
   if (!theirs.rules) return { folders: [], leftOut: list.map((folder) => ({ folder, because: theirs.because })) };
   for (const f of list) {
-    if (trustOf(theirs.rules, f) === false) out.leftOut.push({ folder: f, because: 'the folder is marked do not trust in Gemini, and that is left as it is' });
+    if (trustOf(theirs.rules, f) === false) out.leftOut.push({ folder: f, because: 'the person marked this folder do not trust in Gemini' });
     else out.folders.push(f);
   }
   return out;
@@ -234,12 +239,11 @@ function agentTrust(name, folders, cliHome, opts) {
   const list = Array.isArray(folders) ? folders : [];
   const out = { file: null, folders: [], leftOut: [] };
   if (list.length === 0) return out;
-  const leaveAll = (because) => ({ file: null, folders: [], leftOut: list.map((folder) => ({ folder, because })) });
   const m = honourMarks(list, cliHome);
   out.folders = m.folders;
   out.leftOut = m.leftOut;
   const rules = {};
-  for (const f of out.folders) rules[f] = 'TRUST_FOLDER';
+  for (const f of out.folders) rules[f] = TRUST_FOLDER;
   if (out.folders.length === 0) return out;
   try {
     const file = (opts && opts.file) || agentTrustFile(name);
@@ -248,7 +252,8 @@ function agentTrust(name, folders, cliHome, opts) {
     out.file = file;
     return out;
   } catch (err) {
-    return leaveAll('the agent\'s Gemini trust file could not be written (' + ((err && err.code) || (err && err.message) || 'unknown') + ')');
+    const because = 'the agent\'s Gemini trust file could not be written (' + ((err && err.code) || (err && err.message) || 'unknown') + ')';
+    return { file: null, folders: [], leftOut: m.leftOut.concat(out.folders.map((folder) => ({ folder, because }))) };
   }
 }
 
