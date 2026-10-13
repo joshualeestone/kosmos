@@ -247,6 +247,8 @@ test('#6108 /api/accounts says when an account cannot have a reading: its own st
     assert.equal(await blockedOf(), null, 'CONTROL: Kosmos\'s own status line was taken for someone else\'s');
     fs.writeFileSync(settings, JSON.stringify({ statusLine: { type: 'command', command: '/usr/local/bin/my-status.sh' } }));
     assert.equal(await blockedOf(), 'own-statusline', 'an account with its own status line was not marked');
+    fs.writeFileSync(settings, '{ not json');
+    assert.equal(await blockedOf(), 'unreadable-settings', 'a settings file that cannot be parsed was promised a set-up that cannot happen');
   } finally { fs.rmSync(settings, { force: true }); }
 });
 

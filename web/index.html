@@ -27129,6 +27129,8 @@ function acctUsageHtml(a, list) {
         ? '<p class="acct-usage-line acct-usage-none">Kosmos cannot read usage for this account on Windows yet.</p>'
         : a.weeklyBlocked === 'own-statusline'
           ? '<p class="acct-usage-line acct-usage-none">Kosmos cannot read usage for this account, because it has its own status line.</p>'
+          : a.weeklyBlocked === 'unreadable-settings'
+            ? '<p class="acct-usage-line acct-usage-none">Kosmos cannot read this account\'s settings, so it cannot read its usage.</p>'
           : a.weeklyBlocked === 'not-wired'
             ? '<p class="acct-usage-line acct-usage-none">Kosmos has not set this account up to read usage yet.</p>'
             : '<p class="acct-usage-line acct-usage-none">No usage reading for this account yet. Kosmos reads it while an agent on it is working.</p>';
@@ -27852,6 +27854,7 @@ async function paintAccounts(opts) {
      the region sees a change. Done here, not in the move's handler, so a paint that superseded the handler's own still
      announces it. */
   for (const [dir, st] of ACCT_MOVE) {
+    if (st && !st.moving && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) { ACCT_MOVE.delete(dir); continue; }   // also for a row no longer drawn
     if (!st || !st.announce) continue;
     if (!box.querySelector('[data-acct-move-msg="' + CSS.escape(dir) + '"]')) continue;   // its row is not drawn yet: a later paint speaks it
     st.announce = false;

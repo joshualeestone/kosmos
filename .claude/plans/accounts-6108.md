@@ -50,12 +50,12 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
   settings hold a status line that is not Kosmos's). The default account is wired by the installer, so it waits for a
   reading like any other.
 - A stopped agent's move comes back 'partial' from the route (it never starts a dead agent); for an agent stopped at
-  the click AND an engine sentence saying it is not running, the page counts that as moved and says it stays stopped
+  the click AND an engine sentence saying it is not running, the page counts that as moved and says it is not running now
   (any other partial keeps the engine's words). A server test pins that reply. An agent of unknown state gets no restart count.
 
 - API-key accounts are not bulk-move targets (a bulk move onto a key changes who pays); one agent can still be moved
   to a key from its own page.
-- A moved stopped agent is said to "stay stopped", with no promise of when it starts (the engine itself does not
+- A moved stopped agent is said to be "not running now", with no promise of when it starts (the engine itself does not
   guarantee that for every stopped agent), matched only on the route's own "is not running, so there is nothing to
   restart" refusal.
 - Agents per account are walked only when the caller asks (/api/accounts?agents=1, Settings), so the other pages that
@@ -63,6 +63,9 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
 
 - weeklyBlocked 'not-wired' (no status line, or no settings file): "Kosmos has not set this account up to read usage
   yet", since nothing records a reading until setup wires it.
+
+- weeklyBlocked 'unreadable-settings' (a settings file that cannot be parsed): says Kosmos cannot read the account's
+  settings, since setup could not wire it either.
 
 ## Not in slice 1 (follow-ups after it ships)
 - A bulk move blocks the server once per agent (removal.restart runs inside the route); a bulk route could batch it.
