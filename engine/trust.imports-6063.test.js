@@ -119,6 +119,7 @@ test('#6063: null means the default account, read where a default-account agent 
   const work = folder();
   const def = acct({ [work]: { [A]: true, [S]: true } });
   const to = acct({});
+  const had = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
   process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(def, '.claude.json');
   try {
     const out = trust.carryExternalImports(work, { fromConfigDir: null, configDir: to });
@@ -134,7 +135,10 @@ test('#6063: null means the default account, read where a default-account agent 
 
     const same = trust.carryExternalImports(work, { fromConfigDir: null, configDir: null });
     assert.deepEqual(same, { ok: true, carried: false, because: 'the account did not change' });
-  } finally { delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG; }
+  } finally {
+    if (had === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+    else process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = had;
+  }
 });
 
 test('#6063: it refuses without writing when the new account\'s file is missing, a link, or not readable as config', () => {

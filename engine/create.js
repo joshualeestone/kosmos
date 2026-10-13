@@ -1692,8 +1692,8 @@ function setAccount(name, dir, opts) {
        read before the rewrite above); that answer is carried over as it was, and no answer carries nothing.
        After trustFolder, which makes the destination file. Best-effort / non-gating, as the three above.
        ⚠️ NOT on a provider switch (`carryImports: false` from setProvider): there the job was rewritten onto the
-       main Claude account a moment earlier, so `job.configDir` names an account the agent never ran on, and its
-       answer for this folder is not this agent's to carry. */
+       main Claude account a moment earlier, so the job read here says "main account", where the agent never ran,
+       and that account's answer for this folder is not this agent's to carry. */
     if (!(opts && opts.carryImports === false)) {
       try {
         imports = require('./trust').carryExternalImports(workerDir(clean), { fromConfigDir: job.configDir || null, configDir });
