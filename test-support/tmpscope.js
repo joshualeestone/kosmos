@@ -55,13 +55,16 @@ function activate() {
        killed; without it a `kts-` leak names only a random suffix, from any of some two hundred files. */
     try {
       /* Real paths on both sides: macOS gives the cwd as /private/var/... and the script as /var/..., and a relative
-         path between those is a climb to the root. A script outside the cwd keeps its absolute path. */
+         path between those is a climb to the root. A script outside the cwd keeps its absolute path, with the home
+         folder written as ~ so a user name does not reach a log someone pastes into a card. */
       const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
-      let script = `(no script, ${process.argv0})`;
+      let script = `(no script, ${path.basename(process.argv0)})`;
       if (process.argv[1]) {
         const abs = real(process.argv[1]);
         const rel = path.relative(real(process.cwd()), abs);
-        script = rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : abs;
+        const home = os.homedir();
+        script = rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel
+          : (home && abs.startsWith(home + path.sep) ? '~' + abs.slice(home.length) : abs);
       }
       fs.writeFileSync(path.join(dir, '.kts-owner'), `${script}\tpid ${process.pid}\n`);
     } catch { /* the directory still works without its owner line */ }

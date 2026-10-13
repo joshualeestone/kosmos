@@ -176,16 +176,20 @@ leak_family() {
 }
 
 # leak_kts_owners <root>: one line per `kts-` dir left in <root>, naming the test file that made it. A `kts-` dir
-# is test-support/tmpscope.js's per-process TMPDIR, swept when that process exits, so one left behind means the
-# process was killed before its sweep could run; tmpscope writes `.kts-owner` (#6061) so the report can say which.
+# is test-support/tmpscope.js's per-process TMPDIR, swept when that process exits, so one left behind means its
+# sweep did not run or failed (a kill it cannot catch, a process still running, an rmSync error); tmpscope writes
+# `.kts-owner` (#6061) so the report can say which file to look at. Safe under `set -e`: a read of an empty or
+# unterminated owner line (a kill during the write) still reports.
 leak_kts_owners() {
-  local root="${1%/}" d owner
+  local root="${1%/}" d owner pid
   for d in "$root"/kts-*; do
     [ -d "$d" ] || continue
     owner=""
-    [ -f "$d/.kts-owner" ] && IFS= read -r owner < "$d/.kts-owner"
+    if [ -f "$d/.kts-owner" ]; then IFS= read -r owner < "$d/.kts-owner" || true; fi
     if [ -n "$owner" ]; then
-      echo "  ${d##*/}: made by ${owner%%$'\t'*} (${owner#*$'\t'}), killed before its exit sweep ran"
+      pid="pid unknown"
+      case "$owner" in *$'\t'*) pid=${owner#*$'\t'} ;; esac
+      echo "  ${d##*/}: made by ${owner%%$'\t'*} ($pid); its exit sweep did not run (killed, still running, or the sweep failed)"
     else
       echo "  ${d##*/}: no owner recorded (made by a tmpscope older than #6061, or the write failed)"
     fi
