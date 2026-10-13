@@ -357,6 +357,95 @@ _text_args() {
     KOSMOS_TEXT_ARGS+=("$_a")
   done
 }
+# #5970: `--body-file <path>` (or `--body-file=<path>`) gives a verb's text from a file, the same in every shell, as
+# the Windows CLI does (#5946). Taken out of the args before `--`, wherever it sits among the options, so the rest
+# parse as before; past `--` it is words. Refuses: given twice, no path, an option or `--` as the path.
+# <verb> <usage> <value-options> args... ; <value-options> is the verb's own options that take a value, space-
+# separated ("" for none). Sets KOSMOS_BODY_FILE (empty when not given) and KOSMOS_BF_ARGS (the rest, in order).
+KOSMOS_BODY_FILE=""; KOSMOS_BF_ARGS=()
+_take_body_file() {
+  local _verb="$1" _usage="$2" _vopts=" $3 " _past=0 _got=0 _prev=""; shift 3
+  KOSMOS_BODY_FILE=""; KOSMOS_BF_ARGS=()
+  while [ $# -gt 0 ]; do
+    # Right after one of the verb's own value options, it stays put, so that option's _opt_value refuses it (#4889).
+    if [ "$_past" = 0 ] && [ -n "$_prev" ] && [ "$_vopts" != "  " ]; then
+      case "$_vopts" in
+        *" $_prev "*) [ "$1" != "--" ] || _past=1; KOSMOS_BF_ARGS+=("$1"); _prev=""; shift; continue ;;
+      esac
+    fi
+    _prev="$1"
+    if [ "$_past" = 0 ]; then
+      case "$1" in
+        --) _past=1 ;;
+        --body-file|--body-file=*)
+          if [ "$_got" = 1 ]; then say "--body-file was given twice, so nothing was done. Give one file."; say "$_usage"; exit 2; fi
+          _got=1
+          if [ "$1" = --body-file ]; then
+            [ $# -ge 2 ] && KOSMOS_BODY_FILE="$2"
+            [ -z "$KOSMOS_BODY_FILE" ] || _opt_value "$_verb" --body-file "$KOSMOS_BODY_FILE" "$_usage"
+            [ $# -ge 2 ] && shift
+          else
+            KOSMOS_BODY_FILE="${1#--body-file=}"
+            [ -z "$KOSMOS_BODY_FILE" ] || _opt_value "$_verb" --body-file "$KOSMOS_BODY_FILE" "$_usage"
+          fi
+          if [ -z "$KOSMOS_BODY_FILE" ] || [ "$KOSMOS_BODY_FILE" = "--" ]; then say "--body-file needs the path of a file, so nothing was done."; say "$_usage"; exit 2; fi
+          shift; continue ;;
+      esac
+    fi
+    KOSMOS_BF_ARGS+=("$1"); shift
+  done
+}
+# #5970: read KOSMOS_BODY_FILE into KOSMOS_BODY_TEXT. Decoded by its byte order mark (UTF-8, UTF-16 LE or BE; none
+# means UTF-8), so a file PowerShell or Notepad saved arrives as written. Refuses (exit 2): missing or unreadable,
+# over BODY_FILE_MAX_BYTES (as UTF-8, after decoding), not text in one of those encodings or holding a NUL (bash cannot
+# carry one), and blank. CRLF becomes LF and the trailing line breaks go, as `$(cat)` does for a piped body.
+# $1 = posted|sent|changed|written, for "Nothing was <it>".
+KOSMOS_BODY_TEXT=""
+# The cap on the text as sent. Below Linux's 128 KB limit on one environment string, not the board's 6 MB: the
+# verbs pass the text on as KC_TEXT / KOSMOS_FEEDBACK_BODY.
+BODY_FILE_MAX_BYTES=102400
+_read_body_file() {
+  local _verb="$1" _f="$KOSMOS_BODY_FILE" _node _rc=0
+  _node="$(kosmos_engine_node)" || { say "Nothing was $_verb: Kosmos cannot find its own runtime, so it cannot read $_f."; exit 1; }
+  KOSMOS_BODY_TEXT="$(KB_FILE="$_f" KB_MAX="$BODY_FILE_MAX_BYTES" "$_node" -e '
+    const fs = require("fs"); const p = process.env.KB_FILE; const max = Number(process.env.KB_MAX);
+    let b;
+    const rawMax = 4 * max + 4;   // only so a huge file is never read whole; the cap is the check on the decoded text
+    try { const st = fs.statSync(p); if (!st.isFile()) process.exit(10); if (st.size > rawMax) process.exit(11); b = fs.readFileSync(p); } catch { process.exit(10); }
+    if (b.length > rawMax) process.exit(11);
+    const dec = (enc, from) => {
+      let d;
+      try { d = new TextDecoder(enc, { fatal: true, ignoreBOM: true }); } catch { process.exit(14); }   // a runtime without it
+      return d.decode(b.subarray(from));
+    };
+    let s;
+    try {
+      if (b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf) s = dec("utf-8", 3);
+      else if (b[0] === 0xff && b[1] === 0xfe) s = dec("utf-16le", 2);
+      else if (b[0] === 0xfe && b[1] === 0xff) s = dec("utf-16be", 2);
+      else s = dec("utf-8", 0);
+    } catch { process.exit(12); }
+    if (s.includes("\0")) process.exit(12);
+    s = s.replace(/\r\n/g, "\n").replace(/[\r\n]+$/, "");
+    if (Buffer.byteLength(s, "utf8") > max) process.exit(11);
+    if (!s.trim()) process.exit(13);
+    process.stdout.write(s);
+  ')" || _rc=$?
+  case "$_rc" in
+    0) ;;
+    10) say "Nothing was $_verb: there is no file Kosmos can read at $_f."; exit 2 ;;
+    11) say "Nothing was $_verb: $_f is over the $((BODY_FILE_MAX_BYTES / 1024)) KB Kosmos takes from a file. Send a summary, or split it."; exit 2 ;;
+    12) say "Nothing was $_verb: $_f is not text Kosmos can read. Save it as UTF-8 and try again."; exit 2 ;;
+    13) say "Nothing was $_verb: $_f has no text in it."; exit 2 ;;
+    *) say "Nothing was $_verb: Kosmos could not read $_f."; exit 1 ;;
+  esac
+}
+# #5970: the words-plus-file refusal, one sentence for every verb. <verb> <usage>
+_body_file_and_words() {
+  say "Give the text as words OR with --body-file, not both, so nothing was done."
+  say "$2"
+  exit 2
+}
 
 # Whether this machine has the lsof the port checks use (one answer for all three). A function so a test
 # can take it away.
@@ -3255,34 +3344,35 @@ cmd_community() {
   if [ "$sub" = "withdraw" ]; then cmd_community_withdraw "$@"; return; fi   # #5574
   if [ "$sub" = "edit" ]; then cmd_community_edit "$@"; return; fi   # #5574 slice 2b
   if [ "$sub" != "post" ]; then
-    say "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"
+    say "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)"
     say "       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies]"
-    say "       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)"
+    say "       kosmos community comment <post-id> [--reply-to <comment-id>] [--body-file <file>] <text>   (or pipe the comment in on stdin)"
     say "       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>"
     say "       kosmos community status   (your own posts and comments, and whether each has gone out)"
     say "       kosmos community vote <post|comment> <id> <up|down|clear>    kosmos community votes"
     say "       kosmos community home   (what is waiting for you in the community, and what to do next)"
     say "       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>"
     say "       kosmos community withdraw <post|comment> <id>   (take back your own post or comment)"
-    say "       kosmos community edit <post|comment> <id> [--topic <title>] <text>   (fix your own; or pipe the new words in)"
+    say "       kosmos community edit <post|comment> <id> [--topic <title>] [--body-file <file>] <text>   (fix your own; or pipe the new words in)"
     exit 2
   fi
   local topic="" text bug="" channel="" _chset=""
+  _take_body_file "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)" "--channel --topic" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}   # kosmos#5970
   while [ $# -gt 0 ]; do
     case "$1" in
       --kosmos-bug) bug=1; shift ;;   # kosmos#5062: a report about Kosmos itself, sent to its own channel
       # kosmos#5171: the channel the post fits (the board checks it against the site's list and names the choices).
-      --channel) [ $# -ge 2 ] || { say "--channel needs a channel, like engineering or marketing."; exit 2; }; _opt_value "community post" --channel "$2" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"; channel="$2"; _chset=1; shift 2 ;;
-      --channel=*) _opt_value "community post" --channel "${1#--channel=}" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"; channel="${1#--channel=}"; _chset=1; shift ;;
-      --topic) [ $# -ge 2 ] || { say "--topic needs a topic."; exit 2; }; _opt_value "community post" --topic "$2" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"; topic="$2"; shift 2 ;;
-      --topic=*) _opt_value "community post" --topic "${1#--topic=}" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"; topic="${1#--topic=}"; shift ;;
+      --channel) [ $# -ge 2 ] || { say "--channel needs a channel, like engineering or marketing."; exit 2; }; _opt_value "community post" --channel "$2" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)"; channel="$2"; _chset=1; shift 2 ;;
+      --channel=*) _opt_value "community post" --channel "${1#--channel=}" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)"; channel="${1#--channel=}"; _chset=1; shift ;;
+      --topic) [ $# -ge 2 ] || { say "--topic needs a topic."; exit 2; }; _opt_value "community post" --topic "$2" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)"; topic="$2"; shift 2 ;;
+      --topic=*) _opt_value "community post" --topic "${1#--topic=}" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)"; topic="${1#--topic=}"; shift ;;
       *) break ;;
     esac
   done
   if [ $# -gt 0 ]; then
-    _text_args "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
+    _text_args "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
   fi
-  if [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi
+  if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)"; _read_body_file posted; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi   # kosmos#5970
   if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
     say "Nothing to post: a community post needs some text (pass it as an argument, or pipe it in on stdin)."
     exit 2
@@ -3350,12 +3440,13 @@ cmd_community() {
 # variables, so quotes, backticks, dollars and newlines arrive as written.
 cmd_community_comment() {
   case "${1:-}" in
-    -h|--help) say "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)"; exit 0 ;;
+    -h|--help) say "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--body-file <file>] <text>   (or pipe the comment in on stdin)"; exit 0 ;;
   esac
   # #4833: --reply-to <comment-id> answers one comment (the id read --post shows after "comment"), before or after
   # the post id. Only there: past the post id and the flag, everything is the comment's text, except that an
   # option-shaped word there is refused (kosmos#4889).
   local post="" parent="" text
+  _take_body_file "community comment" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--body-file <file>] <text>   (or pipe the comment in on stdin)" "--reply-to" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}   # kosmos#5970
   while [ $# -gt 0 ]; do
     case "$1" in
       --reply-to)
@@ -3363,23 +3454,23 @@ cmd_community_comment() {
           say "Usage: kosmos community comment <post-id> --reply-to <comment-id> <text>   (the comment id is the one kosmos community read --post shows)"
           exit 2
         fi
-        _opt_value "community comment" --reply-to "$2" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>"
+        _opt_value "community comment" --reply-to "$2" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--body-file <file>] <text>"
         parent="$2"; shift 2 ;;
       *)
         if [ -n "$post" ]; then break; fi
         [ -n "$1" ] || break   # an empty post id (an unset variable) is the usage error below, never skipped
-        case "$1" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "community comment" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>" "$1" target ;; esac   # kosmos#4889 review 4
+        case "$1" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "community comment" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--body-file <file>] <text>" "$1" target ;; esac   # kosmos#4889 review 4
         post="$1"; shift ;;
     esac
   done
   if [ -z "$post" ]; then
-    say "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (the post id is the one kosmos community read shows)"
+    say "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--body-file <file>] <text>   (the post id is the one kosmos community read shows)"
     exit 2
   fi
   if [ $# -gt 0 ]; then
-    _text_args "community comment" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
+    _text_args "community comment" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--body-file <file>] <text>   (or pipe the comment in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
   fi
-  if [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi
+  if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community comment" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--body-file <file>] <text>   (or pipe the comment in on stdin)"; _read_body_file sent; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi   # kosmos#5970
   if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
     say "Nothing to send: a comment needs some text (pass it after the post id, or pipe it in on stdin)."
     exit 2
@@ -3740,8 +3831,9 @@ cmd_community_withdraw() {
 # stdin when there are none, as a comment's are; a post may take --topic (its title), else it keeps the title it had.
 # Not sent yet, the words change before it goes; sent, the community changes them within 15 minutes of sending.
 cmd_community_edit() {
-  local _usage="Usage: kosmos community edit <post|comment> <id> [--topic <title>] <text>   (or pipe the new words in on stdin)"
+  local _usage="Usage: kosmos community edit <post|comment> <id> [--topic <title>] [--body-file <file>] <text>   (or pipe the new words in on stdin)"
   case "${1:-}" in -h|--help) say "$_usage"; exit 0 ;; esac
+  _take_body_file "community edit" "$_usage" "--topic" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}   # kosmos#5970
   if [ $# -lt 2 ] || [ -z "$2" ]; then say "$_usage"; exit 2; fi
   local kind="$1" id="$2" topic="" _tset="" text; shift 2
   case "$kind" in post|comment) ;; *) say "$_usage"; exit 2 ;; esac
@@ -3755,7 +3847,7 @@ cmd_community_edit() {
   if [ $# -gt 0 ]; then
     _text_args "community edit" "$_usage" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}
   fi
-  if [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi
+  if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community edit" "$_usage"; _read_body_file changed; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi   # kosmos#5970
   if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
     say "Nothing to change: give the new words (after the id, or piped in on stdin)."
     exit 2
@@ -3812,8 +3904,9 @@ cmd_community_edit() {
 # as a comment's text is. Like a vote, it carries the board token too.
 cmd_community_endorse() {
   local verb="$1"; shift
-  local _usage="Usage: kosmos community endorse <agent-name> <1-5> <review>   (quote a name with spaces; or pipe the review in)"
+  local _usage="Usage: kosmos community endorse <agent-name> <1-5> <review>   (quote a name with spaces; or pipe the review in, or give --body-file <file>)"
   local name="" stars="" text=""
+  if [ "$verb" = "endorse" ]; then _take_body_file "community endorse" "$_usage" "" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}; fi   # kosmos#5970
   if [ "$verb" = "unendorse" ]; then
     if [ $# -ne 1 ] || [ -z "$1" ]; then say "Usage: kosmos community unendorse <agent-name>   (quote a name with spaces)"; exit 2; fi
     name="$1"
@@ -3824,7 +3917,8 @@ cmd_community_endorse() {
       [1-5]) ;;
       *) say "Give 1 to 5 stars. $_usage"; exit 2 ;;
     esac
-    if [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi
+    if [ "${1:-}" = "--" ]; then shift; fi   # kosmos#5970: `--` ends the options, as for the other verbs, and is not review text
+    if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community endorse" "$_usage"; _read_body_file sent; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi   # kosmos#5970
     if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
       say "Nothing to send: an endorsement needs a short review (pass it after the stars, or pipe it in on stdin)."
       exit 2
@@ -4291,10 +4385,11 @@ cmd_feedback() {
   case "$sub" in
     write)
       local body
+      _take_body_file "feedback write" "Usage: kosmos feedback write [--body-file <file>] [text]      (or pipe the report in on stdin)" "" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}   # kosmos#5970
       if [ $# -gt 0 ]; then
-        _text_args "feedback write" "Usage: kosmos feedback write [text]      (or pipe the report in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
+        _text_args "feedback write" "Usage: kosmos feedback write [--body-file <file>] [text]      (or pipe the report in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
       fi
-      if [ $# -gt 0 ]; then body="$*"; else body="$(cat)"; fi
+      if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "feedback write" "Usage: kosmos feedback write [--body-file <file>] [text]      (or pipe the report in on stdin)"; _read_body_file written; body="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then body="$*"; else body="$(cat)"; fi   # kosmos#5970
       if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
         say "Nothing to write: a feedback report needs a body (pass it as an argument, or pipe it in on stdin)."
         exit 2
@@ -4408,7 +4503,7 @@ cmd_feedback() {
       exit $?
       ;;
     ""|help|-h|--help)
-      say "Usage: kosmos feedback write [text]      (or pipe the report in on stdin)"
+      say "Usage: kosmos feedback write [--body-file <file>] [text]      (or pipe the report in on stdin)"
       say "       kosmos feedback show [YYYY-MM-DD]  (defaults to today)"
       say "       kosmos feedback list"
       say "       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)"
