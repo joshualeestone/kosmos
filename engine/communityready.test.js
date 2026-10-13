@@ -747,3 +747,18 @@ test('slice 2 review 15: an address this board does not send to is one fact, thr
   if (cs.endpointAllowed()) assert.doesNotMatch(text('ann'), /- Sending:/, 'CONTROL: a good address adds no line');
   assert.equal(process.env.AGENT_WORKFORCE_COMMUNITY_URL, was);
 });
+
+test('slice 2 review 17: a computer-wide read that throws is asked once, however many agents there are', () => {
+  const realSwitch = cs.switchState;
+  const roster = ['ann', 'bea', 'cal'].map((n) => fleetCard(n));
+  // Every read of the switch throws, and each one is counted.
+  const counting = (fn) => { let asked = 0; cs.switchState = () => { asked += 1; throw new Error('planted'); }; let out; try { out = fn(); } finally { cs.switchState = realSwitch; } return { asked, out }; };
+  const three = counting(() => ready.rowsFor(roster));
+  const one = counting(() => ready.rowsFor(roster.slice(0, 1)));
+  assert.ok(one.asked >= 1, 'the planted throw was never reached');
+  assert.equal(three.asked, one.asked, 'a read that threw was asked again for the next agent');
+  assert.deepEqual(three.out.map((r) => r.switch), ['unreadable', 'unreadable', 'unreadable']);
+  // CONTROL: one agent at a time, the switch is read once per agent, so the counter can tell.
+  const each = counting(() => roster.map((c) => ready.rowFor(c.sessionName).switch));
+  assert.equal(each.asked, 3 * one.asked, 'CONTROL: ' + JSON.stringify([each.asked, one.asked]));
+});

@@ -149,7 +149,9 @@ function rereadReader() {
    for you" list reads (communitystore.moderationQueue, held and quarantined). Not communitystatus's held items: those
    leave out a held comment on this board's own posts, which the list shows. */
 function heldCount(sessionName) { return heldReader()(sessionName); }
-/* One read of the queue, asked per agent. Null when reading it throws (a queue file that is missing reads as empty). */
+/* One read of the whole queue, asked per agent. Null when reading it throws (a queue file that is missing reads as
+   empty). The list on the page asks for at most 200 rows of each status (COMMUNITY_HELD_MAX in web/index.html), so
+   past that many held rows this count can be higher than the rows the person sees there. */
 function heldReader() {
   let queue;
   try { queue = require('./communitystore').moderationQueue({ limit: Infinity }); } catch { queue = null; }
@@ -375,7 +377,8 @@ function ownerView(row) {
   else lines.push({ text: 'Its newest post, “' + (String(row.lastPost.title || '').replace(/\s+/g, ' ').trim() || 'Untitled post') + '”, ' + POST_FACT_WORDS[posted] + '.' });
   if (row.held > 0) lines.push({ text: row.held + (row.held === 1 ? ' item it wrote is' : ' items it wrote are') + ' under Waiting for you.' });
   else if (!Number.isInteger(row.held)) lines.push({ text: 'Kosmos could not read whether anything it wrote is waiting for you just now.' });
-  /* The summary is the closed row, so it may only say "nothing found" when everything this row reads was read. */
+  /* Something this row reads was not read. The summary is the closed row, so it says so there too: `unread` adds
+     "Kosmos could not check everything just now" to it. */
   const unread = (row.reminders !== 'on' && row.reminders !== 'off') || posted === 'unread' || (row.block === 'present' && row.rereadOwed !== true && row.rereadOwed !== false)
     || (row.block === 'absent' && row.connected !== true && row.connected !== false) || row.block === 'unreadable' || row.account === 'unreadable' || row.reminder === 'unreadable' || row.lastPost === 'unreadable' || !Number.isInteger(row.held)
     || !own(OWNER_BLOCK, row.block) && row.block !== 'absent' || !own(OWNER_ACCOUNT, row.account);
@@ -399,8 +402,9 @@ function rowsFor(roster, deps) {
   const seen = new Set();
   if (!Array.isArray(roster)) return null;   // an unreadable roster is not "no agents"
   /* Everything that is one answer for the whole computer, or one file for all agents, is read ONCE here and handed to
-     each row; a test's own `deps` win. */
-  const once = (name, read) => { if (typeof deps[name] === 'function') return deps[name]; let v; let done = false; return (...a) => { if (!done) { v = read(); done = true; } return typeof v === 'function' ? v(...a) : v; }; };
+     each row; a test's own `deps` win. A read that throws is once too: every row gets the same throw, so two rows of
+     one answer cannot differ because the read recovered between them. */
+  const once = (name, read) => { if (typeof deps[name] === 'function') return deps[name]; let v; let failed = null; let done = false; return (...a) => { if (!done) { done = true; try { v = read(); } catch (e) { failed = { e }; } } if (failed) throw failed.e; return typeof v === 'function' ? v(...a) : v; }; };
   const communitysend = require('./communitysend');
   const shared = {
     ...deps,

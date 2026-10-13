@@ -1,7 +1,7 @@
 # communityreadyui-5958: "Where each agent stands" in Settings
 
-Card kosmos#5958, items 4 and 5, slice 2. Stacked on `communityready-5958` (slice 1: the record, the row and
-`kosmos community ready`). This branch must not merge before slice 1; its PR opens after slice 1 is on main.
+Card kosmos#5958, items 4 and 5, slice 2. Slice 1 (the record, the row and `kosmos community ready`) is on main as
+kosmos#6014, and this branch is one commit of its own change on top of main (see the last sections).
 
 ## What it adds
 A list under Settings, Automation, in the Community box, below the posts and comments: one row per agent, its name and
@@ -69,8 +69,11 @@ newest post, and what is held for the person.
   records are unreadable in every row.
 - `docs/browser-checks/render-community-ready-5958.js`, registered on the shared first-run board: rows, open, keys,
   times in the page's zone, kept open across a repaint, markup as text, empty, 503, 403, rows it cannot paint, a phone.
-- NOT RUN as of review 14 (2026-10-12 15:0x CDT), still: the browser check (queued for a turn; nothing here has been seen in a browser), the web
-  tests that pin the page beyond the 12 files that mention the community (97 pass), the full suite, design shots.
+- The browser check has run ONCE, at the old head (19:36 CDT): 50 pass, 2 fail, both the check's own stand-in (last
+  sections). It has NOT run since that fix or since the move onto main, so nothing at this head has been seen in a
+  browser. A rerun is queued.
+- At 58fad3788 on main e0402628c: every community test 1068 pass, the source-sweep guards 180, every web test 2752.
+- NOT RUN at this head: the full suite (queued), design shots.
 
 ## Weakest premise
 That a person looks for this under Settings, Automation. It is where the community switch and its two lists already
@@ -329,3 +332,21 @@ slice 1, so its own change was taken as one patch and applied onto main; the 18 
 The first real browser run of this branch's check (19:36, at the old head) was 50 pass, 2 fail; both failures were the
 check's own stand-in for the "Check on your agents" setting, which left out the interval list the page waits for. Fixed
 in the check. It has not been rerun since.
+
+## Review 17 (2026-10-12, default model), the first round on the joined code
+0 BLOCKER, 1 WARNING, 3 CONVENTION, 5 NIT. Not converged: the next round counts from this commit.
+- **WARNING, true, and answered by a run, not by code:** the browser check has never been green at this head. It is
+  the only cover for the page code. Its rerun is queued and the PR does not open before it is green at the final head.
+- **CONVENTION, taken:** this file's header and Verify still described the stacked branch and a check that had not run.
+- **CONVENTION, taken:** a comment in `ownerView` said the summary "may only say nothing found"; it never says that.
+- **CONVENTION, taken:** CLAUDE.md's community row names the page half and its check.
+- **NIT, taken, with a test:** a computer-wide read that threw was asked again for every agent, so "read once" did
+  not hold on the failure path and two rows of one answer could differ. The throw is remembered. The test counts the
+  reads for three agents against one; on the old code it is red by name.
+- **NIT, taken:** the page remembers what it painted only after the paint, not before.
+- **NIT, taken by saying it:** the held count reads the whole queue and the list on the page is capped at 200 per
+  status. The comment says so.
+- **NIT, not taken:** the agent's own line says nothing when the reminders setting cannot be read, where the person's
+  view has a line. The agent's lines are slice 1's, on main; an agent can do nothing about a setting Kosmos could not
+  read, and the person's view is where it is said.
+- **NIT, noted:** the commit subject's punctuation. The squash title at merge is the one that lands.

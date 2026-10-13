@@ -33638,8 +33638,8 @@ async function refreshCommunityReady() {
        half-made click or a selection away for nothing. A failed read always paints, and forgets what was painted. */
     const same = rows === null ? null : JSON.stringify(rows);
     if (same !== null && same === COMMUNITY_READY_PAINTED) return;
-    COMMUNITY_READY_PAINTED = same;
     communityReadyPaint(rows);
+    COMMUNITY_READY_PAINTED = same;   // only what was painted whole is remembered
   } catch {
     if (mine === COMMUNITY_READY_EPOCH) { COMMUNITY_READY_PAINTED = null; communityReadyPaint(null); }
   }
