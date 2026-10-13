@@ -136,8 +136,14 @@ test('#5999: the uninstall takes the hooks out of the default account\'s file an
   writeJson(work, { hooks: { Stop: [ours()] } });
   writeJson(clean, { hooks: { Stop: [PERSONS] } });
   const cleanBytes = fs.readFileSync(clean, 'utf8');
+  // A .claude-* folder with no settings file (not an account): nothing is written in it, not even a lock.
+  const notAccount = path.join(h, '.claude-workers');
+  fs.mkdirSync(notAccount);
+  const past = new Date('2020-01-01T00:00:00Z');
+  fs.utimesSync(notAccount, past, past);
   stubSchedulers([listing([])]);
   const r = await run(h);
+  assert.equal(fs.statSync(notAccount).mtimeMs, past.getTime(), 'something was written into a .claude-* folder that has no settings file');
   assert.deepEqual(readJson(def).hooks.PreToolUse, [PERSONS, OTHER_INSTALL]);
   assert.deepEqual(readJson(work), {});
   assert.equal(fs.readFileSync(clean, 'utf8'), cleanBytes, 'a file with nothing of ours was rewritten');
