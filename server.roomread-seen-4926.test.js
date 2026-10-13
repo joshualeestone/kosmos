@@ -84,7 +84,8 @@ test('controls: a read with no agent token, or the page\'s JSON read, leaves the
   roomhold.hold(WHO, other, c);
   assert.equal((await room(pid)).status, 200);
   assert.deepEqual(heldPlain(pid), [a], 'a read nobody identified cleared the agent\'s held posts');
-  const page = await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room`);
+  // Review 1: WITH the agent's token, so this tests the arm (the person's JSON view), not a missing token.
+  const page = await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room`, { headers: tokenFor(WHO) });
   assert.equal(page.status, 200);
   assert.deepEqual(heldPlain(pid), [a], 'the page\'s read cleared the agent\'s held posts');
   await room(pid, tokenFor(WHO));
