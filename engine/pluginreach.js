@@ -134,7 +134,7 @@ function reachFrom(input) {
  * =========================================================================================== */
 
 const _folderSetCache = new Map(); // codexPersonPresence: cacheKey -> { mtimeKey, value: { present, readable } }
-const _parseCache = new Map();     // `${file}\0${mtime}` -> { obj: parsed-or-null, readable } (folder-INDEPENDENT)
+const _parseCache = new Map();     // file -> { mtimeKey, value: { obj, readable } } (folder-INDEPENDENT; ONE bounded entry per path)
 
 function _mtimeKey(fsDep, ...paths) {
   return paths.map((p) => {
@@ -147,15 +147,18 @@ function _mtimeKey(fsDep, ...paths) {
 // shared across every separate-account agent, not re-parsed per agent). ENOENT -> { obj: null, readable: true }
 // (a home with no such file enabled nothing); any other read error or invalid JSON -> { obj: null, readable: false }.
 function _parsedFile(fsDep, file) {
-  const key = String(file) + '\0' + _mtimeKey(fsDep, file);
-  const hit = _parseCache.get(key);
-  if (hit) return hit;
+  // Keyed by PATH with the mtime stored as a VALUE and compared (like _folderSetCache), so the cache holds
+  // ONE entry per file, overwritten on each mtime change -- never one permanent entry per mtime seen, which
+  // would leak on the long-lived board process where _resetCache (test-only) is never called (kosmos#5309).
+  const mtimeKey = _mtimeKey(fsDep, file);
+  const hit = _parseCache.get(file);
+  if (hit && hit.mtimeKey === mtimeKey) return hit.value; // mtime unchanged -> no re-read
   let v;
   try {
     const raw = fsDep.readFileSync(file, 'utf8');
     try { v = { obj: JSON.parse(raw), readable: true }; } catch { v = { obj: null, readable: false }; }
   } catch (e) { v = { obj: null, readable: (e && e.code === 'ENOENT') }; }
-  _parseCache.set(key, v);
+  _parseCache.set(file, { mtimeKey, value: v });
   return v;
 }
 
@@ -205,6 +208,9 @@ function folderPluginSet(settingsPath, claudeJsonPath, agentFolder, deps) {
   const c = _parsedFile(fsDep, claudeJsonPath);
   const spIds = s.obj ? _enabledPluginIds(s.obj) : [];
   const cjIds = c.obj ? _mcpServerNames(c.obj, agentFolder) : [];
+  // One id space for both kinds (plugin ids like "crm@acme" + mcpServer names like "tickets"): a collision
+  // would merge two ids and could suppress a genuinely-missing item, but that is the SAFE (under-warn / missed
+  // notice) direction and the id shapes barely overlap, so the shared Set is intentional.
   return { ids: new Set([...spIds.map(String), ...cjIds.map(String)]), readable: s.readable && c.readable };
 }
 
