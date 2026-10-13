@@ -92,6 +92,8 @@ test('#4382: a connect launch looks for an update once its stop of the board is 
   assert.ok(every > 0 && every <= 24 * 60 * 60 * 1000, 'a look at least once a day');
   assert.ok(every <= 0x7fffffff, 'a WinForms Timer interval is an int');
   assert.ok(retry > 0 && retry < every, 'a look that could not reach the host is tried again sooner');
+  const lookLimit = constant('UpdateLookTimeoutMs');
+  assert.ok(lookLimit > (15 + 10) * 60 * 1000 && lookLimit < every, 'the look is given up on only after the engine limits (a 15-minute download, a 10-minute wait), and well before the next look');
   assert.match(method('void UpdateLookDone(KosmosLauncher.ConnectUpdateAnswer answer, string action)'),
     /if \(updateTimer != null && updateTimer\.Interval != updateState\.NextLookMs\) updateTimer\.Interval = updateState\.NextLookMs;/,
     'the next look follows the state (a day, or an hour after a look that could not reach the host)');
@@ -110,7 +112,7 @@ test('#4382: each run is the engine\'s, off the window\'s thread, counted so Run
     'stopsInFlight++;',
     'new Thread(',
     'KosmosLauncher.runEngineHelper(Path.Combine(folder, "runtime\\\\node.exe"), folder, KosmosLauncher.ConnectUpdateScript,',
-    'KosmosLauncher.ConnectUpdateArguments(action, boardPort, expect), 0, out problem);',
+    'KosmosLauncher.ConnectUpdateArguments(action, boardPort, expect), action == "look" ? KosmosLauncher.UpdateLookTimeoutMs : 0, out problem);',
     'KosmosLauncher.ReadConnectUpdateReport(lines);',
     'BeginInvoke(',
     'updateLookInFlight = false;',

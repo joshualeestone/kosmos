@@ -1831,7 +1831,8 @@ async function applyCli(a, out, seams) {
   }
   const answer = await (s.probe || win32handoff.probeBoard)(port);
   const fromIdentity = win32handoff.boardIdentity(win32handoff.buildIdentity(path.join(root, 'app')), world);
-  const task = (s.boardStatus || win32board.status)() || {};
+  /* Read only where the board-task rule applies (below): a connect computer has no task to ask about. */
+  const readTask = () => (s.boardStatus || win32board.status)() || {};
   /* #3286: the report Kosmos.exe reads (its RunEngineHelper), one tagged line: UPDATED <root> once the
      new build answers, REFUSED <sentence> otherwise. */
   const report = (line) => {
@@ -1849,7 +1850,7 @@ async function applyCli(a, out, seams) {
       /* The board says itself whether its task started it (#2986, x-kosmos-board-started-by-task), and
          only an exact yes counts. Task Scheduler's `running` is not asked: it reads null whenever its
          CSV cannot be read, times out or meets a locale. */
-      boardTask: { startedByTask: () => answer.startedByTask === true && answer.answering === true && answer.identity === fromIdentity, status: () => task },
+      boardTask: { startedByTask: () => answer.startedByTask === true && answer.answering === true && answer.identity === fromIdentity, status: readTask },
     };
   const r = await begin({
     root, base: a.base, channel: a.channel, world: a.world, port, boardPid, fromIdentity,

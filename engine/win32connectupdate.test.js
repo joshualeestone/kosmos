@@ -276,10 +276,15 @@ test('#4382: rollback is reachable with no board: the kept build comes back, and
   assert.deepEqual(sim.calls, [], 'no /End and never /Run');
   assert.equal(sim.running, false);
   assert.equal(readJson(win32apply.journalPathFor(c.anchor)).rollback, true, 'the rollback journal, the same helper the Roll back button uses');
-  /* never a downgrade by the forward path: the look after a rollback offers the newer build, it does not install an older one */
-  setConsent(false);
+  /* With updates on (the default), the window's next look does not put back the version the person just
+     rolled back from: it offers it. Picking Update installs it, and lets the hold go. */
   const after = await connectUpdate.run('look', seamsFor(c, site(NEXT), sim));
-  assert.deepEqual(after.answer, ['newer', NEXT]);
+  assert.deepEqual(after.answer, ['newer', NEXT], 'the rollback was undone by the next automatic look');
+  assert.match(after.note, /rolled back from on this computer/);
+  assert.equal(versionIn(c.root), INSTALLED);
+  const picked = await connectUpdate.run('install', seamsFor(c, site(NEXT), sim));
+  assert.deepEqual(picked.answer, ['updated', NEXT], c.log.join('\n'));
+  assert.equal(fs.existsSync(path.join(c.anchor, 'update-held.json')), false, 'an install the person picked lets the hold go');
 });
 
 test('#4382: the control: the same update held to the board-task rule is refused, which is what kept a connect computer from updating', T, async () => {

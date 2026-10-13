@@ -21,5 +21,9 @@
 - **Waiting with no board:** the journal's own record (finished as updated, or confirmed) counts, so a status file that could not be written does not turn a good update into a failure.
 - **The window's decisions are pure** (`AfterConnectUpdate`, `AfterNotNow`, `UpdateLookIsDue`, `UpdatePickedAction`, `UpdateUnderWayOnDisk`) and tested through a probe compiled beside the launcher. No look while an installed update waits for Restart (a second update's cleanup would delete the folder the window runs from). "Run agents" also waits while the updater's own files show an update on its way (a window closed mid-install releases the one-window lock).
 
+- **A rollback is not undone by the next automatic look:** the version rolled back from is recorded (`update-held.json` beside the update journal); the look offers it instead of installing it, the person's Update installs it and lets the hold go, and a strictly newer version installs as usual. The board's own automatic install after its Roll back button has the same gap; not changed here.
+- **The window's own look is given up on after 40 minutes** (above the engine's 15-minute download and 10-minute wait), so a hung helper cannot hold Run agents for good. A run the person asked for is waited for as long as it takes.
+- Deferred: the `--expect` check reads the kept build outside the update lock, as `rollbackToPrevious` itself does before taking the lock; the window is milliseconds and the build is validated again (`keptBuildRefusal`) before anything moves.
+
 ## Weakest part
 With no board, a new build that will not boot is not caught by H7 (nothing is started to confirm). It surfaces when the person opens Kosmos (the relaunch) or picks Run agents; the Roll back menu item is the way back only if the new Kosmos.exe itself still opens.

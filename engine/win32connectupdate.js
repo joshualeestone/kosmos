@@ -58,6 +58,7 @@ const win32update = require('./win32update');
 const win32apply = require('./win32apply');
 const win32handoff = require('./win32handoff');
 const liveExec = require('./live-execution');
+const win32anchor = require('./win32anchor');
 
 const ACTIONS = Object.freeze(['look', 'install', 'rollback']);
 const EXIT = Object.freeze({ current: 0, newer: 0, updated: 0, rolledback: 0, board: 0, failed: 1, unknown: 1, refused: 3 });
@@ -96,6 +97,25 @@ function connectRollbackOffer(root) {
     return kept.version;
   } catch { return null; }
 }
+
+/**
+ * A version the person rolled back from, so the window's own look does not install it again by itself a
+ * few seconds later (updates are on by default). Kept beside the update journal, in the updater's anchor
+ * folder. The look offers a held version instead of installing it; the person picking Update installs it
+ * (and lets it go), and a version strictly newer than the held one installs as usual. The board's own
+ * automatic install has the same gap after its Roll back button; that is not changed here.
+ */
+const HELD_NAME = 'update-held.json';
+function heldPath(env, home) { return path.join(win32anchor.anchorDir(process.platform, home, env), HELD_NAME); }
+function readHeld(env, home) {
+  try { const v = JSON.parse(fs.readFileSync(heldPath(env, home), 'utf8')).version; return typeof v === 'string' ? v : null; } catch { return null; }
+}
+function writeHeld(env, home, version, log) {
+  try { fs.writeFileSync(heldPath(env, home), JSON.stringify({ version, at: new Date().toISOString() }) + '\n'); } catch (e) {
+    log(`could not record that ${version} was rolled back from, so the next look may install it again (${(e && e.code) || 'error'})`);
+  }
+}
+function clearHeld(env, home) { try { fs.rmSync(heldPath(env, home), { force: true }); } catch { /* the next install clears it again */ } }
 
 /**
  * One run. Resolves to `{ answer: [word, value?], rollback: <version>|null, note: <text>|null }`. Options:
@@ -155,16 +175,26 @@ async function run(action, opts) {
     const r = await (o.rollbackToPrevious || win32update.rollbackToPrevious)(common);
     if (!r || !r.ok) return done(['refused', oneLine((r && r.because) || 'the rollback could not be started')]);
     const outcome = await outcomeOf(r.journal, probe, o.wait);
-    if (outcome.outcome === 'updated') return done(['rolledback', r.version]);
+    if (outcome.outcome === 'updated') {
+      if (r.from) writeHeld(env, home, r.from, log);
+      return done(['rolledback', r.version]);
+    }
     return done(['failed', r.version, oneLine(outcome.sentence || outcome.because || `the rollback ended as ${outcome.outcome || 'unknown'}`)]);
   }
 
+  /* decide() reads the consent and the channel through update.js and autoupdate.js, which use process.env
+     and the account's own folders; the env/home seams above do not reach it (a test sets process.env). */
   const look = await (o.decide || ifnewer.decide)();
   const [kind, version, consent] = (look && look.line) || [];
   if (kind === 'current') return done(['current', version]);
   if (kind === 'source') return done(['unknown', 'this is not an installed copy of Kosmos'], null);
   if (kind !== 'newer') return done(['unknown', oneLine(version || 'the update check gave no answer')]);
   if (action === 'look' && consent !== 'on') return done(['newer', version]);
+  const held = readHeld(env, home);
+  if (action === 'look' && held && !update.newer(version, held)) {
+    note = `${version} is not installed by itself, because it was rolled back from on this computer; it stays on offer`;
+    return done(['newer', version]);
+  }
 
   const r = await (o.begin || win32update.begin)({ ...common, expectVersion: version });
   if (!r || !r.ok) {
@@ -180,7 +210,10 @@ async function run(action, opts) {
     return done(['refused', because]);
   }
   const outcome = await outcomeOf(r.journal, probe, o.wait);
-  if (outcome.outcome === 'updated') return done(['updated', outcome.to || r.version || version]);
+  if (outcome.outcome === 'updated') {
+    clearHeld(env, home);
+    return done(['updated', outcome.to || r.version || version]);
+  }
   return done(['failed', version, oneLine(outcome.sentence || outcome.because || `the update ended as ${outcome.outcome || 'unknown'}`)]);
 }
 

@@ -2675,6 +2675,12 @@ class KosmosLauncher
     // A day between looks, and an hour after a look that could not reach the release host.
     internal const int UpdateLookEveryMs = 24 * 60 * 60 * 1000;
     internal const int UpdateLookRetryMs = 60 * 60 * 1000;
+    // The longest the window's own look may run before it is given up on, so a helper that hangs cannot
+    // hold "Run agents" for good: above the engine's own limits for a look that installs (a 15-minute
+    // download, then a 10-minute wait for the helper's outcome). The helper it starts runs detached and
+    // finishes on its own. A run the person asked for (Update, Roll back) is waited for as long as it takes,
+    // as the move and the uninstall are.
+    internal const int UpdateLookTimeoutMs = 40 * 60 * 1000;
 
     internal const string StillUpdatingMessage = "Kosmos is still updating on this computer. Try again in a moment.";
 
@@ -2955,7 +2961,7 @@ class KosmosLauncher
     internal const string RollingBackNote = "Rolling Kosmos back. It opens again when that is done.";
     internal static string RollbackQuestion(string version)
     {
-        return "Roll Kosmos on this computer back to " + version + "?\n\nThis puts back the version the last update replaced. Your agents on the other computer are not affected.";
+        return "Roll Kosmos on this computer back to " + version + "?\n\nThis puts back the version the last update replaced. Kosmos will then offer the newer version again rather than install it by itself. Your agents on the other computer are not affected.";
     }
     internal static string UpdateFailedNote(string why, bool canRetry)
     {
@@ -3955,7 +3961,7 @@ class BoardWindowForm : System.Windows.Forms.Form
             try
             {
                 lines = KosmosLauncher.runEngineHelper(Path.Combine(folder, "runtime\\node.exe"), folder, KosmosLauncher.ConnectUpdateScript,
-                    KosmosLauncher.ConnectUpdateArguments(action, boardPort, expect), 0, out problem);
+                    KosmosLauncher.ConnectUpdateArguments(action, boardPort, expect), action == "look" ? KosmosLauncher.UpdateLookTimeoutMs : 0, out problem);
             }
             catch (Exception e) { problem = e.Message; }
             KosmosLauncher.ConnectUpdateAnswer answer = KosmosLauncher.ReadConnectUpdateReport(lines);

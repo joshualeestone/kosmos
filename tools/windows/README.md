@@ -163,7 +163,7 @@ order mark, a read error) is `unreadable` and asks again. Only `Kosmos.exe` writ
   That file runs the board's own look and consent (`engine/update-ifnewer.js`, `latest-win.json`),
   and the board's own updater and rollback (`win32update.begin` / `rollbackToPrevious`), held to the
   connect computer's preconditions (the mode file reads `connect`, nothing answers on the port) in
-  place of the board task's. Updates on (no `autoupdate.json` is on): it installs, and the window offers
+  place of the board task's. Updates on (no `autoupdate.json`, or one that says on): it installs, and the window offers
   a Restart; it never restarts unasked. Updates off: a bar over the page and the system menu offer
   "Update Kosmos to X", and nothing installs until the person picks it. After an update the menu
   offers "Roll back Kosmos to X" (asked first). An update or rollback the person picked closes the
