@@ -37,7 +37,7 @@ const CRED_PATTERNS = [
   // "authToken": "x", "client_secret": "x", "password": "x", "apiKey": "x"
   // (not any name with "auth" in it: authMode and author are facts a builder needs; an escaped quote stays in the value)
   // (a value cut before its closing quote, at a line's end, is taken to the end)
-  [/("[A-Za-z0-9_-]*(?:token|secret|password|passwd|apikey|api_key|authorization)[A-Za-z0-9_-]*"\s*:\s*")(?:[^"\\]|\\.)*("|$)/gi, '$1$2'],
+  [/("[A-Za-z0-9_-]*(?:token|secret|password|passwd|passphrase|apikey|api_key|authorization)[A-Za-z0-9_-]*"\s*:\s*")(?:[^"\\]|\\.)*("|$)/gi, '$1$2'],
 ];
 
 // Host names every computer can have, which name no one: replacing them would only damage lines like a localhost URL.

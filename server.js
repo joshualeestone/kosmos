@@ -4211,10 +4211,11 @@ function statusForSibling(json) {
    passes the same checks and answers 204 with no body. A refusal goes to `refuseDownload`. */
 const DOWNLOAD_GONE = 'that file is not there any more, or it was moved';
 const DOWNLOAD_UNREADABLE = 'that file could not be read on the computer Kosmos runs on';
-/* #5959 slice 4: the diagnostics file one half of a click made (the download or the page's ?check=1 look), kept a few
-   seconds for the other half, once. */
+/* #5959 slice 4: the diagnostics file one half of a click made (the download or the page's ?check=1 look), or that it
+   failed, kept a few seconds for the other half, once. */
 let DIAG_LAST = null;
 const DIAG_REUSE_MS = 5000;
+const DIAG_FAILED = 'Kosmos could not make the diagnostics file just now';
 function sendDiagnostics(res, file, now) {
   const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;   // the person's day, not UTC's
   res.writeHead(200, {
@@ -14166,6 +14167,8 @@ const server = http.createServer(async (req, res) => {
       const cached = DIAG_LAST && DIAG_LAST.look !== look && Date.now() - DIAG_LAST.at < DIAG_REUSE_MS ? DIAG_LAST : null;
       if (cached) {
         DIAG_LAST = null;
+        // A failure the other half met is this half's answer too, so the page and the download never disagree.
+        if (cached.failed) { refuseDownload(req, res, DIAG_FAILED, 500); return; }
         if (look) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); } else sendDiagnostics(res, cached.file, cached.now);
         return;
       }
@@ -14196,8 +14199,11 @@ const server = http.createServer(async (req, res) => {
       sendDiagnostics(res, file, now);
     } catch (err) {
       console.error('diagnostics: the file could not be made: ' + String((err && err.message) || err));
+      const failed = { at: Date.now(), failed: true, look: isDownloadCheck(req) };
+      DIAG_LAST = failed;
+      setTimeout(() => { if (DIAG_LAST === failed) DIAG_LAST = null; }, DIAG_REUSE_MS).unref();
       // A refusal the browser does not save as the file (204 to its own download), and the page's look gets the sentence.
-      refuseDownload(req, res, 'Kosmos could not make the diagnostics file just now', 500);
+      refuseDownload(req, res, DIAG_FAILED, 500);
     }
     return;
   }

@@ -154,3 +154,7 @@ test('#5959: another person\'s folder that starts with the home folder\'s name i
   assert.equal(redactText('/Users/pat/x'), '~/x', 'CONTROL: the home folder itself is still ~');
   assert.equal(redactText('{"password":"abc'), '{"password":"••••', 'a value cut before its quote is taken to the end');
 });
+
+test('#5959: a passphrase field is a secret too', () => {
+  assert.equal(makeRedactor({ home: '/Users/zed', user: 'zzz', host: 'zzz' }).redactText('{"passphrase":"correct horse"}'), '{"passphrase":"••••"}');
+});
