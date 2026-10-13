@@ -219,10 +219,13 @@ test('agentTrust: a trust file that cannot be written includes nothing, and says
   const a = mk('t-wfail-a');
   const blocker = path.join(SANDBOX, 't-wfail-file');
   fs.writeFileSync(blocker, 'a file where the folder would go');
-  const r = dirs.agentTrust('gem', [a], trustHome('t-wfail-home'), { file: path.join(blocker, 'gem.json') });
+  const denied = mk('t-wfail-denied');
+  const r = dirs.agentTrust('gem', [a, denied], trustHome('t-wfail-home', { [denied]: 'DO_NOT_TRUST' }), { file: path.join(blocker, 'gem.json') });
   assert.deepEqual(r.folders, []);
   assert.equal(r.file, null);
-  assert.match(r.leftOut[0].because, /could not be written/);
+  const why = Object.fromEntries(r.leftOut.map((l) => [l.folder, l.because]));
+  assert.match(why[a], /could not be written/);
+  assert.match(why[denied], /do not trust/, 'a denied folder keeps its own reason');
 });
 
 test('launchFolders: the Mac launch returns the folders and the agent trust file', () => {
