@@ -47,6 +47,11 @@ cat > "$PAGE" <<'HTML'
         <span class="rel-d">August 28, 2026, 1:00 PM CDT</span></div>
       <p>Use the menu, e.g. Settings, Advanced, to change the long thing that this release note describes at great length, on and on through many clauses and many more words, so that this one sentence alone is longer than the whole budget for a post on X and must be cut at a word. Then a second sentence follows.</p>
     </article>
+    <article class="rel" id="v0-8-9">
+      <div class="rel-h"><h2 class="rel-v"><a href="#v0-8-9"><span class="num">0.8.9</span></a></h2>
+        <span class="rel-d">August 26, 2026, 1:00 PM CDT</span></div>
+      <p>Fixes U.S. users who saw the wrong date format on the setup screen and in the room headers, and on the agent page as well, and in the task list and the files list and the settings page and the help page, which is now right everywhere they look in Kosmos. A second sentence follows.</p>
+    </article>
     <article class="rel" id="v0-9-1">
       <div class="rel-h"><h2 class="rel-v"><a href="#v0-9-1"><span class="num">0.9.1</span></a></h2>
         <span class="rel-d">August 27, 2026, 1:00 PM CDT</span></div>
@@ -184,6 +189,10 @@ X3="$(env LC_ALL=C KOSMOS_VERSIONS_PAGE="$PAGE" KOSMOS_SOCIAL_PREVIEW_DIR="$PREV
 X2="$(xpost 0.9.2)"
 { has "$X2" "Use the menu, e.g. Settings, Advanced, to change the long thing" && has "$X2" "… https://installkosmos.com/versions.html" && ! has "$X2" "e.g. https" && ! has "$X2" "Then a second"; } \
   && pass "#6082: an abbreviation does not end a sentence" || bad "#6082: stopped at an abbreviation: $X2"
+# 7i. #6082 review 3: "U.S." before a lowercase word does not end a sentence (a sentence ends before a capital or digit).
+X89="$(xpost 0.8.9)"
+{ has "$X89" "Fixes U.S. users who saw" && has "$X89" "… https://installkosmos.com/versions.html" && ! has "$X89" "U.S. https" && ! has "$X89" "A second"; } \
+  && pass "#6082: U.S. before a lowercase word keeps the sentence whole" || bad "#6082: stopped at U.S.: $X89"
 # 7h. #6082 review 2: a note starting with a dash (here --version, which node would answer with its own version) reaches
 # the trimmer as text; the unbroken token after it is cut back to the last space, with an ellipsis, <=280.
 X1="$(xpost 0.9.1)"

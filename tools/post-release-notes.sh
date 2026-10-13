@@ -96,8 +96,9 @@ if [ "${#X_BODY}" -gt "$_budget" ]; then
       function trim() {
         const len = (s) => [...s].length;
         let out = "";
-        // A sentence ends at . ! or ? (a closing quote or bracket may follow) and a space; e.g., i.e., etc. and vs. do not end one.
-        for (const p of t.split(/(?<=[.!?]["\x27\u201d\u2019)\]]?)(?<!\b(?:e\.g|i\.e|etc|vs)\.)\s+/)) {
+        // A sentence ends at . ! or ? (a closing quote or bracket may follow), a space, and a capital or digit next;
+        // a few abbreviations (e.g., Mr.) never end one.
+        for (const p of t.split(/(?<=[.!?]["\x27\u201d\u2019)\]]?)(?<!\b(?:e\.g|i\.e|etc|vs|Mr|Mrs|Dr|approx|incl)\.)\s+(?=["\x27\u201c\u2018(]?[A-Z0-9])/)) {
           const next = out ? out + " " + p : p;
           if (len(next) <= b) out = next; else break;
         }
