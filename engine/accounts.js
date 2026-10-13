@@ -458,7 +458,7 @@ function prepare(label) {
      while a refused prepare would be a worse failure for a smaller cause.
      The field in the return is what lets a screen say which happened.
      Reused spots get this free: the connect route re-runs prepare. */
-  const hooks = reporthook.ensureWired(path.join(dir, 'settings.json'), reporthook.hookScriptPath());
+  const hooks = reporthook.ensureWired(path.join(dir, 'settings.json'), reporthook.hookScriptPath(), { claudeVersion: claudeVersionNow() });
   /* #3946: and with the statusline that records its weekly usage, so a swarm
      on it can be limited in "% of weekly allowance". Same fail-soft posture:
      an account that already has its own statusline keeps it and simply has
@@ -474,6 +474,14 @@ function prepare(label) {
     weeklyBecause: weekly.wired === true ? null : (weekly.because || null) };
 }
 
+/* #6071: the Claude Code version this machine runs (reporthook.claudeVersion), or null when it cannot be told. It
+   decides whether the hooks include PostToolUseFailure, which a Claude Code before 2.1.0 does not know and answers by
+   dropping the whole settings file. Required lazily (accounts must load without runners) and fail-soft to null. */
+function claudeVersionNow(plat) {
+  try { return reporthook.claudeVersion(require('./runners').resolveBin('claude').bin, { platform: plat }); }
+  catch { return null; }
+}
+
 /**
  * kosmos#5612: the DEFAULT account's reporting hooks, on Windows. On a Mac install/setup.sh wires them into every
  * account folder, and prepare() above wires an added one; nothing on Windows ever wired the default folder, so a
@@ -485,7 +493,7 @@ function prepare(label) {
  * is returned, never thrown. Anywhere else it does nothing, because setup.sh owns the Mac. Note: the person's own
  * Claude Code sessions read this file too, so they run the hook as well, as they always have on a Mac (#561).
  *   { wired, changed?, because?, skipped, busy? }   busy: the lock was held, so the caller may try again soon
- * `platform`, `script`, `node` are injectable for tests. `waitMs` is withFileLock's wait for a held lock (its default
+ * `platform`, `script`, `node`, `claudeVersion` are injectable for tests. `waitMs` is withFileLock's wait for a held lock (its default
  * when absent); a caller that retries on its own passes 0 (a held lock then refuses within one 20 ms spin), since
  * withFileLock's wait blocks the event loop.
  */
@@ -503,7 +511,8 @@ function wireDefaultHooks(opts) {
     fs.mkdirSync(path.dirname(settings), { recursive: true });
     const BUSY = 'another writer held the settings file';
     const locked = require('./filelock').withFileLock(settings,
-      () => reporthook.ensureWired(settings, script, { platform: plat, node: o.node }),
+      () => reporthook.ensureWired(settings, script, { platform: plat, node: o.node,
+        claudeVersion: o.claudeVersion !== undefined ? o.claudeVersion : claudeVersionNow(plat) }),
       { busy: BUSY, cannotAccess: 'the settings folder refused the lock file, so the hooks were not written', waitMs: o.waitMs });
     if (!locked || locked.ok !== true) {
       // Only a held lock is worth trying again; a folder that refuses the lock file will refuse it next time too.
