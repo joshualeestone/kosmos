@@ -93,6 +93,10 @@ test('#6083: which titles are near (pure); every #5319 counterexample is never n
     ['\u0930\u093e\u092e \u0915\u093e \u0915\u093e\u092e \u0915\u0930\u094b', '\u0930\u093e\u092e \u0915\u0940 \u0915\u093e\u092e \u0915\u0930\u094b', false, 'review 5: a combining mark is part of its word'],
     ['Delete the logs?', 'Delete the logs', false, 'review 5: a question is another ask'],
     ['Run the Meta pass.', 'run the meta pass now', true, 'review 5: a full stop is still set aside'],
+    ["Run the migrations '--dry-run'", 'Run the migrations dry-run', false, 'review 6: a quoted flag'],
+    ['Run the migrations (--dry-run)', 'Run the migrations dry-run', false, 'review 6: a bracketed flag'],
+    ['Remove the file "-f"', 'Remove the file f', false, 'review 6: a double-quoted flag'],
+    ['Set the limit to \u20135', 'Set the limit to 5', false, 'review 6: an en-dash minus'],
   ]) assert.equal(tasks.isNearTitle(a, b), want, `${a} | ${b}: ${why}`);
 });
 

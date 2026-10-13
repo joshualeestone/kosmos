@@ -2020,11 +2020,14 @@ function titleShape(sentence) {
   const lower = words.map((w) => w.toLowerCase().replace(/['\u2019\u02bc]/gu, ''));
   // Review 2: a command-line flag ("--dry-run", "-x") changes how a thing runs; its leading dashes are not sentence
   // punctuation, so the flags are compared as written.
-  const flags = raw.split(/\s+/u).filter((w) => /^-{1,2}\p{L}/u.test(w)).map((w) => w.toLowerCase()).sort().join(' ');
+  // Review 6: a quoted or bracketed flag ("'--dry-run'", "(-f)") is still a flag.
+  const flags = raw.split(/\s+/u).map((w) => w.replace(/^[(\[{'"\u2018\u201c]+|[)\]}'"\u2019\u201d.,;:]+$/gu, ''))
+    .filter((w) => /^-{1,2}\p{L}/u.test(w)).map((w) => w.toLowerCase()).sort().join(' ');
   return {
     flags,
     bag: lower,
-    numbers: (raw.match(/[-+\u2212]?\d[\d.,:]*/gu) || []).join(' '),
+    // Review 6: an en or em dash before a digit is a minus sign (typographic autocorrect writes one).
+    numbers: (raw.match(/[-+\u2212\u2013\u2014]?\d[\d.,:]*/gu) || []).map((n) => n.replace(/^[\u2212\u2013\u2014]/u, '-')).join(' '),
     symbols: Array.from(raw).filter((c) => /[\p{S}\p{P}]/u.test(c) && !SENTENCE_MARKS.has(c)).sort().join(''),
     // Review 2: a hyphenated negation ("do-not") counts too.
     negating: lower.flatMap((w) => w.split('-')).filter((w) => NEGATING.has(w)).sort().join(' '),
