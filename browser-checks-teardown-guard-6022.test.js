@@ -29,8 +29,10 @@
  * arrow (`async (r) =>`, `r =>`) or `function (r)`. A handler written as a named function defined elsewhere is not
  * read (fails GREEN). #6027 widened the rule: in ANY handler, every answer after its first fetch or its first await (a
  * timer, a held promise) must be awaited inside a try with a catch, or chain its own .catch; an answer before any
- * await is immediate and exempt; an answer inside a setTimeout( or .then( callback is late even with no await, and must
- * chain its own .catch. A handler's span is its .route( call, to the matching paren (a backtick string nested inside
+ * await is immediate and exempt; an answer inside a scheduled or chained callback (setTimeout, setInterval,
+ * setImmediate, queueMicrotask, nextTick, .then, .finally) is late even with no await, and needs a .catch on it or on
+ * the callback's chain, or an awaited try inside the callback. A helper defined first and scheduled later
+ * (`const f = () => r.fulfill(); setTimeout(f)`) is not seen (fails GREEN). A handler's span is its .route( call, to the matching paren (a backtick string nested inside
  * ${...} in the route's URL can cut it short). Code before the wait now sits inside the try, so a throw there aborts
  * the request quietly instead of crashing; no check relies on that crash. A catch that
  * rethrows counts as caught, and the abort in the catch is advised, not required (an empty catch passes: no crash, but a
@@ -94,6 +96,7 @@ function regexStart(src, i) {
   let j = i - 1;
   while (j >= 0 && /\s/.test(src[j])) j -= 1;
   if (j < 0) return true;
+  if ((src[j] === '+' || src[j] === '-') && src[j - 1] === src[j]) return false;   // i++ / 2 divides (review 2)
   if ('(,=:[!&|?{};><+-*~%^'.includes(src[j])) return true;
   return /\b(return|typeof|case|in|of|void)$/.test(src.slice(Math.max(0, j - 7), j + 1));
 }
@@ -226,25 +229,36 @@ function scan(raw) {
     // Only when the answer IS the await's operand: `await r.fulfill(` or `await (cond ? r.fulfill(` (review 1: not an
     // answer inside .then(, a callback, or after a comma).
     const answerNext = new RegExp('^await\\s*(?:\\(\\s*[^;{}(),=>]*?\\?\\s*)?' + h.param + '\\.(fulfill|continue|fallback|abort)\\(');
+    // The ) that closes the call starting at `at`, and whether a .catch( follows it.
+    const callClose = (at) => routeEnd(blank, at);
+    const catchesAfter = (close) => /^\s*\.catch\(/.test(src.slice(close + 1, close + 40));
     let firstWait = -1;
     for (const w of body.matchAll(/\bawait\b/g)) {
       const rest = body.slice(w.index);
       const stmt = rest.slice(0, rest.search(/[;{}]|$/) + 1);
       if (!answerNext.test(stmt)) { firstWait = w.index; break; }
+      // The answer IS the operand, but an await inside its own arguments runs first, so the answer is late (review 2).
+      const call = h.body + w.index + rest.search(new RegExp(h.param + '\\.'));
+      if (/\bawait\b/.test(src.slice(call, callClose(call)))) { firstWait = w.index; break; }
     }
-    // An answer inside a setTimeout( or .then( callback is late too, await or not (review 1): an outer try cannot catch
-    // a rejection from a callback, so it must chain its own .catch.
-    const cbAns = new RegExp('\\b' + h.param + '\\.(fulfill|continue|fallback)\\(', 'g');
+    // An answer inside a scheduled or chained callback is late too, await or not (review 1, widened in review 2): an
+    // outer try cannot catch a rejection from a callback, so the answer, or the callback's own call, must chain .catch,
+    // or the answer must be awaited inside a try inside the callback.
+    const cbAns = new RegExp('\\b' + h.param + '\\.(fulfill|continue|fallback|abort)\\(', 'g');
+    const CB = /(?:\bsetTimeout|\bsetInterval|\bsetImmediate|\bqueueMicrotask|\bprocess\.nextTick|\.then|\.finally)\s*\(/g;
     for (const a of body.matchAll(cbAns)) {
       const at = h.body + a.index;
-      let late = false;
-      for (const cb of src.slice(h.body, at).matchAll(/(?:\bsetTimeout|\.then)\s*\(/g)) {
+      let lateCb = null;
+      for (const cb of src.slice(h.body, at).matchAll(CB)) {
         const open = h.body + cb.index + cb[0].length - 1;
-        if (routeEnd(blank, open - 1) > at) { late = true; break; }
+        const close = routeEnd(blank, open - 1);
+        if (close > at) lateCb = { open, close };
       }
-      if (late && !/^(?:fulfill|continue|fallback)\((?:[^()]|\([^()]*\)|\((?:[^()]|\([^()]*\))*\))*\)\s*\.catch\(/.test(src.slice(at + h.param.length + 1, end))) {
-        bad.push(src.slice(0, at).split('\n').length);
-      }
+      if (!lateCb) continue;
+      const own = catchesAfter(callClose(at));
+      const outer = catchesAfter(lateCb.close);
+      const tried = insideOpenTry(src, lateCb.open, at) && awaited(src, at);
+      if (!own && !outer && !tried) bad.push(src.slice(0, at).split('\n').length);
     }
     const hits = [body.search(new RegExp('\\b' + h.param + '\\.fetch\\(')), firstWait].filter((x) => x >= 0);
     if (!hits.length) return;
@@ -256,12 +270,11 @@ function scan(raw) {
       const line = src.slice(0, f.index).split('\n').length;
       if (f[1] === 'abort') {
         // The catch runs when the page may be gone, so its abort rejects too: it must chain its own .catch (round 2).
-        if (!/^abort\([^)]*\)\s*\.catch\(/.test(src.slice(f.index + h.param.length + 1))) bad.push(line);
+        if (!catchesAfter(callClose(f.index))) bad.push(line);
         continue;
       }
       // An answer that chains its own .catch( handles its rejection (Baron's #6023 shape), try or not.
-      if (/^\w+\([^;]*?\)\s*\.catch\(/.test(src.slice(f.index + h.param.length + 1, end))
-        && /^(fulfill|continue|fallback)\((?:[^()]|\([^()]*\))*\)\s*\.catch\(/.test(src.slice(f.index + h.param.length + 1, end))) continue;
+      if (f[1] !== 'fetch' && catchesAfter(callClose(f.index))) continue;
       if (!insideOpenTry(src, h.at, f.index) || !awaited(src, f.index)) bad.push(line);
     }
   });
@@ -327,6 +340,16 @@ test('#6022 fixtures: the rule can fail, and the safe shapes pass (controls)', (
   assert.ok(scan(commaAwait).length > 0, 'an answer after a comma inside an await is not exempt (#6027 review 1)');
   const regexParens = "await page.route('**/x', async (r) => {\n  const ok = (u) => /\\)\\)/.test(u);\n  await gate;\n  r.fulfill({});\n});\n";
   assert.deepEqual(scan(regexParens), [4], 'parens inside a regex after => do not end the handler early (#6027 review 1)');
+  const awaitInArgs = "await page.route('**/x', async (r) => {\n  await r.fulfill({ json: await load() });\n});\n";
+  assert.deepEqual(scan(awaitInArgs), [2], 'an await inside the answer\'s own arguments makes the answer late (#6027 review 2)');
+  const interval = "await page.route('**/x', (r) => {\n  setInterval(() => r.fulfill({}), 100);\n});\n";
+  assert.deepEqual(scan(interval), [2], 'an answer in a setInterval callback is late (#6027 review 2)');
+  const outerCatch = "await page.route('**/x', (r) => {\n  gate.then(() => r.fulfill({})).catch(() => {});\n});\n";
+  assert.deepEqual(scan(outerCatch), [], 'a .catch on the callback chain handles the answer (#6027 review 2)');
+  const triedInCb = "await page.route('**/x', (r) => {\n  setTimeout(async () => { try { await r.fulfill({}); } catch {} }, 100);\n});\n";
+  assert.deepEqual(scan(triedInCb), [], 'an answer awaited in a try inside the callback is handled (#6027 review 2)');
+  const deepArgs = "await page.route('**/x', async (r) => {\n  await gate;\n  await r.fulfill({ json: { a: f(g(h(i(1)))) } }).catch(() => {});\n});\n";
+  assert.deepEqual(scan(deepArgs), [], 'a .catch after deeply nested arguments is found by paren matching (#6027 review 2)');
   const fixtureOnly = "await page.route('**/api/x', (r) => r.fulfill({ json: {} }));\nconst x = await window.fetch('/a');\nawait browser.close();\n";
   assert.deepEqual(scan(fixtureOnly), [], 'a fixture-only handler and window.fetch are not flagged');
   const bareParam = "page.route('**/t', async route => {\n  const r = await route.fetch();\n  route.fulfill({ response: r });\n});\n";
