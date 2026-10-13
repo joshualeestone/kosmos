@@ -330,6 +330,7 @@ const chk = (ok, label, extra) => {
   await choose('meta'); await settle();
   const ask = await q(() => ({ flow: !document.getElementById('acct-muse-flow').hidden, go: document.getElementById('acct-muse-go').textContent,
     say: document.getElementById('acct-muse-say').textContent }));
+  chk(await q(() => !/Sign in/.test(document.querySelector('#acct-muse-flow > p.dwarn').textContent)), '#6004: the Settings step heading does not say Sign in above an Install Muse Code button (screenshot finding)');
   chk(ask.flow && ask.go === 'Install Muse Code' && /download from Meta/.test(ask.say), '#6004: the step says Muse Code is a download from Meta and offers Install Muse Code (the press is the confirm)', JSON.stringify(ask));
   const signinsBefore = await q(() => window.__posts.length);
   await q(() => { window.__holdInstall = new Promise((r) => { window.__releaseInstall = r; }); });
