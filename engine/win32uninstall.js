@@ -316,17 +316,6 @@ function leftoverList(failures) {
   return more > 0 ? named + '; and ' + more + ' more' : named;
 }
 
-/**
- * Is a Kosmos board open on the port, and did its logon task start it?
- *   `{answering: false}`                          no board: every address refused, or only a page that is not Kosmos
- *   `{answering: true, byTask: true|false|null}`  a Kosmos board answered; byTask says whether its task started it
- *   `{answering: true, byTask: false, unanswered}` no answer, only a timeout or a failed look (`unanswered` is
- *                                                  the outcome): a board that may be open. The first look reads
- *                                                  the board task on that (stopForUnansweredFirstLook): a task
- *                                                  that reads running goes on to be switched off, ended and
- *                                                  waited for; every later look counts it as still open.
- * A probe that cannot run is a failed look.
- */
 /* #5999: the Claude settings files Kosmos's report hooks may be in: the default account's (as the board wires it,
    engine/accounts.js wireDefaultHooks, and trust.defaultAgentSettings's override) and every ~/.claude-* account's
    (accounts.prepare). A folder that is not an account is still looked in: a hook of ours there errors the same. */
@@ -356,31 +345,49 @@ function unwireHooks(bundleRoot, home, env, gone, done, left, notes) {
     try { const r = real(given); if (!roots.includes(r)) roots.push(r); } catch { /* the given path is enough */ }
   }
   for (const file of claudeSettingsFiles(home, env)) {
-    try { fs.lstatSync(file); } catch { continue; }   // no file: nothing of ours to take out, and nothing to lock
-    const locked = filelock.withFileLock(file, () => reporthook.unwireInstall(file, roots, { gone }),
-      { busy: 'another program was writing it', cannotAccess: 'its folder would not let Kosmos lock it' });
-    let r;
-    if (locked && locked.ok === true) r = locked.value;
-    else {
-      // Not locked, so not touched. A read-only look says whether there was anything of ours to take out.
-      const look = reporthook.unwireInstall(file, roots, { gone, dryRun: true });
-      r = { ours: look.ours, changed: false, because: (locked && locked.because) || 'it could not be locked' };
-    }
-    if (r.changed) {
-      done.push('took Kosmos\'s entries out of Claude Code\'s settings (' + file + ')'
-        + (r.dead ? ', including entries left by an earlier Kosmos folder' : ''));
-    } else if (r.ours && r.unreadable) {
-      /* Round 4: a file Kosmos cannot read is one Claude Code cannot read either, and removing Kosmos again cannot
-         change it, so it is a note (the removal still finishes), with what to do about the file itself. */
-      notes.push('Claude Code\'s settings file ' + file + ' still has Kosmos\'s entries, but it could not be read ('
-        + r.because + '). Once that file is fixed, delete each whole entry in it that names kosmos-report-hook.');
-    } else if (r.ours) {
-      left.push('Kosmos\'s entries in Claude Code\'s settings (' + file + '), which could not be taken out ('
-        + (r.because || 'the file did not change') + '). ' + hooksByHand('that file') + '.');
-    }
+    try { unwireOne(file, roots, gone, filelock, reporthook, done, left, notes); }
+    catch { left.push('Kosmos\'s entries in Claude Code\'s settings (' + file + '), which could not be checked. ' + hooksByHand('that file') + '.'); }
   }
 }
 
+/* One settings file of unwireHooks. A retry can fix a busy lock or a failed save (left: the removal is not finished);
+   it cannot fix a file Kosmos cannot use or a folder that refuses the lock (a note: the removal still finishes). */
+function unwireOne(file, roots, gone, filelock, reporthook, done, left, notes) {
+  try { fs.lstatSync(file); } catch { return; }   // no file: nothing of ours to take out, and nothing to lock
+  const BUSY = 'another program was writing it';
+  const locked = filelock.withFileLock(file, () => reporthook.unwireInstall(file, roots, { gone }),
+    { busy: BUSY, cannotAccess: 'its folder would not let Kosmos lock it' });
+  let r;
+  if (locked && locked.ok === true) r = locked.value;
+  else {
+    // Not locked, so not touched. A read-only look says whether there was anything of ours to take out.
+    const look = reporthook.unwireInstall(file, roots, { gone, dryRun: true });
+    const because = (locked && locked.because) || 'it could not be locked';
+    r = { ours: look.ours, changed: false, unreadable: look.unreadable, because: look.unreadable ? look.because : because, stuck: because !== BUSY };
+  }
+  if (r.changed) {
+    done.push('took Kosmos\'s entries out of Claude Code\'s settings (' + file + ')'
+      + (r.dead ? ', including entries left by an earlier Kosmos folder' : ''));
+  } else if (r.ours && (r.unreadable || r.stuck)) {
+    notes.push('Claude Code\'s settings file ' + file + ' still has Kosmos\'s entries, which Kosmos could not take out ('
+      + r.because + '). Once that is fixed, delete each whole entry in the file that names kosmos-report-hook.');
+  } else if (r.ours) {
+    left.push('Kosmos\'s entries in Claude Code\'s settings (' + file + '), which could not be taken out ('
+      + (r.because || 'the file did not change') + '). ' + hooksByHand('that file') + '.');
+  }
+}
+
+/**
+ * Is a Kosmos board open on the port, and did its logon task start it?
+ *   `{answering: false}`                          no board: every address refused, or only a page that is not Kosmos
+ *   `{answering: true, byTask: true|false|null}`  a Kosmos board answered; byTask says whether its task started it
+ *   `{answering: true, byTask: false, unanswered}` no answer, only a timeout or a failed look (`unanswered` is
+ *                                                  the outcome): a board that may be open. The first look reads
+ *                                                  the board task on that (stopForUnansweredFirstLook): a task
+ *                                                  that reads running goes on to be switched off, ended and
+ *                                                  waited for; every later look counts it as still open.
+ * A probe that cannot run is a failed look.
+ */
 async function boardOnPort(port, o) {
   const handoff = require('./win32handoff');
   /* Round 4, finding 1: every address a board of this user could be on, not 127.0.0.1 alone. */

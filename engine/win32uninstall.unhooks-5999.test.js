@@ -161,6 +161,7 @@ test('#5999: while a Kosmos task is still registered (it can wire them back), th
   const bytes = fs.readFileSync(def, 'utf8');
   stubSchedulers([listing(['Kosmos\\mystery'])]);
   const r = await run(h);
+  assert.ok(r.left.some((l) => /Kosmos does not recognise/.test(l)), 'the task was not seen as still registered, so this proves nothing: ' + JSON.stringify(r.left));
   assert.equal(fs.readFileSync(def, 'utf8'), bytes, 'hooks were taken out while a Kosmos task was still registered');
   assert.ok(!r.done.some((d) => /Claude Code's settings/.test(d)), JSON.stringify(r.done));
 });
@@ -187,6 +188,7 @@ test('#5999: a board that answers after the tasks went (it would wire them back)
   const probe = async () => { looks += 1; return looks === 1 ? { answering: false, outcome: 'refused', identity: null, startedByTask: null } : { answering: true, identity: '0.7.0+abc@default', startedByTask: true }; };
   const r = await run(h, { probe });
   assert.ok(looks >= 2, 'the second look never ran, so this tested nothing');
+  assert.ok(r.left.some((l) => /still open/.test(l)), 'the board was not seen as open, so this proves nothing: ' + JSON.stringify(r.left));
   assert.equal(fs.readFileSync(def, 'utf8'), bytes, 'hooks were taken out while a board was answering');
   assert.ok(!r.done.some((d) => /Claude Code's settings/.test(d)), JSON.stringify(r.done));
 });
@@ -266,6 +268,20 @@ test('#5999: a settings file that cannot be read is a note (removing again canno
   assert.equal(fs.readFileSync(broken, 'utf8'), text, 'an unreadable file was rewritten');
   assert.ok(r.notes.some((n) => n.includes(broken) && /could not be read/.test(n) && /whole entry/.test(n)), JSON.stringify(r.notes));
   assert.ok(!r.left.some((l) => l.includes(broken)), 'an unreadable file was made a leftover, which keeps the removal unfinished for good: ' + JSON.stringify(r.left));
+});
+
+test('#5999: a folder that will not let Kosmos lock the file is a note, not a leftover a retry cannot clear (round 5)', { skip: (process.platform === 'win32' || process.getuid() === 0) && 'a folder mode cannot refuse a write on Windows, or to root' }, async () => {
+  const h = home();
+  const def = path.join(h, '.claude', 'settings.json');
+  writeJson(def, wiredSettings());
+  const bytes = fs.readFileSync(def, 'utf8');
+  fs.chmodSync(path.dirname(def), 0o555);   // readable, but no new entry (the lock) can be made in it
+  stubSchedulers([listing([])]);
+  let r;
+  try { r = await run(h); } finally { fs.chmodSync(path.dirname(def), 0o755); }
+  assert.equal(fs.readFileSync(def, 'utf8'), bytes, 'the file was written without its lock');
+  assert.ok(r.notes.some((n) => n.includes(def) && /would not let Kosmos lock it/.test(n)), JSON.stringify(r.notes));
+  assert.ok(!r.left.some((l) => l.includes(def)), JSON.stringify(r.left));
 });
 
 test('#5999: a held lock is waited on, then the file is named and left as it was (the #3088 lock the writers take)', async () => {
