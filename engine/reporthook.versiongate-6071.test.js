@@ -162,3 +162,12 @@ test('the default folder also looks where a claude is usually installed, not onl
   fs.symlinkSync(process.execPath, path.join(bin, 'claude'));
   assert.equal(accounts.defaultFolderClaudeVersion('darwin', { PATH: '' }), process.versions.node);
 });
+
+test('oldestClaudeVersion: once the time budget is spent, the answer is unknown', () => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'slow-'));
+  const a = path.join(dir, 'a'); const b = path.join(dir, 'b');
+  fs.writeFileSync(a, ''); fs.writeFileSync(b, '');
+  const slow = () => { const until = Date.now() + 30; while (Date.now() < until) { /* a slow read */ } return '2.1.296'; };
+  assert.equal(reporthook.oldestClaudeVersion([a, b], { versionOf: slow, budgetMs: 10 }), null);
+  assert.equal(reporthook.oldestClaudeVersion([a, b], { versionOf: slow, budgetMs: 5000 }), '2.1.296', 'CONTROL: in budget');
+});

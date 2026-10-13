@@ -98,9 +98,11 @@ function claudeVersion(bin, opts) {
 /* The OLDEST version among the claude programs in `bins` that exist (each counted once, by real path), or null when
    none exists or any one that exists cannot be read. For a settings file more than one Claude Code reads: the
    default ~/.claude is read by the person's own claude too, which need not be the one Kosmos runs.
-   `opts.versionOf` (real path -> version or null) replaces the reader, for tests. */
+   `opts.versionOf` (real path -> version or null) replaces the reader, for tests; `opts.budgetMs` the 4 s budget. */
 function oldestClaudeVersion(bins, opts) {
   const plat = (opts && opts.platform) || process.platform;
+  // One budget for the whole list (each read may take its 2 s timeout): once spent, the answer is unknown.
+  const deadline = Date.now() + ((opts && opts.budgetMs) || 4000);
   const seen = new Set();
   let oldest = null;
   for (const bin of bins || []) {
@@ -114,6 +116,7 @@ function oldestClaudeVersion(bins, opts) {
       seen.add(real);
       // A .cmd or .ps1 cannot be run without a shell, so its version is unknown, and so is the answer.
       if (/\.(cmd|ps1)$/i.test(real)) return null;
+      if (Date.now() > deadline) return null;
       const v = (opts && typeof opts.versionOf === 'function' ? opts.versionOf : claudeVersion)(real, opts);
       if (!v) return null;
       if (oldest === null || !versionAtLeast(v, oldest)) oldest = v;
