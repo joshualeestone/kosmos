@@ -14,9 +14,12 @@ It passed CI on #6010; under the cut's load (Mortals load 4.5) a poll was in fli
   hanging mid-check and fail on an unrelated assertion); `abort` is itself guarded, so after close it is quiet.
   The profile and instructions handlers await their answers with the same guard.
 - Before `browser.close()`, `page.unrouteAll({ behavior: 'ignoreErrors' })`, the form Playwright's own error message
-  recommends and at least seven other checks already use, among them (render-updates-stale, render-engine-restart-4408,
-  render-login-expiry-3532).
-No assertion changes.
+  recommends. Six other checks already use this exact form (measured: render-mobilenav-4823, render-engine-restart-4408,
+  render-login-expiry-3532, render-teamcreate-4557, render-updates-stale, render-update-win32-manual);
+  render-project-done-4583 unroutes with 'wait' instead.
+No assertion changes. Trade-off, accepted: a real /api/status failure during the check is now aborted and shows only as
+a network error in the page, where on main it crashed the check loudly. Every assertion still runs, and the ones after
+the editor load need a status answer, so a real failure still turns the check red.
 
 ## Proof (mechanism, measured)
 A standalone Playwright page polling `/api/status` every 50 ms (each answer 300 ms), closed mid-poll: the handler as on
@@ -37,5 +40,12 @@ too, so CI cannot show the crash is gone, only that the check still passes. The 
 3. [NIT] "three other checks" undercounts. FIXED.
 Also reported, NOT in this branch: 8 other checks have an unguarded fetch on a status route and no unrouteAll
 (render-owncode-4649, render-swarm-ui-3564, render-connlost-reconnect-3410, render-start-agent-3410,
-render-update-abort-2055, render-detail-header-1841, render-member-ring-3991, render-made-endings). Filed as its own card,
-so this fix stays the one the 0.7.44 re-cut needs.
+render-update-abort-2055, render-detail-header-1841, render-member-ring-3991, render-made-endings). Filed as #6022 (it
+also aborted 0.7.42, #5921), so this fix stays the one the 0.7.44 re-cut needs.
+
+## Review 2 (sonnet, blind, on 9d5920cd6): one warning (plan text), two nits
+1. [WARNING] the plan said "at least seven" checks use unrouteAll with ignoreErrors; measured six (a seventh uses 'wait'). FIXED.
+2. [NIT] the plan should say a real status failure is now quiet. FIXED (the trade-off paragraph).
+3. [NIT] a failed `continue()` on a non-PUT profile or instructions request would hang until a timeout rather than pass
+   wrongly. ACCEPTED: a continue fails only once the page is closing, and a hang still fails the check.
+4. The card number for the 8 other checks: #6022. FIXED.
