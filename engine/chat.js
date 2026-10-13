@@ -1206,12 +1206,14 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
      proceed?", "1. Yes"), so it is matched on what is above them (questionAbove: the command or the file), read on THIS
      last look, and refused without one. A redraw to another command between the route's read and this one is then a
      refusal, never a Yes to a command the person did not see. */
-  const idOf = (text) => { const q = questionIn(text, 'claude'); const a = q ? questionAbove(q.text) : null; return a ? cleanMessage(a).slice(0, 2000) : null; };
-  const idBefore = menu.permission ? idOf(before) : null;
+  /* Review 3: the WHOLE identity, uncut (a tall command's distinguishing head can sit past any prefix), and only for a box
+     whose top is on screen (permissionAnswerable). */
+  const idOf = (text) => { const q = questionIn(text, 'claude'); const a = q ? questionAbove(q.text) : null; return a ? cleanMessage(a) : null; };
+  const idBefore = menu.permission && permissionAnswerable(before) ? idOf(before) : null;
   if (menu.permission && (!e.identity || !idBefore)) {
     return { ok: false, because: 'we could not tell which request its screen is asking about, so nothing was sent; look at this page again in a moment' };
   }
-  if (menu.permission && idBefore !== cleanMessage(e.identity).slice(0, 2000)) {
+  if (menu.permission && idBefore !== cleanMessage(e.identity)) {
     return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
   }
   if (!opt || (e.question && e.question !== menu.question) || (e.label && cleanMessage(e.label) !== cleanMessage(opt.label))) {
@@ -1469,6 +1471,7 @@ const onItsPage = (sentence) => sentence.replace(/answer (?:the question|it) in 
    thread (everything there is masked). A working card or the guide keeps the window ending. */
 function pageDrawsButtons(card, sessionName) {
   if (!card || card.state !== status.STATE.NEEDS_YOU) return false;
+  if (card.disruption && card.disruption.failed === true) return false;   // review 3: the page's `asking` excludes it
   try { return !require('./setup-assistant').isGuideFolder(sessionName); } catch { return false; }
 }
 function claudeMenuRefusal(card, sessionName, roster) {
@@ -1492,7 +1495,7 @@ function claudeMenuRefusal(card, sessionName, roster) {
       + (card.state === status.STATE.NEEDS_YOU && single ? CLAUDE_MENU_DM_CLAUSE : '');
   }
   const kind = status.claudePermissionPromptKind(view.text);   // #5754
-  if (kind === 'wording') return status.claudePermissionPrompt(view.text) && pageDrawsButtons(card, sessionName) ? onItsPage(CLAUDE_PERMISSION_SENTENCE) : CLAUDE_PERMISSION_SENTENCE;   // #6054
+  if (kind === 'wording') return permissionAnswerable(view.text) && pageDrawsButtons(card, sessionName) ? onItsPage(CLAUDE_PERMISSION_SENTENCE) : CLAUDE_PERMISSION_SENTENCE;   // #6054
   return kind === 'shape' ? CLAUDE_WAITING_SENTENCE : null;   // other wording, or one of Claude Code's own pickers
 }
 
@@ -2303,6 +2306,22 @@ function viewport(sessionName, roster) {
  * `runner` (#4034): the card's runner. For 'gemini' the slice starts at Gemini's question box when one is up
  * (status.geminiQuestionReading); for any other runner, or none, only the markers are read.
  */
+/* #6054 review 3: a permission prompt and where its box starts: the line under the nearest full-width rule above its
+   question, searched all the way up (top -1 when the rule is not on screen: a box taller than the pane). */
+function permissionBox(text) {
+  const pp = status.claudePermissionPrompt(text);
+  if (!pp) return null;
+  const lines = String(text == null ? '' : text).split('\n');
+  for (let i = pp.at - 1; i >= 0; i -= 1) if (/^\s*─{8,}\s*$/.test(lines[i])) return { pp, top: i + 1 };
+  return { pp, top: -1 };
+}
+/* #6054 review 3: may this screen's permission prompt be answered by key? Only when its whole box is on screen, so its
+   identity is the whole request. A box whose top has scrolled away could share its visible tail with another command's,
+   so it gets no buttons, no key, and no promise of buttons. */
+function permissionAnswerable(text) {
+  const box = permissionBox(text);
+  return Boolean(box && box.top >= 0);
+}
 function questionIn(text, runner) {
   const whole = String(text == null ? '' : text);
   if (!whole.trim()) return null;
@@ -2325,12 +2344,8 @@ function questionIn(text, runner) {
      ("Bash command", "Create file") to its footer. The person reads the whole command, and questionAbove's identity is
      every line of it: the six-line run-up below cut a long command's head off, so two commands with the same tail
      could share an identity. No rule within 60 rows: the 40 rows above its question, the same bound on every read. */
-  const pp = status.claudePermissionPrompt(whole);
-  if (pp) {
-    let top = -1;
-    for (let i = pp.at - 1; i >= Math.max(0, pp.at - 60); i -= 1) if (/^\s*─{8,}\s*$/.test(lines[i])) { top = i + 1; break; }
-    return { text: lines.slice(top >= 0 ? top : Math.max(0, pp.at - 40)).join('\n').replace(/\s+$/, '') };
-  }
+  const box = permissionBox(whole);
+  if (box) return { text: lines.slice(box.top >= 0 ? box.top : Math.max(0, box.pp.at - 40)).join('\n').replace(/\s+$/, '') };
   // The LAST match, not the first: a pane accumulates, and an older question
   // that has already been answered may still be on screen above the live one.
   let at = -1;
@@ -4145,7 +4160,7 @@ module.exports = {
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   dmStandingQuestionNote, dmQuestionTold, markDmQuestionTold,   // #5943
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,

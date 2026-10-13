@@ -117,7 +117,7 @@ test('#6054: a press of No goes out as No\'s own number (4 on the Bash prompt, n
   });
 });
 
-test('#6054: a press whose words the screen no longer shows is refused, and nothing is sent', async () => {
+test('#6054: a press whose number and words do not match on the screen is refused, and nothing is sent', async () => {
   await withPrompt(EDIT, async (calls) => {
     const back = await getThread();
     const r = await post({ text: '3', chose: 'Yes', asked: back.asked });
@@ -281,4 +281,56 @@ test('#6054 review 2: a WORKING card (the page draws no buttons for it) keeps th
   };
   assert.match(await refusalFor('working'), /answer it in its window first$/, 'a working card was promised buttons the page does not draw');
   assert.match(await refusalFor('needs_you'), /buttons under its question on its page in Kosmos$/, 'CONTROL: needs_you is told about the buttons');
+});
+
+/* Review 3: a tall heredoc command: its head differs, its long body (over 2000 characters once flattened) does not. */
+const BODY = Array.from({ length: 60 }, (_, i) => `   echo "line ${i} of the same long generated script body"`).join('\n');
+const tallCommand = (head) => BASH.replace(' /usr/bin/uuidgen\n', ` ${head} <<'EOF'\n${BODY}\n   EOF\n`);
+
+test('#6054 review 3: two tall commands that differ only at their head are told apart through the route (no prefix cut)', async () => {
+  const a = tallCommand('rm -rf build');
+  const b = tallCommand('ls build');
+  assert.ok(chat.cleanMessage(idOf(a)).length > 2000, 'premise: the identity is longer than the old 2000-character cut');
+  assert.notEqual(idOf(a), idOf(b));
+  await withPrompt(b, async (calls) => {
+    const back = await getThread();
+    assert.ok(back.asked, 'premise: the whole box is on screen, so it draws buttons');
+    // The person saw `b`; the press carries `a`'s identity (the screen moved between the GET and the press).
+    const r = await post({ text: '1', chose: 'Yes', asked: idOf(a) });
+    assert.equal(r.status, 409, 'a press for rm -rf build was taken for ls build: ' + JSON.stringify(r.json));
+    assert.deepEqual(calls.keys(), []);
+  });
+});
+
+test('#6054 review 3: a box whose top has scrolled away gets no buttons, no key, and no promise of buttons', async () => {
+  const lines = BASH.split('\n');
+  const q = lines.findIndex((l) => /Do you want to proceed\?/.test(l));
+  const cut = lines.slice(q - 3).join('\n');   // the command and the question, but not the rule that opens the box
+  assert.ok(status.claudePermissionPrompt(cut), 'premise: still a permission prompt');
+  assert.equal(chat.permissionAnswerable(cut), false);
+  assert.equal(chat.permissionAnswerable(BASH), true, 'CONTROL: the whole box is answerable');
+  await withPrompt(cut, async (calls) => {
+    const back = await getThread();
+    assert.equal(back.asked, null, 'buttons were drawn for a request whose top is not on screen');
+    const r = await post({ text: 'yes go ahead' });
+    assert.match(JSON.stringify(r.json), /answer it in its window first/, 'a refusal promised buttons the page does not draw');
+    assert.deepEqual(calls.keys(), []);
+  });
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: cut })]);
+  try {
+    const calls = armSequence([cut]);
+    const r = await chat.answerQuestionMenu('casey', 1, board.agents, { question: 'Do you want to proceed?', label: 'Yes', identity: idOf(cut) || 'x' });
+    assert.deepEqual([r.ok, calls.keys()], [false, []], 'a key went to a request whose top is not on screen');
+  } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#6054 review 3: at a permission prompt the words-check refusal does not offer typing the number (typing is refused there)', async () => {
+  await withPrompt(EDIT, async (calls) => {
+    const back = await getThread();
+    const r = await post({ text: '1', chose: 'Yes\u0007', asked: back.asked });
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.match(r.json.error, /could not check that choice's words/);
+    assert.doesNotMatch(r.json.error, /typing its number/, 'it offered a way the next request refuses');
+    assert.deepEqual(calls.keys(), []);
+  });
 });
