@@ -897,6 +897,7 @@ const chk = (ok, label, extra) => {
   await q(() => document.getElementById('fr-meta-connect').click()); await settle();
   fm = await frMeta();
   const frGoText = await q(() => document.getElementById('fr-muse-go').textContent);
+  chk(await q(() => !/Sign in/.test(document.getElementById('fr-muse-t').textContent)), '#6004 round 6: the panel heading does not say Sign in above an Install Muse Code button');
   chk(fm.flow && frGoText === 'Install Muse Code' && fm.msg === '', '#6004: first run, Muse Code missing: Connect opens the panel on Install Muse Code, with no stale line under the row', JSON.stringify(fm) + ' ' + frGoText);
   await q(() => document.getElementById('fr-muse-go').click()); await settle();
   const frDone = await q(() => ({ posts: window.__installPosts, go: document.getElementById('fr-muse-go').textContent }));
