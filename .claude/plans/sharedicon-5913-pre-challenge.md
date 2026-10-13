@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: sharedicon-5913
-diff_hash: c22d5830615377dc5c60023660aad82077c5ba79b83aad9fbc7cb7a9341a59ab
+diff_hash: 4ee41a437adfdd4b3af0d3b16380d29d9870ae18401480175864588e3ed605c0
 validation: passed
 timestamp: 2026-10-13T07:38:33Z
 iterations: 21
@@ -48,3 +48,7 @@ Severity tags appear only where a review commit recorded one; the other rounds l
 #### Merge iteration 3 (opus)
 - No blockers or warnings. [CONCERN] two order tests anchored on the note's identical elif. Fixed with measured
   mutants (c2eab250f).
+
+#### After the PR (CI fix, test fixture only)
+- [WARNING] CI found the reader test's fixed "another account" uid (502) equal to the runner's own uid. Fixed: any uid
+  but the runner's. Re-hashed; the full validation above is of the code before this test-only change.
