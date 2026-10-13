@@ -3997,6 +3997,9 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
      memory bar (its desktop neighbour, Josh's #856 order), and the bar keeps
      the full width. .ltitle is left where it is; that is a separate call. */
   .lstate, .ltask, .lmodel, .lmem { grid-column: 2; }
+  /* A not-running row has no model, and its empty cell would spend a line
+     and a row-gap here; it shared the memory cell's line before #6053. */
+  .lrow > .lmodel:empty { display: none; }
 }
 /* Grid mode for the projects list: the same rows laid as cards. */
 .pj-list.asgrid { display: grid; gap: 16px;

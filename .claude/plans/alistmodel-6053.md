@@ -7,13 +7,17 @@ column beside the memory bar and read "Cla..." (measured on main, mobile-shots a
 393 and 360).
 
 ## Done when
-At 390 and 360 px every list row shows its model in full, starting where the name starts, the
+At 390 and 360 px every running list row shows its model in full, starting where the name starts, the
 memory bar still fits on its own line, and the page has no sideways scroll.
 
 ## Change
 - web/index.html: add `.lmodel` to the 56rem column-2 rule.
-- docs/browser-checks/render-list-row.js: a 390/360 arm reading every row (model whole, model and
-  memory bar start at the name's left edge, no sideways scroll, at least one row).
+- web/index.html: under 56rem an empty .lmodel (not-running rows) is display:none, so it does not
+  spend a line; before the fix it shared the memory cell's line.
+- docs/browser-checks/render-list-row.js: a 390/360 arm. Running rows: model text whole, model
+  below the name at its left edge, memory bar below the model at the same edge. Not-running rows:
+  the empty model cell is not rendered. No sideways scroll; at least one running row.
+- Control: the arm must go red on main's CSS (run once the machine is free).
 
 ## Decisions
 - Model sits just above the memory bar (auto-placement order), not directly under the role.

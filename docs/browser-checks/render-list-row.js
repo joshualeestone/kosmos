@@ -97,7 +97,8 @@ const { chromium } = require('playwright');
      the point of this paragraph. Under 900px `.lrow` collapses to `34px 1fr`
      and `.lstate`, `.ltask` and `.lmem` stack in column 2 as separate rows. An
      empty `.ltask` there is an empty ROW, and `row-gap: 8px` is still spent on
-     it. This check runs at 1400x900 and will never see that. It has been true
+     it. The 1400x900 arm will never see that, and the phone arm below reads
+     the model and memory cells, not the empty task row. It has been true
      of the not-running row since before #986 and nobody has reported it, which
      is a reason to keep it in proportion, not a reason to leave it unwritten.
      ⚠️ NOT YET PROVEN TO FAIL. Written during the 2026-08-27 demo freeze, when
@@ -125,31 +126,41 @@ const { chromium } = require('playwright');
      is `34px 1fr` and .lmodel was not sent to column 2, so it auto-placed into
      the avatar's 34px column beside the memory bar. Every model, whatever its
      name, read as three letters and an ellipsis.
-     🔑 The claim per row: the model's text is whole (scrollWidth fits its own
-     box, so no ellipsis is drawn), it starts where the name starts (column 2,
-     not the avatar's), and the page has no sideways scroll. Read at 390 and 360,
-     the two widths the card names. A row with no model text fails, so a board
-     that stops rendering models cannot pass this by having nothing to cut. */
+     🔑 Per running row: the model's text is present and whole (scrollWidth fits
+     its own box, so no ellipsis is drawn), it starts where the name starts and
+     sits below the name, and the memory bar starts there too, on a line below
+     the model. Per not-running row (which has no model): the empty model cell
+     takes no line. And the page has no sideways scroll. Read at 390 and 360,
+     the two widths the card names. At least one running row is required, so a
+     board with nothing to measure cannot pass. */
   for (const width of [390, 360]) {
     const ph = await b.newPage({ viewport: { width, height: 844 }, colorScheme: 'light' });
     await ph.goto(URL, { waitUntil: 'networkidle' });
     if (!(await ph.$('#firstrun[hidden]'))) { await ph.keyboard.press('Escape'); await ph.waitForTimeout(400); }
     await ph.waitForSelector('[data-scope="agents"] .vt[data-layout="list"]', { state: 'visible', timeout: 15000 });
     await ph.click('[data-scope="agents"] .vt[data-layout="list"]');
-    await ph.waitForTimeout(900);
+    await ph.waitForSelector('#alist .lrow', { state: 'visible', timeout: 15000 });
+    await ph.waitForTimeout(600);
     const rows = await ph.evaluate(() => [...document.querySelectorAll('#alist .lrow')].map((row) => {
-      const m = row.querySelector('.lmodel'); const n = row.querySelector('.lname'); const mem = row.querySelector('.lmem');
-      const mr = m && m.getBoundingClientRect(); const nr = n && n.getBoundingClientRect(); const br = mem && mem.getBoundingClientRect();
-      return { agent: row.dataset.agent, text: m ? m.textContent.trim() : null,
-        whole: !!m && m.scrollWidth <= m.clientWidth, modelLeft: mr && Math.round(mr.left), nameLeft: nr && Math.round(nr.left),
-        modelW: mr && Math.round(mr.width), memLeft: br && Math.round(br.left), memW: br && Math.round(br.width) };
+      const box = (sel) => { const e = row.querySelector(sel); if (!e || !e.getClientRects().length) return null; const r = e.getBoundingClientRect(); return { left: Math.round(r.left), top: Math.round(r.top), bottom: Math.round(r.bottom), width: Math.round(r.width) }; };
+      const m = row.querySelector('.lmodel');
+      return { agent: row.dataset.agent, running: !row.classList.contains('notrunning'),
+        text: m ? m.textContent.trim() : null, whole: !!m && m.scrollWidth <= m.clientWidth,
+        name: box('.lname'), model: box('.lmodel'), mem: box('.lmem') };
     }));
     const sideways = await ph.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-    say(rows.length > 0, 'at ' + width + 'px the list has rows to read', String(rows.length));
-    for (const r of rows) {
-      say(!!r.text && r.whole, 'at ' + width + 'px ' + r.agent + "'s model shows in full", JSON.stringify(r));
-      say(r.modelLeft === r.nameLeft, 'at ' + width + 'px ' + r.agent + "'s model starts under the name, not in the avatar column", JSON.stringify(r));
-      say(r.memLeft === r.nameLeft, 'at ' + width + 'px ' + r.agent + "'s memory bar has the line to itself", JSON.stringify(r));
+    const on = rows.filter((r) => r.running);
+    say(on.length > 0, 'at ' + width + 'px the list has running rows to read', rows.length + ' rows, ' + on.length + ' running');
+    for (const r of on) {
+      const at = 'at ' + width + 'px ' + r.agent;
+      say(!!r.text && r.whole, at + "'s model shows in full", JSON.stringify(r));
+      say(!!r.model && !!r.name && r.model.left === r.name.left && r.model.top >= r.name.bottom,
+        at + "'s model sits under the name, not in the avatar column", JSON.stringify(r));
+      say(!!r.mem && !!r.model && r.mem.left === r.name.left && r.mem.top >= r.model.bottom,
+        at + "'s memory bar has its own line below the model", JSON.stringify(r));
+    }
+    for (const r of rows.filter((x) => !x.running)) {
+      say(r.model === null, 'at ' + width + 'px ' + r.agent + "'s empty model cell takes no line", JSON.stringify(r));
     }
     say(sideways <= 0, 'at ' + width + 'px the page does not scroll sideways', String(sideways));
     await ph.close();
