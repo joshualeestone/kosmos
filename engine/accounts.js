@@ -483,12 +483,21 @@ function claudeVersionNow(plat) {
 }
 
 /* #6071: for the DEFAULT folder (~/.claude), which the person's own claude reads too: the oldest version among
-   Kosmos's claude, every claude on PATH, and the old ~/.claude/local install; null if any of them cannot be read. */
+   Kosmos's claude, every claude on PATH, and the places a claude is usually installed (PATH alone is not enough: the
+   .pkg runs setup under sudo's short PATH, not the person's); null if any of them cannot be read. */
 function defaultFolderClaudeVersion(plat, env) {
   const p = plat || process.platform;
   const e = env || process.env;
   try {
-    const bins = [require('./runners').resolveBin('claude').bin, path.join(homeDir(), '.claude', 'local', 'claude')];
+    const home = homeDir();
+    const bins = [require('./runners').resolveBin('claude').bin, path.join(home, '.claude', 'local', 'claude')];
+    if (p === 'win32') {
+      if (e.APPDATA) bins.push(path.join(e.APPDATA, 'npm', 'claude'));
+    } else {
+      bins.push('/opt/homebrew/bin/claude', '/usr/local/bin/claude', path.join(home, '.npm-global', 'bin', 'claude'));
+      const nvm = path.join(home, '.nvm', 'versions', 'node');
+      try { for (const v of fs.readdirSync(nvm)) bins.push(path.join(nvm, v, 'bin', 'claude')); } catch { /* no nvm */ }
+    }
     for (const d of String(e.PATH || e.Path || '').split(p === 'win32' ? ';' : ':')) if (d) bins.push(path.join(d, 'claude'));
     return reporthook.oldestClaudeVersion(bins, { platform: p });
   } catch { return null; }
