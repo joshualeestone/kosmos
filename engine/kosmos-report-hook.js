@@ -202,6 +202,48 @@ function readBoardToken() {
   try { return require('./boardauth').readToken(); } catch { return null; }
 }
 
+/* #5812 / #5153 on Windows: the four tools that edit a file, as the bash hook's PreToolUse case lists them. */
+const KEEP_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+const KEEP_TIMEOUT_MS = 3000;   // the bash CLI's `-m 3`: the copy must exist before the edit, but never hold it
+
+/** The keep-copy request for a PreToolUse that is about to edit a file, or null. A path or folder holding a control
+ *  character is not sent at all, as `kosmos keep-copy` refuses it: rewriting it would name a different, real file. */
+function keepRequestFor(evt) {
+  if (field(evt, 'hook_event_name') !== 'PreToolUse' || !KEEP_TOOLS.has(field(evt, 'tool_name'))) return null;
+  const file = field(evt, 'tool_input.file_path') || field(evt, 'tool_input.notebook_path');
+  const cwd = field(evt, 'cwd');
+  if (!file || /[\u0000-\u001f\u007f]/.test(file + cwd)) return null;
+  return { path: file, cwd, session: field(evt, 'session_id') };
+}
+
+/**
+ * POST one keep-copy request to /api/undo/keep, the call `kosmos keep-copy` makes on the Mac. The board keeps a copy
+ * only while the person's undo switch is on (#5153), and records which agent is about to write a project file (#5812).
+ * Same headers as `deliver`. Waits at most KEEP_TIMEOUT_MS and never throws: the edit goes ahead whatever happens.
+ */
+async function keepCopy(req, io) {
+  const o = io || {};
+  const headers = { 'content-type': 'application/json' };
+  if (o.boardToken) headers['x-kosmos-board-token'] = o.boardToken;
+  if (o.agentToken) headers['x-kosmos-agent-token'] = o.agentToken;
+  try {
+    const { WORLD_HEADER, worldIdForHeader } = require('./launchidentity');
+    headers[WORLD_HEADER] = worldIdForHeader(o.world);
+  } catch { /* the default world: the board answers as it would for the CLI */ }
+  const doFetch = o.fetchImpl || ((typeof fetch === 'function') ? fetch : null);
+  if (!doFetch) return { ok: false, error: 'no fetch available' };
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), o.timeoutMs || KEEP_TIMEOUT_MS);
+  try {
+    const res = await doFetch(o.url + '/api/undo/keep', { method: 'POST', headers, body: JSON.stringify(req), signal: ctl.signal });
+    return { ok: !!(res && res.ok), status: res && res.status };
+  } catch (err) {
+    return { ok: false, error: (err && err.message) ? err.message : String(err) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** The POST timeout, per event: the loud SessionStart send needs its verdict, so
  *  it gets the full window; every other event is a fire-report whose loss is
  *  harmless (the next event re-reports), so it uses a short window to bound the
@@ -327,6 +369,30 @@ async function main(io) {
   const event = field(evt, 'hook_event_name');
   if (!event) return 0;
 
+  /* Where and as whom this hook speaks to the board, worked out once, the first time it is needed. */
+  let conn = null;
+  const connection = () => {
+    if (conn) return conn;
+    const url = o.url || resolveUrl(env, typeof o.uid === 'number' ? o.uid : safeUid());
+    // The board token: injectable for tests, else boardauth (the single source).
+    // #4491 slice 8: with KOSMOS_AGENT_TOKEN_ONLY exactly '1' and a usable agent token, the report goes with that token
+    // alone and the board token is not read (POST /api/report takes the agent's token; the same switch slice 7 gives the two CLIs, on its own branch until it merges).
+    const ownToken = agentToken(env);
+    const tokenOnly = Boolean(ownToken) && env.KOSMOS_AGENT_TOKEN_ONLY === '1';
+    const boardToken = tokenOnly ? null : (o.boardToken !== undefined ? o.boardToken : readBoardToken());
+    conn = { url, boardToken, agentToken: ownToken, world: require('./launchidentity').worldHeaderValue(env) };
+    return conn;
+  };
+
+  /* #5812 / #5153 on Windows: just before Claude edits a file, ask the board to keep a copy and note who is writing,
+     as the bash hook does on the Mac. On EVERY edit, before the heartbeat throttle below can return early. */
+  const keep = keepRequestFor(evt);
+  if (keep) {
+    const c = connection();
+    await keepCopy(keep, { url: c.url, boardToken: c.boardToken, agentToken: c.agentToken, world: c.world,
+      fetchImpl: o.fetchImpl, timeoutMs: o.keepTimeoutMs });
+  }
+
   // Throttle bookkeeping mirrors the bash hook: PreToolUse consults the mark;
   // every state-change event clears it; UserPromptSubmit sets it (a prompt is a
   // fresh "working", so the next PreToolUse heartbeat waits a full window).
@@ -344,21 +410,15 @@ async function main(io) {
   const report = reportFor(evt, { heartbeatDue: due, kosmosAllows: allows });
   if (!report) return 0;
 
-  const url = o.url || resolveUrl(env, typeof o.uid === 'number' ? o.uid : safeUid());
-  // The board token: injectable for tests, else boardauth (the single source).
-  // #4491 slice 8: with KOSMOS_AGENT_TOKEN_ONLY exactly '1' and a usable agent token, the report goes with that token
-  // alone and the board token is not read (POST /api/report takes the agent's token; the same switch slice 7 gives the two CLIs, on its own branch until it merges).
-  const ownToken = agentToken(env);
-  const tokenOnly = Boolean(ownToken) && env.KOSMOS_AGENT_TOKEN_ONLY === '1';
-  const boardToken = tokenOnly ? null : (o.boardToken !== undefined ? o.boardToken : readBoardToken());
+  const c = connection();
   const verdict = await deliver(report, {
-    url,
-    boardToken,
-    agentToken: ownToken,
+    url: c.url,
+    boardToken: c.boardToken,
+    agentToken: c.agentToken,
     fetchImpl: o.fetchImpl,
     timeoutMs: o.timeoutMs || timeoutFor(report),
     fromPane: env.TMUX_PANE || '',
-    world: require('./launchidentity').worldHeaderValue(env),
+    world: c.world,
   });
 
   /* #1704 PR2: a board serving another Kosmos (421) is not reporting being off:
@@ -418,7 +478,7 @@ function attachStdin(stream, onDone) {
 module.exports = {
   parseInput, field, reportFor, buildBody, resolvePort, resolveUrl,
   readBoardToken, agentToken, deliver, timeoutFor, throttleKey, heartbeatDue,
-  attachStdin, main, kosmosAllows,
+  attachStdin, main, kosmosAllows, keepRequestFor, keepCopy, KEEP_TIMEOUT_MS,
   HEARTBEAT_SECONDS, DEFAULT_PORT, DEFAULT_TIMEOUT_MS, SHORT_TIMEOUT_MS,
 };
 
