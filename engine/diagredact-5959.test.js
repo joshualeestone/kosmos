@@ -103,3 +103,18 @@ test('#5959: a home folder or user name in a URL-encoded path is redacted too', 
   assert.ok(!/patsmith|ann/.test(out), out);
   assert.equal(out, 'GET /api/files?path=~%2Fwork then %2fUsers%2f[user]%2fx and ?who=%2F[user]%2F');
 });
+
+test('#5959: header credentials and secret-named JSON fields lose their value, keep their name', () => {
+  const { redactText } = makeRedactor({ home: '/Users/zed', user: 'zzz', host: 'zzz' });
+  const v = 'QWxhZGRpbjpvcGVuIHNlc2FtZTEyMzQ1Njc4OTAx';
+  const cases = [
+    ['Authorization: Bearer ' + v, 'Authorization: Bearer ••••'],
+    ['cookie: kosmos_board=' + v + '; x=1', 'cookie: ••••'],
+    ['{"authToken":"abc123","name":"ok"}', '{"authToken":"••••","name":"ok"}'],
+    ['{"client_secret": "s3cr3t-value"}', '{"client_secret": "••••"}'],
+    ['sent Basic dXNlcjpwYXNzd29yZA==', 'sent Basic ••••'],
+    ['{"headers":{"authorization":"Bearer abcdefghijkl"}}', '{"headers":{"authorization":"••••"}}'],
+  ];
+  for (const [input, want] of cases) assert.equal(redactText(input), want, input);
+  assert.equal(redactText('the bearer of bad news, basic rules'), 'the bearer of bad news, basic rules', 'CONTROL: plain words stay');
+});

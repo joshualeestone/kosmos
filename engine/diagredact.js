@@ -3,7 +3,8 @@
 /* #5959 slice 4: what is taken out of the diagnostics file before it leaves the engine.
 
    One function for every string in the file, in this order:
-   1. secretmask.mask, the backup scan's redactor (keys, tokens, an env line's value);
+   1. a header's credential (Authorization, Cookie) and a JSON field named like a secret, value only; then
+      secretmask.mask, the backup scan's redactor (keys, tokens, an env line's value);
    2. the home folder, as `~`, with any separator and in any case, and any other account's folder name under Users or
       home, as [user];
    3. email addresses, as [email];
@@ -21,6 +22,19 @@ const EMAIL = /[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9-]{1,63}\.){1,8}[A-Za-z]{2,24
 // A user folder in any account's path: /Users/x, /home/x, C:\Users\x (any separator, any case). A name with spaces
 // ("Cy Doe") is taken whole when a separator follows it; a bare /Users/x at the end of a phrase stops at the space.
 const OTHER_HOMES = /((?:^|[^A-Za-z0-9_.-])(?:[A-Za-z]:)?(?:\\\\|\\|\/|%2F|%5C)(?:Users|home)(?:\\\\|\\|\/|%2F|%5C))(?!\[user\])(?:[^\\\/\s'\"`<>:|*?%~]+(?: [^\\\/\s'\"`<>:|*?%~]+)*(?=(?:\\\\|\\|\/|%2F|%5C))|[^\\\/\s'\"`<>:|*?%~]+)/gi;
+/* Credentials secretmask does not know by shape (it finds vendor keys and key=value pairs): a header's value, a cookie,
+   and a JSON field named like a secret. The name stays, so a reader still sees what was there; the value goes. */
+const CRED_PATTERNS = [
+  // Authorization: Bearer x / Basic x / Token x (a header line, or a logged headers object)
+  [/\b((?:proxy-)?authorization["']?\s*[:=]\s*["']?(?:(?:bearer|basic|token|digest)\s+)?)[^\s"',;}]+/gi, '$1'],
+  // a bare scheme and its value
+  [/\b((?:bearer|basic)\s+)[A-Za-z0-9._~+\/=-]{8,}/gi, '$1'],
+  // Cookie: a=b; c=d (every value)
+  [/\b((?:set-)?cookie["']?\s*[:=]\s*["']?)[^\r\n"']+/gi, '$1'],
+  // "authToken": "x", "client_secret": "x", "password": "x", "apiKey": "x"
+  [/("[A-Za-z0-9_-]*(?:token|secret|password|passwd|apikey|api_key|auth)[A-Za-z0-9_-]*"\s*:\s*")[^"]*(")/gi, '$1$2'],
+];
+
 // Host names every computer can have, which name no one: replacing them would only damage lines like a localhost URL.
 const GENERIC_HOSTS = new Set(['localhost', 'localhost.localdomain']);
 
@@ -59,7 +73,9 @@ function makeRedactor(who) {
 
   function redactText(text) {
     if (typeof text !== 'string' || !text) return text;
-    let out = secretmask.mask(text).text;
+    let out = text;
+    for (const [re, keep] of CRED_PATTERNS) out = out.replace(re, (...m) => keep.replace(/\$(\d)/g, (_, n) => (n === '1' ? m[1] + secretmask.MASK : m[Number(n)] || '')));
+    out = secretmask.mask(out).text;
     if (homeRe) out = out.replace(homeRe, '~');
     // Any other account's folder too (a shared computer): the folder name under Users or home names a person.
     out = out.replace(OTHER_HOMES, (m, lead) => lead + '[user]');
