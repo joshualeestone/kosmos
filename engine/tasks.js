@@ -1569,21 +1569,43 @@ function columnTasks(p) {
  * fields: a task that stores parts has no `who` at all, and overwriting it
  * with the derived list would make two different facts share one name.
  */
+/* #3029: a project's ancestors' names, root first ([] for a top-level project). The same walk as the page's
+   pjAncestry: when the parent record is not in the read, the stored parentName stands in, and a loop in the
+   stored parents stops rather than hangs. */
+function projectPathOf(p, byId) {
+  const names = [];
+  const seen = new Set(p && p.id ? [p.id] : []);
+  let cur = p && p.parent ? byId.get(p.parent) : null;
+  if (!cur && p && p.parent && typeof p.parentName === 'string' && p.parentName) return [p.parentName];
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    names.unshift(String(cur.name));
+    cur = cur.parent ? byId.get(cur.parent) : null;
+  }
+  return names;
+}
+
 function allTasks(everyProject) {
   const out = [];
   /* #3559: a caller that already read the store passes that snapshot, so the
      rows and anything it joins onto them come from ONE read. */
-  for (const p of (Array.isArray(everyProject) ? everyProject : projects.readAll()) || []) {
+  const all = (Array.isArray(everyProject) ? everyProject : projects.readAll()) || [];
+  /* #3029: the project's ancestors, root first, from the same read, so a subproject is named by its chain
+     on the Tasks screen (Book A › Launch) as the grid's ancestry line names it. */
+  const byId = new Map(all.filter((x) => x && x.id).map((x) => [x.id, x]));
+  for (const p of all) {
     /* #3861: the project's tree is built once (treeOf), so each row's parent and subtask
        count is a lookup rather than a re-scan of the project per task. */
     const tree = treeOf(p);
     const members = new Set(Array.isArray(p.agents) ? p.agents : []);   // #5678
     const owners = treeOwners(tree, members);
+    const path = projectPathOf(p, byId);
     for (const t of p.tasks || []) {
       const up = tree.up(t);
       out.push(Object.assign({}, t, {
         projectId: p.id,
         projectName: p.name,
+        projectPath: path,
         /* #3559: the Tasks view leaves archived projects' tasks out, as the rails tuck them away. */
         projectArchived: p.archived === true,
         /* #4771: whether the task's project is paused. taskState and listGroup decide what that means: on hold, unless
