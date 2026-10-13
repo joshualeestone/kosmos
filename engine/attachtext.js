@@ -1015,7 +1015,9 @@ function pdfTextJs(buf) {
     if (fontDict == null && ref(resources, 'Font') != null) fontDict = (objs.get(ref(resources, 'Font')) || {}).dict || '';
     for (const fm of String(fontDict || '').matchAll(/\/([^\s/<>\[\]()]{1,64})\s+(\d{1,10})\s+\d{1,5}\s+R\b/g)) fonts.set(fm[1], fontInfo(Number(fm[2])));
     const contents = /\/Contents\s*\[([^\]]*)\]/.exec(o.dict);
-    const nums = contents ? refs(contents[1]) : (ref(o.dict, 'Contents') != null ? [ref(o.dict, 'Contents')] : []);
+    let nums = contents ? refs(contents[1]) : (ref(o.dict, 'Contents') != null ? [ref(o.dict, 'Contents')] : []);
+    /* Iteration 19: /Contents N 0 R may name an array of streams rather than a stream. */
+    if (!contents && nums.length === 1) { const co = objs.get(nums[0]); if (co && !co.raw && /^\s*\[/.test(co.dict || '')) nums = refs(co.dict).slice(0, 4096); }
     const parts = [];
     for (const n of nums) {
       const st = stream(n);
