@@ -410,38 +410,50 @@ if (args[0] === 'run') {
 `, { mode: 0o755 });
 
 const remote = require('./remote');
+const { eventually } = require('../test-support/eventually');
 
 /* The same for the Settings setup's `setup complete`. */
 async function setupSent() {
-  const until = Date.now() + 5000;
-  while (Date.now() < until) {
-    if (recorded().some((c) => c[0] === 'setup' && c[1] === 'complete')) return;
-    await new Promise((r) => setTimeout(r, 25));
-  }
-  throw new Error('fixture: the setup was never sent');
+  await eventually(
+    () => recorded().some((c) => c[0] === 'setup' && c[1] === 'complete'),
+    (v) => v,
+    { timeoutMs: 5000, stepMs: 25, describe: () => 'fixture: the setup was never sent' },
+  );
 }
 
 /* Wait until the fake has been asked to register, so a cancel lands while the
    register is out at the coordinator, not before it was sent (#3827). */
 async function registerSent() {
-  const until = Date.now() + 5000;
-  while (Date.now() < until) {
-    if (recorded().some((c) => c[0] === 'signin' && c[1] === 'register')) return;
-    await new Promise((r) => setTimeout(r, 25));
-  }
-  throw new Error('fixture: the register was never sent');
+  await eventually(
+    () => recorded().some((c) => c[0] === 'signin' && c[1] === 'register'),
+    (v) => v,
+    { timeoutMs: 5000, stepMs: 25, describe: () => 'fixture: the register was never sent' },
+  );
 }
 
 function recorded() {
   try { return fs.readFileSync(RECORD, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse); }
   catch { return []; }
 }
+// #5727: delegate to the shared load-aware poll helper. NOTE this changes `until` from a COUNT-based
+// loop (ms/25 fixed iterations) to a WALL-CLOCK deadline -- a deliberate refinement, not a pure
+// refactor, and the first count-based helper in this sweep. The old count loop's real duration
+// stretched with per-iteration lag: accidentally load-adaptive, but UNBOUNDED (on a very slow box a
+// 15000ms wait could run for minutes). eventually replaces that with an explicit deadline scaled by
+// KOSMOS_TEST_TIME_SCALE, which tools/run-tests.sh computes from load and caps at 4x. Under the runner
+// the scaled budget tracks the load the count loop adapted to by accident, now BOUNDED; at scale 1 on
+// an unloaded box the real durations match (~ms, plus one extra probe past the deadline -- more lenient,
+// never stricter, for these positive waits). The one case where the new path is STRICTER than the old
+// count loop is a bare `node --test` (scale 1) on a LOADED box -- the exact scenario this sweep targets,
+// and the suite runs via the runner that sets the scale. Every call site is a positive wait (audited);
+// probe-at-t=0 and the 25ms step match the old cadence; the 'timed out waiting for <what>' diagnostic is
+// preserved via describe.
 async function until(check, what, ms = 5000) {
-  for (let i = 0; i < ms / 25; i += 1) {
-    if (check()) return;
-    await new Promise((r) => setTimeout(r, 25));
-  }
-  assert.fail('timed out waiting for ' + what);
+  await eventually(check, (v) => v, {
+    timeoutMs: ms,
+    stepMs: 25,
+    describe: () => 'timed out waiting for ' + what,
+  });
 }
 // kosmos#5422: a test run alone (--test-name-pattern) must find the data folder an earlier test would have made, or a
 // mutant run of it fails on ENOENT and reads as a red it never earned.
