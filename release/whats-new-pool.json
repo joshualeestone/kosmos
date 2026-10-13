@@ -328,7 +328,7 @@
     },
     {
       "title": "Agents cannot edit the Kosmos app itself",
-      "line": "The installed Kosmos app is read-only, so an agent cannot change the app your agents run on. To remove Kosmos, use the Trash.",
+      "line": "The installed Kosmos app is read-only, so an agent cannot change the app your agents run on.",
       "icon": "shield",
       "rank": 16,
       "since": "0.7.46",

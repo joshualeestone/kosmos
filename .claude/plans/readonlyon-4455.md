@@ -38,8 +38,11 @@ read-only app. The card turns it on one release after the lifting reached the `/
 
 ## Decided
 - **A failed chmod alone does not refuse.** A file somebody else owns, in a folder this user may write to, is removed
-  fine, and refusing there would break updates that work today. Refused only when something is found that rm
-  cannot remove.
+  fine, and refusing there would break updates that work today. Refused only when one of two things is found: a
+  locked or append-only entry (macOS), or a folder WITH SOMETHING IN IT that this user may not read, write or
+  search. An empty such folder is not refused (rm removes it through its parent; review 1 measured the old updater
+  getting through it).
+- **The lift is `u+rwX`, not `u+w`.** rm needs read and search as well as write to empty a folder (review 1).
 - **The folder walk runs only where the lift failed.** One `test` per folder; the usual update never pays it. The
   locked-file search runs on every update on macOS: measured at under 0.01 s on this install (341 entries).
 - **Off is `=0`, not "anything but 1".** Unset must mean on, so the old spelling of the test would have read an
@@ -58,8 +61,9 @@ release lane's and is not built here.
 ## Residuals
 - Linux with a read-only app has not been run by anyone. The Linux workflow installs with the new default for the
   first time on this branch's CI; that run is the measurement.
-- The locked-file search is macOS only (the flag is BSD's). On Linux an immutable file (`chattr +i`) is not found
-  ahead of time, and the update fails partway as it does today.
+- The locked-file search is macOS only (the flags are BSD's). NOT found ahead of time, so the update still fails
+  partway on them as it does today: an immutable file on Linux (`chattr +i`), a deny-delete ACL, another user's file
+  in a sticky folder.
 - A same-user agent can still `chmod` its way past. The app's instructions to agents are the other half (#4449).
 
 ## What would change this
@@ -67,9 +71,38 @@ A report of an update that died with "Permission denied" under the app folder; a
 up in the second measurement; the Linux workflow going red on this branch.
 
 ## Verify
-- `sh tools/test-update-locked-app-4455.sh`: 17 passed. Its CONTROL arm runs the old line on the locked fixture and
-  loses `bin` before stopping at `app`.
+- `sh tools/test-update-locked-app-4455.sh`: 26 passed, run under the installer's own `set -eu` and pipefail lines
+  (extracted from the shipped file). Its CONTROL arm runs the old line on the locked fixture and loses `bin` before
+  stopping at `app`.
+- Five mutants of the block, each in a scratch copy, BASE green first: the search's `|| true` taken out (NOISY
+  red), `! -empty` taken out (EMPTY red), the locked-file search switched off (three LOCKED arms red), the lift
+  back to `u+w` and the refusal's `return 1` removed (both red at the test's own check that it extracted the
+  shipped block, so NOT by the NOREAD or NODIR arm: for those two the arm itself is unproven by a mutant).
 - Every `install*.test.js` (23 files): 218 pass. `bash tools/test-install-static.sh`: 23 passed.
-- The what's-new tests (4 files): 54 pass. (My first wording was 151 characters; the window allows 140.)
+- The what's-new tests (4 files): 54 pass. (My first wording was 151 characters; the window allows 140.) The line no
+  longer says how to remove Kosmos: nobody has emptied a Trash holding a read-only app (review 1).
 - `tools.shell-shard-4317.test.js`, `tools.every-test-runs.test.js`: 22 pass.
 - NOT RUN YET: `tools/test-install.sh` against the flip, the full suite, the Linux workflow. Queued.
+
+## Review 1 (2026-10-13, default model), at c9aee9941
+0 BLOCKER, 6 WARNING, 0 CONVENTION, 6 NIT. Not converged.
+- **WARNING, taken (measured by the reviewer):** under the installer's pipefail, a find that exits non-zero made the
+  pipeline fail and `|| _stuck_at=""` threw away the path it had found: the update went on. The status is now
+  ignored INSIDE the substitution.
+- **WARNING, taken:** my test's driver ran the block with neither `set -eu` nor pipefail, which is why it was green
+  over that. It now runs under the installer's own two option lines, and has an arm for it (NOISY).
+- **WARNING, taken (measured):** a folder this user owns with no read or search bit passed the check (the lift gave
+  it write only) and the swap then failed with `bin` gone. The lift is `u+rwX`; the walk tests all three; arm NOREAD.
+- **WARNING, taken (measured):** an EMPTY unwritable folder was refused though rm removes it. `! -empty`; arm EMPTY.
+- **WARNING x2, taken before the review arrived:** removals in my test spelled with a plain variable, which an empty
+  value would aim at the root of the disk. Splinter flagged the same shape in the reviewer's own probe and I fixed
+  the test then: every one uses `:?`, and each sandbox install is checked to be inside the sandbox first.
+- **NIT, taken:** append-only flags searched too; the residuals name what is still not found.
+- **NIT, taken:** the refusal says "locked" and the Finder's box only for a locked entry; a folder this account may
+  not change gets its own sentence.
+- **NIT, taken:** the header comment says empty is on. **NIT, taken:** the test's trap covers INT and TERM.
+- **NIT, taken by removing the claim:** the what's-new line said to use the Trash.
+- **NIT, not taken:** an arm in test-install for the EMPTY value. Each arm there is a whole install, and the rule
+  ("only 0 is off") is one comparison, read by the reviewer and stated in the header.
+- The reviewer found nothing else that reads the switch, and that the later writers under the app (the icon, the
+  launcher) each set their own modes. A reading.

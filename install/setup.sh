@@ -742,7 +742,7 @@ LOG="$LOG_DIR/install.log"
 # KOSMOS_TMUX_SRC and KOSMOS_SRC can point at local files carried over on a
 # thumb drive. Same code path, one variable different.
 # The installed app/ folder is left read-only after an install or update (#4449; on by default since #4455).
-# KOSMOS_READONLY_APP=0 leaves it writable, as before.
+# KOSMOS_READONLY_APP=0 leaves it writable, as before. Only 0 is off: unset, EMPTY, or any other value is on.
 KOSMOS_RELEASE_BASE="${KOSMOS_RELEASE_BASE:-https://installkosmos.com/dist}"
 
 # ⚠️ EVERY DOWNLOAD IS CHECKSUM-VERIFIED before anything is extracted. The
@@ -1344,33 +1344,45 @@ install_kosmos() {
   # Harmless on a part that never was read-only.
   # #4455: ALL THREE are lifted and checked BEFORE ANY is removed. The swap below removes them one at a time, so a
   # part that cannot be removed used to be found only after `bin` was already gone: half an install and a paused
-  # board. Two things keep rm from removing a part, and each has its own check:
-  #   a locked file or folder (the Finder's Locked box, chflags uchg). chmod does NOT report these: it leaves a
-  #     file that is already writable alone and exits 0 (measured; the first version of this check asked only
-  #     after a failed chmod and let a locked file through). So every part is searched for the flag, on macOS.
-  #   a folder this user may not write to, which keeps its entries. Only possible where the lift failed, so only
-  #     those parts are walked (one `test` per folder is slow on a big tree and the usual update never pays it).
+  # board. The lift gives the owner back read and search as well as write (u+rwX): rm needs all three on a folder
+  # to empty it. Two things then still keep rm from removing a part, and each has its own check:
+  #   a locked or append-only file or folder (the Finder's Locked box, chflags uchg). chmod does NOT report
+  #     these: it leaves a file that is already writable alone and exits 0 (measured; the first version of this
+  #     check asked only after a failed chmod and let a locked file through). So every part is searched, on macOS.
+  #   a folder with something in it that this user may not read, write or search. Only possible where the lift
+  #     failed, so only those parts are walked (a `test` per folder is slow on a big tree and the usual update
+  #     never pays it). An EMPTY such folder is not stuck: rm removes it through its parent.
   # A chmod that fails is not by itself a reason to refuse: a file somebody else owns, in a folder this user may
-  # write to, is removed fine.
-  local _lift_failed="" _stuck_at=""
+  # write to, is removed fine. Each search's own exit status is ignored (`|| true` INSIDE the substitution): find
+  # exits non-zero when it meets a folder it cannot read, and under this script's pipefail that would otherwise
+  # throw away the very path it had just printed (review 1, measured).
+  # NOT caught ahead of time: a deny-delete ACL, another user's file in a sticky folder, an immutable file on Linux.
+  local _lift_failed="" _stuck_at="" _stuck_why=""
   for part in bin app runtime; do
     [ -d "$dest/$part" ] || continue
-    chmod -R u+w "$dest/$part" 2>/dev/null || _lift_failed="$_lift_failed $part"
+    chmod -R u+rwX "$dest/$part" 2>/dev/null || _lift_failed="$_lift_failed $part"
   done
   if [ "$(uname -s)" = "Darwin" ]; then
     for part in bin app runtime; do
       [ -z "$_stuck_at" ] && [ -d "$dest/$part" ] || continue
-      _stuck_at="$(find "$dest/$part" \( -flags +uchg -o -flags +schg \) -print 2>/dev/null | sed -n '1p')" || _stuck_at=""
+      _stuck_at="$(find "$dest/$part" \( -flags +uchg -o -flags +schg -o -flags +uappnd -o -flags +sappnd \) -print 2>/dev/null | sed -n '1p' || true)"
+      [ -z "$_stuck_at" ] || _stuck_why=locked
     done
   fi
   for part in $_lift_failed; do
     [ -z "$_stuck_at" ] || break
-    _stuck_at="$(find "$dest/$part" -type d ! -exec test -w {} \; -print 2>/dev/null | sed -n '1p')" || _stuck_at=""
+    _stuck_at="$(find "$dest/$part" -type d ! -empty ! \( -exec test -r {} \; -exec test -w {} \; -exec test -x {} \; \) -print 2>/dev/null | sed -n '1p' || true)"
+    [ -z "$_stuck_at" ] || _stuck_why=permissions
   done
   if [ -n "$_stuck_at" ]; then
-    info "the installed Kosmos cannot be replaced: this is locked and could not be unlocked:"
+    info "the installed Kosmos cannot be replaced, because this cannot be removed:"
     info "  $_stuck_at"
-    info "Nothing was removed. Unlock it (in the Finder: Get Info, untick Locked), then paste the install line again."
+    if [ "$_stuck_why" = locked ]; then
+      info "It is locked. Unlock it (in the Finder: Get Info, untick Locked), then paste the install line again."
+    else
+      info "This account may not change that folder. Give it back to this account, then paste the install line again."
+    fi
+    info "Nothing was removed."
     rm -rf "$stage"
     return 1
   fi
