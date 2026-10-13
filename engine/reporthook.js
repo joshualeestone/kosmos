@@ -31,9 +31,12 @@ const path = require('node:path');
 const os = require('node:os');
 const securewrite = require('./securewrite');
 
+/* #6071: PostToolUseFailure (a failed tool call) joins the seven report events. It writes no report; the hook sends
+   a digest of the failure to the board (`kosmos tool-failed`). A Claude Code too old to know the event ignores its
+   entry ("unknown hook event; entry ignored", in 2.1.296's own code), so wiring it cannot break an older one. */
 const HOOK_EVENTS = Object.freeze([
   'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest',
-  'Stop', 'StopFailure', 'SessionEnd',
+  'Stop', 'StopFailure', 'SessionEnd', 'PostToolUseFailure',
 ]);
 
 /* The dedup key: any hook command containing this is "ours". Matching on

@@ -168,7 +168,9 @@ test('msg, post and react: never exempt for a network peer or with NO credential
   /* kosmos#5805 part 2 added POST /api/agent/reply-channel, a WRITE: its handler names the caller with processCaller and
      sets only that agent's own channel; no name in the body is read.
      Measured in server.reply-channel-5805.test.js. */
-  assert.deepEqual(routes, ['GET /api/community/read', 'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'POST /api/agent/reply-channel', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/undo/keep', 'POST /api/whoami'],
+  /* #6071 added POST /api/toolfail, a WRITE (the report hook's digest of a failed tool call): its handler resolves the
+     caller with resolveAgentSender, token first, exactly as POST /api/report does, and counts only for that agent. */
+  assert.deepEqual(routes, ['GET /api/community/read', 'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'POST /api/agent/reply-channel', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail', 'POST /api/undo/keep', 'POST /api/whoami'],
     'AGENT_TOKEN_ROUTES changed: every write added here must be checked to identify its caller from the header token');
   /* #4491 slice 3: the parameterized routes, pinned exactly like the set. */
   const patterns = (src.match(/const AGENT_TOKEN_ROUTE_PATTERNS = \[[^\n]*\];/) || [''])[0];
