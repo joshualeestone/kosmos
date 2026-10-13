@@ -126,7 +126,7 @@ function render(which, a) {
      reads the CURRENT global -- lift it like face, and pass CURRENT (null: no
      agent is open in this isolated render) as an arg so the eval has both. */
   const fn = new Function('a', 'esc', 'GLYPH', 'PRESSAY', 'roleLine', 'discTint', 'discInk', 'initials', 'ROLE_TITLES', 'CURRENT',
-    `${page.lift(SCRIPT, 'agentNeedsAttention')}\n${page.lift(SCRIPT, 'face')}\n${page.lift(SCRIPT, 'dmBadge')}\n${page.lift(SCRIPT, 'rulesBehindLine')}\n${page.lift(SCRIPT, 'idleLine')}\n${page.lift(SCRIPT, 'offlineNote')}\n${page.lift(SCRIPT, which)}\nreturn ${which}(a);`);
+    `${page.lift(SCRIPT, 'agentNeedsAttention')}\n${page.lift(SCRIPT, 'face')}\n${page.lift(SCRIPT, 'dmBadge')}\n${page.lift(SCRIPT, 'rulesBehindLine')}\n${page.lift(SCRIPT, 'idleLine')}\n${page.lift(SCRIPT, 'offlineNote')}\n${page.lift(SCRIPT, 'lrowTask')}\n${page.lift(SCRIPT, which)}\nreturn ${which}(a);`);
   return fn(a, (x) => String(x == null ? '' : x), { stopped: '<span class="stop"></span>' },
     { off: 'Not running' }, (x) => x.role || '', () => '#eee', () => '#111', (n) => n[0], null, null);
 }
@@ -329,7 +329,7 @@ for (const which of ['card', 'lrow']) {
     assert.ok(!render(which, offlineRow()).includes('working rules'), 'a row with no number drew the sentence');
     const html = render(which, { ...offlineRow({ strict: false }), rulesBehind: 13 });
     assert.ok(html.includes(SAID), `${which} did not draw the sentence: ${html.slice(0, 200)}`);
-    assert.ok(html.includes(which === 'card' ? '<div class="arules">' + SAID : '<div class="ltask" title="' + SAID + '">' + SAID), `${which} drew it outside its slot`);
+    assert.ok(html.includes(which === 'card' ? '<div class="arules">' + SAID : '<div class="ltask lnote" title="' + SAID + '">' + SAID), `${which} drew it outside its slot`);   // #6045: at the model column's size
     assert.ok(!html.includes('Open it to update'), `${which} promised an update the page would refuse`);
     // Not when launchd says a process may be running (the "could not check" split): the update restarts it.
     // The split branch names its label from the page's STATE_COPY, which render() does not supply: given here only.
@@ -349,7 +349,7 @@ for (const which of ['card', 'lrow']) {
     const IDLE = 'Has not run in 23 days. If it is no longer needed, remove it under AI Settings on its page.';
     assert.ok(!render(which, offlineRow()).includes('Has not run'), 'a row with no number drew the sentence');
     const html = render(which, { ...offlineRow({ strict: false }), idleDays: 23 });
-    const slot = (text) => (which === 'card' ? '<div class="arules">' : '<div class="ltask" title="' + text + '">') + text;
+    const slot = (text) => (which === 'card' ? '<div class="arules">' : '<div class="ltask lnote" title="' + text + '">') + text;   // #6045
     // The list cell is nowrap with an ellipsis, so it carries the whole sentence as its title.
     assert.ok(html.includes(slot(IDLE)), `${which} did not draw it in its slot: ${html.slice(0, 200)}`);
     const both = render(which, { ...offlineRow({ strict: false }), idleDays: 23, rulesBehind: 13 });

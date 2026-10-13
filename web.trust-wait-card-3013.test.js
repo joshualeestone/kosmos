@@ -66,7 +66,7 @@ function render(which, a) {
   const body = page.lift(SCRIPT, 'agentNeedsAttention') + '\n'
     + page.lift(SCRIPT, 'face') + '\n'
     + page.lift(SCRIPT, 'dmBadge') + '\n'
-    + page.lift(SCRIPT, 'rulesBehindLine') + '\n' + page.lift(SCRIPT, 'idleLine') + '\n' + page.lift(SCRIPT, 'offlineNote') + '\n'   // #5957: the offline card and row say a far-behind agent's rules, and an agent idle two weeks
+    + page.lift(SCRIPT, 'rulesBehindLine') + '\n' + page.lift(SCRIPT, 'idleLine') + '\n' + page.lift(SCRIPT, 'offlineNote') + '\n' + page.lift(SCRIPT, 'lrowTask') + '\n'   // #5957: the offline card and row say a far-behind agent's rules, and an agent idle two weeks
     + page.lift(SCRIPT, which) + '\n'
     + `return ${which}(a);`;
   const fn = new Function('a', 'esc', 'roleLine', 'discTint', 'discInk', 'initials', 'ROLE_TITLES', 'CURRENT', 'STATE_COPY', 'GLYPH', body);
