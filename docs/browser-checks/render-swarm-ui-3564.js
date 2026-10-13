@@ -92,30 +92,34 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     let putFail = null;   // S26: an answer that refuses the change   // S23: the crew's board state (null = as the fleet says)   // S11: no poll may land while it checks the merge
     let orgBranch = false;
     let crewSwarm = { maxHelpers: 5, activeHelpers: 3, tokensToday: 2461380, dailyTokenLimit: 6000000, active: true, pausedBecause: null, helperTokenRatio: null, metered: true };
+    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await page.route('**/api/status', async (route) => {
-      while (holdStatus) await new Promise((res) => setTimeout(res, 100));
-      const r = await route.fetch();
-      const j = await r.json();
-      if (engineOn) {
-        j.swarms = true;
-        for (const a of j.agents || []) { if (a.sessionName === 'crew' && crewState) a.state = crewState; }
-        /* S40 (#4040): a branch, hub > crew (a swarm) > rex > crew2 (a two-helper swarm, the least round cluster,
-           at the end of it). */
-        if (orgBranch) for (const a of j.agents || []) {
-          if (a.sessionName === 'rex') a.profile = { ...(a.profile || {}), reportsTo: 'crew' };
-          if (a.sessionName === 'crew2') a.profile = { ...(a.profile || {}), reportsTo: 'rex' };
+      try {
+        while (holdStatus) await new Promise((res) => setTimeout(res, 100));
+        const r = await route.fetch();
+        const j = await r.json();
+        if (engineOn) {
+          j.swarms = true;
+          for (const a of j.agents || []) { if (a.sessionName === 'crew' && crewState) a.state = crewState; }
+          /* S40 (#4040): a branch, hub > crew (a swarm) > rex > crew2 (a two-helper swarm, the least round cluster,
+             at the end of it). */
+          if (orgBranch) for (const a of j.agents || []) {
+            if (a.sessionName === 'rex') a.profile = { ...(a.profile || {}), reportsTo: 'crew' };
+            if (a.sessionName === 'crew2') a.profile = { ...(a.profile || {}), reportsTo: 'rex' };
+          }
+          if (crewNoSwarm) { for (const a of j.agents || []) if (a.sessionName === 'crew') { delete a.swarm; a.__noSwarm = true; } }
+          for (const a of j.agents || []) if (!a.__noSwarm) a.swarm = a.sessionName === 'crew' ? { ...crewSwarm }
+            : a.sessionName === 'crew2' ? { maxHelpers: orgBranch ? 2 : 4, activeHelpers: 1, tokensToday: 1000, dailyTokenLimit: 2000000, active: true, pausedBecause: null, helperTokenRatio: null, metered: true } : null;
+        } else {
+          /* The engine is on main now and always answers; "without the engine" is a board from before it, which
+             sends neither the flag nor the field. */
+          delete j.swarms;
+          for (const a of j.agents || []) delete a.swarm;
         }
-        if (crewNoSwarm) { for (const a of j.agents || []) if (a.sessionName === 'crew') { delete a.swarm; a.__noSwarm = true; } }
-        for (const a of j.agents || []) if (!a.__noSwarm) a.swarm = a.sessionName === 'crew' ? { ...crewSwarm }
-          : a.sessionName === 'crew2' ? { maxHelpers: orgBranch ? 2 : 4, activeHelpers: 1, tokensToday: 1000, dailyTokenLimit: 2000000, active: true, pausedBecause: null, helperTokenRatio: null, metered: true } : null;
-      } else {
-        /* The engine is on main now and always answers; "without the engine" is a board from before it, which
-           sends neither the flag nor the field. */
-        delete j.swarms;
-        for (const a of j.agents || []) delete a.swarm;
-      }
-      statusAnswered += 1;   // S41: a poll that lands is counted, so a comparison can prove none landed during it
-      route.fulfill({ response: r, json: j });
+        statusAnswered += 1;   // S41: a poll that lands is counted, so a comparison can prove none landed during it
+        await route.fulfill({ response: r, json: j });
+      } catch { await route.abort().catch(() => {}); }
     });
     const sent = [];
     let stopAnswer = null;
@@ -149,16 +153,18 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
        one million tokens a point. The board's own answer is kept; a sandbox with no default Claude row gets one. */
     let calibrated = false;
     await page.route('**/api/accounts', async (route) => {
-      if (route.request().method() !== 'GET') return route.continue();
-      const res = await route.fetch();
-      let body = null;
-      try { body = await res.json(); } catch { body = null; }
-      if (!calibrated || !body || !Array.isArray(body.accounts)) return route.fulfill({ response: res });
-      let hit = false;
-      body.accounts = body.accounts.map((a) => (a && a.provider === 'anthropic' && a.isDefault ? (hit = true, { ...a, weeklyTokensPerPoint: 1000000 }) : a));
-      if (!hit) body.accounts.push({ provider: 'anthropic', providerName: 'Anthropic / Claude', isDefault: true, dir: '/nonexistent/.claude', label: 'main',
-        memoryShared: true, connection: { state: 'connected', badge: 'connected' }, weeklyTokensPerPoint: 1000000 });
-      return route.fulfill({ response: res, json: body });
+      try {
+        if (route.request().method() !== 'GET') return await route.continue();
+        const res = await route.fetch();
+        let body = null;
+        try { body = await res.json(); } catch { body = null; }
+        if (!calibrated || !body || !Array.isArray(body.accounts)) return await route.fulfill({ response: res });
+        let hit = false;
+        body.accounts = body.accounts.map((a) => (a && a.provider === 'anthropic' && a.isDefault ? (hit = true, { ...a, weeklyTokensPerPoint: 1000000 }) : a));
+        if (!hit) body.accounts.push({ provider: 'anthropic', providerName: 'Anthropic / Claude', isDefault: true, dir: '/nonexistent/.claude', label: 'main',
+          memoryShared: true, connection: { state: 'connected', badge: 'connected' }, weeklyTokensPerPoint: 1000000 });
+        return await route.fulfill({ response: res, json: body });
+      } catch { await route.abort().catch(() => {}); }
     });
     let createBody = null;
     await page.route('**/api/agents', async (route) => {

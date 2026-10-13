@@ -57,12 +57,16 @@ const MADE = {
 
   /* A board that never contains Rosie: the exact machine state this ending is
      about. Everything else on it is left alone. */
+  /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
+     (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
   await page.route('**/api/status**', async (r) => {
-    const res = await r.fetch();
-    let body = {};
-    try { body = await res.json(); } catch { body = { agents: [] }; }
-    body.agents = (body.agents || []).filter((a) => a && a.sessionName !== 'rosie');
-    r.fulfill({ json: body });
+    try {
+      const res = await r.fetch();
+      let body = {};
+      try { body = await res.json(); } catch { body = { agents: [] }; }
+      body.agents = (body.agents || []).filter((a) => a && a.sessionName !== 'rosie');
+      await r.fulfill({ json: body });
+    } catch { await r.abort().catch(() => {}); }
   });
   await page.route('**/api/agents', (r) => {
     if (r.request().method() !== 'POST') { r.continue(); return; }
