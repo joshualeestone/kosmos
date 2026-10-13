@@ -50,7 +50,11 @@ Residuals, stated:
   (measured by challenge iteration 11: 3,000 files left mixed). Measured 2026-10-12 10:2x, both arms twice, a 3,000-file checkout with INT sent to the
   script's process group 0.12 s in: grouped, rc 0 at the target and clean; plain, rc 128 with 3,000 files mixed. On any failed checkout the old commit is checked out
   again by force and the line says so; if even that fails, the line says FAILED PART WAY with the repair command. A
-  KILL of the wrapper during the checkout leaves the tree mixed and is not repaired automatically. The checkout back is
+  KILL (or ALRM) of the wrapper during the checkout does not stop git, which runs in its own group and usually
+  finishes; its pid is written to the lock (gitpid), and a joiner does not take the lock over while that git lives, so
+  no run loads a half-written lib (iteration 19, arm "gitlive"). If git is itself killed part way, the tree is left
+  mixed and is not repaired automatically. The checkout back runs the same way (own group, INT/TERM/HUP ignored
+  until it ends). The checkout back is
   forced, so a tracked edit made inside the checkout between the clean check and a failed move is discarded (the
   lock and the working-directory gate make such an edit unlikely). If the checkout back fails too but HEAD is still
   the old commit and no tracked file differs from it, the line says the checkout is unchanged rather than MIXED.
@@ -85,7 +89,7 @@ Residuals, stated:
   A lock whose pid was reused by another command is taken over (the holder records its command line).
 
 ## Tests
-tools/test-queued-heavy-4977.sh, thirty-two #5923 arms (EXPECTED 137), listed in the file. Two use the REAL ps under a
+tools/test-queued-heavy-4977.sh, thirty-five #5923 arms (EXPECTED 140), listed in the file. Two use the REAL ps under a
 private script name (QH_TEST_PS_NAME): the run does not count itself (perturbed by removing the ppid exclusion: that
 arm went red), and its control, a live process of that name, blocks the move. The rest use the QH_TEST_PS and
 QH_TEST_CWD seams so real processes on the box cannot sway them.
