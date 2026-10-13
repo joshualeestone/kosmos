@@ -202,7 +202,7 @@ function xlsxText(buf) {
   const numberFormat = () => {
     for (const m of styles.matchAll(/formatCode="([^"<>]*)"/g)) {
       // iteration 12: [$-409] is a locale tag (common on dates), not a currency; [$€-407] is one
-      const code = m[1].replace(/&quot;([^&]*)&quot;/g, '$1').replace(/\[\$-[0-9A-Fa-f]+\]/g, '');
+      const code = m[1].replace(/&quot;([^&]*)&quot;/g, '$1').replace(/\[\$-[^\]]*\]/g, '');   // iteration 13: any [$-...] has no symbol ([$-x-sysdate] too)
       if (/[%$\u00a3\u20ac\u00a5]/.test(code)) return true;
     }
     return false;
@@ -358,7 +358,7 @@ function closeCut(text) {
 function docxText(buf) {
   const get = zipOf(buf, 'document');
   const docPart = prefixPart(get, 'word/document.xml', 'document');
-  const doc = docPart.cut ? closeCut(docPart.text) : docPart.text;
+  const doc = docPart.cut ? closeCut(oc.stripBlocks(docPart.text, 'mc:Fallback')) : docPart.text;   // iteration 13: an unclosed Fallback tail first, or its later strip would take the closers too
   if (!doc) throw new Error('it is not a Word document');
   /* mc:AlternateContent carries the same content twice (Choice and Fallback): keep the Choice (review 1). */
   const body = oc.stripBlocks(oc.innerOf(doc, 'w:body') || doc, 'mc:Fallback');
