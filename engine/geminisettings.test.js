@@ -103,27 +103,6 @@ test('#6058: a fresh settings.json switches off the CLI\'s own update and its up
   assert.strictEqual(s.general.enableAutoUpdateNotification, false);
 });
 
-test('#6058: the OLDER spelling of a key is the person\'s choice too, and its new key is then not written', () => {
-  /* gemini reads general.disableAutoUpdate / disableUpdateNag as the same two choices, inverted, and when the new
-     key is also there it keeps the new one and deletes theirs. So a boolean under the old name must stop the write. */
-  const { file } = tmpSettings();
-  fs.writeFileSync(file, JSON.stringify({ general: { disableAutoUpdate: false } }, null, 2));
-  geminisettings.ensurePrepared(file, BRIDGE, POSIX);
-  let s = readJSON(file);
-  assert.strictEqual(s.general.disableAutoUpdate, false, 'their key is still there');
-  assert.ok(!('enableAutoUpdate' in s.general), 'they said keep updating, under the old name: no new key beside it');
-  assert.strictEqual(s.general.enableAutoUpdateNotification, false, 'the other choice they never made is filled');
-  fs.writeFileSync(file, JSON.stringify({ general: { disableUpdateNag: true } }, null, 2));
-  geminisettings.ensurePrepared(file, BRIDGE, POSIX);
-  s = readJSON(file);
-  assert.ok(!('enableAutoUpdateNotification' in s.general), 'the old name for the check, set: no new key');
-  assert.strictEqual(s.general.enableAutoUpdate, false);
-  /* CONTROL: an old-name key that is not a boolean is not a choice the CLI would read, so the new key IS written. */
-  fs.writeFileSync(file, JSON.stringify({ general: { disableAutoUpdate: 'no' } }, null, 2));
-  geminisettings.ensurePrepared(file, BRIDGE, POSIX);
-  assert.strictEqual(readJSON(file).general.enableAutoUpdate, false);
-});
-
 test('#6058: a file an earlier Kosmos prepared (hooks and auth, no general) gains the two keys once, then nothing', () => {
   const { file } = tmpSettings();
   geminisettings.ensurePrepared(file, BRIDGE, POSIX);
@@ -138,20 +117,56 @@ test('#6058: a file an earlier Kosmos prepared (hooks and auth, no general) gain
   assert.deepEqual(geminisettings.ensurePrepared(file, BRIDGE, POSIX), { prepared: true, changed: false });
 });
 
-test('#6058: a value the person set, true included, is left alone; only the absent key is filled', () => {
-  const { file } = tmpSettings();
-  fs.writeFileSync(file, JSON.stringify({ general: { enableAutoUpdate: true, vimMode: true } }, null, 2));
-  geminisettings.ensurePrepared(file, BRIDGE, POSIX);
-  let s = readJSON(file);
-  assert.strictEqual(s.general.enableAutoUpdate, true, 'their own choice to keep updating is theirs');
-  assert.strictEqual(s.general.enableAutoUpdateNotification, false, 'the key they never set is filled');
-  assert.strictEqual(s.general.vimMode, true, 'the rest of their general block is untouched');
-  /* And the other way round, with a value that is not a boolean: still theirs. */
-  fs.writeFileSync(file, JSON.stringify({ general: { enableAutoUpdateNotification: 'yes' } }, null, 2));
-  geminisettings.ensurePrepared(file, BRIDGE, POSIX);
-  s = readJSON(file);
-  assert.strictEqual(s.general.enableAutoUpdateNotification, 'yes');
-  assert.strictEqual(s.general.enableAutoUpdate, false);
+/* The two choices are INSTALL and CHECK, and either one off stops the install. Each row: what the person's file
+   holds under `general`, and what must be there afterwards. Their own keys are never changed or removed. */
+test('#6058: a choice the person made is never overridden, through either key or either spelling', () => {
+  const rows = [
+    // they chose to KEEP installing: nothing may be written, or "no check" would switch their updates off
+    [{ enableAutoUpdate: true }, { enableAutoUpdate: true }],
+    [{ disableAutoUpdate: false }, { disableAutoUpdate: false }],
+    // they chose no installs: the pin is already safe, and their check setting (unset) stays unset
+    [{ enableAutoUpdate: false }, { enableAutoUpdate: false }],
+    [{ disableAutoUpdate: true }, { disableAutoUpdate: true }],
+    // they chose only about the CHECK: installs go off, their check setting is left exactly as it is
+    [{ enableAutoUpdateNotification: true }, { enableAutoUpdateNotification: true, enableAutoUpdate: false }],
+    [{ disableUpdateNag: false }, { disableUpdateNag: false, enableAutoUpdate: false }],
+    [{ disableUpdateNag: true }, { disableUpdateNag: true, enableAutoUpdate: false }],
+    [{ enableAutoUpdateNotification: 'yes' }, { enableAutoUpdateNotification: 'yes', enableAutoUpdate: false }],
+    // both chosen: nothing
+    [{ enableAutoUpdate: true, enableAutoUpdateNotification: true }, { enableAutoUpdate: true, enableAutoUpdateNotification: true }],
+    // something else in general is not a choice about updates: both go off, and it is kept
+    [{ vimMode: true }, { vimMode: true, enableAutoUpdate: false, enableAutoUpdateNotification: false }],
+    // CONTROL: an old-name key that is not a boolean is not a choice the CLI reads, so both go off
+    [{ disableAutoUpdate: 'no' }, { disableAutoUpdate: 'no', enableAutoUpdate: false, enableAutoUpdateNotification: false }],
+  ];
+  for (const [before, after] of rows) {
+    const { file } = tmpSettings();
+    fs.writeFileSync(file, JSON.stringify({ general: before }, null, 2));
+    geminisettings.ensurePrepared(file, BRIDGE, POSIX);
+    assert.deepEqual(readJSON(file).general, after, `general ${JSON.stringify(before)}`);
+    assert.deepEqual(geminisettings.ensurePrepared(file, BRIDGE, POSIX), { prepared: true, changed: false }, `a second run changed ${JSON.stringify(before)}`);
+  }
+});
+
+/* The same table read the other way: after Kosmos has been, does the CLI still install? It installs only when
+   BOTH effective values are on (0.61.0: no check means nothing to install, and handleAutoUpdate needs the install
+   key on). The only rows where it still can are the ones where the person said so. */
+test('#6058: after the write, the CLI can still install only where the person chose to keep installing', () => {
+  const effective = (g, key, legacy) => (typeof g[key] === 'boolean' ? g[key] : (typeof g[legacy] === 'boolean' ? !g[legacy] : true));
+  const installs = (g) => effective(g, 'enableAutoUpdate', 'disableAutoUpdate') && effective(g, 'enableAutoUpdateNotification', 'disableUpdateNag');
+  const cases = [
+    [{}, false], [{ vimMode: true }, false], [{ enableAutoUpdateNotification: true }, false], [{ disableUpdateNag: false }, false],
+    [{ enableAutoUpdate: false }, false], [{ disableAutoUpdate: true }, false],
+    [{ enableAutoUpdate: true }, true], [{ disableAutoUpdate: false }, true],
+    [{ enableAutoUpdate: true, enableAutoUpdateNotification: false }, false],
+  ];
+  assert.equal(installs({}), true, 'CONTROL: untouched, the CLI installs (both keys default to on)');
+  for (const [before, stillInstalls] of cases) {
+    const { file } = tmpSettings();
+    fs.writeFileSync(file, JSON.stringify({ general: before }, null, 2));
+    geminisettings.ensurePrepared(file, BRIDGE, POSIX);
+    assert.equal(installs(readJSON(file).general), stillInstalls, `general ${JSON.stringify(before)}`);
+  }
 });
 
 test('#6058: a general block that is not an object is somebody\'s own arrangement and nothing is written under it', () => {

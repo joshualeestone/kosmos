@@ -7,9 +7,9 @@ MANIFEST.gemini): the hooks, the trust dialog, the session format and the model 
 
 ## Change
 - `engine/geminisettings.js` `ensurePrepared`: writes `general.enableAutoUpdate: false` and
-  `general.enableAutoUpdateNotification: false` into the settings file it already prepares for a Gemini agent.
-  Each key only when it is ABSENT.
-- `engine/geminisettings.test.js`: four tests.
+  `general.enableAutoUpdateNotification: false` into the settings file it already prepares for a Gemini agent,
+  unless the person has already made the choice (the rule is under Decided).
+- `engine/geminisettings.test.js`: five tests.
 
 ## What the CLI does with them (read in the installed 0.61.0 bundle)
 - `checkForUpdates` returns nothing when `enableAutoUpdateNotification` is false: no check is made, so nothing is
@@ -33,14 +33,21 @@ The arm with nothing set (which updates) is the one the card's author measured; 
 changes the shared install.
 
 ## Decided
+- **Two choices, and neither is overridden.** INSTALL is `enableAutoUpdate`; CHECK is
+  `enableAutoUpdateNotification`. Either one off stops the install, because no check means nothing to install. So
+  they cannot be filled one at a time: my first version wrote "no check" beside a person's "keep installing" and
+  switched their updates off through the other key (review 2). The rule:
+  - they chose about INSTALL, either way: nothing is written. Off, the pin is safe. On, it is theirs.
+  - they chose only about the CHECK: installs are switched off, their check setting is left as it is.
+  - they chose neither: both are switched off, so the pane shows no banner either.
 - **The older spelling counts as the person's choice.** gemini still reads `general.disableAutoUpdate` and
   `general.disableUpdateNag` and migrates them to the two keys above, inverted (`migrateDeprecatedSettings`; I read
   the mapping in the 0.61.0 source after review 1 found it). With the new key also in the file the CLI keeps the
-  new one and deletes theirs. So a boolean under the old name leaves the new key unwritten.
-- **Only when absent.** On the default account this file is the person's own `~/.gemini/settings.json`, and the
-  module's rule is never to overwrite what a person chose (the auth type has the same rule). A person who set
-  `enableAutoUpdate: true` keeps it. Rejected: forcing false. It would keep the pin against a person's stated
-  choice about their own tool, and would flip it back every time a Gemini agent is made.
+  new one and deletes theirs. So a boolean under the old name is a choice, like the new name.
+- **Never forced.** On the default account this file is the person's own `~/.gemini/settings.json`, and the
+  module's rule is never to overwrite what a person chose (the auth type has the same rule). Rejected: forcing
+  installs off. It would keep the pin against a person's stated choice about their own tool, and would flip it
+  back every time a Gemini agent is made.
 - **Settings, not an environment switch.** The CLI has one (`IS_BINARY=true` skips the updater), and it is scoped to
   the agent's own process, which is what I wanted. Rejected because the same variable also changes how the CLI
   reads its own arguments and relaunches itself (`isStandardSea`, `getSpawnConfig`), none of which Kosmos has
@@ -52,8 +59,8 @@ reads the same file. They turn it back on by setting the key to true, which Kosm
 
 ## Weakest premise
 That a file with these keys absent is the common case. Three kinds of file get no protection, and their agents can
-still move the shared gemini: one where the person set `enableAutoUpdate: true` (or the old `disableAutoUpdate:
-false`); one with comments in it (the CLI reads those, Kosmos's `JSON.parse` does not, so the whole file is left
+still move the shared gemini: one where the person chose to keep installing (`enableAutoUpdate: true` or the old
+`disableAutoUpdate: false`) and has not switched the check off; one with comments in it (the CLI reads those, Kosmos's `JSON.parse` does not, so the whole file is left
 alone, as before this change); and one this change wrote that a running gemini then saves over (below). I have no
 count of any of them.
 
@@ -79,7 +86,8 @@ A gemini release that renames or drops both keys (the settings file would then b
 would move again): the measurement above is how to find out, on the new version.
 
 ## Verify
-- `engine/geminisettings.test.js` and `engine/geminisettings.toolhook-5812.test.js`: 33 pass, 0 fail.
+- `engine/geminisettings.test.js` and `engine/geminisettings.toolhook-5812.test.js`: 33 pass, 0 fail. One of the
+  five new tests is a table of eleven files a person might have, each with what must be there afterwards.
 - No test goes through a caller (`create.js`'s write at an agent's creation): the five tests call `ensurePrepared`
   with a file, as the module's other tests do.
 - Every `engine/*gemini*.test.js` and `engine/win32keyed*.test.js`: 187 tests, 183 pass, 0 fail (4 skipped).
@@ -101,3 +109,16 @@ would move again): the measurement above is how to find out, on the new version.
 - The reviewer confirmed from the 0.61.0 source what the plan says the two keys do, that both default to true, that
   the only install command is the one `handleAutoUpdate` runs, and that a legacy key never overrides a new boolean
   key. It could not rerun the live measurement (it must never launch gemini) and found it consistent with the source.
+
+## Review 2 (2026-10-13, sonnet), at b407a0f96
+0 BLOCKER, 1 WARNING, 0 CONVENTION, 1 NIT. Not converged.
+- **WARNING, taken, and my own test had blessed it:** I filled the two keys one at a time. For a person with
+  `enableAutoUpdate: true` and nothing else, I wrote `enableAutoUpdateNotification: false`: the check then never
+  runs and nothing installs, so their choice was overridden through the other key. My test asserted their key was
+  "left alone" and never asked whether their gemini still updated. The plan also said such files "get no
+  protection", which was wrong. The rule is now the three lines under Decided, with a table test, and a second
+  test that asks the question I had not: after the write, can the CLI still install?
+- **NIT, taken:** the plan's count of tests.
+- The reviewer walked `migrateBoolean` for every pairing of old and new key, and checked the Residuals sentence by
+  sentence against the source (the key-deleting save, the merge order, the check living only in the interactive
+  entry): each is consistent.

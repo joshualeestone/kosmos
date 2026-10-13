@@ -62,7 +62,7 @@ const MARKER = 'gemini-report-bridge';
    `handleAutoUpdate` installs only when enableAutoUpdate is true). Both default to true when absent.
    Each key has an OLDER spelling the CLI still reads and migrates (`migrateDeprecatedSettings`): the same choice,
    inverted. A person's file may hold either, so "did they choose?" asks about both (review 1). */
-const UPDATE_KEYS = Object.freeze(['enableAutoUpdate', 'enableAutoUpdateNotification']);
+const UPDATE_KEYS = Object.freeze(['enableAutoUpdate', 'enableAutoUpdateNotification']);   // [the install, the check], in this order
 const LEGACY_UPDATE_KEYS = Object.freeze({ enableAutoUpdate: 'disableAutoUpdate', enableAutoUpdateNotification: 'disableUpdateNag' });
 
 /* The command gemini runs for a hook. Gemini executes a command hook as a SHELL
@@ -216,22 +216,29 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
     changed = true;
   }
 
-  /* #6058: the CLI's own updater, off. Each key is written only when it is ABSENT, the same never-clobber rule as
-     the auth type above and for the same reason: on the default account this file is the person's own
-     ~/.gemini/settings.json. A value they set themselves, true included, is theirs and is left as it is.
+  /* #6058: the CLI's own updater, off, without overriding anything the person chose. On the default account this
+     file is the person's own ~/.gemini/settings.json, so the rule is the auth type's: never overwrite a choice.
+     There are two choices here, each with an older spelling the CLI still reads (LEGACY_UPDATE_KEYS):
+       INSTALL  enableAutoUpdate (or a boolean disableAutoUpdate)
+       CHECK    enableAutoUpdateNotification (or a boolean disableUpdateNag)
+     and EITHER ONE being off stops the install (no check means nothing to install). So the two cannot be filled
+     independently: writing "no check" beside a person's "keep installing" would switch their updates off through
+     the other key (review 2). The rule:
+       they chose about INSTALL (either way)  ->  nothing is written. Off, the pin is safe; on, it is theirs.
+       they chose only about the CHECK        ->  installs are switched off; their check setting is left as it is.
+       they chose neither                     ->  both are switched off (no install, no banner in the pane).
      🛑 WHAT THIS COSTS, SAID PLAINLY: on the default account it also stops the person's OWN `gemini` (run by
      hand, outside Kosmos) from updating itself, because it reads the same file. They turn it back on by setting
-     the key to true, which this then leaves alone. A `general` that is present but not an object is somebody's
-     own arrangement and is left alone, with nothing written under it.
-     The OLDER spelling of a key counts as their choice too: with `disableAutoUpdate: false` in the file ("keep
-     updating"), writing enableAutoUpdate: false beside it would win inside the CLI, which then DELETES their key
-     from the file (measured in the 0.61.0 source by review 1). So a boolean under the old name leaves the new one
-     unwritten. */
+     enableAutoUpdate to true, which this then leaves alone. A `general` that is present but not an object is
+     somebody's own arrangement and is left alone, with nothing written under it. */
   if (data.general === undefined) data.general = {};
   if (data.general && typeof data.general === 'object' && !Array.isArray(data.general)) {
-    for (const key of UPDATE_KEYS) {
-      const chosen = data.general[key] !== undefined || typeof data.general[LEGACY_UPDATE_KEYS[key]] === 'boolean';
-      if (!chosen) { data.general[key] = false; changed = true; }
+    const chose = (key) => data.general[key] !== undefined || typeof data.general[LEGACY_UPDATE_KEYS[key]] === 'boolean';
+    const [installKey, checkKey] = UPDATE_KEYS;
+    if (!chose(installKey)) {
+      if (!chose(checkKey)) data.general[checkKey] = false;
+      data.general[installKey] = false;
+      changed = true;
     }
   }
 
