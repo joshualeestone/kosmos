@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: teardownguard-6022
-diff_hash: 0e73e2e702175df363651f559a6f0213822ae392b3ac0caa823a1fedc66a70b4
+diff_hash: 9d6b623ea56356b0a1d3058bf10d206fdbe61a86eb57e2ed842512a8867734f4
 validation: passed (the guard 2/2 green on the whole folder; 85 test files that scan docs/browser-checks plus fixture-discipline and the brand/name guards, run from the repo root, 1735 pass 0 fail; both browser-check gates pass; 15 self-booting changed checks pass on this branch; the runner-board checks run in CI's browser-checks job)
 subdir_audit: passed
-timestamp: 2026-10-13T05:42:56Z
+timestamp: 2026-10-13T07:04:47Z
 iterations: 4
 converged: true
 ---
@@ -38,3 +38,8 @@ converged: true
 
 #### Iteration 4 (sonnet)
 - No BLOCKER or WARNING. NITs (comment-only) applied: advisory abort and two lexical limits named; a comment order.
+
+#### Post-rebase (sonnet), 2026-10-13 after 0.7.44 was served
+- Rebased onto main: #6024 had added two fetching handlers passed to page.route by name (render-tasks-view-3559 stampAge, noAge) without a try; merging as it was would have turned main red. Both hardened; the guard now checks a handler passed by name at its definition. render-tasks-view-3559 runs green on this branch.
+- No BLOCKER or WARNING. NITs applied: every definition of the name is checked, the name is escaped, the header re-wrapped.
+
