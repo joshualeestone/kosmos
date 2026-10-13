@@ -36,7 +36,8 @@ const FUTURE_SLACK_MINUTES = 5;
  */
 /* #5635 0.7.33: a stale summary of a member the board reads as rate limited now carries limitedNow (idleNoted).
    overviewOf may then mark a stale summary 'idle', with idleKind ('idle' or 'started'), idleSince and idleMinutes
-   (#4581 N10, idleExcused), or 'quiet', with quietSince and quietMinutes (#4581 R9, quietExcused). Not the member's
+   (#4581 N10, idleExcused), or 'quiet', with quietSince and quietMinutes (#4581 R9, quietExcused), or 'worked', with
+   workMinutes (#5635 F2, workExcused). Not the member's
    own state, which also reads 'idle'. */
 function summaryFreshness(folder, nowMs) {
   const none = { state: 'none', file: null, at: null, ageMinutes: null };
@@ -209,6 +210,47 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
   return { ...summary, state: 'quiet', quietKind, quietSince: new Date(endedAt).toISOString(), quietMinutes: Math.max(0, Math.round((now - endedAt) / 60000)) };
 }
 
+/* kosmos#5635 F2 (five-family reports on 0.7.45 and 0.7.46): every seat wrote a summary in the morning, went idle, and was
+   woken by a request five hours later; at the first minute of that new work the board read all five "older than the
+   4-hour rhythm". idleExcused only helps a member idle NOW, and its latest idle report moves on with every short
+   prompted turn, so a working member, or one that answered a community prompt, fell back to clock time. The rhythm is a
+   summary every four hours of WORK, so this measures exactly that: the time the member's own reports show it working
+   since the summary was written. At or under the rhythm, the summary reads 'worked' with workMinutes.
+   - Only a runner that reports working too (REPORTS_WORKING): for one that reports idle only, idle rows would read as
+     no work at all.
+   - Busy is any report but idle, started and stopped (as communityturn's workedSince), so a wait for a person counts as
+     work: it errs toward stale.
+   - The stretch before the member's first report after the summary is counted as work unless an earlier report shows
+     what it was doing then; a history cut short (selfreport's bounded tail) that starts after the summary is unknown,
+     and leaves the summary as it was. */
+function workExcused(summary, member, readHistory, nowMs) {
+  if (!summary || summary.state !== 'stale' || !summary.at) return summary;
+  if (!member || !member.present || !member.tied) return summary;
+  if (!REPORTS_WORKING.has(member.runner)) return summary;
+  let rows = null;
+  try { rows = readHistory(member.sessionName); } catch { rows = null; }
+  if (!Array.isArray(rows)) return summary;
+  const wroteAt = Date.parse(summary.at);
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  if (!Number.isFinite(wroteAt) || wroteAt > now) return summary;
+  const valid = rows.filter((r) => r && Number.isFinite(r.at) && r.at <= now && typeof r.state === 'string');
+  if (rows.truncated === true && (!valid.length || valid[0].at > wroteAt)) return summary;
+  const busy = (st) => st !== 'idle' && st !== 'started' && st !== 'stopped';
+  let state = null;   // what the member was doing at wroteAt: its last report at or before it; none known reads as busy
+  for (const r of valid) { if (r.at <= wroteAt) state = r.state; }
+  let from = wroteAt;
+  let worked = 0;
+  for (const r of valid) {
+    if (r.at <= wroteAt) continue;
+    if (state === null || busy(state)) worked += r.at - from;
+    state = r.state;
+    from = r.at;
+  }
+  if (state === null || busy(state)) worked += now - from;
+  if (worked > SUMMARY_RHYTHM_HOURS * 3600000) return summary;
+  return { ...summary, state: 'worked', workMinutes: Math.max(0, Math.round(worked / 60000)) };
+}
+
 /* kosmos#5635 F2 (Josh's multi-model feedback on 0.7.27): every member of a project with no open work read "older than
    the 4-hour rhythm", 16 hours to 2 days, so the line could not tell idle from overdue. idleExcused and quietExcused
    above only RE-LABEL a summary they can prove was current when the work stopped, and both leave cases out on purpose
@@ -257,6 +299,10 @@ function idleNoted(summary, member, readReport, nowMs) {
 function overviewOf(p, roster, o) {
   const opts = o || {};
   const readReport = opts.readReport || ((name) => { try { return require('./selfreport').read(name); } catch { return null; } });
+  /* #5635 F2: a caller that supplies its own report source and no history gets no history (workExcused then leaves the
+     summary as it was), so a view never mixes that source with the store's record of a different timeline. */
+  const readHistory = opts.readHistory || (opts.readReport ? (() => null)
+    : ((name) => { try { return require('./selfreport').history(name); } catch { return null; } }));
   const folderOf = opts.folderOf || ((name) => { try { return require('./create').workerDir(name); } catch { return null; } });
   const readBrief = opts.readBrief || require('./brief').readBrief;
   // Read once, and only when a member reaches busyElsewhere (review 3).
@@ -291,7 +337,7 @@ function overviewOf(p, roster, o) {
          derived from that name reported as this member's summary. */
       /* Round 2: only a live pane that is NOT this member (a stranger holding the name) is kept off its folder. A
          member that is not running is still this member, and its last summary is exactly what a PM checks. */
-      summary: (m.present && !m.tied) ? { state: 'nofolder', file: null, at: null, ageMinutes: null } : idleNoted(quietExcused(idleExcused(summaryFreshness(folderOf(m.sessionName), opts.now), m, readReport, opts.now), m, p.tasks, opts.now, allProjects), m, readReport, opts.now),
+      summary: (m.present && !m.tied) ? { state: 'nofolder', file: null, at: null, ageMinutes: null } : idleNoted(workExcused(quietExcused(idleExcused(summaryFreshness(folderOf(m.sessionName), opts.now), m, readReport, opts.now), m, p.tasks, opts.now, allProjects), m, readHistory, opts.now), m, readReport, opts.now),
     };
   });
   return {
@@ -362,6 +408,11 @@ function pathText(v) {
        Hangul fillers, the variation-selector supplement, runs of joiners), each shown as "?" rather than removed. */
     .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b\u200e\u200f\u202a-\u202e\u2060-\u206f\u061c\u00ad\ufeff\ufff9-\ufffb\u115f\u1160\u3164\uffa0]|[\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]|[\u200c\u200d\ufe00-\ufe0f]{3,}/gu, '?');
 }
+function span(minutes) {
+  if (!Number.isFinite(minutes) || minutes < 1) return 'under a minute';
+  if (minutes < 60) return minutes + ' min';
+  return Math.floor(minutes / 60) + 'h ' + (minutes % 60) + 'm';
+}
 function ago(minutes) {
   if (minutes == null) return '';
   if (minutes < 1) return 'just now';
@@ -418,6 +469,8 @@ const SUMMARY_WORDS = {
   idle: (s) => s.idleKind === 'started'
     ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ' and idle since then)'
     : 'current when it went idle (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; idle since ' + ago(s.idleMinutes) + ')',
+  // #5635 F2: the rhythm is four hours of work, and the member's reports show less than that since it was written.
+  worked: (s) => 'current for the work since (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; ' + span(s.workMinutes) + ' of work since)',
   // #4581 R9: the project has no open task; this summary was current when its last task ended.
   quiet: (s) => (s.quietKind === 'own' ? 'current when its own tasks here ended' : 'current when work on the project\'s tasks ended')
     + ' (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; work ended ' + ago(s.quietMinutes) + ')',
@@ -469,4 +522,4 @@ function renderShow(payload) {
   return out;
 }
 
-module.exports = { summaryFreshness, idleExcused, familyOf, overviewOf, listOf, renderList, renderShow, one, SUMMARY_RHYTHM_HOURS };
+module.exports = { summaryFreshness, idleExcused, workExcused, familyOf, overviewOf, listOf, renderList, renderShow, one, SUMMARY_RHYTHM_HOURS };
