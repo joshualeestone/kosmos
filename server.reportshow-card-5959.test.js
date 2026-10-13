@@ -134,11 +134,14 @@ test('#5959 review 1: the stale boundary is a day, and between one and two days 
     const at = (h) => new Date(Date.now() - h * 3600e3).toISOString();
     backdate(WHO, 'needs_you', at(23));
     assert.equal((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.stale, false, '23 hours read stale');
+    // Each case on its own: one waiting run is aged from its first line (#5943 askedAt), so lines are not stacked.
+    clearStores();
     backdate(WHO, 'needs_you', at(25));
-    const t = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } });
+    const t = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': sendertoken.mint(WHO).token } });
     assert.match(t.text, /Your own `needs_you` report has been standing for over a day\./, t.text);
+    clearStores();
     backdate(WHO, 'needs_you', at(36));
-    assert.match((await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } })).text, /for over a day\./);
+    assert.match((await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': sendertoken.mint(WHO).token } })).text, /for over a day\./);
   });
 });
 
@@ -179,5 +182,23 @@ test('#5959 review 4: a waiting report a person or an unknown writer left is sai
       assert.match(t, /This `blocked` report has been standing for 3 days\./, String(by) + ': ' + t);
       assert.doesNotMatch(t, /Your own|Kosmos wrote/, String(by) + ': ' + t);
     }
+  });
+});
+
+test('#5959: a waiting question re-reported since is aged from when it was first asked, not from the latest line', async () => {
+  boardAuthState.on = false;
+  await withLeo(async () => {
+    const tok = sendertoken.mint(WHO).token;
+    backdate(WHO, 'blocked', new Date(Date.now() - 3 * 24 * 3600e3).toISOString());
+    backdate(WHO, 'blocked', new Date(Date.now() - 3600e3).toISOString());   // the same question, re-reported an hour ago
+    const t = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } });
+    assert.match(t.text, /has been standing for 3 days\./, t.text);
+    // CONTROL: a different question an hour ago is a new run, so it is not stale.
+    clearStores();
+    backdate(WHO, 'blocked', new Date(Date.now() - 3 * 24 * 3600e3).toISOString());
+    fs.appendFileSync(selfreport.fileFor(WHO), JSON.stringify({ v: 1, state: 'blocked', because: 'another question', on: null, owner: null,
+      until: null, project: null, left: null, at: new Date(Date.now() - 3600e3).toISOString(), by: 'agent' }) + '\n');
+    const t2 = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': sendertoken.mint(WHO).token } });
+    assert.doesNotMatch(t2.text, /has been standing/, t2.text);
   });
 });

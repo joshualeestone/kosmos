@@ -51,3 +51,8 @@ Update (2026-10-13 02:3x CDT): healthline-5959 landed the #6017 line first (#602
 onto main and no longer changes `server.usage.test.js`; the section above is history, and the commits that added it
 now carry only plan text. The rebase also met main's new NEEDS_YOU_ASK_NOTE export in engine/selfreport.js (#5943, the
 POST side of /api/report); both exports are kept.
+Post-rebase review: main's selfreport.read now gives `askedAt` (#5943, when the waiting run began: the same state,
+words and project). The stale age now uses `askedAt || at`, so an agent that re-reports the same question is not reset to
+fresh (test: a re-reported question is aged from its first line; CONTROL: a different question is a new run;
+mutation: using `at` alone reds it). The boundary test's cases now each start from an empty store, since stacked lines
+are one run.

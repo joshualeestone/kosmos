@@ -15111,7 +15111,10 @@ const server = http.createServer(async (req, res) => {
       /* #5959: the card as the PERSON sees it (its label is the page's own word, engine/cardlabel), so an agent can
          check its own card without reading the board; and a waiting state standing over a day is pointed out. */
       const cardLabel = cardlabel.labelOf(sender.card);
-      const atMs = rep && rep.found === true ? Date.parse(rep.at || '') : NaN;
+      /* Aged from when the waiting run began (selfreport's askedAt, #5943: the same state, words and project), so an
+         agent re-reporting the same question does not reset it; the latest line's time when the run's start is not
+         known (a cut tail), which can only make the age shorter. */
+      const atMs = rep && rep.found === true ? Date.parse(rep.askedAt || rep.at || '') : NaN;
       const ageMs = Number.isFinite(atMs) ? Date.now() - atMs : null;
       const stale = !!(rep && rep.found === true && selfreport.WAITING_ON_A_PERSON.includes(rep.state)
         && ageMs !== null && ageMs > selfreport.STALE_WAIT_MS);
