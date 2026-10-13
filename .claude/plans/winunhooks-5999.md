@@ -17,7 +17,8 @@ files is exactly as it was. Anything that could not be taken out is named in the
   Files: `AGENT_WORKFORCE_CLAUDE_SETTINGS` or `<home>\.claude\settings.json`, plus `<home>\.claude-*\settings.json`.
   Each under `filelock.withFileLock(file)`, the #3088 lock `wireDefaultHooks` and `trust.preacceptBypass` take.
   Roots: the launcher's `--root` (the bundle, which holds both the node.exe and the script the entry names) and its
-  real path. DONE line per file changed, LEFT line per file that still holds ours.
+  real path. DONE line per file changed; LEFT for what a retry can fix (busy lock, failed save); NOTE for
+  what it cannot (an unreadable file, a folder refusing the lock, no root).
 
 ## Decisions
 - Only once every task is gone and no board answers: the board (server.js wireDefaultHooksTry) and each agent launch
@@ -44,6 +45,19 @@ entries, which this keeps (correctly, they are another install's), but then the 
 copy is the one they delete by hand.
 
 ## Tests
-`engine/win32uninstall.unhooks-5999.test.js` (8): matching rules (neighbours, shared entry, case and separators,
-old shell form, boundary lookalikes), dry run, unreadable file, and through `uninstall()`: both files cleaned and
-said, untouched while a task is registered, no root, a held lock. Six perturbations each turned a test red.
+`engine/win32uninstall.unhooks-5999.test.js` (15): matching rules (neighbours, a shared entry, case and separators,
+the old shell form, boundary lookalikes), dry run, unreadable file, the broken-script rule (each case it must keep,
+with a control it removes), goneOnDisk (not found vs could not look), and through `uninstall()`: every file cleaned
+and said, a .claude-* folder with no settings file left unwritten, untouched while a task is registered or a board
+answers (each proving the guard was false), no root (a note), an earlier folder's dead entries, the real path behind
+a link and the settings override, an unreadable file and a folder refusing the lock (notes), a held lock (left).
+Every guard was perturbed and turned a test red. Round 4 found the integration tests passing through the broken-script
+seam rather than the folder match (path.resolve off Windows); the default seam now says nothing is gone.
+
+## Left as decided (review NITs)
+- The no-root note still says to remove Kosmos again: only a hand-run CLI reaches it (the launcher passes --root).
+- A settings file that cannot be opened reads "could not be read as JSON": that sentence is the shared readSettings's,
+  used by the wiring too; a separate card if it matters.
+
+## Review log
+Rounds 1 to 4 found BLOCKER/WARNINGs, all fixed (commit subjects). Rounds 5 and 6: no BLOCKER or WARNING. Converged.
