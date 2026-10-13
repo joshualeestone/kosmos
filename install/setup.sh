@@ -1361,8 +1361,10 @@ install_kosmos() {
   # substitution only keeps a failed search from ending the script if this is ever called without `||` after it.
   # NOT caught ahead of time: a deny-delete ACL, another user's file in a sticky folder, an immutable file on Linux.
   local _lift_failed="" _stuck_at="" _stuck_why="" _app_was_locked=no
-  # Sampled BEFORE the lift, for the refusal below: an app that was read-only is left read-only again.
-  if [ -d "$dest/app" ] && [ ! -w "$dest/app" ]; then _app_was_locked=yes; fi
+  # Sampled BEFORE the lift, for the refusal below: an app that was read-only is left read-only again. By the
+  # folder's own mode bit, not `[ -w ]`: that asks whether THIS run may write, which is always yes for root, and a
+  # root run would then leave a read-only app open after a refusal (review 4).
+  if [ -d "$dest/app" ] && [ -z "$(find "$dest/app" -maxdepth 0 -perm -u+w 2>/dev/null || true)" ]; then _app_was_locked=yes; fi
   for part in bin app runtime; do
     [ -d "$dest/$part" ] || continue
     chmod -R u+rwX "$dest/$part" 2>/dev/null || _lift_failed="$_lift_failed $part"

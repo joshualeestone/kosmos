@@ -78,12 +78,12 @@ up in the second measurement; the Linux workflow going red on this branch.
 - `sh tools/test-update-locked-app-4455.sh`: 28 passed, run under the installer's own `set -eu` and pipefail lines
   (extracted from the shipped file). Its CONTROL arm runs the old line on the locked fixture and loses `bin` before
   stopping at `app`.
-- Eight mutants of the installer, each in a scratch copy, BASE green first, each red BY ITS OWN ARM: the search given
+- Seven mutants of the installer, each in a scratch copy, BASE green first, each red BY ITS OWN ARM: the search given
   back the fallback that clears what it found (NOISY); `! -empty` taken out (EMPTY); the lift back to `u+w` (both
   NOREAD arms); the locked-file search switched off (LOCKED and RELOCK); the refusal's `return 1` removed (NODIR,
   NOISY, LOCKED); the lock not put back on refusal (RELOCK, the read-only arm); the lock put on whatever the app
-  was before (RELOCK, the writable arm). Eight in all with the two RELOCK ones.
-  **One mutant is GREEN and is meant to be:** the `|| true` inside the two substitutions taken out. It changes
+  was before (RELOCK, the writable arm).
+  **An eighth mutant is GREEN and is meant to be:** the `|| true` inside the two substitutions taken out. It changes
   nothing while the function is called with `||` after it, which both the installer and the test do (review 2
   measured this; I had described NOISY as proving it).
 - Every `install*.test.js` (23 files): 218 pass. `bash tools/test-install-static.sh`: 23 passed.
@@ -143,3 +143,15 @@ up in the second measurement; the Linux workflow going red on this branch.
   as this plan's own residual says. It says the edit is refused.
 - The reviewer swept for anything that pins the replaced line or counts the switch's name (nothing), and measured
   that the next update and the person's own unlock both work after a re-lock.
+
+## Review 4 (2026-10-13, sonnet), at e2c61a409
+0 BLOCKER, 1 WARNING, 0 CONVENTION, 6 NIT. Not converged (a new warning).
+- **WARNING, taken:** "was the app read-only" was sampled with `[ -w ]`, which is always true for root, so a root
+  run would leave a read-only app open after a refusal. It reads the folder's own mode bit now. The reviewer found
+  no root path that matters today (the package installer drops to the person's account first).
+- **NIT, stated:** the sample looks at the app's top folder and the restore covers the whole app. If only the top
+  folder had been read-only, a refusal makes all of it read-only: stricter than it was, never looser.
+- **NIT, taken:** my count of mutants was muddled. Seven red, one green.
+- **NIT x4, nothing to change:** another user's app folder, a fresh install with no app, the header's list of arms,
+  the hand-written old line in the CONTROL arm.
+- Nothing refers to the removed function; the what's-new entry parses and has its neighbours' shape.
