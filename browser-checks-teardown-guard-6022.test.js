@@ -27,18 +27,20 @@
  *
  * ⚠️ WEAKEST PART, AND IT IS A HEURISTIC. A handler is found by its `.route(` call and its first parameter, from an
  * arrow (`async (r) =>`, `r =>`) or `function (r)`, or passed by name and found at its `const NAME = ... =>` or
- * `function NAME(` definition in the same file (a handler imported from another file is not read: fails GREEN). A handler with no fetch of its own is not checked at all, even one that awaits a timer or a held
- * promise before it fulfills (that answer can land after close too; outside this card, a follow-up). A catch that
- * rethrows counts as caught, and the abort in the catch is advised, not required (an empty catch passes: no crash, but a
- * real failure then waits for the check's timeout). A statement without semicolons, or a call passed as an argument
- * to an awaited function (await f(r.fulfill(...))), reads as awaited; no check uses either style. The try test is lexical: a call inside a function nested in the try (a setTimeout
- * callback) reads as guarded though its rejection is not caught (fails GREEN). An abort whose argument has its own
- * parentheses is flagged though correct (fails RED). "Inside a try" counts braces from the last `try {` before the fetch, so a brace inside a string
- * between the two can miscount. Comments are blanked first (strings, template literals and regex literals kept).
- * Each call must also be awaited in its own statement, and its try must have a catch (round 1). A handler that
- * fetches through a helper (mobile-shots.js fetchBoard(route)) is not seen: that file's helper-fed handlers were
- * hardened by hand. A handler's span runs to the next `.route(` call, so a nearby helper that reuses the parameter
- * name is read as part of it (fails RED, safe). The fixtures below pin both directions.
+ * `function NAME(` definition in the same file (a handler imported from another file is not read: fails GREEN). A
+ * handler with no fetch of its own is not checked at all, even one that awaits a timer or a held promise before it
+ * fulfills (that answer can land after close too; outside this card, a follow-up). A catch that rethrows counts as
+ * caught, and the abort in the catch is advised, not required (an empty catch passes: no crash, but a real failure
+ * then waits for the check's timeout). A statement without semicolons, or a call passed as an argument to an awaited
+ * function (await f(r.fulfill(...))), reads as awaited; no check uses either style. The try test is lexical: a call
+ * inside a function nested in the try (a setTimeout callback) reads as guarded though its rejection is not caught
+ * (fails GREEN). An abort whose argument has its own parentheses is flagged though correct (fails RED). "Inside a
+ * try" counts braces from the last `try {` before the fetch, so a brace inside a string between the two can
+ * miscount. Comments are blanked first (strings, template literals and regex literals kept). Each call must also be
+ * awaited in its own statement, and its try must have a catch (round 1). A handler that fetches through a helper
+ * (mobile-shots.js fetchBoard(route)) is not seen: that file's helper-fed handlers were hardened by hand. A
+ * handler's span runs to the next `.route(` call, so a nearby helper that reuses the parameter name is read as part
+ * of it (fails RED, safe). The fixtures below pin both directions.
  */
 
 const test = require('node:test');
@@ -151,11 +153,14 @@ function scan(raw) {
   // A handler passed by name (`page.route(url, stampAge)`) is checked at its definition (`const stampAge = async (r) =>`
   // or `function stampAge(r)`), by the same rules (after #6024 added two such handlers).
   for (const r of src.matchAll(/\.route\(\s*(?:'[^'\n]*'|"[^"\n]*"|`[^`]*`|[^,'"`]){1,300},\s*([A-Za-z_$][\w$]*)\s*\)/g)) {
-    const name = r[1];
-    const def = new RegExp('\\b(?:(?:const|let|var)\\s+' + name + '\\s*=\\s*(?:async\\s+)?(?:\\(\\s*(\\w+)[^)]*\\)|(\\w+))\\s*=>|(?:async\\s+)?function\\s+' + name + '\\s*\\(\\s*(\\w+))').exec(src);
-    if (!def) continue;
-    starts.push({ at: def.index, param: def[1] || def[2] || def[3] });
-    read.add(r.index);
+    const name = r[1].replace(/[$]/g, '\\$&');   // escaped: a $ in a name is not an anchor (review)
+    const defRe = new RegExp('\\b(?:(?:const|let|var)\\s+' + name + '\\s*=\\s*(?:async\\s+)?(?:\\(\\s*(\\w+)[^)]*\\)|(\\w+))\\s*=>|(?:async\\s+)?function\\s+' + name + '\\s*\\(\\s*(\\w+))', 'g');
+    let found = false;
+    for (const def of src.matchAll(defRe)) {   // every definition of the name, not only the first (review)
+      if (!starts.some((h) => h.at === def.index)) starts.push({ at: def.index, param: def[1] || def[2] || def[3] });
+      found = true;
+    }
+    if (found) read.add(r.index);
   }
   starts.sort((x, y) => x.at - y.at);
   for (const r of src.matchAll(/\.route\(/g)) {
