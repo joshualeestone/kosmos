@@ -3991,7 +3991,12 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
        min-width: 2.4rem; text-align: right; }
 @media (max-width: 56rem) {
   .lrow { grid-template-columns: 34px 1fr; row-gap: 8px; }
-  .lstate, .ltask, .lmem { grid-column: 2; }
+  /* #6053: .lmodel was missing from this list, so auto-placement dropped it
+     into the 34px avatar column beside the memory bar and every model read
+     "Cla..." on a phone. In column 2 it gets its own line, just above the
+     memory bar (its desktop neighbour, Josh's #856 order), and the bar keeps
+     the full width. .ltitle is left where it is; that is a separate call. */
+  .lstate, .ltask, .lmodel, .lmem { grid-column: 2; }
 }
 /* Grid mode for the projects list: the same rows laid as cards. */
 .pj-list.asgrid { display: grid; gap: 16px;
