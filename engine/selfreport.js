@@ -41,8 +41,8 @@ const STATES = Object.freeze(['started', 'working', 'idle', 'needs_you', 'blocke
    `status.reconcileReport` already declines to decay, and they are the only
    ones an automatic writer may not erase. */
 const WAITING_ON_A_PERSON = Object.freeze(['blocked', 'needs_you']);
-/* #5959: a waiting report older than this is pointed out to the agent (kosmos report show). Its age is that of the
-   LATEST line, so re-reporting the same state starts it again: "standing for N days" can only be an underestimate. */
+/* #5959: a waiting report older than this is pointed out to the agent (kosmos report show). It is aged from when the
+   waiting run began (askedAt below), or from the latest line when that is not known, which can only be shorter. */
 const STALE_WAIT_MS = 24 * 3600 * 1000;
 
 const DIR = path.join(store.ROOT, 'selfreports');
