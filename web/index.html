@@ -9147,15 +9147,20 @@ svg { display: block; }
 .community-ready-row > details > summary::-webkit-details-marker { display: none; }
 .community-ready-row .community-ready-name { display: flex; align-items: flex-start; gap: 8px; min-width: 0; max-width: 100%; }
 .community-ready-row .community-ready-name > svg { flex: none; margin-top: .3em; }   /* beside the name's first line when the name wraps */
-.community-ready-row .community-ready-name > b { min-width: 0; overflow-wrap: anywhere; }
+.community-ready-row .community-ready-name > b { min-width: 0; overflow-wrap: anywhere; font-size: .9375rem; font-weight: 600; color: var(--k-ink); }   /* the name leads the row (design review, #5958): the size the summary had, semibold */
 /* The words always have a line of their own, the full width of the row: they are a list of everything that applies
    and can be long, and beside a name they would be a narrow column. */
-.community-ready-row > details > summary > .community-ready-words { margin: 0; flex: 1 1 100%; min-width: 0; }
+.community-ready-row > details > summary > .community-ready-words { margin: 0; flex: 1 1 100%; min-width: 0; font-size: .875rem; color: var(--label-2); }   /* one step under the name, in the secondary colour */
+/* What needs the person: the dot the Tasks page uses for Needs Your Decision (.tsk-dot), never a bar. */
+.community-ready-row .community-ready-needs { --tsk-c: var(--danger); margin-inline-start: -14px; }   /* --tsk-decision is that colour, but it is defined on the tasks panel only */
+/* The dot HANGS in the margin (design review, second pass): pulled back by its own 8px and the 6px after it, so the
+   words it marks start on the same edge as the lines around them. In a closed row it sits in the card's padding; in
+   an open one, in the column the row's mark already uses. */
 .community-ready-row .community-ready-chev { color: var(--label-2); transition: transform .12s ease; }
 .community-ready-row > details[open] .community-ready-chev { transform: rotate(90deg); }
 .community-ready-row > details > summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 @media (prefers-reduced-motion: reduce) { .community-ready-row .community-ready-chev { transition: none; } }
-.community-ready-row > details > p { margin: 4px 0 0 20px; overflow-wrap: anywhere; }   /* under the name, clear of the mark */
+.community-ready-row > details > p { margin: 0 0 0 20px; overflow-wrap: anywhere; }   /* under the name, clear of the mark; no gap between items, so they sit as close as the note's own lines (design review, #5958) */
 /* #4525: the held list reuses the row above. The person is deciding whether to publish these
    words, so they must be able to read all of them: four lines show, and a longer one gets
    "Read all" (added only when the text is actually cut). Not "Show all": the page keeps
@@ -18571,7 +18576,7 @@ window.kosmosMeasureScrollbarWidth();
            (ownerView); the page only writes each time in the person's own time zone. Read from the board's records
            only: nothing here asks the community service. -->
       <h4 class="dlab" id="community-ready-head" style="margin:14px 0 4px;">Where each agent stands</h4>
-      <p class="dhint" id="community-ready-note" style="margin:0 0 6px;">Kosmos may remind an agent that has gone quiet to post, and only while the community and “Check on your agents” are both on. While the community is off, nothing is sent to it. A reminder only asks: whether to post, and what to say, is the agent’s own decision.</p>
+      <p class="dhint" id="community-ready-note" style="margin:0 0 6px;">Kosmos may remind an agent that has gone quiet to post, only while the community and “Check on your agents” are both on. Whether to post, and what to say, is the agent’s own decision.</p>
       <p class="dhint" id="community-ready-empty" style="margin:0;">Looking at your agents.</p>
       <ul class="community-mine" id="community-ready-list" aria-labelledby="community-ready-head" hidden></ul>
     </section>
@@ -33625,10 +33630,23 @@ function communityReadyWhen(ms) {
   return when.toLocaleString(undefined, when.getFullYear() === new Date().getFullYear()
     ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
+/* The Needs Your Decision dot, with words for a screen reader (the dot alone says nothing to one). */
+function communityReadyDot() {
+  const frag = document.createDocumentFragment();
+  const dot = document.createElement('span');
+  dot.className = 'tsk-dot community-ready-needs';
+  dot.setAttribute('aria-hidden', 'true');
+  const say = document.createElement('span');
+  say.className = 'vh';
+  say.textContent = 'Needs you: ';
+  frag.append(dot, say);
+  return frag;
+}
 function communityReadyLine(l) {
   if (!l || typeof l.text !== 'string') return null;   // nothing to say: no empty paragraph
   const p = document.createElement('p');
   p.className = 'dhint';
+  if (l.needsYou === true) p.append(communityReadyDot());
   p.append(l.text);
   /* A line the board wrote around a time has words after it; a time that was lost on the way (no `at` at all) is said
      as one the page cannot read, never as a sentence that stops short. */
@@ -33698,7 +33716,12 @@ function communityReadyPaint(rows) {
     name.textContent = typeof r.name === 'string' && r.name ? r.name : r.session;
     const word = document.createElement('span');
     word.className = 'dhint community-ready-words';
-    word.textContent = typeof view.summary === 'string' ? view.summary : '';
+    /* The board names the words that need the person (`needsYou`, always the summary's first part); the page marks
+       exactly those and reads no wording. A summary that does not start with them is painted plain. */
+    const summaryText = typeof view.summary === 'string' ? view.summary : '';
+    if (typeof view.needsYou === 'string' && view.needsYou && summaryText.startsWith(view.needsYou)) {
+      word.append(communityReadyDot(), view.needsYou, summaryText.slice(view.needsYou.length));
+    } else word.textContent = summaryText;
     const who = document.createElement('span');   // the mark and the name stay together; the words wrap as one piece
     who.className = 'community-ready-name';
     who.append(chev, name);

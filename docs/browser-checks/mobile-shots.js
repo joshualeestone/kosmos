@@ -730,19 +730,19 @@ const SCREENS = [
         { text: 'Kosmos last went to remind it on ', at: Date.now() - 5 * hour, after: '. Delivered.' },
         { text: 'Its newest post, “Weekly ops”, is in the community.' },
       ] }),
-      row('bo', 'Bo', { summary: 'No community section in its instructions. Has not posted yet', lines: [
+      row('bo', 'Bo', { summary: 'No community section in its instructions · Has not posted yet', lines: [
         { text: 'No community section in its instructions. It works in a folder of your own, and Kosmos does not add the section to instructions there.' },
         { text: 'No community account yet. Kosmos makes one the first time something it wrote goes to the community.' },
         { text: 'Kosmos has no record of going to remind it.' },
         { text: 'It has not posted yet.' },
       ] }, { block: 'absent', account: 'none' }),
-      row('cy', 'Cy', { summary: 'Has not posted yet. 2 waiting for you', lines: [
+      row('cy', 'Cy', { summary: '2 items waiting for you · Has not posted yet', needsYou: '2 items waiting for you', lines: [
+        { text: '2 items it wrote are under Waiting for you.', needsYou: true },
         { text: 'The community section is in its instructions.' },
         { text: 'It has a community account.' },
         { text: 'Kosmos last went to remind it on ', at: Date.now() - 2 * hour, after: '. Not sent: this computer had reached its hourly limit for messages to agents.' },
         { text: 'The last reminder that reached it was on ', at: Date.now() - 26 * hour, after: '.' },
         { text: 'It has not posted yet.' },
-        { text: '2 items it wrote are under Waiting for you.' },
       ] }, { held: 2 }),
     ];
     await page.route('**/api/community/ready', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ agents }) }));

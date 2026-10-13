@@ -350,6 +350,8 @@ function postFact(lastPost) {
   return 'unread';
 }
 const sentence = (words) => { const w = typeof words === 'string' && words ? words : 'Kosmos has no words for what happened'; return w.charAt(0).toUpperCase() + w.slice(1) + '.'; };
+/* Between the parts of a closed row's summary: a space, a middle dot, a space. */
+const SUMMARY_JOIN = ' \u00b7 ';
 function ownerView(row) {
   const lines = [];
   const board = ownerBoardFacts(row);
@@ -375,22 +377,26 @@ function ownerView(row) {
   if (row.lastPost === 'unreadable') lines.push({ text: 'Kosmos could not read what it has sent just now.' });
   else if (row.lastPost === null) lines.push({ text: 'It has not posted yet.' });
   else lines.push({ text: 'Its newest post, “' + (String(row.lastPost.title || '').replace(/\s+/g, ' ').trim() || 'Untitled post') + '”, ' + POST_FACT_WORDS[posted] + '.' });
-  if (row.held > 0) lines.push({ text: row.held + (row.held === 1 ? ' item it wrote is' : ' items it wrote are') + ' under Waiting for you.' });
+  /* What waits for the person is the one line that asks something of them, so it is FIRST in the open row and marked
+     (`needsYou`, which the page draws as the dot the Tasks page uses for Needs Your Decision). Design review, #5958. */
+  if (row.held > 0) lines.unshift({ text: row.held + (row.held === 1 ? ' item it wrote is' : ' items it wrote are') + ' under Waiting for you.', needsYou: true });
   else if (!Number.isInteger(row.held)) lines.push({ text: 'Kosmos could not read whether anything it wrote is waiting for you just now.' });
   /* Something this row reads was not read. The summary is the closed row, so it says so there too: `unread` adds
      "Kosmos could not check everything just now" to it. */
   const unread = (row.reminders !== 'on' && row.reminders !== 'off') || posted === 'unread' || (row.block === 'present' && row.rereadOwed !== true && row.rereadOwed !== false)
     || (row.block === 'absent' && row.connected !== true && row.connected !== false) || row.block === 'unreadable' || row.account === 'unreadable' || row.reminder === 'unreadable' || row.lastPost === 'unreadable' || !Number.isInteger(row.held)
     || !own(OWNER_BLOCK, row.block) && row.block !== 'absent' || !own(OWNER_ACCOUNT, row.account);
-  /* The closed row names EVERYTHING that applies, in one fixed order, and picks no cause among them: the computer's
-     own facts, the agent's own trouble, where its newest post is, that something was not read, what waits for the
-     person. It never says that nothing is wrong: that would be a claim about everything this row does not read.
-     Where the newest post is, is always there to say. */
-  const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
-  const parts = [...board.map((b) => b.summary), ...ownerTroubles(row), POST_SUMMARY[posted === null ? (row.lastPost === null ? 'none' : 'unread') : posted],
-    unread ? 'Kosmos could not check everything just now' : null, row.held > 0 ? cap(row.held + ' waiting for you') : null].filter(Boolean);
-  const summary = parts.join('. ');
-  return { summary, lines };
+  /* The closed row names EVERYTHING that applies, in one fixed order, and picks no cause among them: what waits for
+     the person (first: it is the one part that asks something of them), the computer's own facts, the agent's own
+     trouble, where its newest post is, that something was not read. It never says that nothing is wrong: that would
+     be a claim about everything this row does not read. Where the newest post is, is always there to say.
+     The parts are fragments, so they are joined with a middle dot and carry no full stops (design review, #5958).
+     `needsYou` is the first part again on its own, or null: the page marks exactly those words, and reads no wording. */
+  const needsYou = row.held > 0 ? row.held + (row.held === 1 ? ' item' : ' items') + ' waiting for you' : null;
+  const parts = [needsYou, ...board.map((b) => b.summary), ...ownerTroubles(row), POST_SUMMARY[posted === null ? (row.lastPost === null ? 'none' : 'unread') : posted],
+    unread ? 'Kosmos could not check everything just now' : null].filter(Boolean);
+  const summary = parts.join(SUMMARY_JOIN);
+  return { summary, needsYou, lines };
 }
 
 /** Every agent's row, for the owner's view. `roster` is the board's cards; a card without a session name is skipped.
@@ -430,4 +436,4 @@ function rowsFor(roster, deps) {
   return out;
 }
 
-module.exports = { TURN_WORDS, HELD_WORDS, SIGNED_OUT_WORDS, UNCONFIRMED_WORDS, ACCOUNT_WORDS, REMINDER_NOTE, turnsFile, readTurns, noteTurn, blockState, rereadOwed, accountState, rowFor, linesFor, readyText, rowsFor, ownerView, heldCount, OWNER_CAP_WORDS, OWNER_LIMIT_WORDS, POST_FACTS, POST_FACT_WORDS, POST_SUMMARY };
+module.exports = { SUMMARY_JOIN, TURN_WORDS, HELD_WORDS, SIGNED_OUT_WORDS, UNCONFIRMED_WORDS, ACCOUNT_WORDS, REMINDER_NOTE, turnsFile, readTurns, noteTurn, blockState, rereadOwed, accountState, rowFor, linesFor, readyText, rowsFor, ownerView, heldCount, OWNER_CAP_WORDS, OWNER_LIMIT_WORDS, POST_FACTS, POST_FACT_WORDS, POST_SUMMARY };

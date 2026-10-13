@@ -585,8 +585,8 @@ test('slice 2 review 10: each state\'s place is TRUE of it, not only present: no
 
 
 /* Review 12 took the last claim out of the closed row: it never says nothing is wrong. It is a list of parts joined by
-   ". ", always including where the newest post is. These tests read it as that list. */
-const parts = (over) => view(over).summary.split('. ');
+   a middle dot (ready.SUMMARY_JOIN), always including where the newest post is. These tests read it as that list. */
+const parts = (over) => view(over).summary.split(ready.SUMMARY_JOIN);
 const POSTED_IN = { lastPost: { title: 't', at: '', state: 'sent' } };
 
 test('slice 2 review 12: the closed row never says nothing is wrong, in any state', () => {
@@ -620,17 +620,17 @@ test('slice 2 review 12: everything that applies is in the closed row, in one fi
     [{ block: 'no_file' }, ['It has no instructions file', 'Has not posted yet']],
     [{ account: 'refused' }, ['The community has refused this agent', 'Has not posted yet']],
     [{ account: 'name_held' }, ['Its community account is waiting on an earlier try', 'Has not posted yet']],
-    [{ held: 2 }, ['Has not posted yet', '2 waiting for you']],
+    [{ held: 2 }, ['2 items waiting for you', 'Has not posted yet']],
     [{ switch: 'off' }, ['The community is off', 'Has not posted yet']],
     [{ switch: 'unreadable' }, ['Kosmos cannot read the community switch', 'Has not posted yet']],
     [{ addressOk: false }, ['This computer\u2019s community address is not one Kosmos sends to', 'Has not posted yet']],
     [{ reminders: 'off' }, ['\u201cCheck on your agents\u201d is off', 'Has not posted yet']],
     [{ reminders: 'unreadable' }, ['Has not posted yet', 'Kosmos could not check everything just now']],
-    [{ block: 'absent', account: 'refused', held: 3 }, ['No community section in its instructions', 'The community has refused this agent', 'Has not posted yet', '3 waiting for you']],
+    [{ block: 'absent', account: 'refused', held: 3 }, ['3 items waiting for you', 'No community section in its instructions', 'The community has refused this agent', 'Has not posted yet']],
     [{ switch: 'off', block: 'absent', connected: true }, ['The community is off', 'No community section in its instructions', 'Has not posted yet']],
     [{ switch: 'off', block: 'absent', connected: false }, ['The community is off', 'No community section in its instructions', 'Has not posted yet']],
-    [{ switch: 'off', addressOk: false, reminders: 'off', held: 1, ...POSTED_IN }, ['The community is off', 'This computer\u2019s community address is not one Kosmos sends to', '\u201cCheck on your agents\u201d is off', 'Newest post is in the community', '1 waiting for you']],
-    [{ block: 'unreadable', held: 2 }, ['Has not posted yet', 'Kosmos could not check everything just now', '2 waiting for you']],
+    [{ switch: 'off', addressOk: false, reminders: 'off', held: 1, ...POSTED_IN }, ['1 item waiting for you', 'The community is off', 'This computer\u2019s community address is not one Kosmos sends to', '\u201cCheck on your agents\u201d is off', 'Newest post is in the community']],
+    [{ block: 'unreadable', held: 2 }, ['2 items waiting for you', 'Has not posted yet', 'Kosmos could not check everything just now']],
     [{ account: 'refused', reminder: 'unreadable', lastPost: { title: 't', at: '', state: 'refused' } }, ['The community has refused this agent', 'Newest post is not in the community', 'Kosmos could not check everything just now']],
   ]) assert.deepEqual(parts(over), want, JSON.stringify(over));
   for (const over of [{ account: 'none' }, { account: 'being_made' }, { rereadOwed: true }, { reminder: { at: 1, act: 'not-reached' } }]) {
@@ -644,7 +644,7 @@ test('slice 2 review 12: when something was not read, the closed row says so and
     { block: 'something-new' }, { account: 'something-new' }, { rereadOwed: null }, { rereadOwed: undefined }, { lastPost: { title: 't', at: '', state: 'unreadable' } },
     { block: 'unreadable', account: 'unreadable', reminder: 'unreadable', lastPost: 'unreadable', held: null }]) {
     const v = view(over);
-    assert.ok(v.summary.split('. ').includes('Kosmos could not check everything just now'), JSON.stringify(over) + ' -> ' + v.summary);
+    assert.ok(v.summary.split(ready.SUMMARY_JOIN).includes('Kosmos could not check everything just now'), JSON.stringify(over) + ' -> ' + v.summary);
     assert.match(said(v), NAMES, 'nothing under the summary says what was not read: ' + JSON.stringify(over) + '\n' + said(v));
   }
   assert.ok(!view({}).summary.includes('could not check'), 'CONTROL: a row that was read does not say so');
@@ -668,7 +668,17 @@ test('slice 2 review 12: the newest post\'s line says one fact, and every state 
   assert.equal(line('a-state-from-the-future'), line('unreadable'), 'a state with no place was given a fact');
   assert.equal(view({ lastPost: { title: '  ', at: '', state: 'sent' } }).lines[3].text, 'Its newest post, \u201cUntitled post\u201d, is in the community.');
   const held = said(view({ lastPost: { title: 'Held one', at: '', state: 'held' }, held: 1 }));
-  assert.ok(held.includes('Its newest post, \u201cHeld one\u201d, has not gone to the community.\n1 item it wrote is under Waiting for you.'), held);
+  // Design review (#5958): what waits for the person is the FIRST line of the open row, and the only one marked.
+  assert.ok(held.startsWith('1 item it wrote is under Waiting for you.\n') && held.includes('Its newest post, \u201cHeld one\u201d, has not gone to the community.'), held);
+  const marked = view({ held: 2 }).lines.map((l) => l.needsYou === true);
+  assert.deepEqual([marked[0], marked.slice(1).some(Boolean)], [true, false], 'the line that needs the person is not the first, or is not the only one marked');
+  assert.equal(view({ held: 2 }).needsYou, '2 items waiting for you');
+  assert.ok(view({ held: 2 }).summary.startsWith('2 items waiting for you' + ready.SUMMARY_JOIN), view({ held: 2 }).summary);
+  assert.equal(view({ held: 1 }).needsYou, '1 item waiting for you');
+  // CONTROL: nothing waiting, nothing marked, and the summary has no full stop between or after its parts.
+  assert.equal(view({}).needsYou, null);
+  assert.ok(view({}).lines.every((l) => l.needsYou !== true));
+  for (const over of [{}, { held: 2 }, { block: 'absent', held: 1 }]) assert.doesNotMatch(view(over).summary, /\.( |$)/, view(over).summary);
   assert.match(said(view({ held: 4 })), /4 items it wrote are under Waiting for you\./);
   assert.match(said(view({ lastPost: 'unreadable' })), /Kosmos could not read what it has sent just now\./);
   assert.doesNotMatch(said(view({ lastPost: 'unreadable' })), /has not posted yet/);
@@ -685,7 +695,7 @@ test('slice 2 review 12: the reminder switch through the real setting file, in t
   const t = text('ann');
   assert.match(t, /\n  Reminders are switched off on this computer\.\n/);
   assert.doesNotMatch(t, /You can still post/, 'the agent was told it can post, whatever the community switch says');
-  assert.deepEqual(ready.rowsFor([fleetCard('ann')])[0].owner.summary.split('. '), ['\u201cCheck on your agents\u201d is off', 'Has not posted yet']);
+  assert.deepEqual(ready.rowsFor([fleetCard('ann')])[0].owner.summary.split(ready.SUMMARY_JOIN), ['\u201cCheck on your agents\u201d is off', 'Has not posted yet']);
   fs.writeFileSync(hs.FILE, '{ not json');
   assert.equal(ready.rowFor('ann').reminders, 'unreadable');
   assert.doesNotMatch(text('ann'), /Reminders are switched off/, 'an unreadable setting was told to the agent as off');
@@ -715,7 +725,7 @@ test('slice 2 review 13: what waits for the person is counted from the same queu
     assert.equal(ready.rowFor('ann').held, 2, 'a held comment on this board\'s own post is in the list and not in the count');
     assert.equal(ready.rowFor('ann').heldToGo, 1, 'the agent would be told a local comment goes out if released; it never does');
     assert.match(text('ann'), /Held for your person to look at: 1 item\./);
-    assert.ok(ready.rowsFor([fleetCard('ann')])[0].owner.summary.split('. ').includes('2 waiting for you'));
+    assert.ok(ready.rowsFor([fleetCard('ann')])[0].owner.summary.split(ready.SUMMARY_JOIN).includes('2 items waiting for you'));
   } else assert.fail('fixture: could not hold a comment on a local post (' + JSON.stringify(c) + '); without it this test cannot tell the two counts apart');
   assert.equal(ready.rowFor('bea').held, 0, 'one agent\'s held item was counted for another');
   const n = ready.heldCount('ann');
