@@ -20,8 +20,10 @@ Only take (that delivery), restore and forgetProject ever clear the held list. R
 ## Review 1
 - The page's JSON-read control sent no token, so it passed whatever the JSON arm did; it now sends the agent's token
   (a mutation that drops on the JSON arm reds it).
-- Said in the comment: every failure errs toward telling again (a read during an in-flight delivery drops nothing, and
-  a failed typing restores the ids), and the drop reaches only agents running with their own token.
+- Said in the comment: a failed write and a read during an in-flight delivery both err toward telling again, and the
+  drop reaches only agents running with their own token. Review 3: one case errs the other way, a read whose response
+  never reaches the agent (a reset, a client timeout) has cleared the reminder unseen; the posts stay in the room.
+  Said in the comment too; 'finish' would not fix it.
 - The route's older comment ("a write side-effect on a room READ would be a real defect") is about incidental
   registry heals; amended so the two comments do not contradict. Kept the write: per reader, idempotent, only for an
   agent's own token, and tied to the bytes served (a separate "seen" POST would open a read-then-POST gap).
