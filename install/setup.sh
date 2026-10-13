@@ -741,8 +741,8 @@ LOG="$LOG_DIR/install.log"
 # a never-touched Mac we want to test the INSTALLER, not the CDN, so
 # KOSMOS_TMUX_SRC and KOSMOS_SRC can point at local files carried over on a
 # thumb drive. Same code path, one variable different.
-# KOSMOS_READONLY_APP=1 leaves the installed app/ folder read-only after an install or update (#4449). Off by
-# default; #4455 turns it on once every installer in circulation can lift it.
+# The installed app/ folder is left read-only after an install or update (#4449; on by default since #4455).
+# KOSMOS_READONLY_APP=0 leaves it writable, as before.
 KOSMOS_RELEASE_BASE="${KOSMOS_RELEASE_BASE:-https://installkosmos.com/dist}"
 
 # ⚠️ EVERY DOWNLOAD IS CHECKSUM-VERIFIED before anything is extracted. The
@@ -1386,17 +1386,19 @@ install_kosmos() {
     mv "$stage/VERSION" "$dest/VERSION" || { rm -rf "$stage"; return 1; }
   fi
   rm -rf "$stage"
-  # #4449: with KOSMOS_READONLY_APP=1 the installed app is left read-only, so an agent's edit is refused rather
-  # than changing the board every agent on this computer runs on (a tester's board went stale that way). OFF by
-  # default, see the stop sign below. Folders too, not only files: an editor
+  # #4449: the installed app is left read-only, so an agent's edit is refused rather
+  # than changing the board every agent on this computer runs on (a tester's board went stale that way). ON by
+  # default since #4455, see below. Folders too, not only files: an editor
   # writes a temp file beside the target and renames it over, which a read-only file alone does not stop
   # (measured, the card). Nothing writes under app/ at runtime (measured on a live install); this updater is its one
   # writer and lifts it for its own swap (above). Mode bits only: an ACL that allows writing is left as it is.
-  # 🛑 OFF UNTIL EVERY INSTALLER IN CIRCULATION CAN LIFT IT (review iteration 1): an installer from before #4449
-  # (a rollback of /setup, or a cache still serving the last one) cannot remove a read-only app, so its update would
-  # die with the board paused. This release ships the lifting (above, and in uninstall); a later release turns this
-  # on by default (follow-up card). KOSMOS_READONLY_APP=1 turns it on now (test-install does).
-  if [ "${KOSMOS_READONLY_APP:-0}" = 1 ]; then
+  # 🛑 IT WAS OFF FOR ONE RELEASE ON PURPOSE (#4449 review iteration 1): an installer from before #4449 cannot
+  # remove a read-only app, so its update would die with the board paused. 0.7.45 was the first /setup served to
+  # people that can lift it (above, and in uninstall), from 2026-10-13; this turns it on in the release after.
+  # STILL TRUE: a /setup rolled back to before 0.7.45, meeting an install this one locked, fails that way. The
+  # way out for that person is the lift by hand, `chmod -R u+w` on the app folder, then the install line again.
+  # KOSMOS_READONLY_APP=0 leaves the app writable (anything but 0, or unset, is on).
+  if [ "${KOSMOS_READONLY_APP:-1}" != 0 ]; then
     chmod -R a-w "$dest/app" 2>/dev/null || info "note: the Kosmos app folder could not be made read-only; the install is otherwise complete"
   fi
   # 🛑 THE READ-BACK IS THE PROOF. Every claim above is about what this

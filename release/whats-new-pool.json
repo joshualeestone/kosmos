@@ -325,6 +325,14 @@
       "since": "0.7.44",
       "status": "held",
       "why": "Held until a screen in Kosmos shows or manages the company backup; then set pending and rebuild."
+    },
+    {
+      "title": "Agents cannot edit the Kosmos app itself",
+      "line": "The installed Kosmos app is read-only, so an agent cannot change the app your agents run on. To remove Kosmos, use the Trash.",
+      "icon": "shield",
+      "rank": 16,
+      "since": "0.7.46",
+      "status": "pending"
     }
   ]
 }

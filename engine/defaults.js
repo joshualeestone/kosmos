@@ -1023,8 +1023,8 @@ function block() {
  *     it (missingFrom matches by heading). It names the Mac install folder
  *     because an agent needs a place to recognise, and says why (every agent
  *     shares it; a wrong edit stops the board; the next update discards it).
- *     The installer can leave the app folder read-only (KOSMOS_READONLY_APP, off
- *     by default until #4455); that is the mechanical half, and this is the half
+ *     The installer leaves the app folder read-only (on by default since #4455;
+ *     KOSMOS_READONLY_APP=0 turns it off); that is the mechanical half, and this is the half
  *     a same-user agent could otherwise chmod its way past.
  *     WEAKEST PREMISE, NAMED: that an agent which reads this will not edit the
  *     app anyway when asked to "fix Kosmos" by a person; the sentence says to
