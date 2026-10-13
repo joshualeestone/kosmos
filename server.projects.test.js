@@ -99,6 +99,7 @@ const projects = require('./engine/projects');
    the file states that platform; the Windows arm is engine/projects.win32-reveal.test.js. */
 projects.setRevealPlatform('darwin');
 const fleet = require('./test-support/fleet');
+const { appendMany } = require('./test-support/thread-fixture');   // #6059
 
 const WORK = path.join(SANDBOX, 'work');
 fs.mkdirSync(WORK, { recursive: true });
@@ -1971,13 +1972,12 @@ test('the thread GET returns a bounded tail with the older count stated, never t
   reset();
   await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
     const chat = require('./engine/chat');
-    seedUnflushed(() => {
-      for (let i = 0; i < 205; i += 1) {
-        chat.appendMessage(project.id, 'zeta', {
-          text: 'row ' + i, delivery: { state: chat.DELIVERY.PLACED },
-        }, project.createdAt);
-      }
-    });
+    /* #6059: one write after the first append, not 205 appends: those held the loop past the server's 5 s keep-alive
+       on CI (ECONNRESET). The rows are the engine's own first row with only the text and time changed. */
+    const seeded = appendMany(chat, project.id, 'zeta', Array.from({ length: 205 }, (_, i) => ({
+      text: 'row ' + i, delivery: { state: chat.DELIVERY.PLACED },
+    })), project.createdAt);
+    assert.equal(seeded.via, 'one write', 'fixture: the fast seed fell back to 205 appends');
     const body = json(await req(`/api/project/${project.id}/thread/zeta`));
     assert.equal(body.messages.length, 200, 'the tail must be bounded');
     assert.equal(body.olderCount, 5, 'and the count of unshown rows stated');
@@ -2498,8 +2498,11 @@ test('the thread is bounded, and the page is told how many it is not showing', a
       delivery: { state: 'placed' },
     }));
     // Written through the ENGINE, so the fixture cannot hold a shape the
-    // producer does not make.
-    seedUnflushed(() => { for (const m of many) chat.appendMessage(chat.DIRECT, 'zeta', m); });
+    // producer does not make: the first row is appendMessage's, and the rest
+    // copy it with only the text and time changed (#6059: 205 appends here
+    // held the loop past the server's 5 s keep-alive on CI, ECONNRESET).
+    const seeded = appendMany(chat, chat.DIRECT, 'zeta', many);
+    assert.equal(seeded.via, 'one write', 'fixture: the fast seed fell back to 205 appends');
     const body = json(await req('/api/agent/zeta/thread'));
     assert.equal(body.messages.length, 200, 'the tail is bounded');
     assert.equal(body.olderCount, 5, 'and the payload says how many it is not showing');
