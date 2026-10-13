@@ -208,6 +208,7 @@ test('#5999: the broken-script rule keeps anything not provably the script at a 
     cmd('node', ['audit.js', '--skip', 'kosmos-report-hook']),                       // a person's hook that only mentions it
     cmd('node', ['hooks\\kosmos-report-hook.js']),                                    // relative: resolved against the wrong folder
     cmd('node', ['%USERPROFILE%\\Kosmos\\app\\engine\\kosmos-report-hook.js']),       // a variable the shell expands
+    cmd('node', ['C:\\Users\\%USERNAME%\\Kosmos\\app\\engine\\kosmos-report-hook.js']),          // a variable inside an absolute path
     cmd('bash ~/bin/kosmos-report-hook.sh'),                                             // a ~ the shell expands
     cmd('node', ['\\\\server\\share\\Kosmos\\app\\engine\\kosmos-report-hook.js']),  // a network path: never looked at
     cmd('E:\\Kosmos\\runtime\\node.exe', ['E:\\Kosmos\\app\\engine\\kosmos-report-hook.js']),  // a drive not plugged in
