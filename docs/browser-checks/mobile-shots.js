@@ -1572,7 +1572,7 @@ DATA_SETS.marketing = {
   busy: {
     cleo: { modelName: 'Claude Opus 5.5', tokens: 61000, ceiling: 200000 },
     dana: { modelName: 'Claude Sonnet 5.5', tokens: 118000, ceiling: 200000 },
-    eli: { modelName: 'GPT 5.2', tokens: 84000, ceiling: 400000 },
+    eli: { modelName: 'GPT 5.2', runner: 'codex', tokens: 84000, ceiling: 400000 },
     farah: { modelName: 'Claude Haiku 5.5', tokens: 22000, ceiling: 200000 },
   },
   commitments: {
@@ -1591,6 +1591,7 @@ function busyCards(body, busy) {
     if (!b) return;
     const percent = Math.round((b.tokens / b.ceiling) * 100);
     c.modelName = b.modelName;
+    if (b.runner) c.runner = b.runner;   // modelLine names a codex agent's model without the Claude prefix
     c.context = { tokens: b.tokens, percent, overCeiling: false, notYet: false, ceiling: b.ceiling, ceilingAssumed: false,
       confidence: 'structured', because: 'measured, against a limit we have watched it hit' };
   };
