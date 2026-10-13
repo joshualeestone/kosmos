@@ -343,7 +343,7 @@ function claudeSettingsFiles(home, env) {
    that are ours AND point inside `bundleRoot` go, plus ours that point at a script that is already gone (an added
    account keeps the folder Kosmos ran from when it was added), through reporthook.unwireInstall, under the #3088 lock
    the writers take. A file that cannot be read, locked or saved is named, never rewritten wrong. */
-function unwireHooks(bundleRoot, home, env, gone, done, left) {
+function unwireHooks(bundleRoot, home, env, gone, done, left, notes) {
   const reporthook = require('./reporthook');
   const filelock = require('./filelock');
   /* Every spelling of the folder the hook paths could carry: as given (made absolute), as Node records __dirname (the
@@ -368,9 +368,14 @@ function unwireHooks(bundleRoot, home, env, gone, done, left) {
     if (r.changed) {
       done.push('took Kosmos\'s entries out of Claude Code\'s settings (' + file + ')'
         + (r.dead ? ', including entries left by an earlier Kosmos folder' : ''));
+    } else if (r.ours && r.unreadable) {
+      /* Round 4: a file Kosmos cannot read is one Claude Code cannot read either, and removing Kosmos again cannot
+         change it, so it is a note (the removal still finishes), with what to do about the file itself. */
+      notes.push('Claude Code\'s settings file ' + file + ' still has Kosmos\'s entries, but it could not be read ('
+        + r.because + '). Once that file is fixed, delete each whole entry in it that names kosmos-report-hook.');
     } else if (r.ours) {
       left.push('Kosmos\'s entries in Claude Code\'s settings (' + file + '), which could not be taken out ('
-        + (r.because || 'the file did not change') + '). ' + hooksByHand('that file'));
+        + (r.because || 'the file did not change') + '). ' + hooksByHand('that file') + '.');
     }
   }
 }
@@ -599,8 +604,8 @@ async function uninstall(opts) {
        the removal unfinished for good (round 1). */
     if (o.bundleRoot) {
       // Round 2: nothing in this step may stop the removal before the folders and the report.
-      try { unwireHooks(o.bundleRoot, home, env, gone, done, left); }
-      catch { left.push('Kosmos\'s entries in Claude Code\'s settings, which could not be checked. ' + hooksByHand('the settings.json files in your .claude folders')); }
+      try { unwireHooks(o.bundleRoot, home, env, gone, done, left, notes); }
+      catch { left.push('Kosmos\'s entries in Claude Code\'s settings, which could not be checked. ' + hooksByHand('the settings.json files in your .claude folders') + '.'); }
     }
     else notes.push('Kosmos\'s entries in Claude Code\'s settings were not checked, because Kosmos could not tell which folder it was installed in. ' + hooksByHand('the settings.json files in your .claude folders') + '.');
   }

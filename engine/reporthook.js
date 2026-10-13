@@ -411,8 +411,9 @@ function ensureWired(settingsPath, scriptPath, opts) {
  * folder it names. An added account keeps the folder Kosmos ran from when it was added, and nothing repoints it after
  * a move. Ours by the marker and already broken, so taking it out only takes out an error. `gone(path)` must be true
  * only for a path that is certainly not there (goneOnDisk below: not found, never "could not look").
- * `dryRun` only says whether the file holds any. Returns { ours, dead, changed, because? } (`dead`: how many of the
- * hooks taken out were broken ones outside `roots`); never throws for a shape.
+ * `dryRun` only says whether the file holds any. Returns { ours, dead, changed, unreadable?, because? } (`dead`: how
+ * many of the hooks taken out were broken ones outside `roots`; `unreadable`: the file is not settings Kosmos can
+ * read, so a retry cannot change it); never throws for a shape.
  * The caller holds the #3088 lock (filelock.withFileLock) around this, as wireDefaultHooks does around ensureWired.
  */
 function unwireInstall(settingsPath, roots, opts) {
@@ -471,7 +472,7 @@ function unwireInstall(settingsPath, roots, opts) {
     // Unreadable or not an object: never rewritten, only said, when it names this install's hook.
     let raw = '';
     try { raw = fs.readFileSync(target, 'utf8'); } catch { /* unreadable */ }
-    return { ours: raw.includes(MARKER) && inside(raw.replace(/\\\\/g, '\\')), dead: 0, changed: false, because: read.because };
+    return { ours: raw.includes(MARKER) && inside(raw.replace(/\\\\/g, '\\')), dead: 0, changed: false, unreadable: true, because: read.because };
   }
   const { data, prevMode } = read;
   const hooks = data.hooks;
