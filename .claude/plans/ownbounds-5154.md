@@ -27,8 +27,9 @@ as the same needs-you surface slices A/C established.
   on the helper's next success; `assess`/`peek` for `/api/status`; `tellBounds`/`sweepRoster` for
   the 60s sweep; `forget`/`clearAll`/`keys`.
   - **GRACE_MS** (60s): debounce, a give-up must stand this long before it is raised.
-  - **STALE_MS** (45m, above the slowest helper sweep of ~15m): backstop, an episode not re-noted
-    goes stale and clears, for an agent that left the helper's view without a recovered().
+  - **STALE_MS** (2h, above the 60-min MAX nudge sweep from heartbeat INTERVAL_CHOICES, not the 15-min
+    default): backstop, an episode not re-noted goes stale and clears, for an agent that left the helper's
+    view without a recovered().
   - **IDLE_ONLY** {nudge, firstreply}: a mootness clear, an idle-only give-up on a non-idle agent
     is resolved and clears crisply (the chief false-alarm case: a now-working agent).
   - **Precedence**: an agent in its OWN `needs_you` is suppressed (not told over) without clearing

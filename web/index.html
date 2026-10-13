@@ -21090,7 +21090,7 @@ function stateReason(a, opts) {
      membership (agentNeedsAttention / needsPerson) and one phone push -- not the card's look or pill. Placeholder
      copy, plain words; Mona Lisa to refine (as slices A and C were). Oldest-standing give-up wins (items[0]). */
   if (a && a.ownBound && a.ownBound.raised === true && Array.isArray(a.ownBound.items) && a.ownBound.items.length
-      && !(a.stateReported === true && a.because)) {   // #5154 slice B PRECEDENCE: the agent's OWN reported question (rendered just below) wins over a Kosmos give-up, so a give-up never masks the person's actual question
+      && a.state !== 'needs_you' && !(a.stateReported === true && a.because)) {   // #5154 slice B PRECEDENCE: the agent's own question wins over a Kosmos give-up. `state !== needs_you` matches the pill/push precedence (status.js needsYouReason, tellBounds ownNeedsYou); the `stateReported && because` clause matches the own-question arm rendered just below. Either way a give-up never masks the person's actual question.
     const it = a.ownBound.items[0];
     const mins = Math.max(1, Math.round((Number(it.forMs) || 0) / 60000));
     if (it.cls === 'quota') return 'Kosmos tried to get this agent going again after its quota reset and gave up about ' + mins + ' minutes ago. Its turn is unfinished. Open it to see what it shows, or message it.';

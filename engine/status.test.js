@@ -5320,6 +5320,12 @@ test('#3718: the /api/status route adds offline needs_trust rows to the Issue co
   assert.equal(needsPerson({ state: 'rate_limited', stuckError: { stuck: true, state: 'rate_limited' } }), true);
   assert.equal(needsPerson({ state: 'auth_failed', stuckError: { stuck: false } }), false, 'CONTROL: a brief terminal error is not counted until it is stuck');
   assert.equal(needsPerson({ state: 'auth_failed', stuckError: null }), false, 'CONTROL: no stuck escalation yet');
+  // #5154 slice B: a raised Kosmos give-up (ownBound) counts; a not-raised one does not; the read is presence-guarded.
+  // Kept aligned with web/index.html agentNeedsAttention.
+  assert.equal(needsPerson({ state: 'idle', ownBound: { raised: true } }), true, 'a raised Kosmos give-up is an Issue');
+  assert.equal(needsPerson({ state: 'idle', ownBound: { raised: false } }), false, 'CONTROL: a not-raised give-up is not counted');
+  assert.equal(needsPerson({ state: 'idle', ownBound: null }), false, 'CONTROL: no give-up');
+  assert.equal(needsPerson({ state: 'idle' }), false, 'CONTROL: a bare row with no ownBound key is not counted (hasOwnProperty guard, no undefined read)');
 });
 
 /* #763: a reported needs_you carries the question's project onto the state,
