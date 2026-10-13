@@ -1,0 +1,54 @@
+# musedefault-3939: Meta Muse on by default on the Mac
+
+Card: #3939 (Splinter's routing 2026-10-12, after Meta launched Muse Wonder). Follow-up: #6004 (install Muse Code
+from inside Kosmos).
+
+## Finished looks like
+On a Mac, with no switch set, GET /api/muse says enabled, so every list where an agent is made or a provider added
+(Settings Add a provider, Create Agent, Create a Team, the first-run model step) offers Meta Muse (the switch dialog
+offers Meta only as an agent's current provider: switching an agent to Meta is not built, as before): "Meta Muse" when Muse Code is
+installed and signed in, "install Muse Code first" with what to do when it is not. AGENT_WORKFORCE_MUSE=0 turns it off. Off a Mac
+it stays off (no runner there yet).
+
+## Change
+- engine/musestatus.js enabled(): darwin and not AGENT_WORKFORCE_MUSE=0. The preview marker file is no longer read
+  (previewMarker and PREVIEW_MARKER removed; a marker left in a data folder changes nothing).
+- NOT_INSTALLED_BECAUSE: "Muse Code is not on this computer. Install it from Meta, then try again" (neutral: it also
+  reaches an existing Muse agent's failed turn). Other surfaces have their own words: the pills ("Install Muse Code
+  from Meta"), the option text ("install Muse Code first"), the create refusal (adds "so an agent made now would never
+  start"), and the first-run step's own sentence. GET /api/muse and engine/muserun.js carry the engine's.
+- Off spellings: 0, false, off, no (case and spaces ignored), as AGENT_WORKFORCE_ANTIGRAVITY reads.
+- First run's under-18 line names Meta Muse only once Muse Code is installed (#5856's rule, now that "on" is every Mac).
+- Two first-run browser checks (render-firstrun-grok-3386, render-firstrun-reentry-3359) fail on origin/main too, with
+  the same counts; they are not in tools/browser-checks.sh, so nothing runs them. Not this card.
+- Tests: the gate test rewritten for default-on (with the off marker and a leftover preview marker as control); tests
+  that meant "off" by deleting the variable now set =0; a route test that an unset Mac board answers enabled, not
+  installed, with the new sentence.
+- The logo list's pill for a Mac without Muse Code is short ("Install Muse Code from Meta"; the pill cannot shrink),
+  and render-muse-signin-3939 checks it (153/153 headless).
+- engine/connections.js (the "how connecting a provider works" block every agent gets) says Meta Muse can be
+  connected on a Mac through Muse Code, which the person installs from Meta first; Meta stays coming soon off a Mac.
+
+## Decided (v1 calls)
+- Default on, Mac only. Off switches (support, not settings): AGENT_WORKFORCE_MUSE=0 for one run, and a muse-off
+  file in the data folder that lasts (install and update rewrite the board's launchd job with a fixed variable list,
+  so the variable alone would be dropped on every update). The old muse-preview-on file is not read.
+- Kosmos does not choose the model: Muse Code picks its own and Kosmos reads it from run.model.configured. Rejected:
+  passing --model muse-wonder-1.0 (the only official id is the Model API's; not verified for the CLI, and a wrong id
+  would break every Muse agent). Revisit if a real turn shows a model other than Muse Wonder.
+- Kosmos still does not install Muse Code; #6004 does that as the other providers do.
+
+- A Meta hint on an AGENTS.md folder (POST /api/connect) is honoured only with Muse Code installed: Muse being on
+  by default would otherwise register a Muse agent that can never start.
+- The off switches are documented in engine/musestatus.js and this plan only; AGENT_WORKFORCE_ANTIGRAVITY has no
+  operator page either. Support reads the code.
+
+- Decided, not missed: on a Mac without Muse Code a meta hint on an AGENTS.md folder (POST /api/connect, which no
+  screen sends) is ignored and the folder adopts as it would with Muse off; no sentence says why. API-only, and
+  consistent with the off behaviour; #6004's install makes the case rare.
+- Known gap until #6004: the first-run Meta row offers Connect on every Mac, and on one without Muse Code that
+  press says to install Muse Code from Meta (it cannot connect yet). #6004 makes that press install it.
+
+## Weakest premise
+That Muse Code's default model is now Muse Wonder. Not measured: a real turn needs Muse Code installed and signed in
+to a Meta account, which no agent machine has.

@@ -398,4 +398,4 @@ function refreshEveryone(roster, participating) {
   return told;
 }
 
-module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES_BEFORE_5958, INTRO_LINES, countWord, blockBody, shouldIntroduce, tellAgent, refreshEveryone };
+module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES_BEFORE_5958, INTRO_LINES, countWord, blockBody, shouldIntroduce, tellAgent, refreshEveryone, connected };

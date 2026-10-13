@@ -1636,6 +1636,10 @@ function registerOnly(given, name, { create, store }) {
   const taken = folderTakenBy(given, name, { store });
   if (!taken.ok) return { ok: false, because: FOLDER_UNREADABLE };
   if (taken.other) return { ok: false, because: folderTakenSentence(taken.other, taken.home, taken.removed) };
+  /* kosmos#5957: no name another agent answers to. Nothing is excepted: the job and session checks above already
+     refused an agent under this handle, so any entry left that matches is a different agent. */
+  const nameTaken = require('./agentnames').refusalFor(name);
+  if (nameTaken) return { ok: false, because: nameTaken };
   /* The display name is the name they typed. There is no file to disagree with it,
      which is the whole reason this path exists. */
   try { store.writeProfile(name, { dir: given, displayName: name }); }
@@ -1862,9 +1866,10 @@ function connect(dir, opts) {
   if (instructionsFile !== null && opts && opts.provider) {
     const hinted = create.providerRunner(String(opts.provider));
     // #3568: an Antigravity hint counts only with its flag on, like every other way to make one.
-    // #3939: and a Muse hint only with the Muse flag on.
+    // #3939: and a Muse hint only with Muse on AND Muse Code on this computer: Muse is on by default on a Mac, and a
+    // Muse agent without Muse Code would never start (create refuses that case; this path must not make one either).
     if (create.briefFilename(hinted) === instructionsFile && (hinted !== 'antigravity' || create.antigravityEnabled())
-      && (hinted !== 'muse' || create.museEnabled())) {
+      && (hinted !== 'muse' || (create.museEnabled() && require('./musestatus').installed().installed))) {
       runner = hinted === 'claude' ? null : hinted;
     }
   }
@@ -1967,6 +1972,22 @@ function connect(dir, opts) {
   const taken = folderTakenBy(given, name, { store });
   if (!taken.ok) return { ok: false, because: FOLDER_UNREADABLE };
   if (taken.other) return { ok: false, because: folderTakenSentence(taken.other, taken.home, taken.removed) };
+  /* kosmos#5957: neither its display name nor its handle may be one another agent already answers to. Nothing is
+     excepted, as in registerOnly: the checks above already refused an agent under this handle. */
+  {
+    const agentnames = require('./agentnames');
+    let agents;
+    try { agents = agentnames.fleet(); } catch { return { ok: false, because: agentnames.COULD_NOT_CHECK }; }   // one read, both names
+    /* A display name that comes from the folder's own instructions cannot be changed by typing another name, so that
+       refusal says where the name comes from and what to change instead. */
+    const fromFile = Boolean(id && id.displayName);
+    const shownClash = agentnames.clashFor(displayName, { agents });
+    if (shownClash && fromFile) {
+      return { ok: false, because: `its instructions call it ${displayName}, and there is already an agent called ${shownClash.shown} (@${shownClash.handle}). Change the "You are" line in its instructions, or rename that one first.` };
+    }
+    const nameTaken = (shownClash && agentnames.takenSentence(shownClash)) || agentnames.refusalFor(name, { agents });
+    if (nameTaken) return { ok: false, because: nameTaken };
+  }
   /* #5534: connecting a folder starts a new agent, so a company policy that does not allow its provider (or the
      provider's default model, which is what it will run) refuses it here, before anything is written. */
   {

@@ -5186,7 +5186,7 @@ test('#3568: the supervisor launches agy with its documented auto-approve flag, 
 const MUSE_ONLY_MAC = { skip: process.platform !== 'darwin' && 'Meta Muse agents are Mac only' };
 function withMuseFlag(on, fn) {
   const was = process.env.AGENT_WORKFORCE_MUSE;
-  if (on) process.env.AGENT_WORKFORCE_MUSE = '1'; else delete process.env.AGENT_WORKFORCE_MUSE;
+  process.env.AGENT_WORKFORCE_MUSE = on ? '1' : '0';   // off is =0 since Muse is on by default on a Mac
   try { return fn(); } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_MUSE; else process.env.AGENT_WORKFORCE_MUSE = was; }
 }
 test('#3939: with the Muse flag off, a Meta create is refused as an unknown provider, exactly as before', MUSE_ONLY_MAC, () => {
@@ -5239,7 +5239,7 @@ test('#3939: a Meta create is refused when Muse Code is missing, when an account
   withMuseFlag(true, () => {
     const missing = create.createAgent({ ...BINS, museBin: '/nonexistent/muse', name: 'muse-none', role: 'pm', provider: 'meta' });
     assert.equal(missing.outcome, create.OUTCOME.REFUSED);
-    assert.match(missing.because, /could not find Muse Code/);
+    assert.match(missing.because, /Muse Code is not on this computer yet.*never start.*Install it in Settings, AI Models/);   // #6004: Settings installs it
     const acct = create.createAgent({ ...BINS, museBin: '/bin/echo', name: 'muse-acct', role: 'pm', provider: 'meta', account: '/x/.claude-y' });
     assert.equal(acct.outcome, create.OUTCOME.REFUSED);
     assert.match(acct.because, /Muse sign-in on this computer/);

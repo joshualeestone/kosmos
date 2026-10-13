@@ -634,8 +634,8 @@ function profileRole(card) {
   return Object.prototype.hasOwnProperty.call(profile, 'role') ? profile.role : null;
 }
 
-/* #5300: the role a member set for this project, or null. Display only: `role` (who a room opens on, the
-   two-coordinators warning, a person-saved role) never reads it. */
+/* #5300: the role a member set for this project, or null. Display only: `role` (who a room opens on, a
+   person-saved role) never reads it. */
 function roleHereOf(p, key) {
   const r = p && p.rolesHere && typeof p.rolesHere === 'object' && Object.prototype.hasOwnProperty.call(p.rolesHere, key) ? p.rolesHere[key] : null;
   return typeof r === 'string' && r.trim() ? r : null;
@@ -1212,9 +1212,6 @@ function describe(project, roster, all) {
       const got = readBriefSafely(project.folder);   // a brief Kosmos will not read (symlink, too big) says nothing either
       return got.text === null ? null : require('./brief').doneSetFrom(got.text);   // the one rule, shared with kosmos project show
     })(),
-    /* #4583: the two-coordinator warning as it stands now (null when there is not more than one). The page shows
-       it only after an add or a create that brought it on, and drops it once this is null. */
-    coordinators: coordinatorWarning({ agents: members }, null),
     // ⚠️ Deliberately NOT a health summary. It counts what is on screen so the
     // list row can say "1 needs you" the way the page does, and it carries
     // `unseen` beside the counts so a row can never quietly report that
@@ -2512,40 +2509,6 @@ function placeholderLine(text) {
   return BRIEF_DONE_PLACEHOLDERS.find((ph) => lines.includes(ph)) || null;
 }
 
-/* #4583 (the Five Families finding, #4580): two agents with a coordinating role (two Project Managers)
-   on one project negotiated ownership by hand. Returns a warning naming them and suggesting the split
-   those PMs chose, or null. Warns, never refuses: a person may want two. "Coordinating" is the rule the
-   project room already uses to pick who answers (chat.looksLikeManager). `project` is a projects.get()
-   read; `joining` (a machine name) limits the warning to a change that brought a coordinator in.
-   A member the read could not tie to a live pane has no `role` there (an agent not running yet, which is
-   the usual case at creation), so its role comes from its saved profile instead: Kosmos's own record,
-   never a pane's word. */
-/* The role and the name to say for a member. A live role comes with the read's own name. A saved role comes with the
-   saved name (or the machine name), never the read's card name: the read gives an untied pane no role, and that
-   pane's card name is not known to be this member's. */
-function roleOfMember(m) {
-  if (m && typeof m.role === 'string' && m.role) return { role: m.role, name: m.name || m.sessionName };
-  try {
-    const saved = store.readProfile(m && m.sessionName);
-    const role = saved && typeof saved.role === 'string' ? saved.role : null;
-    return { role, name: (saved && typeof saved.name === 'string' && saved.name) || (m && m.sessionName) };
-  } catch { return { role: null, name: m && m.sessionName }; }
-}
-/* NARROWER than chat.looksLikeManager on purpose (review round 1): that rule only preselects who answers the room, where
-   a loose match costs nothing, and it matches "Marketing Manager", "Tech Lead" and "Recruiting Coordinator". Here a
-   match tells the person to split the brief and the task queue, so only a role that coordinates the PROJECT counts. */
-const PROJECT_COORDINATOR = /\b(project[\s-]+manage(r|ment)|program[\s-]+manager|project[\s-]+lead|project[\s-]+coordinator)\b|(^|[\s(])pm($|[\s)])/i;
-function coordinatorWarning(project, joining) {
-  const members = (project && Array.isArray(project.agents)) ? project.agents : [];
-  const coords = members.map((m) => ({ m, said: roleOfMember(m) })).filter((x) => x.m && PROJECT_COORDINATOR.test(String(x.said.role || '')));
-  if (coords.length < 2) return null;
-  if (joining && !coords.some((x) => x.m.sessionName === joining)) return null;
-  const names = coords.map((x) => x.said.name || x.m.sessionName);
-  const list = names.length === 2 ? names[0] + ' and ' + names[1] + ' both have' : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] + ' all have';
-  return list + ' a coordinating role on this project. So they do not split the work by hand, '
-    + 'decide who owns what now: one owns the brief (BRIEF.md) and the other owns the task queue.';
-}
-
 /* #4583: the room note when a project is staffed with its goal written but "Done looks like" not set. The
    same shape as BRIEF_PENDING_NOTE (#2707): one of you asks, the Project Manager if there is one, and the
    answer goes into BRIEF.md so the task queue has something to aim at. Agents only, like that note. */
@@ -3769,7 +3732,7 @@ module.exports = {
   list, get, projectsFor, namesFor, create, edit, moveFolder, rename, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,
-  BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
+  BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, fillDone, WELCOME_DONE,
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setRevealEnv, setFsWorldForTests, listFiles, openFile, resolveListedFile, sameOpenedFile, sameListedPath,

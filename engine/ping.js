@@ -2,8 +2,7 @@
 
 /**
  * This install's random id, and the under-test guard. This file SENDS nothing itself
- * (#2623); the random id it makes can still leave the Mac via the default-on feedback
- * report, which reads it -- see the installId note below.
+ * (#2623); other files send and keep the id it makes: see "Where it goes" below.
  *
  * 🛑 #2623: THE CREATE-AGENT TELEMETRY WAS DELETED. Josh, 2026-09-09, called the
  * two "let the Kosmos team know..." phone-home toggles an invasion of privacy and
@@ -18,8 +17,7 @@
  * build its payload. So "this file sends nothing" is still true; "no create-agent
  * telemetry exists anywhere" is NOT -- see createdbeacon.js for the restored send.
  *
- * What stays is the one piece other features need and that never leaves the
- * machine on its own:
+ * What this file keeps:
  *
  *   installId   a random per-install id, made once and kept in a local file
  *   underTest   whether we are inside node's test runner
@@ -27,14 +25,16 @@
  * ⚠️ `installId` IS RANDOM, never derived from anything about the machine. A hash
  * of a hostname or a MAC address would be a fingerprint that identifies the
  * computer across reinstalls and across products. Random means it identifies an
- * INSTALL and nothing else. It is stored locally. It stays on the Mac EXCEPT for
- * the daily product-feedback report, which is DEFAULT-ON (opt-out, #2013/#2957) and
- * sends installId to installkosmos.com until the person opts out:
- *   engine/feedback.js, engine/feedbacksend.js   the SendFeedback path -- DEFAULT-ON / opt-out
- *   engine/store.js                              local pointer de-duplication -- never leaves the Mac
- * So installId leaves the Mac BY DEFAULT via the feedback report; opting out in
- * Settings > Automation stops it. The store use never leaves the Mac. (This block
- * used to call the feedback path "opt-in", which was wrong: it is default-on. #2957.)
+ * INSTALL and nothing else.
+ *
+ * Where it goes (kosmos#5995; engine/installid-senders-5995.test.js holds this list of files to the source). Each
+ * file says for itself when and how; this is only who:
+ *   ping.json                 kept here, in this Kosmos's data root
+ *   engine/createdbeacon.js   sends it to the install endpoint
+ *   engine/feedbacksend.js    sends it with the daily feedback report
+ *   engine/feedback.js        writes it into the report file on this computer
+ *   engine/store.js           keeps it in each agent's profile as `idInstall`, and hands a profile on without it
+ *                             (what it reads out and what a save answers are copies less that key)
  */
 
 const fs = require('node:fs');

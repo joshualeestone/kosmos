@@ -59,16 +59,19 @@ These have to exist before anything else. None of them is something an agent can
 
 **Apple.** Everything Apple for Kosmos comes from a new Apple Developer organisation,
 **Kosmos Agent Manager, Inc.** (the Kosmos legal entity), which is waiting for Apple's approval
-(Liu Kang, from Splinter and Josh, 2026-09-24). None of it comes from the Stone Syndicate team. That
-covers the team, the App ID, the provisioning profile and the .p8. Nothing else in this list waits
-on the approval, and development keeps testing against Kano's mock APNs meanwhile.
+(Liu Kang, from Splinter and Josh, 2026-09-24). **Interim (2026-10-12):** until then a separate
+TestFlight app, `io.kosmos.app.preview`, is signed under the Stone Syndicate team (see "Interim" in
+Step 4). It is not transferred: Apple transfers only an app with a version released on the App Store.
+`io.kosmos.app` is never used under Stone Syndicate. Nothing else in this list waits on the approval,
+and development keeps testing against Kano's mock APNs meanwhile. Device builds now carry the preview
+id too, so on-device push against a local or staging coordinator needs `io.kosmos.app.preview` in that
+coordinator's `KOSMOS_APNS_BUNDLE_IDS`, and an APNs key from the Stone Syndicate team.
 
 1. **Apple approves the Kosmos Agent Manager, Inc. developer org.** Josh confirms it is active and
    notes its **Team ID**.
 2. **Register the App ID `io.kosmos.app` under that org, with Push Notifications turned on.**
-   - The bundle id is fixed in `ios/Kosmos.xcodeproj/project.pbxproj`
-     (`PRODUCT_BUNDLE_IDENTIFIER = io.kosmos.app`), and it is what `KOSMOS_APNS_BUNDLE_IDS` allows
-     (step 2).
+   - The bundle id is set in `ios/Signing.xcconfig` (`KOSMOS_BUNDLE_ID`, `io.kosmos.app.preview`
+     during the interim), and `io.kosmos.app` is what `KOSMOS_APNS_BUNDLE_IDS` allows (step 2).
    - It becomes permanent once an App Store Connect app record exists. Josh creates that record
      under the same org. The seller name on it can be set only once.
 3. **Create the APNs authentication key (.p8) under that org.** Note its **Key ID**. The Team ID is
@@ -77,8 +80,9 @@ on the approval, and development keeps testing against Kano's mock APNs meanwhil
      (kosmos-relay `.claude/plans/apns-718.md`).
    - These values go into the coordinator's `KOSMOS_APNS_KEY_ID`, `KOSMOS_APNS_TEAM_ID` and
      `KOSMOS_APNS_KEY_PATH` in steps 2 and 3.
-4. **Create a push-enabled provisioning profile for `io.kosmos.app` under that org**, plus the
-   signing certificate it needs. The team's id is what step 4 sets as `DEVELOPMENT_TEAM`.
+4. **A push-enabled provisioning profile for `io.kosmos.app` under that org**, plus the signing
+   certificate it needs (automatic signing makes both). The team's id is what step 4 sets as
+   `DEVELOPMENT_TEAM`.
 
 **Google**
 
@@ -94,7 +98,8 @@ on the approval, and development keeps testing against Kano's mock APNs meanwhil
 **Check:**
 - `secrets-map.sh lookup <target>` finds the APNs key (the target name is whatever `/add-secret`
   records).
-- The App ID shows Push Notifications enabled in the Kosmos Agent Manager, Inc. account.
+- The App ID shows Push Notifications enabled in the Kosmos Agent Manager, Inc. account (the interim
+  preview app's, `io.kosmos.app.preview`, is in the Stone Syndicate account).
 - The push-enabled provisioning profile and its signing certificate (item 4) exist in that account.
 - Josh has said yes to items 1, 2, 5 and 6.
 
@@ -135,8 +140,9 @@ the box (`deploy/deploy-coordinator.sh`: "Not #KEY= for KOSMOS_APNS_*"). Names a
    400 and nothing reaches a phone. It is set to `io.kosmos.app` in the same change as the key
    settings, never later.
    Check: the rendered env contains `KOSMOS_APNS_BUNDLE_IDS=io.kosmos.app`.
-2. **The team and the key must match.** `KOSMOS_APNS_TEAM_ID` is the Kosmos Agent Manager, Inc.
-   Team ID. `KOSMOS_APNS_KEY_ID` and the .p8 must be a key made in that same team. A mismatch gets
+2. **The team and the key must match.** `KOSMOS_APNS_TEAM_ID` is Kosmos Agent Manager, Inc.'s Team ID,
+   the team that signs `io.kosmos.app` (not the interim value in `ios/Signing.xcconfig`).
+   `KOSMOS_APNS_KEY_ID` and the .p8 must be a key made in that same team. A mismatch gets
    `InvalidProviderToken` from Apple on every send.
    Check: the Key ID and the Team ID both come from the same step 1 account.
 3. **`KOSMOS_PUSH=log` forces log-only whatever the key is.** Turning it off is its own step
@@ -244,32 +250,51 @@ control. Record the live build and rollback anchor on #3763 when deployed.
 
 ## Step 4. Get the iOS app onto testers' phones [Josh for signing and upload; fleet for the build]
 
-**Carries:** a signed TestFlight build. It turns on native APNs registration
+**Carries:** a signed TestFlight build (the interim `io.kosmos.app.preview` build gets no push; see
+"Interim" below). For `io.kosmos.app`, it turns on native APNs registration
 and tap handling on an iPhone after Step 3 allows the bundle id. It does not
 open the Mac's send lock or make Step 8's log-only coordinator send for real.
 
+**Interim, decided 2026-10-12 (kosmos #4089, option A):** TestFlight ships now as a separate app,
+**`io.kosmos.app.preview`**, under the Stone Syndicate team (`ios/Signing.xcconfig` holds both),
+internal testers only. Apple transfers only an app with a version released on the App Store
+(App Transfer Criteria), so this app is never transferred: when #3643 is approved, the real app is
+created fresh as `io.kosmos.app` under Kosmos Agent Manager, Inc., testers install it once, and the
+preview app is retired. `io.kosmos.app` is never registered under Stone Syndicate. Push does not
+reach preview builds: the coordinator has no APNs key, and `KOSMOS_APNS_BUNDLE_IDS` (unset today) is
+planned to allow only `io.kosmos.app` (kosmos-relay `coordinator/src/apns.rs` refuses any other bundle
+id with HTTP 400). Before the first upload Josh does three one-time steps under Stone Syndicate (exact
+clicks on kosmos #4089): register `io.kosmos.app.preview` with Push Notifications, create its App
+Store Connect app record (named `Kosmos Preview`), and make an Admin App Store Connect API key (the kosmos-notarize key was
+refused even registering an identifier; Admin, or App Manager with access to Certificates,
+Identifiers & Profiles, covers the automatic signing
+archive.sh uses).
+
 **Done now, before Apple's approval (kosmos #4089):**
-- **The Team ID has one home, `ios/Signing.xcconfig`** (`DEVELOPMENT_TEAM`, empty today). The Xcode
+- **The Team ID has one home, `ios/Signing.xcconfig`** (`DEVELOPMENT_TEAM`, Stone Syndicate's
+  for now). The Xcode
   project and the archive script both read it from there.
 - **`ios/tools/archive.sh --build <N>`** archives, exports for App Store Connect
   (`ios/tools/ExportOptions.plist`) and checks the exported `.ipa`. `--upload` then sends that same
   checked file. Details are in `ios/README.md`, "Signing, archive and upload".
 - **The push check on the exported app is automatic.** `ios/tools/check-ipa-entitlements.sh` runs
   inside `archive.sh`, and nothing uploads unless `aps-environment` reads `production` and the app
-  is signed by the team in `ios/Signing.xcconfig`.
+  is signed by the team, with the bundle id, in `ios/Signing.xcconfig`.
 - **The app icon and the navy launch screen are in an asset catalog** (`ios/Kosmos/Assets.xcassets`,
   icon from `assets/Kosmos-1024.png`). It compiles on GitHub's macOS runner, and iOS CI checks the
   built app carries both. It does not compile on the Mac mini until an iOS runtime is installed
   there (`xcodebuild -downloadPlatform iOS`), which matters only for building on that Mac.
 
 **Waits on Apple approving the org (#3643):**
-- **Set `DEVELOPMENT_TEAM` in `ios/Signing.xcconfig`** to the Kosmos Agent Manager, Inc. Team ID
-  [Josh supplies the id; fleet makes the change]. One line; signing is `Automatic`. Signing under
+- **Create the real app record for `io.kosmos.app` under the new org** [Josh: the seller name is
+  permanent, Step 1 item 2]. Not a transfer: the preview app cannot be transferred.
+- **Change `DEVELOPMENT_TEAM` and `KOSMOS_BUNDLE_ID` in `ios/Signing.xcconfig`** to the Kosmos Agent
+  Manager, Inc. Team ID and `io.kosmos.app`
+  [Josh supplies the id; fleet makes the change]. Two lines; signing is `Automatic`. Signing under
   any other team gives device tokens the coordinator's key cannot send to.
-- **The App Store Connect app record** for `io.kosmos.app`, under that org [Josh: the seller name
-  is permanent, Step 1 item 2].
-- **An App Store Connect API key** for the upload (`ASC_KEY_PATH`, `ASC_KEY_ID`, `ASC_ISSUER_ID`),
-  filed with `/add-secret` [Josh creates it; it can upload builds under his org]. Without one,
+- **An App Store Connect API key under the new org** for the upload (`ASC_KEY_PATH`, `ASC_KEY_ID`,
+  `ASC_ISSUER_ID`), filed with `/add-secret` [Josh creates it, Admin or App Manager with access to Certificates, Identifiers & Profiles, for automatic
+  signing]. Without one,
   `archive.sh` still exports and checks, and the checked `.ipa` goes up through Apple's Transporter
   app.
 
@@ -316,7 +341,9 @@ open the Mac's send lock or make Step 8's log-only coordinator send for real.
     re-signs those builds, not yet measured.
 
 **On-device check:** use Sonya's single phone script on #4184,
-`android/phone-test-checklist.md`, once a signed iOS build exists. That script
+`android/phone-test-checklist.md`, once a signed iOS build exists. On the interim
+`io.kosmos.app.preview` builds its push steps ("Notify me on this phone", "Get a notification") cannot
+pass, by design: the coordinator refuses that bundle id. That is not a defect. That script
 owns the user-visible sequence and screenshots. This guide only owns which
 deploy or release makes each capability available.
 

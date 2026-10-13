@@ -3020,6 +3020,8 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 /* `.acut` is retired: the pack dropped the rule AND the divs together, and a
    surviving rule would still draw a line under markup that no longer exists. */
 /* The role sits directly under the name as one unit (Josh's regroup). */
+/* #5957 slice 2: an offline card's far-behind note: small and muted, so the quieter offline card stays quiet. */
+.acard .arules { font-size: .75rem; color: var(--k-ink-2); line-height: 1.35; margin-top: 4px; }
 .acard .ameta { font-weight: 600; color: var(--k-ink); font-size: .8125rem; margin-top: 1px; }
 /* Josh, 2026-08-19: "a tiny bit more. Not crazy." One pixel is not a gap, it is
    the absence of one. Mona Lisa's spec (#184) is `--space-3`.
@@ -14031,7 +14033,7 @@ window.kosmosMeasureScrollbarWidth();
          Meta's page and the code in the #3952 boxes, offers a new code when one expires, and stops it.
          Off, the Meta option stays "coming soon" exactly as before and this never shows. -->
     <div id="acct-muse-flow" hidden style="margin-top: var(--space-5);">
-      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in to Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password. Your agents then run on your own Meta account, on this computer.</p>
+      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Connect Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password. Your agents then run on your own Meta account, on this computer.</p>
       <div class="frow" style="margin-top:12px;">
         <button class="btn uprime" id="acct-muse-go" type="button">Sign in with Meta</button>
         <span class="muse-connecting" id="acct-muse-spin" hidden><span class="spin" aria-hidden="true"></span>Connecting&hellip;</span>
@@ -15299,9 +15301,9 @@ window.kosmosMeasureScrollbarWidth();
                 <div class="llm off" id="fr-meta-row"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon" id="fr-meta-soon">Coming soon</span><button class="connect-b" type="button" id="fr-meta-connect" aria-expanded="false" aria-controls="fr-muse-flow" aria-label="Connect Meta Muse" hidden>Connect</button></div>
                 <!-- #3939 3c-4: Meta Muse on this step, only where Muse is switched on (GET /api/muse says enabled); otherwise the
                      row above stays "Coming soon" and none of this shows. The same sign-in controller as Add a provider
-                     (museSigninFlow) with the fr-muse- prefix; Kosmos does not install Muse Code, so a computer without it is told. -->
+                     (museSigninFlow) with the fr-muse- prefix; #6004: Kosmos installs Muse Code on this step, so a computer without it is told. -->
                 <div id="fr-muse-flow" hidden class="fr-confirm" role="group" aria-labelledby="fr-muse-t">
-                  <p class="fr-confirm-t" id="fr-muse-t"><b>Sign in to Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password.</p>
+                  <p class="fr-confirm-t" id="fr-muse-t"><b>Connect Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password.</p>
                   <div class="frow" style="margin-top:12px;"><button class="btn uprime" id="fr-muse-go" type="button">Sign in with Meta</button><span class="muse-connecting" id="fr-muse-spin" hidden><span class="spin" aria-hidden="true"></span>Connecting&hellip;</span></div>
                   <div class="frow" id="fr-muse-open-row" hidden style="margin-top:8px;">
                     <a class="btn" id="fr-muse-open" href="#" target="_blank" rel="noopener noreferrer">Open Meta's sign-in page<span class="vh"> (opens in your browser)</span></a>
@@ -20880,7 +20882,8 @@ function taskLine(a, opts) {
  * never writes and Claude Code freezes at first message is a fossil, not a
  * status), so today only `rate_limited`, `auth_failed` (#874) and
  * `connection_lost` (#3410) speak and every other state shows nothing rather
- * than a stale summary.
+ * than a stale summary. (Since then also: a crash loop, a waiting count, a stuck
+ * error, and on a CARD in a calm state, rules far behind (#5957); see stateReason.)
  *
  * 🛑 `taskWords` IS GONE. It stripped the "Claude Code" default out of the
  * frozen title (#222) so a brand-new agent did not read as "doing Claude Code".
@@ -20904,6 +20907,15 @@ function waitingLine(w) {
   if (!yours) return base;
   if (yours === n) return base + (n === 1 ? ', it\'s yours' : ', all yours');
   return base + ', yours ' + (yours === 1 ? 'is' : 'are') + ' next';
+}
+/* #5957 slice 2: the one sentence for an agent whose working rules are far behind (a.rulesBehind, from
+   engine/doctrine.js: a whole number only when its own page offers the update), or ''. Said by stateReason on a
+   running card and by the offline card and list row, which draw no task line of their own. */
+function rulesBehindLine(a, offline) {
+  if (!(a && Number.isSafeInteger(a.rulesBehind) && a.rulesBehind > 0)) return '';
+  /* `offline`: the not-running card and row (no session in the roster), where the page's update is refused (it needs
+     the agent in the roster), so the sentence states the fact and promises no action. */
+  return 'Its working rules are ' + a.rulesBehind + ' versions behind.' + (offline ? '' : ' Open it to update them.');
 }
 function stateReason(a, opts) {
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
@@ -21005,6 +21017,15 @@ function stateReason(a, opts) {
     /* "Has asked": an attempt was made, not that it landed (the sweep counts every attempt). */
     if (ph === 'retried') return lost + '. Kosmos has asked it to try again.';
     return lost;
+  }
+  /* #5957 slice 2: its working rules are far behind, and its own page offers the update (a.rulesBehind, from
+     engine/doctrine.js rulesBehind: a number only then). Only on a CARD (opts.card: the agent's own page has the
+     update note itself, and "Open it" makes no sense there) and only when it is idle or stopped: the update restarts
+     it, so a working agent is not pointed at it mid-task, and it is never in the slot a person reads
+     as what a needs-you, question or blocked agent is stuck on (#986/#2833), and never over a sign-in, connection or
+     usage problem. Last of the general reasons; plain words; the card's look is unchanged. */
+  if (a && opts && opts.card === true && (a.state === 'idle' || a.state === 'stopped') && rulesBehindLine(a)) {
+    return rulesBehindLine(a);
   }
   if (!a || a.state !== 'rate_limited') return '';
   /* #4588: an Antigravity agent paused on its account's shared Google quota carries the reset, so the card says
@@ -21974,6 +21995,7 @@ function card(a) {
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate ${split ? 'st-unknown' : 'st-stopped'}">${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b></div>
+    ${!split && rulesBehindLine(a, true) ? `<div class="arules">${esc(rulesBehindLine(a, true))}</div>` : ''}
     ${comm ? `<div class="acommunity">${esc(comm)}</div>` : ''}
   </div>`;
   }
@@ -22019,7 +22041,7 @@ function card(a) {
     <div class="astate st-${m.st}">${glyphOf(a)}<b>${esc(copy.label)}</b>${answer}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(modelLine(a))}</div>
-    <div class="atask">${esc(taskLine(a, { noQuote: true }))}</div>
+    <div class="atask">${esc(taskLine(a, { noQuote: true, card: true }))}</div>
     ${comm ? `<div class="acommunity">${esc(comm)}</div>` : ''}
   </div>`;
 }
@@ -22176,7 +22198,7 @@ function lrow(a) {
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
-      <div class="ltask"></div>
+      <div class="ltask">${esc(a.jobRunningUnseen === true ? '' : rulesBehindLine(a, true))}</div>
       <div class="lmodel"></div>
       <div class="lmem"></div>
     </div>`;
@@ -22251,7 +22273,7 @@ function lrow(a) {
          because they are actions, not status text. This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
     <div class="lstate"><span class="vh">${glyphOf(a)}${esc(copy.label)}</span><span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}">${glyphOf(a)}</span>${answerBtn(a)}${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
-    <div class="ltask">${esc(taskLine(a, { noQuote: true }))}</div>
+    <div class="ltask">${esc(taskLine(a, { noQuote: true, card: true }))}</div>
     <div class="lmodel">${esc(modelLine(a))}</div>
     <div class="lmem">${mem}</div>
   </div>`;
@@ -24096,7 +24118,7 @@ function paintRailPjNotice() {
   const rn = document.getElementById('alist-pj-notice');
   if (!rn) return;
   const op = (document.body.classList.contains('consolidated') && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
-  pjKeepOpenFocus(rn, () => setIfChanged(rn, op ? pjNeedsNotice(op.agents || [], pjRedHere) + pjCoordNotice(op) + pjNotice(op.agents || [], op.id) : ''));   // #5688: who needs you, first
+  pjKeepOpenFocus(rn, () => setIfChanged(rn, op ? pjNeedsNotice(op.agents || [], pjRedHere) + pjNotice(op.agents || [], op.id) : ''));   // #5688: who needs you, first
   const rs = document.getElementById('alist-pj-notice-said');
   if (rs && rs.dataset.pj && (!op || rs.dataset.pj !== String(op.id))) { rs.textContent = ''; rs.dataset.pj = ''; }
 }
@@ -26481,12 +26503,14 @@ function paintMuseOption(sel, current) {
   opt.disabled = !on;
   /* #5316 (Josh 11:06: "Muse is disabled in the team builder"): this code enables the option, but its static text
      still said "coming soon", and a plain select (the team step's) shows that text as it is. The words follow the
-     same state as `disabled`: usable, sign in first (installed, not signed in), set up first (switched on, not
+     same state as `disabled`: usable, sign in first (installed, not signed in), set up in Settings (#6004: Settings installs Muse Code; switched on, not
      installed), or coming soon (not switched on here). */
   const pending = !on && creating && !!MUSE_CREATE && MUSE_CREATE.on === true;   // switched on, not usable yet
   const signIn = pending && MUSE_CREATE.installed === true;   // installed, only the sign-in is missing
-  opt.textContent = on ? 'Meta Muse' : signIn ? 'Meta Muse \u00b7 sign in first' : pending ? 'Meta Muse \u00b7 set up first' : 'Meta Muse \u00b7 coming soon';
+  // #3939: the team step is a plain select, so its words carry the instruction too. #6004: Settings installs it.
+  opt.textContent = on ? 'Meta Muse' : signIn ? 'Meta Muse \u00b7 sign in first' : pending ? 'Meta Muse \u00b7 set up in Settings' : 'Meta Muse \u00b7 coming soon';
   // The logo list's pill.
+  // #6004: Settings installs Muse Code now, so a Mac without it is pointed there, as one not signed in is.
   if (signIn) opt.dataset.off = 'Sign in to Meta Muse first';
   else if (pending) opt.dataset.off = 'Set up in Settings, AI Models';
   else delete opt.dataset.off;
@@ -26496,7 +26520,7 @@ function paintMuseOption(sel, current) {
 function museCreateAsk() {
   /* Asked again on every paint while Muse is switched on here (the read is a file check): a person who
      signs in to Meta with the board open sees the option turn on without a reload. Switched off is asked
-     again only after MUSE_OFF_RECHECK_MS (the preview marker can switch it on with the page open), so a
+     again only after MUSE_OFF_RECHECK_MS (removing the muse-off marker switches it on with the page open), so a
      board that is off makes at most one read a minute. Asked when the form paints, not on a timer: an open
      form shows the change when it is next painted or reopened. One read in flight at a time. */
   if (MUSE_CREATE_ASKING) return MUSE_CREATE_ASKING;
@@ -31036,6 +31060,10 @@ document.getElementById('acct-grok-sub-cancel').addEventListener('click', () => 
    OWN start answered, never one read back from the poll (another tab's start replaces the sign-in, and
    this screen then says so rather than driving the other one). */
 const MUSE_NOT_HERE = 'Meta Muse is not available on this computer just now.';
+/* #6004: what the Muse step says before its Install press (the press is the confirm, as Antigravity's is). */
+const MUSE_INSTALL_INTRO = 'Meta Muse runs on Meta\'s Muse Code, which is not on this computer yet. Kosmos can install it for you: it is a download from Meta.';
+// #6004: whether Muse Code is on this computer, from Add a provider's last read (null: not read yet).
+let MUSE_CODE_HERE = null;
 const MUSE_BUSY = 'Finish or stop the Claude sign-in first, then sign in to Meta again.';   // round 9: say which
 const MUSE_SAY = {
   starting: 'Starting Muse Code\'s sign-in\u2026',
@@ -31047,25 +31075,29 @@ function museMetaOption() { return document.querySelector('#acct-provider-pick o
 let MUSE_ASK_GEN = 0;   // the latest read wins (round 4: two quick opens could answer out of order)
 async function museAsk() {
   const mine = ++MUSE_ASK_GEN;
-  let on = false; let missing = false;
+  let on = false;
   try {
     const r = await fetch('/api/muse', { cache: 'no-store' });
     const out = r.ok ? await r.json().catch(() => null) : null;
-    /* Offered only when Muse Code is on this computer too (round 2: as Gemini's and Grok's rows wait
-       until they are ready); turned on but not installed says so on the row instead of "Coming soon". */
-    on = !!(out && out.enabled === true && out.installed === true);
-    // The engine's own reason (round 3); the fallback is deliberately not a copy of it (round 4).
-    missing = !!(out && out.enabled === true && out.installed === false) && (pjSentence(out.because) || 'Not ready on this computer');
+    /* #6004: offered whenever Muse is on here, installed or not: without Muse Code, Meta's step installs it first. */
+    on = !!(out && out.enabled === true);
+    if (mine === MUSE_ASK_GEN) {
+      const was = MUSE_CODE_HERE;
+      MUSE_CODE_HERE = out && out.enabled === true ? out.installed === true : null;   // the latest read wins
+      // #6004: the step may have been painted from the previous visit's answer; repaint it while nothing is running.
+      const flow = document.getElementById('acct-muse-flow');
+      if (was !== MUSE_CODE_HERE && flow && !flow.hidden && typeof ACCT_MUSE !== 'undefined' && !ACCT_MUSE.busy) ACCT_MUSE.reset();
+    }
   } catch { on = false; }   // a failed read keeps it "coming soon": today's screen, never a guess
   if (mine !== MUSE_ASK_GEN) return on;
   if (on) { const say = document.getElementById('acct-add-pick-say'); if (say && say.textContent === MUSE_NOT_HERE) acctAddPickSay(''); }
   /* The logo combobox re-reads `disabled` on open (syncOpts) and drops its pill; its row name is fixed at build. The
-     option's words are set too (#5316), for a plain select: usable, not on this computer yet, or coming soon. */
+     option's words are set too (#5316), for a plain select: usable, or coming soon. */
   const opt = museMetaOption();
   if (opt) {
     opt.disabled = !on;
-    opt.textContent = on ? 'Meta Muse' : missing ? 'Meta Muse \u00b7 set up first' : 'Meta Muse \u00b7 coming soon';
-    if (missing) opt.dataset.off = missing; else delete opt.dataset.off;
+    opt.textContent = on ? 'Meta Muse' : 'Meta Muse \u00b7 coming soon';
+    delete opt.dataset.off;
     // An open logo list re-reads its options (round 3), as paintAgyOption and paintKeyedProviderOptions do.
     const sel = opt.parentElement;
     if (sel && sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
@@ -31085,7 +31117,9 @@ function museOffered() {
    Meta row (fr-muse-*). `prefix` names its elements; `opts.onDone` repaints that place after a sign-in. Only one
    place is usable at a time (first run makes the rest of the page inert), and each stops its own sign-in by id. */
 function museSigninFlow(prefix, opts) {
-  let id = null; let poll = null; let gen = 0; let retrying = false;
+  let id = null; let poll = null; let gen = 0; let retrying = false; let installing = false;
+  // #6004: true while this place knows Muse Code is not on this computer (its own read decides).
+  const needsInstall = () => !!(opts && opts.needsInstall && opts.needsInstall());
   const el = (x) => document.getElementById(prefix + x);
   const say = (t) => { const m = el('say'); if (m) m.textContent = t; };   // named 'say': the surface gate maps the usual name to other checks
   const stopPoll = () => { if (poll) { clearInterval(poll); poll = null; } };
@@ -31116,7 +31150,10 @@ function museSigninFlow(prefix, opts) {
     const g = el('go'); if (g) { g.hidden = false; g.disabled = false; }
     const sp = el('spin'); if (sp) sp.hidden = true;
     const dn = el('done'); if (dn) dn.hidden = true;
-    if (g) g.textContent = 'Sign in with Meta';   // a reopened step starts fresh (review round 1); a failure relabels after
+    // A reopened step starts fresh (review round 1); a failure relabels after. #6004: no Muse Code here, install first.
+    if (g) { g.textContent = needsInstall() ? 'Install Muse Code' : 'Sign in with Meta'; g.removeAttribute('aria-disabled'); }   // #6004: no busy mark left by an install the panel was closed on
+    { const sp0 = el('spin'); if (sp0 && sp0.dataset.was) { sp0.lastChild.textContent = sp0.dataset.was; delete sp0.dataset.was; } }
+    if (needsInstall()) say(MUSE_INSTALL_INTRO);
     if (opts && opts.onReset) opts.onReset();
   }
   /* #4569: a sign-in that failed or ended offers Try again on the same button. */
@@ -31136,7 +31173,8 @@ function museSigninFlow(prefix, opts) {
   }
   function finish(text) {
     // reset() hides each row through hideRow, which moves focus off a control that is going.
-    gen += 1; stopPoll(); id = null; reset();
+    // #6004: an install left behind keeps running on the board; a new press joins that same run (one shared run).
+    gen += 1; stopPoll(); id = null; installing = false; reset();
     if (text != null) say(text);
   }
   function watch(mine) {
@@ -31188,7 +31226,16 @@ function museSigninFlow(prefix, opts) {
     try { res = await post('start', {}); out = await res.json().catch(() => null); }
     catch { if (mine === gen) rearm('We could not reach Kosmos to start that sign-in. Try again.'); return; }
     if (mine !== gen) { if (res.ok && out && out.id) post('stop', { id: out.id }).catch(() => {}); return; }
-    if (!res.ok || !out || !out.id) { rearm(pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.'); return; }
+    if (!res.ok || !out || !out.id) {
+      rearm(pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.');
+      // #6004: Muse Code went missing since this place last looked: back to the Install step, never a sign-in loop.
+      if (/not on this computer/.test((out && (out.error || out.because)) || '') && opts && opts.onMissing) {
+        try { opts.onMissing(); } catch { /* the next read decides */ }
+        if (go) go.textContent = 'Install Muse Code';
+        say(MUSE_INSTALL_INTRO);   // the press installs here; never "go to Settings" from the screen that installs
+      }
+      return;
+    }
     id = out.id;
     // #4569: the button stays where it was, off, with Connecting beside it, so the person can see it is under way.
     el('cancel-row').hidden = false;
@@ -31212,17 +31259,60 @@ function museSigninFlow(prefix, opts) {
     hideRow('retry-row');
     say(MUSE_SAY.starting);
   }
+  /* #6004: Install Muse Code with Meta's own installer, on this press (the press is the confirm: the step has just
+     said it is a download from Meta). Installed, the same button becomes Sign in with Meta. */
+  async function install() {
+    if (installing || id) return;
+    installing = true;
+    gen += 1;
+    const mine = gen;
+    // Not disabled (disabling a focused button drops focus to the page): marked busy, and `installing` ignores presses.
+    const go = el('go'); if (go) go.setAttribute('aria-disabled', 'true');
+    const spin = el('spin');
+    if (spin) { spin.hidden = false; spin.dataset.was = spin.dataset.was || spin.lastChild.textContent; spin.lastChild.textContent = 'Installing\u2026'; }
+    say('Installing Muse Code from Meta\u2026');
+    let out = null;
+    try { const res = await fetch('/api/muse/install', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); out = await res.json().catch(() => null); }
+    catch { out = null; }
+    if (mine !== gen) return;
+    installing = false;
+    if (spin) { spin.hidden = true; if (spin.dataset.was) spin.lastChild.textContent = spin.dataset.was; }
+    if (go) go.removeAttribute('aria-disabled');
+    if (!out) {
+      // No answer is not a failure: the install runs on the board and may still be going. A second press shares that run.
+      // Labelled for what it does: a press installs, and joins the board's install if one is still running.
+      if (go) { go.textContent = 'Install Muse Code'; go.focus(); }
+      say('Muse Code may still be installing. Pressing Install Muse Code again joins that install, or starts it if it stopped.');
+      return;
+    }
+    if (!out.ok) {
+      // A refusal a retry cannot change offers nothing to press (as Antigravity's goes to Check again, not Try again).
+      const stuck = /different home|switched off|not available/.test(out.error || out.because || '');
+      say(pjSentence(out.error || out.because) || 'We could not install Muse Code just now.');
+      if (go) {
+        if (stuck) { const m = el('say'); if (m) { m.tabIndex = -1; m.focus(); } go.hidden = true; }   // focus to the reason first, never stranded
+        else { go.textContent = 'Try again'; go.focus(); }
+      }
+      return;
+    }
+    if (opts && opts.onInstalled) { try { opts.onInstalled(); } catch { /* the place repaints on its next read */ } }
+    if (go) { go.textContent = 'Sign in with Meta'; go.focus(); }
+    say('Muse Code is installed. Now sign in with your Meta account.');
+  }
+  /* The one button: install first while Muse Code is missing here, then the sign-in. */
+  function press() { if (needsInstall()) install(); else start(); }
   function leave() {
     const was = id;
     finish(null); say('');
+    if (needsInstall()) say(MUSE_INSTALL_INTRO);
     if (was) post('stop', { id: was }).catch(() => { /* the engine's own limit ends it regardless */ });
   }
-  return { start, retry, leave, reset, get active() { return !!id; } };
+  return { start, retry, leave, reset, install, press, get active() { return !!id; }, get busy() { return installing || !!id; } };
 }
 /* The three buttons of one place, wired to its controller. */
 function museSigninWire(flow, prefix) {
   const el = (x) => document.getElementById(prefix + x);
-  el('go').addEventListener('click', () => flow.start());
+  el('go').addEventListener('click', () => flow.press());   // #6004: installs Muse Code first where it is missing
   el('retry').addEventListener('click', () => flow.retry());
   el('cancel').addEventListener('click', () => {
     flow.leave();
@@ -31231,6 +31321,9 @@ function museSigninWire(flow, prefix) {
   });
 }
 const ACCT_MUSE = museSigninFlow('acct-muse-', {
+  needsInstall: () => MUSE_CODE_HERE === false,
+  onInstalled: () => { MUSE_CODE_HERE = true; MUSE_ASK_GEN += 1; },   // round 7: a read begun before the install cannot undo it
+  onMissing: () => { MUSE_CODE_HERE = false; },
   onDone: () => paintAccounts(),
   /* #4569 (Josh): once signed in, Close is the thing to press. */
   onSuccess: () => { const c = document.getElementById('acct-add-close'); if (c) { c.classList.add('uprime'); c.setAttribute('aria-describedby', 'acct-muse-done'); c.focus(); } },
@@ -31252,9 +31345,13 @@ function acctMuseShow(on) {
 museSigninWire(ACCT_MUSE, 'acct-muse-');
 /* #3939 3c-4: Meta Muse on the first-run model step. The row is today's "Coming soon" unless Muse is switched
    on here (the Create form's read, museCreateAsk / MUSE_CREATE); then it offers Connect, which opens the same
-   sign-in as Add a provider under the row, or says Muse Code is not on this computer (Kosmos does not install
+   sign-in as Add a provider under the row, or says Muse Code is not on this computer (#6004: Kosmos now installs it; before, it did not install
    it). Signed in, the row reads Connected with the gold box, like Gemini's and Grok's. */
-const FR_MUSE = museSigninFlow('fr-muse-', { onDone: async () => {
+const FR_MUSE = museSigninFlow('fr-muse-', {
+  needsInstall: () => !!(MUSE_CREATE && MUSE_CREATE.on && MUSE_CREATE.installed === false),
+  onInstalled: () => { if (MUSE_CREATE) MUSE_CREATE.installed = true; frPaintMeta().catch(() => {}); },   // repaints the under-18 line too
+  onMissing: () => { if (MUSE_CREATE) MUSE_CREATE.installed = false; },
+  onDone: async () => {
   await frPaintMeta({ fresh: true });
   if (MUSE_CREATE && MUSE_CREATE.ready) return;
   /* The sign-in finished but the read after it did not confirm it (it failed, or answered before Muse
@@ -31296,8 +31393,9 @@ async function frPaintMeta(opts) {
   /* #4569 (Josh: the Meta label everywhere): switched on, the row names what the person connects, Muse (from Meta),
      as Gemini / Google and Grok / xAI do; off, it keeps today's coming-soon Llama. */
   const nm = row.querySelector('.llm-w b'); if (nm) nm.textContent = live ? 'Muse' : 'Llama';
-  /* #5856: the under-18 sentence names Meta Muse only when a person can actually pick it. */
-  const ages = document.getElementById('fr-age-list'); if (ages) ages.textContent = live ? 'OpenAI, Grok or Meta Muse' : 'OpenAI or Grok';
+  /* #5856: the under-18 sentence names Meta Muse only when a person can actually pick it: with Muse on by default
+     (#3939), that is once Muse Code is on this computer, not merely switched on. */
+  const ages = document.getElementById('fr-age-list'); if (ages) ages.textContent = live && m.installed === true ? 'OpenAI, Grok or Meta Muse' : 'OpenAI or Grok';
   const msg = document.getElementById('fr-muse-msg');
   if (!live) {
     frMuseCollapse();
@@ -31321,7 +31419,7 @@ async function frPaintMeta(opts) {
        offers Next rather than only "Skip connecting a model", unless Claude has offered its own. */
     const claudeConnected = FR && FR.subscription && FR.subscription.state === 'connected';
     if (!claudeConnected && FR_STEP === 5) frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
-  } else if (msg.classList.contains('fr-connbox') || (m.installed && msg.dataset.said === 'missing')) {
+  } else if (msg.classList.contains('fr-connbox')) {
     msg.className = 'dhint'; msg.textContent = ''; delete msg.dataset.said;
   }
 }
@@ -31335,10 +31433,10 @@ document.getElementById('fr-meta-connect').addEventListener('click', async () =>
   await frPaintMeta();
   if (FR_STEP !== step || document.getElementById('firstrun').hidden) return;   // first run moved on during the read
   if (!MUSE_CREATE || !MUSE_CREATE.on || MUSE_CREATE.ready || btn.hidden) return;
-  if (!MUSE_CREATE.installed) {
-    if (msg) { msg.className = 'dhint'; msg.textContent = 'Muse Code is not on this computer yet. Install it from Meta, then come back to this step.'; msg.dataset.said = 'missing'; }
-    return;
-  }
+  // #6004: without Muse Code the same panel opens on its Install step (FR_MUSE's reset reads MUSE_CREATE). A line
+  // left under the row from an earlier state is cleared: the panel says what is happening now.
+  if (msg) { msg.className = 'dhint'; msg.textContent = ''; delete msg.dataset.said; }
+  FR_MUSE.reset();
   flow.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
   document.getElementById('fr-muse-go').focus();
@@ -43391,7 +43489,8 @@ document.getElementById('d-instr-save').addEventListener('click', async () => {
     // A different agent, OR the same agent reloaded since this save began.
     if (!CURRENT || CURRENT.sessionName !== forAgent || INSTR_LOAD !== forLoad) return;
     if (!res.ok) throw new Error(data.error || 'that did not work');
-    msg.textContent = 'Saved.';
+    // #5957: the text saved, but a new name another agent already has was not taken; say so in the same line.
+    msg.textContent = typeof data.nameKept === 'string' && data.nameKept ? 'Saved. ' + data.nameKept : 'Saved.';
     INSTR_VERSION = data.version || null;
     INSTR_LOADED_TEXT = text;   // #4406: the box now holds what is saved
     INSTR_EPOCH += 1;
@@ -46555,7 +46654,11 @@ document.getElementById('d-save').addEventListener('click', async () => {
                                   line every time somebody saved a role. */
                                ...(reportsSent === null ? {} : { reportsTo: reportsSent }) }) });
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
-    if (!res.ok) throw new Error('that did not save');
+    /* #5957: a refusal carries its own sentence (a name another agent already has); say it, as the instructions Save does. */
+    if (!res.ok) {
+      const refused = await res.json().catch(() => null);
+      throw new Error((refused && typeof refused.error === 'string' && refused.error) || 'that did not save');
+    }
     const saved = await res.json().catch(() => null);
     /* 🔑 A RENAME IS TWO ACTS AND THE SENTENCE SAYS WHICH ONES HAPPENED. The
        record is what every screen reads; the sentence at the top of the agent's
@@ -52153,7 +52256,7 @@ function enhanceProviderSelect(selectId) {
     li.setAttribute('aria-selected', o.selected && !disabled ? 'true' : 'false');
     // The bare provider name: the <option> text carries " · coming soon" (or #5316's " · sign in first" or
     // " · set up first"); strip it, the widget shows a pill instead.
-    const label = o.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first)\s*$/i, '').trim();
+    const label = o.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first|install Muse Code first|set up in Settings)\s*$/i, '').trim();
     const mark = providerMarkNode(o.value, label);
     mark.classList.add('pcombo-mark');
     if (disabled) mark.classList.add('dim');
@@ -52210,7 +52313,7 @@ function enhanceProviderSelect(selectId) {
        for an unrecognised provider, leaving selectedIndex -1 / a blank native select), the
        trigger must show blank too, not silently present the first option as selected. */
     const cur = opts.find((o) => o.value === select.value) || null;
-    const label = cur ? cur.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first)\s*$/i, '').trim() : '';
+    const label = cur ? cur.textContent.replace(/\s*·\s*(?:coming soon|sign in first|set up first|install Muse Code first|set up in Settings)\s*$/i, '').trim() : '';
     trigger.textContent = '';
     if (cur) {
       const mark = providerMarkNode(cur.value, label);
@@ -53098,7 +53201,8 @@ function createPickGone(known) {
       ? (!MUSE_CREATE || !MUSE_CREATE.on
         ? 'Meta Muse is not available on this computer, so this is back on ' + back + '.'
         : !MUSE_CREATE.installed
-        ? 'Meta Muse is not set up on this computer, so this is back on ' + back + '. Set it up in Settings, AI Models: Add a provider, then Meta.'
+        // #6004: Settings installs Muse Code, so the sentence points there.
+        ? 'Muse Code is not on this computer, so this is back on ' + back + '. Install it in Settings, AI Models: Add a provider, then Meta.'
         : 'Meta Muse is not signed in on this computer, so this is back on ' + back + '. Sign in to it in Settings, AI Models: Add a provider, then Meta.')
       : known
       ? 'There is no ' + gone + ' account connected, so this is back on ' + back + '. Add one in Settings, AI Models.'
@@ -59462,24 +59566,6 @@ function pjNoticeStill(r, projectId) {
   return PJ_NOTICE_TRIED.get(k) === r.because ? ' It still did not work.' : '';
 }
 
-/* #4583: the two-coordinator warning, shown after an add or a create that brought a second coordinator on (the
-   server says so in that answer), until it no longer holds (the project read's `coordinators` is null) or the
-   person dismisses it. Remembered for this tab only: a warning, never a refusal, and never a nag on every visit. */
-/* id -> the projects-read number current when the add or create answered. Review round 2: a repaint can run on a
-   read that STARTED before the add (coordinators still null), and that null says nothing about the add; only a
-   read started after it (a higher number, PJ_READ_SHOWN) can say the warning no longer holds. */
-const PJ_COORD_WARN = new Map();
-let PJ_READ_SEQ = 0;     // numbers each /api/projects read as it starts
-let PJ_READ_SHOWN = 0;   // the number of the read whose answer is in PROJECTS now
-function pjCoordNotice(p) {
-  const id = p && p.id;
-  if (!id || !PJ_COORD_WARN.has(String(id))) return '';
-  if (!p.coordinators) { if (PJ_READ_SHOWN > PJ_COORD_WARN.get(String(id))) PJ_COORD_WARN.delete(String(id)); return ''; }
-  return '<div class="pnotice pn-coord"><span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>Two coordinators on this project.</b>'
-    + '<div class="pnrow"><span class="pnwhy">' + esc(pjSentence(p.coordinators) || String(p.coordinators)) + '</span>'
-    + '<button class="qopt" type="button" data-pn-coord-dismiss="' + esc(String(id)) + '">Dismiss</button></div></div></div>';
-}
-
 /* #5688 (Josh, 10-09 08:45: "There's some issue and I don't know what an issue would be"): the project's Issue
    count, said member by member. Each reason is the engine's needsYouHere (projects.js needsYouReason), so the block's
    first group is exactly the members the red pill counts (#5692 adds red rows it does not count, after them). One Open per row: the agent's own page holds the fix (the answer box,
@@ -60826,7 +60912,6 @@ async function loadProjects() {
   // it). Callers that branch on PJ_READ_FAILED right after awaiting need to
   // know the flag is their read's, not a predecessor's -- see pjAnswerFrom
   // (round 21).
-  const readNo = ++PJ_READ_SEQ;   // #4583: which read this is, for the coordinator warning
   try {
     const res = await fetch('/api/projects');
     reached = true;
@@ -60850,7 +60935,6 @@ async function loadProjects() {
       throw new Error(body.error || 'we cannot read your projects right now');
     }
     PROJECTS = body.projects || [];
-    PJ_READ_SHOWN = readNo;
     /* #5551 review: an agent page opened from a project names it; a rename (or a list that arrives late) repaints it. */
     /* typeof first: loadProjects is lifted and run alone by tests (web.projects-signed-out-718), where this global is absent. */
     if (typeof DETAIL_FROM_PROJECT !== 'undefined' && DETAIL_FROM_PROJECT && typeof detailBackPaint === 'function') detailBackPaint();
@@ -64604,7 +64688,7 @@ function paintOneProject() {
   paintRoomBusy(roster.map((a) => (a && a.sessionName) || a), p.id);
   /* #3923: an agent that could not be given the folder is said once, in the project notice
      above the list (Mona's design), not on its row: every member row passes suppressTold. */
-  const notice = pjNeedsNotice(roster, pjRedHere) + pjCoordNotice(p) + pjNotice(roster, p.id);   // #5688: who needs you, first
+  const notice = pjNeedsNotice(roster, pjRedHere) + pjNotice(roster, p.id);   // #5688: who needs you, first
   const noticeBox = document.getElementById('pj-one-notice');
   // The region is never hidden (see the CSS note): only its content comes and goes.
   pjKeepOpenFocus(noticeBox, () => setIfChanged(noticeBox, notice));   // #5688: a repaint keeps a focused Open
@@ -72639,7 +72723,6 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     // land the person INSIDE the new project. openProject also carries the
     // read-back-failure case (body.id set, body.project null) with its notice.
     const newProjectId = (body.project && body.project.id) || body.id;
-    if (body.coordinators && newProjectId) PJ_COORD_WARN.set(String(newProjectId), PJ_READ_SEQ);   // #4583
     openProject(newProjectId);
   } catch (err) {
     // Through pjSentence like every other engine `because` on this screen
@@ -72694,7 +72777,6 @@ async function addMemberToProject(who, msg) {
     const res = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/agent/' + encodeURIComponent(who), { method: 'POST' });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not change that project');
-    if (body.coordinators) PJ_COORD_WARN.set(String(PJ_CURRENT), PJ_READ_SEQ);   // #4583: shown in the project notice
     return true;
   } catch (err) {
     // Through pjSentence like every sibling on this screen (round 24): the
@@ -72805,16 +72887,6 @@ function pjNeedsOpenClick(e) {
 }
 document.getElementById('pj-one-notice').addEventListener('click', pjNeedsOpenClick);
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNeedsOpenClick); }
-/* #4583: Dismiss on the two-coordinator warning, in either notice. */
-function pjCoordDismissClick(e) {
-  const btn = e.target && e.target.closest ? e.target.closest('[data-pn-coord-dismiss]') : null;
-  if (!btn) return;
-  PJ_COORD_WARN.delete(btn.dataset.pnCoordDismiss);
-  paintOneProject();
-  paintRailPjNotice();
-}
-document.getElementById('pj-one-notice').addEventListener('click', pjCoordDismissClick);
-{ const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjCoordDismissClick); }
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
 document.getElementById('pj-one-add-go').addEventListener('click', async () => {
   // #2429 (Josh, 0.6.45): once the member is added there is nothing more to do in the

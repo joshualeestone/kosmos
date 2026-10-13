@@ -67,9 +67,18 @@ const chk = (ok, label, extra) => {
       const u = String(url);
       const method = (opts && opts.method) || 'GET';
       if (/\/api\/muse$/.test(u)) window.__museReads = (window.__museReads || 0) + 1;
-      if (/\/api\/muse$/.test(u)) { const hold = window.__holdMuse; if (hold) { window.__holdMuse = null; const ans = window.__museOn; await hold; return enc(ans ? { enabled: true, installed: true, because: null, signedIn: false } : { enabled: false }); } }
+      if (/\/api\/muse$/.test(u)) { const hold = window.__holdMuse; if (hold) { window.__holdMuse = null; const ans = window.__museOn; await hold; const inst = window.__museInstalled !== false; return enc(ans ? { enabled: true, installed: inst, because: inst ? null : 'Muse Code is not on this computer', signedIn: false } : { enabled: false }); } }
       if (/\/api\/muse$/.test(u)) { if (window.__museRead === 'throw') throw new Error('offline'); if (window.__museRead === 500) return enc({ error: 'x' }, 500); }
       if (/\/api\/muse$/.test(u)) return enc(window.__museOn ? { enabled: true, installed: window.__museInstalled !== false, because: window.__museInstalled === false ? 'Muse Code is not on this computer' : null, signedIn: window.__museSignedIn === true } : { enabled: false });
+      // #6004: Install Muse Code. Answers window.__installAnswer, or installs (Muse Code is then on this computer).
+      if (/\/api\/muse\/install$/.test(u) && method === 'POST') {
+        window.__installPosts = (window.__installPosts || 0) + 1;
+        if (window.__holdInstall) await window.__holdInstall;
+        if (window.__installThrow) throw new Error('offline');   // no answer at all (the board went away mid-install)
+        const a = window.__installAnswer || { ok: true, installed: true };
+        if (a.ok) window.__museInstalled = true;
+        return enc(a, a.ok ? 200 : 400);
+      }
       if (/\/api\/muse\/signin(\/retry|\/stop)?$/.test(u) && method === 'POST') {
         const body = JSON.parse((opts && opts.body) || '{}');
         window.__posts.push({ path: u.replace(/^.*\/api\/muse\/signin/, '') || '/', id: body.id || null });
@@ -215,7 +224,11 @@ const chk = (ok, label, extra) => {
   await q(() => { window.__startAnswer = [400, { ok: false, error: 'Muse Code is not on this computer' }]; document.getElementById('acct-muse-go').click(); });
   await settle();
   chk(/not on this computer/.test((await G('acct-muse-say')).text), 'a refused start is said in words', (await G('acct-muse-say')).text);
-  await q(() => { window.__startAnswer = null; });
+  // #6004: refused because Muse Code went missing: the step goes back to Install, never a sign-in loop.
+  chk(await q(() => document.getElementById('acct-muse-go').textContent === 'Install Muse Code' && MUSE_CODE_HERE === false
+    && /download from Meta/.test(document.getElementById('acct-muse-say').textContent)),
+    '#6004: a sign-in refused for missing Muse Code returns the step to Install Muse Code, saying it is a download (not "go to Settings")');
+  await q(() => { window.__startAnswer = null; MUSE_CODE_HERE = true; ACCT_MUSE.reset(); });   // Muse Code is back for the arms below
 
   // Stop, and closing the dialog, each stop the engine's sign-in by id.
   await q(() => { window.__status = { id: 'mine000000000001', state: 'starting' }; document.getElementById('acct-muse-go').click(); });
@@ -310,11 +323,54 @@ const chk = (ok, label, extra) => {
   await q(() => { window.__releaseRetry(); window.__holdRetry = null; }); await settle();
   chk(await q((n) => window.__posts.filter((p) => p.path === '/retry').length === n + 1, retriesBefore), 'a double press of Get a new code sends one retry');
   await q(() => document.getElementById('acct-muse-cancel').click()); await settle();
-  // Turned on but Muse Code not installed: the option stays disabled and says why.
-  await q(() => { window.__museInstalled = false; closeAcctAdd(); openAcctAdd(); }); await settle();
+  // #6004: turned on but Muse Code not installed: Meta is offered, and its step installs Muse Code first.
+  await q(() => { window.__museInstalled = false; window.__installPosts = 0; window.__installAnswer = null; closeAcctAdd(); openAcctAdd(); }); await settle();
   const missing = await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return { disabled: o.disabled, off: o.dataset.off || '', text: o.textContent }; });
-  chk(missing.disabled && /not on this computer/.test(missing.off) && missing.off !== 'Not ready on this computer', 'turned on but not installed: the Meta option stays disabled and gives the engine\'s reason', JSON.stringify(missing));
-  chk(missing.text === 'Meta Muse \u00b7 set up first', '#5316: not installed, the option\'s words say to set it up first', JSON.stringify(missing));
+  chk(!missing.disabled && !missing.off && missing.text === 'Meta Muse', '#6004: not installed, Meta is offered (its step installs Muse Code)', JSON.stringify(missing));
+  await choose('meta'); await settle();
+  const ask = await q(() => ({ flow: !document.getElementById('acct-muse-flow').hidden, go: document.getElementById('acct-muse-go').textContent,
+    say: document.getElementById('acct-muse-say').textContent }));
+  chk(await q(() => !/sign in/i.test(document.querySelector('#acct-muse-flow > p.dwarn').textContent)), '#6004: the Settings step heading does not say Sign in above an Install Muse Code button (screenshot finding)');
+  chk(ask.flow && ask.go === 'Install Muse Code' && /download from Meta/.test(ask.say), '#6004: the step says Muse Code is a download from Meta and offers Install Muse Code (the press is the confirm)', JSON.stringify(ask));
+  const signinsBefore = await q(() => window.__posts.length);
+  await q(() => { window.__holdInstall = new Promise((r) => { window.__releaseInstall = r; }); });
+  await q(() => { const g = document.getElementById('acct-muse-go'); g.focus(); g.click(); g.click(); }); await settle();
+  const instBusy = await q(() => ({ busy: document.getElementById('acct-muse-go').getAttribute('aria-disabled'), disabled: document.getElementById('acct-muse-go').disabled,
+    focus: document.activeElement && document.activeElement.id, spin: document.getElementById('acct-muse-spin').textContent, say: document.getElementById('acct-muse-say').textContent }));
+  chk(instBusy.busy === 'true' && !instBusy.disabled && instBusy.focus === 'acct-muse-go' && /Installing/.test(instBusy.spin) && /Installing Muse Code from Meta/.test(instBusy.say),
+    '#6004: while installing, the button is marked busy but keeps focus (never disabled under focus), and the spinner and step say Installing', JSON.stringify(instBusy));
+  await q(() => { window.__releaseInstall(); window.__holdInstall = null; }); await settle();
+  const instDone = await q(() => ({ posts: window.__installPosts, go: document.getElementById('acct-muse-go').textContent, focus: document.activeElement && document.activeElement.id,
+    say: document.getElementById('acct-muse-say').textContent }));
+  chk(instDone.posts === 1, '#6004: a double press of Install sends one install', JSON.stringify(instDone));
+  chk(instDone.go === 'Sign in with Meta' && instDone.focus === 'acct-muse-go' && /installed\. Now sign in/.test(instDone.say), '#6004: installed, the same button becomes Sign in with Meta, with focus on it', JSON.stringify(instDone));
+  chk(await q((n) => window.__posts.length === n, signinsBefore), '#6004: installing starts no sign-in by itself');
+  // Closed mid-install and reopened: the Install press works again (it joins the board's one run), never a dead button.
+  await q(() => { window.__museInstalled = false; window.__installPosts = 0; window.__installAnswer = null; closeAcctAdd(); openAcctAdd(); }); await settle();
+  await choose('meta'); await settle();
+  await q(() => { window.__holdInstall = new Promise((r) => { window.__releaseInstall = r; }); });
+  await q(() => document.getElementById('acct-muse-go').click()); await settle();
+  await q(() => { closeAcctAdd(); openAcctAdd(); }); await settle();
+  await choose('meta'); await settle();
+  const reopened = await q(() => ({ busy: document.getElementById('acct-muse-go').getAttribute('aria-disabled'), spin: document.getElementById('acct-muse-spin').textContent }));
+  chk(reopened.busy === null && /Connecting/.test(reopened.spin), '#6004: reopened mid-install, no busy mark and no Installing text are left behind', JSON.stringify(reopened));
+  await q(() => document.getElementById('acct-muse-go').click()); await settle();
+  const instAgain = await q(() => ({ posts: window.__installPosts, say: document.getElementById('acct-muse-say').textContent }));
+  chk(instAgain.posts === 2 && /Installing Muse Code from Meta/.test(instAgain.say), '#6004: closed mid-install and reopened, Install works again (a dead button before)', JSON.stringify(instAgain));
+  await q(() => { window.__releaseInstall(); window.__holdInstall = null; }); await settle();
+  // A refusal a retry cannot change: the reason gets focus, and no button offers the same dead end again.
+  await q(() => { window.__museInstalled = false; window.__installAnswer = { ok: false, error: 'Meta Muse is switched off on this computer' }; closeAcctAdd(); openAcctAdd(); }); await settle();
+  await choose('meta'); await settle();
+  await q(() => { const g = document.getElementById('acct-muse-go'); g.focus(); g.click(); }); await settle();
+  const stuck = await q(() => ({ hidden: document.getElementById('acct-muse-go').hidden, focus: document.activeElement && document.activeElement.id, say: document.getElementById('acct-muse-say').textContent }));
+  chk(stuck.hidden && stuck.focus === 'acct-muse-say' && /switched off/.test(stuck.say), '#6004: a refusal a retry cannot change hides the button and moves focus to the reason', JSON.stringify(stuck));
+  // A failed install says why and offers Try again; nothing is claimed.
+  await q(() => { window.__museInstalled = false; window.__installAnswer = { ok: false, error: 'Meta\'s Muse Code installer did not finish' }; closeAcctAdd(); openAcctAdd(); }); await settle();
+  await choose('meta'); await settle();
+  await q(() => document.getElementById('acct-muse-go').click()); await settle();
+  const instFailed = await q(() => ({ go: document.getElementById('acct-muse-go').textContent, say: document.getElementById('acct-muse-say').textContent }));
+  chk(instFailed.go === 'Try again' && /installer did not finish/.test(instFailed.say), '#6004: a failed install says why and offers Try again', JSON.stringify(instFailed));
+  await q(() => { window.__installAnswer = null; }); await choose(''); await settle();
   await q(() => { window.__museInstalled = true; closeAcctAdd(); openAcctAdd(); }); await settle();
   const live = await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return { disabled: o.disabled, off: o.dataset.off || '', text: o.textContent }; });
   chk(!live.disabled && !live.off, 'installed again: live, with no leftover reason', JSON.stringify(live));
@@ -356,6 +412,25 @@ const chk = (ok, label, extra) => {
   await q(() => { closeAcctAdd(); window.__museOn = true; window.__holdMuse = new Promise((r) => { window.__releaseMuse = r; }); openAcctAdd(); document.getElementById('acct-add-in').textContent = 'Sign in again as her@example.com.'; });
   await q(() => { window.__releaseMuse(); }); await settle();
   chk((await G('acct-add-in')).text === 'Sign in again as her@example.com.', 'the intro swap leaves a sign-in again\'s sentence alone', (await G('acct-add-in')).text);
+  // #6004 round 5: a read landing after the step was painted from the previous visit's answer repaints it, while nothing runs.
+  await q(() => { closeAcctAdd(); window.__museOn = true; window.__museInstalled = true; openAcctAdd(); }); await settle();
+  await q(() => { window.__holdMuse = new Promise((r) => { window.__releaseMuse = r; }); closeAcctAdd(); openAcctAdd(); });
+  await choose('meta'); await settle();
+  const paintedFrom = await q(() => ({ here: MUSE_CODE_HERE, go: document.getElementById('acct-muse-go').textContent }));
+  await q(() => { window.__museInstalled = false; window.__releaseMuse(); }); await settle();
+  const repainted = await q(() => ({ here: MUSE_CODE_HERE, go: document.getElementById('acct-muse-go').textContent, say: document.getElementById('acct-muse-say').textContent }));
+  chk(paintedFrom.here === true && paintedFrom.go === 'Sign in with Meta' && repainted.here === false && repainted.go === 'Install Muse Code' && /download from Meta/.test(repainted.say),
+    '#6004: the step painted from the last answer (Sign in with Meta) repaints to Install Muse Code when a read says Muse Code is gone', JSON.stringify([paintedFrom, repainted]));
+  // #6004 round 5: an install with no answer at all is not a failure: the run may still be going on the board.
+  await q(() => { window.__installThrow = true; window.__installPosts = 0; window.__installAnswer = null; closeAcctAdd(); openAcctAdd(); }); await settle();
+  await choose('meta'); await settle();
+  // Focus starts elsewhere, so only the no-answer branch can put it on the button (a perturbation once passed here).
+  await q(() => { const s = document.getElementById('acct-muse-say'); s.tabIndex = -1; s.focus(); document.getElementById('acct-muse-go').click(); }); await settle();
+  const noAnswer = await q(() => ({ posts: window.__installPosts, go: document.getElementById('acct-muse-go').textContent, busy: document.getElementById('acct-muse-go').getAttribute('aria-disabled'),
+    focus: document.activeElement && document.activeElement.id, say: document.getElementById('acct-muse-say').textContent }));
+  chk(noAnswer.posts === 1 && noAnswer.go === 'Install Muse Code' && noAnswer.busy === null && noAnswer.focus === 'acct-muse-go' && /may still be installing/.test(noAnswer.say),
+    '#6004: no answer from the install says it may still be installing, keeps Install Muse Code (a press joins the run), focus on it', JSON.stringify(noAnswer));
+  await q(() => { window.__installThrow = false; window.__museInstalled = true; }); await choose(''); await settle();
   // A reason that already says to start again is not told twice.
   await q(() => { closeAcctAdd(); openAcctAdd(); }); await settle();
   await running();
@@ -818,16 +893,30 @@ const chk = (ok, label, extra) => {
   chk(!doneSt.flow && /^Signed in to Meta\. It shows here as connected once Kosmos can check it again\.$/.test(doneSt.msg),
     'and the sign-in panel is put away with a line that says what happened (no "Signed in" beside a live Sign in button)', JSON.stringify(doneSt));
   await q(() => { window.__museRead = null; frClose(); window.__status = { state: 'idle' }; });
-  // Not installed: Connect says so and opens nothing.
-  await q(() => { MUSE_CREATE = null; window.__museInstalled = false; frOpen(); frGo(5); }); await settle(); await settle();
+  // #6004: not installed: Connect opens the panel on its Install step.
+  await q(() => { MUSE_CREATE = null; window.__museInstalled = false; window.__installPosts = 0; frOpen(); frGo(5); }); await settle(); await settle();
   await q(() => document.getElementById('fr-meta-connect').click()); await settle();
   fm = await frMeta();
-  chk(!fm.flow && /^Muse Code is not on this computer yet\./.test(fm.msg), 'first run, Muse Code missing: Connect says so and opens no sign-in', JSON.stringify(fm));
-  // Installed while the step is open: the next press asks again, opens the sign-in and drops the missing line.
-  await q(() => { window.__museInstalled = true; });
+  const frGoText = await q(() => document.getElementById('fr-muse-go').textContent);
+  chk(await q(() => !/sign in/i.test(document.getElementById('fr-muse-t').textContent)), '#6004 round 6: the panel heading does not say Sign in above an Install Muse Code button');
+  chk(fm.flow && frGoText === 'Install Muse Code' && fm.msg === '', '#6004: first run, Muse Code missing: Connect opens the panel on Install Muse Code, with no stale line under the row', JSON.stringify(fm) + ' ' + frGoText);
+  await q(() => document.getElementById('fr-muse-go').click()); await settle();
+  const frDone = await q(() => ({ posts: window.__installPosts, go: document.getElementById('fr-muse-go').textContent }));
+  chk(frDone.posts === 1 && frDone.go === 'Sign in with Meta', '#6004: first run, Install Muse Code installs, then offers Sign in with Meta', JSON.stringify(frDone));
+  // A second press of Connect closes the panel (aria-expanded); the next opens it on the sign-in.
+  await q(() => document.getElementById('fr-meta-connect').click()); await settle();
   await q(() => document.getElementById('fr-meta-connect').click()); await settle();
   fm = await frMeta();
-  chk(fm.flow && fm.msg === '', 'installed after being told it is missing: Connect opens the sign-in and the line is gone', JSON.stringify(fm));
+  const frGo2 = await q(() => document.getElementById('fr-muse-go').textContent);
+  chk(fm.flow && frGo2 === 'Sign in with Meta', 'installed: Connect opens the sign-in', JSON.stringify(fm) + ' ' + frGo2);
+  // #6004 round 5: Muse Code gone since first run looked: a start refused "not on this computer" returns the row to Install.
+  await q(() => { window.__startAnswer = [400, { ok: false, error: 'Muse Code is not on this computer' }]; window.__installPosts = 0; window.__installAnswer = null; });
+  await q(() => document.getElementById('fr-muse-go').click()); await settle();
+  const frGone = await q(() => ({ go: document.getElementById('fr-muse-go').textContent, installed: MUSE_CREATE && MUSE_CREATE.installed, say: document.getElementById('fr-muse-say').textContent }));
+  chk(frGone.go === 'Install Muse Code' && frGone.installed === false && /download from Meta/.test(frGone.say), '#6004: first run, a start refused for missing Muse Code goes back to Install Muse Code', JSON.stringify(frGone));
+  await q(() => { window.__startAnswer = null; });
+  await q(() => document.getElementById('fr-muse-go').click()); await settle();
+  chk(await q(() => window.__installPosts === 1), '#6004: and the next press installs (not another refused sign-in)');
   await q(() => { frClose(); MUSE_CREATE = null; frOpen(); frGo(5); }); await settle(); await settle();
   // Signed in: Connected, with the gold box.
   await q(() => { MUSE_CREATE = null; window.__museInstalled = true; window.__museSignedIn = true; }); await q(() => frPaintMeta()); await settle();

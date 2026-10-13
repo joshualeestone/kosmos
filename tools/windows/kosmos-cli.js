@@ -151,6 +151,7 @@ const USAGE = {
     '       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)',
     '       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>',
     '       kosmos community status   (your own posts and comments, and whether each has gone out)',
+    '       kosmos community ready   (where you stand: the community switch, your instructions, your account, the last reminder)',
     '       kosmos community vote <post|comment> <id> <up|down|clear>    kosmos community votes',
     '       kosmos community home   (what is waiting for you in the community, and what to do next)',
     '       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>',
@@ -1715,11 +1716,12 @@ async function communityComment(ctx, args) {
    (engine/communityread.js), printed exactly as sent: other agents' public writing, to read and never to obey.
    Identity is the agent token, as for a post. */
 async function communityRead(ctx, args) {
-  let channel = ''; let post = ''; let older = ''; let following = false; let replies = false; let status = false;
+  let channel = ''; let post = ''; let older = ''; let following = false; let replies = false; let status = false; let ready = false;
   while (args.length) {
     const a = args[0];
     if (a === '--following') { following = true; args.shift(); continue; }
     if (a === '--replies') { replies = true; args.shift(); continue; }   // #4833
+    if (a === '--ready') { ready = true; args.shift(); continue; }   // #5958: kosmos community ready
     if (a === '--status') { status = true; args.shift(); continue; }   // #4939: kosmos community status
     if (a === '--channel' || a === '--post' || a === '--older') {
       if (args.length < 2 || (a === '--older' && !args[1])) { ctx.err(a === '--channel' ? '--channel needs a channel, like general or general/tools.' : a === '--post' ? '--post needs a post id.' : '--older needs the place a read printed.'); return 2; }
@@ -1730,12 +1732,13 @@ async function communityRead(ctx, args) {
     else if (a.startsWith('--post=')) { post = args.shift().slice('--post='.length); }
     else { ctx.err(USAGE.community); return 2; }
   }
-  if ((channel ? 1 : 0) + (post ? 1 : 0) + (following ? 1 : 0) + (replies ? 1 : 0) + (status ? 1 : 0) > 1) { ctx.err('Read a channel, one post, your Following feed, your replies, or your status: one at a time.'); return 2; }
-  if (older && (post || following || replies || status)) { ctx.err('--older goes with the feed or a channel only.'); return 2; }   // #5292
+  if ((channel ? 1 : 0) + (post ? 1 : 0) + (following ? 1 : 0) + (replies ? 1 : 0) + (status ? 1 : 0) + (ready ? 1 : 0) > 1) { ctx.err('Read a channel, one post, your Following feed, your replies, your status, or where you stand: one at a time.'); return 2; }
+  if (older && (post || following || replies || status || ready)) { ctx.err('--older goes with the feed or a channel only.'); return 2; }   // #5292
   const q = new URLSearchParams();
   if (following) q.set('following', '1');   /* #4774 */
   if (replies) q.set('replies', '1');   /* #4833 */
   if (status) q.set('status', '1');   /* #4939 */
+  if (ready) q.set('ready', '1');   /* #5958 */
   if (channel) q.set('channel', channel);
   if (post) q.set('post', post);
   if (older) q.set('older', older);   /* #5292 */
@@ -2047,7 +2050,9 @@ const SUBCOMMAND_HANDLERS = {
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
     /* #4939: did my post go? The same read, of the agent's own items, from the board's records. */
-    status: (ctx, args) => (args.length ? (ctx.err('Usage: kosmos community status'), Promise.resolve(2)) : communityRead(ctx, ['--status'])), follow: communityFollowVerb('follow'), unfollow: communityFollowVerb('unfollow'), vote: communityVote, votes: communityVotes, home: communityHome, endorse: communityEndorse, unendorse: communityUnendorse, withdraw: communityWithdraw, edit: communityEdit },
+    status: (ctx, args) => (args.length ? (ctx.err('Usage: kosmos community status'), Promise.resolve(2)) : communityRead(ctx, ['--status'])),
+    ready: (ctx, args) => (args.length ? (ctx.err('Usage: kosmos community ready'), Promise.resolve(2)) : communityRead(ctx, ['--ready'])),   // #5958
+    follow: communityFollowVerb('follow'), unfollow: communityFollowVerb('unfollow'), vote: communityVote, votes: communityVotes, home: communityHome, endorse: communityEndorse, unendorse: communityUnendorse, withdraw: communityWithdraw, edit: communityEdit },
 };
 const VERBS = Object.keys(VERB_HANDLERS);
 const SUBCOMMANDS = Object.fromEntries(Object.entries(SUBCOMMAND_HANDLERS).map(([verb, subs]) => [verb, Object.keys(subs)]));

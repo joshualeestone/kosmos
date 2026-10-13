@@ -98,8 +98,12 @@ test('#5688: names are escaped', () => {
 });
 
 test('#5688 wiring: both notice boxes paint it first, and its Open opens the agent with the project to return to', () => {
-  assert.match(PAGE, /const notice = pjNeedsNotice\(roster, pjRedHere\) \+ pjCoordNotice\(p\) \+ pjNotice\(roster, p\.id\);/);
-  assert.match(PAGE, /setIfChanged\(rn, op \? pjNeedsNotice\(op\.agents \|\| \[\], pjRedHere\) \+ pjCoordNotice\(op\)/);
+  assert.match(PAGE, /const notice = pjNeedsNotice\(roster, pjRedHere\) \+ pjNotice\(roster, p\.id\);/);
+  assert.match(PAGE, /setIfChanged\(rn, op \? pjNeedsNotice\(op\.agents \|\| \[\], pjRedHere\) \+ pjNotice\(op\.agents \|\| \[\], op\.id\)/);
+  // #5951 (Josh, 10-12): the person is not warned that a project has several coordinators. Nothing in the page builds,
+  // reads or styles that notice. CONTROL: the notice box these would have painted into is still in the page.
+  assert.match(PAGE, /id="pj-one-notice"/);
+  for (const gone of ['pjCoord' + 'Notice', 'PJ_COORD' + '_WARN', 'pn-' + 'coord', 'Two ' + 'coordinators', '.coordin' + 'ators']) assert.equal(PAGE.includes(gone), false, gone + ' is back in the page');
   // #5692: the red test is the row builder itself, so the block and the rows cannot disagree.
   assert.match(slice('function pjRedHere('), /pjMember\(m, true, false\)/);
   assert.match(slice('function pjNeedsOpenClick('), /openDetail\(b\.dataset\.pnOpen, undefined, PJ_CURRENT\)/);

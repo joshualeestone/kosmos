@@ -57,7 +57,7 @@ test('#3939 3c-3b: the create form offers Meta only when Muse is on, installed a
      option that still said "coming soon" read as disabled (Josh 11:06). */
   const cases = [
     [{ enabled: false }, true, '', 'Meta Muse \u00b7 coming soon'],
-    [{ enabled: true, installed: false, signedIn: false }, true, 'Set up in Settings, AI Models', 'Meta Muse \u00b7 set up first'],
+    [{ enabled: true, installed: false, signedIn: false }, true, 'Set up in Settings, AI Models', 'Meta Muse \u00b7 set up in Settings'],   // #6004: Settings installs it; a plain select shows this text
     [{ enabled: true, installed: true, signedIn: false }, true, 'Sign in to Meta Muse first', 'Meta Muse \u00b7 sign in first'],
     [{ enabled: true, installed: true, signedIn: true }, false, '', 'Meta Muse'],
   ];
@@ -103,7 +103,7 @@ test('#3939 3c-3b: turned off here is not asked again within the recheck window;
   assert.equal(on.els['create-provider'].opt('meta').disabled, false);
 });
 
-test('#3939: a switched-off answer older than a minute is asked again (the preview marker can switch it on)', async () => {
+test('#3939: a switched-off answer older than a minute is asked again', async () => {
   const p = page([{ enabled: false }, { enabled: true, installed: true, signedIn: true }]);
   assert.equal(p.api.recheckMs, 60000, 'the page\'s own recheck window, one minute');
   await p.api.museCreateAsk();
@@ -163,7 +163,7 @@ test('#3939 3c-3b: the "back on Claude" sentence names the real reason', () => {
   assert.equal(off.prov, 'anthropic');
   assert.match(off.why, /^Meta Muse is not available on this computer, so this is back on Claude\.$/);
   const notSetUp = goneSays({ on: true, installed: false, ready: false });
-  assert.match(notSetUp.why, /^Meta Muse is not set up on this computer, .*Set it up in Settings, AI Models: Add a provider, then Meta\.$/);
+  assert.match(notSetUp.why, /^Muse Code is not on this computer, .*Install it in Settings, AI Models: Add a provider, then Meta\.$/);   // #6004: Settings installs it
   const signedOut = goneSays({ on: true, installed: true, ready: false });
   assert.match(signedOut.why, /^Meta Muse is not signed in on this computer, .*Sign in to it in Settings, AI Models: Add a provider, then Meta\.$/);
 });
@@ -193,6 +193,8 @@ test('#5316: the logo list strips the new suffix as it strips "coming soon"', ()
     assert.equal('Meta Muse \u00b7 sign in first'.replace(re, '').trim(), 'Meta Muse', l);
     assert.equal('Meta Muse \u00b7 coming soon'.replace(re, '').trim(), 'Meta Muse', l);
     assert.equal('Meta Muse \u00b7 set up first'.replace(re, '').trim(), 'Meta Muse', l);
+    assert.equal('Meta Muse \u00b7 install Muse Code first'.replace(re, '').trim(), 'Meta Muse', l);   // #3939
+    assert.equal('Meta Muse \u00b7 set up in Settings'.replace(re, '').trim(), 'Meta Muse', l);   // #6004
     assert.equal('Google Gemini (API key)'.replace(re, '').trim(), 'Google Gemini (API key)', l);
   }
 });
@@ -207,13 +209,15 @@ const loadAsk = new Function('document', 'fetch', `
   function pjSentence(b) { return typeof b === 'string' && b ? b : ''; }
   ${grabLine('function museMetaOption(')}
   let MUSE_ASK_GEN = 0;
+  let MUSE_CODE_HERE = null;   // #6004: declared at the page's top level
   ${grab('async function museAsk(')}
   return { museAsk };
 `);
 test('#5316: Add a provider\'s Meta option says what its state is (live, not installed, off, a failed read)', async () => {
   const cases = [
     [{ enabled: true, installed: true, signedIn: false }, false, 'Meta Muse'],
-    [{ enabled: true, installed: false, because: 'Muse Code is not on this computer' }, true, 'Meta Muse \u00b7 set up first'],
+    // #6004: not installed is offered too: Meta's step installs Muse Code first.
+    [{ enabled: true, installed: false, because: 'Muse Code is not on this computer' }, false, 'Meta Muse'],
     [{ enabled: false }, true, 'Meta Muse \u00b7 coming soon'],
     ['throw', true, 'Meta Muse \u00b7 coming soon'],
   ];
