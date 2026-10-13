@@ -6,7 +6,7 @@
  *
  * Drives the real paintAccounts() against a stubbed /api/accounts and a stubbed move route (no board), in Chromium
  * and WebKit, at desktop and phone width. The claims, each one able to fail:
- *  - an 82% row draws its meter at 82%, says "82% of its weekly limit used · resets ... · as of ...", carries the
+ *  - an 82% row draws its meter at 82%, says "82% of its weekly limit used · resets ... · last changed ...", carries the
  *    warning, and names its agents by their display names (not session names);
  *  - Move offers the other Claude account with its own reading, stays disabled until a target is picked, then sends
  *    one move per agent to the existing per-agent route with the target's dir, and says how many moved;
@@ -38,6 +38,8 @@ const ACCOUNTS = [
   claude('calm@example.com', 'calm', { weekly: { usedPct: 40, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
   claude('key@example.com', 'key', { apiKey: true, weekly: null, agentsHere: { names: [], complete: true } }),
   claude('old@example.com', 'old', {}),   // an older board: no weekly, no agentsHere
+  claude('default@example.com', 'default', { isDefault: true, weekly: null, agentsHere: { names: [], complete: true } }),
+  claude('noshare@example.com', 'noshare', { memoryShared: false, weekly: { usedPct: 5, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
 ];
 const AGENTS = [{ sessionName: 's-dana', name: 'Dana' }, { sessionName: 's-eli', name: 'Eli' }, { sessionName: 's-x', name: 'x<b>y' },
   { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true }, { sessionName: 's-p', name: 'Pia' }, { sessionName: 's-r1', name: 'Rex' }, { sessionName: 's-r2', name: 'Rio' }];
@@ -97,7 +99,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
             options: sel ? [...sel.options].map((o) => o.textContent.trim()) : null, btnDisabled: btn ? btn.disabled : null,
             moveInside: mr ? mr.right <= br.right + 0.5 && mr.left >= br.left - 0.5 : null };
         };
-        const before = { busy: read('busy@example.com'), fresh: read('fresh@example.com'), calm: read('calm@example.com'), key: read('key@example.com'), old: read('old@example.com') };
+        const before = { busy: read('busy@example.com'), fresh: read('fresh@example.com'), calm: read('calm@example.com'), key: read('key@example.com'), old: read('old@example.com'), def: read('default@example.com') };
         const msgOf = (d) => { const e = document.querySelector('[data-acct-move-msg="' + d + '"]'); return e ? e.textContent.trim() : null; };
         const runMove = async (email, toDir, expect) => {
           const b = box(email); const sel = b && b.querySelector('[data-acct-move-to]'); const btn = b && b.querySelector('[data-acct-move]');
@@ -105,29 +107,45 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           const start = posts.length;
           sel.value = toDir; sel.dispatchEvent(new Event('change'));
           const enabled = !btn.disabled;
-          btn.click(); btn.click();   // a second click while the first is running must not start another move
+          btn.click();
+          /* Mid-move, repaint the list (as a poll would) and force a click on the freshly drawn button: the move guard,
+             not the disabled attribute, must stop a second move. */
+          await new Promise((r) => setTimeout(r, 10));
+          await paintAccounts();
+          const again = box(email) && box(email).querySelector('[data-acct-move]');
+          const againSel = box(email) && box(email).querySelector('[data-acct-move-to]');
+          const drawnBusy = !!again && again.disabled && again.textContent.trim() === 'Moving…';
+          if (again) { if (againSel) { againSel.disabled = false; againSel.value = toDir; } again.disabled = false; again.click(); }
           for (let i = 0; i < 150 && posts.length - start < expect; i++) await new Promise((r) => setTimeout(r, 20));
           await new Promise((r) => setTimeout(r, 400));
-          return { enabled, posts: posts.slice(start) };
+          return { enabled, drawnBusy, posts: posts.slice(start) };
         };
         const moved = await runMove('busy@example.com', '/home/.claude-spare', 2);
         if (moved) moved.msg = msgOf('/home/.claude-busy');   // read AFTER the list repainted with the agents gone
         const busyAfter = read('busy@example.com');
         const mixed = await runMove('mixed@example.com', '/home/.claude-spare', 3);
         if (mixed) mixed.msg = msgOf('/home/.claude-mixed');
-        return { before, moved, busyAfter, mixed, sideways: document.documentElement.scrollWidth - window.innerWidth };
+        // Two minutes on, a repaint shows the row plain again.
+        const st = ACCT_MOVE.get('/home/.claude-busy'); if (st) st.doneAt -= 3 * 60e3;
+        await paintAccounts();
+        const expired = msgOf('/home/.claude-busy');
+        return { before, moved, busyAfter, mixed, expired, sideways: document.documentElement.scrollWidth - window.innerWidth };
       }, { accounts: ACCOUNTS, agents: AGENTS });
       await page.close();
       if (r.error) { say(false, tag + ' ' + r.error); continue; }
-      const { busy, fresh, calm, key, old } = r.before;
+      const { busy, fresh, calm, key, old, def } = r.before;
       say(!!busy && busy.has && busy.fill === '82%', tag + ' an 82% row draws its meter at 82%', JSON.stringify(busy && busy.fill));
-      say(!!busy && /^82% of its weekly limit used · resets .+ · last read 2 hours ago$/.test(busy.line || ''), tag + ' the row says how much is used, when it resets and how old the reading is', JSON.stringify(busy && busy.line));
+      say(!!busy && /^82% of its weekly limit used · resets .+ · last changed 2 hours ago$/.test(busy.line || ''), tag + ' the row says how much is used, when it resets and how old the reading is', JSON.stringify(busy && busy.line));
       say(!!busy && busy.warn, tag + ' at 82% the row warns');
       say(!!busy && busy.agents === 'Its agents on this computer: Dana, Eli', tag + ' it names its agents by display name, leaving out the setup guide', JSON.stringify(busy && busy.agents));
       say(!!busy && Array.isArray(busy.options) && busy.options.some((o) => o === 'spare@example.com (20% used)') && !busy.options.some((o) => o.startsWith('busy@')), tag + ' Move offers the other account with its own reading, never itself', JSON.stringify(busy && busy.options));
+      say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('noshare@')), tag + ' an account without shared history is not offered (a move there always fails)', JSON.stringify(busy && busy.options));
+      say(!!def && def.line === 'Kosmos cannot read usage for this account.', tag + ' the default account says Kosmos cannot read it, not "yet"', JSON.stringify(def && def.line));
       say(!!busy && busy.btnDisabled === true, tag + ' Move is disabled until a target is picked');
-      say(!!r.moved && r.moved.enabled && r.moved.posts.length === 2 && r.moved.posts.every((p) => p.dir === '/home/.claude-spare') && r.moved.posts.map((p) => p.agent).sort().join() === 's-dana,s-eli', tag + ' Move sends one move per agent to the picked account, once (a second click adds nothing), never the guide', JSON.stringify(r.moved));
-      say(!!r.moved && r.moved.msg === 'Moved 2 agents.', tag + ' and says how many moved, still there after the list repaints with the agents gone', JSON.stringify(r.moved && r.moved.msg));
+      say(!!r.moved && r.moved.enabled && r.moved.posts.length === 2 && r.moved.posts.every((p) => p.dir === '/home/.claude-spare') && r.moved.posts.map((p) => p.agent).sort().join() === 's-dana,s-eli', tag + ' Move sends one move per agent to the picked account, once (a forced click on the repainted button adds nothing), never the guide', JSON.stringify(r.moved));
+      say(!!r.moved && r.moved.drawnBusy, tag + ' a repaint mid-move draws the button busy ("Moving…", disabled)', JSON.stringify(r.moved));
+      say(!!r.moved && r.moved.msg === 'Moved 2 agents. They restart on the new account.', tag + ' and says how many moved and that they restart, still there after the list repaints with the agents gone', JSON.stringify(r.moved && r.moved.msg));
+      say(r.expired === '', tag + ' two minutes on, a repaint shows the row plain again', JSON.stringify(r.expired));
       say(!!r.busyAfter && r.busyAfter.agents === 'No agents on it on this computer.', tag + ' after the move the busy row has no agents left (the repaint happened)', JSON.stringify(r.busyAfter && r.busyAfter.agents));
       say(!!r.mixed && r.mixed.posts.length === 3, tag + ' a mixed move sends one move per agent', JSON.stringify(r.mixed && r.mixed.posts));
       say(!!r.mixed && r.mixed.msg === "Saved, moving when it restarts: Pia. Not moved (Rex, Rio): That account does not share this computer's memory.", tag + ' a saved-but-restarting agent is not called not moved, and one refusal is said once', JSON.stringify(r.mixed && r.mixed.msg));
