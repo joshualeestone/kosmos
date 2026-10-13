@@ -767,18 +767,6 @@ function instanceState(sessionName, instance) {
  * look" cannot use this; today's caller adds rows to a roster, so a failed
  * read costs it a row it never had rather than deleting one it did.
  */
-/* #5959 slice 4: every token value on file, for the diagnostics redactor to mask by value (a bare hex token in a log
-   line has no shape to find it by). Values stay in this process; a file that cannot be read is skipped. */
-function heldValues() {
-  const out = [];
-  for (const key of keys()) {
-    let held = [];
-    try { held = readTokens(key); } catch { held = []; }
-    for (const t of held) if (t && typeof t.token === 'string' && t.token) out.push(t.token);
-  }
-  return out;
-}
-
 function keys() {
   let names;
   try { names = fs.readdirSync(DIR).filter((f) => f.endsWith('.json')); } catch { return []; }
@@ -788,6 +776,18 @@ function keys() {
     let held;
     try { held = readTokens(key); } catch { continue; }
     if (held.length > 0) out.push(key);
+  }
+  return out;
+}
+
+/* #5959 slice 4: every token value on file, for the diagnostics redactor to mask by value (a bare hex token in a log
+   line has no shape to find it by). Values stay in this process; a file that cannot be read is skipped. */
+function heldValues() {
+  const out = [];
+  for (const key of keys()) {
+    let held = [];
+    try { held = readTokens(key); } catch { held = []; }
+    for (const t of held) if (t && typeof t.token === 'string' && t.token) out.push(t.token);
   }
   return out;
 }

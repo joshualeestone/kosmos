@@ -107,3 +107,18 @@ test('#5959: an agent token the board holds is masked in the file even when a li
   assert.equal(line.line, 'probe-5959-token •••• refused');
   assert.ok(!r.text.includes(agentToken), 'the token is not in the bytes sent');
 });
+
+test('#5959: a click\'s two halves share one file, and two downloads in a row each get a fresh one', async () => {
+  const H = { 'x-kosmos-board-token': BOARD };
+  const stand = { write() { return true; } };
+  logring.board.tap(stand, 'stdout');
+  stand.write('probe-5959-first\n');
+  const a = JSON.parse((await get(H)).text);
+  stand.write('probe-5959-second\n');
+  const look = await fetch(base + '/api/diagnostics?check=1', { headers: H });
+  assert.equal(look.status, 204, 'the look reuses the download\'s file');
+  const b = JSON.parse((await get(H)).text);
+  assert.ok(a.log.tail.some((e) => /probe-5959-first/.test(e.line)));
+  assert.ok(!a.log.tail.some((e) => /probe-5959-second/.test(e.line)), 'CONTROL: the first file predates the second line');
+  assert.ok(b.log.tail.some((e) => /probe-5959-second/.test(e.line)), 'a later download is made fresh');
+});

@@ -250,3 +250,10 @@ test('#5959: a key logged on one line (escaped newlines) masks that line only, a
   assert.equal(capped.filter((l) => l === MASKED_BLOCK).length, MAX_BLOCK_LINES + 1, 'BEGIN and at most MAX_BLOCK_LINES after it');
   assert.equal(capped.at(-1), 'line ' + (MAX_BLOCK_LINES + 19));
 });
+
+test('#5959: a window that starts inside a key block still takes out its body and END lines', () => {
+  const { maskKeyBlocks, MASKED_BLOCK } = require('./diagnostics');
+  const body = 'MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7aBcDeFgHiJkLmNoPqRsTuVwXyZ01';
+  const out = maskKeyBlocks([body.slice(0, 64), body.slice(10, 70), '-----END PRIVATE KEY-----', 'rick: after', 'sha 3f2a'].map((line) => ({ line }))).map((e) => e.line);
+  assert.deepEqual(out, [MASKED_BLOCK, MASKED_BLOCK, MASKED_BLOCK, 'rick: after', 'sha 3f2a']);
+});

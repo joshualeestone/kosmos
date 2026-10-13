@@ -4211,6 +4211,20 @@ function statusForSibling(json) {
    passes the same checks and answers 204 with no body. A refusal goes to `refuseDownload`. */
 const DOWNLOAD_GONE = 'that file is not there any more, or it was moved';
 const DOWNLOAD_UNREADABLE = 'that file could not be read on the computer Kosmos runs on';
+/* #5959 slice 4: the diagnostics file one half of a click made (the download or the page's ?check=1 look), kept a few
+   seconds for the other half, once. */
+let DIAG_LAST = null;
+const DIAG_REUSE_MS = 5000;
+function sendDiagnostics(res, file, now) {
+  const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;   // the person's day, not UTC's
+  res.writeHead(200, {
+    'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
+    // As the other download route: never sniffed, never run as a page on the board's origin.
+    'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox",
+    'content-disposition': `attachment; filename="kosmos-diagnostics-${day}.json"`,
+  });
+  res.end(JSON.stringify(file, null, 2) + '\n');
+}
 function isDownloadCheck(req) {
   try { return new URL(req.url, ROUTING_BASE).searchParams.get('check') === '1'; } catch { return false; }
 }
@@ -14145,6 +14159,16 @@ const server = http.createServer(async (req, res) => {
      `?check=1` is the page's look beside the click (isDownloadCheck), as the agent export's is. */
   if (pathname === '/api/diagnostics' && req.method === 'GET') {
     try {
+      /* A click is two requests at once, the download and the page's ?check=1 look: the file one of them made in the
+         last few seconds is the other's too, so the work is done once. */
+      const look = isDownloadCheck(req);
+      // Only the OTHER half of the click reuses it, once: two downloads in a row each get a fresh file.
+      const cached = DIAG_LAST && DIAG_LAST.look !== look && Date.now() - DIAG_LAST.at < DIAG_REUSE_MS ? DIAG_LAST : null;
+      if (cached) {
+        DIAG_LAST = null;
+        if (look) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); } else sendDiagnostics(res, cached.file, cached.now);
+        return;
+      }
       const diagnostics = require('./engine/diagnostics');
       const logring = require('./engine/logring');
       const logPath = path.join(__dirname, '..', 'logs', 'board.log');   // as the stamp above names it
@@ -14159,16 +14183,10 @@ const server = http.createServer(async (req, res) => {
         // The values this board holds are masked by value too: a bare hex token in a line has no shape to find it by.
         redactor: require('./engine/diagredact').makeRedactor({ secrets: [boardAuthState.token, ...sendertoken.heldValues()] }),
       });
+      DIAG_LAST = { at: Date.now(), file, now, look };
       // The page's look beside the click (as the other downloads): the same work, no file.
-      if (isDownloadCheck(req)) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
-      const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;   // the person's day, not UTC's
-      res.writeHead(200, {
-        'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
-        // As the other download route: never sniffed, never run as a page on the board's origin.
-        'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox",
-        'content-disposition': `attachment; filename="kosmos-diagnostics-${day}.json"`,
-      });
-      res.end(JSON.stringify(file, null, 2) + '\n');
+      if (look) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
+      sendDiagnostics(res, file, now);
     } catch (err) {
       console.error('diagnostics: the file could not be made: ' + String((err && err.message) || err));
       // A refusal the browser does not save as the file (204 to its own download), and the page's look gets the sentence.
