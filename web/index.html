@@ -27094,20 +27094,21 @@ const ACCT_WARN_PCT = 75, ACCT_HIGH_PCT = 90;
 /* A move in progress or its outcome, by the source account's dir. The list repaints while agents move and after (a
    source row with no agents left has no move control), so the sentence lives here, not in the old element. */
 const ACCT_MOVE = new Map();
-const ACCT_MOVE_SHOW_MS = 2 * 60e3;
-const ACCT_PICK = new Map();   // the target picked in a row's menu, so a poll's repaint does not undo a half-made choice   // a finished move's sentence stays two minutes, then the row is plain again
+const ACCT_MOVE_SHOW_MS = 2 * 60e3;   // a finished move's sentence stays two minutes, then the row is plain again
+const ACCT_PICK = new Map();          // the target picked in a row's menu, so a poll's repaint does not undo a half-made choice
 function acctUsageHtml(a, list) {
   if (!a || a.provider !== 'anthropic' || !a.agentsHere) return '';   // an older board sends no agentsHere: show nothing
   const w = a.weekly && Number.isFinite(a.weekly.usedPct) ? a.weekly : null;
   /* The setup guide is left out, as everywhere the page lists or counts agents (#3739); it is not moved either. The
      warning, the agents line and the move all count this one list, so they cannot disagree. */
-  const known = new Map((Array.isArray(LAST) ? LAST : []).map((x) => [x.sessionName, x]));
+  const known = new Map((Array.isArray(LAST) ? LAST : []).filter((x) => x && x.sessionName).map((x) => [x.sessionName, x]));
   const sessions = a.agentsHere.names.filter((n) => !(known.get(n) && known.get(n).isGuide));
   const names = sessions.map((n) => (known.get(n) && known.get(n).name) || n);
   /* Only accounts a move can land on: shared history (as the agent page's picker requires, #1492: an option that
      always fails is worse than none) and not signed out or refused. */
   const targets = (list || []).filter((x) => x.provider === 'anthropic' && x.dir && x.dir !== a.dir && x.memoryShared
-    && !(x.connection && (x.connection.badge === 'rejected' || x.connection.badge === 'signed_out')));
+    && !(x.connection && (x.connection.badge === 'rejected' || x.connection.badge === 'signed_out'))
+    && !(x.weekly && Number.isFinite(x.weekly.usedPct) && x.weekly.usedPct >= 100));   // a full account cannot run them either
   const canMove = names.length > 0 && targets.length > 0;
   let usage = '';
   if (!a.apiKey) {
@@ -27123,7 +27124,7 @@ function acctUsageHtml(a, list) {
     } else {
       usage = a.isDefault
         ? '<p class="acct-usage-line acct-usage-none">Kosmos cannot read usage for this account.</p>'   // the default account gets no statusline (#6108 follow-up)
-        : '<p class="acct-usage-line acct-usage-none" title="Kosmos reads this while an agent on this account is working.">No usage reading for this account yet.</p>';
+        : '<p class="acct-usage-line acct-usage-none">No usage reading for this account yet. Kosmos reads it while an agent on it is working.</p>';
     }
   }
   const short = a.agentsHere.complete ? '' : ' (some could not be checked)';
@@ -27144,9 +27145,11 @@ function acctUsageHtml(a, list) {
     : '';
   /* tabindex -1: after a move the button the person pressed is gone, so focus lands here. The sentence is drawn empty
      while a finished move is being announced (the handler writes it a frame later, so the live region hears a change). */
+  /* A sentence already said is redrawn without role=status, so a later repaint does not read it out again; an empty
+     region keeps the role, ready for the next move to speak. */
   const said = st && st.said && !st.announce ? esc(st.said) : '';
   return '<div class="acct-usage">' + usage + agentsLine + move
-    + '<p class="acct-move-msg" role="status" tabindex="-1" data-acct-move-msg="' + esc(a.dir) + '">' + said + '</p></div>';
+    + '<p class="acct-move-msg"' + (said ? '' : ' role="status"') + ' tabindex="-1" data-acct-move-msg="' + esc(a.dir) + '">' + said + '</p></div>';
 }
 /* #6108: move every agent this computer has on `fromDir` to `toDir`, one at a time through the same route the agent's
    own page uses, and say how it went in one line: the engine's own sentence for any that did not move. */
@@ -27155,7 +27158,7 @@ async function moveAccountAgents(fromDir, toDir, names, onProgress) {
   const group = () => new Map();   // reason -> names, so one sentence is said once
   const restarting = group(), misses = group(), silent = [];
   const add = (m, why, who) => { if (!m.has(why)) m.set(why, []); m.get(why).push(who); };
-  const nameOf = (n) => (((LAST || []).find((x) => x.sessionName === n) || {}).name || n);
+  const nameOf = (n) => (((LAST || []).find((x) => x && x.sessionName === n) || {}).name || n);
   const end = (t) => t + (/[.!?]$/.test(t) ? '' : '.');
   for (const [i, n] of names.entries()) {
     /* A move that never answers must not hold the row disabled for the life of the page. The limit covers the reply's
@@ -27175,7 +27178,7 @@ async function moveAccountAgents(fromDir, toDir, names, onProgress) {
   }
   const parts = [];
   if (moved) parts.push('Moved ' + moved + (moved === 1 ? ' agent. It restarts on the new account.' : ' agents. They restart on the new account.'));
-  for (const [why, who] of restarting) parts.push('Saved, moving when ' + (who.length === 1 ? 'it restarts' : 'they restart') + ' (' + who.join(', ') + ')' + (why ? ': ' + end(why) : '.'));
+  for (const [why, who] of restarting) parts.push('Not restarted yet (' + who.join(', ') + ')' + (why ? ': ' + end(why) : '.'));   // the engine's sentence says what was saved and why
   for (const [why, who] of misses) parts.push('Not moved (' + who.join(', ') + '): ' + end(why));
   if (silent.length) parts.push('No answer yet for ' + silent.join(', ') + '. Check ' + (silent.length === 1 ? 'its' : 'their') + ' account in a moment.');
   return parts.join(' ');
@@ -27831,7 +27834,7 @@ async function paintAccounts(opts) {
       const to = sel && sel.value;
       if (!row || !row.agentsHere || !to) return;
       if (ACCT_MOVE.get(from) && ACCT_MOVE.get(from).moving) return;   // a repaint mid-move must not start a second one
-      const guide = new Set((LAST || []).filter((x) => x.isGuide).map((x) => x.sessionName));
+      const guide = new Set((LAST || []).filter((x) => x && x.isGuide).map((x) => x.sessionName));
       const names = row.agentsHere.names.filter((n) => !guide.has(n));
       /* Progress goes on the button, not the live region, so a screen reader hears the result once, not every step. */
       ACCT_MOVE.set(from, { moving: true, said: '' });

@@ -75,7 +75,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           if (m && opts && opts.method === 'POST') {
             const agent = decodeURIComponent(m[1]), dir = JSON.parse(opts.body).dir;
             posts.push({ agent, dir });
-            if (agent === 's-p') return new Promise((r) => setTimeout(() => r({ ok: true, json: async () => ({ outcome: 'partial', because: 'could not start it again: the session is busy' }) }), 30));
+            if (agent === 's-p') return new Promise((r) => setTimeout(() => r({ ok: true, json: async () => ({ outcome: 'partial', because: 'We saved spare@example.com, but could not start it again: the session is busy. It is still on the old account until it restarts.' }) }), 30));
             if (agent === 's-slow') return new Promise((_, rej) => setTimeout(() => rej(new DOMException('The operation was aborted.', 'AbortError')), 30));   // as the 60 s limit ends it
             if (agent === 's-r1' || agent === 's-r2') return new Promise((r) => setTimeout(() => r({ ok: false, json: async () => ({ outcome: 'refused', because: 'That account does not share this computer\'s memory.' }) }), 30));
             where.set(agent, dir);
@@ -138,7 +138,10 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         const pickKept = !!pb2 && pb2.querySelector('[data-acct-move-to]').value === '/home/.claude-spare' && !pb2.querySelector('[data-acct-move]').disabled;
         const moved = await runMove('busy@example.com', '/home/.claude-spare', 2);
         if (moved) { moved.msg = msgOf('/home/.claude-busy');   // read AFTER the list repainted with the agents gone
-          const ae = document.activeElement; moved.focus = ae ? (ae.getAttribute('data-acct-move-msg') || ae.getAttribute('data-acct-move-to') || ae.tagName) : null; }
+          const ae = document.activeElement; moved.focus = ae ? (ae.getAttribute('data-acct-move-msg') || ae.getAttribute('data-acct-move-to') || ae.tagName) : null;   // before any further repaint
+          await paintAccounts();   // a later repaint inside the two minutes: the sentence stays, but is not spoken again
+          const again = document.querySelector('[data-acct-move-msg="/home/.claude-busy"]');
+          moved.redrawn = again ? { text: again.textContent.trim(), role: again.getAttribute('role') } : null; }
         const busyAfter = read('busy@example.com');
         const mixed = await runMove('mixed@example.com', '/home/.claude-spare', 4);
         if (mixed) mixed.msg = msgOf('/home/.claude-mixed');
@@ -160,6 +163,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!full && full.warnText === 'At its weekly limit. Move its agents to another account to get them working again.', tag + ' at 100% the row says it is at its limit', JSON.stringify(full && full.warnText));
       say(!!busy && busy.agents === 'Its agents on this computer: Dana, Eli', tag + ' it names its agents by display name, leaving out the setup guide', JSON.stringify(busy && busy.agents));
       say(!!busy && Array.isArray(busy.options) && busy.options.some((o) => o === 'spare@example.com (20% used)') && !busy.options.some((o) => o.startsWith('busy@')), tag + ' Move offers the other account with its own reading, never itself', JSON.stringify(busy && busy.options));
+      say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('full@')), tag + ' a full account (100%) is not offered: it cannot run them either', JSON.stringify(busy && busy.options));
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('noshare@')), tag + ' an account without shared history is not offered (a move there always fails)', JSON.stringify(busy && busy.options));
       say(!!def && def.line === 'Kosmos cannot read usage for this account.', tag + ' the default account says Kosmos cannot read it, not "yet"', JSON.stringify(def && def.line));
       say(!!busy && busy.btnDisabled === true, tag + ' Move is disabled until a target is picked');
@@ -169,12 +173,13 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!r.moved && r.moved.quietMid, tag + ' mid-move the live region is silent (a screen reader hears the result once)', JSON.stringify(r.moved));
       say(!!r.moved && r.moved.msg === 'Moved 2 agents. They restart on the new account.', tag + ' and says how many moved and that they restart, still there after the list repaints with the agents gone', JSON.stringify(r.moved && r.moved.msg));
       say(!!r.moved && r.moved.focus === '/home/.claude-busy', tag + ' after the move, focus lands on the row\'s sentence (the pressed button is gone)', JSON.stringify(r.moved && r.moved.focus));
+      say(!!r.moved && !!r.moved.redrawn && r.moved.redrawn.text === 'Moved 2 agents. They restart on the new account.' && r.moved.redrawn.role === null, tag + ' a later repaint keeps the sentence but does not announce it again', JSON.stringify(r.moved && r.moved.redrawn));
       say(r.expired === '', tag + ' two minutes on, a repaint shows the row plain again', JSON.stringify(r.expired));
       say(!!r.busyAfter && r.busyAfter.agents === 'No agents on it on this computer.', tag + ' after the move the busy row has no agents left (the repaint happened)', JSON.stringify(r.busyAfter && r.busyAfter.agents));
       say(!!r.mixed && r.mixed.posts.length === 4, tag + ' a mixed move sends one move per agent', JSON.stringify(r.mixed && r.mixed.posts));
-      say(!!r.mixed && r.mixed.msg === "Saved, moving when it restarts (Pia): could not start it again: the session is busy. Not moved (Rex, Rio): That account does not share this computer's memory. No answer yet for Sol. Check its account in a moment.",
+      say(!!r.mixed && r.mixed.msg === "Not restarted yet (Pia): We saved spare@example.com, but could not start it again: the session is busy. It is still on the old account until it restarts. Not moved (Rex, Rio): That account does not share this computer's memory. No answer yet for Sol. Check its account in a moment.",
         tag + ' saved-but-restarting keeps the engine\'s reason, one refusal is said once, and an unanswered move is not called a failure', JSON.stringify(r.mixed && r.mixed.msg));
-      say(!!fresh && fresh.line === 'No usage reading for this account yet.' && !fresh.warn, tag + ' a row with no reading says so, and does not warn', JSON.stringify(fresh));
+      say(!!fresh && fresh.line === 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.' && !fresh.warn, tag + ' a row with no reading says so, and when it will have one, and does not warn', JSON.stringify(fresh));
       say(!!fresh && fresh.agents === 'Its agents on this computer: x<b>y' && fresh.agentsEls === 0, tag + ' an agent name with markup is shown as text', JSON.stringify(fresh && fresh.agents));
       say(!!calm && calm.fill === '40%' && !calm.warn, tag + ' a 40% row does not warn', JSON.stringify(calm));
       say(!!key && key.has && key.fill === null && key.line === null, tag + ' an API-key row draws no meter', JSON.stringify(key));

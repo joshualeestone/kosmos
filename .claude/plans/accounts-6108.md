@@ -37,6 +37,10 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
   the setup guide), so they cannot drift.
 - A move that times out is "No answer yet", not a failure (the route works before it answers).
 
+- A full target (100%) is not offered, and the "Move its agents" sentence needs a target with room.
+- A saved-but-not-restarted agent is "Not restarted yet (Name): <the engine's own sentence>". Refusals are grouped by
+  their exact sentence, so they merge only when the engine words them the same (its sentences often name the agent).
+
 ## Not in slice 1 (follow-ups after it ships)
 - After a 'partial' move the server already lists the agent under the new account, though it still runs on the old
   one until it restarts.
