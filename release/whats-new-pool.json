@@ -389,7 +389,7 @@
     },
     {
       "title": "Moved agents keep your imports answer",
-      "line": "Moving a Claude agent to another Claude account no longer asks the external imports question again once you answered it.",
+      "line": "Moving a Claude agent to another Claude account keeps your external imports answer, except for a folder inside a git repository.",
       "icon": "list",
       "rank": 14.5,
       "since": "0.7.47",
@@ -399,6 +399,9 @@
       "title": "Gemini agents stop updating gemini",
       "line": "A new Gemini agent stops gemini updating itself unless you allowed it, and on your default Gemini account so does your own.",
       "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
       "rank": 16,
       "since": "0.7.47",
       "status": "pending"
