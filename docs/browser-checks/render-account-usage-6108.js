@@ -41,11 +41,12 @@ const ACCOUNTS = [
   claude('guideonly@example.com', 'guideonly', { weekly: { usedPct: 80, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-guide2'], complete: true } }),
   claude('full@example.com', 'full', { weekly: { usedPct: 100, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-q'], complete: true } }),
   claude('sleepy@example.com', 'sleepy', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-z'], complete: true } }),
+  claude('mine@example.com', 'mine', { weekly: null, weeklyBlocked: 'own-statusline', agentsHere: { names: [], complete: true } }),
   claude('default@example.com', 'default', { isDefault: true, weekly: null, agentsHere: { names: [], complete: true } }),
   claude('noshare@example.com', 'noshare', { memoryShared: false, weekly: { usedPct: 5, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
 ];
-const AGENTS = [{ sessionName: 's-dana', name: 'Dana' }, { sessionName: 's-eli', name: 'Eli' }, { sessionName: 's-x', name: 'x<b>y' },
-  { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true }, { sessionName: 's-guide2', name: 'Kosmos Guide', isGuide: true }, { sessionName: 's-q', name: 'Quinn' }, { sessionName: 's-z', name: 'Zed', state: 'stopped' }, { sessionName: 's-p', name: 'Pia' }, { sessionName: 's-r1', name: 'Rex' }, { sessionName: 's-r2', name: 'Rio' }, { sessionName: 's-slow', name: 'Sol' }];
+const AGENTS = [{ sessionName: 's-dana', name: 'Dana', state: 'working' }, { sessionName: 's-eli', name: 'Eli', state: 'working' }, { sessionName: 's-x', name: 'x<b>y', state: 'working' },
+  { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true, state: 'working' }, { sessionName: 's-guide2', name: 'Kosmos Guide', isGuide: true, state: 'working' }, { sessionName: 's-q', name: 'Quinn', state: 'working' }, { sessionName: 's-z', name: 'Zed', state: 'stopped' }, { sessionName: 's-p', name: 'Pia', state: 'working' }, { sessionName: 's-r1', name: 'Rex', state: 'working' }, { sessionName: 's-r2', name: 'Rio', state: 'working' }, { sessionName: 's-slow', name: 'Sol', state: 'working' }];
 
 const fails = [];
 const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fails.push(label); };
@@ -78,6 +79,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
             posts.push({ agent, dir });
             if (agent === 's-p') return new Promise((r) => setTimeout(() => r({ ok: true, json: async () => ({ outcome: 'partial', because: 'We saved spare@example.com, but could not start it again: the session is busy. It is still on the old account until it restarts.' }) }), 30));
             if (agent === 's-slow') return new Promise((_, rej) => setTimeout(() => rej(new DOMException('The operation was aborted.', 'AbortError')), 30));   // as the 60 s limit ends it
+            if (agent === 's-z') { where.set(agent, dir); return new Promise((r) => setTimeout(() => r({ ok: true, json: async () => ({ outcome: 'partial', because: 'We saved spare@example.com, but could not start it again: Zed is not running, so there is nothing to restart. It starts itself when this computer is on and it is not removed. It is still on the old account until it restarts.' }) }), 30)); }   // the route's real reply for a stopped agent
             if (agent === 's-r1' || agent === 's-r2') return new Promise((r) => setTimeout(() => r({ ok: false, json: async () => ({ outcome: 'refused', because: 'That account does not share this computer\'s memory.' }) }), 30));
             where.set(agent, dir);
             return new Promise((r) => setTimeout(() => r({ ok: true, json: async () => ({ outcome: 'changed', because: 'moved' }) }), 30));
@@ -158,12 +160,16 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         const busyAfter = read('busy@example.com');
         const mixed = await runMove('mixed@example.com', '/home/.claude-spare', 4);
         if (mixed) mixed.msg = msgOf('/home/.claude-mixed');
+        const sleepyMove = await runMove('sleepy@example.com', '/home/.claude-spare', 1);
+        if (sleepyMove) sleepyMove.msg = msgOf('/home/.claude-sleepy');
+        const mine = read('mine@example.com');
+        const unsureNote = acctMoveNote([{ sessionName: 'a', state: 'working' }, { sessionName: 'b', state: 'unknown' }]);
         // Two minutes on, a repaint shows the row plain again.
         const st = ACCT_MOVE.get('/home/.claude-busy'); if (st) st.doneAt -= 3 * 60e3;
         await paintAccounts();
         const expired = msgOf('/home/.claude-busy');
         /* Sideways overflow of the page itself, with the list in its real place. */
-        return { pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
+        return { sleepyMove, mine, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
       }, { accounts: ACCOUNTS, agents: AGENTS });
       await page.close();
       if (r.error) { say(false, tag + ' ' + r.error); continue; }
@@ -180,7 +186,10 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!busy && Array.isArray(busy.options) && busy.options.some((o) => o === 'spare@example.com (20% used)') && !busy.options.some((o) => o.startsWith('busy@')), tag + ' Move offers the other account with its own reading, never itself', JSON.stringify(busy && busy.options));
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('full@')), tag + ' a full account (100%) is not offered: it cannot run them either', JSON.stringify(busy && busy.options));
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('noshare@')), tag + ' an account without shared history is not offered (a move there always fails)', JSON.stringify(busy && busy.options));
-      say(!!def && def.line === 'Kosmos cannot read usage for this account.', tag + ' the default account says Kosmos cannot read it, not "yet"', JSON.stringify(def && def.line));
+      say(!!def && def.line === 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.', tag + ' the default account (wired by the installer) waits for a reading, never "cannot"', JSON.stringify(def && def.line));
+      say(!!r.mine && r.mine.line === 'Kosmos cannot read usage for this account, because it has its own status line.', tag + ' "cannot read" appears only when the server knows why', JSON.stringify(r.mine && r.mine.line));
+      say(r.unsureNote === 'Moving restarts the running ones on the new account.', tag + ' an agent of unknown state gets no restart count it may not keep', JSON.stringify(r.unsureNote));
+      say(!!r.sleepyMove && r.sleepyMove.msg === 'Moved Zed (stopped). It stays stopped until you start it.', tag + ' moving a stopped agent reads as moved, still stopped, through the route\'s real reply', JSON.stringify(r.sleepyMove));
       say(!!busy && busy.btnDisabled === true, tag + ' Move is disabled until a target is picked');
       say(r.pickKept === true, tag + ' a picked target survives a repaint, with Move awake');
       say(!!r.moved && r.moved.enabled && r.moved.posts.length === 2 && r.moved.posts.every((p) => p.dir === '/home/.claude-spare') && r.moved.posts.map((p) => p.agent).sort().join() === 's-dana,s-eli', tag + ' Move sends one move per agent to the picked account, once (a forced click on the repainted button adds nothing), never the guide', JSON.stringify(r.moved));

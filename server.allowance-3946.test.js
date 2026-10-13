@@ -227,3 +227,25 @@ test('#6108 the shared walk is fail-closed: an agent whose job cannot be read ma
     assert.equal(claudeAgentsByAccount().complete, false, 'an agent whose job could not be read was treated as absent, so the list claimed to be whole');
   } finally { fs.rmSync(jp, { recursive: true, force: true }); }
 });
+
+test('#6108 /api/accounts says when an account cannot have a reading: its own status line, never a guess', async () => {
+  const def = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
+  fs.mkdirSync(def, { recursive: true });
+  fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com', accountUuid: 'u-6108b' } }));
+  const settings = path.join(def, 'settings.json');
+  const blockedOf = async () => {
+    const rows = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];
+    const row = rows.find((a) => a && a.provider === 'anthropic' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(def));
+    assert.ok(row, 'the default Claude account is not listed');
+    return row.weeklyBlocked;
+  };
+  if (process.platform === 'win32') { assert.equal(await blockedOf(), 'windows'); return; }
+  try {
+    fs.rmSync(settings, { force: true });
+    assert.equal(await blockedOf(), null, 'an account not wired YET was called unreadable');
+    fs.writeFileSync(settings, JSON.stringify({ statusLine: { type: 'command', command: 'node /x/' + allowance.MARKER + ' ' + def } }));
+    assert.equal(await blockedOf(), null, 'CONTROL: Kosmos\'s own status line was taken for someone else\'s');
+    fs.writeFileSync(settings, JSON.stringify({ statusLine: { type: 'command', command: '/usr/local/bin/my-status.sh' } }));
+    assert.equal(await blockedOf(), 'own-statusline', 'an account with its own status line was not marked');
+  } finally { fs.rmSync(settings, { force: true }); }
+});

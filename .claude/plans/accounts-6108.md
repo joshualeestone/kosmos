@@ -48,7 +48,14 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
 - Cost: the accounts list now walks the agents once per request. The route is press-driven by contract (server.js:
   "every caller is A PERSON PRESSING SOMETHING ... a TIMER is not"); follow-up reads stop at ACCT_FOLLOWUP.max (6).
 
+- "Cannot read" only when the server knows why (weeklyBlocked: 'windows', or 'own-statusline' when the account's
+  settings hold a status line that is not Kosmos's). The default account is wired by the installer, so it waits for a
+  reading like any other.
+- A stopped agent's move comes back 'partial' from the route (it never starts a dead agent); for an agent stopped at
+  the click the page counts that as moved and says it stays stopped. An agent of unknown state gets no restart count.
+
 ## Not in slice 1 (follow-ups after it ships)
+- A bulk move blocks the server once per agent (removal.restart runs inside the route); a bulk route could batch it.
 - After a 'partial' move the server already lists the agent under the new account, though it still runs on the old
   one until it restarts.
 Default ~/.claude reading (no statusline), the 5-hour limit, OpenAI/Gemini/Grok percentages, Windows, agents on other

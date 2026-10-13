@@ -27123,9 +27123,12 @@ function acctUsageHtml(a, list) {
         + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its weekly limit.' : 'Close to its weekly limit.')
           + (canMove ? ' Move its agents to another account' + (pct >= 100 ? ' to get them working again.' : ' before they stop.') : '') + '</p>' : '');
     } else {
-      usage = a.isDefault
-        ? '<p class="acct-usage-line acct-usage-none">Kosmos cannot read usage for this account.</p>'   // the default account gets no statusline (#6108 follow-up)
-        : '<p class="acct-usage-line acct-usage-none">No usage reading for this account yet. Kosmos reads it while an agent on it is working.</p>';
+      /* "Cannot read" only when the server knows there will be no reading; otherwise one comes once an agent works. */
+      usage = a.weeklyBlocked === 'windows'
+        ? '<p class="acct-usage-line acct-usage-none">Kosmos cannot read usage for this account on Windows yet.</p>'
+        : a.weeklyBlocked === 'own-statusline'
+          ? '<p class="acct-usage-line acct-usage-none">Kosmos cannot read usage for this account, because it has its own status line.</p>'
+          : '<p class="acct-usage-line acct-usage-none">No usage reading for this account yet. Kosmos reads it while an agent on it is working.</p>';
     }
   }
   const short = a.agentsHere.complete ? '' : ' (some could not be checked)';
@@ -27160,16 +27163,19 @@ function acctUsageHtml(a, list) {
    engine/remove.js), so it is named as staying stopped. */
 function acctMoveNote(cards) {
   const n = cards.length;
-  const stopped = cards.filter((c) => c && cardStOf(c).pres === 'off').length;
+  const pres = cards.map((c) => (c ? cardStOf(c).pres : 'unsure'));
+  const stopped = pres.filter((p) => p === 'off').length, unsure = pres.filter((p) => p !== 'on' && p !== 'off').length;
   const all = n === 1 ? 'it' : n === 2 ? 'both' : 'all ' + n;
-  if (!stopped) return 'Moving restarts ' + all + ' on the new account.';
+  if (!stopped && !unsure) return 'Moving restarts ' + all + ' on the new account.';
   if (stopped === n) return 'Moving sets ' + (n === 1 ? 'it' : 'them') + ' up on the new account. ' + (n === 1 ? 'It stays' : 'They stay') + ' stopped until you start ' + (n === 1 ? 'it' : 'them') + '.';
-  return 'Moving restarts the running ones on the new account. The ' + (stopped === 1 ? 'one that is stopped stays' : stopped + ' that are stopped stay') + ' stopped.';
+  /* Some are stopped or their state is not known: no count of restarts that the route may not keep. */
+  return 'Moving restarts the running ones on the new account.' + (stopped ? ' Any that are stopped stay stopped.' : '');
 }
 /* #6108: move every agent this computer has on `fromDir` to `toDir`, one at a time through the same route the agent's
    own page uses, and say how it went in one line: the engine's own sentence for any that did not move. */
-async function moveAccountAgents(fromDir, toDir, names, onProgress) {
-  let moved = 0;
+async function moveAccountAgents(fromDir, toDir, names, onProgress, stoppedAtClick) {
+  let moved = 0; const movedStopped = [];
+  const wasStopped = stoppedAtClick instanceof Set ? stoppedAtClick : new Set();
   const restarting = new Map(), misses = new Map(), silent = [];   // reason -> names, so one sentence is said once
   const add = (m, why, who) => { if (!m.has(why)) m.set(why, []); m.get(why).push(who); };
   const nameOf = (n) => (((LAST || []).find((x) => x && x.sessionName === n) || {}).name || n);
@@ -27183,6 +27189,7 @@ async function moveAccountAgents(fromDir, toDir, names, onProgress) {
       const res = await fetch('/api/agent/' + encodeURIComponent(n) + '/account', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: toDir }), ...(ctl ? { signal: ctl.signal } : {}) });
       const out = await res.json().catch((e) => { if (e && e.name === 'AbortError') throw e; return null; });
       if (res.ok && out && out.outcome === 'changed') moved++;
+      else if (res.ok && out && out.outcome === 'partial' && wasStopped.has(n)) movedStopped.push(nameOf(n));   // stopped: saved, and not started, as said
       else if (res.ok && out && out.outcome === 'partial') add(restarting, (out.because || '').trim(), nameOf(n));   // saved; still on the old one until it restarts
       else add(misses, (out && (out.because || out.error)) || 'that did not work', nameOf(n));
     } catch (e) {
@@ -27192,6 +27199,7 @@ async function moveAccountAgents(fromDir, toDir, names, onProgress) {
   }
   const parts = [];
   if (moved) parts.push('Moved ' + moved + (moved === 1 ? ' agent. It restarts on the new account.' : ' agents. They restart on the new account.'));
+  if (movedStopped.length) parts.push('Moved ' + movedStopped.join(', ') + ' (stopped). ' + (movedStopped.length === 1 ? 'It stays' : 'They stay') + ' stopped until you start ' + (movedStopped.length === 1 ? 'it' : 'them') + '.');
   for (const [why, who] of restarting) parts.push('Not restarted yet (' + who.join(', ') + ')' + (why ? ': ' + end(why) : '.'));   // the engine's sentence says what was saved and why
   for (const [why, who] of misses) parts.push('Not moved (' + who.join(', ') + '): ' + end(why));
   if (silent.length) parts.push('No answer yet for ' + silent.join(', ') + '. Check ' + (silent.length === 1 ? 'its' : 'their') + ' account in a moment.');
@@ -27864,10 +27872,11 @@ async function paintAccounts(opts) {
       ACCT_MOVE.set(from, { moving: true, said: '' });
       btn.disabled = true; sel.disabled = true; btn.textContent = 'Moving…';
       if (moveMsg) moveMsg.textContent = '';
+      const stoppedAtClick = new Set(names.filter((n) => { const c = (LAST || []).find((x) => x && x.sessionName === n); return c && cardStOf(c).pres === 'off'; }));
       const said = await moveAccountAgents(from, to, names, (done, all) => {
         const b = document.querySelector('[data-acct-move="' + CSS.escape(from) + '"]');   // the current button, after any repaint
         if (b) b.textContent = 'Moving ' + done + ' of ' + all + '…';
-      });
+      }, stoppedAtClick);
       ACCT_MOVE.set(from, { moving: false, said, doneAt: Date.now(), announce: true });
       ACCT_PICK.delete(from);
       accountsDropped();
