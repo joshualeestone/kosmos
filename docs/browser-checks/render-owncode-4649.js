@@ -35,6 +35,7 @@ const SANDBOXES = [SANDBOX, process.env.AGENT_WORKFORCE_WORKERS, process.env.AGE
   process.env.AGENT_WORKFORCE_LAUNCH, process.env.AGENT_WORKFORCE_CONFIG_ROOT];
 
 const { chromium, webkit } = require('playwright');
+const { closeQuietly } = require('./lib-close-quietly.js');   // #6022: a poll in flight at close must not crash the check
 const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 const projects = require('../../engine/projects');
@@ -145,7 +146,7 @@ function chk(ok, label, extra) {
           chk(errs.length === 0, `${E} no page errors`, errs.join(' | '));
           await ctx.close();
         }
-      } finally { await browser.close(); }
+      } finally { await closeQuietly(browser); }
     }
   } finally {
     server.close();

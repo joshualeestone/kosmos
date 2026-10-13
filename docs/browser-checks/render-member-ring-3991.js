@@ -38,6 +38,7 @@ process.env.AGENT_WORKFORCE_PROJECTS = mkroot('projects-');
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
 const { chromium, webkit } = require('playwright');
+const { closeQuietly } = require('./lib-close-quietly.js');   // #6022: a poll in flight at close must not crash the check
 const fleet = require('../../test-support/fleet');
 const projects = require('../../engine/projects');
 const srv = require('../../server.js');
@@ -200,7 +201,7 @@ const PERCENT = { beatrix: 42, dora: 71 };
         chk(errs.length === 0, `${engineName}: no page errors`, errs.join(' | '));
         await ctx.close();
       } finally {
-        await browser.close();
+        await closeQuietly(browser);
       }
     }
   } finally {

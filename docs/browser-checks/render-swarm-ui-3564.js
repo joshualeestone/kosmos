@@ -28,6 +28,7 @@ process.env.AGENT_WORKFORCE_PROJECTS = mkroot('projects-');
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
 const { chromium } = require('playwright');
+const { closeQuietly } = require('./lib-close-quietly.js');   // #6022: a poll in flight at close must not crash the check
 const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 const tipsStore = require('../../engine/tips');
@@ -981,7 +982,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
 
     chk(errs.length === 0, 'S10 no page errors', errs.join(' | '));
   } finally {
-    await browser.close();
+    await closeQuietly(browser);
     server.close();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }

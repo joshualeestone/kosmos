@@ -800,6 +800,15 @@ which gives it its own home with a fixture account (`fixture@example.invalid`). 
 opt-in because first-run checks want no account, and its own home so no later check sees
 it. `tools.browser-checks-home-3675.test.js` fails if a board-booting check skips the lib.
 
+### `lib-close-quietly.js` is a library, not a check
+
+**`closeQuietly(browser)` closes a check's browser without crashing on a route handler still in flight (#6022).** A page
+polls `/api/status` on a timer, so when a check closes its browser a poll can be mid-route: the handler's
+`route.fetch()` rejects with `Request context disposed`, unhandled, and the check exits 1 after every assertion passed.
+That aborted the 0.7.42 cut (#5921) and the first 0.7.44 cut (render-rename-say). It unroutes every open page of every
+context with `ignoreErrors`, then closes. A check whose route handlers `fetch` a polled URL should close through it (or
+call `unrouteAll({ behavior: 'ignoreErrors' })` itself before closing).
+
 ### `lib-firstrun-steps.js` is a library, not a check
 
 The other non-browser `.js` in here. The first-run wizard numbers its steps (`fr-pane-N`,

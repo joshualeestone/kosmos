@@ -22,6 +22,7 @@
 'use strict';
 
 const playwright = require('playwright');
+const { closeQuietly } = require('./lib-close-quietly.js');   // #6022: a poll in flight at close must not crash the check
 
 const BASE = process.argv[2] || 'http://127.0.0.1:4399';
 const HEADED = process.env.HEADED !== '0';
@@ -143,7 +144,7 @@ const MADE = {
 
   check('no page errors', errors.length === 0, errors.join(' | '));
 
-  await browser.close();
+  await closeQuietly(browser);
   const failed = results.filter((r) => !r.pass);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   process.exit(failed.length ? 1 : 0);
