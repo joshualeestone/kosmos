@@ -31,3 +31,13 @@ test('#5959: the line under it says what is in the file, that it is redacted, an
   assert.match(row, /nothing is sent anywhere/);
   assert.doesNotMatch(row, /this Mac/);
 });
+
+test('#5959: a click also looks at the route with ?check=1 and says a refusal under the link', () => {
+  const at = PAGE.indexOf("closest('#diag-save')");
+  assert.ok(at > 0, 'the page listens for the link');
+  const body = PAGE.slice(at, at + 900);
+  assert.match(body, /fetch\('\/api\/diagnostics\?check=1'/);
+  assert.match(body, /getElementById\('diag-msg'\)/);
+  assert.match(body, /'Not saved: '/);
+  assert.match(PAGE, /<p class="dhint" id="diag-msg" role="status"/);
+});

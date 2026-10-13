@@ -80,3 +80,11 @@ test('#5959: it is a JSON download of the file, and a line the board wrote is in
   assert.equal(probe.line, 'diagnostics probe 5959 read ~/secret-notes');
   assert.ok(!r.text.includes(home), 'the home folder is not in the bytes sent');
 });
+
+test('#5959: the page\'s ?check=1 look answers 204 with no file, behind the same gate', async () => {
+  const look = await fetch(base + '/api/diagnostics?check=1', { headers: { 'x-kosmos-board-token': BOARD } });
+  assert.equal(look.status, 204);
+  assert.equal(await look.text(), '');
+  assert.equal(look.headers.get('content-disposition'), null, 'no file in a look');
+  assert.equal((await fetch(base + '/api/diagnostics?check=1')).status, 403, 'CONTROL: the gate still refuses no credential');
+});
