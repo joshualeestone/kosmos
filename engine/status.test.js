@@ -6067,6 +6067,58 @@ test('#1919: prose or a paste of the consent is not the live dialog', () => {
   }
 });
 
+/* #6063: the "allow external imports?" question. Captured from a real pane on 2026-10-13 (Claude Code 2.1.296,
+   110 columns, 40 rows) in a scratch folder whose CLAUDE.md imports one file outside it. One row is changed: the
+   imported file's path, which named a temporary folder. The blank rows beneath are the fresh pane's own. */
+const EXTERNAL_IMPORTS_LIVE = [
+  '─'.repeat(110),
+  '  Allow external CLAUDE.md file imports?',
+  '',
+  "  This project's CLAUDE.md or .claude/rules imports files outside the current working directory. Never allow",
+  '  this for third-party repositories.',
+  '',
+  '  External imports:',
+  '    /Users/someone/notes/outside/note.md',
+  '',
+  '  Important: Only use Claude Code with files you trust. Accessing untrusted files may pose security risks',
+  '  https://code.claude.com/docs/en/security',
+  '',
+  '  ❯ No, disable external imports',
+  '    Yes, allow external imports',
+  '',
+  '  Enter to confirm · Esc to cancel',
+  ...Array(24).fill(''),
+].join('\n');
+
+test('#6063: an agent stopped on the external imports question reads needs_you and says what is asked', () => {
+  const r = classify(pane(), EXTERNAL_IMPORTS_LIVE);
+  assert.equal(r.state, STATE.NEEDS_YOU);
+  assert.equal(r.confidence, CONFIDENCE.SCRAPED);
+  assert.match(r.because, /import files from outside its folder/, 'the reason is still the generic one');
+  assert.equal(r.evidence, 'Allow external CLAUDE.md file imports?', 'the evidence is the question, not the footer');
+  assert.doesNotMatch(r.because, /default|highlight/, 'the detector does not read which answer is highlighted');
+});
+
+test('#6063 CONTROL: a confirm dialog nobody labelled keeps the generic reason, and prose about imports labels nothing', () => {
+  const { consentPrompt } = require('./status');
+  const unlabelled = EXTERNAL_IMPORTS_LIVE.replace('  Allow external CLAUDE.md file imports?', '  Allow something nobody has seen yet?');
+  assert.notEqual(unlabelled, EXTERNAL_IMPORTS_LIVE, 'the fixture edit took');
+  const g = classify(pane(), unlabelled);
+  assert.equal(g.state, STATE.NEEDS_YOU);
+  assert.equal(g.because, 'it is waiting for you to answer a prompt');
+
+  /* The heading inside a sentence, above a different live dialog that nobody labelled: that dialog is not this
+     question. (Above the bypass dialog this would prove nothing: its own label comes first in the list.) */
+  const quoted = ' Earlier it asked "Allow external CLAUDE.md file imports?" and I said No.\n' + unlabelled;
+  const q = consentPrompt(quoted);
+  assert.ok(q, 'the dialog beneath is still a dialog');
+  assert.equal(q.because, 'it is waiting for you to answer a prompt', 'prose that quotes the heading labelled another dialog');
+
+  /* And the words alone, with no dialog under them, are not a question at all. */
+  const idle = ' It asked "Allow external CLAUDE.md file imports?" and I answered.\n\n > \n   ⏵⏵ bypass permissions on (shift+tab to cycle)\n';
+  assert.notEqual(classify(pane(), idle).state, STATE.NEEDS_YOU);
+});
+
 test('#1919: consentPrompt returns {because, evidence} for a live dialog and null for a non-dialog', () => {
   const { consentPrompt } = require('./status');
   const hit = consentPrompt(BYPASS_CONSENT_LIVE);

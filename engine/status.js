@@ -2301,6 +2301,13 @@ const CONSENT_PROMPT_ACCEPT = /^Yes\b/;            // "Yes, I accept" / "Yes, co
    key (the chrome above is); an unlabelled confirm dialog still reads needs_you, generically. */
 const CONSENT_PROMPT_HEADINGS = Object.freeze([
   { re: /Bypass Permissions/i, because: 'it is asking you to accept Bypass Permissions mode before it can start, and the default answer exits' },
+  /* #6063: Claude Code's question about instructions that import files from outside the agent's folder, asked once
+     per folder per account (so after an account move with no earlier answer to carry, and for a new agent). The
+     family detector already read it as needs_you; this says WHAT it asks. Anchored to the whole heading row, so
+     the words in prose above another dialog do not label that one. No claim about the default: the detector does
+     not read the highlight. Kosmos never presses it: the answer is the person's. Screen captured 2026-10-13 on
+     Claude Code 2.1.296. */
+  { re: /^Allow external CLAUDE\.md file imports\?$/, because: 'it is asking whether its instructions may import files from outside its folder' },
 ]);
 /* No "and the default answer exits" here: that is verified only for the LABELLED
    dialogs (bypass, trust), which default to `No, exit`. An unlabelled confirm dialog the
