@@ -4063,12 +4063,15 @@ function attachPluginReach(agents, opts) {
     if (!(personClaudeDir && a && a.account)) { if (a) a.reach = null; continue; }
     // This agent's own working folder, canonicalized the way Claude Code keys .claude.json `projects`
     // (#5309, Liu Kang's ruling): it selects ONLY the per-project mcpServers added in THIS agent's folder.
+    // Passed as a LAZY THUNK so its syscalls (workerDir read + realpath) run ONLY on the separate-account
+    // path that uses it, never for a default-account or other-runner agent every poll (#5309 iter 3).
     // Unknown (no name / no worker dir / unresolvable) -> null -> top-level only (the safe, missed direction).
-    let agentWorkFolder = null;
-    try {
-      const wd = (o.workerDir ? o.workerDir(a.sessionName) : (a.sessionName ? create.workerDir(a.sessionName) : null));
-      agentWorkFolder = wd ? trust.canonicalOnDisk(wd) : null;
-    } catch { agentWorkFolder = null; }
+    const agentWorkFolder = () => {
+      try {
+        const wd = (o.workerDir ? o.workerDir(a.sessionName) : (a.sessionName ? create.workerDir(a.sessionName) : null));
+        return wd ? trust.canonicalOnDisk(wd) : null;
+      } catch { return null; }
+    };
     a.reach = pluginreach.agentPluginReach({
       runner: a.runner,
       agentClaudeDir: (a.account.dir || null),

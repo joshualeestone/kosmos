@@ -261,7 +261,9 @@ function gateOnEvidence(reach, evidence) {
  *                                            (at the home ROOT), resolved ONCE per poll by the caller
  *   inputs.personCodexHome                 -> the person's ~/.codex, for the Codex categorical check
  *   inputs.agentWorkFolder                 -> this agent's own working folder (canonical), selecting which
- *                                            per-project mcpServers count (kosmos#5309); null -> top-level only
+ *                                            per-project mcpServers count (kosmos#5309); null -> top-level only.
+ *                                            May be a FUNCTION (lazy thunk): resolved only on the separate-account
+ *                                            path that uses it, so its syscalls never run for a reaching agent.
  * The agent's own .claude.json is <agentClaudeDir>/.claude.json (inside the config dir). Reads are
  * mtime-cached (folderPluginSet / codexPersonPresence), so this is cheap to call per agent every poll.
  */
@@ -276,8 +278,12 @@ function agentPluginReach(inputs, deps) {
   const reach = reachFrom({ runner, agentClaudeDir: i.agentClaudeDir, personClaudeHome: i.personClaudeDir });
   if (!reach || reach.reaches !== false) return reach;
   if (reach.reason === SEPARATE_ACCOUNT) {
-    const personSet = folderPluginSet(path.join(i.personClaudeDir, 'settings.json'), i.personClaudeJson, i.agentWorkFolder, deps);
-    const agentSet = folderPluginSet(path.join(i.agentClaudeDir, 'settings.json'), path.join(i.agentClaudeDir, '.claude.json'), i.agentWorkFolder, deps);
+    // Resolve agentWorkFolder HERE, not at the caller, so its cost is paid ONLY on the separate-account path
+    // that actually uses it (kosmos#5309 iter 3): a string is used as-is; a FUNCTION is a lazy thunk the
+    // caller passes so the folder's syscalls (workerDir read + realpath) never run for a reaching / other-runner agent.
+    const folder = (typeof i.agentWorkFolder === 'function') ? i.agentWorkFolder() : i.agentWorkFolder;
+    const personSet = folderPluginSet(path.join(i.personClaudeDir, 'settings.json'), i.personClaudeJson, folder, deps);
+    const agentSet = folderPluginSet(path.join(i.agentClaudeDir, 'settings.json'), path.join(i.agentClaudeDir, '.claude.json'), folder, deps);
     return gateOnEvidence(reach, { personSet, agentSet });
   }
   if (reach.reason === CODEX_ISOLATED) {

@@ -318,3 +318,19 @@ test('#5309 p2 integration: a NULL runner is treated as Claude (default launch),
   assert.equal(r.reason, SEPARATE_ACCOUNT);
   assert.deepEqual(r.missing, ['crm@acme']);
 });
+
+test('#5309 p2 integration: agentWorkFolder is resolved ONLY on the separate-account path (no per-poll syscalls for a reaching agent)', () => {
+  _resetCache();
+  let calls = 0;
+  const thunk = () => { calls += 1; return '/p'; };
+  // A default-account agent reaches:true, so the thunk must NEVER run (no wasted workerDir read / realpath per poll).
+  agentPluginReach({ runner: 'claude', agentClaudeDir: null, personClaudeDir: '/person/.claude', personClaudeJson: '/person/.claude.json', agentWorkFolder: thunk }, { fs: fakeFs({}, {}) });
+  assert.equal(calls, 0, 'a reaching agent must not resolve agentWorkFolder');
+  // A separate-account agent DOES use it, so the thunk resolves exactly once (both folderPluginSet calls share it).
+  const fs = fakeFs({
+    '/person/.claude/settings.json': JSON.stringify({ enabledPlugins: { 'crm@acme': true } }),
+    '/person/.claude.json': '{}', '/agent/settings.json': '{}', '/agent/.claude.json': '{}',
+  }, { '/person/.claude/settings.json': 1, '/person/.claude.json': 1, '/agent/settings.json': 1, '/agent/.claude.json': 1 });
+  agentPluginReach({ runner: 'claude', agentClaudeDir: '/agent', personClaudeDir: '/person/.claude', personClaudeJson: '/person/.claude.json', agentWorkFolder: thunk }, { fs });
+  assert.equal(calls, 1, 'the separate-account path resolves agentWorkFolder exactly once');
+});
