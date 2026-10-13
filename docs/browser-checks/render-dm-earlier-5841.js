@@ -92,6 +92,16 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' +
       document.querySelectorAll('body > *').forEach((el) => { el.inert = false; });
     });
     const open = (who, Who) => page.evaluate(([a, b]) => { CURRENT = { sessionName: a, name: b }; return paintTalk(a, b); }, [who, Who]);
+    /* Opening a DIFFERENT agent's conversation, as the app does it (its agent-open block): the thread shows a note
+       and FORGETS the reader's place, which belongs to the agent being left. `open` alone is a repaint of the agent
+       on screen (the 5 s poll), which keeps the place. Without this the next agent inherits "scrolled to the top"
+       from the last one and is not opened at its newest message, which the app never does. */
+    const switchTo = (who, Who) => page.evaluate(([a, b]) => {
+      const th = document.getElementById('d-dmthread');
+      setThread(th, '<p class="dmnone">Opening&hellip;</p>', null);
+      th.__heldTop = undefined; th.__heldAtBottom = undefined;
+      CURRENT = { sessionName: a, name: b }; return paintTalk(a, b);
+    }, [who, Who]);
     const setAll = (who, n, extra) => page.evaluate(([w, list]) => { window.__all[w] = list; }, [who, Array.from({ length: n }, (_, i) => ({ ...row(i), ...((extra && extra[i]) || {}) }))]);
     const state = () => page.evaluate(() => {
       const older = document.getElementById('d-talk-older');
@@ -125,7 +135,7 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' +
 
     // CONTROL: three messages, nothing older. Nothing is asked for, at the bottom or at the top.
     await setAll('april', 3);
-    await open('april', 'April'); await settle();
+    await switchTo('april', 'April'); await settle();
     let s = await state();
     chk(s.scrolls && s.atBottom, 'CONTROL: the thread scrolls, and opens at the newest message', JSON.stringify(s));
     await toTop(); await settle();
@@ -135,9 +145,9 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' +
     // Eight kept (m4 answers m3): the latest 3 show, 5 are older.
     await page.evaluate(() => { window.__asked.length = 0; });
     await setAll('mona', 3);
-    await open('mona', 'Mona'); await settle();   // another agent between, so April opens fresh, at the bottom
+    await switchTo('mona', 'Mona'); await settle();   // another agent between, so April opens fresh, at the bottom
     await setAll('april', 8, { 4: { replyTo: at(3) } });
-    await open('april', 'April'); await settle();
+    await switchTo('april', 'April'); await settle();
     s = await state();
     let w = await where();
     chk(s.atBottom && s.rows.join(',') === 'm5,m6,m7' && s.asked.length === 0, 'opened at the newest message, nothing earlier is asked for', JSON.stringify(s));
@@ -183,23 +193,23 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' +
 
     // Another agent: a successful read, and a FAILING read.
     await setAll('mona', 6);
-    await open('mona', 'Mona'); await settle();
+    await switchTo('mona', 'Mona'); await settle();
     s = await state();
     chk(s.rows.join(',') === 'm3,m4,m5' && s.atBottom && !s.line, 'another agent on screen starts with only its own rows, at its newest message', JSON.stringify(s));
-    await open('april', 'April'); await settle();
+    await switchTo('april', 'April'); await settle();
     s = await state();
     chk(s.rows.join(',') === 'm7,m8,m9' && s.atBottom, 'coming back to an agent starts it at the newest message, with the earlier rows to load again', JSON.stringify(s));
     await toTop(); await settle();
     s = await state();
     chk(s.rows.length === 5, 'and one arrival at the top shows one page (2 earlier + the latest 3)', JSON.stringify(s));
     await page.evaluate(() => { window.__failThread = 'mona'; });
-    await open('mona', 'Mona'); await settle();
+    await switchTo('mona', 'Mona'); await settle();
     s = await state();
     chk(!s.rows.some((r) => /^m\d+$/.test(r)) && !s.line, 'switching to an agent whose read is refused (404) shows none of the other agent\'s rows', JSON.stringify(s));
 
     // April's OWN latest read FAILS (a 200 with messages null) while her earlier rows are loaded.
     await page.evaluate(() => { window.__failThread = null; });
-    await open('april', 'April'); await settle();
+    await switchTo('april', 'April'); await settle();
     await toTop(); await settle();
     await page.evaluate(() => { window.__nullThread = 'april'; });
     await open('april', 'April'); await settle();
@@ -222,7 +232,7 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' +
     // A load that FAILS: said at the top, with Try again; scrolling does not ask again until the person does.
     await setAll('june', 8);
     await page.evaluate(() => { window.__asked.length = 0; window.__olderFail = true; });
-    await open('june', 'June'); await settle();
+    await switchTo('june', 'June'); await settle();
     await toTop(); await settle();
     s = await state(); w = await where();
     chk(/could not read the earlier messages/i.test(s.line) && s.retry && s.asked.join(',') === 'june:5', '#6086: a failed load says so at the top, with Try again', JSON.stringify(s));
@@ -239,7 +249,7 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' +
     await page.addStyleTag({ content: '#d-dmthread { height: 4000px !important; max-height: 4000px !important; }' });
     await setAll('opal', 8);
     await page.evaluate(() => { window.__asked.length = 0; });
-    await open('opal', 'Opal'); await page.waitForTimeout(900);
+    await switchTo('opal', 'Opal'); await page.waitForTimeout(900);
     s = await state();
     chk(!s.scrolls && s.rows.join(',') === 'm0,m1,m2,m3,m4,m5,m6,m7' && s.asked.join(',') === 'opal:5,opal:3,opal:1', '#6086: a thread too short to scroll loads every earlier page by itself', JSON.stringify(s));
 
