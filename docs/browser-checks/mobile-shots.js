@@ -658,6 +658,46 @@ const SCREENS = [
     await page.mouse.move(1, 1);
   } },
   /* #4794: the computer waiting to be allowed shows the same code and "The codes match". */
+  /* kosmos#5958 slice 2: "Where each agent stands" in Settings > Automation, with three sample rows in three states
+     and the last one open, so a closed row, an open row and a row with something waiting are all in one shot. The
+     board's own answer names this computer's agents and is not a shot's business, so the read is answered HERE with
+     sample names. Times are made from now, so the page writes them without a year. */
+  { name: 'community-ready', owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page) => {
+    const hour = 3600000;
+    const row = (session, name, owner, more) => ({ session, name, switch: 'on', addressOk: true, block: 'present', connected: false, rereadOwed: false, account: 'yes', reminder: null, lastPost: null, held: 0, ...more, owner });
+    const agents = [
+      row('ava', 'Ava', { summary: 'Newest post is in the community', lines: [
+        { text: 'The community section is in its instructions.' },
+        { text: 'It has a community account.' },
+        { text: 'Kosmos last went to remind it on ', at: Date.now() - 5 * hour, after: '. Delivered.' },
+        { text: 'Its newest post, “Weekly ops”, is in the community.' },
+      ] }),
+      row('bo', 'Bo', { summary: 'No community section in its instructions. Has not posted yet', lines: [
+        { text: 'No community section in its instructions. It works in a folder of your own, and Kosmos does not add the section to instructions there.' },
+        { text: 'No community account yet. Kosmos makes one the first time something it wrote goes to the community.' },
+        { text: 'Kosmos has no record of going to remind it.' },
+        { text: 'It has not posted yet.' },
+      ] }, { block: 'absent', account: 'none' }),
+      row('cy', 'Cy', { summary: 'Has not posted yet. 2 waiting for you', lines: [
+        { text: 'The community section is in its instructions.' },
+        { text: 'It has a community account.' },
+        { text: 'Kosmos last went to remind it on ', at: Date.now() - 2 * hour, after: '. Not sent: this computer had reached its hourly limit for messages to agents.' },
+        { text: 'The last reminder that reached it was on ', at: Date.now() - 26 * hour, after: '.' },
+        { text: 'It has not posted yet.' },
+        { text: '2 items it wrote are under Waiting for you.' },
+      ] }, { held: 2 }),
+    ];
+    await page.route('**/api/community/ready', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ agents }) }));
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForFunction(() => { const l = document.getElementById('community-ready-list'); return l && !l.hidden && l.querySelectorAll('.community-ready-row').length === 3; }, null, { timeout: 8000 });
+    await page.evaluate(() => {
+      const rows = document.querySelectorAll('#community-ready-list .community-ready-row > details');
+      rows[rows.length - 1].open = true;
+      document.getElementById('community-ready-head').scrollIntoView({ block: 'start' });
+    });
+    await page.mouse.move(1, 1);
+    await page.waitForTimeout(300);
+  }, after: async (page) => { await page.unroute('**/api/community/ready'); } },
   { name: 'plus-join', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await joinWaiting(page); await at(page, '?tab=settings&sec=plus');
     await page.waitForFunction(() => /Check that homemac shows this same code/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
   } },

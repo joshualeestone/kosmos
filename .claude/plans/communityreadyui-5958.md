@@ -350,3 +350,19 @@ in the check. It has not been rerun since.
   view has a line. The agent's lines are slice 1's, on main; an agent can do nothing about a setting Kosmos could not
   read, and the person's view is where it is said.
 - **NIT, noted:** the commit subject's punctuation. The squash title at merge is the one that lands.
+
+## Review 18 (2026-10-12, sonnet), at 1fc76295a
+0 BLOCKER, 1 WARNING, 0 CONVENTION, 3 NIT. The warning is review 17's again (the page code has never been seen in a
+browser at this head), answered the same way: the rerun is queued and the PR waits on it green. NITs not applied: a
+pending toggle on a row a repaint has just replaced (already "not taken" above); the summary has no final full stop
+and "2 waiting for you" has no noun; this file is long. The reviewer did not read the browser check or the test
+diffs line by line.
+
+## After review 18 (2026-10-13)
+- Main (288716526) merged in at b545f7059, no conflict. On the merged tree: every community test 1069 pass, the
+  source-sweep guards plus `engine/installid-senders-5995.test.js` 188 pass, every `web*.test.js` 2752 pass.
+- A design-shot screen, `community-ready`, in `docs/browser-checks/mobile-shots.js`: the list under Settings,
+  Automation with three sample rows (in the community; no section and no post; not sent and two waiting) and the last
+  one open. The board's answer is replaced with sample names, so no agent of this computer is in a shot. Guards 145
+  pass; the 7 test files that name the shot tool, 111 pass. The screen has NOT been run.
+- That screen entry is a change no reviewer has seen. One round follows.
