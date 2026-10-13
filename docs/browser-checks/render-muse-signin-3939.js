@@ -330,7 +330,7 @@ const chk = (ok, label, extra) => {
   await choose('meta'); await settle();
   const ask = await q(() => ({ flow: !document.getElementById('acct-muse-flow').hidden, go: document.getElementById('acct-muse-go').textContent,
     say: document.getElementById('acct-muse-say').textContent }));
-  chk(await q(() => !/Sign in/.test(document.querySelector('#acct-muse-flow > p.dwarn').textContent)), '#6004: the Settings step heading does not say Sign in above an Install Muse Code button (screenshot finding)');
+  chk(await q(() => !/sign in/i.test(document.querySelector('#acct-muse-flow > p.dwarn').textContent)), '#6004: the Settings step heading does not say Sign in above an Install Muse Code button (screenshot finding)');
   chk(ask.flow && ask.go === 'Install Muse Code' && /download from Meta/.test(ask.say), '#6004: the step says Muse Code is a download from Meta and offers Install Muse Code (the press is the confirm)', JSON.stringify(ask));
   const signinsBefore = await q(() => window.__posts.length);
   await q(() => { window.__holdInstall = new Promise((r) => { window.__releaseInstall = r; }); });
@@ -898,7 +898,7 @@ const chk = (ok, label, extra) => {
   await q(() => document.getElementById('fr-meta-connect').click()); await settle();
   fm = await frMeta();
   const frGoText = await q(() => document.getElementById('fr-muse-go').textContent);
-  chk(await q(() => !/Sign in/.test(document.getElementById('fr-muse-t').textContent)), '#6004 round 6: the panel heading does not say Sign in above an Install Muse Code button');
+  chk(await q(() => !/sign in/i.test(document.getElementById('fr-muse-t').textContent)), '#6004 round 6: the panel heading does not say Sign in above an Install Muse Code button');
   chk(fm.flow && frGoText === 'Install Muse Code' && fm.msg === '', '#6004: first run, Muse Code missing: Connect opens the panel on Install Muse Code, with no stale line under the row', JSON.stringify(fm) + ' ' + frGoText);
   await q(() => document.getElementById('fr-muse-go').click()); await settle();
   const frDone = await q(() => ({ posts: window.__installPosts, go: document.getElementById('fr-muse-go').textContent }));
