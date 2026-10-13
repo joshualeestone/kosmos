@@ -1,16 +1,17 @@
 'use strict';
 
-/* #5309 part 2, slice 1: per-agent plugin REACH.
+/* #5309 part 2: per-agent plugin REACH (slice 1: the condition + reason; slice 2: the evidence gate, the missing ids, and the board/UI wiring).
  *
  * Do the plugins/connectors the person installed in their own provider app reach THIS agent, and if
  * not, why? This is the signal the board needs to show the honest state the day-one report asked for:
  * "connected for you, but this agent cannot see it" (false-ready, no repair path).
  *
- * Home logic only. Slice 1 deliberately names no file inside a provider folder: the plugin-file shapes
- * (plugins/installed_plugins.json records, a populated settings.json enabledPlugins, Codex's
- * enabled-plugin record) were not pinned by kosmos#5309 part 1 and are not verifiable on
- * a box with no plugins installed. So this reports the reach CONDITION and its reason, never a list of
- * specific plugins. Naming the specific plugins is a follow-up once those shapes are measured.
+ * Home logic. Slice 1 reported only the reach CONDITION and its reason, naming no file inside a provider
+ * folder. Slice 2 ADDS the evidence gate: for a separate-account Claude agent it compares the person's and
+ * the agent's enabled plugins (settings.json enabledPlugins) and MCP servers (.claude.json mcpServers,
+ * top-level + the agent's own project) and reports the `missing` ids -- the specific plugins/servers the
+ * person added that do not reach this agent. For a Codex agent it stays categorical (the isolated runtime
+ * excludes the desktop set wholesale), so presence, not a diff, is the evidence.
  *
  * The reach condition is derived from the measured home logic (see engine/status.js claudeAccountDirOf,
  * engine/accounts.js, bin/agent-supervisor.sh):
