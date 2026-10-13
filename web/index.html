@@ -27854,7 +27854,10 @@ async function paintAccounts(opts) {
      the region sees a change. Done here, not in the move's handler, so a paint that superseded the handler's own still
      announces it. */
   for (const [dir, st] of ACCT_MOVE) {
-    if (st && !st.moving && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) { ACCT_MOVE.delete(dir); continue; }   // also for a row no longer drawn
+    if (st && !st.moving && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) {   // also for a row no longer drawn
+      const ps = document.getElementById('set-accounts-msg'); if (ps && ps.textContent === st.said) ps.textContent = '';   // the panel line expires with it
+      ACCT_MOVE.delete(dir); continue;
+    }
     if (!st || !st.announce) continue;
     if (!box.querySelector('[data-acct-move-msg="' + CSS.escape(dir) + '"]')) continue;   // its row is not drawn yet: a later paint speaks it
     st.announce = false;
@@ -27903,7 +27906,11 @@ async function paintAccounts(opts) {
       /* Only if the person is still here: a long move must not pull focus from something they moved on to. */
       const ae = document.activeElement;
       const stillHere = !ae || ae === document.body || !!(ae.closest && ae.closest('#set-accounts'));
-      const target = again && !again.disabled ? again : m;
+      /* The row's menu if it is still there, else the list itself (the panel's own pattern): never the sentence, which
+         the panel's status line already speaks, so focus does not read it a second time. */
+      const listEl = document.getElementById('set-accounts');
+      if (listEl && !listEl.hasAttribute('tabindex')) listEl.setAttribute('tabindex', '-1');
+      const target = again && !again.disabled ? again : listEl;
       if (stillHere && target) { try { target.focus({ preventScroll: true }); } catch { /* focus is best effort */ } }
     });
   }

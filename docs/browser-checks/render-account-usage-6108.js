@@ -73,7 +73,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         const realFetch = window.fetch;
         window.fetch = (u, opts) => {
           const url = String(u);
-          if (url.indexOf('/api/accounts') !== -1) return Promise.resolve({ ok: true, json: async () => ({ accounts: list() }) });
+          /* Like the server: agentsHere only when the page asks (?agents=1), so a page that stopped asking draws nothing. */
+          if (url.indexOf('/api/accounts') !== -1) return Promise.resolve({ ok: true, json: async () => ({ accounts: /[?&]agents=1\b/.test(url) ? list() : list().map(({ agentsHere, ...rest }) => rest) }) });
           const m = url.match(/\/api\/agent\/([^/]+)\/account$/);
           if (m && opts && opts.method === 'POST') {
             const agent = decodeURIComponent(m[1]), dir = JSON.parse(opts.body).dir;
@@ -164,7 +165,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         if (moved) { moved.msg = msgOf('/home/.claude-busy');   // read AFTER the list repainted with the agents gone
           const ps = document.getElementById('set-accounts-msg'); moved.spoken = ps ? { text: ps.textContent.trim(), role: ps.getAttribute('role') } : null;   // the panel's persistent status line
           const ae = document.activeElement;   // before any further repaint; which element, not just which row
-          moved.focus = !ae ? null : ae.hasAttribute('data-acct-move-msg') ? 'sentence:' + ae.getAttribute('data-acct-move-msg') : ae.hasAttribute('data-acct-move-to') ? 'menu:' + ae.getAttribute('data-acct-move-to') : ae.tagName;
+          moved.focus = !ae ? null : ae.id === 'set-accounts' ? 'list' : ae.hasAttribute('data-acct-move-msg') ? 'sentence:' + ae.getAttribute('data-acct-move-msg') : ae.hasAttribute('data-acct-move-to') ? 'menu:' + ae.getAttribute('data-acct-move-to') : ae.tagName;
           await paintAccounts();   // a later repaint inside the two minutes: the sentence stays, but is not spoken again
           const again = document.querySelector('[data-acct-move-msg="/home/.claude-busy"]');
           moved.redrawn = again ? { text: again.textContent.trim(), role: again.getAttribute('role') } : null; }
@@ -210,7 +211,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!r.moved && r.moved.drawnBusy, tag + ' a repaint mid-move draws the button busy ("Moving…", disabled)', JSON.stringify(r.moved));
       say(!!r.moved && r.moved.quietMid, tag + ' mid-move the live region is silent (a screen reader hears the result once)', JSON.stringify(r.moved));
       say(!!r.moved && r.moved.msg === 'Moved 2 agents. They restart on the new account.', tag + ' and says how many moved and that they restart, still there after the list repaints with the agents gone', JSON.stringify(r.moved && r.moved.msg));
-      say(!!r.moved && r.moved.focus === 'sentence:/home/.claude-busy', tag + ' after the move, focus lands on the row\'s sentence (the pressed button is gone)', JSON.stringify(r.moved && r.moved.focus));
+      say(!!r.moved && r.moved.focus === 'list', tag + ' after the move, focus lands on the list (the pressed button is gone), not the sentence the status line already speaks', JSON.stringify(r.moved && r.moved.focus));
       say(!!r.moved && !!r.moved.redrawn && r.moved.redrawn.text === 'Moved 2 agents. They restart on the new account.' && r.moved.redrawn.role === null, tag + ' a later repaint keeps the sentence but does not announce it again', JSON.stringify(r.moved && r.moved.redrawn));
       say(r.expired === '', tag + ' two minutes on, a repaint shows the row plain again', JSON.stringify(r.expired));
       say(!!r.busyAfter && r.busyAfter.agents === 'No agents on it on this computer.', tag + ' after the move the busy row has no agents left (the repaint happened)', JSON.stringify(r.busyAfter && r.busyAfter.agents));
