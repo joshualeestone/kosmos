@@ -162,3 +162,78 @@ test('#6054 status: a permission prompt reads "waiting for your approval", even 
   const MENU = fs.readFileSync(path.join(SCREENS, 'question-menu-2.1.29x.txt'), 'utf8');
   assert.equal(status.classify(PANE, MENU).because, status.ASKING_GENERIC);
 });
+
+/* Review 1: the same Bash prompt, but for another command (its question line and its "1. Yes" are identical). */
+const BASH_OTHER = BASH.replace(/uuidgen/g, 'rmdir');
+/* A pane that shows `screens` in turn, one per capture, then the last one for good. */
+function armSequence(screens) {
+  const calls = [];
+  const queue = screens.slice();
+  chat.setRunner((args) => {
+    calls.push(args);
+    if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.296\t\t0\n', err: '' };
+    if (args[0] === 'capture-pane') { const s = queue.length > 1 ? queue.shift() : queue[0]; return { ran: true, spawnFailed: false, status: 0, out: s, err: '' }; }
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  });
+  chat.setDryRun(false);
+  chat.setPauser(() => {});
+  calls.keys = () => calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
+  return calls;
+}
+const idOf = (screen) => chat.questionAbove(chat.questionIn(screen, 'claude').text);
+
+test('#6054 review 1: a wrapped option still gets its button, with its whole label, and a press of it goes out as its digit', async () => {
+  const wrapped = BASH.replace('   2. Yes, and don’t ask again for: /usr/bin/uuidgen *', '   2. Yes, and don’t ask again for: /usr/bin/uuidgen --a-very-long-flag\n      --and-more *');
+  assert.equal(status.claudePermissionPrompt(wrapped).options[1].label, 'Yes, and don’t ask again for: /usr/bin/uuidgen --a-very-long-flag --and-more *');
+  await withPrompt(wrapped, async (calls) => {
+    const back = await getThread();
+    assert.ok(back.asked, 'a wrapped option left the prompt without buttons');
+    assert.equal(back.options.length, 4);
+    const two = back.options.find((o) => o.n === 2);
+    const r = await post({ text: '2', chose: two.label, asked: back.asked });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.deepEqual(calls.keys(), ['2']);
+  });
+});
+
+test('#6054 review 1: a typed digit at a permission prompt is not sent (it names no command); the refusal points at the buttons', async () => {
+  await withPrompt(BASH, async (calls) => {
+    const r = await post({ text: '1' });
+    assert.deepEqual(calls.keys(), [], 'a typed 1 approved a command nobody chose on this page');
+    assert.equal(calls.pasted(), '', 'the digit was pasted into the prompt');
+    assert.match(JSON.stringify(r.json), /buttons under its question on its page in Kosmos/);
+  });
+});
+
+test('#6054 review 1: the last look before the key refuses a prompt for another command, and a press with no identity', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: BASH })]);
+  try {
+    // The person saw uuidgen; by the last look the screen asks about rmdir. Same question line, same "1. Yes".
+    let calls = armSequence([BASH_OTHER]);
+    let r = await chat.answerQuestionMenu('casey', 1, board.agents, { question: 'Do you want to proceed?', label: 'Yes', identity: idOf(BASH) });
+    assert.deepEqual([r.ok, calls.keys()], [false, []], 'Yes went to a command the person never saw');
+    chat.resetForTests();
+    calls = armSequence([BASH]);
+    r = await chat.answerQuestionMenu('casey', 1, board.agents, { question: 'Do you want to proceed?', label: 'Yes' });
+    assert.deepEqual([r.ok, calls.keys()], [false, []], 'a permission prompt was answered with no identity to check');
+    chat.resetForTests();
+    // CONTROL: the identity the person saw, on the same screen, is answered.
+    calls = armSequence([BASH, IDLE]);
+    r = await chat.answerQuestionMenu('casey', 1, board.agents, { question: 'Do you want to proceed?', label: 'Yes', identity: idOf(BASH) });
+    assert.deepEqual([r.ok, calls.keys()], [true, ['1']], JSON.stringify(r));
+  } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#6054 review 1: the next command\'s prompt after the key is "answered", not "still asking" (that would invite a second press)', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: BASH })]);
+  try {
+    let calls = armSequence([BASH, BASH_OTHER]);
+    let r = await chat.answerQuestionMenu('casey', 1, board.agents, { question: 'Do you want to proceed?', label: 'Yes', identity: idOf(BASH) });
+    assert.deepEqual([r.ok, r.answered, calls.keys()], [true, true, ['1']], JSON.stringify(r));
+    chat.resetForTests();
+    // CONTROL: the same prompt still showing after the key is reported unconfirmed.
+    calls = armSequence([BASH, BASH]);
+    r = await chat.answerQuestionMenu('casey', 1, board.agents, { question: 'Do you want to proceed?', label: 'Yes', identity: idOf(BASH) });
+    assert.deepEqual([r.ok, r.answered], [true, false], 'the same prompt after the key was reported answered');
+  } finally { chat.resetForTests(); board.restore(); }
+});

@@ -1202,6 +1202,15 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   if (!menu) return { ok: false, because: 'its question is no longer on its screen, so nothing was sent' };
   const opt = menu.options.find((o) => o.n === Number(n));
   const e = expect || {};
+  /* #6054 review 1: a permission prompt's question line and labels repeat from one command to the next ("Do you want to
+     proceed?", "1. Yes"), so it is matched on what is above them (questionAbove: the command or the file), read on THIS
+     last look, and refused without one. A redraw to another command between the route's read and this one is then a
+     refusal, never a Yes to a command the person did not see. */
+  const idOf = (text) => { const q = questionIn(text, 'claude'); const a = q ? questionAbove(q.text) : null; return a ? cleanMessage(a).slice(0, 2000) : null; };
+  const idBefore = menu.permission ? idOf(before) : null;
+  if (menu.permission && (!e.identity || !idBefore || idBefore !== cleanMessage(e.identity).slice(0, 2000))) {
+    return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
+  }
   if (!opt || (e.question && e.question !== menu.question) || (e.label && cleanMessage(e.label) !== cleanMessage(opt.label))) {
     return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
   }
@@ -1211,7 +1220,10 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   const after = look();
   const still = after ? status.claudeAnswerableMenu(after) : null;
   // Review 3: a screen that could not be read after the key is not "answered": the record says unconfirmed.
-  return { ok: true, key: String(opt.n), label: opt.label, answered: !!after && !(still && still.question === menu.question), screen: after };
+  /* #6054 review 1: the same prompt still showing, by identity for a permission prompt: the NEXT command's prompt has the
+     same question line, and reading that as "not answered" would invite a second press that approves it. */
+  const same = still && (menu.permission ? (still.permission && idOf(after) === idBefore) : still.question === menu.question);
+  return { ok: true, key: String(opt.n), label: opt.label, answered: !!after && !same, screen: after };
 }
 /* Close the live question menu with Escape before a message goes (the person answered in their own words). Resolves
    { ok: true, closed } (closed: there was a menu and it went) or { ok: false, because }. No menu: { ok: true, closed: false }. */
@@ -2435,7 +2447,12 @@ const ANY_NUMBERED = new RegExp(`^(?:[${status.SELECTOR_GLYPHS}]\\s*)?\\d+[.)]\\
 function questionAbove(questionText) {
   // #5406 part 2: the question menu's identity is its question line.
   { const cq = status.claudeQuestionMenu(String(questionText == null ? '' : questionText)); if (cq) return cq.question; }
-  const opts = optionsIn(questionText);
+  /* #6054: a permission prompt's identity is every meaningful line above its options, by the same rule as below, and
+     NOT its question line: "Do you want to proceed?" is the same for every command, so only the command above it tells
+     one prompt from the next. Its options start right under its question line (status.claudePermissionPrompt), which
+     holds even where a wrapped label makes the line rule below refuse the menu. */
+  const pp = status.claudePermissionPrompt(String(questionText == null ? '' : questionText));
+  const opts = pp ? pp.options : optionsIn(questionText);
   if (!opts) return null;
   const lines = String(questionText == null ? '' : questionText).split('\n');
   /* Same glyph class as OPTION_LINE (#998), and it MUST be: this finds where
@@ -2450,7 +2467,7 @@ function questionAbove(questionText) {
      the consequence is a refused press, not a wrong one -- but a half-widened
      parser is still worse than an unwidened one. */
   const OPTION_START = new RegExp(`^(?:[${status.SELECTOR_GLYPHS}]\\s*)?[1-9][.)]\\s+\\S.*$`);
-  const first = lines.findIndex((l) => OPTION_START.test(
+  const first = pp ? pp.at + 1 : lines.findIndex((l) => OPTION_START.test(
     l.replace(/^\s*│\s?/, '').replace(/[\s│]+$/, '').replace(/^\s+/, '')));
   /**
    * ⚠️ EVERY MEANINGFUL LINE ABOVE THE RUN, and this rule has had three shapes.
@@ -2506,6 +2523,9 @@ function optionsIn(questionText) {
   /* #5406 part 2: Claude Code's question menu, read by its own parser (descriptions under options, and the
      "Type something." / "Chat about this" entries, which are not answers and get no button). */
   { const cq = status.claudeQuestionMenu(whole); if (cq) return cq.options.map((o) => ({ n: o.n, label: o.label })); }
+  /* #6054: Claude Code's permission prompt, by its own reader too, so the buttons the page draws are the options the key
+     path answers (a wrapped label is one whole option here, where the line rule below would refuse the menu). */
+  { const pp = status.claudePermissionPrompt(whole); if (pp) return pp.options.map((o) => ({ n: o.n, label: o.label })); }
   const found = [];
   let marked = false;
   const lines = whole.split('\n');

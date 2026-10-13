@@ -2535,6 +2535,7 @@ function claudePermissionPromptKind(text) {
    2 or more than 9 options (every answer is ONE key), or a control character in a label. A label wrapped onto an
    indented next line keeps its first line, as claudeQuestionMenu does. */
 function claudePermissionPrompt(text) {
+  if (safeguardsMenuAt(String(text == null ? '' : text))) return null;   // never the safeguards menu (#5051), as claudeQuestionMenu
   if (claudePermissionPromptKind(text) !== 'wording') return null;
   const lines = String(text == null ? '' : text).split('\n');
   let foot = -1;
@@ -2548,21 +2549,28 @@ function claudePermissionPrompt(text) {
   const opts = [];
   let selected = 0;
   let q = -1;
-  for (let i = foot - 1; i >= Math.max(0, foot - 20); i -= 1) {
+  /* Walked upward, so a wrapped label's next lines (indented, not an option) are met BEFORE their own option: they
+     wait in `wrap` and join that option's label, so the label is the whole option as drawn (review 1: a long Bash
+     command wraps option 2, and a first line alone would be a different label from the one the page shows). */
+  let wrap = [];
+  for (let i = foot - 1; i >= Math.max(0, foot - 30); i -= 1) {
     const l = lines[i];
     if (!l.trim()) continue;
     const m = CLAUDE_QMENU_OPTION.exec(l);
     if (m) {
+      const label = [m[3], ...wrap.map((w) => w.trim())].join(' ');
+      wrap = [];
       // eslint-disable-next-line no-control-regex
-      if (/[\u0000-\u001f\u007f]/.test(m[3])) return null;
-      opts.unshift({ n: Number(m[2]), label: m[3] });
+      if (/[\u0000-\u001f\u007f]/.test(label)) return null;
+      opts.unshift({ n: Number(m[2]), label });
       if (m[1]) selected += 1;
       continue;
     }
     if (CLAUDE_PERMISSION_QUESTION.test(l)) { q = i; break; }
-    if (/^\s{3,}\S/.test(l) && opts.length) continue;   // a wrapped option label's next line
+    if (/^\s{3,}\S/.test(l)) { wrap.unshift(l); continue; }   // a wrapped option label's next line
     return null;   // anything else between the options and the question: not the prompt as measured
   }
+  if (wrap.length) return null;   // indented text directly under the question, above the first option
   if (q < 0 || opts.length < 2 || opts.length > 9 || selected !== 1) return null;
   if (opts.some((o, k) => o.n !== k + 1)) return null;
   return { at: q, question: lines[q].trim(), options: opts, count: opts.length, permission: true };
