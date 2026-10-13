@@ -964,6 +964,11 @@ test('#6072 review 1: no give-up for an archived or paused project, or naming an
     const archived = projects.readAll().map((p) => (p.id === w.pid ? { ...p, archived: true } : p));
     const next = a.step({ prev: mem, roster: w.cards, setting: ON, records: archived, commitments: w.states(), now }).next;
     assert.equal(next.askGaveUp.has(w.pid), false, 'step kept the give-up of an archived project');
+    // Review 2: a pause keeps it (hidden when read), so a resume within the day still shows the stall.
+    const paused = projects.readAll().map((p) => (p.id === w.pid ? { ...p, paused: true } : p));
+    const whilePaused = a.step({ prev: mem, roster: w.cards, setting: ON, records: paused, commitments: w.states(), now }).next;
+    assert.equal(whilePaused.askGaveUp.has(w.pid), true, 'a pause dropped the give-up, so a resume hides the stall');
+    assert.ok(a.goalAskGaveUp(whilePaused, live, now), 'after a resume the give-up no longer shows');
     const kept = a.step({ prev: mem, roster: w.cards, setting: ON, records: projects.readAll(), commitments: w.states(), now }).next;
     assert.equal(kept.askGaveUp.has(w.pid), true, 'CONTROL: step keeps it while the project is live');
     const later = a.step({ prev: mem, roster: w.cards, setting: ON, records: projects.readAll(), commitments: w.states(), now: now + a.GOAL_ASK_MS }).next;

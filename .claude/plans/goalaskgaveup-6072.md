@@ -17,12 +17,17 @@ nothing for the day, and nothing said.
 
 ## Review 1
 - The record outlived its reason: now null for an archived or paused project and for an agent no longer on the project
-  (matched on its session, which the record now carries), and step() prunes entries for projects no longer live or
-  paused, and expired ones. The newest give-up is re-inserted so MEMORY_CAP keeps it. savedForm's Infinity is said.
+  (matched on its session, which the record now carries), and step() prunes entries for projects no longer live, and
+  expired ones (review 2 took paused out of the prune). The newest give-up is re-inserted so MEMORY_CAP keeps it. savedForm's Infinity is said.
 - That pruning made the landed-ask test pass without the clear (its re-ask was a day later, when pruning also removes
   it). The test now re-asks within the day, so only the clear can remove it; dropping the clear reds it again.
 - Not covered: a goal removed from BRIEF.md (step reads goals only for asked candidates, so it cannot tell "no goal"
   from "not read this tick"). It clears at the latest when the day ends.
+
+## Review 2
+- Pruning a PAUSED project's give-up re-hid the stall: its asked time stays, so after a resume nothing re-asks within
+  the day. step() now prunes only archived or gone projects (and expired records); a paused one is hidden when read.
+  A step test pins it (restoring the paused prune reds it).
 
 ## Slice 2 (not this branch)
 The words on the page. Not the Issue pill (Issue is an agent needing the person, #4730), and not the project tile

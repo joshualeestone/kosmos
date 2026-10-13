@@ -310,6 +310,7 @@ const GAVE_UP_BECAUSE = new Set(['could_not', 'threw']);
 function gaveUpRecord(v, now) {
   if (!v || typeof v !== 'object') return null;
   const { at, tries, agent, session, because } = v;
+  // tries: MAX_ASK_FAILS today; the 1000 ceiling only refuses a corrupt or hostile file's number.
   if (!Number.isFinite(at) || !Number.isInteger(tries) || tries < 1 || tries > 1000) return null;
   if (typeof agent !== 'string' || agent.length > 200 || !GAVE_UP_BECAUSE.has(because)) return null;
   if (typeof session !== 'string' || !session || session.length > 200) return null;
@@ -592,9 +593,10 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
     toAsk.push({ session, name: a.name || session, ...g });
   }
   const askFails = new Map(base.askFails instanceof Map ? base.askFails : []);
-  /* #6072: carried forward, minus any that no longer stand: expired (or a bad clock), or for a project that is no longer
-     live or is paused, where the Assigner does not ask at all. Review 1. */
-  const liveIds = new Set(projects.filter((p) => !require('./projects').isPaused(p)).map((p) => p.id));
+  /* #6072: carried forward, minus any that no longer stand: expired (or a bad clock), or for a project that is archived
+     or gone (review 1). NOT a paused one (review 2): its asked time stays, so after a resume nothing re-asks within the
+     day, and dropping the record would hide the stall again. A paused project's give-up is hidden when read instead. */
+  const liveIds = new Set(projects.map((p) => p.id));
   const askGaveUp = new Map([...(base.askGaveUp instanceof Map ? base.askGaveUp : new Map())]
     .filter(([pid, v]) => liveIds.has(pid) && gaveUpRecord(v, now)));
   return { toAssign, toAsk, next: { idleSince, log, asked, askLog, askFails, askedSig, limitedSince, limitedMiss, askGaveUp } };
