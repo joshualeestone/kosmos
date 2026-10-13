@@ -30,7 +30,10 @@ in flight when the browser closed, and a guard test refuses the shape coming bac
   forced edits in 80+ files with routes but no fetch and still miss the early-close shape.
 - Abort in the catch, not an empty catch: a real failure mid-check aborts the request and the check fails fast at
   its next assertion instead of hanging to a timeout.
-- Fixture-only handlers (fulfill with no await before it) are left alone: nothing is in flight.
+- Handlers with no fetch of their own are out of scope, including ones that await a timer or a held promise before
+  fulfilling (about 40; their answer can land after close too). A follow-up card, not this one (review 2).
+- An abort in a catch must chain its own .catch (the catch runs when the page may be gone), and fallback is checked
+  like fulfill and continue (review 2).
 - The card's reference files (render-login-expiry-3532, render-updates-stale, render-engine-restart-4408) unroute
   but had the fetch or the answer outside a try; they were hardened too, for the fail-fast half and so the guard has
   one rule.
