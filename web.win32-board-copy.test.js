@@ -294,6 +294,8 @@ test('one CSS rule hides the Mac-only surfaces, and it is on each one the audits
     'Open Terminal (W-18)': /<div class="field" data-win-hide[^>]*>\s*<button class="btn" id="d-open-terminal"/,
     // #4025: the App icon switch, until a Windows taskbar count exists to switch.
     'Settings App icon box': /<section class="dbox" data-win-hide data-linux-hide>\s*<h3 class="dlab">App icon<\/h3>/,
+    // #5977: the first-run Qwen row's "Add in Settings" pill; Windows cannot start a Qwen agent yet and shows "Coming to Windows".
+    'First-run Qwen pill': /<b>Qwen<\/b><small>Alibaba<\/small><\/div><span class="soon" data-win-hide>Add in Settings<\/span>/,
   };
   for (const [name, re] of Object.entries(HIDDEN_ON_WINDOWS)) assert.match(PAGE, re, `${name} is not hidden on Windows`);
   /* Counted on the MARKUP only (scripts, styles and comments stripped), so the rule and the

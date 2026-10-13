@@ -26365,7 +26365,8 @@ function acctChosenName(a) {
 /* #3566: the providers whose accounts are a pasted key (or, for OpenAI, a key or a
    ChatGPT sign-in), mapped to the engine's route word (/api/accounts/<route>).
    Everything not listed is a Claude account. */
-const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok', alibaba: 'qwen' };   // #5977: Qwen, an endpoint account on the codex runner
+// #5977: Qwen, an endpoint account on the codex runner.
+const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok', alibaba: 'qwen' };
 /* #3566: a keyed provider other than OpenAI (Gemini, Grok), whose sign-in and model picker
    are its own. (#3391: a Grok account may also be a subscription sign-in; that is started from
    Settings, AI Models or first run, not from the screens that use this.) Read from the route table. */
@@ -30942,7 +30943,7 @@ async function acctQwenLocalPaint() {
   }
   if (bar) bar.hidden = true;
   if (fig) fig.hidden = true;
-  const lastFailed = d && d.ok === false ? d.because.charAt(0).toUpperCase() + d.because.slice(1) + '. ' : '';
+  const lastFailed = d && d.ok === false ? asSentence(d.because) + ' ' : '';
   const state = s ? s.state : 'unknown';
   if (state === 'ready') { t.textContent = 'Qwen is set up on this computer.'; acctQwenLocalHideRow(row, t); ACCT_QWEN_LOCAL_ASK = ''; acctQwenAddBlock(false); return; }
   /* Not set up yet: Add waits. No Ollama, or an answer we could not read: Add stays open (the account is saved and
@@ -30986,15 +30987,14 @@ document.getElementById('acct-qwen-local-go').addEventListener('click', async ()
   let busy = false;   // round 2: a download already running (another tab): show its progress, not a dead button
   const mine = ACCT_QWEN_GEN;
   try {
-    const r = await fetch(ask === 'model' ? '/api/accounts/qwen/local/model' : '/api/accounts/qwen/local/download', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(ask === 'download' ? { confirm: true } : {}),
-    });
+    const init = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(ask === 'download' ? { confirm: true } : {}) };
+    const r = ask === 'model' ? await fetch('/api/accounts/qwen/local/model', init) : await fetch('/api/accounts/qwen/local/download', init);
     out = await r.json().catch(() => null);
     if (ACCT_QWEN_GEN !== mine) return;   // round 2: the step was put away during the request
     busy = r.status === 409;
     if (!r.ok) {
       const why = out && typeof out.because === 'string' && out.because ? out.because : 'that did not work just now';
-      t.textContent = why.charAt(0).toUpperCase() + why.slice(1) + (/[.)]$/.test(why) ? '' : '.');
+      t.textContent = asSentence(why);
     }
   } catch { t.textContent = 'We could not reach Kosmos just now.'; }
   if (ACCT_QWEN_GEN !== mine) return;

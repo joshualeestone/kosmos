@@ -4249,7 +4249,7 @@ test('#5029: the weekly-limit screen of a capped Claude Code reads as rate_limit
        #3660's guideFailure reads to switch the bubble to the hosted backup. A browser check would stub this
        state and pass on main too; this is the arm that reds there. */
     const failing = require('./setup-assistant').guideFailure({ ...r, runner: 'claude' });
-    assert.deepEqual(failing, { problem: STATE.RATE_LIMITED, runner: 'claude' },
+    assert.deepEqual(failing, { problem: STATE.RATE_LIMITED, runner: 'claude', providerName: 'Claude' },
       label + ': the Guide would stay silent: guideFailure gave ' + JSON.stringify(failing));
   }
 
@@ -4380,7 +4380,7 @@ test('#5031: a Claude limit whose own line says it has reset stops reading cappe
 
   const before = read(SCREEN, RESET - 60 * 1000);
   assert.equal(before.state, STATE.RATE_LIMITED, 'a minute BEFORE the reset the card must still read capped');
-  assert.deepEqual(guideFailure({ ...before, runner: 'claude' }), { problem: STATE.RATE_LIMITED, runner: 'claude' });
+  assert.deepEqual(guideFailure({ ...before, runner: 'claude' }), { problem: STATE.RATE_LIMITED, runner: 'claude', providerName: 'Claude' });
   /* After the reset the pane reads exactly as the same screen with no limit line on it ever did (here unknown: an
      at-rest Claude Code with nothing reported), not some relabel of the capped reading. */
   const after = read(SCREEN, RESET + 2 * 60 * 1000);
