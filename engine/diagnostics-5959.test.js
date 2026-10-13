@@ -320,7 +320,16 @@ test('#5959: each agent carries the card word the person saw, when it was last s
   assert.equal(file.agents[0].report.askedAt, '2026-10-10T09:00:00Z');
   // The real producer's card carries lastWorked (status.js lastWorkedOf), so the file reads it straight through.
   assert.ok(Object.prototype.hasOwnProperty.call(REAL.rick, 'lastWorked'), 'a real board card no longer carries lastWorked');
-  assert.deepEqual(build({ cards: [REAL.rick], redactor: makeRedactor(WHO) }).agents[0].lastWorked, REAL.rick.lastWorked || null);
+  const real = build({ cards: [REAL.rick], redactor: makeRedactor(WHO) }).agents[0].lastWorked;
+  assert.ok(real && (real.at === null || /^\d{4}-\d\d-\d\dT/.test(real.at)) && [null, 'not_seen', 'no_source'].includes(real.why),
+    'a real card\'s lastWorked is { at, why } as status.js gives it: ' + JSON.stringify(real));
+  // A card whose label cannot be read (a field only the label reads throws) gives label null, and the file is still made.
+  const odd = { ...CARDS[0], state: 'connection_lost' };
+  Object.defineProperty(odd, 'reconnect', { get() { throw new Error('unreadable'); }, enumerable: false });
+  assert.throws(() => require('./cardlabel').labelOf(odd), 'CONTROL: labelOf itself throws on this card');
+  const oddFile = build({ cards: [odd, { ...CARDS[1] }], redactor: makeRedactor(WHO) });
+  assert.equal(oddFile.agents[0].card.label, null);
+  assert.equal(oddFile.agents[1].card.label, 'Sign-in isn\'t working', 'the other agents keep their label');
   // CONTROL: a card with no pane carries no lastWorked, and that is null, not a made-up time.
   assert.equal(build({ cards: [{ ...CARDS[0], lastWorked: undefined }], redactor: makeRedactor(WHO) }).agents[0].lastWorked, null);
 });

@@ -10,6 +10,7 @@
    sentence (it quotes the vendor). A builder needs states and failures, not the conversation. */
 
 const { MAX_LINE_CHARS, MAX_LINES } = require('./logring');
+const cardlabel = require('./cardlabel');
 
 const FILE_VERSION = 1;
 const AGENT_LOG_LINES = 50;
@@ -63,8 +64,10 @@ function maskKeyBlocks(entries) {
   });
 }
 
+// A card whose fields cannot be read gives no label (null), and the file is still made. The module itself is required
+// at the top, so a broken cardlabel fails loudly rather than blanking every label.
 function labelOf(card) {
-  try { return require('./cardlabel').labelOf(card); } catch { return null; }
+  try { return cardlabel.labelOf(card); } catch { return null; }
 }
 
 function reportOf(readReport, sessionName) {
