@@ -399,5 +399,70 @@ function ensureWired(settingsPath, scriptPath, opts) {
   return { wired: true, changed: true };
 }
 
+/**
+ * #5999: take ONE install's report hooks back out of a Claude settings file (the Windows uninstall; #5998's
+ * setup.sh step is the Mac and Linux one, and its matching rules are these). A hook is this install's when it carries
+ * the marker AND that same string (the command, or an arg) names a path inside one of `roots`. Windows paths: matched
+ * without case and with either separator, and a root counts only at the start of the string or right after a quote
+ * or a space, so C:\Kosmos2 is not inside C:\Kosmos and D:\x\C:\Kosmos is not either. Everything else in the file
+ * stays: another install's hooks, a person's own, and a person's hook that shares an entry with ours (the entry is
+ * kept with theirs alone). An event left empty is removed, and `hooks` too when nothing is left in it.
+ * `dryRun` only says whether the file holds any. Returns { ours, changed, because? }; never throws for a shape.
+ * The caller holds the #3088 lock (filelock.withFileLock) around this, as wireDefaultHooks does around ensureWired.
+ */
+function unwireInstall(settingsPath, roots, opts) {
+  const o = opts || {};
+  const norm = (s) => String(s).replace(/\//g, '\\').toLowerCase();
+  const prefixes = [...new Set((roots || []).filter((r) => typeof r === 'string' && r.trim())
+    .map((r) => norm(r).replace(/\\+$/, '') + '\\'))];
+  if (!prefixes.length) return { ours: false, changed: false, because: 'Kosmos could not tell which folder it was installed in' };
+  const inside = (s) => {
+    if (typeof s !== 'string') return false;
+    const n = norm(s);
+    return prefixes.some((root) => {
+      for (let at = n.indexOf(root); at !== -1; at = n.indexOf(root, at + 1)) {
+        if (at === 0 || /["'\s]/.test(n[at - 1])) return true;
+      }
+      return false;
+    });
+  };
+  const carries = (s) => typeof s === 'string' && s.includes(MARKER) && inside(s);
+  const hookIsOurs = (h) => !!h && (carries(h.command) || (Array.isArray(h.args) && h.args.some(carries)));
+  let target;
+  try { target = fs.realpathSync(settingsPath); }
+  catch { return { ours: false, changed: false }; }   // absent, or a link to nothing: nothing of ours in it
+  const read = readSettings(target);
+  if (read.because) {
+    // Unreadable or not an object: never rewritten, only said, when it names this install's hook.
+    let raw = '';
+    try { raw = fs.readFileSync(target, 'utf8'); } catch { /* unreadable */ }
+    return { ours: raw.includes(MARKER) && inside(raw.replace(/\\\\/g, '\\')), changed: false, because: read.because };
+  }
+  const { data, prevMode } = read;
+  const hooks = data.hooks;
+  if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return { ours: false, changed: false };
+  let ours = false;
+  for (const event of Object.keys(hooks)) {
+    const list = hooks[event];
+    if (!Array.isArray(list)) continue;
+    const kept = [];
+    let mine = false;
+    for (const entry of list) {
+      if (!entry || !Array.isArray(entry.hooks) || !entry.hooks.some(hookIsOurs)) { kept.push(entry); continue; }
+      mine = true;
+      const rest = entry.hooks.filter((h) => !hookIsOurs(h));
+      if (rest.length) kept.push({ ...entry, hooks: rest });   // a person's hook shared our entry: theirs stays
+    }
+    if (!mine) continue;   // an event with nothing of ours is left exactly as it was
+    ours = true;
+    if (kept.length) hooks[event] = kept; else delete hooks[event];
+  }
+  if (!ours) return { ours: false, changed: false };
+  if (o.dryRun) return { ours: true, changed: false };
+  if (Object.keys(hooks).length === 0) delete data.hooks;
+  if (!writeSettings(target, data, prevMode)) return { ours: true, changed: false, because: 'we could not save the settings file' };
+  return { ours: true, changed: true };
+}
+
 module.exports = { HOOK_EVENTS, MARKER, hookScriptPath, entryFor, unsafeForCommand, entryIsOurs, ensureWired,
-  ephemeralMismatch, readSettings, writeSettings };
+  ephemeralMismatch, readSettings, writeSettings, unwireInstall };

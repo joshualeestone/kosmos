@@ -90,6 +90,7 @@ const RESTART_THEN_REMOVE_AGAIN = 'Restart your computer, then remove Kosmos aga
 
 const REFUSED_WITHOUT_CONFIRM = 'Kosmos was not removed, because the removal was not confirmed';
 const KOSMOS_STILL_OPEN = 'Kosmos is still open. Close Kosmos, then remove it again.';
+const HOOKS_BY_HAND = 'Until they are gone Claude Code may show a hook error; delete the entries naming kosmos-report-hook from that file';
 const STARTUP_UNREADABLE = 'Kosmos could not check whether it starts when you sign in. Nothing was removed. Try again in a minute.';
 const STARTUP_WOULD_NOT_SWITCH_OFF = 'Kosmos could not switch off the job that starts it when you sign in, so nothing was removed. Try again in a minute';
 
@@ -323,6 +324,44 @@ function leftoverList(failures) {
  *                                                  waited for; every later look counts it as still open.
  * A probe that cannot run is a failed look.
  */
+/* #5999: the Claude settings files Kosmos's report hooks may be in: the default account's (as the board wires it,
+   engine/accounts.js wireDefaultHooks, and trust.defaultAgentSettings's override) and every ~/.claude-* account's
+   (accounts.prepare). A folder that is not an account is still looked in: a hook of ours there errors the same. */
+function claudeSettingsFiles(home, env) {
+  const files = [env.AGENT_WORKFORCE_CLAUDE_SETTINGS || path.join(home, '.claude', 'settings.json')];
+  try {
+    for (const d of fs.readdirSync(home).sort()) if (d.startsWith('.claude-')) files.push(path.join(home, d, 'settings.json'));
+  } catch { /* no home listing: the default file alone */ }
+  return [...new Set(files)];
+}
+
+/* #5999: take THIS install's report hooks out of every Claude settings file. Left in, each one points at a script in
+   the folder the person deletes next, and Claude Code reports a hook error on every tool call from then on. Only
+   entries that are ours AND point inside `bundleRoot` go (reporthook.unwireInstall), under the #3088 lock the writers
+   take. A file that cannot be read, locked or saved is named, never rewritten wrong. */
+function unwireHooks(bundleRoot, home, env, done, left) {
+  const reporthook = require('./reporthook');
+  const filelock = require('./filelock');
+  const roots = [bundleRoot];
+  try { const real = fs.realpathSync.native(bundleRoot); if (real !== bundleRoot) roots.push(real); } catch { /* the given path is enough */ }
+  for (const file of claudeSettingsFiles(home, env)) {
+    const locked = filelock.withFileLock(file, () => reporthook.unwireInstall(file, roots),
+      { busy: 'another program was writing it', cannotAccess: 'its folder refused the lock file' });
+    let r;
+    if (locked && locked.ok === true) r = locked.value;
+    else {
+      // Not locked, so not touched. A read-only look says whether there was anything of ours to take out.
+      const look = reporthook.unwireInstall(file, roots, { dryRun: true });
+      r = { ours: look.ours, changed: false, because: (locked && locked.because) || 'it could not be locked' };
+    }
+    if (r.changed) done.push('took Kosmos\'s report hooks out of Claude Code\'s settings (' + file + ')');
+    else if (r.ours) {
+      left.push('Kosmos\'s report hooks in Claude Code\'s settings (' + file + '), which could not be taken out ('
+        + (r.because || 'the file did not change') + '). ' + HOOKS_BY_HAND);
+    }
+  }
+}
+
 async function boardOnPort(port, o) {
   const handoff = require('./win32handoff');
   /* Round 4, finding 1: every address a board of this user could be on, not 127.0.0.1 alone. */
@@ -536,6 +575,13 @@ async function uninstall(opts) {
   if (everyTaskGone && (await boardOnPort(port, o)).answering) {
     boardGone = false;
     left.push(KOSMOS_STILL_OPEN);
+  }
+
+  /* #5999: Claude Code's settings, once no board and no agent can wire the hooks back (both do, at start). Before the
+     folder goes, while the launcher still knows it: the person deletes it next. */
+  if (everyTaskGone && boardGone) {
+    if (o.bundleRoot) unwireHooks(o.bundleRoot, home, env, done, left);
+    else left.push('Kosmos\'s report hooks in Claude Code\'s settings, which were not checked because Kosmos could not tell which folder it was installed in. ' + HOOKS_BY_HAND.replace('that file', 'the settings.json files in your .claude folders'));
   }
 
   /* 8-9: the folders, only once nothing registered, and no board, still needs them. */
