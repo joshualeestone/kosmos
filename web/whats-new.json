@@ -4,7 +4,7 @@
     {
       "icon": "chat",
       "title": "Scroll back for earlier messages",
-      "line": "In a long conversation, scroll up and earlier messages load by themselves, and the message you were reading stays where it was."
+      "line": "In a long conversation with an agent, scroll up and earlier messages load by themselves, keeping your place."
     },
     {
       "icon": "spark",

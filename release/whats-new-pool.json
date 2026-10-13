@@ -346,7 +346,7 @@
     },
     {
       "title": "Subprojects are named with their project",
-      "line": "Task lists name a subproject with its project, as in \"Book A › Launch\", and project pickers as in \"Launch (3), in Book A\".",
+      "line": "Task lists name a subproject with its project, as in \"Book A \u203a Launch\", and project pickers as in \"Launch (3), in Book A\".",
       "icon": "tasks",
       "rank": 8.8,
       "since": "0.7.46",
@@ -362,7 +362,7 @@
     },
     {
       "title": "Scroll back for earlier messages",
-      "line": "In a long conversation, scroll up and earlier messages load by themselves, and the message you were reading stays where it was.",
+      "line": "In a long conversation with an agent, scroll up and earlier messages load by themselves, keeping your place.",
       "icon": "chat",
       "rank": 1,
       "since": "0.7.47",
@@ -389,15 +389,15 @@
     },
     {
       "title": "Moved agents keep your imports answer",
-      "line": "Moving a Claude agent to another Claude account carries your answer to the allow external imports question with it.",
+      "line": "Moving a Claude agent to another Claude account no longer asks the external imports question again once you answered it.",
       "icon": "list",
       "rank": 14.5,
       "since": "0.7.47",
       "status": "pending"
     },
     {
-      "title": "Gemini stays on the tested version",
-      "line": "A Gemini agent no longer updates the gemini program on its own, so it keeps the version Kosmos was tested with.",
+      "title": "Gemini agents stop updating gemini",
+      "line": "A new Gemini agent no longer lets the gemini program update itself, unless you chose to allow its updates.",
       "icon": "shield",
       "rank": 16,
       "since": "0.7.47",
