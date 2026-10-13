@@ -136,3 +136,21 @@ test('#6004: inside a test process, with the real seams, Meta\'s installer is ne
   assert.equal(r.ok, false);
   assert.match(r.because, /from a test/, 'a test process would have fetched and run Meta\'s real installer');
 });
+
+test('#6004: run with plain node (no --test flags) and the board never started, Meta\'s installer is never run', async () => {
+  setup();
+  museinstall.resetForTests();
+  museinstall.setPlatformForTests('darwin');
+  museinstall.allowSandboxInstallForTests(true);
+  const live = require('./live-execution');
+  live.resetForTests();   // the real-start gate closed, as it is until server.js starts for real
+  const argv = process.execArgv;
+  process.execArgv = [];   // as `node engine/museinstall.test.js` runs it: inTestProcess() reads false
+  let r;
+  try {
+    assert.equal(live.inTestProcess(), false, 'the plain-node case was not set up');
+    r = await museinstall.install();
+  } finally { process.execArgv = argv; museinstall.resetForTests(); }
+  assert.equal(r.ok, false);
+  assert.match(r.because, /only from a running board/, 'a plain-node test run would have fetched and run Meta\'s real installer');
+});

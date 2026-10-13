@@ -86,7 +86,7 @@ function version() {
 
 /** Whether Meta Muse shows anywhere: on a Mac (the only platform the runner is built for), ON by default since
     #3939's Muse Wonder release (2026-10-12): every provider list offers Meta, and a computer without Muse Code
-    is told to install Muse Code first. Two ways off, both support switches rather than settings:
+    is offered Muse Code's install first (#6004). Two ways off, both support switches rather than settings:
     AGENT_WORKFORCE_MUSE=0 (or false, off, no, as AGENT_WORKFORCE_ANTIGRAVITY reads) for one run, and the OFF MARKER (a file named muse-off in the Kosmos data folder),
     which lasts, because every install and update rewrites the board's launchd job with a fixed list of
     variables and so drops the variable. The old preview marker (muse-preview-on) is no longer read. */

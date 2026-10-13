@@ -55,7 +55,7 @@ let runInstall = (done) => {
   // --proto-redir as well: a redirect to plain http is refused, not followed into a script bash then runs.
   execSeam('/usr/bin/curl', ['-fsSL', '--proto', '=https', '--proto-redir', '=https', '-o', script, INSTALL_URL], { timeout: DOWNLOAD_MS, killSignal: 'SIGKILL' }, (err) => {
     if (err) { clean(); done(err); return; }
-    const child = execSeam('/bin/bash', [script], { cwd: dir, timeout: INSTALL_MS, killSignal: 'SIGKILL', env: installerEnv() }, (err2) => { clean(); done(err2); });
+    const child = execSeam('/bin/bash', [script], { cwd: dir, timeout: INSTALL_MS, killSignal: 'SIGKILL', maxBuffer: 64 * 1024 * 1024, env: installerEnv() }, (err2) => { clean(); done(err2); });
     // Nothing is typed into it: a step that prompts reads end-of-input and moves on.
     if (child && child.stdin) child.stdin.end();
   });
@@ -67,9 +67,13 @@ function installOnce() {
     if (!musestatus.enabled(platform())) { resolve({ ok: false, installed: false, because: 'Meta Muse is switched off on this computer' }); return; }
     if (musestatus.installed().installed) { resolve({ ok: true, installed: true }); return; }
     if (sandboxed()) { resolve({ ok: false, installed: false, because: 'this board is set to a different home, so Kosmos will not install Muse Code into this computer\'s own' }); return; }
-    // Convention 3 (engine/live-execution.js): a test process never fetches or runs Meta's real installer.
-    if (require('./live-execution').inTestProcess() && runInstall === REAL.runInstall && execSeam === REAL.execSeam) {
-      resolve({ ok: false, installed: false, because: 'Kosmos will not run Meta\'s installer from a test' }); return;
+    /* Convention 3 (engine/live-execution.js): only a board started for real fetches and runs Meta's real installer.
+       inTestProcess alone misses a test file run with plain `node` (no --test flags), so the real-start gate is
+       checked too: server.js opens it on its real-start path only. */
+    if (runInstall === REAL.runInstall && execSeam === REAL.execSeam) {
+      const live = require('./live-execution');
+      if (live.inTestProcess()) { resolve({ ok: false, installed: false, because: 'Kosmos will not run Meta\'s installer from a test' }); return; }
+      if (!live.liveExecutionAllowed()) { resolve({ ok: false, installed: false, because: 'Kosmos runs Meta\'s installer only from a running board' }); return; }
     }
     /* A hard cap of our own: an installer child that holds stdout would keep execFile's callback from firing, and an
        unsettled install would hold every later one (the shared run below). */
