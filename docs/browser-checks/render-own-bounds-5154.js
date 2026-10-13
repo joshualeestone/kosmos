@@ -32,8 +32,9 @@ const { chromium } = require('playwright');
       }, over);
       const raised = (cls, mins, over) => base(Object.assign({ isNamedOurs: true,
         ownBound: { raised: true, items: [{ cls, sinceAt: now - mins * 60000, forMs: mins * 60000, evidence: 'gave up after 3 tries that reached nothing' }], stale: [] } }, over));
-      // A quota give-up is NOT idle-gated (a paused Antigravity agent is not idle), so its card can be non-idle.
-      const quota = raised('quota', 20, { sessionName: 'q', name: 'Leo', state: 'working' });
+      // A quota give-up is NOT idle-gated. Use a realistic quota-paused state (rate_limited): the server would
+      // moot a quota give-up on a `working` agent (isMoot), so `working` + raised:true is a shape it never emits.
+      const quota = raised('quota', 20, { sessionName: 'q', name: 'Leo', state: 'rate_limited' });
       // The two nudges only ever fire for an idle agent (the board's mootness clear drops them otherwise).
       const nudge = raised('nudge', 15, { sessionName: 'n', name: 'Mia', state: 'idle' });
       const first = raised('firstreply', 10, { sessionName: 'f', name: 'Ray', state: 'idle' });
