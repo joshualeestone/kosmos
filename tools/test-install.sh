@@ -1228,7 +1228,7 @@ export KOSMOS_HOME="$SB/home2" KOSMOS_BIN_DIR="$SB/bin2"
 # override present (SYS_APP_DIR) and no profile named, the profile gate
 # must SKIP -- this is the arm that stops a harness run writing the
 # operator's real ~/.zprofile (leaked once, 2026-08-18, before the gate).
-RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_PROFILE_FILE= KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" KOSMOS_READONLY_APP= sh > "$SB/probe1.log" 2>&1 || RC=$?
+RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_PROFILE_FILE= KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" env -u KOSMOS_READONLY_APP sh > "$SB/probe1.log" 2>&1 || RC=$?
 chk "#4455: by default (the switch unset) the installed app is read-only" "[ ! -w \"$SB/home2/app/server.js\" ] && [ ! -w \"$SB/home2/app/engine\" ] && [ ! -w \"$SB/home2/app\" ]"
 chk "the profile gate skipped: no zprofile written under the sandbox HOME" "[ ! -e \"$SBH/.zprofile\" ]"
 chk "probe install exits 0" "rc_ok $RC"
