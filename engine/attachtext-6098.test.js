@@ -567,3 +567,31 @@ test('#6098 review 8: Type0 widths share one budget across the document (300 fon
   assert.ok(ms < 3000, 'took ' + ms + ' ms');
   assert.ok(process.memoryUsage().heapUsed - before < 200 * 1024 * 1024, 'heap grew too much');
 });
+
+/* ── review 9 ── */
+test('#6098 review 9: a new text block on the same line (a style change) adds no space where there is no gap', () => {
+  // size 1 under a scale of 10: a letter of the flat font advances 5 in user space, so "ab" ends at 50
+  const content = 'BT 10 0 0 10 40 745 Tm /F1 1 Tf (ab) Tj ET BT 10 0 0 10 50 745 Tm /F1 1 Tf (cd) Tj ET BT 10 0 0 10 66 745 Tm /F1 1 Tf (ef) Tj ET';
+  assert.equal(at.pdfTextJs(onePage(content, [FLAT])).pages[0], 'abcd ef');
+});
+
+test('#6098 review 9: table cells placed by BT x y Td stay on one line (FPDF, TCPDF)', () => {
+  const content = 'BT /F1 10 Tf 40 745 Td (ab) Tj ET BT /F1 10 Tf 80 745 Td (cd) Tj ET BT /F1 10 Tf 40 730 Td (ef) Tj ET';
+  assert.equal(at.pdfTextJs(onePage(content, [FLAT])).pages[0], 'ab cd\nef');
+});
+
+test('#6098 review 9: an inline image\'s bytes do not swallow the text after it', () => {
+  for (const bytes of ['a(bc', 'ab%c', 'xEIy']) {
+    const content = 'q BI /W 4 /H 1 /BPC 8 /CS /G ID ' + bytes + ' EI Q BT /F1 10 Tf 72 700 Td (Hello) Tj ET';
+    assert.equal(at.pdfTextJs(onePage(content, [FLAT])).pages[0], 'Hello', bytes);
+  }
+});
+
+test('#6098 review 9: Kangxi radicals from a ToUnicode map read as the characters they stand for', () => {
+  const cmap = '/CIDInit /ProcSet findresource begin 12 dict begin begincmap 1 begincodespacerange <0000> <FFFF> endcodespacerange 2 beginbfchar <0001> <4F7F> <0002> <2F64> endbfchar endcmap end end';
+  const doc = pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>'], [4, streamObj('', 'BT /F1 10 Tf 72 700 Td <00010002> Tj ET')],
+    [5, '<< /Type /Font /Subtype /Type0 /Encoding /Identity-H /DescendantFonts [6 0 R] /ToUnicode 7 0 R >>'],
+    [6, '<< /Type /Font /Subtype /CIDFontType2 /DW 1000 >>'], [7, streamObj('', cmap)]]);
+  assert.equal(at.pdfTextJs(doc).pages[0], '使用');
+});
