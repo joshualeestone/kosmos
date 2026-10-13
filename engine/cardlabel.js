@@ -14,6 +14,7 @@ const STATE_COPY = Object.freeze({
   working: 'Working',
   needs_you: 'Issue',
   question: 'Question',
+  approval: 'Waiting for you',   // #6091
   rate_limited: 'Paused',
   auth_failed: "Sign-in isn't working",
   connection_lost: 'Connection lost',
@@ -47,6 +48,8 @@ function labelOf(a) {
   if (a && a.crashLoop && a.crashLoop.looping === true) return 'Keeps stopping';
   if (a && a.state === 'restarting') return restartingLabel(a);
   if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') return STATE_COPY.question;
+  // #6091: a permission prompt (status.APPROVAL_WAITING; web.approval-pill-6091.test.js pins the string).
+  if (a && a.state === 'needs_you' && a.because === 'it is waiting for your approval') return STATE_COPY.approval;
   if (a && a.state === 'connection_lost' && a.reconnect
     && (a.reconnect.phase === 'waiting' || a.reconnect.phase === 'retried')) return 'Reconnecting…';
   const s = a && typeof a.state === 'string' && Object.prototype.hasOwnProperty.call(STATE_COPY, a.state) ? a.state : 'unknown';
