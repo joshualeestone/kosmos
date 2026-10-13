@@ -19411,6 +19411,18 @@ const server = http.createServer(async (req, res) => {
           if (rows[i] && rows[i].kind === 'external') { if (outside >= outsideCap) continue; outside += 1; }
           tail.unshift(rows[i]);
         }
+        /* #4926: an agent that read the room with its own token has now SEEN these posts, so none of them is still held
+           for it: otherwise its next idle line tells it again about a thread it read and answered (Josh's 0.7.46 report,
+           a Grok seat). Only on a GET by an identified agent; only the posts this read showed. Best effort: a failure
+           leaves them held, which is the old behaviour, never a lost post. */
+        if (req.method === 'GET') {
+          try {
+            const reader = senderFromAgentToken(req, null, safeRoster());
+            const who = reader && reader.ok && reader.card && typeof reader.card.sessionName === 'string' ? reader.card.sessionName : null;
+            const shownIds = tail.filter((m) => m && m.kind === 'post' && typeof m.id === 'string').map((m) => m.id);
+            if (who && shownIds.length) roomhold.dropShown(who, id, shownIds);
+          } catch { /* the posts stay held */ }
+        }
         const lines = tail.flatMap((m) => {
           const when = messages.roomClock(m.at, zone);
           if (m.kind === 'valve') return [when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.')];
