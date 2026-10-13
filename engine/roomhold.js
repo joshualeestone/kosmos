@@ -262,8 +262,11 @@ function forgetProject(name, projectId) {
    next idle line must not tell it, again, about a thread it has read (and may have answered in plain words, which R2's
    replyTo rule cannot see). Ids it was not shown (held after the read, or older than the rows it asked for) stay held.
    Returns how many were dropped; 0 when none, or when the held file could not be read or written (they stay held).
-   Review 2: the read and the write are one synchronous step, and held lists are written only by the board process
-   (messages.js, server.js, and remove.js through the board), so no hold can land between them and be overwritten. */
+   Review 2: the read and the write are one synchronous step, and every hold, take and restore runs in the board process
+   (messages.js, server.js), so no hold can land between them and be overwritten. Review 4 corrected my first wording:
+   remove.js can also run from a separate tool (tools/cleanup-fixture-tokens-5418.js), where `forget` deletes a removed
+   agent's whole file; a drop that read just before that delete would write that agent's list back. Not traced further:
+   it needs a room read by the agent being removed, in the same instant. */
 function dropShown(name, projectId, shownIds) {
   try {
     const shown = new Set((Array.isArray(shownIds) ? shownIds : []).filter((x) => typeof x === 'string').map(plainId));
