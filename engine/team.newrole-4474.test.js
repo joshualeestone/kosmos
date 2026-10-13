@@ -172,7 +172,9 @@ test('#4474: every field create reads is either one an agent may send or one it 
   // never carries it (AGENT_MEMBER_KEYS strips it), so a brief cannot be layered in by an agent.
   // createdByName, askedAt (kosmos#4475): set by engine/team.js for every member, so an agent's own value is overwritten.
   const NOT_FROM_AN_AGENT = ['platform', 'configDir', 'accountDir', 'pickedByPerson', 'runner', 'createdBy', 'purpose', 'createdByName', 'askedAt',
-    'claudeBin', 'codexBin', 'tmuxBin', 'museBin', 'grokBin', 'geminiBin', 'antigravityBin', 'teamInstructions'];
+    'claudeBin', 'codexBin', 'tmuxBin', 'museBin', 'grokBin', 'geminiBin', 'antigravityBin', 'teamInstructions',
+    // carryImports (kosmos#6063): only setProvider passes it, to setAccount; createAgent never reads it.
+    'carryImports'];
   assert.ok(read.has('claudeBin') && read.has('reportsTo'), 'CONTROL: the scan of create.js found nothing');
   const unsorted = [...read].filter((k) => !team.AGENT_MEMBER_KEYS.includes(k) && !NOT_FROM_AN_AGENT.includes(k));
   assert.deepEqual(unsorted, [], 'create reads a field nobody decided whether an agent may send: ' + unsorted.join(', '));

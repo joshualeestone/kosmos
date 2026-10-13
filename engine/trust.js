@@ -959,4 +959,93 @@ function folderTrusted(dir, opts) {
   return entry[KEY] === true;
 }
 
-module.exports = { trustFolder, forgetFolder, folderTrusted, preacceptBypass, preacceptOnboarding, KEY, BYPASS_KEY, SWITCH_KEY, ONBOARDING_KEY, recordWrite, recordedWrite, dropRecord, defaultAgentConfig, defaultAgentSettings, canonicalOnDisk };
+/* #6063. Claude Code asks "allow external imports?" once per folder PER ACCOUNT, when the agent's CLAUDE.md (or a
+   file it imports) pulls in files outside the folder. Read in the shipped 2.1.296 binary, not remembered: it asks
+   only when BOTH keys below are falsy in projects[<folder>] and such imports exist, and its answer writes exactly
+   these two (approved = the answer, shown = true). Only that one version was read. */
+const IMPORTS_KEY = 'hasClaudeMdExternalIncludesApproved';
+const IMPORTS_SHOWN_KEY = 'hasClaudeMdExternalIncludesWarningShown';
+
+/** The entry for `key` in an account's config, read without writing: an object, or null when there is none to read. */
+function readProjectEntry(target, key) {
+  let data;
+  try { data = JSON.parse(fs.readFileSync(target, 'utf8')); }
+  catch { return null; }
+  const projects = data && typeof data === 'object' && !Array.isArray(data) ? data.projects : null;
+  if (!projects || typeof projects !== 'object' || Array.isArray(projects)) return null;
+  if (!Object.prototype.hasOwnProperty.call(projects, key)) return null;
+  const entry = projects[key];
+  return entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : null;
+}
+
+/** Whether an entry records an answer to the external imports question (either answer; `shown` alone is a No). */
+const importsAnswered = (entry) => !!entry && (entry[IMPORTS_KEY] === true || entry[IMPORTS_SHOWN_KEY] === true);
+
+/**
+ * #6063: carry the person's own answer to "allow external imports?" for one folder from the account an agent is
+ * leaving to the account it is moving to, so the agent does not come up waiting on a question nobody is watching.
+ *
+ * 🛑 IT NEVER ANSWERS FOR THE PERSON. It copies an answer only when the old account holds one, and copies it as it
+ * was: a No stays a No (the question stays answered and the imports stay off, as they were). No answer on the old
+ * account writes nothing, and the question is then asked on the new account, which is right. Only a real true or
+ * false is copied; any other value in the old entry is left behind.
+ * ⚠️ IT LOOKS UNDER THE FOLDER'S OWN PATH ONLY. For a folder inside a git repository Claude Code 2.1.296 keeps this
+ * answer under the repository's root, so for such a folder this finds nothing, carries nothing, and the agent is
+ * asked again. The folders Kosmos makes are not inside one. Read in the binary, not run.
+ * ⚠️ THE ANSWER IS KEYED BY PATH, so it is the answer for whatever folder held that path when it was given. Claude
+ * Code honours it the same way on the old account; a move extends it to one more account of the same person.
+ * ⚠️ An answer already on the new account wins and is left alone: it is that account's own answer.
+ *
+ * It never creates the new account's config file: `trustFolder` runs first on a move and does that. It reads the old
+ * account's file and never writes it. Same read-modify-write hazard as `trustFolder` (a running Claude Code on the
+ * new account can drop the write on its next save); nothing here detects it.
+ *
+ * @param {string} dir the agent's working directory.
+ * @param {{fromConfigDir?: string|null, configDir?: string|null}} opts the account being left and the one moved to;
+ *   null or absent means the default account, read where a default-account agent reads it (defaultAgentConfig).
+ * @returns {{ok: true, carried: boolean, because?: string, approved?: boolean} | {ok: false, because: string}}
+ */
+function carryExternalImports(dir, opts) {
+  const from = configTarget({ configDir: (opts && opts.fromConfigDir) || null, agentDefaultAccount: !(opts && opts.fromConfigDir) });
+  const target = configTarget({ configDir: (opts && opts.configDir) || null, agentDefaultAccount: !(opts && opts.configDir) });
+  if (!dir || !path.isAbsolute(dir)) return { ok: false, because: 'that is not an absolute folder path' };
+  let key;
+  try { key = fs.realpathSync.native(dir); }
+  catch { return { ok: false, because: 'that folder is not there' }; }
+  key = key.split(path.sep).join('/');   // Claude Code's spelling on Windows, as in trustFolder
+  if (path.resolve(from) === path.resolve(target)) return { ok: true, carried: false, because: 'the account did not change' };
+  const old = readProjectEntry(from, key);
+  if (!importsAnswered(old)) return { ok: true, carried: false, because: 'there was no answer under this folder on the account it left' };
+  const answer = {};
+  if (typeof old[IMPORTS_KEY] === 'boolean') answer[IMPORTS_KEY] = old[IMPORTS_KEY];
+  if (typeof old[IMPORTS_SHOWN_KEY] === 'boolean') answer[IMPORTS_SHOWN_KEY] = old[IMPORTS_SHOWN_KEY];
+  const r = withWriteLock(target, () => {
+    try { if (fs.lstatSync(target).isSymbolicLink()) return { ok: false, because: 'their config file is a symlink' }; }
+    catch { return { ok: false, because: 'that account has no config file yet' }; }
+    let data;
+    let prevMode;
+    try {
+      prevMode = fs.statSync(target).mode & 0o7777;
+      data = JSON.parse(fs.readFileSync(target, 'utf8'));
+    } catch { return { ok: false, because: 'we could not read their config file' }; }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return { ok: false, because: 'their config file is not shaped the way we expect' };
+    }
+    const projects = data.projects;
+    if (projects !== undefined && (projects === null || typeof projects !== 'object' || Array.isArray(projects))) {
+      return { ok: false, because: 'their config file is not shaped the way we expect' };
+    }
+    const existing = projects && Object.prototype.hasOwnProperty.call(projects, key) ? projects[key] : undefined;
+    if (existing !== undefined && (existing === null || typeof existing !== 'object' || Array.isArray(existing))) {
+      return { ok: false, because: 'their config file is not shaped the way we expect' };
+    }
+    if (importsAnswered(existing)) return { ok: true, carried: false, because: 'the account it moved to already has an answer' };
+    if (!data.projects) data.projects = {};
+    data.projects[key] = Object.assign({}, existing || {}, answer);   // merge: the entry can hold their tools and servers
+    if (!saveConfig(target, data, prevMode)) return { ok: false, because: 'we could not write to their config file' };
+    return { ok: true, carried: true, approved: data.projects[key][IMPORTS_KEY] === true };
+  });
+  return r.ok ? r.value : { ok: false, because: r.because };
+}
+
+module.exports = { trustFolder, forgetFolder, folderTrusted, preacceptBypass, preacceptOnboarding, carryExternalImports, IMPORTS_KEY, IMPORTS_SHOWN_KEY, KEY, BYPASS_KEY, SWITCH_KEY, ONBOARDING_KEY, recordWrite, recordedWrite, dropRecord, defaultAgentConfig, defaultAgentSettings, canonicalOnDisk };
