@@ -2,7 +2,7 @@
 
 Card: joshualeestone/kosmos#5907. `tools/test-bc-surface-map.sh` took 89-128 s in the shell stage. Its query helper's
 `covering` read every check's annotation and ran one grep per declared token (about 9-12 s a query), and the test runs
-many queries. Stacked on `bcsgfast-5907`, whose `bc_surface_scan_checks` (in the shared lib) this reuses.
+many queries. It reuses `bc_surface_scan_checks` in the shared lib, on main since bcsgfast-5907 (#6028); this branch was stacked on it until then.
 
 ## The change
 `_bcm_covering` reads `bc_surface_scan_checks`: a HIT check is covering, a MISS check is not, and a SLOW check (a
