@@ -127,13 +127,14 @@ const { chromium } = require('playwright');
      is `34px 1fr` and .lmodel was not sent to column 2, so it auto-placed into
      the avatar's 34px column beside the memory bar. Every model, whatever its
      name, read as three letters and an ellipsis.
-     🔑 Per running row: the model's text is present and whole (scrollWidth fits
-     its own box, so no ellipsis is drawn), it starts where the name starts and
-     sits below the name, and the memory bar starts there too, on a line below
-     the model. Per not-running row (which has no model): the empty model cell
-     takes no line. And the page has no sideways scroll. Read at 390 and 360,
-     the two widths the card names. At least one running row is required, so a
-     board with nothing to measure cannot pass. */
+     🔑 Per running row: the model's text is present, its cell is at least
+     150px wide (the cut cell was 34 to 49px; the model now wraps at this width,
+     so a no-overflow test alone would pass in any column), it starts where the
+     name starts and sits below the name, and the memory bar starts there too,
+     on a line below the model. Per not-running row (which has no model): the
+     empty model cell takes no line. And the page has no sideways scroll. Read
+     at 390 and 360, the two widths the card names. At least one row of each
+     kind is required, so neither loop can pass by having nothing to measure. */
   for (const width of [390, 360]) {
     const ph = await b.newPage({ viewport: { width, height: 844 }, colorScheme: 'light' });
     await ph.goto(URL, { waitUntil: 'networkidle' });
@@ -154,13 +155,15 @@ const { chromium } = require('playwright');
     say(on.length > 0, 'at ' + width + 'px the list has running rows to read', rows.length + ' rows, ' + on.length + ' running');
     for (const r of on) {
       const at = 'at ' + width + 'px ' + r.agent;
-      say(!!r.text && r.whole, at + "'s model shows in full", JSON.stringify(r));
+      say(!!r.text && r.whole && !!r.model && r.model.width >= 150, at + "'s model has a full-width line of its own", JSON.stringify(r));
       say(!!r.model && !!r.name && r.model.left === r.name.left && r.model.top >= r.name.bottom,
         at + "'s model sits under the name, not in the avatar column", JSON.stringify(r));
       say(!!r.mem && !!r.model && r.mem.left === r.name.left && r.mem.top >= r.model.bottom,
         at + "'s memory bar has its own line below the model", JSON.stringify(r));
     }
-    for (const r of rows.filter((x) => !x.running)) {
+    const off = rows.filter((x) => !x.running);
+    say(off.length > 0, 'at ' + width + 'px the list has a not-running row to read', rows.length + ' rows, ' + off.length + ' not running');
+    for (const r of off) {
       say(r.model === null, 'at ' + width + 'px ' + r.agent + "'s empty model cell takes no line", JSON.stringify(r));
     }
     say(sideways <= 0, 'at ' + width + 'px the page does not scroll sideways', String(sideways));
