@@ -143,3 +143,22 @@ test('a person\'s older claude on PATH keeps the event out of the default folder
   assert.equal(accounts.defaultFolderClaudeVersion(process.platform, { PATH: dir }), null);
   assert.equal(accounts.defaultFolderClaudeVersion(process.platform, { PATH: '' }), null, 'nothing found is unknown');
 });
+
+test('oldestClaudeVersion on win32: a claude.cmd (an npm install) makes the answer unknown', () => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'winbins-'));
+  fs.writeFileSync(path.join(dir, 'claude.cmd'), '@echo off\n');
+  const versionOf = () => '2.1.296';
+  assert.equal(reporthook.oldestClaudeVersion([path.join(dir, 'claude')], { platform: 'win32', versionOf }), null);
+  assert.equal(reporthook.oldestClaudeVersion([path.join(dir, 'claude')], { platform: 'darwin', versionOf }), null,
+    'off win32 the bare name only: nothing there, so unknown');
+});
+
+test('the default folder also looks where a claude is usually installed, not only on PATH (an nvm copy here)', () => {
+  const accounts = require('./accounts');
+  assert.equal(accounts.defaultFolderClaudeVersion('darwin', { PATH: '' }), null, 'nothing installed: unknown');
+  const bin = path.join(SANDBOX, '.nvm', 'versions', 'node', 'v22.0.0', 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  /* node stands in for claude, as above: it prints a dotted version. */
+  fs.symlinkSync(process.execPath, path.join(bin, 'claude'));
+  assert.equal(accounts.defaultFolderClaudeVersion('darwin', { PATH: '' }), process.versions.node);
+});

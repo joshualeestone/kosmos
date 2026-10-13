@@ -6,7 +6,7 @@
  * The hook script (install/kosmos-report-hook.sh, staged to app/bin/ in the
  * bundle) is what makes #526's verb speak: Claude Code fires it on the
  * events in HOOK_EVENTS (seven report events), plus PostToolUseFailure on a Claude Code new enough (#6071)
- * and it runs `kosmos report`. This module is THE ONE merge
+ * and it runs `kosmos report` (`kosmos tool-failed` for PostToolUseFailure). This module is THE ONE merge
  * implementation that wires those entries into a settings file --
  * required by `accounts.prepare` (an account dir is born with its hooks, the
  * #248 born-correct-or-not-born rule) and invoked by install/setup.sh
@@ -87,6 +87,8 @@ function claudeVersion(bin, opts) {
       const m = /(\d+\.\d+\.\d+)/.exec(String(out || ''));
       v = m ? m[1] : null;
     } catch { v = null; }
+    // Said once per program and ten minutes (the cache), so "is D1 counting here?" can be read from the log.
+    if (!v) console.error('[reporthook] could not read the version of ' + path.basename(b) + ', so PostToolUseFailure is not wired for it');
     versionCache.set(key, { v, at: Date.now() });
     return v;
   }
@@ -103,14 +105,19 @@ function oldestClaudeVersion(bins, opts) {
   let oldest = null;
   for (const bin of bins || []) {
     if (!bin) continue;
-    const spellings = plat === 'win32' && !/\.[A-Za-z0-9]+$/.test(bin) ? [bin, bin + '.exe'] : [bin];
-    let real = null;
-    for (const b of spellings) { try { real = fs.realpathSync(b); break; } catch { /* not this spelling */ } }
-    if (!real || seen.has(real)) continue;
-    seen.add(real);
-    const v = (opts && typeof opts.versionOf === 'function' ? opts.versionOf : claudeVersion)(real, opts);
-    if (!v) return null;
-    if (oldest === null || !versionAtLeast(v, oldest)) oldest = v;
+    /* On win32 every spelling is looked at: an npm install there is claude.cmd and claude.ps1 beside a bare sh shim. */
+    const spellings = plat === 'win32' && !/\.[A-Za-z0-9]+$/.test(bin) ? [bin, bin + '.exe', bin + '.cmd', bin + '.ps1'] : [bin];
+    for (const b of spellings) {
+      let real;
+      try { real = fs.realpathSync(b); } catch { continue; }   // not this spelling
+      if (seen.has(real)) continue;
+      seen.add(real);
+      // A .cmd or .ps1 cannot be run without a shell, so its version is unknown, and so is the answer.
+      if (/\.(cmd|ps1)$/i.test(real)) return null;
+      const v = (opts && typeof opts.versionOf === 'function' ? opts.versionOf : claudeVersion)(real, opts);
+      if (!v) return null;
+      if (oldest === null || !versionAtLeast(v, oldest)) oldest = v;
+    }
   }
   return oldest;
 }
