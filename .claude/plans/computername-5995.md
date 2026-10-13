@@ -313,3 +313,17 @@ NITs, not applied: `keepComputerNameChoice` answers a `name` its one caller does
 file a second time to tell "absent" from "unreadable" (it says why); sending both `computer_name` and
 `device_name` is not refused.
 The loop ends here at 14 rounds: 4 on the first design, 10 on the name-rides-the-start design, models alternating.
+
+## The first real browser run (2026-10-12 21:54 CDT), after the review converged
+The check had never run in a browser. Its first run, at b0e4ab534, was red in two files. Neither red was the page.
+- `render-plus-computer-name-5995.js`, 2 red: "the explanation can be read", ratio 2.19, in dark and at phone width.
+  The check walked up to the first opaque background COLOUR. The card paints a gradient, so there is none, and it
+  fell back to white: 2.19 is the text's colour against white. Measured from the run's own screenshot, the painted
+  text against the painted card is about 7 to 1 (brightest text pixel 159,176,208 on 22,37,70). The check now
+  composites the text over each of the card's two gradient stops, read from the card, and asks for 4.5 to 1 (it
+  asked for 3), with a control on the arithmetic and a failure when the card's gradient is not found.
+- `render-plus-signin-3478.js`, 8 red: four counts of the sign-in card's inputs (9 and 10) in two themes and in
+  WebKit. The new box is an eleventh input in the pane and a tenth in the wizard. Every separation it measures on the
+  ten passed; only the counts were old. The counts are 10 and 11 now.
+- The other two checks in the run (`render-plus-signin-enter-0929.js`, `render-plus-company-5628.js`) exited 0.
+- These are changes to two checks that no reviewer has seen, and neither has run since. The rerun is queued.

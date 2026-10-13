@@ -100,21 +100,35 @@ async function shownName(page) {
   await page.waitForFunction(() => { const f = document.getElementById('plus-si-computer-field'); return f && !f.hidden; }, null, { timeout: 5000 }).catch(() => {});
   return valueOf(page, 'plus-si-computer');
 }
-/* The contrast ratio between the explanation's text and the first painted background behind it (the card's, not
-   the page's): WCAG's relative-luminance formula. 0 when the text is hidden or fully transparent. */
+/* The contrast ratio between the explanation's text and the card it sits on: WCAG's relative-luminance formula.
+   The card (#plus-state2) paints a GRADIENT, so it has no background colour to read: the first version of this
+   walked up to the first opaque background colour, found none, fell back to white and reported 2.19 for text that
+   is plainly readable (its first real run, 2026-10-12). So the text is composited over EACH of the card's two stops
+   and the worse ratio is the answer, as render-plus-signin-3478.js measures its borders. The stops are read from
+   the card's own painted gradient, never typed here: `stops` comes back with the answer, and a card that stops
+   painting a two-colour gradient is a failure, not a pass against old colours. 0 when the text is hidden or fully
+   transparent. Not seen: anything painted between the card and the text by an element that is not an ancestor. */
 const hintContrast = (page) => page.evaluate(() => {
-  const rgba = (c) => { const m = /rgba?\(([^)]+)\)/.exec(c); if (!m) return null; const p = m[1].split(',').map((x) => parseFloat(x)); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
-  const lum = (c) => { const f = (v) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+  const all = (c) => (String(c).match(/rgba?\([^)]+\)/g) || []).map((x) => { const p = x.slice(x.indexOf('(') + 1, -1).split(/[\s,/]+/).filter(Boolean).map(Number); return { rgb: p.slice(0, 3), a: p.length > 3 ? p[3] : 1 }; });
+  const lum = (rgb) => { const f = rgb.map((v) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); }); return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2]; };
+  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const over = (c, bg) => c.rgb.map((v, i) => v * c.a + bg[i] * (1 - c.a));
   const e = document.getElementById('plus-si-computer-hint');
   const cs = getComputedStyle(e);
-  const text = rgba(cs.color);
-  if (!text || text.a === 0 || Number(cs.opacity) === 0 || cs.visibility !== 'visible') return 0;
-  let behind = null;
-  for (let n = e; n && !behind; n = n.parentElement) { const bg = rgba(getComputedStyle(n).backgroundColor); if (bg && bg.a > 0.5) behind = bg; }
-  if (!behind) behind = { r: 255, g: 255, b: 255, a: 1 };
-  const a = lum(text), b = lum(behind);
-  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  const text = all(cs.color)[0];
+  const card = document.getElementById('plus-state2');
+  const stops = card ? all(getComputedStyle(card).backgroundImage).filter((c) => c.a === 1).map((c) => c.rgb) : [];
+  if (!text || text.a === 0 || Number(cs.opacity) === 0 || cs.visibility !== 'visible') return { ratio: 0, stops: stops.length };
+  /* A layer between the text and the card with a colour of its own would be the real ground, and this would not see it. */
+  let between = 0;
+  for (let n = e.parentElement; n && n !== card; n = n.parentElement) { const bg = all(getComputedStyle(n).backgroundColor)[0]; if ((bg && bg.a > 0) || getComputedStyle(n).backgroundImage !== 'none') between += 1; }
+  if (stops.length !== 2 || !card.contains(e)) return { ratio: 0, stops: stops.length, between };
+  return { ratio: Math.min(...stops.map((st) => ratio(over(text, st), st))), stops: stops.length, between, sample: ratio([0, 0, 0], [255, 255, 255]) };
 });
+/* What "can be read" means here: AA for body text, 4.5 to 1, on a card whose gradient was found (two stops), with
+   nothing painted between the two, and with the arithmetic checked (black on white is exactly 21). */
+const readable = (c) => c.ratio >= 4.5 && c.stops === 2 && c.between === 0 && c.sample === 21;
+const readableSays = (c) => 'ratio ' + c.ratio.toFixed(2) + ', stops ' + c.stops + ', layers between ' + c.between;
 /* What a failing check may say about a name: never the name. */
 const about = (got, want) => 'matched: ' + (got === want) + ', length ' + String(got == null ? 0 : got.length);
 async function codeStep(page) {
@@ -150,7 +164,7 @@ async function codeStep(page) {
       const fits = await page.evaluate(() => { const e = document.getElementById('plus-si-computer-hint'); const c = document.getElementById('plus-state2'); return e.getBoundingClientRect().right <= c.getBoundingClientRect().right + 1 && document.documentElement.scrollWidth <= window.innerWidth; });
       chk(fits, 'the explanation stays inside the card and the page does not scroll sideways');
       const ratioDark = await hintContrast(page);
-      chk(ratioDark >= 3, 'dark: the explanation can be read against what is behind it (contrast at least 3 to 1)', 'ratio ' + ratioDark.toFixed(2));
+      chk(readable(ratioDark), 'dark: the explanation can be read on the card (contrast at least 4.5 to 1 over both ends of its gradient)', readableSays(ratioDark));
       await page.fill('#plus-si-computer', 'A shown name');   // so the shot carries no real computer name
       await page.screenshot({ path: path.join(OUT, 'computer-name-email-step.png') });
       await page.close();
@@ -168,7 +182,7 @@ async function codeStep(page) {
       const inside = await page.evaluate(() => { const h = document.getElementById('plus-si-computer-hint').getBoundingClientRect(); return h.left >= 0 && h.right <= window.innerWidth + 1 && document.documentElement.scrollWidth <= window.innerWidth; });
       chk(inside, 'phone width, light: the explanation wraps inside the screen and the page does not scroll sideways');
       const ratio = await hintContrast(page);
-      chk(ratio >= 3, 'phone width, light: the explanation can be read against what is behind it (contrast at least 3 to 1)', 'ratio ' + ratio.toFixed(2));
+      chk(readable(ratio), 'phone width, light: the explanation can be read on the card (contrast at least 4.5 to 1 over both ends of its gradient)', readableSays(ratio));
       await page.fill('#plus-si-computer', 'A shown name');
       await page.screenshot({ path: path.join(OUT, 'computer-name-email-step-phone-light.png') });
       await page.close();
