@@ -10949,9 +10949,8 @@ const server = http.createServer(async (req, res) => {
               })()) },
             weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
             /* #6108: how much of the weekly limit this account has used, as Kosmos last recorded it (the statusline
-               writes it while an agent on the account runs), or null when there is no reading to trust: an account
-               Kosmos did not set up (the default ~/.claude has no statusline), an API key, Windows, or a week that has
-               reset. resetsAt and at are epoch ms here (readWeekly gives resetsAt in seconds). */
+               writes it while an agent on the account runs), or null when there is no reading to trust: an API key,
+               Windows, an account with its own status line, no agent run yet this week, or a week that has reset. resetsAt and at are epoch ms here (readWeekly gives resetsAt in seconds). */
             weekly: (() => {
               try {
                 const r = a.dir && !a.apiKey ? require('./engine/allowance').readWeekly(a.dir, nowMs) : null;   // a key has no weekly limit

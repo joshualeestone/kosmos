@@ -22,7 +22,6 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
 - Weakest premise: the reading only moves when an agent on that account runs and its usage rises (the statusline
   records a change, not a look), so the row says "last changed <age>", never "as of".
 - The warning's "Move its agents" sentence appears only when a move is offered.
-- The default account (no statusline) says "Kosmos cannot read usage for this account."; others without a reading
   say "No usage reading for this account yet."
 - A finished move's sentence stays until the first repaint after two minutes; the restart is said beside the control
   before the click and in the result after; focus goes to the row's menu, or its sentence when the menu is gone.
@@ -55,9 +54,14 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
   the click AND an engine sentence saying it is not running, the page counts that as moved and says it stays stopped
   (any other partial keeps the engine's words). A server test pins that reply. An agent of unknown state gets no restart count.
 
+- API-key accounts are not bulk-move targets (a bulk move onto a key changes who pays); one agent can still be moved
+  to a key from its own page.
+- A moved stopped agent "starts there the next time" (the engine starts it when the computer is on), matched only on
+  the route's own "is not running, so there is nothing to restart" refusal.
+
 ## Not in slice 1 (follow-ups after it ships)
 - A bulk move blocks the server once per agent (removal.restart runs inside the route); a bulk route could batch it.
 - After a 'partial' move the server already lists the agent under the new account, though it still runs on the old
   one until it restarts.
-Default ~/.claude reading (no statusline), the 5-hour limit, OpenAI/Gemini/Grok percentages, Windows, agents on other
+the 5-hour limit, OpenAI/Gemini/Grok percentages, Windows, agents on other
 computers, a bulk route.
