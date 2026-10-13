@@ -28,9 +28,13 @@ Review 2: e.g., i.e., etc. and vs. do not end a sentence, and one may end before
 reaches node after `--`, so a leading dash is text; an empty or failed node answer falls back to the old cut; a word cut
 drops a trailing comma or colon before the ellipsis.
 
+Review 3: a sentence ends only where the next word starts with a capital or a digit (so "U.S. users" does not split),
+and Mr., Mrs., Dr., approx. and incl. join the abbreviations.
+
 ## Weakest premise
 That the short list of abbreviations covers release notes. Another abbreviation ("approx. ") would end a sentence early,
 so a post could stop on it, shorter but unmarked. The notes are written by us, and the list is easy to extend.
 
 ## Validation
-tools/test-post-release-notes.sh: 32/32; the three new or changed checks fail on the old script. bash -n on both.
+tools/test-post-release-notes.sh: every arm passes (37 PASS lines at the last fix); each new or changed check fails
+with its fix removed or on the old script. bash -n on both.
