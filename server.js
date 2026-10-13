@@ -14150,11 +14150,12 @@ const server = http.createServer(async (req, res) => {
       const logring = require('./engine/logring');
       const logPath = path.join(__dirname, '..', 'logs', 'board.log');   // as the stamp above names it
       // As many lines as the ring holds, so each agent's own lines are searched as far back on Mac and Linux as on Windows.
-      const fileLines = diagnostics.readBoardLog(logPath, 1, diagnostics.SEARCH_LINES);
+      const fileWhy = {};
+      const fileLines = diagnostics.readBoardLog(logPath, 1, diagnostics.SEARCH_LINES, fileWhy);
       const file = diagnostics.build({
         version: updates.RUNNING, platform: process.platform, now: new Date(),
         cards: safeRoster(), readReport: (n) => selfreport.read(n), accountProblemOf,
-        ringLines: logring.board.tail(), fileLines, fileSource: fileLines ? logPath : null,
+        ringLines: logring.board.tail(), fileLines, fileSource: fileLines ? logPath : null, fileWhy: fileWhy.why || null,
       });
       const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;   // the person's day, not UTC's
       res.writeHead(200, {
@@ -14162,7 +14163,8 @@ const server = http.createServer(async (req, res) => {
         'content-disposition': `attachment; filename="kosmos-diagnostics-${day}.json"`,
       });
       res.end(JSON.stringify(file, null, 2) + '\n');
-    } catch {
+    } catch (err) {
+      console.error('diagnostics: the file could not be made: ' + String((err && err.message) || err));
       sendJson(res, 500, { error: 'we could not make the diagnostics file right now' });
     }
     return;

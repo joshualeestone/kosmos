@@ -15,7 +15,8 @@ const secretmask = require('./secretmask');
 
 const MIN_NAME_CHARS = 3;
 // The last label is letters, as a real domain's is: a package's `name@1.2.3` is not an address.
-const EMAIL = /[A-Za-z0-9._%+-]+@(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?![A-Za-z0-9-])/g;
+// Bounded parts (an address's own limits), so a long run of name characters with no @ cannot make it slow.
+const EMAIL = /[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9-]{1,63}\.){1,8}[A-Za-z]{2,24}(?![A-Za-z0-9-])/g;
 // Host names every computer can have, which name no one: replacing them would only damage lines like a localhost URL.
 const GENERIC_HOSTS = new Set(['localhost', 'localhost.localdomain']);
 

@@ -66,3 +66,13 @@ test('#5959: a generic host name is not replaced, so a localhost address survive
   const named = makeRedactor({ home: '/Users/zed', user: 'zzz', host: 'zeds-box.local' });
   assert.equal(named.redactText('zeds-box answered'), '[computer] answered', 'CONTROL: a real host name still is');
 });
+
+test('#5959: a long run of name characters with no @ stays fast, and an address beside it is still found', () => {
+  const { redactText } = makeRedactor({ home: '/Users/zed', user: 'zzz', host: 'zzz' });
+  const run = 'a.b-c'.repeat(400);   // 2,000 characters an address could start with, and no @
+  const t0 = process.hrtime.bigint();
+  for (let n = 0; n < 50; n += 1) redactText(run + ' ' + n);
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < 2000, 'fifty such lines took ' + ms.toFixed(0) + ' ms');   // generous: a quadratic pattern took far longer
+  assert.equal(redactText(run + ' ops@example.com'), run + ' [email]');
+});

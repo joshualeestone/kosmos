@@ -153,3 +153,33 @@ test('#5959: an agent\'s own lines are searched beyond the 300-line tail, and a 
     try { assert.deepEqual(readBoardLog(log, fd).map((l) => l.length), [MAX_LINE_CHARS, 5]); } finally { fs.closeSync(fd); }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('#5959: a line has one shape whichever source it came from, and the file says why board.log was not used', () => {
+  const ringLines = [{ at: 't1', stream: 'stdout', line: 'rick: from the ring' }];
+  const fromRing = build({ cards: CARDS, ringLines, fileWhy: 'not this board\'s output', redactor: makeRedactor(WHO) });
+  const fromFile = build({ cards: CARDS, ringLines, fileLines: ['rick: from the file'], fileSource: 'board.log', redactor: makeRedactor(WHO) });
+  for (const f of [fromRing, fromFile]) {
+    for (const e of [...f.log.tail, ...f.agents[0].logLines]) assert.deepEqual(Object.keys(e).sort(), ['at', 'line', 'stream']);
+  }
+  assert.equal(fromFile.log.tail[0].at, null);
+  assert.equal(fromRing.log.boardLog, 'not this board\'s output');
+  assert.equal(fromFile.log.boardLog, 'read');
+  assert.equal(build({ cards: CARDS, ringLines, redactor: makeRedactor(WHO) }).log.boardLog, 'missing', 'no reason given reads as missing');
+});
+
+test('#5959: readBoardLog says why it read nothing', () => {
+  const fs = require('node:fs');
+  const { readBoardLog } = require('./diagnostics');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-diag-why-5959-'));
+  try {
+    const log = path.join(dir, 'board.log');
+    const other = path.join(dir, 'other.log');
+    fs.writeFileSync(log, 'a\n'); fs.writeFileSync(other, 'b\n');
+    const fd = fs.openSync(other, 'a');
+    try {
+      const w1 = {}; assert.equal(readBoardLog(path.join(dir, 'gone.log'), fd, 10, w1), null); assert.equal(w1.why, 'missing');
+      const w2 = {}; assert.equal(readBoardLog(log, fd, 10, w2), null); assert.equal(w2.why, 'not this board\'s output');
+      const w3 = {}; assert.deepEqual(readBoardLog(other, fd, 10, w3), ['b']); assert.equal(w3.why, undefined, 'CONTROL: a read says nothing');
+    } finally { fs.closeSync(fd); }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
