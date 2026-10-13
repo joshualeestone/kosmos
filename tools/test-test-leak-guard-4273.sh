@@ -50,7 +50,7 @@ printf '%s\n' "$out" | grep -q 'note: 2 allowlisted families left nothing' && ok
 unused_list=$(printf '%s\n' "$out" | sed -n 's/.*left nothing this run (\([^)]*\)).*/\1/p')
 [ "$unused_list" = "gone-family, other-gone" ] && ok "the families that left nothing are named, comma-separated, in sorted order" || bad "unused families named as '$unused_list': $out"
 printf '%s\n' "$unused_list" | grep -q -E 'codex-forget|aoc-state|tmp' && bad "a family that did leak is named as unused: $unused_list" || ok "families that leaked are not named as unused"
-# #6061: a kts- dir (tmpscope's TMPDIR, left only by a killed test process) names the file that made it.
+# #6061: a kts- dir (tmpscope's TMPDIR, left when its exit sweep did not run or failed) names the file that made it.
 mkdir "$root/kts-Ab12Cd" "$root/kts-Zz99Yy"
 printf 'engine/killed-6061.test.js\tpid 4242\n' > "$root/kts-Ab12Cd/.kts-owner"
 out=$(leak_tmp_check "$root" "$work/allow"); rc=$?

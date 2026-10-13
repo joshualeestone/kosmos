@@ -269,3 +269,14 @@ test('#6061 review 2: a killed process whose cwd was deleted still names its fil
   assert.equal(left.length, 1, String(entries(base)));
   assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0], victim);
 });
+
+test('#6061 review 3: a file in the cwd whose name starts with two dots is named relative, not as a climb', (t) => {
+  const base = fs.realpathSync(freshBase(t));
+  const victim = path.join(base, '..dots-6061.test.js');
+  fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
+  const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base, HOME: base } });
+  assert.equal(r.signal, 'SIGKILL', String(r.stderr));
+  const left = entries(base).filter((n) => n.startsWith('kts-'));
+  assert.equal(left.length, 1, String(entries(base)));
+  assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0], '..dots-6061.test.js');
+});

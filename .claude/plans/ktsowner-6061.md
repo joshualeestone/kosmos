@@ -37,6 +37,8 @@ author could not tell which test was killed and the only move was a 35-minute re
 
 ## Weakest premise
 That the leftover is a SIGKILL of a test process. Reasoned, not measured: a killed CHILD with its own tmpscope makes
-its `kts-` inside its parent's TMPDIR, so the parent's sweep removes it and the report only names top-level ones.
+its `kts-` inside its parent's TMPDIR, so the parent's sweep removes it and the report only names top-level ones; if
+the parent is killed too, only the parent's dir is named (the child's is inside it).
 - Review 2: a deleted cwd no longer drops the owner line (absolute path instead, tested); HOME is real-pathed, so a
   symlinked home still gets ~; the outside-cwd test pins HOME so it cannot depend on where the box keeps its tmp.
+- Review 3: a file in the cwd whose name starts with `..` is relative, not absolute (tested).
