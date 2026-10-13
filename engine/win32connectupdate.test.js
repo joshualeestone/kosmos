@@ -184,6 +184,8 @@ function seamsFor(c, s, sim) {
   let pending = null;
   return {
     port: PORT,
+    /* The opt-in cliMain's --yes gives; run() itself defaults to the live-execution gate. */
+    liveExecutionAllowed: () => true,
     env: c.env,
     probe: sim.probe,
     helperOptions: {
@@ -263,7 +265,12 @@ test('#4382: rollback is reachable with no board: the kept build comes back, and
   assert.deepEqual(up.answer, ['updated', NEXT], c.log.join('\n'));
   assert.equal(up.rollback, INSTALLED);
   sim.calls.length = 0;
-  const back = await connectUpdate.run('rollback', seamsFor(c, null, sim));
+  /* The person agreed to one version; a different kept build is refused, and nothing moves. */
+  const other = await connectUpdate.run('rollback', { ...seamsFor(c, null, sim), expect: '0.0.1' });
+  assert.equal(other.answer[0], 'refused');
+  assert.match(other.answer[1], /not the 0\.0\.1 you chose/);
+  assert.equal(versionIn(c.root), NEXT);
+  const back = await connectUpdate.run('rollback', { ...seamsFor(c, null, sim), expect: INSTALLED });
   assert.deepEqual(back.answer, ['rolledback', INSTALLED], c.log.join('\n'));
   assert.equal(versionIn(c.root), INSTALLED, 'ROOT holds the kept build again');
   assert.deepEqual(sim.calls, [], 'no /End and never /Run');
@@ -387,6 +394,14 @@ test('#4382: a status record that was never written does not turn an update that
   /* The control: the board's rule waits for a board that never answers, and gives up. */
   const asOnABoard = await win32update.waitForOutcome(journalAt, token, wait);
   assert.equal(asOnABoard.outcome, null);
+  /* A journal still at confirmed (H7 stood, the finish not yet recorded) counts only when the wait runs out: a
+     helper still cleaning up is given its time before the window relaunches over it. */
+  const j = readJson(journalAt);
+  fs.writeFileSync(journalAt, JSON.stringify({ ...j, finished: false, outcome: null, phase: 'confirmed' }, null, 2) + '\n');
+  clock = 0;
+  const confirmed = await win32update.waitForOutcome(journalAt, token, { ...wait, noBoard: true });
+  assert.equal(confirmed.outcome, 'updated');
+  assert.ok(clock >= 5000, 'only at the end of the wait, not at once');
   assert.match(asOnABoard.because, /no outcome was recorded/);
 });
 
@@ -428,6 +443,8 @@ test('#4382: updates on, but the update would not start: the newer build is stil
   const look = await connectUpdate.run('look', refusing);
   assert.deepEqual(look.answer, ['newer', NEXT], 'the look hides a newer build it could not install');
   assert.ok(c.log.some((l) => /the automatic update to .* was not started: the Kosmos folder is inside OneDrive/.test(l)));
+  assert.match(connectUpdate.reportLines(look).join('\n'), /\nnote the automatic update to .* was not started: the Kosmos folder is inside OneDrive$/,
+    'the reason is in the report, where it can be found');
   const picked = await connectUpdate.run('install', refusing);
   assert.deepEqual(picked.answer, ['refused', 'the Kosmos folder is inside OneDrive'], 'the person who picked Update hears why');
 });
@@ -453,4 +470,16 @@ test('#4382: a newer download run on a connect computer with --wait reports the 
   assert.equal(code, 0);
   assert.equal(versionIn(c.root), NEXT);
   assert.deepEqual(sim.calls, []);
+});
+
+test('#4382: run() itself keeps the live-execution gate; only cliMain, with the person\'s --yes, opens it', T, async () => {
+  setMode('connect\n');
+  setConsent(true);
+  const c = freshCase();
+  const sim = stoppedBoard(c);
+  const seams = seamsFor(c, site(NEXT), sim);
+  delete seams.liveExecutionAllowed;
+  await assert.rejects(connectUpdate.run('install', seams), /for real inside a test process/);
+  assert.deepEqual(c.spawned, []);
+  assert.equal(versionIn(c.root), INSTALLED);
 });

@@ -57,6 +57,7 @@ const win32update = require('./win32update');
    required after that would be read from the NEW build (the helper's own rule, H1). */
 const win32apply = require('./win32apply');
 const win32handoff = require('./win32handoff');
+const liveExec = require('./live-execution');
 
 const ACTIONS = Object.freeze(['look', 'install', 'rollback']);
 const EXIT = Object.freeze({ current: 0, newer: 0, updated: 0, rolledback: 0, board: 0, failed: 1, unknown: 1, refused: 3 });
@@ -97,10 +98,12 @@ function connectRollbackOffer(root) {
 }
 
 /**
- * One run. Resolves to `{ answer: [word, value?], rollback: <version>|null }`. Seams, each with its
- * production default: platform, env, home, port, root (update.installedRoot), probe
+ * One run. Resolves to `{ answer: [word, value?], rollback: <version>|null, note: <text>|null }`. Options:
+ * expect (rollback: the version the person agreed to; any other kept build is refused). Seams, each with
+ * its production default: platform, env, home, port, root (update.installedRoot), probe
  * (win32handoff.probeBoard), readsConnect (win32apply.readsConnect), decide (update-ifnewer.decide),
- * begin, rollbackToPrevious, wait (waitForOutcome's seams), liveExecutionAllowed, log.
+ * begin, rollbackToPrevious, wait (waitForOutcome's seams), liveExecutionAllowed (the live-execution
+ * gate; cliMain's --yes opens it), log.
  */
 async function run(action, opts) {
   const o = opts || {};
@@ -112,7 +115,8 @@ async function run(action, opts) {
   const probe = o.probe || win32handoff.probeBoard;
   const readsConnect = o.readsConnect || (() => win32apply.readsConnect(env, home));
   let root = null;
-  const done = (answer, rollback) => ({ answer, rollback: rollback === undefined ? (root ? connectRollbackOffer(root) : null) : rollback });
+  let note = null;
+  const done = (answer, rollback) => ({ answer, note, rollback: rollback === undefined ? (root ? connectRollbackOffer(root) : null) : rollback });
 
   if (!ACTIONS.includes(action)) return done(['refused', `no such action: ${action}`], null);
   if (platform !== 'win32') return done(['refused', 'this is the Windows connect computer\'s update, and this is not Windows'], null);
@@ -135,7 +139,7 @@ async function run(action, opts) {
   const connectComputer = { connects: () => readsConnect() === true, boardAnswers: () => Boolean(answer && answer.answering === true) };
   const common = {
     root, port, boardPid: null, connectComputer, log, env, home,
-    liveExecutionAllowed: o.liveExecutionAllowed || (() => true),
+    liveExecutionAllowed: o.liveExecutionAllowed || liveExec.liveExecutionAllowed,
     ...(o.helperOptions || {}),
   };
 
@@ -143,6 +147,11 @@ async function run(action, opts) {
     const kept = win32update.keptPreviousBuild(root);
     const tooOld = kept && connectReadyRefusal(kept.dir, kept.version);
     if (tooOld) return done(['refused', tooOld]);
+    /* The person agreed to roll back to one version, read at the last look; a kept build that changed since
+       (another update ran here) is not the one they agreed to. */
+    if (o.expect && kept && kept.version !== o.expect) {
+      return done(['refused', `the version kept for a rollback is now ${kept.version}, not the ${o.expect} you chose, so nothing was rolled back. Pick Roll back again to go back to ${kept.version}`]);
+    }
     const r = await (o.rollbackToPrevious || win32update.rollbackToPrevious)(common);
     if (!r || !r.ok) return done(['refused', oneLine((r && r.because) || 'the rollback could not be started')]);
     const outcome = await outcomeOf(r.journal, probe, o.wait);
@@ -163,7 +172,11 @@ async function run(action, opts) {
     /* The window's own look with updates on: the newer build is still offered, so the person learns it is
        there and hears why it would not install when they pick Update. Silence here would hide it for good
        on a computer where begin() always refuses (a Kosmos folder in OneDrive, say). */
-    if (action === 'look') { log(`the automatic update to ${version} was not started: ${because}`); return done(['newer', version]); }
+    if (action === 'look') {
+      note = `the automatic update to ${version} was not started: ${because}`;
+      log(note);
+      return done(['newer', version]);
+    }
     return done(['refused', because]);
   }
   const outcome = await outcomeOf(r.journal, probe, o.wait);
@@ -179,7 +192,7 @@ async function outcomeOf(journalAt, probe, waitSeams) {
 }
 
 function parseArgs(argv) {
-  const a = { action: null, port: null, report: null, yes: false, unknown: null };
+  const a = { action: null, port: null, report: null, expect: null, yes: false, unknown: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--look' || arg === '--install' || arg === '--rollback') {
@@ -187,17 +200,20 @@ function parseArgs(argv) {
     } else if (arg === '--yes') a.yes = true;
     else if (arg === '--port') { a.port = argv[i + 1] || null; i += 1; }
     else if (arg === '--report') { a.report = argv[i + 1] || null; i += 1; }
+    else if (arg === '--expect') { a.expect = argv[i + 1] || null; i += 1; }
     else a.unknown = arg;
   }
   return a;
 }
 
-const USAGE = 'usage: node engine/win32connectupdate.js --look|--install|--rollback [--port <n>] [--report <file>] --yes';
+const USAGE = 'usage: node engine/win32connectupdate.js --look|--install|--rollback [--expect <version>] [--port <n>] [--report <file>] --yes';
 
-/** The lines of a run's answer: the answer itself, then the rollback offer when there is one. */
+/** The lines of a run's answer: the answer itself, then the rollback offer when there is one, then a note
+    for the record (why an automatic update did not start), which Kosmos.exe does not act on. */
 function reportLines(result) {
   const lines = [result.answer.map(oneLine).filter((part) => part !== '').join(' ')];
   if (result.rollback) lines.push('rollback ' + oneLine(result.rollback));
+  if (result.note) lines.push('note ' + oneLine(result.note));
   return lines;
 }
 
@@ -205,13 +221,13 @@ async function cliMain(argv, write, seams) {
   const out = typeof write === 'function' ? write : (s) => process.stdout.write(s);
   const a = parseArgs(argv);
   const port = a.port === null ? win32update.DEFAULT_BOARD_PORT : Number(a.port);
-  if (!a.action || a.unknown || !Number.isInteger(port) || port <= 0) { out(USAGE + '\n'); return 2; }
+  if (!a.action || a.unknown || !Number.isInteger(port) || port <= 0 || (a.expect !== null && a.action !== 'rollback')) { out(USAGE + '\n'); return 2; }
   /* --yes is the person's opt-in (Kosmos.exe adds it only for a look it runs, or a choice the person
      made), and it stands in for allowLiveExecution(), which only server.js's real start may call. */
   if (!a.yes) { out(`nothing was looked at or changed: add --yes to ${a.action}\n`); return 2; }
   let result;
   try {
-    result = await run(a.action, { port, ...(seams || {}) });
+    result = await run(a.action, { port, expect: a.expect, liveExecutionAllowed: () => true, ...(seams || {}) });
   } catch (e) {
     result = { answer: ['unknown', oneLine((e && e.message) || e)], rollback: null };
   }

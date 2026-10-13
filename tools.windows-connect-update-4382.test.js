@@ -68,8 +68,8 @@ test('#4382: the launcher runs the engine file that exists, with the actions tha
   const engine = require('./engine/win32connectupdate.js');
   const used = [...SOURCE.matchAll(/LookForUpdate\("([a-z]+)"\)/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(used)].sort(), [...engine.ACTIONS].sort(), 'every action the window asks for is one the engine takes, and every engine action is reachable');
-  assert.match(method('internal static string ConnectUpdateArguments(string action, int port)'), /return "--" \+ action \+ " --port " \+ port;/);
-  assert.deepEqual(engine.parseArgs(['--rollback', '--port', '16180', '--report', 'r.txt', '--yes']), { action: 'rollback', port: '16180', report: 'r.txt', yes: true, unknown: null },
+  assert.ok(method('internal static string ConnectUpdateArguments(string action, int port, string expect)').includes('" --expect " + expect'), 'the rollback names the version agreed to');
+  assert.deepEqual(engine.parseArgs(['--rollback', '--port', '16180', '--report', 'r.txt', '--yes']), { action: 'rollback', port: '16180', report: 'r.txt', expect: null, yes: true, unknown: null },
     'the engine reads what RunEngineHelper sends: the arguments, then --report <file> --yes');
 });
 
@@ -110,7 +110,7 @@ test('#4382: each run is the engine\'s, off the window\'s thread, counted so Run
     'stopsInFlight++;',
     'new Thread(',
     'KosmosLauncher.runEngineHelper(Path.Combine(folder, "runtime\\\\node.exe"), folder, KosmosLauncher.ConnectUpdateScript,',
-    'KosmosLauncher.ConnectUpdateArguments(action, boardPort), 0, out problem);',
+    'KosmosLauncher.ConnectUpdateArguments(action, boardPort, expect), 0, out problem);',
     'KosmosLauncher.ReadConnectUpdateReport(lines);',
     'BeginInvoke(',
     'updateLookInFlight = false;',
@@ -197,6 +197,7 @@ test('#4382: the release switch stays off on main: turning the first-run choice 
      report|<report lines joined by \n>
      state|offer;installed;rollback;dismissed|<report lines>|<action>
      notnow|offer;installed;rollback;dismissed|<the bar's button or ->
+     args|<action>|<expect or ->
      due|offer;installed;rollback;dismissed
      picked|offer;installed;rollback;dismissed|<inflight 0/1>
      disk|<lock age s or ->|<journal text or ->|<journal age s or -> */
@@ -236,6 +237,7 @@ static class UpdateProbe
             }
             else if (f[0] == "state") Console.WriteLine(State(KosmosLauncher.AfterConnectUpdate(Before(f[1]), KosmosLauncher.ReadConnectUpdateReport(Lines(f[2])), f[3])));
             else if (f[0] == "notnow") { var b = Before(f[1]); b.BarNote = "a bar"; b.BarButton = N(f[2]); Console.WriteLine(State(KosmosLauncher.AfterNotNow(b))); }
+            else if (f[0] == "args") Console.WriteLine(KosmosLauncher.ConnectUpdateArguments(f[1], 16180, N(f[2])));
             else if (f[0] == "due") Console.WriteLine(KosmosLauncher.UpdateLookIsDue(Before(f[1])) ? "due" : "not-due");
             else if (f[0] == "picked") Console.WriteLine(Show(KosmosLauncher.UpdatePickedAction(Before(f[1]), f[2] == "1")));
             else if (f[0] == "disk")
@@ -341,6 +343,8 @@ test('#4382: what each answer does: the same consent as the board, never a resta
     ['state|0.7.50;-;0.7.46;-|current 0.7.46|look', { O: '-', R: '-', bar: '-', btn: '-' }],
     /* the person picked Update and nothing is newer any more: said, not a bar that silently vanishes */
     ['state|0.7.50;-;-;-|current 0.7.46|install', { O: '-', btn: '-' }],
+    /* the window's own look failing again on a version put away with Not now: the menu only */
+    ['state|0.7.50;-;-;0.7.50|failed 0.7.50 again|look', { O: '0.7.50', bar: '-', btn: '-' }],
     /* a version put away with Not now stays off the bar (the menu keeps it) */
     ['state|-;-;-;0.7.50|newer 0.7.50|look', { O: '0.7.50', bar: '-' }],
   ];
@@ -355,6 +359,11 @@ test('#4382: what each answer does: the same consent as the board, never a resta
   assert.match(stateOf(got[6]).msg, /^Kosmos could not roll back \(no\)\./);
   assert.notEqual(stateOf(got[9]).bar, '-', 'the person asked and heard nothing');
   assert.equal(stateOf(got[13]).bar, 'Kosmos is up to date.', 'the person pressed Update and saw nothing happen');
+  const args = runProbe(['args|rollback|0.7.46', 'args|look|0.7.46', 'args|rollback|0.7.46 --yes', 'args|rollback|-']);
+  assert.deepEqual(args, ['--rollback --port 16180 --expect 0.7.46', '--look --port 16180', '--rollback --port 16180', '--rollback --port 16180'],
+    'only a rollback names a version, and only a real version reaches the command line');
+  const engine = require('./engine/win32connectupdate.js');
+  assert.equal(engine.parseArgs(args[0].split(' ')).expect, '0.7.46', 'the engine reads what the launcher sends');
 });
 
 test('#4382: Not now, the daily look, and Update: pure decisions', WINDOWS_ONLY, (t) => {

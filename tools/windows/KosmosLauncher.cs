@@ -2688,9 +2688,11 @@ class KosmosLauncher
         internal string RollbackVersion;  // the kept build a rollback restores, or null
     }
 
-    internal static string ConnectUpdateArguments(string action, int port)
+    // `expect`: for a rollback, the version the person agreed to (the engine refuses any other kept build).
+    // Only a version of the board's shape is passed, so nothing else reaches the command line.
+    internal static string ConnectUpdateArguments(string action, int port, string expect)
     {
-        return "--" + action + " --port " + port;
+        return "--" + action + " --port " + port + (action == "rollback" && IsReleaseVersion(expect) ? " --expect " + expect : "");
     }
 
     // The board's own shape of a version, a.b.c with digits only. Anything else is not a version.
@@ -2839,6 +2841,8 @@ class KosmosLauncher
                 if (s.Installed == null && answer.Version != null) s.Offer = answer.Version;
                 s.BarNote = UpdateFailedNote(answer.Value, s.Offer != null);
                 s.BarButton = s.Offer != null ? "Update" : null;
+                // The window's own look failing again on a version the person put away stays in the menu only.
+                if (!asked && s.Offer != null && s.Dismissed == s.Offer) { s.BarNote = null; s.BarButton = null; }
             }
         }
         else if (answer.Kind == ConnectUpdateKind.Unknown)
@@ -2908,7 +2912,10 @@ class KosmosLauncher
     // The update journal's folder: the engine's anchor (engine/win32anchor.js anchorDir), the data folder's
     // Kosmos\runtime when AGENT_WORKFORCE_DATA is set, else %LOCALAPPDATA%\Kosmos\runtime. anchorDir's other
     // branch (AGENT_WORKFORCE_HOME, a developer's sandbox) is left out on purpose: no installed Kosmos.exe
-    // runs with it, and missing it only means this guard looks in the wrong folder there.
+    // runs with it, and missing it only means this guard looks in the wrong folder there. Nor is its world
+    // marker read (worlds.preWorldEnv): a world's AGENT_WORKFORCE_DATA is set in a board's own process, not
+    // in the environment a person's double-click gives Kosmos.exe. Either miss fails open, to the board's
+    // start, whose logon shim finishes or undoes an unfinished update.
     internal static string UpdateJournalPath()
     {
         string data = Environment.GetEnvironmentVariable("AGENT_WORKFORCE_DATA");
@@ -3816,6 +3823,7 @@ class BoardWindowForm : System.Windows.Forms.Form
     {
         if (mode != KosmosLauncher.ComputerMode.Connect) return;
         // #4382: an update or rollback swaps the Kosmos folder; a board started under it would race the swap.
+        // Before the stopsInFlight check, which a run of this window's also counts in: the order picks the words.
         if (updateLookInFlight) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }
         // And one this window no longer sees: a window closed mid-install lets go of the one-window lock, so the
         // window opened after it would not know. The updater's own files say (UpdateUnderWayHere).
@@ -3939,6 +3947,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         else if (action == "rollback") ShowUpdateBar(KosmosLauncher.RollingBackNote, null);
         int boardPort = port;
         string folder = here;
+        string expect = action == "rollback" ? updateState.Rollback : null;
         Thread look = new Thread(() =>
         {
             string problem = null;
@@ -3946,7 +3955,7 @@ class BoardWindowForm : System.Windows.Forms.Form
             try
             {
                 lines = KosmosLauncher.runEngineHelper(Path.Combine(folder, "runtime\\node.exe"), folder, KosmosLauncher.ConnectUpdateScript,
-                    KosmosLauncher.ConnectUpdateArguments(action, boardPort), 0, out problem);
+                    KosmosLauncher.ConnectUpdateArguments(action, boardPort, expect), 0, out problem);
             }
             catch (Exception e) { problem = e.Message; }
             KosmosLauncher.ConnectUpdateAnswer answer = KosmosLauncher.ReadConnectUpdateReport(lines);

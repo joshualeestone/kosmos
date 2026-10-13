@@ -1774,9 +1774,11 @@ async function waitForOutcome(journalAt, token, seams) {
     const j = apply.readJournal(journalAt).journal;
     /* #4382: on a computer with no board (s.noBoard) nothing will answer as the new build, so the helper's
        record is the only witness. A status that could not be written (finishUpdated only logs that) would
-       otherwise run this to its limit and report a failure for an update that went in. So there, the
-       journal's own word counts: finished as updated, or confirmed (H7 stood without a board). */
-    if (s.noBoard && j && j.token === token && ((j.finished === true && j.outcome === 'updated') || (!j.finished && j.phase === 'confirmed'))) {
+       otherwise run this to its limit and report a failure for an update that went in. So there, a journal
+       finished as updated counts at once. One still at `confirmed` (H7 stood without a board, and the
+       helper is finishing up, or could not record the finish) counts only when the wait runs out, below:
+       a helper that is merely still cleaning up is given its time first. */
+    if (s.noBoard && j && j.token === token && j.finished === true && j.outcome === 'updated') {
       return {
         outcome: 'updated', version: j.to.version, from: j.from.version, to: j.to.version, journal: token,
         because: 'the update journal records it as done; its status record was not written',
@@ -1786,6 +1788,12 @@ async function waitForOutcome(journalAt, token, seams) {
       return {
         outcome: 'updated', version: j.to.version, from: j.from.version, to: j.to.version, journal: token,
         because: `the board answers as ${j.to.identity}; Kosmos is still finishing up the record of the update`,
+      };
+    }
+    if (now() >= until && s.noBoard && j && j.token === token && !j.finished && j.phase === 'confirmed') {
+      return {
+        outcome: 'updated', version: j.to.version, from: j.from.version, to: j.to.version, journal: token,
+        because: 'the update journal records the new build as in place; its finish was not recorded in time',
       };
     }
     if (now() >= until) return { outcome: null, because: `no outcome was recorded within ${Math.round((s.waitMs || CLI_WAIT_MS) / 1000)} seconds; read ${statusAt} and ${journalAt}` };
