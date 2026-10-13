@@ -1204,6 +1204,15 @@ function createdKeys() {
   try { const k = createdSource(new Set(), { includeRemoved: true }); return Array.isArray(k) ? k : []; } catch { return []; }
 }
 
+/* kosmos#5957: createdKeys, but a source that throws or answers a non-list THROWS instead of reading as "none", so the
+   name check refuses rather than passing a stopped agent's name as free. [] when no source is wired. */
+function createdKeysStrict() {
+  if (!createdSource) return [];
+  const k = createdSource(new Set(), { includeRemoved: true, strict: true });
+  if (!Array.isArray(k)) throw new Error('the created agents could not be read');
+  return k;
+}
+
 function listPanes() {
   const out = paneSource ? paneSource() : tmuxPanes();
   /**
@@ -8202,7 +8211,11 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     // #2698: the avatar version travels with hasAvatar so a changed picture
     // changes the org node's URL and defeats its identical-repaint skip.
     avatarVer: store.avatarVersion(key),
-    profile: store.readProfile(key),
+    ...(() => {
+      const profile = store.readProfile(key);
+      /* kosmos#5957 slice 2: as the pane row (one profile read), so a paneless card can say its rules are far behind. */
+      return { profile, rulesBehind: require('./doctrine').rulesBehind(key, profile) };
+    })(),
   };
 }
 
@@ -8959,6 +8972,9 @@ function snapshot() {
       // rule this block already states. Untied -> 0, the no-picture value.
       avatarVer: tied ? store.avatarVersion(pane.name) : 0,
       profile: rowProfile,
+      /* kosmos#5957 slice 2: how far behind its working rules are, for the card; null unless far behind and its own page
+         would offer the update. Required here, not at the top: doctrine's requires reach back to this module. */
+      rulesBehind: tied ? require('./doctrine').rulesBehind(pane.name, rowProfile) : null,
       /* #3564: null for an ordinary agent; for a swarm, its helpers and today's tokens,
          read from the lead's transcripts (engine/swarm.js). Same `tied` gate as every
          other read keyed on the name. The contract with the UI is on #3564. */
@@ -9293,7 +9309,7 @@ module.exports = {
      which would report a different moment from the one that failed. */
   lastLookProblem,
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
-  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor,
+  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, createdKeysStrict, tmuxSaidNoServer, lookProblemFor,
   // #2955: the version-wall switch, and its test seams (excused by name in engine.reachable.test.js).
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite

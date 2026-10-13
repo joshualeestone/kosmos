@@ -190,6 +190,10 @@ function tickOnce(o) {
     try { const l = typeof o.readLimit === 'function' ? o.readLimit() : null; if (l && typeof l === 'object') limit = l; } catch { /* keep the default, which is on */ }
     const cap = limit.on === true && Number.isInteger(limit.perHour) ? limit.perHour : Infinity;
     const D = o.DELIVERY || {};
+    /* #5958: each result is kept as that agent's newest (engine/communityready.js), so `kosmos community ready` can say
+       what the last reminder did. Here, not in the caller's log, so no caller can leave it out. */
+    const onBoard = roster.map((c) => (c && c.sessionName ? String(c.sessionName) : '')).filter(Boolean);   // the record is pruned to these
+    const keep = (r) => { try { require('./communityready').noteTurn(r, now, onBoard); } catch { /* the record is not the work */ } };
     /* Review 4: an agent is due only if it was an idle card at the previous pass too; this pass's idle cards are kept
        for the next one. Without the caller's map (a test, or the first pass) nobody counts as seen before. */
     const seen = o.idleSeen instanceof Set ? new Set(o.idleSeen) : new Set();
@@ -198,11 +202,16 @@ function tickOnce(o) {
       const nudgeable = require('./agentnudge').nudgeableCard;
       for (const c of roster) if (c && c.sessionName && nudgeable(c)) o.idleSeen.add(String(c.sessionName));
     }
-    for (const d of due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: seen, history: o.history, kosmosLines: o.kosmosLines })) {
+    const dues = due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: seen, history: o.history, kosmosLines: o.kosmosLines });
+    for (let n = 0; n < dues.length; n += 1) {
+      const d = dues[n];
       for (let i = sent.length - 1; i >= 0; i -= 1) if (now - sent[i] >= HOUR_MS) sent.splice(i, 1);
       if (sent.length >= cap) {
         const r = { session: d.session, name: d.name, act: 'limit', delivery: null };
         results.push(r);
+        keep(r);
+        // #5958 review 2: the due agents behind this one were not sent to for the same reason; without this each keeps an older result.
+        for (const rest of dues.slice(n + 1)) keep({ session: rest.session, name: rest.name, act: 'limit', delivery: null });
         if (typeof o.log === 'function') { try { o.log(r); } catch { /* the log is not the work */ } }
         break;
       }
@@ -231,6 +240,7 @@ function tickOnce(o) {
       }
       const r = { session: d.session, name: d.name, act: held ? 'held' : (busy ? 'pane-busy' : (reached ? 'prompted' : 'not-reached')), delivery: state || null };
       results.push(r);
+      keep(held ? { ...r, heldBy: v.heldBy, heldFor: v.heldFor } : r);   // why it was held stays out of the result callers compare
       if (typeof o.log === 'function') { try { o.log(r); } catch { /* the log is not the work */ } }
     }
   } catch { /* never throws: a sweep is best-effort */ }

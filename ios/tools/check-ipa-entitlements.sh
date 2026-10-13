@@ -7,15 +7,17 @@
 # reads the entitlements the exported app is actually signed with, not the file in the repo.
 #
 # Also refuses get-task-allow = true (a development-signed build, which App Store Connect rejects)
-# and an app identifier that is not io.kosmos.app (the bundle id KOSMOS_APNS_BUNDLE_IDS allows).
+# and an app identifier for any bundle id but the expected one (the third argument, io.kosmos.app
+# when not given: the bundle id KOSMOS_APNS_BUNDLE_IDS allows).
 # Given a Team ID, it also refuses a signature from any other team: tokens from an app signed under
 # another team are ones the coordinator's APNs key cannot send to.
 #
-# Usage: ios/tools/check-ipa-entitlements.sh <Kosmos.ipa | Kosmos.app> [TEAM_ID]
+# Usage: ios/tools/check-ipa-entitlements.sh <Kosmos.ipa | Kosmos.app> [TEAM_ID] [BUNDLE_ID]
 # Ends with one VERDICT line; no verdict line means the check did not finish.
 set -u
-target="${1:?usage: check-ipa-entitlements.sh <Kosmos.ipa | Kosmos.app> [TEAM_ID]}"
+target="${1:?usage: check-ipa-entitlements.sh <Kosmos.ipa | Kosmos.app> [TEAM_ID] [BUNDLE_ID]}"
 team="${2:-}"
+bundle="${3:-io.kosmos.app}"
 [ -e "$target" ] || { echo "check-ipa-entitlements: nothing at $target"; echo "VERDICT: FAIL"; exit 2; }
 
 work=$(mktemp -d)
@@ -53,15 +55,15 @@ else
   echo "ok       get-task-allow: ${gta:-<absent>}"
 fi
 appid=$(plutil -extract application-identifier raw -o - "$ents" 2>/dev/null)
-want_appid="$team.io.kosmos.app"
+want_appid="$team.$bundle"
 case "$appid" in
-  *.io.kosmos.app)
+  *."$bundle")
     if [ -n "$team" ] && [ "$appid" != "$want_appid" ]; then
       echo "WRONG    application-identifier: $appid (must be $want_appid)"; fail=1
     else
       echo "ok       application-identifier: $appid"
     fi ;;
-  *) echo "WRONG    application-identifier: ${appid:-<absent>} (must end in .io.kosmos.app)"; fail=1 ;;
+  *) echo "WRONG    application-identifier: ${appid:-<absent>} (must end in .$bundle)"; fail=1 ;;
 esac
 if [ -n "$team" ]; then
   # PlistBuddy, not plutil: plutil reads the dots in this key as a path and never finds it.

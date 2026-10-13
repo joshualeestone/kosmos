@@ -97,6 +97,12 @@ test('#4287: with the board token, /sent answers, /delete 404s an unknown post a
   assert.equal(bad.status, 400);
 });
 
+test('#5958 CONTROL: GET /api/community/ready STAYS gated (403 without a token), and answers with one', async () => {
+  assert.equal(await hit('/api/community/ready'), 403, 'every agent\'s standing and post titles is the owner\'s view; it must require the board token');
+  const r = await fetch(base + '/api/community/ready', { headers: { 'x-kosmos-board-token': TOK } });
+  assert.ok(r.status === 200 || r.status === 503, 'with the token it is answered (200) or the roster could not be read (503), got ' + r.status);
+});
+
 test('#4313 CONTROL: GET /api/community/mine STAYS gated (403 without a token)', async () => {
   assert.equal(await hit('/api/community/mine'), 403, 'the owner\'s list of their agents\' posts must require the board token');
 });

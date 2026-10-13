@@ -10,8 +10,9 @@
 # files) passes its suite on macOS,
 # the app compiles and links for the simulator with signing off (Debug and
 # Release), both built apps carry the four permission strings, the app icon and
-# the navy launch screen (#4089), an unsigned device archive builds, and the
-# exported-app push check can fail as well as pass. It does NOT certify running
+# the navy launch screen (#4089), an unsigned device archive builds, the
+# exported-app push check can fail as well as pass, and archive.sh's signing
+# settings checks refuse what they should. It does NOT certify running
 # on a simulator or device, a signed build or export, or APNs delivery.
 #
 # The asset catalog (icon, launch colour) only compiles on a Mac with an iOS
@@ -96,7 +97,7 @@ jobs:
             grep -q '^VERDICT: PASS' "$RUNNER_TEMP/assets-$config.log"
           done
 
-      # #4089: the same archive command tools/archive.sh runs, with signing off, so a
+      # #4089: the archive command tools/archive.sh runs (less its team and bundle id settings), with signing off, so a
       # project change that breaks archiving goes red before the day of the first upload.
       - name: Device archive builds (unsigned)
         working-directory: ios
@@ -112,3 +113,11 @@ jobs:
           set -o pipefail
           ios/tools/test-check-ipa-entitlements.sh | tee "$RUNNER_TEMP/ipa-check.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/ipa-check.log"
+
+      # #4089: archive.sh's signing settings checks, including that io.kosmos.app is never built under the
+      # interim Stone Syndicate team (Apple cannot transfer an app never released on the App Store).
+      - name: Archive signing settings refuse what they should
+        run: |
+          set -o pipefail
+          ios/tools/test-archive-config.sh | tee "$RUNNER_TEMP/archive-config.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/archive-config.log"

@@ -309,7 +309,9 @@ test('uninstall names our status line, and only ours', () => {
   const theirs = { type: 'command', command: 'bash ~/.claude/scripts/statusline.sh' };
   const both = run({ '.claude': ours, '.claude-work1': ours, '.claude-work2': theirs });
   assert.equal(both.status, 0, both.stderr);
-  assert.match(both.stdout, /Kosmos's status line was left in these settings files/);
+  assert.match(both.stdout, /A Kosmos status line is still in these settings files/);
+  // #5998: the uninstall removes this install's own first, so one still here may be another install's: never called dead outright.
+  assert.match(both.stdout, /If no other Kosmos on this computer uses it/);
   assert.ok(both.stdout.includes(path.join(both.home, '.claude', 'settings.json')), 'the default account was not named');
   assert.ok(both.stdout.includes(path.join(both.home, '.claude-work1', 'settings.json')), 'a Kosmos account folder was not named');
   assert.ok(!both.stdout.includes('.claude-work2'), 'an account with somebody else\'s status line was named as ours');

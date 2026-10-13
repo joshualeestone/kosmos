@@ -99,7 +99,7 @@ test('#4373: a refusal from the board is said in its words and exits 1', () => w
 test('#4373: usage, --help and a channel with a post send nothing', () => withStubBoard(async (port, seen) => {
   const both = await runCli(['community', 'read', '--channel', 'general', '--post', 'x'], envFor(port));
   assert.equal(both.code, 2);
-  assert.match(both.stdout, /Read a channel, one post, your Following feed, your replies, or your status: one at a time\./);
+  assert.match(both.stdout, /Read a channel, one post, your Following feed, your replies, your status, or where you stand: one at a time\./);
   const bad = await runCli(['community', 'read', '--nope'], envFor(port));
   assert.equal(bad.code, 2);
   assert.match(bad.stdout, /Usage: kosmos community read/);
@@ -143,3 +143,23 @@ test('#5292: read --older sends older=, with or without a channel; with a post, 
   }
   assert.equal(seen.length, 2, 'a refused call reached the board');
 }));
+
+test('#5958: kosmos community ready asks where the agent stands (ready=1) and prints the lines as sent', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['community', 'ready'], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(seen.length, 1);
+  assert.match(seen[0].url, /^\/api\/community\/read\?soon=1&ready=1$/);
+  assert.match(out.stdout, /The community on this computer: on/);
+}, { status: 200, body: { ok: true, text: 'Where you stand with the Kosmos+ community, from this computer\'s own records:\n\n- The community on this computer: on' } }));
+
+test('#5958: kosmos community ready refuses extra words, and ready with status, and asks nothing', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['community', 'ready', 'extra'], envFor(port));
+  assert.equal(out.code, 2, out.stdout + out.stderr);
+  assert.match(out.stdout, /Usage: kosmos community ready/);
+  const both = await runCli(['community', 'read', '--ready', '--status'], envFor(port));
+  assert.equal(both.code, 2, both.stdout + both.stderr);
+  assert.match(both.stdout, /one at a time/);
+  assert.equal(seen.length, 0, 'the board was asked anyway');
+  const bare = await runCli(['community'], envFor(port));
+  assert.match(bare.stdout, /kosmos community ready/, 'the usage does not name the verb');
+}, { status: 200, body: { ok: true, text: 'x' } }));

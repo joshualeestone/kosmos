@@ -215,3 +215,52 @@ test('#5883: moreHomes add a root per further home, refuse a bad tag, read one f
     assert.ok(l['sessions/mikey/codex-linked'] && l['sessions/mikey/codex-linked'].refused, JSON.stringify(Object.keys(l)));
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
+
+/* A Grok session as Grok writes it: <home>/sessions/<dirName>/<sid>/ with summary.json naming the launch folder. */
+function grokSession(s, home, dirName, sid, cwd, extra = []) {
+  const d = path.join(home, 'sessions', dirName, sid);
+  s.w(path.join(d, 'summary.json'), JSON.stringify({ info: { cwd } }));
+  for (const f of ['chat_history.jsonl', 'events.jsonl', 'updates.jsonl', 'system_prompt.txt', 'prompt_context.json', 'summary.json.lock', ...extra]) s.w(path.join(d, f), 'x\n');
+  return d;
+}
+
+test('#5883 slice 2 review 1: Grok sessions are matched by summary.json info.cwd, never by the folder name', () => {
+  const s = world();
+  try {
+    const grok = path.join(s.base, '.grok');
+    // The folder name Grok writes is NOT encodeURIComponent: a hashed long name, and Rust's encoding of an apostrophe.
+    grokSession(s, grok, 'workers-mikey-5f3a9c1e', 'sid-a', s.agent);
+    grokSession(s, grok, encodeURIComponent(s.agent).replace(/'/g, '%27') + '-x', 'sid-b', s.agent);
+    grokSession(s, grok, 'unrelated', 'sid-c', s.other);
+    const r = byName(bs.sessionsFor(s.agent, { id: 'mikey', grokHome: grok }))['sessions/mikey/grok'];
+    assert.ok(r, 'no Grok root for sessions whose folder names are not encodeURIComponent');
+    assert.equal(fs.realpathSync(r.path), fs.realpathSync(path.join(grok, 'sessions')));
+    assert.deepEqual(r.only, [
+      'workers-mikey-5f3a9c1e/sid-a/chat_history.jsonl', 'workers-mikey-5f3a9c1e/sid-a/events.jsonl',
+      'workers-mikey-5f3a9c1e/sid-a/summary.json', 'workers-mikey-5f3a9c1e/sid-a/updates.jsonl',
+      `${encodeURIComponent(s.agent).replace(/'/g, '%27')}-x/sid-b/chat_history.jsonl`, `${encodeURIComponent(s.agent).replace(/'/g, '%27')}-x/sid-b/events.jsonl`,
+      `${encodeURIComponent(s.agent).replace(/'/g, '%27')}-x/sid-b/summary.json`, `${encodeURIComponent(s.agent).replace(/'/g, '%27')}-x/sid-b/updates.jsonl`,
+    ].sort(), 'not exactly the conversation files of this agent\'s sessions');
+    // The other agent gets its own, never this one's.
+    assert.deepEqual(byName(bs.sessionsFor(s.other, { id: 'leo', grokHome: grok }))['sessions/leo/grok'].only.map((f) => f.split('/')[1]), ['sid-c', 'sid-c', 'sid-c', 'sid-c']);
+    // A linked sessions folder is refused, never followed; no Grok home, no root.
+    const linkedHome = path.join(s.base, '.grok-linked');
+    fs.mkdirSync(linkedHome, { recursive: true });
+    fs.symlinkSync(path.join(grok, 'sessions'), path.join(linkedHome, 'sessions'));
+    assert.ok(byName(bs.sessionsFor(s.agent, { id: 'mikey', grokHome: linkedHome }))['sessions/mikey/grok'].refused);
+    assert.equal(byName(bs.sessionsFor(s.agent, { id: 'mikey' }))['sessions/mikey/grok'], undefined);
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('#5883 slice 2 review 1: a session file that is a link is never named (it could point anywhere)', () => {
+  const s = world();
+  try {
+    const grok = path.join(s.base, '.grok');
+    const d = path.join(grok, 'sessions', 'f', 'sid-l');
+    s.w(path.join(d, 'summary.json'), JSON.stringify({ info: { cwd: s.agent } }));
+    s.w(path.join(s.base, 'elsewhere.txt'), 'not a conversation\n');
+    fs.symlinkSync(path.join(s.base, 'elsewhere.txt'), path.join(d, 'chat_history.jsonl'));
+    const r = byName(bs.sessionsFor(s.agent, { id: 'mikey', grokHome: grok }))['sessions/mikey/grok'];
+    assert.deepEqual(r.only, ['f/sid-l/summary.json'], 'a linked chat_history.jsonl was named');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});

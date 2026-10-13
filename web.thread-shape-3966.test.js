@@ -129,7 +129,9 @@ test('#3966: refreshWhens rewrites only the words that changed, in place', () =>
   const stale = span(AT, '51 minutes ago');
   const fresh = span(AT, '52 minutes ago');
   const bad = span('not a time', 'kept');
-  refreshWhens({ querySelectorAll: (sel) => (assert.equal(sel, '.mwhen[data-at]'), [stale, fresh, bad]) });
+  const asked = [];   // #5943: refreshWhens also refreshes a standing question's age (.dmq-age), none here
+  refreshWhens({ querySelectorAll: (sel) => (asked.push(sel), sel === '.mwhen[data-at]' ? [stale, fresh, bad] : []) });
+  assert.deepEqual(asked, ['.mwhen[data-at]', '.dmq-age[data-at]'], 'refreshWhens read other elements than the times and question ages');
   assert.equal(stale.textContent, '52 minutes ago', 'a ticked time was not brought up to now');
   assert.deepEqual(writes, ['52 minutes ago'], 'a time already right, or unreadable, was written anyway');
 });

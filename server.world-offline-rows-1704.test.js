@@ -145,3 +145,17 @@ test('control: Kosmos 1 still reads its own ava running and switched off', async
   assert.equal((await avaRow(undefined, running(launchidentity.launchKey('ava', WORLD)))).jobRunningUnseen, false,
     'Kosmos 1 read the named Kosmos\'s running job as its own');
 });
+
+test('#5957 slice 2: a STOPPED agent\'s offline row says its working rules are far behind (the likeliest stale agent)', async () => {
+  const DV = require('./engine/defaults').DOCTRINE_VERSION;
+  const file = require('./engine/instructions').fileFor('ava');
+  fs.mkdirSync(nodePath.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '# Ava\n\nYou are **Ava**, an assistant.\n');   // no working-rules block: its page offers them
+  store.writeProfile('ava', { doctrineVersion: DV - 13 });
+  const row = await avaRow(undefined, {});
+  assert.equal(row.state, 'stopped');
+  assert.equal(row.rulesBehind, 13);
+  // Control: recent enough, and the stopped row says nothing.
+  store.writeProfile('ava', { doctrineVersion: DV - 1 });
+  assert.equal((await avaRow(undefined, {})).rulesBehind, null);
+});

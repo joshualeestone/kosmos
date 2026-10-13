@@ -579,4 +579,45 @@ function decline(sessionName) {
   }
 }
 
-module.exports = { START, END, spanBody, clickDate, autoLine, planFor, status, refresh, refreshUnedited, refreshFleet, decline, hashOf, atBirth, birthLine, pastBlockIn, FLEET_LEAVES_REPLACE, FLEET_LEAVES_EDITED, fleetLeaves };
+/**
+ * kosmos#5957 slice 2: how many versions behind an agent's working rules are, for its CARD, or null.
+ * A number only when the agent is at least RULES_FAR_BEHIND versions behind (its recorded profile.doctrineVersion
+ * against DOCTRINE_VERSION), its own page would offer the update (status() says `refresh`, so the card and the page
+ * agree), and the person has not said Not now to this version. null for an unknown version (no record, no claim).
+ * status() reads and plans the whole file, so the answer is kept per agent and recomputed only when the instructions
+ * file (path, mtime, size) or what status() reads from the profile (doctrineVersion, doctrineDeclined) changes; an
+ * unrelated profile write (a role, a picture) keeps the answer. An agent not far behind
+ * returns before any file is touched; a far-behind one costs finding its file (fileFor reads its job record) and one
+ * stat per poll. Entries are not pruned when an agent is removed: one small entry per name, and a re-created agent of
+ * the same name has a new file and profile, so it is recomputed.
+ * The NUMBER is the recorded gap (what Kosmos last wrote into the file); if the person edited a later block in by hand,
+ * the file may be closer than that while the page still offers the update. The page's note gives no number, so the two
+ * never disagree on whether to update, only the count can overstate.
+ * `profile` is the row's own read, passed in so the card does not read it twice. Never throws.
+ */
+const RULES_FAR_BEHIND = 5;
+const BEHIND_SEEN = new Map();   // sessionName -> { stamp, value }
+function rulesBehind(sessionName, profile) {
+  try {
+    const p = profile && typeof profile === 'object' ? profile : (store.readProfile(sessionName) || {});
+    const carried = Number.isFinite(p.doctrineVersion) ? p.doctrineVersion : null;
+    if (carried === null) return null;
+    const behind = defaults.DOCTRINE_VERSION - carried;
+    if (behind < RULES_FAR_BEHIND) return null;
+    if (p.doctrineDeclined === defaults.DOCTRINE_VERSION) return null;
+    const file = instructions.fileFor(sessionName);
+    if (!file) return null;
+    const st = require('node:fs').statSync(file);
+    const stamp = [file, st.mtimeMs, st.size, carried, p.doctrineDeclined == null ? '' : p.doctrineDeclined].join('|');
+    const seen = BEHIND_SEEN.get(sessionName);
+    if (seen && seen.stamp === stamp) return seen.value;
+    const s = status(sessionName);
+    const value = s && s.state === 'refresh' ? behind : null;
+    BEHIND_SEEN.set(sessionName, { stamp, value });
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { RULES_FAR_BEHIND, rulesBehind, START, END, spanBody, clickDate, autoLine, planFor, status, refresh, refreshUnedited, refreshFleet, decline, hashOf, atBirth, birthLine, pastBlockIn, FLEET_LEAVES_REPLACE, FLEET_LEAVES_EDITED, fleetLeaves };

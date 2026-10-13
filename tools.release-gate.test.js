@@ -118,6 +118,11 @@ function sandboxEnv(dir, extra) {
      the sandbox inherited it, so step 1f (#5032, the site's /setup-staging headers) ran against a sandbox site with no
      origin and refused. An arm that wants a channel passes it in `extra`. */
   delete env.KOSMOS_CUT_CHANNEL;
+  /* #5934: step 1c refuses a cut while KOSMOS_TEST_PART (anything but all) or KOSMOS_TEST_PART_LOCAL is set, and CI
+     exports KOSMOS_TEST_PART (and KOSMOS_SHELL_SHARD) for its own part, so every arm meant to get past 1c would stop there. */
+  delete env.KOSMOS_TEST_PART;
+  delete env.KOSMOS_TEST_PART_LOCAL;
+  delete env.KOSMOS_SHELL_SHARD;
   return { ...env, ...(extra || {}) };
 }
 
@@ -591,7 +596,7 @@ function tmpdirIn(dir) {
   return t;
 }
 
-function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending = null, noWhatsNew = false } = {}) {
+function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending = null, noWhatsNew = false, env: extraEnv = {} } = {}) {
   /* #1455: the pending-entry shape. The operator may leave the entry as a FILE
      carrying TIMESTAMP instead of hand-stamping the page, and step 1 accepts that as a
      second valid state. Written into the REPO (not the site) because that is where
@@ -669,6 +674,10 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       KOSMOS_STAPLER_RETRY_DELAYS: undefined,
       KOSMOS_NOTARY_SPCTL_CMD: undefined,
       KOSMOS_NOTARY_XATTR_CMD: undefined,
+      /* #5934: and these, which CI exports for its own part (see sandboxEnv). */
+      KOSMOS_TEST_PART: undefined,
+      KOSMOS_TEST_PART_LOCAL: undefined,
+      KOSMOS_SHELL_SHARD: undefined,
       KOSMOS_FUTURE_BOUND: undefined,
       HOME: home,
       KOSMOS_SITE: site,
@@ -708,6 +717,8 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       /* #3884: step 1d, against the current fixture connector above. */
       KOSMOS_TUNNEL_BIN: TUNNEL_BIN,
       KOSMOS_RELAY_REPO: RELAY_REPO,
+      /* #5934: an arm that tests a refusal passes the variable it refuses here, after every strip above. */
+      ...extraEnv,
     },
     timeout: 60000,
     killSignal: 'SIGKILL',
@@ -855,6 +866,29 @@ test('a clean tree in step with origin gets past the guard', () => {
   const r = run_git(dir, '0.6.03', home, site);
   assert.ok(!/local main has commits origin\/main does not/.test(r.said), r.said.slice(0, 400));
   assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the guard');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+/* #5934: step 1c refuses a cut with a leftover KOSMOS_TEST_PART (anything but all) or KOSMOS_TEST_PART_LOCAL,
+   because step 3's `yarn test` inherits them and would run part of the suite. Driven through the REAL release.sh,
+   which tools/test-cut-testpart-guard-5934.sh (the extracted guard) cannot see. */
+test('#5934: a leftover KOSMOS_TEST_PART refuses the cut in step 1c, before the bump', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const r = run_git(dir, '0.6.03', home, site, { env: { KOSMOS_TEST_PART: 'node', KOSMOS_TEST_PART_LOCAL: '1' } });
+  assert.equal(r.status, 1, r.said.slice(-400));
+  assert.match(r.said, /A cut always tests the whole suite \(#5934\)/);
+  assert.ok(!/== 2\. the version, in one place ==/.test(r.said), 'it reached step 2 with a partial suite exported');
+  assert.equal(r.touched, false, 'it edited the version before refusing');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+test('#5934 CONTROL: KOSMOS_TEST_PART=all (the whole suite) gets past step 1c', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const r = run_git(dir, '0.6.03', home, site, { env: { KOSMOS_TEST_PART: 'all' } });
+  assert.ok(!/#5934/.test(r.said), r.said.slice(-400));
+  assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after 1c');
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(site, { recursive: true, force: true });
 });
