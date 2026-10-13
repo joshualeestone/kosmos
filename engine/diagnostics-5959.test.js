@@ -318,6 +318,9 @@ test('#5959: each agent carries the card word the person saw, when it was last s
   assert.deepEqual(file.agents[0].lastWorked, { at, why: null });
   assert.deepEqual(file.agents[1].lastWorked, { at: null, why: 'not_seen' });
   assert.equal(file.agents[0].report.askedAt, '2026-10-10T09:00:00Z');
+  // The real producer's card carries lastWorked (status.js lastWorkedOf), so the file reads it straight through.
+  assert.ok(Object.prototype.hasOwnProperty.call(REAL.rick, 'lastWorked'), 'a real board card no longer carries lastWorked');
+  assert.deepEqual(build({ cards: [REAL.rick], redactor: makeRedactor(WHO) }).agents[0].lastWorked, REAL.rick.lastWorked || null);
   // CONTROL: a card with no pane carries no lastWorked, and that is null, not a made-up time.
   assert.equal(build({ cards: [{ ...CARDS[0], lastWorked: undefined }], redactor: makeRedactor(WHO) }).agents[0].lastWorked, null);
 });

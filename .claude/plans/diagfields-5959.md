@@ -11,6 +11,7 @@ from slices 1 and 2, which were not on main yet. Both are now (#6035, #6021), so
 All three are times or the page's own words: nothing the agent or the person wrote, so the file's rule (states and
 failures, not the conversation) holds, and they pass through the same redactor as everything else.
 
-Test: engine/diagnostics-5959.test.js, each field from real fleet cards, with a control that a paneless card's
+Test: engine/diagnostics-5959.test.js, on real fleet cards with the slice 1/2 values injected (the label is derived
+from the card's own fields), a check that a real board card carries lastWorked, and a control that a paneless card's
 lastWorked is null. Weakest premise: `lastWorked` is read off the roster card (safeRoster maps snapshot cards, which
 carry it); a card shape that drops it would read null, the honest value, not a wrong time.
