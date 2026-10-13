@@ -20,3 +20,6 @@ Off a Mac, Qwen stays in the coming-soon sentence.
 ## Review
 1. opus: 1 warning (the guide implied Kosmos installs Codex for Qwen; the server refuses instead) and 1 concern
    (an unanswered address is still saved), both fixed; the nit (pin the Windows claim) taken.
+2. sonnet: no blocker or warning (converged). Two concerns taken: connecting OpenAI "offers to" install Codex (not
+   "does"), and a key to another computer needs https:// (the account check enforces it; the test reads that rule).
+3. sonnet: confirming round on the round-2 text.

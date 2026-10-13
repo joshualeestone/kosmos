@@ -79,6 +79,9 @@ test('#5977: the Qwen buttons the guide names are the ones the page shows', () =
   // Review 1: the guide's "off a Mac" claim, and its "Codex must already be there", against what ships.
   assert.match(page, /Coming to Windows/, 'the page no longer marks Qwen as coming to Windows');
   assert.match(flat, /Codex must already be on the computer: adding Qwen does not install it/);
+  // Review 2: the https rule the guide states is the one the account check enforces.
+  assert.match(flat, /a key to an address on another computer needs https:\/\//);
+  assert.match(fs.readFileSync(path.join(__dirname, 'qwenaccounts.js'), 'utf8'), /an address on another computer needs https:\/\/ to carry one/);
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(server, /we could not find Codex, the runner Qwen agents use/, 'adding Qwen now finds or installs Codex: say so in the guide');
 });
