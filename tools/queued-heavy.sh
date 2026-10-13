@@ -148,7 +148,7 @@ QH_NEED_BASE="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_su
 # GIT_CEILING_DIRECTORIES: git must never walk up out of the lib folder to an enclosing repo (a lib that lost its .git,
 # or whose .git is not a repo, would otherwise be read, and moved, as some other checkout). Built from the RESOLVED path,
 # because git compares the ceiling with the physical one: a symlinked lib path would otherwise not stop it.
-_qh_libgit() { env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE GIT_OPTIONAL_LOCKS=0 GIT_CEILING_DIRECTORIES="$(dirname "$(cd "$LIB_CHECKOUT" 2>/dev/null && pwd -P || printf '%s' "$LIB_CHECKOUT")")" git -C "$LIB_CHECKOUT" "$@"; }
+_qh_libgit() { env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE GIT_OPTIONAL_LOCKS=0 GIT_CEILING_DIRECTORIES="$(dirname "$(CDPATH= cd -- "$LIB_CHECKOUT" 2>/dev/null && pwd -P || printf '%s' "$LIB_CHECKOUT")")" git -C "$LIB_CHECKOUT" "$@"; }
 _qh_lib_check() {
   # The files the queue loads: cut-guard.sh and what it sources itself (process-fixture.sh, at its top). Kept by hand:
   # if cut-guard.sh ever sources another lib file, add it here, or this check says "match" while that file differs.
@@ -196,7 +196,7 @@ _qh_lib_check() {
     # checkout (a browser check or a board started there by hand) blocks it. An empty answer blocks it too.
     if [ -z "$why" ]; then
       local real cw=""
-      real="$(cd "$LIB_CHECKOUT" 2>/dev/null && pwd -P)" || real=""
+      real="$(CDPATH= cd -- "$LIB_CHECKOUT" 2>/dev/null && pwd -P)" || real=""
       cw="$(${QH_TEST_CWD:-lsof -bnP -d cwd -Fn} 2>/dev/null)"
       if [ -z "$real" ] || [ -z "$cw" ]; then why="could not list working directories"
       else
@@ -256,8 +256,9 @@ _qh_lib_check() {
       # git runs in its own group, so it outlives a wrapper KILLed (or ALRMed) mid-checkout. The pid recorded is the
       # subshell running git ($g is a function), which lives exactly as long as that git; in the lock it keeps a joiner
       # from taking the lock over (and loading a half-written lib) while git is still writing.
-      [ -n "$QH_LIB_LOCK" ] && echo "$gp" > "$QH_LIB_LOCK/gitpid" 2>/dev/null
+      [ -n "$QH_LIB_LOCK" ] && { echo "$gp" > "$QH_LIB_LOCK/gitpid"; ps -ww -o command= -p "$gp" > "$QH_LIB_LOCK/gitcmd"; } 2>/dev/null
       wait "$gp" || mrc=$?
+      [ -n "$QH_LIB_LOCK" ] && rm -f "$QH_LIB_LOCK/gitpid" "$QH_LIB_LOCK/gitcmd"   # git has exited: nothing left to wait for
     fi
     if [ "$mrc" = 0 ]; then
       trap - INT TERM HUP; [ -n "$qtraps" ] && eval "$qtraps"
@@ -275,8 +276,9 @@ _qh_lib_check() {
       $g -c core.hooksPath=/dev/null checkout -q -f --detach "$head" </dev/null >/dev/null 2>&1 &
       rp=$!
       set +m
-      [ -n "$QH_LIB_LOCK" ] && echo "$rp" > "$QH_LIB_LOCK/gitpid" 2>/dev/null
+      [ -n "$QH_LIB_LOCK" ] && { echo "$rp" > "$QH_LIB_LOCK/gitpid"; ps -ww -o command= -p "$rp" > "$QH_LIB_LOCK/gitcmd"; } 2>/dev/null
       wait "$rp" && [ -z "$($g status --porcelain --untracked-files=no 2>/dev/null)" ] && rok=yes
+      [ -n "$QH_LIB_LOCK" ] && rm -f "$QH_LIB_LOCK/gitpid" "$QH_LIB_LOCK/gitcmd"
     fi
     trap - INT TERM HUP; [ -n "$qtraps" ] && eval "$qtraps"
     if [ "$rok" = yes ]; then
@@ -319,11 +321,20 @@ else
         # Only if it is still that holder's lock (another joiner may have just taken it over), and no git it started is
         # still checking out (a dead holder's git keeps writing in its own group).
         # Also not while the lib's index.lock exists: a running checkout always holds it, which covers the instant
-        # between git starting and its pid reaching the lock (and a gitpid since reused). A lock left by a git that
-        # was itself killed blocks until the 5-minute give-up below, as it blocks every git in that checkout anyway.
+        # between git starting and its pid reaching the lock. A lock left by a git that was itself killed blocks until
+        # the 5-minute give-up below, as it blocks every git in that checkout anyway.
+        # The gitpid is removed once git exits, and a live pid running another command than the one recorded
+        # (gitcmd) is a reused pid, not that git (iteration 23): so a dead holder's long-gone git cannot hold the
+        # lock for good by its number landing on an unrelated process.
         _qh_gp="$(cat "$QH_LIB_LOCK/gitpid" 2>/dev/null)"
+        _qh_gl=no
+        if [ -n "$_qh_gp" ] && kill -0 "$_qh_gp" 2>/dev/null; then
+          _qh_gl=yes
+          _qh_gc="$(cat "$QH_LIB_LOCK/gitcmd" 2>/dev/null)"
+          [ -n "$_qh_gc" ] && [ "$(ps -ww -o command= -p "$_qh_gp" 2>/dev/null)" != "$_qh_gc" ] && _qh_gl=no
+        fi
         _qh_gd="$(_qh_libgit rev-parse --absolute-git-dir 2>/dev/null)"
-        if { [ -z "$_qh_gp" ] || ! kill -0 "$_qh_gp" 2>/dev/null; } && { [ -z "$_qh_gd" ] || [ ! -e "$_qh_gd/index.lock" ]; }; then
+        if [ "$_qh_gl" = no ] && { [ -z "$_qh_gd" ] || [ ! -e "$_qh_gd/index.lock" ]; }; then
           [ "$(cat "$QH_LIB_LOCK/pid" 2>/dev/null)" = "$_qh_op" ] && rm -rf "$QH_LIB_LOCK"
         fi
       fi
@@ -351,7 +362,7 @@ else
   else
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') the lib check's lock stayed taken for 5 min (holder pid ${_qh_op:-?}); loading the lib unchecked, possibly in the middle of a move (#5923)"
   fi
-  unset _qh_i _qh_op _qh_oc _qh_empty _qh_ino _qh_ino2 _qh_lastino _qh_gp _qh_gd _qh_gone
+  unset _qh_i _qh_op _qh_oc _qh_empty _qh_ino _qh_ino2 _qh_lastino _qh_gp _qh_gl _qh_gc _qh_gd _qh_gone
 fi
 . "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || {
   _qh_lib_unlock
