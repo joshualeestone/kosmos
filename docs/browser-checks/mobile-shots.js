@@ -1588,7 +1588,7 @@ DATA_SETS.marketing = {
     eli: { modelName: 'GPT 5.2', runner: 'codex', tokens: 84000, ceiling: 400000, postedDaysAgo: 0 },
     farah: { model: 'claude-haiku-5-5', modelName: 'Claude Haiku 5.5', tokens: 110000, postedDaysAgo: 3 },
     maya: { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', tokens: 485000, postedDaysAgo: 0 },
-    theo: { modelName: 'Gemini 3 Pro', runner: 'gemini', tokens: 140000, ceiling: 1000000, assumed: true, postedDaysAgo: 2 },   // the engine assumes Gemini's window (readGeminiContext)
+    theo: { modelName: 'Gemini 3 Pro', runner: 'gemini', tokens: 140000, ceiling: 1048576, assumed: true, postedDaysAgo: 2 },   // the engine's assumed Gemini window (status.js GEMINI_TEXT_WINDOW)
     iris: { model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', tokens: 665000, postedDaysAgo: 1 },
     ravi: { runner: 'muse', postedDaysAgo: 5 },   // no name (modelLine says Meta Muse) and no reading: Kosmos does not read Muse's memory
   },
@@ -1613,8 +1613,9 @@ function busyCards(body, busy) {
     const raw = Math.round((b.tokens / ceiling) * 100);   // measuredResult's arithmetic: clamp the percent, flag the excess
     const percent = Math.min(100, raw);
     // Counted as reached only when every line it asks for can show: a community line needs the community on.
-    if (!(Number.isInteger(b.postedDaysAgo) && c.communityOn === false)) BUSY_SEEN.add(key);
-    if (b.modelName) c.modelName = b.modelName;
+    const lineCanShow = !Number.isInteger(b.postedDaysAgo) || c.communityOn !== false;
+    if (lineCanShow) BUSY_SEEN.add(key);
+    if (b.modelName) { c.modelName = b.modelName; c.plannedModelName = b.modelName; }   // modelLine reads the planned one on a stopped card
     // A Muse card with no model of its own says "Meta Muse" (modelLine's fallback); the sandbox's seeded Claude model
     // must not stand in for it.
     else if (b.runner === 'muse') { c.modelName = null; c.plannedModelName = null; }
