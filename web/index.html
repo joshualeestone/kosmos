@@ -61531,8 +61531,7 @@ function tskInWindow(t, days, now) {
   const c = Date.parse(t && t.createdAt);
   return Number.isFinite(c) && (now - c) <= days * 86400000;
 }
-/* #3029: a Tasks row's project chain (Book A › Launch), from the engine's projectPath on the row, so every
-   place the Tasks screen names a project reads the same array. */
+/* #3029: a Tasks row's project chain (Book A › Launch), from the engine's projectPath on the row. */
 function tskChainOf(t) {
   return (Array.isArray(t.projectPath) ? t.projectPath : []).concat(t.projectName == null ? '' : String(t.projectName));
 }
@@ -61626,7 +61625,8 @@ async function tskLoad(arrival) {
 function tskRow(t, at) {
   const on = TSK.sel.has(tskKey(t));
   /* #3029: the row names its project by the chain (Book A › Launch), so two same-named subprojects differ. */
-  const projChain = pjChainText(tskChainOf(t));
+  const rowChain = tskChainOf(t);
+  const projChain = pjChainText(rowChain);
   /* #3861 part 2: where the row sits in its list (taskNest): its indent, whether it says what it
      is part of, and how many of its subtasks are in this same list (the fold toggle). A caller
      that passes nothing gets a plain top-level row. */
@@ -61689,7 +61689,7 @@ function tskRow(t, at) {
       + (t.builtAt && agoWords(Date.now() - Date.parse(t.builtAt)) ? ' ' + esc(agoWords(Date.now() - Date.parse(t.builtAt))) : '')
       + (t.builtNote ? ': ' + esc(t.builtNote) : '')
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
-      + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(tskChainOf(t))) + ' not built yet">Not built yet</button></div>';
+      + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(rowChain)) + ' not built yet">Not built yet</button></div>';
   /* kosmos#4787: a recurring job's row says how often it runs, when it last ran and who ran it, and when it runs next,
      so automated work shows its owner and its rhythm instead of looking idle or ownerless. The rule's words and the next
      run come from the board (taskrepeat.describe / nextAfter), never worked out again here. */
@@ -61700,7 +61700,7 @@ function tskRow(t, at) {
     /* The row no longer repeats its state in a status group (the heading says it), so there the
        label carries it: a screen reader moving between checkboxes still hears where each task is.
        Grouped by project the row shows its state line, so the label does not say it again. */
-    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(tskChainOf(t)))
+    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(rowChain))
     + (g && TSK.by !== 'project' ? ' (' + esc(g.l) + ')' : '') + '"></label>'
     + '<div class="t">' + partOf + '<span class="n">#' + Number(t.number) + '</span>'
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
