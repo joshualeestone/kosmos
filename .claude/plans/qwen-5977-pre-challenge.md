@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: qwen-5977
-diff_hash: 4f9f3764889ed67d237c430bf9458331268a41b550c263899eb1ecbad1034a19
+diff_hash: 392b2545e55b0c18b12b857b7c04cd8692e9d2ed08e64d36f5c47a6f09f318b3
 validation: passed
 timestamp: 2026-10-13T12:32:45Z
 iterations: 7
@@ -51,3 +51,5 @@ Severity tags appear only where a review commit recorded one.
 #### After the PR (CI fix, test only)
 - [WARNING] CI found the Repair test resolving the machine's codex (absent on the runner). Fixed: the sandbox codex.
   Re-hashed; the full validation above is of the code before this test-only change.
+- [WARNING] CI's windows job ran two Mac-path Qwen create tests on Windows, where Qwen is refused by design.
+  Fixed: they pin platform 'darwin'. Re-hashed.
