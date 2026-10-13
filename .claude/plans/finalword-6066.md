@@ -12,8 +12,13 @@ stays open and the parent never shows ready. `kosmos task built` already finishe
 ## The call
 `taskFinalWordHint` (server.js): when an identified agent that holds an open, unbuilt, non-repeating task posts in it,
 the route's `summary` (printed by the Mac and Windows CLIs) ends with: "If that is your final word on it, kosmos task
-built <project> <n> '<note>' marks it done, so nothing waits on it." Single quotes and no backslash, because the Mac
-CLI reads `summary` with sed up to the first double quote; the project id is stripped of quotes and controls.
+built <project> <n> 'what you decided' marks it done, so nothing waits on it." Single quotes, no backslash and no < or >
+(a cmd.exe redirection), because the Mac CLI reads `summary` with sed up to the first double quote; the project id is
+stripped of quotes and controls.
+
+Review 1 narrowed who is told: the holder is matched as the route matches its sender (sameAgentName with the paneless
+key, so a Windows agent is told too); never on a task of more than one part (`task built` marks the WHOLE task, and
+neither CLI can close one part); never while the task is on hold or waits on the person's decision.
 
 ## Rejected
 - Marking built when a message looks final: a guess from free text, and a wrong guess is a silent wrong state, which is
@@ -25,7 +30,9 @@ CLI reads `summary` with sed up to the first double quote; the project id is str
   named command really marks it built (it was not built before); no line for a non-holder, an unidentified sender, or
   (pure) a repeating, built or closed task; a project id cannot put a quote or backslash in.
 - Mutations: the route not appending the line reds the 3 route tests; dropping the holder check reds the 2 non-holder
-  tests.
+  tests. Review 1's three narrowings (parts, paneless key, held/decision) each red exactly their own test when removed.
+- Route: a built task's holder gets no line on a later message (control: it did while open); a task of two parts
+  gets none (control: it did with one).
 - server.agent-token-gate-4491.test.js pinned the whole summary for a sender alone on its own task, which is exactly
   the case that now gets the line: it now checks the delivery sentence still leads and the line follows.
 - The sibling task-message, summary, valve, token, guide-mask, limit, swarm, repeat and Windows CLI tests pass
@@ -34,3 +41,5 @@ CLI reads `summary` with sed up to the first double quote; the project id is str
 ## Weakest premise
 The reading. If the reporter's review is recorded somewhere other than the task's own conversation (a room, a PR),
 this does not reach it. And the reviewer still takes one step (built); "without a manual step" holds for everyone else.
+Residual: 'what you decided' pasted literally counts as a note; it reads as a placeholder, which is why it is words.
+A review held as one part of a multi-part task still gets no help: there is no verb to close one part.

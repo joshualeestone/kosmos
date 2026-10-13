@@ -4670,16 +4670,20 @@ function sameAgentName(a, b, byKey) {
    stays open and whatever waits on it (a parent that is ready when its subtasks are, #5956) waits on a review that is
    done. The reply to the task's OWN holder says how to finish it, at the moment it gives its word. Never inferred from
    the text (a message that looks final is a guess), never for the screen, a non-holder, a repeating task (never
-   built, #4787), or a task already built or closed. Single quotes and no backslash: the Mac CLI reads `summary` with
-   sed up to the first double quote. */
-function taskFinalWordHint(t, senderName, projectId) {
+   built, #4787), a task already built or closed, one on hold, or one waiting on the person's decision (something does
+   still wait on it then). Review 1: never for a task of more than one part either: `task built` marks the WHOLE task,
+   so one part's holder would finish everybody's parts. The holder is matched as the route matches its sender
+   (sameAgentName with the paneless key), so a Windows or other paneless agent is told too. Single quotes, no
+   backslash and no < or > (a cmd.exe redirection): the Mac CLI reads `summary` with sed up to the first double quote. */
+function taskFinalWordHint(t, senderName, projectId, byKey) {
   if (!t || !senderName || t.repeat) return '';
-  if (!tasks.whoOf(t).includes(senderName)) return '';
+  if (tasks.partsOf(t).length > 1) return '';
+  if (!tasks.whoOf(t).some((m) => sameAgentName(m, senderName, byKey))) return '';
   const st = tasks.taskState(t);
-  if (st === 'closed' || st === 'built') return '';
+  if (st === 'closed' || st === 'built' || st === 'held' || st === 'decision') return '';
   const pid = String(projectId).replace(/["\\\s\u0000-\u001f\u007f-\u009f\u2028\u2029']/g, '');
   if (!pid || !/^\d+$/.test(String(t.number))) return '';
-  return `If that is your final word on it, kosmos task built ${pid} ${t.number} '<note>' marks it done, so nothing waits on it.`;
+  return `If that is your final word on it, kosmos task built ${pid} ${t.number} 'what you decided' marks it done, so nothing waits on it.`;
 }
 
 function taskMessageSummary(delivered, assigned) {
@@ -20959,7 +20963,7 @@ const server = http.createServer(async (req, res) => {
             ...(outcome && outcome.heldFor === 'signin' ? { heldFor: 'signin' } : {}) });
         }
         if (!viaScreen) taskMessageValveRecord();
-        const finalWord = !viaScreen && senderCard ? taskFinalWordHint(t, senderCard.sessionName, id) : '';   // #6066
+        const finalWord = !viaScreen && senderCard ? taskFinalWordHint(t, senderCard.sessionName, id, byKey) : '';   // #6066
         sendJson(res, 200, { ok: true, delivered, summary: taskMessageSummary(delivered, named.length) + (finalWord ? ' ' + finalWord : '') });
       } catch (err) {
         const msg = String((err && err.message) || '');
