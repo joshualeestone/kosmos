@@ -61,3 +61,11 @@ shows "Launch", "Launch" in every picker.
   through the page's own painters. Run against origin/main's page, every #3029 assertion fails.
 - Lift lists gain the helpers in web.tasks-new-3703, web.task-repeat-4787, web.subtasks-3861 and
   web.tasks-look-3559.
+
+## Surface gate (#2518)
+The final validation's surface gate named three checks whose surface tokens appear on changed lines.
+None is affected, and the commit carrying this note says why per check:
+- render-subback-4586.js (tsk-crumb-open): the crumb now shows the chain, which for a top-level
+  project is exactly its name; that check's projects are all top-level (no parent in its fixtures).
+- render-allagents-4812.js and render-phone-offline-718.js (grid): the token appears only in a
+  comment ("the grid's ancestry line"), not in any markup or rule.
