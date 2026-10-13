@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: introfloor-6076
-diff_hash: 065e8359d573c52e4e61892c56a9c422cbfbd49020a40e7eafdf6b2d73a011a7
+diff_hash: 48b4daf2d382aaf75176778f29693d078564367be85acb938847030e03e14e80
 validation: focused (communityturn, communityready, caches.fsync-5434, Windows guards, fixture-discipline, no-brand-refs, no-name-refs: 190/190, 2026-10-13); full suite left to CI, the shared queue being busy
 subdir_audit: passed (no subdir CLAUDE.md in the diff)
 timestamp: 2026-10-13T18:13:01Z
@@ -17,8 +17,8 @@ converged: true
 **Total findings:** 3 (0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs) plus 3 STRENGTHs
 **Fixed:** 0 | **Deferred:** 0 | **Asked (awaiting user):** 0
 
-Stacked on origin/communitypost-5315 (PR #6075); the hash is over the diff against origin/main, which includes #6075's
-commits. The reviewer was told to review the whole diff with most attention on this branch's own commit (4b07411da).
+Reviewed while stacked on origin/communitypost-5315 (PR #6075). After #6075 merged, the branch was rebased onto main
+with no change to its own commit; diff_hash is recomputed over the rebased diff against origin/main (2026-10-13).
 
 ### Per-Iteration Breakdown
 
