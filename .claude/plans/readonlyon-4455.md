@@ -202,3 +202,13 @@ gained entries at the same place): resolved by taking main's file whole and addi
 checked by parsing (main's 39 items unchanged, 40 after), with `since` moved to 0.7.47. After the merge: the pool's
 tests 54 pass, the installer check's test 31 pass, the runnable guard 0 failures, the static check 23 pass.
 0.7.45 has now been the served `/setup` for about five hours. The weakest premise is unchanged by that.
+
+## The second full validation: passed, and what it does NOT cover (2026-10-13, finished 15:57 CDT, at 94ec9aec9)
+- Type-check, lint, the node suite (20187 tests, 19952 passed, 0 failed), the shell suite (234 commands, none
+  failed), the build. Exit 0. The runnable guard and this branch's own test are among the 234.
+- **`tools/test-install.sh` is NOT among them, and I had believed it was.** The shell suite runs `bash -n` on it, a
+  syntax check. The harness itself, which installs for real into a sandbox, runs at a release cut (the install
+  gate in `tools/release.sh`) and needs built bundles in `dist/`. It has not run on this branch.
+- That is the test whose default check this branch inverts and to which it adds two checks. So the claim "the
+  installed app is read-only by default after a real install, and `=0` leaves it writable" is measured NOWHERE yet.
+- No PR until it has run green here. If it first ran at the next cut and was red, it would stop a release.
