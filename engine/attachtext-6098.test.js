@@ -324,11 +324,18 @@ test('#6098 review 2: a long run of spaces in a PDF string is linear', () => {
   assert.ok(got.pages[0].endsWith('x'));
 });
 
-test('#6098 review 2: packed objects with overlapping or falling offsets are refused, not spanned', () => {
-  const body = 'x'.repeat(200000);
-  const head = Array.from({ length: 200 }, (_, k) => (100 + k) + ' ' + (k % 2 ? 1000 : 0)).join(' ') + ' ';
-  const buf = pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [] /Count 0 >>'], [7, streamObj('/Type /ObjStm /N 200 /First ' + head.length, head + body)]]);
-  assert.ok(timed(() => at.pdfTextJs(buf)) < 2000);
+test('#6098 review 2: packed objects each end where the next begins, and falling offsets stop the expansion', () => {
+  // The page lives in the object stream, and the next packed object carries a font resource that would remap 'P' if it
+  // leaked into the page's dictionary: so an object that spans past its end changes the text (review 3: the first
+  // version of this arm could not fail).
+  const page = '<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>';
+  const leak = '<< /Resources << /Font << /F1 5 0 R >> >> >>';
+  const head = '3 0 9 ' + page.length + ' 10 0 ';   // 9 starts after 3; 10 falls back to 0: refused
+  const cmap = 'beginbfchar\n<50> <005A>\nendbfchar';
+  const buf = pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [4, streamObj('', 'BT /F1 12 Tf (Packed page) Tj ET')], [5, '<< /Type /Font /ToUnicode 6 0 R >>'], [6, streamObj('', cmap)],
+    [7, streamObj('/Type /ObjStm /N 3 /First ' + head.length, head + page + leak)]]);
+  assert.deepEqual(at.pdfTextJs(buf).pages, ['Packed page'], 'object 3 ends where 9 begins, so the font in 9 is not the page\'s');
 });
 
 test('#6098 review 2: one sheet part listed many times is read once; more than 256 columns says so', () => {
@@ -361,4 +368,36 @@ test('#6098 review 2: numId 0 is not a list; text-box paragraphs keep a space; a
   assert.ok(/Box one Box two/.test(body), body);
   const broken = at.docxText(docxOf('<w:p><w:r><w:t>Kept</w:t></w:r></w:p><w:p><w:r><w:t>never closes'));
   assert.ok(broken.notes.some((n) => /damaged/.test(n)));
+});
+
+/* ── review 3 ── */
+test('#6098 review 3: the text cap is said when it is reached, and later pages are not called scanned', async () => {
+  const line = '(' + 'word '.repeat(200) + ') Tj T*';
+  const pageStream = streamObj('', 'BT /F1 9 Tf ' + Array.from({ length: 300 }, () => line).join(' ') + ' ET');   // ~300 KB of text per page
+  const objs = [[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [' + Array.from({ length: 12 }, (_, i) => (10 + i) + ' 0 R').join(' ') + '] /Count 12 >>'], [3, pageStream]];
+  for (let i = 0; i < 12; i += 1) objs.push([10 + i, '<< /Type /Page /Parent 2 0 R /Contents 3 0 R >>']);
+  const f = path.join(SANDBOX, 'long.pdf');
+  fs.writeFileSync(f, pdf(objs));
+  const got = await at.pdfText(f, fs.readFileSync(f));
+  assert.ok(got.notes.some((n) => /stops at/.test(n)), JSON.stringify(got.notes));
+  assert.ok(!got.notes.some((n) => /had no text|scanned/.test(n)), 'later pages are not called scanned: ' + JSON.stringify(got.notes));
+});
+
+test('#6098 review 3: an ASCII85 then Flate stream (reportlab\'s default) reads; WinAnsi punctuation reads as punctuation', () => {
+  const a85 = (b) => { let o = ''; for (let i = 0; i < b.length; i += 4) { const c = Buffer.alloc(4); b.copy(c, 0, i, Math.min(i + 4, b.length)); let n = c.readUInt32BE(0); const g = []; for (let k = 0; k < 5; k += 1) { g.unshift(String.fromCharCode(33 + (n % 85))); n = Math.floor(n / 85); } o += g.slice(0, Math.min(5, b.length - i + 1)).join(''); } return o + '~>'; };
+  const z = zlib.deflateSync(Buffer.from('BT /F1 12 Tf (don\\222t \\223quote\\224 \\226 dash \\225 bullet \\200) Tj ET', 'latin1'));
+  const enc = a85(z);
+  const s = '<< /Filter [/ASCII85Decode /FlateDecode] /Length ' + enc.length + ' >>\nstream\n' + enc + '\nendstream';
+  const buf = pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'], [3, '<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>'], [4, s]]);
+  assert.deepEqual(at.pdfTextJs(buf).pages, ['don\u2019t \u201cquote\u201d \u2013 dash \u2022 bullet \u20ac']);
+});
+
+test('#6098 review 3: the Excel date-format check is linear on a long unclosed format', () => {
+  const book = buildZip([
+    entry('xl/workbook.xml', XML + '<workbook xmlns:r="r"><sheets><sheet name="S" r:id="rId1"/></sheets></workbook>'),
+    entry('xl/_rels/workbook.xml.rels', XML + '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
+    entry('xl/worksheets/sheet1.xml', XML + '<worksheet><sheetData/></worksheet>'),
+    entry('xl/styles.xml', XML + '<styleSheet><numFmts><numFmt formatCode="' + 'd'.repeat(200000) + '</numFmts></styleSheet>'),
+  ]);
+  assert.ok(timed(() => at.xlsxText(book)) < 2000, '100K took 4.8 s before');
 });

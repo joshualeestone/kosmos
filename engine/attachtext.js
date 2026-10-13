@@ -181,7 +181,8 @@ function xlsxText(buf) {
   if (clip.cell) notes.add('A cell longer than ' + MAX_CELL + ' characters is cut short.');
   let styles = null;
   try { styles = get('xl/styles.xml'); } catch { styles = null; }
-  if (styles && (/numFmtId="(?:1[4-9]|2[0-2]|4[5-7])"/.test(styles) || /formatCode="[^"<>]*[dy][^"<>]*"/i.test(styles))) notes.add('Dates may appear as Excel day numbers (for example 45123), not as dates.');
+  const dateFormat = () => { for (const m of styles.matchAll(/formatCode="([^"<>]*)"/g)) if (/[dy]/i.test(m[1])) return true; return false; };   // iteration 3: one match then a test, not a backtracking pattern
+  if (styles && (/numFmtId="(?:1[4-9]|2[0-2]|4[5-7])"/.test(styles) || dateFormat())) notes.add('Dates may appear as Excel day numbers (for example 45123), not as dates.');
   if (hasPart(buf, /^xl\/(charts|drawings|media)\//)) notes.add('Charts, pictures and drawings are not converted.');
   return { body: out.text().trim(), notes: [...notes], full: out.full };
 }
@@ -300,7 +301,7 @@ function runsText(span) {
 }
 
 function paraText(p) {
-  const s = runsText(p.replace(/<\/w:p>(?!$)/g, '<w:t> </w:t></w:p>')).replace(/ {2,}/g, ' ');   // text-box paragraphs keep a space between them
+  const s = runsText(p.replace(/<\/w:p>(?!$)/g, '<w:t>\u2063</w:t></w:p>')).replace(/ *\u2063+ */g, ' ');   // text-box paragraphs keep a space between them; typed spacing is kept
   const style = /<w:pStyle\b[^<>]*w:val="([^"]*)"/.exec(p);
   const heading = style && /^(?:Heading|Title)(\d?)$/i.exec(style[1]);
   if (heading && s.trim()) return '#'.repeat(Math.min(6, Number(heading[1] || 1))) + ' ' + s.trim();
@@ -398,26 +399,39 @@ function pdfObjects(buf) {
       let dataEnd = lenM ? dataStart + Number(lenM[1]) : inside();
       if (dataEnd < dataStart || dataEnd > end) dataEnd = inside();
       dict = head;
-      objs.set(num, { dict, raw: [dataStart, dataEnd], flate: /\/FlateDecode/.test(head), other: /\/Filter/.test(head) && !/\/FlateDecode/.test(head) });
+      const fm = /\/Filter\s*(\[[^\]]{0,200}\]|\/[A-Za-z0-9]{1,40})/.exec(head);
+      const filters = fm ? (fm[1].match(/\/[A-Za-z0-9]+/g) || []).map((f) => f.slice(1)) : [];
+      objs.set(num, { dict, raw: [dataStart, dataEnd], filters });
     } else objs.set(num, { dict, raw: null });
     at = end + 6;
   }
   let inflated = 0;
+  const undecodable = { n: 0 };
   const stream = (num) => {
     const o = objs.get(num);
     if (!o || !o.raw) return null;
     if (o.stream !== undefined) return o.stream;
     o.stream = null;
-    if (o.other) return null;   // a filter this reader does not do (images, mostly)
-    const data = buf.subarray(o.raw[0], o.raw[1]);
-    if (!o.flate) { o.stream = data; return data; }
-    if (inflated >= MAX_PDF_INFLATE) return null;
-    try {
-      o.stream = zlib.inflateSync(data, { maxOutputLength: MAX_PDF_INFLATE - inflated, finishFlush: zlib.constants.Z_SYNC_FLUSH });   // a truncated tail keeps what came before it
-      inflated += o.stream.length;
-    } catch (e) {
-      if (e && e.code === 'ERR_BUFFER_TOO_LARGE') inflated = MAX_PDF_INFLATE;   // the work was done: charge it (review 1)
+    let data = buf.subarray(o.raw[0], o.raw[1]);
+    /* The filters in order (iteration 3: reportlab writes [ /ASCII85Decode /FlateDecode ]). Any other filter (images,
+       mostly, or LZW) is not read; undecodable counts so the reader can say so instead of "scanned". */
+    for (const f of o.filters) {
+      if (f === 'ASCII85Decode' || f === 'A85') data = a85(data);
+      else if (f === 'ASCIIHexDecode' || f === 'AHx') data = ahx(data);
+      else if (f === 'FlateDecode' || f === 'Fl') {
+        if (inflated >= MAX_PDF_INFLATE) return null;
+        try {
+          data = zlib.inflateSync(data, { maxOutputLength: MAX_PDF_INFLATE - inflated, finishFlush: zlib.constants.Z_SYNC_FLUSH });   // a truncated tail keeps what came before it
+          inflated += data.length;
+        } catch (e) {
+          if (e && e.code === 'ERR_BUFFER_TOO_LARGE') inflated = MAX_PDF_INFLATE;   // the work was done: charge it (review 1)
+          undecodable.n += 1;
+          return null;
+        }
+      } else { undecodable.n += 1; return null; }
+      if (!data) { undecodable.n += 1; return null; }
     }
+    o.stream = data;
     return o.stream;
   };
   /* Object streams (PDF 1.5+): the objects a modern writer packs together, fonts and pages among them. */
@@ -444,7 +458,45 @@ function pdfObjects(buf) {
       if (!objs.has(onum)) objs.set(onum, { dict: s.slice(off, next), raw: null });
     }
   }
-  return { objs, stream };
+  return { objs, stream, undecodable };
+}
+
+/* ASCII85 and ASCIIHex, each one forward pass. */
+function a85(buf) {
+  const s = buf.toString('latin1');
+  const out = [];
+  let group = [];
+  for (let i = 0; i < s.length; i += 1) {
+    const c = s[i];
+    if (c === '~') break;
+    if (c === 'z' && group.length === 0) { out.push(0, 0, 0, 0); continue; }
+    const v = c.charCodeAt(0) - 33;
+    if (v < 0 || v > 84) continue;   // whitespace and stray bytes
+    group.push(v);
+    if (group.length === 5) {
+      let n = 0;
+      for (const g of group) n = n * 85 + g;
+      out.push((n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255);
+      group = [];
+    }
+  }
+  if (group.length > 1) {
+    const k = group.length;
+    while (group.length < 5) group.push(84);
+    let n = 0;
+    for (const g of group) n = n * 85 + g;
+    const b = [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+    out.push(...b.slice(0, k - 1));
+  }
+  return Buffer.from(out);
+}
+function ahx(buf) {
+  let h = buf.toString('latin1');
+  const end = h.indexOf('>');
+  if (end >= 0) h = h.slice(0, end);
+  h = h.replace(/[^0-9a-fA-F]/g, '');
+  if (h.length % 2) h += '0';
+  return Buffer.from(h, 'hex');
 }
 
 /* The inner text of the first `<< >>` after /key, nesting counted (a bounded walk). */
@@ -600,6 +652,22 @@ function* tokens(s) {
   }
 }
 
+/* A string in a font with no ToUnicode map, read as WinAnsi (the standard fonts' encoding): 0x80-0x9F are curly quotes,
+   dashes, bullets and the euro sign there, not control characters (iteration 3). Other control characters are dropped. */
+const WINANSI = { 0x80: '\u20ac', 0x82: '\u201a', 0x83: '\u0192', 0x84: '\u201e', 0x85: '\u2026', 0x86: '\u2020', 0x87: '\u2021', 0x88: '\u02c6', 0x89: '\u2030',
+  0x8a: '\u0160', 0x8b: '\u2039', 0x8c: '\u0152', 0x8e: '\u017d', 0x91: '\u2018', 0x92: '\u2019', 0x93: '\u201c', 0x94: '\u201d', 0x95: '\u2022', 0x96: '\u2013',
+  0x97: '\u2014', 0x98: '\u02dc', 0x99: '\u2122', 0x9a: '\u0161', 0x9b: '\u203a', 0x9c: '\u0153', 0x9e: '\u017e', 0x9f: '\u0178' };
+function winAnsi(raw) {
+  let s = '';
+  for (let i = 0; i < raw.length; i += 1) {
+    const c = raw.charCodeAt(i);
+    if (c >= 0x80 && c <= 0x9f) s += WINANSI[c] || '';
+    else if (c < 0x20 && c !== 0x09) s += '';
+    else s += raw[i];
+  }
+  return s;
+}
+
 function pageText(content, fonts, out) {
   let font = null;
   let lastY = null;
@@ -608,7 +676,7 @@ function pageText(content, fonts, out) {
   let arr = null;   // items of the TJ array being read, kept apart from the operands (review 1: 64+ items lost the array)
   const decode = (raw) => {
     const f = font && fonts.get(font);
-    if (!f) return raw.replace(/[\u0000-\u0008\u000b\u000e-\u001f]/g, '');
+    if (!f) return winAnsi(raw);
     let s = '';
     for (let i = 0; i + f.codeLen <= raw.length; i += f.codeLen) {
       let code = 0;
@@ -654,7 +722,7 @@ function pageText(content, fonts, out) {
 function pdfTextJs(buf) {
   /* Encryption is declared in the trailer (or a cross-reference stream's dictionary), never in the objects it hides. */
   if (/\/Encrypt\s*(?:\d{1,10}\s+\d{1,5}\s+R|<<)/.test(buf.toString('latin1'))) return { encrypted: true, pages: [] };
-  const { objs, stream } = pdfObjects(buf);
+  const { objs, stream, undecodable } = pdfObjects(buf);
   const cmaps = new Map();
   const cmapOf = (fontNum) => {
     if (cmaps.has(fontNum)) return cmaps.get(fontNum);
@@ -693,9 +761,10 @@ function pdfTextJs(buf) {
     const text = page.text().trim();
     pages.push(text);
     total.add(text);
+    if (page.full || total.length >= MAX_OUT) { cut = (cut ? cut + ' ' : '') + 'The rendering stops at ' + MAX_OUT + ' characters; later pages are not included.'; break; }   // iteration 3
     if (cut) break;
   }
-  return { encrypted: false, pages, cut };
+  return { encrypted: false, pages, cut, undecodable: undecodable.n };
 }
 
 /* Whether extracted text reads as text: mostly letters, digits, spaces and ordinary punctuation, judged on a sample. */
@@ -704,13 +773,14 @@ function readable(pages) {
   const chars = Array.from(sample.replace(/\s+/g, ''));
   if (!chars.length) return false;
   const ok = chars.filter((c) => /[\p{L}\p{N}.,;:!?'"()\-\/%$&@#*+=‐-‟]/u.test(c)).length;
+  if (/[\u0080-\u009f]/.test(sample)) return false;   // control characters where text should be: ask PDFKit (iteration 3)
   return ok / chars.length >= 0.8;
 }
 
 /* Pages to a rendering, with the notes a reader needs. */
 function pdfFinish(pages, notes) {
   const empty = pages.filter((p) => !String(p).trim()).length;
-  if (!pages.length || empty === pages.length) notes.push('No text was found in this PDF. It may be scanned pages (pictures of text), which are not converted.');
+  if (notes.some((n) => /compression Kosmos cannot read/.test(n))) { /* said already */ } else if (!pages.length || empty === pages.length) notes.push('No text was found in this PDF. It may be scanned pages (pictures of text), which are not converted.');
   else if (empty) notes.push(empty + ' of its ' + pages.length + ' pages had no text (scanned pages or pictures are not converted).');
   notes.push('Pictures are not converted, and the layout of columns and tables may not be kept.');
   const out = sink();
@@ -726,14 +796,18 @@ async function pdfText(file, buf) {
 async function pdfAfter(file, js) {
   const notes = [];
   if (js.encrypted) return { body: '', notes: ['This PDF is encrypted, so its text could not be read.'] };
-  if (js.cut) notes.push(js.cut);
   let pages = js.pages;
+  let cut = js.cut;
   if (!readable(pages)) {
-    const viaKit = await pdfkit(file);
+    await slot();   // iteration 3: PDFKit counts against the same two conversions at once
+    let viaKit;
+    try { viaKit = await pdfkit(file); } finally { release(); }
     if (viaKit === '\u0000locked') return { body: '', notes: ['This PDF is protected with a password, so its text could not be read.'] };
-    if (viaKit && viaKit.replace(/\s+/g, '')) pages = viaKit.split('\n\f\n');
+    if (viaKit && viaKit.replace(/\s+/g, '')) { pages = viaKit.split('\n\f\n'); cut = null; }   // PDFKit read the whole file
     else if (pages.join('').trim()) notes.push('Some of this PDF’s text may not have converted cleanly (an unusual font encoding).');
+    else if (js.undecodable) notes.push('This PDF uses a compression Kosmos cannot read, so its text could not be converted.');
   }
+  if (cut) notes.push(cut);
   return pdfFinish(pages, notes);
 }
 
