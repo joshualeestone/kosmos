@@ -15,12 +15,15 @@
  *     folder whose path holds a comma, or ends in a space, would arrive as paths that do not
  *     exist. Those are left out and said, never passed.
  *   - interactive only (the Mac pane): folder trust is ON unless switched off (the settings
- *     schema's default is `enabled: true`), and each included folder with no record in the
- *     account's trustedFolders.json opens a "trust these folders?" dialog that an unattended agent
- *     would sit in front of. So before the Mac launch, each folder is recorded as TRUST_FOLDER in
- *     that file (trustFolders below), the way engine/agytrust.js pre-answers Antigravity's question
- *     for the agent's own folder. A folder the person marked DO_NOT_TRUST is left out and never
- *     overwritten. A headless turn (Windows) adds the folders without asking, so it writes nothing.
+ *     schema's default is `enabled: true`), and each included folder with no record in the trust
+ *     file opens a "trust these folders?" dialog that an unattended agent would sit in front of.
+ *     So the Mac launch gives the agent ITS OWN trust file (GEMINI_CLI_TRUSTED_FOLDERS_PATH, which
+ *     gemini reads instead of <home>/.gemini/trustedFolders.json), holding exactly its current
+ *     project folders, rewritten at every launch (agentTrust below). The person's own trust file
+ *     is only read, never written: a folder they marked DO_NOT_TRUST there is left out, and nothing
+ *     here trusts a folder for any other agent or for the person's own gemini. The agent's own
+ *     folder needs no record (--skip-trust). A headless turn (Windows) adds the folders without
+ *     asking, so it writes nothing.
  *
  * Membership is read raw from projects.json (projects.readAll), never through describe, which
  * can write. The Mac reads it at each launch, so a project joined mid-session reaches a running
@@ -33,7 +36,8 @@ const path = require('node:path');
 /* Kept well inside a Windows command line (32767) next to the message batch (win32codexsup's
    BATCH_CHARS, 24000): folders past this are left out, and said. */
 const MAX_TOTAL_CHARS = 4000;
-/* What each folder costs on top of its own path: the flag, two spaces, and quotes. */
+/* What each folder costs on top of its own path: the flag, the space after it and before the next
+   argument (2), and the quotes Windows puts round an argument with a space in it (2). */
 const FLAG_CHARS = '--include-directories'.length + 4;
 
 const sameCase = (p) => (process.platform === 'win32' || process.platform === 'darwin' ? p.toLowerCase() : p);
@@ -84,6 +88,10 @@ function foldersFor(name, opts) {
     if (!real) { out.leftOut.push({ folder, because: 'the folder is not there' }); continue; }
     if (/[,\r\n]/.test(real) || real !== real.trim()) {
       out.leftOut.push({ folder, because: 'Gemini splits folder names on commas and trims spaces, so it would get the wrong folder' });
+      continue;
+    }
+    if (path.dirname(real) === real || within(os.homedir(), real)) {
+      out.leftOut.push({ folder, because: 'it holds the whole home folder or the whole disk, which is too wide to open to an agent\'s file tools' });
       continue;
     }
     if (own && within(real, own)) continue;   // already inside its own workspace
@@ -141,69 +149,60 @@ function readRules(file) {
   return { rules };
 }
 
+/* The agent's own trust file, in the Kosmos store (one per agent, so trust never spreads to another
+   agent or to the person). The name is encoded so it is always one file name. */
+function agentTrustFile(name) {
+  return path.join(require('./store').ROOT, 'gemini-trust', encodeURIComponent(String(name || '')) + '.json');
+}
+
 /**
- * Record each folder as trusted in the account's trustedFolders.json, so the Mac pane does not stop
- * on gemini's trust dialog. Only ever ADDS entries; every other entry is kept as read. Locks and
- * re-reads with engine/agytrust.js's lock (run in its own process only: the lock wait blocks).
- * @returns {{ folders: string[], leftOut: Array<{ folder: string, because: string }> }}
- *   `folders` are the ones gemini will add without asking.
+ * Write the agent's own trust file: exactly `folders`, as TRUST_FOLDER, minus any the person's own
+ * trust file marks DO_NOT_TRUST (read only). Replaced whole at each launch, so a project the agent
+ * has left is no longer trusted. Never throws.
+ * @param {string} name     the agent's roster name
+ * @param {string[]} folders
+ * @param {string} [cliHome] the agent's GEMINI_CLI_HOME (where the person's trust file is)
+ * @param {object} [opts]   seams: { file } the agent trust file path
+ * @returns {{ file: string|null, folders: string[], leftOut: Array<{ folder: string, because: string }> }}
+ *   `file` is set only when it was written and `folders` is not empty.
  */
-function trustFolders(folders, cliHome) {
-  const out = { folders: [], leftOut: [] };
+function agentTrust(name, folders, cliHome, opts) {
   const list = Array.isArray(folders) ? folders : [];
+  const out = { file: null, folders: [], leftOut: [] };
   if (list.length === 0) return out;
-  const file = trustFile(cliHome);
-  const leaveAll = (because) => ({ folders: [], leftOut: list.map((folder) => ({ folder, because })) });
-  let target = file;
-  try { if (fs.lstatSync(file).isSymbolicLink()) target = fs.realpathSync(file); }
-  catch (err) { if (!err || err.code !== 'ENOENT') return leaveAll('Gemini\'s trusted folders file is a link to a file that is gone, so it was left alone'); }
-  try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch { /* the lock below says why */ }
-  const held = require('./agytrust')._lock(target);
-  if (!held.release) return leaveAll(held.because);
+  const leaveAll = (because) => ({ file: null, folders: [], leftOut: list.map((folder) => ({ folder, because })) });
+  const theirs = readRules(trustFile(cliHome));
+  if (!theirs.rules) return leaveAll(theirs.because);
+  const rules = {};
+  for (const f of list) {
+    if (trustOf(theirs.rules, f) === false) out.leftOut.push({ folder: f, because: 'the folder is marked do not trust in Gemini, and that is left as it is' });
+    else { rules[f] = 'TRUST_FOLDER'; out.folders.push(f); }
+  }
+  if (out.folders.length === 0) return out;
   try {
-    for (let i = 0; i < 3; i++) {
-      const r = readRules(target);
-      if (!r.rules) return leaveAll(r.because);
-      const missing = [];
-      const ok = [];
-      const refused = [];
-      for (const f of list) {
-        const t = trustOf(r.rules, f);
-        if (t === false) refused.push(f);
-        else if (t === true) ok.push(f);
-        else missing.push(f);
-      }
-      if (missing.length === 0) {
-        return { folders: ok, leftOut: refused.map((folder) => ({ folder, because: 'the folder is marked do not trust in Gemini, and that is left as it is' })) };
-      }
-      const next = Object.assign({}, r.rules);
-      for (const f of missing) next[f] = 'TRUST_FOLDER';
-      let mode = 0o600;
-      try { mode = fs.statSync(target).mode & 0o777; } catch { /* new file: owner only, like gemini's own */ }
-      require('./securewrite').writeSecret(target, JSON.stringify(next, null, 2) + '\n', mode, { atomicOnly: true, ownTempsOnly: true });
-      /* the loop re-reads: gemini itself may have written the file meanwhile (it locks differently) */
-    }
-    return leaveAll('Gemini\'s trusted folders file kept changing underneath, so the folders could not be recorded');
+    const file = (opts && opts.file) || agentTrustFile(name);
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    require('./securewrite').writeSecret(file, JSON.stringify(rules, null, 2) + '\n', 0o600, { atomicOnly: true });
+    out.file = file;
+    return out;
   } catch (err) {
-    return leaveAll('the folders could not be recorded as trusted in Gemini (' + ((err && err.code) || (err && err.message) || 'unknown') + ')');
-  } finally {
-    held.release();
+    return leaveAll('the agent\'s Gemini trust file could not be written (' + ((err && err.code) || (err && err.message) || 'unknown') + ')');
   }
 }
 
 /**
- * What the Mac launch passes: the project folders, each recorded as trusted first. Never throws.
- * @returns {{ folders: string[], leftOut: Array<{ folder: string, because: string }> }}
+ * What the Mac launch passes: the project folders and the agent's own trust file. Never throws.
+ * @returns {{ folders: string[], trustFile: string|null, leftOut: Array<{ folder: string, because: string }> }}
  */
 function launchFolders(name, workdir, cliHome, opts) {
   const r = foldersFor(name, Object.assign({}, opts, { workdir }));
-  if (r.folders.length === 0) return r;
-  const t = trustFolders(r.folders, cliHome);
-  return { folders: t.folders, leftOut: r.leftOut.concat(t.leftOut) };
+  if (r.folders.length === 0) return { folders: [], trustFile: null, leftOut: r.leftOut };
+  const t = agentTrust(name, r.folders, cliHome, opts);
+  return { folders: t.folders, trustFile: t.file, leftOut: r.leftOut.concat(t.leftOut) };
 }
 
-/* The supervisor's door: `node geminidirs.js launch-args <name> <workdir> [cliHome]` prints one
-   folder per line on stdout (a folder never holds a newline: those are left out above) and
+/* The supervisor's door: `node geminidirs.js launch-args <name> <workdir> [cliHome]` prints the
+   agent's trust file as `TRUST <path>`, then one folder per line on stdout (a folder never holds a newline: those are left out above) and
    each left-out folder on stderr. Always exits 0: no folders is a launch like before. */
 if (require.main === module) {
   try {
@@ -211,7 +210,8 @@ if (require.main === module) {
     if (verb === 'launch-args') {
       const r = launchFolders(name, workdir, cliHome || '');
       for (const l of r.leftOut) process.stderr.write(`#5812: the project folder ${l.folder || '(none)'} was left out of the Gemini workspace (${l.because})\n`);
-      if (r.folders.length) fs.writeSync(1, r.folders.join('\n') + '\n');
+      /* The trust file first, as `TRUST <path>` (a folder line is always an absolute path). */
+      if (r.folders.length && r.trustFile) fs.writeSync(1, 'TRUST ' + r.trustFile + '\n' + r.folders.join('\n') + '\n');
     }
   } catch (err) {
     process.stderr.write(`#5812: no project folders were added to the Gemini workspace (${err && err.message})\n`);
@@ -219,4 +219,4 @@ if (require.main === module) {
   process.exit(0);
 }
 
-module.exports = { foldersFor, includeArgs, trustFolders, trustOf, trustFile, launchFolders, MAX_TOTAL_CHARS };
+module.exports = { foldersFor, includeArgs, agentTrust, agentTrustFile, trustOf, trustFile, launchFolders, MAX_TOTAL_CHARS };

@@ -110,66 +110,79 @@ function trustHome(name, content) {
   }
   return home;
 }
-const readTrust = (home) => JSON.parse(fs.readFileSync(path.join(home, '.gemini', 'trustedFolders.json'), 'utf8'));
+const theirTrust = (home) => path.join(home, '.gemini', 'trustedFolders.json');
+const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 
-test('trustFolders: no trust file yet -> each folder is recorded TRUST_FOLDER and kept', () => {
-  const home = trustHome('t-none');
-  const a = mk('t-none-a');
-  const r = dirs.trustFolders([a], home);
-  assert.deepEqual(r.folders, [a]);
-  assert.deepEqual(readTrust(home), { [a]: 'TRUST_FOLDER' });
-  assert.equal(fs.statSync(path.join(home, '.gemini', 'trustedFolders.json')).mode & 0o777, 0o600, 'owner only, like gemini\'s own');
+test('agentTrust: writes the agent its OWN trust file holding exactly its folders; the person\'s file is not written', () => {
+  const a = mk('t-own-a');
+  const b = mk('t-own-b');
+  const home = trustHome('t-own', { '/elsewhere': 'TRUST_FOLDER' });
+  const before = fs.readFileSync(theirTrust(home), 'utf8');
+  const file = path.join(SANDBOX, 't-own-agent', 'gem.json');
+  const r = dirs.agentTrust('gem', [a, b], home, { file });
+  assert.equal(r.file, file);
+  assert.deepEqual(r.folders, [a, b]);
+  assert.deepEqual(readJson(file), { [a]: 'TRUST_FOLDER', [b]: 'TRUST_FOLDER' });
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'owner only, like gemini\'s own');
+  assert.equal(fs.readFileSync(theirTrust(home), 'utf8'), before, 'the person\'s trust file is untouched');
+  dirs.agentTrust('gem', [b], home, { file });
+  assert.deepEqual(readJson(file), { [b]: 'TRUST_FOLDER' }, 'rewritten whole: a project it left is no longer trusted');
 });
 
-test('trustFolders: other entries are kept as read, and an already-trusted folder is not rewritten', () => {
-  const a = mk('t-keep-a');
-  const parentRule = path.join(mk('t-keep-parent'), 'child');
-  const b = path.join(path.dirname(parentRule), 'b');
-  fs.mkdirSync(b);
-  const home = trustHome('t-keep', { '/elsewhere': 'DO_NOT_TRUST', [a]: 'TRUST_FOLDER', [parentRule]: 'TRUST_PARENT' });
-  const before = fs.readFileSync(path.join(home, '.gemini', 'trustedFolders.json'), 'utf8');
-  const r = dirs.trustFolders([a, b], home);
-  assert.deepEqual(r.folders, [a, b], 'TRUST_PARENT covers its rule\'s parent folder, as in gemini');
-  assert.equal(fs.readFileSync(path.join(home, '.gemini', 'trustedFolders.json'), 'utf8'), before, 'nothing to add, nothing written');
-  const c = mk('t-keep-c');
-  dirs.trustFolders([c], home);
-  assert.deepEqual(readTrust(home), { '/elsewhere': 'DO_NOT_TRUST', [a]: 'TRUST_FOLDER', [parentRule]: 'TRUST_PARENT', [c]: 'TRUST_FOLDER' });
+test('agentTrust: the default file is per agent, in the Kosmos store', () => {
+  const f = dirs.agentTrustFile('gem+w1');
+  assert.ok(f.startsWith(path.join(store.ROOT, 'gemini-trust')), f);
+  assert.notEqual(f, dirs.agentTrustFile('gem'));
+  assert.equal(path.dirname(dirs.agentTrustFile('a/../b')), path.join(store.ROOT, 'gemini-trust'), 'a name cannot leave the folder');
 });
 
-test('trustFolders: a folder the person marked DO_NOT_TRUST is left out and never overwritten', () => {
+test('agentTrust: a folder the person marked DO_NOT_TRUST is left out (longest rule wins, TRUST_PARENT covers the parent)', () => {
   const outer = mk('t-deny');
   const inner = mk('t-deny', 'inner');
-  const home = trustHome('t-deny-home', { [outer]: 'DO_NOT_TRUST' });
-  const r = dirs.trustFolders([inner], home);
-  assert.deepEqual(r.folders, []);
+  const okInner = mk('t-deny', 'ok');
+  const parentRule = path.join(mk('t-par'), 'child');
+  const sib = mk('t-par', 'sib');
+  const home = trustHome('t-deny-home', { [outer]: 'DO_NOT_TRUST', [okInner]: 'TRUST_FOLDER', [parentRule]: 'TRUST_PARENT' });
+  const file = path.join(SANDBOX, 't-deny-agent.json');
+  const r = dirs.agentTrust('gem', [inner, okInner, sib], home, { file });
+  assert.deepEqual(r.folders, [okInner, sib]);
+  assert.equal(r.leftOut.length, 1);
+  assert.equal(r.leftOut[0].folder, inner);
   assert.match(r.leftOut[0].because, /do not trust/);
-  assert.deepEqual(readTrust(home), { [outer]: 'DO_NOT_TRUST' });
+  assert.deepEqual(Object.keys(readJson(file)), [okInner, sib]);
 });
 
-test('trustFolders: the longest rule wins, as in gemini (a trusted folder inside a distrusted one)', () => {
-  const outer = mk('t-long');
-  const inner = mk('t-long', 'inner');
-  const home = trustHome('t-long-home', { [outer]: 'DO_NOT_TRUST', [inner]: 'TRUST_FOLDER' });
-  assert.deepEqual(dirs.trustFolders([inner], home).folders, [inner]);
-});
-
-test('trustFolders: an unreadable or non-object trust file is left alone and nothing is included', () => {
+test('agentTrust: an unreadable or non-object person trust file includes nothing (their marks cannot be honoured)', () => {
   const a = mk('t-bad-a');
   for (const [name, body] of [['t-bad-json', '{ nope'], ['t-bad-list', '[]']]) {
     const home = trustHome(name, body);
-    const r = dirs.trustFolders([a], home);
+    const file = path.join(SANDBOX, name + '-agent.json');
+    const r = dirs.agentTrust('gem', [a], home, { file });
     assert.deepEqual(r.folders, [], name);
+    assert.equal(r.file, null, name);
     assert.match(r.leftOut[0].because, /left alone/, name);
-    assert.equal(fs.readFileSync(path.join(home, '.gemini', 'trustedFolders.json'), 'utf8'), body, name + ': not rewritten');
+    assert.ok(!fs.existsSync(file), name + ': no agent file');
+    assert.equal(fs.readFileSync(theirTrust(home), 'utf8'), body, name + ': not rewritten');
   }
 });
 
-test('launchFolders: the Mac launch records the folders as trusted and passes them', () => {
+test('launchFolders: the Mac launch returns the folders and the agent trust file', () => {
   const p = mk('l-proj');
-  const home = trustHome('l-home');
-  const r = dirs.launchFolders('gem', null, home, { projects: [{ folder: p, agents: ['gem'] }] });
+  const file = path.join(SANDBOX, 'l-agent.json');
+  const r = dirs.launchFolders('gem', null, trustHome('l-home'), { projects: [{ folder: p, agents: ['gem'] }], file });
   assert.deepEqual(r.folders, [p]);
-  assert.equal(readTrust(home)[p], 'TRUST_FOLDER');
+  assert.equal(r.trustFile, file);
+  assert.deepEqual(readJson(file), { [p]: 'TRUST_FOLDER' });
+  const none = dirs.launchFolders('gem', null, trustHome('l-home2'), { projects: [], file: path.join(SANDBOX, 'l-none.json') });
+  assert.equal(none.trustFile, null);
+  assert.ok(!fs.existsSync(path.join(SANDBOX, 'l-none.json')), 'no folders, no trust file');
+});
+
+test('the home folder itself, or a folder holding it, or the disk root, is left out', () => {
+  const r = dirs.foldersFor('gem', { projects: [{ folder: os.homedir(), agents: ['gem'] }, { folder: path.parse(SANDBOX).root, agents: ['gem'] }] });
+  assert.deepEqual(r.folders, []);
+  assert.equal(r.leftOut.length, 2);
+  for (const l of r.leftOut) assert.match(l.because, /too wide/);
 });
 
 test('Windows: the real turn path (no folder seam) reads the agent\'s projects by its name', async () => {

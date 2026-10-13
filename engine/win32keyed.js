@@ -206,7 +206,8 @@ function runKeyedTurn(opts) {
        A headless turn adds them without a trust question, so folder trust does not apply here. */
     let includeDirs = Array.isArray(o.includeDirs) ? o.includeDirs : [];
     if (runner === 'gemini' && !Array.isArray(o.includeDirs) && o.name) {
-      try { includeDirs = require('./geminidirs').foldersFor(o.name, { workdir: o.cwd }).folders; } catch { includeDirs = []; }
+      try { includeDirs = require('./geminidirs').foldersFor(o.name, { workdir: o.cwd }).folders; }
+      catch (e) { includeDirs = []; process.stderr.write('#5812: no project folders for this gemini turn (' + ((e && e.message) || e) + ')\n'); }
     }
     try { args = turnArgs(runner, { message: o.message, model: o.model, sessionId: o.sessionId, newSessionId, includeDirs }); }
     catch (e) { return resolve({ ok: false, error: String((e && e.message) || e), sessionId: o.sessionId || null }); }
