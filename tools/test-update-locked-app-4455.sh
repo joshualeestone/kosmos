@@ -31,17 +31,20 @@ bad() { FAIL=$((FAIL + 1)); echo "FAIL $*"; }
 [ "$ORDER" = ok ] && ok "the check ends before the swap's first removal" || bad "the check is not before the swap's removal loop in setup.sh"
 
 SB="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-locked-4455.XXXXXX")" || { echo "FAIL: no temp dir" >&2; exit 1; }
+# Everything below removes things under $SB. An empty one would aim those removals at the root of the disk, so
+# it is checked here and every removal is spelled so that an empty name stops the script instead.
+[ -n "$SB" ] && [ -d "$SB" ] || { echo "FAIL: the temp dir is not there" >&2; exit 1; }
 cleanup() {
   # The fixtures lock things on purpose; unlock before removing, or the sandbox outlives the test.
-  [ "$(uname -s)" = "Darwin" ] && chflags -R nouchg "$SB" 2>/dev/null
-  /bin/chmod -R u+w "$SB" 2>/dev/null
-  rm -rf "$SB"
+  [ "$(uname -s)" = "Darwin" ] && chflags -R nouchg "${SB:?}" 2>/dev/null
+  /bin/chmod -R u+w "${SB:?}" 2>/dev/null
+  rm -rf "${SB:?}"
 }
 trap cleanup EXIT
 
 # One sandbox install: the three parts, each with a file, and a stage as the updater has one.
 mk_install() {
-  d="$SB/$1"; mkdir -p "$d/bin" "$d/app/engine" "$d/runtime/bin" "$d/.kosmos.stage.1/app"
+  d="${SB:?}/${1:?}"; mkdir -p "$d/bin" "$d/app/engine" "$d/runtime/bin" "$d/.kosmos.stage.1/app" || exit 1
   echo k > "$d/bin/kosmos"; echo s > "$d/app/server.js"; echo e > "$d/app/engine/x.js"; echo n > "$d/runtime/bin/node"
   echo new > "$d/.kosmos.stage.1/app/server.js"
   echo "$d"
@@ -60,6 +63,7 @@ lift() {
 $BLOCK
   return 0
 }
+[ -n "\${1:-}" ] && [ -d "\$1" ] || { echo "the driver was given no install"; exit 2; }
 lift "\$1"
 echo "RC=\$?"
 DRIVER
@@ -109,9 +113,10 @@ if [ "$(uname -s)" = "Darwin" ]; then
     # CONTROL: the line this replaced (a tolerated chmod, then the swap's removals) on the same fixture. It must
     # lose `bin` and then fail at `app`, or the LOCKED arm above proves nothing about what it prevents.
     D="$(mk_install lockedold)"; chflags uchg "$D/app/engine/x.js"
-    for part in bin app runtime; do [ -d "$D/$part" ] && chmod -R u+w "$D/$part" 2>/dev/null || true; done
+    case "$D" in "$SB"/lockedold) : ;; *) echo "FAIL: the control's install is not in the sandbox: [$D]" >&2; exit 1 ;; esac
+    for part in bin app runtime; do [ -d "$D/$part" ] && chmod -R u+w "${D:?}/$part" 2>/dev/null || true; done
     OLD=went-through
-    for part in bin app runtime; do rm -rf "$D/$part" 2>/dev/null || { OLD="stopped-at-$part"; break; }; done
+    for part in bin app runtime; do rm -rf "${D:?}/${part:?}" 2>/dev/null || { OLD="stopped-at-$part"; break; }; done
     [ "$OLD" = stopped-at-app ] && [ ! -e "$D/bin" ] \
       && ok "CONTROL: without the check the same fixture loses bin and stops at app" \
       || bad "CONTROL: the old behaviour did not fail as the card describes ($OLD)"
