@@ -31,6 +31,10 @@ const FNS = ['file_owner_uid', 'bundle_is_ours', 'sealed_config_reaches', 'bundl
   'sealed_requirement', 'bundle_is_sealed', 'sealed_placeable', 'sealed_icon_reusable', 'sealed_icon_other_users',
   'sealed_marker_tag', 'sealed_icon_mark_reuse', 'sealed_icon_unmark', 'resolve_app_dir'].map(fnSource).join('\n');
 const ME = String(process.getuid());
+/* "Another account": any uid but the one running the test. A fixed one (502, as this test had) is the runner's OWN
+   uid when CI runs as a Mac's second account, and then "another account's marker" is this account's own: CI read
+   rc=1 where this Mac (uid 501) read rc=0, and the reader asked as 502 with only a 502 marker gives rc=1 (measured). */
+const OTHER_UID = String(Number(ME) + 1);
 
 let tmpRoot;
 test.before(() => { tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-sharedicon-5913-')); });
@@ -60,9 +64,9 @@ function world() {
 /** Put a copy of the shipped sealed app (same signature) in the shared spot. */
 const occupy = (w) => execFileSync('/usr/bin/ditto', [path.join(w.home, 'app', 'Kosmos.app'), w.shared]);
 
-/** Run `body` with the real functions; OTHER names the one path whose owner reads as another account (uid 999). */
+/** Run `body` with the real functions; OTHER names the one path whose owner reads as another account (OTHER_UID). */
 function run(w, body, { other = '', wic = '0', extraEnv = {} } = {}) {
-  const standIn = `file_owner_uid() { if [ -n "$OTHER" ] && [ "$1" = "$OTHER" ]; then echo 999; else /usr/bin/stat -f %u "$1" 2>/dev/null; fi; }`;
+  const standIn = `file_owner_uid() { if [ -n "$OTHER" ] && [ "$1" = "$OTHER" ]; then echo ${OTHER_UID}; else /usr/bin/stat -f %u "$1" 2>/dev/null; fi; }`;
   const script = ['set -u', 'info() { echo "INFO $*"; }', FNS, standIn,
     'APP_OTHER_OWNER=no; APP_SKIP_ICON=no; APP_SKIP_REASON=""; APP_SYS_STALE=no; APP_OWN_SEALED=no', body].join('\n');
   const env = { PATH: '/usr/bin:/bin', KOSMOS_HOME: w.home, INSTALL_CONFIG_DIR: w.cfg, SYS_APP_DIR: w.sys,
@@ -109,9 +113,9 @@ it('#5913/#5912 reader: exit 1 only when no OTHER account has a marker; every fa
   assert.match(ask(), /rc=1/, 'an empty folder must read "no other user"');
   fs.writeFileSync(path.join(w.users, ME), '');
   assert.match(ask(), /rc=1/, 'only the owner\'s own marker must read "no other user"');
-  fs.writeFileSync(path.join(w.users, '502'), '');
+  fs.writeFileSync(path.join(w.users, OTHER_UID), '');
   assert.match(ask(), /rc=0/, 'another account\'s marker must keep the icon');
-  fs.rmSync(path.join(w.users, '502'));
+  fs.rmSync(path.join(w.users, OTHER_UID));
   fs.writeFileSync(path.join(w.users, '.hidden'), '');
   assert.match(ask(), /rc=0/, 'a dot-named marker must keep the icon too (fail safe)');
   fs.rmSync(path.join(w.users, '.hidden'));
@@ -129,10 +133,10 @@ it('#5913: the reuse marker is written in a sticky shared folder, and the uninst
   assert.match(run(w, 'sealed_icon_mark_reuse; echo "rc=$?"').out, /rc=0/);
   assert.ok(fs.existsSync(path.join(w.users, ME)), 'no marker for this account');
   assert.equal(fs.statSync(w.users).mode & 0o7777, 0o1777, 'the shared folder is not sticky world-writable');
-  assert.match(run(w, `sealed_icon_other_users 999; echo "rc=$?"`).out, /rc=0/, 'the icon owner\'s uninstall would not see this account\'s marker');
+  assert.match(run(w, `sealed_icon_other_users ${OTHER_UID}; echo "rc=$?"`).out, /rc=0/, 'the icon owner\'s uninstall would not see this account\'s marker');
   assert.match(run(w, 'sealed_icon_unmark; echo "rc=$?"').out, /rc=0/);
   assert.ok(!fs.existsSync(path.join(w.users, ME)), 'the uninstall did not take back its own marker');
-  // Another account's marker is never removed: the file "owned by" uid 999 survives this account's unmark.
+  // Another account's marker is never removed: the file "owned by" OTHER_UID survives this account's unmark.
   const mine = path.join(w.users, ME);
   fs.writeFileSync(mine, '');
   assert.match(run(w, 'sealed_icon_unmark; echo "rc=$?"', { other: mine }).out, /rc=0/);
