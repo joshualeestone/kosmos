@@ -20891,7 +20891,7 @@ const server = http.createServer(async (req, res) => {
         const clean = (s) => String(s == null ? '' : s).replace(/[\r\n"]/g, ' ');
         const projName = clean((proj && proj.name) || id);
         const rawPreview = clean(saidText);
-        const preview = rawPreview.length > 140 ? rawPreview.slice(0, 140) + '...' : rawPreview;
+        let preview = rawPreview;   // #6065: decided below, once the whole line is known
         /* The sender (senderCard, resolved above). Two uses: exclude the sender from the recipients (an
            agent that runs `kosmos task message` should not be notified about its own
            message), and NAME it in the notification so a co-assignee can see which
@@ -20911,8 +20911,14 @@ const server = http.createServer(async (req, res) => {
         /* Built once: nothing in the line depends on the recipient. `id` is cleaned
            for consistency with the other interpolated values, though a stored project
            id is a slug that cannot contain a quote or newline in the first place. */
-        const line = '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' said: "' + preview
+        /* #6065: the whole message rides the notification when the whole line fits what any path types (the line a held
+           task message is typed with later included: messages.spillLimit); only a longer one is cut to a 140-character
+           preview, with the task transcript still the full record. Assignees reported that a cut task message, read
+           back by hand, cost them handoffs. */
+        const lineFor = (p) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' said: "' + p
           + '" - reply in the task: kosmos task message ' + clean(id) + ' ' + t.number + ' "..."';
+        if (lineFor(rawPreview).length > require('./engine/messages').spillLimit()) preview = rawPreview.slice(0, 140) + '...';
+        const line = lineFor(preview);
         /* `delivered`, not `told`: the sibling task routes (close/reopen/parts) return
            `told` as a SINGLE instruction-sync verdict; this is a per-assignee list of
            chat.deliver outcomes, a different shape, so it takes a different name rather

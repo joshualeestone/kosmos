@@ -46,7 +46,7 @@ const LIMIT_SCREEN = '❯ hello\n'
   + `  ⎿  You've hit your weekly limit · resets ${chicagoDay(Date.now() + 3 * 24 * 3600e3)} at 3pm (America/Chicago)\n`
   + '✻ Sautéed for 0s · done 10:35 PM\n' + RULE + '❯ \n' + RULE + '  casey · Opus 4.8 · 7d 100%\n';
 
-async function sendTask(caseyState, headers) {
+async function sendTask(caseyState, headers, said = 'ship it') {
   const board = fleet.install([
     fleet.agent('mara', { state: 'idle' }),
     fleet.agent('casey', caseyState === 'rate_limited' ? { state: 'rate_limited', runner: 'claude', command: 'claude', screen: LIMIT_SCREEN }
@@ -67,7 +67,7 @@ async function sendTask(caseyState, headers) {
   tasks.whoOf = () => ['mara', 'casey'];
   try {
     const res = await fetch(base + '/api/project/p5805/task/7/message', {
-      method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ text: 'ship it' }),
+      method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ text: said }),
     });
     const text = await res.text();
     const pasted = calls.filter((a) => a[0] === 'set-buffer').map((a) => a[a.length - 1]).join('');
@@ -137,4 +137,13 @@ test('#5948 review 3: an assignee whose sign-in stopped working is kept, and the
     assert.equal(r.kept.length, 1);
     assert.equal(r.kept[0].signin, true);
   } finally { fs.rmSync(selfreport.DIR, { recursive: true, force: true }); }
+});
+
+test('#6065: a task message longer than the old 140-character preview reaches an idle assignee whole', async () => {
+  const text = 'Please read the whole brief before you start. ' + 'The renewal terms changed in section four and the deposit clause moved. '.repeat(12);
+  assert.ok(text.length > 400, 'premise: well past the old 140-character preview');
+  const r = await sendTask('idle', { 'sec-fetch-site': 'same-origin' }, text);
+  assert.equal(r.code, 200, JSON.stringify(r.json));
+  assert.ok(r.pasted.includes(text.trim().replace(/\s+/g, ' ')), 'the assignee got less than the whole task message');
+  assert.ok(!r.pasted.includes(text.slice(0, 140) + '...'), 'it was cut to the 140-character preview');
 });
