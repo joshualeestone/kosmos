@@ -407,9 +407,10 @@ function ensureWired(settingsPath, scriptPath, opts) {
  * or a space, so C:\Kosmos2 is not inside C:\Kosmos and D:\x\C:\Kosmos is not either. Everything else in the file
  * stays: another install's hooks, a person's own, and a person's hook that shares an entry with ours (the entry is
  * kept with theirs alone). An event left empty is removed, and `hooks` too when nothing is left in it.
- * `exists` (round 1): when given, a hook carrying the marker whose script path does not exist is removed too, whatever
- * folder it names (round 2: only an absolute drive-letter path to the script itself, on a drive that is there) (an added account keeps the folder Kosmos ran from when the account was added, and nothing repoints
- * it after a move). It is ours by the marker and already broken, so taking it out only takes out an error.
+ * `gone` (a function): when given, a hook carrying the marker whose script is provably gone is removed too, whatever
+ * folder it names. An added account keeps the folder Kosmos ran from when it was added, and nothing repoints it after
+ * a move. Ours by the marker and already broken, so taking it out only takes out an error. `gone(path)` must be true
+ * only for a path that is certainly not there (goneOnDisk below: not found, never "could not look").
  * `dryRun` only says whether the file holds any. Returns { ours, dead, changed, because? } (`dead`: how many of the
  * hooks taken out were broken ones outside `roots`); never throws for a shape.
  * The caller holds the #3088 lock (filelock.withFileLock) around this, as wireDefaultHooks does around ensureWired.
@@ -445,18 +446,18 @@ function unwireInstall(settingsPath, roots, opts) {
     }
     return out;
   };
-  /* Round 2: only a string that is provably the script, at a provable place, can be judged gone: an absolute
-     drive-letter path (never a network path, whose server may be offline and whose look can hang), with nothing a
-     shell would expand (%, $, ~), whose file name is the hook script itself, on a drive that is there now (an
-     unplugged drive is not a deleted folder). Anything else is kept: not provably ours, or not provably broken. */
+  /* Only a string that is provably the script, at a provable place, can be judged gone: an absolute drive-letter path
+     (a \\\\server path is never looked at, its server may be offline; a mapped drive letter still is, and a disconnected
+     one can be slow to answer), with nothing a shell would expand (%, $, ~), whose file name is the hook script itself,
+     on a drive that is there now (an unplugged drive is not a deleted folder). Anything else is kept. */
   const provablyGone = (x) => {
     if (!/^[A-Za-z]:[\\/]/.test(x) || /[%$~]/.test(x)) return false;
     const base = x.split(/[\\/]/).pop();
     if (base !== MARKER + '.js' && base !== MARKER + '.sh') return false;
-    try { return o.exists(x.slice(0, 2) + '\\') && !o.exists(x); } catch { return false; }
+    try { return !o.gone(x.slice(0, 2) + '\\') && o.gone(x) === true; } catch { return false; }
   };
   const isDead = (h) => {
-    if (typeof o.exists !== 'function' || !h) return false;
+    if (typeof o.gone !== 'function' || !h) return false;
     const paths = scriptPaths(h);
     return paths.length > 0 && paths.every(provablyGone);
   };
@@ -499,5 +500,12 @@ function unwireInstall(settingsPath, roots, opts) {
   return { ours: true, dead, changed: true };
 }
 
+/** #5999: true only when `p` is certainly not there (not found); a path that could not be looked at (no permission,
+    say) is not gone, so a hook naming it is kept. */
+function goneOnDisk(p) {
+  try { fs.statSync(p); return false; }
+  catch (e) { return !!e && (e.code === 'ENOENT' || e.code === 'ENOTDIR'); }
+}
+
 module.exports = { HOOK_EVENTS, MARKER, hookScriptPath, entryFor, unsafeForCommand, entryIsOurs, ensureWired,
-  ephemeralMismatch, readSettings, writeSettings, unwireInstall };
+  ephemeralMismatch, readSettings, writeSettings, unwireInstall, goneOnDisk };
