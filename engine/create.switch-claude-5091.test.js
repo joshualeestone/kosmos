@@ -140,6 +140,24 @@ test('#5091 round 1: the pick goes through setAccount, so the picked account get
   assert.ok(trusted, 'the picked Claude account has no trust record for the worker folder, so the agent would stop on the trust prompt');
 });
 
+test('#6063: a provider switch onto a picked Claude account carries no external imports answer from the main account', () => {
+  /* The switch lands on the main account for a moment and then moves to the pick, so the move sees the main account
+     as the one being left. The agent never ran there, so its answer for this path is not carried. */
+  const k = bornOnCodex('sw6063-imports');
+  const key = fs.realpathSync.native(create.workerDir(k)).split(nodePath.sep).join('/');
+  const mainFile = nodePath.join(HOME, '.claude.json');
+  const main = JSON.parse(fs.readFileSync(mainFile, 'utf8'));
+  main.projects = Object.assign({}, main.projects, { [key]: { hasClaudeMdExternalIncludesApproved: true, hasClaudeMdExternalIncludesWarningShown: true } });
+  fs.writeFileSync(mainFile, JSON.stringify(main), 'utf8');
+
+  const r = create.setProvider(k, 'anthropic', { ...BINS, accountDir: ARIA, pickedByPerson: true });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  assert.equal(configDirOf(k), ARIA, 'PRECONDITION: the switch reached the picked account');
+  const entry = (JSON.parse(fs.readFileSync(nodePath.join(ARIA, '.claude.json'), 'utf8')).projects || {})[key];
+  assert.equal(entry && entry.hasTrustDialogAccepted, true, 'PRECONDITION: the move wrote the picked account\'s entry for this folder');
+  assert.equal('hasClaudeMdExternalIncludesApproved' in entry, false, 'the main account\'s answer was carried to an agent that never ran there');
+});
+
 test('#5091 round 1: picking the main account is named back as a pick, with no pin', () => {
   const main = accounts.list().find((a) => a.isDefault);
   const g = bornOnCodex('sw5091-main-named');

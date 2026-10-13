@@ -987,7 +987,13 @@ const importsAnswered = (entry) => !!entry && (entry[IMPORTS_KEY] === true || en
  *
  * 🛑 IT NEVER ANSWERS FOR THE PERSON. It copies an answer only when the old account holds one, and copies it as it
  * was: a No stays a No (the question stays answered and the imports stay off, as they were). No answer on the old
- * account writes nothing, and the question is then asked on the new account, which is right.
+ * account writes nothing, and the question is then asked on the new account, which is right. Only a real true or
+ * false is copied; any other value in the old entry is left behind.
+ * ⚠️ IT LOOKS UNDER THE FOLDER'S OWN PATH ONLY. For a folder inside a git repository Claude Code 2.1.296 keeps this
+ * answer under the repository's root, so for such a folder this finds nothing, carries nothing, and the agent is
+ * asked again. The folders Kosmos makes are not inside one. Read in the binary, not run.
+ * ⚠️ THE ANSWER IS KEYED BY PATH, so it is the answer for whatever folder held that path when it was given. Claude
+ * Code honours it the same way on the old account; a move extends it to one more account of the same person.
  * ⚠️ An answer already on the new account wins and is left alone: it is that account's own answer.
  *
  * It never creates the new account's config file: `trustFolder` runs first on a move and does that. It reads the old
@@ -1009,7 +1015,7 @@ function carryExternalImports(dir, opts) {
   key = key.split(path.sep).join('/');   // Claude Code's spelling on Windows, as in trustFolder
   if (path.resolve(from) === path.resolve(target)) return { ok: true, carried: false, because: 'the account did not change' };
   const old = readProjectEntry(from, key);
-  if (!importsAnswered(old)) return { ok: true, carried: false, because: 'there was no answer on the account it left' };
+  if (!importsAnswered(old)) return { ok: true, carried: false, because: 'there was no answer under this folder on the account it left' };
   const answer = {};
   if (typeof old[IMPORTS_KEY] === 'boolean') answer[IMPORTS_KEY] = old[IMPORTS_KEY];
   if (typeof old[IMPORTS_SHOWN_KEY] === 'boolean') answer[IMPORTS_SHOWN_KEY] = old[IMPORTS_SHOWN_KEY];
@@ -1037,7 +1043,7 @@ function carryExternalImports(dir, opts) {
     if (!data.projects) data.projects = {};
     data.projects[key] = Object.assign({}, existing || {}, answer);   // merge: the entry can hold their tools and servers
     if (!saveConfig(target, data, prevMode)) return { ok: false, because: 'we could not write to their config file' };
-    return { ok: true, carried: true, approved: answer[IMPORTS_KEY] === true };
+    return { ok: true, carried: true, approved: data.projects[key][IMPORTS_KEY] === true };
   });
   return r.ok ? r.value : { ok: false, because: r.because };
 }

@@ -1690,10 +1690,15 @@ function setAccount(name, dir, opts) {
        external imports?" per folder per account, so a moved agent whose CLAUDE.md imports files outside its folder
        came up waiting on it. The person already answered it on the account the agent is leaving (`job.configDir`,
        read before the rewrite above); that answer is carried over as it was, and no answer carries nothing.
-       After trustFolder, which makes the destination file. Best-effort / non-gating, as the three above. */
-    try {
-      imports = require('./trust').carryExternalImports(workerDir(clean), { fromConfigDir: job.configDir || null, configDir });
-    } catch { imports = { ok: false, because: 'we could not read that account\'s config file' }; }
+       After trustFolder, which makes the destination file. Best-effort / non-gating, as the three above.
+       ⚠️ NOT on a provider switch (`carryImports: false` from setProvider): there the job was rewritten onto the
+       main Claude account a moment earlier, so `job.configDir` names an account the agent never ran on, and its
+       answer for this folder is not this agent's to carry. */
+    if (!(opts && opts.carryImports === false)) {
+      try {
+        imports = require('./trust').carryExternalImports(workerDir(clean), { fromConfigDir: job.configDir || null, configDir });
+      } catch { imports = { ok: false, because: 'we could not carry the external imports answer across' }; }
+    }
   }
 
   return { outcome: OUTCOME.CREATED, because: null, account: acct, trust, bypass, onboarding, imports };
@@ -2449,7 +2454,7 @@ function setProvider(name, provider, opts) {
   /* #5091: the picked Claude account, through the Move path. The switch above is written (on the main account), so
      a refusal here is PARTIAL, said as such: it runs on Claude, on the main account, not the one picked. */
   if (claudePick && !claudePick.isDefault) {
-    const moved = setAccount(clean, claudePick.dir, opts);
+    const moved = setAccount(clean, claudePick.dir, { ...(opts || {}), carryImports: false });   // #6063: see setAccount
     if (moved && moved.outcome === OUTCOME.REFUSED) {
       const why = String(moved.because || '').replace(/[.\s]+$/, '');
       return { outcome: OUTCOME.PARTIAL, because: `${spoken} is switched to Claude, on your main Claude account: it could not be moved to ${claudePick.email || 'the account you picked'} (${why}).`, provider, openaiAccount: null, account: null, dropped: { model: job.model || null, account: Boolean(job.configDir) } };
