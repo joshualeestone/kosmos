@@ -121,6 +121,27 @@ test('#5154-B: plan flags gaveUp only out of tries; the sweep fires `bound` for 
   assert.deepEqual(boundWorking, [], 'bound does NOT fire for a spent-but-working agent');
 });
 
+test('#5154-B: a spent firstreply entry is raised only while the agent still OWES a reply; once it does not, it clears', () => {
+  const s = idleCard().sessionName;
+  // still owes (person message, no agent reply): the give-up is raised, not cleared.
+  const boundO = []; const clearedO = [];
+  nudge.sweepOnce({ roster: rosterOf('idle'), book: new Map([[s, { nudgedAt: null, tries: nudge.MAX_TRIES }]]), now: NOW,
+    thread: () => ({ messages: [personRow()] }), deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY,
+    bound: (sess) => boundO.push(sess), cleared: (sess) => clearedO.push(sess) });
+  assert.deepEqual(boundO, [s], 'while it still owes, the give-up is raised');
+  assert.deepEqual(clearedO, [], 'and not cleared');
+  // no longer owes (the agent answered by another route -> an agent row in the thread, fc.state === "clear"):
+  // the give-up is cleared and the stale spent entry is dropped, instead of firing forever on a healthy agent.
+  const book = new Map([[s, { nudgedAt: null, tries: nudge.MAX_TRIES }]]);
+  const boundD = []; const clearedD = [];
+  nudge.sweepOnce({ roster: rosterOf('idle'), book, now: NOW,
+    thread: () => ({ messages: [personRow(), agentRow(s)] }), deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY,
+    bound: (sess) => boundD.push(sess), cleared: (sess) => clearedD.push(sess) });
+  assert.deepEqual(boundD, [], 'once it no longer owes, the give-up is NOT raised');
+  assert.deepEqual(clearedD, [s], 'it is cleared (recovered)');
+  assert.equal(book.has(s), false, 'and the stale spent entry is dropped');
+});
+
 function sweepWith(opts) {
   const sent = [];
   const logs = [];

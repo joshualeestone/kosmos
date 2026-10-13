@@ -208,9 +208,9 @@ function heldBackBy(own, memo = POOL_MEMO) {
 /* One agent: { act: 'none' | 'wait' | 'nudge', because }. entry is its book entry for this pause, or undefined. */
 function plan(report, entry, now, heldBackUntil) {
   const at = pausedUntil(report);
-  if (at === null) return { act: 'none', because: 'not paused on the quota' };
+  if (at === null) return { act: 'none', resolved: true, because: 'not paused on the quota' };   // #5154 slice B: resolved -> clear any quota give-up
   if (entry && entry.until === report.until) {
-    if (entry.nudgedAt != null) return { act: 'none', because: 'already resumed once for this reset' };
+    if (entry.nudgedAt != null) return { act: 'none', resolved: true, because: 'already resumed once for this reset' };   // #5154 slice B: resolved -> clear
     if ((entry.tries || 0) >= MAX_TRIES) return { act: 'none', gaveUp: true, because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };   // #5154 slice B: gaveUp lets the sweep re-surface this each tick while the agent stays paused
     /* A refusal backs off, STAGGER_MS per try so far, so a short-lived one (another message still being placed) cannot
        spend the whole budget on consecutive ticks (review 3). */
@@ -301,10 +301,11 @@ function sweepOnce(o) {
       // Signal the board via `bound` every sweep it stays paused-and-given-up, so the episode stays alive instead
       // of going stale while the agent is still stuck -- without a per-sweep stdout line. Rare; best-effort.
       else if (p.gaveUp && bound) { try { bound(session, p.because); } catch { /* never breaks a sweep */ } }
-      // #5154 slice B: a non-nudge, non-gaveUp 'none' outcome (not paused / already resumed / reset aged out)
-      // means no active quota give-up for this agent, so clear any open episode at once rather than waiting out
-      // the staleness backstop. 'wait' (still retrying, tries < MAX, no episode yet) falls through to nothing.
-      else if (p.act === 'none' && cleared) { try { cleared(session); } catch { /* never breaks a sweep */ } }
+      // #5154 slice B: clear any open episode ONLY on a genuine recovery -- plan marks `resolved` when the agent
+      // is not paused (at === null) or was already resumed for this reset. A 'reset aged out; left alone' 'none'
+      // is NOT resolved: the agent may still be paused while Kosmos has stopped resuming, so its give-up must
+      // stand (it then relies on the staleness backstop, not a false clear). 'wait' also falls through.
+      else if (p.resolved && cleared) { try { cleared(session); } catch { /* never breaks a sweep */ } }
     }
     if (!due.length) return { results };
     due.sort((a, b) => (a.at - b.at) || String(a.session).localeCompare(String(b.session)));

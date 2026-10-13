@@ -48,6 +48,20 @@ as the same needs-you surface slices A/C established.
 - Browser check `docs/browser-checks/render-own-bounds-5154.js`, registered in
   `tools/browser-checks.sh` plus `docs/browser-checks/b8-board.txt`.
 
+## Known residuals (bounded, all backstopped by STALE_MS = 2h)
+These are give-up episodes that clear only via the 2h staleness backstop rather than crisply, because the
+helper that owns the signal cannot cheaply tell us the agent resolved. All are bounded and fail toward
+keeping a real signal (never toward a missed one):
+- **quota, agent not in agyquota's paused set** (auth_failed / connection_lost / stopped), or **during a
+  pool-hold / spacing gate**: the quota sweep does not re-note or fire `cleared`, so a still-stuck give-up
+  rides the 2h backstop. The common resume paths (to idle via `cleared`, to working via `isMoot`) are crisp.
+- **quota, reset aged out (>6h)**: plan returns a non-`resolved` 'none'; the give-up stands (the agent may
+  still be paused) until the 2h backstop, rather than being falsely cleared.
+- **nudge, heartbeat OFF or a long interval**: the idle nudge re-notes only each heartbeat interval (max
+  60m) and not at all while the heartbeat is off, so a still-stuck nudge give-up can clear via the 2h backstop
+  even while the agent is still idle. STALE_MS = 2h is set above the 60m max interval so this never fires
+  while the heartbeat is ON; the OFF case is the residual.
+
 ## Done-looks-like
 1. Each of the three helpers, on its bound, produces a structured give-up (not a string match) that
    server.js routes into ownbounds; unit-tested.

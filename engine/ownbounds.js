@@ -84,10 +84,14 @@ function isClass(cls) { return CLASSES.indexOf(cls) !== -1; }
  *    would linger as a false needs-you on a visibly-working agent until the STALE_MS backstop. A quota give-up
  *    on an `idle` agent is NOT mooted here (an idle antigravity agent can still be quota-paused); that
  *    recovery stays with agyquota's `cleared`.
- * A null/empty state is never moot (fail toward KEEPING the signal, never toward discounting it).
+ * A null/empty state is never moot (fail toward KEEPING the signal, never toward discounting it). NEITHER is
+ * 'unknown' -- it is the indeterminate state (a pane read that did not resolve), and a sweep landing on a brief
+ * 'unknown' flicker must not delete the record: that would reset the clock and re-push a fresh episode on the
+ * next note. Only a DEFINITE state moots. (A brief 'working' flicker can still clear an idle-only give-up, but
+ * 'working' is a positive signal the agent moved on, where 'unknown' is the absence of one.)
  */
 function isMoot(cls, state) {
-  if (typeof state !== 'string' || state === '') return false;
+  if (typeof state !== 'string' || state === '' || state === 'unknown') return false;
   if (IDLE_ONLY[cls]) return state !== 'idle';
   return state === 'working';
 }

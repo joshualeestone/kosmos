@@ -22706,6 +22706,7 @@ function start(port = PORT) {
           try { if (r.act === 'nudge' && r.delivered) ownbounds.recovered(r.session, 'firstreply'); } catch { /* best-effort */ }
         },
         bound: (session, because) => { try { ownbounds.note(session, 'firstreply', because); } catch { /* best-effort */ } },   // #5154 slice B: give-up signal, no stdout spam
+        cleared: (session) => { try { ownbounds.recovered(session, 'firstreply'); } catch { /* best-effort */ } },   // #5154 slice B: recovery when the agent no longer owes a first reply (answered by another route)
       });
       const firstreplySweep = setInterval(firstreplyTick, Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) : 60 * 1000); // the env is the test seam only
       if (firstreplySweep && typeof firstreplySweep.unref === 'function') firstreplySweep.unref();

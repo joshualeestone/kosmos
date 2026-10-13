@@ -3115,6 +3115,7 @@ test('#5688: needsYouReason names each condition needsPerson counts, and none it
   assert.equal(r({ ownBound: { raised: true } }), 'own_bound', 'a raised Kosmos give-up names own_bound');
   assert.equal(r({ ownBound: { raised: false } }), null, 'CONTROL: a not-raised give-up is not counted');
   assert.equal(r({ state: 'needs_you', stateProject: 'p1', ownBound: { raised: true } }), 'question', 'PRECEDENCE: the agent’s own question wins over a give-up');
+  assert.equal(r({ state: 'connection_lost', reconnect: { phase: 'gave_up' }, ownBound: { raised: true } }), 'gave_up', 'PRECEDENCE: a gave-up connection wins over a Kosmos give-up (own_bound is lowest)');
   assert.equal(r({ state: 'needs_trust', present: false }), null, 'a member Kosmos cannot see');
   assert.equal(r({ state: 'needs_trust', tied: false }), null, 'a pane it cannot tie to this agent');
 });

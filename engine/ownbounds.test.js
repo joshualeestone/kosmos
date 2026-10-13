@@ -38,6 +38,22 @@ test('#5154-B: only the three known per-agent classes are accepted; an unknown c
   assert.deepEqual(ob.readRec(k), {}, 'an unknown class never creates a record');
 });
 
+test('#5154-B: isMoot excludes the indeterminate unknown state so a flicker never clears the clock', () => {
+  // idle-only classes moot on a DEFINITE non-idle state, never on idle, never on unknown (a failed pane read).
+  assert.equal(ob.isMoot('nudge', 'working'), true, 'a definite non-idle state moots an idle-only class');
+  assert.equal(ob.isMoot('nudge', 'stopped'), true);
+  assert.equal(ob.isMoot('firstreply', 'auth_failed'), true);
+  assert.equal(ob.isMoot('nudge', 'idle'), false, 'idle never moots an idle-only class');
+  assert.equal(ob.isMoot('nudge', 'unknown'), false, 'unknown is indeterminate: never moots');
+  assert.equal(ob.isMoot('firstreply', 'unknown'), false);
+  // quota moots only on a demonstrably-working agent, and never on unknown or a quota-paused state.
+  assert.equal(ob.isMoot('quota', 'working'), true, 'working moots quota');
+  assert.equal(ob.isMoot('quota', 'rate_limited'), false, 'a quota-paused state does not moot quota');
+  assert.equal(ob.isMoot('quota', 'unknown'), false);
+  assert.equal(ob.isMoot('nudge', ''), false);
+  assert.equal(ob.isMoot('nudge', null), false);
+});
+
 // ---- note / assess (pure-ish on-disk) ----
 
 test('#5154-B: note opens an episode; assess raises it only past GRACE', () => {
