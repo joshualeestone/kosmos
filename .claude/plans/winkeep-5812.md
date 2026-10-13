@@ -38,7 +38,8 @@ this slice; the Windows test box (EC2) can check it.
 The board resolves the path SYNCHRONOUSLY to record the writer (filewriters realpath, level by level), whether the undo
 switch is on or off, and keep lstats and opens it when the switch is on. On Windows a UNC path (`\\server\share`) or a
 mapped drive that is gone can stall the whole board for an SMB timeout, and each such edit reaches out to that server.
-So on win32 the hook does not send a path starting with two slashes of either kind (UNC, `\\?\`, `\\.\pipe`). A project
+So on win32 the hook does not send a path, or a session folder (review 2: a relative file resolves under it), starting
+with two slashes of either kind (UNC, `\\?\`, `\\.\pipe`). A project
 folder is never on one. A mapped DRIVE LETTER to a share still goes: it looks like any drive path, and refusing it
 would need a call the hook cannot afford. Server-side hardening of the route is a separate card if wanted.
 
@@ -58,4 +59,5 @@ The win32 hook entry's ceiling is 15 s (reporthook.js). Worst case for a PreTool
 - on win32 a UNC, `\\?\` or `\\.\pipe` path sends nothing; off win32 a leading // goes (control);
 - the bound main uses is 3 s (mock timers: waiting at 2999 ms, given up at 3000).
 Mutants, each caught: drop the keep call; put it after the heartbeat return; drop the control-character refusal; no
-timeout (cancelled by the test's own 5 s timeout); no UNC refusal; the 8 s report timeout as the fallback.
+timeout (cancelled by the test's own 5 s timeout); no UNC refusal; no UNC folder refusal; the 8 s report timeout as
+the fallback.
