@@ -51,3 +51,4 @@ Rebuilt 2026-10-12 from the branch's commit history (the working draft was lost 
   of the three notes in tools/test-install.sh (the slow suite's job; the weakest premise of the merge).
 - Validation before the merge: 2 failures in 19593, both timing tests in files this branch does not touch, both green
   alone on the branch and on main (contention).
+- Validation of the final head 3962de633 (2026-10-13 02:37 CDT): PASSED, 19717 tests, 0 failed, audit clean.
