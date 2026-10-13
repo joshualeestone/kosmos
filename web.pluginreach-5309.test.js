@@ -102,3 +102,41 @@ test('#5309 p2 /api/status: a SECOND status pass re-reads nothing when files are
   attachPluginReach(rows(), { personHome: '/person', fs }); // pass 3
   assert.ok(fs.counts.read > afterPass1, 'a changed file MUST be re-read on the next pass');
 });
+
+// Per-project mcpServers through the SERVER wiring: attachPluginReach resolves each agent's own working
+// folder (workerDir -> canonicalize) and passes it so ONLY that folder's project servers count (#5309).
+// workerDir + canonicalize are injected so the test needs no real worker dir on disk.
+function projectFiles() {
+  return {
+    '/person/.claude/settings.json': JSON.stringify({ enabledPlugins: { 'crm@acme': true } }),
+    '/person/.claude.json': JSON.stringify({ mcpServers: { tickets: {} }, projects: { '/work/p': { mcpServers: { calendar: {} } } } }),
+    '/agent-sep/settings.json': '{}', '/agent-sep/.claude.json': '{}',
+  };
+}
+function projectMtimes() {
+  return { '/person/.claude/settings.json': 1, '/person/.claude.json': 1, '/agent-sep/settings.json': 1, '/agent-sep/.claude.json': 1 };
+}
+const idCanon = (p) => p; // identity: a fake worker dir resolves to itself (no realpath on a non-existent path)
+
+test('#5309 p2 /api/status: a per-project mcpServer counts ONLY for the agent whose own folder it is (server wiring)', () => {
+  _resetCache();
+  // the agent's own working folder IS /work/p -> the person's /work/p calendar server is one it loses -> counted
+  const r1 = [{ runner: 'claude', account: { dir: '/agent-sep' } }]; // separate-account agent
+  attachPluginReach(r1, { personHome: '/person', fs: fakeFs(projectFiles(), projectMtimes()), workerDir: () => '/work/p', canonicalize: idCanon });
+  assert.equal(r1[0].reach.reaches, false);
+  assert.deepEqual(r1[0].reach.missing.sort(), ['calendar', 'crm@acme', 'tickets']);
+});
+
+test('#5309 p2 /api/status: a project server in ANOTHER folder is NOT counted (no false warning)', () => {
+  _resetCache();
+  const r = [{ runner: 'claude', account: { dir: '/agent-sep' } }];
+  attachPluginReach(r, { personHome: '/person', fs: fakeFs(projectFiles(), projectMtimes()), workerDir: () => '/work/other', canonicalize: idCanon });
+  assert.deepEqual(r[0].reach.missing.sort(), ['crm@acme', 'tickets']);
+});
+
+test('#5309 p2 /api/status: a workerDir thunk that THROWS falls back to top-level only (no crash)', () => {
+  _resetCache();
+  const r = [{ runner: 'claude', account: { dir: '/agent-sep' } }];
+  attachPluginReach(r, { personHome: '/person', fs: fakeFs(projectFiles(), projectMtimes()), workerDir: () => { throw new Error('boom'); }, canonicalize: idCanon });
+  assert.deepEqual(r[0].reach.missing.sort(), ['crm@acme', 'tickets']);
+});

@@ -4059,6 +4059,7 @@ function attachPluginReach(agents, opts) {
   const personCodexHome = personHome ? path.join(personHome, '.codex') : null;
   const deps = o.fs ? { fs: o.fs } : undefined;
   const trust = require('./engine/trust'); // memoized; canonicalOnDisk keys a folder the way Claude Code does
+  const canon = o.canonicalize || trust.canonicalOnDisk; // injectable for tests; realpath the way Claude keys projects
   for (const a of (agents || [])) {
     if (!(personClaudeDir && a && a.account)) { if (a) a.reach = null; continue; }
     // This agent's own working folder, canonicalized the way Claude Code keys .claude.json `projects`
@@ -4069,14 +4070,18 @@ function attachPluginReach(agents, opts) {
     const agentWorkFolder = () => {
       try {
         const wd = (o.workerDir ? o.workerDir(a.sessionName) : (a.sessionName ? create.workerDir(a.sessionName) : null));
-        return wd ? trust.canonicalOnDisk(wd) : null;
+        return wd ? canon(wd) : null;
       } catch { return null; }
     };
-    a.reach = pluginreach.agentPluginReach({
-      runner: a.runner,
-      agentClaudeDir: (a.account.dir || null),
-      personClaudeDir, personClaudeJson, personCodexHome, agentWorkFolder,
-    }, deps);
+    // Per-agent guard (#5309 iter 4): a surprise in ONE row's reach computation must never 500 the whole
+    // /api/status response (its agents list has its own never-throw contract). An unexpected input -> null reach.
+    try {
+      a.reach = pluginreach.agentPluginReach({
+        runner: a.runner,
+        agentClaudeDir: (a.account.dir || null),
+        personClaudeDir, personClaudeJson, personCodexHome, agentWorkFolder,
+      }, deps);
+    } catch { a.reach = null; }
   }
   return agents;
 }
