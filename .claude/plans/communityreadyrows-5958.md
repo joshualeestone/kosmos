@@ -78,3 +78,37 @@ is three sizes; the design reviewer will see it in the new shots.
   other string in the row; the arm covers the name, the summary, a line and the words after a time.
 - The reviewer traced every rule that can apply to the name and the summary and found the LOOK arms would hold. A
   reading: the run is the measurement.
+
+## Review 2 (2026-10-13, sonnet), at 4335865c7
+0 BLOCKER, 0 WARNING, 0 CONVENTION, 3 NIT. Converged.
+- **NIT, not taken:** the "Needs you: " prefix repeats, for a screen reader, what the dot already says to the eye.
+  That is on purpose: the dot is hidden from a screen reader, so the words are the only place it hears it.
+- **NIT, not taken, a design call:** the dotted first line's text starts 14px right of the lines under it. The
+  design reviewer sees it in the new shots and decides.
+- **NIT, not recorded:** the reviewer's reply was cut off partway through the third. I did not ask for it again
+  and I do not know what it said.
+
+## The browser check and the shots (2026-10-13, finished 11:35 and 11:36 CDT, at 4335865c7)
+- `render-community-ready-5958.js`: exit 0, 61 arms passed, 0 failed. The seven arms that MEASURE the review's asks:
+  the name is 15px semibold over a 14px summary; the two colours differ (rgb(20,22,26) and rgb(74,79,87)); only the
+  row with something waiting has a dot, once, before its words; the dot is a round 8px mark, rgb(179,38,30); nothing
+  carries a left bar; in the open row the first line alone has the dot; the items sit 0px apart.
+- Four shots, light and dark, desktop and phone, in ~/work/design-shots/kosmos-5958/. The tool's phone audit: no tap
+  target under 44, no field under 16px.
+- **I looked at all four.** What they show: the name reads first and the summary under it is quieter; one red dot on
+  the row that needs the person, and one on the first line when it is open; no bar down the side; in dark the
+  summary is a lighter grey on the dark card and reads easily (this file's weakest premise). Two things a design
+  reviewer may not like, both real in the picture: the dotted lines' words start a dot's width to the right of the
+  lines under them (review 2's NIT), and the closed row's dotted summary starts to the right of the other rows'
+  summaries for the same reason.
+
+## One commit after the browser run (68732d0bb), words in a CSS comment
+The surface gate failed on this branch when I ran it alone before opening the PR: a CSS COMMENT I wrote named the
+tasks panel's id, which three task checks claim as their surface. The comment now says "the tasks panel". The rule
+beside it is byte for byte what the browser measured. After it: the surface gate exits 0, every `web*.test.js`
+passes (2763), the source-sweep guards pass (134). The browser check was NOT rerun for a comment.
+I ran the gate here because the same gate, unrun after a last fix, turned kosmos#6057 red this morning.
+
+## Not run
+The full suite on this branch (CI runs it on the PR). A person or the design reviewer looking at the new shots:
+asked, not yet answered when the PR was opened.
