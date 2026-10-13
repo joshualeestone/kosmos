@@ -33,6 +33,9 @@ test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); }
 const CODEX_BIN = nodePath.join(BIN, 'codex');
 const TMUX_BIN = nodePath.join(BIN, 'tmux');
 for (const b of [CODEX_BIN, TMUX_BIN]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+// The sandbox codex is THE codex: Repair (and anything else that asks runners for codex) must not depend on whether
+// this machine has one. CI does not; this Mac does, which is how the Repair test passed here and failed there.
+process.env.AGENT_WORKFORCE_CODEX_BIN = CODEX_BIN;
 
 const create = require('./create');
 const store = require('./store');
