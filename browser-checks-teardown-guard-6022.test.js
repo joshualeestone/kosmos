@@ -37,7 +37,7 @@
  * a later argument are not read (fail GREEN; none in the folder); nor is an answer in an object or class method
  * (`{ go() { r.fulfill() } }`) or in a default parameter of the handler (fail GREEN). A concise arrow's body is read
  * to the next comma, semicolon or closing bracket, so an answer after a ternary's arrow branch reads as nested (fails
- * RED). A handler's span is its .route( call, to the matching paren (a backtick string nested inside
+ * RED), and in code without semicolons it can swallow the next statements (fails GREEN; no check is written that way). A handler's span is its .route( call, to the matching paren (a backtick string nested inside
  * ${...} in the route's URL can cut it short). Code before the wait now sits inside the try, so a throw there aborts
  * the request quietly instead of crashing; no check relies on that crash. A catch that
  * rethrows counts as caught, and the abort in the catch is advised, not required (an empty catch passes: no crash, but a
@@ -301,7 +301,7 @@ function scan(raw) {
     const cleared = new Set();
     // The route's name re-bound as a parameter of the nested function (`new Promise((r) => setTimeout(r, 300))` in a
     // handler whose own parameter is r) is not the route (review 5).
-    const rebound = (fn) => !!fn && fn.params.split(/[,=]/).map((x) => x.trim().replace(/^\.\.\./, '')).includes(h.param);   // its own parameter list only (review 6)
+    const rebound = (fn) => !!fn && fn.params.split(',').map((x) => x.split('=')[0].trim().replace(/^\.\.\./, '')).includes(h.param);   // its own parameter list only (review 6)
     for (const at of lateCandidates) {
       const fn = nestedFn(blank, h.body, at);
       if (!fn) continue;
@@ -315,7 +315,9 @@ function scan(raw) {
         const close = routeEnd(blank, open - 1);
         if (close <= at) continue;
         const lead = src.slice(open + 1, at);
-        const returned = /^\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>\s*\(?\s*$/.test(lead) || /\breturn\s+(?:await\s+)?$/.test(lead);
+        // The return must be the callback's own: the innermost function around the answer IS this callback (review 7).
+        const own = /^\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>\s*\{?\s*$|^\s*(?:async\s+)?function\b[^{]*\{?\s*$/.test(blank.slice(open + 1, fn.open));
+        const returned = /^\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>\s*\(?\s*$/.test(lead) || (own && /\breturn\s+(?:await\s+)?$/.test(lead));
         if (returned && catchesAfter(close)) chainCaught = true;
       }
       if (chainCaught) cleared.add(at); else bad.push(src.slice(0, at).split('\n').length);
@@ -447,6 +449,10 @@ test('#6022 fixtures: the rule can fail, and the safe shapes pass (controls)', (
   assert.ok(scan(fnExprRebind).includes(4), 'a function expression with no r parameter does not re-bind r (#6027 review 6)');
   const timerChain = "await page.route('**/x', (r) => {\n  setTimeout(() => r.fulfill({}), 10).catch(() => {});\n});\n";
   assert.deepEqual(scan(timerChain), [2], 'a .catch after a timer catches nothing (#6027 review 6)');
+  const defaultIsRoute = "await page.route('**/x', async (r) => {\n  await gate;\n  setTimeout((x = r) => { r.fulfill({}); }, 100);\n});\n";
+  assert.ok(scan(defaultIsRoute).includes(3), 'a default value of r is not a parameter named r (#6027 review 7)');
+  const nestedReturn = "await page.route('**/x', (r) => {\n  p.then(() => { setTimeout(() => { return r.fulfill({}); }, 10); }).catch(() => {});\n});\n";
+  assert.ok(scan(nestedReturn).includes(2), 'a return inside a callback nested in the .then is swallowed, not returned to the chain (#6027 review 7)');
   const fixtureOnly = "await page.route('**/api/x', (r) => r.fulfill({ json: {} }));\nconst x = await window.fetch('/a');\nawait browser.close();\n";
   assert.deepEqual(scan(fixtureOnly), [], 'a fixture-only handler and window.fetch are not flagged');
   const bareParam = "page.route('**/t', async route => {\n  const r = await route.fetch();\n  route.fulfill({ response: r });\n});\n";
