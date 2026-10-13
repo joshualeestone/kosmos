@@ -98,12 +98,12 @@ test('forget drops the run; a malformed record reads as no run and is replaced o
   assert.equal(toolloop.noteFailure('agent-h', { tool: 'Bash', sig: SIG_A }).count, 1);
 });
 
-test('endsTurn: an automatic idle, stopped or started, or the next prompt; not a working heartbeat', () => {
-  for (const st of ['idle', 'stopped', 'started']) assert.equal(toolloop.endsTurn(st, ''), true, st);
-  assert.equal(toolloop.endsTurn('working', toolloop.PROMPT_TEXT), true, 'a new prompt, even after an Esc with no Stop');
-  assert.equal(toolloop.endsTurn('working', 'running Bash'), false);
-  assert.equal(toolloop.endsTurn('needs_you', 'asking permission to use Bash'), false);
-  assert.equal(toolloop.endsTurn('blocked', ''), false);
+test('endsTurn: an automatic idle, stopped or started is a stop; the next prompt is a prompt; a heartbeat is neither', () => {
+  for (const st of ['idle', 'stopped', 'started']) assert.equal(toolloop.endsTurn(st, ''), 'stop', st);
+  assert.equal(toolloop.endsTurn('working', toolloop.PROMPT_TEXT), 'prompt', 'a new prompt, even after an Esc with no Stop');
+  assert.equal(toolloop.endsTurn('working', 'running Bash'), null);
+  assert.equal(toolloop.endsTurn('needs_you', 'asking permission to use Bash'), null);
+  assert.equal(toolloop.endsTurn('blocked', ''), null);
 });
 
 test('a failure arriving just after the turn end it preceded still counts in that turn (the hook sends late)', () => {
@@ -126,4 +126,29 @@ test('a secret in the error line is redacted before it is stored', () => {
   assert.match(p.error, /^curl https:\/\/x\.example/, 'the rest of the line is kept: ' + p.error);
   const raw = fs.readFileSync(path.join(store.ROOT, 'toolloop', store.safeKey('agent-s') + '.json'), 'utf8');
   assert.ok(!raw.includes('sk-ant-api03') && !raw.includes('bob@example.com'), 'nor is it on disk');
+});
+
+test('the late window follows a Stop only: after a prompt, a quick failure is the new turn\'s', () => {
+  toolloop.forget('agent-m');
+  for (let i = 0; i < 4; i++) toolloop.noteFailure('agent-m', { tool: 'Bash', sig: SIG_A }, { now: 10000 + i });
+  toolloop.noteTurnEnd('agent-m', { now: 10100, kind: 'prompt' });
+  assert.equal(toolloop.noteFailure('agent-m', { tool: 'Bash', sig: SIG_A }, { now: 10200 }).count, 1);
+});
+
+test('a prompt after a Stop closes the late window', () => {
+  toolloop.forget('agent-n');
+  for (let i = 0; i < 4; i++) toolloop.noteFailure('agent-n', { tool: 'Bash', sig: SIG_A }, { now: 11000 + i });
+  toolloop.noteTurnEnd('agent-n', { now: 11100, kind: 'stop' });
+  assert.equal(toolloop.noteTurnEnd('agent-n', { now: 11200, kind: 'prompt' }), true, 'the prompt is written');
+  assert.equal(toolloop.noteFailure('agent-n', { tool: 'Bash', sig: SIG_A }, { now: 11300 }).count, 1);
+});
+
+test('a late failure with ANOTHER signature still belongs to the ended turn, so the next turn starts afresh', () => {
+  toolloop.forget('agent-o');
+  for (let i = 0; i < 3; i++) toolloop.noteFailure('agent-o', { tool: 'Bash', sig: SIG_A }, { now: 12000 + i });
+  toolloop.noteTurnEnd('agent-o', { now: 12100, kind: 'stop' });
+  assert.equal(toolloop.noteFailure('agent-o', { tool: 'Read', sig: SIG_B }, { now: 12200 }).count, 1, 'late, another failure: a new run');
+  assert.equal(toolloop.peek('agent-o').turnOver, true, 'that run is marked as the ended turn\'s');
+  assert.equal(toolloop.noteFailure('agent-o', { tool: 'Read', sig: SIG_B }, { now: 12100 + toolloop.LATE_MS + 5000 }).count, 1,
+    'the same failure in the next turn does not extend it');
 });

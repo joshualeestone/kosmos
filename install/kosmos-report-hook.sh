@@ -481,11 +481,11 @@ case "$EVENT" in
     # The error line goes to the CLI on stdin, not in its arguments, where `ps` would show it.
     if [ -n "$KOSMOS" ]; then
       if [ -n "$JQ" ]; then TF_INTR=$(printf '%s' "$INPUT" | "$JQ" -r '.is_interrupt == true' 2>/dev/null)
-      # Without jq: the LAST unescaped "is_interrupt" key in the payload is the top-level one. Claude Code writes it after
-      # tool_input, and a key inside a string (the error) is escaped (\"), so it cannot match; an input key of that
-      # name comes earlier and is outvoted.
-      else
-        TF_INTR=$(printf '%s' "$INPUT" | grep -o '"is_interrupt"[[:space:]]*:[[:space:]]*[a-z]*' | tail -1 | sed 's/.*:[[:space:]]*//')
+      # Without jq: Claude Code writes the top-level key as `"is_interrupt":<bool>,"duration_ms":` (2.1.296), so only that
+      # shape counts. A key of that name inside the error string is escaped (\") and cannot match; one inside tool_input
+      # is not followed by duration_ms. When the top-level key is left out, the call was not interrupted.
+      elif printf '%s' "$INPUT" | LC_ALL=C grep -q '"is_interrupt"[[:space:]]*:[[:space:]]*true[[:space:]]*,[[:space:]]*"duration_ms"'; then TF_INTR=true
+      else TF_INTR=false
       fi
       if [ "$TF_INTR" != true ]; then
         TF_TOOL=$(json_field '.tool_name' 'tool_name'); TF_TOOL="${TF_TOOL:-a tool}"
@@ -498,7 +498,7 @@ case "$EVENT" in
         if [ -n "$JQ" ]; then
           TF_WHAT=$(printf '%s' "$INPUT" | "$JQ" -cS '[.tool_name, .tool_input, ((.error // "") | tostring)]' 2>/dev/null)
         else
-          TF_WHAT=$(printf '%s' "$INPUT" | sed 's/"tool_use_id"[[:space:]]*:[[:space:]]*"[^"]*"//g; s/"duration_ms"[[:space:]]*:[[:space:]]*[0-9.eE+-]*//g')
+          TF_WHAT=$(printf '%s' "$INPUT" | LC_ALL=C sed 's/"tool_use_id"[[:space:]]*:[[:space:]]*"[^"]*"//g; s/"duration_ms"[[:space:]]*:[[:space:]]*[0-9.eE+-]*//g')
         fi
         TF_SIG=''
         [ -n "$TF_WHAT" ] && TF_SIG=$(printf '%s' "$TF_WHAT" | $TF_HASH 2>/dev/null | cut -c1-64)
