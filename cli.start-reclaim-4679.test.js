@@ -13,6 +13,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn, execFile } = require('node:child_process');
+const { eventually } = require('./test-support/eventually');
 
 const DATA4796 = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-reclaim-4679-'));
 test.after(() => { try { fs.rmSync(DATA4796, { recursive: true, force: true }); } catch {} });
@@ -68,15 +69,16 @@ setTimeout(() => {}, 60000);
   test.after(() => { try { stubProcess.kill('SIGKILL'); } catch {} });
 
   // Wait for the stub to listen
+  // #5727: load-aware poll, was a count-based for-tick loop (positive wait); .catch keeps the old no-throw behaviour so the assertion below stays the failure check.
   let listening = false;
-  for (let i = 0; i < 40; i++) {
-    const ok = await new Promise((res) => {
+  await eventually(
+    () => new Promise((res) => {
       const sock = net.connect(port, '127.0.0.1', () => { sock.destroy(); res(true); });
       sock.on('error', () => res(false));
-    });
-    if (ok) { listening = true; break; }
-    await new Promise((r) => setTimeout(r, 100));
-  }
+    }),
+    (v) => v,
+    { timeoutMs: 4000, stepMs: 100 },
+  ).then(() => { listening = true; }).catch(() => {});
   assert.equal(listening, true, 'stub server must be listening on port');
 
   const baseEnv = {

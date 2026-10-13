@@ -19,6 +19,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
+const { eventually } = require('./test-support/eventually');
 
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-switch-arms-2238-'));
 const mkTemp = (p) => fs.mkdtempSync(nodePath.join(os.tmpdir(), p));
@@ -54,10 +55,12 @@ const post = (p, obj) => jpost(p, obj).then(async (r) => ({ status: r.status, bo
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 // Poll until pred() or a generous deadline -- robust to a loaded event loop delaying
 // the route's 500ms deferred restart (no fixed-margin flake).
+// #5727: load-aware poll, was a hand-rolled wall-clock while-loop (positive wait: the one
+// caller asserts the result is true). eventually throws on timeout, so map it back to the
+// original boolean contract (true found / false timed out); the caller's
+// assert.equal(..., true) stays the failure check.
 async function waitUntil(pred, ms = 3000) {
-  const t0 = Date.now();
-  while (!pred()) { if (Date.now() - t0 > ms) return false; await wait(20); }
-  return true;
+  return eventually(() => pred(), (v) => v, { timeoutMs: ms, stepMs: 20 }).then(() => true).catch(() => false);
 }
 
 test.before(async () => {
