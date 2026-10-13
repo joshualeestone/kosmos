@@ -189,7 +189,6 @@ const COMMENTS_ASKED = 10;   // top-level comments per read (the service pages a
 const THREAD_READ_CAP = 1024 * 1024;
 const REPLIES_SHOWN = 2;      // the service previews 2; never more, whatever it sends
 const REPLY_COUNT_MAX = 200;  // the service's own limit on replies under one comment
-// The count's reply reader (freshReplies), at COMMENT_CAP on purpose: it shows no text (#5636 left it there).
 function replyOf(c) { return commentOf(c, true); }
 /* `asReply` must be exactly true: called from Array.map, a second argument is the index (review 1 fix found it). */
 function commentOf(c, asReply, cap) {

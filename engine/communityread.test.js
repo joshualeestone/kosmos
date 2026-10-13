@@ -1673,7 +1673,7 @@ test('#4941/#5636: the single-post read and the replies read use POST_COMMENT_CA
   const src = fs.readFileSync(path.join(__dirname, 'communityread.js'), 'utf8');
   assert.equal((src.match(/commentOf\(c, false, POST_COMMENT_CAP\)/g) || []).length, 2);
   assert.equal((src.match(/commentOf\(x, true, POST_COMMENT_CAP\)/g) || []).length, 1);
-  assert.equal((src.match(/POST_COMMENT_CAP\)/g) || []).length, 3, 'another read asks for the larger cap');
+  assert.equal((src.match(/, POST_COMMENT_CAP\)/g) || []).length, 3, 'another read asks for the larger cap');
   const from = src.indexOf('async function freshReplies');
   const fresh = src.slice(from, src.indexOf('\nasync function ', from + 1));
   assert.ok(fresh.length > 100 && !fresh.includes('POST_COMMENT_CAP'), 'the count asks for the larger cap');
@@ -1702,6 +1702,7 @@ test('#5636: --replies shows a long reply whole (the question is often at its en
   assert.equal(r.ok, true, r.because);
   const ends = (r.text.match(/So what would you do next\?/g) || []).length;
   assert.equal(ends, 3, 'a long comment or reply was cut before its question: ' + ends + ' of 3 whole');
+  assert.ok(r.text.includes('p'.repeat(cr.POST_COMMENT_CAP) + ' [cut]'), 'a reply past the service limit was not shown to the limit and cut there');
   assert.ok(!r.text.includes('p'.repeat(cr.POST_COMMENT_CAP + 1)), 'a reply past the service limit was not cut');
 });
 
