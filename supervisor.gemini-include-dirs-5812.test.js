@@ -43,9 +43,12 @@ function run({ runner = 'gemini', projects, trust, session = 'gem-agent', world 
   fs.writeFileSync(fake, ['#!/bin/bash', 'case "$1" in', '  new-session) printf "%s\\n" "$*" >> "$REC"; exit 0 ;;', '  has-session) exit 1 ;;', '  *) exit 0 ;;', 'esac'].join('\n') + '\n', { mode: 0o755 });
   const r = spawnSync('/bin/bash', [nodePath.join(tree, 'bin', 'agent-supervisor.sh'), session, work, '/usr/bin/true', fake, '', 'gemini-2.5-flash', runner], { env, encoding: 'utf8', timeout: 30000 });
   const rec = fs.existsSync(env.REC) ? fs.readFileSync(env.REC, 'utf8') : '';
-  const trustFile = nodePath.join(tree, '.gemini', 'trustedFolders.json');
-  const trusted = fs.existsSync(trustFile) ? JSON.parse(fs.readFileSync(trustFile, 'utf8')) : null;
-  return { rec, stderr: r.stderr || '', tree, trusted };
+  const theirFile = nodePath.join(tree, '.gemini', 'trustedFolders.json');
+  const theirs = fs.existsSync(theirFile) ? JSON.parse(fs.readFileSync(theirFile, 'utf8')) : null;
+  const m = /-e GEMINI_CLI_TRUSTED_FOLDERS_PATH=(\S+)/.exec(rec);
+  const agentFile = m ? m[1] : null;
+  const agentTrust = agentFile && fs.existsSync(agentFile) ? JSON.parse(fs.readFileSync(agentFile, 'utf8')) : null;
+  return { rec, stderr: r.stderr || '', tree, root, theirs, agentFile, agentTrust };
 }
 
 test('a gemini agent on a project launches with that project\'s folder in its workspace', () => {
@@ -57,7 +60,9 @@ test('a gemini agent on a project launches with that project\'s folder in its wo
   assert.ok(out.rec.includes('new-session'), 'the gemini arm reached tmux: ' + out.stderr.slice(-400));
   assert.ok(out.rec.includes('--approval-mode yolo --skip-trust -m gemini-2.5-flash --include-directories ' + proj), out.rec);
   assert.ok(!out.rec.includes(other), 'a project the agent is not on is not included');
-  assert.deepEqual(out.trusted, { [proj]: 'TRUST_FOLDER' }, 'recorded as trusted first, so gemini asks nothing');
+  assert.ok(out.agentFile && out.agentFile.startsWith(nodePath.join(out.root, 'gemini-trust')), 'the pane is given the agent\'s own trust file: ' + out.rec);
+  assert.deepEqual(out.agentTrust, { [proj]: 'TRUST_FOLDER' }, 'holding its folder, so gemini asks nothing');
+  assert.equal(out.theirs, null, 'the person\'s trust file is not created');
 });
 
 test('a missing project folder is left out of the launch and logged; the agent still launches', () => {
@@ -65,6 +70,7 @@ test('a missing project folder is left out of the launch and logged; the agent s
   const out = run({ projects: [{ name: 'G', folder: gone, agents: ['gem-agent'] }] });
   assert.ok(out.rec.includes('new-session'));
   assert.ok(!out.rec.includes('--include-directories'), out.rec);
+  assert.ok(!out.rec.includes('GEMINI_CLI_TRUSTED_FOLDERS_PATH'), 'no folders, so gemini keeps its usual trust file');
   assert.match(out.stderr, /#5812: the project folder .*gone-folder was left out .*not there/);
 });
 
@@ -75,7 +81,8 @@ test('a folder the person marked do not trust in Gemini is left out, logged, and
   assert.ok(out.rec.includes('new-session'));
   assert.ok(!out.rec.includes('--include-directories'), out.rec);
   assert.match(out.stderr, /proj-deny was left out .*do not trust/);
-  assert.deepEqual(out.trusted, { [proj]: 'DO_NOT_TRUST' });
+  assert.deepEqual(out.theirs, { [proj]: 'DO_NOT_TRUST' }, 'their record kept as it was');
+  assert.equal(out.agentFile, null, 'no folders, no trust file for the pane');
 });
 
 test('an agent in a named world is matched by its roster name, not its world launch key', () => {
