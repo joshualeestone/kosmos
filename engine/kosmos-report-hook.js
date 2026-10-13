@@ -210,13 +210,14 @@ const KEEP_TIMEOUT_MS = 3000;   // the bash CLI's `-m 3`: the copy must exist be
  *  character is not sent at all, as `kosmos keep-copy` refuses it: rewriting it would name a different, real file.
  *  On Windows a UNC or device path (\\server\share, \\?\, \\.\pipe) is not sent either: the board resolves the
  *  path synchronously to record the writer, and a share that is slow or gone would stall the board for an SMB
- *  timeout (and reach out to that server). A project folder is never on one. */
+ *  timeout (and reach out to that server). A session folder on one is refused too, since a relative file resolves
+ *  under it. A project folder is never on one. */
 function keepRequestFor(evt, platform) {
   if (field(evt, 'hook_event_name') !== 'PreToolUse' || !KEEP_TOOLS.has(field(evt, 'tool_name'))) return null;
   const file = field(evt, 'tool_input.file_path') || field(evt, 'tool_input.notebook_path');
   const cwd = field(evt, 'cwd');
   if (!file || /[\u0000-\u001f\u007f]/.test(file + cwd)) return null;
-  if ((platform || process.platform) === 'win32' && /^[\\/]{2}/.test(file)) return null;
+  if ((platform || process.platform) === 'win32' && (/^[\\/]{2}/.test(file) || /^[\\/]{2}/.test(cwd))) return null;   // the folder too: a relative file under it resolves there
   return { path: file, cwd, session: field(evt, 'session_id') };
 }
 
