@@ -15,6 +15,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { execFileSync } = require('node:child_process');
 const { stopBoard } = require('./test-support/board-child');
+const { eventually } = require('./test-support/eventually');
 
 test('#923: the board process chdirs to $HOME at startup, so a directory it was launched from can be removed without stranding its cwd', async () => {
   const launchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cwd-'));
@@ -51,11 +52,8 @@ test('#923: the board process chdirs to $HOME at startup, so a directory it was 
   try {
     // Wait for the real startup banner ("Kosmos on http://...") rather
     // than a fixed sleep, so this is not a timing guess.
-    const upAt = Date.now();
-    while (!/Kosmos on http/.test(stdout)) {
-      if (Date.now() - upAt > 15000) throw new Error('server did not report startup in time: ' + stdout);
-      await new Promise((r) => setTimeout(r, 50));
-    }
+    // #5727: load-aware poll, was a hand-rolled throwing wall-clock while-loop (positive wait); eventually throws on timeout like the original, so no swallow (the remote.test.js precedent), and describe reproduces the original diagnostic.
+    await eventually(() => /Kosmos on http/.test(stdout), (v) => v, { timeoutMs: 15000, stepMs: 50, describe: () => 'server did not report startup in time: ' + stdout });
     // lsof, not a debug endpoint this file would need to invent: the
     // process's own cwd is an OS-level fact, and this is the same tool
     // used to trace the original bug live.
