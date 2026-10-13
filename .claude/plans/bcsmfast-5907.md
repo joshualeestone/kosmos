@@ -45,3 +45,10 @@ was its slowest file at 193 s.
 ## Weakest premise
 - That non-plain tokens stay rare: each still costs two greps. Today two declared tokens are non-plain
   (`data-pmark="xai"` and `data-pmark="gemini"`).
+
+## Rides along: one line for #6017 (2026-10-12 21:0x CDT)
+`server.usage.test.js` gains `require('./test-support/tmpscope')` first, byte-identical to the same line on
+reportshow-5959, healthline-5959 and bcsgfast-5907. This branch's full validation passed every test and was red only
+on the #4273 leak guard finding that file's `aw-usage-route-` dir (#6017, on this Mac under load). A separate PR would
+join the back of the validation queue; on every branch already queued, the first to pass lands it and the others drop
+it on rebase. The line's own comment names #5959 because it was written there first; the card is #6017.
