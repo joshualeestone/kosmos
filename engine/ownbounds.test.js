@@ -79,6 +79,18 @@ test('#5154-B: a note after a STALE gap starts a FRESH episode (does not inherit
   assert.equal(ob.readRec(k).nudge.sinceAt, t1, 'fresh clock after a stale gap');
 });
 
+test('#5154-B: STALE_MS exceeds the slowest nudge sweep (60-min heartbeat), so a re-noted give-up never blinks off', () => {
+  // The idle nudge runs at the heartbeat interval, max 60 min (heartbeat-setting INTERVAL_CHOICES). If STALE_MS
+  // were below that, a still-stuck agent would go stale between re-notes and re-raise (a duplicate push).
+  assert.ok(STALE > 60 * 60 * 1000, 'STALE_MS must exceed the 60-min max nudge interval');
+  const k = freshKey('slowsweep'); const t0 = 6_000_000;
+  ob.note(k, 'nudge', 'gave up nudging', t0);
+  const t1 = t0 + 60 * 60 * 1000;                           // the slowest possible re-note gap
+  assert.equal(ob.assess(ob.readRec(k), t1).raised, true, 'still raised at the 60-min re-note (not yet stale)');
+  ob.note(k, 'nudge', 'gave up nudging', t1);               // the agent is still stuck; re-noted on the next sweep
+  assert.equal(ob.readRec(k).nudge.sinceAt, t0, 'the re-note keeps the original clock: one episode, no duplicate raise');
+});
+
 test('#5154-B: assess marks a stale entry (not raised) and lists it in .stale for pruning', () => {
   const k = freshKey('staleassess'); const t0 = 4_000_000;
   ob.note(k, 'firstreply', 'gave up', t0);

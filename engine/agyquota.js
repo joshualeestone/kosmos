@@ -270,6 +270,11 @@ function sweepOnce(o) {
     // #5154 slice B: the give-up SIGNAL to the board (ownbounds), SEPARATE from `log`. Fires every sweep an
     // already-given-up agent stays paused (keeps the board's staleness clock fresh); writes no stdout. Optional.
     const bound = typeof o.bound === 'function' ? o.bound : null;
+    // #5154 slice B: the RECOVERY signal. The quota class is NOT idle-gated, so (unlike the nudges) the board
+    // has no cheap mootness test for it. When plan says this agent is no longer in an active quota give-up
+    // (not paused, already resumed, or its reset aged out), fire `cleared` so the episode is dropped at once
+    // rather than lingering until the staleness backstop. A no-op when no episode is open.
+    const cleared = typeof o.cleared === 'function' ? o.cleared : null;
     /* #4588 PR B: one pool. While any antigravity card is still inside its pause, a resume into another one would spend
        a turn against the same empty pool, so nobody is resumed until the latest reset has passed. */
     /* Under the quota-hold brake (quotaHoldOff) the pool gate is lifted: each agent is resumed on its own reset, PR A's
@@ -296,6 +301,10 @@ function sweepOnce(o) {
       // Signal the board via `bound` every sweep it stays paused-and-given-up, so the episode stays alive instead
       // of going stale while the agent is still stuck -- without a per-sweep stdout line. Rare; best-effort.
       else if (p.gaveUp && bound) { try { bound(session, p.because); } catch { /* never breaks a sweep */ } }
+      // #5154 slice B: a non-nudge, non-gaveUp 'none' outcome (not paused / already resumed / reset aged out)
+      // means no active quota give-up for this agent, so clear any open episode at once rather than waiting out
+      // the staleness backstop. 'wait' (still retrying, tries < MAX, no episode yet) falls through to nothing.
+      else if (p.act === 'none' && cleared) { try { cleared(session); } catch { /* never breaks a sweep */ } }
     }
     if (!due.length) return { results };
     due.sort((a, b) => (a.at - b.at) || String(a.session).localeCompare(String(b.session)));
@@ -342,7 +351,7 @@ function makeTick(deps) {
       if (!resumeEnabled(deps.allowed() === true, deps.env)) return null;
       const roster = deps.roster();
       if (!Array.isArray(roster)) return null;
-      return sweepOnce({ roster, book: deps.book, now: deps.now ? deps.now() : Date.now(), env: deps.env || process.env, readReport: deps.readReport, deliver: deps.deliver, movedAway: deps.movedAway, movedTold: deps.movedTold, DELIVERY: deps.DELIVERY, log: deps.log, bound: deps.bound });   // #5154 slice B: give-up -> board
+      return sweepOnce({ roster, book: deps.book, now: deps.now ? deps.now() : Date.now(), env: deps.env || process.env, readReport: deps.readReport, deliver: deps.deliver, movedAway: deps.movedAway, movedTold: deps.movedTold, DELIVERY: deps.DELIVERY, log: deps.log, bound: deps.bound, cleared: deps.cleared });   // #5154 slice B: give-up + recovery -> board
     } catch { return null; }
   };
 }

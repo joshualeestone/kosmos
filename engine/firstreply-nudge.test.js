@@ -102,6 +102,25 @@ test('#3226 nudge text names the reply verb the CLI ships and has no em dash', (
   assert.match(cli, /^\s*inbox\)\s+shift; cmd_inbox "\$@"/m, 'install/kosmos dispatches the inbox verb the nudge names');
 });
 
+test('#5154-B: plan flags gaveUp only out of tries; the sweep fires `bound` for a spent IDLE agent, never a working one', () => {
+  // plan: gaveUp is set ONLY on the out-of-tries (spent) branch.
+  assert.equal(nudge.plan(idleCard(), owesFirst(), { nudgedAt: null, tries: nudge.MAX_TRIES }, NOW).gaveUp, true, 'out of tries -> gaveUp');
+  assert.ok(!nudge.plan(idleCard(), owesFirst(), { nudgedAt: NOW - 1000 }, NOW).gaveUp, 'already reminded is not a give-up');
+  assert.ok(!nudge.plan(idleCard(), owesFirst(), undefined, NOW).gaveUp, 'a fresh due nudge is not a give-up');
+  // sweep: a spent book entry fires `bound` for an idle agent, and does NOT for the same agent while working
+  // (the give-up is moot once it is no longer idle -- the board's IDLE_ONLY mootness relies on this).
+  const s = idleCard().sessionName;
+  const spentBook = () => new Map([[s, { nudgedAt: null, tries: nudge.MAX_TRIES }]]);
+  const boundIdle = [];
+  nudge.sweepOnce({ roster: rosterOf('idle'), book: spentBook(), now: NOW, thread: () => ({ messages: [personRow()] }),
+    deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY, bound: (sess) => boundIdle.push(sess) });
+  assert.deepEqual(boundIdle, [s], 'bound fires once for the spent idle agent');
+  const boundWorking = [];
+  nudge.sweepOnce({ roster: rosterOf('working'), book: spentBook(), now: NOW, thread: () => ({ messages: [personRow()] }),
+    deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY, bound: (sess) => boundWorking.push(sess) });
+  assert.deepEqual(boundWorking, [], 'bound does NOT fire for a spent-but-working agent');
+});
+
 function sweepWith(opts) {
   const sent = [];
   const logs = [];
