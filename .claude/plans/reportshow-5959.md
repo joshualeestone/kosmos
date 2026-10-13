@@ -42,7 +42,7 @@ Both full validations of this branch went red on one thing only: the suite's lea
 `aw-usage-route-` temp dir, which `server.usage.test.js` (a file this branch does not otherwise touch) makes and
 removes in `test.after`. All tests passed both times. Alone it leaves nothing, on main and on this branch (4 runs each).
 `engine/cardlabel.js` has no requires, fs calls or timers, so this branch has no path into that file's shutdown.
-The fix is the guard's own advice: `require('./test-support/tmpscope')` first in `server.usage.test.js`. Measured with
+Card: #6017. The fix is the guard's own advice: `require('./test-support/tmpscope')` first in `server.usage.test.js`. Measured with
 its `rmSync` removed: without tmpscope the dir is left, with it nothing is.
 Folded in here, not a separate PR, because this branch cannot merge without a green validation and a separate PR would
 cost a second queue slot first. Weakest premise: that the two reds are load and not this branch; what would change it is
