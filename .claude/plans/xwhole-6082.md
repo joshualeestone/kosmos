@@ -12,28 +12,23 @@ note is now whole sentences.
 
 ## Change
 tools/post-release-notes.sh: the over-budget branch trims with node (the script already uses $NODE for the versions
-page; no node keeps the old cut). Sentences end at . ! or ? followed by a space or the end. Lengths are counted in
-code points, as the existing length test counts. tools/test-post-release-notes.sh: two fixtures (0.9.5 the 0.7.46
-note, 0.9.6 a single over-long sentence) and three checks; 7b updated (whole sentences, not an ellipsis).
+page; no node, or an empty or failed answer, keeps the old cut). The note reaches node after `--`, so a leading dash is
+text. A note that fits in code points is returned unchanged (the shell's length test can count bytes). A sentence ends
+at . ! or ?, optionally a closing quote or bracket, a space, and a capital or digit next; e.g., i.e., etc., vs., Mr.,
+Mrs., Dr., approx., incl. and No. (either case, before a closing quote too) never end one. When no whole sentence fits,
+the cut keeps whole words and drops a trailing comma or colon before the ellipsis.
+tools/test-post-release-notes.sh: fixtures for the 0.7.46 note, a dotted version and domain, curly apostrophes under a
+C locale, an abbreviation, U.S. before a lowercase word, a leading dash, and an over-long sentence; 7b updated.
 
 ## Rejected
 - Counting the link as X does (23 characters): it gives about 20 more characters, but X's rule is X's, and the budget
   here is a safe upper bound; left as is.
 
-Review 1: sentences are split on the space after . ! or ?, so text before a dotted token (a version, a domain) is never
-dropped; a note that fits in characters is returned unchanged (the shell's length test can count bytes); a cut that
-lands on a space keeps the last word.
-
-Review 2: e.g., i.e., etc. and vs. do not end a sentence, and one may end before a closing quote or bracket; the note
-reaches node after `--`, so a leading dash is text; an empty or failed node answer falls back to the old cut; a word cut
-drops a trailing comma or colon before the ellipsis.
-
-Review 3: a sentence ends only where the next word starts with a capital or a digit (so "U.S. users" does not split),
-and Mr., Mrs., Dr., approx. and incl. join the abbreviations.
-
 ## Weakest premise
-That the short list of abbreviations covers release notes. Another abbreviation ("approx. ") would end a sentence early,
-so a post could stop on it, shorter but unmarked. The notes are written by us, and the list is easy to extend.
+That the abbreviation list and the capital-or-digit rule cover our release notes. A shape outside them (an abbreviation
+not listed, before a capital) ends a sentence early, so a post could stop on it: shorter, unmarked, never mid-word. The
+notes are written by us and the list is easy to extend; this is accepted rather than chased further. Also: X weighs
+emoji and CJK characters as two and a link as 23, which the code-point budget does not model.
 
 ## Validation
 tools/test-post-release-notes.sh: every arm passes (37 PASS lines at the last fix); each new or changed check fails
