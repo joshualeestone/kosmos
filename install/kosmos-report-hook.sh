@@ -487,11 +487,15 @@ case "$EVENT" in
         # The sed fallback (no jq) returns the error still JSON-escaped, so its first line also ends at a literal \n.
         TF_ERR=$(json_field '.error' 'error' | head -1 | sed 's/\\n.*//' | cut -c1-300)
         if command -v shasum >/dev/null 2>&1; then TF_HASH='shasum -a 256'; else TF_HASH='sha256sum'; fi
+        # What is hashed must not be empty: the hash of nothing is one constant, which would make every unreadable
+        # payload "the same failure".
         if [ -n "$JQ" ]; then
-          TF_SIG=$(printf '%s' "$INPUT" | "$JQ" -cS '[.tool_name, .tool_input, ((.error // "") | tostring)]' 2>/dev/null | $TF_HASH 2>/dev/null | cut -c1-64)
+          TF_WHAT=$(printf '%s' "$INPUT" | "$JQ" -cS '[.tool_name, .tool_input, ((.error // "") | tostring)]' 2>/dev/null)
         else
-          TF_SIG=$(printf '%s' "$INPUT" | sed 's/"tool_use_id"[[:space:]]*:[[:space:]]*"[^"]*"//g; s/"duration_ms"[[:space:]]*:[[:space:]]*[0-9.eE+-]*//g' | $TF_HASH 2>/dev/null | cut -c1-64)
+          TF_WHAT=$(printf '%s' "$INPUT" | sed 's/"tool_use_id"[[:space:]]*:[[:space:]]*"[^"]*"//g; s/"duration_ms"[[:space:]]*:[[:space:]]*[0-9.eE+-]*//g')
         fi
+        TF_SIG=''
+        [ -n "$TF_WHAT" ] && TF_SIG=$(printf '%s' "$TF_WHAT" | $TF_HASH 2>/dev/null | cut -c1-64)
         if [ -n "$TF_SIG" ]; then
           ( printf '%s' "$TF_ERR" | "$KOSMOS" tool-failed "$TF_TOOL" "$TF_SIG" >/dev/null 2>&1 & ) 2>/dev/null || true
         fi

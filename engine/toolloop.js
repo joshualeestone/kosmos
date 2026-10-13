@@ -14,11 +14,14 @@
  *
  * "THE SAME FAILURE" is the hook's `sig`: a hash of the tool name, the tool's input and the WHOLE error. A
  * retry whose input or error output changes is a different signature and starts a new run, so a run is
- * only one tool failing in exactly the same way again. Not seen: successful calls in between (an agent
- * that edits, reruns the same test and gets the identical failure still counts that rerun).
+ * only one tool failing in exactly the same way again, CONSECUTIVELY: any other failure in between starts a
+ * new run (so alternating failures, or parallel calls interleaving, never add up). Not seen: successful
+ * calls in between, so an agent that edits, reruns the same test and gets the identical failure counts that
+ * rerun, and a poll with the same input and the same bare error (an `until test -f` loop) looks the same.
  *
  * INSIDE ONE TURN: POST /api/report calls noteTurnEnd when an automatic idle, stopped or started arrives
- * (the end of a turn or a session), BEFORE the self-report guard can refuse to record it: a standing
+ * (the end of a turn or a session), or the next prompt (endsTurn), BEFORE the self-report guard can refuse
+ * to record it: a standing
  * deliberate wait refuses an automatic idle, so the self-report record cannot be the source. The next
  * failure after a turn end starts a new run.
  *
@@ -36,6 +39,15 @@ const LOOP_AT = 5;
 
 /* The automatic report states that end a turn (Stop), a session (SessionEnd) or start one (SessionStart). */
 const TURN_ENDS = Object.freeze(['idle', 'stopped', 'started']);
+/* The sentence the report hook's UserPromptSubmit sends (install/kosmos-report-hook.sh and its Windows twin
+   engine/kosmos-report-hook.js reportFor): a new prompt starts a new turn even when the last one ended with no Stop
+   (the person pressed Esc). */
+const PROMPT_TEXT = 'answering a prompt';
+
+/* True when an AUTOMATIC report with this state and text ends the current turn. Pure. */
+function endsTurn(state, text) {
+  return TURN_ENDS.includes(state) || (state === 'working' && text === PROMPT_TEXT);
+}
 
 const SIG_RE = /^[0-9a-f]{16,128}$/;
 const MAX_TOOL = 80;
@@ -128,4 +140,4 @@ function forget(key) {
   try { fs.unlinkSync(fileFor(key)); } catch { /* already gone */ }
 }
 
-module.exports = { noteFailure, noteTurnEnd, peek, forget, LOOP_AT, TURN_ENDS };
+module.exports = { noteFailure, noteTurnEnd, endsTurn, peek, forget, LOOP_AT, TURN_ENDS, PROMPT_TEXT };
