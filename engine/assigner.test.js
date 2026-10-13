@@ -959,8 +959,11 @@ test('#6072 review 1: no give-up for an archived or paused project, or naming an
     assert.equal(a.goalAskGaveUp(mem, { ...live, archived: true }, now), null, 'an archived project reads as stalled');
     assert.equal(a.goalAskGaveUp(mem, { ...live, paused: true }, now), null, 'a paused project reads as stalled');
     assert.equal(a.goalAskGaveUp(mem, { ...live, agents: [] }, now), null, 'a give-up names an agent no longer on the project');
-    assert.ok(a.goalAskGaveUp(mem, { ...live, agents: live.agents.map((s) => ({ name: 'Shown', sessionName: s })) }, now),
-      'a listed project (member rows, not names) lost the give-up');
+    // A listed project, as GET /api/projects sends it: member rows from projects.list, not names (fixture discipline).
+    const listedRow = projects.list(w.cards).find((p) => p.id === w.pid);
+    assert.ok(listedRow && Array.isArray(listedRow.agents) && listedRow.agents.length && typeof listedRow.agents[0] === 'object',
+      'fixture: the listed project does not carry member rows');
+    assert.ok(a.goalAskGaveUp(mem, listedRow, now), 'a listed project (member rows, not names) lost the give-up');
     const archived = projects.readAll().map((p) => (p.id === w.pid ? { ...p, archived: true } : p));
     const next = a.step({ prev: mem, roster: w.cards, setting: ON, records: archived, commitments: w.states(), now }).next;
     assert.equal(next.askGaveUp.has(w.pid), false, 'step kept the give-up of an archived project');
