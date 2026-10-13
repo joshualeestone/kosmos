@@ -122,6 +122,29 @@ function reportFor(event, env) {
   return { state, text };
 }
 
+/* #5812: just before gemini writes (write_file) or edits (replace) a file, the board is asked to keep a copy (#5153,
+   only while the person's undo switch is on) and to note which agent is about to write it, as Claude Code's hook does.
+   Measured on gemini-cli 0.61.0: BeforeTool's stdin carries tool_name, tool_input.file_path RELATIVE to cwd, cwd and
+   session_id. The board resolves the path against ITS OWN folder, so it is made absolute here against the agent's
+   cwd. Null (nothing sent) for any other event or tool, no path, a relative path with no folder, a control character
+   (it would name a different file), and on win32 a UNC or device path or folder: the board resolves the path
+   synchronously, and a slow or vanished share would stall it (#6033 refuses the same). `platform` is a seam. */
+const KEEP_TOOLS = new Set(['write_file', 'replace']);
+const KEEP_TIMEOUT_MS = 3000;   // the bash CLI's `-m 3`: never hold the edit longer
+function keepRequestFor(event, platform) {
+  if (!event || typeof event !== 'object' || event.hook_event_name !== 'BeforeTool') return null;
+  if (!KEEP_TOOLS.has(event.tool_name)) return null;
+  const input = event.tool_input && typeof event.tool_input === 'object' ? event.tool_input : {};
+  const file = typeof input.file_path === 'string' ? input.file_path : '';
+  const cwd = typeof event.cwd === 'string' ? event.cwd : '';
+  if (!file || /[\u0000-\u001f\u007f]/.test(file + cwd)) return null;
+  const win = (platform || process.platform) === 'win32';
+  const P = win ? require('node:path').win32 : require('node:path').posix;
+  if (win && (/^[\\/]{2}/.test(file) || /^[\\/]{2}/.test(cwd))) return null;
+  if (!P.isAbsolute(file) && !cwd) return null;
+  return { path: P.isAbsolute(file) ? file : P.resolve(cwd, file), cwd, session: typeof event.session_id === 'string' ? event.session_id : '' };
+}
+
 /* The /api/report body, exported so the ONE field the whole correctness argument
    rests on -- `auto: true` -- is unit-testable. It silently regressed on the codex
    bridge (#1456: an auto report without this flag lets a turn ending erase a
@@ -162,17 +185,8 @@ function engineDir(here) {
   return null;
 }
 
-async function main() {
-  const raw = await readStdin();
-  let event;
-  try { event = JSON.parse(raw || ''); } catch { return; }
-
-  const mapped = reportFor(event, process.env);
-  if (!mapped) return;
-  const { state, text } = mapped;
-
-  const port = Number(process.env.KOSMOS_PORT) || 16180;
-  const body = JSON.stringify(buildBody(state, text, process.env));
+/* The headers every POST to the board carries (the report and, #5812, the keep call). */
+function headersFor(env) {
 
   /* Present the launch token when we have one (the supervisor mints it per launch
      and puts it in the pane env). Same hex shape-test as the codex bridge: a
@@ -181,7 +195,7 @@ async function main() {
      agent launched before the mint has no token here and is identified by its pane
      exactly as before. */
   const headers = { 'content-type': 'application/json' };
-  const token = String(process.env.KOSMOS_AGENT_TOKEN || '').trim();
+  const token = String(env.KOSMOS_AGENT_TOKEN || '').trim();
   if (/^[0-9a-f]+$/.test(token)) headers['x-kosmos-agent-token'] = token;
 
   /* Also present the board token (the same-account credential an enforcing board
@@ -191,7 +205,7 @@ async function main() {
   const engine = engineDir();
   /* #4491 slice 8: with KOSMOS_AGENT_TOKEN_ONLY exactly '1' and the agent's own token above, the report goes with that
      token alone and the board token is not read (POST /api/report takes the agent's token; the same switch slice 7 gives the two CLIs, on its own branch until it merges). */
-  if (!(headers['x-kosmos-agent-token'] && process.env.KOSMOS_AGENT_TOKEN_ONLY === '1')) try {
+  if (!(headers['x-kosmos-agent-token'] && env.KOSMOS_AGENT_TOKEN_ONLY === '1')) try {
     const boardTok = require(require('node:path').join(engine, 'boardauth')).readToken();
     if (typeof boardTok === 'string' && boardTok) headers['x-kosmos-board-token'] = boardTok;
   } catch { /* a missed board token must never become a failed turn */ }
@@ -200,19 +214,43 @@ async function main() {
      rather than refusing the report as a stranger's. Same guard as above. */
   try {
     const launchidentity = require(require('node:path').join(engine, 'launchidentity'));
-    headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(process.env);
+    headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(env);
   } catch { /* a missed world header must never become a failed turn */ }
+  return headers;
+}
 
+/* POST one body to the board, bounded; never throws (a missed call must never become a failed turn). */
+async function post(port, route, headers, body, timeoutMs, fetchImpl) {
+  const doFetch = fetchImpl || fetch;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  await fetch(`http://127.0.0.1:${port}/api/report`, {
-    method: 'POST',
-    headers,
-    body,
-    signal: controller.signal,
-  }).catch(() => { /* a missed report must never become a failed turn */ })
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  await Promise.resolve().then(() => doFetch(`http://127.0.0.1:${port}${route}`, { method: 'POST', headers, body, signal: controller.signal }))
+    .catch(() => { /* never break the agent */ })
     .finally(() => clearTimeout(timer));
 }
+
+async function main(io) {
+  const o = io || {};
+  const env = o.env || process.env;
+  const raw = o.input !== undefined ? o.input : await readStdin();
+  let event;
+  try { event = JSON.parse(raw || ''); } catch { return; }
+  const port = Number(env.KOSMOS_PORT) || 16180;
+
+  /* #5812: a file about to be written. Nothing is printed: gemini runs the tool when the hook answers nothing. */
+  const keep = keepRequestFor(event, o.platform);
+  if (keep) {
+    await post(port, '/api/undo/keep', headersFor(env), JSON.stringify(keep), o.keepTimeoutMs || KEEP_TIMEOUT_MS, o.fetchImpl);
+    return;
+  }
+
+  const mapped = reportFor(event, env);
+  if (!mapped) return;
+  const { state, text } = mapped;
+  const body = JSON.stringify(buildBody(state, text, env));
+  await post(port, '/api/report', headersFor(env), body, TIMEOUT_MS, o.fetchImpl);
+}
+
 
 /* Run only when invoked directly (as gemini's hook does); when required as a
    module (the unit test) expose the pure mapping without firing a POST. */
@@ -220,4 +258,4 @@ if (require.main === module) {
   main().catch(() => { /* same rule as the top: never break the agent */ });
 }
 
-module.exports = { STATE_FOR_EVENT, PER_TURN_ENV, reportFor, buildBody, engineDir };
+module.exports = { STATE_FOR_EVENT, PER_TURN_ENV, reportFor, buildBody, engineDir, keepRequestFor, headersFor, main, KEEP_TIMEOUT_MS };

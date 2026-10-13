@@ -40,6 +40,13 @@ const HOOK_EVENTS = Object.freeze([
   'SessionStart', 'BeforeAgent', 'Notification', 'AfterAgent', 'SessionEnd',
 ]);
 
+/* #5812: one TOOL hook as well. Just before gemini writes a file (write_file) or edits one (replace), the bridge asks
+   the board to keep a copy and note which agent is writing, as Claude Code's hook does. Measured on gemini-cli 0.61.0:
+   BeforeTool's stdin carries tool_name and tool_input.file_path (RELATIVE to cwd), and a hook that answers nothing
+   lets the tool run. The matcher keeps every other tool from starting the bridge. */
+const TOOL_EVENT = 'BeforeTool';
+const TOOL_MATCHER = 'write_file|replace';
+
 /* The dedup key: any command containing this stem is "ours". Matching on the
    script STEM (not the full command) means a future change to the command text --
    a flag, a different node path -- will not stack a second entry beside an older
@@ -103,8 +110,9 @@ function entryIsOurs(entry) {
 /* One event's desired definition: a single command hook running the bridge. The
    shape matches gemini's hook schema (`{ hooks: [{ type, command }] }` under an
    event name), identical to Claude Code's. */
-function definitionFor(bridgePath, opts) {
-  return { hooks: [{ type: 'command', command: commandFor(bridgePath, opts) }] };
+function definitionFor(bridgePath, opts, matcher) {
+  const def = { hooks: [{ type: 'command', command: commandFor(bridgePath, opts) }] };
+  return matcher ? { matcher, ...def } : def;
 }
 
 /**
@@ -217,6 +225,17 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
     data.hooks[event] = existing.concat([definitionFor(bridgePath, cmdOpts)]);
     changed = true;
   }
+  /* #5812: the tool hook, the same way, except that "already correct" also needs the matcher: an entry of ours with
+     another matcher (or none) would start the bridge for every tool, so it is replaced. */
+  {
+    const existing = Array.isArray(data.hooks[TOOL_EVENT]) ? data.hooks[TOOL_EVENT] : [];
+    const mine = existing.filter(entryIsOurs);
+    const right = (e) => e && e.matcher === TOOL_MATCHER && sameHook(e);
+    if (!(mine.length === 1 && right(mine[0]))) {
+      data.hooks[TOOL_EVENT] = existing.filter((e) => !entryIsOurs(e)).concat([definitionFor(bridgePath, cmdOpts, TOOL_MATCHER)]);
+      changed = true;
+    }
+  }
 
   if (!changed) return { prepared: true, changed: false };
   try {
@@ -233,4 +252,4 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
   return { prepared: true, changed: true };
 }
 
-module.exports = { AUTH_TYPE, HOOK_EVENTS, MARKER, commandFor, unsafeForCommand, entryIsOurs, ensurePrepared };
+module.exports = { AUTH_TYPE, HOOK_EVENTS, TOOL_EVENT, TOOL_MATCHER, MARKER, commandFor, unsafeForCommand, entryIsOurs, ensurePrepared };
