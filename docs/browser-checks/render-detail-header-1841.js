@@ -400,7 +400,9 @@ function chk(ok, label, extra) {
     const MINE = { exists: true, editable: true, text: '# Beatrix\n\nYou coordinate collections for the team.\n', version: 'v1', hasPrevious: true, staleness: null };
     const answer = (rt, body, status) => rt.fulfill({ status: status || 200, contentType: 'application/json', body: JSON.stringify(body) });
     const held = [];
-    await page.route(INSTR_URL, async (route) => { await new Promise((r) => { held.push(r); }); await answer(route, MINE); });
+    await page.route(INSTR_URL, async (route) => {   // #6027: held, so its answer can land after close; caught, not a crash
+      try { await new Promise((r) => { held.push(r); }); await answer(route, MINE); } catch { await route.abort().catch(() => {}); }
+    });
     const release = () => { while (held.length) held.shift()(); };
     await page.evaluate(() => { loadInstructions(CURRENT.sessionName); });
     await page.waitForTimeout(150);
@@ -462,7 +464,9 @@ function chk(ok, label, extra) {
     // Typing while the previous version is being read is kept too (the guard is asked again after the wait).
     await page.unroute(PREV_URL);
     const heldPrev = [];
-    await page.route(PREV_URL, async (route) => { await new Promise((r) => { heldPrev.push(r); }); await answer(route, { exists: true, text: PREV, because: null }); });
+    await page.route(PREV_URL, async (route) => {   // #6027
+      try { await new Promise((r) => { heldPrev.push(r); }); await answer(route, { exists: true, text: PREV, because: null }); } catch { await route.abort().catch(() => {}); }
+    });
     await page.click('#d-instr-prev-load'); await page.waitForTimeout(150);
     await page.evaluate(() => { document.getElementById('d-instr').value = 'typed while it was being read'; });
     while (heldPrev.length) heldPrev.shift()();
@@ -502,7 +506,9 @@ function chk(ok, label, extra) {
     // Last, because they take the card's writes away.
     // A failed load that lands after an untied card opened leaves that card no Try again (the catch's own check).
     const heldFail = [];
-    await page.route(INSTR_URL, async (route) => { await new Promise((r) => { heldFail.push(r); }); await answer(route, { error: 'x' }, 500); });
+    await page.route(INSTR_URL, async (route) => {   // #6027
+      try { await new Promise((r) => { heldFail.push(r); }); await answer(route, { error: 'x' }, 500); } catch { await route.abort().catch(() => {}); }
+    });
     await page.evaluate(() => { loadInstructions(CURRENT.sessionName); }); await page.waitForTimeout(150);
     await page.evaluate(() => { CURRENT = { ...CURRENT, sessionName: 'someone-untied', isNamedOurs: false }; setWritesOffered(CURRENT, false); });
     while (heldFail.length) heldFail.shift()();
