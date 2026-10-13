@@ -1,7 +1,8 @@
 # communityreadyui-5958: "Where each agent stands" in Settings
 
 Card kosmos#5958, items 4 and 5, slice 2. Slice 1 (the record, the row and `kosmos community ready`) is on main as
-kosmos#6014, and this branch is one commit of its own change on top of main (see the last sections).
+kosmos#6014, and this branch is its own change on top of main: one commit when it was moved there, a few more and a merge of main
+since (see the last sections).
 
 ## What it adds
 A list under Settings, Automation, in the Community box, below the posts and comments: one row per agent, its name and
@@ -366,3 +367,19 @@ diffs line by line.
   one open. The board's answer is replaced with sample names, so no agent of this computer is in a shot. Guards 145
   pass; the 7 test files that name the shot tool, 111 pass. The screen has NOT been run.
 - That screen entry is a change no reviewer has seen. One round follows.
+
+## Review 19 (2026-10-13, default model), at 896104d04
+0 BLOCKER, 1 WARNING, 1 CONVENTION, 5 NIT. Not converged (a new convention finding).
+- **WARNING, the same one as reviews 17 and 18:** nothing has run the browser check or the new shot screen at this
+  head. This reviewer read every arm of the check against the page code and found none that would fail and none that
+  passes on nothing, and read the shot screen the same way. A reading, not a run: the PR waits on both.
+- **CONVENTION, taken, and it is a mistake I have a note about:** I put the new screen between an existing comment
+  and the entry that comment describes, so the comment sat above my screen and its own entry had none. The screen is
+  above that comment now (moved, not retyped).
+- **NIT, taken:** the screen has a `verify`: three rows, the last one open, its last line inside the viewport, or the
+  shot is an error. Because the shot is the viewport only, the screen now scrolls the open row's last line into view
+  where the list is taller than the screen.
+- **NIT, taken:** the comment about times and years says what is true in the first day of a year.
+- **NIT, taken:** this file's header.
+- **NIT, not taken:** the sample rows' raw fields do not all agree with their words (the page paints only `owner`);
+  and one request reads the moderation queue once in each of two readers ("once" is per reader).
