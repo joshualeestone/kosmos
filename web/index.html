@@ -60622,7 +60622,7 @@ function pjAncestry(p) {
    segment, so each subproject follows its parent (a joined-string sort puts a sibling named "Alpha - old"
    between "Alpha" and "Alpha › Sub"; web.subpick-3029.test.js shows it). A top-level project's chain is just its name, so it reads exactly as before. */
 function pjChainOf(p) {
-  return p ? pjAncestry(p).concat(String(p.name)) : [];
+  return p ? pjAncestry(p).concat(p.name == null ? '' : String(p.name)) : [];
 }
 function pjChainCompare(a, b) {
   const n = Math.min(a.length, b.length);

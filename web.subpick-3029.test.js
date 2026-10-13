@@ -13,8 +13,8 @@ const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 const make = (projects) => new Function('PROJECTS',
   'const pjById = (id) => PROJECTS.find((p) => p && p.id === id) || null;\n'
-  + page.liftAll(SCRIPT, ['pjAncestry', 'pjChainOf', 'pjChainCompare', 'pjChainText', 'pjSortByChain', 'tskChainOf'])
-  + '\nreturn { pjChainOf, pjChainCompare, pjChainText, pjSortByChain, tskChainOf };')(projects);
+  + page.liftAll(SCRIPT, ['pjAncestry', 'pjChainOf', 'pjChainCompare', 'pjChainText', 'pjChainSpoken', 'pjSortByChain', 'tskChainOf'])
+  + '\nreturn { pjChainOf, pjChainCompare, pjChainText, pjChainSpoken, pjSortByChain, tskChainOf };')(projects);
 
 const mk = (id, name, parent) => ({ id, name, parent: parent || null });
 const PROJECTS = [mk('al2', 'Alpha - old'), mk('bb', 'Book B'), mk('als', 'Sub', 'al'), mk('ba', 'Book A'),
@@ -53,4 +53,15 @@ test('pjSortByChain gives the same order as the comparator, without touching the
 test('tskChainOf on a row with no project name gives an empty name, never the text undefined', () => {
   const F = make([]);
   assert.deepEqual(F.tskChainOf({ projectPath: ['Book A'] }), ['Book A', '']);
+});
+
+test('pjChainSpoken joins with commas for accessible names; pjChainText with the visible mark', () => {
+  const F = make([]);
+  assert.equal(F.pjChainSpoken(['Book A', 'Launch', 'Ads']), 'Book A, Launch, Ads');
+  assert.equal(F.pjChainText(['Book A', 'Launch', 'Ads']), 'Book A › Launch › Ads');
+});
+
+test('pjChainOf on a project with no name gives an empty name, never the text undefined', () => {
+  const F = make([{ id: 'top', name: 'Top' }, { id: 'nn', parent: 'top' }]);
+  assert.deepEqual(F.pjChainOf({ id: 'nn', parent: 'top' }), ['Top', '']);
 });
