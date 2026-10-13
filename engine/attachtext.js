@@ -677,7 +677,7 @@ function winAnsi(raw) {
   return s;
 }
 
-function pageText(content, fonts, out) {
+function pageText(content, fonts, out, used = {}) {
   let font = null;
   let lastY = null;
   let line = '';
@@ -686,6 +686,9 @@ function pageText(content, fonts, out) {
   const decode = (raw) => {
     const f = font && fonts.get(font);
     if (!f) return winAnsi(raw);
+    /* iteration 6: a font is judged when the page draws with it, not when it is merely listed in shared resources. */
+    if (f.flag === 'noMap') { used.noMap = true; return ''; }   // glyph numbers, not characters: only this font's text is lost
+    if (f.flag === 'ownEncoding') { used.ownEncoding = true; return winAnsi(raw); }
     let s = '';
     for (let i = 0; i + f.codeLen <= raw.length; i += f.codeLen) {
       let code = 0;
@@ -746,8 +749,7 @@ function pdfTextJs(buf) {
   const pages = [];
   let content = 0;
   let cut = null;
-  let ownEncoding = false;
-  let noMap = false;
+  const used = { ownEncoding: false, noMap: false };
   const total = sink();
   const ordered = pagesInOrder(objs);
   if (ordered.capped) cut = 'Only the first ' + MAX_PDF_PAGES + ' pages are converted.';
@@ -762,10 +764,12 @@ function pdfTextJs(buf) {
       /* iteration 4: no ToUnicode, and an encoding of its own (MacRoman from a Mac, or /Differences): read as WinAnsi it
          would be wrong without looking wrong, so the text is marked as not to be trusted (a Mac then asks PDFKit). */
       const fd = (objs.get(Number(fm[2])) || {}).dict || '';
-      if (/\/MacRomanEncoding|\/Differences|\/MacExpertEncoding/.test(fd) || (ref(fd, 'Encoding') != null && /\/Differences/.test((objs.get(ref(fd, 'Encoding')) || {}).dict || ''))) ownEncoding = true;
       /* iteration 5: a two-byte (Type0 / Identity) font with no ToUnicode has glyph numbers, not characters: what the JS
-         reader makes of it is garbage that looks like text. A Mac asks PDFKit; elsewhere that text is not kept. */
-      if (/\/Subtype\s*\/Type0|\/Identity-/.test(fd)) noMap = true;
+         reader makes of it is garbage that looks like text. A Mac asks PDFKit; elsewhere that font's text is not kept.
+         Iteration 6: both marks are set only when a page draws with the font (see decode), so an unused font listed in
+         shared resources changes nothing. */
+      if (/\/Subtype\s*\/Type0|\/Identity-/.test(fd)) fonts.set(fm[1], { flag: 'noMap' });
+      else if (/\/MacRomanEncoding|\/Differences|\/MacExpertEncoding/.test(fd) || (ref(fd, 'Encoding') != null && /\/Differences/.test((objs.get(ref(fd, 'Encoding')) || {}).dict || ''))) fonts.set(fm[1], { flag: 'ownEncoding' });
     }
     const contents = /\/Contents\s*\[([^\]]*)\]/.exec(o.dict);
     const nums = contents ? refs(contents[1]) : (ref(o.dict, 'Contents') != null ? [ref(o.dict, 'Contents')] : []);
@@ -778,14 +782,14 @@ function pdfTextJs(buf) {
       parts.push(st.toString('latin1'));
     }
     const page = sink(MAX_OUT - total.length);   // one budget for the whole document, not one per page (iteration 2)
-    pageText(parts.join('\n'), fonts, page);
+    pageText(parts.join('\n'), fonts, page, used);
     const text = page.text().trim();
     pages.push(text);
     total.add(text);
     if (page.full || total.length >= MAX_OUT) { cut = (cut ? cut + ' ' : '') + 'The rendering stops at ' + MAX_OUT + ' characters; later pages are not included.'; break; }   // iteration 3
     if (cut) break;
   }
-  return { encrypted: false, pages, cut, undecodable: undecodable.n, ownEncoding, noMap };
+  return { encrypted: false, pages, cut, undecodable: undecodable.n, ownEncoding: used.ownEncoding, noMap: used.noMap };
 }
 
 /* Whether extracted text reads as text: mostly letters, digits, spaces and ordinary punctuation, judged on a sample. */
@@ -830,7 +834,7 @@ async function pdfAfter(file, js) {
     const viaKit = await kit();   // iteration 3: PDFKit counts against the same two conversions at once
     if (viaKit === '\u0000locked') return { body: '', notes: ['This PDF is protected with a password, so its text could not be read.'] };
     if (viaKit && viaKit.replace(/\s+/g, '')) { pages = viaKit.split('\n\f\n'); cut = null; }   // PDFKit read the whole file
-    else if (js.noMap) { pages = pages.map(() => ''); notes.push('This PDF\u2019s fonts carry no character map (common in Chinese, Japanese and Korean documents), so its text could not be read here.'); }
+    else if (js.noMap) notes.push('Some of this PDF\u2019s text is in fonts that carry no character map (common in Chinese, Japanese and Korean documents), so that text could not be read here and is left out.');
     else if (pages.join('').trim()) notes.push(js.ownEncoding ? 'Some symbols and punctuation in this PDF may be wrong (its fonts use an encoding Kosmos reads only approximately).' : 'Some of this PDF’s text may not have converted cleanly (an unusual font encoding).');
     else if (js.undecodable) notes.push('This PDF uses a compression Kosmos cannot read, so its text could not be converted.');
   }

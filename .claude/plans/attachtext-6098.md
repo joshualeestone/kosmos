@@ -60,6 +60,9 @@ reads these files itself.
   that text is dropped with a note (it would be garbage that reads as text); an encrypted PDF is first offered to PDFKit, which
   opens permission-only PDFs. PDFKit is asked when text does not read as text, a font has its own encoding or no character
   map, or the file is encrypted.
+- **Iteration 6:** fonts are judged when a page draws with them, not when listed in (often shared) resources: an unused
+  mapless CJK font no longer blanks every page off a Mac. A mapless font's own text is left out (with a note) and the rest
+  is kept; own-encoding fonts likewise mark the text only when used. Test for PDFKit's locked answer added.
 - **Not done:** pictures (no OCR), charts, inline (not referenced) PDF font dictionaries, /Differences glyph names (pdfTeX
   ligatures), LZW, lists and headings applied only through a paragraph style (no numId; localized heading style ids), docx headers/footers/footnotes/comments, text inside PDF form XObjects (`Do`),
   xls/doc/ppt/pptx, an attachment uploaded before this change (it gets no rendering; its line is unchanged).
@@ -78,4 +81,4 @@ empty paragraphs, tables with no paragraphs between); nested table, text box and
 in every cell (capped, quick, says so); PDF digit runs, CMap brackets and repeated full ranges (bounded); a content
 stream shared by many pages (charged each time, total capped); a two-digit indirect /Length; a TJ array of 80 items and
 two runs on one line; a 70 MB Flate image before the text; a damaged document worded as a document. Meta: engine.reachable
-excuses setPdfkit and pdfText as test seams. Neighbours and meta: 678/678. Tests: 33 (iteration 5 added CJK no-map and encrypted-through-PDFKit). Iteration 4 added two arms (MacRoman asks PDFKit; [Red] is not a date).
+excuses setPdfkit and pdfText as test seams. Neighbours and meta: 678/678. Tests: 36 (iteration 6 added an unused mapless font, mixed Latin and mapless text, and PDFKit locked; iteration 5 added CJK no-map and encrypted-through-PDFKit). Iteration 4 added two arms (MacRoman asks PDFKit; [Red] is not a date).
