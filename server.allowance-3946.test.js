@@ -182,6 +182,8 @@ test('#6108 /api/accounts: a Claude row carries its weekly reading and its agent
   const at = Date.now() - 2 * 3600e3;
   fs.writeFileSync(path.join(def, statusline.FILE), JSON.stringify({ usedPct: 82, resetsAt: FUTURE, at, history: [[at, 82, FUTURE]] }));
   lead('usage-on-default', { role: 'writer' }, null);   // no configDir: the default account
+  lead('usage-guide', { role: 'setup' }, null);         // the setup guide, also on the default account: never listed
+  fs.writeFileSync(path.join(create.workerDir('usage-guide'), '.kosmos-setup-guide'), '');
   const other = account('acct-6108-other');
   lead('usage-on-other', { role: 'writer' }, other);    // CONTROL: on another account, must not be listed here
   const rows = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];
@@ -192,6 +194,7 @@ test('#6108 /api/accounts: a Claude row carries its weekly reading and its agent
   assert.ok(row.agentsHere.names.includes('usage-on-default'), 'the agent on this account is missing: ' + JSON.stringify(row.agentsHere));
   assert.ok(!row.agentsHere.names.includes('usage-on-other'), 'an agent on ANOTHER account was listed here');
   assert.equal(row.agentsHere.complete, true, 'every agent here was readable, so the list is complete');
+  assert.ok(!row.agentsHere.names.includes('usage-guide'), 'the setup guide was listed among the account\'s agents');
   // A reading from a week that has already reset is not this week's: the row says there is none.
   fs.writeFileSync(path.join(def, statusline.FILE), JSON.stringify({ usedPct: 99, resetsAt: Math.floor(Date.now() / 1000) - 60, at }));
   const rows2 = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];

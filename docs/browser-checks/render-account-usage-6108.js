@@ -123,10 +123,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           const again = box(email) && box(email).querySelector('[data-acct-move]');
           const againSel = box(email) && box(email).querySelector('[data-acct-move-to]');
           const drawnBusy = !!again && again.disabled && again.textContent.trim() === 'Moving…';
+          const quietMid = (msgOf(box(email).getAttribute('data-acct-dir')) || '') === '';   // progress is on the button, not the live region
           if (again) { if (againSel) { againSel.disabled = false; againSel.value = toDir; } again.disabled = false; again.click(); }
           for (let i = 0; i < 150 && posts.length - start < expect; i++) await new Promise((r) => setTimeout(r, 20));
           await new Promise((r) => setTimeout(r, 400));
-          return { enabled, drawnBusy, posts: posts.slice(start) };
+          return { enabled, drawnBusy, quietMid, posts: posts.slice(start) };
         };
         const moved = await runMove('busy@example.com', '/home/.claude-spare', 2);
         if (moved) { moved.msg = msgOf('/home/.claude-busy');   // read AFTER the list repainted with the agents gone
@@ -156,6 +157,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!busy && busy.btnDisabled === true, tag + ' Move is disabled until a target is picked');
       say(!!r.moved && r.moved.enabled && r.moved.posts.length === 2 && r.moved.posts.every((p) => p.dir === '/home/.claude-spare') && r.moved.posts.map((p) => p.agent).sort().join() === 's-dana,s-eli', tag + ' Move sends one move per agent to the picked account, once (a forced click on the repainted button adds nothing), never the guide', JSON.stringify(r.moved));
       say(!!r.moved && r.moved.drawnBusy, tag + ' a repaint mid-move draws the button busy ("Moving…", disabled)', JSON.stringify(r.moved));
+      say(!!r.moved && r.moved.quietMid, tag + ' mid-move the live region is silent (a screen reader hears the result once)', JSON.stringify(r.moved));
       say(!!r.moved && r.moved.msg === 'Moved 2 agents. They restart on the new account.', tag + ' and says how many moved and that they restart, still there after the list repaints with the agents gone', JSON.stringify(r.moved && r.moved.msg));
       say(!!r.moved && r.moved.focus === '/home/.claude-busy', tag + ' after the move, focus lands on the row\'s sentence (the pressed button is gone)', JSON.stringify(r.moved && r.moved.focus));
       say(r.expired === '', tag + ' two minutes on, a repaint shows the row plain again', JSON.stringify(r.expired));

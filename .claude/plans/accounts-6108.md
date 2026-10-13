@@ -27,6 +27,12 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
 - A finished move's sentence stays until the first repaint after two minutes; the restart is said beside the control
   before the click and in the result after; focus goes to the row's menu, or its sentence when the menu is gone.
 
+- Move's border is --gold-bright like Sign in again's (1.95:1 on white, under the 3:1 control-edge floor). Kept
+  deliberately: Josh reverted the --gold-edge fix on Sign in again (2026-08-26), and this button follows that ruling
+  rather than diverging from its sibling. Revisit both together if he changes it.
+- The setup guide is left out by the server (isSetupGuide), not only by the page's cached list.
+- Progress shows on the button; the live region speaks once, with the result. Each move times out after 60 s.
+
 ## Not in slice 1 (follow-ups after it ships)
 Default ~/.claude reading (no statusline), the 5-hour limit, OpenAI/Gemini/Grok percentages, Windows, agents on other
 computers, a bulk route.

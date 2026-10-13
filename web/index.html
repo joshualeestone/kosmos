@@ -27152,7 +27152,12 @@ async function moveAccountAgents(fromDir, toDir, names, onProgress) {
   const nameOf = (n) => (((LAST || []).find((x) => x.sessionName === n) || {}).name || n);
   for (const [i, n] of names.entries()) {
     try {
-      const res = await fetch('/api/agent/' + encodeURIComponent(n) + '/account', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: toDir }) });
+      /* A move that never answers must not hold the row disabled for the life of the page. */
+      const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+      const timer = ctl ? setTimeout(() => ctl.abort(), 60e3) : null;
+      let res;
+      try { res = await fetch('/api/agent/' + encodeURIComponent(n) + '/account', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: toDir }), ...(ctl ? { signal: ctl.signal } : {}) }); }
+      finally { if (timer) clearTimeout(timer); }
       const out = await res.json().catch(() => null);
       if (res.ok && out && out.outcome === 'changed') moved++;
       else if (res.ok && out && out.outcome === 'partial') restarting.push(nameOf(n));   // saved; still on the old one until it restarts
@@ -27819,14 +27824,13 @@ async function paintAccounts(opts) {
       if (ACCT_MOVE.get(from) && ACCT_MOVE.get(from).moving) return;   // a repaint mid-move must not start a second one
       const guide = new Set((LAST || []).filter((x) => x.isGuide).map((x) => x.sessionName));
       const names = row.agentsHere.names.filter((n) => !guide.has(n));
-      ACCT_MOVE.set(from, { moving: true, said: 'Moving… 0 of ' + names.length });
+      /* Progress goes on the button, not the live region, so a screen reader hears the result once, not every step. */
+      ACCT_MOVE.set(from, { moving: true, said: '' });
       btn.disabled = true; sel.disabled = true; btn.textContent = 'Moving…';
-      if (moveMsg) moveMsg.textContent = 'Moving… 0 of ' + names.length;
+      if (moveMsg) moveMsg.textContent = '';
       const said = await moveAccountAgents(from, to, names, (done, all) => {
-        const t = 'Moving… ' + done + ' of ' + all;
-        ACCT_MOVE.set(from, { moving: true, said: t });
-        const m = document.querySelector('[data-acct-move-msg="' + CSS.escape(from) + '"]');   // the current element, after any repaint
-        if (m) m.textContent = t;
+        const b = document.querySelector('[data-acct-move="' + CSS.escape(from) + '"]');   // the current button, after any repaint
+        if (b) b.textContent = 'Moving ' + done + ' of ' + all + '…';
       });
       ACCT_MOVE.set(from, { moving: false, said, doneAt: Date.now(), announce: true });
       accountsDropped();

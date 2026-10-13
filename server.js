@@ -2601,6 +2601,7 @@ function claudeAgentsByAccount() {
     try { job = create.readJob(sessionName); } catch { complete = false; continue; }
     if (!job) { let absent = true; try { absent = create.jobMissing(sessionName); } catch { absent = false; } if (!absent) complete = false; continue; }
     if (job.runner !== 'claude') continue;
+    if (isSetupGuide(sessionName)) continue;   // the guide is left out of agent lists (#3739), here at the source
     if (!job.configDir) { onDefault.push(sessionName); continue; }
     let key; try { key = path.resolve(job.configDir); } catch { complete = false; continue; }
     if (!byDir.has(key)) byDir.set(key, []);
