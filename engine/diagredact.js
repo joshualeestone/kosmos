@@ -3,6 +3,7 @@
 /* #5959 slice 4: what is taken out of the diagnostics file before it leaves the engine.
 
    One function for every string in the file, in this order:
+   0. a value the board holds (who.secrets: its token, the agents' tokens), wherever it appears;
    1. a header's credential (Authorization, Cookie) and a JSON field named like a secret, value only; then
       secretmask.mask, the backup scan's redactor (keys, tokens, an env line's value);
    2. the home folder, as `~`, with any separator and in any case, and any other account's folder name under Users or
@@ -16,6 +17,7 @@ const os = require('node:os');
 const secretmask = require('./secretmask');
 
 const MIN_NAME_CHARS = 3;
+const MIN_SECRET_CHARS = 16;   // a held value shorter than this is not masked by value (it would hit ordinary text)
 // The last label is letters, as a real domain's is: a package's `name@1.2.3` is not an address.
 // Bounded parts (an address's own limits), so a long run of name characters with no @ cannot make it slow.
 const EMAIL = /[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9-]{1,63}\.){1,8}[A-Za-z]{2,24}(?![A-Za-z0-9-])/g;
@@ -32,7 +34,8 @@ const CRED_PATTERNS = [
   // Cookie: a=b; c=d (every value)
   [/\b((?:set-)?cookie["']?\s*[:=]\s*["']?)[^\r\n"']+/gi, '$1'],
   // "authToken": "x", "client_secret": "x", "password": "x", "apiKey": "x"
-  [/("[A-Za-z0-9_-]*(?:token|secret|password|passwd|apikey|api_key|auth)[A-Za-z0-9_-]*"\s*:\s*")[^"]*(")/gi, '$1$2'],
+  // (not any name with "auth" in it: authMode and author are facts a builder needs; an escaped quote stays in the value)
+  [/("[A-Za-z0-9_-]*(?:token|secret|password|passwd|apikey|api_key|authorization)[A-Za-z0-9_-]*"\s*:\s*")(?:[^"\\]|\\.)*(")/gi, '$1$2'],
 ];
 
 // Host names every computer can have, which name no one: replacing them would only damage lines like a localhost URL.
@@ -46,7 +49,8 @@ function wholeName(name) {
   return new RegExp('(?:(?<![A-Za-z0-9_.-])|(?<=%2F|%5C))' + escapeRe(name) + '(?![A-Za-z0-9_-])', 'gi');
 }
 
-/* Reads this computer's names once per call to makeRedactor; `who` is the test seam. */
+/* Reads this computer's names once per call to makeRedactor; `who` is the test seam, and `who.secrets` the values the
+   board holds, masked by value. */
 function makeRedactor(who) {
   const w = who || {};
   const home = typeof w.home === 'string' ? w.home : os.homedir();
@@ -71,9 +75,14 @@ function makeRedactor(who) {
     names.push([wholeName(folder), '[user]']);
   }
 
+  // Values the board holds (its token, the agents' tokens), masked wherever they appear, before any shape is looked for.
+  const known = (Array.isArray(w.secrets) ? w.secrets : []).filter((v) => typeof v === 'string' && v.length >= MIN_SECRET_CHARS)
+    .sort((a, b) => b.length - a.length);
+
   function redactText(text) {
     if (typeof text !== 'string' || !text) return text;
     let out = text;
+    for (const v of known) if (out.includes(v)) out = out.split(v).join(secretmask.MASK);
     for (const [re, keep] of CRED_PATTERNS) out = out.replace(re, (...m) => keep.replace(/\$(\d)/g, (_, n) => (n === '1' ? m[1] + secretmask.MASK : m[Number(n)] || '')));
     out = secretmask.mask(out).text;
     if (homeRe) out = out.replace(homeRe, '~');

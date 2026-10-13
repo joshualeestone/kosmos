@@ -113,6 +113,7 @@ function build(inputs) {
       card: { state: c.state || null, stateReported: c.stateReported || null, stateReportedBy: c.stateReportedBy || null },
       report: reportOf(i.readReport || (() => null), c.sessionName),
       crashLoop: c.crashLoop || null,
+      stuckError: c.stuckError || null,   // a terminal error that keeps coming back (#5154), as the roster carries it
       account: accountOf(i.accountProblemOf || (() => null), c),
     };
   });
