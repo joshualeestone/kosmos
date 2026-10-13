@@ -20016,9 +20016,11 @@ const server = http.createServer(async (req, res) => {
                already hold history). nearOpen skips same-text tasks, so a task #5319 names is never named twice. */
             const near = raw ? tasks.nearOpen(raw, made) : [];
             if (near.length) {
-              note = (note ? note + ' ' : '') + 'Note: ' + (near.length === 1 ? 'a similar open task was added in the last few minutes: ' : 'similar open tasks were added in the last few minutes: ')
+              // Review 2: placed BEFORE #5319's note, whose copyable command must stay the end of the line.
+              note = 'Note: ' + (near.length === 1 ? 'a similar open task was added in the last few minutes: ' : 'similar open tasks were added in the last few minutes: ')
                 + near.map((t) => '#' + t.number + ' (' + shown(t.sentence) + ')').join(', ')
-                + '. If it is the same ask, close this new one (#' + made.number + '); if it is a different ask, ignore this.';
+                + '. If it is the same ask, close this new one (#' + made.number + '); if it is a different ask, ignore this.'
+                + (note ? ' ' + note : '');
             }
           } catch { note = ''; }
           // The assignee's managed block now lists this task in the exact

@@ -69,6 +69,14 @@ test('#6083: which titles are near (pure); every #5319 counterexample is never n
     ['Don\u02bct enable the sync', 'Enable the sync', false, 'review 1: a U+02BC apostrophe'],
     ['Aktiviere nicht den Sync', 'Aktiviere den Sync', false, 'review 1: German'],
     ['Ne supprime pas les logs', 'Ne supprime les logs', false, 'review 1: French'],
+    // Review 2: flags, a hyphenated negation, and more which-one and how-often words.
+    ['Run the migrations --dry-run', 'Run the migrations', false, 'review 2: a flag'],
+    ['Commit all changes --no-verify', 'Commit all changes', false, 'review 2: a flag'],
+    ['Run the script -x', 'Run the script', false, 'review 2: a short flag'],
+    ['do-not merge the PR', 'merge the PR', false, 'review 2: a hyphenated negation'],
+    ['Merge the other PR', 'Merge the PR', false, 'review 2: other'],
+    ['Run the job twice', 'Run the job', false, 'review 2: twice'],
+    ['Delete the logs permanently', 'Delete the logs', false, 'review 2: permanently'],
   ]) assert.equal(tasks.isNearTitle(a, b), want, `${a} | ${b}: ${why}`);
 });
 
@@ -121,7 +129,8 @@ test('#6083: the route adds a near task and names the similar one, without telli
   assert.equal(other.json.note, undefined, 'CONTROL: a task like no other gets no note');
   const same = await add('Run the Meta pass');
   // The same text as #1: #5319 names #1; the near note names only #2 (near, not the same text), never #1 again.
-  assert.match(same.json.note || '', /^Note: an open task with the same text already exists: #1 \(Run the Meta pass\)\. If this is the same ask, close the new one: kosmos task close p6083 4 Note: a similar open task was added in the last few minutes: #2 \(run the meta pass now\)\./, same.json.note);
+  // Review 2: the near note comes first, so #5319's copyable command stays the end of the line.
+  assert.match(same.json.note || '', /^Note: a similar open task was added in the last few minutes: #2 \(run the meta pass now\)\. If it is the same ask, close this new one \(#4\); if it is a different ask, ignore this\. Note: an open task with the same text already exists: #1 \(Run the Meta pass\)\. If this is the same ask, close the new one: kosmos task close p6083 4$/, same.json.note);
   assert.equal((same.json.note.match(/#1 \(/g) || []).length, 1, 'a task #5319 names is not named again');
 });
 

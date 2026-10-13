@@ -2001,7 +2001,10 @@ const NEGATING = new Set(['not', 'no', 'never', 'none', 'nor', 'without', 'dont'
 /* Review 1: one ADDED or DROPPED word that changes the scope or the timing of an ask is never near ("Delete all the old
    logs" / "Delete the old logs", "Run the migration later" / "Run the migration"). */
 const SCOPING = new Set(['all', 'only', 'every', 'each', 'any', 'some', 'both', 'either', 'also', 'again', 'later', 'first',
-  'last', 'before', 'after', 'until', 'unless', 'except', 'instead', 'more', 'less', 'most', 'least', 'just', 'even']);
+  'last', 'before', 'after', 'until', 'unless', 'except', 'instead', 'more', 'less', 'most', 'least', 'just', 'even',
+  // Review 2: which one, how often, how.
+  'other', 'another', 'old', 'new', 'next', 'previous', 'twice', 'once', 'permanently', 'manually', 'nightly', 'daily',
+  'weekly', 'monthly', 'hourly', 'forever', 'temporarily']);
 /* Review 1: sentence punctuation is set aside; every other punctuation or symbol character counts, as in #5319 ("C#" is
    not "C", "!=" is not "=", "50%" is not "50"). */
 const SENTENCE_MARKS = new Set(Array.from('.,;:?\'"\u2018\u2019\u201c\u201d()[]-\u2013\u2014'));
@@ -2009,18 +2012,23 @@ function titleShape(sentence) {
   const raw = String(sentence == null ? '' : sentence).normalize('NFC');
   const words = raw.split(/\s+/u).map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')).filter(Boolean);
   const lower = words.map((w) => w.toLowerCase().replace(/['\u2019\u02bc]/gu, ''));
+  // Review 2: a command-line flag ("--dry-run", "-x") changes how a thing runs; its leading dashes are not sentence
+  // punctuation, so the flags are compared as written.
+  const flags = raw.split(/\s+/u).filter((w) => /^-{1,2}\p{L}/u.test(w)).map((w) => w.toLowerCase()).sort().join(' ');
   return {
+    flags,
     bag: lower,
     numbers: (raw.match(/[-+\u2212]?\d[\d.,:]*/gu) || []).join(' '),
     symbols: Array.from(raw).filter((c) => /[\p{S}\p{P}]/u.test(c) && !SENTENCE_MARKS.has(c)).sort().join(''),
-    negating: lower.filter((w) => NEGATING.has(w)).sort().join(' '),
+    // Review 2: a hyphenated negation ("do-not") counts too.
+    negating: lower.flatMap((w) => w.split('-')).filter((w) => NEGATING.has(w)).sort().join(' '),
   };
 }
 function isNearTitle(a, b) {
   const x = titleShape(a);
   const y = titleShape(b);
   if (!x.bag.length || !y.bag.length) return false;
-  if (x.numbers !== y.numbers || x.symbols !== y.symbols || x.negating !== y.negating) return false;
+  if (x.numbers !== y.numbers || x.symbols !== y.symbols || x.negating !== y.negating || x.flags !== y.flags) return false;
   if (x.bag.join(' ') === y.bag.join(' ')) return true;
   // One word added or dropped, order kept: removing one word from the longer gives the shorter.
   const [long, short] = x.bag.length > y.bag.length ? [x.bag, y.bag] : [y.bag, x.bag];
