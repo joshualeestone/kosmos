@@ -122,7 +122,7 @@ function run(h, extra) {
     platform: 'win32', home: h, env: { APPDATA: path.join(base, 'Roaming'), LOCALAPPDATA: path.join(base, 'Local'), USERNAME: 'someone', USERDOMAIN: 'BOX' },
     projectsRoot: path.join(h, 'Kosmos', 'Projects'), port: 9, probe: async () => ({ answering: false, outcome: 'refused', identity: null, startedByTask: null }),
     removeFolder: () => {}, sleep: async () => {}, liveExecutionAllowed: () => true, bundleRoot: BUNDLE,
-    pathExists: (p) => p === 'C:\\' || /Kosmos2/.test(p),   // drive C: and another install are there; nothing else in here is
+    pathGone: (p) => !(p === 'C:\\' || /Kosmos2/.test(p)),   // drive C: and another install are there; nothing else in here is
     ...extra,
   });
 }
@@ -198,7 +198,7 @@ test('#5999: an added account\'s hooks left by an EARLIER Kosmos folder (script 
   stubSchedulers([listing([])]);
   const r = await run(h);
   assert.deepEqual(readJson(work), { hooks: { Stop: [OTHER_INSTALL], PostToolUse: [PERSONS] } });
-  assert.ok(r.done.some((d) => d.includes(work) && /one left by an earlier Kosmos folder/.test(d)), JSON.stringify(r.done));
+  assert.ok(r.done.some((d) => d.includes(work) && /entries left by an earlier Kosmos folder/.test(d)), JSON.stringify(r.done));
 });
 
 test('#5999: the broken-script rule keeps anything not provably the script at a provable place (round 2)', () => {
@@ -217,11 +217,24 @@ test('#5999: the broken-script rule keeps anything not provably the script at a 
   const gone = cmd('C:\\Old\\runtime\\node.exe', ['C:\\Old\\app\\engine\\kosmos-report-hook.js']);   // the control: provably gone
   writeJson(file, { hooks: { Stop: [...keep, gone] } });
   const looked = [];
-  const exists = (x) => { looked.push(x); return x === 'C:\\'; };
-  const r = reporthook.unwireInstall(file, [BUNDLE], { exists });
+  const isGone = (x) => { looked.push(x); return x !== 'C:\\'; };
+  const r = reporthook.unwireInstall(file, [BUNDLE], { gone: isGone });
   assert.deepEqual(r, { ours: true, dead: 1, changed: true }, 'the control was not taken out, so this proves nothing');
   assert.deepEqual(readJson(file), { hooks: { Stop: keep } }, 'a hook that is not provably a broken script was taken out');
   assert.ok(!looked.some((x) => x.startsWith('\\\\')), 'a network path was looked at: ' + JSON.stringify(looked));
+});
+
+test('#5999: goneOnDisk is true only for "not found": a script in a folder this user cannot read is not gone (round 3)', { skip: (process.platform === 'win32' || process.getuid() === 0) && 'a folder mode cannot deny a read on Windows, or to root' }, () => {
+  const h = home();
+  const locked = path.join(h, 'locked');
+  fs.mkdirSync(locked);
+  fs.writeFileSync(path.join(locked, 'kosmos-report-hook.js'), '');
+  fs.chmodSync(locked, 0o000);
+  try {
+    assert.equal(reporthook.goneOnDisk(path.join(locked, 'kosmos-report-hook.js')), false, 'an unreadable path was called gone');
+  } finally { fs.chmodSync(locked, 0o755); }
+  assert.equal(reporthook.goneOnDisk(path.join(h, 'nothing-here', 'kosmos-report-hook.js')), true, 'the control: a path that is not there');
+  assert.equal(reporthook.goneOnDisk(locked), false);
 });
 
 test('#5999: the folder as Node records it (the real path behind a link) and the settings override are both covered', async () => {
@@ -236,7 +249,7 @@ test('#5999: the folder as Node records it (the real path behind a link) and the
   writeJson(custom, { hooks: { Stop: [viaReal, PERSONS] } });
   stubSchedulers([listing([])]);
   const base = path.dirname(h);
-  const r = await run(h, { bundleRoot: link, pathExists: () => true,
+  const r = await run(h, { bundleRoot: link, pathGone: () => false,
     env: { APPDATA: path.join(base, 'Roaming'), LOCALAPPDATA: path.join(base, 'Local'), USERNAME: 'someone', USERDOMAIN: 'BOX', AGENT_WORKFORCE_CLAUDE_SETTINGS: custom } });
   assert.deepEqual(readJson(custom), { hooks: { Stop: [PERSONS] } }, 'a hook naming the real folder behind --root, in the override file, was kept');
   assert.ok(r.done.some((d) => d.includes(custom)), JSON.stringify(r.done));
