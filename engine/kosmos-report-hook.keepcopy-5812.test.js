@@ -29,7 +29,7 @@ async function run(evt, opts = {}) {
   const code = await hook.main({
     input: JSON.stringify(evt), env: { KOSMOS_AGENT_TOKEN: 'ab12', ...(opts.env || {}) }, url: 'http://127.0.0.1:16180',
     boardToken: 'BT', fetchImpl: r.fetchImpl, throttleDir: path.join(TMP, 't' + (n++)), ppid: 4242,
-    now: opts.now || (() => 1000), keepTimeoutMs: opts.keepTimeoutMs, stdout: () => {},
+    now: opts.now || (() => 1000), keepTimeoutMs: opts.keepTimeoutMs, stdout: () => {}, platform: opts.platform || 'win32',
   });
   return { code, calls: r.calls };
 }
@@ -71,7 +71,10 @@ test('it carries the board token, the agent token and the world header; token-on
   assert.equal(h['x-kosmos-board-token'], 'BT');
   assert.equal(h['x-kosmos-agent-token'], 'ab12');
   const { WORLD_HEADER } = require('./launchidentity');
-  assert.ok(WORLD_HEADER in h, 'the world header names this agent\'s Kosmos');
+  assert.ok(h[WORLD_HEADER], 'the world header names this agent\'s Kosmos');
+  const w = await run(pre('Edit', { file_path: 'C:\\w\\agent\\notes.md' }), { env: { KOSMOS_WORLD: 'w-5812' } });
+  const report = w.calls.find((c) => c.url.endsWith('/api/report'));
+  assert.equal(keeps(w.calls)[0].init.headers[WORLD_HEADER], report.init.headers[WORLD_HEADER], 'the same world as the report names');
   const only = await run(pre('Edit', { file_path: 'C:\\w\\agent\\notes.md' }), { env: { KOSMOS_AGENT_TOKEN_ONLY: '1' } });
   const h2 = keeps(only.calls)[0].init.headers;
   assert.equal(h2['x-kosmos-board-token'], undefined, 'token-only: no board token');
@@ -114,4 +117,36 @@ test('a board that never answers the keep call holds the edit no longer than the
   assert.equal(code, 0);
   assert.ok(took >= 140 && took < 2000, 'waited for the bound and no longer: ' + took + ' ms');
   assert.equal(hook.KEEP_TIMEOUT_MS, 3000, 'the real bound is the bash CLI\'s 3 s');
+});
+
+test('on Windows a UNC or device path sends nothing (the board would resolve it against a remote share)', async () => {
+  for (const f of ['\\\\server\\share\\x.md', '\\\\?\\C:\\w\\x.md', '\\\\.\\pipe\\p', '//server/share/x.md']) {
+    assert.equal(keeps((await run(pre('Write', { file_path: f }))).calls).length, 0, f);
+  }
+  assert.equal(keeps((await run(pre('Write', { file_path: 'C:\\w\\agent\\x.md' }))).calls).length, 1, 'control: a drive path goes');
+  assert.equal(keeps((await run(pre('Write', { file_path: '//w/agent/x.md' }), { platform: 'darwin' })).calls).length, 1,
+    'control: off Windows a leading // is an ordinary absolute path, as the Mac CLI sends it');
+});
+
+test('the bound main uses is 3 s: a keep call that never answers is given up at 3000 ms, not before', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let aborted = false;
+  const hang = (url, init) => url.endsWith('/api/undo/keep')
+    ? new Promise((resolve, reject) => { init.signal.addEventListener('abort', () => { aborted = true; reject(new Error('aborted')); }); })
+    : { ok: true, status: 200, text: async () => '{"recorded":true}' };
+  const rec = recorder(hang);
+  let done = false;
+  const p = hook.main({ input: JSON.stringify(pre('Edit', { file_path: 'C:\\w\\agent\\n.md' })), env: { KOSMOS_AGENT_TOKEN: 'ab12' },
+    url: 'http://127.0.0.1:16180', boardToken: 'BT', fetchImpl: rec.fetchImpl, throttleDir: path.join(TMP, 'mt'), ppid: 9,
+    now: () => 1000, stdout: () => {}, platform: 'win32' }).then(() => { done = true; });
+  const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+  await settle();
+  assert.equal(keeps(rec.calls).length, 1, 'the keep call went out');
+  t.mock.timers.tick(2999); await settle();
+  assert.equal(aborted, false, 'still waiting at 2999 ms');
+  t.mock.timers.tick(1); await settle();
+  assert.equal(aborted, true, 'given up at 3000 ms');
+  t.mock.timers.tick(10000); await settle();
+  await p;
+  assert.equal(done, true);
 });

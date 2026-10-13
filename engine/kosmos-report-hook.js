@@ -207,12 +207,16 @@ const KEEP_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const KEEP_TIMEOUT_MS = 3000;   // the bash CLI's `-m 3`: the copy must exist before the edit, but never hold it
 
 /** The keep-copy request for a PreToolUse that is about to edit a file, or null. A path or folder holding a control
- *  character is not sent at all, as `kosmos keep-copy` refuses it: rewriting it would name a different, real file. */
-function keepRequestFor(evt) {
+ *  character is not sent at all, as `kosmos keep-copy` refuses it: rewriting it would name a different, real file.
+ *  On Windows a UNC or device path (\\server\share, \\?\, \\.\pipe) is not sent either: the board resolves the
+ *  path synchronously to record the writer, and a share that is slow or gone would stall the board for an SMB
+ *  timeout (and reach out to that server). A project folder is never on one. */
+function keepRequestFor(evt, platform) {
   if (field(evt, 'hook_event_name') !== 'PreToolUse' || !KEEP_TOOLS.has(field(evt, 'tool_name'))) return null;
   const file = field(evt, 'tool_input.file_path') || field(evt, 'tool_input.notebook_path');
   const cwd = field(evt, 'cwd');
   if (!file || /[\u0000-\u001f\u007f]/.test(file + cwd)) return null;
+  if ((platform || process.platform) === 'win32' && /^[\\/]{2}/.test(file)) return null;
   return { path: file, cwd, session: field(evt, 'session_id') };
 }
 
@@ -226,10 +230,8 @@ async function keepCopy(req, io) {
   const headers = { 'content-type': 'application/json' };
   if (o.boardToken) headers['x-kosmos-board-token'] = o.boardToken;
   if (o.agentToken) headers['x-kosmos-agent-token'] = o.agentToken;
-  try {
-    const { WORLD_HEADER, worldIdForHeader } = require('./launchidentity');
-    headers[WORLD_HEADER] = worldIdForHeader(o.world);
-  } catch { /* the default world: the board answers as it would for the CLI */ }
+  const { WORLD_HEADER, worldIdForHeader } = require('./launchidentity');
+  headers[WORLD_HEADER] = worldIdForHeader(o.world);
   const doFetch = o.fetchImpl || ((typeof fetch === 'function') ? fetch : null);
   if (!doFetch) return { ok: false, error: 'no fetch available' };
   const ctl = new AbortController();
@@ -386,7 +388,7 @@ async function main(io) {
 
   /* #5812 / #5153 on Windows: just before Claude edits a file, ask the board to keep a copy and note who is writing,
      as the bash hook does on the Mac. On EVERY edit, before the heartbeat throttle below can return early. */
-  const keep = keepRequestFor(evt);
+  const keep = keepRequestFor(evt, o.platform);
   if (keep) {
     const c = connection();
     await keepCopy(keep, { url: c.url, boardToken: c.boardToken, agentToken: c.agentToken, world: c.world,
