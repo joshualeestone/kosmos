@@ -17,6 +17,17 @@ Only take (that delivery), restore and forgetProject ever clear the held list. R
   ITS held list. Not the JSON arm (the person's page), not HEAD, not a read with no agent token. Best effort: a failure
   leaves them held, the old behaviour.
 
+## Review 1
+- The page's JSON-read control sent no token, so it passed whatever the JSON arm did; it now sends the agent's token
+  (a mutation that drops on the JSON arm reds it).
+- Said in the comment: every failure errs toward telling again (a read during an in-flight delivery drops nothing, and
+  a failed typing restores the ids), and the drop reaches only agents running with their own token.
+- The route's older comment ("a write side-effect on a room READ would be a real defect") is about incidental
+  registry heals; amended so the two comments do not contradict. Kept the write: per reader, idempotent, only for an
+  agent's own token, and tied to the bytes served (a separate "seen" POST would open a read-then-POST gap).
+- Not changed: a non-member's read (only possible with the board token too) can call dropShown, which finds nothing,
+  since held lists exist only for members and are cleared on removal.
+
 ## Rejected
 - Counting any later post by the member as "answered": a post about something else would drop an addressed ask it
   never saw.

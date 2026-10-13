@@ -19144,8 +19144,9 @@ const server = http.createServer(async (req, res) => {
        "nobody said anything." The check is EXISTENCE, never post-count: a real
        project with zero posts still returns the normal empty room below.
        ⚠️ readAll(), not projects.get(): get() routes through describe(), which
-       heals everSeen and can writeAll() -- a write side-effect on a room READ
-       would be a real defect. readAll() is the pure registry read get() itself
+       heals everSeen and can writeAll() -- an incidental registry write on a room
+       READ would be a real defect. (The one deliberate write below, #4926, is
+       different: per reader, idempotent, and only for an agent's own token.) readAll() is the pure registry read get() itself
        uses. FAILS OPEN: a transient registry-read throw must not become a false
        "no such project," so on a throw we fall through to the best-effort room
        read below (which already handles an unreadable store), never to a 404. */
@@ -19285,8 +19286,11 @@ const server = http.createServer(async (req, res) => {
         }
         /* #4926: an agent that read the room with its own token has now SEEN these posts, so none of them is still held
            for it: otherwise its next idle line tells it again about a thread it read and answered (Josh's 0.7.46 report,
-           a Grok seat). Only on a GET by an identified agent; only the posts this read showed. Best effort: a failure
-           leaves them held, which is the old behaviour, never a lost post. */
+           a Grok seat). Only on a GET by an agent identified by its own token (KOSMOS_AGENT_TOKEN; `kosmos room` sends it
+           when the agent has one, and a caller without one is not reached); only the posts this read showed. Every
+           failure errs toward telling again, never toward losing a post: a write that fails leaves them held, and a read
+           during an in-flight delivery (roomhold.take has cleared the ids, messages.js may restore them if the typing
+           fails) drops nothing, so a restore can still name a post this read showed. */
         if (req.method === 'GET') {
           try {
             const reader = senderFromAgentToken(req, null, safeRoster());
