@@ -77,10 +77,18 @@ test('#5977 r2: a project member on Qwen is in the Qwen family, not GPT', () => 
   assert.notEqual(familyOf('codex', OA), 'Qwen', 'CONTROL');
 });
 
-test('#5977 r2: the org rollup sends a Qwen agent as null (unknown to the company), never as openai', () => {
+test('#5977 r2 + #5975: the org rollup sends a Qwen agent as alibaba, never as openai', () => {
   const s = require('./orgrollup').defaultSources();
-  assert.equal(s.providerOf('codex', QW), null);
+  assert.equal(s.providerOf('codex', QW), 'alibaba', 'a company cannot see which agents run on its own model');
   assert.equal(s.providerOf('codex', OA), 'openai', 'CONTROL');
+});
+
+test('#5975: a stopped Qwen agent with no launch job is still counted, its runner read from its alibaba profile', () => {
+  const s = require('./orgrollup').defaultSources();
+  store.writeProfile('qwr2-nojob', { provider: 'alibaba' });
+  store.writeProfile('qwr2-nojob-unknown', { provider: 'somethingnew' });
+  assert.equal(s.recordedRunner('qwr2-nojob'), 'codex', 'a Qwen agent with no launch job was sent with no runner');
+  assert.equal(s.recordedRunner('qwr2-nojob-unknown'), null, 'CONTROL: an unknown provider must not be given a runner');
 });
 
 test('#5977 r2: a Qwen agent with no profile is told about Qwen, not an OpenAI sign-in', () => {

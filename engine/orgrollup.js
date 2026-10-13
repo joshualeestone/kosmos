@@ -214,7 +214,7 @@ function fit(body) {
 
 /* The real sources, behind one seam so tests can hand plain records instead. */
 const KNOWN_RUNNERS = new Set(['claude', 'codex', 'gemini', 'grok', 'antigravity', 'muse']);
-const KNOWN_PROVIDERS = new Set(['anthropic', 'openai', 'google', 'xai', 'antigravity', 'meta']);
+const KNOWN_PROVIDERS = new Set(['anthropic', 'openai', 'google', 'xai', 'antigravity', 'meta', 'alibaba']);
 function defaultSources() {
   const status = require('./status');
   const register = require('./register');
@@ -238,8 +238,8 @@ function defaultSources() {
     lastActiveOf: (sessionName) => { const r = activity.read(sessionName, 'working'); return r.found ? r.at : null; },
     /* Known runners and providers only (rollup review 22): create's maps fall back to claude/anthropic for anything else,
        which would send a guess as the provider. */
-    /* #5977 review 2: a Qwen agent (codex on a Qwen home) is not OpenAI, and the company is not known to accept
-       alibaba, so it goes as null, the "not a guess" value this send already carries; never as openai. */
+    /* #5977 review 2: a Qwen agent (codex on a Qwen home) is not OpenAI, so it never goes as openai. #5975: it goes as
+       alibaba, so a company can see which agents run on its own model. */
     providerOf: (runner, sessionName) => {
       if (!KNOWN_RUNNERS.has(runner)) return null;
       const p = create.agentProvider(sessionName, runner);
