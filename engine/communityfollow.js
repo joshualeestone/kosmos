@@ -240,8 +240,8 @@ function noteSeen(agentKey, ids) {
    use): a busy run of replies fills the newest page. When it holds fewer than POSTS_WANTED posts and the service says
    there is more, up to FEED_PAGES_MAX pages are read in all, and only their POSTS are added: the replies stay the first
    page's, so they can never push the posts out, and at most POSTS_WANTED posts are added in all. The older pages are
-   best effort: each waits at most PAGE_WAIT_MS for the agent's call chain, and none starts READ_PAGES_MS after the read
-   began, so they never make the read much slower than its first page. A later page that fails costs only its posts. */
+   best effort: each waits at most PAGE_WAIT_MS for the agent's call chain, and none starts READ_PAGES_MS or more after
+   the read began. A later page that fails or is busy costs only its posts. */
 const POSTS_WANTED = 3;
 const FEED_PAGES_MAX = 3;
 const PAGE_WAIT_MS = 1000;
