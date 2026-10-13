@@ -86,6 +86,15 @@ test('#5154-B: plan flags gaveUp only out of tries; the sweep fires `bound` for 
   assert.ok(!boundAfter.includes('agy-a'), 'and bound does not fire on the recovery sweep');
 });
 
+test('#5154-B: cleared fires only on a RESOLVED plan outcome, never on reset-aged-out (agent may still be paused)', () => {
+  // plan marks `resolved` ONLY on the two genuine-recovery branches, so the sweep never clears a give-up for an
+  // agent that merely aged out of the resume window while possibly still paused.
+  assert.equal(q.plan({ found: false }, undefined, AT + 3600e3).resolved, true, 'not paused -> resolved');
+  assert.equal(q.plan(paused(), { until: RESET, nudgedAt: AT }, AT + 3600e3).resolved, true, 'already resumed -> resolved');
+  assert.ok(!q.plan(paused(), undefined, AT + q.MAX_AGE_MS + 1).resolved, 'reset aged out is NOT resolved');
+  assert.ok(!q.plan(paused(), { until: RESET, tries: q.MAX_TRIES }, AT + 3600e3).resolved, 'a give-up is not resolved');
+});
+
 test('#4588: three agents paused on one reset are resumed one at a time, STAGGER_MS apart, and nobody else is touched', () => {
   const w = world({ 'agy-a': paused(), 'agy-b': paused(), 'agy-c': paused(), 'agy-free': { found: true, state: 'idle', by: 'auto', until: '' }, 'claude-x': paused() });
   const t0 = AT + q.GRACE_MS;

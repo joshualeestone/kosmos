@@ -894,8 +894,10 @@ function needsYouReason(m, projectId) {
     if (m.stuckError.state === 'auth_failed') return 'stuck_auth';
     if (m.stuckError.state === 'rate_limited') return 'stuck_rate';
   }
-  if (m.ownBound && m.ownBound.raised === true) return 'own_bound';   // #5154 slice B: a Kosmos helper gave up on it
   if (m.state === 'connection_lost' && m.reconnect && m.reconnect.phase === 'gave_up') return 'gave_up';
+  // #5154 slice B: a Kosmos give-up is the LOWEST-priority specific reason -- the agent's own question, trust,
+  // crash loop, stuck error and connection-gave-up all win the wording first (aligned with pjAlsoWhy ordering).
+  if (m.ownBound && m.ownBound.raised === true) return 'own_bound';
   return 'other';   // needsPerson learned a condition this list has not: still counted, worded generally
 }
 

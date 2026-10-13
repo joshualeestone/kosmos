@@ -161,6 +161,10 @@ function sweepOnce(o) {
     // #5154 slice B: the give-up SIGNAL to the board (ownbounds), SEPARATE from `say`/`log`. Fires every sweep
     // the agent is given up (keeps the board's staleness clock fresh); writes no stdout. Optional: unset in tests.
     const bound = typeof o.bound === 'function' ? o.bound : null;
+    // #5154 slice B: the RECOVERY signal. A spent book entry is NEVER deleted on its own, so if the agent
+    // answers its first message by another route (a reply-channel, out of Kosmos's sight) the entry stays spent
+    // forever. Without this, `bound` would fire every sweep on a healthy idle agent that no longer owes a reply.
+    const cleared = typeof o.cleared === 'function' ? o.cleared : null;
     for (const card of o.roster) {
       const session = card && card.sessionName;
       if (!session) continue;
@@ -170,10 +174,24 @@ function sweepOnce(o) {
       // (each arm still continues); only the #5154-B say is new.
       if (nudged(entry)) continue;                        // already reminded once: not a give-up
       if (spent(entry)) {
-        // #5154 slice B: gave up reminding this agent. Signal the board via `bound` (not `say`, which would spam
-        // stdout every sweep); meaningful only while the card is idle (the board's mootness clear drops it once
-        // the agent is no longer idle). `bound` fires every sweep it stays given up, keeping the board clock fresh.
-        if (card.state === 'idle' && bound) { try { bound(session, 'gave up after ' + MAX_TRIES + ' tries that reached nothing'); } catch { /* best-effort */ } }
+        // #5154 slice B: gave up reminding this agent. But the give-up is REAL only while the agent STILL owes
+        // its first reply: the book entry is not deleted when the obligation resolves, so an agent that answered
+        // by another route stays spent. So read firstContact here (the same owes-check the nudge path uses) and
+        // raise via `bound` ONLY while it still owes. If it no longer owes, the give-up is resolved -- clear the
+        // episode (`cleared`) and DROP the stale entry so the sweep stops re-raising it. Only while idle; a
+        // non-idle agent's give-up is mooted on the board (isMoot). `bound` writes no stdout (unlike `say`).
+        if (card.state === 'idle') {
+          let pzS = null;
+          try { pzS = pauseFor(session); } catch { pzS = null; }
+          let fcS = null;
+          try { fcS = firstContact(read(session), pzS); } catch { fcS = null; }
+          if (fcS && fcS.state === 'owes') {
+            if (bound) { try { bound(session, 'gave up after ' + MAX_TRIES + ' tries that reached nothing'); } catch { /* best-effort */ } }
+          } else {
+            book.delete(session);                         // obligation resolved: drop the stale spent entry
+            if (cleared) { try { cleared(session); } catch { /* best-effort */ } }
+          }
+        }
         continue;
       }
       if (card.state !== 'idle') continue;
@@ -239,7 +257,7 @@ function makeTick(deps) {
       if (!Array.isArray(roster)) return null;
       return sweepOnce({
         roster, book: deps.book, now: deps.now ? deps.now() : Date.now(),
-        thread: deps.thread, paused: deps.paused, replyChannel: deps.replyChannel, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log, bound: deps.bound,   // #5154 slice B: give-up -> board
+        thread: deps.thread, paused: deps.paused, replyChannel: deps.replyChannel, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log, bound: deps.bound, cleared: deps.cleared,   // #5154 slice B: give-up + recovery -> board
       });
     } catch { return null; }
   };
