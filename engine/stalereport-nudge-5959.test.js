@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope');   // first: every temp dir this file makes is swept at exit (#4273)
 
 /**
  * #5959 slice 3: an agent whose own waiting report has stood on its card over a day is told once, typed into its
