@@ -112,3 +112,33 @@ test('accounts.prepare with no claude on the machine is born without the version
   assert.ok(!Object.prototype.hasOwnProperty.call(data.hooks, EV));
   for (const ev of reporthook.HOOK_EVENTS) assert.equal(oursIn(data, ev), 1, ev + ' missing');
 });
+
+test('oldestClaudeVersion: the oldest of the programs that exist, each counted once', () => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'bins-'));
+  const a = path.join(dir, 'a'); const b = path.join(dir, 'b'); const link = path.join(dir, 'a-link');
+  fs.writeFileSync(a, ''); fs.writeFileSync(b, ''); fs.symlinkSync(a, link);
+  const real = (p) => fs.realpathSync(p);
+  const versions = { [real(a)]: '2.1.296', [real(b)]: '2.1.3' };
+  const asked = [];
+  const versionOf = (p) => { asked.push(p); return versions[p] || null; };
+  assert.equal(reporthook.oldestClaudeVersion([a, path.join(dir, 'missing'), b, link], { versionOf }), '2.1.3');
+  assert.equal(asked.length, 2, 'a program reached twice (a link) is asked once');
+});
+
+test('oldestClaudeVersion: one present program whose version cannot be read makes the answer unknown', () => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'bins-'));
+  const a = path.join(dir, 'a'); const b = path.join(dir, 'b');
+  fs.writeFileSync(a, ''); fs.writeFileSync(b, '');
+  const versionOf = (p) => (p === fs.realpathSync(a) ? '2.1.296' : null);
+  assert.equal(reporthook.oldestClaudeVersion([a, b], { versionOf }), null);
+  assert.equal(reporthook.oldestClaudeVersion([path.join(dir, 'none')], { versionOf }), null, 'none found is unknown');
+});
+
+test('a person\'s older claude on PATH keeps the event out of the default folder', () => {
+  const accounts = require('./accounts');
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'pathdir-'));
+  /* A folder named claude: present on PATH, and its version cannot be read, so the answer is unknown (left out). */
+  fs.mkdirSync(path.join(dir, 'claude'));
+  assert.equal(accounts.defaultFolderClaudeVersion(process.platform, { PATH: dir }), null);
+  assert.equal(accounts.defaultFolderClaudeVersion(process.platform, { PATH: '' }), null, 'nothing found is unknown');
+});
