@@ -77,8 +77,8 @@ test('#4340: an owed DM behind more than 200 later menu answers is still owed (o
   chat.appendMessage(chat.DIRECT, T, { text: 'can you check the invoice?', at: new Date(base0).toISOString(), delivery: { state: chat.DELIVERY.PLACED } });
   chat.appendMessage(chat.DIRECT, T, { text: 'Yes', wire: '1', at: new Date(base0 + 1000).toISOString(), delivery: { state: chat.DELIVERY.PLACED } });
   /* #6059: the other 200 menu answers are written in ONE write, copied from the row appendMessage just kept, not by 200
-     more appends. Each append reads and rewrites the whole thread, so the loop took 6 s on CI, and every one of this
-     test's ECONNRESET reds came in that slowest tail. The row is appendMessage's own, so the route reads the shape it
+     more appends. Each append reads and rewrites the whole thread, so this test took about 6 s on CI, and every one of
+     its ECONNRESET reds came in that slowest tail. The row is appendMessage's own, so the route reads the shape it
      always gets. */
   const file = chat.threadFile(chat.DIRECT, T);
   const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
