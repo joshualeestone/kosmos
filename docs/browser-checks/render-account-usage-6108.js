@@ -41,6 +41,7 @@ const ACCOUNTS = [
   claude('guideonly@example.com', 'guideonly', { weekly: { usedPct: 80, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-guide2'], complete: true } }),
   claude('full@example.com', 'full', { weekly: { usedPct: 100, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-q'], complete: true } }),
   claude('sleepy@example.com', 'sleepy', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-z'], complete: true } }),
+  claude('unwired@example.com', 'unwired', { weekly: null, weeklyBlocked: 'not-wired', agentsHere: { names: [], complete: true } }),
   claude('mine@example.com', 'mine', { weekly: null, weeklyBlocked: 'own-statusline', agentsHere: { names: [], complete: true } }),
   claude('default@example.com', 'default', { isDefault: true, weekly: null, agentsHere: { names: [], complete: true } }),
   claude('noshare@example.com', 'noshare', { memoryShared: false, weekly: { usedPct: 5, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
@@ -163,14 +164,14 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         if (mixed) mixed.msg = msgOf('/home/.claude-mixed');
         const sleepyMove = await runMove('sleepy@example.com', '/home/.claude-spare', 1);
         if (sleepyMove) sleepyMove.msg = msgOf('/home/.claude-sleepy');
-        const mine = read('mine@example.com');
+        const mine = read('mine@example.com'), unwired = read('unwired@example.com');
         const unsureNote = acctMoveNote([{ sessionName: 'a', state: 'working' }, { sessionName: 'b', state: 'unknown' }]);
         // Two minutes on, a repaint shows the row plain again.
         const st = ACCT_MOVE.get('/home/.claude-busy'); if (st) st.doneAt -= 3 * 60e3;
         await paintAccounts();
         const expired = msgOf('/home/.claude-busy');
         /* Sideways overflow of the page itself, with the list in its real place. */
-        return { sleepyMove, mine, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
+        return { sleepyMove, mine, unwired, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
       }, { accounts: ACCOUNTS, agents: AGENTS });
       await page.close();
       if (r.error) { say(false, tag + ' ' + r.error); continue; }
@@ -182,7 +183,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!busy && busy.note === 'Moving restarts both on the new account.', tag + ' the restart is said before the click, beside the control', JSON.stringify(busy && busy.note));
       say(!!guideonly && guideonly.warnText === 'Close to its weekly limit.' && guideonly.agents === 'No agents on it on this computer.' && guideonly.options === null, tag + ' a guide-only row warns but never says to move agents it does not show', JSON.stringify(guideonly));
       say(!!sleepy && sleepy.note === 'Moving sets it up on the new account. It stays stopped.', tag + ' a stopped agent is said to stay stopped, with no promise of when it starts', JSON.stringify(sleepy && sleepy.note));
-      say(!!full && full.warnText === 'At its weekly limit. Move its agents to another account to get them working again.', tag + ' at 100% the row says it is at its limit', JSON.stringify(full && full.warnText));
+      say(!!full && full.warnText === 'At its weekly limit. Move its agent to another account to get it working again.', tag + ' at 100% the row says it is at its limit', JSON.stringify(full && full.warnText));
       say(!!busy && busy.agents === 'Its agents on this computer: Dana, Eli', tag + ' it names its agents by display name, leaving out the setup guide', JSON.stringify(busy && busy.agents));
       say(!!busy && Array.isArray(busy.options) && busy.options.some((o) => o === 'spare@example.com (20% used)') && !busy.options.some((o) => o.startsWith('busy@')), tag + ' Move offers the other account with its own reading, never itself', JSON.stringify(busy && busy.options));
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('key@')), tag + ' an API-key account is not a bulk target (that would change who pays)', JSON.stringify(busy && busy.options));
@@ -190,6 +191,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('noshare@')), tag + ' an account without shared history is not offered (a move there always fails)', JSON.stringify(busy && busy.options));
       say(!!def && def.line === 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.', tag + ' the default account (wired by the installer) waits for a reading, never "cannot"', JSON.stringify(def && def.line));
       say(!!r.mine && r.mine.line === 'Kosmos cannot read usage for this account, because it has its own status line.', tag + ' "cannot read" appears only when the server knows why', JSON.stringify(r.mine && r.mine.line));
+      say(!!r.unwired && r.unwired.line === 'Kosmos has not set this account up to read usage yet.', tag + ' an account with no status line is not promised a reading', JSON.stringify(r.unwired && r.unwired.line));
       say(r.unsureNote === 'Moving restarts the running ones on the new account.', tag + ' an agent of unknown state gets no restart count it may not keep', JSON.stringify(r.unsureNote));
       say(!!r.sleepyMove && r.sleepyMove.msg === 'Moved Zed (stopped). It stays stopped.', tag + ' moving a stopped agent reads as moved, still stopped, through the route\'s real reply', JSON.stringify(r.sleepyMove));
       say(!!busy && busy.btnDisabled === true, tag + ' Move is disabled until a target is picked');

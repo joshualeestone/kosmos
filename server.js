@@ -10963,16 +10963,17 @@ const server = http.createServer(async (req, res) => {
             })(),
             /* #6108: why there can be NO reading for this account, when that is known: 'windows' (the statusline that
                records it is not wired there) or 'own-statusline' (the account already has a status line of its own, which
-               Kosmos leaves alone). null otherwise: the account is wired, or will be, and a reading comes once an agent on
-               it works. The page says "cannot read" only for these, never as a guess. */
+               Kosmos leaves alone) or 'not-wired' (no status line yet: nothing records a reading until setup wires it).
+               null when Kosmos's own status line is there, so a reading comes once an agent on it works. The page says "cannot read" only for these, never as a guess. */
             weeklyBlocked: (() => {
               if (a.apiKey) return null;
               if (process.platform === 'win32') return 'windows';
               try {
                 const j = JSON.parse(fs.readFileSync(path.join(a.dir, 'settings.json'), 'utf8'));
                 const sl = j && j.statusLine;
-                return sl !== undefined && sl !== null && !require('./engine/allowance').isOurs(sl) ? 'own-statusline' : null;
-              } catch { return null; }
+                if (sl === undefined || sl === null) return 'not-wired';   // nothing records a reading until setup wires it
+                return require('./engine/allowance').isOurs(sl) ? null : 'own-statusline';
+              } catch (e) { return e && e.code === 'ENOENT' ? 'not-wired' : null; }   // no settings file: not wired either
             })(),
             /* #6108: the agents on this account on THIS computer, by session name. complete is false when any could not
                be read, so the page can say the list may be short rather than call it whole. */

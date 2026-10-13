@@ -61,6 +61,9 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
 - Agents per account are walked only when the caller asks (/api/accounts?agents=1, Settings), so the other pages that
   read the list do not pay for it.
 
+- weeklyBlocked 'not-wired' (no status line, or no settings file): "Kosmos has not set this account up to read usage
+  yet", since nothing records a reading until setup wires it.
+
 ## Not in slice 1 (follow-ups after it ships)
 - A bulk move blocks the server once per agent (removal.restart runs inside the route); a bulk route could batch it.
 - After a 'partial' move the server already lists the agent under the new account, though it still runs on the old

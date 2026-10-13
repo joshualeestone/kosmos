@@ -165,7 +165,7 @@ test('#3946 /api/accounts says which Claude account is calibrated', async () => 
   // A signed-in default account, so the list has a row for it.
   fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com', accountUuid: 'u-3946' } }));
   fs.writeFileSync(path.join(def, allowance.CALIBRATION_FILE), JSON.stringify({ tokensPerPoint: 2e6, at: Date.now() }));
-  const r = await fetch(base + '/api/accounts?agents=1');
+  const r = await fetch(base + '/api/accounts');
   assert.equal(r.status, 200);
   const rows = ((await r.json()) || {}).accounts || [];
   const row = rows.find((a) => a && a.provider === 'anthropic' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(def));
@@ -242,7 +242,7 @@ test('#6108 /api/accounts says when an account cannot have a reading: its own st
   if (process.platform === 'win32') { assert.equal(await blockedOf(), 'windows'); return; }
   try {
     fs.rmSync(settings, { force: true });
-    assert.equal(await blockedOf(), null, 'an account not wired YET was called unreadable');
+    assert.equal(await blockedOf(), 'not-wired', 'an account with no status line was promised a reading that cannot come');
     fs.writeFileSync(settings, JSON.stringify({ statusLine: { type: 'command', command: 'node /x/' + allowance.MARKER + ' ' + def } }));
     assert.equal(await blockedOf(), null, 'CONTROL: Kosmos\'s own status line was taken for someone else\'s');
     fs.writeFileSync(settings, JSON.stringify({ statusLine: { type: 'command', command: '/usr/local/bin/my-status.sh' } }));
@@ -267,7 +267,7 @@ test('#6108 the account route moves a stopped agent without starting it, and say
   const out = await r.json();
 
   assert.equal(out.outcome, 'partial', 'a stopped agent did not come back partial: ' + JSON.stringify(out));
-  assert.match(String(out.because || ''), /\bis not running\b/, 'the reason no longer says the agent is not running, which the page keys on');
+  assert.match(String(out.because || ''), /is not running, so there is nothing to restart/, 'the reason no longer carries the exact phrase the page keys on');
   assert.equal(path.resolve(create.readJob('sleeper-6108').configDir), path.resolve(to), 'the account was not saved');
 });
 
