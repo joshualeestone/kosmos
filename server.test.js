@@ -13231,6 +13231,7 @@ test('#1304: each field takes the best source that has it, and neither hard-null
       'a configured but unrecognised directory stopped being reported');
     // #5636 N4: without the folder (it names this computer's user folder).
     assert.doesNotMatch(sentenceForWhoami(unknownDir.account, unknownDir.model), /cannot identify \(|\//, 'the folder is in the sentence');
+    assert.ok(!unknownDir.account.dir || !sentenceForWhoami(unknownDir.account, unknownDir.model).includes(unknownDir.account.dir), 'the folder is in the sentence');
 
   } finally {
     if (fixtureJob) { try { fs.rmSync(fixtureJob, { force: true }); } catch { /* nothing to undo */ } }
@@ -15693,7 +15694,7 @@ test('#2811: a NAMED Codex account is called by its name, not "an account we can
   assert.doesNotMatch(named, /cannot identify/,
     'a named codex account is still told we cannot identify it, which is this card\'s own complaint string');
 
-  /* CONTROL 1: the SAME object with no name must still produce the old sentence,
+  /* CONTROL 1: the SAME object with no name must still produce the unnamed sentence,
      else the rung is not what changed the answer and this arm proves nothing. */
   const unnamed = sentenceForWhoami({ dir: DIR, name: null, email: null, label: null, isDefault: null }, null, 'codex');
   assert.match(unnamed, /an account we cannot identify[,.]/,
