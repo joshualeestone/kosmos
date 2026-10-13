@@ -76,3 +76,13 @@ test('#5959: tail returns copies', () => {
   ring.tail()[0].line = 'changed';
   assert.equal(ring.tail()[0].line, 'kept');
 });
+
+test('#5959: a string written in a non-text encoding is not recorded as a line, as logstamp leaves it', () => {
+  const ring = createRing();
+  const s = fakeStream();
+  ring.tap(s, 'stdout');
+  s.write('68656c6c6f0a', 'hex');
+  s.write('text line\n', 'utf8');
+  assert.deepEqual(ring.tail().map((e) => e.line), ['text line']);
+  assert.equal(s.written.length, 2, 'both writes went through');
+});

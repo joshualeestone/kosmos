@@ -780,8 +780,9 @@ function keys() {
   return out;
 }
 
-/* #5959 slice 4: every token value on file, for the diagnostics redactor to mask by value (a bare hex token in a log
-   line has no shape to find it by). Values stay in this process; a file that cannot be read is skipped. */
+/* #5959 slice 4: every LIVE token value on file, for the diagnostics redactor to mask by value (a bare hex token in a
+   log line has no shape to find it by). Ended and retired tokens are not included (they are revoked). Values stay in
+   this process; a file that cannot be read is skipped. */
 function heldValues() {
   const out = [];
   for (const key of keys()) {

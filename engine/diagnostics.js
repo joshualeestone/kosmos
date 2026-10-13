@@ -31,7 +31,8 @@ const BLOCK_END = /-----END [A-Z0-9 ]*PRIVATE KEY-----/;
 const MAX_BLOCK_LINES = 100;   // an RSA-4096 body is about 50 lines of 64; a block never takes more than this
 // A PEM body line (64 base64 characters, the last shorter). Not a hex digest alone (a git sha, a sha256): a body line
 // has a letter past f or a + or /.
-const KEY_BODY_LINE = /^\s*(?=[A-Za-z0-9+\/]*[g-zG-Z+\/])[A-Za-z0-9+\/]{40,}={0,2}\s*$/;
+// A board.log line starts with logstamp's time (engine/logstamp.js), so that is allowed in front.
+const KEY_BODY_LINE = /^\s*(?:\d{4}-\d{2}-\d{2}T[0-9:.]+Z\s+)?(?=[A-Za-z0-9+\/]*[g-zG-Z+\/])[A-Za-z0-9+\/]{40,}={0,2}\s*$/;
 
 /* A private key logged across lines is taken out whole: the line that begins it, every line after, and the line that
    ends it. The redactor sees one line at a time and would mask only the BEGIN line. A block with no END takes at most
