@@ -52,3 +52,7 @@ is the next step (see above).
 - Mutants: awaitingApprovalOf keyed on the reconciled `because` turns the engine test red; the page line and the
   cardlabel line each turn tests red.
 - All 43 engine/status*.test.js plus projects/server tests reading the card shape: 1005/1005.
+- The recorded card (docs/browser-checks/fixtures/agent-card.json) carries `awaitingApproval: false`, and the new
+  boolean is listed where the recorder's non-string inventory is pinned (render-talk-goldencard-2519.test.js STRUCTURAL,
+  tools/capture-agent-card.js category 4) and in fixture-discipline.test.js READ_BY_PROJECTS (iteration 3). Every test
+  reading that recording: 86/86.

@@ -996,6 +996,8 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
       'quotaDialog', 'quotaDaily',
       /* #5333: whether a running agent's run token is no longer on file. One boolean, nothing identifying. */
       'linkLost',
+      /* #6091: whether the agent's screen shows its permission prompt. One boolean, nothing identifying. */
+      'awaitingApproval',
     ];
     const PINNED_BOOLEAN = ['hasAvatar'];
     /* #2698: avatarVer is a PINNED NUMBER (category 1), forced to a constant in
