@@ -4731,6 +4731,22 @@ function sameAgentName(a, b, byKey) {
    with no JSON parser and reads it with sed, as it reads `error`), so neither says an assignee was told when it was
    not. No double quote, backslash or control character (JSON would escape one with a backslash), so that read cannot be cut short and prints as sent. `assigned` is how many are on the task; the
    sender is already off `delivered`. */
+/* #6066: a reviewer that posts its verdict with `kosmos task message` has finished the task in words only, so the task
+   stays open and whatever waits on it (a parent that is ready when its subtasks are, #5956) waits on a review that is
+   done. The reply to the task's OWN holder says how to finish it, at the moment it gives its word. Never inferred from
+   the text (a message that looks final is a guess), never for the screen, a non-holder, a repeating task (never
+   built, #4787), or a task already built or closed. Single quotes and no backslash: the Mac CLI reads `summary` with
+   sed up to the first double quote. */
+function taskFinalWordHint(t, senderName, projectId) {
+  if (!t || !senderName || t.repeat) return '';
+  if (!tasks.whoOf(t).includes(senderName)) return '';
+  const st = tasks.taskState(t);
+  if (st === 'closed' || st === 'built') return '';
+  const pid = String(projectId).replace(/["\\\s\u0000-\u001f\u007f-\u009f\u2028\u2029']/g, '');
+  if (!pid || !/^\d+$/.test(String(t.number))) return '';
+  return `If that is your final word on it, kosmos task built ${pid} ${t.number} '<note>' marks it done, so nothing waits on it.`;
+}
+
 function taskMessageSummary(delivered, assigned) {
   const plain = (x) => String(x == null ? '' : x).toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
   const list = Array.isArray(delivered) ? delivered : [];
@@ -21158,7 +21174,8 @@ const server = http.createServer(async (req, res) => {
             ...(outcome && outcome.heldFor === 'signin' ? { heldFor: 'signin' } : {}) });
         }
         if (!viaScreen) taskMessageValveRecord();
-        sendJson(res, 200, { ok: true, delivered, summary: taskMessageSummary(delivered, named.length) });
+        const finalWord = !viaScreen && senderCard ? taskFinalWordHint(t, senderCard.sessionName, id) : '';   // #6066
+        sendJson(res, 200, { ok: true, delivered, summary: taskMessageSummary(delivered, named.length) + (finalWord ? ' ' + finalWord : '') });
       } catch (err) {
         const msg = String((err && err.message) || '');
         // A failed append is a server-side (disk/IO) condition, not a bad request,
@@ -23864,6 +23881,7 @@ module.exports = {
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
+  taskFinalWordHint, // #6066: the line a task's holder is told after posting in it, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
