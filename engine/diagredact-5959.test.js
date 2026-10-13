@@ -53,3 +53,16 @@ test('#5959: redactDeep reaches every string, keys included, and leaves the inpu
   assert.equal(input.name, 'pat', 'the input is not changed');
   assert.ok(!/\bpat\b/.test(JSON.stringify(out)), JSON.stringify(out));
 });
+
+test('#5959: a package version is not an email address, and a real address still is', () => {
+  const { redactText } = makeRedactor({ home: '/Users/zed', user: 'zzz', host: 'zzz' });
+  assert.equal(redactText('installing @anthropic-ai/claude-code@2.1.212 on node@20.11.1'), 'installing @anthropic-ai/claude-code@2.1.212 on node@20.11.1');
+  assert.equal(redactText('mail ops@mail.example.co.uk now'), 'mail [email] now', 'CONTROL: an address with a letter domain is replaced');
+});
+
+test('#5959: a generic host name is not replaced, so a localhost address survives', () => {
+  const { redactText } = makeRedactor({ home: '/Users/zed', user: 'zzz', host: 'localhost' });
+  assert.equal(redactText('http://localhost:16180/api'), 'http://localhost:16180/api');
+  const named = makeRedactor({ home: '/Users/zed', user: 'zzz', host: 'zeds-box.local' });
+  assert.equal(named.redactText('zeds-box answered'), '[computer] answered', 'CONTROL: a real host name still is');
+});

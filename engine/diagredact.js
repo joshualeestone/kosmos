@@ -7,14 +7,17 @@
    2. the home folder, as `~`;
    3. email addresses, as [email];
    4. this computer's user name and host name (long and short forms), as [user] and [computer], matched whole
-      (not inside a longer name) and in any case.
+      (not inside a longer name) and in any case. A generic host name (localhost) is not replaced.
    A name shorter than MIN_NAME_CHARS is left alone rather than replaced everywhere it appears inside other words. */
 
 const os = require('node:os');
 const secretmask = require('./secretmask');
 
 const MIN_NAME_CHARS = 3;
-const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
+// The last label is letters, as a real domain's is: a package's `name@1.2.3` is not an address.
+const EMAIL = /[A-Za-z0-9._%+-]+@(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?![A-Za-z0-9-])/g;
+// Host names every computer can have, which name no one: replacing them would only damage lines like a localhost URL.
+const GENERIC_HOSTS = new Set(['localhost', 'localhost.localdomain']);
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -29,7 +32,7 @@ function makeRedactor(who) {
   const home = typeof w.home === 'string' ? w.home : os.homedir();
   const user = typeof w.user === 'string' ? w.user : (() => { try { return os.userInfo().username; } catch { return ''; } })();
   const host = typeof w.host === 'string' ? w.host : os.hostname();
-  const hosts = [...new Set([host, host.split('.')[0]])].filter((h) => h && h.length >= MIN_NAME_CHARS)
+  const hosts = [...new Set([host, host.split('.')[0]])].filter((h) => h && h.length >= MIN_NAME_CHARS && !GENERIC_HOSTS.has(h.toLowerCase()))
     .sort((a, b) => b.length - a.length);   // the long form first, so its short form does not leave ".local" behind
   const names = [
     ...hosts.map((h) => [wholeName(h), '[computer]']),
