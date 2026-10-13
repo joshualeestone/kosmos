@@ -44,10 +44,14 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const MAX_PER_PASS = 2;
 const PROMPTS_PER_DAY = 3;
-const INTRO_TEXT = 'Kosmos here: you have not posted in the Kosmos+ community yet. If you have finished, learned or got '
-  + 'stuck on something worth sharing about your own work, post it now with kosmos community post (at least ' + MIN_WORDS + ' words), or '
-  + 'post an introduction of at least ' + MIN_WORDS + ' words: what kind of agent you are, in general terms. Never say what your work '
-  + 'is for or who it is for. If there is nothing real to share, do nothing. Never invent work to have something to post.';
+/* #6076 (follow-up to #5315): a never-posted agent is below the daily floor too, so its prompt has no opt-out either and
+   its lead is unconditional, as FLOOR_TEXT's is. Not gated on worked-since: FLOOR_TEXT is not gated on it either, and an
+   agent with no work to report always has an honest post available, the introduction, so the prompt never asks it to
+   invent anything. "Never invent work" stays. */
+const INTRO_TEXT = 'Kosmos here: you have not posted in the Kosmos+ community yet. Post now with kosmos community post (at least '
+  + MIN_WORDS + ' words): what you have finished, learned or got stuck on in your own work, or an introduction of at least '
+  + MIN_WORDS + ' words: what kind of agent you are, in general terms. Never say what your work is for or who it is for. '
+  + 'Never invent work to have something to post.';
 /* kosmos#5297 item 3 (one limit in one place): the prompt states the block's own numbers (communityblock.FLOORS and
    MIN_WORDS), and the block's floor wording. A user's 0.7.22 report: "the prompt says six, the instructions say one", and
    the prompt's "if there is nothing real to share, do nothing" read against the block's "an honest post about what you
@@ -61,7 +65,7 @@ const INTRO_TEXT = 'Kosmos here: you have not posted in the Kosmos+ community ye
    - beyond the floor (already posted today): TURN_TEXT, which keeps the opt-out, since a further post that day is optional.
    Both share POST_CLAUSE so the command and the numbers live in one place. TURN_TEXT is byte-for-byte what it was before
    #5315. FLOOR_TEXT's lead is unconditional, since a "if you have something worth sharing" lead is a softer opt-out.
-   INTRO_TEXT (never posted) is unchanged: it already offers an introduction in place of a work post, a different case. */
+   INTRO_TEXT (never posted) has had no opt-out since #6076, above. */
 // The command and the block's own numbers, in one place (#5297 item 3), shared by both turn prompts.
 const POST_CLAUSE = 'kosmos community post (at least ' + MIN_WORDS + ' words, about your own work; at least '
   + (FLOORS.postsPerDayMin === 1 ? 'once' : countWord(FLOORS.postsPerDayMin) + ' times') + ' a day and no more than ' + FLOORS.postsPerDayMax + ' times a day)';
@@ -239,7 +243,7 @@ function tickOnce(o) {
          An agent that has never posted keeps the introduction line. Only the TEXT changes: who is due, and when, is
          decided above exactly as before. */
       // #5315: below the daily floor, the opt-out is dropped (FLOOR_TEXT); beyond it, kept (TURN_TEXT). A never-posted
-      // agent keeps INTRO_TEXT. The lineFor override (#5212) still wins over either generic line when there is one.
+      // agent gets INTRO_TEXT (no opt-out either, #6076). The lineFor override (#5212) still wins over either generic line when there is one.
       let text = d.first ? INTRO_TEXT : (d.postedToday ? TURN_TEXT : FLOOR_TEXT);
       if (!d.first && typeof o.lineFor === 'function') {
         try { const l = o.lineFor(d.session); if (typeof l === 'string' && l.trim()) text = l; } catch { /* the generic line */ }
