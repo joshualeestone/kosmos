@@ -407,7 +407,11 @@ function ensureWired(settingsPath, scriptPath, opts) {
  * or a space, so C:\Kosmos2 is not inside C:\Kosmos and D:\x\C:\Kosmos is not either. Everything else in the file
  * stays: another install's hooks, a person's own, and a person's hook that shares an entry with ours (the entry is
  * kept with theirs alone). An event left empty is removed, and `hooks` too when nothing is left in it.
- * `dryRun` only says whether the file holds any. Returns { ours, changed, because? }; never throws for a shape.
+ * `exists` (round 1): when given, a hook carrying the marker whose script path does not exist is removed too, whatever
+ * folder it names (an added account keeps the folder Kosmos ran from when the account was added, and nothing repoints
+ * it after a move). It is ours by the marker and already broken, so taking it out only takes out an error.
+ * `dryRun` only says whether the file holds any. Returns { ours, dead, changed, because? } (`dead`: how many of the
+ * hooks taken out were broken ones outside `roots`); never throws for a shape.
  * The caller holds the #3088 lock (filelock.withFileLock) around this, as wireDefaultHooks does around ensureWired.
  */
 function unwireInstall(settingsPath, roots, opts) {
@@ -415,7 +419,7 @@ function unwireInstall(settingsPath, roots, opts) {
   const norm = (s) => String(s).replace(/\//g, '\\').toLowerCase();
   const prefixes = [...new Set((roots || []).filter((r) => typeof r === 'string' && r.trim())
     .map((r) => norm(r).replace(/\\+$/, '') + '\\'))];
-  if (!prefixes.length) return { ours: false, changed: false, because: 'Kosmos could not tell which folder it was installed in' };
+  if (!prefixes.length) return { ours: false, dead: 0, changed: false, because: 'Kosmos could not tell which folder it was installed in' };
   const inside = (s) => {
     if (typeof s !== 'string') return false;
     const n = norm(s);
@@ -427,20 +431,40 @@ function unwireInstall(settingsPath, roots, opts) {
     });
   };
   const carries = (s) => typeof s === 'string' && s.includes(MARKER) && inside(s);
-  const hookIsOurs = (h) => !!h && (carries(h.command) || (Array.isArray(h.args) && h.args.some(carries)));
+  const inRoots = (h) => !!h && (carries(h.command) || (Array.isArray(h.args) && h.args.some(carries)));
+  /* The script path a hook names: an arg carrying the marker (exec form), or the quoted or bare word of the command
+     that carries it (the old shell form). */
+  const scriptPaths = (h) => {
+    const out = [];
+    if (Array.isArray(h.args)) for (const a of h.args) if (typeof a === 'string' && a.includes(MARKER)) out.push(a);
+    if (typeof h.command === 'string' && h.command.includes(MARKER)) {
+      for (const m of h.command.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)) {
+        const w = m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3];
+        if (w.includes(MARKER)) out.push(w);
+      }
+    }
+    return out;
+  };
+  const isDead = (h) => {
+    if (typeof o.exists !== 'function' || !h) return false;
+    const paths = scriptPaths(h);
+    return paths.length > 0 && paths.every((x) => { try { return !o.exists(x); } catch { return false; } });
+  };
+  let dead = 0;
+  const hookIsOurs = (h) => inRoots(h) || isDead(h);
   let target;
   try { target = fs.realpathSync(settingsPath); }
-  catch { return { ours: false, changed: false }; }   // absent, or a link to nothing: nothing of ours in it
+  catch { return { ours: false, dead: 0, changed: false }; }   // absent, or a link to nothing: nothing of ours in it
   const read = readSettings(target);
   if (read.because) {
     // Unreadable or not an object: never rewritten, only said, when it names this install's hook.
     let raw = '';
     try { raw = fs.readFileSync(target, 'utf8'); } catch { /* unreadable */ }
-    return { ours: raw.includes(MARKER) && inside(raw.replace(/\\\\/g, '\\')), changed: false, because: read.because };
+    return { ours: raw.includes(MARKER) && inside(raw.replace(/\\\\/g, '\\')), dead: 0, changed: false, because: read.because };
   }
   const { data, prevMode } = read;
   const hooks = data.hooks;
-  if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return { ours: false, changed: false };
+  if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return { ours: false, dead: 0, changed: false };
   let ours = false;
   for (const event of Object.keys(hooks)) {
     const list = hooks[event];
@@ -450,6 +474,7 @@ function unwireInstall(settingsPath, roots, opts) {
     for (const entry of list) {
       if (!entry || !Array.isArray(entry.hooks) || !entry.hooks.some(hookIsOurs)) { kept.push(entry); continue; }
       mine = true;
+      dead += entry.hooks.filter((h) => !inRoots(h) && isDead(h)).length;
       const rest = entry.hooks.filter((h) => !hookIsOurs(h));
       if (rest.length) kept.push({ ...entry, hooks: rest });   // a person's hook shared our entry: theirs stays
     }
@@ -457,11 +482,11 @@ function unwireInstall(settingsPath, roots, opts) {
     ours = true;
     if (kept.length) hooks[event] = kept; else delete hooks[event];
   }
-  if (!ours) return { ours: false, changed: false };
-  if (o.dryRun) return { ours: true, changed: false };
+  if (!ours) return { ours: false, dead: 0, changed: false };
+  if (o.dryRun) return { ours: true, dead, changed: false };
   if (Object.keys(hooks).length === 0) delete data.hooks;
-  if (!writeSettings(target, data, prevMode)) return { ours: true, changed: false, because: 'we could not save the settings file' };
-  return { ours: true, changed: true };
+  if (!writeSettings(target, data, prevMode)) return { ours: true, dead, changed: false, because: 'we could not save the settings file' };
+  return { ours: true, dead, changed: true };
 }
 
 module.exports = { HOOK_EVENTS, MARKER, hookScriptPath, entryFor, unsafeForCommand, entryIsOurs, ensureWired,

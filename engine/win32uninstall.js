@@ -90,7 +90,8 @@ const RESTART_THEN_REMOVE_AGAIN = 'Restart your computer, then remove Kosmos aga
 
 const REFUSED_WITHOUT_CONFIRM = 'Kosmos was not removed, because the removal was not confirmed';
 const KOSMOS_STILL_OPEN = 'Kosmos is still open. Close Kosmos, then remove it again.';
-const HOOKS_BY_HAND = 'Until they are gone Claude Code may show a hook error; delete the entries naming kosmos-report-hook from that file';
+/* #5999: what a person does about entries Kosmos could not take out, for the file named by `where`. */
+const hooksByHand = (where) => 'Claude Code may show an error each time it uses a tool until you delete the lines that mention kosmos-report-hook from ' + where;
 const STARTUP_UNREADABLE = 'Kosmos could not check whether it starts when you sign in. Nothing was removed. Try again in a minute.';
 const STARTUP_WOULD_NOT_SWITCH_OFF = 'Kosmos could not switch off the job that starts it when you sign in, so nothing was removed. Try again in a minute';
 
@@ -336,28 +337,38 @@ function claudeSettingsFiles(home, env) {
 }
 
 /* #5999: take THIS install's report hooks out of every Claude settings file. Left in, each one points at a script in
-   the folder the person deletes next, and Claude Code reports a hook error on every tool call from then on. Only
-   entries that are ours AND point inside `bundleRoot` go (reporthook.unwireInstall), under the #3088 lock the writers
-   take. A file that cannot be read, locked or saved is named, never rewritten wrong. */
-function unwireHooks(bundleRoot, home, env, done, left) {
+   the folder the person deletes next, and Claude Code reports an error on every tool call from then on. Only entries
+   that are ours AND point inside `bundleRoot` go, plus ours that point at a script that is already gone (an added
+   account keeps the folder Kosmos ran from when it was added), through reporthook.unwireInstall, under the #3088 lock
+   the writers take. A file that cannot be read, locked or saved is named, never rewritten wrong. */
+function unwireHooks(bundleRoot, home, env, exists, done, left) {
   const reporthook = require('./reporthook');
   const filelock = require('./filelock');
-  const roots = [bundleRoot];
-  try { const real = fs.realpathSync.native(bundleRoot); if (real !== bundleRoot) roots.push(real); } catch { /* the given path is enough */ }
+  /* Every spelling of the folder the hook paths could carry: as given (made absolute), as Node records __dirname (the
+     JS realpath, which is how the board built the hook path) and as Windows resolves it (realpath.native); a junction
+     or a short 8.3 name can make those differ. */
+  const given = path.resolve(bundleRoot);
+  const roots = [given];
+  for (const real of [fs.realpathSync, fs.realpathSync.native]) {
+    try { const r = real(given); if (!roots.includes(r)) roots.push(r); } catch { /* the given path is enough */ }
+  }
   for (const file of claudeSettingsFiles(home, env)) {
-    const locked = filelock.withFileLock(file, () => reporthook.unwireInstall(file, roots),
-      { busy: 'another program was writing it', cannotAccess: 'its folder refused the lock file' });
+    try { fs.lstatSync(file); } catch { continue; }   // no file: nothing of ours to take out, and nothing to lock
+    const locked = filelock.withFileLock(file, () => reporthook.unwireInstall(file, roots, { exists }),
+      { busy: 'another program was writing it', cannotAccess: 'its folder would not let Kosmos lock it' });
     let r;
     if (locked && locked.ok === true) r = locked.value;
     else {
       // Not locked, so not touched. A read-only look says whether there was anything of ours to take out.
-      const look = reporthook.unwireInstall(file, roots, { dryRun: true });
+      const look = reporthook.unwireInstall(file, roots, { exists, dryRun: true });
       r = { ours: look.ours, changed: false, because: (locked && locked.because) || 'it could not be locked' };
     }
-    if (r.changed) done.push('took Kosmos\'s report hooks out of Claude Code\'s settings (' + file + ')');
-    else if (r.ours) {
-      left.push('Kosmos\'s report hooks in Claude Code\'s settings (' + file + '), which could not be taken out ('
-        + (r.because || 'the file did not change') + '). ' + HOOKS_BY_HAND);
+    if (r.changed) {
+      done.push('took Kosmos\'s entries out of Claude Code\'s settings (' + file + ')'
+        + (r.dead ? ', including ' + (r.dead === 1 ? 'one' : r.dead) + ' left by an earlier Kosmos folder' : ''));
+    } else if (r.ours) {
+      left.push('Kosmos\'s entries in Claude Code\'s settings (' + file + '), which could not be taken out ('
+        + (r.because || 'the file did not change') + '). ' + hooksByHand('that file'));
     }
   }
 }
@@ -466,7 +477,8 @@ function stillOpen(extraLeft, notes) {
  *   deleteData            also empty the store (the person said yes to the second question)
  *   bundleRoot            the Kosmos folder running this, which is never deleted from here
  *   liveExecutionAllowed  () => boolean; without it this refuses and changes nothing
- *   platform, env, home, projectsRoot, removeFolder, probe, sleep   seams, with real defaults
+ *   platform, env, home, projectsRoot, removeFolder, probe, sleep, pathExists   seams, with real defaults
+ *                         (pathExists: whether a hook's script is still on disk, #5999)
  * @returns {Promise<{ok: boolean, refused?: boolean, stillOpen?: boolean, done: string[], left: string[], notes: string[]}>}
  *   `left` names everything still on the computer that the removal was meant to take away.
  */
@@ -580,8 +592,11 @@ async function uninstall(opts) {
   /* #5999: Claude Code's settings, once no board and no agent can wire the hooks back (both do, at start). Before the
      folder goes, while the launcher still knows it: the person deletes it next. */
   if (everyTaskGone && boardGone) {
-    if (o.bundleRoot) unwireHooks(o.bundleRoot, home, env, done, left);
-    else left.push('Kosmos\'s report hooks in Claude Code\'s settings, which were not checked because Kosmos could not tell which folder it was installed in. ' + HOOKS_BY_HAND.replace('that file', 'the settings.json files in your .claude folders'));
+    const exists = typeof o.pathExists === 'function' ? o.pathExists : fs.existsSync;
+    /* The launcher always passes --root, so no root is only a hand-run CLI: said as a note, not left, which would keep
+       the removal unfinished for good (round 1). */
+    if (o.bundleRoot) unwireHooks(o.bundleRoot, home, env, exists, done, left);
+    else notes.push('Kosmos\'s entries in Claude Code\'s settings were not checked, because Kosmos could not tell which folder it was installed in. ' + hooksByHand('the settings.json files in your .claude folders') + '.');
   }
 
   /* 8-9: the folders, only once nothing registered, and no board, still needs them. */
