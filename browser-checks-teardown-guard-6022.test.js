@@ -256,7 +256,13 @@ function scan(raw) {
     const defRe = new RegExp('\\b(?:(?:const|let|var)\\s+' + name + '\\s*=\\s*(?:async\\s+)?(?:\\(\\s*(\\w+)[^)]*\\)|(\\w+))\\s*=>|(?:async\\s+)?function\\s+' + name + '\\s*\\(\\s*(\\w+))', 'g');
     let found = false;
     for (const def of src.matchAll(defRe)) {   // every definition of the name, not only the first (review)
-      if (!starts.some((h) => h.at === def.index)) starts.push({ at: def.index, param: def[1] || def[2] || def[3] });
+      if (starts.some((h) => h.at === def.index)) { found = true; continue; }
+      // Its body span, as #6027's scan reads it: from after the header to the end of the block (or the concise body).
+      let b = def.index + def[0].length;
+      if (/function/.test(def[0])) { let d = 1; for (; b < blank.length && d > 0; b += 1) { if (blank[b] === '(') d += 1; else if (blank[b] === ')') d -= 1; } }
+      while (b < blank.length && /\s/.test(blank[b])) b += 1;
+      const bodyEnd = blank[b] === '{' ? blockEnd(blank, b) : Math.max(b, blank.indexOf(';', b) < 0 ? blank.length : blank.indexOf(';', b));
+      starts.push({ at: def.index, body: def.index + def[0].length, end: bodyEnd, param: def[1] || def[2] || def[3] });
       found = true;
     }
     if (found) read.add(r.index);
@@ -455,6 +461,12 @@ test('#6022 fixtures: the rule can fail, and the safe shapes pass (controls)', (
   assert.ok(scan(defaultIsRoute).includes(3), 'a default value of r is not a parameter named r (#6027 review 7)');
   const nestedReturn = "await page.route('**/x', (r) => {\n  p.then(() => { setTimeout(() => { return r.fulfill({}); }, 10); }).catch(() => {});\n});\n";
   assert.ok(scan(nestedReturn).includes(2), 'a return inside a callback nested in the .then is swallowed, not returned to the chain (#6027 review 7)');
+  const byName = "const stampAge = async (route) => {\n  const resp = await route.fetch();\n  await route.fulfill({ response: resp });\n};\nawait page.route('**/x', stampAge);\n";
+  assert.deepEqual(scan(byName), [2, 3], 'a handler passed by name is checked at its definition');
+  const byNameSafe = "const stampAge = async (route) => {\n  try {\n    const resp = await route.fetch();\n    await route.fulfill({ response: resp });\n  } catch { await route.abort().catch(() => {}); }\n};\nawait page.route('**/x', stampAge);\n";
+  assert.deepEqual(scan(byNameSafe), [], 'a safe handler passed by name passes');
+  const byNameTimer = "function late(route) {\n  setTimeout(() => route.fulfill({}), 2000);\n}\nawait page.route('**/x', late);\n";
+  assert.deepEqual(scan(byNameTimer), [2], 'a named function handler with a late callback answer is checked (#6027 rules)');
   const fixtureOnly = "await page.route('**/api/x', (r) => r.fulfill({ json: {} }));\nconst x = await window.fetch('/a');\nawait browser.close();\n";
   assert.deepEqual(scan(fixtureOnly), [], 'a fixture-only handler and window.fetch are not flagged');
   const bareParam = "page.route('**/t', async route => {\n  const r = await route.fetch();\n  route.fulfill({ response: r });\n});\n";
