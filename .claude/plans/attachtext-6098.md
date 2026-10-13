@@ -70,6 +70,10 @@ reads these files itself.
   condition; a page emptied by a mapless font is not called scanned. Measured on 115 local PDFs against the previous
   commit: none gained words or changed flags; 9 lost spurious ones. Decided: letter-spaced headings (CSS letter-spacing)
   stay spaced, as drawn; a PDF that places two words with no gap between them reads them joined, as the file has it.
+- **Iteration 8:** a glyph of unknown width (a standard font with no /Widths) makes every sideways move a space again,
+  as before iteration 7 (an estimate is off by a word gap); Type0 widths share a 262144-entry document budget (200 fonts
+  of [0 65535 500] filled the worker) and a width the budget left out is unknown; inline /DescendantFonts read; the "
+  operator sets Tw and Tc. 115 local PDFs against the pre-iteration-7 commit: none gained words.
 - **Not done:** pictures (no OCR), charts, inline (not referenced) PDF font dictionaries, /Differences glyph names (pdfTeX
   ligatures), LZW, lists and headings applied only through a paragraph style (no numId; localized heading style ids), docx headers/footers/footnotes/comments, text inside PDF form XObjects (`Do`),
   xls/doc/ppt/pptx, an attachment uploaded before this change (it gets no rendering; its line is unchanged).
@@ -88,4 +92,4 @@ empty paragraphs, tables with no paragraphs between); nested table, text box and
 in every cell (capped, quick, says so); PDF digit runs, CMap brackets and repeated full ranges (bounded); a content
 stream shared by many pages (charged each time, total capped); a two-digit indirect /Length; a TJ array of 80 items and
 two runs on one line; a 70 MB Flate image before the text; a damaged document worded as a document. Meta: engine.reachable
-excuses setPdfkit and pdfText as test seams. Neighbours and meta: 678/678. Tests: 42 (iteration 7 added glyph-at-a-time words, kerned chunks, Type3 FontMatrix, Type0 /W, symbolic fonts, notes; iteration 6 added an unused mapless font, mixed Latin and mapless text, and PDFKit locked; iteration 5 added CJK no-map and encrypted-through-PDFKit). Iteration 4 added two arms (MacRoman asks PDFKit; [Red] is not a date).
+excuses setPdfkit and pdfText as test seams. Neighbours and meta: 678/678. Tests: 44 (iteration 8 added a no-/Widths standard font and the shared width budget; iteration 7 added glyph-at-a-time words, kerned chunks, Type3 FontMatrix, Type0 /W, symbolic fonts, notes; iteration 6 added an unused mapless font, mixed Latin and mapless text, and PDFKit locked; iteration 5 added CJK no-map and encrypted-through-PDFKit). Iteration 4 added two arms (MacRoman asks PDFKit; [Red] is not a date).
