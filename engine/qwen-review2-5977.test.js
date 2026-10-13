@@ -6,6 +6,9 @@
  */
 const test = require('node:test');
 const jobfix = require('../test-support/jobfixture');
+const fleet = require('../test-support/fleet');
+// A codex agent's pane as Codex draws it when idle (the shape cli.project-show-4581 uses).
+const codexCard = (name, opts = {}) => fleet.agent(name, { runner: 'codex', command: 'node', screen: '\u203a Ask Codex to do anything', ...opts });
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -23,6 +26,8 @@ process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
 process.env.AGENT_WORKFORCE_SYSTEMD_DIR = nodePath.join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+// The suite creates agents, so Claude Code's own config is sandboxed too (fixture-discipline's fourth root).
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CODEX_BIN = nodePath.join(BIN, 'codex');
@@ -77,8 +82,11 @@ test('#5977 r2: the org rollup sends a Qwen agent as null (unknown to the compan
 
 test('#5977 r2: a Qwen agent with no profile is told about Qwen, not an OpenAI sign-in', () => {
   const { providerOf } = require('./accountproblem');
-  assert.equal(providerOf({ runner: 'codex', sessionName: QW }), 'Qwen');
-  assert.equal(providerOf({ runner: 'codex', sessionName: OA }), 'OpenAI', 'CONTROL');
+  const board = fleet.install([codexCard(QW), codexCard(OA)]);
+  try {
+    assert.equal(providerOf(board.card(QW)), 'Qwen');
+    assert.equal(providerOf(board.card(OA)), 'OpenAI', 'CONTROL');
+  } finally { fleet.restore(); }
 });
 
 test('#5977 r2: the Claude sign-in check is never asked about a Qwen home', () => {
@@ -172,9 +180,12 @@ test('#5977 r3: a message to a signed-out Qwen agent names Qwen, not an OpenAI s
 test('#5977 r3: a job that says OpenAI wins over a stale Qwen profile; the profile speaks only with no job', () => {
   const { providerOf } = require('./accountproblem');
   const stale = codexAgent('r3-stale', OPENAI_HOME, 'alibaba');
-  assert.equal(providerOf({ runner: 'codex', sessionName: stale }), 'OpenAI');
   store.writeProfile('r3-nojob', { provider: 'alibaba' });
-  assert.equal(providerOf({ runner: 'codex', sessionName: 'r3-nojob' }), 'Qwen', 'CONTROL: with no job the profile answers');
+  const board = fleet.install([codexCard(stale), codexCard('r3-nojob')]);
+  try {
+    assert.equal(providerOf(board.card(stale)), 'OpenAI');
+    assert.equal(providerOf(board.card('r3-nojob')), 'Qwen', 'CONTROL: with no job the profile answers');
+  } finally { fleet.restore(); }
 });
 
 test('#5977 r3: IPv4 written inside IPv6 is decoded before the link-local test; a key with a control character is refused', () => {
@@ -276,10 +287,21 @@ test('#5977 r5: create refuses a Qwen account whose endpoint positively says no,
 
 test('#5977 r5: a held message to a Qwen agent never mentions signing in', () => {
   const chat = require('./chat');
-  // A card addressable() accepts (named ours, a target, the agent's own process in its pane).
-  const roster = [{ sessionName: QW, name: QW, isNamedOurs: true, target: 'r2:0.0', isAgentPane: true,
-    state: require('./status').STATE.AUTH_FAILED, stateReported: true, runner: 'codex' }];
-  const v = chat.signinHeldVerdict(QW, roster);
+  // Real cards, signed out the way a codex agent is: its supervisor's automatic blocked report (engine/signinhold-5948
+  // does the same). The fleet is installed once to learn the board name the report is filed under, then again so the
+  // card is read with the report in place.
+  const selfreport = require('./selfreport');
+  const first = fleet.install([codexCard(QW)]);
+  const boardName = first.card(QW).name;
+  fleet.restore();
+  assert.equal(selfreport.record(boardName, { state: 'blocked', auto: true, on: 'provider api (authentication_failed)',
+    owner: 'provider', because: 'the endpoint refused the request' }).recorded, true, 'premise: the report was recorded');
+  const board = fleet.install([codexCard(QW, { state: null })]);
+  let v;
+  try {
+    assert.equal(board.card(QW).state, require('./status').STATE.AUTH_FAILED, 'premise: the card is a reported failed sign-in');
+    v = chat.signinHeldVerdict(QW, board.agents);
+  } finally { fleet.restore(); fs.rmSync(selfreport.DIR, { recursive: true, force: true }); }
   assert.ok(v, "the held verdict was not reached");
   assert.match(v.because, /Qwen endpoint/);
   assert.doesNotMatch(v.because, /signed/);

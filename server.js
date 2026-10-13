@@ -11108,7 +11108,7 @@ const server = http.createServer(async (req, res) => {
         /* #5977: Qwen accounts, badged from their live check alone (the endpoint lists the model, or says no): an
            endpoint reached with its model is signed_in_unverified until an agent is seen using it. */
         const qwen = (qwenRows || []).map((a) => ({ ...a, connection: { ...(a.connection || {}), badge: observed.verdict({ checkLiveState: a.connection && a.connection.state }).badge } }));
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub, ...qwen], unlistedAccounts, unlistedComplete });
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...museSub], unlistedAccounts, unlistedComplete });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;
@@ -13101,7 +13101,7 @@ const server = http.createServer(async (req, res) => {
            cross-home link), so their chat stays behind exactly as Codex's does. The word
            names the chat the person would look for. */
         const moveChatWord = wrote.account
-          && ({ openai: 'Codex', google: 'Gemini', xai: 'Grok', alibaba: 'Qwen' })[String(wrote.account.provider || '').toLowerCase()];
+          && ({ openai: 'Codex', google: 'Gemini', xai: 'Grok' })[String(wrote.account.provider || '').toLowerCase()];
         const isPerHomeMove = !!moveChatWord;
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',

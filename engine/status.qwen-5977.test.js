@@ -22,6 +22,9 @@ const status = require('./status');
 const { signedOutRows } = require('./signedoutaccounts');
 const { providerOf } = require('./accountproblem');
 const store = require('./store');
+const fleet = require('../test-support/fleet');
+// A codex agent's pane as Codex draws it when idle (the shape cli.project-show-4581 uses).
+const codexCard = (name, opts = {}) => fleet.agent(name, { runner: 'codex', command: 'node', screen: '\u203a Ask Codex to do anything', ...opts });
 
 const QWEN_HOME = nodePath.join(process.env.AGENT_WORKFORCE_HOME, qwen.DIR_PREFIX + 'local');
 qwen.storeEndpoint(QWEN_HOME, { baseUrl: 'http://localhost:11434/v1', model: 'kosmos-qwen2.5-7b-16k:latest', contextWindow: 16384 });
@@ -40,10 +43,11 @@ test('codexLiveAuthFor leaves a Qwen agent unjudged, and still asks about an Ope
 
 test('signedOutRows does not list a Qwen folder as a signed-out OpenAI account; an empty OpenAI folder still is', () => {
   const jobs = { q: { runner: 'codex', configDir: QWEN_HOME }, o: { runner: 'codex', configDir: OPENAI_HOME } };
-  const rows = signedOutRows(
-    [{ sessionName: 'q', runner: 'codex' }, { sessionName: 'o', runner: 'codex' }],
-    { openai: [] }, (n) => jobs[n], () => null,
-  );
+  const board = fleet.install([codexCard('q'), codexCard('o')]);
+  let rows;
+  try {
+    rows = signedOutRows([board.card('q'), board.card('o')], { openai: [] }, (n) => jobs[n], () => null);
+  } finally { fleet.restore(); }
   assert.equal(rows.some((r) => r.dir === QWEN_HOME), false, 'the Qwen folder is not a signed-out OpenAI account');
   assert.equal(rows.some((r) => r.dir === OPENAI_HOME && r.provider === 'openai'), true, 'CONTROL: the empty OpenAI folder is listed');
 });
@@ -51,8 +55,14 @@ test('signedOutRows does not list a Qwen folder as a signed-out OpenAI account; 
 test('an account problem on a Qwen agent names Qwen; an OpenAI agent still names OpenAI', () => {
   store.writeProfile('qwen-agent', { provider: 'alibaba' });
   store.writeProfile('openai-agent', { provider: 'openai' });
-  assert.equal(providerOf({ runner: 'codex', sessionName: 'qwen-agent' }), 'Qwen');
-  assert.equal(providerOf({ runner: 'codex', sessionName: 'openai-agent' }), 'OpenAI');
-  assert.equal(providerOf({ runner: 'codex', sessionName: 'no-profile-agent' }), 'OpenAI', 'no profile keeps the runner\'s name');
-  assert.equal(providerOf({ runner: 'gemini', sessionName: 'qwen-agent' }), 'Gemini', 'only a codex card can be Qwen');
+  const codex = fleet.install(['qwen-agent', 'openai-agent', 'no-profile-agent'].map((n) => codexCard(n)));
+  try {
+    assert.equal(providerOf(codex.card('qwen-agent')), 'Qwen');
+    assert.equal(providerOf(codex.card('openai-agent')), 'OpenAI');
+    assert.equal(providerOf(codex.card('no-profile-agent')), 'OpenAI', 'no profile keeps the runner\'s name');
+  } finally { fleet.restore(); }
+  const gemini = fleet.install([fleet.agent('qwen-agent', { runner: 'gemini', command: 'node' })]);
+  try {
+    assert.equal(providerOf(gemini.card('qwen-agent')), 'Gemini', 'only a codex card can be Qwen');
+  } finally { fleet.restore(); }
 });
