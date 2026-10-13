@@ -81,12 +81,18 @@ const KEPT = 'The name was not changed: there is already an agent called Gemini 
      sandbox's agent reports exactly that (measured: the box held the fixture text, INSTR_READY false, no message). The
      poll is answered from the REAL response with only that flag set, so the instructions Save case exercises the
      page's handling of the save's answer, not the sandbox's file. */
+  /* The poll runs on a timer, so one can be in flight when the check closes the browser: its fetch then rejects with
+     "Request context disposed", and unhandled, that crashed the check AFTER every assertion passed (the 0.7.44 cut,
+     failed twice at load 4.5). So a route the page no longer wants is dropped quietly, and the check unroutes before
+     it closes. */
   await page.route(/\/api\/status(\?|$)/, async (r) => {
-    const resp = await r.fetch();
-    let body;
-    try { body = await resp.json(); } catch { r.fulfill({ response: resp }); return; }
-    for (const a of (body && body.agents) || []) if (a && a.instructions) a.instructions.editable = true;
-    r.fulfill({ response: resp, json: body });
+    try {
+      const resp = await r.fetch();
+      let body;
+      try { body = await resp.json(); } catch { await r.fulfill({ response: resp }); return; }
+      for (const a of (body && body.agents) || []) if (a && a.instructions) a.instructions.editable = true;
+      await r.fulfill({ response: resp, json: body });
+    } catch { /* the page or browser closed with this poll in flight: nothing is waiting for its answer */ }
   });
   /* The load is answered too, with a fixture, so the editor is ready whatever this sandbox's agent has on disk (a Save
      before the load lands is refused by the page on purpose). A regex, so the load's ?t= query matches and the
@@ -183,6 +189,7 @@ const KEPT = 'The name was not changed: there is already an agent called Gemini 
 
   check('no page errors', errors.length === 0, errors.join(' | '));
 
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
   await browser.close();
   const failed = results.filter((r) => !r.pass);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
