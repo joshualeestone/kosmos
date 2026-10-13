@@ -17482,7 +17482,10 @@ const server = http.createServer(async (req, res) => {
         let name = '';
         try { name = decodeURIComponent(String(req.headers['x-attachment-name'] || '')); } catch { name = String(req.headers['x-attachment-name'] || ''); }
         const rec = attachments.save(scope, owner, { name, type: req.headers['content-type'], bytes });
-        sendJson(res, 200, { attachment: attachments.rowField(rec) });
+        /* #6098: an office file gets its text rendering before the answer, so the message that carries it can name
+           it. Bounded (attachtext.js caps every part, PDFKit has a timeout), and never fails the upload. */
+        return require('./engine/attachtext').render(rec).catch(() => null)
+          .then(() => sendJson(res, 200, { attachment: attachments.rowField(rec) }));
       })
       .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not keep that file') }));
     return;

@@ -776,4 +776,5 @@ async function readWithModel(name, bytes, opts = {}) {
 }
 
 module.exports = { MODEL_TIMEOUT_MS,
-  readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, get NO_MODEL() { return noModelFor(process.platform); }, noModelFor, noModelAfter, composeWhy, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
+  readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, get NO_MODEL() { return noModelFor(process.platform); }, noModelFor, noModelAfter, composeWhy, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, unzip, blocks, cells, innerOf, xmlText, stripBlocks, attr, colIndex,   // #6098: the zip and XML readers, for engine/attachtext.js
+   markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
