@@ -48,7 +48,7 @@ FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 [ -d "$BCDIR" ] || { echo "FAIL  no $BCDIR"; exit 1; }
 
 # Every temp file goes in ONE directory the trap removes (#5907): _mktmp runs inside $(...), so a list it appended to
-# lived in a subshell and the old cleanup removed nothing (19 files, 13 MB left per run, measured).
+# lived in a subshell and the old cleanup removed nothing, so every run left its temp files behind.
 _TMPD="$(mktemp -d "${TMPDIR:-/tmp}/bcsm.XXXXXX")" || { echo "FAIL  could not make a temp directory"; exit 1; }
 _mktmp() { mktemp "$_TMPD/t.XXXXXX"; }
 cleanup() { rm -rf "$_TMPD"; }
