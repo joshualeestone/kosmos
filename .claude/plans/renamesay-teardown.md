@@ -25,5 +25,7 @@ The real check runs in CI's browser-checks job on this PR.
 ## Validation decision
 No Mortals full validation: the change is one browser-check script, which nothing in the node or shell suites reads,
 and CI's browser-checks job runs this exact check. The 0.7.44 re-cut then runs the whole suite and the page layer on
-the tree that ships. Weakest premise: that no suite asserts on this file's text (checked: grep for render-rename-say in
-*.test.js and tools/test-*.sh below).
+the tree that ships. Checked rather than assumed: no test names render-rename-say (the two hits for "render-rename"
+are other checks, and pass 18/18), and the 61 test files that scan docs/browser-checks/ pass 1426/1426 with this change.
+Weakest premise: that the CI browser-checks job's load is enough to show the check is green; it was green there before
+too, so CI cannot show the crash is gone, only that the check still passes. The mechanism repro is what shows that.
