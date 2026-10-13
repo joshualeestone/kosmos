@@ -17,10 +17,6 @@ Its card height and centring checks run at 1400, 1280 x 720, 1440 x 900, 800 x 9
 reach, but those arms measure only the code-entry boxes (font size, input height against the box row, the row fitting
 its card), not the card's height or the foot link. CI's browser-checks job runs the whole check on the PR.
 
-## Measured
-`docs/browser-checks/mobile-shots.js --screens plus-signin-email` (iPhone 15, 393 x 852): the under-44px count for the
-screen, on main (control) and on this branch.
-
 ## Measured (as built)
 A Playwright probe at 393 x 852 (iPhone 15), Chromium, on the email step (entered through #plus-signin-top on a
 throwaway board from mobile-shots --keep): main 48 x 17 `inline` (the card's number), this branch 48 x 44 `inline-flex`.
