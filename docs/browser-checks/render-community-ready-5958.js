@@ -44,6 +44,9 @@ const { chromium } = require('playwright');
 const BASE = process.argv[2] || process.env.KOSMOS_URL || 'http://127.0.0.1:17461';
 const READY = '**/api/community/ready';
 
+/* What a screen reader hears before words the board marked as needing the person; it is in the row's text. */
+const NEEDS = 'Needs you: ';
+
 const fails = [];
 function check(name, pass, detail) {
   console.log((pass ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  ' + detail : ''));
@@ -131,19 +134,21 @@ const AVA = agent('ava', 'Ava', { summary: 'Newest post is in the community', li
   { text: 'Kosmos last went to remind it on ', at: T1, after: '. Delivered.' },
   { text: 'Its newest post, “Weekly ops”, is in the community.' },
 ] });
-const BO = agent('bo', 'Bo', { summary: 'No community section in its instructions. Has not posted yet', lines: [
+const BO = agent('bo', 'Bo', { summary: 'No community section in its instructions · Has not posted yet', lines: [
   { text: 'No community section in its instructions. It works in a folder of your own, and Kosmos does not add the section to instructions there.' },
   { text: 'No community account yet. Kosmos makes one the first time something it wrote goes to the community.' },
   { text: 'Kosmos has no record of going to remind it.' },
   { text: 'It has not posted yet.' },
 ] });
-const CY = agent('cy', 'Cy', { summary: 'Has not posted yet. 2 waiting for you', lines: [
+/* What the board sends for an agent with something waiting: `needsYou` is the summary's first part, and the line that
+   needs the person is first and marked (design review, #5958). */
+const CY = agent('cy', 'Cy', { summary: '2 items waiting for you · Has not posted yet', needsYou: '2 items waiting for you', lines: [
+  { text: '2 items it wrote are under Waiting for you.', needsYou: true },
   { text: 'The community section is in its instructions.' },
   { text: 'It has a community account.' },
   { text: 'Kosmos last went to remind it on ', at: T1, after: '. Not sent: this computer had reached its hourly limit for messages to agents.' },
   { text: 'The last reminder that reached it was on ', at: T0, after: '.' },
   { text: 'It has not posted yet.' },
-  { text: '2 items it wrote are under Waiting for you.' },
 ] });
 
 async function run() {
@@ -160,17 +165,44 @@ async function run() {
     check('ROWS: the list exists and its heading shows under Automation', r.found && r.headShown, JSON.stringify({ found: r.found, headShown: r.headShown }));
     check('ROWS: the heading sits below the posts-and-comments heading', r.belowMine, JSON.stringify(r.belowMine));
     check('ROWS: three rows, each with its name and summary, all closed', r.listHidden === false && r.emptyHidden === true && r.rows.length === 3
-      && JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])) === JSON.stringify([['ava', 'Ava', 'Newest post is in the community', false], ['bo', 'Bo', 'No community section in its instructions. Has not posted yet', false], ['cy', 'Cy', 'Has not posted yet. 2 waiting for you', false]]), JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])));
+      && JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])) === JSON.stringify([['ava', 'Ava', 'Newest post is in the community', false], ['bo', 'Bo', 'No community section in its instructions · Has not posted yet', false], ['cy', 'Cy', NEEDS + '2 items waiting for you · Has not posted yet', false]]), JSON.stringify(r.rows.map((x) => [x.session, x.name, x.summary, x.open])));
     check('ROWS: the row\'s text has a space between the name and its words', r.rows[0].read === 'Ava Newest post is in the community', JSON.stringify(r.rows[0].read));
-    check('ROWS: the note says a reminder only asks and the agent decides', /^Kosmos may remind an agent that has gone quiet to post, and only while the community and .Check on your agents. are both on\./.test(r.note) && /A reminder only asks: whether to post, and what to say, is the agent[’']s own decision\./.test(r.note), r.note);
+    check('ROWS: the note is two sentences: when Kosmos may remind, and that the agent decides', /^Kosmos may remind an agent that has gone quiet to post, only while the community and .Check on your agents. are both on\. Whether to post, and what to say, is the agent[’']s own decision\.$/.test(r.note), r.note);
+
+    /* Design review (kosmos#5958): the name leads a closed row, the summary is one step down, and what needs the
+       person carries the Tasks page's dot. MEASURED here, each against its neighbour: on the sign-in card a hint's
+       size was reasoned from its class twice and was wrong twice (a panel's rule on <p> out-ranked the class). */
+    const look = await p1.evaluate(() => {
+      const row = (s) => document.querySelector('#community-ready-list details[data-session="' + s + '"]');
+      const cs = (e) => getComputedStyle(e);
+      const b = row('cy').querySelector('summary b'); const w = row('cy').querySelector('.community-ready-words');
+      const dots = (s) => [...row(s).querySelectorAll('summary .tsk-dot')];
+      const d = dots('cy')[0];
+      return { namePx: parseFloat(cs(b).fontSize), nameWeight: Number(cs(b).fontWeight), wordsPx: parseFloat(cs(w).fontSize), nameColor: cs(b).color, wordsColor: cs(w).color,
+        dots: { ava: dots('ava').length, bo: dots('bo').length, cy: dots('cy').length },
+        dot: d ? { w: Math.round(d.getBoundingClientRect().width), h: Math.round(d.getBoundingClientRect().height), bg: cs(d).backgroundColor, radius: cs(d).borderTopLeftRadius, firstInWords: w.firstElementChild === d } : null,
+        bars: [...document.querySelectorAll('#community-ready-list *')].filter((e) => parseFloat(cs(e).borderLeftWidth) > 0).length };
+    });
+    check('LOOK: the name leads a closed row: larger than its summary, and semibold', look.namePx > look.wordsPx && look.nameWeight >= 600, JSON.stringify([look.namePx, look.nameWeight, look.wordsPx]));
+    check('LOOK: the summary is in another colour than the name', look.wordsColor !== look.nameColor, JSON.stringify([look.nameColor, look.wordsColor]));
+    check('LOOK: only the row with something waiting carries a dot, once, before its words', look.dots.ava === 0 && look.dots.bo === 0 && look.dots.cy === 1 && !!look.dot && look.dot.firstInWords, JSON.stringify(look.dots));
+    check('LOOK: the dot is painted: a round 8px mark with a colour', !!look.dot && look.dot.w === 8 && look.dot.h === 8 && look.dot.radius === '50%' && !/rgba\(0, 0, 0, 0\)|transparent/.test(look.dot.bg), JSON.stringify(look.dot));
+    check('LOOK: nothing in the list carries a left bar', look.bars === 0, String(look.bars));
 
     // OPEN
     await p1.click('#community-ready-list details[data-session="cy"] > summary');
     await p1.waitForTimeout(300);   // the mark's turn is a short transition; read it once it has ended
     const o = await readList(p1);
     check('OPEN: clicking a summary opens that row only', JSON.stringify(o.rows.map((x) => x.open)) === JSON.stringify([false, false, true]), JSON.stringify(o.rows.map((x) => x.open)));
+    const openLook = await p1.evaluate(() => {
+      const ps = [...document.querySelectorAll('#community-ready-list details[data-session="cy"] > p')];
+      const rects = ps.map((x) => x.getBoundingClientRect());
+      return { dotted: ps.map((x) => x.querySelectorAll('.tsk-dot').length), gaps: rects.slice(1).map((r, i) => Math.round(r.top - rects[i].bottom)) };
+    });
+    check('OPEN: the line that needs the person is first, and the only one with the dot', openLook.dotted[0] === 1 && openLook.dotted.slice(1).every((n) => n === 0), JSON.stringify(openLook.dotted));
+    check('OPEN: the items sit as close as a paragraph\'s own lines: no gap between one item and the next', openLook.gaps.length === CY.owner.lines.length - 1 && openLook.gaps.every((g) => g >= 0 && g <= 1), JSON.stringify(openLook.gaps));
     check('OPEN: the row holds every line the board sent, in order', o.rows[2].lines.length === CY.owner.lines.length
-      && o.rows[2].lines.every((t, i) => t.startsWith(CY.owner.lines[i].text) && t.endsWith(CY.owner.lines[i].after || CY.owner.lines[i].text)), JSON.stringify(o.rows[2].lines));
+      && o.rows[2].lines.every((t, i) => t.startsWith((CY.owner.lines[i].needsYou ? NEEDS : '') + CY.owner.lines[i].text) && t.endsWith(CY.owner.lines[i].after || CY.owner.lines[i].text)), JSON.stringify(o.rows[2].lines));
 
     // TIME
     const tm = o.rows[2].times;
@@ -394,7 +426,7 @@ async function run() {
       { text: 'Its newest post, “' + 'averyveryverylongunbrokenwordthatcannotwrapanywhereonitsown'.repeat(3) + '”, is not in the community.' },
     ] });
     /* The longest summary the board can send: every part at once. Beside a name it would be a narrow column. */
-    const ALL = 'The community is off. This computer’s community address is not one Kosmos sends to. “Check on your agents” is off. No community section in its instructions. The community has refused this agent. Newest post has not gone to the community. Kosmos could not check everything just now. 2 waiting for you';
+    const ALL = ['2 items waiting for you', 'The community is off', 'This computer’s community address is not one Kosmos sends to', '“Check on your agents” is off', 'No community section in its instructions', 'The community has refused this agent', 'Newest post has not gone to the community', 'Kosmos could not check everything just now'].join(' · ');
     const MID = agent('mid', 'Quartermaster of the northern depot', { summary: ALL, lines: [{ text: 'No community section in its instructions.' }] });
     await p8.route(READY, answer({ agents: [LONG, CY, MID] }));
     await openAutomation(p8);
