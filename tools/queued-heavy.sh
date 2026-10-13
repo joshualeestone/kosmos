@@ -145,16 +145,21 @@ QH_LIB_LOCK=""
 # to process-fixture.sh, or indented, would refuse every move (safely, and the line names it) until this check follows.
 QH_NEED_BASE="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_suite_waiting kosmos_refuse_if_earlier_suite_waiter _kosmos_suite_waiter_file kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
 # GIT_OPTIONAL_LOCKS=0: a status here must not take the index lock another git in that checkout may want.
-_qh_libgit() { env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE GIT_OPTIONAL_LOCKS=0 git -C "$LIB_CHECKOUT" "$@"; }
+# GIT_CEILING_DIRECTORIES: git must never walk up out of the lib folder to an enclosing repo (a lib that lost its .git
+# would otherwise be read, and moved, as some other checkout).
+_qh_libgit() { env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE GIT_OPTIONAL_LOCKS=0 GIT_CEILING_DIRECTORIES="$(dirname "$LIB_CHECKOUT")" git -C "$LIB_CHECKOUT" "$@"; }
 _qh_lib_check() {
-  # The files the queue loads: cut-guard.sh and what it sources itself (process-fixture.sh, at its top).
+  # The files the queue loads: cut-guard.sh and what it sources itself (process-fixture.sh, at its top). Kept by hand:
+  # if cut-guard.sh ever sources another lib file, add it here, or this check says "match" while that file differs.
   local files="tools/lib/cut-guard.sh tools/lib/process-fixture.sh" f head main diff="" why="" p="" g=_qh_libgit
   local rh; rh="$(eval "printf '%s' ~$(id -un)" 2>/dev/null)"   # the account's home, by name (not $HOME)
   rh="$(CDPATH= cd -- "$rh" 2>/dev/null && pwd -P)"   # both resolved, so a trailing slash or a symlinked spelling still matches
   if [ -z "$rh" ] || [ "$(CDPATH= cd -- "${HOME:-/}" 2>/dev/null && pwd -P)" = "$rh" ]; then   # the real home (or unknown): no test seams
     local QH_TEST_PS="" QH_TEST_CWD="" QH_TEST_PS_NAME="" QH_TEST_MOVE_FAIL="" QH_TEST_RESTORE_FAIL=""
   fi
-  head="$($g rev-parse --verify -q HEAD 2>/dev/null)" || return 0   # not a git checkout (a test fixture): nothing to say
+  [ -e "$LIB_CHECKOUT/.git" ] || return 0   # not a git checkout (a test fixture): nothing to say, and nothing above it is read
+  head="$($g rev-parse --verify -q HEAD 2>/dev/null)" || {
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT: git could not read this checkout, so it is loaded unchecked (#5923)"; return 0; }
   main="$($g rev-parse --verify -q origin/main 2>/dev/null)" || { echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9}; it has no origin/main to compare with (#5923)"; return 0; }
   # The files on disk (what is sourced), against origin/main's.
   for f in $files; do
@@ -311,6 +316,7 @@ else
       fi
     fi
     _qh_i=$((_qh_i + 1)); [ "$_qh_i" -ge 600 ] && { QH_LIB_LOCK=""; break; }
+    [ -d "${QH_LIB_LOCK%/*}" ] || { QH_LIB_LOCK=""; break; }   # the marker dir itself is gone: no lock can be taken, so stop at once
     sleep 0.5
   done
   if [ -n "$QH_LIB_LOCK" ]; then

@@ -244,12 +244,25 @@ run5923() {   # run5923 <name> [env assignments...]: runs the real wrapper with 
 }
 lh5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse HEAD; }
 lm5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse origin/main; }
+# Iteration 18: a lib folder that has LOST its .git, inside an enclosing repo that is itself detached and behind its
+# origin/main. git must not walk up and move the enclosing repo as if it were the lib.
+qh_nogit5923() {
+  local w="$1/work" c="-c user.name=t -c user.email=t@t -c commit.gpgsign=false"
+  mkdir -p "$w/kosmos-bc-main-4610/tools/lib" && $GE git -C "$w" init -q && cp "$ROOT"/tools/lib/*.sh "$w/kosmos-bc-main-4610/tools/lib/"
+  $GE git -C "$w" add -A && $GE git -C "$w" $c commit -qm old
+  echo '# a later main' >> "$w/kosmos-bc-main-4610/tools/lib/cut-guard.sh"; $GE git -C "$w" $c commit -qam new
+  $GE git -C "$w" update-ref refs/remotes/origin/main HEAD && $GE git -C "$w" checkout -q --detach HEAD~1
+}
 printf 'p1\nn/\n' > $S/cwd5923
 for n in mv mk ps sh set dirty nops cwd nocwd reuse dead ahead same branch claim need psx nopid live mvfail mvkeep mvmix noorig unw sideneed; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
 run5923 mv
 ok "#5923: the default lib checkout behind origin/main, nothing live: moved to origin/main, said so, run runs, lock gone" '[ "$rc" = 0 ] && [ -e $S/l5923-mv-ran ] && [ "$(lh5923 mv)" = "$(lm5923 mv)" ] && [[ "$o" == *"moved"*"-> origin/main"*"cut-guard.sh differed"* ]] && [ ! -e $S/ml5923-mv/queued-heavy-lib.lock ]'
 run5923 mv
 ok "#5923: once at origin/main the next join says the queue files match and moves nothing" '[ "$rc" = 0 ] && [[ "$o" == *"files match origin/main"* ]] && [[ "$o" != *moved* ]]'
+qh_nogit5923 $S/l5923-nogit; printf '1 0 /sbin/launchd\n' > $S/ps5923-nogit
+NOGIT_BEFORE=$($GE git -C $S/l5923-nogit/work rev-parse HEAD)
+run5923 nogit
+ok "#5923: a lib folder with no .git inside a behind, detached repo: that ENCLOSING repo is never moved, and the run runs" '[ "$rc" = 0 ] && [ -e $S/l5923-nogit-ran ] && [ "$($GE git -C $S/l5923-nogit/work rev-parse HEAD)" = "$NOGIT_BEFORE" ] && [[ "$o" != *moved* ]]'
 mkdir -p $S/ml5923-mk && : > $S/ml5923-mk/suitewait.999999
 run5923 mk
 ok "#5923: a queue marker present: NOT moved, says which, joins on the old lib and runs" '[ "$rc" = 0 ] && [ -e $S/l5923-mk-ran ] && [ "$(lh5923 mk)" != "$(lm5923 mk)" ] && [[ "$o" == *"DIFFERS"*"not moved (a queue marker is present (suitewait.999999))"* ]]'
@@ -511,7 +524,7 @@ sed 's|  exec /bin/bash "${BASH_SOURCE\[0\]}" --queued-args "$_qh_af"|  exec /no
 mkdir -p $S/tmpx; o=$(TMPDIR=$S/tmpx KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash $S/qh-noexec.sh "noexec" true 2>&1); r=$?
 ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"could not restart itself"* ]] && [ -z "$(ls $S/tmpx)" ] && grep -q /nonexistent/bash $S/qh-noexec.sh'
 
-EXPECTED=137   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-two #5923 lib-drift arms
+EXPECTED=138   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-three #5923 lib-drift arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
