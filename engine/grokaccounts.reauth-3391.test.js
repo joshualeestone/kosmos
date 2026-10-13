@@ -104,15 +104,17 @@ test('a failed, empty or cancelled sign-in again never touches the live account'
     const before = grokDirs();
     const out = grok.startGrokLogin({ grokBin: FAKE, reauthDir: live });
     await waitFor(() => grok.grokLoginStatus(out.sessionId).userCode);
-    assert.match(grok.forgetAccount(live, []).because, /still in progress/, 'the live account is held while it signs in again');
-    assert.match(grok.removeAccount(live, []).because, /still in progress/);
+    // #6000: a forget or remove of the account now CANCELS its own sign-in again instead of refusing
+    // (engine/grokaccounts.reauthcancel-6000.test.js); a second sign-in again is still refused while it runs, and any
+    // other hold still refuses forget/remove (grokaccounts.subscription-3391.test.js, a pending named sign-in).
     const twice = grok.startGrokLogin({ grokBin: FAKE, reauthDir: live });
     assert.equal(twice.ok, false);
     assert.match(twice.because, /already in progress/);
     grok.cancelGrokLogin(out.sessionId);
     await waitFor(() => grokDirs().join() === before.join());
     assert.equal(auth(live), OLD);
-    assert.equal(grok.forgetAccount(live, []).ok, true, 'released once the sign-in ended');
+    assert.equal(grok.isSignInPending(live), false, 'released once the sign-in ended');
+    assert.equal(grok.forgetAccount(live, []).ok, true, 'the account can be forgotten after a cancelled sign-in again');
   });
 });
 

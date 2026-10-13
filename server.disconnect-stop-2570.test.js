@@ -928,3 +928,51 @@ test('#5994: disconnect-and-stop on an account with its own unfinished Sign in a
   while (Date.now() < end && ourSlots().length) await new Promise((res) => setTimeout(res, 25));
   assert.deepEqual(ourSlots(), [], 'the cancelled sign-in never exited');
 });
+
+/* #6000 end to end through the Grok route (the #5994 shape; this route has no stopAgents): an account whose own "Sign
+   in again" was left unfinished. With an agent on the account the request is refused and cancels nothing; once the agent
+   is gone the delete goes ahead and the abandoned sign-in is cancelled instead of refusing the delete. */
+test('#6000: the Grok route deletes an account with its own unfinished Sign in again and cancels it; refused with an agent on it', async () => {
+  installRunner();   // a clean pane list and runner, as every arm here (one undiagnosable agent anywhere fails closed)
+  const grok = require('./engine/grokaccounts');
+  const slotsBefore = new Set(fs.readdirSync(HOME).filter((n) => /^\.grok-work/.test(n)));
+  const ourSlots = () => fs.readdirSync(HOME).filter((n) => /^\.grok-work/.test(n) && !slotsBefore.has(n));
+  const dir = nodePath.join(HOME, '.grok-reauth6000');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::u1': { email: 'r6000@example.com', refresh_token: 'OLD' } }));
+  const mock = nodePath.join(SANDBOX, 'grok-reauth-6000.sh');
+  fs.writeFileSync(mock, '#!/bin/bash\nprintf "\\n  https://accounts.x.ai/oauth2/device?user_code=QWER-TYUI\\n\\n  QWER-TYUI\\n\\n"\nexec sleep 30\n');
+  fs.chmodSync(mock, 0o755);
+  const started = grok.startGrokLogin({ grokBin: mock, reauthDir: dir });
+  assert.equal(started.ok, true, started.because);
+  try {   // from here, so a setup failure still cancels the sign-in and removes the agent (as #5994's route test)
+    const t0 = Date.now();   // the sign-in is under way (its code printed) before the first request
+    while (Date.now() - t0 < 4000 && !grok.grokLoginStatus(started.sessionId).userCode) await new Promise((res) => setTimeout(res, 25));
+    assert.ok(grok.grokLoginStatus(started.sessionId).userCode, 'the mock sign-in never printed its code');
+    registeredNotRunning('reauth6000', dir, 'grok');
+    // CONTROL: an agent on the account, so the request is refused, names it, and the sign-in is NOT cancelled.
+    const refused = await del('grok', { dir, remove: true });
+    assert.equal(refused.code, 400, JSON.stringify(refused.json));
+    assert.match(String(refused.json.error), /reauth6000 is set up to run on this account/);
+    assert.notEqual(grok.grokLoginStatus(started.sessionId).state, 'cancelled', 'a refused call cancelled the sign-in');
+    assert.ok(fs.existsSync(dir));
+    // The agent is removed (its job and profile gone); now the delete goes ahead and cancels the abandoned sign-in.
+    fs.rmSync(jobfix.jobPath('reauth6000'), { force: true });
+    fs.rmSync(nodePath.join(DATA, store.APP, 'profiles', 'reauth6000.json'), { force: true });
+    fs.rmSync(nodePath.join(WORKERS, 'reauth6000'), { recursive: true, force: true });
+    const r = await del('grok', { dir, remove: true });
+    assert.equal(r.code, 200, 'the abandoned sign-in still blocked the delete. body: ' + JSON.stringify(r.json));
+    assert.ok(!fs.existsSync(dir), 'the account was not deleted');
+    assert.equal(grok.grokLoginStatus(started.sessionId).state, 'cancelled');
+    assert.deepEqual(calls, [], 'the runner was called: this route has no stopAgents, so nothing may stop an agent');
+  } finally {
+    grok.cancelGrokLogin(started.sessionId);
+    fs.rmSync(jobfix.jobPath('reauth6000'), { force: true });
+    fs.rmSync(nodePath.join(DATA, store.APP, 'profiles', 'reauth6000.json'), { force: true });
+    fs.rmSync(nodePath.join(WORKERS, 'reauth6000'), { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  const end = Date.now() + 4000;   // let the killed child exit so nothing outlives this test
+  while (Date.now() < end && ourSlots().length) await new Promise((res) => setTimeout(res, 25));
+  assert.deepEqual(ourSlots(), [], 'the cancelled sign-in never exited');
+});
