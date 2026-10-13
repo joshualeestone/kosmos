@@ -62,9 +62,11 @@ const BASE = require('./fixtures/agent-card.json');
     });
     const host = document.createElement('div');
     document.body.appendChild(host);
-    host.innerHTML = card(mk('agent')) + card(mk('auto')) + card(mk(null));
+    // #6091: a card stopped on its permission prompt (status.awaitingApprovalOf) reads "Waiting for you" and stays red.
+    const approval = Object.assign(mk('auto'), { sessionName: 's-approval', awaitingApproval: true });
+    host.innerHTML = card(mk('agent')) + card(mk('auto')) + card(mk(null)) + card(approval);
     const cards = host.querySelectorAll('.acard');
-    if (cards.length !== 3) return { error: 'expected 3 cards, got ' + cards.length };
+    if (cards.length !== 4) return { error: 'expected 4 cards, got ' + cards.length };
     const read = (c) => {
       const p = c.querySelector('.astate');
       const b = p ? p.querySelector('b') : null;
@@ -100,7 +102,7 @@ const BASE = require('./fixtures/agent-card.json');
         autoSmallClass: small(rows[1]) ? small(rows[1]).className : '(none)',
       };
     }
-    return { q: read(cards[0]), auto: read(cards[1]), scr: read(cards[2]), pj };
+    return { q: read(cards[0]), auto: read(cards[1]), scr: read(cards[2]), appr: read(cards[3]), pj };
   }, BASE);
 
   await browser.close();
@@ -117,6 +119,10 @@ const BASE = require('./fixtures/agent-card.json');
   // Negative arm 1: class 1 (auto) stays red.
   if (!/\battn\b/.test(r.auto.acardClass)) fail.push('a class-1 (auto) needs_you LOST its red attn - class 1 must stay red as PigeonPete\'s fallback (' + r.auto.acardClass + ')');
   if (!/^issue$/i.test(r.auto.label)) fail.push('a class-1 card no longer reads "Issue" (' + JSON.stringify(r.auto.label) + ')');
+  // #6091: a permission prompt reads "Waiting for you", red like the alarm it is (the auto card above, the same but
+  // for awaitingApproval, still reads "Issue": that is this arm's control).
+  if (!/^waiting for you$/i.test(r.appr.label)) fail.push('a card on its permission prompt does not read "Waiting for you" (' + JSON.stringify(r.appr.label) + ')');
+  if (!/\battn\b/.test(r.appr.acardClass)) fail.push('a card on its permission prompt lost its red attn (' + r.appr.acardClass + ')');
   // Negative arm 2: a scraped needs_you (null provenance) stays red.
   if (!/\battn\b/.test(r.scr.acardClass)) fail.push('a SCRAPED needs_you (null provenance) was wrongly calmed - only KNOWN by:agent is de-alarmed (' + r.scr.acardClass + ')');
   // Computed-color proof: the calm border must actually differ from the red one, or .acard.question
@@ -139,5 +145,5 @@ const BASE = require('./fixtures/agent-card.json');
     console.error('  measured=' + JSON.stringify(r));
     process.exit(1);
   }
-  console.log('render-needsyou-dealarm-2808: a deliberate agent question renders as a calm "Question" card (no red attn, calm ? glyph, a border color distinct from the alarm); a class-1 (auto) and a scraped needs_you both stay red "Issue". PASS');
+  console.log('render-needsyou-dealarm-2808: a deliberate agent question renders as a calm "Question" card (no red attn, calm ? glyph, a border color distinct from the alarm); a class-1 (auto) and a scraped needs_you both stay red "Issue"; a permission prompt reads "Waiting for you", still red (#6091). PASS');
 })().catch((e) => { console.error('FAIL  render-needsyou-dealarm-2808', e && e.message); process.exit(1); });
