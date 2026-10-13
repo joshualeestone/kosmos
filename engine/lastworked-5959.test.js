@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope');   // first: every temp dir this file makes is swept at exit (#4273)
 
 /**
  * #5959 slice 2: every card of ours carries lastWorked, when Kosmos last saw the agent work, for the health line on
