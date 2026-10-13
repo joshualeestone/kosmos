@@ -120,7 +120,7 @@ function writeRun(key, run) {
  * @param {{ tool: string, sig: string, error?: string }} failure  the hook's digest
  * @param {{ now?: number, secrets?: string[] }} [opts]  `secrets`: the values the board holds (its token, the agent
  *   tokens), masked by value in the stored error line as the diagnostics file masks them
- * @returns {{ ok: boolean, because?: string, count?: number, looping?: boolean, reached?: boolean }}
+ * @returns {{ ok: boolean, because?: string, count?: number, looping?: boolean, reached?: boolean, tool?: string }}
  *   `reached` is true on the one call that brought the run to LOOP_AT (the board logs it once).
  */
 function noteFailure(key, failure, opts) {
