@@ -178,3 +178,13 @@ test('a body over the route\'s small limit is refused, not buffered', async (t) 
   assert.ok(status === 400 || status === 413 || status === 'dropped', String(status));
   assert.equal(toolloop.peek('leo'), null, 'nothing recorded');
 });
+
+test('the next prompt ends a turn too, as when the person pressed Esc and no Stop came', async (t) => {
+  const board = fleet.install([fleet.agent('leo', { state: 'idle' })]);
+  t.after(() => board.restore());
+  toolloop.forget('leo');
+  const h = { 'x-kosmos-agent-token': sendertoken.mint('leo').token };
+  for (let i = 0; i < 3; i++) await postFail({ tool: 'Bash', sig: SIG, error: 'e' }, h);
+  await postReport({ state: 'working', auto: true, text: toolloop.PROMPT_TEXT }, h);
+  assert.equal((await postFail({ tool: 'Bash', sig: SIG, error: 'e' }, h)).json.count, 1);
+});

@@ -88,3 +88,17 @@ test('with no runnable CLI the hook still exits 0 and sends nothing', () => {
   assert.equal(r.status, 0);
   assert.equal(fs.readFileSync(LOG, 'utf8'), '');
 });
+
+test('a jq that fails on the signature sends nothing, rather than the one hash of nothing for every failure', () => {
+  /* It must fail ONLY on the signature's -cS call: a jq that fails everywhere cannot read the event name, so the hook
+     stops before this branch and the test would pass for the wrong reason. */
+  const real = cp.execFileSync('/bin/sh', ['-c', 'command -v jq || true'], { encoding: 'utf8' }).trim() || '/usr/bin/jq';
+  const bin = path.join(SB, 'badjq');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'jq'), '#!/bin/sh\n[ "$1" = "-cS" ] && exit 1\nexec "' + real + '" "$@"\n');
+  fs.chmodSync(path.join(bin, 'jq'), 0o755);
+  /* The control: the same fake jq on a call it passes through still reads the event (a failure WITH a signature). */
+  assert.ok(fs.existsSync(real), 'no real jq on this machine to pass through to: ' + real);
+  const r = run(fail('Bash', { command: 'x' }, 'e'), { PATH: bin + ':' + process.env.PATH }, 0);
+  assert.deepEqual(r.failed, []);
+});

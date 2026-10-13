@@ -97,3 +97,11 @@ test('forget drops the run; a malformed record reads as no run and is replaced o
   assert.equal(toolloop.peek('agent-h'), null);
   assert.equal(toolloop.noteFailure('agent-h', { tool: 'Bash', sig: SIG_A }).count, 1);
 });
+
+test('endsTurn: an automatic idle, stopped or started, or the next prompt; not a working heartbeat', () => {
+  for (const st of ['idle', 'stopped', 'started']) assert.equal(toolloop.endsTurn(st, ''), true, st);
+  assert.equal(toolloop.endsTurn('working', toolloop.PROMPT_TEXT), true, 'a new prompt, even after an Esc with no Stop');
+  assert.equal(toolloop.endsTurn('working', 'running Bash'), false);
+  assert.equal(toolloop.endsTurn('needs_you', 'asking permission to use Bash'), false);
+  assert.equal(toolloop.endsTurn('blocked', ''), false);
+});

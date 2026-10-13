@@ -3387,7 +3387,7 @@ const outbox = require('./engine/outbox');
    sends the header on EVERY call, including person-side ones such as `kosmos
    open`'s board-nonce run from a terminal with no KOSMOS_WORLD, and those must
    never be refused for it. */
-const WORLD_CHECKED_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply', 'POST /api/msg', 'POST /api/post', 'POST /api/react']);
+const WORLD_CHECKED_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail']);   // toolfail: #6071, a digest meant for another Kosmos is refused like a report
 
 /* 421 Misdirected Request: the request is well formed and was sent to a server
    that cannot answer for it, which is exactly "this board is serving another
@@ -15442,10 +15442,10 @@ const server = http.createServer(async (req, res) => {
         if (!sender.ok) { sendJson(res, 200, { recorded: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
-        /* #6071: an automatic idle, stopped or started ends a turn for engine/toolloop.js's count of one repeating
-           tool failure. Here, BEFORE selfreport.record: that record refuses an automatic idle over a standing
-           deliberate wait, and the turn ended all the same. */
-        if (body.auto === true && require('./engine/toolloop').TURN_ENDS.includes(body.state)) {
+        /* #6071: an automatic idle, stopped or started, or the prompt that starts a new turn, ends a turn for
+           engine/toolloop.js's count of one repeating tool failure. Here, BEFORE selfreport.record: that record
+           refuses an automatic idle over a standing deliberate wait, and the turn ended all the same. */
+        if (body.auto === true && require('./engine/toolloop').endsTurn(body.state, body.text)) {
           try { require('./engine/toolloop').noteTurnEnd(who); } catch { /* the count is best-effort */ }
         }
         // #718: a phone buzzes on the change INTO needs_you, not on every repeat
