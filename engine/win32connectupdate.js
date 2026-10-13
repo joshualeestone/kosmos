@@ -38,17 +38,18 @@
  *   newer <v>          newer, and updates are off here (or the switch cannot be read): offered, not installed
  *   updated <v>        installed; the board was left stopped
  *   rolledback <v>     rolled back to <v>; the board was left stopped
- *   failed <why>       the update or rollback was started and did not finish
- *   board              a board answers on this computer, and it updates itself
+ *   failed <v> <why>   the update to <v>, or the rollback to <v>, was started and did not finish
+ *   board              a Kosmos board answers on this computer, and it updates itself
  *   unknown <why>      the release host could not be reached or read, or this is not an installed Kosmos
  *   refused <why>      not done here: not a connect computer, an agent asked, or a precondition failed
- * and, after it, when a kept build can be rolled back to:
+ * and, after it, when a kept build can be rolled back to on this computer (connectReadyBuild):
  *   rollback <v>
  * Exit 0 for current, newer, updated, rolledback and board; 1 for failed and unknown; 3 for refused.
  */
 
 const os = require('node:os');
 const fs = require('node:fs');
+const path = require('node:path');
 const update = require('./update');
 const ifnewer = require('./update-ifnewer');
 const win32update = require('./win32update');
@@ -69,11 +70,37 @@ function invokedByAgent(env) {
 function oneLine(text) { return String(text === undefined || text === null ? '' : text).replace(/[\t\r\n]+/g, ' ').trim(); }
 
 /**
+ * May a computer that connects elsewhere roll back to the build in `dir`? Only when that build can itself
+ * live with no board: it carries this file (so it can update itself again, and it is from #4382 or later),
+ * which also means its Kosmos.exe is launcher 8.1 or later and honours the connect choice (#4381; the
+ * launcher is committed beside the engine, so a build carrying this file carries a launcher at least that
+ * new). A build older than that would start a board on a computer whose person chose not to run one, and
+ * could never update again. A sentence saying why not, or null.
+ */
+function connectReadyRefusal(dir, version) {
+  let here = false;
+  try { here = fs.statSync(path.join(dir, 'app', 'engine', path.basename(__filename))).isFile(); } catch { here = false; }
+  if (here) return null;
+  return `the version kept for a rollback (${version}) is too old for a computer that connects to agents on another computer: it would start agents here, and could not update itself again. Download the version you want from the Kosmos website instead`;
+}
+
+/** The rollback this computer can take, as the version, or null: the board's own offer (a kept build
+    strictly older than the one installed, in a folder the updater takes), narrowed to a build that is
+    connect-ready (connectReadyRefusal). */
+function connectRollbackOffer(root) {
+  try {
+    if (update.windowsLocationRefusal()) return null;
+    const kept = win32update.keptPreviousBuild(root);
+    if (!kept || connectReadyRefusal(kept.dir, kept.version)) return null;
+    return kept.version;
+  } catch { return null; }
+}
+
+/**
  * One run. Resolves to `{ answer: [word, value?], rollback: <version>|null }`. Seams, each with its
  * production default: platform, env, home, port, root (update.installedRoot), probe
  * (win32handoff.probeBoard), readsConnect (win32apply.readsConnect), decide (update-ifnewer.decide),
- * begin, rollbackToPrevious, wait (waitForOutcome's seams), rollbackOffer (update.rollbackOffer),
- * liveExecutionAllowed, log.
+ * begin, rollbackToPrevious, wait (waitForOutcome's seams), liveExecutionAllowed, log.
  */
 async function run(action, opts) {
   const o = opts || {};
@@ -84,10 +111,8 @@ async function run(action, opts) {
   const log = typeof o.log === 'function' ? o.log : () => {};
   const probe = o.probe || win32handoff.probeBoard;
   const readsConnect = o.readsConnect || (() => win32apply.readsConnect(env, home));
-  const offerRollback = () => {
-    try { const r = (o.rollbackOffer || update.rollbackOffer)(); return r && r.version ? r.version : null; } catch { return null; }
-  };
-  const done = (answer, rollback) => ({ answer, rollback: rollback === undefined ? offerRollback() : rollback });
+  let root = null;
+  const done = (answer, rollback) => ({ answer, rollback: rollback === undefined ? (root ? connectRollbackOffer(root) : null) : rollback });
 
   if (!ACTIONS.includes(action)) return done(['refused', `no such action: ${action}`], null);
   if (platform !== 'win32') return done(['refused', 'this is the Windows connect computer\'s update, and this is not Windows'], null);
@@ -95,13 +120,18 @@ async function run(action, opts) {
   if (readsConnect() !== true) {
     return done(['refused', 'this computer is not set to connect to agents elsewhere; its own board keeps it updated'], null);
   }
-  const root = o.root !== undefined ? o.root : update.installedRoot();
+  root = o.root !== undefined ? o.root : update.installedRoot();
   if (!root) return done(['unknown', 'this is not an installed copy of Kosmos'], null);
 
   /* A board that answers looks for itself every fifteen minutes, and two updaters must never race. Asked
-     once here and handed to the precondition as measured, so B0 refuses on the same answer. */
+     once here and handed to the precondition as measured, so B0 refuses on the same answer. On loopback a
+     Kosmos board always names itself (win32handoff, x-kosmos-board-identity), so an answer with no identity
+     is another program holding the port: the update's stop could not free it, so nothing is started. */
   const answer = await probe(port);
-  if (answer && answer.answering === true) return done(['board']);
+  if (answer && answer.answering === true) {
+    if (answer.identity) return done(['board']);
+    return done(['refused', `another program answers on port ${port}, so Kosmos did not start`]);
+  }
   const connectComputer = { connects: () => readsConnect() === true, boardAnswers: () => Boolean(answer && answer.answering === true) };
   const common = {
     root, port, boardPid: null, connectComputer, log, env, home,
@@ -110,11 +140,14 @@ async function run(action, opts) {
   };
 
   if (action === 'rollback') {
+    const kept = win32update.keptPreviousBuild(root);
+    const tooOld = kept && connectReadyRefusal(kept.dir, kept.version);
+    if (tooOld) return done(['refused', tooOld]);
     const r = await (o.rollbackToPrevious || win32update.rollbackToPrevious)(common);
     if (!r || !r.ok) return done(['refused', oneLine((r && r.because) || 'the rollback could not be started')]);
     const outcome = await outcomeOf(r.journal, probe, o.wait);
     if (outcome.outcome === 'updated') return done(['rolledback', r.version]);
-    return done(['failed', oneLine(outcome.sentence || outcome.because || `the rollback ended as ${outcome.outcome || 'unknown'}`)]);
+    return done(['failed', r.version, oneLine(outcome.sentence || outcome.because || `the rollback ended as ${outcome.outcome || 'unknown'}`)]);
   }
 
   const look = await (o.decide || ifnewer.decide)();
@@ -128,13 +161,14 @@ async function run(action, opts) {
   if (!r || !r.ok) return done(['refused', oneLine((r && r.because) || 'the update could not be started')]);
   const outcome = await outcomeOf(r.journal, probe, o.wait);
   if (outcome.outcome === 'updated') return done(['updated', outcome.to || r.version || version]);
-  return done(['failed', oneLine(outcome.sentence || outcome.because || `the update ended as ${outcome.outcome || 'unknown'}`)]);
+  return done(['failed', version, oneLine(outcome.sentence || outcome.because || `the update ended as ${outcome.outcome || 'unknown'}`)]);
 }
 
 /** The helper's outcome for the journal begin() or rollbackToPrevious() wrote: win32update's own wait. */
 async function outcomeOf(journalAt, probe, waitSeams) {
   const token = (win32apply.readJournal(journalAt).journal || {}).token;
-  return win32update.waitForOutcome(journalAt, token, { probe, ...(waitSeams || {}) });
+  /* noBoard: nothing answers as the new build here, so the journal's own record counts (waitForOutcome). */
+  return win32update.waitForOutcome(journalAt, token, { probe, noBoard: true, ...(waitSeams || {}) });
 }
 
 function parseArgs(argv) {
@@ -183,7 +217,7 @@ async function cliMain(argv, write, seams) {
   return code === undefined ? 1 : code;
 }
 
-module.exports = { run, cliMain, reportLines, parseArgs, invokedByAgent, ACTIONS, EXIT };
+module.exports = { run, cliMain, reportLines, parseArgs, invokedByAgent, connectReadyRefusal, ACTIONS, EXIT };
 
 /* Guarded on being the main module: requiring this file must never look, download or swap anything. */
 if (require.main === module) {

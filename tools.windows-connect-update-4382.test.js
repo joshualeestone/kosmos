@@ -83,15 +83,18 @@ test('#4382: a connect launch looks for an update once its stop of the board is 
 
   const start = method('void StartUpdateLooks()');
   inOrder(start, ['if (mode != KosmosLauncher.ComputerMode.Connect) return;', 'updateTimer = new System.Windows.Forms.Timer();',
-    'updateTimer.Interval = KosmosLauncher.UpdateLookEveryMs;', 'updateTimer.Tick += (sender, args) => LookForUpdate("look");', 'updateTimer.Start();', 'LookForUpdate("look");'],
-    'the daily look');
+    'updateTimer.Interval = KosmosLauncher.UpdateLookEveryMs;',
+    'updateTimer.Tick += (sender, args) => { if (KosmosLauncher.UpdateLookIsDue(updateState)) LookForUpdate("look"); };',
+    'updateTimer.Start();', 'if (KosmosLauncher.UpdateLookIsDue(updateState)) LookForUpdate("look");'],
+    'the daily look, skipped while an installed update waits for its Restart');
   const every = constant('UpdateLookEveryMs');
   const retry = constant('UpdateLookRetryMs');
   assert.ok(every > 0 && every <= 24 * 60 * 60 * 1000, 'a look at least once a day');
   assert.ok(every <= 0x7fffffff, 'a WinForms Timer interval is an int');
   assert.ok(retry > 0 && retry < every, 'a look that could not reach the host is tried again sooner');
   assert.match(method('void UpdateLookDone(KosmosLauncher.ConnectUpdateAnswer answer, string action)'),
-    /int next = answer\.Kind == KosmosLauncher\.ConnectUpdateKind\.Unknown && !asked \? KosmosLauncher\.UpdateLookRetryMs : KosmosLauncher\.UpdateLookEveryMs;/);
+    /if \(updateTimer != null && updateTimer\.Interval != updateState\.NextLookMs\) updateTimer\.Interval = updateState\.NextLookMs;/,
+    'the next look follows the state (a day, or an hour after a look that could not reach the host)');
   /* Closing the window, or going back to running agents, stops the looks: the board then looks for itself. */
   assert.match(method('protected override void OnFormClosed(System.Windows.Forms.FormClosedEventArgs e)'), /updateTimer\.Stop\(\); updateTimer\.Dispose\(\); updateTimer = null;/);
   assert.match(method('void StopUpdateLooks()'), /updateTimer\.Stop\(\); updateTimer\.Dispose\(\); updateTimer = null;/);
@@ -118,32 +121,43 @@ test('#4382: each run is the engine\'s, off the window\'s thread, counted so Run
   inOrder(method('void RunAgentsHere()'), [
     'if (mode != KosmosLauncher.ComputerMode.Connect) return;',
     'if (updateLookInFlight) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }',
+    'if (KosmosLauncher.UpdateUnderWayHere(here)) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }',
     'if (stopsInFlight > 0)',
-  ], 'Run agents during an update');
+    'KosmosLauncher.WriteComputerMode(KosmosLauncher.ComputerMode.Run, file)',
+  ], 'Run agents during an update, this window\'s or one a closed window started');
+  /* The disk check reads the files the engine writes, where the engine writes them. */
+  const here = method('internal static bool UpdateUnderWayHere(string here)');
+  const win32update = require('./engine/win32update.js');
+  const win32anchor = require('./engine/win32anchor.js');
+  assert.match(here, new RegExp('Path\\.Combine\\(Path\\.Combine\\(here, "' + win32update.WORK_DIRNAME.replace(/\./g, '\\.') + '"\\), "' + win32update.LOCK_NAME.replace(/\./g, '\\.') + '"\\)'));
+  assert.match(method('internal static string UpdateJournalPath()'), new RegExp('"' + win32anchor.UPDATE_JOURNAL_NAME.replace(/\./g, '\\.') + '"'));
   /* The window still starts no board: the engine's run is the only process it adds, and it is not the board. */
   const form = slice('class BoardWindowForm : System.Windows.Forms.Form', '// The completion handlers and event handlers WebView2 calls back on.');
   assert.doesNotMatch(form, /RunSchtasks\(|"\/Run|OpenerStartInfo|server\.js/);
   assert.equal(count(form, 'KosmosLauncher.runEngineHelper('), 1, 'the window runs an engine helper somewhere other than the update look');
 });
 
-test('#4382: the same consent as the board: nothing installs unless updates are on or the person picked it, and nothing restarts unasked', () => {
+test('#4382: the window applies the pure decisions, and nothing else installs, rolls back or restarts', () => {
   const done = method('void UpdateLookDone(KosmosLauncher.ConnectUpdateAnswer answer, string action)');
-  assert.match(done, /bool asked = action != "look";/);
-  /* Newer (updates off): an offer only. */
-  inOrder(slice('case KosmosLauncher.ConnectUpdateKind.Newer:', 'break;'), ['updateOffer = answer.Value;', 'ShowCurrentOffer();'], 'the offer');
-  /* Updated: a relaunch only when the person asked; an unasked install waits for the person's Restart. */
-  inOrder(slice('case KosmosLauncher.ConnectUpdateKind.Updated:', 'break;'),
-    ['if (asked) { RelaunchAfterClose = true; Close(); return; }', 'updateInstalled = answer.Value;', 'ShowCurrentOffer();'], 'after an install');
+  inOrder(done, ['updateState = KosmosLauncher.AfterConnectUpdate(updateState, answer, action);',
+    'if (updateState.Relaunch != null) { RelaunchAfterClose = updateState.Relaunch; Close(); return; }',
+    'ShowUpdateBar(updateState.BarNote, updateState.BarButton);', 'UpdateRunAgentsItem();',
+    'if (updateState.Message != null) KosmosLauncher.ShowWindowMessage(updateState.Message, true);'], 'after a run');
   /* The only install and the only rollback are the person's picks, and a rollback is asked first. */
   assert.equal(count(SOURCE, 'LookForUpdate("install")'), 1);
   assert.equal(count(SOURCE, 'LookForUpdate("rollback")'), 1);
-  inOrder(method('void UpdatePicked()'), ['if (mode != KosmosLauncher.ComputerMode.Connect || updateLookInFlight) return;',
-    'if (updateInstalled != null) { RelaunchAfterClose = true; Close(); return; }', 'if (updateOffer != null) LookForUpdate("install");'], 'Update');
-  inOrder(method('void RollbackPicked()'), ['rollbackOffer == null) return;', 'if (!KosmosLauncher.askYesNo(KosmosLauncher.RollbackQuestion(rollbackOffer))) return;',
-    'LookForUpdate("rollback");'], 'Roll back');
-  /* The bar is the window's, over the page, never in it (Liu Kang's ruling for the Mac half). */
+  inOrder(method('void UpdatePicked()'), ['KosmosLauncher.UpdatePickedAction(updateState, updateLookInFlight);',
+    'if (next == "busy") { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }',
+    'if (next == "restart") { RelaunchAfterClose = "update"; Close(); return; }', 'if (next == "install") LookForUpdate("install");'], 'Update');
+  inOrder(method('void RollbackPicked()'), ['updateState.Rollback == null) return;',
+    'if (updateLookInFlight) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }',
+    'if (!KosmosLauncher.askYesNo(KosmosLauncher.RollbackQuestion(updateState.Rollback))) return;', 'LookForUpdate("rollback");'], 'Roll back');
+  /* The bar is the window's, over the page, never in it (Liu Kang's ruling for the Mac half), and Not now is a field. */
   const bar = method('void ShowUpdateBar(string note, string button)');
   assert.match(bar, /Controls\.Add\(updateBar\);/);
+  assert.match(bar, /updateState = KosmosLauncher\.AfterNotNow\(updateState\);/);
+  assert.match(bar, /updateBarNotNow\.Visible = !updateLookInFlight;/, 'a note bar has no way to put it away');
+  assert.doesNotMatch(bar, /Controls\[/, 'a control picked by its index');
   assert.doesNotMatch(bar, /webView|ExecuteScript|Navigate/, 'the notice was put into the page, which is the other computer\'s');
   assert.match(method('void FitViewToWindow()'), /bounds\.top = client\.Top \+ barHeight;/, 'the bar covers the page');
 });
@@ -156,20 +170,19 @@ test('#4382: Update and Roll back are in the system menu, only on a connect comp
   assert.match(proc, /== UpdateMenuId\) \{ UpdatePicked\(\); return; \}/);
   assert.match(proc, /== RollbackMenuId\) \{ RollbackPicked\(\); return; \}/);
   const menu = method('void UpdateRunAgentsItem()');
-  inOrder(menu, ['bool want = mode == KosmosLauncher.ComputerMode.Connect;', 'updateInstalled != null ? KosmosLauncher.RestartMenuText(updateInstalled)',
-    'updateOffer != null ? KosmosLauncher.UpdateMenuText(updateOffer)', 'want && rollbackOffer != null ? KosmosLauncher.RollbackMenuText(rollbackOffer) : null;',
+  inOrder(menu, ['bool want = mode == KosmosLauncher.ComputerMode.Connect;', 'updateState.Installed != null ? KosmosLauncher.RestartMenuText(updateState.Installed)',
+    'updateState.Offer != null ? KosmosLauncher.UpdateMenuText(updateState.Offer)', 'want && updateState.Rollback != null ? KosmosLauncher.RollbackMenuText(updateState.Rollback) : null;',
+    'if (systemMenuShown != null) GetSystemMenu(Handle, true);',
     'if (updateText != null) AppendMenuW(menu, MF_STRING, new UIntPtr((uint)UpdateMenuId), updateText);',
     'if (rollbackText != null) AppendMenuW(menu, MF_STRING, new UIntPtr((uint)RollbackMenuId), rollbackText);'], 'the menu');
   assert.match(SOURCE, /internal static string UpdateMenuText\(string version\) \{ return "Update Kosmos to " \+ version; \}/);
   assert.match(SOURCE, /internal static string RollbackMenuText\(string version\) \{ return "Roll back Kosmos to " \+ version; \}/);
-  /* The menu follows each answer. */
-  assert.match(method('void UpdateLookDone(KosmosLauncher.ConnectUpdateAnswer answer, string action)'), /UpdateRunAgentsItem\(\);\s*$/);
 });
 
 test('#4382: after an update or rollback the person asked for, the window closes and the Kosmos.exe now in the folder opens, after the lock', () => {
   const run = method('static int RunBoardWindow(string here, string node, string opener, string app, int port)');
-  inOrder(run, ['relaunch = form.RelaunchAfterClose;', 'finally { onlyWindow.ReleaseMutex(); }', 'if (relaunch)',
-    'StartLauncherAt(Path.Combine(here, "Kosmos.exe"), here);', 'RelaunchFailedMessage(here, relaunchProblem)'], 'the relaunch');
+  inOrder(run, ['relaunch = form.RelaunchAfterClose;', 'finally { onlyWindow.ReleaseMutex(); }', 'if (relaunch != null)',
+    'StartLauncherAt(Path.Combine(here, "Kosmos.exe"), here);', 'RelaunchFailedMessage(here, relaunchProblem, relaunch == "rollback")'], 'the relaunch');
 });
 
 test('#4382: the release switch stays off on main: turning the first-run choice on for Windows is its own decision', () => {
@@ -180,6 +193,13 @@ test('#4382: the release switch stays off on main: turning the first-run choice 
 
 /* ---- the probe ---------------------------------------------------------- */
 
+/* Each stdin line is one row: a command, then fields split by |. "-" is null.
+     report|<report lines joined by \n>
+     state|offer;installed;rollback;dismissed|<report lines>|<action>
+     notnow|offer;installed;rollback;dismissed
+     due|offer;installed;rollback;dismissed
+     picked|offer;installed;rollback;dismissed|<inflight 0/1>
+     disk|<lock age s or ->|<journal text or ->|<journal age s or -> */
 const PROBE = String.raw`
 using System;
 using System.IO;
@@ -187,16 +207,45 @@ using System.Text;
 
 static class UpdateProbe
 {
+    static string N(string s) { return s == "-" ? null : s; }
+    static string Show(string s) { return s ?? "-"; }
+    static KosmosLauncher.ConnectUpdateState Before(string f)
+    {
+        string[] p = f.Split(';');
+        var s = new KosmosLauncher.ConnectUpdateState();
+        s.Offer = N(p[0]); s.Installed = N(p[1]); s.Rollback = N(p[2]); s.Dismissed = N(p[3]);
+        return s;
+    }
+    static string[] Lines(string f) { return f == "-" ? null : f.Split(new[] { "\\n" }, StringSplitOptions.None); }
+    static string State(KosmosLauncher.ConnectUpdateState s)
+    {
+        return "O=" + Show(s.Offer) + "|I=" + Show(s.Installed) + "|R=" + Show(s.Rollback) + "|D=" + Show(s.Dismissed)
+            + "|bar=" + Show(s.BarNote) + "|btn=" + Show(s.BarButton) + "|msg=" + Show(s.Message) + "|re=" + Show(s.Relaunch) + "|next=" + s.NextLookMs;
+    }
     static int Main(string[] a)
     {
-        // One report per line of stdin, its lines joined by a literal \n; the answer as kind|value|rollback.
         string input = Console.In.ReadToEnd();
         foreach (string row in input.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None))
         {
             if (row.Length == 0) continue;
-            string[] lines = row == "<null>" ? null : row.Split(new[] { "\\n" }, StringSplitOptions.None);
-            var got = KosmosLauncher.ReadConnectUpdateReport(lines);
-            Console.WriteLine(got.Kind + "|" + (got.Value ?? "<null>") + "|" + (got.RollbackVersion ?? "<null>"));
+            string[] f = row.Split('|');
+            if (f[0] == "report")
+            {
+                var got = KosmosLauncher.ReadConnectUpdateReport(Lines(f[1]));
+                Console.WriteLine(got.Kind + "|" + Show(got.Version) + "|" + Show(got.Value) + "|" + Show(got.RollbackVersion));
+            }
+            else if (f[0] == "state") Console.WriteLine(State(KosmosLauncher.AfterConnectUpdate(Before(f[1]), KosmosLauncher.ReadConnectUpdateReport(Lines(f[2])), f[3])));
+            else if (f[0] == "notnow") Console.WriteLine(State(KosmosLauncher.AfterNotNow(Before(f[1]))));
+            else if (f[0] == "due") Console.WriteLine(KosmosLauncher.UpdateLookIsDue(Before(f[1])) ? "due" : "not-due");
+            else if (f[0] == "picked") Console.WriteLine(Show(KosmosLauncher.UpdatePickedAction(Before(f[1]), f[2] == "1")));
+            else if (f[0] == "disk")
+            {
+                DateTime now = new DateTime(2026, 10, 13, 12, 0, 0, DateTimeKind.Utc);
+                DateTime? lockAt = f[1] == "-" ? (DateTime?)null : now.AddSeconds(-double.Parse(f[1]));
+                DateTime? journalAt = f[3] == "-" ? (DateTime?)null : now.AddSeconds(-double.Parse(f[3]));
+                Console.WriteLine(KosmosLauncher.UpdateUnderWayOnDisk(lockAt, N(f[2]), journalAt, now) ? "busy" : "free");
+            }
+            else Console.WriteLine("bad row");
         }
         return 0;
     }
@@ -205,6 +254,20 @@ static class UpdateProbe
 
 let probeExe = null;
 let probeDir = null;
+function runProbe(rows) {
+  const r = spawnSync(probeExe, [], { input: rows.join('\n') + '\n', encoding: 'utf8', windowsHide: true });
+  assert.equal(r.status, 0, r.stderr);
+  const got = r.stdout.split(/\r?\n/).filter(Boolean);
+  assert.equal(got.length, rows.length, 'the probe read every row: ' + r.stdout);
+  return got;
+}
+const needsProbe = (t) => { if (!probeExe) { t.skip('no probe (not Windows, or no compiler)'); return false; } return true; };
+/** One state row's output as an object. */
+function stateOf(line) {
+  const o = {};
+  for (const part of line.split('|')) { const at = part.indexOf('='); o[part.slice(0, at)] = part.slice(at + 1); }
+  return o;
+}
 
 test('#4382: the probe compiles beside the launcher', WINDOWS_ONLY, (t) => {
   const csc = path.join(process.env.SystemRoot || 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
@@ -220,33 +283,102 @@ test('#4382: the probe compiles beside the launcher', WINDOWS_ONLY, (t) => {
 test.after(() => { if (probeDir) fs.rmSync(probeDir, { recursive: true, force: true }); });
 
 test('#4382: the launcher reads every answer the engine gives as the engine meant it, and a garbled one as unknown', WINDOWS_ONLY, (t) => {
-  if (!probeExe) { t.skip('no probe (not Windows, or no compiler)'); return; }
+  if (!needsProbe(t)) return;
   const { reportLines } = require('./engine/win32connectupdate.js');
   const rows = [
     /* What the engine writes, through its own reportLines. */
-    [{ answer: ['current', '0.7.46'], rollback: null }, 'Current|0.7.46|<null>'],
-    [{ answer: ['newer', '0.7.50'], rollback: '0.7.40' }, 'Newer|0.7.50|0.7.40'],
-    [{ answer: ['updated', '0.7.50'], rollback: '0.7.46' }, 'Updated|0.7.50|0.7.46'],
-    [{ answer: ['rolledback', '0.7.46'], rollback: null }, 'RolledBack|0.7.46|<null>'],
-    [{ answer: ['failed', 'The update did not take. Kosmos is still on 0.7.46.'], rollback: null }, 'Failed|The update did not take. Kosmos is still on 0.7.46.|<null>'],
-    [{ answer: ['board'], rollback: '0.7.40' }, 'Board|<null>|0.7.40'],
-    [{ answer: ['unknown', 'the release host could not be reached'], rollback: null }, 'Unknown|the release host could not be reached|<null>'],
-    [{ answer: ['refused', 'an agent may not update Kosmos; the person who runs this computer does'], rollback: null }, 'Refused|an agent may not update Kosmos; the person who runs this computer does|<null>'],
-  ].map(([result, want]) => [reportLines(result).join('\\n'), want]);
+    [{ answer: ['current', '0.7.46'], rollback: null }, 'Current|0.7.46|-|-'],
+    [{ answer: ['newer', '0.7.50'], rollback: '0.7.40' }, 'Newer|0.7.50|-|0.7.40'],
+    [{ answer: ['updated', '0.7.50'], rollback: '0.7.46' }, 'Updated|0.7.50|-|0.7.46'],
+    [{ answer: ['rolledback', '0.7.46'], rollback: null }, 'RolledBack|0.7.46|-|-'],
+    [{ answer: ['failed', '0.7.50', 'The update did not take. Kosmos is still on 0.7.46.'], rollback: null }, 'Failed|0.7.50|The update did not take. Kosmos is still on 0.7.46.|-'],
+    [{ answer: ['board'], rollback: '0.7.40' }, 'Board|-|-|0.7.40'],
+    [{ answer: ['unknown', 'the release host could not be reached'], rollback: null }, 'Unknown|-|the release host could not be reached|-'],
+    [{ answer: ['refused', 'an agent may not update Kosmos; the person who runs this computer does'], rollback: null }, 'Refused|-|an agent may not update Kosmos; the person who runs this computer does|-'],
+  ].map(([result, want]) => ['report|' + reportLines(result).join('\\n'), want]);
   /* And what must never read as an answer it is not. */
   rows.push(
-    ['<null>', 'Unknown|<null>|<null>'],
-    ['newer 0.7', 'Unknown|<null>|<null>'],
-    ['current v0.7.46', 'Unknown|<null>|<null>'],
-    ['updated 0.7.50 extra', 'Unknown|<null>|<null>'],
-    ['board now', 'Unknown|<null>|<null>'],
-    ['rollback 0.7.40', 'Unknown|<null>|<null>'],
-    ['current 0.7.46\\nrollback 0.7', 'Current|0.7.46|<null>'],
-    ['\\n  \\nnewer 1.2.3', 'Newer|1.2.3|<null>'],
+    ['report|-', 'Unknown|-|-|-'],
+    ['report|newer 0.7', 'Unknown|-|-|-'],
+    ['report|current v0.7.46', 'Unknown|-|-|-'],
+    ['report|updated 0.7.50 extra', 'Unknown|-|-|-'],
+    ['report|board now', 'Unknown|-|-|-'],
+    ['report|rollback 0.7.40', 'Unknown|-|-|-'],
+    ['report|current 0.7.46\\nrollback 0.7', 'Current|0.7.46|-|-'],
+    ['report|\\n  \\nnewer 1.2.3', 'Newer|1.2.3|-|-'],
+    ['report|failed no version here', 'Failed|-|no version here|-'],
   );
-  const r = spawnSync(probeExe, [], { input: rows.map((row) => row[0]).join('\n') + '\n', encoding: 'utf8', windowsHide: true });
-  assert.equal(r.status, 0, r.stderr);
-  const got = r.stdout.split(/\r?\n/).filter(Boolean);
-  assert.equal(got.length, rows.length, 'the probe read every row: ' + r.stdout);
+  const got = runProbe(rows.map((row) => row[0]));
   rows.forEach(([input, want], i) => assert.equal(got[i], want, 'for ' + JSON.stringify(input)));
+});
+
+test('#4382: what each answer does: the same consent as the board, never a restart unasked, a failed install can be tried again', WINDOWS_ONLY, (t) => {
+  if (!needsProbe(t)) return;
+  const EVERY = String(constant('UpdateLookEveryMs'));
+  const RETRY = String(constant('UpdateLookRetryMs'));
+  const rows = [
+    /* updates off: offered, Update on the bar, nothing installed */
+    ['state|-;-;-;-|newer 0.7.50|look', { O: '0.7.50', I: '-', btn: 'Update', re: '-', next: EVERY }],
+    /* updates on (the engine installed): never a restart unasked, a Restart offer instead */
+    ['state|-;-;-;-|updated 0.7.50\\nrollback 0.7.46|look', { O: '-', I: '0.7.50', R: '0.7.46', btn: 'Restart', re: '-' }],
+    /* the person picked Update: the window closes and the new Kosmos.exe opens */
+    ['state|0.7.50;-;-;-|updated 0.7.50\\nrollback 0.7.46|install', { re: 'update', O: '-' }],
+    ['state|-;-;0.7.46;-|rolledback 0.7.46|rollback', { re: 'rollback', I: '-', O: '-' }],
+    /* MUST FIX 1: an automatic install that failed: the version stays on offer, so Update can try again */
+    ['state|-;-;-;-|failed 0.7.50 The update did not take.|look', { O: '0.7.50', btn: 'Update', re: '-' }],
+    /* a failure with no version to retry: said, and no button that would do nothing */
+    ['state|-;-;-;-|failed something broke|look', { O: '-', btn: '-' }],
+    /* a failed rollback is a box, and the offer bar stays as it was */
+    ['state|0.7.50;-;0.7.46;-|failed 0.7.46 no|rollback', { O: '0.7.50', btn: 'Update' }],
+    /* MUST FIX 2: a later "newer" never loses the Restart prompt of an installed update */
+    ['state|-;0.7.50;0.7.46;-|newer 0.7.51\\nrollback 0.7.46|look', { I: '0.7.50', O: '0.7.51', btn: 'Restart' }],
+    /* could not look: an hour, and what was on offer stays on offer; said only when asked */
+    ['state|0.7.50;-;0.7.46;-|unknown host down|look', { O: '0.7.50', R: '0.7.46', btn: 'Update', next: RETRY }],
+    ['state|0.7.50;-;-;-|unknown host down|install', { btn: '-', next: EVERY }],
+    ['state|0.7.50;-;-;-|refused an update is already under way|install', { btn: '-' }],
+    ['state|0.7.50;-;-;-|board|look', { O: '0.7.50', btn: 'Update' }],
+    /* current: nothing newer, and the rollback offer follows the answer */
+    ['state|0.7.50;-;0.7.46;-|current 0.7.46|look', { O: '-', R: '-', bar: '-', btn: '-' }],
+    /* a version put away with Not now stays off the bar (the menu keeps it) */
+    ['state|-;-;-;0.7.50|newer 0.7.50|look', { O: '0.7.50', bar: '-' }],
+  ];
+  const got = runProbe(rows.map((r) => r[0]));
+  rows.forEach(([input, want], i) => {
+    const s = stateOf(got[i]);
+    for (const [k, v] of Object.entries(want)) assert.equal(s[k], v, `${input}: ${k} (got ${got[i]})`);
+  });
+  /* The words on the bar, for the rows whose wording is the point. */
+  assert.match(stateOf(got[4]).bar, /^Kosmos could not update \(The update did not take\.\)\. Press Update to try again\.$/);
+  assert.doesNotMatch(stateOf(got[5]).bar, /Press Update/, 'a note that names a button the bar does not have');
+  assert.match(stateOf(got[6]).msg, /^Kosmos could not roll back \(no\)\./);
+  assert.notEqual(stateOf(got[9]).bar, '-', 'the person asked and heard nothing');
+});
+
+test('#4382: Not now, the daily look, and Update: pure decisions', WINDOWS_ONLY, (t) => {
+  if (!needsProbe(t)) return;
+  const got = runProbe([
+    'notnow|0.7.50;-;-;-', 'notnow|-;0.7.50;-;-',
+    'due|-;-;-;-', 'due|0.7.50;-;-;-', 'due|-;0.7.50;-;-',
+    'picked|0.7.50;-;-;-|0', 'picked|-;0.7.50;-;-|0', 'picked|0.7.50;-;-;-|1', 'picked|-;-;-;-|0',
+  ]);
+  assert.deepEqual([stateOf(got[0]).D, stateOf(got[0]).bar, stateOf(got[1]).D], ['0.7.50', '-', '0.7.50'], 'Not now puts the offer, or the Restart, away');
+  /* MUST FIX 2: no look (so no second install, whose cleanup would delete the folder this window runs from) while a Restart waits */
+  assert.deepEqual(got.slice(2, 5), ['due', 'due', 'not-due']);
+  assert.deepEqual(got.slice(5, 9), ['install', 'restart', 'busy', '-'], 'Update installs, restarts into an installed one, or says a run is under way');
+});
+
+test('#4382: an update on its way on disk holds Run agents, a stale or finished one does not', WINDOWS_ONLY, (t) => {
+  if (!needsProbe(t)) return;
+  const fresh = String(Math.floor(constant('UpdateOnDiskFreshMs') / 1000));
+  const unfinished = '{  "token": "t",  "finished": false }'.replace(/\s+/g, ' ');
+  const finished = '{ "token": "t", "finished": true }';
+  const got = runProbe([
+    'disk|-|-|-',
+    'disk|10|-|-',
+    `disk|${fresh}|-|-`,
+    `disk|-|${unfinished}|10`,
+    `disk|-|${finished}|10`,
+    `disk|-|${unfinished}|${fresh}`,
+  ]);
+  assert.deepEqual(got, ['free', 'busy', 'free', 'busy', 'free', 'free']);
 });

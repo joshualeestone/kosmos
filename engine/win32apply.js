@@ -850,6 +850,18 @@ async function stopBoard(ctx) {
      is in ROOT or what the resumer that took over decided, and that resumer (the logon shim of the
      board that just booted) owns the recovery now. */
   assertStillOwner(ctx);
+  /* #4382: a computer that connects elsewhere runs no board on purpose, and its update names none (pid
+     null). When nothing answers on the port and the port is free there is nothing to end, so /End is not
+     issued at all: win32board.end recognises "not running" only in English, so on a Windows in another
+     language /End would fail every such update. Anything that answers, or holds the port, takes the
+     ordinary path below. */
+  if (j.board.pid === null && !deps.mayStartBoard()) {
+    const idle = await deps.probe(j.board.port);
+    if (!idle.answering && await deps.portFree(j.board.port)) {
+      log('no board runs on this computer (it connects to Kosmos on another computer), so none was stopped');
+      return { ok: true, noBoard: true };
+    }
+  }
   /* "This run issued /End", set BEFORE it is issued: an /End that stops the board and still reports a
      failure (schtasks' timeout) leaves the board down all the same. A run that ends held, stuck or on an
      unhandled error then starts it again after the lock's release (restartBoardAfterExit). Safe when

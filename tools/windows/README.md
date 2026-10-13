@@ -169,7 +169,12 @@ order mark, a read error) is `unreadable` and asks again. Only `Kosmos.exe` writ
   offers "Roll back Kosmos to X" (asked first). An update or rollback the person picked closes the
   window and opens the `Kosmos.exe` now in the folder. A newer download run on a connect computer
   (`--apply --from`, and `setup.ps1`) takes the same connect preconditions. Every run leaves the
-  board stopped.
+  board stopped, and with no board to stop issues no `/End` at all. A rollback is offered only to a
+  build that itself carries `win32connectupdate.js` (so launcher 8.1 or later): an older one would
+  start agents here and could never update again. No look runs while an installed update waits for
+  its Restart, and "Run agents" waits while the updater's files show an update on its way. What each
+  answer does is decided by pure functions (`AfterConnectUpdate` and its neighbours), tested through
+  a probe compiled beside the launcher (`tools.windows-connect-update-4382.test.js`).
 - A launch that sets `PORT` never touches the logon task, which serves another port.
 
 ## What it does as an installer (win32-installer-native)

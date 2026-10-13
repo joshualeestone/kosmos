@@ -429,6 +429,8 @@ function boardTaskRefusal(boardTask) {
  * mode check starts no board afterwards, win32apply.startAndConfirm), and no board answers on the port (a
  * board that answers updates itself, and two updaters must never race). `c` is
  * `{ connects(), boardAnswers() }`, both required; anything that is not an exact yes / no refuses.
+ * connects() reads the file again here; boardAnswers() is the caller's probe, taken just before (a probe is
+ * asynchronous and B0 is not), so the window between the two is the caller's few milliseconds.
  */
 function connectComputerRefusal(c) {
   if (!c || typeof c.connects !== 'function' || typeof c.boardAnswers !== 'function') {
@@ -1265,7 +1267,9 @@ function verifyStaged(ctx, latest) {
  *   world     the world the new board will serve (resolveWorld: this board's, else the registry's)
  * and the seams a suite or the live-check CLI sets: platform, env, home, fetch, freeBytes,
  * runStagedNode, liveExecutionAllowed, limits, log, lockHooks, and boardTask
- * (`{ startedByTask(), status() }`, B0's board-task preconditions).
+ * (`{ startedByTask(), status() }`, B0's board-task preconditions), or, on a computer that connects to
+ * agents elsewhere (#4382), connectComputer (`{ connects(), boardAnswers() }`, connectComputerRefusal) in
+ * its place.
  * `whileLocked(result, ctx)` runs after a successful stage while the lock is still held (B5 writes
  * the journal there); a throw from it fails the prepare.
  */
@@ -1754,7 +1758,7 @@ function parseCliArgs(argv) {
  * `--apply --wait`: the helper's outcome for this journal, read from the status it writes. A journal
  * at `confirmed` whose new board answers as the new build (H7's own test, win32apply.answersAs) is a
  * success too: the update is in, and only its record is still being finished. Seams: sleep, now,
- * waitMs, probe.
+ * waitMs, probe, and noBoard (#4382: a computer with no board, where the journal's own record counts).
  */
 async function waitForOutcome(journalAt, token, seams) {
   const s = seams || {};
@@ -1768,6 +1772,16 @@ async function waitForOutcome(journalAt, token, seams) {
     const status = readJson(statusAt);
     if (status && status.journal === token && status.outcome) return status;
     const j = apply.readJournal(journalAt).journal;
+    /* #4382: on a computer with no board (s.noBoard) nothing will answer as the new build, so the helper's
+       record is the only witness. A status that could not be written (finishUpdated only logs that) would
+       otherwise run this to its limit and report a failure for an update that went in. So there, the
+       journal's own word counts: finished as updated, or confirmed (H7 stood without a board). */
+    if (s.noBoard && j && j.token === token && ((j.finished === true && j.outcome === 'updated') || (!j.finished && j.phase === 'confirmed'))) {
+      return {
+        outcome: 'updated', version: j.to.version, from: j.from.version, to: j.to.version, journal: token,
+        because: 'the update journal records it as done; its status record was not written',
+      };
+    }
     if (j && j.token === token && j.phase === 'confirmed' && apply.answersAs(await probe(j.board.port), j.to.identity)) {
       return {
         outcome: 'updated', version: j.to.version, from: j.from.version, to: j.to.version, journal: token,

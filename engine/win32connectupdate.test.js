@@ -49,6 +49,7 @@ test.after(() => {
 
 const ON_WINDOWS = process.platform === 'win32';
 const T = { timeout: 30000, skip: !ON_WINDOWS && 'the mode file is a Windows path (#4695); the Windows job runs this file' };
+const T_ANY = { timeout: 30000 };
 const ARCH = 'x64';
 /* The look compares with the version this engine runs as (update.RUNNING, its own package.json), as it does in a
    real bundle, where that IS the installed build: so the sandboxed Kosmos is at that version. */
@@ -77,7 +78,7 @@ function setConsent(on) {
 }
 
 /** The files of a Kosmos build, in the shape tools/build-kosmos-windows.sh stages (win32update's REQUIRED_ENTRIES). */
-function bundleFiles(version) {
+function bundleFiles(version, o = {}) {
   return {
     'Kosmos.exe': `MZ the launcher of ${version}`,
     'open-board.js': '// the browser opener',
@@ -93,6 +94,7 @@ function bundleFiles(version) {
     'app/engine/kosmos-report-hook.js': '// the report hook',
     'app/engine/win32apply.js': '// the updater',
     'app/engine/win32update.js': '// the updater entry',
+    ...(o.connectReady === false ? {} : { 'app/engine/win32connectupdate.js': '// the connect computer update (4382)' }),
     'bin/kosmos-cli.js': '// the kosmos command',
     'bin/kosmos.ps1': '# the PowerShell shim',
     'bin/kosmos': '#!/bin/sh',
@@ -112,12 +114,12 @@ function bundleZip(version) {
 
 let caseCount = 0;
 /** A whole Kosmos at INSTALLED, its anchor pointing at it, a person's project inside it, and its board STOPPED. */
-function freshCase() {
+function freshCase(o = {}) {
   caseCount += 1;
   const dir = path.join(SANDBOX, 'cases', String(caseCount));
   const root = path.join(dir, 'Kosmos');
   const env = { AGENT_WORKFORCE_DATA: path.join(dir, 'machine'), LOCALAPPDATA: process.env.LOCALAPPDATA };
-  writeTree(root, bundleFiles(INSTALLED));
+  writeTree(root, bundleFiles(INSTALLED, o));
   writeTree(root, { 'Projects/garden/notes.txt': "a person's own work" });
   const anchor = win32anchor.anchorDir(process.platform, os.homedir(), env);
   fs.mkdirSync(anchor, { recursive: true });
@@ -230,7 +232,7 @@ test('#4382: updates on: a connect computer with no board installs the newer bui
   assert.equal(path.basename(c.spawned[0].file), win32anchor.NODE_NAME);
   assert.equal(versionIn(c.root), NEXT, 'ROOT holds the new build');
   assert.equal(fs.readFileSync(path.join(c.root, 'Projects', 'garden', 'notes.txt'), 'utf8'), "a person's own work");
-  assert.deepEqual(sim.calls, ['/End /TN Kosmos\\board'], 'the stop is issued, and nothing is ever /Run');
+  assert.deepEqual(sim.calls, [], 'with no board to stop, Task Scheduler is never asked: no /End (its "not running" is read only in English) and never /Run');
   assert.equal(sim.running, false, 'no board runs after the update');
   const j = readJson(win32apply.journalPathFor(c.anchor));
   assert.equal(j.outcome, 'updated');
@@ -264,7 +266,7 @@ test('#4382: rollback is reachable with no board: the kept build comes back, and
   const back = await connectUpdate.run('rollback', seamsFor(c, null, sim));
   assert.deepEqual(back.answer, ['rolledback', INSTALLED], c.log.join('\n'));
   assert.equal(versionIn(c.root), INSTALLED, 'ROOT holds the kept build again');
-  assert.deepEqual(sim.calls, ['/End /TN Kosmos\\board'], 'nothing is ever /Run');
+  assert.deepEqual(sim.calls, [], 'no /End and never /Run');
   assert.equal(sim.running, false);
   assert.equal(readJson(win32apply.journalPathFor(c.anchor)).rollback, true, 'the rollback journal, the same helper the Roll back button uses');
   /* never a downgrade by the forward path: the look after a rollback offers the newer build, it does not install an older one */
@@ -352,13 +354,67 @@ test('#4382: a newer download run on a connect computer (#3286, setup.ps1) is he
   assert.match(out2.join(''), /was not started by its Windows logon job/);
 });
 
-test('#4382: the report Kosmos.exe reads: the answer first, then the rollback offer; --yes is required', T, async () => {
+test('#4382: the report Kosmos.exe reads: the answer first, then the rollback offer; --yes is required', T_ANY, async () => {
   assert.deepEqual(connectUpdate.reportLines({ answer: ['updated', NEXT], rollback: INSTALLED }), [`updated ${NEXT}`, `rollback ${INSTALLED}`]);
   assert.deepEqual(connectUpdate.reportLines({ answer: ['board'], rollback: null }), ['board']);
+  assert.deepEqual(connectUpdate.reportLines({ answer: ['failed', NEXT, 'it did not take'], rollback: null }), [`failed ${NEXT} it did not take`],
+    'a failure leads with the version it was for, so Kosmos.exe can offer it again');
   assert.deepEqual(connectUpdate.reportLines({ answer: ['failed', 'a\tb\r\nc'], rollback: null }), ['failed a b c'], 'one line, whatever the reason holds');
   const said = [];
   assert.equal(await connectUpdate.cliMain(['--look'], (t) => said.push(t)), 2);
   assert.match(said.join(''), /add --yes/);
   assert.equal(await connectUpdate.cliMain(['--look', '--install', '--yes'], () => {}), 2, 'one action at a time');
   assert.deepEqual(connectUpdate.EXIT, { current: 0, newer: 0, updated: 0, rolledback: 0, board: 0, failed: 1, unknown: 1, refused: 3 });
+});
+
+test('#4382: a status record that was never written does not turn an update that went in into a failure, on a computer with no board', T, async () => {
+  setMode('connect\n');
+  setConsent(true);
+  const c = freshCase();
+  const sim = stoppedBoard(c);
+  const r = await connectUpdate.run('look', seamsFor(c, site(NEXT), sim));
+  assert.deepEqual(r.answer, ['updated', NEXT], c.log.join('\n'));
+  const journalAt = win32apply.journalPathFor(c.anchor);
+  const token = readJson(journalAt).token;
+  /* As if finishUpdated's writeStatus had thrown (it only logs that): the journal says updated, no status says anything. */
+  fs.rmSync(path.join(c.anchor, win32anchor.UPDATE_STATUS_NAME), { force: true });
+  let clock = 0;
+  const wait = { probe: sim.probe, now: () => clock, sleep: async (ms) => { clock += ms; }, waitMs: 5000 };
+  const withNoBoard = await win32update.waitForOutcome(journalAt, token, { ...wait, noBoard: true });
+  assert.equal(withNoBoard.outcome, 'updated', 'with no board the journal record counts');
+  assert.equal(withNoBoard.to, NEXT);
+  assert.equal(clock, 0, 'at once, not at the limit');
+  /* The control: the board's rule waits for a board that never answers, and gives up. */
+  const asOnABoard = await win32update.waitForOutcome(journalAt, token, wait);
+  assert.equal(asOnABoard.outcome, null);
+  assert.match(asOnABoard.because, /no outcome was recorded/);
+});
+
+test('#4382: a kept build too old for a connect computer is never offered or restored: it would start a board and could not update again', T, async () => {
+  setMode('connect\n');
+  setConsent(true);
+  const c = freshCase({ connectReady: false });
+  const sim = stoppedBoard(c);
+  const up = await connectUpdate.run('look', seamsFor(c, site(NEXT), sim));
+  assert.deepEqual(up.answer, ['updated', NEXT], c.log.join('\n'));
+  assert.equal(up.rollback, null, 'the kept build has no win32connectupdate.js, so no rollback is offered');
+  const back = await connectUpdate.run('rollback', seamsFor(c, null, sim));
+  assert.equal(back.answer[0], 'refused');
+  assert.match(back.answer[1], /too old for a computer that connects to agents on another computer/);
+  assert.equal(versionIn(c.root), NEXT, 'nothing was rolled back');
+  assert.equal(c.spawned.length, 1, 'only the update helper ever started');
+});
+
+test('#4382: something other than a Kosmos board answering on the port is not a board, and nothing is started', T, async () => {
+  setMode('connect\n');
+  setConsent(true);
+  const c = freshCase();
+  const s = site(NEXT);
+  const sim = stoppedBoard(c);
+  const seams = { ...seamsFor(c, s, sim), probe: async () => ({ answering: true, identity: null }) };
+  const r = await connectUpdate.run('look', seams);
+  assert.equal(r.answer[0], 'refused');
+  assert.match(r.answer[1], /another program answers on port/);
+  assert.deepEqual(s.urls, []);
+  assert.deepEqual(c.spawned, []);
 });
