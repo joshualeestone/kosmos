@@ -42,6 +42,16 @@ cat > "$PAGE" <<'HTML'
         <span class="rel-d">August 29, 2026, 1:00 PM CDT</span></div>
       <p>It’s the agent’s window, the board’s list, the person’s room, the team’s plan, the day’s work, the week’s notes, the month’s view, the year’s end, it’s all here, it’s fine, it’s done, it’s whole and it’s short enough.</p>
     </article>
+    <article class="rel" id="v0-9-2">
+      <div class="rel-h"><h2 class="rel-v"><a href="#v0-9-2"><span class="num">0.9.2</span></a></h2>
+        <span class="rel-d">August 28, 2026, 1:00 PM CDT</span></div>
+      <p>Use the menu, e.g. Settings, Advanced, to change the long thing that this release note describes at great length, on and on through many clauses and many more words, so that this one sentence alone is longer than the whole budget for a post on X and must be cut at a word. Then a second sentence follows.</p>
+    </article>
+    <article class="rel" id="v0-9-1">
+      <div class="rel-h"><h2 class="rel-v"><a href="#v0-9-1"><span class="num">0.9.1</span></a></h2>
+        <span class="rel-d">August 27, 2026, 1:00 PM CDT</span></div>
+      <p>--version Leading-dash-note-that-is-one-unbroken-token-far-longer-than-any-budget-for-a-post-on-x-so-it-must-be-cut-inside-the-token-with-an-ellipsis-because-there-is-no-space-anywhere-in-it-at-all-not-one-and-it-keeps-going-and-going-past-the-end-of-the-budget-for-sure-now</p>
+    </article>
     <article class="rel" id="v0-9-5">
       <div class="rel-h"><h2 class="rel-v"><a href="#v0-9-5"><span class="num">0.9.5</span></a></h2>
         <span class="rel-d">August 31, 2026, 1:00 PM CDT</span></div>
@@ -169,6 +179,17 @@ X4="$(xpost 0.9.4)"
 X3="$(env LC_ALL=C KOSMOS_VERSIONS_PAGE="$PAGE" KOSMOS_SOCIAL_PREVIEW_DIR="$PREVIEW" bash "$SCRIPT" 0.9.3 2>&1 | awk 'index($0, "   Kosmos 0.9.3 is out.") == 1 {print; exit}')"
 { has "$X3" "short enough. https://installkosmos.com/versions.html" && has "$X3" "It’s the agent’s window"; } \
   && pass "#6082: a fitting note with multi-byte characters is not trimmed under a C locale" || bad "#6082: multi-byte note trimmed: $X3"
+
+# 7g. #6082 review 2: "e.g." does not end a sentence, so the post never stops on it.
+X2="$(xpost 0.9.2)"
+{ has "$X2" "Use the menu, e.g. Settings, Advanced, to change the long thing" && has "$X2" "… https://installkosmos.com/versions.html" && ! has "$X2" "e.g. https" && ! has "$X2" "Then a second"; } \
+  && pass "#6082: an abbreviation does not end a sentence" || bad "#6082: stopped at an abbreviation: $X2"
+# 7h. #6082 review 2: a note starting with a dash (here --version, which node would answer with its own version) reaches
+# the trimmer as text; the unbroken token after it is cut back to the last space, with an ellipsis, <=280.
+X1="$(xpost 0.9.1)"
+X1N="$(node -e 'process.stdout.write(String([...process.argv[1]].length))' "$X1" 2>/dev/null)"
+{ has "$X1" "Kosmos 0.9.1 is out. --version… https://installkosmos.com/versions.html" && [ -n "$X1N" ] && [ "$X1N" -le 280 ]; } \
+  && pass "#6082: a leading-dash single token is cut with an ellipsis ($X1N)" || bad "#6082: leading dash or token cut wrong (len=$X1N): $X1"
 
 # 8. a version with NO page entry -> generic note, still dry-run exit 0
 run_missing() {
