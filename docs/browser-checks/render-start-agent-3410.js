@@ -375,9 +375,13 @@ function chk(ok, label, extra) {
        while it is out. */
     statusPolls = 0;   // the gap again, so the readiness wait sees unready then ready
     await page.unroute('**/api/agent/*/thread');
+    /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+       its late rejection is caught instead of crashing the check after it passed. */
     await page.route('**/api/agent/*/thread', async (r) => {
-      await new Promise((res) => setTimeout(res, 1200));
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ recorded: true, delivery: { state: 'placed' } }) });
+      try {
+        await new Promise((res) => setTimeout(res, 1200));
+        await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ recorded: true, delivery: { state: 'placed' } }) });
+      } catch { await r.abort().catch(() => {}); }
     });
     await page.evaluate(() => { const b = document.getElementById('d-start-agent'); b.hidden = false; b.disabled = false; });
     await page.click('#d-start-agent');

@@ -171,11 +171,13 @@ const newLook = async (page) => {
    one board every later screen of this run is shot on. So the READ is stubbed in this screen's own context (gone
    with it) to say consolidated, and the page reloads. Screens that call this set noServiceWorker. */
 async function openConsAgents(page) {
+  /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+     its late rejection is caught instead of crashing the check after it passed. */
   await page.route('**/api/style', async (r) => {
-    if (r.request().method() !== 'GET') return r.fallback();
-    let resp;
-    try { resp = await fetchBoard(r); } catch { return r.fallback(); }   // never leave the request hanging
     try {   // #6022: a late answer after close is caught, not a crash
+      if (r.request().method() !== 'GET') return await r.fallback();
+      let resp;
+      try { resp = await fetchBoard(r); } catch { return await r.fallback(); }   // never leave the request hanging
       const j = await resp.json().catch(() => null);
       if (!j) return await r.fulfill({ response: resp });
       return await r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });

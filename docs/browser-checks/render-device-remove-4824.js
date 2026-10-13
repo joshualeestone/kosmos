@@ -148,10 +148,14 @@ async function open(browser, BASE, answer) {
       const page = (await open(browser, BASE, ANSWERS.told)).page;
       await page.unroute('**/api/remote/devices/remove');
       let posts = 0;
+      /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+         its late rejection is caught instead of crashing the check after it passed. */
       await page.route('**/api/remote/devices/remove', async (route) => {
-        posts += 1;
-        await new Promise((r) => setTimeout(r, 2500));
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ANSWERS.told) });
+        try {
+          posts += 1;
+          await new Promise((r) => setTimeout(r, 2500));
+          await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ANSWERS.told) });
+        } catch { await route.abort().catch(() => {}); }
       });
       await page.click('#plus-devlist [data-dev="remove"]');
       await page.click('#plus-devlist [data-dev="removeyes"]');

@@ -715,9 +715,13 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // fast board the tour is already up and clicking through it records it (T1's path).
     resetStore({ seen: [], off: false });
     noAgents();
+    /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+       its late rejection is caught instead of crashing the check after it passed. */
     await page.route('**/api/tips', async (route) => {
-      if (route.request().method() === 'GET') await new Promise((r) => setTimeout(r, 3000));
-      return route.continue();
+      try {
+        if (route.request().method() === 'GET') await new Promise((r) => setTimeout(r, 3000));
+        return await route.continue();
+      } catch { await route.abort().catch(() => {}); }
     });
     await page.goto(URL, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('#new-agent', { state: 'visible', timeout: 8000 });

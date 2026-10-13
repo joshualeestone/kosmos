@@ -237,9 +237,15 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       let joinGets = 0;        // review 6: each GET is a signed pairing round, so the endings must not poll
       let joinFailOnce = false; // review 6: a failed round on load must not spend the read on load
       let joinFailAlways = false; // a board whose every round fails (no connector, coordinator down)
-      await page.route('**/api/remote/join', async (route) => { joinGets += 1; if (joinDelayMs) await new Promise((r) => setTimeout(r, joinDelayMs));
-        if (joinFailAlways || joinFailOnce) { joinFailOnce = false; return route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: 'busy' }) }); }
-        return route.fulfill(json(join)); });
+      /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+         its late rejection is caught instead of crashing the check after it passed. */
+      await page.route('**/api/remote/join', async (route) => {
+        try {
+          joinGets += 1; if (joinDelayMs) await new Promise((r) => setTimeout(r, joinDelayMs));
+          if (joinFailAlways || joinFailOnce) { joinFailOnce = false; return await route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: 'busy' }) }); }
+          return await route.fulfill(json(join));
+        } catch { await route.abort().catch(() => {}); }
+      });
       await page.route('**/api/remote/join/confirm', (route, req) => { confirmBody = JSON.parse(req.postData() || '{}');
         if (confirmRefuse) { const why = confirmRefuse; confirmRefuse = ''; return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: why }) }); }
         join = { ...join, confirmed: true }; return route.fulfill(json({ ok: true, confirmed: true, with: 'homemac' })); });

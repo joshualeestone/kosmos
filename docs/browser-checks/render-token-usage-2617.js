@@ -524,7 +524,11 @@ function readUsage(page) {
     let release;
     const held = new Promise((r) => { release = r; });
     await p.unroute('**/api/usage*');
-    await p.route('**/api/usage*', async (r) => { await held; await r.fulfill({ json: USAGE }); });
+    /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+       its late rejection is caught instead of crashing the check after it passed. */
+    await p.route('**/api/usage*', async (r) => {
+      try { await held; await r.fulfill({ json: USAGE }); } catch { await r.abort().catch(() => {}); }
+    });
     await p.waitForFunction(() => !USAGE_BUSY);
     const painting = p.evaluate(() => paintUsage());
     await p.waitForFunction(() => USAGE_BUSY === true);
@@ -554,7 +558,9 @@ function readUsage(page) {
     let release2;
     const held2 = new Promise((r) => { release2 = r; });
     await p.unroute('**/api/usage*');
-    await p.route('**/api/usage*', async (r) => { await held2; await r.fulfill({ json: USAGE }); });
+    await p.route('**/api/usage*', async (r) => {
+      try { await held2; await r.fulfill({ json: USAGE }); } catch { await r.abort().catch(() => {}); }
+    });
     // Not networkidle: the reloaded address reopens Token Usage itself, so the held read keeps the network busy. The
     // reading below proves the section is on screen at that moment instead (its heading has client rects).
     await p.reload({ waitUntil: 'load' });

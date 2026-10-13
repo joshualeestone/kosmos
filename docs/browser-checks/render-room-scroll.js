@@ -401,9 +401,13 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         if (afterNext.gap <= 8) ok('#4639 ' + tag + 'after their send, the next arriving post keeps them at the bottom');
         else bad('#4639 ' + tag + 'after their send, the next arriving post keeps them at the bottom', afterNext.gap + 'px above the floor');
         /* A slow send: the POST is held 2.5s, and they scroll back up while it is in flight. */
+        /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+           its late rejection is caught instead of crashing the check after it passed. */
         await p.route('**/api/project/*/room', async (route) => {
-          if (route.request().method() === 'POST') await new Promise((r) => setTimeout(r, 2500));
-          await route.continue();
+          try {
+            if (route.request().method() === 'POST') await new Promise((r) => setTimeout(r, 2500));
+            await route.continue();
+          } catch { await route.abort().catch(() => {}); }
         });
         let scrolledMid, afterSlow;
         try {

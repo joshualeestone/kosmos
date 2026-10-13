@@ -52,10 +52,14 @@ function check(name, pass, detail) {
   let teamStatus = 200;
   let lastTeamBody = null;
   let teamDelayMs = 0;   // #5590: an arm holds the create open to read the page while it runs
+  /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+     its late rejection is caught instead of crashing the check after it passed. */
   await page.route('**/api/team', async (r) => {
-    lastTeamBody = JSON.parse(r.request().postData() || '{}');
-    if (teamDelayMs) await new Promise((res) => setTimeout(res, teamDelayMs));
-    r.fulfill({ status: teamStatus, json: teamResponse });
+    try {
+      lastTeamBody = JSON.parse(r.request().postData() || '{}');
+      if (teamDelayMs) await new Promise((res) => setTimeout(res, teamDelayMs));
+      await r.fulfill({ status: teamStatus, json: teamResponse });
+    } catch { await r.abort().catch(() => {}); }
   });
   /* #1280 Undo: DELETE /api/agent/:name/removal. `removal[name]` is what the engine
      "answers" for that agent; every call is recorded so a check can assert Undo
@@ -69,20 +73,22 @@ function check(name, pass, detail) {
     keeps: ['Its folder, on this computer', 'Its instructions', 'Everything it has written'] };
   let removalDelayMs = 0;
   await page.route('**/api/agent/*/removal', async (r) => {
-    const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
-    if (r.request().method() === 'GET') {
-      const p = plans[name];
-      if (p && p.status) return r.fulfill({ status: p.status, json: p.json });
-      return r.fulfill({ status: 200, json: p || { ...PLAN, name, label: name } });
-    }
-    if (r.request().method() !== 'DELETE') return r.continue();
-    removeCalls.push(name);
-    if (removalDelayMs) await new Promise((ok) => setTimeout(ok, removalDelayMs));
-    // The engine's real clean answer carries a `because` (engine/remove.js), so the mock does too.
-    const ans = removal[name] || { outcome: 'removed',
-      because: name + ' has been removed from Kosmos. Its folder and everything in it is still on your computer.' };
-    if (ans.outcome === 'removed' || ans.recorded) removedNow.add(name);
-    r.fulfill({ status: ans.outcome === 'refused' ? 400 : 200, json: ans });
+    try {
+      const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
+      if (r.request().method() === 'GET') {
+        const p = plans[name];
+        if (p && p.status) return await r.fulfill({ status: p.status, json: p.json });
+        return await r.fulfill({ status: 200, json: p || { ...PLAN, name, label: name } });
+      }
+      if (r.request().method() !== 'DELETE') return await r.continue();
+      removeCalls.push(name);
+      if (removalDelayMs) await new Promise((ok) => setTimeout(ok, removalDelayMs));
+      // The engine's real clean answer carries a `because` (engine/remove.js), so the mock does too.
+      const ans = removal[name] || { outcome: 'removed',
+        because: name + ' has been removed from Kosmos. Its folder and everything in it is still on your computer.' };
+      if (ans.outcome === 'removed' || ans.recorded) removedNow.add(name);
+      await r.fulfill({ status: ans.outcome === 'refused' ? 400 : 200, json: ans });
+    } catch { await r.abort().catch(() => {}); }
   });
   // The removed list the page re-reads after Undo: exactly what the mocked removals recorded.
   await page.route('**/api/removed', (r) => r.fulfill({ status: 200,

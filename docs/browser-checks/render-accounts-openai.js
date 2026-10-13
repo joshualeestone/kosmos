@@ -704,10 +704,14 @@ let failed = 0;
     (await p.innerText('#acct-apikey-msg')).trim() === 'Paste the key first.', await p.innerText('#acct-apikey-msg'));
   // A late answer must not land under a provider picked since (the stillHere guard).
   let release; const held = new Promise((r) => { release = r; });
+  /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+     its late rejection is caught instead of crashing the check after it passed. */
   await p.route('**/api/accounts/gemini/apikey', async (route) => {
-    await held;
-    await route.fulfill({ status: 200, contentType: 'application/json',
-      body: JSON.stringify({ account: { label: 'work1', dir: '/tmp/.gemini-work1', connection: { state: 'connected' } } }) });
+    try {
+      await held;
+      await route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ account: { label: 'work1', dir: '/tmp/.gemini-work1', connection: { state: 'connected' } } }) });
+    } catch { await route.abort().catch(() => {}); }
   });
   await p.fill('#acct-apikey-key', 'AIzaSy-browsercheck-not-a-real-key-0000');
   await p.click('#acct-apikey-go');

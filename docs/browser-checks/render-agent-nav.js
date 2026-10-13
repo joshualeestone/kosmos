@@ -239,8 +239,14 @@ function chk(ok, label, extra) {
       {
         let release; const gate = new Promise((res) => { release = res; });
         const aprilSkills = '**/api/agent/april/skills';
-        await page.route(aprilSkills, async (route) => { await gate; await route.fulfill({ status: 200, contentType: 'application/json',
-          body: JSON.stringify({ ok: true, skills: [{ name: 'APRIL-ONLY-SKILL', key: 'april-only-skill' }] }) }); });
+        /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
+           its late rejection is caught instead of crashing the check after it passed. */
+        await page.route(aprilSkills, async (route) => {
+          try {
+            await gate; await route.fulfill({ status: 200, contentType: 'application/json',
+              body: JSON.stringify({ ok: true, skills: [{ name: 'APRIL-ONLY-SKILL', key: 'april-only-skill' }] }) });
+          } catch { await route.abort().catch(() => {}); }
+        });
         await page.evaluate(() => openDetail('april', 'profile'));
         await page.waitForTimeout(150);
         await page.evaluate(() => openDetail('casey', 'profile'));
@@ -253,8 +259,12 @@ function chk(ok, label, extra) {
            April's pending answer (the open's new ticket, and skillsListIsFor); this fails only if both go. */
         let release2; const gate2 = new Promise((res) => { release2 = res; });
         await page.unroute(aprilSkills);
-        await page.route(aprilSkills, async (route) => { await gate2; await route.fulfill({ status: 200, contentType: 'application/json',
-          body: JSON.stringify({ ok: true, skills: [{ name: 'APRIL-ONLY-SKILL', key: 'april-only-skill' }] }) }); });
+        await page.route(aprilSkills, async (route) => {
+          try {
+            await gate2; await route.fulfill({ status: 200, contentType: 'application/json',
+              body: JSON.stringify({ ok: true, skills: [{ name: 'APRIL-ONLY-SKILL', key: 'april-only-skill' }] }) });
+          } catch { await route.abort().catch(() => {}); }
+        });
         await page.evaluate(() => openDetail('april', 'profile'));
         await page.waitForTimeout(150);
         await page.evaluate(() => openDetail('casey'));
@@ -270,7 +280,11 @@ function chk(ok, label, extra) {
         const oneSkill = JSON.stringify({ ok: true, skills: [{ name: 'APRIL-ONLY-SKILL', key: 'april-only-skill' }] });
         await page.route(aprilSkills, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: oneSkill }));
         // The DELETE FAILS: the error branch is the one that writes into the page (its message, the button).
-        await page.route(aprilSkills + '/*', async (route) => { await gate3; await route.fulfill({ status: 500, contentType: 'application/json', body: '{"ok":false,"because":"APRIL-REMOVE-FAILED"}' }); });
+        await page.route(aprilSkills + '/*', async (route) => {
+          try {
+            await gate3; await route.fulfill({ status: 500, contentType: 'application/json', body: '{"ok":false,"because":"APRIL-REMOVE-FAILED"}' });
+          } catch { await route.abort().catch(() => {}); }
+        });
         await page.evaluate(() => openDetail('april', 'profile'));
         await page.waitForSelector('#d-skills-list .skillrm', { timeout: 5000 });
         await page.click('#d-skills-list .skillrm');
@@ -289,8 +303,11 @@ function chk(ok, label, extra) {
            writes (its "Adding…", its "Added. April…") may be left on Casey's page, nor April's draft. */
         let release4; const gate4 = new Promise((res) => { release4 = res; });
         await page.route(aprilSkills, async (route) => {
-          if (route.request().method() !== 'POST') return route.fulfill({ status: 200, contentType: 'application/json', body: oneSkill });
-          await gate4; await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
+          try {
+            if (route.request().method() !== 'POST') return await route.fulfill({ status: 200, contentType: 'application/json', body: oneSkill });
+            await gate4; await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+          } catch { await route.abort().catch(() => {}); }
+        });
         await page.evaluate(() => openDetail('april', 'profile'));
         await page.waitForTimeout(300);
         await page.fill('#d-skill-name', 'april-draft');
