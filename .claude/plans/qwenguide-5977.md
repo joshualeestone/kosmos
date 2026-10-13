@@ -28,3 +28,4 @@ Off a Mac, Qwen stays in the coming-soon sentence.
    with a mock that answered present for any name. Fixed: resolveBin/installing('openai'); the mock is now shaped like
    the real resolveBin, and a no-Codex arm checks the refusal. The old call reds 8 of 9. Wording concern taken.
    Affected suites: 389/389.
+4. sonnet: no blocker, warning or concern. Converged.
