@@ -42,7 +42,7 @@ function personMtimes() {
 test('#5309 p2 /api/status: a separate-account Claude agent gets reaches:false with what is missing', () => {
   _resetCache();
   const fs = fakeFs(personFiles(), personMtimes());
-  const rows = [{ sessionName: 'sub-zero', runner: 'claude', account: { dir: '/agent-sep' } }];
+  const rows = [{ runner: 'claude', account: { dir: '/agent-sep' } }]; // sub-zero: a separate account
   attachPluginReach(rows, { personHome: '/person', fs });
   assert.equal(rows[0].reach.reaches, false);
   assert.equal(rows[0].reach.reason, 'separate-account-folder');
@@ -53,8 +53,8 @@ test('#5309 p2 /api/status: a default-account agent reaches (true) and a Gemini 
   _resetCache();
   const fs = fakeFs(personFiles(), personMtimes());
   const rows = [
-    { sessionName: 'raiden', runner: 'claude', account: { dir: null } },     // default -> shares the home
-    { sessionName: 'grok-one', runner: 'gemini', account: { dir: '/g' } },   // other runner -> not-applicable
+    { runner: 'claude', account: { dir: null } },     // raiden, default -> shares the home
+    { runner: 'gemini', account: { dir: '/g' } },   // grok-one, other runner -> not-applicable
   ];
   attachPluginReach(rows, { personHome: '/person', fs });
   assert.deepEqual(rows[0].reach, { reaches: true, reason: 'reaches' });
@@ -65,13 +65,13 @@ test('#5309 p2 /api/status: a Codex agent fires on the person Codex presence; em
   _resetCache();
   const present = fakeFs({ ...personFiles(), '/person/.codex/config.toml': '[mcp_servers.foo]\n' },
     { ...personMtimes(), '/person/.codex/config.toml': 1, '/person/.codex/plugins': 1 });
-  const rows = [{ sessionName: 'sub-zero', runner: 'codex', account: { dir: '/cx' } }];
+  const rows = [{ runner: 'codex', account: { dir: '/cx' } }]; // sub-zero: a Codex agent
   attachPluginReach(rows, { personHome: '/person', fs: present });
   assert.deepEqual(rows[0].reach, { reaches: false, reason: 'codex-isolated-runtime' });
 
   _resetCache();
   const empty = fakeFs(personFiles(), personMtimes()); // no ~/.codex entries
-  const rows2 = [{ sessionName: 'sub-zero', runner: 'codex', account: { dir: '/cx' } }];
+  const rows2 = [{ runner: 'codex', account: { dir: '/cx' } }]; // sub-zero: Codex, empty person ~/.codex
   attachPluginReach(rows2, { personHome: '/person', fs: empty });
   assert.equal(rows2[0].reach.reaches, null); // no-evidence -> renders nothing
 });
@@ -79,7 +79,7 @@ test('#5309 p2 /api/status: a Codex agent fires on the person Codex presence; em
 test('#5309 p2 /api/status: a pane we cannot tie to an agent (no account) gets reach null', () => {
   _resetCache();
   const fs = fakeFs(personFiles(), personMtimes());
-  const rows = [{ sessionName: 'stranger', runner: 'claude', account: null }];
+  const rows = [{ runner: 'claude', account: null }]; // a pane we cannot tie to an agent (no account)
   attachPluginReach(rows, { personHome: '/person', fs });
   assert.equal(rows[0].reach, null);
 });
@@ -89,8 +89,8 @@ test('#5309 p2 /api/status: a SECOND status pass re-reads nothing when files are
   const files = personFiles(); const mtimes = personMtimes();
   const fs = fakeFs(files, mtimes);
   const rows = () => [
-    { sessionName: 'sub-zero', runner: 'claude', account: { dir: '/agent-sep' } },
-    { sessionName: 'raiden', runner: 'claude', account: { dir: null } },
+    { runner: 'claude', account: { dir: '/agent-sep' } }, // sub-zero: separate account
+    { runner: 'claude', account: { dir: null } },         // raiden: default, shares the home
   ];
   attachPluginReach(rows(), { personHome: '/person', fs });   // pass 1
   const afterPass1 = fs.counts.read;

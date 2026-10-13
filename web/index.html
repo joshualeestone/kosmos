@@ -40410,7 +40410,9 @@ function paintDetailState(card) {
      written when it changes, like the re-auth and link-lost notices above. */
   const preach = document.getElementById('d-pluginreach');
   if (preach) {
-    const r = a.reach;
+    // `reach` is a /api/status augmentation (attachPluginReach), absent from a raw snapshot() row, so it is
+    // asked with `in` and never read blind -- matching the #5668 / #5820 notices above (fixture-discipline).
+    const r = a && 'reach' in a ? a.reach : null;
     let words = '';
     if (r && r.reaches === false) {
       if (r.reason === 'separate-account-folder') {
