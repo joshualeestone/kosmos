@@ -2341,6 +2341,14 @@ const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEED
 const ASKING_GENERIC = 'it is asking you something';
 /* #6054: a Claude agent stopped on its permission prompt (claudePermissionPromptKind `wording`). */
 const APPROVAL_WAITING = 'it is waiting for your approval';
+/* #6091: is this card waiting on its permission prompt? Read from the SCREEN, before the report is reconciled in: the
+   PermissionRequest hook (kosmos-report-hook.js) reports the same moment as needs_you by 'auto' with its own words
+   ("asking permission to use Bash: ..."), and reconcileReport then carries the report's words as `because`, so the
+   screen's APPROVAL_WAITING does not survive to the card. Only while the reconciled state is still needs_you. */
+function awaitingApprovalOf(scraped, status) {
+  return Boolean(scraped && status) && scraped.state === STATE.NEEDS_YOU && scraped.because === APPROVAL_WAITING
+    && status.state === STATE.NEEDS_YOU;
+}
 
 /* #5039: Claude Code's safeguards model-switch menu, which stops a session until the person picks. Observed on Angel's
    pane 2026-10-02 ~11:07 (Claude Code 2.1.287, Opus 5.5):
@@ -8302,6 +8310,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
        when the report carried no `by` (legacy/unknown provenance, which stays alarmed and is by
        definition not a class-2 question). See the pane card below (the #188 stateReported field). */
     stateReportedBy: status.by || null,
+    awaitingApproval: false,   // #6091: no screen, so no permission prompt to read; carried for one card shape
     /* 📌 ALWAYS `false` HERE, AND SAYING SO IS THE POINT. `panelessCard` reconciles
        against `PANELESS_DEFAULT` / `NEVER_RUN_DEFAULT`, neither of which carries
        `backgroundWait`, and there is no pane to scrape, so nothing can ever set it.
@@ -9057,6 +9066,7 @@ function snapshot() {
          "app broken"), 'operator'/null = unknown provenance, left alarmed. Null for a scraped
          (not self-reported) state, so a scrape stays red. */
       stateReportedBy: status.by || null,
+      awaitingApproval: awaitingApprovalOf(scrapedStatus, status),   // #6091: the page's "Waiting for you"
       /* #1889. `working` because the screen says the agent is waiting on a
          BACKGROUND agent, which is a different fact from `working` mid-turn: the
          parent's own turn has ENDED and its REPL is at its prompt. Published
@@ -9470,7 +9480,7 @@ module.exports = {
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
      placeholder as if the agent had said it. */
-  ASKING_GENERIC, APPROVAL_WAITING, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudePermissionPrompt, claudeAnswerableMenu, claudeSafeguardsMenuUp,
+  ASKING_GENERIC, APPROVAL_WAITING, awaitingApprovalOf, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudePermissionPrompt, claudeAnswerableMenu, claudeSafeguardsMenuUp,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,
