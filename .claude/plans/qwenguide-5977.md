@@ -23,3 +23,8 @@ Off a Mac, Qwen stays in the coming-soon sentence.
 2. sonnet: no blocker or warning (converged). Two concerns taken: connecting OpenAI "offers to" install Codex (not
    "does"), and a key to another computer needs https:// (the account check enforces it; the test reads that rule).
 3. sonnet: confirming round on the round-2 text.
+3. opus: BLOCKER on main, not in the guide: the Qwen add route asked runners.resolveBin('codex'), which is present:false
+   on every machine (Codex is filed under its provider, openai), so EVERY Qwen add was refused. The route test hid it
+   with a mock that answered present for any name. Fixed: resolveBin/installing('openai'); the mock is now shaped like
+   the real resolveBin, and a no-Codex arm checks the refusal. The old call reds 8 of 9. Wording concern taken.
+   Affected suites: 389/389.
