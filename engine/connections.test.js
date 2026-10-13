@@ -61,6 +61,21 @@ test('#1034/#3566: it names the providers that can be connected today and says t
   const soon = flat.match(/[^.]*marked coming soon[^.]*\./);
   assert.ok(soon, 'CONTROL: the coming-soon sentence must be found, or the next check proves nothing');
   assert.doesNotMatch(soon[0], /Gemini|Grok/, 'Gemini or Grok is still listed as coming soon: ' + soon[0]);
+  /* #5977: Qwen is in Add a provider on a Mac (#6064), so the guide must not call it coming soon there; off a Mac it
+     still is (the page shows Coming to Windows). */
+  assert.doesNotMatch(soon[0], /Alibaba Qwen,/, 'Qwen is listed as coming soon everywhere: ' + soon[0]);
+  assert.match(soon[0], /Meta and Qwen, off a Mac/);
+  assert.match(flat, /On a Mac, Alibaba Qwen can be connected too, in Settings, AI Models, Add a\s+provider, Alibaba Qwen\./);
+});
+
+test('#5977: the Qwen buttons the guide names are the ones the page shows', () => {
+  const flat = connections.blockBody().replace(/\s+/g, ' ');
+  const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  for (const label of ['Download Qwen', 'Set up Qwen']) {
+    assert.ok(flat.includes(label), 'the guide no longer names ' + label);
+    assert.ok(page.includes("btn.textContent = '" + label + "'"), 'the page has no button reading ' + label);
+  }
+  assert.match(page, /<option value="alibaba">Alibaba Qwen<\/option>/, 'Add a provider lists Alibaba Qwen');
 });
 
 test('#1034: it carries NO machine state, which is the line between part one and part two', () => {
