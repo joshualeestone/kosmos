@@ -24,7 +24,12 @@ read-only app. The card turns it on one release after the lifting reached the `/
    `logs/install.status` and `logs/board-watchdog.state`. **That is seven minutes.** It is read again before the proof
    and the later reading is the one that counts. By reading: no code outside the installer addresses a write at the
    app folder (searched `engine/`, `server.js`, `bin/`, `tools/` and `install/`).
-   NOT in this measurement: an agent created since the board started (I have not checked that one was).
+   **Second reading, 11:15 CDT, 95 minutes after the board started:** still 0 under `app/`, `runtime/` and `bin/`, by
+   change time and by modification time. The control finds 8 entries changed elsewhere in the install (the logs).
+   NOT in this measurement: an agent being created. None was in those 95 minutes (no worker folder is newer than
+   the board's start). #4449's original measurement did include one, on 0.7.06; on 0.7.45 that part rests on the
+   reading that nothing in the engine addresses a write at the app folder, and on review 5 tracing the one copy
+   OUT of the app at an agent's creation (`engine/create.js`, which sets each copy's mode itself).
 2. **The sandbox harnesses.** Swept by a subagent, every file under `tools/`, the root and `engine/` tests, the
    browser checks and the workflows. Three things run the real installer far enough to lock an app:
    `tools/test-install.sh` (already ran with the switch on, and lifts before each of its own edits),
