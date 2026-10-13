@@ -375,14 +375,16 @@ test('#6065: the spill happens exactly where the whole line would pass chat\'s l
     workerFolders(['mara']);
     armSender('leo-discord');
     let tmux = arm([ok(), ok()]);
-    // Room for the envelope ("[message from your colleague leo · <id>] "): typed whole.
-    const fits = 'w'.repeat(chat.MAX_TEXT - 200);
+    // Review 3: measured from spillLimit() (MAX_TEXT less the kept-note reserve). Room for the ~40-character envelope
+    // ("[message from your colleague leo · <id>] "): typed whole.
+    const fits = 'w'.repeat(messages.spillLimit() - 100);
     let sent = messages.send({ fromPane: '%7', to: 'mara', text: fits }, board.agents);
     assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
     assert.ok(tmux.pastedMessages()[0].includes(fits), 'a line within chat\'s limit was spilled');
-    // Within chat's limit as a body, but not with the envelope in front of it: spilled, so nothing is refused.
+    // Within the limit as a body, but not with the envelope in front of it: spilled, so nothing is refused. Only the
+    // envelope tips it over, so this fails if the spill measured the body alone.
     tmux = arm([ok(), ok()]);
-    const over = 'v'.repeat(chat.MAX_TEXT - 5);
+    const over = 'v'.repeat(messages.spillLimit() - 10);
     sent = messages.send({ fromPane: '%7', to: 'mara', text: over }, board.agents);
     assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
     assert.match(tmux.pastedMessages()[0], /long message, 1 word; the full text is in your own folder at /, 'a line past chat\'s limit was not spilled');

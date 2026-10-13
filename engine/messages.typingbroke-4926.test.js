@@ -305,7 +305,7 @@ test('#6065 review 1: a member whose spill cannot be written is not reached, kee
     } finally {
       // Review 2: leave nothing for a neighbour (the plain file where cy's Inbox goes, and the seeded held post).
       fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'cy', 'Inbox'), { recursive: true, force: true });
-      roomhold.forget('cy', 'room4926');
+      roomhold.forgetProject('cy', 'room4926');
     }
   });
 });
@@ -421,11 +421,12 @@ test('#6065 review 1: the held-posts line counts toward the limit, so a post tha
     assert.ok(roomhold.hold('bix', 'room4926', 'p-bix-held'));
     const text = 'x'.repeat(messages.spillLimit() - 4000);
     let d;
-    try { d = await agentPost(roster, text, false); } finally { roomhold.withoutStale = realStale; roomhold.clauseFor = realClause; roomhold.forget('bix', 'room4926'); }
+    try { d = await agentPost(roster, text, false); } finally { roomhold.withoutStale = realStale; roomhold.clauseFor = realClause; roomhold.forgetProject('bix', 'room4926'); }
     assert.notEqual(d.outcomes.bix, chat.DELIVERY.COULD_NOT, 'chat refused a line the held-posts line pushed past its limit: ' + JSON.stringify(d.outcomes));
     const bixInbox = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'bix', 'Inbox');
     assert.ok(fs.existsSync(bixInbox) && fs.readdirSync(bixInbox).includes(d.id + '.txt'), 'bix\'s post was not spilled');
-    // CONTROL: a member with no held line gets the same post whole (no file).
+    // CONTROL: a member with no held line gets the same post whole (no file), and was really delivered to.
+    assert.ok([chat.DELIVERY.PLACED, chat.DELIVERY.UNCONFIRMED].includes(d.outcomes.dee), 'premise: dee was not delivered to: ' + JSON.stringify(d.outcomes));
     const dee = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'dee', 'Inbox');
     assert.ok(!fs.existsSync(dee) || !fs.readdirSync(dee).includes(d.id + '.txt'), 'dee was spilled though its line fits');
   });

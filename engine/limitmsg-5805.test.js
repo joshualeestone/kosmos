@@ -638,8 +638,10 @@ test('#5805 2a review 18: a send to a released agent whose queue cannot be read 
 });
 
 test('#6065 review 1: a message that fits now but not with the kept note is spilled, so a held copy is still typed later', async () => {
-  // About 60 short of chat's limit: with its envelope it fits now, but not with the note a held message is typed with.
+  // Review 3: from the limits themselves. With its ~40-character envelope it fits MAX_TEXT now, but it passes spillLimit()
+  // (MAX_TEXT less the kept note), so it must spill; without the reserve it would be typed whole and refused later.
   const text = 'w'.repeat(chat.MAX_TEXT - 60);
+  assert.ok(text.length + 40 > messages.spillLimit() && text.length + 60 <= chat.MAX_TEXT, 'premise: between the two limits');
   fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'casey'), { recursive: true });   // its own folder, for the spill
   let id;
   await withFleet(AHEAD(), 'rate_limited', async (board) => {
