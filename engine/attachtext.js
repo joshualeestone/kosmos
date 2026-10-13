@@ -181,7 +181,13 @@ function xlsxText(buf) {
   if (clip.cell) notes.add('A cell longer than ' + MAX_CELL + ' characters is cut short.');
   let styles = null;
   try { styles = get('xl/styles.xml'); } catch { styles = null; }
-  const dateFormat = () => { for (const m of styles.matchAll(/formatCode="([^"<>]*)"/g)) if (/[dy]/i.test(m[1])) return true; return false; };   // iteration 3: one match then a test, not a backtracking pattern
+  const dateFormat = () => {
+    for (const m of styles.matchAll(/formatCode="([^"<>]*)"/g)) {
+      const code = m[1].replace(/\[[^\]]*\]/g, '').replace(/&quot;[^&]*&quot;/g, '');   // iteration 4: [Red] is not a date
+      if (/[dy]/i.test(code)) return true;
+    }
+    return false;
+  };   // iteration 3: one match then a test, not a backtracking pattern
   if (styles && (/numFmtId="(?:1[4-9]|2[0-2]|4[5-7])"/.test(styles) || dateFormat())) notes.add('Dates may appear as Excel day numbers (for example 45123), not as dates.');
   if (hasPart(buf, /^xl\/(charts|drawings|media)\//)) notes.add('Charts, pictures and drawings are not converted.');
   return { body: out.text().trim(), notes: [...notes], full: out.full };
@@ -416,7 +422,7 @@ function pdfObjects(buf) {
     /* The filters in order (iteration 3: reportlab writes [ /ASCII85Decode /FlateDecode ]). Any other filter (images,
        mostly, or LZW) is not read; undecodable counts so the reader can say so instead of "scanned". */
     for (const f of o.filters) {
-      if (f === 'ASCII85Decode' || f === 'A85') data = a85(data);
+      if (f === 'ASCII85Decode' || f === 'A85') { data = a85(data, MAX_PDF_INFLATE - inflated); inflated += data.length; }   // charged like inflation
       else if (f === 'ASCIIHexDecode' || f === 'AHx') data = ahx(data);
       else if (f === 'FlateDecode' || f === 'Fl') {
         if (inflated >= MAX_PDF_INFLATE) return null;
@@ -462,9 +468,12 @@ function pdfObjects(buf) {
 }
 
 /* ASCII85 and ASCIIHex, each one forward pass. */
-function a85(buf) {
+function a85(buf, room) {
   const s = buf.toString('latin1');
-  const out = [];
+  const cap = Math.max(0, Math.min(room == null ? MAX_PDF_INFLATE : room, Math.ceil(s.length * 4)));
+  const outBuf = Buffer.alloc(cap);   // iteration 4: written into a bounded buffer, not an unbounded JS array
+  let len = 0;
+  const out = { push: (...b) => { for (const x of b) { if (len >= cap) return; outBuf[len] = x; len += 1; } } };
   let group = [];
   for (let i = 0; i < s.length; i += 1) {
     const c = s[i];
@@ -488,7 +497,7 @@ function a85(buf) {
     const b = [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
     out.push(...b.slice(0, k - 1));
   }
-  return Buffer.from(out);
+  return outBuf.subarray(0, len);
 }
 function ahx(buf) {
   let h = buf.toString('latin1');
@@ -737,6 +746,7 @@ function pdfTextJs(buf) {
   const pages = [];
   let content = 0;
   let cut = null;
+  let ownEncoding = false;
   const total = sink();
   const ordered = pagesInOrder(objs);
   if (ordered.capped) cut = 'Only the first ' + MAX_PDF_PAGES + ' pages are converted.';
@@ -745,7 +755,14 @@ function pdfTextJs(buf) {
     const fonts = new Map();
     let fontDict = subDict(resources, 'Font');
     if (fontDict == null && ref(resources, 'Font') != null) fontDict = (objs.get(ref(resources, 'Font')) || {}).dict || '';
-    for (const fm of String(fontDict || '').matchAll(/\/([^\s/<>\[\]()]{1,64})\s+(\d{1,10})\s+\d{1,5}\s+R\b/g)) { const c = cmapOf(Number(fm[2])); if (c) fonts.set(fm[1], c); }
+    for (const fm of String(fontDict || '').matchAll(/\/([^\s/<>\[\]()]{1,64})\s+(\d{1,10})\s+\d{1,5}\s+R\b/g)) {
+      const c = cmapOf(Number(fm[2]));
+      if (c) { fonts.set(fm[1], c); continue; }
+      /* iteration 4: no ToUnicode, and an encoding of its own (MacRoman from a Mac, or /Differences): read as WinAnsi it
+         would be wrong without looking wrong, so the text is marked as not to be trusted (a Mac then asks PDFKit). */
+      const fd = (objs.get(Number(fm[2])) || {}).dict || '';
+      if (/\/MacRomanEncoding|\/Differences|\/MacExpertEncoding/.test(fd) || (ref(fd, 'Encoding') != null && /\/Differences/.test((objs.get(ref(fd, 'Encoding')) || {}).dict || ''))) ownEncoding = true;
+    }
     const contents = /\/Contents\s*\[([^\]]*)\]/.exec(o.dict);
     const nums = contents ? refs(contents[1]) : (ref(o.dict, 'Contents') != null ? [ref(o.dict, 'Contents')] : []);
     const parts = [];
@@ -764,7 +781,7 @@ function pdfTextJs(buf) {
     if (page.full || total.length >= MAX_OUT) { cut = (cut ? cut + ' ' : '') + 'The rendering stops at ' + MAX_OUT + ' characters; later pages are not included.'; break; }   // iteration 3
     if (cut) break;
   }
-  return { encrypted: false, pages, cut, undecodable: undecodable.n };
+  return { encrypted: false, pages, cut, undecodable: undecodable.n, ownEncoding };
 }
 
 /* Whether extracted text reads as text: mostly letters, digits, spaces and ordinary punctuation, judged on a sample. */
@@ -798,13 +815,13 @@ async function pdfAfter(file, js) {
   if (js.encrypted) return { body: '', notes: ['This PDF is encrypted, so its text could not be read.'] };
   let pages = js.pages;
   let cut = js.cut;
-  if (!readable(pages)) {
+  if (js.ownEncoding || !readable(pages)) {
     await slot();   // iteration 3: PDFKit counts against the same two conversions at once
     let viaKit;
     try { viaKit = await pdfkit(file); } finally { release(); }
     if (viaKit === '\u0000locked') return { body: '', notes: ['This PDF is protected with a password, so its text could not be read.'] };
     if (viaKit && viaKit.replace(/\s+/g, '')) { pages = viaKit.split('\n\f\n'); cut = null; }   // PDFKit read the whole file
-    else if (pages.join('').trim()) notes.push('Some of this PDF’s text may not have converted cleanly (an unusual font encoding).');
+    else if (pages.join('').trim()) notes.push(js.ownEncoding ? 'Some symbols and punctuation in this PDF may be wrong (its fonts use an encoding Kosmos reads only approximately).' : 'Some of this PDF’s text may not have converted cleanly (an unusual font encoding).');
     else if (js.undecodable) notes.push('This PDF uses a compression Kosmos cannot read, so its text could not be converted.');
   }
   if (cut) notes.push(cut);

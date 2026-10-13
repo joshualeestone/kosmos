@@ -401,3 +401,26 @@ test('#6098 review 3: the Excel date-format check is linear on a long unclosed f
   ]);
   assert.ok(timed(() => at.xlsxText(book)) < 2000, '100K took 4.8 s before');
 });
+
+/* ── review 4 ── */
+test('#6098 review 4: a font with its own encoding and no ToUnicode marks the text as not to be trusted (PDFKit is asked)', async () => {
+  kitCalls = 0;
+  const f = path.join(SANDBOX, 'macroman.pdf');
+  fs.writeFileSync(f, pdf([[1, '<< /Type /Catalog /Pages 2 0 R >>'], [2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [3, '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>'], [4, streamObj('', 'BT /F1 12 Tf (ENERGY STAR\\250 is fine) Tj ET')],
+    [5, '<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman /Encoding /MacRomanEncoding >>']]));
+  const got = await at.pdfText(f, fs.readFileSync(f));
+  assert.equal(kitCalls, 1, 'PDFKit is asked for a MacRoman font');
+  assert.ok(got.notes.some((n) => /symbols and punctuation/.test(n)), JSON.stringify(got.notes));
+});
+
+test('#6098 review 4: the date note ignores [Red] colour codes; a real date format still gets it', () => {
+  const book = (fmt) => buildZip([
+    entry('xl/workbook.xml', XML + '<workbook xmlns:r="r"><sheets><sheet name="S" r:id="rId1"/></sheets></workbook>'),
+    entry('xl/_rels/workbook.xml.rels', XML + '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
+    entry('xl/worksheets/sheet1.xml', XML + '<worksheet><sheetData/></worksheet>'),
+    entry('xl/styles.xml', XML + '<styleSheet><numFmts><numFmt numFmtId="164" formatCode="' + fmt + '"/></numFmts></styleSheet>'),
+  ]);
+  assert.ok(!at.xlsxText(book('#,##0;[Red]-#,##0')).notes.some((n) => /Dates/.test(n)));
+  assert.ok(at.xlsxText(book('dd/mm/yyyy')).notes.some((n) => /Dates/.test(n)));
+});
