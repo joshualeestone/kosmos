@@ -56,7 +56,8 @@ function activate() {
     try {
       /* Real paths on both sides: macOS gives the cwd as /private/var/... and the script as /var/..., and a relative
          path between those is a climb to the root. A script outside the cwd keeps its absolute path, with the home
-         folder written as ~ so a user name does not reach a log someone pastes into a card. */
+         folder written as ~ so a user name does not reach a log someone pastes into a card. A symlinked test file
+         is named by its target. */
       const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
       let script = `(no script, ${path.basename(process.argv0)})`;
       if (process.argv[1]) {
@@ -65,7 +66,7 @@ function activate() {
         try { cwd = real(process.cwd()); } catch { /* a deleted cwd: name the file by its absolute path below */ }
         const rel = cwd ? path.relative(cwd, abs) : '';
         const home = real(os.homedir());
-        script = rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel
+        script = rel && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel) ? rel
           : (home && abs.startsWith(home + path.sep) ? '~' + abs.slice(home.length) : abs);
       }
       fs.writeFileSync(path.join(dir, '.kts-owner'), `${script}\tpid ${process.pid}\n`);
