@@ -429,3 +429,16 @@ All four checks ran in a browser (headless Chromium, plus WebKit inside the sign
   The hint's rule now sets the font to the hint class's own, with the reason beside it.
 - This is the second time on this one line that reasoning said one size and the page had another. The rerun is
   queued; nothing about the hint's size is claimed until it has been measured at 12.
+
+## The browser rerun at the final head (2026-10-13, finished 10:06 CDT, at 80d8c9a16): all four green
+- `render-plus-computer-name-5995.js`: 36 arms passed, 0 failed, exit 0. **"the explanation is smaller than its
+  label" measured [13, 12]** (it was [13, 13] at b1d8a0ece). Its colour is rgb(143,160,196) against the label's
+  rgb(159,176,208); contrast 5.25 to 1 over both gradient stops, dark and phone width.
+- `render-plus-signin-3478.js`, `render-plus-signin-enter-0929.js`, `render-plus-company-5628.js`: each exit 0.
+  238 PASS lines and 0 FAIL lines in the whole run (ick-5995-cn-check.log).
+- 80d8c9a16 is the one commit no reviewer has read: it sets the hint's font explicitly in `web/index.html`. Review
+  19 converged at 345e025d9. What stands in for a review of it is this measurement.
+- NOT rerun at 80d8c9a16: the full suite (green at 9b4888434 but for the surface gate, which is green alone at
+  a158331ef), the mutants (at 2d417473b and after), the design shots (Mona Lisa approved the ones at a158331ef and
+  again after her two changes). The branch is 187 commits behind main with no conflict (`git merge-tree`); CI
+  tests the merge.
