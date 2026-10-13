@@ -36,7 +36,7 @@ Card: joshualeestone/kosmos#6059. PR #6078 fixed one test; the same `fetch faile
 - Re-trying the fetch: hides a real reset.
 
 ## Proven
-- test-support.thread-fixture.test.js: 205 same-shaped entries in one write read back deepEqual to 205 real appends
+- test-support.thread-fixture.test.js: 20 same-shaped entries in one write read back deepEqual to 20 real appends
   (the shape control); entries with no time get distinct, increasing times; a differing field, a text the engine
   would store differently ('a  b') and a thread at the cap each fall back; a text it stores unchanged ('café') does
   not (control). Mutation: the old printable-ASCII check reds the 'a  b' arm.
