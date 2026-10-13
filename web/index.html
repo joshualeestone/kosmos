@@ -729,15 +729,16 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-who b { font-weight: 650; display: block; }
 .acct-org, .acct-keytail { display: block; color: var(--label-2); font-size: .8125rem; }
 /* #6108: how much of its weekly limit a Claude account has used, and the agents on it here. The meter is the memory
-   meter's own .bar, so the two read as one family. */
+   meter's own .bar, so the two read as one family. The paragraph rules are scoped under #set-accounts so they outrank
+   `.panel p` (body size, grey, a large bottom margin), as .acct-expiring-line already is. */
 .acct-usage { display: flex; flex-direction: column; gap: 8px; }
 .acct-usage-meter { display: flex; align-items: center; gap: 10px; }
 .acct-usage-meter .bar { flex: 0 0 120px; }
-.acct-usage-line, .acct-agents-line { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); }
-.acct-usage-none { color: var(--label-2); }
-.acct-usage-warn { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); display: flex; gap: 8px; align-items: baseline; }
-.acct-usage-warn::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); transform: translateY(-1px); }
-.acct-usage-warn.high::before { background: var(--danger); }   /* themed: the raw reds fail on the dark card */
+#set-accounts .acct-usage-line, #set-accounts .acct-agents-line { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); }
+#set-accounts .acct-usage-none { color: var(--label-2); }
+#set-accounts .acct-usage-warn { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); display: flex; gap: 8px; align-items: baseline; }
+#set-accounts .acct-usage-warn::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); transform: translateY(-1px); }
+#set-accounts .acct-usage-warn.high::before { background: var(--danger); }   /* themed: the raw reds fail on the dark card */
 .acct-move { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .acct-move select { min-height: 44px; font-size: .875rem; max-width: 100%; }
 /* The account panel's own primary action shape (Sign in again's gold outline), so Move reads as this panel's button. */
@@ -749,11 +750,11 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .acct-usage-meter { flex-direction: column; align-items: stretch; gap: 6px; }
   .acct-usage-meter .bar { flex: none; width: 100%; }
 }
-.acct-move-msg { margin: 0; font-size: .8125rem; color: var(--label); }
-.acct-move-msg:empty { margin-top: -8px; }   /* kept in the page (a live region must exist before it speaks), but no gap */
-.acct-move-msg:focus { outline: none; }
-.acct-move-msg:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; border-radius: 4px; }
-.acct-move-note { margin: 0; flex: 1 1 100%; font-size: .75rem; color: var(--label-2); }
+#set-accounts .acct-move-msg { margin: 0; font-size: .8125rem; color: var(--label); }
+#set-accounts .acct-move-msg:empty { margin-top: -8px; }   /* kept in the page (a live region must exist before it speaks), but no gap */
+#set-accounts .acct-move-msg:focus { outline: none; }
+#set-accounts .acct-move-msg:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; border-radius: 4px; }
+#set-accounts .acct-move-note { margin: 0; flex: 1 1 100%; font-size: .75rem; color: var(--label-2); }
 /* The disambiguator beside a name two accounts share. Quiet on purpose: it is
    an answer to "why are there two of these", not a thing to read first. Same
    token as .acct-org, which is defined on the light, dark and increased-contrast
@@ -27106,8 +27107,8 @@ function acctUsageHtml(a, list) {
   const names = sessions.map((n) => (known.get(n) && known.get(n).name) || n);
   /* Only accounts a move can land on: shared history (as the agent page's picker requires, #1492: an option that
      always fails is worse than none) and not signed out or refused. */
-  const targets = (list || []).filter((x) => x.provider === 'anthropic' && x.dir && x.dir !== a.dir && x.memoryShared
-    && !(x.connection && (x.connection.badge === 'rejected' || x.connection.badge === 'signed_out'))
+  const targets = (list || []).filter((x) => x && x.provider === 'anthropic' && x.dir && x.dir !== a.dir && x.memoryShared
+    && acctOfferableTarget(x)   // the create picker's own test: not refused, not signed out
     && !(x.weekly && Number.isFinite(x.weekly.usedPct) && x.weekly.usedPct >= 100));   // a full account cannot run them either
   const canMove = names.length > 0 && targets.length > 0;
   let usage = '';
@@ -27134,14 +27135,17 @@ function acctUsageHtml(a, list) {
   let st = ACCT_MOVE.get(a.dir) || null;
   if (st && !st.moving && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) { ACCT_MOVE.delete(a.dir); st = null; }
   const busy = !!(st && st.moving);
-  const who = esc(a.email || a.label || 'this account');
+  /* Named the way every other account picker names them (#1917/#2095): two accounts on one email get their qualifier. */
+  const qual = accountQualifiers(list || []);
+  const nameOf = (x) => acctPrimaryName(x) + (qual.get(String(x.dir || '')) ? ' (' + qual.get(String(x.dir || '')) + ')' : '');
+  const who = esc(nameOf(a) || 'this account');
   const picked = targets.some((x) => x.dir === ACCT_PICK.get(a.dir)) ? ACCT_PICK.get(a.dir) : '';
   const move = canMove || busy
     ? '<div class="acct-move"><select' + (busy ? ' disabled' : '') + ' data-acct-move-to="' + esc(a.dir) + '" aria-label="Move the agents on ' + who + ' to another account">'
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
-      + targets.map((x) => '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + '>' + esc(x.email || x.label || x.dir) + (x.weekly && Number.isFinite(x.weekly.usedPct) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
+      + targets.map((x) => '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + '>' + esc(nameOf(x)) + (x.weekly && Number.isFinite(x.weekly.usedPct) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
       + '</select><button type="button" data-acct-move="' + esc(a.dir) + '" aria-label="Move the agents on ' + who + '"' + (busy || !picked ? ' disabled' : '') + '>' + (busy ? 'Moving…' : 'Move') + '</button>'
-      + '<p class="acct-move-note">Moving restarts ' + (names.length === 1 ? 'it' : 'all ' + names.length) + ' on the new account.</p></div>'   // said before the click, with the count
+      + '<p class="acct-move-note">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p></div>'   // said before the click
     : '';
   /* tabindex -1: after a move the button the person pressed is gone, so focus lands here. The sentence is drawn empty
      while a finished move is being announced (the handler writes it a frame later, so the live region hears a change). */
@@ -27150,6 +27154,16 @@ function acctUsageHtml(a, list) {
   const said = st && st.said && !st.announce ? esc(st.said) : '';
   return '<div class="acct-usage">' + usage + agentsLine + move
     + '<p class="acct-move-msg"' + (said ? '' : ' role="status"') + ' tabindex="-1" data-acct-move-msg="' + esc(a.dir) + '">' + said + '</p></div>';
+}
+/* #6108: what a move does to these agents, before the click. The route restarts each one, which STARTS a stopped one,
+   so a stopped agent is named as such rather than folded into "restarts". */
+function acctMoveNote(cards) {
+  const n = cards.length;
+  const stopped = cards.filter((c) => c && cardStOf(c).pres === 'off').length;
+  const all = n === 1 ? 'it' : n === 2 ? 'both' : 'all ' + n;
+  if (!stopped) return 'Moving restarts ' + all + ' on the new account.';
+  if (stopped === n) return 'Moving starts ' + all + ' on the new account, though ' + (n === 1 ? 'it is' : 'they are') + ' stopped now.';
+  return 'Moving restarts them on the new account, and starts the ' + (stopped === 1 ? 'one that is' : stopped + ' that are') + ' stopped.';
 }
 /* #6108: move every agent this computer has on `fromDir` to `toDir`, one at a time through the same route the agent's
    own page uses, and say how it went in one line: the engine's own sentence for any that did not move. */
@@ -27820,6 +27834,16 @@ async function paintAccounts(opts) {
      place to watch it. */
   /* #6108: Move these agents. The button wakes when a target is picked; the outcome stays on the row until the list
      repaints, then the repaint shows where the agents now are. */
+  /* A finished move whose sentence has not been spoken yet: the paint that draws its row speaks it, a frame later so
+     the region sees a change. Done here, not in the move's handler, so a paint that superseded the handler's own still
+     announces it. */
+  for (const [dir, st] of ACCT_MOVE) {
+    if (!st || !st.announce) continue;
+    const m = box.querySelector('[data-acct-move-msg="' + CSS.escape(dir) + '"]');
+    if (!m) continue;
+    st.announce = false;
+    requestAnimationFrame(() => { if (m.isConnected) { m.setAttribute('role', 'status'); m.textContent = st.said; } });
+  }
   for (const sel of box.querySelectorAll('[data-acct-move-to]')) {
     const btn = box.querySelector('[data-acct-move="' + CSS.escape(sel.dataset.acctMoveTo) + '"]');
     sel.addEventListener('change', () => { if (sel.value) ACCT_PICK.set(sel.dataset.acctMoveTo, sel.value); else ACCT_PICK.delete(sel.dataset.acctMoveTo); if (btn) btn.disabled = !sel.value; });
@@ -27846,13 +27870,11 @@ async function paintAccounts(opts) {
       ACCT_MOVE.set(from, { moving: false, said, doneAt: Date.now(), announce: true });
       ACCT_PICK.delete(from);
       accountsDropped();
-      try { await paintAccounts(); } catch { /* the sentence is kept in ACCT_MOVE and drawn by the next paint */ }
-      const st = ACCT_MOVE.get(from); if (st) st.announce = false;
-      /* The repaint drew the region empty; write the sentence a frame later so a screen reader hears it, and put focus
-         where the pressed button was: the row's move menu if it is still there, else this sentence. */
+      try { await paintAccounts(); } catch { /* the sentence is kept in ACCT_MOVE and spoken by the next paint */ }
+      /* The paint speaks the sentence (above). Put focus where the pressed button was: the row's move menu if it is
+         still there, else its sentence. */
       const m = document.querySelector('[data-acct-move-msg="' + CSS.escape(from) + '"]');
       const again = document.querySelector('[data-acct-move-to="' + CSS.escape(from) + '"]');
-      requestAnimationFrame(() => { if (m) m.textContent = said; });
       /* Only if the person is still here: a long move must not pull focus from something they moved on to. */
       const ae = document.activeElement;
       const stillHere = !ae || ae === document.body || !!(ae.closest && ae.closest('#set-accounts'));

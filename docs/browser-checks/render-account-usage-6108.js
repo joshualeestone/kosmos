@@ -86,11 +86,19 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         if (typeof paintAccounts !== 'function') return { error: 'paintAccounts is not a function' };
         LAST = agents;
         await paintAccounts();
-        /* The Settings panel is hidden on a bare page, and a hidden element has no size and cannot take focus, so the
-           layout and focus claims below would measure nothing. Lift the list into a visible frame at the page's width. */
+        /* The Settings panel is hidden on a bare page, and a hidden element has no size and cannot take focus. Show the
+           list IN PLACE, inside the real Settings panel, so every rule that reaches it on the real screen (.panel p,
+           above all) reaches it here: un-hide each ancestor, and hide the page's other top-level panels. Lifting the
+           list out of the panel hid exactly the cascade bug this check must catch. */
         const list0 = document.getElementById('set-accounts');
-        const frame = document.createElement('div'); frame.style.cssText = 'position:fixed;inset:0;overflow:auto;z-index:99999;background:#fff;padding:16px';
-        frame.appendChild(list0); document.body.appendChild(frame); list0.hidden = false;
+        for (let el = list0; el && el !== document.body; el = el.parentElement) {
+          if (el.hidden) el.hidden = false;
+          if (getComputedStyle(el).display === 'none') el.style.display = 'block';
+        }
+        const panel = list0.closest('.panel');
+        for (const other of document.querySelectorAll('.panel')) if (other !== panel && !other.contains(panel)) other.style.display = 'none';
+        list0.scrollIntoView({ block: 'start' });
+        const frame = document.scrollingElement || document.documentElement;
         /* By the row's own dir, never by its text: every email also appears in the other rows' Move menus. */
         const box = (email) => document.querySelector('#set-accounts .acct-box[data-acct-dir="/home/.claude-' + email.split('@')[0] + '"]');
         const read = (email) => {
@@ -101,7 +109,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           const br = b.getBoundingClientRect(), mr = b.querySelector('.acct-move') ? b.querySelector('.acct-move').getBoundingClientRect() : null;
           const warnEl = u && u.querySelector('.acct-usage-warn'), note = u && u.querySelector('.acct-move-note');
           const vis = br.width > 0 && br.height > 0;
-          return { vis, warnText: warnEl ? warnEl.textContent.trim() : null, note: note ? note.textContent.trim() : null, has: !!u, line: u && u.querySelector('.acct-usage-line') ? u.querySelector('.acct-usage-line').textContent.trim() : null,
+          const lineEl = u && u.querySelector('.acct-usage-line');
+          const cs = lineEl ? getComputedStyle(lineEl) : null;
+          const label = getComputedStyle(document.documentElement).getPropertyValue('--label').trim();
+          const probe = document.createElement('span'); probe.style.color = 'var(--label)'; b.appendChild(probe); const labelRgb = getComputedStyle(probe).color; probe.remove();
+          return { vis, font: cs ? cs.fontSize : null, color: cs ? cs.color : null, labelRgb, margin: cs ? cs.marginBottom : null, warnText: warnEl ? warnEl.textContent.trim() : null, note: note ? note.textContent.trim() : null, has: !!u, line: u && u.querySelector('.acct-usage-line') ? u.querySelector('.acct-usage-line').textContent.trim() : null,
             fill: fill ? fill.style.width : null, warn: !!(u && u.querySelector('.acct-usage-warn')),
             agents: u && u.querySelector('.acct-agents-line') ? u.querySelector('.acct-agents-line').textContent.trim() : null,
             agentsEls: u && u.querySelector('.acct-agents-line') ? u.querySelector('.acct-agents-line').querySelectorAll('b').length : 0,
@@ -149,16 +161,17 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         const st = ACCT_MOVE.get('/home/.claude-busy'); if (st) st.doneAt -= 3 * 60e3;
         await paintAccounts();
         const expired = msgOf('/home/.claude-busy');
-        /* Sideways overflow is measured on the frame the rows live in: the page itself cannot scroll past a fixed frame. */
-        return { pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - frame.clientWidth };
+        /* Sideways overflow of the page itself, with the list in its real place. */
+        return { pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
       }, { accounts: ACCOUNTS, agents: AGENTS });
       await page.close();
       if (r.error) { say(false, tag + ' ' + r.error); continue; }
       const { busy, fresh, calm, key, old, def, guideonly, full } = r.before;
       say(!!busy && busy.has && busy.fill === '82%', tag + ' an 82% row draws its meter at 82%', JSON.stringify(busy && busy.fill));
+      say(!!busy && busy.vis && busy.font === '13px' && busy.color === busy.labelRgb && busy.margin === '0px', tag + ' inside the real Settings panel the usage line keeps its own size, ink and spacing (the panel\'s paragraph rule does not win)', JSON.stringify(busy && { vis: busy.vis, font: busy.font, color: busy.color, label: busy.labelRgb, margin: busy.margin }));
       say(!!busy && /^82% of its weekly limit used · resets .+ · last changed 2 hours ago$/.test(busy.line || ''), tag + ' the row says how much is used, when it resets and how old the reading is', JSON.stringify(busy && busy.line));
       say(!!busy && busy.warn && busy.warnText === 'Close to its weekly limit. Move its agents to another account before they stop.', tag + ' at 82% the row warns, and says what to do', JSON.stringify(busy && busy.warnText));
-      say(!!busy && busy.note === 'Moving restarts all 2 on the new account.', tag + ' the restart is said before the click, beside the control', JSON.stringify(busy && busy.note));
+      say(!!busy && busy.note === 'Moving restarts both on the new account.', tag + ' the restart is said before the click, beside the control', JSON.stringify(busy && busy.note));
       say(!!guideonly && guideonly.warnText === 'Close to its weekly limit.' && guideonly.agents === 'No agents on it on this computer.' && guideonly.options === null, tag + ' a guide-only row warns but never says to move agents it does not show', JSON.stringify(guideonly));
       say(!!full && full.warnText === 'At its weekly limit. Move its agents to another account to get them working again.', tag + ' at 100% the row says it is at its limit', JSON.stringify(full && full.warnText));
       say(!!busy && busy.agents === 'Its agents on this computer: Dana, Eli', tag + ' it names its agents by display name, leaving out the setup guide', JSON.stringify(busy && busy.agents));
@@ -185,7 +198,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!key && key.has && key.fill === null && key.line === null, tag + ' an API-key row draws no meter', JSON.stringify(key));
       say(!!old && !old.has, tag + ' an older board\'s row draws no usage block', JSON.stringify(old));
       say(!!busy && busy.vis && busy.moveInside === true, tag + ' the move control fits inside its (visible, measured) row', JSON.stringify(busy && { vis: busy.vis, inside: busy.moveInside }));
-      say(r.sideways <= 0, tag + ' the account list does not scroll sideways', String(r.sideways));
+      say(r.sideways <= 0, tag + ' the page does not scroll sideways', String(r.sideways));
       say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
     }
     await browser.close();
