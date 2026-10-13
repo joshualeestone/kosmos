@@ -1493,8 +1493,9 @@ function claudeMenuRefusal(card, sessionName, roster) {
   if (status.claudeQuestionMenuUp(view.text)) {   // first: its free-answer row is the stricter signal
     /* The direct-message route answers by number only when the card reads needs_you (it reads the screen only then). */
     // #6054: the page draws buttons for the single-select form (status.claudeQuestionMenu) only.
-    const single = Boolean(status.claudeQuestionMenu(view.text));
-    return (single && labelsPressable(status.claudeQuestionMenu(view.text)) && pageDrawsButtons(card, sessionName) ? onItsPage(CLAUDE_MENU_SENTENCE) : CLAUDE_MENU_SENTENCE)
+    const qm = status.claudeQuestionMenu(view.text);
+    const single = Boolean(qm);
+    return (single && labelsPressable(qm) && pageDrawsButtons(card, sessionName) ? onItsPage(CLAUDE_MENU_SENTENCE) : CLAUDE_MENU_SENTENCE)
       + (card.state === status.STATE.NEEDS_YOU && single ? CLAUDE_MENU_DM_CLAUSE : '');
   }
   const kind = status.claudePermissionPromptKind(view.text);   // #5754

@@ -2573,7 +2573,13 @@ function claudePermissionPrompt(text) {
   if (wrap.length) return null;   // indented text directly under the question, above the first option
   if (q < 0 || opts.length < 2 || opts.length > 9 || selected !== 1) return null;
   if (opts.some((o, k) => o.n !== k + 1)) return null;
-  return { at: q, question: lines[q].trim(), options: opts, count: opts.length, permission: true };
+  /* Review 5 (decided, reversible): only the options that decide THIS request are answerable, "Yes" and the "No" one.
+     The others ("Yes, and don't ask again for ...", "Yes, and switch to auto mode", "Yes, and switch to accept edits")
+     save a lasting choice in the agent's settings or session, and the rule for those is #5051's: never a one-tap button,
+     so a mis-tap on a phone cannot change what the agent may do from now on. They stay on screen in the question text. */
+  const answerable = opts.filter((o) => o.label === 'Yes' || /^No\b/.test(o.label));
+  if (answerable.length !== 2 || answerable[0].label !== 'Yes') return null;
+  return { at: q, question: lines[q].trim(), options: answerable, count: opts.length, permission: true };
 }
 /* #6054: a menu the agent page may answer by key: the question menu, or a permission prompt. Only for answering by a
    pressed number. Closing with Escape stays the question menu's alone: on a permission prompt Escape means No. */
