@@ -50,6 +50,21 @@ function activate() {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kts-'));
     scoped = dir;
     process.env.TMPDIR = dir;
+    /* #6061: name the test file that owns this directory. A kill this module cannot catch leaves the directory
+       behind, and the suite's leak guard (tools/lib/test-leak-guard.sh) reads this file to say which test was
+       killed; without it a `kts-` leak names only a random suffix, from any of some two hundred files. */
+    try {
+      /* Real paths on both sides: macOS gives the cwd as /private/var/... and the script as /var/..., and a relative
+         path between those is a climb to the root. A script outside the cwd keeps its absolute path. */
+      const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+      let script = `(no script, ${process.argv0})`;
+      if (process.argv[1]) {
+        const abs = real(process.argv[1]);
+        const rel = path.relative(real(process.cwd()), abs);
+        script = rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : abs;
+      }
+      fs.writeFileSync(path.join(dir, '.kts-owner'), `${script}\tpid ${process.pid}\n`);
+    } catch { /* the directory still works without its owner line */ }
     /* At exit, and on SIGINT/SIGTERM/SIGHUP (./remove-at-end.js). When the file has its
        own handler for the signal, that handler decides whether the process ends, and the
        sweep waits for the exit: sweeping first would leave it running with its TMPDIR
