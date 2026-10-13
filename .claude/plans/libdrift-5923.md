@@ -58,7 +58,9 @@ Residuals, stated:
   (iteration 23, arm "gitreuse"); gitcmd is written before gitpid, so a pid is never on record without its command
   (iteration 24). The index.lock covers the instant between git creating it and its pid being written; a holder KILLed
   after the fork and before git creates index.lock (tens of ms) is not covered, the accepted wrapper-KILL residual
-  (iteration 24). An index.lock
+  (iteration 24). The "gitlive" arm writes the production shape (gitcmd matching, before gitpid) and "gitreuse" must
+  take over in under 60 s with a reused pid that outlives the deadline (iteration 25); origin/main is read as
+  refs/remotes/origin/main, so a local branch of that name cannot stand in for it. An index.lock
   left by a git that was itself killed holds joiners until the 5-minute give-up (it blocks every git there anyway). If git is itself killed part way, the tree is left
   mixed and is not repaired automatically. The checkout back runs the same way (own group, INT/TERM/HUP ignored
   until it ends). The checkout back is
