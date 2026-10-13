@@ -71,3 +71,10 @@ the pane working (a short turn between sweeps is not seen); for Codex, Gemini an
 - `docs/browser-checks/render-health-line-5959.js`: three agents' pages on a real board; negative control (paint
   removed) fails all three arms.
 - Mutations checked red: the never-backwards guard, the OK-only guard, a provider-blind read, the paint.
+
+## Rides along: one line for #6017 (2026-10-12 21:1x CDT)
+`server.usage.test.js` gains `require('./test-support/tmpscope')` first, byte-identical on reportshow-5959,
+healthline-5959, bcsgfast-5907 and bcsmfast-5907. Full validations on this Mac passed every test and went red only on
+the #4273 leak guard finding that file's `aw-usage-route-` dir (#6017; seen here under load, not on the other Mac). A
+separate PR would join the back of the validation queue; on every branch already queued, the first to pass lands it and
+the others drop it on rebase.
