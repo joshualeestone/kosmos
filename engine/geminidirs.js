@@ -94,7 +94,7 @@ function foldersFor(name, opts) {
       continue;
     }
     const real = realDir(folder);
-    if (!real) { out.leftOut.push({ folder, because: 'the folder is not there' }); continue; }
+    if (!real) { out.leftOut.push({ folder, because: 'the folder is not there, or is not a folder' }); continue; }
     if (/[,\r\n]/.test(real) || real !== real.trim()) {
       out.leftOut.push({ folder, because: 'Gemini splits folder names on commas and trims spaces, so it would get the wrong folder' });
       continue;
