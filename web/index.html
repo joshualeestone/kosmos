@@ -27141,7 +27141,7 @@ function acctUsageHtml(a, list) {
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
       + targets.map((x) => '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + '>' + esc(x.email || x.label || x.dir) + (x.weekly && Number.isFinite(x.weekly.usedPct) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
       + '</select><button type="button" data-acct-move="' + esc(a.dir) + '" aria-label="Move the agents on ' + who + '"' + (busy || !picked ? ' disabled' : '') + '>' + (busy ? 'Moving…' : 'Move') + '</button>'
-      + '<p class="acct-move-note">' + (names.length === 1 ? 'It restarts' : 'They restart') + ' on the new account.</p></div>'   // said before the click, not only after
+      + '<p class="acct-move-note">Moving restarts ' + (names.length === 1 ? 'it' : 'all ' + names.length) + ' on the new account.</p></div>'   // said before the click, with the count
     : '';
   /* tabindex -1: after a move the button the person pressed is gone, so focus lands here. The sentence is drawn empty
      while a finished move is being announced (the handler writes it a frame later, so the live region hears a change). */
@@ -27155,8 +27155,7 @@ function acctUsageHtml(a, list) {
    own page uses, and say how it went in one line: the engine's own sentence for any that did not move. */
 async function moveAccountAgents(fromDir, toDir, names, onProgress) {
   let moved = 0;
-  const group = () => new Map();   // reason -> names, so one sentence is said once
-  const restarting = group(), misses = group(), silent = [];
+  const restarting = new Map(), misses = new Map(), silent = [];   // reason -> names, so one sentence is said once
   const add = (m, why, who) => { if (!m.has(why)) m.set(why, []); m.get(why).push(who); };
   const nameOf = (n) => (((LAST || []).find((x) => x && x.sessionName === n) || {}).name || n);
   const end = (t) => t + (/[.!?]$/.test(t) ? '' : '.');

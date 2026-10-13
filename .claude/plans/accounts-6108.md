@@ -30,7 +30,8 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
 - Move's border is --gold-bright like Sign in again's (1.95:1 on white, under the 3:1 control-edge floor). Kept
   deliberately: Josh reverted the --gold-edge fix on Sign in again (2026-08-26), and this button follows that ruling
   rather than diverging from its sibling. Revisit both together if he changes it.
-- The setup guide is left out by the server (isSetupGuide), not only by the page's cached list.
+- The setup guide is left out by the server (the shared walk checks the guide marker, as isSetupGuide does), not only
+  by the page's cached list.
 - Progress shows on the button; the live region speaks once, with the result. Each move times out after 60 s.
 
 - One shared walk (agentsByAccountWalk) behind both the account guards (count every agent) and this list (skips
@@ -40,6 +41,11 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
 - A full target (100%) is not offered, and the "Move its agents" sentence needs a target with room.
 - A saved-but-not-restarted agent is "Not restarted yet (Name): <the engine's own sentence>". Refusals are grouped by
   their exact sentence, so they merge only when the engine words them the same (its sentences often name the agent).
+
+- No confirm step before a bulk move (the agent page's own Move has none; the card asks for a quick move before the
+  limit). The note beside the control says how many restart, before the click.
+- Cost: the accounts list now walks the agents once per request. The route is press-driven by contract (server.js:
+  "every caller is A PERSON PRESSING SOMETHING ... a TIMER is not"); follow-up reads stop at ACCT_FOLLOWUP.max (6).
 
 ## Not in slice 1 (follow-ups after it ships)
 - After a 'partial' move the server already lists the agent under the new account, though it still runs on the old
