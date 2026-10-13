@@ -2,17 +2,17 @@
 pre_challenge: true
 method: challenge-loop
 branch: followposts-5636
-diff_hash: 293c10580adeba7bd0cd50cd9de2817080018f8cbb379320abc4df0d51ea1c26
+diff_hash: d158cb5332577a708ce46fd951b7b874107f7ee5d3e392e33216f0cf149bcc49
 validation: focused (every suite that loads communityfollow plus fixture-discipline, no-brand-refs, no-name-refs, the Windows guards and engine.reachable: 216/216 at the first commit, 181/181 after iteration 1; communityfollow.test.js 29/29 at the last fix, 2026-10-13); full suite left to CI
 subdir_audit: passed (no subdir CLAUDE.md in the diff)
-timestamp: 2026-10-13T20:13:03Z
-iterations: 4
+timestamp: 2026-10-13T20:38:25Z
+iterations: 8
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 4
+**Iterations:** 8
 **Converged:** Yes
 **Total findings:** 18 (0 BLOCKERs, 6 WARNINGs, 0 CONVENTIONs, 12 NITs)
 **Fixed:** 12 | **Deferred:** 6 | **Asked (awaiting user):** 0
@@ -56,7 +56,33 @@ converged: true
 - [NIT] a "Reply to: Other 1" assertion could be looser than it looks --> DEFERRED: only Other 1 to 10 exist on page 1 and Other 10 is grouped
 - [NIT] one long test --> DEFERRED: matches the file's style
 - [NIT] test-only exports --> DEFERRED: the file's _resetRate pattern
-**Converged** — no new actionable findings.
+
+#### Iteration 5
+**Reviewer model:** opus (after CI went red on engine.reachable: the _setReadPagesMs seam needed its excuse entry, 2c900c2de)
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 3 NITs
+**Self-generated:** 1 (the waitMs test message, written by 94b3b08a6)
+- [WARNING] a test message said the opposite of its check --> FIXED (b8668b9df)
+- [WARNING] worst-case read time unguarded --> DEFERRED: bounded by the start bound and the per-page wait; stated in the plan
+- [CONVENTION] plan missing the seam --> FIXED (b8668b9df)
+- [NIT] duplicate posts count toward found; unused exports; assertion placement --> DEFERRED / FIXED in iteration 7
+
+#### Iteration 6
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 4 NITs
+**Self-generated:** 1 (the plan's worst-case sentence, written by b8668b9df)
+- [WARNING] the plan understated the worst case (two older pages) --> FIXED by deleting the sentence (aab16b06d)
+
+#### Iteration 7
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 5 NITs
+**Self-generated:** 1 (the cap message, written by de9f54e97)
+- [WARNING] the cap assertion's message misdescribed the rule --> FIXED by stating what was seen (1a048b5b5); the failing-page checks moved beside their call
+
+#### Iteration 8
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 1 WARNING (noted by the reviewer as needing no change: an empty older page is bounded by FEED_PAGES_MAX), 0 CONVENTIONs, 3 NITs
+**Self-generated:** 0
+Converged: no new actionable findings.
 
 ### Final Ledger
 
