@@ -24,7 +24,8 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
 - The warning's "Move its agents" sentence appears only when a move is offered.
 - The default account (no statusline) says "Kosmos cannot read usage for this account."; others without a reading
   say "No usage reading for this account yet."
-- A finished move's sentence stays two minutes; moving restarts the agents on the new account, and the line says so.
+- A finished move's sentence stays until the first repaint after two minutes; the restart is said beside the control
+  before the click and in the result after; focus goes to the row's menu, or its sentence when the menu is gone.
 
 ## Not in slice 1 (follow-ups after it ships)
 Default ~/.claude reading (no statusline), the 5-hour limit, OpenAI/Gemini/Grok percentages, Windows, agents on other

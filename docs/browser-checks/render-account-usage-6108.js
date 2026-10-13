@@ -38,11 +38,13 @@ const ACCOUNTS = [
   claude('calm@example.com', 'calm', { weekly: { usedPct: 40, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
   claude('key@example.com', 'key', { apiKey: true, weekly: null, agentsHere: { names: [], complete: true } }),
   claude('old@example.com', 'old', {}),   // an older board: no weekly, no agentsHere
+  claude('guideonly@example.com', 'guideonly', { weekly: { usedPct: 80, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-guide2'], complete: true } }),
+  claude('full@example.com', 'full', { weekly: { usedPct: 100, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-q'], complete: true } }),
   claude('default@example.com', 'default', { isDefault: true, weekly: null, agentsHere: { names: [], complete: true } }),
   claude('noshare@example.com', 'noshare', { memoryShared: false, weekly: { usedPct: 5, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
 ];
 const AGENTS = [{ sessionName: 's-dana', name: 'Dana' }, { sessionName: 's-eli', name: 'Eli' }, { sessionName: 's-x', name: 'x<b>y' },
-  { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true }, { sessionName: 's-p', name: 'Pia' }, { sessionName: 's-r1', name: 'Rex' }, { sessionName: 's-r2', name: 'Rio' }];
+  { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true }, { sessionName: 's-guide2', name: 'Kosmos Guide', isGuide: true }, { sessionName: 's-q', name: 'Quinn' }, { sessionName: 's-p', name: 'Pia' }, { sessionName: 's-r1', name: 'Rex' }, { sessionName: 's-r2', name: 'Rio' }];
 
 const fails = [];
 const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fails.push(label); };
@@ -82,8 +84,12 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         };
         if (typeof paintAccounts !== 'function') return { error: 'paintAccounts is not a function' };
         LAST = agents;
-        const sec = document.getElementById('s-sec-accounts'); if (sec) { sec.hidden = false; sec.style.display = 'block'; }
         await paintAccounts();
+        /* The Settings panel is hidden on a bare page, and a hidden element has no size and cannot take focus, so the
+           layout and focus claims below would measure nothing. Lift the list into a visible frame at the page's width. */
+        const list0 = document.getElementById('set-accounts');
+        const frame = document.createElement('div'); frame.style.cssText = 'position:fixed;inset:0;overflow:auto;z-index:99999;background:#fff;padding:16px';
+        frame.appendChild(list0); document.body.appendChild(frame); list0.hidden = false;
         /* By the row's own dir, never by its text: every email also appears in the other rows' Move menus. */
         const box = (email) => document.querySelector('#set-accounts .acct-box[data-acct-dir="/home/.claude-' + email.split('@')[0] + '"]');
         const read = (email) => {
@@ -92,14 +98,16 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           const fill = b.querySelector('.acct-usage-meter .bar i');
           const sel = b.querySelector('[data-acct-move-to]'), btn = b.querySelector('[data-acct-move]');
           const br = b.getBoundingClientRect(), mr = b.querySelector('.acct-move') ? b.querySelector('.acct-move').getBoundingClientRect() : null;
-          return { has: !!u, line: u && u.querySelector('.acct-usage-line') ? u.querySelector('.acct-usage-line').textContent.trim() : null,
+          const warnEl = u && u.querySelector('.acct-usage-warn'), note = u && u.querySelector('.acct-move-note');
+          const vis = br.width > 0 && br.height > 0;
+          return { vis, warnText: warnEl ? warnEl.textContent.trim() : null, note: note ? note.textContent.trim() : null, has: !!u, line: u && u.querySelector('.acct-usage-line') ? u.querySelector('.acct-usage-line').textContent.trim() : null,
             fill: fill ? fill.style.width : null, warn: !!(u && u.querySelector('.acct-usage-warn')),
             agents: u && u.querySelector('.acct-agents-line') ? u.querySelector('.acct-agents-line').textContent.trim() : null,
             agentsEls: u && u.querySelector('.acct-agents-line') ? u.querySelector('.acct-agents-line').querySelectorAll('b').length : 0,
             options: sel ? [...sel.options].map((o) => o.textContent.trim()) : null, btnDisabled: btn ? btn.disabled : null,
             moveInside: mr ? mr.right <= br.right + 0.5 && mr.left >= br.left - 0.5 : null };
         };
-        const before = { busy: read('busy@example.com'), fresh: read('fresh@example.com'), calm: read('calm@example.com'), key: read('key@example.com'), old: read('old@example.com'), def: read('default@example.com') };
+        const before = { busy: read('busy@example.com'), fresh: read('fresh@example.com'), calm: read('calm@example.com'), key: read('key@example.com'), old: read('old@example.com'), def: read('default@example.com'), guideonly: read('guideonly@example.com'), full: read('full@example.com') };
         const msgOf = (d) => { const e = document.querySelector('[data-acct-move-msg="' + d + '"]'); return e ? e.textContent.trim() : null; };
         const runMove = async (email, toDir, expect) => {
           const b = box(email); const sel = b && b.querySelector('[data-acct-move-to]'); const btn = b && b.querySelector('[data-acct-move]');
@@ -121,7 +129,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           return { enabled, drawnBusy, posts: posts.slice(start) };
         };
         const moved = await runMove('busy@example.com', '/home/.claude-spare', 2);
-        if (moved) moved.msg = msgOf('/home/.claude-busy');   // read AFTER the list repainted with the agents gone
+        if (moved) { moved.msg = msgOf('/home/.claude-busy');   // read AFTER the list repainted with the agents gone
+          const ae = document.activeElement; moved.focus = ae ? (ae.getAttribute('data-acct-move-msg') || ae.getAttribute('data-acct-move-to') || ae.tagName) : null; }
         const busyAfter = read('busy@example.com');
         const mixed = await runMove('mixed@example.com', '/home/.claude-spare', 3);
         if (mixed) mixed.msg = msgOf('/home/.claude-mixed');
@@ -133,10 +142,13 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       }, { accounts: ACCOUNTS, agents: AGENTS });
       await page.close();
       if (r.error) { say(false, tag + ' ' + r.error); continue; }
-      const { busy, fresh, calm, key, old, def } = r.before;
+      const { busy, fresh, calm, key, old, def, guideonly, full } = r.before;
       say(!!busy && busy.has && busy.fill === '82%', tag + ' an 82% row draws its meter at 82%', JSON.stringify(busy && busy.fill));
       say(!!busy && /^82% of its weekly limit used · resets .+ · last changed 2 hours ago$/.test(busy.line || ''), tag + ' the row says how much is used, when it resets and how old the reading is', JSON.stringify(busy && busy.line));
-      say(!!busy && busy.warn, tag + ' at 82% the row warns');
+      say(!!busy && busy.warn && busy.warnText === 'Close to its weekly limit. Move its agents to another account before they stop.', tag + ' at 82% the row warns, and says what to do', JSON.stringify(busy && busy.warnText));
+      say(!!busy && busy.note === 'They restart on the new account.', tag + ' the restart is said before the click, beside the control', JSON.stringify(busy && busy.note));
+      say(!!guideonly && guideonly.warnText === 'Close to its weekly limit.' && guideonly.agents === 'No agents on it on this computer.' && guideonly.options === null, tag + ' a guide-only row warns but never says to move agents it does not show', JSON.stringify(guideonly));
+      say(!!full && full.warnText === 'At its weekly limit. Move its agents to another account to get them working again.', tag + ' at 100% the row says it is at its limit', JSON.stringify(full && full.warnText));
       say(!!busy && busy.agents === 'Its agents on this computer: Dana, Eli', tag + ' it names its agents by display name, leaving out the setup guide', JSON.stringify(busy && busy.agents));
       say(!!busy && Array.isArray(busy.options) && busy.options.some((o) => o === 'spare@example.com (20% used)') && !busy.options.some((o) => o.startsWith('busy@')), tag + ' Move offers the other account with its own reading, never itself', JSON.stringify(busy && busy.options));
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('noshare@')), tag + ' an account without shared history is not offered (a move there always fails)', JSON.stringify(busy && busy.options));
@@ -145,6 +157,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!r.moved && r.moved.enabled && r.moved.posts.length === 2 && r.moved.posts.every((p) => p.dir === '/home/.claude-spare') && r.moved.posts.map((p) => p.agent).sort().join() === 's-dana,s-eli', tag + ' Move sends one move per agent to the picked account, once (a forced click on the repainted button adds nothing), never the guide', JSON.stringify(r.moved));
       say(!!r.moved && r.moved.drawnBusy, tag + ' a repaint mid-move draws the button busy ("Moving…", disabled)', JSON.stringify(r.moved));
       say(!!r.moved && r.moved.msg === 'Moved 2 agents. They restart on the new account.', tag + ' and says how many moved and that they restart, still there after the list repaints with the agents gone', JSON.stringify(r.moved && r.moved.msg));
+      say(!!r.moved && r.moved.focus === '/home/.claude-busy', tag + ' after the move, focus lands on the row\'s sentence (the pressed button is gone)', JSON.stringify(r.moved && r.moved.focus));
       say(r.expired === '', tag + ' two minutes on, a repaint shows the row plain again', JSON.stringify(r.expired));
       say(!!r.busyAfter && r.busyAfter.agents === 'No agents on it on this computer.', tag + ' after the move the busy row has no agents left (the repaint happened)', JSON.stringify(r.busyAfter && r.busyAfter.agents));
       say(!!r.mixed && r.mixed.posts.length === 3, tag + ' a mixed move sends one move per agent', JSON.stringify(r.mixed && r.mixed.posts));
@@ -154,7 +167,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!calm && calm.fill === '40%' && !calm.warn, tag + ' a 40% row does not warn', JSON.stringify(calm));
       say(!!key && key.has && key.fill === null && key.line === null, tag + ' an API-key row draws no meter', JSON.stringify(key));
       say(!!old && !old.has, tag + ' an older board\'s row draws no usage block', JSON.stringify(old));
-      say(!!busy && busy.moveInside === true, tag + ' the move control fits inside its row');
+      say(!!busy && busy.vis && busy.moveInside === true, tag + ' the move control fits inside its (visible, measured) row', JSON.stringify(busy && { vis: busy.vis, inside: busy.moveInside }));
       say(r.sideways <= 0, tag + ' the page does not scroll sideways', String(r.sideways));
       say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
     }

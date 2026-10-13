@@ -750,6 +750,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .acct-usage-meter .bar { flex: none; width: 100%; }
 }
 .acct-move-msg { margin: 0; font-size: .8125rem; color: var(--label); }
+.acct-move-msg:empty { margin-top: -8px; }   /* kept in the page (a live region must exist before it speaks), but no gap */
+.acct-move-msg:focus { outline: none; }
+.acct-move-note { margin: 0; flex: 1 1 100%; font-size: .75rem; color: var(--label-2); }
 /* The disambiguator beside a name two accounts share. Quiet on purpose: it is
    an answer to "why are there two of these", not a thing to read first. Same
    token as .acct-org, which is defined on the light, dark and increased-contrast
@@ -27094,11 +27097,16 @@ const ACCT_MOVE_SHOW_MS = 2 * 60e3;   // a finished move's sentence stays two mi
 function acctUsageHtml(a, list) {
   if (!a || a.provider !== 'anthropic' || !a.agentsHere) return '';   // an older board sends no agentsHere: show nothing
   const w = a.weekly && Number.isFinite(a.weekly.usedPct) ? a.weekly : null;
+  /* The setup guide is left out, as everywhere the page lists or counts agents (#3739); it is not moved either. The
+     warning, the agents line and the move all count this one list, so they cannot disagree. */
+  const known = new Map((Array.isArray(LAST) ? LAST : []).map((x) => [x.sessionName, x]));
+  const sessions = a.agentsHere.names.filter((n) => !(known.get(n) && known.get(n).isGuide));
+  const names = sessions.map((n) => (known.get(n) && known.get(n).name) || n);
   /* Only accounts a move can land on: shared history (as the agent page's picker requires, #1492: an option that
      always fails is worse than none) and not signed out or refused. */
   const targets = (list || []).filter((x) => x.provider === 'anthropic' && x.dir && x.dir !== a.dir && x.memoryShared
     && !(x.connection && (x.connection.badge === 'rejected' || x.connection.badge === 'signed_out')));
-  const canMove = a.agentsHere.names.length > 0 && targets.length > 0;
+  const canMove = names.length > 0 && targets.length > 0;
   let usage = '';
   if (!a.apiKey) {
     if (w) {
@@ -27108,17 +27116,14 @@ function acctUsageHtml(a, list) {
       const age = agoWords(Date.now() - w.at);
       usage = '<div class="acct-usage-meter"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
         + '<p class="acct-usage-line">' + pct + '% of its weekly limit used · resets ' + esc(resets) + (age ? ' · last changed ' + esc(age) : '') + '</p></div>'
-        + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">Close to its weekly limit.' + (canMove ? ' Move its agents to another account before they stop.' : '') + '</p>' : '');
+        + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its weekly limit.' : 'Close to its weekly limit.')
+          + (canMove ? ' Move its agents to another account' + (pct >= 100 ? ' to get them working again.' : ' before they stop.') : '') + '</p>' : '');
     } else {
       usage = a.isDefault
         ? '<p class="acct-usage-line acct-usage-none">Kosmos cannot read usage for this account.</p>'   // the default account gets no statusline (#6108 follow-up)
         : '<p class="acct-usage-line acct-usage-none" title="Kosmos reads this while an agent on this account is working.">No usage reading for this account yet.</p>';
     }
   }
-  /* The setup guide is left out, as everywhere the page lists or counts agents (#3739); it is not moved either. */
-  const known = new Map((Array.isArray(LAST) ? LAST : []).map((x) => [x.sessionName, x]));
-  const sessions = a.agentsHere.names.filter((n) => !(known.get(n) && known.get(n).isGuide));
-  const names = sessions.map((n) => (known.get(n) && known.get(n).name) || n);
   const short = a.agentsHere.complete ? '' : ' (some could not be checked)';
   const agentsLine = names.length
     ? '<p class="acct-agents-line">Its agents on this computer: ' + names.map(esc).join(', ') + esc(short) + '</p>'
@@ -27126,14 +27131,19 @@ function acctUsageHtml(a, list) {
   let st = ACCT_MOVE.get(a.dir) || null;
   if (st && !st.moving && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) { ACCT_MOVE.delete(a.dir); st = null; }
   const busy = !!(st && st.moving);
-  const said = st && st.said ? '<p class="acct-move-msg" role="status" data-acct-move-msg="' + esc(a.dir) + '">' + esc(st.said) + '</p>' : '';
-  const move = (names.length && targets.length) || busy
-    ? '<div class="acct-move"><select' + (busy ? ' disabled' : '') + ' data-acct-move-to="' + esc(a.dir) + '" aria-label="Move the agents on ' + esc(a.email || a.label || 'this account') + ' to another account">'
+  const who = esc(a.email || a.label || 'this account');
+  const move = canMove || busy
+    ? '<div class="acct-move"><select' + (busy ? ' disabled' : '') + ' data-acct-move-to="' + esc(a.dir) + '" aria-label="Move the agents on ' + who + ' to another account">'
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
       + targets.map((x) => '<option value="' + esc(x.dir) + '">' + esc(x.email || x.label || x.dir) + (x.weekly && Number.isFinite(x.weekly.usedPct) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
-      + '</select><button type="button" data-acct-move="' + esc(a.dir) + '" aria-label="Move the agents on ' + esc(a.email || a.label || 'this account') + '" disabled>' + (busy ? 'Moving…' : 'Move') + '</button></div>'
+      + '</select><button type="button" data-acct-move="' + esc(a.dir) + '" aria-label="Move the agents on ' + who + '" disabled>' + (busy ? 'Moving…' : 'Move') + '</button>'
+      + '<p class="acct-move-note">' + (names.length === 1 ? 'It restarts' : 'They restart') + ' on the new account.</p></div>'   // said before the click, not only after
     : '';
-  return '<div class="acct-usage">' + usage + agentsLine + move + (said || '<p class="acct-move-msg" role="status" data-acct-move-msg="' + esc(a.dir) + '"></p>') + '</div>';
+  /* tabindex -1: after a move the button the person pressed is gone, so focus lands here. The sentence is drawn empty
+     while a finished move is being announced (the handler writes it a frame later, so the live region hears a change). */
+  const said = st && st.said && !st.announce ? esc(st.said) : '';
+  return '<div class="acct-usage">' + usage + agentsLine + move
+    + '<p class="acct-move-msg" role="status" tabindex="-1" data-acct-move-msg="' + esc(a.dir) + '">' + said + '</p></div>';
 }
 /* #6108: move every agent this computer has on `fromDir` to `toDir`, one at a time through the same route the agent's
    own page uses, and say how it went in one line: the engine's own sentence for any that did not move. */
@@ -27818,11 +27828,16 @@ async function paintAccounts(opts) {
         const m = document.querySelector('[data-acct-move-msg="' + CSS.escape(from) + '"]');   // the current element, after any repaint
         if (m) m.textContent = t;
       });
-      ACCT_MOVE.set(from, { moving: false, said, doneAt: Date.now() });
+      ACCT_MOVE.set(from, { moving: false, said, doneAt: Date.now(), announce: true });
       accountsDropped();
       try { await paintAccounts(); } catch { /* the sentence is kept in ACCT_MOVE and drawn by the next paint */ }
+      const st = ACCT_MOVE.get(from); if (st) st.announce = false;
+      /* The repaint drew the region empty; write the sentence a frame later so a screen reader hears it, and put focus
+         where the pressed button was: the row's move menu if it is still there, else this sentence. */
       const m = document.querySelector('[data-acct-move-msg="' + CSS.escape(from) + '"]');
-      if (m && m.textContent !== said) m.textContent = said;
+      const again = document.querySelector('[data-acct-move-to="' + CSS.escape(from) + '"]');
+      requestAnimationFrame(() => { if (m) m.textContent = said; });
+      try { (again && !again.disabled ? again : m) && (again && !again.disabled ? again : m).focus({ preventScroll: true }); } catch { /* focus is best effort */ }
     });
   }
   for (const btn of box.querySelectorAll('[data-reauth]')) {
