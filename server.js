@@ -14185,10 +14185,11 @@ const server = http.createServer(async (req, res) => {
         cards: safeRoster(), readReport: (n) => selfreport.read(n), accountProblemOf,
         ringLines: logring.board.tail(), fileLines, fileSource: fileLines ? logPath : null, fileWhy: fileWhy.why || null,
         /* The values this board holds are masked by value too: a bare hex token in a line has no shape to find it by.
-           The board's other held values (connect tokens, account keys) are masked by secretmask's held set, which the
-           board loads from knownsecrets.collect(); another world's token is not held by this board and is left to the
-           shape pass. */
-        redactor: require('./engine/diagredact').makeRedactor({ secrets: [boardAuthState.token, ...sendertoken.heldValues()] }),
+           Its own token, the other worlds' tokens it also accepts (KNOWN_WORLD_TOKENS, boardTokenOk), and the live agent
+           tokens. Its other held values (connect tokens, account keys) are masked by secretmask's held set, which the
+           board loads from knownsecrets.collect(). */
+        redactor: require('./engine/diagredact').makeRedactor({ secrets: [boardAuthState.token,
+          ...(KNOWN_WORLD_TOKENS ? [...KNOWN_WORLD_TOKENS.values()].filter(Boolean) : []), ...sendertoken.heldValues()] }),
       });
       DIAG_LAST = { at: Date.now(), file, now, look };
       // Not kept past its few seconds when the other half never comes (curl, or a browser that skips the look).

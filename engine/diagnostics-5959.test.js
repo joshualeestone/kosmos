@@ -287,3 +287,9 @@ test('#5959: a hex digest alone on a line (a git sha) is kept, a key body line i
   const out = maskKeyBlocks([sha, 'MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7'].map((line) => ({ line }))).map((e) => e.line);
   assert.deepEqual(out, [sha, MASKED_BLOCK]);
 });
+
+test('#5959: a key body line with logstamp\'s time in front is taken out too', () => {
+  const { maskKeyBlocks, MASKED_BLOCK } = require('./diagnostics');
+  const out = maskKeyBlocks(['2026-10-12T21:00:00.123Z MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7', '2026-10-12T21:00:00.124Z rick: ok'].map((line) => ({ line }))).map((e) => e.line);
+  assert.deepEqual(out, [MASKED_BLOCK, '2026-10-12T21:00:00.124Z rick: ok']);
+});

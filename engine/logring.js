@@ -15,6 +15,7 @@
 const { StringDecoder } = require('node:string_decoder');
 
 const MAX_LINES = 2000;
+const TEXT_ENCODINGS = /^(utf-?8|latin1|binary|ascii)$/i;   // logstamp.js's LINE_TEXT_ENCODINGS
 /* 2,000 shown (engine/diagnostics cuts there) plus 256 kept past it, so a key or a name that straddles the cut is still
    whole when the diagnostics redactor reads it: it redacts first and cuts after. */
 const MAX_LINE_CHARS = 2256;
@@ -46,7 +47,8 @@ function createRing(options) {
     const state = { name: String(name || ''), carry: '', decoder: new StringDecoder('utf8') };
     stream.write = function (chunk, encoding, callback) {
       try {
-        if (typeof chunk === 'string') record(state, chunk);
+        // As logstamp: a string in another encoding (hex, base64) is bytes, not a line of text, and is not recorded.
+        if (typeof chunk === 'string') { if (!encoding || typeof encoding === 'function' || TEXT_ENCODINGS.test(String(encoding))) record(state, chunk); }
         else if (Buffer.isBuffer(chunk) || chunk instanceof Uint8Array) {
           record(state, state.decoder.write(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)));
         }
