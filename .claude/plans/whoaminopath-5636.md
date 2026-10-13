@@ -18,6 +18,10 @@ existing expectations that pinned the parenthesised folder now pin the sentence 
 - Keeping only the folder's last part (".codex-work2"): still a local detail the person did not ask for, and it reads
   as noise to an agent. The detail panel names the account when it has a name (#2811).
 
+- Dropping `account.dir` from the /api/whoami JSON too: both CLIs print only `because` (install/kosmos extracts it
+  with sed; tools/windows/kosmos-cli.js prints r.json.because), and the field is a structured fact a check can compare
+  against. Kept; the sentence is what an agent repeats.
+
 ## Weakest premise
 That nobody relied on the folder to tell two unnamed Codex accounts apart from whoami. The board's own Settings and
 detail panel still show the account, and naming the account (#2811) makes whoami say its name.

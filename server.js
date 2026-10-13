@@ -2145,9 +2145,9 @@ function sentenceForWhoami(account, model, runner) {
   /* #2811: THE RUNNER IS NAMED WHEN IT IS NOT CLAUDE, because this sentence is
      the ENTIRE user-visible surface of the verb: `install/kosmos` prints only
      `because` and nothing under `web/` reads whoami. A Codex agent asking who it
-     is could read the whole answer without the word Codex appearing in it, and
-     "an account we cannot identify (~/.codex)" leaves the reader to infer the
-     provider from a directory name.
+     is could read the whole answer without the word Codex appearing in it; the
+     sentence used to show the folder ("(~/.codex)"), and since #5636 N4 it shows
+     none, so the runner's name is what says the provider.
 
      🛑 BOTH BRANCHES, AND AN EARLIER VERSION GUARDED ONLY THE FIRST. I wrote
      that a codex-shaped `why` was unreachable because "runningAs always sets
