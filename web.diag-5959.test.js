@@ -37,7 +37,7 @@ test('#5959: a click also looks at the route with ?check=1 and says a refusal un
   assert.ok(at > 0, 'the page listens for the link');
   const body = PAGE.slice(at, at + 900);
   assert.match(body, /fetch\('\/api\/diagnostics\?check=1'/);
-  assert.match(body, /getElementById\('diag-msg'\)/);
+  assert.match(body, /getElementById\('diag-note'\)/);
   assert.match(body, /'Not saved: '/);
-  assert.match(PAGE, /<p class="dhint" id="diag-msg" role="status"/);
+  assert.match(PAGE, /<p class="dhint" id="diag-note" role="status"/);
 });
