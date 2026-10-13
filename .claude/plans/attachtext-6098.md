@@ -48,7 +48,13 @@ reads these files itself.
   2 at once; a worker-limits test seam reaches the timeout path; numId 0 is not a list; text-box paragraphs keep a space; a
   damaged docx body says so; a truncated Flate tail keeps what came before. Accepted: per-page resource lookups on a huge Pages
   dict scale with size x pages (measured 0.76 s at 4 MB x 2,000, bounded by the 25 MB upload and the 30 s worker limit).
-- **Not done:** pictures (no OCR), charts, inline (not referenced) PDF font dictionaries, docx headers/footers/footnotes/comments, text inside PDF form XObjects (`Do`),
+- **Iteration 3:** the text cap is said when it is reached (later pages are not called scanned); a filter chain is decoded in
+  order (ASCII85, ASCIIHex, Flate; reportlab's default is ASCII85 then Flate), and an undecodable PDF says so instead of
+  "scanned"; a font with no ToUnicode reads as WinAnsi (curly quotes, dashes, bullets, euro), and control characters where
+  text should be send the PDF to PDFKit; the date-format check is a match then a test (no backtracking); PDFKit counts
+  against the two-conversion limit; a JS cut note is dropped when PDFKit read the whole file; typed double spaces are kept.
+- **Not done:** pictures (no OCR), charts, inline (not referenced) PDF font dictionaries, /Differences glyph names (pdfTeX
+  ligatures), LZW, lists and headings applied only through a paragraph style (no numId; localized heading style ids), docx headers/footers/footnotes/comments, text inside PDF form XObjects (`Do`),
   xls/doc/ppt/pptx, an attachment uploaded before this change (it gets no rendering; its line is unchanged).
 
 ## Weakest premise
@@ -56,7 +62,8 @@ That the JS PDF reader's output is right when it "reads as text". A font whose c
 being those letters would pass the readability check and be wrong; PDFKit is only asked when the check fails. Real PDFs
 from common writers carry ToUnicode maps, which the reader uses.
 
-## Tests (engine/attachtext-6098.test.js, 26; five added in iteration 2: a 100k-space line, falling ObjStm offsets, a sheet
+## Tests (engine/attachtext-6098.test.js, 29: three added in iteration 3 (the text cap alone, an ASCII85+Flate chain with
+WinAnsi punctuation, the date check on a 200K unclosed format) and the packed-object arm rewritten so it can fail; five added in iteration 2: a 100k-space line, falling ObjStm offsets, a sheet
 listed 300 times with 300 columns, the worker timeout through render, docx list/text-box/damaged)
 The first 12 (xlsx, docx, simple and modern PDFs, encrypted, no text, end to end through render and wireNote, a text file
 unchanged, a damaged xlsx, a person's own text.txt kept) plus nine for review 1: docx growth (20,000 paragraphs, 200,000
@@ -64,4 +71,4 @@ empty paragraphs, tables with no paragraphs between); nested table, text box and
 in every cell (capped, quick, says so); PDF digit runs, CMap brackets and repeated full ranges (bounded); a content
 stream shared by many pages (charged each time, total capped); a two-digit indirect /Length; a TJ array of 80 items and
 two runs on one line; a 70 MB Flate image before the text; a damaged document worded as a document. Meta: engine.reachable
-excuses setPdfkit and pdfText as test seams. Neighbours and meta: 671/671.
+excuses setPdfkit and pdfText as test seams. Neighbours and meta: 674/674.
