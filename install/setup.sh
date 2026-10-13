@@ -1363,7 +1363,9 @@ install_kosmos() {
   local _lift_failed="" _stuck_at="" _stuck_why="" _app_was_locked=no
   # Sampled BEFORE the lift, for the refusal below: an app that was read-only is left read-only again. By the
   # folder's own mode bit, not `[ -w ]`: that asks whether THIS run may write, which is always yes for root, and a
-  # root run would then leave a read-only app open after a refusal (review 4).
+  # root run would then leave a read-only app open after a refusal (review 4). A sample that cannot be taken
+  # (no find, a folder that cannot be read) counts as read-only, on purpose: it is used only after a refusal,
+  # where the wrong guess in that direction locks an app that was open, never the other way round.
   if [ -d "$dest/app" ] && [ -z "$(find "$dest/app" -maxdepth 0 -perm -u+w 2>/dev/null || true)" ]; then _app_was_locked=yes; fi
   for part in bin app runtime; do
     [ -d "$dest/$part" ] || continue

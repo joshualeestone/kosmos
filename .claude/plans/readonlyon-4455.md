@@ -64,7 +64,8 @@ release lane's and is not built here.
 
 ## Residuals
 - Linux with a read-only app has not been run by anyone. The Linux workflow installs with the new default for the
-  first time on this branch's CI; that run is the measurement.
+  first time on this branch's CI, and uninstalls. Its one update is over a WRITABLE 0.7.27 install, so an update
+  over a LOCKED app on Linux stays unrun after that workflow too.
 - The locked-file search is macOS only (the flags are BSD's). NOT found ahead of time, so the update still fails
   partway on them as it does today: an immutable file on Linux (`chattr +i`), a deny-delete ACL, another user's file
   in a sticky folder.
@@ -155,3 +156,17 @@ up in the second measurement; the Linux workflow going red on this branch.
 - **NIT x4, nothing to change:** another user's app folder, a fresh install with no app, the header's list of arms,
   the hand-written old line in the CONTROL arm.
 - Nothing refers to the removed function; the what's-new entry parses and has its neighbours' shape.
+
+## Review 5 (2026-10-13, default model), at b576490ca: converged
+0 BLOCKER, 0 WARNING, 0 CONVENTION, 5 NIT. Four taken, in one commit AFTER this review that no reviewer has read:
+- a clause in the sampling comment (a sample that cannot be taken counts as read-only, and why that direction);
+- one more check in `tools/test-install.sh`: an update over a WRITABLE app ends read-only. That is the shape every
+  existing install has at its first update after this ships, and my change to the `=0` arm had left it unchecked;
+- the Linux residual, which overstated what the workflow measures;
+- the way out for someone an OLD installer leaves stuck goes on the card, because that person's installer prints
+  neither this file nor the comment.
+Not taken: `app` as a symlink (the installer never makes one).
+The reviewer measured the sampling line on this Mac for seven folder modes, and walked each case a real person can
+meet: the first update after this ships, the second, one the board starts, a failure after the swap, the uninstall,
+hand-edited files under the app. Worst case: the one under Weakest premise, an installer from before 0.7.45 meeting
+an app this release locked. Stated, not tested, and nothing guards it.
