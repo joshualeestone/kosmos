@@ -17,7 +17,9 @@
 #   NOISY     the same, beside a folder find cannot read (find exits non-zero): STILL refused. It goes red if the
 #             search is ever given back a fallback that clears what it found (`|| _stuck_at=""`), which is the
 #             fault it was written for. It does NOT depend on the `|| true` inside the substitution (review 2).
-#   RELOCK    a refusal puts the app's lock back (the lift had opened it), and leaves it open with the switch at 0
+#   RELOCK    a refused update leaves the app as it found it: read-only again if it was read-only (the lift had
+#             opened it), writable if it was writable. macOS only, like LOCKED: it needs a refusal that happens
+#             AFTER a lift that worked, and the chmod stub of the other refusing arms fails every chmod.
 #   EMPTY     an unwritable EMPTY folder (chmod stubbed): not refused, rm removes it through its parent
 #   HARMLESS  chmod fails and nothing is stuck: the update goes on                    (a failed chmod alone is no refusal)
 #   CONTROL   the old line (a tolerated chmod) on the LOCKED fixture goes on to remove bin: the arm can fail
@@ -34,10 +36,6 @@ case "$BLOCK" in *'chmod -R u+'*'"$dest/$part"'*'find "$dest/$part"'*'info "Noth
 OPTS="$(awk '/^set -eu$/{print; getline; print; exit}' "$SETUP")"
 case "$OPTS" in *'set -eu'*'set -o pipefail'*) : ;;
   *) echo "FAIL: could not extract the installer's shell options (anchor drift?)" >&2; exit 1 ;; esac
-# The one function the block calls, from the shipped file too.
-LOCKFN="$(awk '/^_kosmos_lock_app\(\) \{$/{f=1} f{print} f && /^}$/{exit}' "$SETUP")"
-case "$LOCKFN" in *'KOSMOS_READONLY_APP'*'chmod -R a-w "$1/app"'*) : ;;
-  *) echo "FAIL: could not extract _kosmos_lock_app (anchor drift?)" >&2; exit 1 ;; esac
 # The block must sit BEFORE the loop that removes the parts, or it checks nothing in time.
 ORDER="$(awk '/^  # END #4455 lift-then-check$/{e=NR} /^    rm -rf "\$dest\/\$part" \|\| \{ rm -rf "\$stage"; return 1; \}$/{r=NR} END{print (e && r && e < r) ? "ok" : "bad"}' "$SETUP")"
 
@@ -79,7 +77,6 @@ run_block() {
   cat > "${SB:?}/driver.sh" <<DRIVER
 $OPTS
 info()  { printf '     %s\n' "\$*"; }
-$LOCKFN
 lift() {
   local dest="\$1"
   local stage="\$dest/.kosmos.stage.1"
@@ -167,12 +164,14 @@ if [ "$(uname -s)" = "Darwin" ]; then
     case "$OUT" in *"$D/app/engine/x.js"*) ok "LOCKED: the refusal names the file" ;; *) bad "LOCKED: the file is not named: $OUT" ;; esac
     case "$OUT" in *"It is locked"*"untick Locked"*) ok "LOCKED: it says how to unlock it" ;; *) bad "LOCKED: the wrong reason: $OUT" ;; esac
     all_there "$D" && ok "LOCKED: bin, app and runtime are all still there" || bad "LOCKED: a part was removed"
-    # RELOCK: the lift opened the app to look; a refusal must not leave it open to an agent's edit.
-    [ ! -w "$D/app" ] && [ ! -w "$D/app/server.js" ] && ok "RELOCK: after the refusal the app is read-only again" || bad "RELOCK: the refusal left the app writable"
-    D="$(mk_install lockedoff)"; in_sb "$D"; chflags uchg "${D:?}/app/engine/x.js"
-    OUT="$(KOSMOS_READONLY_APP=0 run_block "$D")"
-    case "$OUT" in *"RC=1"*) [ -w "$D/app" ] && ok "RELOCK: with the switch at 0 a refusal leaves the app writable, as it was" || bad "RELOCK: locked though the switch is 0" ;;
-      *) bad "RELOCK: the switch-off fixture was not refused: $OUT" ;; esac
+    # RELOCK: this fixture's app was WRITABLE before the update, so the refusal leaves it writable.
+    [ -w "$D/app" ] && [ -w "$D/app/server.js" ] && ok "RELOCK: an app that was writable is still writable after the refusal" || bad "RELOCK: the refusal locked an app that was not locked"
+    # And one that was read-only (what the installer leaves) is read-only again: the lift had opened it to look.
+    D="$(mk_install lockedro)"; in_sb "$D"; /bin/chmod -R a-w "${D:?}/app"; chflags uchg "${D:?}/app/engine/x.js"
+    OUT="$(run_block "$D")"
+    case "$OUT" in *"RC=1"*) [ ! -w "$D/app" ] && [ ! -w "$D/app/server.js" ] && [ ! -w "$D/app/engine" ] \
+        && ok "RELOCK: an app that was read-only is read-only again after the refusal" || bad "RELOCK: the refusal left a read-only app writable" ;;
+      *) bad "RELOCK: the read-only locked fixture was not refused: $OUT" ;; esac
 
     # CONTROL: the line this replaced (a tolerated chmod, then the swap's removals) on the same fixture. It must
     # lose `bin` and then fail at `app`, or the LOCKED arm above proves nothing about what it prevents.

@@ -42,8 +42,10 @@ read-only app. The card turns it on one release after the lifting reached the `/
   locked or append-only entry (macOS), or a folder WITH SOMETHING IN IT that this user may not read, write or
   search. An empty such folder is not refused (rm removes it through its parent; review 1 measured the old updater
   getting through it). One corner stays refused: an empty folder find cannot even open reads as not empty.
-- **A refusal puts the lock back.** The lift opens the app to look; a refused update must not leave it open to an
-  agent's edit until the next good update (review 2). One function, `_kosmos_lock_app`, does it in both places.
+- **A refusal leaves the app as it found it.** The lift opens the app to look. An app that was read-only before the
+  lift is made read-only again, so a refused update does not leave it open to an agent's edit (review 2). One that
+  was writable stays writable (review 3): locking an older install's app on a REFUSED update would be this change
+  reaching an old version of Kosmos that nobody has measured read-only.
 - **The lift is `u+rwX`, not `u+w`.** rm needs read and search as well as write to empty a folder (review 1).
 - **The folder walk runs only where the lift failed.** One `test` per folder; the usual update never pays it. The
   locked-file search runs on every update on macOS: measured at under 0.01 s on this install (341 entries).
@@ -76,10 +78,11 @@ up in the second measurement; the Linux workflow going red on this branch.
 - `sh tools/test-update-locked-app-4455.sh`: 28 passed, run under the installer's own `set -eu` and pipefail lines
   (extracted from the shipped file). Its CONTROL arm runs the old line on the locked fixture and loses `bin` before
   stopping at `app`.
-- Seven mutants of the installer, each in a scratch copy, BASE green first, each red BY ITS OWN ARM: the search given
+- Eight mutants of the installer, each in a scratch copy, BASE green first, each red BY ITS OWN ARM: the search given
   back the fallback that clears what it found (NOISY); `! -empty` taken out (EMPTY); the lift back to `u+w` (both
   NOREAD arms); the locked-file search switched off (LOCKED and RELOCK); the refusal's `return 1` removed (NODIR,
-  NOISY, LOCKED); the lock not put back on refusal (RELOCK).
+  NOISY, LOCKED); the lock not put back on refusal (RELOCK, the read-only arm); the lock put on whatever the app
+  was before (RELOCK, the writable arm). Eight in all with the two RELOCK ones.
   **One mutant is GREEN and is meant to be:** the `|| true` inside the two substitutions taken out. It changes
   nothing while the function is called with `||` after it, which both the installer and the test do (review 2
   measured this; I had described NOISY as proving it).
@@ -127,3 +130,16 @@ up in the second measurement; the Linux workflow going red on this branch.
   NOREAD arm and reds it there.
 - The reviewer checked the find expression's precedence on both finds, the block's syntax in both shells, every
   writer under the app after the lock, and every way the switch can arrive. A reading, plus one run of the test.
+
+## Review 3 (2026-10-13, default model), at f4f0a08c5
+0 BLOCKER, 1 WARNING, 0 CONVENTION, 5 NIT. Not converged.
+- **WARNING, taken:** my refusal path did not "put the lock back", it locked whatever was there. An install from
+  before this release would have had its OLD app made read-only by an update that then refused, and the runtime
+  measurement covers 0.7.45 only. The app's state is sampled before the lift and restored: read-only again if it
+  was, writable if it was. The shared function is gone (one place locks by the switch, the other restores).
+- **NIT x2, gone with it:** the arm that read the switch from the environment, and its prefix assignment.
+- **NIT, stated in the test's header:** the RELOCK arms are macOS only.
+- **NIT, taken:** the what's-new line said an agent "cannot change" the app. A same-user agent can chmod past it,
+  as this plan's own residual says. It says the edit is refused.
+- The reviewer swept for anything that pins the replaced line or counts the switch's name (nothing), and measured
+  that the next update and the person's own unlock both work after a re-lock.

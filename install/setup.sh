@@ -1194,14 +1194,6 @@ fetch_tmux() {
   return 0
 }
 
-# #4449/#4455: leave the installed app read-only, unless KOSMOS_READONLY_APP=0. $1 = the install folder. ONE copy,
-# because two places lock it: the end of a finished swap, and a swap that refused before it removed anything (it
-# had already lifted the app to look, and must not leave it open to an agent's edit).
-_kosmos_lock_app() {
-  [ "${KOSMOS_READONLY_APP:-1}" != 0 ] || return 0
-  chmod -R a-w "$1/app" 2>/dev/null
-}
-
 install_kosmos() {
   local dest="$1"
   local stage="$dest/.kosmos.stage.$$"
@@ -1368,7 +1360,9 @@ install_kosmos() {
   # (review 1, measured). What was printed is what counts; the status says nothing. The `|| true` inside each
   # substitution only keeps a failed search from ending the script if this is ever called without `||` after it.
   # NOT caught ahead of time: a deny-delete ACL, another user's file in a sticky folder, an immutable file on Linux.
-  local _lift_failed="" _stuck_at="" _stuck_why=""
+  local _lift_failed="" _stuck_at="" _stuck_why="" _app_was_locked=no
+  # Sampled BEFORE the lift, for the refusal below: an app that was read-only is left read-only again.
+  if [ -d "$dest/app" ] && [ ! -w "$dest/app" ]; then _app_was_locked=yes; fi
   for part in bin app runtime; do
     [ -d "$dest/$part" ] || continue
     chmod -R u+rwX "$dest/$part" 2>/dev/null || _lift_failed="$_lift_failed $part"
@@ -1395,8 +1389,10 @@ install_kosmos() {
       info "This account may not change that folder. Give it back to this account, then paste the install line again."
     fi
     info "Nothing was removed."
-    # The lift above opened the app to look. Put the lock back, as a finished update would have left it.
-    _kosmos_lock_app "$dest" || true
+    # The lift above opened the app to look. An app that was read-only before it is made read-only again, so a
+    # refused update does not leave it open to an agent's edit. One that was writable (an install from before
+    # #4455, or KOSMOS_READONLY_APP=0) is left writable: a refusal changes nothing about how the install was.
+    if [ "$_app_was_locked" = yes ]; then chmod -R a-w "$dest/app" 2>/dev/null || true; fi
     rm -rf "$stage"
     return 1
   fi
@@ -1424,7 +1420,9 @@ install_kosmos() {
   # STILL TRUE: a /setup rolled back to before 0.7.45, meeting an install this one locked, fails that way. The
   # way out for that person is the lift by hand, `chmod -R u+w` on the app folder, then the install line again.
   # KOSMOS_READONLY_APP=0 leaves the app writable (anything but 0, or unset, is on).
-  _kosmos_lock_app "$dest" || info "note: the Kosmos app folder could not be made read-only; the install is otherwise complete"
+  if [ "${KOSMOS_READONLY_APP:-1}" != 0 ]; then
+    chmod -R a-w "$dest/app" 2>/dev/null || info "note: the Kosmos app folder could not be made read-only; the install is otherwise complete"
+  fi
   # 🛑 THE READ-BACK IS THE PROOF. Every claim above is about what this
   # run DID; this is the only line that looks at what the destination
   # HOLDS. A landed version that differs from the run's target means some

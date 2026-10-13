@@ -328,7 +328,7 @@
     },
     {
       "title": "Agents cannot edit the Kosmos app itself",
-      "line": "The installed Kosmos app is read-only, so an agent cannot change the app your agents run on.",
+      "line": "The installed Kosmos app is read-only, so an agent's edit to the app your agents run on is refused.",
       "icon": "shield",
       "rank": 16,
       "since": "0.7.46",
