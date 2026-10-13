@@ -74,10 +74,12 @@ const MAX_TOOL = 80;
 const MAX_ERROR = 300;
 
 /* The error line is the tool's own words and can hold a secret (a token in a failing curl URL, an email, a home
-   folder). It is stored only after the diagnostics redactor (engine/diagredact.js, #5959) has taken those out; if
-   redaction fails, nothing is stored. */
-function redacted(text) {
-  try { return require('./diagredact').makeRedactor().redactText(String(text == null ? '' : text)); } catch { return ''; }
+   folder). It is stored only after the diagnostics redactor (engine/diagredact.js, #5959) has taken those out, with
+   the board's own held values (the caller's `secrets`) masked by value too; if redaction fails, nothing is stored. */
+function redacted(text, secrets) {
+  try {
+    return require('./diagredact').makeRedactor(Array.isArray(secrets) ? { secrets } : undefined).redactText(String(text == null ? '' : text));
+  } catch { return ''; }
 }
 
 function dir() { return path.join(store.ROOT, 'toolloop'); }
@@ -116,7 +118,8 @@ function writeRun(key, run) {
  * Count one failed tool call for an agent. Never throws.
  * @param {string} key   the agent's session name
  * @param {{ tool: string, sig: string, error?: string }} failure  the hook's digest
- * @param {{ now?: number }} [opts]
+ * @param {{ now?: number, secrets?: string[] }} [opts]  `secrets`: the values the board holds (its token, the agent
+ *   tokens), masked by value in the stored error line as the diagnostics file masks them
  * @returns {{ ok: boolean, because?: string, count?: number, looping?: boolean, reached?: boolean }}
  *   `reached` is true on the one call that brought the run to LOOP_AT (the board logs it once).
  */
@@ -127,8 +130,8 @@ function noteFailure(key, failure, opts) {
   const sig = String(f.sig || '');
   if (!key) return { ok: false, because: 'no agent' };
   if (!SIG_RE.test(sig)) return { ok: false, because: 'not a failure signature we can read' };
-  const tool = clean(f.tool, MAX_TOOL) || 'a tool';
-  const error = clean(redacted(f.error), MAX_ERROR);
+  const tool = clean(redacted(f.tool, o.secrets), MAX_TOOL) || 'a tool';
+  const error = clean(redacted(f.error, o.secrets), MAX_ERROR);
   const prev = readRun(key);
   /* Late: sent before a Stop but delivered just after it. Only a Stop can be overtaken this way; after a prompt the
      next failure is the new turn's. A late failure that does not continue the run still belongs to the turn that

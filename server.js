@@ -3387,6 +3387,9 @@ const outbox = require('./engine/outbox');
    sends the header on EVERY call, including person-side ones such as `kosmos
    open`'s board-nonce run from a terminal with no KOSMOS_WORLD, and those must
    never be refused for it. */
+/* #6071: when POST /api/toolfail last said each kind of line (a refusal reason, an agent's first failure of a run). */
+const TOOLFAIL_SAID = new Map();
+const TOOLFAIL_SAY_MS = 10 * 60 * 1000;
 const WORLD_CHECKED_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail']);   // toolfail: #6071, a digest meant for another Kosmos is refused like a report
 
 /* 421 Misdirected Request: the request is well formed and was sent to a server
@@ -15349,6 +15352,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (pathname === '/api/toolfail' && req.method === 'POST') {
+    /* #6071: say a line at most once per key per TOOLFAIL_SAY_MS, so a refused or looping agent cannot fill the log. */
+    const toolfailSay = (key, line) => {
+      const now = Date.now();
+      if (now - (TOOLFAIL_SAID.get(key) || 0) < TOOLFAIL_SAY_MS) return;
+      TOOLFAIL_SAID.set(key, now);
+      if (TOOLFAIL_SAID.size > 500) TOOLFAIL_SAID.clear();
+      console.log(line);
+    };
     /* #6071 (slice D1): the report hook's digest of one failed tool call (Claude Code's PostToolUseFailure),
        counted by engine/toolloop.js. The sender is resolved exactly as POST /api/report resolves it (token
        first, then pane, the same pane refusal on an enforcing board), so a failure lands on the same agent its
@@ -15367,10 +15378,15 @@ const server = http.createServer(async (req, res) => {
           denyPaneFallback,
           denyBecause: 'this board only records a failed tool call from the account that started it, or one that presents an agent token',
         });
-        if (!sender.ok) { sendJson(res, 200, { recorded: false, because: sender.because }); return; }
+        if (!sender.ok) { toolfailSay('refused', `[toolloop] a failed-call digest was refused: ${sender.because}`); sendJson(res, 200, { recorded: false, because: sender.because }); return; }
         const who = sender.card.sessionName;
-        const r = require('./engine/toolloop').noteFailure(who, { tool: body.tool, sig: body.sig, error: body.error });
-        if (!r.ok) { sendJson(res, 200, { recorded: false, because: r.because }); return; }
+        /* The values this board holds, masked by value in the stored error line, as the diagnostics file masks them. */
+        const secrets = [boardAuthState.token, ...(KNOWN_WORLD_TOKENS ? [...KNOWN_WORLD_TOKENS.values()].filter(Boolean) : []), ...sendertoken.heldValues()];
+        const r = require('./engine/toolloop').noteFailure(who, { tool: body.tool, sig: body.sig, error: body.error }, { secrets });
+        if (!r.ok) { toolfailSay('refused:' + r.because, `[toolloop] ${who}: a failed-call digest was refused: ${r.because}`); sendJson(res, 200, { recorded: false, because: r.because }); return; }
+        /* What D1 is for: the log shows that digests arrive at all (the first of a run, at most once per agent per
+           TOOLFAIL_SAY_MS) and when one reaches the threshold (every time). Never the error line itself. */
+        if (r.count === 1) toolfailSay('first:' + who, `[toolloop] ${who}: a ${r.tool} failure was recorded (#6071, recorded only)`);
         if (r.reached) console.log(`[toolloop] ${who}: ${r.tool} failed the same way ${r.count} times in one turn (#6071, recorded only)`);
         sendJson(res, 200, { recorded: true, count: r.count, looping: r.looping });
       })

@@ -152,3 +152,12 @@ test('a late failure with ANOTHER signature still belongs to the ended turn, so 
   assert.equal(toolloop.noteFailure('agent-o', { tool: 'Read', sig: SIG_B }, { now: 12100 + toolloop.LATE_MS + 5000 }).count, 1,
     'the same failure in the next turn does not extend it');
 });
+
+test('a value the board holds (a bare hex token) is masked by value in the stored error and tool', () => {
+  toolloop.forget('agent-t');
+  const held = 'f'.repeat(40);
+  toolloop.noteFailure('agent-t', { tool: 'mcp__' + held, sig: SIG_A, error: 'auth failed with ' + held }, { secrets: [held] });
+  const p = toolloop.peek('agent-t');
+  assert.ok(!p.error.includes(held), p.error);
+  assert.ok(!p.tool.includes(held), p.tool);
+});

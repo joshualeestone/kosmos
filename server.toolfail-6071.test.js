@@ -162,10 +162,14 @@ test('reaching the threshold is logged once per run, and only then', async (t) =
   const real = console.log;
   console.log = (...a) => { const l = a.join(' '); if (l.includes('[toolloop]')) lines.push(l); else real.apply(console, a); };
   try {
-    for (let i = 0; i < toolloop.LOOP_AT + 3; i++) await postFail({ tool: 'Bash', sig: SIG, error: 'e' }, { 'x-kosmos-agent-token': tok });
+    for (let i = 0; i < toolloop.LOOP_AT + 3; i++) await postFail({ tool: 'Bash', sig: SIG, error: 'Exit code 7' }, { 'x-kosmos-agent-token': tok });
   } finally { console.log = real; }
-  assert.equal(lines.length, 1, JSON.stringify(lines));
-  assert.match(lines[0], /leo: Bash failed the same way 5 times in one turn/);
+  const reached = lines.filter((l) => /failed the same way/.test(l));
+  assert.equal(reached.length, 1, JSON.stringify(lines));
+  assert.match(reached[0], /leo: Bash failed the same way 5 times in one turn/);
+  const first = lines.filter((l) => /a Bash failure was recorded/.test(l));
+  assert.ok(first.length <= 1, 'the first failure of a run is said at most once: ' + JSON.stringify(lines));
+  assert.ok(!lines.join('\n').includes('Exit code'), 'never the error line itself');
 });
 
 test('a body over the route\'s small limit is refused, not buffered', async (t) => {
@@ -188,4 +192,18 @@ test('the next prompt ends a turn too, as when the person pressed Esc and no Sto
   for (let i = 0; i < 3; i++) await postFail({ tool: 'Bash', sig: SIG, error: 'e' }, h);
   await postReport({ state: 'working', auto: true, text: toolloop.PROMPT_TEXT }, h);
   assert.equal((await postFail({ tool: 'Bash', sig: SIG, error: 'e' }, h)).json.count, 1);
+});
+
+test('a refused digest is logged with its reason, once, and never with its content', async (t) => {
+  const board = fleet.install([fleet.agent('nia', { state: 'idle' })]);   // its own agent: earlier tests left leo working
+  t.after(() => board.restore());
+  const lines = [];
+  const real = console.log;
+  console.log = (...a) => { const l = a.join(' '); if (l.includes('[toolloop]')) lines.push(l); else real.apply(console, a); };
+  try {
+    for (let i = 0; i < 3; i++) await postFail({ tool: 'Bash', sig: SIG, error: 'secret-ish words', from_pane: '' }, { 'x-kosmos-agent-token': '0'.repeat(64) });
+  } finally { console.log = real; }
+  const refused = lines.filter((l) => /refused/.test(l));
+  assert.ok(refused.length <= 1, JSON.stringify(lines));
+  assert.ok(!lines.join('\n').includes('secret-ish'), 'never the body');
 });
