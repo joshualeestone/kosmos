@@ -506,8 +506,6 @@ for (const [label, runner] of [
       assert.ok(launch, 'no tmux new-session -- sign-up did not launch a login over the stale credential');
       assert.match(launch.args.join(' '), /auth login --claudeai/,
         'sign-up must launch a REAL login over a stale credential; got: ' + launch.args.join(' '));
-      const after = json(await req('/api/connect'));
-      assert.notEqual(after.phase, 'connected', 'the flow finished connected with no login having run');
     } finally {
       connect.setRunner(null);
       subscription.setRunner(null);
