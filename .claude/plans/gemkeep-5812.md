@@ -1,4 +1,4 @@
-# gemkeep-5812: Gemini agents' file edits record who changed a project file (#5812, Gemini slice)
+# gemkeep-5812: Gemini agents' file edits send the keep-copy call (undo copies now; #5812's writer record once projects are in its workspace)
 
 **Branch:** `gemkeep-5812` · **Card:** kosmos#5812. Claude on Mac/Linux: #5821. Claude on Windows: #6033. This slice:
 Gemini, on both. Codex, Grok and Antigravity stay on the card (each needs its own measurement).
@@ -33,6 +33,21 @@ A throwaway folder with a project-level `.gemini/settings.json` holding one Befo
 - Mac: ensurePrepared runs only when a Gemini agent is created. The default account's settings are one shared
   ~/.gemini/settings.json, so any new Gemini agent wires it for all of them on that account; until then an existing one
   shows no writer, as today. Stated, not fixed (the existing "wiped ~/.gemini" residual has the same shape).
+
+## What this does and does not give today (review 1, confirmed in the CLI's code)
+gemini-cli refuses write_file and replace OUTSIDE ITS WORKSPACE: write-file's validateToolParamValues calls
+`config.validatePathAccess(resolvedPath)` on the resolved path, during validation, before BeforeTool fires. A Kosmos
+Gemini agent's workspace is its own workers folder, and the supervisor adds no `--include-directories`. Project folders
+live in ~/Kosmos/Projects, outside it. So:
+- **Given today:** undo copies (#5153) of the files a Gemini agent writes or edits in its own folder. The board
+  attributes them through undo.agentFor's folder match (the session id is Claude-shaped and never matches; the cwd is
+  the agent's folder).
+- **Not given yet:** the #5812 writer record for PROJECT files, because a Gemini agent cannot write one with these tools
+  at all. That needs the agent's workspace to include its projects' folders (`includeDirectories` or
+  `--include-directories`), a change to what a Gemini agent may write, which is its own decision and slice. With it,
+  this hook records the writer with no further change.
+- A live measurement of the refusal was attempted and failed on quota (429, daily quota exhausted on this Mac's key,
+  partly by these probes; Splinter told 08:3x). The code read is the evidence.
 
 ## Weakest premise
 That `cwd` in the hook payload is the agent's own folder (what `undo.agentFor` maps to an agent). Measured: it is the
