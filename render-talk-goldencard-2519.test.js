@@ -263,7 +263,8 @@ test('#2519: the fixture carries the PLACEHOLDER identity, asserted positively',
   assert.ok(card.stateConflict === null, `stateConflict is ${JSON.stringify(card.stateConflict)}; since #3729 it is always null`);
   assert.ok(card.stateEvidence === null || /^✽ Working…/.test(card.stateEvidence),
     `stateEvidence is ${JSON.stringify(card.stateEvidence)}`);
-  assert.match(card.profile.idInstall, /^0{8}-0{4}-4000-8000-0{12}$/);
+  // #5995: a card no longer carries the install's id, so the recording of one does not either.
+  assert.ok(!('idInstall' in card.profile), 'the recorded card names the install id, which a card does not serve');
   assert.match(card.profile.id, /^0+$/);
   /* 🛑 NOTHING IDENTIFYING ANYWHERE UNDER profile, asserted structurally rather than by
      listing the keys this box happens to emit. The tree also writes `dir` (an absolute

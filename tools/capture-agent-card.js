@@ -195,7 +195,8 @@ function scrubStrings(v) {
      defect this whole design avoids. The value is derived from the key
      (`'example-' + k.toLowerCase()`), so a key is echoed into its own value, but the key
      is in the file either way and no information is added by the echo. Today's committed
-     profile carries only id, idInstall, instructionsWrite and updatedAt. */
+     profile carries only id, instructionsWrite and updatedAt (a card stopped serving idInstall
+     with kosmos#5995; the arm below still blanks one, for a card captured from an older board). */
   for (const k of Object.keys(v)) {
     const val = v[k];
     if (typeof val === 'string') {
