@@ -26,7 +26,7 @@ test('#4787: the sentence says the rule, the last run (who, when, its note) and 
 
 test('#4787: a repeating task\'s row carries the line; a one-off and a closed one do not (controls)', () => {
   const row = (t) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey', 'claimNotReported', 'tskAgentName', 'tskRepeatSentence', 'tskRepeatMissed', 'TSK_GROUPS',
-    page.liftAll(SCRIPT, ['tskChainOf', 'tskRow']) + '\nreturn tskRow;')({ sel: new Set(), by: 'status', fold: new Set() }, [], (s) => String(s), () => 'just now',
+    page.liftAll(SCRIPT, ['pjChainText', 'tskChainOf', 'tskRow']) + '\nreturn tskRow;')({ sel: new Set(), by: 'status', fold: new Set() }, [], (s) => String(s), () => 'just now',
     (x) => x.projectId + '#' + x.number, () => '', (s) => s, tskRepeatSentence, tskRepeatMissed, [])(t, { depth: 0, crumb: false, kids: 0 });
   const base = { number: 4, sentence: 'Hourly monitor', projectId: 'p1', projectName: 'Watch', createdAt: new Date(NOW).toISOString(), state: 'assigned', who: 'ada' };
   const rep = { ...base, repeat: { every: 'hour' }, repeatWords: 'every hour', repeatNextAt: at(2026, 10, 6, 9, 0), repeatNextWords: 'today at 9am' };
@@ -72,7 +72,7 @@ test('#4787 slice 2: a missed run leads the sentence; more than one is counted; 
 
 test('#4787 slice 2: the row\'s repeat line is red (class missed) only while a run is missed', () => {
   const row = (t) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey', 'claimNotReported', 'tskAgentName', 'tskRepeatSentence', 'tskRepeatMissed', 'TSK_GROUPS',
-    page.liftAll(SCRIPT, ['tskChainOf', 'tskRow']) + '\nreturn tskRow;')({ sel: new Set(), by: 'status', fold: new Set() }, [], (s) => String(s), () => 'just now',
+    page.liftAll(SCRIPT, ['pjChainText', 'tskChainOf', 'tskRow']) + '\nreturn tskRow;')({ sel: new Set(), by: 'status', fold: new Set() }, [], (s) => String(s), () => 'just now',
     (x) => x.projectId + '#' + x.number, () => '', (s) => s, tskRepeatSentence, tskRepeatMissed, [])(t, { depth: 0, crumb: false, kids: 0 });
   const rep = { number: 4, sentence: 'Daily report', projectId: 'p1', projectName: 'Watch', createdAt: new Date(NOW).toISOString(), state: 'assigned', who: 'ada',
     repeat: { every: 'day', at: '09:00' }, repeatWords: 'every day at 9am', repeatNextWords: 'today at 9am' };

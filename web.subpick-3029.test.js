@@ -13,8 +13,8 @@ const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 const make = (projects) => new Function('PROJECTS',
   'const pjById = (id) => PROJECTS.find((p) => p && p.id === id) || null;\n'
-  + page.liftAll(SCRIPT, ['pjAncestry', 'pjChainOf', 'pjChainCompare', 'pjChainText', 'tskChainOf'])
-  + '\nreturn { pjChainOf, pjChainCompare, pjChainText, tskChainOf };')(projects);
+  + page.liftAll(SCRIPT, ['pjAncestry', 'pjChainOf', 'pjChainCompare', 'pjChainText', 'pjSortByChain', 'tskChainOf'])
+  + '\nreturn { pjChainOf, pjChainCompare, pjChainText, pjSortByChain, tskChainOf };')(projects);
 
 const mk = (id, name, parent) => ({ id, name, parent: parent || null });
 const PROJECTS = [mk('al2', 'Alpha - old'), mk('bb', 'Book B'), mk('als', 'Sub', 'al'), mk('ba', 'Book A'),
@@ -40,4 +40,17 @@ test('tskChainOf reads a Tasks row: its projectPath then its own name, and a row
   const F = make([]);
   assert.deepEqual(F.tskChainOf({ projectName: 'Ads', projectPath: ['Book A', 'Launch'] }), ['Book A', 'Launch', 'Ads']);
   assert.deepEqual(F.tskChainOf({ projectName: 'Solo' }), ['Solo']);
+});
+
+test('pjSortByChain gives the same order as the comparator, without touching the list it is handed', () => {
+  const F = make(PROJECTS);
+  const before = PROJECTS.map((p) => p.id).join();
+  const sorted = F.pjSortByChain(PROJECTS).map((p) => F.pjChainText(F.pjChainOf(p)));
+  assert.deepEqual(sorted, ['Alpha', 'Alpha › Sub', 'Alpha - old', 'Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B', 'Book B › Launch']);
+  assert.equal(PROJECTS.map((p) => p.id).join(), before, 'the shared list must not be reordered');
+});
+
+test('tskChainOf on a row with no project name gives an empty name, never the text undefined', () => {
+  const F = make([]);
+  assert.deepEqual(F.tskChainOf({ projectPath: ['Book A'] }), ['Book A', '']);
 });

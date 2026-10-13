@@ -37,6 +37,11 @@ shows "Launch", "Launch" in every picker.
   project's own name). If shots show it, put the own name first ("Launch, in Book A").
 
 ## Tests
-- engine/tasks.projectpath-3029.test.js (3), negative control: projectPathOf returning [] fails all 3.
-- docs/browser-checks/render-subprojects-1994.js #3029 arm (6 per theme), control on main fails 12/12.
-- web.tasks-new-3703.test.js lift list gains the helpers.
+- engine/tasks.projectpath-3029.test.js: the engine walk, with a negative control (projectPathOf returning
+  [] fails every test).
+- web.subpick-3029.test.js: the shipped page helpers; its control shows a joined-string sort misorders
+  "Alpha - old", and a mutant compare fails it.
+- docs/browser-checks/render-subprojects-1994.js, the #3029 arm: every surface above, light and dark,
+  through the page's own painters. Run against origin/main's page, every #3029 assertion fails.
+- Lift lists gain the helpers in web.tasks-new-3703, web.task-repeat-4787, web.subtasks-3861 and
+  web.tasks-look-3559.

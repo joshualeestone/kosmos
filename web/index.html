@@ -60635,6 +60635,10 @@ function pjChainCompare(a, b) {
 function pjChainText(names) {
   return names.join(' › ');
 }
+function pjSortByChain(list) {
+  const chain = new Map(list.map((p) => [p, pjChainOf(p)]));   // each chain built once, not per comparison
+  return list.slice().sort((a, b) => pjChainCompare(chain.get(a), chain.get(b)));
+}
 function projectCard(p, unreadable, depth, childCount, lastKid) {
   const s = p.summary || {};
   const folder = pjFolderLine(p);
@@ -61527,7 +61531,7 @@ function tskInWindow(t, days, now) {
 /* #3029: a Tasks row's project chain (Book A › Launch), from the engine's projectPath on the row, so every
    place the Tasks screen names a project reads the same array. */
 function tskChainOf(t) {
-  return (Array.isArray(t.projectPath) ? t.projectPath : []).concat(String(t.projectName));
+  return (Array.isArray(t.projectPath) ? t.projectPath : []).concat(t.projectName == null ? '' : String(t.projectName));
 }
 function tskMatches(t, q) {
   const needle = String(q || '').trim().toLowerCase();
@@ -61619,7 +61623,7 @@ async function tskLoad(arrival) {
 function tskRow(t, at) {
   const on = TSK.sel.has(tskKey(t));
   /* #3029: the row names its project by the chain (Book A › Launch), so two same-named subprojects differ. */
-  const projChain = tskChainOf(t).join(' › ');
+  const projChain = pjChainText(tskChainOf(t));
   /* #3861 part 2: where the row sits in its list (taskNest): its indent, whether it says what it
      is part of, and how many of its subtasks are in this same list (the fold toggle). A caller
      that passes nothing gets a plain top-level row. */
@@ -62043,7 +62047,7 @@ async function tskBulkClose() {
       msg.textContent = asSentence(body.error || 'those tasks were not closed');
     } else if (failed.length) {
       msg.textContent = 'Closed ' + done + ' of ' + results.length + '.' + tail + ' '
-        + failed.map((x) => { const t = (TSK.data || []).find((y) => y.projectId === x.projectId && y.number === x.number); return (t ? tskChainOf(t).join(' › ') + ' ' : '') + '#' + x.number + ': ' + x.error; }).join('; ') + '.';
+        + failed.map((x) => { const t = (TSK.data || []).find((y) => y.projectId === x.projectId && y.number === x.number); return (t ? pjChainText(tskChainOf(t)) + ' ' : '') + '#' + x.number + ': ' + x.error; }).join('; ') + '.';
     } else {
       msg.textContent = 'Closed ' + done + (done === 1 ? ' task.' : ' tasks.') + tail
         + ' Closing a task does not stop an agent that is working on it.';
@@ -63436,8 +63440,7 @@ let NT_PARENT = null;   // #3861 part 2: the task "+ Add subtask" was pressed on
    (its own View-all door) files there without the picker, exactly as that project's own page
    does: the person is standing in that project on purpose. */
 function ntChoices() {
-  return PROJECTS.filter((p) => p && p.archived !== true)
-    .slice().sort((a, b) => pjChainCompare(pjChainOf(a), pjChainOf(b)));   // #3029: each subproject after its parent
+  return pjSortByChain(PROJECTS.filter((p) => p && p.archived !== true));   // #3029: each subproject after its parent
 }
 async function openNewTaskFromTasks() {
   await loadProjects();
@@ -63779,7 +63782,7 @@ function pjPaintParentSelect(p) {
   const opts = ['<option value="">Top level (none)</option>'];
   let hasCurrent = !p.parent;   // "Top level (none)" always represents no parent
   /* #3029: in chain order and named by the chain, so the parent being picked is unmistakable. */
-  for (const q of PROJECTS.filter((x) => !x.archived).sort((a, b) => pjChainCompare(pjChainOf(a), pjChainOf(b)))) {
+  for (const q of pjSortByChain(PROJECTS.filter((x) => !x.archived))) {
     if (q.id === p.id || banned.has(q.id)) continue;
     if (q.id === p.parent) hasCurrent = true;
     opts.push('<option value="' + esc(q.id) + '"' + (q.id === p.parent ? ' selected' : '') + '>'
@@ -72011,7 +72014,7 @@ function pjPaintCreateParentSelect() {
   const sel = document.getElementById('pj-add-parent');
   if (!sel) return;
   const opts = ['<option value="">Top level (none)</option>'];
-  for (const q of PROJECTS.filter((x) => !x.archived).sort((a, b) => pjChainCompare(pjChainOf(a), pjChainOf(b)))) {   // #3029
+  for (const q of pjSortByChain(PROJECTS.filter((x) => !x.archived))) {   // #3029
     opts.push('<option value="' + esc(q.id) + '">' + esc(pjChainText(pjChainOf(q))) + '</option>');
   }
   sel.innerHTML = opts.join('');
