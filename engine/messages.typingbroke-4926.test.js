@@ -291,7 +291,7 @@ test('#4926 review 3 (Opus): a member that fails after its long post was spilled
     const real = roomhold.take;
     roomhold.take = (name, ...rest) => { if (name === 'cy') throw new Error('take broke'); return real(name, ...rest); };
     let d;
-    try { d = await agentPost(roster, 'long '.repeat(200), false); } finally { roomhold.take = real; }
+    try { d = await agentPost(roster, 'long '.repeat(2200), false); } finally { roomhold.take = real; }
     assert.equal(d.outcomes.cy, chat.DELIVERY.COULD_NOT);
     const inbox = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'cy', 'Inbox');
     const left = fs.existsSync(inbox) ? fs.readdirSync(inbox).filter((f) => f.startsWith(d.id)) : [];

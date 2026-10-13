@@ -195,13 +195,14 @@ function unspill(file) {
   if (file) { try { fs.rmSync(file, { force: true }); } catch { /* best effort */ } }
 }
 
-/* Long bodies spill to a file and the pane gets a pointer. Fleet lesson
-   (Splinter, 2026-08-17, learned by failing six times in one night): long
-   sends are the failure mode of pane transports -- they land collapsed
-   and unsent while looking delivered -- and the reliable shape is three
-   lines and a path. The full text still goes in the LOG (the screens
-   draw conversations from the log, not from panes). */
-const SPILL_AT = 700;
+/* #6065: a message is typed WHOLE unless the line chat would type is longer than chat's own limit (chat.MAX_TEXT),
+   the same limit the person's own messages to an agent have. Only past it does the body spill to a file and the pane get
+   a pointer. The old rule spilled anything over 700 characters: a fleet lesson (Splinter, 2026-08-17) from the
+   send-keys era, when long sends landed collapsed and unsent while looking delivered. #3419 (2026-09-22) replaced that
+   transport with a chunked paste that scales to any size, and #3562 then raised the person's cap to 10000 on it, so
+   the 700 rule outlived its reason, and agents reported that opening a file for every long task or room message cost
+   them handoffs (#6065). The full text still goes in the LOG either way (the screens draw from the log). */
+const spillsAt = (line) => String(line == null ? '' : line).length > chat.MAX_TEXT;
 /* #5706 (user feedback, 2026-10-09): what the pane shows of a long message, so the agent can tell from the line alone
    whether to open the file. The envelope already names the sender; this is the message's first sentence when it is a
    real one and ends within SPILL_HEAD characters, else the opening cut at a whole word, plus how long the whole is.
@@ -1360,11 +1361,15 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   const id = mintId(rec.parsed);
 
   /* The envelope: one line (a newline in the pane is a submit), sender and
-     reply pointer first so the recipient reads WHO before WHAT. Past
-     SPILL_AT the pane gets the head and a path instead of the wall. */
+     reply pointer first so the recipient reads WHO before WHAT. #6065: the whole message is typed when the whole
+     line fits what chat types (spillsAt); only a longer one gets the head and a path instead. */
+  const prefix = '[message from your colleague ' + from
+    + ' \u00b7 ' + id
+    + (replyTo ? ' \u00b7 answers ' + replyTo : '')
+    + '] ';
   let body = cleaned;
   let spillFile = null;
-  if (cleaned.length > SPILL_AT) {
+  if (spillsAt(prefix + cleaned)) {
     /* An agent that cannot be typed into is refused for THAT reason, before any file is written
        (a misspelt name must not read as a folder problem). */
     const can = chat.addressable(toName, roster);
@@ -1374,10 +1379,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     spillFile = spill.file;
     body = spillLine(cleaned, spillFile);   // #5706
   }
-  const envelope = '[message from your colleague ' + from
-    + ' · ' + id
-    + (replyTo ? ' · answers ' + replyTo : '')
-    + '] ' + body;
+  const envelope = prefix + body;
   /* #5805 slice 2a: the recipient is out of usage (slice 1's hold): typed now, the message would land on its limit
      screen and be counted delivered. It is kept and typed after the reset by the minute sweep (limitqueue.flush). */
   let limitHold = null;
@@ -2215,7 +2217,6 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      allowed to differ -- the pane gets a line, the UI record keeps the shape. */
   /* #4447: a long post is spilled per member, into each one's own Inbox, inside the delivery loop
      below; `spilled` keeps the files so a member the post never reached leaves none behind. */
-  const long = cleaned.length > SPILL_AT;
   const spilled = {};
 
   const replied = answeredParts(answered);   // #3745: the same for every recipient
@@ -2255,16 +2256,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       reached += 1;
       return null;
     }
-    /* #4447: a long post's full text goes into THIS member's own Inbox, and its pointer names that
-       file. A member whose folder cannot take it is not reached (there is no shared folder to use). */
-    let bodyHere = cleaned;
-    if (long && chat.addressable(name, roster).ok) {   // one that cannot be typed into is refused by deliver below, with its reason, and gets no file
-      const spill = spillInto(name, id, cleaned);
-      if (!spill.file) { outcomes[name] = chat.DELIVERY.COULD_NOT; return null; }
-      const file = spill.file;
-      spilled[name] = file;
-      bodyHere = spillLine(cleaned, file);   // #5706
-    }
+    /* #6065: the post is typed whole; the spill decision waits until this member's whole line is known (below). */
+    const bodyHere = cleaned;
     /* The operator's arrivals carry their OWN markers: an @-mentioned
        member reads a request from the person; everyone else reads the
        room-wide form, which is the person speaking to the room rather
@@ -2325,7 +2318,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     /* #3311: in a shared project the agent is told, on the post it would answer,
        that its answer leaves this computer. */
     const shownProjectAs = shownProject + (federated ? ' \u00b7 shared outside this computer, what you post here leaves it' : '');
-    const envelope = (operator === true
+    const wrap = (b) => (operator === true
       ? (mentioned.has(name)
         ? '[message from your operator \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + answer + ']'
         : '[from your operator in project ' + shownProjectAs + ' \u00b7 ' + id + answers + ' \u00b7 for the whole room' + answer + ']')
@@ -2334,7 +2327,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         /* No answer line on background: it is explicitly not addressed to you,
            and inviting a reply is the unaddressed-steering the room prevents. */
         : '[background from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + ' \u00b7 not addressed to you]'))
-      + ' ' + quoteFor(name) + bodyHere;
+      + ' ' + quoteFor(name) + b;
+    let envelope = wrap(bodyHere);
     /* `trailer` (#358) is the attached file's path and facts (#5448), typed after the envelope
        and body and outside the checks, the same way the direct thread does it. */
     /* 🔑 THE AGENT BROUGHT IN BLIND IS TOLD WHAT IT MISSED (#314, second
@@ -2360,6 +2354,20 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     const heldIds = roomhold.withoutStale(projectId, roomhold.take(name, projectId), (p, ids) => staleHeld(p, ids, log, undefined, name), name);   // #4926
     takenHeld[name] = heldIds;   // review 6: put back by typingBroke if this member throws before its typing path
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
+    /* #6065: the post is typed whole unless this member's whole line (envelope, catch-up, held posts) would be longer
+       than chat types (spillsAt); only then does its full text go into this member's own Inbox (#4447) and the line
+       carry its head and the path (#5706). A member that cannot be typed into is refused by deliver below with its
+       reason and gets no file. A file that cannot be written: not reached, its taken held posts put back. */
+    if (spillsAt(envelope + catchUp + heldLine) && chat.addressable(name, roster).ok) {
+      const spill = spillInto(name, id, cleaned);
+      if (!spill.file) {
+        outcomes[name] = chat.DELIVERY.COULD_NOT;
+        if (heldIds.length) { try { roomhold.restore(name, projectId, heldIds); } catch { /* best effort */ } }
+        return null;
+      }
+      spilled[name] = spill.file;
+      envelope = wrap(spillLine(cleaned, spill.file));   // #5706
+    }
     const finish = (sent) => {
       /* #4588 PR B: held (the shared Google quota, #5743/#5754 an answer awaited on its screen: question menu, permission prompt, safeguards menu, or #5805 a usage limit), nothing typed. The post is kept for this member like a #4624
          hold (its id, marked when it names them), so it counts as placed for the sender and is told (#4926: unless staleHeld drops it) in one line by the
