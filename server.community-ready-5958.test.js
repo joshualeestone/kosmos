@@ -95,7 +95,12 @@ test('#5958: GET /api/community/ready lists each agent once with its own row', a
   assert.equal(by('Other').length, 1, JSON.stringify(rows));
   assert.deepEqual(by('Other')[0].reminder, { at: 1234, act: 'prompted', reachedAt: 1234, delivery: 'placed' });
   assert.equal(by('Reader')[0].reminder, null);
-  for (const k of ['switch', 'addressOk', 'block', 'connected', 'rereadOwed', 'account', 'lastPost', 'held']) assert.ok(k in by('Reader')[0], 'the row has no ' + k);
+  for (const k of ['switch', 'addressOk', 'block', 'connected', 'reminders', 'rereadOwed', 'account', 'lastPost', 'held', 'owner']) assert.ok(k in by('Reader')[0], 'the row has no ' + k);
+  // #5958 slice 2: what the Settings page paints from: a summary, and lines that are words or words around a time.
+  const o = by('Other')[0].owner;
+  assert.ok(typeof o.summary === 'string' && o.summary.length > 0 && Array.isArray(o.lines) && o.lines.length >= 4, JSON.stringify(o));
+  assert.ok(o.lines.every((l) => typeof l.text === 'string' && (!('at' in l) || (Number.isFinite(l.at) && typeof l.after === 'string'))), JSON.stringify(o.lines));
+  assert.ok(o.lines.some((l) => l.at === 1234), 'the reminder\'s time is not in a line: ' + JSON.stringify(o.lines));
 });
 
 test('#5958 review 1: a roster that cannot be read is a 503, not an empty list', async (t) => {

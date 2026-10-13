@@ -5241,7 +5241,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #5958 item 5: every agent's community readiness for the owner (engine/communityready.js), from the board's records
-     only: no call to the community service. It reads the send records once per agent (see the plan's slice 2 note). */
+     only: no call to the community service, and one read of the send records for all rows. */
   if (pathname === '/api/community/ready' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const rows = require('./engine/communityready').rowsFor(safeRoster());

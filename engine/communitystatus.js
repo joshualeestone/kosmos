@@ -190,6 +190,16 @@ function stateOf(kind, rec, item, ctx) {
  */
 function itemsFor(sessionName, now = Date.now()) {
   if (typeof sessionName !== 'string' || !sessionName) return [];
+  const read = itemsReader(now);
+  return read === null ? null : read(sessionName);
+}
+
+/**
+ * #5958 slice 2: the same answer for many agents from ONE read of the records and the store, for a view that lists
+ * every agent (communityready.rowsFor). Returns a function (sessionName) => items as itemsFor gives them, or null when
+ * the send records cannot be read at all. itemsFor is this, asked once.
+ */
+function itemsReader(now = Date.now()) {
   const recs = readRecords();
   let postStatus = null;
   let commentStatus = null;
@@ -198,17 +208,26 @@ function itemsFor(sessionName, now = Date.now()) {
     if (recs.commentsOk) commentStatus = communitysend.commentRecords();
   } catch { return null; }
   const sw = communitysend.switchState();
-  const ctx = { on: sw === 'on', switchUnreadable: sw === 'unreadable', since: typeof recs.state.since === 'string' ? recs.state.since : null,
+  const base = { on: sw === 'on', switchUnreadable: sw === 'unreadable', since: typeof recs.state.since === 'string' ? recs.state.since : null,
     endedUnreadable: Array.isArray(recs.state.endedUnreadable) ? recs.state.endedUnreadable : [],
-    key: recs.keys[sessionName] || null, now, addressOk: communitysend.endpointAllowed() };
+    now, addressOk: communitysend.endpointAllowed() };
+  const posts = communitystore.publishedPosts();
+  const comments = communitystore.serviceComments();
+  const queue = communitystore.moderationQueue({ limit: Infinity });
+  return (sessionName) => itemsFrom(sessionName, { recs, postStatus, commentStatus, base, posts, comments, queue });
+}
+
+function itemsFrom(sessionName, { recs, postStatus, commentStatus, base, posts, comments, queue }) {
+  if (typeof sessionName !== 'string' || !sessionName) return [];
+  const ctx = { ...base, key: recs.keys[sessionName] || null };
   const out = [];
-  for (const p of communitystore.publishedPosts()) {
+  for (const p of posts) {
     if (!byAgent(p, sessionName)) continue;
     const state = postStatus ? stateOf('post', postStatus[p.id], p, ctx) : 'unreadable';
     const link = linkFor(state, recs.sent[p.id] && recs.sent[p.id].remoteId);
     out.push({ kind: 'post', id: p.id, title: communitysend.titleFor(p), at: madeAt(p), state, ...(link ? { link } : {}) });
   }
-  for (const c of communitystore.serviceComments()) {
+  for (const c of comments) {
     if (!byAgent(c, sessionName) || c.status !== 'published') continue;
     const state = commentStatus ? stateOf('comment', commentStatus[c.id], c, ctx) : 'unreadable';
     const link = linkFor(state, c.remotePostId);
@@ -218,7 +237,7 @@ function itemsFor(sessionName, now = Date.now()) {
   // Held or quarantined: the safety check stopped it for the person (feedpublish). Every row, not a capped page. Both
   // read "held", as the post route tells the submitter (which one is never said: not a scrubber oracle). Review 2: a
   // held comment is listed only when it is on a community post; one on this board's own posts is never sent there.
-  for (const r of communitystore.moderationQueue({ limit: Infinity })) {
+  for (const r of queue) {
     if (!byAgent(r, sessionName) || (r.entry === 'comment' && !r.remotePostId)) continue;
     out.push({ kind: r.entry === 'comment' ? 'comment' : 'post', id: r.id, ...(r.entry === 'comment' ? { post: r.remotePostId } : {}),
       title: communitysend.titleFor(r.entry === 'comment' ? { body: r.body } : r), at: madeAt(r), state: 'held' });
@@ -255,4 +274,4 @@ function statusText(sessionName) {
   return { ok: true, count: items.length, text: lines.join('\n') };
 }
 
-module.exports = { POST_WORDS, COMMENT_WORDS, itemsFor, waitingPosts, statusText };
+module.exports = { POST_WORDS, COMMENT_WORDS, itemsFor, itemsReader, waitingPosts, statusText };
