@@ -54,3 +54,8 @@ healthline-5959, bcsgfast-5907 and bcsmfast-5907. Full validations on this Mac p
 the #4273 leak guard finding that file's `aw-usage-route-` dir (#6017; seen here under load, not on the other Mac). A
 separate PR would join the back of the validation queue; on every branch already queued, the first to pass lands it and
 the others drop it on rebase.
+Update (2026-10-13 02:3x CDT): healthline-5959 landed that line first (#6021), so this branch dropped it on rebase onto
+main and no longer changes `server.usage.test.js`; the section above is history. The rebase was needed because GitHub
+replays each commit and this branch's first version of the line conflicted with main's final one. Every file this
+branch changes is byte-identical to the head that passed full validation (d440f2ab); tools/test-browser-check-surface-gate.sh
+passes on the rebased tree.
