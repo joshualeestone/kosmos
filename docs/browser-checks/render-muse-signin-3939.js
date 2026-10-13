@@ -423,7 +423,8 @@ const chk = (ok, label, extra) => {
   // #6004 round 5: an install with no answer at all is not a failure: the run may still be going on the board.
   await q(() => { window.__installThrow = true; window.__installPosts = 0; window.__installAnswer = null; closeAcctAdd(); openAcctAdd(); }); await settle();
   await choose('meta'); await settle();
-  await q(() => document.getElementById('acct-muse-go').click()); await settle();
+  // Focus starts elsewhere, so only the no-answer branch can put it on the button (a perturbation once passed here).
+  await q(() => { const s = document.getElementById('acct-muse-say'); s.tabIndex = -1; s.focus(); document.getElementById('acct-muse-go').click(); }); await settle();
   const noAnswer = await q(() => ({ posts: window.__installPosts, go: document.getElementById('acct-muse-go').textContent, busy: document.getElementById('acct-muse-go').getAttribute('aria-disabled'),
     focus: document.activeElement && document.activeElement.id, say: document.getElementById('acct-muse-say').textContent }));
   chk(noAnswer.posts === 1 && noAnswer.go === 'Install Muse Code' && noAnswer.busy === null && noAnswer.focus === 'acct-muse-go' && /may still be installing/.test(noAnswer.say),
