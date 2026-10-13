@@ -20004,12 +20004,21 @@ const server = http.createServer(async (req, res) => {
           try {
             const raw = projects.readAll().find((x) => x && x.id === id);
             const alike = raw ? tasks.sameTextOpen(raw, made.sentence, made.number, { parent: made.parent || null, detail: made.detail, who: tasks.whoOf(made), doneWhen: made.doneWhen }) : [];
+            const shown = (v) => { const c = Array.from(String(v).replace(/["\\\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff\ud800-\udfff\u{e0000}-\u{e007f}]/gu, ' ').replace(/\s+/g, ' ').trim());
+              return c.length > 60 ? c.slice(0, 57).join('') + '...' : c.join(''); };
             if (alike.length) {
-              const shown = (v) => { const c = Array.from(String(v).replace(/["\\\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff\ud800-\udfff\u{e0000}-\u{e007f}]/gu, ' ').replace(/\s+/g, ' ').trim());
-                return c.length > 60 ? c.slice(0, 57).join('') + '...' : c.join(''); };
               note = 'Note: ' + (alike.length === 1 ? 'an open task with the same text already exists: ' : 'open tasks with the same text already exist: ')
                 + alike.map((t) => '#' + t.number + ' (' + shown(t.sentence) + ')').join(', ')
                 + '. If this is the same ask, close the new one: kosmos task close ' + id + ' ' + made.number;
+            }
+            /* #6083: the weaker note for a NEAR title added in the last few minutes (engine/tasks.js nearOpen). It never
+               says "close the new one": the reader decides whether it is the same ask. Tasks #5319 already named are
+               left out, so a task is never named twice. */
+            const near = raw ? tasks.nearOpen(raw, made).filter((t) => !alike.some((x) => x.number === t.number)) : [];
+            if (near.length) {
+              note = (note ? note + ' ' : '') + 'Note: ' + (near.length === 1 ? 'a similar open task was added in the last few minutes: ' : 'similar open tasks were added in the last few minutes: ')
+                + near.map((t) => '#' + t.number + ' (' + shown(t.sentence) + ')').join(', ')
+                + '. If it is the same ask as #' + made.number + ', close one of them; if it is a different ask, ignore this.';
             }
           } catch { note = ''; }
           // The assignee's managed block now lists this task in the exact

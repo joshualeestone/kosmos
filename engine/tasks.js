@@ -1984,9 +1984,12 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
    🔑 #5319's eight review rounds measured why a loose match is dangerous ("Email Alice" / "Email Bob", approve /
    reject, "Do not enable" / "Enable", Dallas to Austin / Austin to Dallas, "-5" / "5", "x > 5" / "x < 5", a check
    mark / a cross, C++ / C). So "near" is narrow, and every one of those is never near:
-   - the same words once case, punctuation and order are set aside, or one word more or fewer (titles of 3+ words);
-   - and NEVER near when the numbers (with their signs), the symbols, the negating words, or the names (capitalized
-     words after the first, IN ORDER) differ.
+   - the same words IN THE SAME ORDER once case and punctuation are set aside, or that with one word added or dropped
+     (both titles 3+ words: one word changes a two-word ask too much). Order is kept, so swapped places are never near, and a swap of one word for another (Alice /
+     Bob, approve / reject) is never near either. A reordered title is a miss, which costs only today's behaviour;
+   - and NEVER near when the numbers (with their signs), the symbols or the negating words differ.
+   (Decided 2026-10-13: an earlier draft also required the capitalized words to match, which refused the report's own
+   case, one agent writing "Meta" and the other "meta". Keeping word order covers swapped places without it.)
    And only within NEAR_TASK_WINDOW_MS of the open task's creation: the report's case is two adds in the same minute,
    and a short window keeps the note away from long-lived lookalikes. */
 const NEAR_TASK_WINDOW_MS = 10 * 60 * 1000;
@@ -2001,21 +2004,21 @@ function titleShape(sentence) {
     numbers: (raw.match(/[-+\u2212]?\d[\d.,:]*/gu) || []).join(' '),
     symbols: Array.from(raw).filter((c) => /\p{S}/u.test(c)).sort().join(''),
     negating: lower.filter((w) => NEGATING.has(w)).sort().join(' '),
-    names: words.slice(1).filter((w) => /^\p{Lu}/u.test(w)).join(' '),
   };
 }
 function isNearTitle(a, b) {
   const x = titleShape(a);
   const y = titleShape(b);
   if (!x.bag.length || !y.bag.length) return false;
-  if (x.numbers !== y.numbers || x.symbols !== y.symbols || x.negating !== y.negating || x.names !== y.names) return false;
-  const count = new Map();
-  for (const w of x.bag) count.set(w, (count.get(w) || 0) + 1);
-  for (const w of y.bag) count.set(w, (count.get(w) || 0) - 1);
-  let extra = 0;
-  for (const v of count.values()) extra += Math.abs(v);
-  if (extra === 0) return true;
-  return extra === 1 && Math.max(x.bag.length, y.bag.length) >= 3;
+  if (x.numbers !== y.numbers || x.symbols !== y.symbols || x.negating !== y.negating) return false;
+  if (x.bag.join(' ') === y.bag.join(' ')) return true;
+  // One word added or dropped, order kept: removing one word from the longer gives the shorter.
+  const [long, short] = x.bag.length > y.bag.length ? [x.bag, y.bag] : [y.bag, x.bag];
+  if (long.length !== short.length + 1 || short.length < 3) return false;   // both 3+ words: a short title is generic
+  for (let i = 0; i < long.length; i += 1) {
+    if (long.slice(0, i).concat(long.slice(i + 1)).join(' ') === short.join(' ')) return true;
+  }
+  return false;
 }
 /* Open tasks, numbered below the new one (the later of two adds is the one told), under the same parent, for the same
    people, added within the window, whose title is near but NOT the same text (#5319 names those), and not already under
