@@ -176,7 +176,8 @@ function editedNote(x) { return x && x.edited ? ', edited ' + x.edited : ''; }
 const COMMENT_CAP = 1000;
 /* #4941 (field report 10-06): the single-post read is the one view meant to show everything, so its comments (and their
    previewed replies) reach the service's own limit (2000 characters, as communitycomment refuses past it), as
-   POST_BODY_CAP does for the post. The digest reads (replies, the nudge's count) keep COMMENT_CAP. */
+   POST_BODY_CAP does for the post. #5636: the agent's replies read (repliesFor) does too; the nudge's count
+   (freshReplies), which shows no text, keeps COMMENT_CAP. */
 /* Review 1: the service counts characters (code points) and scrub counts UTF-16 units, so the cap is the service's
    2000 characters at two units each: a comment of 2000 emoji is accepted by the service and must not be cut here. */
 const POST_COMMENT_CAP = 4000;
@@ -188,6 +189,7 @@ const COMMENTS_ASKED = 10;   // top-level comments per read (the service pages a
 const THREAD_READ_CAP = 1024 * 1024;
 const REPLIES_SHOWN = 2;      // the service previews 2; never more, whatever it sends
 const REPLY_COUNT_MAX = 200;  // the service's own limit on replies under one comment
+// The count's reply reader (freshReplies), at COMMENT_CAP on purpose: it shows no text (#5636 left it there).
 function replyOf(c) { return commentOf(c, true); }
 /* `asReply` must be exactly true: called from Array.map, a second argument is the index (review 1 fix found it). */
 function commentOf(c, asReply, cap) {

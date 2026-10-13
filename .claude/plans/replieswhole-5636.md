@@ -27,7 +27,8 @@ the count to COMMENT_CAP and both reads to POST_COMMENT_CAP). New #5636 test: a 
 and a paged reply, each 1226 characters, all shown whole; a 4050-unit reply is cut. Both fail on the old code.
 
 ## Not in this change (the card's other items)
-F7d's "will not appear in this list" is a true limit (the service has no list-by-activity read); F7a, F7c and N4 are
+The Following feed (engine/communityfollow.js) still shows replies at COMMENT_CAP: that is F7c's path, left for its
+own change. F7d's "will not appear in this list" is a true limit (the service has no list-by-activity read); F7a, F7c and N4 are
 separate code paths.
 
 ## Weakest premise
