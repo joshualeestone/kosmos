@@ -136,6 +136,18 @@ test('agentTrust: the default file is per agent, in the Kosmos store', () => {
   assert.equal(path.dirname(dirs.agentTrustFile('a/../b')), path.join(store.ROOT, 'gemini-trust'), 'a name cannot leave the folder');
 });
 
+test('trustFile: GEMINI_CLI_TRUSTED_FOLDERS_PATH is honoured, except when it names an agent\'s own trust file', () => {
+  const was = process.env.GEMINI_CLI_TRUSTED_FOLDERS_PATH;
+  try {
+    process.env.GEMINI_CLI_TRUSTED_FOLDERS_PATH = '/somewhere/the-persons.json';
+    assert.equal(dirs.trustFile('/h'), '/somewhere/the-persons.json');
+    process.env.GEMINI_CLI_TRUSTED_FOLDERS_PATH = dirs.agentTrustFile('gem');
+    assert.equal(dirs.trustFile('/h'), path.join('/h', '.gemini', 'trustedFolders.json'), 'an inherited agent file is not read as the person\'s');
+  } finally {
+    if (was === undefined) delete process.env.GEMINI_CLI_TRUSTED_FOLDERS_PATH; else process.env.GEMINI_CLI_TRUSTED_FOLDERS_PATH = was;
+  }
+});
+
 test('agentTrust: a folder the person marked DO_NOT_TRUST is left out (longest rule wins, TRUST_PARENT covers the parent)', () => {
   const outer = mk('t-deny');
   const inner = mk('t-deny', 'inner');
