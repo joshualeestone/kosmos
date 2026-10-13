@@ -104,7 +104,7 @@ test('a keep call that throws or is refused still lets the edit go ahead, and th
   }
 });
 
-test('a board that never answers the keep call holds the edit no longer than the bound', async () => {
+test('a board that never answers the keep call holds the edit no longer than the bound', { timeout: 5000 }, async () => {
   const hang = (url, init) => url.endsWith('/api/undo/keep')
     ? new Promise((resolve, reject) => { init.signal.addEventListener('abort', () => reject(new Error('aborted'))); })
     : { ok: true, status: 200, text: async () => '{"recorded":true}' };
