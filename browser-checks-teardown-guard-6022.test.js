@@ -34,13 +34,15 @@
  * the callback's chain, or an awaited try inside the callback. More generally (review 4), an answer inside ANY function
  * nested in the handler (a parked callback, a helper scheduled by name) needs its own .catch or an awaited try inside
  * that function. Aliases (`const rt = r`), destructured or optional-chained answers, and a route passed to a helper as
- * a later argument are not read (fail GREEN; none in the folder). A handler's span is its .route( call, to the matching paren (a backtick string nested inside
+ * a later argument are not read (fail GREEN; none in the folder); nor is an answer in an object or class method
+ * (`{ go() { r.fulfill() } }`) or in a default parameter of the handler (fail GREEN). A concise arrow's body is read
+ * to the next comma, semicolon or closing bracket, so an answer after a ternary's arrow branch reads as nested (fails
+ * RED). A handler's span is its .route( call, to the matching paren (a backtick string nested inside
  * ${...} in the route's URL can cut it short). Code before the wait now sits inside the try, so a throw there aborts
  * the request quietly instead of crashing; no check relies on that crash. A catch that
  * rethrows counts as caught, and the abort in the catch is advised, not required (an empty catch passes: no crash, but a
  * real failure then waits for the check's timeout). A statement without semicolons, or a call passed as an argument
- * to an awaited function (await f(r.fulfill(...))), reads as awaited; no check uses either style. The try test is lexical: a call inside a function nested in the try (a setTimeout
- * callback) reads as guarded though its rejection is not caught (fails GREEN). An abort whose argument has its own
+ * to an awaited function (await f(r.fulfill(...))), reads as awaited; no check uses either style. An abort whose argument has its own
  * parentheses is flagged though correct (fails RED). "Inside a try" counts braces from the last `try {` before the fetch, so a brace inside a string
  * between the two can miscount. Comments are blanked first (strings, template literals and regex literals kept).
  * Each call must also be awaited in its own statement, and its try must have a catch (round 1). A handler that
@@ -285,9 +287,14 @@ function scan(raw) {
     const helperCall = new RegExp('\\b(?!' + h.param + '\\b)([A-Za-z_$][\\w$]*)\\(\\s*' + h.param + '\\s*[,)]', 'g');
     const lateCandidates = [...body.matchAll(cbAns)].map((x) => h.body + x.index)
       .concat([...body.matchAll(helperCall)].map((x) => h.body + x.index));
+    const cleared = new Set();
+    // The route's name re-bound as a parameter of the nested function (`new Promise((r) => setTimeout(r, 300))` in a
+    // handler whose own parameter is r) is not the route (review 5).
+    const rebound = (fn) => fn && new RegExp('(?:^|[(,]\\s*)' + h.param + '\\s*(?:[,)=]|$)').test(src.slice(Math.max(h.body, fn.open - 120), fn.open).replace(/^[^]*?(\([^()]*\)|\w+)\s*=>\s*\{?\s*$/, '$1'));
     for (const at of lateCandidates) {
       const fn = nestedFn(blank, h.body, at);
       if (!fn) continue;
+      if (rebound(fn)) { cleared.add(at); continue; }
       if (catchesAfter(callClose(at))) continue;
       if (insideOpenTry(src, fn.open, at) && awaited(src, at)) continue;
       let chainCaught = false;
@@ -299,7 +306,7 @@ function scan(raw) {
         const returned = /^\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>\s*\(?\s*$/.test(lead) || /\breturn\s+(?:await\s+)?$/.test(lead);
         if (returned && catchesAfter(close)) chainCaught = true;
       }
-      if (!chainCaught) bad.push(src.slice(0, at).split('\n').length);
+      if (chainCaught) cleared.add(at); else bad.push(src.slice(0, at).split('\n').length);
     }
     const hits = [body.search(new RegExp('\\b' + h.param + '\\.fetch\\(')), firstWait].filter((x) => x >= 0);
     if (!hits.length) return;
@@ -312,6 +319,7 @@ function scan(raw) {
     helper.lastIndex = h.body + first;
     let hf;
     while ((hf = helper.exec(src)) && hf.index < end) {
+      if (cleared.has(hf.index) || rebound(nestedFn(blank, h.body, hf.index))) continue;
       if (catchesAfter(callClose(hf.index))) continue;
       if (!insideOpenTry(src, h.at, hf.index) || !awaited(src, hf.index)) bad.push(src.slice(0, hf.index).split('\n').length);
     }
@@ -322,7 +330,9 @@ function scan(raw) {
         if (!catchesAfter(callClose(f.index))) bad.push(line);
         continue;
       }
-      // An answer that chains its own .catch( handles its rejection (Baron's #6023 shape), try or not.
+      // An answer that chains its own .catch( handles its rejection (Baron's #6023 shape), try or not; an answer the
+      // nested pass cleared (returned to a .catch chain) is handled too (review 5).
+      if (cleared.has(f.index)) continue;
       if (f[1] !== 'fetch' && catchesAfter(callClose(f.index))) continue;
       if (!insideOpenTry(src, h.at, f.index) || !awaited(src, f.index)) bad.push(line);
     }
@@ -417,6 +427,10 @@ test('#6022 fixtures: the rule can fail, and the safe shapes pass (controls)', (
   assert.deepEqual(scan(parked), [2], 'a parked callback answer is nested (#6027 review 4)');
   const helperCaught = "await page.route('**/x', (r) => {\n  const json = (b) => r.fulfill({ json: b }).catch(() => {});\n  setTimeout(() => json({}), 2500);\n});\n";
   assert.deepEqual(scan(helperCaught), [], 'a nested answer that catches its own rejection passes');
+  const reboundWait = "await page.route('**/x', async (r) => {\n  try {\n    await new Promise((r) => setTimeout(r, 300));\n    await r.fulfill({});\n  } catch { await r.abort().catch(() => {}); }\n});\n";
+  assert.deepEqual(scan(reboundWait), [], 'a wait whose resolver is also named r does not hand the route away (#6027 review 5)');
+  const chainAfterWait = "await page.route('**/x', async (r) => {\n  await gate;\n  other.then(() => r.fulfill({})).catch(() => {});\n});\n";
+  assert.deepEqual(scan(chainAfterWait), [], 'an answer returned to a .catch chain after a wait is handled (#6027 review 5)');
   const fixtureOnly = "await page.route('**/api/x', (r) => r.fulfill({ json: {} }));\nconst x = await window.fetch('/a');\nawait browser.close();\n";
   assert.deepEqual(scan(fixtureOnly), [], 'a fixture-only handler and window.fetch are not flagged');
   const bareParam = "page.route('**/t', async route => {\n  const r = await route.fetch();\n  route.fulfill({ response: r });\n});\n";
