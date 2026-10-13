@@ -17,7 +17,8 @@ A throwaway folder with a project-level `.gemini/settings.json` holding one Befo
   params.file_path), not yet seen live.
 
 ## The change
-1. `engine/geminisettings.js`: one more hook, `BeforeTool` with matcher `write_file|replace`, running the same bridge
+1. `engine/geminisettings.js`: one more hook, `BeforeTool` with matcher `^(write_file|replace)$` (gemini tests the matcher
+   as an unanchored regex, so it is anchored: review 2), running the same bridge
    command as the five lifecycle hooks. Same idempotent, merge-only, repoint-if-moved logic; "correct" also needs the
    matcher. Nothing else in the file changes.
 2. `bin/gemini-report-bridge.js`: on BeforeTool for `write_file` or `replace`, POST `/api/undo/keep` with
@@ -28,8 +29,9 @@ A throwaway folder with a project-level `.gemini/settings.json` holding one Befo
    device path or session folder (two leading slashes of either kind), as #6033 refuses for the same reason.
 
 ## Who gets it
-- Windows: `win32keyed.js` runs ensurePrepared before every turn, so existing Windows Gemini agents get it on their
-  next turn.
+- Windows (review 2 corrected this): `win32keyed.js` runs ensurePrepared on a turn ONLY when the agent has its own API
+  key and the person's settings chose a different sign-in (the turn is moved to Kosmos's own key home). Those agents
+  get it on their next turn; every other Windows Gemini agent is wired at creation only, as on the Mac.
 - Mac: ensurePrepared runs only when a Gemini agent is created. The default account's settings are one shared
   ~/.gemini/settings.json, so any new Gemini agent wires it for all of them on that account; until then an existing one
   shows no writer, as today. Stated, not fixed (the existing "wiped ~/.gemini" residual has the same shape).
@@ -59,3 +61,16 @@ folder gemini ran in, which for a Kosmos agent is its workers folder.
 - bin/gemini-report-bridge: write_file and replace each POST /api/undo/keep with the resolved absolute path, cwd and
   session; nothing on stdout; another tool, another event, no path, a control character, a relative path with no cwd,
   and (win32) UNC paths send nothing; the report path for the five lifecycle events unchanged.
+
+## Review 1 (blind, on dc8850c47): one warning, nits
+[WARNING] project files are outside gemini's workspace, so the writer record mostly never fires. Confirmed in the CLI's
+code; the plan now says what this gives (undo copies) and what it does not. Nits: no control arm for the board token;
+the lifecycle-report test counts calls only (buildBody is covered by the existing bridge test).
+
+## Review 2 (blind, on 799d89770): two warnings, two nits
+[WARNING] Windows is wired per turn only in one case. FIXED in "Who gets it".
+[WARNING] no arm showed the board token IS sent. FIXED: a readBoardToken seam, injected in the test, asserted present.
+[NIT] the matcher is an unanchored regex. FIXED: ^(write_file|replace)$.
+[NIT] gemini strips a leading @ from a path; the bridge does not, so such an edit keeps no copy. ACCEPTED: gemini's rule
+depends on which files exist (resolveDefensiveToolPath), and copying it would drift from the CLI; the cost is one
+missed undo copy for an unusual path.

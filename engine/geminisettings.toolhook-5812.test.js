@@ -20,7 +20,7 @@ test('a fresh settings file gets the BeforeTool hook with its matcher, beside th
   const f = fresh();
   assert.equal(gs.ensurePrepared(f, BRIDGE).prepared, true);
   const h = read(f).hooks;
-  assert.deepEqual(h.BeforeTool, [{ matcher: 'write_file|replace', hooks: [{ type: 'command', command: 'node "' + BRIDGE + '"' }] }]);
+  assert.deepEqual(h.BeforeTool, [{ matcher: '^(write_file|replace)$', hooks: [{ type: 'command', command: 'node "' + BRIDGE + '"' }] }]);
   for (const e of gs.HOOK_EVENTS) assert.equal(h[e].length, 1, e + ' still has exactly one entry');
   assert.equal(h[gs.HOOK_EVENTS[0]][0].matcher, undefined, 'the lifecycle hooks carry no matcher');
 });
@@ -40,7 +40,7 @@ test('a moved bridge repoints the tool hook too', () => {
   const t = read(f).hooks.BeforeTool;
   assert.equal(t.length, 1);
   assert.equal(t[0].hooks[0].command, 'node "/new/place/bin/gemini-report-bridge.js"');
-  assert.equal(t[0].matcher, 'write_file|replace');
+  assert.equal(t[0].matcher, '^(write_file|replace)$');
 });
 
 test('ours with no matcher (it would start the bridge for every tool) is replaced, once', () => {
@@ -51,7 +51,7 @@ test('ours with no matcher (it would start the bridge for every tool) is replace
     { hooks: [{ type: 'command', command: 'node "' + BRIDGE + '"' }] },
   ] } }));
   assert.equal(gs.ensurePrepared(f, BRIDGE).changed, true);
-  assert.deepEqual(read(f).hooks.BeforeTool, [{ matcher: 'write_file|replace', hooks: [{ type: 'command', command: 'node "' + BRIDGE + '"' }] }]);
+  assert.deepEqual(read(f).hooks.BeforeTool, [{ matcher: '^(write_file|replace)$', hooks: [{ type: 'command', command: 'node "' + BRIDGE + '"' }] }]);
 });
 
 test('a person\'s own BeforeTool hook is kept beside ours', () => {
@@ -63,7 +63,7 @@ test('a person\'s own BeforeTool hook is kept beside ours', () => {
   const t = read(f).hooks.BeforeTool;
   assert.deepEqual(t[0], theirs, 'theirs untouched, first');
   assert.equal(t.length, 2);
-  assert.equal(t[1].matcher, 'write_file|replace');
+  assert.equal(t[1].matcher, '^(write_file|replace)$');
   assert.equal(gs.ensurePrepared(f, BRIDGE).changed, false, 'and the next run leaves both alone');
 });
 
@@ -83,6 +83,6 @@ test('ONE entry of ours with the wrong matcher, or none, is corrected (it would 
     if (wrong) entry.matcher = wrong;
     fs.writeFileSync(f, JSON.stringify({ hooks: { BeforeTool: [entry] } }));
     assert.equal(gs.ensurePrepared(f, BRIDGE).changed, true, String(wrong));
-    assert.equal(read(f).hooks.BeforeTool[0].matcher, 'write_file|replace', String(wrong));
+    assert.equal(read(f).hooks.BeforeTool[0].matcher, '^(write_file|replace)$', String(wrong));
   }
 });

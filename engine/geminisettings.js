@@ -45,7 +45,7 @@ const HOOK_EVENTS = Object.freeze([
    BeforeTool's stdin carries tool_name and tool_input.file_path (RELATIVE to cwd), and a hook that answers nothing
    lets the tool run. The matcher keeps every other tool from starting the bridge. */
 const TOOL_EVENT = 'BeforeTool';
-const TOOL_MATCHER = 'write_file|replace';
+const TOOL_MATCHER = '^(write_file|replace)$';   // gemini tests it as an unanchored regex: anchored, so an MCP tool whose name merely contains these does not start the bridge
 
 /* The dedup key: any command containing this stem is "ours". Matching on the
    script STEM (not the full command) means a future change to the command text --
