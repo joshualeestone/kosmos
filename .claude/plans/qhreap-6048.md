@@ -14,9 +14,11 @@ Job 115334600486, the arm's own lines: the side turn started at 14:11:23, the pa
 
 A killed command left as an unreaped zombie, which would keep `_qh_end`'s `kill -0 -- "-$CMD"` loop waiting 10 s: on macOS bash reaps a killed background child at once, and `kill -0` on the group fails straight away (scratch probe, both before and after an explicit wait).
 
-## Why the bound was the wrong instrument
+## What the red was, and why this is a diagnosis, not a cure
 
-Every step of the copy's teardown is bounded: `_qh_stop_capper`'s loop at 40 polls of 0.25 s (10 s), plus a few `ps` and `pgrep` calls, `_qh_kill_desc` and a file removal. When the KILL misses, the copy prints "did not stop" after that loop and still releases the claim, and the arm already refuses a log containing "did not stop". So the defect is caught by that line, and the 15 s bound only added a race with a loaded runner. Measured: with the KILL-by-pid removed, the teardown took exactly 15 s, the old bound.
+**Not established.** Two causes fit the CI log, and it cannot tell them apart: a runner slow enough to stretch a ~1 s release past 15 s (over 15 times slower, which is a lot), or the KILL-by-pid really missing once on that runner. A missed KILL leaves `_qh_stop_capper` waiting out its 10 s loop, twice if the test's TERM lands during the first, before it says "did not stop" and releases. The old 15 s bound could cut the arm off before that line, so the red said neither. Measured here: with the KILL-by-pid removed, the teardown took exactly 15 s.
+
+**So this change makes the next red say which.** With 30 s, a missed KILL ends in "did not stop", which the arm refuses, so it stays red and names itself; a slow release passes and shows its time. The card stays open until a run says which it was.
 
 ## The change
 
@@ -31,4 +33,4 @@ Every step of the copy's teardown is bounded: `_qh_stop_capper`'s loop at 40 pol
 
 ## Weakest premise
 
-That 30 s covers the worst a loaded runner does to a teardown bounded at about 10 s. If a runner is ever three times slower than this one was, the arm reds again, and its message will now say how long it took.
+That a missed KILL ends within 30 s (two 10 s loops plus process calls). If it ever does not, the arm reds as "not done after 30 s", which is still the defect's shape, not a false pass.
