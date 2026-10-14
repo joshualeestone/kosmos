@@ -279,3 +279,35 @@ test('#6108 /api/accounts walks the agents only when asked (?agents=1): other pa
   assert.ok(claude.length > 0, 'CONTROL: there is a Claude row to look at');
   assert.ok(claude.every((a) => !('agentsHere' in a)), 'a caller that did not ask got agentsHere');
 });
+
+test('#6174 an agent moved here but still running on its old account is marked moving; only on a good Claude reading', () => {
+  const { claudeAgentsByAccount } = require('./server');
+  const accounts = require('./engine/accounts');
+  const def = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
+  const oldAcct = account('acct-6174-old');
+  const newAcct = account('acct-6174-new');
+  lead('mv-still-old', { role: 'writer' }, newAcct);   // recorded on the new account, process still on the old one
+  lead('mv-arrived', { role: 'writer' }, newAcct);     // recorded and running on the new account
+  lead('mv-unread', { role: 'writer' }, newAcct);      // the reading failed
+  lead('mv-codex', { role: 'writer' }, newAcct);       // a reading from another runner
+  lead('mv-stopped', { role: 'writer' }, newAcct);     // no process at all (stopped): nothing to compare
+  lead('mv-to-default', { role: 'writer' }, null);     // moved to the default account, still running on another
+  lead('mv-on-default', { role: 'writer' }, null);     // CONTROL: on the default account and running there
+  const live = new Map([
+    ['mv-still-old', { ok: true, runner: 'claude', configDir: oldAcct }],
+    ['mv-arrived', { ok: true, runner: 'claude', configDir: newAcct }],
+    ['mv-unread', { ok: false }],
+    ['mv-codex', { ok: true, runner: 'codex', configDir: oldAcct }],
+    ['mv-to-default', { ok: true, runner: 'claude', configDir: oldAcct }],
+    ['mv-on-default', { ok: true, runner: 'claude', configDir: def }],
+  ]);
+  assert.equal(accounts.isDefaultDir(def), true, 'CONTROL: the sandbox default account is the default');
+  const by = claudeAgentsByAccount(live);
+  assert.ok(by.on(newAcct, false).includes('mv-still-old'), 'listed by its launch file (the account it was moved to)');
+  assert.deepEqual(by.moving(newAcct, false), ['mv-still-old'], 'only the agent still running on its old account is marked');
+  const onDefault = by.moving(def, true);
+  assert.ok(onDefault.includes('mv-to-default'), 'an agent moved to the default account but running elsewhere was not marked');
+  assert.ok(!onDefault.includes('mv-on-default'), 'an agent running on the default account was marked moving');
+  // Without a live reading, nobody is marked (the other callers of the walk pass none).
+  assert.deepEqual(claudeAgentsByAccount().moving(newAcct, false), []);
+});

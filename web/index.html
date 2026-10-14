@@ -27281,6 +27281,9 @@ function acctUsageHtml(a, list) {
   const known = new Map((Array.isArray(LAST) ? LAST : []).filter((x) => x && x.sessionName).map((x) => [x.sessionName, x]));
   const sessions = (here ? here.names : []).filter((n) => !(known.get(n) && known.get(n).isGuide));
   const names = sessions.map((n) => (known.get(n) && known.get(n).name) || n);
+  /* #6174: an agent moved here whose process still runs on its old account (the move could not restart it) says so. */
+  const movingSet = new Set(here && Array.isArray(here.moving) ? here.moving : []);
+  const shownNames = sessions.map((n, i) => names[i] + (movingSet.has(n) ? ' (still on its old account until it restarts)' : ''));
   /* Only accounts a move can land on: shared history (as the agent page's picker requires, #1492: an option that
      always fails is worse than none) and not signed out or refused. */
   const targets = (list || []).filter((x) => acctBulkTarget(x, a.dir));
@@ -27323,7 +27326,7 @@ function acctUsageHtml(a, list) {
   const short = here && here.complete ? '' : ' (some could not be checked)';
   const agentsLine = !here ? '' : !names.length && !here.complete ? '<p class="acct-agents-line">Kosmos could not check which agents are on it.</p>'   // unknown, never "none"
     : names.length
-    ? '<p class="acct-agents-line">Its agents on this computer: ' + names.map(esc).join(', ') + esc(short) + '</p>'
+    ? '<p class="acct-agents-line">Its agents on this computer: ' + shownNames.map(esc).join(', ') + esc(short) + '</p>'
     : '<p class="acct-agents-line">Kosmos cannot see any agents on it on this computer' + esc(short) + '.</p>';   // a reading, never a fact about the computer (web.empty-scope)
   let st = ACCT_MOVE.get(a.dir) || null;
   if (st && !st.moving && !st.announce && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) st = null;   // expired: drawn plain (the paint loop deletes it and clears the panel line); never before it is said
