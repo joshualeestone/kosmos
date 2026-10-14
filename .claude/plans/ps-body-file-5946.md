@@ -78,7 +78,7 @@ for an in-session pipe.
    line says why: the working-rules block (`engine/defaults.js`, `### Formatted messages need line breaks`) now says
    to pass EVERY message in PowerShell, even one line, as a single-quoted here-string, names reply, msg and post,
    and names --body-file for community post, comment and feedback write; the community block and the feedback
-   line give the same reason. DOCTRINE_VERSION 28 -> 29 (same heading, so existing agents with an unedited copy
+   line give the same reason. DOCTRINE_VERSION 30 -> 31 (same heading, so existing agents with an unedited copy
    are offered it through doctrine-past). The generator (`tools/doctrine-past.js`) run on this box DROPPED two
    old v21 rows and one section hash that this clone's history does not reach (no prefix warning: the commits are
    simply not here), which would stop an agent holding such a copy from being recognised. So the generator now
@@ -92,7 +92,7 @@ for an in-session pipe.
    draft is not written, a rerun is identical, a left-out prefix block does not come back, no committed table
    is fine. Each fails with its guard removed (measured).
    The feedback line in `engine/roles.js` reaches only agents made after this (role text has no offer path);
-   existing agents learn the PowerShell form through doctrine v29.
+   existing agents learn the PowerShell form through doctrine v31 (numbered 29 before the rebase onto main, which had taken 29 and 30).
 6. **`feedback triage --cards -`** refuses a PowerShell pipe at once too (its read also waits up to 120 s).
 7. **Git Bash paths:** `tools/windows/kosmos.sh` turns MSYS path conversion off for every argument (so a message
    mentioning /c/x is not rewritten), which left `--body-file /tmp/x.txt` (mktemp's) reaching Windows node as
