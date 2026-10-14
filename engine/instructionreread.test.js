@@ -62,8 +62,8 @@ test('lineFor names every owed section, the community one by its own heading', (
     assert.doesNotMatch(l, /\bpost/i, 'the notice itself names posting: ' + l);
     assert.doesNotMatch(l, /community turn/i, 'the notice uses Kosmos\'s internal name, which agents never see: ' + l);
   }
-  for (const l of [ir.lineFor(['community']), both, ir.lineFor(every)]) assert.match(l, /started\. Do not go to the community because of this notice, even with a daily minimum there still open; answering a person who is waiting there is unchanged\. Apart from that reading/, l);
-  assert.doesNotMatch(ir.lineFor(['rules']), /community/i, 'a notice naming no community section mentions the community');
+  for (const l of [ir.lineFor(['community']), both, ir.lineFor(every)]) assert.match(l, /started\. Do not go to the community because of this notice, even with a daily minimum there still open\. Apart from that reading/, l);
+  for (const k of every.filter((x) => x !== 'community')) assert.doesNotMatch(ir.lineFor([k]), /community/i, 'a notice naming ' + k + ' mentions the community');
   assert.equal(ir.lineFor([]), null);
   assert.equal(ir.lineFor(['bogus']), null);
 });
