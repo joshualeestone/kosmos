@@ -410,34 +410,68 @@ test('#6065: a room post past the old 700 but within chat\'s limit reaches every
   });
 });
 
-test('#6065 N1: requestIn finds the sentence that @-mentions the member, else the first question, cut at a whole word', () => {
-  const body = 'Status for the week. ' + 'Filler words here. '.repeat(30) + 'Please, @mara, check the lease dates before Friday. More filler. Is the deposit back?';
-  assert.deepEqual(messages.requestIn(body, ['mara']), { sentence: 'Please, @mara, check the lease dates before Friday.', asked: true });
+test('#6065 N1: requestIn: the sentence mentioning the member (only when the room counted it), else the first question', () => {
+  const fill = 'Filler words here. '.repeat(30);
+  const body = 'Status for the week. ' + fill + 'Please, @mara, check the lease dates before Friday. More filler. Is the deposit back?';
+  const mara = { spellings: ['mara'], mentioned: true };
+  assert.deepEqual(messages.requestIn(body, mara), { sentence: 'Please, @mara, check the lease dates before Friday.', asked: true });
   // By display name too, as the room resolves mentions (agentnames.nameKey).
-  assert.equal(messages.requestIn('Intro. Can @Mara-Lisa read it? End.', ['mara', 'Mara Lisa']).asked, true);
-  // Another member's mention is not this member's request: the first question instead.
-  assert.deepEqual(messages.requestIn(body, ['leo']), { sentence: 'Is the deposit back?', asked: false });
-  assert.equal(messages.requestIn('No ask in here. Just news.', ['leo']), null);
+  assert.equal(messages.requestIn('Intro. Can @Mara-Lisa read it? End.', { spellings: ['mara', 'Mara Lisa'], mentioned: true }).asked, true);
+  // Not counted as mentioned by the room (ambiguous, or another member): never "asks you"; the first question instead.
+  assert.deepEqual(messages.requestIn(body, { spellings: ['mara'], mentioned: false }), { sentence: 'Is the deposit back?', asked: false });
+  // A name whose key is under 2 characters (all CJK, or one letter) never matches a punctuation @-word.
+  assert.equal(messages.requestIn('Status. Ping @-- now. Done.', { spellings: ['leo', '王'], mentioned: true }), null);
+  // A ? inside a link is not a question.
+  assert.equal(messages.requestIn('Read the doc at https://x.com/a?b=1 for details. Nothing else.', {}), null);
+  // A first mention already in the head gives way to the next one.
+  assert.equal(messages.requestIn('Hi @mara. ' + fill + '@mara please ship it. End.', { ...mara, head: 'Hi  @mara. …' }).sentence, '@mara please ship it.');
+  assert.equal(messages.requestIn('No ask in here. Just news.', {}), null);
   // A request longer than REQUEST_MAX is cut at a whole word and says so.
-  const long = messages.requestIn('Intro. @mara ' + 'please read '.repeat(60) + 'now.', ['mara']);
+  const long = messages.requestIn('Intro. @mara ' + 'please read '.repeat(60) + 'now.', mara);
   assert.ok(long.sentence.length <= 301 && long.sentence.endsWith('…') && !/ …$/.test(long.sentence), long.sentence);
+  // spillLine: quoted, and nothing when the request is already the head (whitespace collapsed).
+  assert.match(messages.spillLine(body, '/f.md', mara), /It asks you: "Please, @mara, check the lease dates before Friday\."$/);
+  assert.doesNotMatch(messages.spillLine('Hi  @mara, read this. ' + fill, '/f.md', mara), /It asks you/);
 });
 
 test('#6065 N1: a room post still shortened carries the request to each member in its preview', () => {
-  withFleet(room3(), (board) => {
+  const agents = [fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle', displayName: 'Mara Lisa' }),
+    fleet.agent('april', { state: 'idle' })];
+  withFleet(agents, (board) => {
     workerFolders(['leo', 'mara', 'april']);
     const tmux = arm([]);
-    const text = 'Briefing for the release. ' + 'The release notes cover many changes in detail. '.repeat(240)
-      + 'Then: @mara, please confirm the Gemini delivery on your seat. The end.';
+    const long = 'The release notes cover many changes in detail. '.repeat(240);
+    const text = 'Briefing for the release. ' + long + 'Then: @Mara-Lisa, please confirm the Gemini delivery on your seat. The end.';
     const out = messages.sendPost({ operator: true, project: 'henderson-lease', text }, board.agents, MEMBERS);
     assert.ok(out && out.id, JSON.stringify(out));
     const typed = tmux.pastedMessages();
     const lineOf = (who) => typed.find((l) => l.includes(path.join(require('./dmfiles').ownDir(who, 'Inbox'))));
     const mara = lineOf('mara'); const leo = lineOf('leo');
     assert.ok(mara && leo, 'CONTROL: the post was shortened for both (a file each): ' + typed.map((l) => l.slice(0, 120)).join(' | '));
-    assert.ok(mara.includes('It asks you: Then: @mara, please confirm the Gemini delivery on your seat.'), mara.slice(-300));
+    // Mentioned by DISPLAY name: the roster lookup at delivery is what finds it.
+    assert.ok(mara.includes('It asks you: "Then: @Mara-Lisa, please confirm the Gemini delivery on your seat."'), mara.slice(-300));
     // leo is not asked and the post has no question: no request clause at all.
     assert.doesNotMatch(leo, /It asks you:|Its first question:/, leo.slice(-300));
+    // With a question and no mention of leo: leo's preview carries the first question.
+    tmux.pastedMessages().length = 0;
+    const q = messages.sendPost({ operator: true, project: 'henderson-lease', text: 'Briefing two. ' + long + 'Did everyone get the notes? The end.' }, board.agents, MEMBERS);
+    assert.ok(q && q.id, JSON.stringify(q));
+    const leo2 = tmux.pastedMessages().filter((l) => l.includes('Briefing two.')).find((l) => l.includes(path.join(require('./dmfiles').ownDir('leo', 'Inbox'))));
+    assert.ok(leo2 && leo2.includes('Its first question: "Did everyone get the notes?"'), String(leo2).slice(-300));
+  });
+});
+
+test('#6065 N1: a DM still shortened carries its first question (a DM is wholly to its reader)', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    workerFolders(['mara']);
+    armSender('leo-discord');
+    const tmux = arm([ok(), ok()]);
+    const text = 'Notes. ' + 'The lease detail matters. '.repeat(500) + 'Can you sign by Friday? Thanks.';
+    const sent = messages.send({ fromPane: '%7', to: 'mara', text }, board.agents);
+    assert.equal(sent.state, chat.DELIVERY.PLACED);
+    const typed = tmux.pastedMessages()[0];
+    assert.match(typed, /long message, \d+ words; the full text is in your own folder at /, 'CONTROL: the DM was shortened');
+    assert.ok(typed.includes('Its first question: "Can you sign by Friday?"'), typed.slice(-300));
   });
 });
 
