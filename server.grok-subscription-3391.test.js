@@ -31,6 +31,7 @@ const grokAccounts = require('./engine/grokaccounts');
    today, but a fixture that grew one must never reach the real xAI: answer every check here, never the network. */
 grokAccounts.setFetcher(async () => ({ status: 401 }));
 const { start, server } = require('./server');
+const { eventually } = require('./test-support/eventually');
 
 const FAKE = nodePath.join(SANDBOX, 'fake-grok.sh');
 fs.writeFileSync(FAKE, [
@@ -57,14 +58,16 @@ test.after(() => {
 
 const post = (p, obj) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });
 async function poll(sessionId, want, ms = 5000) {
-  const until = Date.now() + ms;
-  for (;;) {
-    const r = await fetch(`${base}/api/accounts/grok/subscription/status?sessionId=${sessionId}`);
-    const b = await r.json();
-    if (want(b)) return { status: r.status, body: b };
-    if (Date.now() > until) throw new Error('timed out; last: ' + JSON.stringify(b));
-    await new Promise((res) => setTimeout(res, 50));
-  }
+  // #5727: throwing poll (returns {status, body}, throws on timeout) -> direct eventually()
+  // delegate, NO swallow; describe reproduces the old "last body" diagnostic in the throw.
+  return eventually(
+    async () => {
+      const r = await fetch(`${base}/api/accounts/grok/subscription/status?sessionId=${sessionId}`);
+      return { status: r.status, body: await r.json() };
+    },
+    (res) => want(res.body),
+    { timeoutMs: ms, stepMs: 50, describe: (res) => 'last: ' + JSON.stringify(res.body) },
+  );
 }
 
 test('start -> status shows the URL and code -> connected; the account is in GET /api/accounts', async () => {
@@ -139,8 +142,9 @@ test('a key add during a pending sign-in never lands on its slot; a named one is
 
     await post('/api/accounts/grok/subscription/cancel', { sessionId: s.sessionId });
     await post('/api/accounts/grok/subscription/cancel', { sessionId: named.sessionId });
-    const until = Date.now() + 5000;
-    while ((fs.existsSync(pendingDir) || grokAccounts.isSignInPending(nodePath.join(SANDBOX, '.grok-busyname'))) && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+    // #5727: wait for the cancelled sign-in's pending state to clear; non-throwing like the old
+    // loop, the assert below is the check.
+    await eventually(() => fs.existsSync(pendingDir) || grokAccounts.isSignInPending(nodePath.join(SANDBOX, '.grok-busyname')), (pending) => !pending, { timeoutMs: 5000, stepMs: 50 }).catch(() => {});
     assert.equal(fs.existsSync(pendingDir), false, 'the cancelled sign-in cleaned its own slot');
     assert.ok(fs.existsSync(nodePath.join(keyDir, '.kosmos-grok-apikey')), 'and the key account survived it');
   } finally {
