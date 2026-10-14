@@ -251,7 +251,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!busy && busy.agents === 'Its agents on this computer: Dana, Eli', tag + ' it names its agents by display name, leaving out the setup guide', JSON.stringify(busy && busy.agents));
       // #6174: an agent moved here that still runs on its old account says so; its neighbour (CONTROL) does not.
       const arrive = r.before && r.before.arrive;
-      say(!!arrive && arrive.agents === 'Its agents on this computer: Ari (still on its old account: restart it to finish the move), Bo', tag + ' an agent still on its old account until it restarts is marked, and only that one', JSON.stringify(arrive && arrive.agents));
+      say(!!arrive && arrive.agents === 'Its agents on this computer: Ari (still running on its old account), Bo', tag + ' an agent still on its old account until it restarts is marked, and only that one', JSON.stringify(arrive && arrive.agents));
       say(!!busy && Array.isArray(busy.options) && busy.options.some((o) => o === 'spare@example.com (20% used)') && !busy.options.some((o) => o.startsWith('busy@')), tag + ' Move offers the other account with its own reading, never itself', JSON.stringify(busy && busy.options));
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('nearfull@')), tag + ' an account its own row calls full (99.6% shows as 100%) is not offered either', JSON.stringify(busy && busy.options));
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('key@')), tag + ' an API-key account is not a bulk target (that would change who pays)', JSON.stringify(busy && busy.options));
