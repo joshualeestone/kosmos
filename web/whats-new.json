@@ -12,12 +12,12 @@
     {
       "icon": "shield",
       "title": "An agent says when a plugin cannot reach it",
-      "line": "When a plugin you added in your own Claude or Codex app cannot reach an agent, its page says so, and says restarting will not help."
+      "line": "When an agent on another Claude account, or on Codex, cannot use plugins you added, its page says so and that restarting will not help."
     },
     {
       "icon": "chat",
-      "title": "Agents asking about imports say so",
-      "line": "When a Claude agent is stopped on Claude Code's allow external imports question, its card now says that is what it is asking."
+      "title": "An agent's page shows the imports question",
+      "line": "When a Claude agent is stopped on Claude Code's allow external imports question, its page now shows that question."
     },
     {
       "icon": "list",
