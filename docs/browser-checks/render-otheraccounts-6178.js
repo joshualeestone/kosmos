@@ -165,7 +165,7 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
         chk(!r.sideways, 'P nothing scrolls sideways' + tag);
         if (w === 1280) {
           agent1sMode = 'gate';
-          await page.evaluate(() => oaRound());
+          await page.evaluate(() => oaRound(true));   // true: a round already running reads once more
           const dropped = await until(page, () => {
             const g = document.querySelector('#set-other .ao-computer');
             return g && g.querySelectorAll('.ao-acct').length === 0 && /not let in on agent1s/.test(g.textContent);
