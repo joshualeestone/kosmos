@@ -60,3 +60,6 @@ keyboard up (834x~750, 800x~880). Revisit with the landscape split view.
 Design note for Josh's review (round 5): with no tasks, the empty Tasks block (its message and New task)
 sits above the conversation on an upright tablet, pushing the composer down by that block. Shown in the
 tablet shots; he can rule it smaller or folded away.
+Design note for Josh (round 11): the project tip's steps still run Members, Conversation, Files,
+Tasks, while an upright tablet now shows Tasks, Conversation, Members/Files, so the tip jumps around
+the page. Every step still lands on screen (checked); reordering the steps is a follow-up if he wants it.
