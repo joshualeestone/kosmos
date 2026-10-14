@@ -436,7 +436,9 @@ async function registerSent() {
    precondition that names the wrong cause. So each kill is checked to have left key and id with no certificate. */
 function halfHere() {
   const d = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote');
-  return ['mac_id', 'mac_key'].every((f) => fs.existsSync(nodePath.join(d, f))) && !fs.existsSync(nodePath.join(d, 'tls.crt'));
+  // remote.js halfRegistered(): key and id, not held (enrolment.js HELD_FILE), no certificate.
+  return ['mac_id', 'mac_key'].every((f) => fs.existsSync(nodePath.join(d, f)))
+    && !fs.existsSync(nodePath.join(d, require('./enrolment').HELD_FILE)) && !fs.existsSync(nodePath.join(d, 'tls.crt'));
 }
 const HALF_MSG = 'fixture: the kill landed before the half identity was written (a loaded box: #6140)';
 
