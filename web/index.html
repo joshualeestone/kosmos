@@ -35597,10 +35597,14 @@ const ORG_FACE_R = 22;       // #4502: a face's radius (a 44px node), the cleara
    across, so a line at 12px still crosses its disc: it keeps a line off the middle, not off the face).
    #4499: hoisted to module scope so orgPlaceGated and orgFirstRingClear (the first-ring gate) can read it. */
 const ORG_LINE_CLEAR = 12;
-/* #4499: the extra px the first-ring floor seats roots apart BEYOND ORG_LINE_CLEAR, so the line still clears 12px
-   as DRAWN: the squeeze scales the whole chart down to ORG_SQUEEZE_MIN (0.7), and (12 + 6) * 0.7 = 12.6 >= 12.
-   The floor (orgPlace's MIN_SPAN) and the gate's fundability ceiling (orgPlaceGated's maxFundable) both derive
-   from it, so it lives here once rather than as a literal in each; a test pins the two derivations equal. */
+/* #4499: the extra px the first-ring floor seats roots apart BEYOND ORG_LINE_CLEAR, so a line the FLOOR builds
+   clears 12px AS DRAWN: the squeeze scales the whole chart down to ORG_SQUEEZE_MIN (0.7), and (12 + 6) * 0.7 =
+   12.6 >= 12. That is a property of the floor's CONSTRUCTION. orgPlaceGated funds on natural floClear >=
+   ORG_LINE_CLEAR (12), NOT >= 18, so the as-drawn headroom rests on the floor reaching ~18px natural, which the
+   guard's full-check sweep and the org browser render checks verify for funded charts, rather than on the gate
+   threshold guaranteeing it. The floor (orgPlace's MIN_SPAN) and the gate's fundability ceiling (maxFundable)
+   both derive from ORG_LINE_MARGIN, so it lives here once rather than as a literal in each; a test pins the two
+   derivations equal. */
 const ORG_LINE_MARGIN = 6;
 
 /* ---- the organic layer (#285) ----------------------------------------------
@@ -36016,7 +36020,9 @@ function orgPlace(nodes, floored) {
     return w;
   };
   /* #4472's constants live here, not beside ORG_R0 at the top: the node tests lift orgPlace with only the top-level
-     constants they name, so a new top-level one would break every test that lifts it. */
+     constants they name, so a new top-level one would break every test that lifts it. #4499 is the exception: it
+     needs ORG_LINE_CLEAR and ORG_LINE_MARGIN at the top (orgPlaceGated and orgFirstRingClear read them from outside
+     orgPlace), so the four tests that lift orgPlace were updated to inject those two as well. */
   /* #4472: how much further out a big team's second ring sits. Its faces sit on slanted lines, which carry them
      sideways toward an inner neighbour, so the flat spill's 58 left them ~60px apart; measured best of 58-70. */
   const ORG_LANE = ORG_MIN_ARC;
@@ -36084,12 +36090,15 @@ function orgPlace(nodes, floored) {
   if (!floored) {
     spans = prop;
   } else if (roots.length * MIN_SPAN >= TAU) {
-    // More roots than the floor can seat: equal shares, the lanes carry the face spacing (orgPlaceGated keeps
-    // this only when it measures size-safe and clears ORG_LINE_CLEAR).
+    // More roots than the floor can seat: equal shares, the lanes carry the face spacing. Under orgPlaceGated this
+    // branch is effectively unreachable (the gate rejects roots > maxFundable before ever calling floored), so it
+    // is reached only by a direct orgPlace(nodes, true) call; it is kept defensive and correct for that caller.
     spans = roots.map(() => TAU / roots.length);
   } else {
     // Water-fill: lift every under-floor span to the floor, taking the deficit from the roots with span to spare
-    // in proportion to their surplus, until no lifted root dips back under.
+    // in proportion to their surplus. On this branch total span (TAU) exceeds roots.length * MIN_SPAN, so surplus
+    // >= deficit, take <= 1, and a lifted span never dips back under: it is exact after one pass. The 60-pass bound
+    // and the renormalise below are defensive (a rounding guard), not needed for convergence.
     spans = prop.slice();
     for (let pass = 0; pass < 60; pass += 1) {
       let deficit = 0; let surplus = 0;

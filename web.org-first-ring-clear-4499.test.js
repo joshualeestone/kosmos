@@ -8,7 +8,8 @@
  * gives each first-ring root a minimum angular span (the floor), applied through a MEASURED, all-or-nothing gate:
  * orgPlaceGated lays the chart out proportionally (identical to the pre-#4499 / main layout) and floored, and
  * keeps the floored layout ONLY when the chart actually has the bug AND the floored layout is measured size-safe
- * (maxR within 1% of prop) AND clears 12px AND is no worse than prop's first-ring clearance. A chart with no
+ * (maxR within 1% of prop) AND clears 12px (which is already no worse than prop's first ring: the chart having
+ * the bug means prop is below 12). A chart with no
  * sub-12 first-ring line, or one that cannot be cleared without growing (two heavy roots, or many roots with one
  * heavy root), keeps the proportional layout; that residual size work is #4499's size card.
  *
@@ -111,6 +112,14 @@ function fullWorst(placed) {
   }
   return { worst, pairs };
 }
+/* The closest two face centres in a layout. A floored layout must not bring two nodes closer than the
+   proportional one did (overlap-never-worse): the sibling sector/lane suites check overlap only for the
+   proportional layout, so this closes that gap for the funded (floored) layout the gate actually ships. */
+function minFaceDist(placed) {
+  const pos = [...posOf(placed).values()]; let m = Infinity;
+  for (let i = 0; i < pos.length; i += 1) for (let j = i + 1; j < pos.length; j += 1) { const d = Math.hypot(pos[i].x - pos[j].x, pos[i].y - pos[j].y); if (d < m) m = d; }
+  return m;
+}
 function samePlacement(aPlaced, bPlaced) {
   const a = posOf(aPlaced); const b = posOf(bPlaced);
   if (a.size !== b.size) return false;
@@ -186,6 +195,7 @@ test('SIZE: a chart that blows up under an un-gated always-floor stays within 1%
 test('12px WHERE FUNDED: a funded clustered chart clears ORG_LINE_CLEAR by the full check (#4499, red on pre-fix main)', () => {
   for (const [label, spec, preFix] of BUG_FIXTURES) {
     const { ship } = layouts(spec);
+    if (hasGate) assert.equal(ship.funded, true, label + ': the gate did not FUND this clustered bug chart; a funding regression would otherwise surface only as a clearance failure with a misleading message');
     const { worst, pairs } = fullWorst(ship.placed);
     assert.ok(pairs > 5000, label + ' CONTROL: only ' + pairs + ' line-to-face pairs measured, so this asserts nothing');
     assert.ok(
@@ -200,7 +210,8 @@ test('NON-BUG IDENTICAL: a chart with no sub-12 first-ring line gets a layout id
   if (!hasGate) { assert.fail('orgPlaceGated is absent, so the fix is not present (identical-to-main cannot hold)'); return; }
   // Charts with no first-ring clustering: a lone lead, a shallow team, a sparse random tree.
   const nonBug = [
-    ['lead+10', [['lead']].concat(Array.from({ length: 10 }, (_, i) => ['r' + i, 'lead']))],
+    ['lead+10', [['lead']].concat(Array.from({ length: 10 }, (_, i) => ['r' + i, 'lead']))],  // single root, always non-bug
+    ['lead+3', [['lead'], ['a', 'lead'], ['b', 'lead'], ['c', 'lead']]],                      // single root, always non-bug
     ['rt(1,60,0.3)', randomTree(1, 60, 0.3)],
     ['deepHeavy(8,60)', deepHeavy(8, 60)],
   ];
@@ -217,7 +228,9 @@ test('NON-BUG IDENTICAL: a chart with no sub-12 first-ring line gets a layout id
     assert.ok(samePlacement(prop.placed, gated.placed), label + ': a chart with no bug must get the proportional (main) layout exactly, but a position differs');
     asserted += 1;
   }
-  assert.ok(asserted > 0, 'CONTROL: every non-bug fixture clustered (clear < ' + LINE_CLEAR + '), so the identical-to-main property was never actually asserted');
+  // The two single-root fixtures (lead+10, lead+3) can never cluster, so at least two must have asserted; a lower
+  // count means a fixture that should be non-bug clustered, or the skip swallowed more than the clustering ones.
+  assert.ok(asserted >= 2, 'CONTROL: only ' + asserted + ' non-bug fixtures asserted identity; the two single-root fixtures alone should give 2, so the identical-to-main property is under-exercised');
 });
 
 test('HONEST FUNDED + CLEARANCE NEVER WORSE BY FULL: the first-ring gate never disagrees with the full check (#4499 condition 1)', () => {
@@ -240,6 +253,9 @@ test('HONEST FUNDED + CLEARANCE NEVER WORSE BY FULL: the first-ring gate never d
     checked += 1;
     // clearance never worse by the FULL check, funded or not
     assert.ok(shipW >= propW - 0.05, label + ': full clearance dropped from ' + propW.toFixed(2) + ' to ' + shipW.toFixed(2) + ' (the first-ring gate funded a layout the full check finds worse)');
+    // overlap never worse: the floored layout must not bring two faces closer than the proportional one
+    const propMin = minFaceDist(prop.placed); const shipMin = minFaceDist(gated.placed);
+    assert.ok(shipMin >= propMin - 0.05, label + ': closest two faces moved from ' + propMin.toFixed(2) + ' to ' + shipMin.toFixed(2) + ' (the floored layout brought two nodes closer than main did)');
     if (gated.funded) {
       funded += 1;
       // honest funded: a funded chart has NO sub-12 line ANYWHERE (not just first ring)
