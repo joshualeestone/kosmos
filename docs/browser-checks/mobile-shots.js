@@ -2294,7 +2294,9 @@ async function run() {
               /* #6107: MSHOTS_TABLET_LAYOUT=tabs (or consolidated) sets a sideways tablet's own layout choice before the
                  page loads, so the tabbed board can be shot on a landscape iPad too (its default is one screen). */
               if (process.env.MSHOTS_TABLET_LAYOUT) {
-                await ctx.addInitScript((v) => { try { localStorage.setItem('kosmos-tablet-layout', v); } catch { /* storage refused */ } }, process.env.MSHOTS_TABLET_LAYOUT);
+                // Only when nothing is chosen yet: an init script re-runs on every reload, and a screen that sets its own
+                // choice before reloading (openConsAgents) must keep it.
+                await ctx.addInitScript((v) => { try { if (!localStorage.getItem('kosmos-tablet-layout')) localStorage.setItem('kosmos-tablet-layout', v); } catch { /* storage refused */ } }, process.env.MSHOTS_TABLET_LAYOUT);
               }
               /* --remote (kosmos#5510): every request to the made-up Kosmos+ host is answered by the throwaway board
                  itself, so the page's own address is not loopback (kplusRemote() true -> html.kremote) while every
