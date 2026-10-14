@@ -560,6 +560,8 @@ git -C "$S36" add -A && git -C "$S36" commit -q -m "a pointer naming another ver
 run_deploy "$S36" "$L36" --promote
 { [ "$RC" = 1 ] && has "$out" "says version $NEW but names artifact kosmos-0.6.29-arm64.tar.gz"; } \
   && pass "#6149: a pointer naming another version's tarball is refused" || bad "#6149 version/artifact mismatch (rc=$RC) out=$out"
+[ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L36/dist/latest.json")" = "$OLD" ] \
+  && pass "#6149: that refusal deployed nothing" || bad "#6149 mismatch refusal still changed LIVE"
 # 37-39) kosmos#6149 under the REAL floor, on a scenario above it (live 0.7.47, committed 0.7.49).
 run_deploy_real() {  # <site> <live> <flag...> ; like run_deploy, without the lowered floor
   local s="$1" live="$2"; shift 2
@@ -591,5 +593,7 @@ git -C "$S39" add -A && git -C "$S39" commit -q -m "a staging pointer below the 
 run_deploy_real "$S39" "$L39" --promote
 { [ "$RC" = 1 ] && has "$out" "the committed dist/latest-staging.json names 0.7.44"; } \
   && pass "#6149: a committed staging pointer below the floor is refused" || bad "#6149 staging below floor (rc=$RC) out=$out"
+[ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L39/dist/latest.json")" = 0.7.47 ] \
+  && pass "#6149: that refusal deployed nothing (LIVE still serves 0.7.47)" || bad "#6149 staging refusal still changed LIVE"
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi
