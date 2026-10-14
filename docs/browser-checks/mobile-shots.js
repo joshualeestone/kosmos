@@ -60,7 +60,7 @@
  * ADDING YOUR SCREENS: append to SCREENS below. Each entry is
  *   { name, owner, go: async (page, data) => { ...navigate to the screen... } }
  * plus `noServiceWorker: true` if `go` stubs a request with page.route, and
- * `phoneOnly: true` if the screen exists only at a phone width (the desktop and tablet sizes skip it), and
+ * `phoneOnly: true` if the screen exists only at a phone width (the desktop size and tablets over 40rem skip it), and
  * `desktopOnly: true` if it exists only at a desktop width (the phone and tablet sizes skip it; the consolidated
  * view, for one, starts at 960px).
  * One board serves every screen of a run, so a `go` that writes to the board's server store (a PUT, a
