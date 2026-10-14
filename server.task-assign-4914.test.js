@@ -187,3 +187,21 @@ test('a task closed after it was moved (stored parts, task closedAt) is not move
   assert.match(again.json.error, /is done, so it is not given to anyone/);
   assert.deepEqual(ownerOf(n), ['otto']);
 });
+
+/* #6103: the route records WHICH agent moved the part (movedBy), the caller its token named, as task add records addedBy.
+   A caller nobody named moves it with no movedBy: unknown, never a guess. */
+test('#6103: an agent that moves a task is recorded as its mover; an unnamed caller is recorded as nobody', async () => {
+  const partOf = (n) => tasks.partsOf(tasks.byNumber(projects.readAll().find((p) => p.id === projectId), n))[0];
+  const n = fresh('Draft the handover', 'otto');
+  const r = await assign(n, { who: 'mara' }, asAgent('otto'));
+  assert.equal(r.code, 200, r.text.slice(0, 200));
+  assert.equal(partOf(n).movedBy, 'otto', 'the agent that handed the task over is not recorded');
+  const row = require('./engine/taskchat').read(projectId, n).filter((x) => x.kind === 'assigned').pop();
+  assert.equal(row.by, 'otto', 'the activity line does not say who handed it over');
+
+  const m = fresh('Order the parts', 'mara');
+  const anon = await assign(m, { who: 'otto' });
+  assert.equal(anon.code, 200, anon.text.slice(0, 200));
+  assert.deepEqual(ownerOf(m), ['otto']);
+  assert.equal(partOf(m).movedBy, undefined, 'a caller nobody named was recorded as somebody');
+});

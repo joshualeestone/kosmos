@@ -533,6 +533,12 @@ function viaOf(made) {
   if (made && made.via === 'assigner') return 'assigner';
   return 'screen';
 }
+/* #6103: the agent that made a move, when a process caller was named (as `addedBy` is for an add); null otherwise.
+   A move from the screen or by the Assigner has its own provenance in `via`, and names no agent. */
+function movedByOf(made) {
+  const by = made && made.via === 'process' && typeof made.by === 'string' ? made.by.trim() : '';
+  return by && by.length <= WHO_MAX ? by : null;
+}
 
 /** Every process-originated part write in the last hour, across all
  * projects: parts added, and parts moved to somebody. Answers the count and
@@ -673,6 +679,9 @@ function assignPart(projectId, n, partId, who, made) {
       if (hookNo) throw new Error(hookNo);
       if (!moved) return x;
       const y = { ...x, who: whoKey, movedVia: viaOf(made), movedAt: new Date().toISOString() };
+      /* #6103: `movedBy` (movedByOf). Any move clears the last one, so it never names an agent that did not make this move. */
+      const by = movedByOf(made);
+      if (by) y.movedBy = by; else delete y.movedBy;
       /* #5382: `movedFrom`, who a failover move took the part from (the receiver's line names it; any other move clears it).
          `owedTell`, every agent the failover took this part from that has not yet been TOLD (engine/failovertell.js), kept
          on the part so the obligation survives a restart, a setting change and a long pause (review 8). A failover move
@@ -693,7 +702,10 @@ function assignPart(projectId, n, partId, who, made) {
   // Only a real move is recorded: a resubmit of the current assignee (moved
   // false) changed nothing and types no pane line, so it leaves no transcript
   // line either. `who: null` is a real event -- somebody was taken off.
-  if (moved) taskchat.record(projectId, Number(n), { kind: 'assigned', partId: Number(partId), who: whoKey });
+  if (moved) {
+    const by = movedByOf(made);
+    taskchat.record(projectId, Number(n), { kind: 'assigned', partId: Number(partId), who: whoKey, ...(by ? { by } : {}) });   // #6103
+  }
   recordDroppedForWork(projectId, n, task);
   return { ok: true, task, changed: moved };
 }
@@ -1436,6 +1448,7 @@ function partsOf(task) {
       ...(part.createdAt ? { createdAt: part.createdAt } : {}),
       ...(part.movedVia ? { movedVia: part.movedVia } : {}),
       ...(part.movedAt ? { movedAt: part.movedAt } : {}),
+      ...(typeof part.movedBy === 'string' && part.movedBy ? { movedBy: part.movedBy } : {}),   // #6103: carried, or the next write erases it
       /* #5382: who a failover move took the part from. Carried like the provenance above: without it every reader
          (server movedAwayFrom) saw nothing, and the next write to the task erased it from the store. */
       ...(part.movedFrom ? { movedFrom: part.movedFrom } : {}),
