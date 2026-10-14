@@ -148,6 +148,21 @@ function readWeekly(accountDir, now = Date.now()) {
   return { usedPct: reading.usedPct, resetsAt: reading.resetsAt, at: j.at, history };
 }
 
+/**
+ * #6176: the account's five-hour reading, or null when there is none to trust (never recorded, unreadable, the wrong
+ * shape, or from a window that has already reset). Returns { usedPct, resetsAt (epoch SECONDS), at (epoch ms) }.
+ */
+function readFiveHour(accountDir, now = Date.now()) {
+  if (typeof accountDir !== 'string') return null;
+  let j;
+  try { j = JSON.parse(fs.readFileSync(path.join(accountDir, statusline.FIVE_HOUR_FILE), 'utf8')); } catch { return null; }
+  if (!j || typeof j !== 'object') return null;
+  const reading = statusline.fiveHourOf({ rate_limits: { five_hour: { used_percentage: j.usedPct, resets_at: j.resetsAt } } });
+  if (!reading || !(typeof j.at === 'number' && Number.isFinite(j.at))) return null;
+  if (reading.resetsAt * 1000 <= now) return null;
+  return { usedPct: reading.usedPct, resetsAt: reading.resetsAt, at: j.at };
+}
+
 /* ---- The calibration (#3946 item 10): tokens per point of the weekly figure ----
 
    Kosmos cannot see the weekly allowance as a number of tokens; the provider does
@@ -239,5 +254,5 @@ function calibrate(accountDir, tokensToday, { now = Date.now(), dayStart } = {})
   return readCalibration(accountDir, now);
 }
 
-module.exports = { MARKER, scriptPath, stableNode, commandFor, isOurs, ensureStatusLine, readWeekly,
+module.exports = { MARKER, scriptPath, stableNode, commandFor, isOurs, ensureStatusLine, readWeekly, readFiveHour,
   MIN_CALIBRATION_POINTS, CALIBRATION_MAX_AGE_MS, CALIBRATION_REPLACE_AGE_MS, CALIBRATION_FILE, pointsSince, readCalibration, calibrate };
