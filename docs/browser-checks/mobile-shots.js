@@ -60,8 +60,8 @@
  * ADDING YOUR SCREENS: append to SCREENS below. Each entry is
  *   { name, owner, go: async (page, data) => { ...navigate to the screen... } }
  * plus `noServiceWorker: true` if `go` stubs a request with page.route, and
- * `phoneOnly: true` if the screen exists only at a phone width (the desktop size skips it), and
- * `desktopOnly: true` if it exists only at a desktop width (the phone sizes skip it; the consolidated
+ * `phoneOnly: true` if the screen exists only at a phone width (the desktop and tablet sizes skip it), and
+ * `desktopOnly: true` if it exists only at a desktop width (the phone and tablet sizes skip it; the consolidated
  * view, for one, starts at 960px).
  * One board serves every screen of a run, so a `go` that writes to the board's server store (a PUT, a
  * saved setting) must undo it in `after` (settings-recommender does, #4545), or it changes every screen
@@ -102,13 +102,13 @@ const SIZES = {
   // rules) are skipped for it. Not in the default sweep.
   /* #6107: tablets, touch and not desktop, so the tap and field audits run. Not in the default sweep.
      tab8 is a small Android tablet (about 600 wide), the size that gets the phone layout widened today. */
-  tab8: { width: 600, height: 960, dpr: 2, label: 'small Android tablet' },
-  tab8land: { width: 960, height: 600, dpr: 2, label: 'small Android tablet, landscape' },
-  ipadmini: { width: 744, height: 1133, dpr: 2, label: 'iPad mini' },
-  ipadminiland: { width: 1133, height: 744, dpr: 2, label: 'iPad mini, landscape' },
-  ipad11: { width: 834, height: 1194, dpr: 2, label: 'iPad Pro 11-inch' },
-  ipad11land: { width: 1194, height: 834, dpr: 2, label: 'iPad Pro 11-inch, landscape' },
-  ipad13: { width: 1024, height: 1366, dpr: 2, label: 'iPad Pro 13-inch' },
+  tab8: { width: 600, height: 960, dpr: 2, label: 'small Android tablet', tablet: true },
+  tab8land: { width: 960, height: 600, dpr: 2, label: 'small Android tablet, landscape', tablet: true },
+  ipadmini: { width: 744, height: 1133, dpr: 2, label: 'iPad mini', tablet: true },
+  ipadminiland: { width: 1133, height: 744, dpr: 2, label: 'iPad mini, landscape', tablet: true },
+  ipad11: { width: 834, height: 1194, dpr: 2, label: 'iPad Pro 11-inch', tablet: true },
+  ipad11land: { width: 1194, height: 834, dpr: 2, label: 'iPad Pro 11-inch, landscape', tablet: true },
+  ipad13: { width: 1024, height: 1366, dpr: 2, label: 'iPad Pro 13-inch', tablet: true },
   desktop: { width: 1280, height: 800, dpr: 1, label: 'desktop', desktop: true },
   /* #5782: the same desktop at 2x, for marketing composites that are shown larger than 1280. Not in the default sweep. */
   desktop2x: { width: 1280, height: 800, dpr: 2, label: 'desktop at 2x', desktop: true, scale: 'device' },   // always saved at 2x (2560x1600), whatever --scale says
@@ -129,6 +129,9 @@ function fetchBoard(route) {
   return route.fetch({ url: boardUrl(route.request().url()), headers });
 }
 const DEFAULT_SIZES = ['se', 'iphone15', 'promax', 'android'];
+/* Why a screen is not shot at a size, or '' when it is. A tablet (#6107) is a touch size like a phone, but a
+   phone-only screen (the #burger menu, hidden above 40rem) does not exist there either. */
+const skipWhy = (s, sc) => (sc.phoneOnly && (s.desktop || s.tablet) ? 'phone-only screen' : (sc.desktopOnly && !s.desktop ? 'desktop-only screen' : ''));
 const THEMES = ['light', 'dark'];
 const ENGINES = ['chromium', 'webkit'];
 
@@ -2209,7 +2212,7 @@ async function run() {
   }
   /* Nothing to shoot is not a pass: every requested screen is skipped at the sizes asked for (phone-only at desktop,
      desktop-only at a phone). Decided before any browser or board starts (tools.mobile-shots-desktop.test.js). */
-  const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !(SIZES[sz].desktop ? sc.phoneOnly : sc.desktopOnly)).length, 0);
+  const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !skipWhy(SIZES[sz], sc)).length, 0);
   if (!planned) throw new Error('no shot would be taken: every requested screen is skipped at these sizes (phone-only at desktop, desktop-only at a phone)');
   // Test hook (tools.mobile-shots-desktop.test.js): report the plan and stop, before any browser or board.
   if (process.env.MSHOTS_PLAN_ONLY === '1') { console.log(`planned ${planned} screen(s) per theme and engine`); return 0; }
@@ -2256,8 +2259,8 @@ async function run() {
           const s = SIZES[sz];
           for (const theme of args.themes) {
             for (const sc of screens) {
-              if (s.desktop ? sc.phoneOnly : sc.desktopOnly) {
-                const why = s.desktop ? 'phone-only screen' : 'desktop-only screen';
+              const why = skipWhy(s, sc);
+              if (why) {
                 // The same shape as a shot row, so report.json stays one kind of entry.
                 skipped.push({ file: null, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note: '', taps: [], fields: [], audited: false, skipped: why });
                 console.log(`skip  ${sc.name}--${sz}--${theme}--${en}: a ${why}`);

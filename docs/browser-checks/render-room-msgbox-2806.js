@@ -1039,11 +1039,12 @@ function tapProbe4663(skip) {
       const tip375 = await tipWalk();
       chk(!tip375.error && tip375.places === 4 && tip375.steps.length === 4 && tip375.steps.every(stepOk(375)),
         `[phone] every step of the project tip is a pointing card, on screen, with its area on screen`, JSON.stringify(tip375));
+      // 800x800 on a touchscreen is the tablet layout since #6107 (Tasks first), so this walks the tip there.
       await phonePage.setViewportSize({ width: 800, height: 800 });
       await phonePage.waitForTimeout(100);
       const tip800 = await tipWalk();
       chk(!tip800.error && tip800.places === 4 && tip800.steps.length === 4 && tip800.steps.every(stepOk(800)),
-        `[wide] every step of the project tip is a pointing card, on screen, wider than a phone`, JSON.stringify(tip800));
+        `[tablet 800x800] every step of the project tip is a pointing card, on screen, in the tablet layout`, JSON.stringify(tip800));
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
       // Wide and short (a phone on its side): 800x800 on a touchscreen is an upright tablet since #6107 (tablet arm above).
