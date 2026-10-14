@@ -218,3 +218,12 @@ test('#6178 arriving on AI Models from the Settings menu reads the other compute
   const go = slice('settingsGo');
   assert.ok(/section === 'accounts' && typeof aoKick === 'function'\) aoKick\(\)/.test(go), 'settingsGo does not kick the read when AI Models opens');
 });
+
+test('#6178 a computer that could not read its own accounts says so, never "no account"', () => {
+  const { api } = load();
+  assert.equal(api.aoAccountsOf({ agents: [], accountsWeekly: null }), false);
+  const now = Date.now();
+  const t = text(api.aoGroup({ name: 'studio', address: 'studio.kosmosplus.com' }, { state: 'ok', at: now }, { accounts: false, agents: [], at: now }, now));
+  assert.match(t, /studio could not read its accounts just now/);
+  assert.doesNotMatch(t, /No Claude account/, 'a failed read was reported as no accounts');
+});

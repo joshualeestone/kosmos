@@ -30451,8 +30451,10 @@ const AO_MAX_ACCOUNTS = 50;
 const AO_MAX_AGENTS = 500;
 
 function aoStr(v, max) { return typeof v === 'string' && v ? v.slice(0, max || 200) : null; }
-/* That computer's Claude accounts, or null when its Kosmos sends none (an older one, before #6178). */
+/* That computer's Claude accounts; null when its Kosmos sends none (an older one, before #6178); false when it sent the
+   field as null (it could not read its own accounts this time). */
 function aoAccountsOf(body) {
+  if (body && body.accountsWeekly === null) return false;
   if (!body || !Array.isArray(body.accountsWeekly)) return null;
   return body.accountsWeekly.filter((e) => e && typeof e === 'object' && aoStr(e.dir, 4096)).slice(0, AO_MAX_ACCOUNTS).map((e) => {
     const w = e.weekly && typeof e.weekly === 'object' && Number.isFinite(e.weekly.usedPct)
@@ -30527,6 +30529,8 @@ function aoGroup(c, seen, ao, now) {
       : 'Reading its accounts...';
   } else if (ao.accounts === null) {
     note = c.name + ' has an older Kosmos. Its accounts show here once it updates.';
+  } else if (ao.accounts === false) {
+    note = c.name + ' could not read its accounts just now. Kosmos asks again shortly.';
   } else if (!ao.accounts.length) {
     note = 'No Claude account is set up on ' + c.name + '.';
   } else if (st !== 'ok' || stale) {
@@ -30590,7 +30594,7 @@ function aoKick() {
   const now = Date.now();
   if (now - AO_KICKED_AT < AO_KICK_GAP_MS) return;   // the 15 s round (oaStart) keeps it fresh between bursts
   AO_KICKED_AT = now;
-  try { oaRound(); } catch { /* the next tick */ }
+  try { Promise.resolve(oaRound()).catch(() => {}); } catch { /* the next tick */ }
 }
 function worldswToggle() {
   const menu = document.getElementById('worldsw-menu');
