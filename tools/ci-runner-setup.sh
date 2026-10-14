@@ -19,7 +19,8 @@
 #                             from THAT main commit
 #   register                  as kosmos-ci, in its Screen Sharing session, for the same reason. Reads the
 #                             registration token from stdin, so it is never in any argv
-#   verify                    as the machine owner. Reads only. The runner is online with exactly its labels
+#   verify                    as the machine owner. Reads only. The runner is online with exactly its labels.
+#                             Exit 0 clear, 1 a problem, 3 a check it could not make (neither pass nor fail)
 #   machine-settings          prints the settings that need an admin in System Settings
 #
 # The one-suite-per-Mac lock (#4574) needs nothing new here, only nothing switched OFF: a CI job runs
@@ -303,6 +304,7 @@ install_runner() {
   got="$(shasum -a 256 "$newg" | cut -d' ' -f1)"
   [ "$got" = "$want" ] || { rm -f "$newg"; echo "guard sha256 $got is not $want: refused, nothing changed" >&2; exit 1; }
   rel="$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest || true)"
+  # Reads the pretty-printed release JSON; any other shape gives no version and refuses below.
   ver="$(printf '%s' "$rel" | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -1 || true)"
   [ -n "$ver" ] || { rm -f "$newg"; echo "could not read the runner version: nothing changed" >&2; exit 1; }
   tgz="actions-runner-osx-arm64-$ver.tar.gz"
@@ -336,7 +338,9 @@ install_runner() {
       case "$(./svc.sh status 2>&1 || true)" in
         *Started*) rm -f "$newg"; echo "refused: the runner did not stop; nothing unpacked" >&2; exit 1 ;;
       esac
-      # A tar that fails partway leaves old and new files mixed; the runner is started on that, and says so.
+      # A tar that fails partway leaves old and new files mixed; the runner is started on that, and says so. A failure
+      # after the unpack but before the hooks and .env are rewritten starts the new release on the OLD .env and hooks,
+      # which still wire the old guard; the package stays on disk and the next install reuses it after its sha check.
       trap 'echo "install failed after stopping the runner: starting it again on whatever was unpacked; install again" >&2; ./svc.sh start >/dev/null 2>&1 || true' EXIT
     fi
   fi
@@ -406,7 +410,11 @@ register() {
   [ -x "$RUNNER_DIR/config.sh" ] || { echo "refused: no runner in $RUNNER_DIR; run install first" >&2; exit 1; }
   # Registered already: config.sh would replace the registration and then svc.sh install would fail on its plist.
   [ ! -f "$RUNNER_DIR/.service" ] || { echo "refused: $RUNNER_DIR is registered as a service already; to register again, as $CI_USER: ./svc.sh uninstall and ./config.sh remove (with a removal token), then register" >&2; exit 1; }
-  # The job guard is the boundary on a public repo: never register a runner that would take jobs without it.
+  # The job guard is the boundary on a public repo: never register a runner that would take jobs without it, nor one
+  # whose .env would turn the suite lock off.
+  if grep -q -E '^[[:space:]]*(export[[:space:]]+)?KOSMOS_' "$RUNNER_DIR/.env" 2>/dev/null; then
+    echo "refused: $RUNNER_DIR/.env sets a KOSMOS_ variable (a wait control there turns the suite lock off); remove it" >&2; exit 1
+  fi
   local k f
   for k in STARTED COMPLETED; do
     f="job-$(printf '%s' "$k" | tr '[:upper:]' '[:lower:]').sh"

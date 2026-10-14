@@ -29,7 +29,7 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 109 ok. Seventy-six mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 112 ok. Seventy-nine mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
@@ -50,7 +50,8 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   a probe string a narrow allow list could match, an 'export PATH' line kept by the .env merge; then no
   manageruid check, a partial download kept, register without a Listener wait; then register over an existing
   service; then the job-started hook not calling the guard (the reviewer's own mutation), the owner-home check
-  removed, the restart trap left armed).
+  removed, the restart trap left armed; then job-completed's RUNNER_TEMP gate opened, its temp path wrong, register
+  without the KOSMOS_ check).
 - preflight refuses while the owner's home is readable by group or other: kosmos-ci is in staff, and /Users/agent1
   is 750 (measured 06:16). On migration day: chmod 700 /Users/agent1. Not done now; nothing touches this Mac.
 - The test runs the installed job-started hook against stand-ins, with job-cleanup.sh replaced by a marker first,

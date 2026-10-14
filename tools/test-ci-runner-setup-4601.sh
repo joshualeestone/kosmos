@@ -268,6 +268,17 @@ printf '#!/bin/bash\nexit 0\n' > "$HK/job-guard.sh"
 "$HK/job-started.sh" >/dev/null 2>&1; hrc=$?
 [ "$hrc" = 0 ] && [ -e "$HK/cleanup-ran" ] && pass "job-started runs cleanup once the guard admits the job" || fail "job-started with an admitting guard: rc $hrc"
 
+# job-completed empties the job's temp only when RUNNER_TEMP is that dir: run it against a sandbox runner layout.
+HC="$T/hookdone"; mkdir -p "$HC/.kosmos-ci" "$HC/actions-runner/_work/_temp"; cp "$CH/.kosmos-ci/job-completed.sh" "$HC/.kosmos-ci/"
+printf '#!/bin/bash\n: > "$(dirname "$0")/cleanup-ran"\n' > "$HC/.kosmos-ci/job-cleanup.sh"; chmod 755 "$HC/.kosmos-ci/"*
+TMPD_REAL="$(cd "$HC/actions-runner/_work/_temp" && pwd -P)"
+: > "$HC/actions-runner/_work/_temp/payload"; : > "$HC/actions-runner/_work/keep"
+RUNNER_TEMP="/somewhere/else" "$HC/.kosmos-ci/job-completed.sh"
+[ -e "$HC/actions-runner/_work/_temp/payload" ] && [ -e "$HC/.kosmos-ci/cleanup-ran" ] && pass "job-completed runs cleanup and leaves the temp alone when RUNNER_TEMP is elsewhere" || fail "job-completed with a foreign RUNNER_TEMP"
+RUNNER_TEMP="$TMPD_REAL" "$HC/.kosmos-ci/job-completed.sh"
+[ ! -e "$HC/actions-runner/_work/_temp/payload" ] && [ -d "$HC/actions-runner/_work/_temp" ] && [ -e "$HC/actions-runner/_work/keep" ] \
+  && pass "job-completed empties exactly the job's temp when RUNNER_TEMP is it" || fail "job-completed with the matching RUNNER_TEMP: $(ls -a "$HC/actions-runner/_work/_temp" "$HC/actions-runner/_work" | tr '\n' ' ')"
+
 # A running runner: stopped, unpacked over, started again. A job in flight, or a stop that does not take, refuses.
 svc_home() {   # an installed runner: svc.sh, its .service marker, and (as the new package would bring) bin/runsvc.sh
   mkdir -p "$1/actions-runner/bin"; cp "$BIN/_stub" "$1/actions-runner/svc.sh"; chmod +x "$1/actions-runner/svc.sh"
@@ -309,6 +320,9 @@ for f in job-started.sh job-completed.sh job-cleanup.sh; do printf '#!/bin/bash\
 run rg-noguard "$RG" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$RG" -- --apply register
 [ "$(rc rg-noguard)" = 1 ] && has rg-noguard "job-guard.sh is missing or not executable" && ! grep -q '^config\.sh' "$T/rg-noguard.calls" \
   && pass "register --apply refuses when a hook file is missing though .env is wired" || fail "register no guard file: rc $(rc rg-noguard): $(tail -1 "$T/rg-noguard.out")"
+printf 'KOSMOS_NO_WAIT=1\n' >> "$RG/actions-runner/.env"; chmod 755 "$RG/.kosmos-ci/"*; printf '#!/bin/bash\n' > "$RG/.kosmos-ci/job-guard.sh"; chmod 755 "$RG/.kosmos-ci/job-guard.sh"
+run rg-kosmos "$RG" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$RG" -- --apply register
+[ "$(rc rg-kosmos)" = 1 ] && has rg-kosmos "sets a KOSMOS_ variable" && ! grep -q '^config\.sh' "$T/rg-kosmos.calls" && pass "register --apply refuses a .env with a KOSMOS_ key" || fail "register KOSMOS_: rc $(rc rg-kosmos): $(tail -1 "$T/rg-kosmos.out")"
 run rg-noinstall "$T/empty-ci" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$T/empty-ci" -- --apply register
 [ "$(rc rg-noinstall)" = 1 ] && has rg-noinstall "run install first" && pass "register --apply before install says so" || fail "register before install: rc $(rc rg-noinstall): $(tail -1 "$T/rg-noinstall.out")"
 R7="$T/run7"; svc_home "$R7"
