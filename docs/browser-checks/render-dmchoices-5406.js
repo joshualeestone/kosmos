@@ -152,17 +152,29 @@ async function run() {
           // Review 2: when the window ends, the screen stops saying armed (here shortened to 400 ms), even after a repaint.
           const lapsed = await page.evaluate(async () => {
             window.__posted = []; DM_CHOICE_ANSWERED.delete('april'); DM_CHOICE_ARMED = null; DM_CHOICE_ARM_MS = 400;
-            await paintTalk('april', 'April');
-            document.querySelector('#d-dmthread .dmchoice[data-n="2"]').click();
-            await paintTalk('april', 'April');
-            const before = !!document.querySelector('#d-dmthread .dmchoice[data-n="2"].armed');
-            await new Promise((r) => setTimeout(r, 600));
-            const out = { before, after: !!document.querySelector('#d-dmthread .dmchoice.armed'),
-              note: (document.querySelector('#d-dmthread .dmchoices-msg') || {}).textContent || '', posted: window.__posted.length };
-            DM_CHOICE_ARM_MS = 15000;
-            return out;
+            try {
+              await paintTalk('april', 'April');
+              document.querySelector('#d-dmthread .dmchoice[data-n="2"]').click();
+              await paintTalk('april', 'April');
+              const before = !!document.querySelector('#d-dmthread .dmchoice[data-n="2"].armed');
+              await new Promise((r) => setTimeout(r, 600));
+              return { before, after: !!document.querySelector('#d-dmthread .dmchoice.armed'),
+                note: (document.querySelector('#d-dmthread .dmchoices-msg') || {}).textContent || '', posted: window.__posted.length };
+            } finally { DM_CHOICE_ARM_MS = 15000; DM_CHOICE_ARMED = null; }
           });
           check(`[${theme}] lasting: an arm that lapses stops showing as armed`, lapsed.before && !lapsed.after && lapsed.note === '' && lapsed.posted === 0, JSON.stringify(lapsed));
+          // Review 3: a held Enter. Its first keydown arms; its repeats, even past the gap, do not confirm.
+          await page.evaluate(async () => { window.__posted = []; DM_CHOICE_ANSWERED.delete('april'); DM_CHOICE_ARMED = null; await paintTalk('april', 'April'); });
+          await page.locator('#d-dmthread .dmchoice[data-n="2"]').focus();
+          await page.keyboard.down('Enter');
+          await page.waitForTimeout(700);
+          await page.keyboard.down('Enter');   // a second down with no up: the browser's repeat (e.repeat true)
+          await page.keyboard.down('Enter');
+          await page.keyboard.up('Enter');
+          await page.waitForTimeout(150);
+          const held = await page.evaluate(() => ({ posted: window.__posted.length, armed: !!document.querySelector('#d-dmthread .dmchoice[data-n="2"].armed') }));
+          check(`[${theme}] lasting: a held Enter arms and its repeats send nothing`, held.posted === 0 && held.armed, JSON.stringify(held));
+          await page.evaluate(() => { DM_CHOICE_ARMED = null; });
           // CONTROL: No is not lasting, so one press sends it, without lasting.
           await page.evaluate(async () => { window.__posted = []; DM_CHOICE_ANSWERED.delete('april'); await paintTalk('april', 'April'); });
           await page.locator('#d-dmthread .dmchoice[data-n="3"]').click();

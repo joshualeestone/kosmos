@@ -412,12 +412,14 @@ test('#6172: a lasting option sent without the second press is refused and no ke
 });
 
 test('#6172 CONTROL: Yes and No need no second press (lasting is not demanded of every option)', async () => {
-  await withPrompt(CD, async (calls) => {
-    const back = await getThread();
-    const r = await post({ text: '4', chose: 'No', asked: back.asked });
-    assert.equal(r.status, 200, JSON.stringify(r.json));
-    assert.deepEqual(calls.keys(), ['4']);
-  });
+  for (const [n, label] of [['4', 'No'], ['1', 'Yes']]) {
+    await withPrompt(CD, async (calls) => {
+      const back = await getThread();
+      const r = await post({ text: n, chose: label, asked: back.asked });
+      assert.equal(r.status, 200, label + ': ' + JSON.stringify(r.json));
+      assert.deepEqual(calls.keys(), [n], label);
+    });
+  }
 });
 
 test('#6172: the page arms a lasting choice on its first press and sends it, with lasting, only on the second', () => {
