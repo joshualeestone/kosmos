@@ -180,17 +180,14 @@ function emptySpot(page, sel) {
         // desktop card (more than two columns, the face above the name), so the arm cannot pass on a page that
         // simply always draws the tablet card. 1024x768 is inside the tablet width range, so only the orientation
         // clause keeps it out.
-        // Chromium only: this file opens WebKit with touch but without mobile emulation, and the tablet rules need
-        // (hover: none) and (pointer: coarse).
-        if (engine === 'webkit') console.log(`skip  [webkit] #6107 tablet card arms: WebKit reports no touch screen (no mobile emulation)`);
         // 744 is the iPad mini, the narrowest screen that gets two across (each card at its 330px floor).
-        for (const [w, h, upright, across] of (engine === 'webkit' ? [] : [[834, 1194, true, 2], [744, 1133, true, 2], [600, 960, true, 1], [1024, 768, false, 0]])) {
+        for (const [w, h, upright, across] of [[834, 1194, true, 2], [744, 1133, true, 2], [600, 960, true, 1], [1024, 768, false, 0]]) {
           const tag = `[${engine} ${w}x${h} tablet]`;
           const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, isMobile: engine === 'chromium' });
           const page = await ctx.newPage();
           await home(page, URL, 'grid');
-          // Precondition: the engine reports a touch screen. If it does not (WebKit without mobile emulation may not),
-          // the tablet layout cannot apply here, and this says so instead of reading as a product failure.
+          // Precondition: the engine reports a touch screen (both do with hasTouch: hover none, pointer coarse). If one
+          // ever stops, the tablet layout cannot apply here, and this says so instead of reading as a product failure.
           const touch = await page.evaluate(() => matchMedia('(hover: none) and (pointer: coarse)').matches);
           if (!touch) { chk(false, `${tag} harness: this engine does not report a touch screen here, so the tablet arm cannot run`, 'matchMedia((hover: none) and (pointer: coarse)) is false'); await ctx.close(); continue; }
           const card = await page.evaluate(() => {
