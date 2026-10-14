@@ -12087,6 +12087,29 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
 #acct-qwen-local-bar::-webkit-progress-bar { background: var(--k-track); border-radius: 3px; }
 #acct-qwen-local-bar::-webkit-progress-value { background: var(--gold); border-radius: 3px; }
 #acct-qwen-local-bar::-moz-progress-bar { background: var(--gold); border-radius: 3px; }
+/* #6107 (Josh, 2026-10-13: "tablet would also be a first class citizen design"): the tablet tier, piece 1.
+   A tablet held upright is a touch screen 600 to 1023px wide with real height. Before this it took the phone
+   layout (600-639px) or the desktop one squeezed (640-1023px). The min-height keeps a phone held sideways
+   (under 500px tall) on the phone layout, as the five landscape-phone rules intend.
+   Agents board: cards two across, face on the left, name and state beside it, and what the agent is on
+   underneath, readable at a glance. The state sits under the name, not beside it: an upright iPad card is
+   about 390px, and a Question pill with its Answer button beside the name would leave the name 60px. Only the ordinary card: the stopped and needs-trust cards keep their
+   own stacked shape, which carries a note and a button the grid areas below do not place. */
+@media (hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 1023.98px) and (min-height: 560px) {
+  #grid.cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  #grid .acard:not(.notrunning) { display: grid; grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "g n" "g m" "g s" "g w" "t t" "c c" "md md";
+    column-gap: 14px; row-gap: 2px; align-items: center; text-align: left; padding: 18px 18px 16px; }
+  #grid .acard:not(.notrunning) > .agauge { grid-area: g; width: 64px; margin: 0; }
+  #grid .acard:not(.notrunning) > .agauge svg { width: 64px; height: 64px; }
+  #grid .acard:not(.notrunning) > .aname { grid-area: n; align-self: end; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #grid .acard:not(.notrunning) > .ameta { grid-area: m; align-self: start; margin: 0; }
+  #grid .acard:not(.notrunning) > .astate { grid-area: s; justify-self: start; margin-top: 6px; }
+  #grid .acard:not(.notrunning) > .alsowork { grid-area: w; justify-self: start; margin: 4px 0 0; }
+  #grid .acard:not(.notrunning) > .atask { grid-area: t; margin-top: 12px; font-size: .9375rem; line-height: 1.4; }
+  #grid .acard:not(.notrunning) > .acommunity { grid-area: c; }
+  #grid .acard:not(.notrunning) > .amodel { grid-area: md; padding-top: 10px; }
+}
 </style>
 <!-- ⚠️ THE id HERE IS LOAD-BEARING, NOT DECORATION. Every page test in this
      repo lifts the app's source with a regex for an ATTRIBUTE-LESS script tag,
