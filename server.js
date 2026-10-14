@@ -11960,9 +11960,11 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #6175: set up the usage reading on an EXISTING Claude account (Kosmos wires its status line only when it creates
-     an account). The same ensureStatusLine as account creation, so a status line the person set up themselves is left
-     alone (it answers wired:false with why) and ours, aimed at another copy, is repointed. Only a Claude account this
-     computer lists, never an API-key account (it has no weekly limit to read). */
+     an account). It runs the same ensureStatusLine as account creation, so a status line the person set up themselves
+     is left alone (it answers wired:false with why). Only a Claude account this computer lists. Narrower than creation
+     on purpose: an API-key account is refused (it has no weekly limit to read; creation wires one anyway in case the key
+     is later swapped for a sign-in). The page offers this only on a 'not-wired' row; a status line of ours aimed at
+     another copy reads as wired there, so its repoint is reachable through this route alone. */
   if (pathname === '/api/accounts/claude/usage-reading' && req.method === 'POST') {
     readBody(req)
       .then((raw) => {

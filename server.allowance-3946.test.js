@@ -289,6 +289,14 @@ test('#6175 the usage-reading route wires a not-set-up account and never replace
     assert.equal(refused.status, 409, JSON.stringify(refused));
     assert.match(refused.j.because, /its own status line/, refused.j.because);
     assert.equal(fs.readFileSync(settings, 'utf8'), own, 'the person\'s own status line was touched');
+    // An API-key account (a stored key, no sign-in) is refused, and nothing is written into it (review 1).
+    const keyed = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude-keyed6175');
+    fs.mkdirSync(keyed, { recursive: true });
+    fs.writeFileSync(require('./engine/claudeaccounts').keyFile(keyed), 'sk-ant-api03-' + 'x'.repeat(40) + '\n', { mode: 0o600 });
+    const listedKeyed = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];
+    assert.ok(listedKeyed.some((a) => a && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(keyed) && a.apiKey === true), 'precondition: the key account is listed as an API key');
+    assert.equal((await post({ dir: keyed })).status, 400, 'an API-key account was wired');
+    assert.ok(!fs.existsSync(path.join(keyed, 'settings.json')), 'a settings file was written into an API-key account');
     // Only an account this computer lists, and a request it can read.
     assert.equal((await post({ dir: path.join(SANDBOX, 'not-an-account') })).status, 404);
     assert.equal((await post({})).status, 400);
