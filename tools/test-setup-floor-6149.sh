@@ -2,7 +2,8 @@
 # test-setup-floor-6149.sh - kosmos#6149 point 1: no Mac pointer (so no /setup or /setup-staging) may name a build
 # older than the setup floor (0.7.45), once 0.7.49 (#4455, the read-only app) is out. The library, then the real
 # promote and publish scripts against a temp site (each refused below the floor with nothing written; a control at
-# 0.7.49 gets past the floor). deploy-site.sh's call is pinned by its own line below (it needs live hosts to run).
+# 0.7.49 gets past the floor), and the tree check a deploy runs on its export. deploy-site.sh itself is run for real
+# by tools/test-deploy-site-promote.sh (its kosmos#6149 arms).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 unset KOSMOS_SETUP_FLOOR_TEST KOSMOS_SETUP_FLOOR_LOWER   # the real floor, whatever the caller exported
@@ -38,6 +39,23 @@ kosmos_setup_floor_pointer_ok t "$(ptr 0.7.49 kosmos-0.7.49-arm64.tar.gz)" 2>/de
 kosmos_setup_floor_pointer_ok t "$(ptr 0.7.49 kosmos-0.7.40-arm64.tar.gz)" 2>/dev/null && bad "a 0.7.49 pointer naming a 0.7.40 tarball passed" || pass "a pointer whose tarball is older than its version is refused"
 kosmos_setup_floor_pointer_ok t "$(ptr 0.7.44 kosmos-0.7.44-arm64.tar.gz)" 2>/dev/null && bad "a 0.7.44 pointer passed" || pass "a 0.7.44 pointer is refused"
 kosmos_setup_floor_pointer_ok t '{"sha256":"bb"}' 2>/dev/null && bad "a pointer with no version passed" || pass "a pointer with no version is refused"
+for art in kosmos-arm64.tar.gz kosmos-0.7.49.tar.gz not-a-build.zip; do
+  kosmos_setup_floor_pointer_ok t "$(ptr 0.7.49 "$art")" 2>/dev/null && bad "artifact $art passed" || pass "a 0.7.49 pointer naming $art is refused (fail closed)"
+done
+
+# The tree a deploy publishes: pointers through the pointer check, installers must know the read-only app.
+tree() { rm -rf "$T/tree"; mkdir -p "$T/tree/dist"; ptr 0.7.49 kosmos-0.7.49-arm64.tar.gz > "$T/tree/dist/latest.json"
+  ptr 0.7.49 kosmos-0.7.49-arm64.tar.gz > "$T/tree/dist/latest-staging.json"
+  printf 'x KOSMOS_READONLY_APP y\n' > "$T/tree/setup"; printf 'x KOSMOS_READONLY_APP y\n' > "$T/tree/setup-staging"; }
+tree; kosmos_setup_floor_tree_ok t "$T/tree" 2>/dev/null && pass "CONTROL: a current tree passes" || bad "a current tree was refused"
+tree; printf 'an old installer\n' > "$T/tree/setup"
+kosmos_setup_floor_tree_ok t "$T/tree" 2>/dev/null && bad "an old /setup passed" || pass "a /setup that does not know the read-only app is refused"
+tree; printf 'an old installer\n' > "$T/tree/setup-staging"
+kosmos_setup_floor_tree_ok t "$T/tree" 2>/dev/null && bad "an old /setup-staging passed" || pass "a /setup-staging that does not know the read-only app is refused"
+tree; ptr 0.7.44 kosmos-0.7.44-arm64.tar.gz > "$T/tree/dist/latest-staging.json"
+kosmos_setup_floor_tree_ok t "$T/tree" 2>/dev/null && bad "a 0.7.44 staging pointer in the tree passed" || pass "a staging pointer below the floor in the tree is refused"
+tree; rm -f "$T/tree/setup-staging" "$T/tree/dist/latest-staging.json"
+kosmos_setup_floor_tree_ok t "$T/tree" 2>/dev/null && pass "a tree without the staging pair passes (nothing to check)" || bad "a tree without staging files was refused"
 
 # promote-channel.sh (mac): a staging pointer below the floor is refused, and prod's latest.json is untouched.
 site() { rm -rf "$T/site"; mkdir -p "$T/site/dist"; printf '%s' '{"version":"0.7.40","sha256":"aa"}' > "$T/site/dist/latest.json"; }
