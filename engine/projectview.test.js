@@ -689,6 +689,7 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   assert.equal(gr.turnsOnly, true);
   // A busy report it filed itself after the summary is reported work: stale.
   assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['working', 600]]), NOW).state, 'stale', 'a codex seat\'s own working report was ignored');
+  for (const st of ['needs_you', 'blocked']) assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], [st, 600], ['idle', 590]]), NOW).state, 'stale', 'a codex seat\'s answered ' + st + ' was not read as work');
   // An automatic idle and a manual one at the same turn end are one turn (within 2 min); 3 min apart are two.
   assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1094]]), NOW).state, 'worked', 'a duplicate idle at the same turn end counted as a later turn');
   assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1092]]), NOW).state, 'stale', 'CONTROL: two turn ends 3 min apart');
