@@ -97,9 +97,6 @@ const SIZES = {
   android360: { width: 360, height: 800, dpr: 3, label: 'narrow Android' },
   // The 6.9-inch iPhone screenshot App Store Connect requires: 1320x2868 at --scale device.
   appstore: { width: 440, height: 956, dpr: 3, label: 'App Store 6.9-inch' },
-  // claude-setup#100 (/design-shots): a computer screen, so one sanctioned run shoots a change at
-  // desktop and phone. No touch and no mobile viewport, and the tap and field-font audits (phone
-  // rules) are skipped for it. Not in the default sweep.
   /* #6107: tablets, touch and not desktop, so the tap and field audits run. Not in the default sweep.
      tab8 is a small Android tablet (about 600 wide), the size that got the phone layout widened before #6107. */
   tab8: { width: 600, height: 960, dpr: 2, label: 'small Android tablet', tablet: true },
@@ -109,6 +106,9 @@ const SIZES = {
   ipad11: { width: 834, height: 1194, dpr: 2, label: 'iPad Pro 11-inch', tablet: true },
   ipad11land: { width: 1194, height: 834, dpr: 2, label: 'iPad Pro 11-inch, landscape', tablet: true },
   ipad13: { width: 1024, height: 1366, dpr: 2, label: 'iPad Pro 13-inch', tablet: true },
+  // claude-setup#100 (/design-shots): a computer screen, so one sanctioned run shoots a change at
+  // desktop and phone. No touch and no mobile viewport, and the tap and field-font audits (phone
+  // rules) are skipped for it. Not in the default sweep.
   desktop: { width: 1280, height: 800, dpr: 1, label: 'desktop', desktop: true },
   /* #5782: the same desktop at 2x, for marketing composites that are shown larger than 1280. Not in the default sweep. */
   desktop2x: { width: 1280, height: 800, dpr: 2, label: 'desktop at 2x', desktop: true, scale: 'device' },   // always saved at 2x (2560x1600), whatever --scale says
