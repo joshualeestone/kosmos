@@ -12,6 +12,8 @@ S="$HERE/ci-runner-setup.sh"
 if [ "$(id -u)" = 0 ]; then echo "skip test-ci-runner-setup-4601: run as root, where mode 000 does not block reads"; exit 0; fi
 T="$(mktemp -d)" || exit 1; [ -d "$T" ] || exit 1; trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT   # chmod: some cases make dirs 000
 fails=0
+# The test's own errors (a helper used before it is defined) print and pass on; keep them and fail on them at the end.
+exec 2> >(tee "$T/test-stderr" >&2)
 pass() { printf 'ok   %s\n' "$1"; }
 fail() { printf 'FAIL %s\n' "$1"; fails=$((fails + 1)); }
 
@@ -348,10 +350,6 @@ hookrun RUNNER_TEMP="$TMPD_REAL" "$HC/.kosmos-ci/job-completed.sh"
   && pass "job-completed empties exactly the job's temp when RUNNER_TEMP is it" || fail "job-completed with the matching RUNNER_TEMP: $(ls -a "$HC/actions-runner/_work/_temp" "$HC/actions-runner/_work" | tr '\n' ' ')"
 
 ! grep -q '^pkill' "$T/hook-calls.log" && pass "no hook run by the test reached pkill" || fail "a hook reached pkill: $(grep '^pkill' "$T/hook-calls.log")"
-# A hook write that fails partway leaves the old hook whole (put writes beside it and renames).
-R16="$T/run16"; svc_home "$R16"; mkdir -p "$R16/.kosmos-ci/job-started.sh.new"; echo "# old hook" > "$R16/.kosmos-ci/job-started.sh"
-run in-hookfail "$R16" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R16" -- --apply install "$C" "$G"
-[ "$(rc in-hookfail)" != 0 ] && grep -qx '# old hook' "$R16/.kosmos-ci/job-started.sh" && pass "install --apply that cannot write a hook leaves the old one whole" || fail "hook write failure: rc $(rc in-hookfail), job-started.sh: $(head -1 "$R16/.kosmos-ci/job-started.sh")"
 
 # A running runner: stopped, unpacked over, started again. A job in flight, or a stop that does not take, refuses.
 svc_home() {   # an installed runner: svc.sh, its .service marker, and (as the new package would bring) bin/runsvc.sh
@@ -359,6 +357,10 @@ svc_home() {   # an installed runner: svc.sh, its .service marker, and (as the n
   echo started > "$1/actions-runner/.svc-state"; echo "actions.runner.x" > "$1/actions-runner/.service"
   echo "# runsvc old" > "$1/actions-runner/runsvc.sh"; echo "# runsvc new" > "$1/actions-runner/bin/runsvc.sh"
 }
+# A hook write that fails partway leaves the old hook whole (put writes beside it and renames).
+R16="$T/run16"; svc_home "$R16"; mkdir -p "$R16/.kosmos-ci/job-started.sh.new"; echo "# old hook" > "$R16/.kosmos-ci/job-started.sh"
+run in-hookfail "$R16" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R16" -- --apply install "$C" "$G"
+[ "$(rc in-hookfail)" != 0 ] && grep -qx '# old hook' "$R16/.kosmos-ci/job-started.sh" && grep -q '^svc.sh stop' "$T/in-hookfail.calls" && grep -q '^svc.sh start' "$T/in-hookfail.calls" && pass "install --apply that cannot write a hook leaves the old one whole" || fail "hook write failure: rc $(rc in-hookfail), job-started.sh: $(head -1 "$R16/.kosmos-ci/job-started.sh")"
 R1="$T/run1"; svc_home "$R1"
 run in-restart "$R1" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R1" -- --apply install "$C" "$G"
 [ "$(rc in-restart)" = 0 ] && grep -q '^svc.sh stop' "$T/in-restart.calls" && grep -q '^tar ' "$T/in-restart.calls" && has in-restart "runner started again" \
@@ -541,5 +543,7 @@ run v-nouser "$H" -- verify
 [ "$(rc v-nouser)" = 1 ] && has v-nouser "no user kosmos-ci on this Mac" && pass "verify: no CI user here is a problem, not a clean 'nothing left'" || fail "verify no user: rc $(rc v-nouser)"
 for n in v-clear v-leftover; do if out="$(changed "$n")"; then fail "verify $n changed something: $out"; fi; done
 
+sleep 0.2   # let tee flush the last of stderr
+if grep -q 'command not found' "$T/test-stderr" 2>/dev/null; then fail "the test itself hit 'command not found': $(grep 'command not found' "$T/test-stderr" | head -2)"; fi
 if [ "$fails" -gt 0 ]; then echo "test-ci-runner-setup-4601: $fails failure(s)"; exit 1; fi
 echo "test-ci-runner-setup-4601: all passed"
