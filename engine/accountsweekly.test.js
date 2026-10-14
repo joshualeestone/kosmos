@@ -60,3 +60,11 @@ test('#6178 weeklyBlockedOf names why there can be no reading', () => {
   assert.equal(aw.weeklyBlockedOf({ dir: d }, 'darwin'), 'unreadable-settings');
   assert.equal(aw.weeklyBlockedOf({ dir: d, apiKey: true }, 'darwin'), null, 'a key account was given a reason');
 });
+
+test('#6178 an account that becomes an API key leaves the summary at once, not after the cache', () => {
+  aw.resetForTests();
+  const d = acct('f', 20);
+  const now = Date.now();
+  assert.equal(aw.summary([{ dir: d, email: 'f@example.com' }], now).length, 1);
+  assert.equal(aw.summary([{ dir: d, email: 'f@example.com', apiKey: true }], now + 1000).length, 0, 'a key account stayed listed inside the cache window');
+});

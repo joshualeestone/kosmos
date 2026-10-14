@@ -30535,7 +30535,7 @@ function aoGroup(c, seen, ao, now) {
   } else if (!ao.accounts.length) {
     note = 'No Claude account is set up on ' + c.name + '.';
   } else if (st !== 'ok' || stale) {
-    note = (st === 'out' ? 'Not connected. ' : '') + 'Showing what this page last read' + (ao.at ? ', ' + agoWords(now - ao.at) : '') + '.';
+    note = (st === 'out' ? 'Not connected. ' : st === 'blocked' ? c.name + ' cannot be read from here right now. ' : '') + 'Showing what this page last read' + (ao.at ? ', ' + agoWords(now - ao.at) : '') + '.';
   }
   if (note) g.appendChild(aoEl('p', 'dhint ao-note', note));
   if (ao && Array.isArray(ao.accounts)) {

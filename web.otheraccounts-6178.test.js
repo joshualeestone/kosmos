@@ -287,3 +287,11 @@ test('#6178 a kept reading past its reset is not shown as this week\'s', () => {
   assert.equal(u.pct, null, 'a reading from a week that has reset was drawn as a meter');
   assert.match(u.line, /No usage reading for this account yet/);
 });
+
+test('#6178 a kept list for a computer that has gone unreadable says so, not just that it is old', () => {
+  const { api } = load();
+  const now = Date.now();
+  const t = text(api.aoGroup({ name: 'studio', address: 'studio.kosmosplus.com' }, { state: 'blocked', at: now - 60e3 },
+    { accounts: [STATUS.accountsWeekly[0]], agents: [], at: now - 60e3 }, now));
+  assert.match(t, /studio cannot be read from here right now\. Showing what this page last read/);
+});
