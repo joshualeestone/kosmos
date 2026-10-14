@@ -2614,12 +2614,33 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
 /* #6108: every Claude agent on this computer grouped by the account folder it runs on, in ONE pass, for the accounts
    list (which used to need a full walk per account row). The same reading as enumerateAgentsOnAccount: a job with no
    configDir runs on the default account; `complete` is false when anything could not be read. */
-/* #6174: `live` (optional) maps a session to what its running process reads (runningas.everyone): an agent whose launch
-   file names one account but whose process still runs on another (a move that came back partial: the window could
-   not be closed) is listed under the account it was moved to, and marked moving there until it restarts. Listed by
-   the launch file on purpose: a stopped agent, or one whose relaunch failed, runs nowhere, so the new row is right for
-   it. Never marked without a good reading of a Claude process (a failed read, Windows, another runner: unmarked). */
-function claudeAgentsByAccount(live) {
+/* #6174: an agent whose move came back partial while its session kept running (engine/accountmoving.js) is listed
+   under the account it was moved to, by its launch file, and marked moving there until it restarts. Listed by the
+   launch file on purpose: a stopped agent, or one whose relaunch failed, runs nowhere, so the new row is right for it.
+   The mark needs only tmux's session start (status.sessionStartedAtFromTmux, cached two seconds): no process reads. */
+/* #6174, for the account-move route: the restart, with the agent's session start read before it and the note written
+   once the outcome is known. A partial move with the SAME session still running (same start) is noted as still on the old
+   account until it restarts; anything else clears the note. The read after the restart passes a time beyond the
+   2 s session cache, so it is a fresh read. Never throws: the note is not the move. */
+function restartForMove(name) {
+  let startedBefore = null;
+  try { startedBefore = require('./engine/status').sessionStartedAtFromTmux(name); } catch { startedBefore = null; }
+  let back;
+  try { back = removal.restart(name, 'account'); }
+  catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
+  noteMoveOutcome(name, back.outcome === removal.OUTCOME.RESTARTED, startedBefore);
+  return back;
+}
+function noteMoveOutcome(name, ok, startedBefore) {
+  try {
+    const accountmoving = require('./engine/accountmoving');
+    let startedAfter = null;
+    if (!ok) { try { startedAfter = require('./engine/status').sessionStartedAtFromTmux(name, Date.now() + 2001); } catch { startedAfter = null; } }
+    if (!ok && Number.isFinite(startedBefore) && startedAfter === startedBefore) accountmoving.note(name, startedBefore);
+    else accountmoving.clear(name);
+  } catch { /* the marker is not the move */ }
+}
+function claudeAgentsByAccount() {
   const walk = agentsByAccountWalk('claude', { skipGuide: true });
   let complete = walk.complete;
   const byDir = new Map(), onDefault = [];
@@ -2635,17 +2656,9 @@ function claudeAgentsByAccount(live) {
       let key = null; try { key = dir ? path.resolve(dir) : null; } catch { key = null; }
       return [...(isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])];
     },
-    moving(dir, isDefault) {   // #6174: the agents on this row whose process still runs on another account
-      if (!(live instanceof Map)) return [];
-      return this.on(dir, isDefault).filter((name) => {
-        const l = live.get(name);
-        if (!l || l.ok !== true || l.runner !== 'claude' || typeof l.configDir !== 'string' || !l.configDir) return false;
-        let liveDefault = null; try { liveDefault = accounts.isDefaultDir(l.configDir); } catch { liveDefault = null; }
-        if (liveDefault === null) return false;   // unknown: never marked
-        if (isDefault) return liveDefault === false;
-        if (liveDefault === true) return true;
-        try { return !dir || path.resolve(l.configDir) !== path.resolve(dir); } catch { return false; }
-      });
+    moving(dir, isDefault) {   // #6174: the agents on this row still running on the account they were moved from
+      const startedAt = (n) => require('./engine/status').sessionStartedAtFromTmux(n);
+      return this.on(dir, isDefault).filter((n) => { try { return require('./engine/accountmoving').isMoving(n, startedAt); } catch { return false; } });
     },
   };
 }
@@ -11047,13 +11060,7 @@ const server = http.createServer(async (req, res) => {
         let wantAgents = false;
         try { wantAgents = new URL(req.url, ROUTING_BASE).searchParams.get('agents') === '1'; } catch { wantAgents = false; }
         let claudeAgents = null;
-        if (wantAgents) {
-          /* #6174: one read of every agent's running process, bounded (#1366), so an agent still running on its old
-             account after a partial move is marked moving; a failed read marks nobody. */
-          let live = null;
-          try { live = new Map(runningas.everyone({ budgetMs: 1500 }).map((r) => [r.session, r])); } catch { live = null; }
-          try { claudeAgents = claudeAgentsByAccount(live); } catch { claudeAgents = null; }
-        }
+        if (wantAgents) { try { claudeAgents = claudeAgentsByAccount(); } catch { claudeAgents = null; } }
         const claude = claudeRows.map((a) => {
           /* #3136: the badge is the FRESHER of a passively-witnessed agent
              observation (obsByDir, filled by the ~60s sweep) and a
@@ -13570,9 +13577,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         try { observed.forgetAgent(name); } catch { /* #5959: a move keeps the name, not its sighting */ }
-        let back;
-        try { back = removal.restart(name, 'account'); }
-        catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
+        const back = restartForMove(name);   // #6174: also notes an agent left running on its old account
         const ok = back.outcome === removal.OUTCOME.RESTARTED;
         /* #2338: lead with the human-chosen account name (the `.kosmos-name`
            sidecar an OpenAI row carries, #2095), the same value the picker shows,
