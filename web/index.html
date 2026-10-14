@@ -28255,13 +28255,14 @@ async function paintAccounts(opts) {
           if (target) { target.setAttribute('tabindex', '-1'); target.focus(); }
         };
         if (gen !== ACCT_USAGE_GEN) { claimFocus(); return; }   // review 10: a newer press owns the line now
-        if (!drawn) { claimFocus(); return; }   // review 13: the list could not be read; "set up" must not compete with that
+        if (!drawn || ACCOUNTS_UNREADABLE) { claimFocus(); return; }   // review 13: the list could not be read; "set up" must not compete with that (review 14: nor after a newer paint that failed)
         if (msg && PAINT_SAYS.includes(msg.textContent)) { acctCancelSay(); msg.textContent = OK_SAY; }   // review 4: never over another writer's text, even the first time
         else if (msg) { claimFocus(); return; }   // someone else spoke while the repaint ran: theirs stands; focus is still not left on the page (review 5)
         claimFocus();
         for (let i = 0; i < 10; i++) {
           await new Promise((r) => setTimeout(r, 100));
           if (gen !== ACCT_USAGE_GEN) break;   // review 10: a newer press began; its sentence is not ours to replace
+          if (ACCOUNTS_UNREADABLE) break;   // review 14: a newer paint failed to read the list; its error stands alone
           if (msg && msg.textContent !== OK_SAY) {
             if (!PAINT_SAYS.includes(msg.textContent)) break;   // another writer spoke: theirs stands
             acctCancelSay(); msg.textContent = OK_SAY;
@@ -28284,7 +28285,7 @@ async function paintAccounts(opts) {
       const prevLive = live.nextElementSibling;
       if (live !== btn && prevLive && prevLive.dataset && prevLive.dataset.usageSay) prevLive.remove();
       live.after(say);
-      if (msg) {   // every writer to that line cancels (the #2684 note)
+      if (msg && gen === ACCT_USAGE_GEN) {   // every writer to that line cancels (the #2684 note); review 14: an older press's late refusal leaves the line to the newer one (the row still says it)
         /* Review 9: emptied, then written a frame later, so the same refusal twice is announced again (as a move's sentence is). */
         acctCancelSay(); const said = say.textContent; msg.textContent = '';
         acctSayTimer = setTimeout(() => { acctSayTimer = null; if (gen === ACCT_USAGE_GEN && msg.textContent === '') msg.textContent = said; }, 150);   // review 10: never over another writer's text
