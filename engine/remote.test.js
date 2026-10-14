@@ -431,6 +431,15 @@ async function registerSent() {
   );
 }
 
+/* #6140 review 3: the kill steps below stop a register by its bound, and the fake writes the key and id only once it
+   has started. On a loaded box the kill can land first, leaving no half identity; the later steps would then red on a
+   precondition that names the wrong cause. So each kill is checked to have left key and id with no certificate. */
+function halfHere() {
+  const d = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote');
+  return ['mac_id', 'mac_key'].every((f) => fs.existsSync(nodePath.join(d, f))) && !fs.existsSync(nodePath.join(d, 'tls.crt'));
+}
+const HALF_MSG = 'fixture: the kill landed before the half identity was written (a loaded box: #6140)';
+
 function recorded() {
   try { return fs.readFileSync(RECORD, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse); }
   catch { return []; }
@@ -1954,6 +1963,7 @@ test('kosmos#5422: finishing an unfinished earlier sign-in keeps the device key 
     const before = fs.readFileSync(keyFile, 'utf8');
     const beforeIno = fs.statSync(keyFile).ino;
     assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '20000';   // #6140
     process.env.FAKE_TUNNEL_MODE = 'devkey';
     fs.rmSync(RECORD, { force: true });
@@ -2373,6 +2383,7 @@ test('#3827: a register killed after writing the key and id (mid-certificate) is
     await remote.signinVerify('her@example.com', '111111');
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     // Only the kill needs the short bound; a register expected to succeed gets room
     // on a loaded machine, and so does a retire that must answer (#6140: at 1.5 s it
     // timed out under full-suite load, and a timed-out retire keeps the half identity).
@@ -2498,6 +2509,7 @@ test('#3827: a register after one cut off mid-certificate retires the half ident
     await remote.signinVerify('her@example.com', '111111');
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     // Only the kill needs the short bound; a register expected to succeed gets room
     // on a loaded machine, and so does a retire that must answer (#6140: at 1.5 s it
     // timed out under full-suite load, and a timed-out retire keeps the half identity).
@@ -2577,6 +2589,7 @@ test('#3827: a half identity whose retire gets no answer is kept, the register w
     await remote.signinVerify('her@example.com', '111111');
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     // Only the kill needs the short bound; a register expected to succeed gets room
     // on a loaded machine. The retire stays at 1.5 s for the hung retire below, whose timeout
     // is what this arm tests; the retry after it gets 20 s (#6140), since that retire must answer.
@@ -2615,6 +2628,7 @@ test('#3827: after Kosmos+ refused to retire a half identity, its "already in us
     process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     // Only the kill needs the short bound; a register expected to succeed gets room
     // on a loaded machine, and so does a retire that must answer (#6140: at 1.5 s it
     // timed out under full-suite load, and a timed-out retire keeps the half identity).
@@ -2679,6 +2693,7 @@ test('#3827: the Settings setup also retires a half identity before it registers
     await remote.signinVerify('her@example.com', '111111');
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     // Only the kill needs the short bound; a register expected to succeed gets room
     // on a loaded machine, and so does a retire that must answer (#6140: at 1.5 s it
     // timed out under full-suite load, and a timed-out retire keeps the half identity).
@@ -2866,6 +2881,7 @@ test('#3827: the Settings setup gets the same stranded-name answer', async () =>
     await remote.signinVerify('her@example.com', '111111');
     process.env.FAKE_TUNNEL_MODE = 'partial-register';
     assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     // Only the kill needs the short bound; a register expected to succeed gets room
     // on a loaded machine, and so does a retire that must answer (#6140: at 1.5 s it
     // timed out under full-suite load, and a timed-out retire keeps the half identity).
@@ -2884,7 +2900,8 @@ test('#3827: the Settings setup gets the same stranded-name answer', async () =>
     await remote.signinVerify('her@example.com', '111111');
     process.env.FAKE_TUNNEL_MODE = 'partial-register';
     assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture (computer wording): the register was killed by its bound');
-    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000';
+    assert.ok(halfHere(), HALF_MSG);
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '20000';   // #6140: said here, not left over
     await remote.setupStart('her@example.com');
     process.env.FAKE_TUNNEL_MODE = 'retire-refused,setup-409-computer';
     const rNew = await remote.setupComplete('123456', 'hers');
@@ -3062,6 +3079,7 @@ test('#3827: the Settings setup also keeps a half identity whose retire got no a
     await remote.signinVerify('her@example.com', '111111');
     process.env.FAKE_TUNNEL_MODE = 'partial-register';
     assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     // Only the kill needs the short bound; a register expected to succeed gets room
     // on a loaded machine, and so does a retire that must answer (#6140: at 1.5 s it
     // timed out under full-suite load, and a timed-out retire keeps the half identity).
@@ -3116,6 +3134,7 @@ test('#3827: a Sign out during the half-identity retire means the register is ne
     await remote.signinVerify('her@example.com', '111111');
     process.env.FAKE_TUNNEL_MODE = 'partial-register';
     assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000';
     process.env.FAKE_TUNNEL_MODE = 'slow-retire';
     fs.rmSync(RECORD, { force: true });
