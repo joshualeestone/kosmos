@@ -45,6 +45,11 @@ Card: kosmos#6175 (#6108 follow-up).
   (no path in the body).
 
 ## Decided, not missed
+- After review 16 (NO FINDINGS), found myself: rows and the list now take focus from code, and the page's own #4961 note
+  says such a move after a click in the Mac app can match :focus-visible and draw a stroke. Built: no outline on
+  #set-accounts and its rows when focused (as .dsec), with a browser arm armed by a weaker injected ring rule. Rejected:
+  a keyboard-only ring like .dsec.kbd-landed (no keyboard signal exists in this handler). Weakest premise: a keyboard
+  user loses the visible mark of where focus landed after a press; the status line says what happened.
 - Review 15 (built, no browser arm): a refusal that arrives while a full repaint has no row drawn leaves the status line
   ("Checking your accounts…") alone; the refusal is then said nowhere that lasts, and pressing again says it (it is
   deterministic). Not built: a per-folder map the next paint renders (more state for a case needing a paint inside the

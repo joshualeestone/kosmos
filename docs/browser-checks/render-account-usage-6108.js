@@ -347,7 +347,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         out.say2 = [...row('unwired').querySelectorAll('[data-usage-say]')].map((e) => e.textContent);
         btnOf('unwired').focus(); btnOf('unwired').click(); await until(() => !btnOf('unwired') && /Usage reading set up/.test(document.getElementById('set-accounts-msg').textContent));
         out.after = { offer: !!btnOf('unwired'), line: row('unwired') && row('unwired').querySelector('.acct-usage-line') ? row('unwired').querySelector('.acct-usage-line').textContent.trim() : null,
-          msg: document.getElementById('set-accounts-msg').textContent, focusIsRow: document.activeElement === row('unwired') };
+          msg: document.getElementById('set-accounts-msg').textContent, focusIsRow: document.activeElement === row('unwired'),
+          ring: (() => {   // the row focused from code draws no ring (as .dsec). A weaker ring rule stands in for the engine's
+            const st = document.createElement('style'); st.textContent = '.acct-box:focus { outline: 2px solid red; }';   // own, which headless may not draw
+            document.head.appendChild(st); const o = getComputedStyle(document.activeElement).outlineStyle; st.remove(); return o;
+          })() };
         /* Review 4: another writer's sentence and a focus the person moved both stand during the re-claim second. */
         const sentinel = document.createElement('input'); document.body.appendChild(sentinel); sentinel.focus();
         document.getElementById('set-accounts-msg').textContent = 'Moved Dana to spare@example.com.';
@@ -383,6 +387,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!s6175.listDown && s6175.listDown.n === 3 && s6175.listDown.listError && !/Usage reading set up/.test(s6175.listDown.msg), tag + ' #6175 a set-up whose list cannot be read after does not say "set up" beside the error', JSON.stringify(s6175.listDown));
       say(s6175.reSaid === true, tag + ' #6175 the same refusal twice is emptied and said again, so a screen reader hears it again', String(s6175.reSaid));
       say(s6175.rowFocusable === true, tag + ' #6175 the row itself takes focus, so a repaint can hand focus back to it', String(s6175.rowFocusable));
+      say(s6175.after.ring === 'none', tag + ' #6175 the row focused from code after a press draws no focus ring', JSON.stringify(s6175.after.ring));
       say(s6175.refocus === true, tag + ' #6175 after a refusal, focus is back on the button for a keyboard user', String(s6175.refocus));
       say(!!s6175.foreign && s6175.foreign.msg === 'Moved Dana to spare@example.com.' && s6175.foreign.focusKept, tag + ' #6175 the re-claim leaves another writer\'s sentence and a focus the person moved alone', JSON.stringify(s6175.foreign));
       say(s6175.stale.offer && /adds Kosmos\u2019s status line/.test(s6175.stale.describedBy || '') && s6175.stale.stillShows, tag + ' #6175 a row still showing an old reading is offered it too, described by its explainer', JSON.stringify(s6175.stale));
