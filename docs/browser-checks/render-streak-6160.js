@@ -293,6 +293,29 @@ const read = (pg) => pg.evaluate(() => {
     await pg.close();
   }
 
+  // a page that loads hidden (a tab restored in the background) does not count the day or spend the note until it is seen
+  {
+    let calls = 0;
+    const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
+    await pg.addInitScript(() => {
+      let hidden = true;
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (hidden ? 'hidden' : 'visible') });
+      window.__show = () => { hidden = false; document.dispatchEvent(new Event('visibilitychange')); };
+    });
+    await pg.route('**/api/streak', (route) => { calls++; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: true }) }).catch(() => {}); });
+    await pg.goto(URL, { waitUntil: 'domcontentloaded' });
+    await pg.waitForSelector('#klink', { state: 'attached', timeout: 15000 }).catch(() => {});
+    await pg.waitForTimeout(1500);
+    const whileHidden = calls;
+    await pg.evaluate(() => window.__show());
+    await pg.waitForTimeout(800);
+    const seen = await pg.evaluate(() => Boolean(document.querySelector('#streak-slot .utoast.streak')));
+    say(whileHidden === 0, 'hidden load: no visit is recorded while nobody can see the page', 'calls=' + whileHidden);
+    say(calls === 1 && seen, 'hidden load: once it is shown, the day counts and the note appears', JSON.stringify({ calls, seen }));
+    await pg.close();
+  }
+
   // a board that keeps saying no is asked a handful of times, not every minute forever
   {
     let calls = 0;

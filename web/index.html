@@ -35314,7 +35314,7 @@ function paintStreak(got) {
       + '<button type="button" class="ux" aria-label="Dismiss">&times;</button>'
       + '</div>';
     slot.querySelector('.ux').addEventListener('click', streakNoteGone);
-    const note = slot.firstElementChild, later = (ms) => { clearTimeout(streakNoteTimer); streakNoteTimer = setTimeout(streakNoteGone, ms); };
+    const note = slot.firstElementChild, later = (ms) => { if (!note.isConnected) return; clearTimeout(streakNoteTimer); streakNoteTimer = setTimeout(streakNoteGone, ms); };
     // It goes by itself after 12 s, but never from under a pointer or the keyboard: it waits while they are on it.
     for (const ev of ['mouseenter', 'focusin']) note.addEventListener(ev, () => clearTimeout(streakNoteTimer));
     for (const ev of ['mouseleave', 'focusout']) note.addEventListener(ev, () => { if (!note.matches(':hover') && !note.contains(document.activeElement)) later(6000); });
@@ -35339,7 +35339,7 @@ async function streakCheck() {
   if (k && lab) {
     let held = null, swallow = false, shown = null;
     let touchAt = 0;
-    const showLabel = () => { swallow = true; lab.classList.add('show'); clearTimeout(shown); shown = setTimeout(() => lab.classList.remove('show'), 2500); };
+    const showLabel = () => { swallow = true; lab.classList.remove('quiet'); lab.classList.add('show'); clearTimeout(shown); shown = setTimeout(() => lab.classList.remove('show'), 2500); };
     k.addEventListener('pointerdown', (e) => {
       swallow = false;   // a long press that ended with no click (Android raises contextmenu instead) must not eat this press
       if (e.pointerType === 'touch') touchAt = Date.now();
@@ -35364,7 +35364,7 @@ async function streakCheck() {
     k.addEventListener('click', (e) => { if (swallow) { swallow = false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
   }
 })();
-streakCheck();
+if (!document.hidden) streakCheck();   // a page restored in the background, or opened at login with nobody there, waits to be seen (visibilitychange below)
 /* A page left open across the person's midnight counts the new day only if they are there: the page is showing and
    they clicked or typed in the last ten minutes. A window left open overnight on an empty desk is not a visit. Coming
    back to the page (visibilitychange) counts at once. */
