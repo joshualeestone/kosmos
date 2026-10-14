@@ -19,8 +19,8 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 - `KOSMOS_CI_RUNNER` is read, never written. `KOSMOS_CI_SHELL_SHARDS` refuses preflight and verify when it names a
   shard test.yml would route (1/2 or 2/2); any other value, empty included, routes none and is reported as such.
 - The registration token comes on stdin and reaches config.sh as `ACTIONS_RUNNER_INPUT_TOKEN`, never argv.
-  Weakest premise: that the runner honours that variable (from the runner's source as I remember it, not measured
-  on a runner here). If it does not, `register --apply` fails at config.sh asking for a token, which is loud.
+  Settled from source (CommandSettings.cs, read in review): the runner reads every ACTIONS_RUNNER_INPUT_ variable,
+  masks it as a secret, and clears it from its environment.
 - The runner package is trusted on first fetch: checked against the sha256 its own release publishes, which
   catches a damaged download, not a compromised release (as Baron's script had it). The guard is pinned harder.
 - Auto-login stays a printed System Settings step: the CLI form needs the password in argv.
@@ -29,7 +29,7 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 96 ok. Sixty-four mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 101 ok. Sixty-seven mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
@@ -46,7 +46,7 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   the admin STOP when is_admin succeeded; then a hidden runner dir read as missing, a duplicate hook key missed;
   then FileVault matched by glob, no Command Line Tools check, an allow list read as a grep option, the old Listener
   taken for a new one, an unchecked guard reported clear, the owner note printed twice; then register without a
-  wired guard).
+  wired guard; then an allow list matching every label, allowed jobs not named, register's hook-file refusal).
 - register --apply refuses unless .env wires both hooks exactly once and every hook file is executable: a runner
   must never go online on a public repo without its guard.
 - verify exits 3, not 0, when it could not make a check (a home it cannot read): whether the job guard is wired is
@@ -79,3 +79,6 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   crontab, live suites) and passes every machine check, autorestart included; verify against kosmos-ci-mini is
   clear on the API rows. The runbook's 81 counts the owner's open GUI apps too (`application.*` labels, 9 here),
   which preflight now ignores, since they are not jobs and Terminal is always one of them.
+- tar over a self-updated runner (bin/externals symlinked to versioned dirs) replaces the symlinks with plain dirs
+  of the new release: measured by a reviewer in a sandbox with bsdtar, not by me; the real 2.338.0 tarball lists
+  ./bin/ and ./externals/ as directory entries.

@@ -142,7 +142,15 @@ preflight() {
   if [ -n "$ALLOW_JOBS" ]; then
     # grep exits 2 on a bad pattern and prints nothing, which would clear every job.
     printf 'x\n' | grep -E -e "$ALLOW_JOBS" >/dev/null 2>&1 || [ $? = 1 ] || { problem "KOSMOS_CI_ALLOW_JOBS is not a valid ERE: $ALLOW_JOBS"; jobs=""; unknown=1; }
-    [ -z "$jobs" ] || jobs="$(printf '%s\n' "$jobs" | grep -v -E -e "$ALLOW_JOBS" || true)"
+    # A valid pattern can still match everything (".*", "^", a trailing "|"): one that matches a label nobody would
+    # allow is refused rather than allowed to clear every job.
+    if [ "$unknown" = 0 ] && printf 'kosmos-ci.sentinel.never-allowed\n' | grep -q -E -e "$ALLOW_JOBS"; then
+      problem "KOSMOS_CI_ALLOW_JOBS matches any label (tried kosmos-ci.sentinel.never-allowed): $ALLOW_JOBS"; jobs=""; unknown=1
+    fi
+    if [ "$unknown" = 0 ] && [ -n "$jobs" ]; then
+      printf '%s\n' "$jobs" | grep -E -e "$ALLOW_JOBS" | sed 's/^/note:   allowed to stay loaded (KOSMOS_CI_ALLOW_JOBS): /' || true
+      jobs="$(printf '%s\n' "$jobs" | grep -v -E -e "$ALLOW_JOBS" || true)"
+    fi
   fi
   if [ -n "$jobs" ]; then
     problem "$(printf '%s\n' "$jobs" | grep -c .) non-Apple launchd job(s) still loaded for $(id -un) (bootout + disable each, runbook part 3 step 0): $(printf '%s\n' "$jobs" | head -5 | tr '\n' ' ')(KOSMOS_CI_ALLOW_JOBS=<ERE> keeps one deliberately)"
@@ -249,6 +257,9 @@ install_runner() {
   local st
   st="$(curl -fsSL "https://api.github.com/repos/$REPO/compare/$commit...main" | sed -n 's/^  "status": "\([a-z]*\)".*/\1/p' | head -1 || true)"
   case "$st" in ahead|identical) ok "$commit is on main ($st)" ;; *) echo "refused: commit $commit is not on main (compare status '${st:-unknown}'; unknown can also be a GitHub rate limit or no network), nothing changed" >&2; exit 1 ;; esac
+  if [ "$APPLY" != 1 ] && [ -d "$CI_HOME" ] && [ ! -x "$CI_HOME" ]; then
+    echo "note:   cannot look inside $RUNNER_DIR as $(id -un); its .env KOSMOS_ check runs at --apply, as $CI_USER"
+  fi
   if [ -e "$RUNNER_DIR/.env" ] && [ ! -r "$RUNNER_DIR/.env" ]; then
     echo "refused: cannot read $RUNNER_DIR/.env (run as $CI_USER), so its KOSMOS_ keys cannot be ruled out; nothing changed" >&2; exit 1
   fi
@@ -315,6 +326,7 @@ install_runner() {
   # Unpacked over the old release. A runner that updated itself has bin and externals as symlinks to versioned
   # dirs (actions/runner update.sh); tar replaces those with plain dirs of this release. svc.sh install copied
   # bin/runsvc.sh to ./runsvc.sh, naming its node version, so refresh that copy below as svc.sh install would.
+  # The old versioned dirs (bin.<ver>, externals.<ver>) stay beside them; prune them by hand when disk runs low.
   tar xzf "$tgz"
   [ ! -f .service ] || cp bin/runsvc.sh runsvc.sh
   chmod +x "$newg"

@@ -157,6 +157,13 @@ refuse bad-allow-ere "KOSMOS_CI_ALLOW_JOBS is not a valid ERE" FX_JOBS=com.kosmo
 for n in launchctl-unreadable bad-allow-ere; do
   ! has "pf-$n" "no non-Apple launchd jobs loaded" && pass "preflight $n: no false 'no jobs loaded' line beside the refusal" || fail "preflight $n printed 'no non-Apple launchd jobs loaded' though it could not tell"
 done
+for pat in '.*' '^' '^io\.tailscale\.|'; do
+  run pf-allow-all "$H" FX_JOBS=com.kosmos.board "KOSMOS_CI_ALLOW_JOBS=$pat" -- preflight
+  # A grep that rejects a trailing "|" refuses it as invalid instead; either refusal is right, a clear is not.
+  [ "$(rc pf-allow-all)" = 1 ] && { has pf-allow-all "matches any label" || has pf-allow-all "is not a valid ERE"; } && ! has pf-allow-all "no non-Apple launchd jobs loaded" \
+    && pass "preflight refuses an allow list that matches every label: '$pat'" || fail "allow-all '$pat': rc $(rc pf-allow-all): $(grep -E 'REFUSE|ok:.*launchd' "$T/pf-allow-all.out" | head -2)"
+done
+has pf-allow-keeps-others "allowed to stay loaded (KOSMOS_CI_ALLOW_JOBS): io.tailscale.ipn.helper" && pass "preflight names each job the allow list keeps" || fail "allow list kept jobs not named"
 run pf-allow-dash "$H" FX_JOBS=io.tailscale.ipn.helper KOSMOS_CI_ALLOW_JOBS='-nomatch|^io\.tailscale\.' -- preflight
 [ "$(rc pf-allow-dash)" = 0 ] && pass "preflight: an allow list starting with '-' is a pattern, not a grep option" || fail "allow list with '-': $(grep REFUSE "$T/pf-allow-dash.out")"
 run pf-allow "$H" FX_JOBS=io.tailscale.ipn.helper KOSMOS_CI_ALLOW_JOBS='^io\.tailscale\.' -- preflight
@@ -277,6 +284,11 @@ printf 'LANG=C\n' > "$RG/actions-runner/.env"
 run rg-unwired "$RG" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$RG" -- --apply register
 [ "$(rc rg-unwired)" = 1 ] && has rg-unwired "does not wire ACTIONS_RUNNER_HOOK_JOB_STARTED" && ! grep -q '^config\.sh' "$T/rg-unwired.calls" \
   && pass "register --apply refuses a runner whose job guard is not wired" || fail "register unwired: rc $(rc rg-unwired): $(tail -1 "$T/rg-unwired.out")"
+mkdir -p "$RG/.kosmos-ci"; printf 'ACTIONS_RUNNER_HOOK_JOB_STARTED=%s\nACTIONS_RUNNER_HOOK_JOB_COMPLETED=%s\n' "$RG/.kosmos-ci/job-started.sh" "$RG/.kosmos-ci/job-completed.sh" > "$RG/actions-runner/.env"
+for f in job-started.sh job-completed.sh job-cleanup.sh; do printf '#!/bin/bash\n' > "$RG/.kosmos-ci/$f"; chmod 755 "$RG/.kosmos-ci/$f"; done
+run rg-noguard "$RG" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$RG" -- --apply register
+[ "$(rc rg-noguard)" = 1 ] && has rg-noguard "job-guard.sh is missing or not executable" && ! grep -q '^config\.sh' "$T/rg-noguard.calls" \
+  && pass "register --apply refuses when a hook file is missing though .env is wired" || fail "register no guard file: rc $(rc rg-noguard): $(tail -1 "$T/rg-noguard.out")"
 run rg-noinstall "$T/empty-ci" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$T/empty-ci" -- --apply register
 [ "$(rc rg-noinstall)" = 1 ] && has rg-noinstall "run install first" && pass "register --apply before install says so" || fail "register before install: rc $(rc rg-noinstall): $(tail -1 "$T/rg-noinstall.out")"
 R7="$T/run7"; svc_home "$R7"
