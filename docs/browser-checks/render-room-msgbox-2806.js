@@ -910,6 +910,8 @@ function tapProbe4663(skip) {
         // Whatever the list holds (an empty-state line, say) is set aside, so the first stand-in card starts at the
         // scroller's own edge, and put back after.
         const kept = [...list.childNodes]; kept.forEach((n) => n.remove());
+        let out = { error: 'probe threw before measuring' };
+        try {
         for (let i = 0; i < 6; i += 1) { const b = document.createElement('button'); b.type = 'button'; b.className = 'tkcard tk-probe'; b.textContent = 'Task ' + (i + 1) + ': a stand-in card with a title long enough to wrap'; list.appendChild(b); }
         const first = list.querySelector('.tk-probe');
         first.focus();
@@ -926,7 +928,7 @@ function tapProbe4663(skip) {
           }
         }
         const L = list.getBoundingClientRect(); const C = first.getBoundingClientRect();
-        const out = { dir: getComputedStyle(list).flexDirection, scrolls: list.scrollWidth > list.clientWidth + 1,
+        out = { dir: getComputedStyle(list).flexDirection, scrolls: list.scrollWidth > list.clientWidth + 1,
           pageFits: document.documentElement.scrollWidth <= window.innerWidth, ring,
           roomTop: Math.round(C.top - L.top), roomLeft: Math.round(C.left - L.left), focused: document.activeElement === first };
         // A card further along, focused: the browser scrolls it into view, and its ring must still clear the scroller's
@@ -936,10 +938,15 @@ function tapProbe4663(skip) {
         const L4 = list.getBoundingClientRect(); const C4 = fourth.getBoundingClientRect();
         out.scrolledBy = Math.round(list.scrollLeft); out.roomLeft4 = Math.round(C4.left - L4.left);
         fourth.blur(); list.querySelectorAll('.tk-probe').forEach((n) => n.remove()); list.scrollLeft = 0;
-        kept.forEach((n) => list.appendChild(n));
-        out.restored = list.childNodes.length === kept.length && kept.every((n, i) => list.childNodes[i] === n);
-        for (const [el, h, inert, disp] of unhide.reverse()) { el.hidden = h; if (inert) el.setAttribute('inert', ''); el.style.display = disp; }
         return out;
+        } finally {
+          // Put the page back whatever happened above: the stand-ins out, the list's own nodes in, the ancestors re-hidden.
+          if (document.activeElement && document.activeElement.classList.contains('tk-probe')) document.activeElement.blur();
+          list.querySelectorAll('.tk-probe').forEach((n) => n.remove()); list.scrollLeft = 0;
+          kept.forEach((n) => list.appendChild(n));
+          for (const [el, h, inert, disp] of unhide.reverse()) { el.hidden = h; if (inert) el.setAttribute('inert', ''); el.style.display = disp; }
+          out.restored = list.childNodes.length === kept.length && kept.every((n, i) => list.childNodes[i] === n);
+        }
       });
       chk(!tkRow.error && tkRow.dir === 'row' && tkRow.scrolls && tkRow.pageFits && tkRow.focused && tkRow.ring > 0
         && tkRow.roomTop >= tkRow.ring && tkRow.roomLeft >= tkRow.ring && tkRow.scrolledBy > 0 && tkRow.roomLeft4 >= tkRow.ring && tkRow.restored,
