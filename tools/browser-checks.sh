@@ -1467,6 +1467,9 @@ if boot_board "$sb7" "$P8"; then
   # #5359: the note that this computer restarted under a running Kosmos. Stubs GET /api/board/restart-note at the
   # network edge (today, yesterday, older, an empty control, and the dismiss), so any board serves; headless-fine.
   run_one "render-reboot-note-5359" env KOSMOS_URL="$B8" node docs/browser-checks/render-reboot-note-5359.js "$sb7/shots-reboot-note"
+  # #6160: the streak by the K mark. Stubs POST /api/streak at the network edge (a note, its control, day 1, none, a
+  # long press, midnight), so any board serves; headless-fine.
+  run_one "render-streak-6160" env KOSMOS_URL="$B8" node docs/browser-checks/render-streak-6160.js "$sb7/shots-streak"
   run_one "render-switch-states" env KOSMOS_URL="$B8" node docs/browser-checks/render-switch-states.js
   # #2020/#2047: the two restored telemetry opt-out switches are 403-safe (a gated
   # read draws could-not-read, never a false Off). The 403 arm is simulated with
