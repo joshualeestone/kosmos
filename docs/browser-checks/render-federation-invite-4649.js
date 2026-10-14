@@ -1665,18 +1665,29 @@ const closeAll = (page) => page.evaluate(() => {
     /* #6105: the "Copied" state is read INSIDE the wait, the moment the line is up, so a saturated box cannot land the
        read after the 2 s revert (this arm tests the revert below, so the revert is not frozen here). */
     st = await page.waitForFunction(() => {
-      if (document.getElementById('fedinv-status').textContent !== 'Invitation copied.') return false;
+      const status = document.getElementById('fedinv-status').textContent;
+      if (status !== 'Invitation copied.') return false;
+      window.__c1Seen = performance.now();   // review 4: the revert below is timed from here, on the page's own clock
       return { copied: window.__copied.slice(), allText: document.getElementById('fedinv-copy-all').textContent,
-        copyText: document.getElementById('fedinv-copy').textContent, status: 'Invitation copied.' };
+        copyText: document.getElementById('fedinv-copy').textContent, status };
     }, null, { timeout: 4000 }).then((h) => h.jsonValue()).catch(async () => { console.log('NOTE  a wait timed out and the arm read anyway: C1 Invitation copied.'); return step(page); });
     const c1 = st.copied[1];
     check('C1 Copy the invitation writes shot 04\'s text exactly, with the name and the address',
       st.copied.length === 2 && c1 === invitation('Maya Chen (' + ADDR + ')'), JSON.stringify(c1));
     check('C1 it says Copied, and the bare Copy is not left saying Copied', st.allText === 'Copied' && st.copyText === 'Copy' && st.status === 'Invitation copied.',
       JSON.stringify({ all: st.allText, copy: st.copyText, status: st.status }));
-    await untilReverted(page);   // #6105: the revert by its state, not a fixed 2.3 s a late timer could outlast
+    /* #6105: the revert by its state, not a fixed 2.3 s a late timer could outlast, and timed on the page's clock from
+       the moment the Copied was seen (review 4): about 2 s, so 1.5 s to 4.5 s, which catches a revert made much shorter
+       or much longer while leaving room for a loaded box. */
+    const c1rev = await page.waitForFunction(() => {
+      const done = !FEDINV_COPY_TIMER && document.getElementById('fedinv-copy').textContent === 'Copy'
+        && document.getElementById('fedinv-copy-all').textContent === 'Copy the invitation';
+      return done ? { ms: performance.now() - (window.__c1Seen || performance.now()) } : false;
+    }, null, { timeout: 6000 }).then((h) => h.jsonValue()).catch(() => { console.log('NOTE  a wait timed out and the arm read anyway: C1 revert'); return null; });
     st = await step(page);
-    check('C1 the button reverts to "Copy the invitation"', st.allText === 'Copy the invitation' && st.status === '', JSON.stringify({ all: st.allText, status: st.status }));
+    check('C1 the button reverts to "Copy the invitation", about 2 s after it said Copied',
+      st.allText === 'Copy the invitation' && st.status === '' && !!c1rev && c1rev.ms >= 1500 && c1rev.ms <= 4500,
+      JSON.stringify({ all: st.allText, status: st.status, revertMs: c1rev && Math.round(c1rev.ms) }));
 
     /* C1b (merged-C review): only the OWNER's members answer names the address. A member's answer (owner: false)
        carries another account's owner_name, so the invitation keeps the name alone. Control: the same answer with
