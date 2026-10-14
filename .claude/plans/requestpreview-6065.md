@@ -7,7 +7,7 @@ on the Gemini and Meta runners, and where a message is still shortened, put the 
 ## Finished looks like
 When a room post or DM is too long to type whole (messages.spillsAt), the line the agent sees still carries the head,
 the size and the file, and now also the request: for a room post, the sentence that @-mentions this member (by handle
-or display name, and only when the room itself counted it as mentioned) shown quoted as It asks you: "..."; otherwise
+or display name, and only when the room itself counted it as mentioned) shown quoted as Where it names you: "..."; otherwise
 the post's first question (a ? ending a word, never one in a link) as Its first question: "..."; a sentence already in
 the head is skipped for the next one; nothing when there is none. At most 300 characters.
 

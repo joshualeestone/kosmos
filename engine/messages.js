@@ -257,15 +257,16 @@ function spillHead(text) {
 /* #6065 N1 (0.7.48 report: Gemini and Meta still had long room posts arrive shortened): where a post is still
    shortened, its preview carries the request (Josh: "put the request in the preview"). The request is the first
    sentence that names this member, at the positions mentionedMembers recorded (`namedAt`, so it is exactly what the
-   room read as a mention: an ambiguous or unmatched @-word never reads as "It asks you"); else the first question (a ?
+   room read as a mention: an ambiguous or unmatched @-word is never quoted as naming the member). Labelled Where it
+   names you, not as a request: a mention can be a thank-you or a sign-off (review 6); else the first question (a ?
    ending a word, never one inside a link). A sentence that ends inside the head is skipped for the next one (one the opening cut only started is not). Cut at a
    whole word to at most REQUEST_MAX characters plus an ellipsis. A sentence runs from the end of the one before (. ! ?
    then a space) to its own end: both callers pass chat.cleanMessage's text, which has no line breaks, so a list with
    no punctuation reads as one sentence, and an abbreviation such as "e.g." can start one early (the head's NOT_AN_END
    list is not applied here), as can a sentence after one ending in a closing quote or bracket. */
 const REQUEST_MAX = 300;
-const REQUEST_LEAD = 100;
-const GREETING_WORDS = 4;   // review 5: words before a mention that ends its sentence, for it to read as a greeting   // review 3: how much of a long sentence is kept before its mention or question
+const REQUEST_LEAD = 100;   // how much of a long sentence is kept before its mention or question
+const GREETING_WORDS = 4;   // words before a mention that ends its sentence, for it to read as a greeting
 function sentenceAt(t, at, greeting = false) {
   const before = t.slice(0, at);
   const from = Math.max(-1, ...['. ', '! ', '? '].map((e) => { const i = before.lastIndexOf(e); return i < 0 ? -1 : i + 1; })) + 1;
@@ -324,7 +325,7 @@ function requestIn(text, opts = {}) {
     }
   }
   if (afterGreeting) return { sentence: unquotable(afterGreeting), asked: true };
-  for (const m of t.matchAll(/\?(?=\s|$)/g)) {
+  for (const m of t.matchAll(/(?<=\S)\?(?=\s|$)/g)) {
     const s = sentenceAt(t, m.index);
     if (s && s.end > headEnd) return { sentence: unquotable(s.sentence), asked: false };
   }
@@ -339,7 +340,7 @@ function spillLine(text, file, opts = {}) {
   const headEnd = head.replace(/\s*\u2026$/, '').trimEnd().length;
   const req = requestIn(text, { ...opts, headEnd });
   return head + ' (long message, ' + words + (words === 1 ? ' word' : ' words') + '; the full text is in your own folder at ' + file + ')'
-    + (req ? (req.asked ? ' It asks you: "' : ' Its first question: "') + req.sentence + '"' : '');
+    + (req ? (req.asked ? ' Where it names you: "' : ' Its first question: "') + req.sentence + '"' : '');
 }
 /* The ceiling past which a body is a document, not a message (spill
    relaxes chat's cap, never the idea of one). The log itself has no
