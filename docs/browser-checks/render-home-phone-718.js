@@ -180,8 +180,8 @@ function emptySpot(page, sel) {
         // desktop card (more than two columns, the face above the name), so the arm cannot pass on a page that
         // simply always draws the tablet card. 1024x768 is inside the tablet width range, so only the orientation
         // clause keeps it out.
-        // Chromium only: Playwright's WebKit has no mobile emulation, so it never reports (hover: none) and (pointer: coarse)
-        // and no tablet rule can apply there (render-mobilenav-4823 and render-waiting-phone-718 do the same).
+        // Chromium only: this file opens WebKit with touch but without mobile emulation, and the tablet rules need
+        // (hover: none) and (pointer: coarse).
         if (engine === 'webkit') console.log(`skip  [webkit] #6107 tablet card arms: WebKit reports no touch screen (no mobile emulation)`);
         // 744 is the iPad mini, the narrowest screen that gets two across (each card at its 330px floor).
         for (const [w, h, upright, across] of (engine === 'webkit' ? [] : [[834, 1194, true, 2], [744, 1133, true, 2], [600, 960, true, 1], [1024, 768, false, 0]])) {

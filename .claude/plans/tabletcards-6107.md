@@ -63,3 +63,5 @@ tablet shots; he can rule it smaller or folded away.
 Design note for Josh (round 11): the project tip's steps still run Members, Conversation, Files,
 Tasks, while an upright tablet now shows Tasks, Conversation, Members/Files, so the tip jumps around
 the page. Every step still lands on screen (checked); reordering the steps is a follow-up if he wants it.
+Design note for Josh (round 15): in the sideways Tasks row a sub-task loses its indent, so it looks
+like a top-level task apart from its "Part of" line. Shown in the tablet shots.
