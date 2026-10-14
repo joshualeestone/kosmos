@@ -122,7 +122,7 @@ test('#4382: each run is the engine\'s, off the window\'s thread, counted so Run
   assert.match(look, /look\.IsBackground = false;/, 'closing the window could cut an install off between its steps');
   /* The window's own look is given up on (its flags let go) after the limit, and nothing is killed. */
   inOrder(look, ['if (action == "look")', 'giveUp.Interval = KosmosLauncher.UpdateLookTimeoutMs;', 'if (finished[0]) return;', 'gaveUp[0] = true;',
-    'updateLookInFlight = false;', 'stopsInFlight--;', 'finished[0] = true;', 'if (gaveUp[0]) { if (answer.Kind == KosmosLauncher.ConnectUpdateKind.Updated) UpdateLookDone(answer, action); return; }'], 'giving up on a look that hangs, still recording an install it did');
+    'updateLookInFlight = false;', 'stopsInFlight--;', 'finished[0] = true;', 'if (gaveUp[0]) { if (answer.Kind == KosmosLauncher.ConnectUpdateKind.Updated && !updateLookInFlight) UpdateLookDone(answer, action); return; }'], 'giving up on a look that hangs, still recording an install it did');
   assert.doesNotMatch(look, /\.Kill\(/, 'a kill could land while the engine holds its lock or has written a journal');
   inOrder(method('void RunAgentsHere()'), [
     'if (mode != KosmosLauncher.ComputerMode.Connect) return;',
@@ -155,7 +155,7 @@ test('#4382: the window applies the pure decisions, and nothing else installs, r
   inOrder(method('void UpdatePicked()'), ['KosmosLauncher.UpdatePickedAction(updateState, updateLookInFlight);',
     'if (next == "busy") { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }',
     'if (next == "restart") { RelaunchAfterClose = "update"; Close(); return; }', 'if (next == "install") LookForUpdate("install");'], 'Update');
-  inOrder(method('void RollbackPicked()'), ['updateState.Rollback == null) return;',
+  inOrder(method('void RollbackPicked()'), ['updateState.Rollback == null || updateState.Installed != null) return;',
     'if (updateLookInFlight) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }',
     'if (!KosmosLauncher.askYesNo(KosmosLauncher.RollbackQuestion(updateState.Rollback))) return;',
     'if (updateLookInFlight) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }', 'LookForUpdate("rollback");'], 'Roll back, checked again after the question');
@@ -178,7 +178,7 @@ test('#4382: Update and Roll back are in the system menu, only on a connect comp
   assert.match(proc, /== RollbackMenuId\) \{ RollbackPicked\(\); return; \}/);
   const menu = method('void UpdateRunAgentsItem()');
   inOrder(menu, ['bool want = mode == KosmosLauncher.ComputerMode.Connect;', 'updateState.Installed != null ? KosmosLauncher.RestartMenuText(updateState.Installed)',
-    'updateState.Offer != null ? KosmosLauncher.UpdateMenuText(updateState.Offer)', 'want && updateState.Rollback != null ? KosmosLauncher.RollbackMenuText(updateState.Rollback) : null;',
+    'updateState.Offer != null ? KosmosLauncher.UpdateMenuText(updateState.Offer)', 'want && updateState.Rollback != null && updateState.Installed == null ? KosmosLauncher.RollbackMenuText(updateState.Rollback) : null;',
     'if (systemMenuShown != null) GetSystemMenu(Handle, true);',
     'if (updateText != null) AppendMenuW(menu, MF_STRING, new UIntPtr((uint)UpdateMenuId), updateText);',
     'if (rollbackText != null) AppendMenuW(menu, MF_STRING, new UIntPtr((uint)RollbackMenuId), rollbackText);'], 'the menu');
@@ -335,6 +335,8 @@ test('#4382: what each answer does: the same consent as the board, never a resta
     ['state|-;-;0.7.46;-|rolledback 0.7.46|rollback', { re: 'rollback', I: '-', O: '-' }],
     /* MUST FIX 1: an automatic install that failed: the version stays on offer, so Update can try again */
     ['state|-;-;-;-|failed 0.7.50 The update did not take.|look', { O: '0.7.50', btn: 'Update', re: '-' }],
+    /* an update not seen to finish (no version leads it): no retry offered, even with an offer on hand */
+    ['state|0.7.50;-;-;-|failed the update to 0.7.50 has not finished yet and may still finish|install', { O: '0.7.50', btn: '-' }],
     /* a failure with no version to retry: said, and no button that would do nothing */
     ['state|-;-;-;-|failed something broke|look', { O: '-', btn: '-' }],
     /* a failed rollback is a box, and the offer bar stays as it was */
@@ -364,10 +366,11 @@ test('#4382: what each answer does: the same consent as the board, never a resta
   });
   /* The words on the bar, for the rows whose wording is the point. */
   assert.match(stateOf(got[4]).bar, /^Kosmos could not update \(The update did not take\.\)\. Press Update to try again\.$/);
-  assert.doesNotMatch(stateOf(got[5]).bar, /Press Update/, 'a note that names a button the bar does not have');
-  assert.equal(stateOf(got[6]).msg, 'The roll back did not finish: no.', 'a failed roll back never claims which version is in place');
-  assert.notEqual(stateOf(got[9]).bar, '-', 'the person asked and heard nothing');
-  assert.equal(stateOf(got[14]).bar, 'Kosmos is up to date.', 'the person pressed Update and saw nothing happen');
+  assert.doesNotMatch(stateOf(got[5]).bar, /Press Update/, 'an update that may still finish invites no retry');
+  assert.doesNotMatch(stateOf(got[6]).bar, /Press Update/, 'a note that names a button the bar does not have');
+  assert.equal(stateOf(got[7]).msg, 'The roll back did not finish: no.', 'a failed roll back never claims which version is in place');
+  assert.notEqual(stateOf(got[10]).bar, '-', 'the person asked and heard nothing');
+  assert.equal(stateOf(got[15]).bar, 'Kosmos is up to date.', 'the person pressed Update and saw nothing happen');
   const args = runProbe(['args|rollback|0.7.46', 'args|look|0.7.46', 'args|rollback|0.7.46 --yes', 'args|rollback|-', 'args|install|0.7.50']);
   assert.deepEqual(args, ['--rollback --port 16180 --expect 0.7.46', '--look --port 16180', '--rollback --port 16180', '--rollback --port 16180', '--install --port 16180 --expect 0.7.50'],
     'a rollback and an install name the version agreed to, a look none, and only a real version reaches the command line');

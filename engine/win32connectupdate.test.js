@@ -550,3 +550,33 @@ test('#4382: a roll back whose outcome is not seen in time is not called finishe
   assert.match(back.answer[2], /has not finished yet and may still finish/);
   assert.equal(readJson(path.join(c.anchor, win32anchor.UPDATE_HELD_NAME)).version, NEXT, 'the next automatic look will not put it back');
 });
+
+test('#4382: an install whose outcome is not seen in time is not offered for a retry, and no file paths reach the person', T, async () => {
+  setMode('connect\n');
+  setConsent(true);
+  const c = freshCase();
+  const sim = stoppedBoard(c);
+  let clock = 0;
+  const slow = seamsFor(c, site(NEXT), sim);
+  slow.helperOptions = { ...slow.helperOptions, spawn: (file, args) => { c.spawned.push({ file, args }); return { pid: 4242, on() {}, unref() {} }; } };
+  slow.wait = { now: () => clock, sleep: async (ms) => { clock += ms; }, waitMs: 1000 };
+  const r = await connectUpdate.run('look', slow);
+  assert.equal(r.answer[0], 'failed');
+  assert.equal(r.answer.length, 2, 'no version leads it, so the window offers no retry');
+  assert.match(r.answer[1], /has not finished yet and may still finish/);
+  assert.doesNotMatch(r.answer[1], /\.json|[A-Z]:\\/, 'no file paths');
+});
+
+test('#4382: a board that starts while the look runs is asked about again right before anything is started', T, async () => {
+  setMode('connect\n');
+  setConsent(true);
+  const c = freshCase();
+  const sim = stoppedBoard(c);
+  let asked = 0;
+  const seams = { ...seamsFor(c, site(NEXT), sim), probe: async () => { asked += 1; return asked === 1 ? { answering: false } : { answering: true, identity: `${INSTALLED}@default` }; } };
+  const r = await connectUpdate.run('look', seams);
+  assert.deepEqual(r.answer, ['board']);
+  assert.equal(asked, 2);
+  assert.deepEqual(c.spawned, []);
+  assert.equal(versionIn(c.root), INSTALLED);
+});

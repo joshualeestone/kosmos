@@ -89,7 +89,8 @@ function connectReadyRefusal(dir, version) {
 
 /** The rollback this computer can take, as the version, or null: the board's own offer (a kept build
     strictly older than the one installed, in a folder the updater takes), narrowed to a build that is
-    connect-ready (connectReadyRefusal). */
+    connect-ready (connectReadyRefusal). The location rule reads the bundle root this process resolves for
+    itself, which is `root` in production (run() takes it from update.installedRoot). */
 function connectRollbackOffer(root) {
   try {
     if (update.windowsLocationRefusal()) return null;
@@ -153,11 +154,16 @@ async function run(action, opts) {
      once here and handed to the precondition as measured, so B0 refuses on the same answer. On loopback a
      Kosmos board always names itself (win32handoff, x-kosmos-board-identity), so an answer with no identity
      is another program holding the port: the update's stop could not free it, so nothing is started. */
-  const answer = await probe(port);
-  if (answer && answer.answering === true) {
-    if (answer.identity) return done(['board']);
-    return done(['refused', `another program answers on port ${port}, so Kosmos did not start`]);
-  }
+  /* Asked again right before anything is started (lookAgain), because the look itself (a fetch of the
+     pointer) can take seconds, and B0 must refuse on an answer that fresh. */
+  let answer = await probe(port);
+  const boardSays = () => {
+    if (!answer || answer.answering !== true) return null;
+    if (answer.identity) return ['board'];
+    return ['refused', `another program answers on port ${port}, so Kosmos did not start`];
+  };
+  const lookAgain = async () => { answer = await probe(port); return boardSays(); };
+  if (boardSays()) return done(boardSays());
   const connectComputer = { connects: () => readsConnect() === true, boardAnswers: () => Boolean(answer && answer.answering === true) };
   const common = {
     root, port, boardPid: null, connectComputer, log, env, home,
@@ -187,6 +193,8 @@ async function run(action, opts) {
     if (o.expect && kept && kept.version !== o.expect) {
       return done(['refused', `the version kept for a rollback is now ${kept.version}, not the ${o.expect} you chose, so nothing was rolled back. Pick Roll back again to go back to ${kept.version}`]);
     }
+    const busy = await lookAgain();
+    if (busy) return done(busy);
     const r = await (o.rollbackToPrevious || win32update.rollbackToPrevious)(common);
     if (!r || !r.ok) return done(['refused', oneLine((r && r.because) || 'the rollback could not be started')]);
     /* The hold is written as soon as the rollback is on its way, not when it is seen to finish: a wait that
@@ -219,6 +227,8 @@ async function run(action, opts) {
     return done(['newer', version]);
   }
 
+  const busy = await lookAgain();
+  if (busy) return done(busy);
   const r = await (o.begin || win32update.begin)({ ...common, expectVersion: version });
   if (!r || !r.ok) {
     const because = oneLine((r && r.because) || 'the update could not be started');
@@ -237,7 +247,10 @@ async function run(action, opts) {
     if (outcome.finishUnrecorded) note = `${version} is in place, but its helper did not record the finish in time`;
     return done(['updated', outcome.to || r.version || version]);
   }
-  return done(['failed', version, oneLine(outcome.sentence || outcome.because || `the update ended as ${outcome.outcome || 'unknown'}`)]);
+  /* No outcome yet is not a failure the person should retry: the detached helper may still finish. No
+     version leads the answer, so the window offers no retry, and no file paths reach the person. */
+  if (!outcome.outcome) return done(['failed', `the update to ${version} has not finished yet and may still finish; open Kosmos again in a few minutes`]);
+  return done(['failed', version, oneLine(outcome.sentence || outcome.because || `the update ended as ${outcome.outcome}`)]);
 }
 
 /** The helper's outcome for the journal begin() or rollbackToPrevious() wrote: win32update's own wait. */

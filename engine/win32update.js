@@ -429,8 +429,9 @@ function boardTaskRefusal(boardTask) {
  * mode check starts no board afterwards, win32apply.startAndConfirm), and no board answers on the port (a
  * board that answers updates itself, and two updaters must never race). `c` is
  * `{ connects(), boardAnswers() }`, both required; anything that is not an exact yes / no refuses.
- * connects() reads the file again here; boardAnswers() is the caller's probe, taken just before (a probe is
- * asynchronous and B0 is not), so the window between the two is the caller's few milliseconds.
+ * connects() reads the file again here; boardAnswers() is the caller's probe, taken just before calling
+ * (a probe is asynchronous and B0 is not); a board that starts after it is met by the helper's own probe
+ * at H2.
  */
 function connectComputerRefusal(c) {
   if (!c || typeof c.connects !== 'function' || typeof c.boardAnswers !== 'function') {

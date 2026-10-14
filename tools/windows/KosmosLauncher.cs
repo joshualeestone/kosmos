@@ -2846,9 +2846,12 @@ class KosmosLauncher
             }
             else
             {
+                // A failure that names its version can be tried again; one that does not (an update not seen
+                // to finish, which may still finish) offers no retry.
                 if (s.Installed == null && answer.Version != null) s.Offer = answer.Version;
-                s.BarNote = UpdateFailedNote(answer.Value, s.Offer != null);
-                s.BarButton = s.Offer != null ? "Update" : null;
+                bool canRetry = answer.Version != null && s.Offer != null;
+                s.BarNote = UpdateFailedNote(answer.Value, canRetry);
+                s.BarButton = canRetry ? "Update" : null;
                 // The window's own look failing again on a version the person put away stays in the menu only.
                 if (!asked && s.Offer != null && s.Dismissed == s.Offer) { s.BarNote = null; s.BarButton = null; }
             }
@@ -2967,7 +2970,7 @@ class KosmosLauncher
     }
     internal static string UpdateFailedNote(string why, bool canRetry)
     {
-        return "Kosmos could not update" + (string.IsNullOrEmpty(why) ? "" : " (" + why + ")") + (canRetry ? ". Press Update to try again." : ". It tries again tomorrow.");
+        return "Kosmos could not update" + (string.IsNullOrEmpty(why) ? "" : " (" + why + ")") + (canRetry ? ". Press Update to try again." : ".");
     }
     internal static string RollbackFailedMessage(string why)
     {
@@ -3888,7 +3891,8 @@ class BoardWindowForm : System.Windows.Forms.Form
             : updateState.Installed != null ? KosmosLauncher.RestartMenuText(updateState.Installed)
             : updateState.Offer != null ? KosmosLauncher.UpdateMenuText(updateState.Offer)
             : null;
-        string rollbackText = want && updateState.Rollback != null ? KosmosLauncher.RollbackMenuText(updateState.Rollback) : null;
+        // Not while an installed update waits for its Restart: the kept build is then the copy this window runs from.
+        string rollbackText = want && updateState.Rollback != null && updateState.Installed == null ? KosmosLauncher.RollbackMenuText(updateState.Rollback) : null;
         string shape = want ? "run|" + (updateText ?? "") + "|" + (rollbackText ?? "") : null;
         if (shape == systemMenuShown || !IsHandleCreated) return;
         try
@@ -3998,7 +4002,7 @@ class BoardWindowForm : System.Windows.Forms.Form
                     if (giveUp != null && !gaveUp[0]) { giveUp.Stop(); giveUp.Dispose(); }
                     // Its flags were let go already. An install it did is still recorded, so the Restart is offered
                     // and no further look runs while this window runs from the copy that install moved aside.
-                    if (gaveUp[0]) { if (answer.Kind == KosmosLauncher.ConnectUpdateKind.Updated) UpdateLookDone(answer, action); return; }
+                    if (gaveUp[0]) { if (answer.Kind == KosmosLauncher.ConnectUpdateKind.Updated && !updateLookInFlight) UpdateLookDone(answer, action); return; }
                     updateLookInFlight = false;
                     stopsInFlight--;
                     UpdateLookDone(answer, action);
@@ -4035,7 +4039,7 @@ class BoardWindowForm : System.Windows.Forms.Form
     // The system menu's Roll back item: asked first, because it replaces the Kosmos folder's build.
     void RollbackPicked()
     {
-        if (mode != KosmosLauncher.ComputerMode.Connect || updateState.Rollback == null) return;
+        if (mode != KosmosLauncher.ComputerMode.Connect || updateState.Rollback == null || updateState.Installed != null) return;
         if (updateLookInFlight) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }
         if (!KosmosLauncher.askYesNo(KosmosLauncher.RollbackQuestion(updateState.Rollback))) return;
         // The daily look can start while the question is open (a WinForms timer ticks inside the box's loop).
