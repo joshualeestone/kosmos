@@ -273,6 +273,7 @@ test('#6175 the usage-reading route wires a not-set-up account and never replace
     assert.equal(r.status, 409, 'Windows has no weekly reading to wire: ' + JSON.stringify(r));
     return;
   }
+  const keyed = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude-keyed6175');
   try {
     fs.rmSync(settings, { force: true });
     assert.equal(await blockedOf(), 'not-wired', 'precondition: the account has no status line');
@@ -289,8 +290,9 @@ test('#6175 the usage-reading route wires a not-set-up account and never replace
     assert.equal(refused.status, 409, JSON.stringify(refused));
     assert.match(refused.j.because, /its own status line/, refused.j.because);
     assert.equal(fs.readFileSync(settings, 'utf8'), own, 'the person\'s own status line was touched');
-    // An API-key account (a stored key, no sign-in) is refused, and nothing is written into it (review 1).
-    const keyed = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude-keyed6175');
+    // An API-key account (a stored key, no sign-in) is refused, and nothing is written into it (review 1). Review 3: the
+    // key's live check is stubbed, so the fixture key never goes to Anthropic, and the folder is removed after.
+    require('./engine/claudeaccounts').setFetcher(async () => ({ status: 401, body: { type: 'error', error: { type: 'authentication_error' } } }));
     fs.mkdirSync(keyed, { recursive: true });
     fs.writeFileSync(require('./engine/claudeaccounts').keyFile(keyed), 'sk-ant-api03-' + 'x'.repeat(40) + '\n', { mode: 0o600 });
     const listedKeyed = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];
@@ -300,7 +302,13 @@ test('#6175 the usage-reading route wires a not-set-up account and never replace
     // Only an account this computer lists, and a request it can read.
     assert.equal((await post({ dir: path.join(SANDBOX, 'not-an-account') })).status, 404);
     assert.equal((await post({})).status, 400);
-  } finally { fs.rmSync(settings, { force: true }); }
+    const bad = await fetch(base + '/api/accounts/claude/usage-reading', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{' });
+    assert.equal(bad.status, 400, 'a body that is not JSON was not refused as unreadable');
+  } finally {
+    fs.rmSync(settings, { force: true });
+    fs.rmSync(keyed, { recursive: true, force: true });
+    require('./engine/claudeaccounts').setFetcher(null);
+  }
 });
 
 /* #6108: the page's "Moved X (stopped). It is not running now" depends on what the account route answers for a stopped

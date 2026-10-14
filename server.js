@@ -11964,7 +11964,7 @@ const server = http.createServer(async (req, res) => {
      is left alone (it answers wired:false with why). Only a Claude account this computer lists. Narrower than creation
      on purpose: an API-key account is refused (it has no weekly limit to read; creation wires one anyway in case the key
      is later swapped for a sign-in). The page offers this only on a 'not-wired' row; a status line of ours aimed at
-     another copy reads as wired there, so its repoint is reachable through this route alone. */
+     another copy reads as wired there and is not offered, so its repoint happens only on a direct POST. */
   if (pathname === '/api/accounts/claude/usage-reading' && req.method === 'POST') {
     readBody(req)
       .then((raw) => {
@@ -11983,7 +11983,8 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { wired: true, changed: r.changed === true });
       }, () => sendJson(res, 400, { error: 'we could not read that request' }))   // the body could not be read
       .catch((e) => {   // review 2: a fault after reading is the server's, not an unreadable request
-        if (!res.headersSent) sendJson(res, 500, { error: 'the usage reading could not be set up: ' + String((e && e.message) || e) });
+        try { console.error('usage-reading: ' + String((e && e.stack) || e)); } catch { /* best effort */ }   // review 3: the detail (paths) stays in the log
+        if (!res.headersSent) sendJson(res, 500, { error: 'the usage reading could not be set up' });
       });
     return;
   }
