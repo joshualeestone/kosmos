@@ -475,7 +475,7 @@
     },
     {
       "title": "A project says when goal planning gave up",
-      "line": "A project's page now says when Kosmos gave up today on asking its agent to plan toward the goal; giving it a task starts sooner.",
+      "line": "A project's page says when Kosmos gave up in the last day on asking an agent to plan toward its goal; a project task starts sooner.",
       "icon": "tasks",
       "rank": 8.5,
       "since": "0.7.49",
