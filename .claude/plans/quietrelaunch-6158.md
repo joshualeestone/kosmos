@@ -2,8 +2,11 @@
 
 ## Measured (origin/main)
 Every focus-taking call in Kosmos was swept (`/usr/bin/open` callers, NSApp.activate, makeKeyAndOrderFront,
-orderFrontRegardless, AppleScript activate). All run on a person's press except one: the app's silent restart onto a
-new version. With another app in front it waits only for the Mac to have no input for relaunchQuietSeconds (30 s), which
+orderFrontRegardless, AppleScript activate). Most run on a person's press. Two kinds do not: the app's silent restart onto a new version (fixed here), and
+three dialogs a timer can raise (review 1): askToRestart (main.swift ~4820, makeKeyAndOrderFront then runModal, after
+words waited relaunchAskAfter or the page cannot tell), showCannotSelfHeal (.giveUp) and the could-not-open-a-new-window
+alert after three failed silent restarts. Whether runModal from a background app takes focus is not settled from the
+code; they are the next suspects if the reporting install shows focus taken with no relaunch line. Not changed here. With another app in front it waits only for the Mac to have no input for relaunchQuietSeconds (30 s), which
 an agent scripting the iOS Simulator never breaks; it opens the fresh copy with a default (activating)
 NSWorkspace.OpenConfiguration, and the fresh copy calls NSApp.activate(ignoringOtherApps: true) at launch. So it takes
 focus once per new version, mid-verification.
@@ -31,3 +34,10 @@ each moment focus was taken. Focus taken with no such line means a second cause,
   when not quiet. Removing the launch guard or forcing activates true reds it.
 - native-app.instance-guard-2124.test.js: its merge assertion now pins the rule (the handed-over environment starts
   from the current one, directly or via one local copy), and still reds on a fresh dictionary.
+
+## Review
+1. opus: no blocker or code warning. WARNING on this plan: its sweep claimed only one unasked focus-taker; three
+   timer-raised dialogs were missed (now listed above as the next suspects, and on the card). NITs taken: the launch
+   test requires the guard to use the value read (a "false; _ = consume" mutant reds it); the 2124 assertion also
+   refuses an emptied copy or one that loses any key but the quiet flag (dropping KOSMOS_HOME reds it); the missing
+   file fallback is stated in the comment.

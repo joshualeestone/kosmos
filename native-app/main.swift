@@ -1390,7 +1390,8 @@ let kRelaunchQuietEnvKey = "KOSMOS_RELAUNCH_QUIET"
 /// Whether a relaunch may bring the fresh copy to the front: only if the person asked, or Kosmos was already in front.
 func relaunchMayActivate(asked: Bool, wasActive: Bool) -> Bool { asked || wasActive }
 /// One-shot, as the handoff: read, then unset, so the board this copy starts (it copies the environment) and any later
-/// relaunch never inherit it.
+/// relaunch never inherit it. Unlike the handoff it has no token-file fallback: if the environment did not arrive, the
+/// open itself still did not activate (conf.activates), and only this copy's own activate would bring it forward.
 func consumeQuietRelaunch() -> Bool {
     let quiet = ProcessInfo.processInfo.environment[kRelaunchQuietEnvKey] == "1"
     unsetenv(kRelaunchQuietEnvKey)

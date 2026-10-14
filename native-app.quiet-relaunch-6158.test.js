@@ -43,6 +43,7 @@ test('#6158: the relaunch opens the fresh copy activating only when relaunchMayA
 test('#6158: the launch reads the flag once and does not activate itself after a quiet restart', () => {
   const l = body('func applicationDidFinishLaunching(_ notification: Notification) {');
   assert.equal((l.match(/consumeQuietRelaunch\(\)/g) || []).length, 1, 'the flag is not read exactly once at launch');
+  assert.match(l, /let launchedQuietly = consumeQuietRelaunch\(\)/, 'the guard does not use the value the flag was read as');
   assert.match(l, /if launchedQuietly \{ logLine\([^\n]*\) \}\n\s*else \{ NSApp\.activate\(ignoringOtherApps: true\) \}/,
     'the launch activates itself even after a quiet restart');
   /* Every OTHER activate in the launch is the duplicate guard's, which raises the SURVIVOR and exits; none may take

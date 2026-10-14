@@ -92,6 +92,12 @@ test('the env handoff MERGES onto the current environment (does not replace it)'
   const viaCopy = /var (\w+) = ProcessInfo\.processInfo\.environment\n[\s\S]{0,400}?conf\.environment = \1\s*\n?\s*\.merging\(/.test(SRC);
   assert.ok(direct || viaCopy, 'conf.environment is set without merging the current environment');
   assert.doesNotMatch(SRC, /conf\.environment\s*=\s*\[/, 'conf.environment is replaced by a fresh dictionary');
+  /* #6158 review 1: the local copy is the same harm by another road if it is emptied or loses a real key. It may only
+     drop the one-shot quiet flag. */
+  assert.doesNotMatch(SRC, /relaunchEnv\s*=\s*\[/, 'the environment copy is replaced by a fresh dictionary');
+  const removed = [...SRC.matchAll(/relaunchEnv\.removeValue\(forKey:\s*([^)]+)\)/g)].map((m) => m[1].trim());
+  assert.deepEqual(removed, ['kRelaunchQuietEnvKey'], 'the environment copy loses a key other than the quiet flag: ' + removed.join(', '));
+  assert.doesNotMatch(SRC, /relaunchEnv\.removeAll\(/, 'the environment copy is emptied');
 });
 
 test('the runtime both-arms selftest hatch exists (build-time gate drives it)', () => {
