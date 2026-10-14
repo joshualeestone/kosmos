@@ -1449,6 +1449,38 @@ test('#4934/#5967: a poll does not become a loop by growing -- a fifth distinct 
   });
 });
 
+test('#4934/#5967: a first-time answerer is delivered even when ANOTHER sender repeated earlier in the run (the next arrival is not punished for someone else looping)', () => {
+  withFleet(room4(), (board) => {
+    const now = Date.now();
+    // leo double-acks early (a common thing), then two more fighters answer once, then a brand-new
+    // fighter (nova) answers. nova answered ONCE, so nova is polling, not looping. Gating on "any
+    // repeat anywhere in the run" would drop nova's answer because LEO repeated; the refusal must
+    // key on the INCOMING sender continuing its own run, not on some earlier repeater.
+    seedPosts(now, [
+      { from: 'leo', text: 'ok' },
+      { from: 'leo', text: 'yes' },
+      { from: 'mara', text: 'agreed' },
+      { from: 'april', text: 'sure' },
+    ]);
+    armSender('nova-discord'); arm([]);
+    const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'yep' }, board.agents, MEMBERS4);
+    assert.equal(out.state, chat.DELIVERY.PLACED, 'a first-time distinct answerer was refused because ANOTHER sender had repeated earlier; its answer was dropped');
+    assert.notEqual(out.code, 'ack_only', 'the first-time answerer must not be refused');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'post' && m.from === 'nova' && m.text === 'yep').length, 1, 'the first-time answer was not stored, so the room never saw it');
+
+    // CONTROL: when LEO (already in the run) sends the incoming ack, leo IS continuing its own
+    // back-and-forth, so the run of four is refused -- the incoming sender is what decides.
+    wipeLog(); chat.resetForTests(); armSender('leo-discord'); arm([]);
+    seedPosts(now, [
+      { from: 'leo', text: 'ok' },
+      { from: 'mara', text: 'yes' },
+      { from: 'april', text: 'agreed' },
+    ]);
+    const refused = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'sure' }, board.agents, MEMBERS4);
+    assert.equal(refused.code, 'ack_only', 'leo continuing its own run (a repeating incoming sender) was not refused');
+  });
+});
+
 test('#4934/#5967: the CLI copy for ack_only tells the agent to post something new, never that the room is held', () => {
   const cli = fs.readFileSync(path.join(__dirname, '..', 'install', 'kosmos'), 'utf8');
   // The refusal copy branch for a code runs from its first case token to the next `;;`.
