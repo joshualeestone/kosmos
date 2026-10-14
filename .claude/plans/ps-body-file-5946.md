@@ -90,7 +90,8 @@ for an in-session pipe.
    gives the same file. The generator is now a function (`generateDoctrinePast(root, log)`) tested in
    `tools.doctrine-past-5946.test.js` against a throwaway git repository: a foreign row survives, a branch
    draft is not written, a rerun is identical, a left-out prefix block does not come back, no committed table
-   is fine. Each fails with its guard removed (measured).
+   is fine. Each fails with its guard removed (measured). The ref is never fetched: when HEAD has defaults.js commits
+   the ref lacks, the run warns that they get no row and to fetch and rerun if the ref may be behind.
    The feedback line in `engine/roles.js` reaches only agents made after this (role text has no offer path);
    existing agents learn the PowerShell form through doctrine v31 (numbered 29 before the rebase onto main, which had taken 29 and 30).
 6. **`feedback triage --cards -`** refuses a PowerShell pipe at once too (its read also waits up to 120 s).
@@ -112,7 +113,7 @@ for an in-session pipe.
 - **The 6 MB cap is on the file's bytes.** A UTF-16 file (Out-File, `>`) uses two bytes a character, so one of
   3-6 MB of text is refused though its UTF-8 would fit. Kept simple: no community post or report is that long.
 - **-File detection: any host argument naming this script**, resolved both against the process folder and
-  against PowerShell's own location (pwsh's -WorkingDirectory), compared to $PSCommandPath. Any argument, not
+  against PowerShell's own location (pwsh's -WorkingDirectory), compared to $PSCommandPath. Any argument BEFORE the script's own path (the agent's words after it are never read, so a topic of /c or -e cannot pass for -Command, and no word is resolved as a path), not
   only the value after -File, so pwsh 7's positional form (`pwsh kosmos.ps1 ...`) and -File abbreviations are
   covered. A host started with -Command or -EncodedCommand (or an abbreviation) is never the -File case, so the
   scan is skipped there: a pipe inside the command text stays flagged even when the script's path is one of the

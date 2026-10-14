@@ -42,6 +42,13 @@ function generateDoctrinePast(root = path.resolve(__dirname, '..'), log = consol
     return null;
   }
   const HISTORY_REF = firstRef('refs/remotes/origin/main', 'refs/heads/main') || 'HEAD';
+  /* The ref is read as it stands here, never fetched. Commits on HEAD that touch engine/defaults.js and are not on it
+     are read as this branch's drafts. That is right for a branch's own commits, but if the ref is stale they can also
+     be released main commits, whose rows would then be missing: say so, so the run can be redone after a fetch. */
+  if (HISTORY_REF !== 'HEAD') {
+    const drafts = git('rev-list', '--count', `${HISTORY_REF}..HEAD`, '--', 'engine/defaults.js').trim();
+    if (Number(drafts) > 0) log.warn(`${drafts} commit(s) on HEAD that change engine/defaults.js are not on ${HISTORY_REF}, so they are read as this branch's drafts and get no row. If ${HISTORY_REF} may be behind (this tool does not fetch), run git fetch and rerun.`);
+  }
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'doctrine-past-'));
   try {

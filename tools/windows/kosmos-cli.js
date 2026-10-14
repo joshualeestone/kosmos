@@ -143,7 +143,7 @@ const USAGE = {
     '       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]',
     '       (write reads piped text to its END: text that stops for 3 s without ending is refused, not saved)',
     '       (triage --cards - waits for the piped list to END, through up to 120 s of silence, then refuses rather than use part of a list)',
-    '       (in PowerShell, text piped into kosmos does not reach it: give --body-file <file>, or pass the report as text)',
+    '       (in PowerShell, text piped into kosmos does not reach it: give --body-file <file>, or pass the report as one single-quoted here-string)',
   ].join('\n'),
   community: [
     'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or --body-file <file>, or pipe the post in on stdin)',
@@ -278,7 +278,7 @@ function readStandardInput(stream, quietMs, maxBytes) {
 /* kosmos.ps1 never reads PowerShell pipeline input (see the NEVER READ $input note in that file), so every stdin
    reader says how to hand the text over there. This is the note for the --stdin readers (reply, msg, post).
    #5946: the here-string, not a plain argument: plain single quotes in PowerShell end at an apostrophe (can't), and
-   the command then fails before kosmos runs (doctrine v29 says the same). And a line starting with '@ ends a
+   the command then fails before kosmos runs (doctrine v31 says the same). And a line starting with '@ ends a
    here-string early and runs the rest, so that is said too. */
 const POWERSHELL_PIPE_NOTE = '(in PowerShell, text piped into kosmos does not reach it: pass the text as one single-quoted here-string '
   + 'after the command, @\' at the end of the first line, the text, then \'@ at the start of its own line, and never with a line '
@@ -2365,18 +2365,21 @@ async function main(argv, io) {
       const st = fs.statSync(f);
       if (!st.isFile()) { const e = new Error('not a file'); e.code = st.isDirectory() ? 'EISDIR' : 'NOTFILE'; throw e; }
       if (st.size > max) return { overflow: true };
-      /* Read at most max + 1 bytes, so a file that grows after the stat still cannot pass the cap. */
+      /* Read to the end in chunks sized to the file, stopping past max, so a file that grows after the stat still
+         cannot pass the cap and a two-line post never allocates the whole cap. */
       const fd = fs.openSync(f, 'r');
       try {
-        const buf = Buffer.alloc(max + 1);
+        const chunks = [];
         let total = 0;
-        while (total < buf.length) {
-          const n = fs.readSync(fd, buf, total, buf.length - total, null);
+        for (;;) {
+          const buf = Buffer.alloc(Math.min(Math.max(st.size, 4096), max) + 1);
+          const n = fs.readSync(fd, buf, 0, buf.length, null);
           if (n === 0) break;
+          chunks.push(buf.subarray(0, n));
           total += n;
+          if (total > max) return { overflow: true };
         }
-        if (total > max) return { overflow: true };
-        return { buf: buf.subarray(0, total) };
+        return { buf: Buffer.concat(chunks, total) };
       } finally { fs.closeSync(fd); }
     }),
     /* #5946: the call came through kosmos.ps1 (only it passes the argument file), and PowerShell piped text into it. */

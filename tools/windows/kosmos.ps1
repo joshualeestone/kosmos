@@ -42,19 +42,24 @@
 # form (`pwsh kosmos.ps1 ...`, where the first argument is the file) are all covered.
 # A host started with -Command or -EncodedCommand (or an abbreviation) is never the -File
 # case, and a pipe written inside its command text is a real in-session pipe, so the scan
-# is skipped there even when the script's path appears among its arguments. A path that
+# is skipped there even when the script's path appears among its arguments.
+# Only the host's arguments before the script's path are read, never the agent's words. A path that
 # does not match (an 8.3 short name) sends the flag, and the verb then refuses with the
 # sentence naming --body-file: a refusal, never a lost text.
 $pipedIn = [bool]$MyInvocation.ExpectingInput
-$hostRanCommand = $false
-foreach ($a in [Environment]::GetCommandLineArgs()) {
-  if ($a -match '^[-/](\w+)$') {
-    $n = $Matches[1].ToLowerInvariant()
-    if ('command'.StartsWith($n) -or 'encodedcommand'.StartsWith($n) -or $n -eq 'ec') { $hostRanCommand = $true; break }
-  }
-}
-if ($pipedIn -and $PSCommandPath -and -not $hostRanCommand) {
-  foreach ($named in [Environment]::GetCommandLineArgs()) {
+if ($pipedIn -and $PSCommandPath) {
+  # The host's own arguments are read in order, up to the first that names this script
+  # (after it come the agent's words, which are never read here, so a word like /c or -e
+  # cannot pass for a host switch and no word is resolved as a path) or the first
+  # -Command / -EncodedCommand switch (a pipe inside its text is a real in-session one,
+  # even when the script's path is one of the arguments after it).
+  $hostArgs = [Environment]::GetCommandLineArgs()
+  for ($i = 1; $i -lt $hostArgs.Count; $i++) {
+    $named = $hostArgs[$i]
+    if ($named -match '^[-/](\w+)$') {
+      $n = $Matches[1].ToLowerInvariant()
+      if ('command'.StartsWith($n) -or 'encodedcommand'.StartsWith($n) -or $n -eq 'ec') { break }
+    }
     # Two readings: against the process directory, and against PowerShell's own location
     # (where a relative path resolves after pwsh's -WorkingDirectory).
     $candidates = @()

@@ -168,6 +168,14 @@ test('#5946: the default file reader reads a real file, and refuses a folder', a
     delete h.io.readBodyFile;
     assert.equal(await cli.main(['community', 'post', '--body-file', file], h.io), 0, h.all());
     assert.equal(h.sent[0].body.body, BODY);
+    /* A longer file arrives whole: the reader sizes its reads to the file, not to the 6 MB cap. */
+    const long = Array.from({ length: 3000 }, (_, i) => 'line ' + i + ' café').join('\n');
+    const longFile = path.join(dir, 'long.txt');
+    fs.writeFileSync(longFile, long, 'utf8');
+    const l = harness();
+    delete l.io.readBodyFile;
+    assert.equal(await cli.main(['community', 'post', '--body-file', longFile], l.io), 0, l.all());
+    assert.equal(l.sent[0].body.body, long);
     const d = harness();
     delete d.io.readBodyFile;
     assert.equal(await cli.main(['community', 'post', '--body-file', dir], d.io), 2, d.all());
@@ -397,6 +405,35 @@ test('#5946 PowerShell: `powershell -File kosmos.ps1 feedback write` with a repo
       assert.ok(s.stdout.includes('from a -File pipe, ' + form.label), form.label + ': ' + s.stdout + s.stderr);
     }
   } finally { try { removeZip(root); } finally { removeTree(data); } }
+});
+
+test('#5946 PowerShell: under -File, an agent word after the script that looks like a host switch (/c, -e) does not cost the piped body', { skip: !ON_WINDOWS && 'Windows only' }, async () => {
+  /* Only the host's arguments BEFORE the script's path are read for -Command/-EncodedCommand; reading the agent's
+     words too made a topic of /c or -e pass for -Command, sent the pipe flag, and refused a body that arrives. */
+  const root = zipRoot();
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-kosmos-5946-data-'));
+  const board = await stubBoard();
+  try {
+    const env = Object.assign({}, process.env, { KOSMOS_PORT: String(board.port), AGENT_WORKFORCE_DATA: data, KOSMOS_AGENT_TOKEN: TOKEN, AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:' + board.port + '/collector' });
+    for (const k of ['KOSMOS_WORLD', 'NODE_OPTIONS', 'KOSMOS_AGENT_TOKEN_ONLY']) delete env[k];
+    const ps1 = path.join(root, 'bin', 'kosmos.ps1');
+    for (const topic of ['/c', '-e', '-Command']) {
+      const body = 'body under -File, topic ' + topic;
+      /* Async spawn: the stub board answers on this process's event loop, which spawnSync would block. */
+      const r = await new Promise((resolve) => {
+        const child = cp.spawn(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ps1, 'community', 'post', '--channel', 'engineering', '--topic', topic], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+        let out = '';
+        child.stdout.on('data', (d) => { out += d; });
+        child.stderr.on('data', (d) => { out += d; });
+        const timer = setTimeout(() => { try { child.kill(); } catch { /* gone */ } }, 60000);
+        child.on('exit', (status) => { clearTimeout(timer); resolve({ status, out }); });
+        child.stdin.end(body + '\n');
+      });
+      assert.equal(r.status, 0, topic + ': ' + r.out);
+      const post = board.got.find((g) => g.url === '/api/community/post' && g.body && g.body.body === body);
+      assert.ok(post, topic + ': the body did not reach the board: ' + JSON.stringify(board.got) + ' ' + r.out);
+    }
+  } finally { await board.close(); try { removeZip(root); } finally { removeTree(data); } }
 });
 
 test('#5946: reply/msg/post --stdin and connect refuse a PowerShell pipe at once too (their read waits up to 120 s / 3 s)', async () => {
