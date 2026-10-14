@@ -78,13 +78,10 @@ kosmos_setup_floor_pointer_ok() {
 }
 
 # The installer's own bytes. A pointer's version says nothing about the /setup or /setup-staging served beside it,
-# and a hand rollback can commit an old one next to a new pointer. The switch (KOSMOS_READONLY_APP) and the lift that
-# removes a read-only app before the swap came in ONE change, card #4449 (merged as PR #4476, 74ed0594c7), so an installer that names the
-# switch can lift the lock, and one that does not cannot. install/setup.sh has it from 0.7.42 (measured by Ice Cream
-# Kitty at each version commit: 0.7.42 6 mentions, 0.7.43 to 0.7.48 7, 0.7.49 9); the prod /setup served before
-# 0.7.45 (0.7.35's) has 0. So this check accepts the installers that name the switch, which came with the lift (0.7.42
-# on; a string-presence check, not a proof), while the
-# pointers' floor stays 0.7.45, the first PROD-served one: stricter than needed, which fails closed.
+# and a hand rollback can commit an old one next to a new pointer. The switch (KOSMOS_READONLY_APP) and the lift came
+# in one change (card #4449, PR #4476), so an installer that names it can lift the read-only app; a string check, not
+# a proof. The measurements behind it are in .claude/plans/setupfloor-6149.md (0.7.42 on carry it; the prod /setup
+# served before 0.7.45 does not). The pointers' floor stays 0.7.45, the first PROD-served such installer.
 KOSMOS_SETUP_FLOOR_MARKER="KOSMOS_READONLY_APP"
 
 # `kosmos_setup_floor_installer_ok <label> <file>`: the installer must know the read-only app (the marker). Under a
