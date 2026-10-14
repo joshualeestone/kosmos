@@ -25,6 +25,11 @@ behave exactly as before.
   setting (flips the Mac too); a board-level tablet field (same problem one level down).
 - Rail open from 1100px: measured, all three columns fit at the iPad mini's 1133px (shots 05:5x).
 - Weakest premise: that people expect a tablet to remember its own layout rather than share the Mac's.
+- Known limit (review round 1): the rule keys on (hover: none) and (pointer: coarse). An iPad docked in a
+  keyboard with a trackpad may report a hover-capable or fine pointer, in which case it drops out of the rule:
+  it gets the board's layout and its toggle writes the board again (flipping the Mac). Not measurable here (no
+  iPad); to confirm on Josh's tablet. If it drops out, the next step is keying the per-device choice on the
+  device rather than the pointer.
 
 ## Done when
 Shots at ipadminiland and ipad11land show the one-screen view by default with the rail open; a browser check

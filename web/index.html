@@ -48704,6 +48704,7 @@ document.addEventListener('click', async (e) => {
     const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: want }) });
     if (!res.ok) return;
     const r = await res.json().catch(() => null);
+    STYLE_LAYOUT = ((r && r.layout) || want) === 'consolidated' ? 'consolidated' : 'tabs';   // #6107: what a later turn re-applies
     applyLayout((r && r.layout) || want, true);
   } catch { /* the engine is unreachable; the board is already in a failure state */ }
 });
