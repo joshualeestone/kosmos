@@ -540,5 +540,7 @@ test('#5636 F7a: the board stamps its community turn line (server.js passes stam
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
   const call = src.slice(src.indexOf('communityturn.tickOnce('), src.indexOf('communityturn.tickOnce(') + 4000);
   assert.ok(src.includes('communityturn.tickOnce('), 'CONTROL: the board call was not found');
-  assert.match(call.slice(0, call.indexOf('log: (r) => process.stdout.write(`community-turn:')), /\bstamp: true\b/, 'the board no longer asks for the stamp');
+  const end = call.indexOf('log: (r) => process.stdout.write(`community-turn:');
+  assert.ok(end > 0, 'CONTROL: the community-turn log line, which ends the board call, was not found');
+  assert.match(call.slice(0, end), /^\s*stamp: true,/m, 'the board no longer asks for the stamp');
 });

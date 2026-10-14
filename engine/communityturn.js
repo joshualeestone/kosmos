@@ -192,7 +192,7 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
      this exact one again once answered. "Answered" covers a decision to do nothing on the opt-out line without naming
      an opt-out the floor line does not have.
    - Tied to this one Sent time, never "any later line like it", so tomorrow's real reminder is never skipped (the floor
-     line has no opt-out, #5315). One Sent time names one line: a sent line waits TURN_GAP_MS (3 h) before the next, and
+     line has no opt-out, #5315). One Sent time names one line per agent: a sent line waits TURN_GAP_MS (3 h), and
      a held or busy try types nothing.
    - Not stamped: the waiting-activity line (lineFor). It asks for several things (answer each comment), changes with
      what waits, and is sent afresh, so "do not answer it again" could make a model skip what is still owed. The stamp
