@@ -45,14 +45,19 @@ const { chromium } = require('playwright');
       // PRECEDENCE: an agent with BOTH a raised give-up AND its own reported question. The card must show the
       // agent's OWN question (stateReason's own-question arm), NOT the give-up sentence -- a Kosmos give-up must
       // never mask the person's actual question. (Server-side the push/pill honour this too; this pins the card.)
-      const ownQuestion = base({ sessionName: 'o', name: 'Zed', state: 'needs_you', stateReported: true,
+      const ownQuestion = base({ sessionName: 'o', name: 'Zed', state: 'needs_you', stateReported: true, stateReportedBy: 'agent',
         because: 'Which launch date should I use, the 14th or the 21st?', isNamedOurs: true,
         ownBound: { raised: true, items: [{ cls: 'quota', sinceAt: now - 20 * 60000, forMs: 20 * 60000, evidence: 'gave up after 3 tries that reached nothing' }], stale: [] } });
       const cardHtml = {};
       try { for (const a of [quota, nudge, first, notRaised, healthy, ownQuestion]) cardHtml[a.sessionName] = card(a); }
       catch (e) { return { error: 'card() threw: ' + e.message }; }
+      // The grid card shows the STATE LABEL, not the full reported sentence (#986/#2833: card() renders
+      // taskLine with noQuote), so the agent's own question text lives in stateReason WITHOUT noQuote (the
+      // detail/row sentence). That is where the give-up-vs-own-question precedence is decided, so assert it there.
+      const ownQuestionReason = (typeof stateReason === 'function') ? stateReason(ownQuestion) : '(stateReason missing)';
       return {
         quotaText: cardHtml.q, nudgeText: cardHtml.n, firstText: cardHtml.f, notRaisedText: cardHtml.c, ownQuestionText: cardHtml.o,
+        ownQuestionReason,
         attnQuota: agentNeedsAttention(quota), attnNudge: agentNeedsAttention(nudge), attnFirst: agentNeedsAttention(first),
         attnNotRaised: agentNeedsAttention(notRaised), attnHealthy: agentNeedsAttention(healthy),
       };
@@ -63,10 +68,13 @@ const { chromium } = require('playwright');
       say(/nudged this idle agent to pick up its open task/i.test(out.nudgeText) && /15\s+minutes/.test(out.nudgeText), 'a raised nudge give-up names the idle nudge and the minutes');
       say(/reminded this agent to answer its first message/i.test(out.firstText) && /10\s+minutes/.test(out.firstText), 'a raised first-reply give-up names the reminder and the minutes');
       say(!/gave up/i.test(out.notRaisedText) && !/quota reset/i.test(out.notRaisedText), 'a NOT-raised ownBound shows no give-up sentence (CONTROL)');
-      // PRECEDENCE assertion (arms what the old unasserted mootNudge fixture never checked): the card shows the
-      // agent's own question and NOT the give-up sentence, so a give-up cannot mask the person's actual question.
-      say(/launch date should I use/i.test(out.ownQuestionText), 'an agent with its OWN question shows that question on the card');
-      say(!/get this agent going again after its quota reset/i.test(out.ownQuestionText), 'and the give-up sentence does NOT mask it (precedence)');
+      // PRECEDENCE (the real guard: a Kosmos give-up must never mask the person's actual question). The sentence
+      // is derived in stateReason; its reported-question arm returns BEFORE the give-up arm, and the give-up arm is
+      // guarded `state !== 'needs_you'`. So the agent's own question wins the sentence, and the give-up is absent:
+      say(/launch date should I use/i.test(out.ownQuestionReason), 'an agent with its OWN question keeps that question as its sentence (stateReason precedence)');
+      say(!/get this agent going again after its quota reset/i.test(out.ownQuestionReason), 'and the give-up sentence does NOT mask it in stateReason (precedence)');
+      // And on the grid card (which shows the state label via noQuote, never the give-up sentence for a needs_you agent):
+      say(!/get this agent going again after its quota reset/i.test(out.ownQuestionText), 'the give-up sentence never reaches the card of an agent asking its own question (precedence)');
       say(out.attnQuota === true, 'a raised quota give-up counts as an Issue (agentNeedsAttention)');
       say(out.attnNudge === true, 'a raised nudge give-up counts as an Issue');
       say(out.attnFirst === true, 'a raised first-reply give-up counts as an Issue');
