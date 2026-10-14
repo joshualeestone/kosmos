@@ -28,3 +28,11 @@ agent without one gets an honest unnamed line.
   the cap passes); an already-open task records nothing; the words.
 - Nine mutants, each reds a test.
 - Pinned lists updated: the verbs-parity parser guard, the Windows unknown-subcommand hint; phrase parity samples.
+
+## Review
+1. opus: no blocker. WARNINGs fixed: the done-task assign refusal (the one the feedback met) now says "put it back
+   first with kosmos task reopen <project> <n>" (not for a closed part of an open task, where it would not help);
+   the Mac CLI's JSON escaping is now tested (quotes, backslashes, newline, tab, non-ASCII through both CLIs; removing
+   either escape reds it). Also: a non-JSON body is a reopen with no reason (tested); the body cap is 8 KiB; the
+   card's comment corrected to the positional reason. Left as NITs: UTF-16 length counting, control-byte drop vs
+   space between the two CLIs, "Put back" printed for an already-open task (as close does).

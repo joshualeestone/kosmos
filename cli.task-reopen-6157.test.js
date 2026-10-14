@@ -132,6 +132,40 @@ test('#6157: with no reason, the line still names who put it back', async () => 
   }
 });
 
+test('#6157 review 1: a reason with quotes, backslashes, a newline, a tab and non-ASCII arrives as written', async () => {
+  /* The Mac CLI builds the JSON by hand: a quote or backslash left unescaped would send a body the board cannot parse,
+     read as a reopen with NO reason, while the CLI still says it worked. Newline and tab become spaces (as built's note). */
+  const hard = 'she said "not done" \\ path C:\\x\nnext\tline, café ✓';
+  const want = 'she said "not done" \\ path C:\\x next line, café ✓';
+  for (const [label, run] of BOTH) {
+    const n = doneTask('Hard words ' + label);
+    const r = await run(['task', 'reopen', projectId, String(n), hard], token('mara'));
+    assert.equal(r.code, 0, label + ': ' + r.text);
+    assert.equal(reopenedRows(n).pop().why, want, label + ': the reason did not arrive as written');
+  }
+});
+
+test('#6157 review 1: assigning a done task says how to put it back; a closed part of an open task does not', async () => {
+  const n = doneTask('Give me back');
+  const res = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/assign`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': token('mara') }, body: JSON.stringify({ who: 'otto' }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.equal(body.error, 'task ' + n + ' is done, so it is not given to anyone; put it back first with kosmos task reopen ' + projectId + ' ' + n);
+  assert.ok(!body.error.includes('"'), 'a double quote in the refusal cuts the Mac CLI\'s sed read short');
+  // A closed PART of an open task: reopening the task would not help, so no hint.
+  const m = tasks.create(projectId, { sentence: 'Two halves', who: 'mara' }).number;
+  tasks.addPart(projectId, m, { sentence: 'Second half', who: 'otto' });
+  tasks.setPartClosed(projectId, m, 1, new Date().toISOString());
+  const part = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${m}/assign`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': token('mara') }, body: JSON.stringify({ who: 'otto', part: 1 }),
+  });
+  const pb = await part.json();
+  assert.equal(part.status, 400);
+  assert.match(pb.error, /part 1, is done, so it is not given to anyone$/, 'a closed part of an open task pointed at task reopen');
+});
+
 test('#6157: bad forms stop before the board; -- lets a reason start with a dash', async () => {
   for (const [label, run] of BOTH) {
     const n = doneTask('Forms ' + label);
@@ -168,6 +202,13 @@ test('#6157: the route: the person from the screen, an unnamed caller, and a rea
   assert.equal(row.by, undefined, 'a caller nobody named was recorded as somebody');
   assert.equal(row.person, undefined, 'a caller with no screen headers was recorded as the person');
   assert.equal(row.why, 'no token');
+
+  // A body that is not JSON (as an older caller might send) is a reopen with no reason, never a refusal.
+  const raw = doneTask('Raw body');
+  const rawRes = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${raw}/reopen`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: 'not json at all' });
+  assert.equal(rawRes.status, 200);
+  assert.equal(isDone(raw), false);
+  assert.equal(reopenedRows(raw).pop().why, undefined);
 
   const notText = doneTask('Not text');
   const bad = await post(notText, { why: 42 });
