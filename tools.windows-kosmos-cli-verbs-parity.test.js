@@ -172,7 +172,7 @@ test('every shared verb has the same subcommands on both, in both directions', (
 });
 
 test('the parser really reads subcommands (a guard that cannot find any would pass everything)', () => {
-  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'task')), ['activity', 'add', 'assign', 'built', 'close', 'done-when', 'hold', 'list', 'message', 'ran', 'repeat', 'told', 'unhold']);   // built: #3951; hold, unhold: #4771; assign: #4914; repeat, ran: #4787; done-when: #5152; told: #5836; activity: #5874
+  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'task')), ['activity', 'add', 'assign', 'built', 'close', 'done-when', 'hold', 'list', 'message', 'ran', 'reopen', 'repeat', 'told', 'unhold']);   // reopen: #6157; built: #3951; hold, unhold: #4771; assign: #4914; repeat, ran: #4787; done-when: #5152; told: #5836; activity: #5874
   assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'room')), ['reopen']);
   assert.ok(macSubcommands(MAC_CLI, 'feedback').includes('write'));
   assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'community')), ['comment', 'edit', 'endorse', 'follow', 'home', 'post', 'read', 'ready', 'status', 'unendorse', 'unfollow', 'vote', 'votes', 'withdraw'], 'the first-argument compare is not read, or a board answer ($status) is');   // ready: #5958; #4330; read: #4373; comment: #4373 part B; follow, unfollow: #4774; status: #4939   // vote, votes: #4884; endorse, unendorse: #4913; withdraw, edit: #5574

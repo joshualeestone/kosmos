@@ -20583,11 +20583,13 @@ const server = http.createServer(async (req, res) => {
        so an agent that sends no token is not named here, unlike on task add. The roster is read only for a token.
        Nothing in this block may throw (it is outside the try below): processCaller and notOnProjectRefusal catch
        their own, and safeRoster answers null. */
+    let actor = null;   // #6157: the agent its token named, recorded on a reopen as who put it back
     if (presentedAgentToken(req, {})) {
       const notDone = 'the task was not ' + (taskAct[3] === 'close' ? 'closed' : 'reopened');
       const who = processCaller(req, {}, safeRoster(), false, notDone);
       const whoRefusal = who.refusal || notOnProjectRefusal(who, id, taskAct[3] + ' its tasks', notDone, taskAct[3] + ' a task');
       if (whoRefusal) { sendJson(res, whoRefusal[0], { error: whoRefusal[1] }); return; }
+      actor = who.card ? who.card.sessionName : null;
     }
     /* kosmos#4787 review 3: closing ends a recurring job's rule, so a process cannot close a task whose rule the person
        set (as it cannot change the rule itself); it records each run with ran instead. */
@@ -20600,21 +20602,37 @@ const server = http.createServer(async (req, res) => {
         return;
       }
     }
-    try {
-      const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2]) : tasks.reopen(id, taskAct[2]);
-      // Close and reopen change what the assignee's block should list, so
-      // the block follows the record. Non-gating.
-      // ⚠️ `whoOf`, not `t.who`: a task with parts has no `who`, so the block
-      // stopped following the record and an agent's instructions kept listing
-      // a task it had already finished.
-      let told = tellEveryoneOn(t);
-      sendJson(res, 200, { task: t, told });
-    } catch (err) {
-      const msg = String((err && err.message) || '');
-      const code = (err && err.code === 'UNREADABLE') ? 500
-        : (/no project by that name|no task by that number/.test(msg) ? 404 : 400);
-      sendJson(res, code, { error: msg || 'we could not change that task' });
-    }
+    const act = (why) => {
+      try {
+        /* #6157: a reopen records who put it back (the person from the screen, or the agent its token named; an agent
+           that sends no token stays unnamed, as above) and why. */
+        const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2])
+          : tasks.reopen(id, taskAct[2], { by: actor, person: isViaScreen(req, {}), why });
+        // Close and reopen change what the assignee's block should list, so
+        // the block follows the record. Non-gating.
+        // ⚠️ `whoOf`, not `t.who`: a task with parts has no `who`, so the block
+        // stopped following the record and an agent's instructions kept listing
+        // a task it had already finished.
+        let told = tellEveryoneOn(t);
+        sendJson(res, 200, { task: t, told });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        const code = (err && err.code === 'UNREADABLE') ? 500
+          : (/no project by that name|no task by that number/.test(msg) ? 404 : 400);
+        sendJson(res, code, { error: msg || 'we could not change that task' });
+      }
+    };
+    if (taskAct[3] !== 'reopen') { act(''); return; }
+    /* #6157: a reopen may say why ({ why }). No body, or one that is not JSON, is a reopen with no reason, as every
+       older caller (the page, an older CLI) sends; a `why` that is not text is refused rather than dropped. 8 KiB, as
+       the other small JSON routes: the reason is capped at 300 characters. */
+    readBody(req, 8 * 1024).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      const why = body && typeof body === 'object' ? body.why : undefined;
+      if (why !== undefined && why !== null && typeof why !== 'string') { sendJson(res, 400, { error: 'the reason has to be text' }); return; }
+      act(typeof why === 'string' ? why : '');
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
@@ -21448,7 +21466,11 @@ const server = http.createServer(async (req, res) => {
       /* Work that is done is not given to anyone: the new owner would be told about finished work. A closed task
          (`task close` sets the task's closedAt and leaves stored parts open) counts, as progressOf reads it. */
       if (tasks.progressOf(task).closed || parts.find((x) => Number(x.id) === Number(partId)).closedAt) {
-        sendJson(res, 400, { error: 'task ' + task.number + (parts.length > 1 ? ', part ' + Number(partId) + ',' : '') + ' is done, so it is not given to anyone' }); return;
+        /* #6157: a done TASK says how to put it back (the refusal an agent met with no way forward). A closed part of an
+           open task is put back on the task page; the CLI has no part reopen, so it names none. No double quote in it:
+           the Mac CLI reads `error` with sed. */
+        const back = tasks.progressOf(task).closed ? '; put it back first with kosmos task reopen ' + id + ' ' + task.number : '';
+        sendJson(res, 400, { error: 'task ' + task.number + (parts.length > 1 ? ', part ' + Number(partId) + ',' : '') + ' is done, so it is not given to anyone' + back }); return;
       }
       const toSelf = !viaScreen && !!caller.card && !!asked.who && sameAgentName(asked.who, caller.card.sessionName, caller.byKey);
       try {

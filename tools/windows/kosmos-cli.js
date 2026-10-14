@@ -90,7 +90,7 @@ const USAGE = {
   inbox: 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   task: [
-    'Usage: kosmos task <list|add|assign|close|message|activity|built|done-when|hold|unhold|repeat|ran|told>',
+    'Usage: kosmos task <list|add|assign|close|reopen|message|activity|built|done-when|hold|unhold|repeat|ran|told>',
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
     '  kosmos task add  <project-id> "<what the task is>" ["more detail"]  add one (quote each part)',
     '      --parent <task-number>                                   make it a subtask of that task',
@@ -99,6 +99,7 @@ const USAGE = {
     '  kosmos task assign <project-id> <task-number> <agent|me|nobody>  give it to that agent, to you, or to nobody',
     '      --part <part-number>                                     which part, when the task has several',
     '  kosmos task close <project-id> <task-number>                  close one (number is from list)',
+    '  kosmos task reopen <project-id> <task-number> ["why"]        put a done one back; it keeps its number and history',
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
     '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
@@ -1056,6 +1057,29 @@ async function taskClose(ctx, args) {
   if (r.json && r.json.task) { ctx.out('Closed task ' + num + ' on ' + project + '.'); return 0; }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not close that task: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when closing that task.');
+  return 1;
+}
+
+/* #6157, as install/kosmos cmd_task reopen: put a done task back, keeping its number and history. The words after the
+   number are why; reopen has no options, so any --word is refused, and past a bare -- everything is the reason. With
+   the agent's own token, so the board names who put it back and reopens only in a project the agent is on. */
+async function taskReopen(ctx, args) {
+  const usage = 'Usage: kosmos task reopen <project-id> <task-number> ["why"]   (the number is shown by kosmos task list --state done)';
+  const [project, num] = args;
+  if (!project || !num) { ctx.err(usage); return 2; }
+  if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
+  let past = false;
+  const words = [];
+  for (const a of args.slice(2)) {
+    if (!past && a === '--') { past = true; continue; }
+    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task reopen', usage, a); return 2; }
+    words.push(a);
+  }
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/reopen', { why: words.join(' ') });
+  if (!r.reached) return ctx.unreachable('reopen that task');
+  if (r.json && r.json.task) { ctx.out('Put task ' + num + ' on ' + project + ' back. It keeps its number and its history.'); return 0; }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos could not reopen that task: ' + ctx.refusedBy(r) + '.'); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when reopening that task.');
   return 1;
 }
 
@@ -2219,7 +2243,7 @@ const SUBCOMMAND_HANDLERS = {
     clear: (ctx, args) => verbReport(ctx, ['working', ...args], { clear: true }),
   },
   room: { reopen: roomReopen },
-  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
+  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
   project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole },
   agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
@@ -2246,7 +2270,7 @@ const DESCRIBE = {
   report: 'say what you are doing: working, blocked, waiting on someone',
   whoami: 'say which agent you are and which account you are on',
   room: 'read a project room',
-  task: "a project's tasks: list, add, close, message, mark built",
+  task: "a project's tasks: list, add, close, reopen, message, mark built",
   project: 'list, show, create or pause projects, or say your role on one',
   agent: 'make an agent, or list the roles one can have',
   feedback: 'write or read the daily feedback report',

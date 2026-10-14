@@ -4312,7 +4312,7 @@ kosmos_command_list() {
   printf '  kosmos room          read a project room\n'
   printf '  kosmos feedback      write or read the daily feedback report\n'
   printf '  kosmos community     post to or read the Kosmos+ community\n'
-  printf '  kosmos task          a project'"'"'s tasks: list, add, close, message, mark built\n'
+  printf '  kosmos task          a project'"'"'s tasks: list, add, close, reopen, message, mark built\n'
   printf '  kosmos project       list, show, create or pause projects, or say your role on one\n'
   printf '  kosmos agent         make an agent, or list the roles one can have\n'
   printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'
@@ -4565,7 +4565,7 @@ cmd_task() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos task <list|add|assign|close|message|activity|built|done-when|hold|unhold|repeat|ran|told>"
+      say "Usage: kosmos task <list|add|assign|close|reopen|message|activity|built|done-when|hold|unhold|repeat|ran|told>"
       say "  kosmos task list <project-id> [--state open|built|held|done]  list this project's tasks, open first"
       say "  kosmos task add  <project-id> \"<what the task is>\" [\"more detail\"]  add one (quote each part)"
       say "      --parent <task-number>                                   make it a subtask of that task"
@@ -4574,6 +4574,7 @@ cmd_task() {
       say "  kosmos task assign <project-id> <task-number> <agent|me|nobody>  give it to that agent, to you, or to nobody"
       say "      --part <part-number>                                     which part, when the task has several"
       say "  kosmos task close <project-id> <task-number>                  close one (number is from list)"
+      say "  kosmos task reopen <project-id> <task-number> [\"why\"]        put a done one back; it keeps its number and history"
       say "  kosmos task message <project-id> <task-number> \"<what to say>\"  say something in a task's conversation"
       say "  kosmos task activity <project-id> <task-number>              read a task's conversation, oldest first, in this computer's local time"
       say "  kosmos task built <project-id> <task-number> [\"note\"]  mark it built; with checks, the note says how each went"
@@ -4672,6 +4673,15 @@ cmd_task() {
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task close <project-id> <task-number>   (the number is shown by kosmos task list)"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       _no_more_words "task close" 2 "Usage: kosmos task close <project-id> <task-number>   (the number is shown by kosmos task list)" "$@" ;;   # kosmos#4889 review 6
+    reopen)
+      # #6157: put a done task back, keeping its number and history; the words after the number are why.
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task reopen <project-id> <task-number> [\"why\"]   (the number is shown by kosmos task list --state done)"; exit 2; }
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
+      local _r _rpast=0   # kosmos#4889: reopen has no options; any --word is refused, and -- lets a reason start with one
+      for _r in "${@:3}"; do
+        if [ "$_rpast" = 1 ]; then break; fi
+        case "$_r" in --) _rpast=1 ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task reopen" "Usage: kosmos task reopen <project-id> <task-number> [\"why\"]   (the number is shown by kosmos task list --state done)" "$_r" ;; esac
+      done ;;
     activity)
       # #5874: read a task's conversation. Validated before the health check, as close is.
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task activity <project-id> <task-number>   (the number is shown by kosmos task list)"; exit 2; }
@@ -4763,7 +4773,7 @@ cmd_task() {
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       _no_more_words "task $sub" 2 "Usage: kosmos task $sub <project-id> <task-number>" "$@" ;;   # kosmos#4889 review 6
     *)
-      say "Unknown: kosmos task $sub. Try: list | add | assign | close | message | activity | built | done-when | hold | unhold | repeat | ran | told"
+      say "Unknown: kosmos task $sub. Try: list | add | assign | close | reopen | message | activity | built | done-when | hold | unhold | repeat | ran | told"
       exit 2 ;;
   esac
   if ! healthy; then
@@ -4979,6 +4989,30 @@ cmd_task() {
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not close that task: ${because:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when closing that task."; exit 1 ;;
+      esac
+      ;;
+    reopen)
+      # #6157: the board's reopen route (as close, with the agent's own token, so the board names who put it back and
+      # reopens only in a project the agent is on). The words after the number are why, folded as built's note is.
+      local project num why="" _w _wpast=0
+      project="${1:-}"; num="${2:-}"; shift 2 2>/dev/null || true
+      for _w in "$@"; do
+        if [ "$_wpast" = 0 ] && [ "$_w" = "--" ]; then _wpast=1; continue; fi   # kosmos#4889
+        why="${why:+$why }$_w"
+      done
+      local esc_why; esc_why=$(printf '%s' "$why" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g' | LC_ALL=C tr '\t\r\n' '   ')
+      local _rtok=""
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _rtok="$KOSMOS_AGENT_TOKEN" ;; esac
+      local rc=0 body
+      body=$(kosmos_curl "$_bt" "$_rtok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/reopen" \
+        -H 'content-type: application/json' --data "{\"why\":\"$esc_why\"}" 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say_unreached "reopen that task" "$rc" write; exit 1; }
+      case "$body" in
+        '{"task":'*) say "Put task $num on ${project:-the project} back. It keeps its number and its history." ;;
+        '{"error":'*)
+          local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+          say "Kosmos could not reopen that task: ${because:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos gave an answer we could not read when reopening that task."; exit 1 ;;
       esac
       ;;
     built)
