@@ -11047,7 +11047,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    🔑 The state rules stand (Josh, 2026-08-21: "state owns the ground and the stroke") on the LIST and the Projects
    page: on the grid, #5551's Home block below (as drawn) takes Working's green stroke and Question's blue away; Issue
    keeps its red and the could-not-read card its dash everywhere. Only the plain card loses its border here.
-   🔑 The alert tiles (Issue, No project) keep their red outline (on the Agents page #5551 below gives the pressable
+   🔑 The alert tile (Issue; #6180 removed No project) keeps their red outline (on the Agents page #5551 below gives the pressable
    Issue filters a grey ground at rest instead, as drawn), and a pressed or hovered tile keeps today's gold
    (the Messages and alert filters), so a filter that is on still looks on. The tiles while inert (Agents, Working,
    Idle) never show a box, not even on hover, since a box would say "click me" on a tile that does nothing. The
@@ -22149,6 +22149,9 @@ function staleWords(s) {
 function staleBadge(a) {
   const s = a.instructions;
   if (!s || s.state !== 'stale') return '';
+  /* #6180 (Josh, 10-14: "its not like a mistake to not have them assigned to a project"): the one Kosmos write marked
+     quiet (taking an agent off its last project) draws no warning triangle beside its name. */
+  if (s.wroteBy && s.wroteBy.quiet === true) return '';
   // The glyph is decorative and the `title` only appears on hover, so the text
   // is carried in a visually-hidden span. Without it the whole finding is
   // invisible to a screen reader and unreachable without a mouse.

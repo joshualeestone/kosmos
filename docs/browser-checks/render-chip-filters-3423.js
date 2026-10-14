@@ -5,21 +5,18 @@
  * project"); this check now pins their absence (no tile, no data-noproj anywhere, no noproj filter) and keeps the
  * Issue filter it always covered. The original #3423 contract below is kept for history.
  *
- * #3423 (Josh, 0.6.88 live test): the Agents top chips "Issue" and "No project"
- * become clickable filter toggles, the same pattern as the "Messages" tile, and
- * "No project" is NOT falsely demoted (it stays the #1898 needs-you-no-project
- * drill-down; clicking it jumps to the actual agent).
+ * #3423 (Josh, 0.6.88 live test): the Agents top chip "Issue" is a clickable filter toggle, the same pattern as the
+ * "Messages" tile. (Its "No project" sibling, #1898's needs-you-no-project drill-down, was removed by #6180.)
  *
  * Markers are keyed on the SERVER state to match the tile counts exactly:
  *   data-attn   = needs the person: needs_you, needs_trust, or a connection Kosmos gave up
  *                 reconnecting (engine/status.js needsPerson; == c.needsYou, the "Issue" count)
- *   data-noproj = a.state === 'needs_you' && a.stateProject===null (== c.needsYouUnattributed)
+ *   data-noproj  = never drawn since #6180 (asserted absent everywhere)
  *
  * Asserts (real page + real render + real handlers):
- *   1. a needs_you agent's grid card carries data-attn AND data-noproj; an idle
- *      agent's carries neither.
- *   2. the attn-vs-noproj DISTINCTION: card() on a needs_you agent WITH a project
- *      (stateProject set) emits data-attn but NOT data-noproj (real card clone).
+ *   1. a needs_you agent's grid card carries data-attn and no data-noproj; an idle agent's carries neither;
+ *      and the board has no "No project" tile (#6180).
+ *   2. card() on a needs_you agent with or without a project emits data-attn and never data-noproj.
  *   2b. needs_trust (#3718, Mona Lisa 2026-09-25): a needs_trust card wears the red
  *      visual attn class AND carries data-attn (the Issue filter means "needs the
  *      person", matching c.needsYou), but not data-noproj.

@@ -239,3 +239,24 @@ test('the engine names told through the shared vocabulary, not a bare literal', 
   assert.match(body, /STALENESS\.TOLD/,
     'toldOverride is naming its state with a bare literal again, which is how it stayed invisible to every reader of STALENESS');
 });
+
+/* #6180 (Josh, 10-14: "its not like a mistake to not have them assigned to a project"): being taken off its last
+   project is the one Kosmos write marked quiet, and the card draws no warning triangle for it. Any other Kosmos write
+   (put on a project) still draws the mark, so the quiet arm cannot pass for a broken badge. */
+test('#6180: an agent taken off its last project gets no warning triangle; being put on one still does', () => {
+  const off = { ...BASE, state: 'stale', wroteBy: { who: 'kosmos', because: 'Kosmos took it off its last project', quiet: true } };
+  const on = { ...BASE, state: 'stale', wroteBy: { ...KOSMOS_EDIT } };
+  assert.equal(badge({ instructions: off }), '', 'a quiet write (off its last project) drew a warning triangle');
+  assert.match(badge({ instructions: on }), /card-stale/, 'CONTROL: a Kosmos write that is not quiet lost its mark');
+  assert.match(badge({ instructions: { ...off, wroteBy: { ...off.wroteBy, quiet: false } } }), /card-stale/,
+    'only quiet === true silences the mark');
+});
+
+/* #6180: the engine marks exactly that write quiet, and carries the mark from the stored record to the verdict. */
+test('#6180: the off-its-last-project write is the one marked quiet, and wroteBy carries it', () => {
+  const projectsSrc = fs.readFileSync(require('path').join(__dirname, 'engine', 'projects.js'), 'utf8');
+  assert.match(projectsSrc, /because: why, \.\.\.\(why === WROTE_WHY\.off \? \{ quiet: true \} : \{\}\)/, 'the off write is not marked quiet');
+  const instrSrc = fs.readFileSync(require('path').join(__dirname, 'engine', 'instructions.js'), 'utf8');
+  assert.match(instrSrc, /\.\.\.\(by\.quiet === true \? \{ quiet: true \} : \{\}\)/, 'the stored record drops the quiet mark');
+  assert.match(instrSrc, /\.\.\.\(rec\.quiet === true \? \{ quiet: true \} : \{\}\)/, 'wroteBy drops the quiet mark');
+});

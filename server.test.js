@@ -3591,8 +3591,6 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     // #5540: seeded with a last-success count and hidden, so "?" and showing are both measured transitions.
     'st-blocked': el('2'), 'st-blocked-tile': { textContent: '', hidden: true, innerHTML: '' },
     'st-attn-tile': { textContent: '', hidden: false, innerHTML: '' },
-    /* #1898: the no-project drill-down, seeded with a last-success count and
-       SHOWN, so the failed poll must blank it to `?` and hide it like its parent. */
     /* ⚠️ Seeded with a last-success number for the same presence-before-absence
        reason as the rest, and its tile is seeded HIDDEN: the not-running tile
        is the one that must come BACK on a failed poll, showing a question mark

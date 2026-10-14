@@ -1258,8 +1258,8 @@ function describe(project, roster, all) {
          those rows offline, so such a member is not `present`); the rule covers it when it does. */
       needsYou: members.filter((m) => m.needsYouHere !== null).length,   // #5688: one rule, needsYouReason
       needsYouElsewhere: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject !== null && m.stateProject !== project.id).length,
-      /* ...and about no project at all (nothing named, nothing to inherit): read
-         on the Agents page. Kept apart from "elsewhere" so a screen sentence
+      /* ...and about no project at all (nothing named, nothing to inherit). #6180: the Agents page no longer reads
+         it (its No project chip is gone); kept as a field of this summary. Kept apart from "elsewhere" so a screen sentence
          about another project is never said of a question about none. */
       needsYouUnattributed: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject === null).length,
       /* Of needsYou, how many rest on a carried-forward project rather than a
@@ -3515,7 +3515,9 @@ function tellAgent(sessionName, projects, roster) {
         ? WROTE_WHY.on(andList(projects.map((p) => oneLine(p.name))))
         : WROTE_WHY.off)
       : WROTE_WHY.colleagues;
-    instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: why });
+    /* #6180 (Josh, 10-14): an agent need not be on a project, so being taken off its last one is never a warning: the
+       write is marked quiet and the board draws no stale triangle for it (it still re-reads at its next restart). */
+    instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: why, ...(why === WROTE_WHY.off ? { quiet: true } : {}) });
     /* `changed` is about the PROJECTS half only: a colleagues heal rewrites the
        file without the agent's project world moving, and speaking to a running
        agent about that would be noise (#304). */
