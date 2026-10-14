@@ -15,13 +15,14 @@
 #                             power restore, tmux, pwsh, the Command Line Tools, the owner's home mode, the CI
 #                             user and the repo variables. KOSMOS_CI_ALLOW_JOBS (an ERE) lets named launchd jobs stay
 #                             loaded. KOSMOS_CI_SYSTEM_AGENTS, KOSMOS_CI_OWNER_HOME and KOSMOS_CI_BREW are test seams.
-#   create-user               as the machine owner (an admin). Runs preflight first. A STANDARD user kosmos-ci
+#   create-user               as the machine owner (an admin). Runs preflight first, then creates kosmos-ci as a STANDARD user
 #   install <commit> <sha256> as kosmos-ci, in its Screen Sharing session (svc.sh, which stops and starts the
 #                             runner, needs the GUI session, not ssh). The runner, the hooks and the job guard
 #                             from THAT main commit
 #   register                  as kosmos-ci, in its Screen Sharing session, for the same reason. Reads the
 #                             registration token from stdin, so it is never in any argv
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels.
+#                             Give KOSMOS_CI_GUARD_SHA (the install pin), or the guard counts as unchecked.
 #                             Exit 0 clear, 1 a problem, 3 a check it could not make (neither pass nor fail)
 #   machine-settings          prints the settings that need an admin in System Settings
 #   jq-programs               prints the jq programs handed to gh --jq; reads nothing (the test runs them through jq)
@@ -209,8 +210,6 @@ preflight() {
   if [ -n "$ALLOW_JOBS" ]; then
     # grep exits 2 on a bad pattern and prints nothing, which would clear every job.
     printf 'x\n' | grep -E -e "$ALLOW_JOBS" >/dev/null 2>&1 || [ $? = 1 ] || { problem "KOSMOS_CI_ALLOW_JOBS is not a valid ERE: $ALLOW_JOBS"; jobs=""; unknown=1; }
-    # A valid pattern can still match everything (".*", "^", a trailing "|"): one that matches a label nobody would
-    # allow is refused rather than allowed to clear every job.
     # A heuristic for the match-everything class (".*", "^", a trailing "|"): a probe no real label contains. A broad
     # pattern can still miss it, which is why every job the list keeps is printed below.
     if [ "$unknown" = 0 ] && printf 'Qz7xK4.wV2pR9\n' | grep -q -E -e "$ALLOW_JOBS"; then
@@ -450,6 +449,8 @@ register() {
   [ -x "$RUNNER_DIR/config.sh" ] || { echo "refused: no runner in $RUNNER_DIR; run install first" >&2; exit 1; }
   # Registered already: config.sh would replace the registration and then svc.sh install would fail on its plist.
   [ ! -f "$RUNNER_DIR/.service" ] || { echo "refused: $RUNNER_DIR is registered as a service already; to register again, as $CI_USER: ./svc.sh uninstall and ./config.sh remove (with a removal token), then register" >&2; exit 1; }
+  # Configured already (.runner): config.sh refuses to configure again until ./config.sh remove, whatever --replace says.
+  [ ! -f "$RUNNER_DIR/.runner" ] || { echo "refused: $RUNNER_DIR is configured already; to register again, as $CI_USER: ./config.sh remove (with a removal token), then register" >&2; exit 1; }
   # The job guard is the boundary on a public repo: never register a runner that would take jobs without it, nor one
   # whose .env would turn the suite lock off.
   if grep -q -E '^[[:space:]]*(export[[:space:]]+)?KOSMOS_' "$RUNNER_DIR/.env" 2>/dev/null; then
@@ -470,8 +471,6 @@ register() {
   if [ -t 0 ]; then printf 'registration token: ' >&2; IFS= read -r -s token || true; echo >&2; else IFS= read -r token || true; fi
   [ -n "$token" ] || { echo "refused: no registration token on stdin" >&2; exit 1; }
   # The runner reads ACTIONS_RUNNER_INPUT_<ARG> for a config argument it is not given, so the token stays out of argv.
-  # If svc.sh install fails after this, the runner is configured but not a service: no .service file, so a re-run
-  # reaches config.sh again, whose --replace takes the same name over.
   ACTIONS_RUNNER_INPUT_TOKEN="$token" ./config.sh --unattended --url "$REPO_URL" --name "$NAME" --labels "$LABELS" --work _work --replace
   printf '%s\n' "$RUNNER_PATH" > .path
   ./svc.sh install   # a LaunchAgent for this user (starts at login)
@@ -601,7 +600,7 @@ EOF
   fi
   if [ "$PROBLEMS" -gt 0 ]; then say "verify: $PROBLEMS problem(s)"; return 1; fi
   # Whether the job guard is wired is what verify exists to say; a check it could not make is not a pass.
-  if [ "$UNCHECKED" -gt 0 ]; then say "verify: no problem found, but $UNCHECKED check(s) could not be made (give the owner read access to $CI_USER's home; see machine-settings)"; return 3; fi
+  if [ "$UNCHECKED" -gt 0 ]; then say "verify: no problem found, but $UNCHECKED check(s) could not be made (see the UNCHECKED lines: set KOSMOS_CI_GUARD_SHA, or give the owner read access to $CI_USER's home)"; return 3; fi
   say "verify: clear"
 }
 
