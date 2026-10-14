@@ -30,3 +30,5 @@ which a row prefixed with the agent's name keeps true.
    esc reds it); an own-key check on the reason lookup (a `__proto__` code is worded generally; removing the check reds
    it); the missed-run entry dropped from the API (untested and unread); a test message corrected. Left: own_bound's
    "Open it" wording on a row; tskNeedsSig not re-reading on a crash loop (older, not this slice).
+2. sonnet: no blocker or warning. Converged. NIT taken: the missed-run comments now say the run itself names no agent
+   (agents waiting on the same task are still named). Left: the own_bound wording and tskNeedsSig, as above.

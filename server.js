@@ -18761,7 +18761,7 @@ const server = http.createServer(async (req, res) => {
            knows, and whenever a missed repeating run is waiting too: that wait has no start, so any age could be short. */
         waitingSince: waitingOnPerson && !runMissed ? tasks.waitingSinceOf(t, roster, membersOf.get(t.projectId)) : null,
         /* #6157: who put it in Needs your decision, and why ({ who, reason }, the project page's reason codes), from the
-           same cards. Empty when it is not waiting, and for a missed run the person reviews (its repeat line says that). */
+           same cards. Empty when it is not waiting; a missed run the person reviews names no agent itself (its repeat line says it). */
         waitingOn: !waitingOnPerson ? [] : tasks.waitingOnOf(t, roster, membersOf.get(t.projectId)),
         state: tasks.taskState(Object.assign({}, t, { claim, waitingOnPerson })),
         lastActivityAt: tasks.lastActivityOf(t.projectId, t),
