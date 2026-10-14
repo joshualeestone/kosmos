@@ -1090,6 +1090,8 @@ const HELD_TELL_MAX_MS = 2 * 60 * 60 * 1000;
 const HELD_ASKED_MAX_MS = 24 * 60 * 60 * 1000;
 /* How many rows `kosmos room` shows when not given -n (server.js reads it from here). */
 const ROOM_READ_ROWS = 40;
+/* The row kinds that read shows (server.js filters a room's rows to these). */
+const ROOM_READ_KINDS = new Set(['post', 'valve', 'note', 'external', 'refused']);
 function staleHeld(projectId, ids, log, now, member) {
   const out = new Set();
   out.evenIfAsked = new Set();
@@ -1107,10 +1109,11 @@ function staleHeld(projectId, ids, log, now, member) {
     }
     /* N7 (10-13 19:31Z, a Meta seat): the member answered a whole round in ONE reply, to the round's newest post, and
        the round's other posts were told to it again as new. So a reply to another's post X also answers the posts
-       before X that a room read showing X shows by default: the ROOM_READ_ROWS - 1 room rows before it. */
+       before X that a room read showing X shows by default: at most the ROOM_READ_ROWS - 1 rows before it, of the
+       kinds the read shows (server.js caps outside rows, so a read can reach further back, never less far). */
     const covered = new Set();
     if (answered.size) {
-      const room = rows.filter((r) => r && r.project === projectId);
+      const room = rows.filter((r) => r && r.project === projectId && ROOM_READ_KINDS.has(r.kind));
       room.forEach((x, i) => {
         if (x.kind !== 'post' || !answered.has(x.id) || x.from === member) return;
         const xAt = Date.parse(x.at);
@@ -3442,7 +3445,7 @@ module.exports = {
   logRoomRefusal,       // kosmos#5752 slice 3
   nudgeOwnComputerPost, ownPostNudges, OWN_POST_NUDGE_GAP_MS, reopenForOwnPost,   // #5902
   _resetOwnPostNudgesForTests: resetOwnPostNudgesForTests,   // #5732
-  staleHeld, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS, ROOM_READ_ROWS,
+  staleHeld, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS, ROOM_READ_ROWS, ROOM_READ_KINDS,
   SEND_DEDUP_WINDOW_MS,
   // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.
   _sendWithDelivery: sendWithDelivery,
