@@ -76,9 +76,15 @@ need_user() {
     if [ "$APPLY" = 1 ] && [ "$1" = "$CI_USER" ] && [ "$HOME" != "$CI_HOME" ]; then
       echo "refused: HOME is $HOME, not $CI_HOME (log in as $CI_USER rather than sudo -u)" >&2; exit 2
     fi
-    # svc.sh reads and drives the CALLER's launchd session: over ssh it reads a running runner as stopped.
-    if [ "$APPLY" = 1 ] && [ "$1" = "$CI_USER" ] && [ "$(launchctl managername 2>/dev/null || true)" != Aqua ]; then
-      echo "refused: run this in $CI_USER's Screen Sharing session (launchctl managername is not Aqua here)" >&2; exit 2
+    # svc.sh reads and drives the CALLER's launchd session: over ssh it reads a running runner as stopped, and under
+    # sudo -iu or su from the owner's GUI it acts on the OWNER's session (Aqua, but managed for another uid).
+    if [ "$APPLY" = 1 ] && [ "$1" = "$CI_USER" ]; then
+      if [ "$(launchctl managername 2>/dev/null || true)" != Aqua ]; then
+        echo "refused: run this in $CI_USER's Screen Sharing session (launchctl managername is not Aqua here; a tmux pane reads Background)" >&2; exit 2
+      fi
+      if [ "$(launchctl manageruid 2>/dev/null || true)" != "$(id -u)" ]; then
+        echo "refused: this GUI session belongs to another user (sudo -iu or su?); log in to Screen Sharing as $CI_USER" >&2; exit 2
+      fi
     fi
     return 0
   fi
@@ -114,7 +120,8 @@ repo_variable() {
   printf '<unset>'
 }
 
-# shards_check <value>: test.yml's scope job routes a shell shard only for the tokens 1/2 and 2/2 (comma separated), so
+# shards_check <value>: test.yml's scope job routes a shell shard only for the tokens 1/2 and 2/2 (split on commas and
+# whitespace), and only while the node part routes here too, so
 # any other value, empty included, routes none. Refuse exactly when one would route.
 shards_check() {
   local v="$1" tok routed=""
@@ -122,7 +129,7 @@ shards_check() {
   set -f   # as test.yml's parse: a "*" stays literal
   for tok in $(printf '%s' "$v" | tr ',' ' '); do case "$tok" in 1/2|2/2) routed="$routed $tok" ;; esac; done
   set +f
-  if [ -n "$routed" ]; then problem "KOSMOS_CI_SHELL_SHARDS is '$v', which routes shell shard(s)$routed here: one runner cannot carry a shell shard (#4601); unset it first"
+  if [ -n "$routed" ]; then problem "KOSMOS_CI_SHELL_SHARDS is '$v', which would route shell shard(s)$routed here: one runner cannot carry a shell shard (#4601); unset it first"
   else ok "KOSMOS_CI_SHELL_SHARDS is set to '$v', which names no shard (test.yml routes none)"; fi
 }
 
@@ -281,7 +288,7 @@ install_runner() {
   mkdir -p "$RUNNER_DIR" "$CI_DIR"; cd "$RUNNER_DIR"
   # Every download and read before the runner is touched, so a refusal never leaves it stopped; after the stop, an
   # EXIT trap starts it again on any failure.
-  local newg="$CI_DIR/job-guard.sh.new" got rel ver tgz pub have was_running=0 sv old_listener="" now_listener
+  local newg="$CI_DIR/job-guard.sh.new" got rel ver tgz pub have was_running=0 sv old_listener=""
   curl -fsSL "https://raw.githubusercontent.com/$REPO/$commit/tools/ci-runner-job-guard.sh" -o "$newg" \
     || { rm -f "$newg"; echo "could not fetch the job guard at $commit: nothing changed" >&2; exit 1; }
   got="$(shasum -a 256 "$newg" | cut -d' ' -f1)"
@@ -290,7 +297,7 @@ install_runner() {
   ver="$(printf '%s' "$rel" | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -1 || true)"
   [ -n "$ver" ] || { rm -f "$newg"; echo "could not read the runner version: nothing changed" >&2; exit 1; }
   tgz="actions-runner-osx-arm64-$ver.tar.gz"
-  [ -f "$tgz" ] || curl -fsSLO "https://github.com/actions/runner/releases/download/v$ver/$tgz" || { rm -f "$newg"; echo "could not fetch $tgz: nothing changed" >&2; exit 1; }
+  [ -f "$tgz" ] || curl -fsSLO "https://github.com/actions/runner/releases/download/v$ver/$tgz" || { rm -f "$newg" "$tgz"; echo "could not fetch $tgz: nothing changed" >&2; exit 1; }
   pub="$(printf '%s' "$rel" | grep -o 'BEGIN SHA osx-arm64 -->[0-9a-f]*' | head -1 | sed 's/.*-->//' || true)"
   have="$(shasum -a 256 "$tgz" | cut -d' ' -f1)"
   [ -n "$pub" ] && [ "$pub" = "$have" ] || { rm -f "$tgz" "$newg"; echo "runner package sha256 $have is not the published '${pub:-none}': refused, nothing changed" >&2; exit 1; }
@@ -372,13 +379,7 @@ HOOK
   rm -f "$tgz"
   if [ "$was_running" = 1 ]; then
     ./svc.sh start || { echo "FAILED to start the runner again (./svc.sh start in $RUNNER_DIR): it is stopped" >&2; exit 1; }
-    # svc.sh start is a launchctl load: it succeeds for a service that dies at once. A NEW Listener must appear (the
-    # old one may still be shutting down).
-    local waited=0
-    while now_listener="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"; [ -z "$now_listener" ] || [ "$now_listener" = "$old_listener" ]; do
-      [ "$waited" -lt "${KOSMOS_CI_START_WAIT_S:-30}" ] || { echo "FAILED: the runner was loaded but no Runner.Listener is running after ${waited}s; see ~/Library/Logs/actions.runner.*/stderr.log" >&2; exit 1; }
-      sleep 1; waited=$((waited + 1))
-    done
+    wait_for_listener "$old_listener"
     echo "runner started again"
   fi
 }
@@ -414,7 +415,18 @@ register() {
   printf '%s\n' "$RUNNER_PATH" > .path
   ./svc.sh install   # a LaunchAgent for this user (starts at login)
   ./svc.sh start
+  wait_for_listener ""
   ./svc.sh status
+}
+
+# wait_for_listener <pid before>: svc.sh start is a launchctl load, which succeeds for a service that dies at once.
+# A Listener other than <pid before> (the old one may still be shutting down) must appear, or this fails.
+wait_for_listener() {
+  local before="$1" now waited=0
+  while now="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"; [ -z "$now" ] || [ "$now" = "$before" ]; do
+    [ "$waited" -lt "${KOSMOS_CI_START_WAIT_S:-30}" ] || { echo "FAILED: the runner was loaded but no new Runner.Listener is running after ${waited}s; see ~/Library/Logs/actions.runner.*/stderr.log" >&2; exit 1; }
+    sleep 1; waited=$((waited + 1))
+  done
 }
 
 # runner_busy: prints true or false; fails when the API could not say.
