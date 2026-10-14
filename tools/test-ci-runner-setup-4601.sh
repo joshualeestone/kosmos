@@ -199,7 +199,7 @@ done
 
 # The jq programs gh --jq runs, executed by the real jq against canned API JSON (the gh stub never runs them).
 if command -v jq >/dev/null 2>&1; then
-  jq_prog() { bash "$S" jq-programs | sed -n "${1}p"; }
+  jq_prog() { env -i PATH="$BIN:/usr/bin:/bin" HOME="$T/home" CALL_LOG="$T/jq-calls.log" bash "$S" jq-programs | sed -n "${1}p"; }
   printf '{"name":"KOSMOS_CI_SHELL_SHARDS","value":""}' > "$T/var.json"
   printf '{"total_count":2,"runners":[{"name":"other","status":"offline","busy":false,"labels":[{"name":"x"}]},{"name":"kosmos-ci-agent1s","status":"online","busy":true,"labels":[{"name":"self-hosted"},{"name":"macOS"},{"name":"ARM64"},{"name":"kosmos-ci"}]}]}' > "$T/runners.json"
   [ "$(jq -r "$(jq_prog 1)" "$T/var.json")" = "=" ] && pass "jq: a set-but-empty variable reads '='" || fail "jq var: $(jq -r "$(jq_prog 1)" "$T/var.json" 2>&1)"
@@ -348,6 +348,12 @@ R5="$T/run5"; svc_home "$R5"
 run in-tarfail "$R5" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R5" FX_TAR_FAIL=1 -- --apply install "$C" "$G"
 [ "$(rc in-tarfail)" != 0 ] && grep -q '^svc.sh stop' "$T/in-tarfail.calls" && grep -q '^svc.sh start' "$T/in-tarfail.calls" \
   && pass "install --apply starts the runner again when it fails after stopping it" || fail "install fail after stop: rc $(rc in-tarfail), calls: $(grep svc "$T/in-tarfail.calls" | tr '\n' ' ')"
+mkdir -p "$T/closed-ci"; chmod 000 "$T/closed-ci"
+run in-closed "$H" KOSMOS_CI_HOME="$T/closed-ci" -- install "$C" "$G"
+chmod 755 "$T/closed-ci"
+[ "$(rc in-closed)" = 0 ] && has in-closed "its .env KOSMOS_ check runs at --apply" && pass "install dry run as the owner says when it cannot look inside kosmos-ci's home" || fail "install dry closed home: rc $(rc in-closed)"
+run bad-name "$H" "KOSMOS_CI_RUNNER_NAME=bad\"name" -- verify
+[ "$(rc bad-name)" = 2 ] && has bad-name "may hold only letters" && pass "a runner name that would need escaping in jq is refused" || fail "bad runner name: rc $(rc bad-name)"
 run in-owner "$H" KOSMOS_CI_HOME="$T/ci-home-elsewhere" -- install "$C" "$G"
 [ "$(rc in-owner)" = 0 ] && has in-owner "unpack into $T/ci-home-elsewhere/actions-runner" && ! has in-owner "$H/" \
   && pass "install dry run as the owner names kosmos-ci's paths, not the owner's" || fail "install dry as owner: $(grep WOULD "$T/in-owner.out" | head -2)"
@@ -437,9 +443,10 @@ run rg-none "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
 VCI="$T/vci"; mkdir -p "$VCI/actions-runner" "$VCI/.kosmos-ci"
 printf 'LANG=en_US.UTF-8\nACTIONS_RUNNER_HOOK_JOB_STARTED=%s\nACTIONS_RUNNER_HOOK_JOB_COMPLETED=%s\n' "$VCI/.kosmos-ci/job-started.sh" "$VCI/.kosmos-ci/job-completed.sh" > "$VCI/actions-runner/.env"
 for f in job-guard.sh job-started.sh job-completed.sh job-cleanup.sh; do printf '#!/bin/bash\n' > "$VCI/.kosmos-ci/$f"; chmod 755 "$VCI/.kosmos-ci/$f"; done
+GS="$(shasum -a 256 "$VCI/.kosmos-ci/job-guard.sh" | cut -d' ' -f1)"
 vcase() {  # vcase <name> <want rc> <want text> <env...>
   local name="$1" want="$2" text="$3"; shift 3
-  run "v-$name" "$H" FX_CI_EXISTS=1 KOSMOS_CI_HOME="$VCI" "$@" -- verify
+  run "v-$name" "$H" FX_CI_EXISTS=1 KOSMOS_CI_HOME="$VCI" KOSMOS_CI_GUARD_SHA="$GS" "$@" -- verify
   [ "$(rc "v-$name")" = "$want" ] && has "v-$name" "$text" && pass "verify: $name" || fail "verify $name: rc $(rc "v-$name"): $(grep -E 'REFUSE|clear' "$T/v-$name.out" | head -2)"
 }
 vcase clear 0 "verify: clear"
@@ -455,7 +462,9 @@ vcase leftover-busy 0 "while a job is in flight (busy=true)" "FX_PS=node server.
 vcase raced 1 "went busy or idle during verify" FX_BUSY2=true
 vcase reread-fails 1 "could not read the runners API a second time" FX_BUSY2_FAIL=1
 vcase nolabels 1 "labels are '', not" "FX_RUNNER_ROW=online false"
-GS="$(shasum -a 256 "$VCI/.kosmos-ci/job-guard.sh" | cut -d' ' -f1)"
+vcase guard-unpinned 3 "the job guard's integrity" KOSMOS_CI_GUARD_SHA=
+chmod 000 "$VCI/actions-runner/.env"; vcase env-unreadable 3 "cannot read $VCI/actions-runner/.env"; chmod 644 "$VCI/actions-runner/.env"
+chmod 000 "$VCI/.kosmos-ci"; vcase cidir-unreadable 3 "cannot read $VCI/.kosmos-ci"; chmod 755 "$VCI/.kosmos-ci"
 vcase guard-pin 0 "job guard sha256 is the install pin" KOSMOS_CI_GUARD_SHA="$GS"
 vcase guard-drift 1 "something rewrote it" KOSMOS_CI_GUARD_SHA=0000000000000000000000000000000000000000000000000000000000000000
 vcase psfail 1 "kosmos-ci runs no processes" FX_PS_FAIL=1
