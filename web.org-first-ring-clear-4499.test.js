@@ -147,6 +147,28 @@ test('ORG_LINE_CLEAR is the 12px rule this file pins', () => {
   assert.equal(LINE_CLEAR, 12, 'ORG_LINE_CLEAR is the 12px rule the first-ring gate floors to; it reads ' + LINE_CLEAR);
 });
 
+test('FLOOR FORMULA PINNED: orgPlace (floor) and orgPlaceGated (fundability ceiling) derive from ONE expression (#4499)', () => {
+  if (!hasGate) { assert.fail('orgPlaceGated is absent, so the floor and the ceiling cannot be pinned'); return; }
+  // The floor (orgPlace's MIN_SPAN) and the gate's fundability ceiling (orgPlaceGated's maxFundable) are inverses
+  // of the SAME angular floor. Repo convention #5 (this codebase's most-shipped defect): one source of truth, or
+  // a test that pins the two derivations equal. They live in two functions, so this is that test -- change the
+  // margin or the formula in one spot and the two source expressions stop matching here.
+  const bodyOf = (name) => {
+    const at = SCRIPT.indexOf('function ' + name + '(');
+    let d = 0;
+    for (let k = SCRIPT.indexOf('{', at); k < SCRIPT.length; k += 1) { if (SCRIPT[k] === '{') d += 1; else if (SCRIPT[k] === '}') { d -= 1; if (!d) return SCRIPT.slice(at, k + 1); } }
+    return '';
+  };
+  const asin = /Math\.asin\(Math\.min\(1,\s*\(ORG_LINE_CLEAR\s*\+\s*ORG_LINE_MARGIN\)\s*\/\s*ORG_R0\)\)/;
+  const inPlace = bodyOf('orgPlace').match(asin);
+  const inGated = bodyOf('orgPlaceGated').match(asin);
+  assert.ok(inPlace, 'orgPlace no longer floors to asin(min(1,(ORG_LINE_CLEAR+ORG_LINE_MARGIN)/ORG_R0)); the floor formula moved or changed');
+  assert.ok(inGated, 'orgPlaceGated maxFundable no longer uses the same asin(ORG_LINE_CLEAR+ORG_LINE_MARGIN) expression; the gate ceiling can drift from the floor');
+  assert.equal(inPlace[0], inGated[0], 'the floor and the fundability ceiling derive from DIFFERENT expressions now (a change in one spot would ship green while the gate disagrees with the water-fill/equal-shares boundary)');
+  // and neither re-introduced a raw margin literal in place of the named constant
+  assert.ok(!/ORG_LINE_CLEAR\s*\+\s*\d/.test(bodyOf('orgPlace') + bodyOf('orgPlaceGated')), 'a raw margin literal (ORG_LINE_CLEAR + <number>) reappeared; both spots must use ORG_LINE_MARGIN so the margin has one source');
+});
+
 test('SIZE: a chart that blows up under an un-gated always-floor stays within 1% of the proportional maxR (#4499)', () => {
   for (const [label, spec] of SIZE_FIXTURES) {
     const embed = EMBED_PROP_MAXR[label];
@@ -182,6 +204,7 @@ test('NON-BUG IDENTICAL: a chart with no sub-12 first-ring line gets a layout id
     ['rt(1,60,0.3)', randomTree(1, 60, 0.3)],
     ['deepHeavy(8,60)', deepHeavy(8, 60)],
   ];
+  let asserted = 0;
   for (const [label, spec] of nonBug) {
     const ag = cards(spec);
     const prop = page.orgPlace(page.orgTreeOf(ag), false);
@@ -192,7 +215,9 @@ test('NON-BUG IDENTICAL: a chart with no sub-12 first-ring line gets a layout id
     if (clear < LINE_CLEAR) continue;
     assert.equal(gated.funded, false, label + ' has no sub-12 first-ring line (clear ' + clear.toFixed(2) + ') yet the gate funded it');
     assert.ok(samePlacement(prop.placed, gated.placed), label + ': a chart with no bug must get the proportional (main) layout exactly, but a position differs');
+    asserted += 1;
   }
+  assert.ok(asserted > 0, 'CONTROL: every non-bug fixture clustered (clear < ' + LINE_CLEAR + '), so the identical-to-main property was never actually asserted');
 });
 
 test('HONEST FUNDED + CLEARANCE NEVER WORSE BY FULL: the first-ring gate never disagrees with the full check (#4499 condition 1)', () => {
