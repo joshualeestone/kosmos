@@ -24,7 +24,8 @@
  * you (the card's third point). #4926: a held post that asks nothing of you and has gone stale (older than
  * messages.HELD_TELL_MAX_MS, counted from a quota pause's end for a quota hold, or the room's loop guard stopped the
  * conversation after it) is dropped from that line instead (withoutStale): it is still in the room. #4926 R2: so is one
- * that asks something of you, once you have answered it in the room or it is over a day old (messages.staleHeld).
+ * that asks something of you, once you have answered it, or a later post, in the room, or it is over a day old
+ * (messages.staleHeld).
  *
  * Left exactly as before: the person's posts (to the room or to you), any post that @-names you, and
  * every agent whose latest report is neither a fresh `working` nor `idle` (needs_you, blocked, stopped, never

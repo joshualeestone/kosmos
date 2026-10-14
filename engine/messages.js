@@ -1080,7 +1080,8 @@ function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0
      stopped !== false in that project, later than the post); dropped only when it is not addressed to the member;
    - and, in its `evenIfAsked` Set (R2, 10-05 user diagnostic: a session woken on 10-05 for 10-02 and 10-03 posts it
      had handled), dropped even when it names the member: one the member ANSWERED (its own post in that room with
-     replyTo = that id; a room post, not a direct message), or a post older than HELD_ASKED_MAX_MS from the post itself.
+     replyTo = that id; a room post, not a direct message), one older than a post it answered there (N7), or a post
+     older than HELD_ASKED_MAX_MS from the post itself.
    The stale age counts from the post, or from the member's quota pause's end when there was one; the day rule
    counts from the post even then, so a pause of days does not deliver days-old asks. (#5805: roomhold.withoutStale
    keeps back an ask a Claude usage limit held; `answered`, the ids the member answered, tells the two apart.)
@@ -1102,6 +1103,18 @@ function staleHeld(projectId, ids, log, now, member) {
       if (r.kind === 'valve' && r.stopped !== false) { const v = Date.parse(r.at); if (Number.isFinite(v) && v > stoppedAt) stoppedAt = v; }
       if (member && r.kind === 'post' && r.from === member && typeof r.replyTo === 'string') answered.add(r.replyTo);
     }
+    /* N7 (10-13 19:31Z, a Meta seat): the member answered a whole round in ONE reply, to the round's newest post, and
+       the round's other posts were told to it again as new. So a reply to X also answers every post in the room older
+       than X: the member saw X in a room read or a typed line, and either one showed it the older posts too (a typed
+       line carries the posts held for it then, and takes them). A post newer than X is not covered. */
+    let answeredAt = -Infinity;
+    if (answered.size) {
+      for (const r of rows) {
+        if (!r || r.kind !== 'post' || r.project !== projectId || !answered.has(r.id)) continue;
+        const v = Date.parse(r.at);
+        if (Number.isFinite(v) && v > answeredAt) answeredAt = v;
+      }
+    }
     for (const r of rows) {
       if (!r || r.kind !== 'post' || r.project !== projectId || !want.has(r.id)) continue;
       const at = Date.parse(r.at);
@@ -1112,8 +1125,9 @@ function staleHeld(projectId, ids, log, now, member) {
       const until = member && r.heldUntil && typeof r.heldUntil === 'object' ? Date.parse(r.heldUntil[member]) : NaN;
       const from = Number.isFinite(until) && until > at ? until : at;
       if (t - from > HELD_TELL_MAX_MS || stoppedAt > at) out.add(r.id);
-      if (answered.has(r.id)) out.answered.add(r.id);
-      if (answered.has(r.id) || t - at > HELD_ASKED_MAX_MS) { out.add(r.id); out.evenIfAsked.add(r.id); }
+      const handled = answered.has(r.id) || at < answeredAt;
+      if (handled) out.answered.add(r.id);
+      if (handled || t - at > HELD_ASKED_MAX_MS) { out.add(r.id); out.evenIfAsked.add(r.id); }
     }
   } catch { /* nothing is dropped */ }
   return out;
