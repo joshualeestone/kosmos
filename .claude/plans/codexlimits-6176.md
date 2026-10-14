@@ -27,7 +27,9 @@ the default account). My first version read only the account folder and would ne
   of each, most recent first, until three reports are found or six files are read, and returns the report with the
   latest time of its own
   `{ windows: [{ usedPct, windowMinutes, resetsAt (ms) }], plan, at (ms) }` with windows past their reset dropped,
-  or null. The latest report decides: an earlier one is never used to replace a report that is over.
+  or null. Among the files read (at most six, most recently written first) the latest report decides: an earlier one
+  is never used to replace a report that is over. A newer report in a file outside those six is not seen; the line
+  still shows its age.
 - `server.js`: ChatGPT rows (`authMode === 'chatgpt'`) in `/api/accounts` gain `limits`, read across the account's
   homes (one walk per request); API-key rows carry no field. Only `limit_id` "codex" (or none) counts; a file's latest
   rate_limits row decides even with no current window.
@@ -52,6 +54,8 @@ the default account). My first version read only the account folder and would ne
 - Agents move between accounts (#2338) but keep one private home, so a private home's reports count only when written
   after the agent's job file last changed (a move rewrites it). Where the job file's time cannot be read (no plist or
   systemd unit, e.g. Windows), the home is not filtered: that keeps the reading, without the move protection.
+  Any other rewrite of the job (a rename, a model change) also hides that agent's earlier reports until Codex reports
+  again: a missing meter for a while, never a wrong figure.
 
 ## Weakest premise
 That `rate_limits` keeps this shape across Codex versions. A changed shape reads as no reading (validated, never a
