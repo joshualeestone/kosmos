@@ -3,8 +3,8 @@
   "highlights": [
     {
       "icon": "list",
-      "title": "See each Claude account's weekly usage",
-      "line": "Settings, AI Models shows how much of each Claude account's weekly limit is used, which agents run on it, and moves them elsewhere.",
+      "title": "See a Claude account's weekly usage",
+      "line": "Settings, AI Models can show a Claude account's weekly usage, which of this computer's agents run on it, and move them to another account.",
       "platforms": [
         "mac"
       ]
