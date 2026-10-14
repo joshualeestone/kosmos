@@ -277,7 +277,9 @@ function sentenceAt(t, at) {
   let start = from; let lead = '';
   if (end - from > REQUEST_MAX && at - from > REQUEST_LEAD) {
     const sp = t.indexOf(' ', at - REQUEST_LEAD);
-    start = sp >= 0 && sp < at ? sp + 1 : at;
+    // Review 9: no space in the window (a long link): cut by character, never down to the bare mention or ?.
+    start = sp >= 0 && sp < at ? sp + 1 : at - REQUEST_LEAD;
+    if (/[\uDC00-\uDFFF]/.test(t.charAt(start))) start += 1;   // never start on the second half of an emoji
     lead = '\u2026';
   }
   let sentence = lead + t.slice(start, end).replace(/\s+/g, ' ').trim();
@@ -305,6 +307,9 @@ function requestIn(text, opts = {}) {
     const s = sentenceAt(t, at);
     if (s && s.end > headEnd) return { sentence: unquotable(s.sentence), asked: true };
   }
+  /* Review 9: a question only for a reader the post is to (a mentioned member, a DM's reader): quoting one to a
+     background member would steer an agent the post was not addressed to, which the room avoids (no answer line). */
+  if (opts.questions === false) return null;
   for (const m of t.matchAll(/(?<=\S)\?(?=\s|$)/g)) {
     const s = sentenceAt(t, m.index);
     if (s && s.end > headEnd) return { sentence: unquotable(s.sentence), asked: false };
@@ -313,7 +318,7 @@ function requestIn(text, opts = {}) {
 }
 /* The request is quoted, so where Kosmos stops speaking is plain. Added after the spill decision and not measured
    again: a spilled line is the envelope, a head of about 200 characters, a path and at most REQUEST_MAX + about 20
-   characters of request, so it stays far under chat.MAX_TEXT. The head is a prefix of the text (chat.cleanMessage
+   characters of request (the label and quotes are about 25), so it stays far under chat.MAX_TEXT. The head is a prefix of the text (chat.cleanMessage
    trims), so a sentence ending before the head's end is in it. The head itself is still the post's own words,
    unquoted, as before this change. */
 function spillLine(text, file, opts = {}) {
@@ -2456,7 +2461,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       }
       spilled[name] = spill.file;
       // #6065 N1: the preview carries the request to this member: where the room's resolver read it as named.
-      envelope = wrap(spillLine(cleaned, spill.file, { namedAt: namedAt.get(name) || [] }));   // #5706
+      envelope = wrap(spillLine(cleaned, spill.file, { namedAt: namedAt.get(name) || [], questions: mentioned.has(name) }));   // #5706
     }
     const finish = (sent) => {
       /* #4588 PR B: held (the shared Google quota, #5743/#5754 an answer awaited on its screen: question menu, permission prompt, safeguards menu, or #5805 a usage limit), nothing typed. The post is kept for this member like a #4624
