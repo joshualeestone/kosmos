@@ -3,9 +3,9 @@
 Owner: Angel. Started 2026-10-13 17:51 CDT. Local only (CI hold from Splinter 17:47).
 
 ## Finished looks like
-Josh has, in his channel, (a) what a tablet shows today at real tablet sizes and (b) mockups of the
-board, a direct message and a project room on an iPad, portrait and landscape, with the choices
-named so he can pick. Nothing in web/index.html changes in this step.
+Step 1 (done 18:15, on branch tablet-6107): Josh has the iPad mockups in his channel. This branch
+(tabletcards-6107) is the first build: the portrait board cards and the portrait project room; see
+"This branch" below for what it changes and its own done-when.
 
 ## Steps
 1. Add tablet sizes to docs/browser-checks/mobile-shots.js (tab8, ipadmini, ipad11, ipad13, plus
@@ -38,14 +38,17 @@ Order: A, B (now), then C to E after Josh answers or by 2026-10-14 noon on my ow
 ## This branch (tabletcards-6107): slices A and B plus the room, 2026-10-13 evening
 Built ahead of Josh's answer on the landscape question, on the standing rule (decide, keep going):
 these pieces hold whichever landscape layout he picks.
-- Cards: an upright touch tablet (600 to 1023.98px wide, at least 560px tall) gets the agent cards two
+- Cards: an upright touch tablet (portrait, 600px to 68rem wide) gets the agent cards two
   across, face left, name, role and state stacked beside it, the task underneath. Classic look only.
 - Room: pjPhoneOrder gains PJ_TABLET_MQ. On an upright tablet the conversation goes before
   Members/Files (as on a phone) and Tasks moves to the front as a sideways row. DOM moves only (#1017).
 - Checks: web.room-phone-718.test.js covers the tablet branch; render-room-msgbox-2806.js turns the
-  phone to 800x400 (800x800 with touch is now a tablet) and gains a tablet arm at 834x1194.
+  phone to 800x400 (800x800 with touch is now a tablet) and gains a tablet arm at 834x1194;
+  render-home-phone-718.js gains a tablet card arm with a landscape control; mobile-shots.js marks
+  the tablet sizes `tablet: true` and skips phone-only screens there.
 Rejected: CSS order for the room (splits reading order from what is seen; the guard refuses it).
-Weakest premise: that 560px of height separates a tablet from a phone on its side. Every current
-phone is under 500px tall in landscape; a foldable opened sideways could land either side.
+Weakest premise: that portrait plus 600px wide means tablet. A foldable phone opened (about 673px
+wide, portrait) gets the tablet layout, which suits its screen. Landscape tablets are untouched here:
+they wait on Josh's split-view call. Review round 1 moved the queries from min-height to orientation.
 Done when: the shots at tab8 / ipadmini / ipad11 show the two-across cards and the tasks-first room,
 the room browser check passes, CI is green, and Josh has seen the shots.

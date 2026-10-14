@@ -12088,26 +12088,28 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
 #acct-qwen-local-bar::-webkit-progress-value { background: var(--gold); border-radius: 3px; }
 #acct-qwen-local-bar::-moz-progress-bar { background: var(--gold); border-radius: 3px; }
 /* #6107 (Josh, 2026-10-13: "tablet would also be a first class citizen design"): the tablet tier, piece 1.
-   A tablet held upright is a touch screen 600 to 1023px wide with real height. Before this it took the phone
-   layout (600-639px) or the desktop one squeezed (640-1023px). The min-height keeps a phone held sideways
-   (under 500px tall) on the phone layout, as the five landscape-phone rules intend.
-   Agents board: cards two across, face on the left, name and state beside it, and what the agent is on
-   underneath, readable at a glance. The state sits under the name, not beside it: an upright iPad card is
-   about 390px, and a Question pill with its Answer button beside the name would leave the name 60px. Only the ordinary card: the stopped and needs-trust cards keep their
-   own stacked shape, which carries a note and a button the grid areas below do not place. The classic look only:
-   the hidden new look draws its own cards (#4470) and gets its tablet pass with it. */
-@media (hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 1023.98px) and (min-height: 560px) {
+   An upright tablet is a touch screen in portrait, 600px to 68rem wide. Before this it took the phone layout
+   (600-639px) or the desktop one squeezed (640px up). Landscape is left alone here: it waits on Josh's call
+   between a split view and the desktop grid. A phone is under 600px wide in portrait, so it never matches.
+   Agents board: cards two across, face on the left, name, role and state beside it, and what the agent is on
+   underneath. The state sits under the name, not beside it: an upright iPad card is about 390px, and a
+   Question pill with its Answer button beside the name would leave the name 60px. The visual order (task last)
+   differs from the card's DOM order (task after model) only among plain text lines; nothing focusable moves.
+   Only the ordinary card: the stopped and needs-trust cards keep their own stacked shape, which carries a note
+   and a button the grid areas below do not place. The classic look only: the hidden new look draws its own
+   cards (#4470) and gets its tablet pass with it. Measured by render-home-phone-718.js (tablet arm). */
+@media (hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 67.99rem) and (orientation: portrait) {
   :root:not([data-look="new"]) #grid.cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
   :root:not([data-look="new"]) #grid .acard:not(.notrunning) { display: grid; grid-template-columns: auto minmax(0, 1fr);
     grid-template-areas: "g n" "g m" "g s" "g w" "t t" "c c" "md md";
     column-gap: 14px; row-gap: 2px; align-items: center; text-align: left; padding: 18px 18px 16px; }
   :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .agauge { grid-area: g; width: 64px; margin: 0; }
   :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .agauge svg { width: 64px; height: 64px; }
-  :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .aname { grid-area: n; align-self: end; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .aname { grid-area: n; align-self: end; min-width: 0; }
   :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .ameta { grid-area: m; align-self: start; margin: 0; }
   :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .astate { grid-area: s; justify-self: start; margin-top: 6px; }
   :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .alsowork { grid-area: w; justify-self: start; margin: 4px 0 0; }
-  :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .atask { grid-area: t; margin-top: 12px; font-size: .9375rem; line-height: 1.4; }
+  :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .atask { grid-area: t; margin-top: 12px; }
   :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .acommunity { grid-area: c; }
   :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .amodel { grid-area: md; padding-top: 10px; }
 }
@@ -12117,7 +12119,7 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
    exact query of this block) MOVES the columns in the DOM: Tasks first, as one row of cards you swipe sideways,
    then the conversation, then Members and Files side by side. Never CSS order: that splits reading order from what
    is seen (#1017, pinned by web.room-phone-718.test.js). */
-@media (hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 67.99rem) and (min-height: 560px) {
+@media (hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 67.99rem) and (orientation: portrait) {
   :root:not([data-look="new"]) body:not(.consolidated) .pj3 > .pjsplit { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   :root:not([data-look="new"]) body:not(.consolidated) .pj3 #pj-tasklist { flex-direction: row; overflow-x: auto; min-height: 0;
     scroll-snap-type: x proximity; padding-bottom: 4px; }
@@ -34898,7 +34900,7 @@ function placeLook(cons) {
   /* #6107: an upright tablet keeps Tasks at the top of the tab layout; a switch to the consolidated view or the new
      look must put it back where they expect it. In a try: placeLook can run before PJ_TABLET_MQ (a const further
      down) is declared, and pjPhoneOrder's own first call at load orders the room then. */
-  try { pjPhoneOrder(); } catch { /* not declared yet: the load-time call covers it */ }
+  try { pjPhoneOrder(); } catch (e) { if (!(e instanceof ReferenceError)) throw e; /* not declared yet: the load-time call covers it */ }
 }
 function lookToggleClick() {
   const on = document.documentElement.getAttribute('data-look') !== 'new';
@@ -67574,9 +67576,9 @@ document.getElementById('d-dmthread').addEventListener('focusin', dmRxnKeepInsid
 // 30rem (480px): above the widest phone in portrait (430px) and below a small tablet.
 const PJ_PHONE_MQ = '(max-width: 30rem)';   // the room's phone CSS block uses this exact query (pinned by web.room-phone-718.test.js)
 const PJ_TOUCH_MQ = '(hover: none)';         // the room's touchscreen CSS block uses this exact query (pinned the same way)
-// #6107: an upright tablet. The room's tablet CSS block uses this exact query (pinned the same way); a phone held
-// sideways is under 560px tall, so it stays out.
-const PJ_TABLET_MQ = '(hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 67.99rem) and (min-height: 560px)';
+// #6107: an upright tablet (portrait; landscape waits on Josh's split-view call). The room's tablet CSS block uses
+// this exact query (pinned the same way). A phone is under 600px wide upright and is landscape on its side.
+const PJ_TABLET_MQ = '(hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 67.99rem) and (orientation: portrait)';
 /* #5312: when the touch test changes (a tablet turned, a pointer attached), every Copy in a hover bar is renamed for
    what a press now does (msgCopyButton, msgCopyPressed). */
 function msgCopyRelabel() {
