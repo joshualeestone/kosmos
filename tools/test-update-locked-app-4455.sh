@@ -27,7 +27,8 @@
 #   CONTROL   the old line (a tolerated chmod) on the LOCKED fixture goes on to remove bin: the arm can fail
 #   GNUFIND   the LOCKED fixture with a find first on PATH that knows no -flags: still refused (macOS only)
 #   TWOLOCKS  locks in two parts: the advice names both, and not the third (macOS only)
-#   LINUXSTUB the Linux branch, on any OS, with stub uname and lsattr: a flagged file refuses, an unflagged one does not
+#   LINUXSTUB the Linux branch, on any OS, with stub uname and lsattr: a flagged dot-file refuses, a flagged part
+#             folder refuses as immutable, and uppercase I and A or a flagged .. do not
 #   REALIMMUTABLE  a real chattr +i file (Linux with passwordless sudo, the CI runner); skipped elsewhere
 #
 # On Linux the Darwin-only block (LOCKED, RELOCK, CONTROL, GNUFIND, TWOLOCKS) skips. The installer turns pipefail on only
@@ -250,30 +251,41 @@ else
   echo "SKIP LOCKED: the locked-file flag is macOS's (this is $(uname -s)); NODIR covers the refusal here"
 fi
 
-# ---- LINUXSTUB (#6149 point 9): the Linux branch, driven on any OS by a stub uname that answers Linux and a stub
-# lsattr that answers for app/ only (lsattr -R <dir>). It flags one file immutable; the CONTROL lsattr flags nothing,
-# so the arm can go either way.
-LS="${SB:?}/linuxstub"; mkdir -p "$LS/hit" "$LS/miss"
-for d in hit miss; do printf '#!/bin/sh\necho Linux\n' > "$LS/$d/uname"; done
+# ---- LINUXSTUB (#6149 point 9): the Linux branch, driven on any OS by a stub uname that answers Linux and stub lsattrs
+# that answer for app/ only (the installer runs `lsattr -d <part>` and `lsattr -Ra <part>`, so $2 is the folder). The
+# CONTROL lsattr flags nothing it should, but does print the uppercase I and A flags ext4 shows on ordinary folders
+# and files, and a folder's . and .. entries flagged i: a filter that matched case-insensitively, or did not skip
+# . and .., would refuse there.
+LS="${SB:?}/linuxstub"; mkdir -p "$LS/hit" "$LS/miss" "$LS/self"
+for d in hit miss self; do printf '#!/bin/sh\necho Linux\n' > "$LS/$d/uname"; done
 D="$(mk_install linuxstub)"; in_sb "$D"
-printf '#!/bin/sh\ncase "$2" in */app) echo "--------------e------- %s/app/server.js"; echo "----i---------e------- %s/app/engine/x.js" ;; esac\n' "$D" "$D" > "$LS/hit/lsattr"
-printf '#!/bin/sh\ncase "$2" in */app) echo "--------------e------- %s/app/server.js" ;; esac\n' "$D" > "$LS/miss/lsattr"
-/bin/chmod +x "$LS/hit/uname" "$LS/hit/lsattr" "$LS/miss/uname" "$LS/miss/lsattr"
+printf '#!/bin/sh\ncase "$2" in */app) echo "-------------Ie------- %s/app/engine"; echo "-------A------e------- %s/app/server.js"; echo "----i---------e------- %s/app/engine/.." ;; esac\n' "$D" "$D" "$D" > "$LS/miss/lsattr"
+/bin/chmod +x "$LS/miss/uname" "$LS/miss/lsattr"
 OUT="$(run_block "$D" "$LS/miss")"
-case "$OUT" in *"RC=0"*) ok "CONTROL LINUXSTUB: an lsattr that flags nothing does not refuse" ;; *) bad "CONTROL LINUXSTUB: refused with nothing flagged: $OUT" ;; esac
+case "$OUT" in *"RC=0"*) ok "CONTROL LINUXSTUB: uppercase I and A, and a flagged .., do not refuse" ;; *) bad "CONTROL LINUXSTUB: refused with nothing it should catch: $OUT" ;; esac
 D="$(mk_install linuxstub2)"; in_sb "$D"
-printf '#!/bin/sh\ncase "$2" in */app) echo "--------------e------- %s/app/server.js"; echo "----i---------e------- %s/app/engine/x.js" ;; esac\n' "$D" "$D" > "$LS/hit/lsattr"
+printf '#!/bin/sh\ncase "$1 $2" in "-Ra "*/app) echo "--------------e------- %s/app/server.js"; echo "----i---------e------- %s/app/engine/.x" ;; esac\n' "$D" "$D" > "$LS/hit/lsattr"
+/bin/chmod +x "$LS/hit/uname" "$LS/hit/lsattr"
 OUT="$(run_block "$D" "$LS/hit")"
-case "$OUT" in *"RC=1"*) ok "LINUXSTUB: a file lsattr flags immutable refuses the update" ;; *) bad "LINUXSTUB: not refused: $OUT" ;; esac
-case "$OUT" in *"$D/app/engine/x.js"*) ok "LINUXSTUB: the refusal names the file" ;; *) bad "LINUXSTUB: the file is not named: $OUT" ;; esac
+case "$OUT" in *"RC=1"*) ok "LINUXSTUB: a file lsattr flags immutable (a dot-file here) refuses the update" ;; *) bad "LINUXSTUB: not refused: $OUT" ;; esac
+case "$OUT" in *"$D/app/engine/.x"*) ok "LINUXSTUB: the refusal names the file" ;; *) bad "LINUXSTUB: the file is not named: $OUT" ;; esac
 case "$OUT" in *"sudo chattr -R -i -a '$D/app'"[!\ ]*|*"sudo chattr -R -i -a '$D/app'") ok "LINUXSTUB: it gives the administrator's chattr line for that part only" ;; *) bad "LINUXSTUB: no chattr line: $OUT" ;; esac
 [ "$(refused_key "$D" why)" = immutable ] && ok "LINUXSTUB: the record says why: immutable" || bad "LINUXSTUB: the record's why is '$(refused_key "$D" why)'"
+[ "$(refused_key "$D" part)" = app ] && ok "LINUXSTUB: the record names the part" || bad "LINUXSTUB: the record's parts are '$(refused_key "$D" part)'"
 all_there "$D" && ok "LINUXSTUB: bin, app and runtime are all still there" || bad "LINUXSTUB: a part was removed"
+# SELF: the flag is on the part folder itself, which only `lsattr -d` shows (-R lists what is inside it).
+D="$(mk_install linuxstub3)"; in_sb "$D"
+printf '#!/bin/sh\ncase "$1 $2" in "-d "*/app) echo "----i---------e------- %s/app" ;; esac\n' "$D" > "$LS/self/lsattr"
+/bin/chmod +x "$LS/self/uname" "$LS/self/lsattr"
+OUT="$(run_block "$D" "$LS/self")"
+case "$OUT" in *"RC=1"*) ok "LINUXSTUB SELF: an immutable part folder refuses the update" ;; *) bad "LINUXSTUB SELF: not refused: $OUT" ;; esac
+[ "$(refused_key "$D" why)" = immutable ] && ok "LINUXSTUB SELF: as immutable, not as a permissions problem" || bad "LINUXSTUB SELF: the record's why is '$(refused_key "$D" why)'"
 
 # ---- REALIMMUTABLE (#6149 point 9): a real chattr +i file, where one can be set (Linux, with sudo that asks for no
 # password: the CI runner). Skipped elsewhere, said so.
 if [ "$(uname -s)" = Linux ] && command -v lsattr >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-  D="$(mk_install realimm)"; in_sb "$D"; IMMUTABLE_FILE="$D/app/engine/x.js"
+  # A dot-file, so this also proves lsattr is asked with -a (without it, lsattr skips names starting with a dot).
+  D="$(mk_install realimm)"; in_sb "$D"; IMMUTABLE_FILE="$D/app/engine/.x"; : > "$IMMUTABLE_FILE"
   if sudo -n chattr +i "$IMMUTABLE_FILE" 2>/dev/null && lsattr "$IMMUTABLE_FILE" 2>/dev/null | awk '{exit !($1 ~ /i/)}'; then
     ok "CONTROL REALIMMUTABLE: the file is really immutable"
     OUT="$(run_block "$D")"
