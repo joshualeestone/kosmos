@@ -4300,7 +4300,7 @@ kosmos_command_list() {
   printf '  kosmos status        say whether Kosmos is running, and where\n'
   printf '  kosmos open          open the dashboard in your browser, starting Kosmos if needed\n'
   printf '  kosmos agents        list the agent sessions running on this computer\n'
-  printf '  kosmos version       say which version of Kosmos this is\n'
+  printf '  kosmos version       say which version of Kosmos this is (also --version or -v)\n'
   printf '  kosmos update        install a newer Kosmos when one is published (only on a computer set to connect elsewhere; the app runs it)\n'
   printf '  kosmos msg           send a message to one agent\n'
   printf '  kosmos post          post in a project room\n'
@@ -5585,6 +5585,7 @@ case "${1:-}" in
   agents)  cmd_agents ;;
   adopt)   shift; cmd_adopt "$@" ;;
   version) cmd_version ;;
+  --version|-v) cmd_version ;;   # #6084: agents and people try --version first; it answered "Unknown"
   update)  shift; cmd_update "$@" ;;   # #4382: the Mac app's update look on a computer with no board
   msg)     shift; cmd_msg "$@" ;;
   reply)   shift; cmd_reply "$@" ;;
