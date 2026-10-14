@@ -97,6 +97,7 @@ const HOST_BRANCH_EXCLUDED = {
   'engine/securewrite.test.js': 'POSIX file-mode assertions, measured red on Windows (#1777)',
   'engine/sendertoken.test.js': 'POSIX file-mode assertions, measured red on Windows (#1777)',
   'server.remote-bind-1112.test.js': 'its win32 branch (#4845) only picks which created-agent source a test puts back, mirroring server.js (createdroster off Windows); the file was never run on Windows and boots the Mac board',
+  'server.allowance-3946.test.js': 'its win32 branch (#6108) only answers the Windows arm of weeklyBlocked, a single platform check in server.js; its other arms build POSIX settings fixtures and link a real account folder by symlink, which Windows allows only with a privilege',
   'server.engine-restart-4408.test.js': 'its win32 branch only skips the restart arm, whose stubs pin the Mac arms (launchctl, the installed CLI); the Windows arm is boardrestart-2238.test.js\'s',
 };
 

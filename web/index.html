@@ -27150,7 +27150,7 @@ function acctUsageHtml(a, list) {
   const agentsLine = !here ? '' : !names.length && !here.complete ? '<p class="acct-agents-line">Kosmos could not check which agents are on it.</p>'   // unknown, never "none"
     : names.length
     ? '<p class="acct-agents-line">Its agents on this computer: ' + names.map(esc).join(', ') + esc(short) + '</p>'
-    : '<p class="acct-agents-line">No agents on it on this computer' + esc(short) + '.</p>';
+    : '<p class="acct-agents-line">Kosmos cannot see any agents on it on this computer' + esc(short) + '.</p>';   // a reading, never a fact about the computer (web.empty-scope)
   let st = ACCT_MOVE.get(a.dir) || null;
   if (st && !st.moving && !st.announce && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) { ACCT_MOVE.delete(a.dir); st = null; }   // never before it is said
   const busy = !!(st && st.moving);
