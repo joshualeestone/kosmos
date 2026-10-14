@@ -8,7 +8,7 @@
 set -u
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 S="$HERE/ci-runner-setup.sh"
-T="$(mktemp -d)"; trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT   # chmod: some cases make dirs 000
+T="$(mktemp -d)" || exit 1; [ -d "$T" ] || exit 1; trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT   # chmod: some cases make dirs 000
 fails=0
 pass() { printf 'ok   %s\n' "$1"; }
 fail() { printf 'FAIL %s\n' "$1"; fails=$((fails + 1)); }
@@ -39,7 +39,8 @@ case "$me" in
     case "$*" in *Runner.Listener*) [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ] || exit 1; cat .svc-pid 2>/dev/null || echo 4343; exit 0 ;; esac
     case "$*" in *Runner.Worker*) [ "${FX_WORKER:-0}" = 1 ] || exit 1; echo 4242; exit 0 ;; esac
     [ -z "${FX_LIVE:-}" ] && exit 1; printf '%s\n' "$FX_LIVE" ;;
-  df) printf 'Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/disk3s1 239362496 1 %s 50%% /\n' "${FX_FREE_KIB:-31457280}" ;;
+  df) [ "${FX_DF_NOROW:-0}" = 1 ] && { echo "Filesystem 1024-blocks Used Available Capacity Mounted"; exit 0; }
+    printf 'Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/disk3s1 239362496 1 %s 50%% /\n' "${FX_FREE_KIB-31457280}" ;;
   fdesetup) echo "${FX_FV:-FileVault is Off.}" ;;
   pmset) printf 'System-wide power settings:\nCurrently in use:\n standby              0\n sleep                %s\n autorestart          %s\n displaysleep         10\n' "${FX_SLEEP:-0}" "${FX_AUTORESTART:-1}" ;;
   id)
@@ -93,7 +94,7 @@ esac
 exit 0
 STUB
 chmod +x "$BIN/_stub"
-for c in launchctl crontab pgrep df fdesetup pmset id ps gh curl sudo sysadminctl tar xcode-select; do ln -s _stub "$BIN/$c"; done
+for c in launchctl crontab pgrep df fdesetup pmset id ps gh curl sudo sysadminctl tar xcode-select pkill defaults; do ln -s _stub "$BIN/$c"; done
 mkdir -p "$T/ownerhome"; chmod 700 "$T/ownerhome"
 mkdir -p "$T/sysagents"; : > "$T/sysagents/com.openssh.ssh-agent.plist"   # Apple ships it under /System/Library
 BREWD="$T/brew"; mkdir -p "$BREWD/bin"
@@ -114,7 +115,7 @@ run() {
 rc() { cat "$T/$1.rc"; }
 has() { grep -q -F -- "$2" "$T/$1.out"; }
 # A changing call: anything but a read. curl counts only with -o or -O (a download); gh only with -X.
-changed() { grep -E '^(sudo|sysadminctl|tar|config\.sh|svc\.sh) |^curl .*(-o |-[a-zA-Z]*O|--output|--remote-name| -X | -T | -d |--data)|^gh .*-X|^launchctl (bootout|disable|load|unload)' "$T/$1.calls"; }
+changed() { grep -E '^(sudo|sysadminctl|tar|config\.sh|svc\.sh|pkill|defaults) |^crontab -r|^pmset -[ac]|^launchctl (bootstrap|kickstart|setenv|kill|enable)|^curl .*(-o |-[a-zA-Z]*O|--output|--remote-name| -X | -T | -d |--data)|^gh .*-X|^launchctl (bootout|disable|load|unload)' "$T/$1.calls"; }
 
 H="$T/home"; mkdir -p "$H"
 
@@ -149,6 +150,7 @@ refuse gh "could not read the repo variables" FX_GH_FAIL=1
 refuse gh-not-404 "could not read the repo variables" FX_GH_500=1
 refuse gh-404-unseen "could not read the repo variables" FX_VARLIST_FAIL=1
 refuse df-garbage "could not read free disk" FX_FREE_KIB=abc
+refuse df-empty "could not read free disk" FX_DF_NOROW=1
 refuse pgrep-fails "could not list processes (pgrep exit 3)" FX_PGREP_FAIL=1
 refuse crontab-unreadable "could not read the crontab" FX_CRON_FAIL=1
 refuse allow-keeps-others "1 non-Apple launchd job(s) still loaded" "FX_JOBS=io.tailscale.ipn.helper
@@ -186,6 +188,18 @@ for n in pf-clear pf-launchd pf-suite; do
   if out="$(changed "$n")"; then fail "preflight $n changed something: $out"; pf_changed=1; fi
 done
 [ "$pf_changed" = 0 ] && pass "preflight made no changing call (checked on clear, launchd, suite)"
+
+# The jq programs gh --jq runs, executed by the real jq against canned API JSON (the gh stub never runs them).
+if command -v jq >/dev/null 2>&1; then
+  jq_prog() { bash "$S" jq-programs | sed -n "${1}p"; }
+  printf '{"name":"KOSMOS_CI_SHELL_SHARDS","value":""}' > "$T/var.json"
+  printf '{"total_count":2,"runners":[{"name":"other","status":"offline","busy":false,"labels":[{"name":"x"}]},{"name":"kosmos-ci-agent1s","status":"online","busy":true,"labels":[{"name":"self-hosted"},{"name":"macOS"},{"name":"ARM64"},{"name":"kosmos-ci"}]}]}' > "$T/runners.json"
+  [ "$(jq -r "$(jq_prog 1)" "$T/var.json")" = "=" ] && pass "jq: a set-but-empty variable reads '='" || fail "jq var: $(jq -r "$(jq_prog 1)" "$T/var.json" 2>&1)"
+  [ "$(jq -r "$(jq_prog 2)" "$T/runners.json")" = "true" ] && pass "jq: busy is read from the named runner only" || fail "jq busy: $(jq -r "$(jq_prog 2)" "$T/runners.json" 2>&1)"
+  [ "$(jq -r "$(jq_prog 3)" "$T/runners.json")" = "online true arm64,kosmos-ci,macos,self-hosted" ] && pass "jq: the runner row is status, busy, sorted lower-case labels" || fail "jq row: $(jq -r "$(jq_prog 3)" "$T/runners.json" 2>&1)"
+else
+  fail "no jq to run the script's jq programs (macOS ships /usr/bin/jq)"
+fi
 
 # --- create-user ------------------------------------------------------------------------------------------------
 before="$(snap "$H")"

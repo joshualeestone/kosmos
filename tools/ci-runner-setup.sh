@@ -56,6 +56,10 @@ CI_USER="${KOSMOS_CI_USER:-kosmos-ci}"
 CI_HOME="${KOSMOS_CI_HOME:-/Users/$CI_USER}"
 OWNER="${KOSMOS_CI_OWNER:-agent1}"                 # Agent1s' only user today (runbook part 2); override elsewhere
 OWNER_HOME="${KOSMOS_CI_OWNER_HOME:-/Users/$OWNER}"
+# The jq programs this script hands to gh --jq, in one place so the test can run each against canned API JSON.
+JQ_VAR='"=" + .value'                                  # "=" tells set-but-empty from no output
+jq_busy() { printf '.runners[] | select(.name == "%s") | .busy' "$NAME"; }
+jq_row() { printf '.runners[] | select(.name == "%s") | "\(.status) \(.busy) \([.labels[].name | ascii_downcase] | sort | join(","))"' "$NAME"; }
 NAME="${KOSMOS_CI_RUNNER_NAME:-kosmos-ci-agent1s}"
 LABELS="self-hosted,macOS,arm64,kosmos-ci"
 BREW="${KOSMOS_CI_BREW:-/opt/homebrew}"            # the engine's fixed tmux fallback is /opt/homebrew/bin/tmux
@@ -118,8 +122,7 @@ repo_variable() {
   local errf err
   errf="$(mktemp)" || return 1
   # stderr apart: a warning gh prints on success must not become part of the value.
-  # The "=" prefix tells set-but-empty ("=") from no output at all.
-  out="$(gh api "repos/$REPO/actions/variables/$1" --jq '"=" + .value' 2>"$errf")" || rc=$?
+  out="$(gh api "repos/$REPO/actions/variables/$1" --jq "$JQ_VAR" 2>"$errf")" || rc=$?
   err="$(cat "$errf")"; rm -f "$errf"
   if [ "$rc" = 0 ]; then printf '%s' "${out#=}"; return 0; fi
   case "$out$err" in *"HTTP 404"*) ;; *) return 1 ;; esac
@@ -190,7 +193,7 @@ preflight() {
   say "the machine"
   local free_kib
   free_kib="$(df -k / | awk 'NR == 2 { print $4 }')" || free_kib=""
-  case "$free_kib$MIN_FREE_GIB" in ''|*[!0-9]*) problem "could not read free disk (df gave '$free_kib', floor '$MIN_FREE_GIB')"; free_kib=0; MIN_FREE_GIB=0 ;; esac
+  case "$free_kib:$MIN_FREE_GIB" in :*|*:|*[!0-9:]*) problem "could not read free disk (df gave '$free_kib', floor '$MIN_FREE_GIB')"; free_kib=0; MIN_FREE_GIB=0 ;; esac
   if [ "$((free_kib / 1048576))" -lt "$MIN_FREE_GIB" ]; then problem "$((free_kib / 1048576)) GiB free, under the ${MIN_FREE_GIB} GiB floor"
   else ok "$((free_kib / 1048576)) GiB free"; fi
   # The exact line: "FileVault is Off, but will be enabled after the next restart." is not off for long.
@@ -210,15 +213,15 @@ preflight() {
   if [ -x "$BREW/bin/tmux" ]; then
     tv="$("$BREW/bin/tmux" -V 2>&1 || true)"
     case "$tv" in   # a literal match: 3.5a is the one version #2955's test refuses
-      "tmux 3.5a") problem "$BREW/bin/tmux is 3.5a, which #2955's test refuses (build one with /Users/$OWNER/.cache/claude-handoffs/baron-jobs/ci-mini-build-tmux.sh)" ;;
+      "tmux 3.5a") problem "$BREW/bin/tmux is 3.5a, which #2955's test refuses (as the owner of $BREW: brew upgrade tmux)" ;;
       *) ok "$BREW/bin/tmux ($tv)" ;;
     esac
-  else problem "no $BREW/bin/tmux (the engine's fixed fallback; build one with /Users/$OWNER/.cache/claude-handoffs/baron-jobs/ci-mini-build-tmux.sh)"; fi
+  else problem "no $BREW/bin/tmux (the engine looks there by fixed path; as the owner of $BREW: brew install tmux)"; fi
   # Jobs check out with git; without the Command Line Tools /usr/bin/git is only a stub that asks to install them.
   if xcode-select -p >/dev/null 2>&1; then ok "Command Line Tools present (git)"
   else problem "no Command Line Tools (xcode-select -p fails): /usr/bin/git cannot run for jobs; xcode-select --install"; fi
   if [ -x "$BREW/bin/pwsh" ]; then ok "$BREW/bin/pwsh"
-  else problem "no $BREW/bin/pwsh (install one with /Users/$OWNER/.cache/claude-handoffs/baron-jobs/ci-mini-install-pwsh.sh)"; fi
+  else problem "no $BREW/bin/pwsh (as the owner of $BREW: brew install --cask powershell)"; fi
 
   say "the owner's home (kosmos-ci is in group staff, so a group-readable home is readable by every CI job)"
   local om
@@ -337,7 +340,7 @@ install_runner() {
   if [ -x ./svc.sh ]; then
     sv="$(./svc.sh status 2>&1 || true)"
     # The Listener that runs now, so the wait after the restart can require a new one.
-    old_listener="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"
+    old_listener="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"; old_listener="${old_listener%%$'\n'*}"
     case "$sv" in *Started*) was_running=1; ./svc.sh stop >/dev/null 2>&1 || true ;; esac
     if [ "$was_running" = 1 ]; then
       case "$(./svc.sh status 2>&1 || true)" in
@@ -447,7 +450,7 @@ register() {
 # A Listener other than <pid before> (the old one may still be shutting down) must appear, or this fails.
 wait_for_listener() {
   local before="$1" now waited=0
-  while now="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"; [ -z "$now" ] || [ "$now" = "$before" ]; do
+  while now="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"; now="${now%%$'\n'*}"; [ -z "$now" ] || [ "$now" = "$before" ]; do
     [ "$waited" -lt "${KOSMOS_CI_START_WAIT_S:-30}" ] || { echo "FAILED: the runner was loaded but no new Runner.Listener is running after ${waited}s; see ~/Library/Logs/actions.runner.*/stderr.log" >&2; exit 1; }
     sleep 1; waited=$((waited + 1))
   done
@@ -455,14 +458,14 @@ wait_for_listener() {
 
 # runner_busy: prints true or false; fails when the API could not say.
 runner_busy() {
-  gh api --paginate "repos/$REPO/actions/runners" --jq ".runners[] | select(.name == \"$NAME\") | .busy" 2>/dev/null
+  gh api --paginate "repos/$REPO/actions/runners" --jq "$(jq_busy)" 2>/dev/null
 }
 
 verify() {
   need_user "$OWNER"
   say "the runner, from the API"
   local row
-  row="$(gh api --paginate "repos/$REPO/actions/runners" --jq ".runners[] | select(.name == \"$NAME\") | \"\(.status) \(.busy) \([.labels[].name | ascii_downcase] | sort | join(\",\"))\"")" \
+  row="$(gh api --paginate "repos/$REPO/actions/runners" --jq "$(jq_row)")" \
     || { problem "could not read the runners API"; row="?"; }
   local want_labels
   want_labels="$(printf '%s\n' "$LABELS" | tr ',' '\n' | tr '[:upper:]' '[:lower:]' | LC_ALL=C sort | paste -sd, -)"
@@ -562,5 +565,6 @@ case "$STAGE" in
   register) register ;;
   verify) verify ;;
   machine-settings) machine_settings ;;
+  jq-programs) printf '%s\n' "$JQ_VAR" "$(jq_busy)" "$(jq_row)" ;;   # reads nothing; for the test
   *) echo "usage: tools/ci-runner-setup.sh [--apply] preflight | create-user | install <commit> <sha256> | register | verify | machine-settings" >&2; exit 2 ;;
 esac
