@@ -433,6 +433,12 @@ test('#6065 N1: requestIn: the sentence at the room\'s own mention positions, el
   // A mention that ends its own sentence (a greeting) brings the next sentence, where the request is.
   const greet = 'News. ' + fill + 'Hi @mara. Please send the lease by Friday. Thanks.';
   assert.equal(messages.requestIn(greet, { namedAt: at(greet, '@mara') }).sentence, 'Hi @mara. Please send the lease by Friday.');
+  // Through spillLine (the real head): a greeting opening the post is in the head; the request after it is quoted.
+  const opening = 'Good morning everyone, hi @mara. Please send the signed lease by Friday. ' + fill;
+  assert.match(messages.spillLine(opening, '/f.md', { namedAt: at(opening, '@mara') }), /It asks you: "Please send the signed lease by Friday\."$/);
+  // A thank-you naming two members is not a greeting: its own sentence only, not the unrelated one after it.
+  const thanks = 'News. ' + fill + 'Great work from @leo and @mara. Unrelated filler follows here.';
+  assert.equal(messages.requestIn(thanks, { namedAt: at(thanks, '@mara') }).sentence, 'Great work from @leo and @mara.');
   assert.equal(messages.requestIn('No ask in here. Just news.', {}), null);
   // A request longer than REQUEST_MAX is cut at a whole word and says so.
   const longT = 'Intro. @mara ' + 'please read '.repeat(60) + 'now.';

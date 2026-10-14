@@ -30,3 +30,7 @@ the head is skipped for the next one; nothing when there is none. At most 300 ch
   preview quotes that sentence; requestIn has no matcher of its own. The quoted request cannot close its quotes or
   open a bracket (double quotes become single, square brackets round). "Already in the head" is by position. The
   text reaching it has no line breaks (chat.cleanMessage), so a list without punctuation reads as one sentence.
+- (rounds 4-5) A greeting (a mention ending its sentence with at most 4 words before it) also takes the next sentence;
+  a greeting inside the head gives way to a later mention, else to the sentence after it. A member mentioned only
+  inside the head gets the first later question instead, under the neutral label Its first question (it may be a
+  question for someone else; the label does not claim it is theirs).
