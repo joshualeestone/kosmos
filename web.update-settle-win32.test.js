@@ -23,7 +23,7 @@ const SCRIPT = page.scriptOf(PAGE);
 function lifted() {
   // eslint-disable-next-line no-new-func
   return new Function(
-    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'esc', 'updateSettleText', 'updateOverlayLead'])
+    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'esc', 'updateRefusedText', 'updateSettleText', 'updateOverlayLead'])
     + '\nreturn { updateSettleText, updateOverlayLead, windowsCopy };')();
 }
 

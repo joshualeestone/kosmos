@@ -1365,7 +1365,7 @@ install_kosmos() {
   # (review 1, measured). What was printed is what counts; the status says nothing. The `|| true` inside each
   # substitution only keeps a failed search from ending the script if this is ever called without `||` after it.
   # NOT caught ahead of time: a deny-delete ACL, another user's file in a sticky folder, an immutable file on Linux.
-  local _lift_failed="" _stuck_at="" _stuck_why="" _stuck_part="" _found="" _app_was_locked=no
+  local _lift_failed="" _stuck_at="" _stuck_why="" _stuck_part="" _stuck_names="" _found="" _refusedf="" _p="" _app_was_locked=no
   # Sampled BEFORE the lift, for the refusal below: an app that was read-only is left read-only again. By the
   # folder's own mode bit, not `[ -w ]`: that asks whether THIS run may write, which is always yes for root, and a
   # root run would then leave a read-only app open after a refusal (review 4). A sample that cannot be taken
@@ -1388,6 +1388,7 @@ install_kosmos() {
       [ -n "$_stuck_at" ] || _stuck_at="$_found"
       _stuck_why=locked
       _stuck_part="$_stuck_part '$dest/$part'"
+      _stuck_names="$_stuck_names $part"
     done
   fi
   for part in $_lift_failed; do
@@ -1410,6 +1411,15 @@ install_kosmos() {
       info "This account may not change that folder. Give it back to this account, then paste the install line again."
     fi
     info "Nothing was removed."
+    # #6149 point 8: the reason, for the board. install.log is read by nobody on an update the board started, so the
+    # refusal leaves a small record beside it. Best-effort: a record that cannot be written never stops the refusal.
+    _refusedf="${LOG_DIR:-$dest/logs}/update-refused"
+    {
+      mkdir -p "${_refusedf%/*}" &&
+      { printf 'why=%s\nat=%s\nts=%s\n' "$_stuck_why" "$_stuck_at" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        for _p in $_stuck_names; do printf 'part=%s\n' "$_p"; done; } > "$_refusedf.tmp" &&
+      mv "$_refusedf.tmp" "$_refusedf"
+    } 2>/dev/null || rm -f "$_refusedf.tmp" 2>/dev/null || true
     # The lift above opened the app to look. An app that was read-only before it is made read-only again, so a
     # refused update does not leave it open to an agent's edit. One that was writable (an install from before
     # #4455, or KOSMOS_READONLY_APP=0) is left writable: a refusal changes nothing about how the install was.
@@ -1422,6 +1432,8 @@ install_kosmos() {
     rm -rf "$dest/$part" || { rm -rf "$stage"; return 1; }
     mv "$stage/$part" "$dest/$part" || { rm -rf "$stage"; return 1; }
   done
+  # #6149 point 8: the swap went through, so an earlier refusal no longer describes this install.
+  rm -f "${LOG_DIR:-$dest/logs}/update-refused" 2>/dev/null || true
   # The bundle's VERSION record rides along (what shipped, traceable to a
   # binary); optional so an older bundle without one still installs.
   if [ -f "$stage/VERSION" ]; then
