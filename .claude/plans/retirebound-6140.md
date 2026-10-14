@@ -13,8 +13,10 @@ Card: kosmos#6140. Test-only change: engine/remote.test.js.
 
 ## Change
 - The retire bound is raised to 20000 ms (the register's) in every arm where the retire must ANSWER: the four that
-  expect it to succeed (1955, 2376, 2500, 2677) and the three that expect a quick refusal or a 502 answer (2614, 2863,
-  3058), whose message assertions a timeout would break the same way.
+  expect it to succeed (#5422 finishing an unfinished sign-in; #3827 Forget retires a half register; #3827 a register
+  after one cut off; #3827 the Settings setup retires first) and the three that expect a quick refusal or a 502 answer
+  (#3827 "already in use" after a refused retire; the Settings setup's stranded-name answer; the Settings setup keeps a
+  half identity whose retire got a 502), whose message assertions a timeout would break the same way.
 - Kept at 1500 ms: the hung retire in #3827 "a half identity whose retire gets no answer is kept", whose timeout is
   what it tests. The retry after it must answer, so it gets 20000 ms (review 1).
 - #4824's CONTROL (a refusal that is not a timeout, under the arm's 400 ms bound) gets 20000 ms for its refusal
