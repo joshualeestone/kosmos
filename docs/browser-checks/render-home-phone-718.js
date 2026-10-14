@@ -180,7 +180,11 @@ function emptySpot(page, sel) {
         // desktop card (more than two columns, the face above the name), so the arm cannot pass on a page that
         // simply always draws the tablet card. 1024x768 is inside the tablet width range, so only the orientation
         // clause keeps it out.
-        for (const [w, h, upright, across] of [[834, 1194, true, 2], [600, 960, true, 1], [1024, 768, false, 0]]) {
+        // Chromium only: Playwright's WebKit has no mobile emulation, so it never reports (hover: none) and (pointer: coarse)
+        // and no tablet rule can apply there (render-mobilenav-4823 and render-waiting-phone-718 do the same).
+        if (engine === 'webkit') console.log(`skip  [webkit] #6107 tablet card arms: WebKit reports no touch screen (no mobile emulation)`);
+        // 744 is the iPad mini, the narrowest screen that gets two across (each card at its 330px floor).
+        for (const [w, h, upright, across] of (engine === 'webkit' ? [] : [[834, 1194, true, 2], [744, 1133, true, 2], [600, 960, true, 1], [1024, 768, false, 0]])) {
           const tag = `[${engine} ${w}x${h} tablet]`;
           const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, isMobile: engine === 'chromium' });
           const page = await ctx.newPage();
@@ -219,7 +223,7 @@ function emptySpot(page, sel) {
               const was = nm.textContent;
               nm.textContent = 'Alexandria Constantinople-Vanderberg the Second';
               const g = ada.querySelector('.agauge').getBoundingClientRect(); const n = ada.querySelector('.aname').getBoundingClientRect();
-              res.longName = inside(ada, '.aname'); res.clearOfFace = n.left >= g.right - 0.5; res.cardFits = ada.scrollWidth <= ada.clientWidth + 1;
+              res.longName = inside(ada, '.aname .namego'); res.clearOfFace = n.left >= g.right - 0.5; res.cardFits = ada.scrollWidth <= ada.clientWidth + 1;
               nm.textContent = was;
               return res;
             });
