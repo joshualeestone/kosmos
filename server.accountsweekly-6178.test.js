@@ -75,5 +75,6 @@ test('#6178 /api/status carries each Claude account\'s weekly reading, equal to 
 
   const agent = (st.agents || []).find((a) => a && a.sessionName === 'weekly-on-default');
   assert.ok(agent, 'CONTROL: the fixture agent is not on the board: ' + JSON.stringify((st.agents || []).map((a) => a.sessionName)));
-  assert.ok(agent.account && real(agent.account.dir) === real(entry.dir), 'the agent does not join to its account entry by dir: ' + JSON.stringify(agent.account));
+  // Exactly, as the page joins them (aoGroup compares the two strings): a realpath here would hide a join that fails there.
+  assert.ok(agent.account && agent.account.dir === entry.dir, 'the agent does not join to its account entry by dir: ' + JSON.stringify([agent.account, entry.dir]));
 });

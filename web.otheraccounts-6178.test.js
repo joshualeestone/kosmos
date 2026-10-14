@@ -126,12 +126,13 @@ test('#6178 the usage words are the ones the row on that computer uses (acctUsag
     assert.ok(row.includes(piece), 'CONTROL: the row no longer says ' + piece + '; re-anchor');
     assert.ok(mine.includes(piece), 'the other computers\' section words this differently: ' + piece);
   }
-  const sayOf = (src) => {
-    const at = src.indexOf('const blockedSay = {');
-    assert.ok(at >= 0, 'no blockedSay map');
+  const sayOf = (src, name) => {
+    const at = src.indexOf('const ' + name + ' = {');
+    assert.ok(at >= 0, 'no ' + name + ' map');
     return src.slice(at, src.indexOf('}[', at));
   };
-  assert.equal(sayOf(mine), sayOf(row), 'the reasons for no reading are worded differently from the row\'s');
+  assert.equal(sayOf(mine, 'blockedSay'), sayOf(row, 'blockedSay'), 'the reasons for no reading are worded differently from the row\'s');
+  assert.equal(sayOf(mine, 'frozenSay'), sayOf(row, 'frozenSay'), 'the line under a reading that will not update is worded differently from the row\'s');
   const { api } = load();
   const now = Date.now();
   assert.equal(api.aoUsageWords({ weekly: { usedPct: 82.4, resetsAt: FUTURE, at: now }, blocked: null }, now).pct, 82, 'CONTROL: the percent is rounded as the row does');
@@ -182,4 +183,38 @@ test('#6178 the real read keeps the accounts AND still keeps the agents (#4812 u
   gate.api.AO_SEEN.set('studio.kosmosplus.com', kept);
   await gate.api.oaReadOne({ name: 'studio', address: 'studio.kosmosplus.com', online: true });
   assert.equal(gate.api.AO_SEEN.has('studio.kosmosplus.com'), false, 'CONTROL: not let in did not forget them');
+});
+
+test('#6178 an old reading that will not update says so, as its own row does', () => {
+  const { api } = load();
+  const now = Date.now();
+  const c = { name: 'studio', address: 'studio.kosmosplus.com' };
+  const e = { dir: '/d', email: 'p@example.com', weekly: { usedPct: 40, resetsAt: FUTURE, at: now - 864e5 }, blocked: 'own-statusline' };
+  const t = text(api.aoGroup(c, { state: 'ok', at: now }, { accounts: [e], agents: [], at: now }, now));
+  assert.match(t, /40% of its weekly limit used/, 'CONTROL: the reading is shown');
+  assert.match(t, /This is the last reading Kosmos saw\. It will not update, because this account is set up its own way\./, 'an old reading was shown as current');
+  const live = text(api.aoGroup(c, { state: 'ok', at: now }, { accounts: [{ ...e, blocked: null }], agents: [], at: now }, now));
+  assert.doesNotMatch(live, /will not update/, 'CONTROL: a reading that still updates was called frozen');
+});
+
+test('#6178 a burst of repaints asks for one round, not one each', () => {
+  const t = makeDom();
+  let rounds = 0;
+  const clock = { now: 1e9 };
+  const kick = new Function('document', 'location', 'Date', 'oaRound', 'aoPaint', `
+    ${PAGE.slice(PAGE.indexOf('let AO_KICKED_AT = 0;'), PAGE.indexOf('\n', PAGE.indexOf('let AO_KICKED_AT = 0;')) + 1)}
+    ${constLine('AO_KICK_GAP_MS')}
+    ${slice('aoKick')}
+    return { aoKick, AO_KICK_GAP_MS };
+  `)(t.document, { protocol: 'https:' }, { now: () => clock.now }, () => { rounds++; }, () => {});
+  kick.aoKick(); kick.aoKick(); kick.aoKick();
+  assert.equal(rounds, 1, 'three repaints in a burst started ' + rounds + ' rounds');
+  clock.now += kick.AO_KICK_GAP_MS + 1;
+  kick.aoKick();
+  assert.equal(rounds, 2, 'CONTROL: a repaint after the gap did not ask for a round');
+});
+
+test('#6178 arriving on AI Models from the Settings menu reads the other computers', () => {
+  const go = slice('settingsGo');
+  assert.ok(/section === 'accounts' && typeof aoKick === 'function'\) aoKick\(\)/.test(go), 'settingsGo does not kick the read when AI Models opens');
 });
