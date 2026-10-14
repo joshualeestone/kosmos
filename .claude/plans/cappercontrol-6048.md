@@ -1,30 +1,31 @@
-# cappercontrol-6048: the #5331 CONTROL arm released under load (got 0)
+# cappercontrol-6048: the #5331 CONTROL arm reported "got 0" on CI (2026-10-14 01:50)
 
-Card: kosmos#6048 (recurrence 2026-10-14 01:50, CI job 115702676926, PR #6135). Test-only: tools/test-queued-heavy-4977.sh.
+Card: kosmos#6048 (CI job 115702676926, PR #6135). Test-only: tools/test-queued-heavy-4977.sh.
 
-## Cause (read from the code and the job's own log)
-- side5331 stopped the capper, then ended the command (KILL of `sleep U+3`), THEN sent the wrapper TERM.
-- Ending the command lets the wrapper leave `wait "$CMD"` and run the teardown in its main flow. In the control copy that
-  is the old teardown: a group KILL that misses (the capper is not a group leader) and `wait "$CAPPER"` on a stopped
-  capper. A side turn traps TERM (`exit 143`), and bash cuts a `wait` short to run a trapped signal's handler. So a TERM
-  landing while the old teardown already sat in that wait interrupted it; the EXIT trap's teardown (TERM ignored there)
-  then ran again and ... released: the job log shows the control's side turn starting 06:22:07 and its wrapper gone by
-  06:22:08, "got 0".
-- Which came first, the TERM or the teardown's wait, was scheduling: a quiet box usually sent TERM before the wrapper
-  reached the wait (hold), a loaded runner sometimes after (release). The main arm ran the same sequence, so its pass
-  was partly the same race.
+## What is known (from the job's own log)
+- The CONTROL's log ends at "SIDE TURN: running c5331" with no "claim released": its teardown did not finish, so this
+  was not the old teardown releasing. The test shell printed "line 508: <pid> Killed: 9 ... c5331" just before: a c5331
+  wrapper was SIGKILLed.
+- reap() returns 0 ("exited in time") whenever ps does not name this shell as the wrapper's parent, which an EMPTY ps
+  answer (a busy runner) also reads as. That, or a never-started first attempt whose KILL notice printed during the
+  retry, fits a 0; neither is proven.
 
-## Change
-- side5331 sends TERM FIRST, while the wrapper is still in `wait "$CMD"` (the command runs on). TERM interrupts that
-  wait; the teardown then runs only from the EXIT trap, where TERM is ignored, so nothing can cut it short: the old
-  teardown holds for good, the new one releases. The command is ended by the teardown itself (its own group, set -m
-  inline at the launch survives the copies' sed), and any sleep left over is KILLed after the reap.
+## Rejected (review 1)
+- My first cause (a TERM interrupting the old teardown's wait) is wrong: the EXIT trap reaches the same uninterruptible
+  wait, and a bash 3.2 replica held under every timing. The reorder built on it was reverted.
+
+## Change: the next red says which shape it was
+- reap() records REAP_HOW (notours with the ppid ps gave, exited, killed) and REAP_RC (the wrapper's exit status where
+  wait got one). The notours branch does not wait (the wrapper may still be ours and running).
+- side5331 appends to <marker>.why: each attempt and its wrapper pid, why an attempt never started (no side turn, an
+  empty capper look, a STOP that did not show and the stat it showed), the capper's stat just before the reap, and how
+  reap decided with the exit status.
+- The CONTROL's BAD prints that record, whether the teardown said "claim released", and the control's WHOLE log.
 
 ## Decided, not missed
-- Weakest premise: that the release came from the TERM interrupting the old teardown's wait. Read from bash's trap
-  semantics and the log's one-second timeline, not reproduced on the hosted runner. If the control reds again with this
-  order, the race is elsewhere and its "got" line says which shape (0 released, 1 held, 2 never started).
-- The arms' bounds (main 30 s, control 15 s) are unchanged.
+- No behaviour of the arms changes; this is diagnosis, and the card stays open to catch the next recurrence with its
+  shape (as Angel left it for the previous one).
+- Weakest premise: that the next red will show one of the recorded shapes; a cause outside them still prints the log.
 
 ## Tests
-- tools/test-queued-heavy-4977.sh focused, twice (queued): results recorded here once measured.
+- tools/test-queued-heavy-4977.sh focused (queued): results recorded here once measured.
