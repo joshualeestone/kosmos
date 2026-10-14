@@ -485,7 +485,7 @@ sed -e 's/^  set -m$/  :/' -e 's/^  _qh_stop_capper$/  if [ -n "$CAPPER" ]; then
 capper_of() { local c k; for c in $(pgrep -P "$1"); do for k in $(pgrep -P "$c"); do [ "$(ps -o command= -p "$k" 2>/dev/null)" = "sleep 7" ] && { echo "$c"; return 0; }; done; done; return 1; }
 side5331() {   # $1 the copy, $2 its marker dir, $3 the reap bound in 0.25 s polls: writes 0 (reaped in time), 1 (hung, KILLed)
   # or 2 (never started) to $2.r, and the teardown's seconds to $2.t
-  local q="$1" m="$2" w cap r t0
+  local q="$1" m="$2" w cap r t0 cst
   mkdir -p "$m"; printf '%s-%s-1 %s %s host queued run (not a cut): fake heavy\n' $H $((NOW-300)) $H $((NOW+1800)) > "$m/machine-claim"
   ( cd /tmp && KOSMOS_RUN_MARKER_DIR="$m" QUEUED_HEAVY_SIDE_POLL_S=7 exec /bin/bash "$q" --light "c5331" sleep $((U+3)) ) > "$m.log" 2>&1 & w=$!; BG="$BG $w"
   # kosmos#5839: the capper is taken from the SAME look that found it. A second capper_of could land between its
@@ -496,11 +496,12 @@ side5331() {   # $1 the copy, $2 its marker dir, $3 the reap bound in 0.25 s pol
   until_true 40 "grep -q 'SIDE TURN: running' '$m.log' && cap=\$(capper_of $w)" || { kill -KILL $w 2>/dev/null; echo "never started: no side turn or no capper in 40 s" >> "$m.why"; echo 2 > "$m.r"; return; }
   [ -n "$cap" ] || { kill -KILL $w 2>/dev/null; echo "never started: the capper look came back empty" >> "$m.why"; echo 2 > "$m.r"; return; }
   kill -STOP "$cap" 2>/dev/null
-  case "$(ps -o stat= -p "$cap" 2>/dev/null)" in T*) ;; *) kill -CONT "$cap" 2>/dev/null; kill -KILL $w 2>/dev/null; echo "never started: the STOP did not show (stat '$(ps -o stat= -p "$cap" 2>/dev/null | tr -d ' ')')" >> "$m.why"; echo 2 > "$m.r"; return ;; esac
+  cst="$(ps -o stat= -p "$cap" 2>/dev/null | tr -d ' ')"   # kosmos#6048 review 5: read once, the value that failed is the one recorded
+  case "$cst" in T*) ;; *) kill -CONT "$cap" 2>/dev/null; kill -KILL $w 2>/dev/null; echo "never started: the STOP did not show (stat '$cst')" >> "$m.why"; echo 2 > "$m.r"; return ;; esac
   echo "capper $cap stat $(ps -o stat= -p "$cap" 2>/dev/null | tr -d ' '), wrapper $w stat $(ps -o stat= -p "$w" 2>/dev/null | tr -d ' ') before the TERM" >> "$m.why"   # kosmos#6048
   for p in $(pgrep -f "^sleep $((U+3))$"); do kill -KILL $p; done
   kill $w 2>/dev/null; t0=$(date +%s); reap $w "$3"; r=$?; echo $(( $(date +%s) - t0 )) > "$m.t"
-  echo "reap: $REAP_HOW, wrapper exit ${REAP_RC:-?}$([ "${REAP_RC:-}" = 127 ] && echo ' (not this shell'"'"'s child)'), 'claim released' lines by then: $([ -f "$m.log" ] && grep -c 'claim released' "$m.log" || echo 'no log')" >> "$m.why"
+  echo "reap: $REAP_HOW, wrapper exit ${REAP_RC:-?}$([ "${REAP_RC:-}" = 127 ] && echo ' (not this shell'"'"'s child)'), 'claim released' lines by then: $(if [ -f "$m.log" ]; then grep -c 'claim released' "$m.log"; else echo 'no log'; fi)" >> "$m.why"
   # The control's capper is left stopped: KILLed here, only while it is still the copy's subshell (a pid can be reused).
   case "$(ps -o command= -p "$cap" 2>/dev/null)" in *qh-*5331.sh*) kill -KILL "$cap" 2>/dev/null;; esac
   echo $r > "$m.r"
