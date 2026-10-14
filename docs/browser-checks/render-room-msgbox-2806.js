@@ -1132,7 +1132,7 @@ function tapProbe4663(skip) {
       await phonePage.waitForTimeout(100);
       const tipWideOrder = await order();
       const tip1024 = await tipWalk();
-      chk(tipWideOrder.startsWith('members-files,room') && !tip1024.error && tip1024.places === 4 && tip1024.steps.length === 4 && tip1024.steps.every(stepOk(1024)),
+      chk(tipWideOrder === 'members-files,room,tasks' && !tip1024.error && tip1024.places === 4 && tip1024.steps.length === 4 && tip1024.steps.every(stepOk(1024)),
         `[wide] every step of the project tip is a pointing card, on screen, in the wide single-column layout`, JSON.stringify({ order: tipWideOrder, tip: tip1024 }));
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
