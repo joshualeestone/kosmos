@@ -448,7 +448,9 @@ Ctrl-C ends that wait safely.
    and takes ~25 minutes; a merge that lands mid-cut cannot be in it, and a page
    check that reads the live checkout can go red on it. Attempt six died on a
    Settings change that merged at minute three. When a cut has to land, call a
-   merge freeze for its duration, and lift it the moment `latest.json` flips.
+   merge freeze for its duration, and lift it the moment the cut's pointer flips
+   (`latest-staging.json` for a staging cut, `latest.json` for prod) or the cut is
+   called off. The cut's own banner at step 2b says so (#6130).
 
 A red at any step is read, not retried. Of the seven, four found real defects
 (a caution that had vanished from the product, a bundle expectation frozen at

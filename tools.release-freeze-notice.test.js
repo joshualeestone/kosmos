@@ -39,7 +39,9 @@ test('#6130: the notice holds merges until the version serves, and never calls m
   assert.match(flat, /HOLD MERGES TO MAIN until 0\.7\.48 serves on staging/,
     'it does not tell a colleague to hold merges, or not until WHICH version serves WHERE');
   assert.match(flat, /re-cut freezes CURRENT main/, 'it does not say why: a redo freezes current main');
-  assert.match(flat, /NOT in 0\.7\.48/, 'it does not say a merge from here misses this cut');
+  assert.match(flat, /NOT in this attempt at 0\.7\.48/, 'it does not say a merge from here misses this attempt');
+  assert.match(flat, /or the cutter calls this cut off/,
+    'the hold has no end for an abandoned cut, which is the #1369 never-merge failure (review 1)');
   // The old promise, by every spelling it had. Each would let a reader decide no hold is needed.
   assert.doesNotMatch(flat, /safe/i, 'it still calls merging safe');
   assert.doesNotMatch(flat, /no merge freeze/i, 'it still denies the hold');
