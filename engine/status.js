@@ -13,7 +13,7 @@
  * can show confidence rather than implying certainty it does not have.
  */
 
-const { execFileSync } = require('node:child_process');
+const { execFileSync, execFile } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -341,6 +341,21 @@ function shDetail(cmd, args, timeoutMs) {
     };
   }
 }
+/* #6173: shDetail's answer from execFile, the same four fields read the same way: a process that exited has a numeric
+   code, and one that never started (ENOENT) or was killed by the timeout has none, so `ran` keeps its meaning. */
+function shDetailAsync(cmd, args, timeoutMs) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = execFile(cmd, args, { encoding: 'utf8', timeout: timeoutMs || 5000 }, (e, stdout, stderr) => {
+        if (!e) { resolve({ ran: true, status: 0, out: stdout, err: '' }); return; }
+        const status = typeof e.code === 'number' ? e.code : null;
+        resolve({ ran: status !== null, status, out: stdout ? String(stdout) : '', err: stderr ? String(stderr) : '' });
+      });
+    } catch { resolve({ ran: false, status: null, out: '', err: '' }); return; }
+    if (child && child.stdin) child.stdin.end();
+  });
+}
 
 /**
  * Did tmux ANSWER, and answer that there is nothing to list?
@@ -464,12 +479,28 @@ function oneLine(text, max) {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
-function tmuxPanes() {
+function tmuxPanes() { return driveShSync(tmuxPanesSteps()); }
+/* #6173: the same look without blocking the board's thread, for a restart that runs while the board keeps answering.
+   One body (tmuxPanesSteps) yields each tmux call and two drivers answer it, so the two can never read panes
+   differently. Only the re-pick search (tmuxRepick, after a version wall or a removed tmux) stays synchronous: it is
+   rare, and it is the same search the board's own poll would run. */
+function tmuxPanesAsync() { return driveShAsync(tmuxPanesSteps()); }
+function driveShSync(gen) {
+  let r = gen.next();
+  while (!r.done) r = gen.next(shDetail(r.value[0], r.value[1]));
+  return r.value;
+}
+async function driveShAsync(gen) {
+  let r = gen.next();
+  while (!r.done) r = gen.next(await shDetailAsync(r.value[0], r.value[1]));
+  return r.value;
+}
+function* tmuxPanesSteps() {
   TMUX_LAST_SEARCH = 'none';   // the detail line says only what a search in THIS look did
-  let got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
+  let got = yield [tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]];
   /* The wall, or the tmux itself gone (ran false and the file missing: a `brew uninstall`): either way another tmux may
      read the server. A run that timed out is also ran false but its file is there, so it starts no search. */
-  if (((got.ran && got.status !== 0 && isVersionWall(got)) || (!got.ran && tmuxGone())) && tmuxRepick()) got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
+  if (((got.ran && got.status !== 0 && isVersionWall(got)) || (!got.ran && tmuxGone())) && tmuxRepick()) got = yield [tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]];
   if (got.ran && got.status === 0) { LAST_LOOK_PROBLEM = null; TMUX_READ_BY = tmuxBin(); return got.out; }
   // ⚠️ An empty STRING, not null. `readPanes('')` is zero panes and zero
   // rejects, which is the honest reading of "tmux answered, and there are no
@@ -7387,7 +7418,13 @@ function paneRoster() {
   //
   // The two functions still are not one, because this one is deliberately
   // stricter about a PARTIAL answer: see the note below.
-  const out = paneSource ? paneSource() : tmuxPanes();
+  return paneRosterFrom(paneSource ? paneSource() : tmuxPanes());
+}
+/* #6173: the same roster from a tmux look that does not block the board's thread (an account move's restarts). */
+async function paneRosterAsync() {
+  return paneRosterFrom(paneSource ? paneSource() : await tmuxPanesAsync());
+}
+function paneRosterFrom(out) {
   if (out === null || out === undefined) {
     throw new Error('we could not see what is running on this computer');
   }
@@ -9476,7 +9513,7 @@ module.exports = {
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   identityFromText, configRoots, transcriptCwd,
   swarmField,   // #3564: exported so the meter's owner test is tested through the real folder search
-  countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
+  countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, paneRosterAsync, readPanes, isParseable, classify, isNamedOurs,
   /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
   computeLoginAdvisories,
   rank, paneOrder, modelDisplayName, readGeminiSession, readIdentity, transcriptFor, readCodexContext, readCodexSession, claudeAccountDirOf, ownsFor,

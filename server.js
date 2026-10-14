@@ -106,6 +106,7 @@ const {
   /* #4607: what a Codex agent's "Hooks need review" screen says, for the thread's two buttons. */
   codexHookSummary,
 } = require('./engine/status');
+const accountmove = require('./engine/accountmove'); // #6173: several agents' account move, one request, restarts off the board's thread
 const removal = require('./engine/remove');
 const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
 const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents from one Kosmos into another
@@ -13625,10 +13626,13 @@ const server = http.createServer(async (req, res) => {
   if (acctRoute && req.method === 'POST') {
     const name = decodeSegment(acctRoute[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    /* #6173: one move at a time. While a move's restarts run, this one is refused plainly rather than run beside it. */
+    if (accountmove.busy()) { sendJson(res, 409, { outcome: 'refused', because: accountmove.busyBecause() }); return; }
     readBody(req)
       .then((raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (accountmove.busy()) { sendJson(res, 409, { outcome: 'refused', because: accountmove.busyBecause() }); return; }
         const fromDir = moveFromDir(name);   // #6174
         const wrote = create.setAccount(name, body && body.dir);
         if (wrote.outcome === create.OUTCOME.REFUSED) {
@@ -13637,46 +13641,47 @@ const server = http.createServer(async (req, res) => {
         }
         try { observed.forgetAgent(name); } catch { /* #5959: a move keeps the name, not its sighting */ }
         const back = restartForMove(name, fromDir);   // #6174: also notes an agent left running on its old account
-        const ok = back.outcome === removal.OUTCOME.RESTARTED;
-        /* #2338: lead with the human-chosen account name (the `.kosmos-name`
-           sidecar an OpenAI row carries, #2095), the same value the picker shows,
-           falling back to the email/label as before. */
-        const who = wrote.account.name || wrote.account.email || wrote.account.label || 'that account';
-        /* #2338: a codex account move is between OpenAI CODEX_HOME dirs, and codex
-           conversation history lives INSIDE a home (there is no cross-home symlink,
-           unlike Claude's shared history) -- so it does NOT travel, and the Claude
-           "Everything it has done comes with it" sentence would be a false promise.
-           What DOES travel is everything Kosmos owns: the worker folder, its files,
-           role, projects and commitments (an account swap rewrites only CODEX_HOME).
-           So the codex sentence is honest about the split rather than silent on it. */
-        /* #3566: Gemini and Grok accounts are per-home too (GEMINI_CLI_HOME / GROK_HOME, no
-           cross-home link), so their chat stays behind exactly as Codex's does. The word
-           names the chat the person would look for. */
-        const moveChatWord = wrote.account
-          && ({ openai: 'Codex', google: 'Gemini', xai: 'Grok', alibaba: 'Qwen' })[String(wrote.account.provider || '').toLowerCase()];
-        const isPerHomeMove = !!moveChatWord;
-        sendJson(res, 200, {
-          outcome: ok ? 'changed' : 'partial',
-          account: wrote.account,
-          because: ok
-            /* Same shape as the model route's sentence, and for the same
-               reason: a restarted agent has done nothing, and Josh read that
-               emptiness as the change having failed. The history sentence is
-               here because it is the one thing a person is right to worry
-               about when moving accounts. */
-            ? (isPerHomeMove
-              ? `${name} runs on ${who} now. It is starting again, and it will look idle `
-                + 'until you say something to it. Its files and projects come with it; '
-                + `its earlier ${moveChatWord} chat stays with the account it was on.`
-              : `${name} runs on ${who} now. It is starting again, and it will look idle `
-                + 'until you say something to it. Everything it has done comes with it.')
-            : `We saved ${who}, but could not start it again: ${back.because} `
-              + 'It is still on the old account until it restarts.',
-          steps: back.steps || [],
-        });
+        /* #6173: the sentence lives in accountmove, so this route and the several-agents one cannot word it apart. */
+        const said = accountmove.sentence(name, wrote, back, removal.OUTCOME.RESTARTED);
+        sendJson(res, 200, { outcome: said.outcome, account: wrote.account, because: said.because, steps: said.steps });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
         { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
+  /**
+   * #6173: move several agents to one account in ONE request, without holding the board once per agent.
+   *
+   * POST /api/agents/account { dir, names } does only the account writes and answers 202 with the move's id and each
+   * agent's write outcome (a refusal is final at once). The restarts then run one at a time through
+   * `removal.restartAsync`; GET /api/agents/account-moves/<id> answers how each went. 404 there means this board does
+   * not know the move (it restarted since): Settings reads that as not confirmed, never as moved.
+   */
+  if (pathname === '/api/agents/account' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const started = accountmove.start(body, {
+          setAccount: (n, dir) => create.setAccount(n, dir),
+          REFUSED: create.OUTCOME.REFUSED,
+          forget: (n) => observed.forgetAgent(n),
+          restartAsync: (n, cause) => removal.restartAsync(n, cause),
+          RESTARTED: removal.OUTCOME.RESTARTED,
+        });
+        sendJson(res, started.status, started.body);
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  const acctMoveRead = pathname.match(/^\/api\/agents\/account-moves\/([^/]+)$/);
+  if (acctMoveRead && (req.method === 'GET' || req.method === 'HEAD')) {
+    const id = decodeSegment(acctMoveRead[1]);
+    const m = id === null ? null : accountmove.read(id);
+    if (!m) { sendJson(res, 404, { error: 'this board does not know that move; it may have restarted since' }); return; }
+    sendJson(res, 200, m);
     return;
   }
 

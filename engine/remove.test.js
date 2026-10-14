@@ -99,6 +99,7 @@ const mac = {
   remove: (name, opts) => remove.remove(name, { platform: MAC, ...opts }),
   restore: (name, opts) => remove.restore(name, { platform: MAC, ...opts }),
   restart: (name, cause, opts) => remove.restart(name, cause, { platform: MAC, ...opts }),
+  restartAsync: (name, cause, opts) => remove.restartAsync(name, cause, { platform: MAC, ...opts }),   // #6173
   plan: (name) => remove.plan(name, MAC),
   jobFor: (name) => remove.jobFor(name, MAC),
 };
@@ -3005,6 +3006,138 @@ test('#4964: a board whose commands are not real (dry run, no runner) does not w
     assert.ok(out.steps.some((st) => st.label === 'asked it to start again now'), `precondition: the restart never reached the relaunch: ${out.because}`);
   } finally {
     if (was !== undefined) process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS = was;
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+/* ── #6173: the async restart (an account move's), off the board's thread ──────────────────────────────────────────
+ *
+ * One restart body, two drivers. These pin the async one: every launchctl and tmux call goes to the async runner
+ * (none to the sync one), every wait is a timer (the board's thread keeps turning through it), and its outcome is
+ * the sync one's. A sync restart is the control: during it, no timer can fire at all. */
+function scriptedLaunchd() {
+  /* A job that is held for two prints after bootout, then gone; loaded after its bootstrap; the first loaded check
+     fails once, so the #4006 retry wait runs too. */
+  const s = { phase: 'up', held: 2, loadedFails: 1 };
+  return (file, args) => {
+    const cmd = args && args[0];
+    if (cmd === 'has-session') return { ok: false, code: 1 };
+    if (cmd === 'kill-session') return { ok: true, stdout: '' };
+    if (file !== '/bin/launchctl') return { ok: true, stdout: '' };
+    if (cmd === 'bootout') { s.phase = 'leaving'; return { ok: true, stdout: '' }; }
+    if (cmd === 'bootstrap') { s.phase = 'loaded'; return { ok: true, stdout: '' }; }
+    if (cmd === 'print') {
+      if (s.phase === 'leaving') { if (s.held-- > 0) return { ok: true, stdout: 'state = SIGTERMed' }; s.phase = 'gone'; }
+      if (s.phase === 'gone') return { ok: false, code: 113, stderr: 'Could not find service' };
+      if (s.loadedFails-- > 0) return { ok: false, code: 113, stderr: 'Could not find service' };
+      return { ok: true, stdout: 'state = running' };
+    }
+    return { ok: true, stdout: '' };
+  };
+}
+function withWaits(fn) {
+  const keys = ['AGENT_WORKFORCE_UNLOAD_WAIT_MS', 'AGENT_WORKFORCE_RELAUNCH_RETRY_MS'];
+  const was = keys.map((k) => process.env[k]);
+  process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS = '5000';
+  process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = '400';   // long enough that a blocking wait could not hide
+  const done = () => keys.forEach((k, i) => { if (was[i] === undefined) delete process.env[k]; else process.env[k] = was[i]; });
+  try { const r = fn(); return r && typeof r.then === 'function' ? r.finally(done) : (done(), r); } catch (e) { done(); throw e; }
+}
+/* The longest stretch the board's thread went without turning, measured by an interval: a blocking call shows as a gap. */
+function watchTurns() {
+  let last = Date.now(), maxGap = 0, turns = 0;
+  const iv = setInterval(() => { const t = Date.now(); maxGap = Math.max(maxGap, t - last); last = t; turns++; }, 5);
+  return { stop: () => { clearInterval(iv); maxGap = Math.max(maxGap, Date.now() - last); return { maxGap, turns }; } };
+}
+
+test('#6173: an async restart sends every launchctl and tmux call to the async runner and keeps the board turning', async () => {
+  const name = madeAgent('asyncrestart');
+  boardShows(name, name);
+  const sync = [], calls = [];
+  remove.setRunner((file, args) => { sync.push([file, args]); return { ok: false, code: 99 }; });   // must never be asked
+  const answer = scriptedLaunchd();
+  remove.setAsyncRunner(async (file, args) => {
+    calls.push([file, args]);
+    await new Promise((r) => setTimeout(r, 15));
+    return answer(file, args);
+  });
+  try {
+    await withWaits(async () => {
+      const w = watchTurns();
+      const out = await mac.restartAsync(name);
+      const { maxGap, turns } = w.stop();
+      assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
+      assert.deepEqual(sync, [], 'a command went through the blocking runner');
+      assert.deepEqual(calls.filter((c) => c[0] !== '/bin/launchctl').map((c) => c[1][0]), ['kill-session', 'has-session']);
+      assert.deepEqual(calls.filter((c) => c[0] === '/bin/launchctl').map((c) => c[1][0]),
+        ['bootout', 'print', 'print', 'print', 'bootstrap', 'print', 'bootstrap', 'print'],
+        'the unload wait, the first loaded check, the #4006 retry and the second check, all through the async runner');
+      /* The 400 ms retry wait and the 100 ms unload polls are on timers: a blocking one would show as a gap that long. */
+      assert.ok(turns > 20, `the board's thread barely turned during the restart (${turns})`);
+      assert.ok(maxGap < 250, `the board's thread was held for ${maxGap} ms in one go`);
+    });
+  } finally {
+    remove.setRunner(null);
+    remove.setAsyncRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#6173 control: a sync restart of the same world holds the board for its whole wait (what the async one avoids)', () => {
+  const name = madeAgent('syncrestart');
+  boardShows(name, name);
+  remove.resetForTests();   // an earlier test's retry wait would let this one's skip it (one wait per 10 s burst)
+  remove.setRunner(scriptedLaunchd());
+  try {
+    withWaits(() => {
+      let fired = 0;
+      const iv = setInterval(() => { fired++; }, 5);
+      const started = Date.now();
+      const out = mac.restart(name);
+      const took = Date.now() - started;
+      clearInterval(iv);
+      assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
+      assert.equal(fired, 0, 'a timer fired during a synchronous restart');
+      assert.ok(took >= 400, `the sync restart took ${took} ms, less than its own retry wait: the control measures nothing`);
+    });
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#6173: a sync restart of an agent an account move is restarting is refused, never run beside it', async () => {
+  const name = madeAgent('clashing');
+  boardShows(name, name);
+  const answer = scriptedLaunchd();
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  remove.setAsyncRunner(async (file, args) => {
+    if (args[0] === 'bootout') await gate;   // hold the async restart mid-way
+    return answer(file, args);
+  });
+  try {
+    await withWaits(async () => {
+      const running = mac.restartAsync(name);
+      await new Promise((r) => setImmediate(r));
+      const clash = mac.restart(name);
+      assert.equal(clash.outcome, remove.OUTCOME.REFUSED);
+      assert.match(clash.because, /is being restarted by an account move right now, so we left it alone/);
+      const twice = await mac.restartAsync(name);
+      assert.equal(twice.outcome, remove.OUTCOME.REFUSED, 'a second async restart of the same agent ran beside the first');
+      release();
+      const out = await running;
+      assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
+      remove.setRunner(scriptedLaunchd());
+      assert.notEqual(mac.restart(name).outcome, remove.OUTCOME.REFUSED, 'the agent stayed refused after the move ended');
+    });
+  } finally {
+    remove.setRunner(null);
+    remove.setAsyncRunner(null);
     status.setPaneSource(null);
     disruption.clear(name);
   }
