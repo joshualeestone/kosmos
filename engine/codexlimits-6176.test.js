@@ -72,11 +72,11 @@ test('the newest report decides: an over window in it is not replaced by an olde
   assert.equal(codexlimits.read(h, NOW), null);
 });
 
-test('a file with no report falls back to the next newest; only the newest three are tried', () => {
+test('a file with no report falls back to the next most recent, and the latest report wins', () => {
   const h = home();
   writeRollout(h, '10', '09-00-00', [tokenRow('2026-10-10T09:00:00Z', rl(win(70, 10080, NOW + 864e5), null))]);
   for (const d of ['11', '12', '13']) writeRollout(h, d, '09-00-00', [{ timestamp: '2026-10-' + d + 'T09:00:00Z', type: 'event_msg', payload: { type: 'task_started' } }]);
-  assert.equal(codexlimits.read(h, NOW), null, 'a report four files back is not looked for');
+  assert.equal(codexlimits.read(h, NOW).windows[0].usedPct, 70, 'three quiet files after it: the fourth file is still read');
   writeRollout(h, '12', '10-00-00', [tokenRow('2026-10-12T10:00:00Z', rl(win(40, 10080, NOW + 864e5), null))]);
   assert.equal(codexlimits.read(h, NOW).windows[0].usedPct, 40);
 });
@@ -111,6 +111,18 @@ test('only the newest seven day folders are listed: a report eight days back is 
   for (const d of ['02', '03', '04', '05', '06', '07', '08']) writeRollout(h, d, '09-00-00', [{ timestamp: '2026-10-' + d + 'T09:00:00Z', type: 'event_msg', payload: { type: 'task_started' } }]);
   assert.equal(codexlimits.DAYS_LISTED, 7);
   assert.equal(codexlimits.read(h, NOW), null);
+});
+
+test('busy sessions with no report do not hide one that has it; six files is the most read', () => {
+  const h = home();
+  const rep = writeRollout(h, '14', '08-00-00', [tokenRow('2026-10-14T08:30:00Z', rl(win(61, 10080, NOW + 864e5), null))]);
+  touch(rep, Date.parse('2026-10-14T08:30:00Z'));
+  const quiet = (t, ms) => { const f = writeRollout(h, '14', t, [{ timestamp: '2026-10-14T09:00:00Z', type: 'event_msg', payload: { type: 'task_started' } }]); touch(f, ms); };
+  for (const [i, t] of ['09-00-00', '09-01-00', '09-02-00'].entries()) quiet(t, Date.parse('2026-10-14T09:00:00Z') + i * 1000);
+  assert.equal(codexlimits.read(h, NOW).windows[0].usedPct, 61, 'three quiet files are skipped, the fourth is read');
+  for (const [i, t] of ['09-03-00', '09-04-00', '09-05-00'].entries()) quiet(t, Date.parse('2026-10-14T09:10:00Z') + i * 1000);
+  assert.equal(codexlimits.FILES_MAX, 6);
+  assert.equal(codexlimits.read(h, NOW), null, 'six quiet files newer than it: it is the seventh and is not read');
 });
 
 test('a large file is read from its end', () => {

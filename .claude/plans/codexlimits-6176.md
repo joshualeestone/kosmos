@@ -7,7 +7,7 @@ branch, fivehour-6176; the two do not depend on each other.
 - A ChatGPT sign-in (OpenAI) row in Settings > AI Models shows one meter per window Codex last reported:
   "N% of its <5-hour|weekly|N-day> limit used · resets <time> · Codex last reported it <age>".
 - It warns at the weekly thresholds and never suggests a move (moving agents between accounts is Claude's, #6108).
-- A window past its reset is not drawn; a sign-in with no report says "No usage reading for this sign-in yet. Codex
+- A window past its reset is not drawn; a sign-in with no report says "No current usage reading for this sign-in. Codex
   reports it while an agent on it is working."; an API-key row and an older board draw nothing.
 - Tests: the reader (engine), the route (server), the page (browser check), each proven able to fail.
 
@@ -20,7 +20,8 @@ a prolite ChatGPT sign-in, primary 10080 minutes (weekly), secondary null. An Op
 ## Built
 - `engine/codexlimits.js`: `read(home, now)` lists only the newest seven day folders, ranks their files by when they
   were last written (a long or resumed session writes into a file named for when it started), reads the last 256 KB
-  of the three most recent, and returns the report with the latest time of its own
+  of each, most recent first, until three reports are found or six files are read, and returns the report with the
+  latest time of its own
   `{ windows: [{ usedPct, windowMinutes, resetsAt (ms) }], plan, at (ms) }` with windows past their reset dropped,
   or null. The latest report decides: an earlier one is never used to replace a report that is over.
 - `server.js`: ChatGPT rows (`authMode === 'chatgpt'`) in `/api/accounts` gain `limits`; API-key rows carry no field.
@@ -32,7 +33,8 @@ a prolite ChatGPT sign-in, primary 10080 minutes (weekly), secondary null. An Op
 ## Calls
 1. "Codex last reported it <age>", not "Kosmos last saw it change": the source is Codex's own report, dated by its row.
 2. Windows are named by their length, so a plan with other windows still reads truthfully.
-3. Bounded work: seven day folders listed, three files read, 256 KB each; the list is read on every open of AI Models.
+3. Bounded work: seven day folders listed, at most six files read, 256 KB each; the list is read on every open of AI
+   Models.
    A session resumed after more than seven days of folders is not seen (its next new session is).
 
 ## Known limits

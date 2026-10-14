@@ -11,13 +11,15 @@
  *
  * Read cheaply, and bounded: only the newest seven day folders are listed (sessions/YYYY/MM/DD), their files ranked by
  * when they were last WRITTEN (a long or resumed session keeps writing to a file named for when it started), and only
- * the last 256 KB of the three most recent are read. The report with the latest time of its own wins. A window whose
+ * the last 256 KB of each is read, most recent first, until three reports are found or six files are read. The report
+ * with the latest time of its own wins. A window whose
  * reset time has passed is dropped: that figure is from a window that is over. Never throws.
  */
 const fs = require('node:fs');
 const path = require('node:path');
 
-const FILES_TRIED = 3;
+const FILES_TRIED = 3;   // reports compared
+const FILES_MAX = 6;     // files read at most, so busy sessions that never reported cannot hide one that did
 const DAYS_LISTED = 7;
 const TAIL_BYTES = 256 * 1024;
 
@@ -60,7 +62,7 @@ function numbered(dir) {
   try { return fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && /^\d+$/.test(e.name)).map((e) => e.name).sort((a, b) => Number(b) - Number(a)); }
   catch { return []; }
 }
-/** The session files in the newest DAYS_LISTED day folders, most recently written first, at most FILES_TRIED. */
+/** The session files in the newest DAYS_LISTED day folders, most recently written first, at most FILES_MAX. */
 function recentFiles(home) {
   const root = path.join(home, 'sessions'), days = [];
   for (const y of numbered(root)) {
@@ -76,7 +78,7 @@ function recentFiles(home) {
     try { names = fs.readdirSync(dir).filter((n) => /^rollout-.*\.jsonl$/.test(n)); } catch { /* unreadable: skipped */ }
     for (const n of names) { const f = path.join(dir, n); try { files.push({ f, m: fs.statSync(f).mtimeMs }); } catch { /* gone: skipped */ } }
   }
-  return files.sort((a, b) => b.m - a.m).slice(0, FILES_TRIED).map((x) => x.f);
+  return files.sort((a, b) => b.m - a.m).slice(0, FILES_MAX).map((x) => x.f);
 }
 /** The last report in one file, `{ windows, plan, at }`, or null. */
 function lastReport(file) {
@@ -102,10 +104,18 @@ function lastReport(file) {
 function read(home, now = Date.now()) {
   if (typeof home !== 'string' || !home) return null;
   let best = null;
-  try { for (const f of recentFiles(home)) { const r = lastReport(f); if (r && (!best || r.at > best.at)) best = r; } } catch { return null; }
+  let found = 0;
+  try {
+    for (const f of recentFiles(home)) {
+      const r = lastReport(f);
+      if (!r) continue;
+      if (!best || r.at > best.at) best = r;
+      if (++found >= FILES_TRIED) break;   // three reports compared is enough; files with none do not count
+    }
+  } catch { return null; }
   if (!best) return null;
   const windows = best.windows.filter((w) => w.resetsAt > now);
   return windows.length ? { windows, plan: best.plan, at: best.at } : null;   // the latest report decides, even when it is over
 }
 
-module.exports = { read, windowOf, limitsOfRow, FILES_TRIED, DAYS_LISTED, TAIL_BYTES };
+module.exports = { read, windowOf, limitsOfRow, FILES_TRIED, FILES_MAX, DAYS_LISTED, TAIL_BYTES };
