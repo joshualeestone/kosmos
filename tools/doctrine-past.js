@@ -44,10 +44,13 @@ function generateDoctrinePast(root = path.resolve(__dirname, '..'), log = consol
   const HISTORY_REF = firstRef('refs/remotes/origin/main', 'refs/heads/main') || 'HEAD';
   /* The ref is read as it stands here, never fetched. Commits on HEAD that touch engine/defaults.js and are not on it
      are read as this branch's drafts. That is right for a branch's own commits, but if the ref is stale they can also
-     be released main commits, whose rows would then be missing: say so, so the run can be redone after a fetch. */
+     be released main commits, whose rows would then be missing. Nothing here can tell those apart without a fetch,
+     so this is an ordinary line on every branch run (not a warning, which would fire on every branch that changes
+     the doctrine): it names the ref and its date, so a stale one is visible. */
   if (HISTORY_REF !== 'HEAD') {
     const drafts = git('rev-list', '--count', `${HISTORY_REF}..HEAD`, '--', 'engine/defaults.js').trim();
-    if (Number(drafts) > 0) log.warn(`${drafts} commit(s) on HEAD that change engine/defaults.js are not on ${HISTORY_REF}, so they are read as this branch's drafts and get no row. If ${HISTORY_REF} may be behind (this tool does not fetch), run git fetch and rerun.`);
+    const at = git('log', '-1', '--format=%h %cs', HISTORY_REF).trim();
+    if (Number(drafts) > 0) log.log(`history read from ${HISTORY_REF} (${at}, not fetched by this tool); ${drafts} commit(s) here that change engine/defaults.js are not on it, so only the working copy's block is written for them`);
   }
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'doctrine-past-'));

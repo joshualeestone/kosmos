@@ -130,11 +130,14 @@ is saved, exactly as on origin/main: ExpectingInput reads false there, so no fla
 ## Tests
 
 `tools.windows-kosmos-cli-body-file-5946.test.js` (picked up by tools/windows-tests.js through its
-`tools.windows-*` rule): 15 tests. Seams for every verb, every refusal and the not-ended messages; the default
-file reader on a real file; and four Windows-only runs of the shipped shims (Claude Code's PowerShell tool form
+`tools.windows-*` rule): 17 tests. Seams for every verb, every refusal and the not-ended messages; the default
+file reader on a real file; and six Windows-only runs of the shipped shims (Claude Code's PowerShell tool form
 with an open stdin and each call timed; Out-File, Set-Content -Encoding UTF8 and `>` files to a stub board; the
--File exception in three path forms; Git Bash with a /tmp path). With the shim and CLI reverted the first 13
+-File exception in three path forms, plus -Command with the host stdin; under -File, an agent word after the script
+that looks like a host switch (/c, -e, -Command); a pipe inside -Command with the script path as its own argument;
+Git Bash with a /tmp path). With the shim and CLI reverted the first 13
 written all failed; the piped test, the -File test and the Git Bash test each fail with only their shim's half
-reverted. `tools.doctrine-past-5946.test.js`: 3 tests on the generator (see item 5).
+reverted; the host-switch test fails with the earlier whole-command-line scan (measured). `tools.doctrine-past-5946.test.js`:
+4 tests on the generator (see item 5); the kept-row prefix test fails without its guard (measured).
 Updated pins: communityblock.test.js, defaults.test.js, tools.windows-kosmos-cli-570, -community-4330,
 -endorse-4913, -shims-570.

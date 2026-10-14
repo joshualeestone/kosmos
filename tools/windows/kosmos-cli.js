@@ -312,7 +312,8 @@ const PS_PIPELINE_FLAG = '--kosmos-ps-pipeline';
 const BODY_FILE_WRITE_HINT = 'Write it with Set-Content -Encoding UTF8 <file> or Out-File <file> in PowerShell, or any editor that saves UTF-8.';
 
 /* Takes --body-file <path> (or --body-file=<path>) out of a verb's words, anywhere before a bare `--`. Returns
-   { args, file } (file null when absent), or null after saying why (the caller returns 2). */
+   { args, file } (file null when absent), or null after saying why (the caller returns 2). A text word that is
+   literally --body-file is taken as the flag too (put text after `--` to send it); either way nothing is sent. */
 function takeBodyFile(ctx, usage, args) {
   let file = null;
   const rest = [];
