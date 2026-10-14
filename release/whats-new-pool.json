@@ -461,6 +461,25 @@
       "rank": 16,
       "since": "0.7.49",
       "status": "pending"
+    },
+    {
+      "title": "See each Claude account's weekly usage",
+      "line": "Settings, AI Models shows how much of each Claude account's weekly limit is used, which agents run on it, and moves them elsewhere.",
+      "icon": "list",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 4.5,
+      "since": "0.7.49",
+      "status": "pending"
+    },
+    {
+      "title": "A project says when goal planning gave up",
+      "line": "A project's page now says when Kosmos gave up today on asking its agent to plan toward the goal; giving it a task starts sooner.",
+      "icon": "tasks",
+      "rank": 8.5,
+      "since": "0.7.49",
+      "status": "pending"
     }
   ]
 }
