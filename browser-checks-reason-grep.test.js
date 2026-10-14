@@ -317,7 +317,7 @@ function emitPrefixes(src) {
 const SITE_COUNTS = {
   'contrast.js': [0, 1],
   'emoji-picker-2254.js': [1, 0],
-  'mobile-shots.js': [3, 0],
+  'mobile-shots.js': [4, 0],
   'named-controls.js': [0, 1],
   'regress-a-night.js': [0, 1],
   'render-account-badge-1921.js': [1, 1],

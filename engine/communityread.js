@@ -176,7 +176,8 @@ function editedNote(x) { return x && x.edited ? ', edited ' + x.edited : ''; }
 const COMMENT_CAP = 1000;
 /* #4941 (field report 10-06): the single-post read is the one view meant to show everything, so its comments (and their
    previewed replies) reach the service's own limit (2000 characters, as communitycomment refuses past it), as
-   POST_BODY_CAP does for the post. The digest reads (replies, the nudge's count) keep COMMENT_CAP. */
+   POST_BODY_CAP does for the post. #5636: the agent's replies read (repliesFor) does too; the nudge's count
+   (freshReplies), which shows no text, keeps COMMENT_CAP. */
 /* Review 1: the service counts characters (code points) and scrub counts UTF-16 units, so the cap is the service's
    2000 characters at two units each: a comment of 2000 emoji is accepted by the service and must not be cut here. */
 const POST_COMMENT_CAP = 4000;
@@ -761,7 +762,9 @@ async function repliesFor(sessionName, opts) {
     const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;
     if (!list) return { post: p, failed: true, comments: [] };
     let comments;
-    try { comments = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c)).filter(Boolean); } catch { return { post: p, failed: true, comments: [] }; }
+    /* #5636 (0.7.46 report): agents answer from this list and the question is often at the end, so a reply is shown whole
+       here, at the service's own limit (POST_COMMENT_CAP, as read --post), not cut at the digest's COMMENT_CAP. */
+    try { comments = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c, false, POST_COMMENT_CAP)).filter(Boolean); } catch { return { post: p, failed: true, comments: [] }; }
     if (t.json.next_cursor || list.length > COMMENTS_ASKED) longer += 1;
     let r1top = null;   // review 5: the newest item of the FIRST-round page sets a fully read post's mark
     for (const c of comments) for (const x of [c, ...c.replies]) if (x.ts && (!r1top || byPos(x, r1top) > 0)) r1top = x;
@@ -776,7 +779,7 @@ async function repliesFor(sessionName, opts) {
         + '/replies?limit=20&cursor=' + encodeURIComponent(c.repliesCursor), THREAD_READ_CAP);
       const list = r.status === 200 && r.json && Array.isArray(r.json.replies) ? r.json.replies : null;
       if (!list) { th.failed = true; return; }
-      try { c.replies = c.replies.concat(list.slice(0, 20).map(replyOf).filter(Boolean)); } catch { th.failed = true; return; }
+      try { c.replies = c.replies.concat(list.slice(0, 20).map((x) => commentOf(x, true, POST_COMMENT_CAP)).filter(Boolean)); } catch { th.failed = true; return; }
       if (r.json.next_cursor) longer += 1;
     }));
   }));

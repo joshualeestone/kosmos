@@ -184,8 +184,9 @@ function servedSalt(d) {
 /* The computer print for one request to the company, as fields to add to its body. `orgId` is the company this
    board's OWN record names (or, at enroll, the company whose consent the person accepted, which becomes the record's;
    review 39 refuses an answer naming any other). Never logged: only printFor's `because`, which holds no print or id.
-   The read is synchronous and can block the board for up to five seconds while ioreg hangs; it runs on a join, a
-   leave and the rollup tick, at most once a minute while reads fail and once an hour after giving up (accepted). */
+   The read is synchronous and can block the board for up to five seconds while ioreg hangs (fifteen on Windows, when
+   reg.exe and then PowerShell both hang); it runs on a join, a leave and the rollup tick, at most once a minute while
+   reads fail and once an hour after giving up (accepted). */
 const PRINT_ERR_SAID = new Set();
 function printFields(salt, orgId) {
   if (typeof salt !== 'string' || !salt) return { send: 'none', fields: {} };   // no salt: an older company side; no print, nothing pinned

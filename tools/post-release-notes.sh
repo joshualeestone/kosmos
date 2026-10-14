@@ -83,8 +83,37 @@ X_SUFFIX=" $HOST/versions.html"
 X_PREFIX="Kosmos $V is out. "
 _budget=$((280 - ${#X_PREFIX} - ${#X_SUFFIX}))
 X_BODY="$NOTE"
+# #6082: a note over the budget keeps its whole sentences that fit, so the post never stops mid-word under Josh's name.
+# Only when not even its first sentence fits is it cut, at a word, with an ellipsis. Counted in code points, the same
+# count the length test uses.
+# With no node, or node giving nothing back, the old character cut.
 if [ "${#X_BODY}" -gt "$_budget" ]; then
-  X_BODY="$(printf '%s' "$X_BODY" | cut -c1-$((_budget-1)))…"
+  if [ -n "$NODE" ]; then
+    _trimmed="$("$NODE" -e '
+      const t = process.argv[1]; const b = Number(process.argv[2]);
+      const cps = [...t];
+      process.stdout.write(cps.length <= b ? t : trim());   // fits in characters: unchanged (the shell may count bytes)
+      function trim() {
+        const len = (s) => [...s].length;
+        let out = "";
+        // A sentence ends at . ! or ? (a closing quote or bracket may follow), a space, and a capital or digit next;
+        // a few abbreviations (e.g., Mr., No., also with a capital first letter, and before a closing quote) never end one.
+        for (const p of t.split(/(?<=[.!?]["\x27\u201d\u2019)\]]?)(?<!\b(?:[Ee]\.[Gg]|[Ii]\.[Ee]|[Ee]tc|[Vv]s|M[Rr]|M[Rr][Ss]|D[Rr]|[Aa]pprox|[Ii]ncl|N[Oo])\.["\x27\u201d\u2019)\]]?)\s+(?=["\x27\u201c\u2018(]?[A-Z0-9])/)) {
+          const next = out ? out + " " + p : p;
+          if (len(next) <= b) out = next; else break;
+        }
+        if (!out) {
+          // A word is kept whole: cut where a space falls, else back to the last space (with no space, where it falls).
+          const c = cps.slice(0, b - 1).join("");
+          out = (/\s/.test(cps[b - 1] || "") ? c : c.replace(/\s+\S*$/, "")).trimEnd().replace(/[,;:]+$/, "") + "\u2026";
+        }
+        return out;
+      }
+    ' -- "$X_BODY" "$_budget")" || _trimmed=""
+  fi
+  if [ -n "${_trimmed:-}" ]; then X_BODY="$_trimmed"
+  else X_BODY="$(printf '%s' "$X_BODY" | cut -c1-$((_budget-1)))…"
+  fi
 fi
 X_POST="${X_PREFIX}${X_BODY}${X_SUFFIX}"
 # LinkedIn: the full note + a link, no length pressure.

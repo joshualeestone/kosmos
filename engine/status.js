@@ -4880,7 +4880,13 @@ function classify(pane, paneText) {
       return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is working' };
     }
     if (paneText === 'idle') {
-      return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it is idle at its prompt' };
+      /* #5949: `liveToken` marks this idle as the state file a per-turn runner's supervisor (Codex, Gemini, Grok,
+         Antigravity) writes when a turn ends: there is no turn running, so it is not a guess. reconcileReport lets it
+         end a stale automatic "working" (see there). NOT for a Windows Claude agent, whose idle comes from
+         `claude agents --json`, which also reads idle while the session waits on something (measured, #570). Set only
+         here, so no Mac pane ever carries it. */
+      const perTurn = require('./win32codexlive').PER_TURN.has(pane.runner);
+      return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it is idle at its prompt', ...(perTurn ? { liveToken: true } : {}) };
     }
     // null (a failed/absent live read) or any status token we do not recognise:
     // refuse honestly rather than assert a state off a look that did not land.
@@ -8054,6 +8060,17 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          downstream reader (e.g. chat.waitingNote). */
       return { ...scraped, reported: false, conflict: null, ...workingProject(true) };
     }
+    /* 🛑 #5949: A WINDOWS AGENT THAT HAS FINISHED ITS TURN IS IDLE, NOT "CAN'T TELL". Every Codex, Grok, Gemini and
+       Antigravity agent on Windows fell here five minutes after each turn: its last report was the automatic
+       "working" from the turn's start, and its supervisor wrote idle to its state file when the turn ended, which the
+       board read (scraped IDLE) and then ignored for "we could not check". That idle is the supervisor's own record
+       that no turn is running (`liveToken`, set only by classify's win32 arm for a per-turn runner), so it decides
+       once the working report has gone stale. A Mac screen, or a Windows Claude agent, that merely reads idle still
+       falls through to the honest unknown below. */
+    if (scraped.state === STATE.IDLE && scraped.liveToken === true) {
+      const { liveToken: _liveToken, ...screen } = scraped;
+      return { ...screen, reported: false, conflict: null };
+    }
     return {
       state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE,
       because: 'it said it was working and has not said anything since; we could not check',
@@ -9410,6 +9427,7 @@ function sessionStartedAtFromTmux(sessionName, now = Date.now()) {
 }
 
 module.exports = {
+  limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
   waitingTotal,   // #3996: the Dock badge's number
   waitingBadgeOn, // #4025: the switch for it

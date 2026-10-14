@@ -523,7 +523,8 @@ function history(sessionName) {
     try { row = JSON.parse(line); } catch { continue; }
     if (!row || typeof row !== 'object' || !STATES.includes(row.state)) continue;
     const at = Date.parse(row.at || '');
-    if (Number.isFinite(at)) out.push({ state: row.state, at });
+    // #5635 F2: an operator's clear is marked, so a reader can tell it from the agent stopping (projectview.workExcused).
+    if (Number.isFinite(at)) out.push(row.by === 'operator' ? { state: row.state, at, by: 'operator' } : { state: row.state, at });
   }
   out.truncated = cut;   // the record is longer than the tail: rows older than out[0] exist and are not here
   return out;

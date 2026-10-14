@@ -4830,3 +4830,242 @@ test('kosmos#5889: the company sign-in opener passes only the desktop allowlist;
     assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).KOSMOS_5889_PROBE, 'inherited');
   } finally { delete process.env.KOSMOS_5889_PROBE; remote.resetForTests(); }
 });
+
+/* kosmos#5995 item 4: the Kosmos+ sign-in shows the name this computer will be sent under, and the person can keep it,
+   change it or clear it. Three paths send a name for this computer (the sign-in's start, its verify, and the quiet
+   approval of this computer's own sign-in), and all three ask thisComputerDeviceName(), which reads the kept choice. */
+const NAME_5995 = (args, flag) => args[args.indexOf(flag) + 1];
+/* Keep what a text means, the way the server does: one choice worked out, then kept. */
+const keepName5995 = (raw) => remote.keepComputerNameChoice(remote.computerNameChoice(raw));
+const signinCalls5995 = (from) => recorded().slice(from).filter((c) => c[0] === 'signin' && (c[1] === 'start' || c[1] === 'verify'));
+const ownAllows5995 = (from) => recorded().slice(from).filter((a) => a[0] === 'devices' && a[1] === 'allow');
+
+test('#5995: an untouched name field keeps nothing and sends what was sent before', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const shown = remote.computerNameShown();
+  assert.equal(shown.fromComputer, true, 'a name was already kept before this test');
+  assert.equal(shown.name + ' (Kosmos app)', remote.thisComputerDeviceName(), 'the field does not show the name that is sent');
+  assert.deepEqual(keepName5995(shown.name), { ok: true, name: shown.name });
+  assert.equal(remote.read().computer_name, null, 'the computer\'s own name was kept as if the person had typed it');
+  const from = recorded().length;
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const calls = signinCalls5995(from);
+  assert.equal(calls.length, 2, 'CONTROL: the start and the verify were not both recorded');
+  for (const c of calls) assert.equal(NAME_5995(c, '--device-name'), shown.name + ' (Kosmos app)', c[1] + ' sent another name');
+  remote.setOn(false);
+});
+
+test('#5995: a typed name is kept, shown again, and sent by the start, the verify and the quiet approval of this computer', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const own = remote.computerNameShown().name;
+  try {
+    assert.deepEqual(keepName5995('  Kitchen\niMac  '), { ok: true, name: 'Kitchen iMac' }, 'the name was not cleaned to one line');
+    assert.equal(remote.read().computer_name, 'Kitchen iMac');
+    assert.deepEqual(remote.computerNameShown(), { name: 'Kitchen iMac', fromComputer: false });
+    assert.notEqual('Kitchen iMac', own, 'CONTROL: this computer happens to have the test\'s name, so nothing below is told apart');
+    const from = recorded().length;
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const calls = signinCalls5995(from);
+    assert.equal(calls.length, 2, 'CONTROL: the start and the verify were not both recorded');
+    for (const c of calls) assert.equal(NAME_5995(c, '--device-name'), 'Kitchen iMac (Kosmos app)', c[1] + ' did not send the typed name');
+    const reg = await remote.signinRegister('namedmac');
+    assert.equal(reg.ok, true, reg.because);
+    const self = remote.read().device_id;
+    await until(() => ownAllows5995(from).some((a) => a.includes(self)), 'the quiet approval of this computer\'s own sign-in');
+    const allow = ownAllows5995(from).find((a) => a.includes(self));
+    assert.equal(NAME_5995(allow, '--name'), 'Kitchen iMac (Kosmos app)', 'the quiet approval named this computer something else: ' + JSON.stringify(allow));
+    /* A caller's own label still names some OTHER device and is sent as it is (the rule before this change). */
+    const from2 = recorded().length;
+    await remote.signinStart('her@example.com', 'Her phone');
+    assert.equal(NAME_5995(signinCalls5995(from2)[0], '--device-name'), 'Her phone');
+  } finally {
+    keepName5995(own);
+    remote.setOn(false);
+  }
+  assert.equal(remote.read().computer_name, null, 'putting the computer\'s own name back did not drop the kept one');
+});
+
+test('#5995: a cleared name field is a choice: the plain name is sent, and it stays cleared', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const own = remote.computerNameShown().name;
+  try {
+    assert.deepEqual(keepName5995('   '), { ok: true, name: 'This computer' });
+    assert.equal(remote.read().computer_name, '', 'a cleared field was not kept as a choice');
+    assert.equal(remote.computerNameShown().fromComputer, false, 'a cleared field reads as the computer\'s own name');
+    assert.equal(remote.computerNameShown().name, '', 'a cleared choice is shown as text, which one press would turn into a typed name');
+    assert.equal(remote.thisComputerDeviceName(), 'This computer (Kosmos app)');
+    const from = recorded().length;
+    await remote.signinStart('her@example.com');
+    assert.equal(NAME_5995(signinCalls5995(from)[0], '--device-name'), 'This computer (Kosmos app)');
+  } finally {
+    keepName5995(own);
+    remote.setOn(false);
+  }
+});
+
+test('#5995: a name that is too long is cut to fit, and something that is not a name changes nothing', () => {
+  const own = remote.computerNameShown().name;
+  try {
+    const long = keepName5995('M'.repeat(90));
+    assert.equal(long.ok, true);
+    assert.ok((long.name + ' (Kosmos app)').length <= 60, 'the kept name does not fit with its ending: ' + long.name.length);
+    assert.equal(remote.thisComputerDeviceName(), long.name + ' (Kosmos app)', 'what is kept is not what is sent');
+    for (const bad of [undefined, null, 7, {}, ['x']]) {
+      assert.equal(keepName5995(bad).ok, false, 'accepted ' + JSON.stringify(bad));
+      assert.equal(remote.read().computer_name, long.name, 'a refused name changed what was kept');
+    }
+  } finally { keepName5995(own); }
+});
+
+test('#5995: an untouched name field writes nothing: no remote.json is created, and a damaged one is left alone and not refused', () => {
+  const own = remote.computerNameShown().name;
+  const had = fs.existsSync(remote.FILE) ? fs.readFileSync(remote.FILE, 'utf8') : null;
+  try {
+    fs.rmSync(remote.FILE, { force: true });
+    assert.equal(remote.read().computer_name, null, 'a missing file does not read as "no name kept"');
+    assert.deepEqual(keepName5995(own), { ok: true, name: own });
+    assert.equal(fs.existsSync(remote.FILE), false, 'an untouched field created remote.json');
+    fs.writeFileSync(remote.FILE, '{ this is not valid json');
+    assert.equal(remote.read().ok, false, 'CONTROL: the damaged file read as fine');
+    assert.equal(remote.read().computer_name, null);
+    assert.deepEqual(keepName5995(own), { ok: true, name: own }, 'an untouched field was refused on a damaged file, which would block the sign-in');
+    assert.equal(fs.readFileSync(remote.FILE, 'utf8'), '{ this is not valid json', 'an untouched field rewrote a damaged file');
+    // While the file cannot be read there is no kept choice to show: the box gets the computer's own name, as the
+    // computer's own, and that is the name every path sends at that time.
+    assert.deepEqual(remote.computerNameShown(), { name: own, fromComputer: true });
+    assert.equal(remote.thisComputerDeviceName(), own + ' (Kosmos app)');
+    // A real choice on the damaged file is kept, repairing the file as the sign-in's other writes do.
+    assert.deepEqual(keepName5995('Work Mac'), { ok: true, name: 'Work Mac' });
+    assert.equal(remote.read().ok, true);
+    assert.equal(remote.read().computer_name, 'Work Mac');
+  } finally {
+    if (had === null) fs.rmSync(remote.FILE, { force: true }); else fs.writeFileSync(remote.FILE, had);
+  }
+});
+
+test('#5995: forgetting this computer keeps the chosen name, so it is what the next sign-in shows', async () => {
+  const own = remote.computerNameShown().name;
+  try {
+    assert.equal(keepName5995('Kept Through Forget').ok, true);
+    const got = await remote.forget();
+    assert.ok(got && typeof got === 'object', 'CONTROL: the forget did not answer');
+    assert.equal(remote.read().on, false, 'CONTROL: the forget did not run');
+    assert.equal(remote.read().computer_name, 'Kept Through Forget', 'a forget dropped the name the person chose');
+    assert.deepEqual(remote.computerNameShown(), { name: 'Kept Through Forget', fromComputer: false });
+  } finally { keepName5995(own); }
+});
+
+test('#5995: a typed " (Kosmos app)" ending is not doubled, and one derivation says what a choice keeps, sends and shows', () => {
+  const own = remote.computerNameShown().name;
+  try {
+    assert.deepEqual(keepName5995('Den (Kosmos app)'), { ok: true, name: 'Den' });
+    assert.equal(remote.thisComputerDeviceName(), 'Den (Kosmos app)', 'the ending the person typed was sent twice');
+    assert.equal(keepName5995('Den (Kosmos app) (Kosmos app)').name, 'Den');
+    // Only a real ending is taken off: glued to a word it is part of the name.
+    assert.equal(remote.computerNameChoice('Sam(Kosmos app)').next, 'Sam(Kosmos app)');
+    // A longer text cut exactly where a typed ending ends is not kept with that ending.
+    const cutAtEnding = remote.computerNameChoice('M'.repeat(34) + ' (Kosmos app) and more');
+    assert.equal(cutAtEnding.next, 'M'.repeat(34), 'the cut left a typed ending on the kept name');
+    assert.equal(cutAtEnding.label, 'M'.repeat(34) + ' (Kosmos app)');
+    // A leading hyphen would read as another option to the tunnel: it is not part of the kept name.
+    assert.deepEqual(remote.computerNameChoice('--relay evil'), { ok: true, next: 'relay evil', label: 'relay evil (Kosmos app)', box: 'relay evil' });
+    assert.equal(remote.computerNameChoice(' - -x').next, 'x');
+    assert.equal(remote.computerNameChoice('---').next, '');
+    // A name with nothing in it that draws is a cleared box: zero-width marks, the Hangul fillers, a selector alone.
+    for (const blank of ['\u200b\u200d\ufeff', '\u3164', '\u115f\u1160', '\uffa0', '\ufe0f\ufe00', '\u3164 \u200b\ufe0f', '\u202e\u202c']) {
+      assert.deepEqual(remote.computerNameChoice(blank), { ok: true, next: '', label: 'This computer (Kosmos app)', box: '' }, 'a name that draws nothing was kept: ' + JSON.stringify(blank));
+    }
+    // Each of the twelve, one at a time, by its code point: inside a name it is gone, and alone it is a cleared box.
+    for (const mark of ['\u061c', '\u200e', '\u200f', '\u202a', '\u202b', '\u202c', '\u202d', '\u202e', '\u2066', '\u2067', '\u2068', '\u2069']) {
+      assert.equal(remote.computerNameChoice('Sa' + mark + 'm').next, 'Sam', 'a direction control stayed in a name: U+' + mark.codePointAt(0).toString(16));
+      assert.equal(remote.computerNameChoice(mark).next, '', 'a direction control alone was kept as a name: U+' + mark.codePointAt(0).toString(16));
+    }
+    // The source spells every such character as an escape: a raw one cannot be seen in a diff, and an editor can drop it.
+    {
+      const src = fs.readFileSync(nodePath.join(__dirname, 'remote.js'), 'utf8');
+      const body = src.slice(src.indexOf('function computerNameChoice('), src.indexOf('function canKeepComputerNameChoice('));
+      assert.ok(body.length > 500, 'CONTROL: computerNameChoice was not found in the source');
+      assert.ok(!/[^\x09\x0a\x20-\x7e]/.test(body), 'computerNameChoice holds a character that is not plain ASCII; write it as an escape');
+    }
+    // The direction controls leave a name; nothing else that is spelling does.
+    assert.equal(remote.computerNameChoice('Sam\u202eelif\u202c Mac').next, 'Samelif Mac');
+    for (const spelled of ['\u{1F468}\u200d\u{1F4BB}', 'Sam \u2764\ufe0f', '\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645', '\ud55c\uae00 Mac', 'B\u00fcro', '\u{1F600}']) {
+      assert.equal(remote.computerNameChoice(spelled).next, spelled, 'a typed name lost part of its spelling: ' + JSON.stringify(spelled));
+    }
+    // "Left as it was" is told the way the computer's own name was made (one line), before anything is taken off:
+    // whatever deviceNameFrom makes of a computer's name, that same text typed back is untouched.
+    for (const computer of ['Sam\u2019s Mac \u2764\ufe0f', '\u{1F468}\u200d\u{1F4BB} box', '-Studio', '\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645']) {
+      const shown = remote.deviceNameFrom(computer).slice(0, -' (Kosmos app)'.length);
+      assert.equal(shown, computer, 'CONTROL: the computer\'s own name is changed by its own derivation: ' + JSON.stringify(computer));
+    }
+    // Half of a character pair on its own (a script can send one; a page cannot) is not handed on as it is.
+    assert.equal(remote.computerNameChoice('A\ud83d').next, 'A\ufffd');
+    // Alone (an emoji cut in two by the box's length limit, and nothing else typed) it is a cleared box.
+    assert.equal(remote.computerNameChoice('\ud83d').next, '');
+    // What the server does: one choice asked, and kept, is the same as doing both from the text.
+    const one = remote.computerNameChoice('Hall Mac');
+    assert.deepEqual(remote.canKeepComputerNameChoice(one), { ok: true });
+    assert.deepEqual(remote.keepComputerNameChoice(one), { ok: true, name: 'Hall Mac' });
+    assert.equal(remote.thisComputerDeviceName(), one.label);
+    assert.equal(remote.keepComputerNameChoice({ ok: false, because: 'that is not a name' }).ok, false);
+    // Whatever is typed, the cleaned name passes the tunnel's own rule for a name (one line, 1 to 60 characters), so
+    // a typed name is never swapped for the plain one behind the person's back.
+    for (const odd of ['\t\ttabs\tinside\t', 'emoji \u{1F600} name', 'x'.repeat(200), 'a\u0000b\u007fc']) {
+      const c = remote.computerNameChoice(odd);
+      assert.ok(c.next.length > 0 && /^[^\n\r]{1,60}$/.test(c.label) && c.label === c.next + ' (Kosmos app)', 'a typed name was replaced or left unsendable: ' + JSON.stringify(c));
+    }
+    // The computer's own name typed with the ending the account shows after it is still the computer's own name:
+    // nothing is kept, so the computer goes on being followed.
+    assert.deepEqual(remote.computerNameChoice(own + ' (Kosmos app)'), { ok: true, next: null, label: own + ' (Kosmos app)', box: own });
+    // Typing the computer's own name is "untouched" as it stands, before anything is taken off it.
+    assert.deepEqual(remote.computerNameChoice(own), { ok: true, next: null, label: own + ' (Kosmos app)', box: own });
+    assert.deepEqual(remote.computerNameChoice('(Kosmos app)'), { ok: true, next: '', label: 'This computer (Kosmos app)', box: '' });
+  } finally { keepName5995(own); }
+  // The choice itself reads and writes nothing, and what it says is sent is what keeping it then sends.
+  const before = fs.existsSync(remote.FILE) ? fs.readFileSync(remote.FILE, 'utf8') : null;
+  assert.deepEqual(remote.computerNameChoice('  Kitchen\niMac  '), { ok: true, next: 'Kitchen iMac', label: 'Kitchen iMac (Kosmos app)', box: 'Kitchen iMac' });
+  assert.deepEqual(remote.computerNameChoice('   '), { ok: true, next: '', label: 'This computer (Kosmos app)', box: '' });
+  const untouched = remote.computerNameChoice(own);
+  assert.deepEqual([untouched.next, untouched.label, untouched.box], [null, own + ' (Kosmos app)', own]);
+  assert.equal(remote.computerNameChoice(7).ok, false);
+  assert.equal(fs.existsSync(remote.FILE) ? fs.readFileSync(remote.FILE, 'utf8') : null, before, 'working out a choice wrote remote.json');
+  try {
+    for (const typed of ['Kitchen iMac', '', 'M'.repeat(90), own]) {
+      const choice = remote.computerNameChoice(typed);
+      keepName5995(typed);
+      assert.equal(remote.thisComputerDeviceName(), choice.label, 'a start would send one name and the later paths another, for a typed name of length ' + typed.length);
+    }
+  } finally { keepName5995(own); }
+});
+
+test('#5995: a remote.json that cannot be read at all is not rewritten for the sake of a name', (t) => {
+  const own = remote.computerNameShown().name;
+  const had = fs.existsSync(remote.FILE) ? fs.readFileSync(remote.FILE, 'utf8') : null;
+  const whole = JSON.stringify({ on: true, email: 'her@example.com', relay: 'relay.example:443' });
+  try {
+    fs.writeFileSync(remote.FILE, whole);
+    fs.chmodSync(remote.FILE, 0o000);
+    /* Probed, not assumed from the platform: a host that still reads a mode-0 file (an administrator, a file system
+       with no modes) cannot make this state, and says so. */
+    let stillReads = true;
+    try { fs.readFileSync(remote.FILE, 'utf8'); } catch { stillReads = false; }
+    if (stillReads) { t.skip('this host reads a file with no permissions, so the state cannot be made here'); return; }
+    assert.equal(remote.read().ok, false, 'CONTROL: the unreadable file read as fine');
+    // No kept choice can be shown from a file that cannot be read: the box gets the computer's own name (the file
+    // here holds none; one that did would come back when the file reads again, which the comment at
+    // computerNameShown states).
+    assert.deepEqual(remote.computerNameShown(), { name: own, fromComputer: true });
+    const got = keepName5995('Work Mac');
+    assert.equal(got.ok, false, 'a name was kept by rewriting a file that could not be read');
+    assert.match(got.because, /could not keep that name just now/);
+    // The untouched box is still not refused there: it has nothing to write.
+    assert.equal(keepName5995(own).ok, true);
+    fs.chmodSync(remote.FILE, 0o600);
+    assert.equal(fs.readFileSync(remote.FILE, 'utf8'), whole, 'the unreadable file was rewritten');
+  } finally {
+    try { fs.chmodSync(remote.FILE, 0o600); } catch { /* gone */ }
+    if (had === null) fs.rmSync(remote.FILE, { force: true }); else fs.writeFileSync(remote.FILE, had);
+  }
+});

@@ -190,22 +190,26 @@ function secureStateDir() {
   } catch { /* best-effort; the binary still writes its files 0600 */ }
 }
 
+/* What read() answers when there is no file, or none it can use: every field at its empty value, in ONE place, so a
+   field added to read() cannot be missing from one of the four early answers (kosmos#5995: computer_name was). */
+const blankSettings = (ok) => ({ on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, computer_name: null, ok });
+
 /** Off until somebody turns it on. `relay` may be stored here so a
     self-hoster can point at their own relay without an env var. */
 function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
-    if (err && err.code === 'ENOENT') return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, ok: true };
-    return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, ok: false };
+    if (err && err.code === 'ENOENT') return blankSettings(true);
+    return blankSettings(false);
   }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, ok: false }; }
+  try { parsed = JSON.parse(raw); } catch { return blankSettings(false); }
   // A JSON array passes `typeof === 'object'`, but that is harmless HERE, unlike
   // in heartbeat-setting: `on` below is read as `parsed.on === true` (an explicit
   // true test), never defaulted to true, so an array reads off -- the safe value
   // for a relay that is off until turned on. #2013 fixed heartbeat's twin of this
   // guard because heartbeat DID default true; this copy needs no Array.isArray.
-  if (!parsed || typeof parsed !== 'object') return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, ok: false };
+  if (!parsed || typeof parsed !== 'object') return blankSettings(false);
   return {
     on: parsed.on === true,
     relay: typeof parsed.relay === 'string' ? parsed.relay : '',
@@ -249,6 +253,10 @@ function read() {
     /* kosmos#5786 (b): devices this computer allowed because the browser it opened proved itself (vouchTick), as
        { <device_id>: { at: <seconds>, name } }, for the "connected" notice and the "on this computer" label. */
     vouched: parsed.vouched && typeof parsed.vouched === 'object' && !Array.isArray(parsed.vouched) ? parsed.vouched : {},
+    /* kosmos#5995: the name the person gave this computer at the Kosmos+ sign-in, when they changed what the field
+       showed or cleared it ('' is a choice: send no name of theirs). null when they never did, and then the name comes
+       from the computer. Read by thisComputerDeviceName(), the one place every path that names this computer asks. */
+    computer_name: typeof parsed.computer_name === 'string' ? parsed.computer_name : null,
     ok: true,
   };
 }
@@ -1203,6 +1211,9 @@ async function forgetNow() {
   // Off before the retire wait, not after: nothing may bring this Mac online on
   // the key being retired (the ensure tick, a stale page).
   write({ on: false, vouched: {} }, { repair: true });   // kosmos#5786 (b): a forgotten computer keeps no notes
+  /* kosmos#5995: computer_name is NOT cleared here, on purpose. It is the person's own choice of what to call this
+     computer, not a note about a sign-in, and the next sign-in's box is filled with it. (On a damaged file this
+     write starts from the defaults, so the choice is lost with everything else.) Pinned in remote.test.js. */
   flipPending = false;   // kosmos#4743: a flip not yet told belonged to the identity being forgotten
   let retired = false;
   let because = null;
@@ -2483,12 +2494,17 @@ function absorbSession(data) {
    2026-09-25). So it is named after this computer: the name the person gave it
    (macOS: scutil ComputerName), else the host name, plus "(Kosmos app)". */
 const DEVICE_SUFFIX = ' (Kosmos app)';
+/* A name as ONE line: control characters become spaces, runs of white space become one, the ends are trimmed. The
+   one derivation of that (kosmos#5995): the computer's own name and a name the person types both go through it, so
+   "the box was left as it was" can be told by comparing the two. */
+const oneLine = (raw) => String(raw == null ? '' : raw).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
 /** The label for this computer from a raw name. Pure, so every edge is testable:
-    one line, no control characters, cut to fit DEVICE_NAME's 60 UTF-16 units with
+    one line, none of the ASCII control characters (the range oneLine clears; the 8-bit C1 controls are
+    left as typed), cut to fit DEVICE_NAME's 60 UTF-16 units with
     the suffix (never splitting a surrogate pair), and a plain fallback when
     nothing usable is left. */
 function deviceNameFrom(raw) {
-  let name = String(raw == null ? '' : raw).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  let name = oneLine(raw);
   const room = 60 - DEVICE_SUFFIX.length;
   if (name.length > room) {
     let cut = room;
@@ -2501,10 +2517,12 @@ function deviceNameFrom(raw) {
   // "this computer", never "this Mac", on every platform (Josh, kosmos#1004).
   return 'This computer' + DEVICE_SUFFIX;
 }
-/* Read once per process (a computer's name does not change under a running
-   sign-in). scutil is synchronous but local and bounded at 2 seconds, once. */
+/* The computer's own name, read once per process (it does not change under a running
+   sign-in). scutil is synchronous but local and bounded at 2 seconds, once. Only this
+   is kept: the person's own choice is read from remote.json each time, so a name
+   typed at the sign-in is the one every later path sends. */
 let thisComputerNameCache = null;
-function thisComputerDeviceName() {
+function ownComputerDeviceName() {
   if (thisComputerNameCache !== null) return thisComputerNameCache;
   let raw = '';
   if (process.platform === 'darwin') {
@@ -2513,6 +2531,101 @@ function thisComputerDeviceName() {
   if (!String(raw).trim()) { try { raw = os.hostname().replace(/\.local$/i, ''); } catch { raw = ''; } }
   thisComputerNameCache = deviceNameFrom(raw);
   return thisComputerNameCache;
+}
+/* kosmos#5995: the name this computer is sent under, on EVERY path that sends one (the sign-in's start and verify
+   with no caller's label, and the quiet re-approval of this computer later). The person's choice when they made one
+   at the sign-in, the computer's own name when they did not. A cleared field is a choice and sends the plain name.
+   It reads remote.json each time (the choice is not cached, so one typed at the sign-in is what every later path
+   sends): fine for its three callers, which run once per sign-in step, and not something to call in a loop. */
+function thisComputerDeviceName() {
+  const chosen = read().computer_name;
+  return typeof chosen === 'string' ? deviceNameFrom(chosen) : ownComputerDeviceName();
+}
+const withoutSuffix = (label) => (label.endsWith(DEVICE_SUFFIX) ? label.slice(0, -DEVICE_SUFFIX.length) : label);
+/** What the sign-in's "Name for this computer" field shows before anything is sent: the name that would go, without
+    the " (Kosmos app)" ending. `fromComputer` says whether it is the computer's own name or one the person gave. */
+function computerNameShown() {
+  const chosen = read().computer_name;
+  /* A cleared choice shows as an EMPTY field (its placeholder says what goes), the same thing computerNameChoice
+     answers as `box` for it: shown as the text "This computer", one press would turn the cleared choice into that
+     typed name.
+     While remote.json cannot be read (damaged, or not readable at all) there is no kept choice to show: read()
+     answers none, so this is the computer's own name with fromComputer true, and every path that names this
+     computer sends that same name at that time. A choice still in the file comes back when the file reads again.
+     Stated and pinned in remote.test.js; not an accident of the blank read. */
+  return { name: chosen === '' ? '' : withoutSuffix(thisComputerDeviceName()), fromComputer: typeof chosen !== 'string' };
+}
+/** What the text left in that field MEANS, with nothing read from or written to remote.json:
+    `next`  what would be kept: null for the computer's own name (so an untouched field goes on following the
+            computer if it is renamed), '' for a cleared field, else the cleaned name (one line, no control
+            characters, cut to fit, and without a " (Kosmos app)" ending the person typed: the engine adds its own);
+    `label` the full name a sign-in start sends for it;
+    `box`   what the field shows for it afterwards ('' stays an empty field).
+    One derivation, so the name a start sends and the name kept after it cannot differ. */
+function computerNameChoice(raw) {
+  if (typeof raw !== 'string') return { ok: false, because: 'that is not a name' };
+  /* Leading hyphens go from a name the person TYPED: it is handed to the tunnel as the value after --device-name,
+     and a value that starts with "-" reads as another option there (the hazard the --phone guard below names).
+     Only the typed path: the computer's own name is sent as it was before this change. */
+  const bare = (t) => {
+    let v = t.replace(/^[-\s]+/, '').trim();
+    while (v.endsWith(DEVICE_SUFFIX) || v === DEVICE_SUFFIX.trim()) v = v.slice(0, -DEVICE_SUFFIX.trim().length).trim();
+    return v;
+  };
+  const asTyped = oneLine(raw);
+  const own = withoutSuffix(ownComputerDeviceName());
+  /* The text the box was filled with, left as it was, is "untouched" whatever it holds (a computer named "-Studio",
+     or one with an emoji in its name): compared as ONE LINE, the way the computer's own name was made, and BEFORE
+     anything else is taken off, so what was shown is what is sent, and nothing is kept. */
+  if (asTyped === own) return { ok: true, next: null, label: ownComputerDeviceName(), box: own };
+  /* From a typed name, two things only:
+     - the direction controls (embeddings, overrides, isolates, the two marks): inside a name they can make the
+       account's list read as something else, and no name needs them;
+     - half of a character pair on its own, which is replaced.
+     Everything else stays as typed. Joiners and selectors are spelling (the Persian word joiner, the joiner inside
+     an emoji of several parts, the selector that makes a heart red), so they are NOT removed: an earlier version
+     removed every character that draws nothing and changed such names. */
+  const cleaned = asTyped.toWellFormed().replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').trim();
+  /* A name with nothing in it that draws LOOKS like a cleared box, and so is one. Asked of what is left once
+     Unicode's own "drawn as nothing" characters, white space and the replacement mark (what half a character pair
+     became: the box's length limit can cut an emoji in two) are set aside. The name itself is not changed by the
+     asking, so such characters INSIDE a name that does draw stay as typed. */
+  if (cleaned.replace(/[\p{Default_Ignorable_Code_Point}\p{Cf}\s\ufffd]/gu, '') === '') return { ok: true, next: '', label: deviceNameFrom(''), box: '' };
+  const typed = bare(cleaned);
+  /* Cut to fit, then the ending is looked for once more: a longer text can be cut exactly where a typed ending ends. */
+  const kept = typed ? bare(withoutSuffix(deviceNameFrom(typed))) : '';
+  const next = kept === own ? null : kept;
+  return { ok: true, next, label: next === null ? ownComputerDeviceName() : deviceNameFrom(next), box: next === null ? own : next };
+}
+/** Whether keepComputerNameChoice(choice) could keep this choice right now, without writing anything: yes when there is
+    nothing to write, or when remote.json can be read or repaired; no for something that is not a name, and for a
+    file that cannot be read at all. Asked before the start, so a code is not emailed for a name that cannot be kept. */
+function canKeepComputerNameChoice(choice) { return choice && choice.ok ? ableToKeep(choice, read()) : choice; }
+/* The one answer both functions give, for a choice already worked out and a read already made (so neither is
+   derived twice within one call). */
+function ableToKeep(choice, current) {
+  if (current.computer_name === choice.next || current.ok !== false) return { ok: true };
+  try { fs.readFileSync(FILE, 'utf8'); return { ok: true }; }
+  catch (err) { return err && err.code === 'ENOENT' ? { ok: true } : { ok: false, because: 'we could not keep that name just now' }; }
+}
+/** Keep what the person left in that field (computerNameChoice says what that is).
+    Nothing is written when nothing changes: an untouched field on a computer with no remote.json creates none, and
+    on a damaged remote.json it is not refused (the sign-in start never was).
+    A real choice on a remote.json that HOLDS UNREADABLE TEXT repairs it, as the sign-in's other writes do (#4308).
+    One that could not be read AT ALL just now (the disk, a permission, too many open files) is refused: the file
+    may be whole, and a repair would rewrite it from nothing for the sake of a name.
+    The server calls this only AFTER a sign-in start carried the name, so a name is never kept for a start that did
+    not go out, and there is nothing to put back. It asks canKeepComputerNameChoice() BEFORE that start.
+    The choice kept is the very one whose `label` the start sent, so the name sent IS the name kept. */
+function keepComputerNameChoice(choice) {
+  if (!choice || !choice.ok) return choice;
+  const current = read();
+  const able = ableToKeep(choice, current);
+  if (!able.ok) return able;
+  if (current.computer_name === choice.next) return { ok: true, name: withoutSuffix(thisComputerDeviceName()) };
+  const wrote = write({ computer_name: choice.next }, { repair: true });
+  if (!wrote || wrote.ok === false) return { ok: false, because: (wrote && wrote.because) || 'we could not keep that name' };
+  return { ok: true, name: withoutSuffix(thisComputerDeviceName()) };
 }
 
 /** Append --device-name. A caller's label goes through only when clean (trimmed
@@ -3126,7 +3239,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   ownDeviceIds,

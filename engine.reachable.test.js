@@ -210,7 +210,7 @@ const SEAMS_5548 = {
   // themselves (claimedNow / done), never these.
   isTyping: 'engine/limitqueue.js',
   isDone: 'engine/limitqueue.js',
-  // #5532: the ioreg runner and the clock engine/computerprint-5532.test.js replaces, and the bare print function it
+  // #5532: the hardware reader (ioreg, or reg.exe and its PowerShell fallback) and the clock engine/computerprint-5532.test.js replaces, and the bare print function it
   // pins the formula through (callers use printFor, which reads the id itself).
   _testRunner: 'engine/computerprint.js',
   _testClock: 'engine/computerprint.js',

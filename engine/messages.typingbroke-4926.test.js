@@ -284,20 +284,29 @@ test('#4926 review 3 (Opus): an unrecorded post\'s twin is forgotten once the ro
   });
 });
 
-test('#4926 review 3 (Opus): a member that fails after its long post was spilled but before typing keeps no inbox file', async () => {
+/* #6065 review 1: the room's spill now sits immediately before typing (it is decided on the member's whole line), so a
+   failure "after the spill but before typing" has nothing left to throw from; #4926 review 3's case is gone by design.
+   What can fail there now is the spill itself, and that member must keep no file and get its taken held posts back. */
+test('#6065 review 1: a member whose spill cannot be written is not reached, keeps no file, and gets its held posts back', async () => {
   await withRoom(async (roster) => {
     arm();
     for (const n of MEMBERS) fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, n), { recursive: true });   // a spill needs the agent's own folder
-    const real = roomhold.take;
-    roomhold.take = (name, ...rest) => { if (name === 'cy') throw new Error('take broke'); return real(name, ...rest); };
+    fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'cy', 'Inbox'), 'not a folder');   // cy's spill is refused
+    const realStale = roomhold.withoutStale;
+    roomhold.withoutStale = (p, ids) => ids;   // keep the seeded id, which no real post backs
+    assert.ok(roomhold.hold('cy', 'room4926', 'p-held-before'), 'premise: a held post for cy');
     let d;
-    try { d = await agentPost(roster, 'long '.repeat(200), false); } finally { roomhold.take = real; }
-    assert.equal(d.outcomes.cy, chat.DELIVERY.COULD_NOT);
-    const inbox = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'cy', 'Inbox');
-    const left = fs.existsSync(inbox) ? fs.readdirSync(inbox).filter((f) => f.startsWith(d.id)) : [];
-    assert.deepEqual(left, [], 'cy kept a spill file for a post it never got');
-    const bixInbox = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'bix', 'Inbox');
-    assert.ok(fs.existsSync(bixInbox) && fs.readdirSync(bixInbox).some((f) => f.startsWith(d.id)), 'fixture: the post did not spill at all (cannot see the cleanup)');
+    try {
+      try { d = await agentPost(roster, 'long '.repeat(2200), false); } finally { roomhold.withoutStale = realStale; }
+      assert.equal(d.outcomes.cy, chat.DELIVERY.COULD_NOT, JSON.stringify(d.outcomes));
+      assert.deepEqual(roomhold.heldIn('cy', 'room4926'), ['p-held-before'], 'cy\'s held post was lost when its spill failed');
+      const bixInbox = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'bix', 'Inbox');
+      assert.ok(fs.existsSync(bixInbox) && fs.readdirSync(bixInbox).includes(d.id + '.txt'), 'CONTROL: the post spilled for a member with a folder');
+    } finally {
+      // Review 2: leave nothing for a neighbour (the plain file where cy's Inbox goes, and the seeded held post).
+      fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'cy', 'Inbox'), { recursive: true, force: true });
+      roomhold.forgetProject('cy', 'room4926');
+    }
   });
 });
 
@@ -395,5 +404,30 @@ test('#4926 review 7 (Opus): on the typed arrival, a quota hold is aged from the
     const typed = calls.map((a) => a.join(' ')).join('\n');
     assert.ok(typed.includes('(m91)'), 'a quota hold released 10 min ago was dropped as stale on the typed arrival');
     roomhold.forget('cy');
+  });
+});
+
+test('#6065 review 1: the held-posts line counts toward the limit, so a post that fits alone but not with it is spilled, never refused', async () => {
+  await withRoom(async (roster) => {
+    arm();
+    for (const n of MEMBERS) fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, n), { recursive: true });
+    // Message ids restart per test while the sandbox's folders persist, so start from empty Inboxes (sandbox only).
+    for (const n of MEMBERS) fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, n, 'Inbox'), { recursive: true, force: true });
+    const realStale = roomhold.withoutStale;
+    const realClause = roomhold.clauseFor;
+    roomhold.withoutStale = (p, ids) => ids;
+    // bix's held-posts line is 5000 characters: the post fits alone (by thousands), but not with it.
+    roomhold.clauseFor = (p, shown, ids) => (ids.includes('p-bix-held') ? '[' + 'h'.repeat(4998) + ']' : realClause(p, shown, ids));
+    assert.ok(roomhold.hold('bix', 'room4926', 'p-bix-held'));
+    const text = 'x'.repeat(messages.spillLimit() - 4000);
+    let d;
+    try { d = await agentPost(roster, text, false); } finally { roomhold.withoutStale = realStale; roomhold.clauseFor = realClause; roomhold.forgetProject('bix', 'room4926'); }
+    assert.notEqual(d.outcomes.bix, chat.DELIVERY.COULD_NOT, 'chat refused a line the held-posts line pushed past its limit: ' + JSON.stringify(d.outcomes));
+    const bixInbox = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'bix', 'Inbox');
+    assert.ok(fs.existsSync(bixInbox) && fs.readdirSync(bixInbox).includes(d.id + '.txt'), 'bix\'s post was not spilled');
+    // CONTROL: a member with no held line gets the same post whole (no file), and was really delivered to.
+    assert.ok([chat.DELIVERY.PLACED, chat.DELIVERY.UNCONFIRMED].includes(d.outcomes.dee), 'premise: dee was not delivered to: ' + JSON.stringify(d.outcomes));
+    const dee = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'dee', 'Inbox');
+    assert.ok(!fs.existsSync(dee) || !fs.readdirSync(dee).includes(d.id + '.txt'), 'dee was spilled though its line fits');
   });
 });

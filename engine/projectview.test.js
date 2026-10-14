@@ -625,3 +625,111 @@ test('#5635 F2: a stale summary of an idle member says idle since when, for any 
   // CONTROL: a member that is not idle (working on screen) gets no note even with an old idle report.
   assert.doesNotMatch(show({ found: true, state: 'idle', at: at(840) }, { state: 'working' }).text, /idle since/);
 });
+
+/* ---- kosmos#5635 F2 (five-family reports on 0.7.45 and 0.7.46): the rhythm is four hours of WORK ---- */
+test('#5635 F2 workExcused: a summary reads current while the member has worked under the rhythm since; CONTROLS', () => {
+  const at = (minAgo) => NOW - minAgo * 60000;
+  const stale = (minAgo) => ({ state: 'stale', file: 'summaries/2026-09-29-11.md', at: new Date(at(minAgo)).toISOString(), ageMinutes: minAgo });
+  const hist = (rows, truncated) => { const a = rows.map(([state, minAgo]) => ({ state, at: at(minAgo) })); a.truncated = Boolean(truncated); return () => a; };
+  // A REAL working member (fixture-discipline), from the fleet fixture through describe().
+  const raw = { id: 'wk', name: 'Work Time', folder: '/p/wk', agents: ['mark'], tasks: [] };
+  const mark = projects.describe(raw, BOARD.agents, [raw]).agents.find((m) => m.sessionName === 'mark');
+  assert.ok(mark && mark.present && mark.tied && mark.state === 'working', 'fixture: mark is not a working tied member: ' + JSON.stringify(mark));
+  const claude = Object.assign({}, mark, { runner: 'claude' });
+
+  // The report: written in the morning round, idle from then, woken by a request a minute ago. 331 min on the clock,
+  // 6 + 1 min of work: current.
+  const woken = hist([['working', 400], ['idle', 325], ['working', 1]]);
+  const r = v.workExcused(stale(331), claude, woken, NOW);
+  assert.equal(r.state, 'worked', 'the seat woken after a quiet afternoon read stale');
+  assert.equal(r.workMinutes, 7);
+  // Short prompted turns while otherwise idle (the latest idle report moves on, which idleExcused cannot see past).
+  const idleNow = Object.assign({}, claude, { state: 'idle' });
+  assert.equal(v.workExcused(stale(900), idleNow, hist([['idle', 890], ['working', 600], ['idle', 590], ['working', 300], ['idle', 280]]), NOW).state, 'worked');
+  // Review 3: the board reads it busy now, so the time since its last (idle) report is work: 30 + 280 min, stale.
+  assert.equal(v.workExcused(stale(900), claude, hist([['idle', 890], ['working', 600], ['idle', 590], ['working', 300], ['idle', 280]]), NOW).state, 'stale');
+  // Review 3: an operator's clear is not the agent stopping; it changes nothing (working from 400 to now: stale).
+  const cleared = () => { const a = [{ state: 'working', at: at(400) }, { state: 'idle', at: at(325), by: 'operator' }]; a.truncated = false; return a; };
+  assert.equal(v.workExcused(stale(331), idleNow, cleared, NOW).state, 'stale', 'an operator clear read as the agent stopping');
+  assert.equal(v.workExcused(stale(331), idleNow, hist([['working', 400], ['idle', 325]]), NOW).state, 'worked', 'CONTROL: the agent\'s own idle');
+  // CONTROL: more than four hours of work since: stale. 331 min, idle for only 60 of them.
+  assert.equal(v.workExcused(stale(331), claude, hist([['working', 400], ['idle', 200], ['working', 140]]), NOW).state, 'stale');
+  // A wait for a person counts as work (errs toward stale).
+  assert.equal(v.workExcused(stale(331), claude, hist([['working', 400], ['needs_you', 325]]), NOW).state, 'stale');
+  // No report at or before the summary: the stretch up to the first one counts as work (300 min here): stale.
+  assert.equal(v.workExcused(stale(600), claude, hist([['idle', 300]]), NOW).state, 'stale');
+  // ...and with a report before it saying idle, the same timeline is current.
+  assert.equal(v.workExcused(stale(600), idleNow, hist([['idle', 700], ['idle', 300]]), NOW).state, 'worked');
+  // A history cut short that starts after the summary is unknown: left stale. One that reaches back is read.
+  assert.equal(v.workExcused(stale(331), claude, hist([['idle', 325], ['working', 1]], true), NOW).state, 'stale');
+  assert.equal(v.workExcused(stale(331), claude, hist([['working', 400], ['idle', 325], ['working', 1]], true), NOW).state, 'worked');
+  // No history, an unreadable one, a runner that reports idle only, no runner, an untied member: unchanged.
+  assert.equal(v.workExcused(stale(331), claude, () => null, NOW).state, 'stale');
+  assert.equal(v.workExcused(stale(331), claude, () => { throw new Error('x'); }, NOW).state, 'stale');
+  for (const runner of ['codex', null, 'someday-runner']) {
+    assert.equal(v.workExcused(stale(331), Object.assign({}, mark, { runner }), woken, NOW).state, 'stale', 'excused runner ' + runner);
+  }
+  assert.equal(v.workExcused(stale(331), Object.assign({}, claude, { tied: false }), woken, NOW).state, 'stale');
+  // Review 1: rows out of time order (a clock stepped back) are read in time order. Idle at 325 then working from 300 to
+  // now is 6 + 300 min of work: stale. Read in file order, the step back subtracts 25 min and it read 6 min: current.
+  assert.equal(v.workExcused(stale(331), claude, hist([['working', 300], ['idle', 325]]), NOW).state, 'stale');
+  assert.equal(v.workExcused(stale(331), claude, hist([['working', 1], ['idle', 325], ['working', 400]]), NOW).workMinutes, 7, 'CONTROL: sorted, the report timeline');
+  // Boundaries: a report exactly at the summary is its state then; one after now is not read; stopped is not work.
+  assert.equal(v.workExcused(stale(331), idleNow, hist([['idle', 331]]), NOW).workMinutes, 0);
+  assert.equal(v.workExcused(stale(331), idleNow, hist([['idle', 331], ['working', -30]]), NOW).workMinutes, 0, 'a report from the future was read');
+  assert.equal(v.workExcused(stale(331), idleNow, hist([['working', 400], ['stopped', 325], ['idle', 200]]), NOW).workMinutes, 6);
+  // Review 3: a cut tail is judged by its first row in the file, before the sort (a clock stepped back).
+  assert.equal(v.workExcused(stale(331), idleNow, hist([['idle', 300], ['idle', 400]], true), NOW).state, 'stale', 'a cut tail starting after the summary was read');
+  // Review 4: an operator clear as the tail's first row still marks where the tail starts.
+  const opHead = () => { const a = [{ state: 'idle', at: at(400), by: 'operator' }, { state: 'idle', at: at(200) }]; a.truncated = true; return a; };
+  assert.equal(v.workExcused(stale(331), idleNow, opHead, NOW).state, 'worked', 'a cut tail reaching back to the summary through an operator row read as unknown');
+  assert.equal(v.workExcused(stale(331), claude, hist([['idle', 331], ['working', 1]], true), NOW).state, 'worked', 'a cut history starting at the summary is read');
+  // Only a stale summary is touched.
+  const cur = { state: 'current', file: 'summaries/x.md', at: new Date(at(30)).toISOString(), ageMinutes: 30 };
+  assert.equal(v.workExcused(cur, claude, woken, NOW), cur);
+});
+
+/* Review 5: the default history reader, as the board calls overviewOf (no options), against the sandboxed report store. */
+test('#5635 F2: overviewOf reads the real report history by default; CONTROL: with none it stays stale', () => {
+  const raw = { id: 'wk3', name: 'Work Time', folder: '/p/wk3', agents: ['mark'], tasks: [] };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const now = Date.now();
+  const f = path.join(DIR, 'mark-wk3');
+  fs.mkdirSync(path.join(f, 'summaries'), { recursive: true });
+  const p = path.join(f, 'summaries', '2026-09-29-11.md');
+  fs.writeFileSync(p, 'x');
+  const t = new Date(now - 331 * 60000);
+  fs.utimesSync(p, t, t);
+  const selfreport = require('./selfreport');
+  const file = selfreport.fileFor('mark');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, JSON.stringify({ state: 'idle', at: new Date(now - 400 * 60000).toISOString() }) + '\n'
+    + JSON.stringify({ state: 'working', at: new Date(now - 60000).toISOString() }) + '\n');
+  try {
+    const m = v.overviewOf(described, BOARD.agents, { now, folderOf: () => f, readBrief: () => ({ found: false }) }).members[0];
+    assert.equal(m.summary.state, 'worked', 'the default reader did not read the report history: ' + JSON.stringify(m.summary));
+    const none = v.overviewOf(described, BOARD.agents, { now, folderOf: () => f, readBrief: () => ({ found: false }), readHistory: () => null }).members[0];
+    assert.equal(none.summary.state, 'stale', 'CONTROL: without history the same member still read current');
+  } finally { fs.rmSync(file, { force: true }); }
+});
+
+test('#5635 F2: a working member woken after a quiet stretch reads current for the work since, in `project show`', () => {
+  const raw = { id: 'wk2', name: 'Work Time', folder: '/p/wk2', agents: ['mark'], tasks: [] };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const folder = agentFolder('mark-wk2', [['2026-09-29-11.md', 331]]);
+  const rows = [{ state: 'working', at: NOW - 400 * 60000 }, { state: 'idle', at: NOW - 325 * 60000 }, { state: 'working', at: NOW - 60000 }];
+  const view = (readHistory) => v.overviewOf(described, BOARD.agents, { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }),
+    readReport: () => ({ found: true, state: 'working', at: new Date(NOW - 60000).toISOString() }), readHistory });
+  const text = v.renderShow({ project: view(() => rows) }).join('\n');
+  assert.equal(view(() => rows).members[0].summary.state, 'worked');
+  assert.match(text, /summary: current: 7 min of reported work since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, text);
+  // CONTROL: the same member with no history is the old overdue line, so the line above comes from the history.
+  assert.match(v.renderShow({ project: view(() => null) }).join('\n'), /summary: older than the 4-hour rhythm \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m);
+  // A caller that supplies its own report reader and no history reader gets none (the view never mixes sources).
+  const noHist = v.overviewOf(described, BOARD.agents, { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => ({ found: false }) });
+  assert.equal(noHist.members[0].summary.state, 'stale');
+  // Review 4: no work since reads as such, not "under a minute".
+  const zero = v.renderShow({ project: { ...view(() => rows), members: [{ ...view(() => rows).members[0], summary: { ...view(() => rows).members[0].summary, workMinutes: 0 } }] } }).join('\n');
+  assert.match(zero, /summary: current: no reported work since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, zero);
+  assert.ok(![0x2014, 0x2013].some((c) => text.includes(String.fromCharCode(c))), 'a dash in product copy');
+});

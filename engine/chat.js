@@ -1598,8 +1598,9 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
    * exceed MAX_TEXT; the person's message may not.
    *
    * 📌 The room path reaches the same place from the other side: it validates
-   * its body against MAX_BODY and spills anything over 700 to a file, so what
-   * it concatenates is already bounded. Both are "check the part the person
+   * its body against MAX_BODY and spills a post whose whole line would pass
+   * this limit (messages.spillsAt, #6065), so what it concatenates is
+   * bounded. Both are "check the part the person
    * wrote"; only this one had no bound of its own.
    */
   const text = cleanMessage(raw);

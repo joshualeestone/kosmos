@@ -86,8 +86,10 @@ function providersFrom(cards, now = Date.now()) {
   const by = new Map();
   for (const c of Array.isArray(cards) ? cards : []) {
     if (!c || c.paneless === true || typeof c.runner !== 'string' || !c.runner) continue;
-    const row = by.get(c.runner) || { provider: c.runner, agents: 0, stopped: 0, paused: 0, signInFailed: 0, until: null, untimed: 0 };
-    if (c.state === 'stopped') { row.stopped += 1; by.set(c.runner, row); continue; }
+    /* #5977: a Qwen agent runs on codex; the route tags it (providerWord), so it has its own row, not OpenAI's. */
+    const key = c.providerWord === 'qwen' ? 'qwen' : c.runner;
+    const row = by.get(key) || { provider: key, agents: 0, stopped: 0, paused: 0, signInFailed: 0, until: null, untimed: 0 };
+    if (c.state === 'stopped') { row.stopped += 1; by.set(key, row); continue; }
     row.agents += 1;
     if (c.state === 'auth_failed') row.signInFailed += 1;
     if (c.state === 'rate_limited') {
@@ -100,7 +102,7 @@ function providersFrom(cards, now = Date.now()) {
       }
       if (!stated) row.untimed += 1;
     }
-    by.set(c.runner, row);
+    by.set(key, row);
   }
   return [...by.values()]
     .map(({ untimed, ...r }) => ({ ...r, until: untimed > 0 ? null : r.until,

@@ -506,8 +506,11 @@ test('#1659: the OpenAI tooltip carries the history clause PER ROW, not uncondit
   assert.ok(close > open, 'the OpenAI branch no longer closes the way this extraction expects');
   const body = PAGE.slice(open + 1, close + ">Disconnect</button>'".length);
   const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  /* #5977: the branch asks acctProvider(a) (a Qwen row's title); supplied from keyRoute, the row's own route word. */
   // eslint-disable-next-line no-new-func
-  const render0 = new Function('a', 'who', 'qual', 'qualName', 'esc', 'isOpenai', 'keyRoute', `return ${body};`);
+  const render1 = new Function('a', 'who', 'qual', 'qualName', 'esc', 'isOpenai', 'keyRoute', 'acctProvider', `return ${body};`);
+  const render0 = (a, who, qual, qualName, e, isOpenai, keyRoute) => render1(a, who, qual, qualName, e, isOpenai, keyRoute,
+    () => ({ openai: 'openai', gemini: 'google', grok: 'xai', qwen: 'alibaba' })[keyRoute]);
   const render = (a, who, qual, qualName, e) => render0(a, who, qual, qualName, e, true, 'openai');
 
   const onDefault = render({ isDefault: true, dir: '/h/.codex' }, 'main@example.com', '', 'OpenAI', esc);

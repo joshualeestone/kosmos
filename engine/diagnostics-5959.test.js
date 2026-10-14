@@ -47,8 +47,8 @@ test('#5959: one entry per card, with states and who wrote them, never the repor
   assert.deepEqual(file.board, { version: '0.7.44', platform: 'darwin' });
   assert.deepEqual(file.agents.map((a) => a.sessionName), ['rick', 'bob']);
   const rick = file.agents[0], bob = file.agents[1];
-  assert.deepEqual(rick.card, { state: 'needs_you', stateReported: 'needs_you', stateReportedBy: 'agent' });
-  assert.deepEqual(rick.report, { state: 'needs_you', by: 'agent', at: '2026-10-12T20:00:00Z' });
+  assert.deepEqual(rick.card, { state: 'needs_you', label: 'Question', stateReported: 'needs_you', stateReportedBy: 'agent' });
+  assert.deepEqual(rick.report, { state: 'needs_you', by: 'agent', at: '2026-10-12T20:00:00Z', askedAt: null });
   assert.equal(bob.report, null, 'no report is null, not an empty one');
   assert.deepEqual(bob.account, { kind: 'signin', provider: 'OpenAI' });
   assert.deepEqual(bob.crashLoop, { runs: 3 });
@@ -303,4 +303,44 @@ test('#5959: a line cut on its way out ends in [cut], and a long lowercase path 
   assert.equal(file.log.tail[0].line.endsWith('[cut]'), false, 'CONTROL: the tail line was not cut');
   const p = '/var/lib/kosmos/agents/somelongagentname/state';
   assert.deepEqual(maskKeyBlocks([{ line: p }]).map((e) => e.line), [p]);
+});
+
+test('#5959: each agent carries the card word the person saw, when it was last seen working, and when its question was first made', () => {
+  const at = '2026-10-12T20:00:00.000Z';
+  const cards = [
+    { ...CARDS[0], lastWorked: { at, why: null } },   // rick: needs_you, reported by the agent
+    { ...CARDS[1], lastWorked: { at: null, why: 'not_seen' } },   // bob: auth_failed
+  ];
+  const reports = { rick: { found: true, state: 'needs_you', by: 'agent', at: '2026-10-12T21:00:00Z', askedAt: '2026-10-10T09:00:00Z' } };
+  const file = build({ cards, readReport: (n) => reports[n] || { found: false }, redactor: makeRedactor(WHO) });
+  assert.equal(file.agents[0].card.label, 'Question', 'the page calls an agent\'s own needs_you a Question');
+  assert.equal(file.agents[1].card.label, 'Sign-in isn\'t working');
+  assert.deepEqual(file.agents[0].lastWorked, { at, why: null });
+  assert.deepEqual(file.agents[1].lastWorked, { at: null, why: 'not_seen' });
+  assert.equal(file.agents[0].report.askedAt, '2026-10-10T09:00:00Z');
+  // The real producer's card carries lastWorked (status.js lastWorkedOf), so the file reads it straight through.
+  assert.ok(Object.prototype.hasOwnProperty.call(REAL.rick, 'lastWorked'), 'a real board card no longer carries lastWorked');
+  const real = build({ cards: [REAL.rick], redactor: makeRedactor(WHO) }).agents[0].lastWorked;
+  assert.ok(real && (real.at === null || /^\d{4}-\d\d-\d\dT/.test(real.at)) && [null, 'not_seen', 'no_source'].includes(real.why),
+    'a real card\'s lastWorked is { at, why } as status.js gives it: ' + JSON.stringify(real));
+  // A card whose label cannot be read (a field only the label reads throws) gives label null, and the file is still made.
+  const odd = { ...CARDS[0], state: 'connection_lost' };
+  Object.defineProperty(odd, 'reconnect', { get() { throw new Error('unreadable'); }, enumerable: false });
+  assert.throws(() => require('./cardlabel').labelOf(odd), 'CONTROL: labelOf itself throws on this card');
+  const oddFile = build({ cards: [odd, { ...CARDS[1] }], redactor: makeRedactor(WHO) });
+  assert.equal(oddFile.agents[0].card.label, null);
+  assert.equal(oddFile.agents[1].card.label, 'Sign-in isn\'t working', 'the other agents keep their label');
+  // A card with no lastWorked gives null, not a made-up time; and only { at, why } is carried from the card's object.
+  assert.equal(build({ cards: [{ ...CARDS[0], lastWorked: undefined }], redactor: makeRedactor(WHO) }).agents[0].lastWorked, null);
+  const extra = build({ cards: [{ ...CARDS[0], lastWorked: { at, why: null, other: 'not carried' } }], redactor: makeRedactor(WHO) });
+  assert.deepEqual(extra.agents[0].lastWorked, { at, why: null });
+});
+
+test('#5959: a label that carries a value from the card (the model it is switching to) is redacted too', () => {
+  const switching = { ...CARDS[0], state: 'restarting', disruption: { cause: 'model' }, modelName: '/Users/pat/models/custom' };
+  const raw = require('./cardlabel').labelOf(switching);
+  assert.ok(raw.includes('/Users/pat'), 'CONTROL: the page\'s label carries the model name: ' + raw);
+  const file = build({ cards: [switching], redactor: makeRedactor(WHO) });
+  assert.match(file.agents[0].card.label, /^Switching to ~\/models\/custom/, file.agents[0].card.label);
+  assert.ok(!JSON.stringify(file).includes('/Users/pat'), 'nowhere in the file');
 });

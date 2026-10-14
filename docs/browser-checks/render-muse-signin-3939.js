@@ -122,7 +122,7 @@ const chk = (ok, label, extra) => {
     return { off: o.dataset.off || '', pill: pill ? pill.textContent : null };
   });
   chk(offPill.off === '' && offPill.pill === 'Coming soon', 'flag off: no reason on the option, and the row\'s pill reads Coming soon', JSON.stringify(offPill));
-  chk(/Google Gemini and xAI Grok work today/.test((await G('acct-add-in')).text), 'flag off: the intro names the four that work today');
+  chk(/xAI Grok and Alibaba Qwen work today/.test((await G('acct-add-in')).text), 'flag off: the intro names the five that work today (#5977 added Qwen)');
   for (const bad of [500, 'throw']) {
     await q((b) => { window.__museOn = true; window.__museRead = b; closeAcctAdd(); openAcctAdd(); }, bad);
     await settle();
@@ -134,7 +134,7 @@ const chk = (ok, label, extra) => {
   await q(() => { window.__museOn = true; closeAcctAdd(); openAcctAdd(); });
   await settle();
   chk(await q(() => document.querySelector('#acct-provider-pick option[value="meta"]').disabled === false), 'flag on: the Meta option is live');
-  chk(/xAI Grok and Meta Muse work today/.test((await G('acct-add-in')).text), 'flag on: the intro names Meta Muse too', (await G('acct-add-in')).text);
+  chk(/Alibaba Qwen and Meta Muse work today/.test((await G('acct-add-in')).text), 'flag on: the intro names Meta Muse too', (await G('acct-add-in')).text);
   await choose('meta');
   await settle();
   const shown = await q(() => ({

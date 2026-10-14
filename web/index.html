@@ -7365,6 +7365,14 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    introducing a gold button for one control would make this page's Send the
    only gilded commit in the product. Recorded as an alignment item rather than
    silently resolved either way. */
+/* kosmos#6086: the "loading earlier messages" line floats over the thread's top edge and takes no room of its own. */
+.dm-earlier-wrap { position: relative; height: 0; flex: none; z-index: 2; }
+.dm-earlier { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); margin: 0; padding: 4px 12px; width: max-content; max-width: calc(100% - 24px);
+  border-radius: 999px; background: var(--k-surface); border: 1px solid var(--k-rule); color: var(--label-2); font-size: .8125rem; text-align: center; overflow-wrap: anywhere;
+  pointer-events: none; }   /* it lies over the first message on screen: a tap goes through to that message */
+.dm-earlier button { pointer-events: auto; }
+.dm-earlier-wrap.dm-earlier-failed { height: auto; }
+.dm-earlier-wrap.dm-earlier-failed .dm-earlier { position: static; transform: none; margin: 0 auto 8px; pointer-events: auto; }
 .dmthread { display: flex; flex-direction: column; gap: 12px; min-height: 7rem;
   max-height: 15rem; overflow-y: auto; padding-right: 4px; padding-block: 2px; }
 /* padding-block 2px (#3743): an unread message's gold outline is drawn 1px OUTSIDE the bubble (a filter), and
@@ -9147,15 +9155,20 @@ svg { display: block; }
 .community-ready-row > details > summary::-webkit-details-marker { display: none; }
 .community-ready-row .community-ready-name { display: flex; align-items: flex-start; gap: 8px; min-width: 0; max-width: 100%; }
 .community-ready-row .community-ready-name > svg { flex: none; margin-top: .3em; }   /* beside the name's first line when the name wraps */
-.community-ready-row .community-ready-name > b { min-width: 0; overflow-wrap: anywhere; }
+.community-ready-row .community-ready-name > b { min-width: 0; overflow-wrap: anywhere; font-size: .9375rem; font-weight: 600; color: var(--k-ink); }   /* the name leads the row (design review, #5958): the size the summary had, semibold */
 /* The words always have a line of their own, the full width of the row: they are a list of everything that applies
    and can be long, and beside a name they would be a narrow column. */
-.community-ready-row > details > summary > .community-ready-words { margin: 0; flex: 1 1 100%; min-width: 0; }
+.community-ready-row > details > summary > .community-ready-words { margin: 0; flex: 1 1 100%; min-width: 0; font-size: .875rem; color: var(--label-2); }   /* one step under the name, in the secondary colour */
+/* What needs the person: the dot the Tasks page uses for Needs Your Decision (.tsk-dot), never a bar. */
+.community-ready-row .community-ready-needs { --tsk-c: var(--danger); margin-inline-start: -14px; }   /* --tsk-decision is that colour, but it is defined on the tasks panel only */
+/* The dot HANGS in the margin (design review, second pass): pulled back by its own 8px and the 6px after it, so the
+   words it marks start on the same edge as the lines around them. In a closed row it sits in the card's padding; in
+   an open one, in the column the row's mark already uses. */
 .community-ready-row .community-ready-chev { color: var(--label-2); transition: transform .12s ease; }
 .community-ready-row > details[open] .community-ready-chev { transform: rotate(90deg); }
 .community-ready-row > details > summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 @media (prefers-reduced-motion: reduce) { .community-ready-row .community-ready-chev { transition: none; } }
-.community-ready-row > details > p { margin: 4px 0 0 20px; overflow-wrap: anywhere; }   /* under the name, clear of the mark */
+.community-ready-row > details > p { margin: 0 0 0 20px; overflow-wrap: anywhere; }   /* under the name, clear of the mark; no gap between items, so they sit as close as the note's own lines (design review, #5958) */
 /* #4525: the held list reuses the row above. The person is deciding whether to publish these
    words, so they must be able to read all of them: four lines show, and a longer one gets
    "Read all" (added only when the text is actually cut). Not "Show all": the page keeps
@@ -11619,6 +11632,12 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 #plus-si-k-note:empty { margin: 0; }
 #plus-state2.plus-si-busy #plus-si-title, #plus-state2.plus-si-busy #plus-si-owned, #plus-state2.plus-si-busy #plus-si-k-note { text-align: center; }
 #plus-state2 .flabel { color: var(--k-ink-2); font-weight: 500; margin-top: 1rem; }
+/* kosmos#5995 (design review): on this card a hint took the label's own colour and read as more label. This one is the
+   card's placeholder colour, close under its label (the label's own 2px) and 8px above its box. Its type is set HERE
+   to .fhint's own (--text-callout, 12px), one step under the label's 13px: the hint is a <p> inside a panel, and
+   `.panel p` (0,1,1) out-ranks `.fhint` (0,1,0), so without this it comes out at body type, 13px, the label's size.
+   Measured in a browser (2026-10-13): 13 with no font here. `.85rem` would be 13.6px. */
+#plus-state2 #plus-si-computer-hint { font: var(--text-callout) var(--font-ui); color: #8fa0c4; margin: 0 0 8px; }
 #plus-state2 .plus-si-lead b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
 #plus-state2 .tk-inp:not(select), #plus-org .tk-inp:not(select) { --danger: #E8705E; background: #16223e; color: #E6EBF7; -webkit-text-fill-color: #E6EBF7;
   caret-color: #E6EBF7; border: 1px solid #5c78a6; border-radius: 10px; }
@@ -12019,6 +12038,17 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    height, is charged that gap, 4px on a sideways phone DM). Written into, it is an ordinary line again. */
 #d-linklost-msg:empty { position: absolute; width: 1px; height: 1px; min-height: 0; margin: -1px; padding: 0; border: 0;
                         overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* #5977 (Mona Lisa's review): first run's Qwen row reads as available (it is, in Settings), not as Coming soon;
+   on Windows, where it is not offered yet, it takes the Coming soon look again. */
+html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen { background: rgba(20,22,26,.02); }
+html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .llm-w b, html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .llm-w small { color: var(--k-ink-2); }
+html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: grayscale(1) opacity(.8); }
+/* #5977: the Qwen download bar in the page's own colours (a native bar's white track glared on a dark page). */
+#acct-qwen-local-bar { -webkit-appearance: none; appearance: none; height: 6px; border: 0; border-radius: 3px;
+  background: var(--k-track); overflow: hidden; color: var(--gold); }
+#acct-qwen-local-bar::-webkit-progress-bar { background: var(--k-track); border-radius: 3px; }
+#acct-qwen-local-bar::-webkit-progress-value { background: var(--gold); border-radius: 3px; }
+#acct-qwen-local-bar::-moz-progress-bar { background: var(--gold); border-radius: 3px; }
 </style>
 <!-- ⚠️ THE id HERE IS LOAD-BEARING, NOT DECORATION. Every page test in this
      repo lifts the app's source with a regex for an ATTRIBUTE-LESS script tag,
@@ -12791,6 +12821,13 @@ window.kosmosMeasureScrollbarWidth();
     </div>
     <!-- #2622: the search moved up beside the caption (.d-talk-caprow above). It still
          sits above the thread (#403) and filters what a row SHOWS. -->
+    <!-- kosmos#6086 (Josh, 2026-10-13): earlier messages load by SCROLLING BACK, as a chat does: reaching the oldest
+         message on screen loads the batch before it, and so on to the first. This is the only sign of it: a small
+         line over the top of the thread WHILE a batch loads (or saying a load failed, with Try again). It replaces
+         the line and button that stood under the newest message on every visit, which read as a notice that would
+         not go away. While a page loads the wrapper has no height, so showing and hiding the line never moves a
+         message; a failed load, which stays until the person acts, takes a row of its own above the thread. -->
+    <div class="dm-earlier-wrap"><p class="dm-earlier" id="d-talk-older" role="status" aria-live="polite" hidden><span id="d-talk-older-text"></span> <button type="button" class="btn-quiet" id="d-talk-older-show" hidden>Try again</button></p></div>
     <div class="dmthread" id="d-dmthread"></div>
     <!-- 🔑 "WORKING", NEVER "TYPING". We can see that Claude is producing
          output or is mid-task. We CANNOT see WHAT it is working on, and
@@ -12812,7 +12849,6 @@ window.kosmosMeasureScrollbarWidth();
          read must not be rendered as either. Same rule as the stale badge and
          the memory caption. -->
     <p class="dmbusy" id="d-busy" hidden></p>
-    <p class="dhint" id="d-talk-older" style="margin:10px 0 0;" hidden><span id="d-talk-older-text"></span> <button type="button" class="btn-quiet" id="d-talk-older-show" hidden>Show earlier messages</button> <button type="button" class="btn-quiet" id="d-talk-older-hide" hidden>Hide earlier messages</button></p>
     <div class="dmoff" id="d-dmoff" hidden></div>
     <!-- The room's box, on the agent page too (#385, Josh 2026-08-23): one
          composer drawn one way. The input element and every id stay, so the
@@ -12933,7 +12969,7 @@ window.kosmosMeasureScrollbarWidth();
           <option value="antigravity" disabled data-off="Checking Antigravity">Google Gemini (Google subscription)</option>
           <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
           <option value="meta" disabled>Meta Muse &middot; coming soon</option>
-          <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
+          <option value="alibaba" disabled data-off="Checking your accounts">Alibaba Qwen</option>
           <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
           <option value="mistral" disabled>Mistral &middot; coming soon</option>
         </select>
@@ -13965,7 +14001,7 @@ window.kosmosMeasureScrollbarWidth();
 <div class="rm-back" id="acct-add-modal" hidden>
   <div class="rm-box rm-box-form" id="acct-add-dialog" role="dialog" aria-modal="true" aria-labelledby="acct-add-t" aria-describedby="acct-add-in">
     <h2 class="rm-title" id="acct-add-t">Add a provider</h2>
-    <p class="rm-small" id="acct-add-in">Pick which AI provider you want to connect. Anthropic Claude, OpenAI, Google Gemini and xAI Grok work today; the rest are listed so you can see what is coming.</p>
+    <p class="rm-small" id="acct-add-in">Pick which AI provider you want to connect. Anthropic Claude, OpenAI, Google Gemini, xAI Grok and Alibaba Qwen work today; the rest are listed so you can see what is coming.</p>
     <div class="field" id="acct-provider-field">
       <label class="flabel tk-lab" id="acct-provider-lab" for="acct-provider-pick">Provider</label>
       <!-- #770: "list all the others so people can see that they're
@@ -13995,7 +14031,7 @@ window.kosmosMeasureScrollbarWidth();
         <option value="google">Google Gemini</option>
         <option value="xai">xAI Grok</option>
         <option value="meta" disabled>Meta Muse &middot; coming soon</option>
-        <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
+        <option value="alibaba">Alibaba Qwen</option>
         <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
         <option value="mistral" disabled>Mistral &middot; coming soon</option>
       </select>
@@ -14140,6 +14176,45 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <p class="dhint" id="acct-apikey-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
     </div>
+    <!-- #5977: Qwen, through Ollama on this computer or any OpenAI-compatible server. Kosmos checks the address
+         before it saves anything; a key is only for a server that asks for one. -->
+    <div id="acct-qwen-flow" hidden style="margin-top: var(--space-5);">
+      <p class="dwarn" style="margin:0 0 8px;"><b>Qwen runs on this computer through Ollama, or on a server you name.</b> Kosmos checks the address before it saves it.</p>
+      <label class="flabel" for="acct-qwen-url">Address</label>
+      <div class="frow">
+        <input type="text" id="acct-qwen-url" autocomplete="off" spellcheck="false" aria-label="Address" placeholder="http://localhost:11434/v1" value="http://localhost:11434/v1">
+      </div>
+      <label class="flabel" for="acct-qwen-model" style="margin-top:8px;">Model</label>
+      <div class="frow">
+        <input type="text" id="acct-qwen-model" autocomplete="off" spellcheck="false" aria-label="Model" placeholder="kosmos-qwen2.5-7b-16k:latest" value="kosmos-qwen2.5-7b-16k:latest">
+      </div>
+      <label class="flabel" for="acct-qwen-key" style="margin-top:8px;">Key (only if the server asks for one)</label>
+      <div class="frow">
+        <input type="password" id="acct-qwen-key" autocomplete="new-password" spellcheck="false" aria-label="Key (only if the server asks for one)" placeholder="Key, only if the server asks for one">
+      </div>
+      <label class="flabel" for="acct-qwen-name" style="margin-top:8px;">Name (optional)</label>
+      <div class="frow">
+        <input type="text" id="acct-qwen-name" autocomplete="off" maxlength="40" aria-label="A name for this account (optional)" placeholder="A name, if you want one">
+      </div>
+      <p class="dhint" style="margin:6px 0 0;">For Qwen on this computer, keep the address and model as they are.</p>
+      <!-- #5977 slice 3: Qwen on this computer, set up from here. Shown only for the local address and Kosmos's own
+           model. The download asks first (about 4.7 GB); making the 16k model needs no download. -->
+      <div id="acct-qwen-local" hidden style="margin-top:8px;">
+        <p class="dhint" id="acct-qwen-local-t" role="status" aria-live="polite" tabindex="-1" style="margin:0;"></p>
+        <progress id="acct-qwen-local-bar" hidden aria-label="Qwen download" style="width:100%;margin-top:6px;"></progress>
+        <p class="dhint" id="acct-qwen-local-n" aria-hidden="true" hidden style="margin:4px 0 0;"></p>
+        <div class="frow" id="acct-qwen-local-row" hidden style="margin-top:8px;">
+          <button class="btn" id="acct-qwen-local-go" type="button"></button>
+          <button class="btn" id="acct-qwen-local-no" type="button" hidden>Not now</button>
+        </div>
+      </div>
+      <div class="frow" style="margin-top:12px;">
+        <button class="btn uprime" id="acct-qwen-go" type="button">Add</button>
+      </div>
+      <p class="dhint" id="acct-qwen-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+      <p class="dhint" style="margin:8px 0 0;">Qwen answers questions and runs commands well; check the files it edits.</p>
+    </div>
+
     <div id="acct-claude-flow" hidden style="margin-top: var(--space-5);">
       <!-- #2433 (#2420 UI slice; Josh's #2338 "follow suit on Claude too"): two ways
            to connect Claude, and they are DISTINCT connection types, not two
@@ -15337,7 +15412,7 @@ window.kosmosMeasureScrollbarWidth();
                   <p class="dhint" id="fr-muse-say" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
                 </div>
                 <div class="dhint" id="fr-muse-msg" role="status" aria-live="polite"></div>
-                <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
+                <div class="llm fr-qwen"><span class="llm-m pmark live" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon" data-win-hide>Add in Settings</span><span class="soon" data-win-only hidden>Coming to Windows</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="deepseek" role="img" aria-label="DeepSeek"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 1.5 27 20.1" fill="currentColor"><path d="M26.5174 3.39471C26.235 3.2567 26.1137 3.52006 25.9487 3.65346C25.8923 3.69659 25.8446 3.75294 25.7969 3.80469C25.3846 4.24516 24.9027 4.53439 24.2737 4.49989C23.3536 4.44814 22.5682 4.73737 21.8735 5.44119C21.7258 4.57349 21.2353 4.0554 20.4889 3.72304C20.0985 3.55054 19.7034 3.37746 19.4297 3.00197C19.2388 2.73459 19.1865 2.43673 19.091 2.14289C19.0301 1.96579 18.9697 1.78466 18.7656 1.75418C18.5442 1.71968 18.4574 1.90541 18.3705 2.06067C18.0232 2.69549 17.8887 3.39471 17.9019 4.10313C17.9324 5.6965 18.6051 6.96556 19.9421 7.86834C20.0939 7.97184 20.133 8.07535 20.0852 8.22658C19.9938 8.53766 19.8857 8.83955 19.7903 9.15063C19.7293 9.34901 19.6384 9.39271 19.4257 9.30588C18.692 8.9994 18.0583 8.54571 17.4982 7.99772C16.5477 7.07827 15.6881 6.06336 14.6162 5.26869C14.3644 5.08296 14.1125 4.91045 13.8521 4.746C12.7584 3.68394 13.9952 2.81164 14.2816 2.70814C14.5812 2.60003 14.3857 2.22857 13.4179 2.23317C12.4502 2.2372 11.5646 2.56151 10.4359 2.99335C10.2708 3.05832 10.0972 3.10547 9.91951 3.14457C8.8954 2.95022 7.83162 2.90709 6.72069 3.03245C4.62877 3.26533 2.95777 4.25436 1.72954 5.94261C0.254043 7.97184 -0.0932678 10.2777 0.33167 12.6824C0.778458 15.2171 2.07225 17.3153 4.06008 18.9558C6.12152 20.6567 8.49577 21.4905 11.2047 21.3306C12.8498 21.2358 14.6812 21.0155 16.7473 19.2669C17.2682 19.5262 17.8151 19.6297 18.7219 19.7074C19.4205 19.7723 20.0933 19.6729 20.6143 19.5648C21.4302 19.3923 21.3739 18.6367 21.0789 18.4981C18.6874 17.3843 19.2124 17.8374 18.7351 17.4706C19.9501 16.033 21.8063 13.4776 22.379 9.99821C22.4353 9.61409 22.5072 9.073 22.4986 8.76192C22.494 8.57216 22.5377 8.49856 22.7545 8.47671C23.3536 8.40771 23.935 8.24383 24.4692 7.94999C26.0188 7.10357 26.6439 5.71318 26.7911 4.04678C26.8129 3.79204 26.7865 3.52869 26.5174 3.39471ZM13.0143 18.3946C10.6964 16.5724 9.5722 15.9726 9.10816 15.9985C8.67402 16.0244 8.75222 16.5212 8.84768 16.8449C8.94773 17.1646 9.07768 17.3849 9.25996 17.6655C9.38589 17.8512 9.47272 18.1272 9.13404 18.3348C8.38766 18.7965 7.08985 18.1796 7.0289 18.1491C5.51833 17.2595 4.25559 16.0853 3.36546 14.4793C2.50581 12.9337 2.0067 11.2753 1.92447 9.50542C1.90262 9.07818 2.02855 8.92695 2.45406 8.84932C3.01413 8.74582 3.59144 8.72397 4.15093 8.80619C6.51656 9.15178 8.53027 10.2092 10.2185 11.8848C11.1822 12.8388 11.9114 13.979 12.6623 15.0929C13.461 16.2757 14.3201 17.4027 15.4144 18.3268C15.8008 18.6505 16.109 18.8966 16.404 19.0783C15.5144 19.1778 14.0297 19.1991 13.0143 18.3958V18.3946ZM14.1252 11.2489C14.1252 11.0591 14.277 10.9079 14.4679 10.9079C14.511 10.9079 14.5501 10.9165 14.5852 10.9292C14.6329 10.9464 14.6766 10.9723 14.7111 11.0114C14.7721 11.0718 14.8066 11.158 14.8066 11.2489C14.8066 11.4386 14.6548 11.5899 14.4639 11.5899C14.273 11.5899 14.1252 11.4386 14.1252 11.2489ZM17.5759 13.0188C17.3545 13.1096 17.1331 13.1873 16.9203 13.1959C16.5903 13.2131 16.2303 13.0791 16.0348 12.9153C15.7312 12.6605 15.5139 12.5179 15.423 12.0734C15.3839 11.8837 15.4057 11.5899 15.4402 11.4214C15.5185 11.0585 15.4316 10.8257 15.1757 10.614C14.9676 10.4415 14.7025 10.3938 14.4115 10.3938C14.3029 10.3938 14.2034 10.3461 14.1292 10.3076C14.0079 10.2472 13.9078 10.096 14.0033 9.91023C14.0338 9.84985 14.1815 9.70322 14.216 9.67734C14.6111 9.45251 15.0665 9.52612 15.488 9.6946C15.8784 9.85445 16.174 10.1477 16.5989 10.5623C17.033 11.0631 17.1112 11.2011 17.3585 11.5772C17.554 11.871 17.7317 12.1729 17.8536 12.5185C17.9272 12.7341 17.8317 12.9107 17.5759 13.0188Z"/></svg></span><div class="llm-w"><b>DeepSeek</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="glm" role="img" aria-label="GLM"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 31.85 27" fill="currentColor"><path d="M16.7889 0L14.5697 3.17647C14.3977 3.42466 14.1676 3.62682 13.8995 3.76526C13.6315 3.9037 13.3337 3.9742 13.0321 3.97059H0.9375V0H16.7889Z"/><path d="M31.8478 0L12.8261 27H0.14502L19.1667 0H31.8478Z"/><path d="M15.2041 26.9999L17.4391 23.8234C17.6135 23.5777 17.8441 23.3773 18.1116 23.2392C18.3791 23.101 18.6758 23.029 18.9767 23.0293H31.0555V26.9999H15.2041Z"/></svg></span><div class="llm-w"><b>GLM</b><small>Z.ai</small></div><span class="soon">Coming soon</span></div>
@@ -16086,7 +16161,7 @@ window.kosmosMeasureScrollbarWidth();
             <option value="antigravity" disabled data-off="Checking Antigravity">Google Gemini (Google subscription)</option>
             <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
             <option value="meta" disabled>Meta Muse &middot; coming soon</option>
-            <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
+            <option value="alibaba" disabled data-off="Checking your accounts">Alibaba Qwen</option>
             <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
             <option value="mistral" disabled>Mistral &middot; coming soon</option>
           </select>
@@ -18571,7 +18646,7 @@ window.kosmosMeasureScrollbarWidth();
            (ownerView); the page only writes each time in the person's own time zone. Read from the board's records
            only: nothing here asks the community service. -->
       <h4 class="dlab" id="community-ready-head" style="margin:14px 0 4px;">Where each agent stands</h4>
-      <p class="dhint" id="community-ready-note" style="margin:0 0 6px;">Kosmos may remind an agent that has gone quiet to post, and only while the community and “Check on your agents” are both on. While the community is off, nothing is sent to it. A reminder only asks: whether to post, and what to say, is the agent’s own decision.</p>
+      <p class="dhint" id="community-ready-note" style="margin:0 0 6px;">Kosmos may remind an agent that has gone quiet to post, only while the community and “Check on your agents” are both on. Whether to post, and what to say, is the agent’s own decision.</p>
       <p class="dhint" id="community-ready-empty" style="margin:0;">Looking at your agents.</p>
       <ul class="community-mine" id="community-ready-list" aria-labelledby="community-ready-head" hidden></ul>
     </section>
@@ -18987,6 +19062,16 @@ window.kosmosMeasureScrollbarWidth();
           <label class="flabel" for="plus-signin-email">Enter your Kosmos+ account email address</label>
           <input type="email" id="plus-signin-email" class="tk-inp plus-si-wide" maxlength="120" autocomplete="email"
             placeholder="you@example.com">
+        </div>
+        <!-- kosmos#5995 item 4: the name this computer is sent under, shown BEFORE it is sent. Filled from the
+             computer (plusSiComputerName); the person can keep it, change it or clear it. Hidden until the name
+             has been read: its words ("...by this name") are only true of a box that shows a name. 47 is
+             what fits before the " (Kosmos app)" ending the engine adds. -->
+        <div class="field" id="plus-si-computer-field" hidden>
+          <label class="flabel" for="plus-si-computer">Name for this computer</label>
+          <p class="fhint" id="plus-si-computer-hint">Your Kosmos+ account will list this computer by this name.</p>
+          <input type="text" id="plus-si-computer" class="tk-inp plus-si-wide" maxlength="47" autocomplete="off" spellcheck="false"
+            placeholder="This computer" aria-describedby="plus-si-computer-hint">
         </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-signin-code">Email me a code</button>
@@ -21191,6 +21276,8 @@ function modelLine(a) {
   const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName;
   /* #4416 (Josh 15:18: knowing "what actual model these things are on"): the model its rollout names (engine
      codexsession, read by the board, never asked of the agent), e.g. "GPT 5.6 Sol"; the provider while none is known. */
+  // #5977 (UI review): a Qwen agent runs on codex too, and is never "OpenAI": its model, or Qwen while none is known.
+  if (a.runner === 'codex' && a.account && a.account.provider === 'alibaba') return name ? (/qwen/i.test(name) ? name : 'Qwen ' + name) : 'Qwen';
   if (a.runner === 'codex') return name ? (/^(?:gpt|openai|codex)\b/i.test(name) ? name : 'OpenAI ' + name) : 'OpenAI Codex';   // "o3" alone is less recognisable than "OpenAI o3"
   /* #5804: a running Gemini agent whose reply came from a model other than the one it is set to (the CLI's own
      fallback) says so. The board decides (engine/geminimodelswitch.js) and sends settingModelName only then; kept
@@ -26475,7 +26562,8 @@ function acctChosenName(a) {
 /* #3566: the providers whose accounts are a pasted key (or, for OpenAI, a key or a
    ChatGPT sign-in), mapped to the engine's route word (/api/accounts/<route>).
    Everything not listed is a Claude account. */
-const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok' };
+// #5977: Qwen, an endpoint account on the codex runner.
+const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok', alibaba: 'qwen' };
 /* #3566: a keyed provider other than OpenAI (Gemini, Grok), whose sign-in and model picker
    are its own. (#3391: a Grok account may also be a subscription sign-in; that is started from
    Settings, AI Models or first run, not from the screens that use this.) Read from the route table. */
@@ -26529,6 +26617,7 @@ function acctProvider(a) {
 function switchKeyedWord(p) {
   if (p === 'antigravity') return 'Gemini (Google subscription)';   // #3568
   if (p === 'meta') return 'Meta Muse';   // #3939 slice 3c-2: never the OpenAI fallback below
+  if (p === 'alibaba') return 'Qwen';   // #5977
   return p === 'google' ? 'Gemini' : p === 'xai' ? 'Grok' : 'OpenAI';
 }
 /* #3566: an OpenAI sentence re-said for the picker's provider, so "OpenAI sign-in" becomes
@@ -26660,6 +26749,8 @@ function paintKeyedProviderOptions(sel, accounts, known, current, failed) {
   if (!sel || !sel.options) return;
   for (const opt of sel.options) {
     if (!ACCT_KEYED_ROUTE[opt.value] || opt.value === 'openai') continue;  // Gemini and Grok
+    // #5977 UI review 2: Kosmos cannot start a Qwen agent on Windows yet (the engine refuses), so it is not offered.
+    if (opt.value === 'alibaba' && typeof onWindows === 'function' && onWindows()) { opt.disabled = true; opt.dataset.off = 'Not on Windows yet'; continue; }
     /* "Usable" is BOTH rules: the create list's (acctOfferableTarget) and the switch list's
        (a live check that is not 'none', not marked unofferable). Offering the provider when
        either list would come up empty would post with no account. */
@@ -26678,9 +26769,15 @@ function paintKeyedProviderOptions(sel, accounts, known, current, failed) {
 function acctPrimaryName(a) {
   const named = acctChosenName(a);
   if (named) return named;
+  /* #5977: a Qwen account has no email and usually no key: it is named by where it runs. */
+  if (a && String(a.provider || '').toLowerCase() === 'alibaba') {
+    let host = '';
+    try { host = new URL(String(a.baseUrl || '')).host; } catch { host = ''; }
+    return a.local ? 'Qwen on this computer' : (host || a.label || 'Qwen endpoint');
+  }
   /* #3566: any keyed provider (OpenAI, Gemini, Grok) is named by its key tail. Spelled
      inline rather than through acctProvider so this helper stays self-contained. */
-  const isKeyed = !!(a && /^(openai|google|xai)$/i.test(String(a.provider || '')));
+  const isKeyed = !!(a && /^(openai|google|xai|alibaba)$/i.test(String(a.provider || '')));
   return String((a && (a.email
     || (isKeyed && a.keyTail ? 'API key ending ' + a.keyTail : '')
     || a.label || a.dir)) || '');
@@ -26689,7 +26786,7 @@ function acctPrimaryName(a) {
    SECONDARY detail rather than the primary label). Only keyed accounts (OpenAI, Gemini,
    Grok) have a name AND a keyTail; empty for everyone else. */
 function acctHasChosenName(a) {
-  return !!(a && /^(openai|google|xai)$/i.test(String(a.provider || '')) && acctChosenName(a));
+  return !!(a && /^(openai|google|xai|alibaba)$/i.test(String(a.provider || '')) && acctChosenName(a));
 }
 
 function accountQualifiers(list) {
@@ -26897,7 +26994,7 @@ function accountQualifiers(list) {
         const prov = !providerDistinguishes ? ''
           : (provId === 'openai' ? 'OpenAI'
             : (provId === 'anthropic' ? 'Claude'
-              : (provId === 'google' ? 'Gemini' : (provId === 'xai' ? 'Grok' : ''))));  // #3566
+              : (provId === 'google' ? 'Gemini' : (provId === 'xai' ? 'Grok' : (provId === 'alibaba' ? 'Qwen' : '')))));  // #3566, #5977
         qual = (prov && !takenAlready(prov)) ? prov : distinctly(dir);
       }
     }
@@ -27517,7 +27614,9 @@ async function paintAccounts(opts) {
              Claude row. Here it is true of the default alone, since `codexsession`
              reads transcripts out of `defaultHome()` only. */
           + 'title="Takes this account off the list. '
-          + ((isOpenai || a.authMode === 'subscription') ? 'Its sign-in file stays on this computer' : 'Its key is set aside on this computer')
+          + ((isOpenai || a.authMode === 'subscription') ? 'Its sign-in file stays on this computer'
+            : acctProvider(a) === 'alibaba' ? 'Its endpoint setting is set aside on this computer'   // #5977
+            : 'Its key is set aside on this computer')
           + ', so nothing is deleted.'
           + (a.isDefault && isOpenai ? ' Kosmos stops looking inside it, so any history kept only '
             + 'there will not appear any more.' : '')
@@ -27575,7 +27674,9 @@ async function paintAccounts(opts) {
              #2433 condition); it excludes OpenAI even in its own apikey mode, whose
              Disconnect stays reversible. There the title states Delete's finality
              without the misleading comparison. */
-          + 'title="' + (!isKeyed && a.apiKey
+          + 'title="' + (acctProvider(a) === 'alibaba'
+            ? 'Deletes this Qwen account from this computer: its endpoint setting and any key saved with it. Unlike Disconnect, this cannot be undone.'   // #5977
+            : !isKeyed && a.apiKey
             ? 'Deletes this account from this computer: its saved API key and its whole folder, including any history in it. This cannot be undone.'
             : (isKeyed && !isOpenai && a.authMode !== 'subscription')
               ? 'Deletes this account from this computer: its saved API key and its folder. Unlike Disconnect, this cannot be undone.'
@@ -27806,7 +27907,7 @@ async function paintAccounts(opts) {
          press is what the plan documented, and a decision recorded in the plan that
          the code does not implement is a stale comment with extra steps. */
       const marked = btn.dataset.forgetProvider;
-      if (marked !== 'claude' && marked !== 'openai' && marked !== 'gemini' && marked !== 'grok') {
+      if (marked !== 'claude' && marked !== 'openai' && marked !== 'gemini' && marked !== 'grok' && marked !== 'qwen') {   // #5977
         /* `acctCancelSay()` because this is a WRITER to #set-accounts-msg, and the
            module comment above claims EVERY writer cancels the timer. It was the
            one that did not, so a deferred announcement could land on top of this
@@ -28585,6 +28686,8 @@ function acctPick(which, opts) {
      thing now shows only once the software is known to be here, so acctKeyedReveal places it. */
   ACCT_KEYED_FOCUS = !(opts && opts.focus === false);
   acctApikeyShow(ACCT_APIKEY_PROVIDERS[which] ? which : null);
+  acctQwenShow(which === 'alibaba');   // #5977
+  if (which === 'alibaba') { acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null; if (!(opts && opts.focus === false)) document.getElementById('acct-qwen-url').focus(); return; }
   if (which !== 'openai') {
     acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null;
     if (which === 'meta') { if (!(opts && opts.focus === false)) document.getElementById('acct-muse-go').focus(); return; }
@@ -28660,12 +28763,13 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
   }
   if (which === 'meta' && museOffered()) { acctPick('meta'); return; }
   acctMuseShow(false);
-  if (which === 'claude' || which === 'openai' || ACCT_APIKEY_PROVIDERS[which]) { acctPick(which); return; }
+  if (which === 'claude' || which === 'openai' || which === 'alibaba' || ACCT_APIKEY_PROVIDERS[which]) { acctPick(which); return; }   // #5977: alibaba
   // Cleared, or (defensively) a disabled "coming" option somehow reached
   // change: no flow is a live provider, so none shows.
   document.getElementById('acct-claude-flow').hidden = true;
   document.getElementById('acct-openai-flow').hidden = true;
   acctApikeyShow(null);
+  acctQwenShow(false);   // #5977
   acctAddPickSay('');   // #3939 slice 3c-2 (round 5): going back to "Choose a provider" is a choice too
 });
 /* #770: the door opens the dialog; the dialog remembers nothing between
@@ -28689,9 +28793,15 @@ let ACCT_REAUTH_DIR = null;
    reauth (the dangerous stale-dir direction that rule guards). */
 let ACCT_OPENAI_REAUTH_DIR = null;
 const ACCT_ADD_TITLE = 'Add a provider';
-const ACCT_ADD_INTRO = 'Pick which AI provider you want to connect. Anthropic Claude, OpenAI, Google Gemini and xAI Grok work today; the rest are listed so you can see what is coming.';
+const ACCT_ADD_INTRO = 'Pick which AI provider you want to connect. Anthropic Claude, OpenAI, Google Gemini, xAI Grok and Alibaba Qwen work today; the rest are listed so you can see what is coming.';
 // #3939: derived from the stock sentence, so the two cannot drift (round 5).
-const ACCT_ADD_INTRO_MUSE = ACCT_ADD_INTRO.replace('Google Gemini and xAI Grok', 'Google Gemini, xAI Grok and Meta Muse');
+const ACCT_ADD_INTRO_MUSE = ACCT_ADD_INTRO.replace('xAI Grok and Alibaba Qwen', 'xAI Grok, Alibaba Qwen and Meta Muse');   // #5977
+/* #5977 UI review 3: on Windows (no Qwen agents yet) either intro without Qwen. One function, so the Muse swap and
+   the Windows rewrite cannot leave each other's sentence behind. */
+function acctAddIntroWin(text) {
+  return String(text).replace('Google Gemini, xAI Grok and Alibaba Qwen', 'Google Gemini and xAI Grok')
+    .replace('xAI Grok, Alibaba Qwen and Meta Muse', 'xAI Grok and Meta Muse');
+}
 /* The stock warning says to sign in to the OTHER Claude account first, which is
    the correct instruction for a second account and the wrong one here: the
    account you want IS this one. */
@@ -29948,7 +30058,7 @@ function worldAddClose() {
    is said rather than left blank; an unreadable task list is said, never shown as 0; and there is no quota figure,
    because no provider gives Kosmos one. */
 const WV_PROVIDER = { claude: 'Claude', codex: 'OpenAI Codex', gemini: 'Gemini', grok: 'Grok',
-  antigravity: 'Gemini (Google subscription)', muse: 'Meta Muse' };
+  antigravity: 'Gemini (Google subscription)', muse: 'Meta Muse', qwen: 'Qwen' };   // #5977: qwen is the overview's own word (worldview)
 function wvCount(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
 function wvTime(iso, now = new Date()) {
   const d = new Date(iso);
@@ -30564,7 +30674,7 @@ function acctShowSuccess(accountLabel, goldBox) {
      stale "Success!" with no provider form on the next open. closeAcctAdd has already
      put the modal back to its form state by then, so a no-op here is the clean outcome. */
   if (document.getElementById('acct-add-modal').hidden) return;
-  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-gemini-flow', 'acct-add-acts']
+  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-gemini-flow', 'acct-qwen-flow', 'acct-add-acts']   // #5977: Qwen too
     .forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = true; });
   /* Unhide the role="status" region BEFORE writing its text: a polite live region
      mutated while hidden is not reliably announced, so the order is what makes a
@@ -30623,12 +30733,21 @@ function openAcctAdd(ev) {
   }
   ACCT_GROK_REAUTH_DIR = null;   // #3391 part 2: a fresh add is never a sign-in again
   acctApikeyShow(null);  /* #3566: the key step never outlives a visit (it holds a pasted key) */
+  acctQwenShow(false);   // #5977: nor does the Qwen step (its key, and its download poll)
   ACCT_ADD_VISIT += 1;
   acctAddPickSay('');
   acctMuseShow(false); ACCT_MUSE_ASKING = museAsk();   // #3939: Meta Muse is offered only when this Kosmos says so
   ACCT_REAUTH_DIR = null;
   ACCT_OPENAI_REAUTH_DIR = null;
   acctReauthChrome(false);
+  /* #5977 UI review 2: on Windows Kosmos cannot start a Qwen agent yet, so Qwen is listed as coming and the intro
+     does not say it works today (nobody downloads 4.7 GB for an agent that will be refused). */
+  if (typeof onWindows === 'function' && onWindows()) {
+    const q = sel && sel.querySelector ? sel.querySelector('option[value="alibaba"]') : null;
+    if (q) { q.disabled = true; q.textContent = 'Alibaba Qwen · coming to Windows'; q.dataset.off = 'Coming to Windows'; }
+    const intro = document.getElementById('acct-add-in');
+    if (intro && (intro.textContent === ACCT_ADD_INTRO || intro.textContent === ACCT_ADD_INTRO_MUSE)) intro.textContent = acctAddIntroWin(intro.textContent);
+  }
   document.getElementById('acct-add-note').textContent = '';
   document.getElementById('acct-openai-msg').textContent = '';
   modal.hidden = false;
@@ -30660,6 +30779,7 @@ function closeAcctAdd() {
   ACCT_OPENAI_SUB_SESSION = null;
   acctOpenaiSubReset();   // hides the sub affordances and re-enables the Sign-in button
   acctApikeyShow(null);   // #3566: a pasted Gemini/Grok key does not stay in a hidden field after close
+  acctQwenShow(false);   // #5977: the Qwen key and name too, and its download poll stops
   acctMuseShow(false);   // #3939: a Muse sign-in left running is stopped, not left polling a closed dialog
   /* kosmos#1656: return the modal to its form state on the way out, so the next
      open is clean: the success panel gone and the sign-in controls back. */
@@ -30913,6 +31033,223 @@ document.getElementById('acct-apikey-show').addEventListener('click', () => {
   show.setAttribute('aria-pressed', String(on));
   key.focus();
 });
+/* #5977: the Qwen step of Add a provider. Its own flow, not ACCT_APIKEY_PROVIDERS: that path downloads a provider's
+   own runner, and Qwen runs on codex. Bumped on every show, so an answer that returns after the step was left is
+   ignored (the same rule as ACCT_APIKEY_GEN). */
+let ACCT_QWEN_GEN = 0;
+function acctQwenShow(on) {
+  ACCT_QWEN_GEN += 1;
+  const flow = document.getElementById('acct-qwen-flow');
+  if (!flow) return;
+  flow.hidden = !on;
+  // Review: for Qwen on this computer, Add is held until the panel learns the model is there (a fast click cannot add first).
+  ACCT_QWEN_ADD_BLOCKED = !!(on && acctQwenIsLocalSetup());
+  const go = document.getElementById('acct-qwen-go'); if (go) go.disabled = ACCT_QWEN_ADD_BLOCKED;
+  const m = document.getElementById('acct-qwen-msg'); if (m) m.textContent = '';
+  if (on) acctQwenLocalPaint();
+  else {
+    /* UI review 1: put away means put away. The bumped generation above stops the download poll; a key typed
+       here does not stay in a hidden field, and the panel does not reappear on the next open. */
+    const l = document.getElementById('acct-qwen-local'); if (l) l.hidden = true;
+    for (const id of ['acct-qwen-key', 'acct-qwen-name']) { const f = document.getElementById(id); if (f) f.value = ''; }
+    ACCT_QWEN_LOCAL_ASK = '';
+    ACCT_QWEN_ADD_BLOCKED = false;
+    if (ACCT_QWEN_LOCAL_TIMER) { clearTimeout(ACCT_QWEN_LOCAL_TIMER); ACCT_QWEN_LOCAL_TIMER = null; }
+    ACCT_QWEN_LOCAL_RUNNING = false;
+  }
+}
+/* #5977 slice 3: what this computer is missing for Qwen, and the one step that fixes it. Only for the local address
+   with Kosmos's own model; a server the person names is theirs to set up. `ACCT_QWEN_LOCAL_ASK` holds the step the
+   button takes; a download needs a second press (the confirm), naming its size first. */
+const QWEN_LOCAL_MODEL = 'kosmos-qwen2.5-7b-16k:latest';
+let ACCT_QWEN_LOCAL_ASK = '';
+/* UI review: ONE poll at a time (a new paint clears the old timer), and only the newest answer paints (SEQ), so a
+   field change, Not now and a finished POST cannot start parallel chains or let an older answer win. */
+let ACCT_QWEN_LOCAL_TIMER = null;
+let ACCT_QWEN_LOCAL_SEQ = 0;
+let ACCT_QWEN_LOCAL_RUNNING = false;   // a download was running at the last answer: a failed read is retried, not final
+let ACCT_QWEN_LOCAL_LOCKED = false;   // the 700 ms after the confirm appears, when a press is ignored
+let ACCT_QWEN_LOCAL_LOCK_TIMER = null;
+/* #5977 (Mona Lisa's review): Add saves an account naming Kosmos's 16k model, so while that model is still to be made
+   (or its base is downloading) Add waits, and the panel says why. Only the local setup panel sets it. */
+let ACCT_QWEN_ADD_BLOCKED = false;
+function acctQwenAddBlock(on) {
+  ACCT_QWEN_ADD_BLOCKED = !!on;
+  const go = document.getElementById('acct-qwen-go');
+  if (go) go.disabled = ACCT_QWEN_ADD_BLOCKED;
+}
+function acctQwenIsLocalSetup() {
+  const u = (document.getElementById('acct-qwen-url') || {}).value || '';
+  const m = ((document.getElementById('acct-qwen-model') || {}).value || '').trim();
+  let url = null;
+  try { url = new URL(u.trim()); } catch { url = null; }
+  if (!url) return false;
+  // UI review: Ollama's own port only (the panel reports on 11434), and every spelling of this computer.
+  const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+  // Round 2: Ollama's port exactly (an empty port is 80 or 443, not Ollama); never on Windows, where Qwen cannot run yet.
+  if (typeof onWindows === 'function' && onWindows()) return false;
+  return local && url.port === '11434' && m === QWEN_LOCAL_MODEL;
+}
+function acctQwenGb(n) { return (n / 1e9).toFixed(1); }
+/* UI review: when the row with the focused button is hidden, focus goes to the sentence that replaced it, not the page. */
+function acctQwenLocalHideRow(row, t) {
+  const had = row.contains && document.activeElement && row.contains(document.activeElement);
+  row.hidden = true;
+  if (had && t.focus) t.focus();
+}
+async function acctQwenLocalPaint() {
+  const box = document.getElementById('acct-qwen-local');
+  const t = document.getElementById('acct-qwen-local-t');
+  const row = document.getElementById('acct-qwen-local-row');
+  const btn = document.getElementById('acct-qwen-local-go');
+  const no = document.getElementById('acct-qwen-local-no');
+  const bar = document.getElementById('acct-qwen-local-bar');
+  const fig = document.getElementById('acct-qwen-local-n');
+  if (!box || !t || !row || !btn || !no) return;
+  if (ACCT_QWEN_LOCAL_TIMER) { clearTimeout(ACCT_QWEN_LOCAL_TIMER); ACCT_QWEN_LOCAL_TIMER = null; }
+  const seq = ++ACCT_QWEN_LOCAL_SEQ;
+  if (!acctQwenIsLocalSetup()) { box.hidden = true; ACCT_QWEN_LOCAL_ASK = ''; acctQwenAddBlock(false); return; }
+  const mine = ACCT_QWEN_GEN;
+  let s = null;
+  try { const r = await fetch('/api/accounts/qwen/local', { cache: 'no-store' }); s = r.ok ? await r.json() : null; } catch { s = null; }
+  // The newest paint only, on the same visit, for the address the fields hold NOW (they can change during the await).
+  if (seq !== ACCT_QWEN_LOCAL_SEQ || ACCT_QWEN_GEN !== mine || document.getElementById('acct-qwen-flow').hidden) return;
+  if (!acctQwenIsLocalSetup()) { box.hidden = true; ACCT_QWEN_LOCAL_ASK = ''; acctQwenAddBlock(false); return; }
+  const again = () => { ACCT_QWEN_LOCAL_TIMER = setTimeout(() => { if (ACCT_QWEN_GEN === mine) acctQwenLocalPaint(); }, 2000); };
+  if (!s && ACCT_QWEN_LOCAL_RUNNING) { again(); return; }   // a missed poll mid-download: keep what is shown, ask again
+  box.hidden = false;
+  if (document.activeElement === no && btn.focus) btn.focus();   // round 2: Not now must not drop focus as it hides
+  no.hidden = true;
+  btn.disabled = false;
+  const d = s && s.download;
+  ACCT_QWEN_LOCAL_RUNNING = !!(d && d.running);
+  if (d && d.running) {
+    /* The sentence (a polite live region) is written once; the figures go to a progress bar, which is not announced
+       every two seconds. */
+    const say = 'Downloading Qwen (about 4.7 GB). You can leave this page; it carries on.';
+    if (t.textContent !== say) t.textContent = say;
+    if (bar) {
+      bar.hidden = false;
+      if (d.total > 0) { bar.max = d.total; bar.value = d.completed; bar.setAttribute('aria-valuetext', acctQwenGb(d.completed) + ' of ' + acctQwenGb(d.total) + ' GB'); }
+      else bar.removeAttribute('value');
+    }
+    // Review: a figure beside the bar, so someone coming back can see it moving (the bar already tells a screen reader).
+    if (fig) { fig.hidden = !(d.total > 0); fig.textContent = d.total > 0 ? acctQwenGb(d.completed) + ' of ' + acctQwenGb(d.total) + ' GB' : ''; }
+    acctQwenAddBlock(true);
+    acctQwenLocalHideRow(row, t); ACCT_QWEN_LOCAL_ASK = '';
+    again();
+    return;
+  }
+  if (bar) bar.hidden = true;
+  if (fig) fig.hidden = true;
+  const lastFailed = d && d.ok === false ? asSentence(d.because) + ' ' : '';
+  const state = s ? s.state : 'unknown';
+  if (state === 'ready') { t.textContent = 'Qwen is set up on this computer.'; acctQwenLocalHideRow(row, t); ACCT_QWEN_LOCAL_ASK = ''; acctQwenAddBlock(false); return; }
+  /* Not set up yet: Add waits. No Ollama, or an answer we could not read: Add stays open (the account is saved and
+     checked again when an agent uses it, as before; Ollama may simply be closed). */
+  acctQwenAddBlock(state === 'needs_model' || state === 'needs_download');
+  if (state === 'needs_model') {
+    t.textContent = lastFailed + 'Ollama has Qwen. Kosmos makes a copy of it that holds a longer conversation. Nothing is downloaded. Add is ready once Qwen is set up.';
+    btn.textContent = 'Set up Qwen'; row.hidden = false; ACCT_QWEN_LOCAL_ASK = 'model'; return;
+  }
+  if (state === 'needs_download') {
+    t.textContent = lastFailed + 'Qwen is not on this computer yet. Kosmos can download it through Ollama. Add is ready once Qwen is set up.';
+    btn.textContent = 'Download Qwen'; row.hidden = false; ACCT_QWEN_LOCAL_ASK = 'download-ask'; return;
+  }
+  t.textContent = (s && s.because) || 'We could not check Ollama just now.';
+  acctQwenLocalHideRow(row, t); ACCT_QWEN_LOCAL_ASK = '';
+}
+document.getElementById('acct-qwen-local-go').addEventListener('click', async () => {
+  const t = document.getElementById('acct-qwen-local-t');
+  const btn = document.getElementById('acct-qwen-local-go');
+  const no = document.getElementById('acct-qwen-local-no');
+  const ask = ACCT_QWEN_LOCAL_ASK;
+  if (ask === 'download-ask') {
+    t.textContent = 'This downloads about 4.7 GB from Ollama, which can take a while. Start it?';
+    btn.textContent = 'Start the download'; no.hidden = false; ACCT_QWEN_LOCAL_ASK = 'download';
+    /* UI review: the confirm sits where the first press landed, so a double click would confirm unread. It takes a
+       press only after a moment. aria-disabled, not disabled (round 2): disabling the focused button would drop a
+       keyboard user's focus to the page. */
+    ACCT_QWEN_LOCAL_LOCKED = true;
+    btn.setAttribute('aria-disabled', 'true');
+    if (ACCT_QWEN_LOCAL_LOCK_TIMER) clearTimeout(ACCT_QWEN_LOCAL_LOCK_TIMER);   // review 4: a re-armed confirm gets its own full moment
+    ACCT_QWEN_LOCAL_LOCK_TIMER = setTimeout(() => { ACCT_QWEN_LOCAL_LOCK_TIMER = null; ACCT_QWEN_LOCAL_LOCKED = false; btn.removeAttribute('aria-disabled'); }, 700);
+    return;
+  }
+  if (ACCT_QWEN_LOCAL_LOCKED) return;
+  if (ask !== 'model' && ask !== 'download') return;
+  // Round 2: focus to the sentence first, then disable (a disabled focused button drops focus to the page).
+  if (t.focus) t.focus();
+  btn.disabled = true; no.hidden = true;
+  t.textContent = ask === 'model' ? 'Setting Qwen up…' : 'Starting the download…';
+  let out = null;
+  let busy = false;   // round 2: a download already running (another tab): show its progress, not a dead button
+  const mine = ACCT_QWEN_GEN;
+  try {
+    const init = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(ask === 'download' ? { confirm: true } : {}) };
+    const r = ask === 'model' ? await fetch('/api/accounts/qwen/local/model', init) : await fetch('/api/accounts/qwen/local/download', init);
+    out = await r.json().catch(() => null);
+    if (ACCT_QWEN_GEN !== mine) return;   // round 2: the step was put away during the request
+    busy = r.status === 409;
+    if (!r.ok) {
+      const why = out && typeof out.because === 'string' && out.because ? out.because : 'that did not work just now';
+      t.textContent = asSentence(why);
+    }
+  } catch { t.textContent = 'We could not reach Kosmos just now.'; }
+  if (ACCT_QWEN_GEN !== mine) return;
+  if ((out && (out.ok || out.started)) || busy) acctQwenLocalPaint();
+  else btn.disabled = false;
+});
+document.getElementById('acct-qwen-local-no').addEventListener('click', () => { acctQwenLocalPaint(); });
+for (const id of ['acct-qwen-url', 'acct-qwen-model']) {
+  const f = document.getElementById(id);
+  if (f) f.addEventListener('change', () => acctQwenLocalPaint());
+}
+document.getElementById('acct-qwen-go').addEventListener('click', async () => {
+  const urlField = document.getElementById('acct-qwen-url');
+  const modelField = document.getElementById('acct-qwen-model');
+  const keyField = document.getElementById('acct-qwen-key');
+  const nameField = document.getElementById('acct-qwen-name');
+  const go = document.getElementById('acct-qwen-go');
+  const msg = document.getElementById('acct-qwen-msg');
+  const baseUrl = urlField.value.trim();
+  const model = modelField.value.trim();
+  if (!baseUrl) { msg.textContent = 'Give the address first.'; urlField.focus(); return; }
+  if (!model) { msg.textContent = 'Give the model name first.'; modelField.focus(); return; }
+  const entered = nameField.value.trim();
+  const key = keyField.value.trim();
+  const mine = ACCT_QWEN_GEN;
+  const stillHere = () => ACCT_QWEN_GEN === mine && !document.getElementById('acct-qwen-flow').hidden;
+  go.disabled = true;
+  msg.textContent = 'Checking the address…';
+  try {
+    const res = await fetch('/api/accounts/qwen', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ baseUrl, model, key: key || undefined, name: entered || undefined }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!stillHere()) { if (res.ok) paintAccounts(); return; }
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'We could not add that account.');
+    keyField.value = '';
+    nameField.value = '';
+    const unknown = !!(out && out.account && out.account.connection && out.account.connection.state === 'unknown');
+    const goldBox = frCheckRow({ state: unknown ? 'unknown' : 'ok', title: unknown ? 'Qwen account saved' : 'Qwen is connected',
+      detail: unknown
+        ? 'It is saved, but the address did not answer just now (for Qwen on this computer, open Ollama). It is checked again when an agent uses it.'
+        : 'The address answered and has the model.' });
+    msg.textContent = 'Checking the connection…';
+    await paintAccounts();
+    if (!stillHere()) return;
+    msg.textContent = '';
+    acctShowSuccess(entered || 'your Qwen account', goldBox);
+  } catch (err) {
+    if (stillHere()) msg.textContent = String((err && err.message) || 'We could not add that account.');
+  } finally {
+    if (ACCT_QWEN_GEN === mine) go.disabled = ACCT_QWEN_ADD_BLOCKED;   // #5977: never opens an Add the setup still holds
+  }
+});
+
 document.getElementById('acct-apikey-go').addEventListener('click', async () => {
   const which = ACCT_APIKEY_WHICH;
   const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
@@ -31213,7 +31550,10 @@ async function museAsk() {
   /* The dialog's intro names what works today (round 3): with Meta Muse live it says so. Only the plain
      Add screen's sentence is swapped, never a sign-in again's. */
   const intro = document.getElementById('acct-add-in');
-  if (intro && (intro.textContent === ACCT_ADD_INTRO || intro.textContent === ACCT_ADD_INTRO_MUSE)) intro.textContent = on ? ACCT_ADD_INTRO_MUSE : ACCT_ADD_INTRO;
+  /* #5977 UI review 3: on Windows the same swap in its no-Qwen wording (acctAddIntroWin), whichever form is shown. */
+  const winIntro = typeof onWindows === 'function' && onWindows() && typeof acctAddIntroWin === 'function';
+  const say = (x) => (winIntro ? acctAddIntroWin(x) : x);
+  if (intro && [ACCT_ADD_INTRO, ACCT_ADD_INTRO_MUSE].some((x) => intro.textContent === x || intro.textContent === say(x))) intro.textContent = say(on ? ACCT_ADD_INTRO_MUSE : ACCT_ADD_INTRO);
   return on;
 }
 /* Whether Meta Muse is offered right now: the option's own state, the one fact museAsk sets (round 1). */
@@ -33625,10 +33965,23 @@ function communityReadyWhen(ms) {
   return when.toLocaleString(undefined, when.getFullYear() === new Date().getFullYear()
     ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
+/* The Needs Your Decision dot, with words for a screen reader (the dot alone says nothing to one). */
+function communityReadyDot() {
+  const frag = document.createDocumentFragment();
+  const dot = document.createElement('span');
+  dot.className = 'tsk-dot community-ready-needs';
+  dot.setAttribute('aria-hidden', 'true');
+  const say = document.createElement('span');
+  say.className = 'vh';
+  say.textContent = 'Needs you: ';
+  frag.append(dot, say);
+  return frag;
+}
 function communityReadyLine(l) {
   if (!l || typeof l.text !== 'string') return null;   // nothing to say: no empty paragraph
   const p = document.createElement('p');
   p.className = 'dhint';
+  if (l.needsYou === true) p.append(communityReadyDot());
   p.append(l.text);
   /* A line the board wrote around a time has words after it; a time that was lost on the way (no `at` at all) is said
      as one the page cannot read, never as a sentence that stops short. */
@@ -33698,7 +34051,12 @@ function communityReadyPaint(rows) {
     name.textContent = typeof r.name === 'string' && r.name ? r.name : r.session;
     const word = document.createElement('span');
     word.className = 'dhint community-ready-words';
-    word.textContent = typeof view.summary === 'string' ? view.summary : '';
+    /* The board names the words that need the person (`needsYou`, always the summary's first part); the page marks
+       exactly those and reads no wording. A summary that does not start with them is painted plain. */
+    const summaryText = typeof view.summary === 'string' ? view.summary : '';
+    if (typeof view.needsYou === 'string' && view.needsYou && summaryText.startsWith(view.needsYou)) {
+      word.append(communityReadyDot(), view.needsYou, summaryText.slice(view.needsYou.length));
+    } else word.textContent = summaryText;
     const who = document.createElement('span');   // the mark and the name stay together; the words wrap as one piece
     who.className = 'community-ready-name';
     who.append(chev, name);
@@ -38414,20 +38772,26 @@ document.addEventListener('click', (e) => {
   if (b) dmQuestionClear(b);
 });
 /**
- * kosmos#5841: a direct conversation's EARLIER messages, opened from the "older messages are still kept" line, a page
- * at a time from GET .../thread/older?before=<n>, and drawn IN the thread, before the latest 200, by the thread's own
- * paint. So they look and act like the rest (reactions, reply, copy, search), and there is no second box.
+ * kosmos#5841: a direct conversation's EARLIER messages, a page at a time from GET .../thread/older?before=<n>, drawn
+ * IN the thread, before the latest 200, by the thread's own paint. So they look and act like the rest (reactions,
+ * reply, copy, search), and there is no second box.
+ * kosmos#6086: they load by SCROLLING BACK. Reaching the top of what is loaded asks for the page before it
+ * (earlierNearTop), with a line over the top of the thread while it loads; no button and nothing under the newest
+ * message. The reader is not moved when a page lands: setThread anchors the message they are on (#1926).
  * They are a SNAPSHOT: the 5 s poll refreshes only the latest, so a preview not cached when the page was fetched, or a
- * reaction or delivery change made elsewhere, shows only after Hide and Show (a reaction made HERE is written in).
+ * reaction or delivery change made elsewhere, shows only after the conversation is opened again (a reaction made
+ * HERE is written in).
  * `before` counts from the OLDEST message, so a send cannot shift a page. `end` is the position just after the last
  * earlier row; messages that leave the latest 200 while this is open are fetched into it (earlierFillGap), so nothing
  * falls between. Per agent: a DIFFERENT agent on screen resets it (paintTalk, before any await) and `earlierOn` draws
  * rows only for their own agent. A repaint of the SAME agent (the poll, a return with no other DM opened between)
- * keeps them until Hide; opening another agent's DM and coming back starts closed. `opening` drops an answer that
+ * keeps them; opening another agent's DM and coming back starts closed. `opening` drops an answer that
  * belongs to a reset that came after it.
  */
 const EARLIER = { session: null, open: false, before: 0, end: 0, rows: [], loading: false, filling: false, because: null, opening: 0 };
+const EARLIER_MOVED = { n: 0 };   // kosmos#6086: "the thread changed under the page" answers in a row, across resets for one agent
 function earlierReset(session) {
+  if (session !== EARLIER.session) EARLIER_MOVED.n = 0;   // kosmos#6086: the count of moved answers belongs to one agent's visit
   Object.assign(EARLIER, { session, open: false, before: 0, end: 0, rows: [], loading: false, filling: false, because: null, opening: EARLIER.opening + 1 });
 }
 function earlierOn(session) { return EARLIER.open && Boolean(session) && EARLIER.session === session; }
@@ -38460,21 +38824,47 @@ async function earlierMore() {
   const r = await earlierFetch(session, EARLIER.before);
   if (EARLIER.session !== session || EARLIER.opening !== opening) return;
   EARLIER.loading = false;
-  if (r.moved) { earlierReset(session); earlierRepaint(); return; }   // the thread changed under the page: start again
+  if (r.moved) {
+    /* The thread changed under the page: start again, ONCE. Reaching the top asks by itself now (kosmos#6086), so a
+       thread and an older route that keep disagreeing would be asked on every scroll and every poll, for ever. The
+       second time running it is a failed load, which stops the asking until the person presses Try again. */
+    EARLIER_MOVED.n += 1;   // earlierReset starts it again for another agent
+    if (EARLIER_MOVED.n < 2) { earlierReset(session); earlierRepaint(); return; }
+    EARLIER.because = r.because; earlierRepaint(); return;
+  }
   if (!r.ok) EARLIER.because = r.because;
-  else { EARLIER.rows = r.rows.concat(EARLIER.rows); EARLIER.before = r.olderCount; convPause(); }   // old rows are not news to read aloud
+  else { EARLIER.rows = r.rows.concat(EARLIER.rows); EARLIER.before = r.olderCount; EARLIER_MOVED.n = 0; convPause(); }   // old rows are not news to read aloud
   earlierRepaint();
   if (!r.ok || !r.rows.length) return;
-  /* The person asked to see them: bring the first new row into view (a reader at the floor would otherwise stay
-     pinned to the newest, with the new rows off-screen above), and stop pinning until they scroll back down. */
-  const thread = document.getElementById('d-dmthread');
-  const first = thread && thread.querySelector('[data-at="' + CSS.escape(String(r.rows[0].at || '')) + '"]');
-  const rowEl = first && (first.closest('.msg') || first);
-  if (rowEl) { thread.__heldAtBottom = false; thread.scrollTop = rowEl.getBoundingClientRect().top - thread.getBoundingClientRect().top + thread.scrollTop; }   // the thread only, never the page
-  /* On the last page "Show earlier" goes: keep focus in the line, on Hide. */
-  const show = document.getElementById('d-talk-older-show');
-  if (show.hidden && (document.activeElement === show || document.activeElement === document.body)) document.getElementById('d-talk-older-hide').focus();
+  /* kosmos#6086: nothing here moves the reader. earlierRepaint goes through setThread, which keeps the message they
+     are on where it was (its anchor, #1926), so the page lands ABOVE them and they scroll into it. A thread still
+     too short to scroll asks for the next page itself. */
+  earlierNearTop();
 }
+/* kosmos#6086: is the reader at the top of what is loaded, with more before it? Then load the page before it.
+   Called on the thread's scroll, and after a paint (a thread too short to scroll has no scroll to wait for).
+   Never while a load is in flight, never over a failed read, and never again after a failed load until the person
+   presses Try again: a scroll event must not turn one failure into a stream of requests. */
+const EARLIER_NEAR_TOP = 120;   // px from the top of the thread
+function earlierNearTop() {
+  const thread = document.getElementById('d-dmthread');
+  const session = thread && thread.__lastSession; const body = thread && thread.__lastBody;
+  if (!session || !body || !Array.isArray(body.messages) || thread.__readFailed) return;
+  if (!CURRENT || CURRENT.sessionName !== session) return;   // mid-switch: the thread still holds the last agent's body
+  if (EARLIER.loading || thread.clientHeight <= 0) return;   // a hidden thread measures 0 everywhere: unknown, so no
+  if (thread.scrollTop > EARLIER_NEAR_TOP) return;
+  if (TALK_QUERY && String(TALK_QUERY).trim()) return;   // a search shortens the thread; that is not a reader at the top
+  if (earlierOn(session)) {
+    if (EARLIER.before <= 0 || EARLIER.because) return;   // the first message is loaded, or the last load failed
+  } else {
+    const first = Number(body.olderCount) || 0;
+    if (!first) return;
+    earlierReset(session);
+    Object.assign(EARLIER, { open: true, before: first, end: first });
+  }
+  earlierMore();
+}
+document.addEventListener('scroll', (e) => { if (e.target && e.target.id === 'd-dmthread') earlierNearTop(); }, { capture: true, passive: true });
 /* Messages at [end, olderCount) left the latest 200 while this was open: fetch them, newest pages first, and append. */
 async function earlierFillGap(session, olderCount) {
   if (EARLIER.filling) return;
@@ -38500,62 +38890,49 @@ async function earlierFillGap(session, olderCount) {
   const last = th && th.__lastSession === session ? th.__lastBody : null;
   if (last && Array.isArray(last.messages) && (Number(last.olderCount) || 0) > EARLIER.end) earlierFillGap(session, Number(last.olderCount));
 }
-/* The line under the thread: how many older messages are kept, and the way to them. Two STATIC buttons, toggled and
-   relabelled only on change (a rebuild each poll would take a keyboard user's focus); a load in flight is
-   aria-disabled, not disabled, so the pressed button keeps focus. */
+/* kosmos#6086: the line at the top of the thread. It shows only while a page of earlier messages loads, or to say a
+   load failed (with Try again, the one button left). Nothing stands when there is nothing
+   to say: not a count, not a way in. The button is one static element, shown and hidden, never rebuilt (a rebuild
+   each poll would take a keyboard user's focus). */
 function paintOlderLine(body, sessionName) {
   const older = document.getElementById('d-talk-older');
   const textEl = document.getElementById('d-talk-older-text');
-  const show = document.getElementById('d-talk-older-show');
-  const hide = document.getElementById('d-talk-older-hide');
-  if (!older || !textEl || !show || !hide || !body) return;
-  /* A FAILED latest read (messages null): the thread says so, and no count or button stands over it (review 7). */
-  if (!Array.isArray(body.messages)) { older.hidden = true; return; }
-  const shown = Array.isArray(body.messages) ? body.messages.length : 0;
+  const retry = document.getElementById('d-talk-older-show');
+  if (!older || !textEl || !retry || !body) return;
+  /* A FAILED latest read (messages null): the thread says so, and nothing stands over it (review 7 of #5841). */
+  if (!Array.isArray(body.messages)) { older.hidden = true; if (older.parentNode) older.parentNode.classList.remove('dm-earlier-failed'); return; }
   const on = earlierOn(sessionName);
-  let text = '';
-  if (on) {
-    const n = EARLIER.rows.length;
-    text = EARLIER.because ? pjSentence(EARLIER.because)
-      : EARLIER.loading && !n ? 'Loading earlier messages\u2026'
-        : 'Showing ' + n + ' earlier and the latest ' + shown + '. '
-          + (EARLIER.before ? EARLIER.before + ' older ' + (EARLIER.before === 1 ? 'message is' : 'messages are') + ' still kept.' : 'That is the whole conversation.');
-  } else if (body.olderCount) {
-    text = 'Showing the latest ' + shown + '. ' + body.olderCount + ' older '
-      + (body.olderCount === 1 ? 'message is' : 'messages are') + ' still kept.';
-  }
+  /* A failed load stands until the person presses Try again, WHEREVER they scroll. It has a row of its own (below),
+     so it covers nothing; and a row that came and went with the scroll position would change the thread's height
+     as the reader scrolls, which moves them, and near the 120 px line could show and hide without end (review 3). */
+  const failed = on && Boolean(EARLIER.because) && !EARLIER.loading;
+  const text = !on ? '' : failed ? pjSentence(EARLIER.because) : EARLIER.loading ? 'Loading earlier messages\u2026' : '';
   if (textEl.textContent !== text) textEl.textContent = text;
-  const more = on ? (EARLIER.before > 0 || Boolean(EARLIER.because)) : Boolean(body.olderCount);
-  const label = on && EARLIER.because ? 'Try again' : 'Show earlier messages';
-  if (show.textContent !== label) show.textContent = label;
-  show.hidden = !more;
-  show.setAttribute('aria-disabled', on && EARLIER.loading ? 'true' : 'false');
-  hide.hidden = !on;
+  retry.hidden = !failed;
+  /* While a page loads the line FLOATS over the thread's top edge and takes no room, so nothing moves. A failure
+     is different: it stays until the person acts, and floating it would leave it lying over the first message.
+     So a failure takes a row of its own above the thread. */
+  if (older.parentNode) older.parentNode.classList.toggle('dm-earlier-failed', failed);
   older.hidden = !text;
 }
 document.addEventListener('click', (e) => {
-  const t = e.target && e.target.closest ? e.target.closest('#d-talk-older-show, #d-talk-older-hide') : null;
+  const t = e.target && e.target.closest ? e.target.closest('#d-talk-older-show') : null;
   if (!t) return;
   const thread = document.getElementById('d-dmthread');
   const session = thread && thread.__lastSession;
   if (!session || !thread.__lastBody) return;
   if (!CURRENT || CURRENT.sessionName !== session) return;   // mid-switch: the line still shows the last agent's; wait for this one's
-  if (t.id === 'd-talk-older-hide') {
-    earlierReset(session);
-    convPause();
-    earlierRepaint();
-    const show = document.getElementById('d-talk-older-show');
-    if (!show.hidden) show.focus();   // the pressed button went: focus the way back in
-    return;
-  }
-  if (t.getAttribute('aria-disabled') === 'true') return;
-  if (!earlierOn(session)) {
+  if (!earlierOn(session) || EARLIER.loading) return;
+  /* The button goes when the load starts, so focus would fall to the page: hand it to the conversation box (already
+     focusable), where the keyboard is still inside the conversation. */
+  if (document.activeElement === t) { const box = document.getElementById('d-talk-box'); if (box) box.focus({ preventScroll: true }); }
+  if (EARLIER.because && EARLIER.before > 0 && EARLIER_MOVED.n >= 2) {   // the thread had moved: start from where it is now
     const first = Number(thread.__lastBody.olderCount) || 0;
-    if (!first) return;
-    earlierReset(session);
+    earlierReset(session); EARLIER_MOVED.n = 0;
+    if (!first) { earlierRepaint(); return; }
     Object.assign(EARLIER, { open: true, before: first, end: first });
   }
-  earlierMore();
+  earlierMore();   // Try again: asked for by the person
 });
 
 function paintTalkThread(body, name) {
@@ -39180,6 +39557,7 @@ async function paintTalk(sessionName, agentName) {
   paintTalkThread(body, name);
 
   paintOlderLine(body, sessionName);
+  earlierNearTop();   // kosmos#6086: a thread too short to scroll has no scroll to wait for
   /* kosmos#5841: messages that left the latest 200 while the earlier ones are open are fetched into them, so none
      falls into a gap between the two. */
   if (earlierOn(sessionName) && (Number(body.olderCount) || 0) > EARLIER.end) earlierFillGap(sessionName, Number(body.olderCount));
@@ -49472,6 +49850,47 @@ function plusSiKStop() {
   const card = document.getElementById('plus-state2'); if (card) card.classList.remove('plus-si-busy');
   const note = document.getElementById('plus-si-k-note'); if (note) note.textContent = '';
 }
+/* kosmos#5995 item 4: "Name for this computer" on the email step. The box is filled with the name that would be sent
+   (the computer's own, or the one the person gave before), read from this computer and never from the coordinator.
+   The box stays hidden until that read has answered, so its words are never on screen beside a box that showed no
+   name. `loaded` decides what the start sends: the box's text once it has shown a name, and nothing at all before
+   (the start then behaves as it did before this box existed). One read at a time; a read left over from a sign-in
+   that was since cleared is dropped. A read that failed is tried again each time the email step is shown, but NOT
+   by the start: on a board that never answers, each press would otherwise wait the whole give-up time again. */
+const PLUS_SI_COMPUTER = { loaded: false, reading: null, failed: false };
+const PLUS_SI_COMPUTER_WAIT_MS = 3000;
+const PLUS_SI_NAME_NOT_KEPT = 'We sent the code. We could not save the name you gave this computer, so your account may list it under the name it had before.';
+function plusSiComputerName(again) {
+  const el = document.getElementById('plus-si-computer');
+  if (!el || PLUS_SI_COMPUTER.loaded) return Promise.resolve();
+  if (PLUS_SI_COMPUTER.reading) return PLUS_SI_COMPUTER.reading;
+  if (PLUS_SI_COMPUTER.failed && again !== true) return Promise.resolve();
+  const mine = (async () => {
+    let r = null;
+    /* Given up on after PLUS_SI_COMPUTER_WAIT_MS: the start waits for this read, so a board that accepts the request
+       and never answers must not hold "Email me a code" busy for good. Giving up is a failed read (no box, and the
+       start sends what it sent before). */
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), PLUS_SI_COMPUTER_WAIT_MS);
+    try { const res = await fetch('/api/remote/computer-name', { cache: 'no-store', signal: stop.signal }); r = res.ok ? await res.json() : null; } catch { r = null; }
+    clearTimeout(timer);
+    if (PLUS_SI_COMPUTER.reading !== mine) return;   // cleared meanwhile: that sign-in is over
+    PLUS_SI_COMPUTER.reading = null;
+    PLUS_SI_COMPUTER.failed = !r || typeof r.name !== 'string';
+    if (PLUS_SI_COMPUTER.failed) return;
+    el.value = r.name;
+    PLUS_SI_COMPUTER.loaded = true;
+    const field = document.getElementById('plus-si-computer-field'); if (field) field.hidden = false;
+    if (typeof plusSiMeasure === 'function') plusSiMeasure();   // the card grew by one field
+  })();
+  PLUS_SI_COMPUTER.reading = mine;
+  return mine;
+}
+/** What the start sends for the name: { computer_name } once the box has shown a name, {} before. */
+function plusSiComputerSent() {
+  const el = document.getElementById('plus-si-computer');
+  return el && PLUS_SI_COMPUTER.loaded ? { computer_name: el.value } : {};
+}
 function plusSiShow(step) {
   for (const id of PLUS_SI_STEPS) {
     const el = document.getElementById(id);
@@ -49490,6 +49909,7 @@ function plusSiShow(step) {
   plusSiMeasure();
   // kosmos#5628 slice 2b-ui: the company button follows the profile (a cached read in the engine).
   if (step === 'plus-si-email' && typeof plusCompanyManaged === 'function') plusCompanyManaged();
+  if (step === 'plus-si-email') plusSiComputerName(true);   // #5995: the name is read as the step opens, so it is on screen before the button is
 }
 /* #3796 (Josh, 14:00): the wizard card is centred VERTICALLY in the settings content area on
    every step. That area is only as tall as its content, so CSS alone has nothing to centre in:
@@ -49637,6 +50057,14 @@ function plusSiClear() {
     if (el) el.value = '';
   }
   const to = document.getElementById('plus-si-code-to'); if (to) to.textContent = '';
+  /* #5995: the computer's name is read again for the next sign-in. A name typed and never sent is not carried over,
+     and neither is one whose start did not go out (the board keeps a name only after a start carried it); one a
+     start carried is kept, so it comes back. */
+  {
+    const cn = document.getElementById('plus-si-computer'); if (cn) cn.value = '';
+    const cf = document.getElementById('plus-si-computer-field'); if (cf) cf.hidden = true;
+    if (typeof PLUS_SI_COMPUTER !== 'undefined') { PLUS_SI_COMPUTER.loaded = false; PLUS_SI_COMPUTER.reading = null; PLUS_SI_COMPUTER.failed = false; }
+  }
   const sug = document.getElementById('plus-si-name-suggested'); if (sug) sug.hidden = true;   // #3842: a fresh one next time
   plusSiKStop();   // #5785 review 1: a Sign out during a connect ends the loader (a hidden canvas would keep drawing)
   /* A request abandoned by Sign out returns without re-enabling its button, and a cooldown is
@@ -50046,7 +50474,14 @@ async function plusSiRequestCode(btn) {
   const noNewCode = () => { if (verify) verify.disabled = false; };
   plusSiMsg(PLUS_CODE_WORDS.asking(email));
   plusSetBusy(btn, true);
-  const r = await plusSiPost('/api/remote/signin-start', { email });
+  /* #5995: a read of the computer's name still on its way is waited for (it is local and quick), so a fast Enter in
+     the email box cannot send a name that was never read. On that fast path the box appears as the start goes, so
+     the name was not SEEN first: it is the one this computer was already being sent under (its own, or a choice
+     kept from an earlier sign-in), and nothing new is kept. */
+  const asked = PLUS_SI_EPOCH;
+  await plusSiComputerName();
+  if (PLUS_SI_EPOCH !== asked) return;   // Start over or Sign out during that wait: this ask is over (they free the buttons)
+  const r = await plusSiPost('/api/remote/signin-start', Object.assign({ email }, plusSiComputerSent()));
   if (r.stale) return;
   if (!r.ok) {
     const m = !r.timeout && /in (\d+) seconds?/.exec(r.because);   // a timeout is not a cooldown
@@ -50057,6 +50492,9 @@ async function plusSiRequestCode(btn) {
     return;
   }
   plusSetBusy(btn, false);
+  /* #5995: the box shows the name as it was kept (one line, cut to fit; a cleared box stays empty), so coming back
+     to this step shows what was sent and not what was typed. */
+  { const cn = document.getElementById('plus-si-computer'); if (cn && r.data && typeof r.data.computer_name === 'string') cn.value = r.data.computer_name; }
   /* #3796: one short line on the code step ("We sent a code to <email>.") replaces the
      paragraph; the status line below only says something when a resend went out. */
   document.getElementById('plus-si-code-to').textContent = email;
@@ -50069,6 +50507,9 @@ async function plusSiRequestCode(btn) {
     if (verify) verify.disabled = false;   // the boxes are empty now, for the new code
   }
   plusSiStage(r.data.stage, r.data);
+  /* #5995: the code went out, but the name could not be kept (the board says so; it takes a disk failing between
+     the two). Said on the code step, where the person now is; the code they were sent still works. */
+  if (r.data && r.data.computer_name_kept === false) plusSiMsg(PLUS_SI_NAME_NOT_KEPT);
 }
 document.getElementById('plus-signin-code').addEventListener('click', () => plusSiRequestCode(document.getElementById('plus-signin-code')));
 document.getElementById('plus-si-code-resend').addEventListener('click', (e) => {
@@ -50710,6 +51151,7 @@ document.getElementById('plus-si-company-resend').addEventListener('click', () =
    click guard (a code already refused is not sent again) sees the press like any other. */
 const PLUS_ENTER_GO = {
   'plus-signin-email': 'plus-signin-code',
+  'plus-si-computer': 'plus-signin-code',   // #5995
   'plus-si-code-in': 'plus-si-code-go',
   'plus-si-second-in': 'plus-si-second-go',
   'plus-si-phone': 'plus-si-phone-go',
@@ -50895,11 +51337,13 @@ async function paintModelPicker(a) {
      models), so an OpenAI agent would show Claude Sonnet 5 etc. as switchable options
      -- the exact "Claude models under an OpenAI agent" bug Josh flagged on the create
      form (#2167), here on the detail surface. Delegate and return. */
-  if (a && (a.provider === 'openai' || a.runner === 'codex')) { await paintOpenaiDetailModel(a, forWhom); return; }
+  /* #5977: a Qwen agent runs on codex but its account names its one model, so it gets no OpenAI list. */
+  const isQwen = !!(a && a.runner === 'codex' && a.account && a.account.provider === 'alibaba');
+  if (a && !isQwen && (a.provider === 'openai' || a.runner === 'codex')) { await paintOpenaiDetailModel(a, forWhom); return; }
   /* #3566: Kosmos has no list of Gemini's or Grok's models to offer, so the menu states
      what the agent runs as its one option and Switch stays down. The Claude flow below would otherwise offer Claude models under a
      Gemini agent, the #2167 "Claude models under an OpenAI agent" shape again. */
-  if (a && (a.runner === 'gemini' || a.runner === 'grok' || a.runner === 'antigravity' || a.runner === 'muse')) {   // #3568: antigravity too; #3939 3c-3b: muse
+  if (a && (isQwen || a.runner === 'gemini' || a.runner === 'grok' || a.runner === 'antigravity' || a.runner === 'muse')) {   // #3568: antigravity too; #3939 3c-3b: muse; #5977: Qwen
     /* An OpenAI models fetch started for this panel (e.g. just before a switch to Gemini)
        must not land on it, and an OpenAI note must not stay under a Gemini agent. */
     OPENAI_DETAIL_GEN += 1;
@@ -50908,7 +51352,9 @@ async function paintModelPicker(a) {
     /* #4416: a Gemini or Grok agent runs the model its job names, or the one Kosmos pins when it names none, so the
        menu says the same model the card does. Antigravity and Muse really do pick their own. */
     const runsOn = menuRunsOn(a);
-    const one = '<option value="" selected>' + esc(runsOn ? 'Runs on ' + runsOn : word + ' picks its own model') + '</option>';
+    // #5977: a Qwen agent says the model its account names, or that the account names it.
+    const qwenSays = isQwen ? ((a.modelName || a.plannedModelName) ? 'Runs on ' + modelLine(a) : 'The Qwen account names the model') : '';
+    const one = '<option value="" selected>' + (qwenSays ? esc(qwenSays) : esc(runsOn ? 'Runs on ' + runsOn : word + ' picks its own model')) + '</option>';
     if (sel.innerHTML !== one) sel.innerHTML = one;
     sel.dataset.current = '';
     sel.disabled = true;
@@ -51173,6 +51619,7 @@ function acctMoveWorld(a, accounts) {
      key matches none: the picker offers nothing to move to (the engine refuses a move too). Kept
      apart from the keyed map, which #3566's pin holds to the key-based providers. */
   const keyedProvider = (a && (a.runner === 'antigravity' || a.runner === 'muse')) ? a.runner   // #3939 3c-3b: muse has no rows either
+    : (a && a.runner === 'codex' && a.account && a.account.provider === 'alibaba') ? 'alibaba'   // #5977: a Qwen agent moves among Qwen accounts
     : ({ codex: 'openai', gemini: 'google', grok: 'xai' })[a && a.runner] || '';
   const isCodex = keyedProvider === 'openai';
   const isKeyed = !!keyedProvider;
@@ -51768,7 +52215,8 @@ const agentShown = () => (CURRENT && (CURRENT.name || CURRENT.sessionName)) || '
 /* #3566: gemini -> google and grok -> xai, the engine's own runner<->provider map
    (create.js providerRunner), so a Gemini agent's switch menu opens on Gemini rather
    than claiming it runs on Claude. One line on purpose: harnesses lift it by `const`. */
-const providerOf = (a) => ((a && a.runner === 'codex') ? 'openai' : (a && a.runner === 'gemini') ? 'google' : (a && a.runner === 'grok') ? 'xai'
+/* #5977: a Qwen agent runs on codex too; the board marks its account provider 'alibaba' (server accountForAgent). */
+const providerOf = (a) => ((a && a.runner === 'codex') ? ((a.account && a.account.provider === 'alibaba') ? 'alibaba' : 'openai') : (a && a.runner === 'gemini') ? 'google' : (a && a.runner === 'grok') ? 'xai'
   : (a && a.runner === 'antigravity') ? 'antigravity'   // #3568: Gemini on a Google subscription
   : (a && a.runner === 'muse') ? 'meta' : 'anthropic');   // #3939 3c-3b: an agent on Meta Muse is not a Claude agent
 
@@ -52935,7 +53383,7 @@ async function changeProviderNow(say) {
     if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting, provName, 'Switched to ' + provName);
     /* #4008 (round 3): Runs on names the provider it moved to now, in modelLine's own words for a runner
        with no transcript yet (the same line the next open would draw once the runner is recorded). */
-    const runsOnWord = { openai: 'OpenAI Codex', google: 'Gemini', xai: 'Grok', antigravity: 'Gemini (Google subscription)', anthropic: 'Claude' }[want];
+    const runsOnWord = { openai: 'OpenAI Codex', google: 'Gemini', xai: 'Grok', antigravity: 'Gemini (Google subscription)', anthropic: 'Claude', alibaba: 'Qwen' }[want];   // #5977
     /* #5091 round 2: a partial (switched to Claude, but not onto the picked account) DID change the provider and is
        starting again, so "Runs on" says so too; only the wake hello is skipped for it. */
     const moved = restarted || (out.outcome === 'partial' && out.provider === want && out.restarted === true);
@@ -52944,7 +53392,7 @@ async function changeProviderNow(say) {
        repaints an open panel, so the open agent takes the runner (and the Claude account) the switch just confirmed, and
        the account and model rows are repainted from it, as Move does after its own success. */
     if (moved && CURRENT && CURRENT.sessionName === forAgent) {
-      const RUNNER = { openai: 'codex', google: 'gemini', xai: 'grok', antigravity: 'antigravity', meta: 'muse', anthropic: '' };
+      const RUNNER = { openai: 'codex', google: 'gemini', xai: 'grok', antigravity: 'antigravity', meta: 'muse', anthropic: '', alibaba: 'codex' };   // #5977: Qwen runs on codex
       if (Object.prototype.hasOwnProperty.call(RUNNER, want)) CURRENT.runner = RUNNER[want];
       /* Round 4: the row carries modelName / plannedModelName (there is no `model`), and both name the OLD runner's model. */
       CURRENT.modelName = null;
@@ -52957,7 +53405,10 @@ async function changeProviderNow(say) {
       const mainClaude = (ACCOUNTS || []).find((x) => x && acctProvider(x) === 'anthropic' && x.isDefault);
       /* #5145: the account the switch landed on, by chooseSwitchedAccount's precedence (tested there). */
       const chosenDir = chooseSwitchedAccount(want, sentAccount, out, ACCOUNTS, mainClaude ? mainClaude.dir : null);
-      CURRENT.account = chosenDir ? { dir: chosenDir } : null;
+      /* #5977 UI review 2: a Qwen agent is told apart from an OpenAI one only by its account's provider, so the switch
+         says so even when the landed folder is not in the page's list yet. */
+      CURRENT.account = want === 'alibaba' ? { ...(chosenDir ? { dir: chosenDir } : {}), provider: 'alibaba' }
+        : chosenDir ? { dir: chosenDir } : null;
       /* Round 5: "Right now: <name> (<account>)" kept the OLD account in its bracket; rebuild it from the new one. */
       {
         const drun = document.getElementById('d-runson');
@@ -53667,7 +54118,7 @@ function applyCreateProviderUI() {
     const modelRow = document.getElementById('create-model-row');
     if (modelRow) modelRow.hidden = true;
     if (why) {
-      why.textContent = switchKeyedWord(pv) + ' picks its own model.'
+      why.textContent = (pv === 'alibaba' ? 'The Qwen account names the model.' : switchKeyedWord(pv) + ' picks its own model.')   // #5977
         + (pv === 'antigravity' && !FR_AGY_READY
           ? ' If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini.' : '');
       why.hidden = false;
@@ -54128,7 +54579,7 @@ function tcPaintModel(pv, ac) {
   };
   if (vendorPicksModel(pv)) {
     row.hidden = true;
-    show('<option value="" selected></option>', true, switchKeyedWord(pv) + ' picks its own model.'
+    show('<option value="" selected></option>', true, (pv === 'alibaba' ? 'The Qwen account names the model.' : switchKeyedWord(pv) + ' picks its own model.')   // #5977
       + (pv === 'antigravity' && !FR_AGY_READY   // the single create's own hint, word for word
         ? ' If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini.' : ''), false);
     return;
@@ -80172,10 +80623,14 @@ function asbInFallback() { return !!(ASB.guide && ASB.fallback && !ASB.hostedOff
 const ASB_FALLBACK_PROVIDER = { codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok', antigravity: 'Google' };   // engine/accountproblem.js's names
 /* The one line, the card's words, then what fixes it, in #3723's words where it has them. */
 function asbFallbackWords(f) {
-  const p = ASB_FALLBACK_PROVIDER[f && f.runner] || 'Claude';
+  const p = (f && f.providerName) || ASB_FALLBACK_PROVIDER[f && f.runner] || 'Claude';   // #5977: the board's name (Qwen) first
   /* #4588: an Antigravity guide is rate_limited only on its Google account's shared quota (its screen is never read),
      a subscription allowance that refills by itself: no "add credits" (review 4). */
-  const fix = f.problem === 'rate_limited' && f.runner === 'antigravity' ? ' The Google quota refills by itself.'
+  /* #5977 UI review 2: a Qwen guide has no credits to add and no sign-in to renew; what fails is reaching its address. */
+  const fix = p === 'Qwen' ? (f.problem === 'auth_failed'
+      ? ' Its Qwen endpoint is refusing it (check the key or the model on the Qwen account; for Qwen on this computer, open Ollama).'
+      : ' Qwen is not answering at its address (for Qwen on this computer, open Ollama). It picks up again by itself once it answers.')
+    : f.problem === 'rate_limited' && f.runner === 'antigravity' ? ' The Google quota refills by itself.'
     : f.problem === 'rate_limited' ? ` Add credits with ${p}, or wait until the limit resets.`
     : f.problem === 'auth_failed' ? ` Its ${p} sign-in has stopped working: open the guide's page and choose Sign in again.`
     : ` ${p} cannot be reached just now; it picks up again by itself once it can.`;
@@ -80187,7 +80642,7 @@ function asbFallbackFrom(b) {
   if (!b || b.hostedWhy === 'unchecked') return;
   const failing = b.hosted === true && b.hostedWhy === 'own_model_failing';
   const was = !!ASB.fallback;
-  ASB.fallback = failing ? { problem: String(b.problem || ''), runner: b.runner || null } : null;
+  ASB.fallback = failing ? { problem: String(b.problem || ''), runner: b.runner || null, providerName: typeof b.providerName === 'string' ? b.providerName : null } : null;
   if (was && !failing) { const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = ASB_FALLBACK_BACK; ASB.shown = ''; }
   if (!was && failing) ASB.shown = '';   // the chat is painted again, from the backup's conversation
 }

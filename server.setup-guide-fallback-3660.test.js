@@ -110,7 +110,7 @@ test('#3660 a board that cannot be read is unchecked, never "answering": GET kee
   assert.throws(() => guideCardFailing(GUIDE, () => null), 'an unreadable board read as an answer');
   const board = fleet.install([fleet.agent(GUIDE, { state: 'auth_failed' })]);
   try {
-    assert.deepEqual(guideCardFailing(GUIDE, () => board.agents), { problem: 'auth_failed', runner: 'claude' },
+    assert.deepEqual(guideCardFailing(GUIDE, () => board.agents), { problem: 'auth_failed', runner: 'claude', providerName: 'Claude' },
       'CONTROL: a readable failing card is read');
   } finally { board.restore(); }
   resetGuideCardMemoForTests();
@@ -152,7 +152,7 @@ test('#3660 the flip back: failing, then answering, with the memo live, waits ou
   answering.restore();
   let cards = failingCards;
   const roster = () => cards;
-  assert.deepEqual(guideCardFailing(GUIDE, roster, clock), { problem: 'rate_limited', runner: 'claude' });
+  assert.deepEqual(guideCardFailing(GUIDE, roster, clock), { problem: 'rate_limited', runner: 'claude', providerName: 'Claude' });
   cards = answeringCards;   // their model answers again
   t += 14000;
   assert.notEqual(guideCardFailing(GUIDE, roster, clock), null, 'the memo was not kept for its window');
@@ -180,7 +180,7 @@ test('#3660 the guide card reading is kept for a few seconds, so a poll does not
   try {
     let reads = 0;
     const roster = () => { reads += 1; return board.agents; };
-    assert.deepEqual(guideCardFailing(GUIDE, roster), { problem: 'rate_limited', runner: 'claude' });
+    assert.deepEqual(guideCardFailing(GUIDE, roster), { problem: 'rate_limited', runner: 'claude', providerName: 'Claude' });
     guideCardFailing(GUIDE, roster);
     assert.equal(reads, 1, 'the board was read again within the memo window');
     resetGuideCardMemoForTests();

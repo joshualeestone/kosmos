@@ -197,11 +197,21 @@ an app this release locked. Stated, not tested, and nothing guards it.
 - No reviewer has read this commit.
 
 ## Main merged in (2026-10-13, 14:15 CDT, fb554545f5)
-The 0.7.46 cut ran while this waited, so this rides 0.7.47. One conflict, in `release/whats-new-pool.json` (main
+The 0.7.46 cut ran while this waited, so this was to ride 0.7.47 (it then missed that cut too: see the next
+section, it is labelled 0.7.48 now). One conflict, in `release/whats-new-pool.json` (main
 gained entries at the same place): resolved by taking main's file whole and adding this branch's one entry to it,
-checked by parsing (main's 39 items unchanged, 40 after), with `since` moved to 0.7.47. After the merge: the pool's
+checked by parsing (main's 39 items unchanged, 40 after), with `since` moved to 0.7.47 (since moved again, to 0.7.48). After the merge: the pool's
 tests 54 pass, the installer check's test 31 pass, the runnable guard 0 failures, the static check 23 pass.
 0.7.45 has now been the served `/setup` for about five hours. The weakest premise is unchanged by that.
+
+## Main merged in again (2026-10-13, 19:17 CDT, origin/main 7ea5a5c78d)
+The 0.7.47 cut started (about 18:20) with this branch still unmerged, because `tools/test-install.sh` has not run on
+it yet. So it missed 0.7.47 and its What's New entry is labelled 0.7.48. The branch was 67 commits behind. One
+conflict again, the same file and the same place, resolved the same way: main's `release/whats-new-pool.json`
+taken whole, this branch's one entry appended with `since` 0.7.48, checked by parsing (main's 44 items and
+`lastProd` unchanged, 45 after; the only diff against main's file is the one added entry).
+The second full validation below was at 94ec9aec9, before this merge. It does not cover this head: a third runs
+after this commit, and its result is recorded at the end of this file.
 
 ## The second full validation: passed, and what it does NOT cover (2026-10-13, finished 15:57 CDT, at 94ec9aec9)
 - Type-check, lint, the node suite (20187 tests, 19952 passed, 0 failed), the shell suite (234 commands, none

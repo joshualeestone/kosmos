@@ -636,3 +636,26 @@ test('#5805 2a review 18: a send to a released agent whose queue cannot be read 
     assert.deepEqual(tmux.pastedTo('casey'), [], 'typed ahead of a queue it could not read');
   });
 });
+
+test('#6065 review 1: a message that fits now but not with the kept note is spilled, so a held copy is still typed later', async () => {
+  // Review 3: from the limits themselves. With its ~40-character envelope it fits MAX_TEXT now, but it passes spillLimit()
+  // (MAX_TEXT less the kept note), so it must spill; without the reserve it would be typed whole and refused later.
+  const text = 'w'.repeat(chat.MAX_TEXT - 60);
+  assert.ok(text.length + 40 > messages.spillLimit() && text.length + 60 <= chat.MAX_TEXT, 'premise: between the two limits');
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'casey'), { recursive: true });   // its own folder, for the spill
+  let id;
+  await withFleet(AHEAD(), 'rate_limited', async (board) => {
+    const v = await messages.sendAsync({ fromPane: '%7', to: 'casey', text }, board.agents);
+    assert.equal(v.held, true, JSON.stringify(v));
+    id = v.id;
+  });
+  await withFleet(undefined, 'idle', async (board, tmux) => {
+    const done = await limitqueue.flush(board.agents, { deliver: chat.deliverAutomaticAsync, isReleased: chat.limitReleased, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, onDelivered: messages.logHeldDelivered, onDropped: messages.logHeldDropped });
+    assert.deepEqual(done.map((d) => d.id), [id], 'the held message was refused when typed with its kept note');
+    const typed = tmux.pastedTo('casey');
+    assert.equal(typed.length, 1);
+    assert.match(typed[0], /long message, 1 word; the full text is in your own folder at /, 'it was not spilled');
+    assert.match(typed[0], /kept for you while you were out of usage/);
+    assert.deepEqual(limitqueue.list('casey'), []);
+  });
+});

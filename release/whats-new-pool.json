@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.45",
+  "lastProd": "0.7.46",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -190,7 +190,8 @@
       ],
       "rank": 8.6,
       "since": "0.7.37",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.46"
     },
     {
       "title": "Answer Claude questions with a button",
@@ -295,7 +296,8 @@
       "icon": "shield",
       "rank": 6,
       "since": "0.7.44",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.46"
     },
     {
       "title": "Late recurring runs say what they missed",
@@ -303,7 +305,8 @@
       "icon": "tasks",
       "rank": 7,
       "since": "0.7.44",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.46"
     },
     {
       "title": "Decisions say how long they have waited",
@@ -320,7 +323,8 @@
       "icon": "list",
       "rank": 7.5,
       "since": "0.7.45",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.46"
     },
     {
       "title": "Company backup keeps Grok conversations",
@@ -337,7 +341,8 @@
       "icon": "shield",
       "rank": 6.5,
       "since": "0.7.46",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.46"
     },
     {
       "title": "Subprojects are named with their project",
@@ -356,11 +361,58 @@
       "status": "pending"
     },
     {
+      "title": "Scroll back for earlier messages",
+      "line": "In a long conversation with an agent, scroll up and earlier messages load by themselves, keeping your place.",
+      "icon": "chat",
+      "rank": 1,
+      "since": "0.7.47",
+      "status": "pending"
+    },
+    {
+      "title": "Qwen in Add a provider",
+      "line": "Add a provider now offers Qwen, run on this computer through Ollama or at an address you give, and asks before a large download.",
+      "icon": "spark",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 5,
+      "since": "0.7.47",
+      "status": "held",
+      "why": "every Qwen account add is refused on main (#6043 asks resolveBin('codex')); Pete's fix on qwenguide-5977. Set back to pending in the What's New after it merges"
+    },
+    {
+      "title": "Long task and room messages arrive whole",
+      "line": "A message from a colleague or a room now reaches an agent in one piece, unless it is longer than a chat message can be.",
+      "icon": "tasks",
+      "rank": 10.8,
+      "since": "0.7.47",
+      "status": "pending"
+    },
+    {
+      "title": "Moved agents keep your imports answer",
+      "line": "Moving a Claude agent to another Claude account keeps your external imports answer, except for a folder inside a git repository.",
+      "icon": "list",
+      "rank": 14.5,
+      "since": "0.7.47",
+      "status": "pending"
+    },
+    {
+      "title": "Gemini agents stop updating gemini",
+      "line": "A new Gemini agent stops gemini updating itself unless you allowed it, and on your default Gemini account so does your own.",
+      "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 16,
+      "since": "0.7.47",
+      "status": "pending"
+    },
+    {
       "title": "Agents cannot edit the Kosmos app itself",
       "line": "The installed Kosmos app is read-only, so an agent's edit to the app your agents run on is refused.",
       "icon": "shield",
       "rank": 16,
-      "since": "0.7.47",
+      "since": "0.7.48",
       "status": "pending"
     }
   ]

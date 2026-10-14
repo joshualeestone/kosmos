@@ -1043,6 +1043,7 @@ const claudeAccounts = require('./engine/claudeaccounts');
 const geminiAccounts = require('./engine/geminiaccounts'); // #3296 accounts slice
 const grokAccounts = require('./engine/grokaccounts');     // #3391 accounts slice
 const qwenAccounts = require('./engine/qwenaccounts');     // #5977
+const qwenLocal = require('./engine/qwenlocal');         // #5977 slice 3
 const codexupdate = require('./engine/codexupdate');
 const runners = require('./engine/runners');
 const github = require('./engine/github');
@@ -2107,7 +2108,9 @@ function sentenceForWhoami(account, model, runner) {
     : account && account.email ? account.email
       : account && account.label ? account.label
         : account && account.keyTail ? 'the API key ending in ' + account.keyTail   // #4603
-          : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
+          /* #5636 N4 (0.7.46 report): said without the folder. The path names this computer's user folder, and an
+             agent may repeat its whoami where others read it (a post, a room). */
+          : account && account.dir ? 'an account we cannot identify'
             : null;
   const parts = [];
   /* 🛑 ONE FORM, NOT TWO, AND THE SECOND ONE WAS DEAD. This used to branch on
@@ -2143,9 +2146,9 @@ function sentenceForWhoami(account, model, runner) {
   /* #2811: THE RUNNER IS NAMED WHEN IT IS NOT CLAUDE, because this sentence is
      the ENTIRE user-visible surface of the verb: `install/kosmos` prints only
      `because` and nothing under `web/` reads whoami. A Codex agent asking who it
-     is could read the whole answer without the word Codex appearing in it, and
-     "an account we cannot identify (~/.codex)" leaves the reader to infer the
-     provider from a directory name.
+     is could read the whole answer without the word Codex appearing in it; the
+     sentence used to show the folder ("(~/.codex)"), and since #5636 N4 it shows
+     none, so the runner's name is what says the provider.
 
      🛑 BOTH BRANCHES, AND AN EARLIER VERSION GUARDED ONLY THE FIRST. I wrote
      that a codex-shaped `why` was unreachable because "runningAs always sets
@@ -2260,6 +2263,9 @@ function whoamiProjectsClause(projectNames) {
 function accountForAgent(name, known) {
   const job = create.readJob(name);
   if (!job) return null;
+  /* #5977 UI review 2: Qwen is decided from the job (a codex job on a Qwen home), the one fact every other surface
+     reads, so an agent whose Qwen account was disconnected (no row any more) still reads as Qwen, not OpenAI. */
+  const qwenJob = job.runner === 'codex' && create.jobProvider(job) === 'alibaba';
   const dir = job.configDir;
   const list = Array.isArray(known) ? known : [];
   /* 🛑 THE PROVIDER GATES THE DIR-LESS MATCH, AND WITHOUT IT THIS IS THE CARD'S
@@ -2298,6 +2304,9 @@ function accountForAgent(name, known) {
   if (found) {
     return {
       dir: found.dir, email: found.email, label: found.label,
+      /* #5977: a Qwen agent runs on codex, so its runner says OpenAI; its account is the only thing that says Qwen.
+         Only a Qwen row carries it: every other runner already names its provider, and their shape stays as it was. */
+      ...(qwenJob || found.provider === 'alibaba' ? { provider: 'alibaba' } : {}),
       keyTail: found.keyTail || null,   // #4603: an xAI/Google key account names itself by its last four
       /* #2225: the human-chosen account name (`.kosmos-name` sidecar), the same
          value the pickers/Settings row have shown since #2095. Read here off the
@@ -2335,7 +2344,8 @@ function accountForAgent(name, known) {
      from whichever list matched, which is that list's own notion and correct for
      both providers. */
   return dir
-    ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: foreign ? null : accounts.isDefaultDir(dir), keyTail: null }
+    ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: foreign ? null : accounts.isDefaultDir(dir), keyTail: null,
+      ...(qwenJob ? { provider: 'alibaba' } : {}) }
     : null;
 }
 
@@ -2804,8 +2814,10 @@ function handleQwenAccountStore(req, res) {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-      if (!runners.resolveBin('codex').present || runners.installing('codex')) {
-        sendJson(res, 400, { error: 'we could not find Codex, the runner Qwen agents use, on this computer', needsRunner: true, provider: 'codex' });
+      /* Codex is filed under its PROVIDER, 'openai': resolveBin('codex') answers present:false for every machine,
+         which refused every Qwen add (found by the 0.7.47 guide review). */
+      if (!runners.resolveBin('openai').present || runners.installing('openai')) {
+        sendJson(res, 400, { error: 'we could not find Codex, the runner Qwen agents use, on this computer', needsRunner: true, provider: 'openai' });
         return;
       }
       const ep = {
@@ -6566,7 +6578,11 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/worlds/overview' && (req.method === 'GET' || req.method === 'HEAD')) {
     let base;
     try { base = worldBase(); } catch (_e) { sendJson(res, 500, { because: 'the world registry is not readable on this machine' }); return; }
-    const cards = safeRoster();   // null when the cards could not be read
+    const roster = safeRoster();   // null when the cards could not be read
+    /* #5977: a codex card on a Qwen home is Qwen (its job says so; codex cards only, one read each). */
+    const cards = Array.isArray(roster)
+      ? roster.map((c) => (c && c.runner === 'codex' && create.agentProvider(c.sessionName, 'codex') === 'alibaba' ? { ...c, providerWord: 'qwen' } : c))
+      : roster;
     try {
       const runningId = require('./engine/worldenv').bootedWorld() || worlds.DEFAULT_ID;
       sendJson(res, 200, { worlds: worldview.overview({ base, runningId, cards }) });
@@ -10036,11 +10052,46 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         const deviceName = typeof body.device_name === 'string' ? body.device_name : undefined;
-        const got = await remote.signinStart(email, deviceName);
+        /* kosmos#5995 item 4: what the person left in "Name for this computer" names this start, and is kept once
+           the start has gone out, so verify and every later re-approval of this computer send that name.
+           - A start that does not go out (busy, the tunnel failing) keeps nothing.
+           - Whether the name can be kept is asked BEFORE the start, so no code is emailed for one that cannot be.
+           - If the save fails all the same after the start went out, the answer is still the code step (the
+             code was emailed and works), with computer_name_kept: false for the page to say so.
+           - Two starts with different names that BOTH go out keep whichever is saved last. Two starts CAN
+             overlap (the engine holds a start back only during a Forget or a register), so the last save may
+             belong to the start that was sent first: from two tabs, the kept name can be the older tab's.
+           - Absent (an older page, a script): nothing changes. With both, computer_name takes device_name's
+             place: the request is naming THIS computer.
+           One choice is worked out and used three times (asked, sent, kept), so the three cannot differ. */
+        let choice = null;
+        if (typeof body.computer_name === 'string') {
+          choice = remote.computerNameChoice(body.computer_name);
+          if (!choice.ok) { sendJson(res, 400, { error: choice.because }); return; }
+          const able = remote.canKeepComputerNameChoice(choice);
+          if (!able.ok) { sendJson(res, 400, { error: able.because }); return; }
+        }
+        const got = await remote.signinStart(email, choice ? choice.label : deviceName);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        if (choice) {
+          const kept = remote.keepComputerNameChoice(choice);
+          if (!kept.ok) { sendJson(res, 200, { ok: true, stage: got.data.stage, computer_name_kept: false }); return; }
+          // computer_name: what the box shows for the name as kept (one line, cut to fit; '' for a cleared box).
+          sendJson(res, 200, { ok: true, stage: got.data.stage, computer_name: choice.box });
+          return;
+        }
         sendJson(res, 200, { ok: true, stage: got.data.stage });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not start the sign-in' }));
+    return;
+  }
+  /* kosmos#5995 item 4: the name this computer would be sent under, for the sign-in's "Name for this computer"
+     field to show BEFORE anything is sent. Nothing is asked of the coordinator. A page on another site is
+     refused: the name is often a person's own ("Sam's MacBook"). */
+  if (pathname === '/api/remote/computer-name' && req.method === 'GET') {
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    sendJson(res, 200, Object.assign({ ok: true }, remote.computerNameShown()));
     return;
   }
   if (pathname === '/api/remote/signin-verify' && req.method === 'POST') {
@@ -11556,6 +11607,47 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { state: c.state, because: c.because });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not check that Qwen account' }));
+    return;
+  }
+  /* #5977 slice 3: Qwen on this computer. GET says what is missing (Ollama, the qwen2.5:7b download, Kosmos's 16k
+     model) and how a download is going; POST .../model makes the 16k model (seconds, no download); POST
+     .../download starts the download only with { confirm: true }, the person's own yes to about 4.7 GB, and makes
+     the 16k model when it finishes. A status read never changes anything. */
+  if (pathname === '/api/accounts/qwen/local' && req.method === 'GET') {
+    qwenLocal.status()
+      .then((s) => sendJson(res, 200, { state: s.state, because: s.because, model: qwenAccounts.LOCAL.model, download: qwenLocal.pullProgress() }))
+      .catch(() => sendJson(res, 200, { state: qwenLocal.STATE.UNKNOWN, because: 'we could not check Ollama just now', download: qwenLocal.pullProgress() }));
+    return;
+  }
+  /* UI review 4: Kosmos cannot start a Qwen agent on Windows yet, so nothing is set up or downloaded there, even on a
+     direct request the page never makes. */
+  if ((pathname === '/api/accounts/qwen/local/model' || pathname === '/api/accounts/qwen/local/download') && req.method === 'POST'
+    && (qwenLocal.platformForTest || process.platform) === 'win32') {
+    sendJson(res, 409, { ok: false, started: false, because: 'Kosmos cannot start a Qwen agent on Windows yet, so it does not set Qwen up here' });
+    return;
+  }
+  if (pathname === '/api/accounts/qwen/local/model' && req.method === 'POST') {
+    (async () => {
+      const s = await qwenLocal.status();
+      if (s.state === qwenLocal.STATE.READY) { sendJson(res, 200, { ok: true, because: s.because }); return; }
+      if (s.state !== qwenLocal.STATE.NEEDS_MODEL) { sendJson(res, 409, { ok: false, state: s.state, because: s.because }); return; }
+      const made = await qwenLocal.makeModel();
+      sendJson(res, made.ok ? 200 : 400, { ok: made.ok, because: made.because });
+    })().catch(() => sendJson(res, 400, { ok: false, because: 'we could not set Qwen up just now' }));
+    return;
+  }
+  if (pathname === '/api/accounts/qwen/local/download' && req.method === 'POST') {
+    readBody(req)
+      .then(async (raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || body.confirm !== true) { sendJson(res, 400, { started: false, because: 'a download starts only when the person says yes to it' }); return; }
+        const s = await qwenLocal.status();
+        if (s.state !== qwenLocal.STATE.NEEDS_DOWNLOAD) { sendJson(res, 409, { started: false, state: s.state, because: s.because }); return; }
+        const out = qwenLocal.startDownload();
+        sendJson(res, out.started ? 202 : 409, out);
+      })
+      .catch(() => sendJson(res, 400, { started: false, because: 'we could not start the download' }));
     return;
   }
   /* #3391: connect a Grok account with a SUBSCRIPTION (device sign-in, no key). The
@@ -13165,7 +13257,7 @@ const server = http.createServer(async (req, res) => {
            cross-home link), so their chat stays behind exactly as Codex's does. The word
            names the chat the person would look for. */
         const moveChatWord = wrote.account
-          && ({ openai: 'Codex', google: 'Gemini', xai: 'Grok' })[String(wrote.account.provider || '').toLowerCase()];
+          && ({ openai: 'Codex', google: 'Gemini', xai: 'Grok', alibaba: 'Qwen' })[String(wrote.account.provider || '').toLowerCase()];
         const isPerHomeMove = !!moveChatWord;
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
@@ -19561,7 +19653,7 @@ const server = http.createServer(async (req, res) => {
     try { failing = guideCardFailing(found.name); } catch { sendJson(res, 200, { ok: true, name: found.name, hosted: false, hostedWhy: 'unchecked' }); return; }
     if (failing) {
       const w = setupAssistant.hostedWhy({ failing: () => failing });
-      sendJson(res, 200, { ok: true, name: found.name, hosted: w.ok, hostedWhy: w.why, problem: failing.problem, runner: failing.runner });
+      sendJson(res, 200, { ok: true, name: found.name, hosted: w.ok, hostedWhy: w.why, problem: failing.problem, runner: failing.runner, providerName: failing.providerName || null });
       return;
     }
     sendJson(res, 200, { ok: true, name: found.name });
@@ -20891,7 +20983,7 @@ const server = http.createServer(async (req, res) => {
         const clean = (s) => String(s == null ? '' : s).replace(/[\r\n"]/g, ' ');
         const projName = clean((proj && proj.name) || id);
         const rawPreview = clean(saidText);
-        const preview = rawPreview.length > 140 ? rawPreview.slice(0, 140) + '...' : rawPreview;
+        let preview = rawPreview;   // #6065: decided below, once the whole line is known
         /* The sender (senderCard, resolved above). Two uses: exclude the sender from the recipients (an
            agent that runs `kosmos task message` should not be notified about its own
            message), and NAME it in the notification so a co-assignee can see which
@@ -20911,8 +21003,14 @@ const server = http.createServer(async (req, res) => {
         /* Built once: nothing in the line depends on the recipient. `id` is cleaned
            for consistency with the other interpolated values, though a stored project
            id is a slug that cannot contain a quote or newline in the first place. */
-        const line = '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' said: "' + preview
+        /* #6065: the whole message rides the notification when the whole line fits what any path types (the line a held
+           task message is typed with later included: messages.spillLimit); only a longer one is cut to a 140-character
+           preview, with the task transcript still the full record. Assignees reported that a cut task message, read
+           back by hand, cost them handoffs. */
+        const lineFor = (p) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' said: "' + p
           + '" - reply in the task: kosmos task message ' + clean(id) + ' ' + t.number + ' "..."';
+        if (lineFor(rawPreview).length > require('./engine/messages').spillLimit()) preview = rawPreview.slice(0, 140) + '...';
+        const line = lineFor(preview);
         /* `delivered`, not `told`: the sibling task routes (close/reopen/parts) return
            `told` as a SINGLE instruction-sync verdict; this is a per-assignee list of
            chat.deliver outcomes, a different shape, so it takes a different name rather

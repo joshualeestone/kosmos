@@ -75,9 +75,17 @@ test('#4340: an owed DM behind more than 200 later menu answers is still owed (o
   fs.writeFileSync(path.join(create.workerDir(T), 'CLAUDE.md'), `# ${T}\n`);
   const base0 = Date.now() - 60 * 60000;
   chat.appendMessage(chat.DIRECT, T, { text: 'can you check the invoice?', at: new Date(base0).toISOString(), delivery: { state: chat.DELIVERY.PLACED } });
-  for (let k = 1; k <= 201; k += 1) {
-    chat.appendMessage(chat.DIRECT, T, { text: 'Yes', wire: '1', at: new Date(base0 + k * 1000).toISOString(), delivery: { state: chat.DELIVERY.PLACED } });
-  }
+  chat.appendMessage(chat.DIRECT, T, { text: 'Yes', wire: '1', at: new Date(base0 + 1000).toISOString(), delivery: { state: chat.DELIVERY.PLACED } });
+  /* #6059: the other 200 menu answers are written in ONE write, copied from the row appendMessage just kept, not by 200
+     more appends. Each append reads and rewrites the whole thread, so this test took about 6 s on CI, and every one of
+     its ECONNRESET reds came in that slowest tail. The row is appendMessage's own, so the route reads the shape it
+     always gets. */
+  const file = chat.threadFile(chat.DIRECT, T);
+  const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(kept.messages.length, 2, 'fixture: appendMessage did not keep the DM and the first answer');
+  const answer = kept.messages[1];
+  for (let k = 2; k <= 201; k += 1) kept.messages.push({ ...answer, at: new Date(base0 + k * 1000).toISOString() });
+  fs.writeFileSync(file, JSON.stringify(kept));
   const body = await (await fetch(`${base}/api/agent/${T}/thread`)).json();
   assert.ok(body.olderCount > 0, 'fixture: the thread is not longer than the tail, so this proves nothing');
   assert.equal(body.owes.state, 'owes', 'the owed DM fell outside the 200-row tail and was forgotten');
