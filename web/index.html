@@ -27127,6 +27127,13 @@ function acctUsageHtml(a, list) {
     'unreadable-settings': 'Kosmos cannot read this account\'s settings, so it cannot read its usage.',
     'not-wired': 'Kosmos has not set this account up to read usage yet.',
   }[a.weeklyBlocked] || '';
+  /* Under a reading, "cannot read" would contradict the number above it: say it is the last one and will not change. */
+  const frozenSay = {
+    'windows': 'This is the last reading Kosmos saw. It will not update on Windows yet.',
+    'own-statusline': 'This is the last reading Kosmos saw. It will not update, because this account is set up its own way.',
+    'unreadable-settings': 'This is the last reading Kosmos saw. It will not update, because Kosmos cannot read this account\'s settings.',
+    'not-wired': 'This is the last reading Kosmos saw. It will not update until Kosmos sets this account up to read usage.',
+  }[a.weeklyBlocked] || '';
   let usage = '';
   if (!a.apiKey) {
     if (w) {
@@ -27138,9 +27145,9 @@ function acctUsageHtml(a, list) {
       const age = agoWords(Date.now() - w.at);
       usage = '<div class="acct-usage-meter"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
         + '<p class="acct-usage-line">' + pct + '% of its weekly limit used · resets ' + esc(resets) + (age ? ' · Kosmos last saw it change ' + esc(age) : '') + '</p></div>'   // what Kosmos saw: use elsewhere (claude.ai, another computer) is not seen
-        + (blockedSay ? '<p class="acct-usage-line acct-usage-none">' + esc(blockedSay) + ' This reading will not update.</p>' : '')
+        + (frozenSay ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenSay) + '</p>' : '')
         + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its weekly limit.' : 'Close to its weekly limit.')
-          + (canMove ? ' Move its ' + (names.length === 1 ? 'agent' : 'agents') + ' to another account' + (pct >= 100 ? (allRunning ? ' to get ' + (names.length === 1 ? 'it' : 'them') + ' working again.' : '.') : ' before ' + (names.length === 1 ? 'it stops.' : 'they stop.')) : '') + '</p>' : '');
+          + (canMove ? ' Move its ' + (names.length === 1 ? 'agent' : 'agents') + ' to another account' + (pct >= 100 ? (allRunning ? ' to get ' + (names.length === 1 ? 'it' : 'them') + ' working again.' : '.') : (allRunning ? ' before ' + (names.length === 1 ? 'it stops.' : 'they stop.') : '.')) : '') + '</p>' : '');
     } else {
       /* "Cannot read" only when the server knows there will be no reading; otherwise one comes once an agent works. */
       usage = '<p class="acct-usage-line acct-usage-none">' + esc(blockedSay || 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.') + '</p>';
@@ -27152,7 +27159,7 @@ function acctUsageHtml(a, list) {
     ? '<p class="acct-agents-line">Its agents on this computer: ' + names.map(esc).join(', ') + esc(short) + '</p>'
     : '<p class="acct-agents-line">Kosmos cannot see any agents on it on this computer' + esc(short) + '.</p>';   // a reading, never a fact about the computer (web.empty-scope)
   let st = ACCT_MOVE.get(a.dir) || null;
-  if (st && !st.moving && !st.announce && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) { ACCT_MOVE.delete(a.dir); st = null; }   // never before it is said
+  if (st && !st.moving && !st.announce && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) st = null;   // expired: drawn plain (the paint loop deletes it and clears the panel line); never before it is said
   const busy = !!(st && st.moving);
   /* Named the way every other account picker names them (#1917/#2095): two accounts on one email get their qualifier. */
   const qual = accountQualifiers(list || []);
@@ -27167,8 +27174,8 @@ function acctUsageHtml(a, list) {
       + (names.length ? '<p class="acct-move-note">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p>' : '') + '</div>'   // said before the click; a busy row repainted to no agents says nothing
     : '';
   /* After a move focus goes to the menu or the list, never here (it would read this a second time over the panel's
-     status line), so the sentence takes no focus. It is drawn empty
-     while a finished move is being announced (the handler writes it a frame later, so the live region hears a change). */
+     status line), so the sentence takes no focus. It is shown as soon as the move ends; only the panel line is
+     written a moment later, so that live region hears a change. */
   /* The row shows the sentence; the panel's own status line (#set-accounts-msg, never replaced by a repaint) speaks
      it, because a live region drawn new by each paint may not be announced at all. */
   const said = st && st.said ? esc(st.said) : '';
@@ -27903,7 +27910,10 @@ async function paintAccounts(opts) {
            and move only the ones still here. If that cannot be asked, move nothing rather than guess. */
         let fresh = null, ft = null, fr0 = null;
         try {
-          const r = await fetch('/api/accounts?agents=1', { cache: 'no-store' });
+          /* The same 60 s limit as each move: a slow live check must not leave the row on "Moving…" with nothing moved.
+             A timeout lands in the refusal below (nothing moves). */
+          const ac = new AbortController(), tm = setTimeout(() => ac.abort(), 60e3);
+          let r; try { r = await fetch('/api/accounts?agents=1', { cache: 'no-store', signal: ac.signal }); } finally { clearTimeout(tm); }
           const j = r && r.ok ? await r.json() : null;
           const fr = j && Array.isArray(j.accounts) ? j.accounts.find((x) => x && String(x.dir) === from) : null;
           fr0 = fr;
