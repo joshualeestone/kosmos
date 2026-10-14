@@ -68,6 +68,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const store = require('./engine/store');
 const { start, server } = require('./server');
+const { eventually } = require('./test-support/eventually');
 const removal = require('./engine/remove');
 const create = require('./engine/create');
 
@@ -903,8 +904,9 @@ test('#5994: disconnect-and-stop on an account with its own unfinished Sign in a
   const started = openai.startChatgptLogin({ codexBin: mock, mode: 'browser', reauthDir: dir });
   assert.equal(started.ok, true, started.because);
   try {   // from here on, any failure still cancels the sign-in below
-    const t0 = Date.now();   // the sign-in is under way (its URL printed) before the first request
-    while (Date.now() - t0 < 4000 && openai.chatgptLoginStatus(started.sessionId).state === 'starting') await new Promise((res) => setTimeout(res, 25));
+    // the sign-in is under way (its URL printed) before the first request. #5727: wait for the
+    // state to leave 'starting'; non-throwing like the old loop, the assert below is the check.
+    await eventually(() => openai.chatgptLoginStatus(started.sessionId).state, (s) => s !== 'starting', { timeoutMs: 4000, stepMs: 25 }).catch(() => {});
     assert.equal(openai.chatgptLoginStatus(started.sessionId).state, 'awaiting-browser');
     registeredNotRunning('reauth5994', dir, 'codex');
     // CONTROL, without stopAgents: refused, names the agent, and the sign-in is NOT cancelled. (That the #2570
@@ -923,9 +925,9 @@ test('#5994: disconnect-and-stop on an account with its own unfinished Sign in a
   } finally {
     openai.cancelChatgptLogin(started.sessionId);
   }
-  // let the killed child exit so nothing outlives this test
-  const end = Date.now() + 4000;
-  while (Date.now() < end && ourSlots().length) await new Promise((res) => setTimeout(res, 25));
+  // let the killed child exit so nothing outlives this test. #5727: wait for the slots to drain;
+  // non-throwing like the old loop, the assert below is the check.
+  await eventually(() => ourSlots(), (s) => s.length === 0, { timeoutMs: 4000, stepMs: 25 }).catch(() => {});
   assert.deepEqual(ourSlots(), [], 'the cancelled sign-in never exited');
 });
 
@@ -946,8 +948,9 @@ test('#6000: the Grok route deletes an account with its own unfinished Sign in a
   const started = grok.startGrokLogin({ grokBin: mock, reauthDir: dir });
   assert.equal(started.ok, true, started.because);
   try {   // from here, so a setup failure still cancels the sign-in and removes the agent (as #5994's route test)
-    const t0 = Date.now();   // the sign-in is under way (its code printed) before the first request
-    while (Date.now() - t0 < 4000 && !grok.grokLoginStatus(started.sessionId).userCode) await new Promise((res) => setTimeout(res, 25));
+    // the sign-in is under way (its code printed) before the first request. #5727: wait for the
+    // userCode to appear; non-throwing like the old loop, the assert below is the check.
+    await eventually(() => grok.grokLoginStatus(started.sessionId).userCode, (c) => !!c, { timeoutMs: 4000, stepMs: 25 }).catch(() => {});
     assert.ok(grok.grokLoginStatus(started.sessionId).userCode, 'the mock sign-in never printed its code');
     registeredNotRunning('reauth6000', dir, 'grok');
     // CONTROL: an agent on the account, so the request is refused, names it, and the sign-in is NOT cancelled.
@@ -972,7 +975,8 @@ test('#6000: the Grok route deletes an account with its own unfinished Sign in a
     fs.rmSync(nodePath.join(WORKERS, 'reauth6000'), { recursive: true, force: true });
     fs.rmSync(dir, { recursive: true, force: true });
   }
-  const end = Date.now() + 4000;   // let the killed child exit so nothing outlives this test
-  while (Date.now() < end && ourSlots().length) await new Promise((res) => setTimeout(res, 25));
+  // let the killed child exit so nothing outlives this test. #5727: wait for the slots to drain;
+  // non-throwing like the old loop, the assert below is the check.
+  await eventually(() => ourSlots(), (s) => s.length === 0, { timeoutMs: 4000, stepMs: 25 }).catch(() => {});
   assert.deepEqual(ourSlots(), [], 'the cancelled sign-in never exited');
 });
