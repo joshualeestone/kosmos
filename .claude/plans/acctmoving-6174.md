@@ -29,6 +29,11 @@ running process then reads the new account. Every other agent reads as before.
   partial is a different session and is never marked.
 
 ## Not done
+- (review 2, accepted) macOS refusing to stop the launch job after the window closed (restartInner's bootout-refused
+  partial): launchd may respawn the old job later under a new session, which the note cannot see; restartInner itself
+  accepts that case.
+- (review 2) A note for an agent that is then removed stays in account-moving.json until a reused name's different
+  session clears it: a few bytes, never a wrong mark.
 - The disconnect guard (enumerateAgentsOnAccount) still counts launch files only, so it does not see an agent still
   running on the account being removed until it restarts. Separate card if wanted.
 - No marker on the old account's row ("X still runs here until it restarts"); the marker on the new row says it.
@@ -37,3 +42,6 @@ running process then reads the new account. Every other agent reads as before.
 That a partial move whose window could not be closed leaves the same tmux session running (same session start). Read
 from remove.js restartInner, not measured on a real partial move. A restart path that recreates the session under the
 same name without the agent moving would clear the mark early (safe direction).
+- (review 2) The read after the restart is fresh (status.sessionStartedAtFromTmux opts.fresh: no cache read or write),
+  so other readers keep their two-second cache; the note is keyed on the cleaned name, the roster's spelling; the
+  route-side note is tested through the session seam (same, new, none, unread, full restart).

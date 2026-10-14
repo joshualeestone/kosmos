@@ -319,3 +319,21 @@ test('#6174 accountmoving: a failed reading marks nobody and keeps the note; ano
   assert.ok(!('x-6174' in accountmoving.notes()), 'another session left the note behind');
   assert.equal(accountmoving.isMoving('never-6174', () => 1), false, 'an agent with no note was marked');
 });
+
+test('#6174 the move route notes a partial move only while the SAME session still runs; a full restart clears it', () => {
+  const { noteMoveOutcome } = require('./server');
+  const status = require('./engine/status');
+  const accountmoving = require('./engine/accountmoving');
+  try {
+    status.setSessionSource(() => 'rt-same\t1000\nrt-new\t2000\n');
+    noteMoveOutcome('rt-same', false, 1000e3);    // partial, the same session after the restart: noted
+    noteMoveOutcome('rt-new', false, 1000e3);     // partial, a new session since (it did relaunch): not noted
+    noteMoveOutcome('rt-gone', false, 1000e3);    // partial, no session (stopped or failed relaunch): not noted
+    noteMoveOutcome('rt-unknown', false, null);   // partial, no start read before: not noted
+    const n = accountmoving.notes();
+    assert.deepEqual(n['rt-same'], { started: 1000e3 }, 'a partial move with the same session running was not noted');
+    for (const k of ['rt-new', 'rt-gone', 'rt-unknown']) assert.ok(!(k in n), k + ' was noted');
+    noteMoveOutcome('rt-same', true, 1000e3);     // a later move that restarted it: cleared
+    assert.ok(!('rt-same' in accountmoving.notes()), 'a full restart left the note');
+  } finally { status.setSessionSource(null); }
+});

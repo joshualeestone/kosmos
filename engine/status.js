@@ -9441,11 +9441,13 @@ function sessionText(now) {
   return SESSION_CACHE.text;
 }
 
-function sessionStartedAtFromTmux(sessionName, now = Date.now()) {
+function sessionStartedAtFromTmux(sessionName, now = Date.now(), opts = {}) {
   const want = String(sessionName == null ? '' : sessionName);
   if (!want) return null;
   let text;
-  try { text = sessionText(now); } catch { return null; }
+  /* #6174: `fresh` reads tmux now and neither uses nor writes the two-second cache, for a caller that must see the
+     session as it is after an action it just took (the account move), without handing other readers its moment. */
+  try { text = opts && opts.fresh === true ? (sessionSource ? sessionSource() : tmuxSessions()) : sessionText(now); } catch { return null; }
   if (text === null || text === undefined) return null;
   for (const line of String(text).split('\n')) {
     if (!line) continue;

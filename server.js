@@ -2611,18 +2611,14 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
   return { usedBy, complete };
 }
 
-/* #6108: every Claude agent on this computer grouped by the account folder it runs on, in ONE pass, for the accounts
-   list (which used to need a full walk per account row). The same reading as enumerateAgentsOnAccount: a job with no
-   configDir runs on the default account; `complete` is false when anything could not be read. */
-/* #6174: an agent whose move came back partial while its session kept running (engine/accountmoving.js) is listed
-   under the account it was moved to, by its launch file, and marked moving there until it restarts. Listed by the
-   launch file on purpose: a stopped agent, or one whose relaunch failed, runs nowhere, so the new row is right for it.
-   The mark needs only tmux's session start (status.sessionStartedAtFromTmux, cached two seconds): no process reads. */
 /* #6174, for the account-move route: the restart, with the agent's session start read before it and the note written
    once the outcome is known. A partial move with the SAME session still running (same start) is noted as still on the old
-   account until it restarts; anything else clears the note. The read after the restart passes a time beyond the
-   2 s session cache, so it is a fresh read. Never throws: the note is not the move. */
-function restartForMove(name) {
+   account until it restarts; anything else clears the note. The read after the restart is fresh (no cache), so it sees
+   the session as the restart left it and hands nothing to other readers. Not covered (accepted, as restartInner
+   accepts it): macOS refusing to stop the launch job after the window closed, where launchd may respawn the old job
+   later under a new session. Never throws: the note is not the move. */
+function restartForMove(rawName) {
+  const name = create.cleanName(rawName) || rawName;   // the roster's spelling, the key the account list reads
   let startedBefore = null;
   try { startedBefore = require('./engine/status').sessionStartedAtFromTmux(name); } catch { startedBefore = null; }
   let back;
@@ -2635,11 +2631,18 @@ function noteMoveOutcome(name, ok, startedBefore) {
   try {
     const accountmoving = require('./engine/accountmoving');
     let startedAfter = null;
-    if (!ok) { try { startedAfter = require('./engine/status').sessionStartedAtFromTmux(name, Date.now() + 2001); } catch { startedAfter = null; } }
+    if (!ok) { try { startedAfter = require('./engine/status').sessionStartedAtFromTmux(name, Date.now(), { fresh: true }); } catch { startedAfter = null; } }
     if (!ok && Number.isFinite(startedBefore) && startedAfter === startedBefore) accountmoving.note(name, startedBefore);
     else accountmoving.clear(name);
   } catch { /* the marker is not the move */ }
 }
+/* #6108: every Claude agent on this computer grouped by the account folder it runs on, in ONE pass, for the accounts
+   list (which used to need a full walk per account row). The same reading as enumerateAgentsOnAccount: a job with no
+   configDir runs on the default account; `complete` is false when anything could not be read. */
+/* #6174: an agent whose move came back partial while its session kept running (engine/accountmoving.js) is listed
+   under the account it was moved to, by its launch file, and marked moving there until it restarts. Listed by the
+   launch file on purpose: a stopped agent, or one whose relaunch failed, runs nowhere, so the new row is right for it.
+   The mark needs only tmux's session start (status.sessionStartedAtFromTmux, cached two seconds): no process reads. */
 function claudeAgentsByAccount() {
   const walk = agentsByAccountWalk('claude', { skipGuide: true });
   let complete = walk.complete;
@@ -24157,7 +24160,7 @@ module.exports = {
   taskFinalWordHint, // #6066: the line a task's holder is told after posting in it, for its test
   ASSIGNER_VIEW, // #6072: the Assigner memory the project list reads, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
-  enumerateAgentsOnAccount, claudeAgentsByAccount, // #6108: the shared walk's two readings (guards count the guide, lists do not), for their tests
+  enumerateAgentsOnAccount, claudeAgentsByAccount, noteMoveOutcome, // #6108 (+ #6174's note): the shared walk's two readings (guards count the guide, lists do not), for their tests
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests
