@@ -26,3 +26,7 @@ the head is skipped for the next one; nothing when there is none. At most 300 ch
 - DMs pass no names, so a DM's preview gets the first question (the whole DM is to that agent).
 - Weakest premise: that the request is one sentence with an @-mention or a question mark. A request phrased as an
   instruction with neither ("Gemini seat: confirm delivery.") gets no request clause; the head and file are unchanged.
+- (round 2) One definition of a mention: mentionedMembers records where it read each member as named (namedAt) and the
+  preview quotes that sentence; requestIn has no matcher of its own. The quoted request cannot close its quotes or
+  open a bracket (double quotes become single, square brackets round). "Already in the head" is by position. The
+  text reaching it has no line breaks (chat.cleanMessage), so a list without punctuation reads as one sentence.

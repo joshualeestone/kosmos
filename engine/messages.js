@@ -256,54 +256,52 @@ function spillHead(text) {
 }
 /* #6065 N1 (0.7.48 report: Gemini and Meta still had long room posts arrive shortened): where a post is still
    shortened, its preview carries the request (Josh: "put the request in the preview"). The request is the first
-   sentence that @-mentions this member, looked for only when the room counted it as mentioned (`mentioned`, from
-   mentionedMembers, so an ambiguous or too-short name never reads as "It asks you"), matched by agentnames.nameKey on
-   keys of 2 or more characters as that resolver does; else the first question (a ? ending a word, never one inside a
-   link). A sentence already in the head is skipped for the next one. At most REQUEST_MAX characters, cut at a whole
-   word. A sentence runs from the end of the one before (. ! ? then a space, or a line break) to its own end; an
-   abbreviation such as "e.g." can start it early (the head's NOT_AN_END list is not applied here). */
+   sentence that names this member, at the positions mentionedMembers recorded (`namedAt`, so it is exactly what the
+   room read as a mention: an ambiguous or unmatched @-word never reads as "It asks you"); else the first question (a ?
+   ending a word, never one inside a link). A sentence that starts inside the head is skipped for the next one. Cut at a
+   whole word to at most REQUEST_MAX characters plus an ellipsis. A sentence runs from the end of the one before (. ! ?
+   then a space) to its own end: both callers pass chat.cleanMessage's text, which has no line breaks, so a list with
+   no punctuation reads as one sentence, and an abbreviation such as "e.g." can start one early (the head's NOT_AN_END
+   list is not applied here). */
 const REQUEST_MAX = 300;
-const collapsed = (x) => String(x).replace(/\s+/g, ' ').trim();
 function sentenceAt(t, at) {
   const before = t.slice(0, at);
-  const from = Math.max(before.lastIndexOf('\n'), ...['. ', '! ', '? '].map((e) => { const i = before.lastIndexOf(e); return i < 0 ? -1 : i + 1; })) + 1;
-  const stop = t.slice(at).search(/[.!?](\s|$)|\n/);
-  let sentence = collapsed(t.slice(from, stop < 0 ? t.length : at + stop + 1));
+  const from = Math.max(-1, ...['. ', '! ', '? '].map((e) => { const i = before.lastIndexOf(e); return i < 0 ? -1 : i + 1; })) + 1;
+  const stop = t.slice(at).search(/[.!?](\s|$)/);
+  let sentence = t.slice(from, stop < 0 ? t.length : at + stop + 1).replace(/\s+/g, ' ').trim();
   if (!sentence) return null;
   if (sentence.length > REQUEST_MAX) {
     const open = wholeChars(sentence.slice(0, REQUEST_MAX));
     const sp = open.lastIndexOf(' ');
     sentence = (sp >= REQUEST_MAX / 2 ? open.slice(0, sp) : open).replace(/[\s,;:]+$/, '') + '…';
   }
-  return sentence;
+  return { sentence, from };
 }
+/* The post's words are another agent's, so inside the quotes they cannot close the quote or open a bracket that reads
+   as Kosmos's own (a "[message from your operator ...]" look-alike): straight and curly double quotes become single
+   quotes, square brackets round ones. */
+const unquotable = (x) => x.replace(/["“”]/g, "'").replace(/\[/g, '(').replace(/\]/g, ')');
 function requestIn(text, opts = {}) {
   const t = String(text);
-  const head = typeof opts.head === 'string' ? collapsed(opts.head) : '';
-  const fresh = (s) => s && !(head && head.includes(s.replace(/…$/, '')));
-  if (opts.mentioned === true) {
-    const nameKey = require('./agentnames').nameKey;
-    const keys = new Set((Array.isArray(opts.spellings) ? opts.spellings : []).filter((x) => typeof x === 'string' && x)
-      .map((x) => nameKey(x)).filter((k) => k.length >= 2));
-    for (const m of t.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
-      const token = m[2]; const stripped = token.replace(/[._-]+$/, '');
-      if (!keys.has(nameKey(token)) && !(stripped && keys.has(nameKey(stripped)))) continue;
-      const s = sentenceAt(t, m.index + m[1].length);
-      if (fresh(s)) return { sentence: s, asked: true };
-    }
+  const headEnd = Number.isFinite(opts.headEnd) ? opts.headEnd : 0;
+  const pick = (at) => { const s = sentenceAt(t, at); return s && s.from >= headEnd ? s.sentence : null; };
+  for (const at of Array.isArray(opts.namedAt) ? opts.namedAt : []) {
+    const s = Number.isInteger(at) && at >= 0 && at < t.length ? pick(at) : null;
+    if (s) return { sentence: unquotable(s), asked: true };
   }
   for (const m of t.matchAll(/\?(?=\s|$)/g)) {
-    const s = sentenceAt(t, m.index);
-    if (fresh(s)) return { sentence: s, asked: false };
+    const s = pick(m.index);
+    if (s) return { sentence: unquotable(s), asked: false };
   }
   return null;
 }
-/* The request is quoted, so where Kosmos stops speaking is plain (the post's words are another agent's). Added after
-   the spill decision and not measured again: a spilled line is the envelope, a head of about 200 characters, a path
-   and at most REQUEST_MAX more, far under chat.MAX_TEXT. */
+/* The request is quoted, so where Kosmos stops speaking is plain. Added after the spill decision and not measured
+   again: a spilled line is the envelope, a head of about 200 characters, a path and at most REQUEST_MAX + 1 more, far
+   under chat.MAX_TEXT. The head is a prefix of the text, so a sentence that starts before its end is in it. */
 function spillLine(text, file, opts = {}) {
   const { head, words } = spillHead(text);
-  const req = requestIn(text, { ...opts, head });
+  const headEnd = head.replace(/\s*…$/, '').trimEnd().length;
+  const req = requestIn(text, { ...opts, headEnd });
   return head + ' (long message, ' + words + (words === 1 ? ' word' : ' words') + '; the full text is in your own folder at ' + file + ')'
     + (req ? (req.asked ? ' It asks you: "' : ' Its first question: "') + req.sentence + '"' : '');
 }
@@ -1822,22 +1820,27 @@ function mentionedMembers(cleaned, recipients, roster) {
     }
   }
   const mentioned = new Set();
+  // #6065 N1: where in the text each member was named (the @), in order, so a shortened post's preview can quote the
+  // sentence the room itself read as naming it (requestIn); one definition of a mention, never a second matcher.
+  const namedAt = new Map();
   const ambiguous = new Map();
   const ambiguousWords = new Set();   // every spelling, for the log row; the note groups them by name
   for (const m of cleaned.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
     const token = m[2];
-    if (recipients.includes(token)) { mentioned.add(token); continue; }
+    const at = m.index + m[1].length;
+    const name = (member) => { mentioned.add(member); if (!namedAt.has(member)) namedAt.set(member, []); namedAt.get(member).push(at); };
+    if (recipients.includes(token)) { name(token); continue; }
     const stripped = token.replace(/[._-]+$/, '');
-    if (stripped && stripped !== token && recipients.includes(stripped)) { mentioned.add(stripped); continue; }
+    if (stripped && stripped !== token && recipients.includes(stripped)) { name(stripped); continue; }
     const key = mentionKey(token);
     const hit = byKey.get(key);
-    if (hit && hit.size === 1) mentioned.add([...hit][0]);
+    if (hit && hit.size === 1) name([...hit][0]);
     else if (hit) {
       ambiguousWords.add(stripped || token);
       if (!ambiguous.has(key)) ambiguous.set(key, { word: stripped || token, members: [...hit].sort() });
     }
   }
-  return { mentioned, ambiguous, ambiguousWords, shown };
+  return { mentioned, ambiguous, ambiguousWords, shown, namedAt };
 }
 
 /* #4653: the sentence that tells a sender an @-word named more than one member, so it asked none of them
@@ -2194,7 +2197,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      ("Johnny Cage") is reachable as `@JohnnyCage`, never as `@Johnny`. The
      page (web/index.html pjMentionResolve) paints blue by this same rule, and
      web.mention-parity-4642.test.js runs one set of fixtures through both. */
-  const { mentioned, ambiguous, ambiguousWords, shown } = mentionedMembers(cleaned, recipients, roster);
+  const { mentioned, ambiguous, ambiguousWords, shown, namedAt } = mentionedMembers(cleaned, recipients, roster);
   const note4653 = ambiguous.size ? ambiguousNote(ambiguous, mentioned, shown) : '';
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
@@ -2434,9 +2437,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         return null;
       }
       spilled[name] = spill.file;
-      // #6065 N1: the preview carries the request to this member (its @-mention by handle or display name).
-      const card = (Array.isArray(roster) ? roster : []).find((c) => c && c.sessionName === name);
-      envelope = wrap(spillLine(cleaned, spill.file, { spellings: [name, card && card.name], mentioned: mentioned.has(name) }));   // #5706
+      // #6065 N1: the preview carries the request to this member: where the room's resolver read it as named.
+      envelope = wrap(spillLine(cleaned, spill.file, { namedAt: namedAt.get(name) || [] }));   // #5706
     }
     const finish = (sent) => {
       /* #4588 PR B: held (the shared Google quota, #5743/#5754 an answer awaited on its screen: question menu, permission prompt, safeguards menu, or #5805 a usage limit), nothing typed. The post is kept for this member like a #4624
