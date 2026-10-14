@@ -187,17 +187,18 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
 /* #5636 F7a (0.7.49 report: a Meta seat met "your last post was 3 hours ago or more" every few hours while the board
    logged one send a day): a runner that keeps one long session (Muse) has the old line in the conversation it rereads
    every turn, and can act on it again. The line therefore says when it was sent, date and time on the board's clock
-   (the same clock the agent reads with date), and that a line with this SAME Sent time is this reminder. Review 1: never
-   "any later line like it", which would let a model skip tomorrow's real reminder (the floor prompt has no opt-out,
-   #5315). That "same Sent time" means the same reminder rests on tickOnce never sending one agent two lines within a
-   minute (sends are TURN_GAP_MS apart); a second sender reusing stamped() would need the same guarantee. Only the
+   (the same clock the agent reads with date), and not to act on it again once acted on (review 3: what a model meeting
+   its one old copy needs). Tied to this one Sent time, never "any later line like it", which would let a model skip
+   tomorrow's real reminder (the floor prompt has no opt-out, #5315). One Sent time names one line because tickOnce
+   never sends one agent two lines within a minute (sends are TURN_GAP_MS apart); a second sender reusing stamped()
+   would need the same guarantee. Only the
    board's caller asks for it (o.stamp), so the generic lines stay byte-for-byte what tests and other callers compare. */
 function stamped(text, now) {
   const d = new Date(Number.isFinite(now) ? now : Date.now());
   const p2 = (n) => String(n).padStart(2, '0');
   const when = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
-  return String(text) + ' (Sent ' + when + '. A line with this same Sent time, met again later in your conversation, is this'
-    + ' reminder, not a new one.)';
+  return String(text) + ' (Sent ' + when + '. If you have already acted on this line, with this Sent time, do not act on it'
+    + ' again.)';
 }
 
 /* Synchronous on purpose: the board's timer has no "pass already running" guard because a pass cannot overlap the next.
