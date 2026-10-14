@@ -9,7 +9,8 @@
  *  - an 82% row draws its meter at 82%, says "82% of its weekly limit used · resets ... · Kosmos last saw it change ...", carries the
  *    warning, and names its agents by their display names (not session names);
  *  - Move offers the other Claude account with its own reading, stays disabled until a target is picked, then sends
- *    one move per agent to the existing per-agent route with the target's dir, and says how many moved;
+ *    one request naming every agent with the target's dir (#6173), reads the move until it is done, and says how many moved
+ *    (an agent the board never confirms, as when it restarted mid-move, is "No answer yet", never moved);
  *  - a row with no reading says so plainly and carries no warning; a 40% row carries no warning;
  *  - an API-key row draws no meter (a key has no weekly limit); an older board's row (no agentsHere) draws nothing;
  *  - an agent name with markup is shown as text;
@@ -95,16 +96,40 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           else if (url.indexOf('/api/accounts') !== -1 && window.__failAccounts > 0) { window.__failAccounts--; return Promise.resolve({ ok: false, status: 503, json: async () => ({}) }); }
           if (url.indexOf('/api/accounts') !== -1 && window.__failNextAccounts) { window.__failNextAccounts = false; return Promise.resolve({ ok: false, status: 503, json: async () => ({}) }); }
           if (url.indexOf('/api/accounts') !== -1) return Promise.resolve({ ok: true, json: async () => ({ accounts: /[?&]agents=1\b/.test(url) ? list() : list().map(({ agentsHere, ...rest }) => rest) }) });
-          const m = url.match(/\/api\/agent\/([^/]+)\/account$/);
-          if (m && opts && opts.method === 'POST') {
-            const agent = decodeURIComponent(m[1]), dir = JSON.parse(opts.body).dir;
-            posts.push({ agent, dir });
-            if (agent === 's-p') return new Promise((r) => setTimeout(() => r({ ok: true, json: async () => ({ outcome: 'partial', because: 'We saved spare@example.com, but could not start it again: the session is busy. It is still on the old account until it restarts.' }) }), 30));
-            if (agent === 's-slow') return new Promise((_, rej) => setTimeout(() => rej(new DOMException('The operation was aborted.', 'AbortError')), 30));   // as the 60 s limit ends it
-            if (agent === 's-z') { where.set(agent, dir); return new Promise((r) => setTimeout(() => r({ ok: true, json: async () => ({ outcome: 'partial', because: 'We saved spare@example.com, but could not start it again: Zed is not running, so there is nothing to restart. It starts itself when this computer is on and it is not removed. It is still on the old account until it restarts.' }) }), 30)); }   // the route's real reply for a stopped agent
-            if (agent === 's-r1' || agent === 's-r2') return new Promise((r) => setTimeout(() => r({ ok: false, json: async () => ({ outcome: 'refused', because: 'That account does not share this computer\'s memory.' }) }), 30));
-            where.set(agent, dir);
-            return new Promise((r) => setTimeout(() => r({ ok: true, json: async () => ({ outcome: 'changed', because: 'moved' }) }), 30));
+          /* #6173: the move is ONE request naming every agent (the board saves each account and answers 202), then reads of
+             the move's record until it is done. s-slow is the board that restarted mid-move: its move's second read is a 404. */
+          const reply = (status, body) => new Promise((r) => setTimeout(() => r({ ok: status >= 200 && status < 300, status, json: async () => body }), 30));
+          if (url === '/api/agents/account' && opts && opts.method === 'POST') {
+            const { dir, names } = JSON.parse(opts.body);
+            window.__moveRequests = (window.__moveRequests || 0) + 1;
+            window.__movesOpen = (window.__movesOpen || 0) + 1;
+            const agents = names.map((agent) => {
+              posts.push({ agent, dir });
+              if (agent === 's-r1' || agent === 's-r2') return { name: agent, outcome: 'refused', because: 'That account does not share this computer\'s memory.' };
+              if (agent === 's-p') return { name: agent, outcome: 'pending', final: { outcome: 'partial', because: 'We saved spare@example.com, but could not start it again: the session is busy. It is still on the old account until it restarts.' } };
+              if (agent === 's-slow') return { name: agent, outcome: 'pending' };
+              where.set(agent, dir);
+              if (agent === 's-z') return { name: agent, outcome: 'pending', final: { outcome: 'partial', because: 'We saved spare@example.com, but could not start it again: Zed is not running, so there is nothing to restart. It starts itself when this computer is on and it is not removed. It is still on the old account until it restarts.' } };   // the route's real sentence for a stopped agent
+              return { name: agent, outcome: 'pending', final: { outcome: 'changed', because: 'moved' } };
+            });
+            const id = 'move-' + window.__moveRequests;
+            const m = { id, reads: 0, agents };
+            (window.__moveRecs = window.__moveRecs || new Map()).set(id, m);
+            const view = () => ({ id, done: m.agents.every((a) => a.outcome !== 'pending'), agents: m.agents.map(({ final, ...a }) => a) });
+            m.view = view;
+            if (view().done) window.__movesOpen--;
+            return reply(202, view());
+          }
+          const rd = url.match(/\/api\/agents\/account-moves\/([^/]+)$/);
+          if (rd) {
+            const m = (window.__moveRecs || new Map()).get(decodeURIComponent(rd[1]));
+            if (!m) return reply(404, {});
+            m.reads++;
+            if (m.reads > 1 && m.agents.some((a) => a.name === 's-slow')) { window.__moveRecs.delete(m.id); window.__movesOpen--; return reply(404, {}); }
+            m.agents.forEach((a) => { if (a.outcome === 'pending' && a.final) Object.assign(a, a.final); });
+            const v = m.view();
+            if (v.done) window.__movesOpen--;
+            return reply(200, v);
           }
           return realFetch(u, opts);
         };
@@ -159,7 +184,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         const runMove = async (email, toDir, expect, once) => {   // once: no forced second click (a move that ends at once would just start again)
           const b = box(email); const sel = b && b.querySelector('[data-acct-move-to]'); const btn = b && b.querySelector('[data-acct-move]');
           if (!sel || !btn) return null;
-          const start = posts.length;
+          const start = posts.length, requestsAt = window.__moveRequests || 0;
           sel.value = toDir; sel.dispatchEvent(new Event('change'));
           const enabled = !btn.disabled;
           btn.click();
@@ -174,8 +199,10 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           const quietMid = !!box(email) && !!psMid && !/Moving/.test(psMid.textContent) && (msgOf(box(email).getAttribute('data-acct-dir')) || '') === '';   // progress is on the button: never in the live region   // progress is on the button, not the live region
           if (again && !once) { if (againSel) { againSel.disabled = false; againSel.value = toDir; } again.disabled = false; again.click(); }
           for (let i = 0; i < 150 && posts.length - start < expect; i++) await new Promise((r) => setTimeout(r, 20));
+          /* #6173: and until the move's record is done (or lost), which takes the page's reads a second apart. */
+          for (let i = 0; i < 400 && (window.__movesOpen || 0) > 0; i++) await new Promise((r) => setTimeout(r, 20));
           await new Promise((r) => setTimeout(r, 400));
-          return { enabled, drawnBusy, quietMid, posts: posts.slice(start) };
+          return { enabled, drawnBusy, quietMid, posts: posts.slice(start), requests: (window.__moveRequests || 0) - requestsAt };
         };
         /* A pick survives a poll's repaint: choose a target, repaint, and the menu still holds it with Move awake. */
         const pb = box('busy@example.com'), ps = pb && pb.querySelector('[data-acct-move-to]');
@@ -264,7 +291,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!r.sleepyMove && r.sleepyMove.msg === 'Moved Zed (stopped). It is not running now.', tag + ' moving a stopped agent reads as moved, still stopped, through the route\'s real reply', JSON.stringify(r.sleepyMove));
       say(!!busy && busy.btnDisabled === true, tag + ' Move is disabled until a target is picked');
       say(r.pickKept === true, tag + ' a picked target survives a repaint, with Move awake');
-      say(!!r.moved && r.moved.enabled && r.moved.posts.length === 2 && r.moved.posts.every((p) => p.dir === '/home/.claude-spare') && r.moved.posts.map((p) => p.agent).sort().join() === 's-dana,s-eli', tag + ' Move sends one move per agent to the picked account, once (a forced click on the repainted button adds nothing), never the guide', JSON.stringify(r.moved));
+      say(!!r.moved && r.moved.enabled && r.moved.requests === 1 && r.moved.posts.length === 2 && r.moved.posts.every((p) => p.dir === '/home/.claude-spare') && r.moved.posts.map((p) => p.agent).sort().join() === 's-dana,s-eli', tag + ' Move sends one request naming each agent once, to the picked account (a forced click on the repainted button adds nothing), never the guide (#6173)', JSON.stringify(r.moved));
       say(!!r.moved && !!r.moved.spoken && r.moved.spoken.role === 'status' && r.moved.spoken.text === 'Moved 2 agents. They restart on the new account.', tag + ' the result is spoken by the panel\'s persistent status line, not a region the repaint replaced', JSON.stringify(r.moved && r.moved.spoken));
       say(!!r.moved && r.moved.drawnBusy, tag + ' a repaint mid-move draws the button busy ("Moving…", disabled)', JSON.stringify(r.moved));
       say(!!r.moved && r.moved.quietMid, tag + ' mid-move the live region is silent (a screen reader hears the result once)', JSON.stringify(r.moved));

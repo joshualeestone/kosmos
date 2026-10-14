@@ -27413,8 +27413,12 @@ function acctMoveNote(cards) {
   /* Some are stopped or their state is not known: no count of restarts that the route may not keep. */
   return 'Moving restarts the running ones on the new account.' + (stopped ? ' Any that are not running now are not started.' : '');
 }
-/* #6108: move every agent this computer has on `fromDir` to `toDir`, one at a time through the same route the agent's
-   own page uses, and say how it went in one line: the engine's own sentence for any that did not move. */
+/* #6108: move every agent this computer has on `fromDir` to `toDir`, and say how it went in one line: the engine's own
+   sentence for any that did not move.
+   #6173: in ONE request (POST /api/agents/account), which answers once every account is saved; the board then
+   restarts them one at a time without holding the request, and this reads the move's record until it is done. An
+   agent the record never confirms (no answer in time, or a board that restarted and lost the move: 404) is said as
+   not confirmed yet, never as moved. */
 async function moveAccountAgents(fromDir, toDir, names, onProgress, stoppedAtClick) {
   let moved = 0; const movedStopped = [];
   const wasStopped = stoppedAtClick instanceof Set ? stoppedAtClick : new Set();
@@ -27422,24 +27426,51 @@ async function moveAccountAgents(fromDir, toDir, names, onProgress, stoppedAtCli
   const add = (m, why, who) => { if (!m.has(why)) m.set(why, []); m.get(why).push(who); };
   const nameOf = (n) => (((LAST || []).find((x) => x && x.sessionName === n) || {}).name || n);
   const end = (t) => t + (/[.!?]$/.test(t) ? '' : '.');
-  for (const [i, n] of names.entries()) {
-    /* A move that never answers must not hold the row disabled for the life of the page. The limit covers the reply's
-       body too. A timeout is NOT a failure: the route works before it answers, so the agent may well have moved. */
+  /* A request that never answers must not hold the row disabled for the life of the page: each one has a limit. */
+  const limited = async (url, init, ms) => {
     const ctl = typeof AbortController === 'function' ? new AbortController() : null;
-    const timer = ctl ? setTimeout(() => ctl.abort(), 60e3) : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), ms) : null;
     try {
-      const res = await fetch('/api/agent/' + encodeURIComponent(n) + '/account', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: toDir }), ...(ctl ? { signal: ctl.signal } : {}) });
+      const res = await fetch(url, { ...(init || {}), ...(ctl ? { signal: ctl.signal } : {}) });
       const out = await res.json().catch((e) => { if (e && e.name === 'AbortError') throw e; return null; });
-      if (res.ok && out && out.outcome === 'changed') moved++;
-      /* Stopped, saved, and not started, as the note said: only when the card said stopped AND the engine's own sentence
-         says so. A partial for any other reason (a stale card, a window it could not close) keeps the engine's words. */
-      else if (res.ok && out && out.outcome === 'partial' && wasStopped.has(n) && /is not running, so there is nothing to restart/.test(String(out.because || ''))) movedStopped.push(nameOf(n));
-      else if (res.ok && out && out.outcome === 'partial') add(restarting, (out.because || '').trim(), nameOf(n));   // saved; still on the old one until it restarts
-      else add(misses, (out && (out.because || out.error)) || 'that did not work', nameOf(n));
-    } catch (e) {
-      if (e && e.name === 'AbortError') silent.push(nameOf(n)); else add(misses, 'that did not work', nameOf(n));
+      return { res, out };
     } finally { if (timer) clearTimeout(timer); }
-    if (onProgress) onProgress(i + 1, names.length);
+  };
+  let last = null;   // the move as the board last told it
+  try {
+    const { res, out } = await limited('/api/agents/account', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: toDir, names }) }, 60e3);
+    if (res.ok && out && out.id && Array.isArray(out.agents)) last = out;
+    else for (const n of names) add(misses, (out && (out.because || out.error)) || 'that did not work', nameOf(n));
+  } catch (e) {
+    /* A timeout is NOT a failure: the route saves before it answers, so the accounts may well have moved. */
+    for (const n of names) { if (e && e.name === 'AbortError') silent.push(nameOf(n)); else add(misses, 'that did not work', nameOf(n)); }
+  }
+  if (last) {
+    const finished = (m) => m.agents.filter((a) => a && a.outcome !== 'pending').length;
+    if (onProgress) onProgress(finished(last), names.length);
+    /* Long enough for every restart to take its full wait, and a bound, so a stuck read still ends in a sentence. */
+    const until = Date.now() + 15e3 + names.length * 60e3;
+    let misreads = 0;
+    while (!last.done && Date.now() < until && misreads < 5) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        const { res, out } = await limited(`/api/agents/account-moves/${encodeURIComponent(last.id)}`, {}, 10e3);
+        if (res.status === 404) break;   // this board does not know the move any more (it restarted): not confirmed
+        if (res.ok && out && Array.isArray(out.agents)) { last = out; misreads = 0; if (onProgress) onProgress(finished(last), names.length); }
+        else misreads++;
+      } catch { misreads++; }
+    }
+  }
+  const told = new Map(((last && last.agents) || []).map((a) => [a.name, a]));
+  for (const n of (last ? names : [])) {
+    const a = told.get(n);
+    if (!a || a.outcome === 'pending') { silent.push(nameOf(n)); continue; }
+    if (a.outcome === 'changed') moved++;
+    /* Stopped, saved, and not started, as the note said: only when the card said stopped AND the engine's own sentence
+       says so. A partial for any other reason (a stale card, a window it could not close) keeps the engine's words. */
+    else if (a.outcome === 'partial' && wasStopped.has(n) && /is not running, so there is nothing to restart/.test(String(a.because || ''))) movedStopped.push(nameOf(n));
+    else if (a.outcome === 'partial') add(restarting, (a.because || '').trim(), nameOf(n));   // saved; still on the old one until it restarts
+    else add(misses, a.because || 'that did not work', nameOf(n));
   }
   const parts = [];
   if (moved) parts.push('Moved ' + moved + (moved === 1 ? ' agent. It restarts on the new account.' : ' agents. They restart on the new account.'));
