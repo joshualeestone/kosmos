@@ -34,7 +34,8 @@ case "$me" in
     [ -z "${FX_CRON:-}" ] && { echo "crontab: no crontab for ${FX_WHO:-agent1}" >&2; exit 1; }; printf '%s\n' "$FX_CRON" ;;
   pgrep)
     [ "${FX_PGREP_FAIL:-0}" = 1 ] && exit 3
-    case "$*" in *Runner.Listener*) [ "${FX_LISTENER:-1}" = 1 ] || exit 1; echo 4343; exit 0 ;; esac
+    # A Listener runs while this runner dir's svc state is "started" (cwd is the runner dir), with the pid start gave it.
+    case "$*" in *Runner.Listener*) [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ] || exit 1; cat .svc-pid 2>/dev/null || echo 4343; exit 0 ;; esac
     case "$*" in *Runner.Worker*) [ "${FX_WORKER:-0}" = 1 ] || exit 1; echo 4242; exit 0 ;; esac
     [ -z "${FX_LIVE:-}" ] && exit 1; printf '%s\n' "$FX_LIVE" ;;
   df) printf 'Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/disk3s1 239362496 1 %s 50%% /\n' "${FX_FREE_KIB:-31457280}" ;;
@@ -47,6 +48,7 @@ case "$me" in
       -u) echo 777 ;;
       *) [ "${FX_CI_EXISTS:-0}" = 1 ] || [ -f "$(dirname "$CALL_LOG")/user-created" ] || { echo "id: $1: no such user" >&2; exit 1; }; echo "uid=777($1)" ;;
     esac ;;
+  xcode-select) [ "${FX_NO_CLT:-0}" = 1 ] && exit 2; echo /Library/Developer/CommandLineTools ;;
   ps) [ "${FX_PS_FAIL:-0}" = 1 ] && exit 1
     # An idle runner as svc.sh starts it (actions/runner runsvc.sh): its service host is node.
     printf '%s\n' "/bin/bash /Users/kosmos-ci/actions-runner/runsvc.sh" "./externals/node24/bin/node ./bin/RunnerService.js" \
@@ -81,13 +83,14 @@ case "$me" in
     case "$1" in
       status) if [ "${FX_SVC_STUCK:-0}" = 1 ] || [ "$(cat "$st" 2>/dev/null)" = started ]; then echo "Started"; else echo "Stopped"; fi ;;
       stop) echo stopped > "$st" ;;
-      start) [ "${FX_SVC_START_FAIL:-0}" = 1 ] && exit 1; echo started > "$st" ;;
+      start) [ "${FX_SVC_START_FAIL:-0}" = 1 ] && exit 1; echo started > "$st"
+        [ "${FX_SAME_PID:-0}" = 1 ] || echo $(( $(cat "$(dirname "$0")/.svc-pid" 2>/dev/null || echo 4343) + 1 )) > "$(dirname "$0")/.svc-pid" ;;
     esac ;;
 esac
 exit 0
 STUB
 chmod +x "$BIN/_stub"
-for c in launchctl crontab pgrep df fdesetup pmset id ps gh curl sudo sysadminctl tar; do ln -s _stub "$BIN/$c"; done
+for c in launchctl crontab pgrep df fdesetup pmset id ps gh curl sudo sysadminctl tar xcode-select; do ln -s _stub "$BIN/$c"; done
 mkdir -p "$T/sysagents"; : > "$T/sysagents/com.openssh.ssh-agent.plist"   # Apple ships it under /System/Library
 BREWD="$T/brew"; mkdir -p "$BREWD/bin"
 printf '#!/bin/bash\necho "${FX_TMUX_V:-tmux 3.6a}"\n' > "$BREWD/bin/tmux"; printf '#!/bin/bash\n' > "$BREWD/bin/pwsh"; chmod +x "$BREWD/bin/"*
@@ -125,7 +128,9 @@ refuse launchd "non-Apple launchd job(s) still loaded" FX_JOBS=com.kosmos.board
 refuse crontab "crontab still has lines" "FX_CRON=*/10 * * * * mcp-sweep-alert.sh"
 refuse suite "a suite looks live on this Mac" "FX_LIVE=123 bash tools/run-tests.sh"
 refuse disk "under the 20 GiB floor" FX_FREE_KIB=10485760
-refuse filevault "FileVault is not off" "FX_FV=FileVault is On."
+refuse filevault "FileVault is not plainly off" "FX_FV=FileVault is On."
+refuse filevault-deferred "FileVault is not plainly off" "FX_FV=FileVault is Off, but will be enabled after the next restart."
+refuse no-clt "no Command Line Tools" FX_NO_CLT=1
 refuse sleep "system sleep is not 'never'" FX_SLEEP=10
 refuse autorestart "autorestart is not 1" FX_AUTORESTART=0
 refuse launchctl-unreadable "could not read launchctl print gui/" FX_LAUNCHCTL_FAIL=1
@@ -152,6 +157,8 @@ refuse bad-allow-ere "KOSMOS_CI_ALLOW_JOBS is not a valid ERE" FX_JOBS=com.kosmo
 for n in launchctl-unreadable bad-allow-ere; do
   ! has "pf-$n" "no non-Apple launchd jobs loaded" && pass "preflight $n: no false 'no jobs loaded' line beside the refusal" || fail "preflight $n printed 'no non-Apple launchd jobs loaded' though it could not tell"
 done
+run pf-allow-dash "$H" FX_JOBS=io.tailscale.ipn.helper KOSMOS_CI_ALLOW_JOBS='-nomatch|^io\.tailscale\.' -- preflight
+[ "$(rc pf-allow-dash)" = 0 ] && pass "preflight: an allow list starting with '-' is a pattern, not a grep option" || fail "allow list with '-': $(grep REFUSE "$T/pf-allow-dash.out")"
 run pf-allow "$H" FX_JOBS=io.tailscale.ipn.helper KOSMOS_CI_ALLOW_JOBS='^io\.tailscale\.' -- preflight
 [ "$(rc pf-allow)" = 0 ] && pass "preflight: an allowed job (KOSMOS_CI_ALLOW_JOBS) does not refuse" || fail "allow-list: $(grep REFUSE "$T/pf-allow.out")"
 mv "$BREWD/bin/pwsh" "$T/pwsh.away"
@@ -194,6 +201,8 @@ run cu-groups "$H" FX_GROUPS_FAIL=1 -- --apply create-user
 [ "$(rc cu-groups)" = 1 ] && has cu-groups "could not read kosmos-ci's groups" && pass "create-user stops when the new user's groups cannot be read" || fail "create-user groups unreadable: rc $(rc cu-groups): $(tail -1 "$T/cu-groups.out")"
 run pf-groups "$H" FX_CI_EXISTS=1 FX_GROUPS_FAIL=1 -- preflight
 [ "$(rc pf-groups)" = 1 ] && has pf-groups "could not read kosmos-ci's groups" && pass "preflight: unreadable groups refuse rather than read as standard" || fail "preflight groups: rc $(rc pf-groups)"
+run cu-note "$H" FX_WHO=someone -- create-user
+[ "$(grep -c 'runs as agent1' "$T/cu-note.out")" = 1 ] && pass "create-user dry run by another user says who it runs as once" || fail "create-user note count: $(grep -c 'runs as agent1' "$T/cu-note.out")"
 run cu-exists "$H" FX_CI_EXISTS=1 -- --apply create-user
 [ "$(rc cu-exists)" = 1 ] && ! changed cu-exists >/dev/null && pass "create-user refuses when kosmos-ci exists" || fail "create-user exists: rc $(rc cu-exists)"
 
@@ -281,6 +290,9 @@ R10="$T/run10"; svc_home "$R10"
 run in-nolistener "$R10" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R10" FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply install "$C" "$G"
 [ "$(rc in-nolistener)" = 1 ] && has in-nolistener "no Runner.Listener is running" && ! has in-nolistener "runner started again" \
   && pass "install --apply fails when the runner loads but no Listener comes up" || fail "install no listener: rc $(rc in-nolistener): $(tail -1 "$T/in-nolistener.out")"
+R11="$T/run11"; svc_home "$R11"; echo 5000 > "$R11/actions-runner/.svc-pid"
+run in-oldlistener "$R11" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R11" FX_SAME_PID=1 KOSMOS_CI_START_WAIT_S=1 -- --apply install "$C" "$G"
+[ "$(rc in-oldlistener)" = 1 ] && has in-oldlistener "no Runner.Listener is running" && pass "install --apply does not take the old Listener for a restarted one" || fail "install old listener: rc $(rc in-oldlistener): $(tail -1 "$T/in-oldlistener.out")"
 R4="$T/run4"; mkdir -p "$R4/actions-runner"; printf 'RUNNER_KEEP=1\n' > "$R4/actions-runner/.env"; chmod 000 "$R4/actions-runner/.env"
 run in-unread "$R4" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R4" -- --apply install "$C" "$G"
 chmod 600 "$R4/actions-runner/.env"
@@ -338,7 +350,7 @@ vcase unwired 1 "the job guard is not wired"
 { cat "$T/vci.env"; echo "ACTIONS_RUNNER_HOOK_JOB_STARTED=/tmp/elsewhere.sh"; } > "$VCI/actions-runner/.env"
 vcase hook-twice 1 "sets ACTIONS_RUNNER_HOOK_JOB_STARTED more than once"
 cp "$T/vci.env" "$VCI/actions-runner/.env"; chmod 000 "$VCI/actions-runner"
-vcase home-hidden 0 "cannot look inside"
+vcase home-hidden 3 "check(s) could not be made"
 chmod 755 "$VCI/actions-runner"
 ! has v-home-hidden "install has not run here" && ! has v-home-hidden "no $VCI/actions-runner/.path here" && pass "verify: a runner dir it cannot enter is not called missing" || fail "verify hidden dir read as missing"
 cp "$T/vci.env" "$VCI/actions-runner/.env"; chmod 644 "$VCI/.kosmos-ci/job-guard.sh"

@@ -67,10 +67,8 @@ say() { printf '== %s\n' "$*"; }
 act() {
   if [ "$APPLY" = 1 ]; then "$@"; else printf 'WOULD:'; printf ' %q' "$@"; printf '\n'; fi
 }
-# act_write <path> <mode>: stdin becomes the file, or is described.
-act_write() {
-  if [ "$APPLY" = 1 ]; then cat > "$1"; chmod "$2" "$1"; else printf 'WOULD: write %s (mode %s):\n' "$1" "$2"; sed 's/^/    | /'; fi
-}
+# put <path> <mode>: stdin becomes the file. Only used past a stage's dry-run return.
+put() { cat > "$1"; chmod "$2" "$1"; }
 mode_line() { if [ "$APPLY" = 1 ]; then say "APPLYING $STAGE"; else say "DRY RUN of $STAGE (nothing changes; --apply to do it)"; fi; }
 need_user() {
   if [ "$(id -un)" = "$1" ]; then
@@ -95,6 +93,8 @@ is_admin() { local g; g="$(id -Gn "$1")" || return 2; case " $g " in *" admin "*
 PROBLEMS=0
 problem() { if [ "$STAGE" = verify ]; then printf 'PROBLEM: %s\n' "$*"; else printf 'REFUSE: %s\n' "$*"; fi; PROBLEMS=$((PROBLEMS + 1)); }
 ok() { printf 'ok:     %s\n' "$*"; }
+UNCHECKED=0
+unchecked() { printf 'UNCHECKED: %s\n' "$*"; UNCHECKED=$((UNCHECKED + 1)); }
 
 # repo_variable <name>: prints its value ("" when set but empty), "<unset>" on a 404, or fails when it cannot tell.
 # One variable by name, so no listing page can hide it.
@@ -126,7 +126,7 @@ shards_check() {
 }
 
 preflight() {
-  need_user "$OWNER"
+  [ "${1:-}" = --from-create ] || need_user "$OWNER"   # create-user has already said who it runs as
   say "runbook part 3, step 0: the agents have left this Mac"
   # Explicit status checks throughout: create-user calls preflight inside `||`, where set -e is off, and a failed
   # read must refuse there too rather than read as empty.
@@ -140,8 +140,8 @@ preflight() {
     | while IFS= read -r l; do [ -f "$SYSTEM_AGENTS/$l.plist" ] || printf '%s\n' "$l"; done)"   # com.openssh.ssh-agent
   if [ -n "$ALLOW_JOBS" ]; then
     # grep exits 2 on a bad pattern and prints nothing, which would clear every job.
-    printf 'x\n' | grep -E "$ALLOW_JOBS" >/dev/null 2>&1 || [ $? = 1 ] || { problem "KOSMOS_CI_ALLOW_JOBS is not a valid ERE: $ALLOW_JOBS"; jobs=""; unknown=1; }
-    [ -z "$jobs" ] || jobs="$(printf '%s\n' "$jobs" | grep -v -E "$ALLOW_JOBS" || true)"
+    printf 'x\n' | grep -E -e "$ALLOW_JOBS" >/dev/null 2>&1 || [ $? = 1 ] || { problem "KOSMOS_CI_ALLOW_JOBS is not a valid ERE: $ALLOW_JOBS"; jobs=""; unknown=1; }
+    [ -z "$jobs" ] || jobs="$(printf '%s\n' "$jobs" | grep -v -E -e "$ALLOW_JOBS" || true)"
   fi
   if [ -n "$jobs" ]; then
     problem "$(printf '%s\n' "$jobs" | grep -c .) non-Apple launchd job(s) still loaded for $(id -un) (bootout + disable each, runbook part 3 step 0): $(printf '%s\n' "$jobs" | head -5 | tr '\n' ' ')(KOSMOS_CI_ALLOW_JOBS=<ERE> keeps one deliberately)"
@@ -167,9 +167,10 @@ preflight() {
   case "$free_kib$MIN_FREE_GIB" in ''|*[!0-9]*) problem "could not read free disk (df gave '$free_kib', floor '$MIN_FREE_GIB')"; free_kib=0; MIN_FREE_GIB=0 ;; esac
   if [ "$((free_kib / 1048576))" -lt "$MIN_FREE_GIB" ]; then problem "$((free_kib / 1048576)) GiB free, under the ${MIN_FREE_GIB} GiB floor"
   else ok "$((free_kib / 1048576)) GiB free"; fi
+  # The exact line: "FileVault is Off, but will be enabled after the next restart." is not off for long.
   case "$(fdesetup status 2>&1)" in
-    *"FileVault is Off"*) ok "FileVault off (auto-login is possible)" ;;
-    *) problem "FileVault is not off: auto-login, which the runner's LaunchAgent needs after a restart, is impossible" ;;
+    "FileVault is Off.") ok "FileVault off (auto-login is possible)" ;;
+    *) problem "FileVault is not plainly off ($(fdesetup status 2>&1 | head -1)): auto-login, which the runner's LaunchAgent needs after a restart, is impossible" ;;
   esac
   local pm
   pm="$(pmset -g 2>&1 || true)"
@@ -187,6 +188,9 @@ preflight() {
       *) ok "$BREW/bin/tmux ($tv)" ;;
     esac
   else problem "no $BREW/bin/tmux (the engine's fixed fallback; build one: baron-jobs/ci-mini-build-tmux.sh)"; fi
+  # Jobs check out with git; without the Command Line Tools /usr/bin/git is only a stub that asks to install them.
+  if xcode-select -p >/dev/null 2>&1; then ok "Command Line Tools present (git)"
+  else problem "no Command Line Tools (xcode-select -p fails): /usr/bin/git cannot run for jobs; xcode-select --install"; fi
   if [ -x "$BREW/bin/pwsh" ]; then ok "$BREW/bin/pwsh"
   else problem "no $BREW/bin/pwsh (install one: baron-jobs/ci-mini-install-pwsh.sh)"; fi
 
@@ -215,7 +219,7 @@ preflight() {
 create_user() {
   need_user "$OWNER"
   if id "$CI_USER" >/dev/null 2>&1; then echo "refused: $CI_USER already exists (preflight says whether it is standard)" >&2; exit 1; fi
-  preflight || { echo "refused: preflight did not pass, nothing created" >&2; exit 1; }
+  preflight --from-create || { echo "refused: preflight did not pass, nothing created" >&2; exit 1; }
   mode_line
   # A STANDARD user: no -admin. `-password -` prompts, so the password is never in an argv or this log.
   act sudo sysadminctl -addUser "$CI_USER" -fullName "Kosmos CI" -shell /bin/zsh -home "$CI_HOME" -password -
@@ -264,7 +268,7 @@ install_runner() {
   mkdir -p "$RUNNER_DIR" "$CI_DIR"; cd "$RUNNER_DIR"
   # Every download and read before the runner is touched, so a refusal never leaves it stopped; after the stop, an
   # EXIT trap starts it again on any failure.
-  local newg="$CI_DIR/job-guard.sh.new" got rel ver tgz pub have was_running=0 sv
+  local newg="$CI_DIR/job-guard.sh.new" got rel ver tgz pub have was_running=0 sv old_listener="" now_listener
   curl -fsSL "https://raw.githubusercontent.com/$REPO/$commit/tools/ci-runner-job-guard.sh" -o "$newg" \
     || { rm -f "$newg"; echo "could not fetch the job guard at $commit: nothing changed" >&2; exit 1; }
   got="$(shasum -a 256 "$newg" | cut -d' ' -f1)"
@@ -296,6 +300,8 @@ install_runner() {
   # Running is read from svc.sh only: a runner started by hand with ./run.sh reads as stopped and is unpacked over.
   if [ -x ./svc.sh ]; then
     sv="$(./svc.sh status 2>&1 || true)"
+    # The Listener that runs now, so the wait after the restart can require a new one.
+    old_listener="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"
     case "$sv" in *Started*) was_running=1; ./svc.sh stop >/dev/null 2>&1 || true ;; esac
     if [ "$was_running" = 1 ]; then
       case "$(./svc.sh status 2>&1 || true)" in
@@ -315,7 +321,7 @@ install_runner() {
   echo "runner $ver unpacked in $RUNNER_DIR; job guard installed from $commit, sha256 $got"
   # Job hooks. NOT a fresh VM: the checkout and ~ persist between jobs. They end what a previous job left running,
   # and only THIS user's: the agents' processes (another user) are never touched.
-  act_write "$CI_DIR/job-cleanup.sh" 755 <<'HOOK'
+  put "$CI_DIR/job-cleanup.sh" 755 <<'HOOK'
 #!/bin/bash
 # Ends what a job left running. kosmos-ci is a DEDICATED user and no step runs while a hook does, so every tmux
 # server and node process of this user is a leftover. The runner's own service host IS node (RunnerService.js), but
@@ -323,7 +329,7 @@ install_runner() {
 pkill -u "$(id -u)" -x tmux 2>/dev/null || true
 pkill -u "$(id -u)" -x node 2>/dev/null || true
 HOOK
-  act_write "$CI_DIR/job-completed.sh" 755 <<'HOOK'
+  put "$CI_DIR/job-completed.sh" 755 <<'HOOK'
 #!/bin/bash
 # Located by its own path: the hooks live beside each other. The job's temp is emptied AFTER a job only: at job
 # start it holds the event payload the guard reads.
@@ -332,7 +338,7 @@ D="$(cd "$(/usr/bin/dirname "$0")" && pwd -P)" || exit 1
 TMPD="$(cd "$D/../actions-runner/_work/_temp" 2>/dev/null && pwd -P)" || exit 0
 case "${RUNNER_TEMP:-}" in "$TMPD") rm -rf "${TMPD:?}"/* 2>/dev/null || true ;; esac
 HOOK
-  act_write "$CI_DIR/job-started.sh" 755 <<'HOOK'
+  put "$CI_DIR/job-started.sh" 755 <<'HOOK'
 #!/bin/bash
 # Guard first: a refused job fails here, before cleanup and before any of its steps.
 D="$(cd "$(/usr/bin/dirname "$0")" && pwd -P)" || exit 1
@@ -352,9 +358,10 @@ HOOK
   rm -f "$tgz"
   if [ "$was_running" = 1 ]; then
     ./svc.sh start || { echo "FAILED to start the runner again (./svc.sh start in $RUNNER_DIR): it is stopped" >&2; exit 1; }
-    # svc.sh start is a launchctl load: it succeeds for a service that dies at once. A Listener must appear.
+    # svc.sh start is a launchctl load: it succeeds for a service that dies at once. A NEW Listener must appear (the
+    # old one may still be shutting down).
     local waited=0
-    until pgrep -u "$(id -u)" -x Runner.Listener >/dev/null; do
+    while now_listener="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"; [ -z "$now_listener" ] || [ "$now_listener" = "$old_listener" ]; do
       [ "$waited" -lt "${KOSMOS_CI_START_WAIT_S:-30}" ] || { echo "FAILED: the runner was loaded but no Runner.Listener is running after ${waited}s; see ~/Library/Logs/actions.runner.*/stderr.log" >&2; exit 1; }
       sleep 1; waited=$((waited + 1))
     done
@@ -422,9 +429,9 @@ EOF
   # -e cannot see into a home the caller may not traverse, so a hidden .env is "cannot read", not "missing".
   local hidden=0
   if [ -d "$CI_HOME" ] && { [ ! -x "$CI_HOME" ] || { [ -d "$RUNNER_DIR" ] && [ ! -x "$RUNNER_DIR" ]; }; }; then
-    hidden=1; echo "note:   cannot look inside $RUNNER_DIR as $(id -un); its .env, hooks and KOSMOS_ keys are unchecked"
+    hidden=1; unchecked "cannot look inside $RUNNER_DIR as $(id -un); its .env, hooks and KOSMOS_ keys"
   elif [ ! -e "$RUNNER_DIR/.env" ]; then problem "no $RUNNER_DIR/.env: install has not run here, so no job guard is wired"
-  elif [ ! -r "$RUNNER_DIR/.env" ]; then echo "note:   cannot read $RUNNER_DIR/.env as $(id -un); its hooks and KOSMOS_ keys are unchecked"
+  elif [ ! -r "$RUNNER_DIR/.env" ]; then unchecked "cannot read $RUNNER_DIR/.env as $(id -un); its hooks and KOSMOS_ keys"
   else
     if grep -q -E '^[[:space:]]*(export[[:space:]]+)?KOSMOS_' "$RUNNER_DIR/.env"; then problem "$RUNNER_DIR/.env sets a KOSMOS_ variable: remove it"
     else ok "$RUNNER_DIR/.env sets no KOSMOS_ variable"; fi
@@ -441,7 +448,7 @@ EOF
       [ -x "$CI_DIR/$f" ] || problem "$CI_DIR/$f is missing or not executable"
     done
     [ ! -r "$CI_DIR/job-guard.sh" ] || echo "note:   job guard sha256 $(shasum -a 256 "$CI_DIR/job-guard.sh" | cut -d' ' -f1) (compare with the install pin)"
-  else echo "note:   cannot read $CI_DIR as $(id -un); the hook files are unchecked"; fi
+  else unchecked "cannot read $CI_DIR as $(id -un); the hook files"; fi
   # .env's PATH wins for jobs (see RUNNER_PATH), so a different .path is a note, not a problem. config.sh refills it
   # from its own shell, so a re-register (./svc.sh uninstall and ./config.sh remove first) can undo register's.
   if [ "$hidden" = 1 ]; then :
@@ -468,6 +475,8 @@ EOF
     else problem "$CI_USER still runs: $(printf '%s\n' "$left" | sort | uniq -c | tr -s ' ' | tr '\n' ' ')with no job in flight"; fi
   fi
   if [ "$PROBLEMS" -gt 0 ]; then say "verify: $PROBLEMS problem(s)"; return 1; fi
+  # Whether the job guard is wired is what verify exists to say; a check it could not make is not a pass.
+  if [ "$UNCHECKED" -gt 0 ]; then say "verify: no problem found, but $UNCHECKED check(s) could not be made (run it where $CI_USER's files are readable)"; return 3; fi
   say "verify: clear"
 }
 
