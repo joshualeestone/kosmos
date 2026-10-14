@@ -11169,7 +11169,13 @@ const server = http.createServer(async (req, res) => {
           const now = openaiPending.has(a.dir) ? codexsigninlive.checkState(a.dir) : null;
           const pending = a.connection && a.connection.state === 'unknown' && (now === 'running'
             || (now === 'fresh' && codexsigninlive.livenessCached(a.dir).verdict !== 'unknown'));
+          /* #6176 slice 2: a ChatGPT sign-in's plan limits as Codex last reported them in its own session files
+             (engine/codexlimits.js), or null: none reported yet, or every window it reported is over. An API key has no
+             plan limits, so its row carries none. */
+          let limits = null;
+          if (a.authMode === 'chatgpt' && a.dir) { try { limits = require('./engine/codexlimits').read(a.dir, nowMs); } catch { limits = null; } }
           const base = { ...a, offerable: !named || path.resolve(String(a.dir || '')) === onlyDir,
+            ...(a.authMode === 'chatgpt' ? { limits } : {}),
             ...(pending ? { connection: { ...a.connection, liveCheckPending: true } } : {}) };
           /* #4064: a ChatGPT sign-in's live check answer is recorded on its dir by codexsigninlive (dated when it was
              learned, as the Grok check's is), so it stays green for the observed freshness window rather than only the
