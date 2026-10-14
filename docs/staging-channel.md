@@ -195,7 +195,8 @@ put the board back, because `bin/kosmos` is gone. So a ROLLBACK of `/setup` or `
 than 0.7.45 breaks the next update of every Mac and Linux install a later build has touched. Nothing in the
 tools refuses such a rollback. The way out for a person it happens to is `chmod -R u+w` on the app folder
 (`~/.local/share/kosmos/app`) and the install line again, which nothing on their screen tells them. If an
-installer that old must be served, serve it only after confirming no install was updated by 0.7.48 or later.
+installer that old must be served, serve it only after confirming no install was updated by the release that
+carries kosmos#4455, or a later one.
 
 ## Windows (the same model, two more pointers)
 
