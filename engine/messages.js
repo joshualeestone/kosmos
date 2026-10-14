@@ -1109,21 +1109,31 @@ function staleHeld(projectId, ids, log, now, member) {
     }
     /* N7 (10-13 19:31Z, a Meta seat): the member answered a whole round in ONE reply, to the round's newest post, and
        the round's other posts were told to it again as new. So a reply to another's post X also answers the posts
-       before X that a room read showing X shows by default: at most the ROOM_READ_ROWS - 1 rows before it, of the
-       kinds the read shows, in the order it shows them (server.js caps outside rows, so a read can reach further back,
-       never less far). */
+       before X that any default room read showing X, made before the member's first reply to X, showed: the
+       ROOM_READ_ROWS - 1 rows before X, less one for each row after X and before that reply, of the kinds the read
+       shows, in the order it shows them (server.js). Outside rows count as full slots, which the read's outside cap
+       only makes smaller. */
     const covered = new Set();
-    /* Rows older than the oldest held post sit before all of them in the read, so they move no held post's distance
-       to X and are not scanned. A row whose time does not parse is kept (it still takes a slot). */
-    let oldestWanted = Infinity;
-    for (const r of rows) if (r && r.kind === 'post' && r.project === projectId && want.has(r.id)) oldestWanted = Math.min(oldestWanted, Date.parse(r.at));
-    if (answered.size && Number.isFinite(oldestWanted)) {
-      const room = rows.filter((r) => r && r.project === projectId && ROOM_READ_KINDS.has(r.kind) && !(Date.parse(r.at) < oldestWanted))
+    if (answered.size) {
+      const firstReply = new Map();
+      for (const r of rows) {
+        if (!r || r.kind !== 'post' || r.project !== projectId || r.from !== member || !answered.has(r.replyTo)) continue;
+        const v = Date.parse(r.at);
+        if (!firstReply.has(r.replyTo) || v < firstReply.get(r.replyTo)) firstReply.set(r.replyTo, v);
+      }
+      const room = rows.filter((r) => r && r.project === projectId && ROOM_READ_KINDS.has(r.kind))
         .sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));   // the read's own order (server.js)
+      const firstWanted = room.findIndex((y) => y.kind === 'post' && want.has(y.id));
       room.forEach((x, i) => {
-        if (x.kind !== 'post' || !answered.has(x.id) || x.from === member) return;
+        if (firstWanted < 0 || i <= firstWanted || x.kind !== 'post' || !answered.has(x.id) || x.from === member) return;
         const xAt = Date.parse(x.at);
-        for (let j = Math.max(0, i - (ROOM_READ_ROWS - 1)); j < i; j += 1) {
+        const replyAt = firstReply.get(x.id);
+        let after = 0;   // rows after X a read before the reply could have shown; an unreadable time counts
+        for (let j = i + 1; j < room.length && after < ROOM_READ_ROWS; j += 1) {
+          if (Date.parse(room[j].at) >= replyAt) break;
+          after += 1;
+        }
+        for (let j = Math.max(0, i - (ROOM_READ_ROWS - 1 - after)); j < i; j += 1) {
           const y = room[j];
           if (y.kind === 'post' && Date.parse(y.at) < xAt) covered.add(y.id);
         }
