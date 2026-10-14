@@ -929,7 +929,7 @@ function tapProbe4663(skip) {
         }
         const L = list.getBoundingClientRect(); const C = first.getBoundingClientRect();
         out = { dir: getComputedStyle(list).flexDirection, scrolls: list.scrollWidth > list.clientWidth + 1,
-          pageFits: document.documentElement.scrollWidth <= window.innerWidth, ring,
+          pageFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth /* layout width: a mobile viewport zooms out, so innerWidth grows with an overflow */, ring,
           roomTop: Math.round(C.top - L.top), roomLeft: Math.round(C.left - L.left), focused: document.activeElement === first };
         // A card further along, focused: the browser scrolls it into view, and its ring must still clear the scroller's
         // left edge (scroll-padding), not only the first card's at scrollLeft 0.
@@ -939,6 +939,9 @@ function tapProbe4663(skip) {
         out.scrolledBy = Math.round(list.scrollLeft); out.roomLeft4 = Math.round(C4.left - L4.left);
         fourth.blur(); list.querySelectorAll('.tk-probe').forEach((n) => n.remove()); list.scrollLeft = 0;
         return out;
+        } catch (e) {
+          out = { error: 'probe threw: ' + String((e && e.message) || e) };
+          return out;
         } finally {
           // Put the page back whatever happened above: the stand-ins out, the list's own nodes in, the ancestors re-hidden.
           if (document.activeElement && document.activeElement.classList.contains('tk-probe')) document.activeElement.blur();
