@@ -342,7 +342,7 @@ function withoutStale(projectId, ids, stale, name) {
   });
   // Review 7 (Opus): a drop is said, so "why did my agent never hear about mN" has an answer in the board's log.
   if (kept.length < ids.length) {
-    const why = (x) => (asked.has(plainId(x)) ? 'answered or a day old' : 'stale');
+    const why = (x) => (asked.has(plainId(x)) ? 'answered, shown with a post answered after it, or a day old' : 'stale');
     try { process.stdout.write('room-hold: ' + (name || '?') + ' dropped ' + (ids.length - kept.length) + ' held post(s) in ' + projectId + ' (' + ids.filter((x) => !kept.includes(x)).map((x) => x + ': ' + why(x)).join(', ') + ')\n'); } catch { /* never breaks a flush */ }
   }
   return kept;
