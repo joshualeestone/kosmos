@@ -2209,10 +2209,20 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      post is refused by the volume valve below with the honest room_held, so emitting
      ack_only here would be the same false promise this change exists to remove. So when the
      room is at or over budget we skip this block and let the volume valve return the genuine
-     hold; the ack trigger fires only in a room still under its arrival budget. */
+     hold; the ack trigger fires only in a room still under its arrival budget. (The gate
+     uses THIS post's `charged`; a later content post that reaches strictly more recipients
+     -- e.g. it @-names a swarm-off member -- could tip the volume valve at the exact
+     boundary and be held. That is a one-recipient edge, and the room_held it then gets is
+     itself honest, so the gate does not carry slack for it.) */
   if (lim.on && operator !== true && arrivals + charged <= allowed) {
+    // The run is over EVERY room message since countFrom, federated `external` posts (a
+    // person or agent from OUTSIDE this machine) included: an external post is classified
+    // by its text like any other, so outside CONTENT breaks the run (the room just got
+    // something new, even though it does not move countFrom) and an outside acknowledgement
+    // extends it. Operator posts are excluded, since they move countFrom.
     const ackPosts = log
-      .filter((m) => m && m.kind === 'post' && !m.operator && m.project === projectId && Date.parse(m.at) >= countFrom)
+      .filter((m) => m && ((m.kind === 'post' && !m.operator) || m.kind === 'external')
+        && m.project === projectId && Date.parse(m.at) >= countFrom)
       .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
     let ackRun = 0;
     for (let i = ackPosts.length - 1; i >= 0; i -= 1) {

@@ -1315,6 +1315,38 @@ test('#4934/#5967: in a room OVER the volume budget, an ack run yields the hones
   });
 });
 
+test('#4934/#5967: an external (federated) content post breaks the ack run, so an ack right after it is delivered', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    // Three local acks, then an OUTSIDE person posts a real update (a federated `external`
+    // row), then a local ack. The external content must break the run exactly as a local
+    // content post does: the room is not in a content-free loop, an outside party contributed.
+    seedPosts(now, [
+      { from: 'leo', text: 'agreed' },
+      { from: 'mara', text: 'ok' },
+      { from: 'april', text: 'confirmed' },
+    ]);
+    fs.appendFileSync(messages.LOG, JSON.stringify({
+      kind: 'external', id: 'x-1', project: 'henderson-lease', from: 'outside-person',
+      fromKind: 'person', external: true, text: 'the vendor just sent the signed contract back to us',
+      at: new Date(now - 100).toISOString(),
+    }) + '\n');
+    armSender('leo-discord'); arm([]);
+    const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks' }, board.agents, MEMBERS);
+    assert.equal(out.state, chat.DELIVERY.PLACED, 'an external content post did not break the ack run');
+    // CONTROL: an external ACK is classified by text like any post, so it does NOT break the
+    // run; two local acks + an external ack + the incoming ack is a run of four, and refused.
+    wipeLog(); chat.resetForTests(); armSender('leo-discord'); arm([]);
+    seedPosts(now, [{ from: 'leo', text: 'agreed' }, { from: 'mara', text: 'ok' }]);
+    fs.appendFileSync(messages.LOG, JSON.stringify({
+      kind: 'external', id: 'x-2', project: 'henderson-lease', from: 'outside-person',
+      fromKind: 'person', external: true, text: 'agreed', at: new Date(now - 100).toISOString(),
+    }) + '\n');
+    const refused = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks' }, board.agents, MEMBERS);
+    assert.equal(refused.code, 'ack_only', 'an external ack was treated as content; it must be classified by text like any post');
+  });
+});
+
 test('#4934/#5967: the CLI copy for ack_only tells the agent to post something new, never that the room is held', () => {
   const cli = fs.readFileSync(path.join(__dirname, '..', 'install', 'kosmos'), 'utf8');
   // The refusal copy branch for a code runs from its first case token to the next `;;`.
