@@ -423,15 +423,15 @@ function acknowledgementOnly(raw) {
   // dangerous direction.
   for (const tok of tokens) {
     if (ACK_EMOJI.has(tok)) continue;            // a listed acknowledgement emoji, judged whole
+    // A symbol ANYWHERE in the token makes the post content, whether it stands alone
+    // ("ok ❌") or is glued to a word ("ok❌"): a negation (❌, ✗, ⚠️) or an off-lexicon
+    // emoji carries meaning, and the dangerous direction is holding "ok❌" as an
+    // acknowledgement. Checked BEFORE the edge trim, which would otherwise strip an
+    // attached symbol away and let the bare word pass. Only a token that is wholly a
+    // listed ack emoji (handled above) is exempt.
+    if (/\p{S}/u.test(tok)) return false;        // a non-ack symbol or off-lexicon emoji -> content
     const w = tok.toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
-    if (w === '') {
-      // No letters or numbers in any script. Pure punctuation ("!!", "...") is noise and
-      // skippable, but a SYMBOL that is not a listed acknowledgement emoji can carry
-      // meaning -- often negation (❌, ✗, ⚠️) -- so it is content. The dangerous direction
-      // is calling "ok ❌" an acknowledgement and holding a disagreement.
-      if (/\p{S}/u.test(tok)) return false;      // a non-ack symbol or off-lexicon emoji -> content
-      continue;                                  // pure punctuation -> skippable
-    }
+    if (w === '') continue;                      // pure punctuation ("!!", "...") -> skippable
     if (!ACK_WORDS.has(w)) return false;         // a word outside the lexicon (any script) -> content
   }
   return true;
