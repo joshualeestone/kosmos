@@ -190,7 +190,8 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
 ## A floor under the installer: never serve one from before 0.7.45 (kosmos#4455)
 
 From the release that carries kosmos#4455, the installer leaves the installed `app/` read-only by default. An
-installer from before 0.7.45 cannot lift a read-only app: its update removes `bin/`, fails at `app/`, and cannot
+installer that cannot lift a read-only app (none before 0.7.42 can; 0.7.45 is the first one served to people on prod)
+removes `bin/` on update, fails at `app/`, and cannot
 put the board back, because `bin/kosmos` is gone. So a ROLLBACK of `/setup` or `/setup-staging` to a build older
 than 0.7.45 breaks the next update of every Mac and Linux install a later build has touched. The tools refuse
 it (kosmos#6149, `tools/lib/setup-floor.sh`): publish-staging-pointer, promote-channel, deploy-site and release.sh

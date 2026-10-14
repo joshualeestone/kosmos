@@ -2,8 +2,8 @@
 #
 # #4455 (merged as #6146, in 0.7.49) makes the installed app read-only. An installer older than 0.7.45 does not know
 # to lift that lock: it removes bin/, fails at the read-only app/, and cannot put the board back, on every install
-# 0.7.49 touched. So no Mac pointer (dist/latest.json, dist/latest-staging.json), and therefore no /setup or
-# /setup-staging, may name a build older than KOSMOS_SETUP_FLOOR. There is no override: serving such a build breaks
+# 0.7.49 touched. So no Mac pointer (dist/latest.json, dist/latest-staging.json) may name a build older than
+# KOSMOS_SETUP_FLOOR, and no /setup or /setup-staging may be an installer that cannot lift the lock (the marker, below). There is no override: serving such a build breaks
 # installs, so the fix is a newer build, never a flag.
 #
 # Usage: source this file, then `kosmos_setup_floor_ok <label> <version>` (exit 0 = at or above the floor; 1 = refused,
