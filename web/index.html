@@ -68309,13 +68309,16 @@ function pjRoomPendingRow(pend, p) {
     + '<div class="msg-b"><div class="msg-bd">' + pjRoomBody({ kind: 'post', operator: true, text: pend.text }, p)
     + '<span class="msg-t">' + slot + '</span></div></div></div>';
 }
-/* Does the room already hold this pending post? A post the person made, with the same words, kept no earlier than a
-   minute before the press (as dmPendingKept). */
+/* Does the room already hold this pending post? A post the person made, with the same words, that was NOT in the room
+   at the press (`pend.before`, its ids then): the board writes the row only when its fan-out is done, so an older post
+   with the same words is never this one. A row with no id falls back to the time: kept no earlier than a minute
+   before the press. */
 function pjRoomPendingKept(rows, pend) {
   const flat = (t) => String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
   const want = flat(pend.text);
+  const before = pend.before instanceof Set ? pend.before : new Set();
   return (rows || []).some((m) => m && m.kind === 'post' && m.operator === true && flat(m.text) === want
-    && !(Date.parse(m.at) < pend.startedAt - 60000));
+    && (typeof m.id === 'string' ? !before.has(m.id) : !(Date.parse(m.at) < pend.startedAt - 60000)));
 }
 let PJ_ROOM_PARTIAL = false;   // the last room read could not read everything (ok:false)
 /* #5800: the hold the last room read reported (body.held: { at, because, until }), or null when the room is open. */
@@ -70560,7 +70563,9 @@ function paintRoom(body) {
        search: it is not a result of one. */
     const pend = PJ_ROOM_PENDING[p.id];
     if (!pend) return '';
-    if (!pend.failed && pjRoomPendingKept(allRows, pend)) { delete PJ_ROOM_PENDING[p.id]; return ''; }
+    /* A refused post stays (the board said it did not keep it); a "Not confirmed" one goes once the room shows it
+       arrived (review 1: it used to sit under its own kept copy until the next post). */
+    if ((!pend.failed || pend.unsure) && pjRoomPendingKept(allRows, pend)) { delete PJ_ROOM_PENDING[p.id]; return ''; }
     return filtering ? '' : pjRoomPendingRow(pend, p);
   })();
   /* An unreadable record is SAID, ahead of whatever could be read --
@@ -70767,21 +70772,46 @@ async function pjPostSend(attachment) {
     pjRoomAnnounce(line);
   };
   /* #6168: drawn now, from what was typed; repainted from the room's last read, only while the person is still in the
-     project it was sent from (another project's read must never be painted under this one). */
-  const pend = { text: sentText, startedAt: Date.now() };
+     project it was sent from (another project's read must never be painted under this one). `before` holds the ids the
+     room already had at the press: the board writes the row only once its fan-out is done, so no row that was there
+     then can be this post (review 1: an earlier post with the same words, an "ok" said twice, used to swallow it). */
+  const roomEl = document.getElementById('pj-room');
+  const before = new Set(((roomEl && roomEl.__lastBody && roomEl.__lastBody.rows) || [])
+    .map((r) => r && r.id).filter((id) => typeof id === 'string'));
+  const pend = { text: sentText, startedAt: Date.now(), before };
   PJ_ROOM_PENDING[sentProject] = pend;
   const repaintPending = () => {
-    const el = document.getElementById('pj-room');
-    if (PJ_CURRENT === sentProject && el && el.__lastBody) paintRoom(el.__lastBody);
+    if (PJ_CURRENT === sentProject && roomEl && roomEl.__lastBody) paintRoom(roomEl.__lastBody);
   };
-  /* A post that did not go stays drawn, marked, with the reason; its words stay in the box to send again. */
+  /* Review 1, as the DM's tookBox / restoreUnsent (#4944): the words are in the room OR in the box, never both. The box
+     is emptied at the press only when the bubble was drawn; a post that did not go puts them back (or parks them, when
+     the person has moved to another project) so they can be sent again. */
+  let tookBox = false;
+  let rawBox = '';
+  const restoreUnsent = () => {
+    if (!tookBox) return;
+    if (PJ_CURRENT !== sentProject) {
+      if (!(PJ_ROOM_DRAFTS[sentProject] || '').trim()) PJ_ROOM_DRAFTS[sentProject] = rawBox;
+      return;
+    }
+    if (input.value.trim() === '') { input.value = rawBox; pjGrowComposer(input); PJ_ROOM_DRAFTS[sentProject] = input.value; }
+  };
+  /* A post that did not go stays drawn, marked, with the reason; its words go back in the box to send again. */
   const notKept = (because, unsure) => {
+    restoreUnsent();
     if (PJ_ROOM_PENDING[sentProject] !== pend) return;   // a newer post has taken its place
     pend.failed = true; pend.because = because; pend.unsure = !!unsure;
     repaintPending();
   };
-  repaintPending();
   try {
+    repaintPending();   // inside the try (review 1): a throw here must not leave PJ_POSTING set for the page's life
+    const drawn = !!(PJ_CURRENT === sentProject && roomEl
+      && roomEl.querySelector('.pj-pending[data-mid="pending:' + pend.startedAt + '"]'));   // startedAt is a number
+    if (drawn && input.value === text) {
+      tookBox = true; rawBox = input.value;
+      input.value = ''; pjGrowComposer(input);
+      if ((PJ_ROOM_DRAFTS[sentProject] || '').trim() === sentText) delete PJ_ROOM_DRAFTS[sentProject];
+    }
     /* #4639: at the press, as the DM does, not when the server answers: a fan-out can take
        seconds, and a jump that late would pull back someone who scrolled up meanwhile. So a
        send that then fails has still moved them; its sentence is beside this composer. */
@@ -70799,7 +70829,9 @@ async function pjPostSend(attachment) {
     const d = (body && body.delivery) || {};
     if (!res.ok || !d.state) {
       verdict((body && body.error) || 'We could not post that.');
-      notKept((body && body.error) || 'we could not post that');
+      /* Review 1: a 5xx with no sentence of the board's own (a relay timing out mid fan-out) may have been delivered,
+         so it is not said to have failed. */
+      notKept((body && body.error) || 'we could not post that', res.status >= 500 && !(body && body.error));
       return;
     }
     if (d.state === 'could_not') {

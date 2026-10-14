@@ -37,6 +37,8 @@ function initStub() {
   };
   window.__rows = [{ kind: 'post', id: 'r1', from: 'Mara', text: 'ready when you are', at: new Date(Date.now() - 60000).toISOString() }];
   window.__refuse = null;     // a sentence: the next POST is refused with it
+  window.__throw = false;     // the next POST's connection dies (fetch rejects)
+  window.__kept = false;      // the row was already written by the check (the room's read handed over first)
   window.__release = null;    // set while a POST is held; calling it answers the POST
   const enc = (o, status) => new Response(JSON.stringify(o), { status: status || 200, headers: { 'content-type': 'application/json' } });
   window.fetch = async (url, opts) => {
@@ -46,11 +48,13 @@ function initStub() {
       const sent = JSON.parse(opts.body || '{}');
       await new Promise((resolve) => { window.__release = resolve; });
       window.__release = null;
+      if (window.__throw) { window.__throw = false; throw new TypeError('Failed to fetch'); }
       if (window.__refuse) {
         const because = window.__refuse; window.__refuse = null;
         return enc({ ok: true, delivery: { state: 'could_not', because } });
       }
-      window.__rows.push({ kind: 'post', id: 'r' + (window.__rows.length + 1), operator: true, text: sent.text, at: new Date().toISOString() });
+      if (!window.__kept) window.__rows.push({ kind: 'post', id: 'r' + (window.__rows.length + 1), operator: true, text: sent.text, at: new Date().toISOString() });
+      window.__kept = false;
       return enc({ ok: true, delivery: { state: 'placed', outcomes: { Mara: 'placed' } } });
     }
     if (/\/api\/project\/p1\/room$/.test(u)) return enc({ ok: true, rows: window.__rows.slice() });
@@ -116,15 +120,54 @@ async function postAndMeasure(page, words) {
   const during = await readRoom(page, WORDS);
   chk(during.copies === 1 && during.pending && during.you, 'it is drawn once, as the person\'s own bubble, marked pending', JSON.stringify(during));
   chk(during.slot === 'Sending…', 'its time slot says Sending… while it is on its way', JSON.stringify(during.slot));
+  chk(await page.inputValue('#pj-post') === '', 'review 1: the words are in the room, not also left in the box (the #4944 "in both places" complaint)');
 
-  /* 2. The board keeps it: one copy, the kept row, no second bubble. */
+  /* 2. The handover itself, measured where it happens (review 1): the room's own read finds the kept row WHILE the post
+     is still answering, so only the matcher can make it one copy (the post's tidy-up after it answers has not run). */
+  await page.evaluate((w) => {
+    window.__rows.push({ kind: 'post', id: 'rkept', operator: true, text: w, at: new Date().toISOString() });
+    window.__kept = true;
+  }, WORDS);
+  await page.evaluate(() => loadRoom());
+  const handed = await readRoom(page, WORDS);
+  chk(handed.copies === 1 && !handed.pending && handed.you, 'the room\'s read hands over to the kept row in place: one copy, before the post even answers', JSON.stringify(handed));
   await page.evaluate(() => window.__release && window.__release());
-  await page.waitForFunction((w) => {
-    const rows = [...document.querySelectorAll('#pj-room .msg')].filter((r) => r.textContent.includes(w));
-    return rows.length === 1 && !rows[0].classList.contains('pj-pending');
-  }, WORDS, { timeout: 5000 }).catch(() => {});
+  await page.waitForFunction(() => document.getElementById('pj-post-go').disabled === false, { timeout: 5000 }).catch(() => {});
   const after = await readRoom(page, WORDS);
-  chk(after.copies === 1 && !after.pending && after.you, 'once the board keeps it, the kept row replaces it: one copy, no longer pending', JSON.stringify(after));
+  chk(after.copies === 1 && !after.pending && after.you, 'once the board answers, still one copy, no longer pending', JSON.stringify(after));
+
+  /* 2b. The same words again (review 1: "ok" said twice). The earlier copy is not this post, so the new one is drawn. */
+  await page.fill('#pj-post', WORDS);
+  await page.click('#pj-post-go');
+  await page.waitForFunction(() => typeof window.__release === 'function', { timeout: 3000 }).catch(() => {});
+  const twice = await page.evaluate((w) => {
+    const rows = [...document.querySelectorAll('#pj-room .msg')].filter((r) => r.textContent.includes(w));
+    return { copies: rows.length, newestPending: rows.length > 0 && rows[rows.length - 1].classList.contains('pj-pending') };
+  }, WORDS);
+  chk(twice.copies === 2 && twice.newestPending, 'a second post with the same words is drawn at once, beside the first, not swallowed by it', JSON.stringify(twice));
+  await page.evaluate(() => window.__release && window.__release());
+  await page.waitForFunction(() => document.getElementById('pj-post-go').disabled === false, { timeout: 5000 }).catch(() => {});
+  const twiceAfter = await page.evaluate((w) => [...document.querySelectorAll('#pj-room .msg')].filter((r) => r.textContent.includes(w))
+    .map((r) => r.classList.contains('pj-pending')), WORDS);
+  chk(twiceAfter.length === 2 && twiceAfter.every((x) => !x), 'and once kept there are two copies, neither pending', JSON.stringify(twiceAfter));
+
+  /* 2c. The connection dies mid-post (review 1): "Not confirmed", words back in the box; when the room then shows it
+     arrived, the unsure bubble gives way to the kept row rather than sitting under it. */
+  const LOST = 'the connection dropped on this one';
+  await page.evaluate(() => { window.__throw = true; });
+  await page.fill('#pj-post', LOST);
+  await page.click('#pj-post-go');
+  await page.waitForFunction(() => typeof window.__release === 'function', { timeout: 3000 }).catch(() => {});
+  await page.evaluate(() => window.__release && window.__release());
+  await page.waitForFunction(() => document.getElementById('pj-post-go').disabled === false, { timeout: 5000 }).catch(() => {});
+  const lostText = await page.evaluate((w) => { const r = [...document.querySelectorAll('#pj-room .msg.pj-pending')].find((x) => x.textContent.includes(w)); return r ? r.textContent : ''; }, LOST);
+  chk(/Not confirmed\./.test(lostText), 'a post whose connection died is marked Not confirmed (it may have arrived)', lostText.slice(0, 140));
+  chk(await page.inputValue('#pj-post') === LOST, 'and its words are back in the box');
+  await page.evaluate((w) => { window.__rows.push({ kind: 'post', id: 'rlost', operator: true, text: w, at: new Date().toISOString() }); }, LOST);
+  await page.evaluate(() => loadRoom());
+  const landed = await readRoom(page, LOST);
+  chk(landed.copies === 1 && !landed.pending, 'when the room shows it did arrive, the Not confirmed bubble gives way: one copy', JSON.stringify(landed));
+  await page.fill('#pj-post', '');
 
   /* 3. A post the board refuses stays drawn, marked, with the reason. */
   const NOPE = 'this one the board will refuse';
