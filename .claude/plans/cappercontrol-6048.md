@@ -27,4 +27,4 @@ Card: kosmos#6048 (recurrence 2026-10-14 01:50, CI job 115702676926, PR #6135). 
 - The arms' bounds (main 30 s, control 15 s) are unchanged.
 
 ## Tests
-- tools/test-queued-heavy-4977.sh focused, twice (queued): 142 OK each, the control held (got 1) both times.
+- tools/test-queued-heavy-4977.sh focused, twice (queued): results recorded here once measured.
