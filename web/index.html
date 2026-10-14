@@ -48199,6 +48199,7 @@ function layoutConsolidated() {
    changes the board's setting, so the Mac keeps its own. Everywhere else the board's setting applies as before. */
 const TABLET_LAYOUT_MQ = '(hover: none) and (pointer: coarse) and (orientation: landscape) and (min-width: 960px)';
 const TABLET_LAYOUT_KEY = 'kosmos-tablet-layout';
+let STYLE_TRIED = false;   // paintStyles has run once (read or failed); before that a turn is ignored
 let STYLE_LAYOUT = null;   // the board's own layout setting (not BOARD_LAYOUT, the agents grid/list/org choice), last read by paintStyles; what every other screen uses
 function tabletLandscape() { return !!(window.matchMedia && window.matchMedia(TABLET_LAYOUT_MQ).matches); }
 let TABLET_LAYOUT_MINE = null;   // the tablet's choice this session, for when local storage refuses it
@@ -48211,7 +48212,7 @@ function deviceLayout(boardLayout) {
 function applyLayout(layout, apply) {
   const want = layout === 'consolidated' ? 'consolidated' : 'tabs';
   /* #2154 + #2618: the header board-view toggle is re-painted from every path that
-     lands a layout -- boot (paintStyles), a resize re-check, the toggle itself and a sideways tablet turned (#6107) --
+     lands a layout -- boot (paintStyles), the toggle itself and a sideways tablet turned (#6107, the tlq listener) --
      above the apply gate,
      so a paintStyles(false) with apply=false still corrects the header. (The Settings
      layout tiles it used to also mirror were removed with the Styles tab in #2618.) */
@@ -48681,8 +48682,8 @@ function openConsolidatedCreate() {
    layout flipper; the saved layout is still applied on load by paintStyles. */
 /* #2154: the header board-view toggle. A delegated click, matching the header
    theme picker's pattern, and one press applies (the Settings tiles keep their
-   deliberate select-then-activate; this is the quick flip). It writes the SAME
-   /api/style layout the tiles do -- no second store, EXCEPT on a touch tablet held sideways, where #6107 keeps the
+   deliberate select-then-activate; this is the quick flip). It writes the board's
+   /api/style layout -- no second store, EXCEPT on a touch tablet held sideways, where #6107 keeps the
    choice on that tablet (TABLET_LAYOUT_KEY) and never writes the board -- then re-lays the current
    tab via applyLayout, which also re-paints every picker's checked state, so the
    header and the board never diverge (on a sideways tablet the board is left alone on purpose, #6107). No navigation is forced: the
@@ -48716,7 +48717,7 @@ document.addEventListener('click', async (e) => {
 // #6107: turning a tablet (or attaching a keyboard and trackpad) moves it in or out of the per-device rule.
 try {
   const tlq = window.matchMedia && window.matchMedia(TABLET_LAYOUT_MQ);
-  if (tlq && tlq.addEventListener) tlq.addEventListener('change', () => { if (STYLE_LAYOUT) applyLayout(deviceLayout(STYLE_LAYOUT), true); });   // not before paintStyles has read it
+  if (tlq && tlq.addEventListener) tlq.addEventListener('change', () => { if (STYLE_TRIED) applyLayout(deviceLayout(STYLE_LAYOUT || 'tabs'), true); });   // not before paintStyles has run; a failed read counts as tabs
 } catch { /* no media queries: the board's setting stands */ }
 /* #774: the consolidated centre with nothing open says what to press. */
 function paintPjNone(which) {
@@ -48875,6 +48876,7 @@ async function paintStyles(apply) {
   const ticket = ++STYLE_REQ;
   let r = null;
   try { r = await (await fetch('/api/style', { cache: 'no-store' })).json(); } catch { r = null; }
+  if (ticket === STYLE_REQ) STYLE_TRIED = true;
   // #6107: a sideways tablet's layout is its own and needs no board value, so a failed read still applies it.
   if (!r && ticket === STYLE_REQ && tabletLandscape()) { applyLayout(deviceLayout('tabs'), apply); return; }
   if (!r || ticket !== STYLE_REQ) return;
