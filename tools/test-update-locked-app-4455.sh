@@ -24,6 +24,10 @@
 #   EMPTY     an unwritable EMPTY folder (chmod stubbed): not refused, rm removes it through its parent
 #   HARMLESS  chmod fails and nothing is stuck: the update goes on                    (a failed chmod alone is no refusal)
 #   CONTROL   the old line (a tolerated chmod) on the LOCKED fixture goes on to remove bin: the arm can fail
+#   GNUFIND   the LOCKED fixture with a find first on PATH that knows no -flags: still refused (macOS only)
+#
+# On Linux the Darwin-only block (LOCKED, RELOCK, CONTROL) skips. Ubuntu's sh is dash, which has no pipefail, so
+# there NOISY runs without the option it was written to catch; a green Linux run does not cover that fault (#6149).
 set -u
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -174,8 +178,22 @@ if [ "$(uname -s)" = "Darwin" ]; then
     OUT="$(run_block "$D")"
     case "$OUT" in *"RC=1"*) ok "LOCKED: a locked file refuses the update" ;; *) bad "LOCKED: not refused: $OUT" ;; esac
     case "$OUT" in *"$D/app/engine/x.js"*) ok "LOCKED: the refusal names the file" ;; *) bad "LOCKED: the file is not named: $OUT" ;; esac
-    case "$OUT" in *"It is locked"*"untick Locked"*) ok "LOCKED: it says how to unlock it" ;; *) bad "LOCKED: the wrong reason: $OUT" ;; esac
+    case "$OUT" in *"It is locked"*"chflags -R nouchg"*) ok "LOCKED: it says how to unlock it" ;; *) bad "LOCKED: the wrong reason: $OUT" ;; esac
     all_there "$D" && ok "LOCKED: bin, app and runtime are all still there" || bad "LOCKED: a part was removed"
+    # GNUFIND (#6149): a find first on PATH that knows no -flags (Homebrew findutils) must not read as "nothing
+    # locked". The stub fails on -flags the way GNU find does and passes anything else to the real one.
+    D2="$(mk_install lockedgnu)"; in_sb "$D2"; chflags uchg "${D2:?}/app/engine/x.js"
+    GF="${SB:?}/gnufind"; mkdir -p "$GF"
+    printf '%s\n' '#!/bin/sh' 'for a in "$@"; do [ "$a" = -flags ] && { echo "find: unknown predicate -flags" >&2; exit 1; }; done' 'exec /usr/bin/find "$@"' > "$GF/find"
+    chmod +x "$GF/find"
+    if PATH="$GF:$PATH" find "$D2" -flags +uchg >/dev/null 2>&1; then
+      bad "CONTROL GNUFIND: the stub accepted -flags, so it stands in for nothing"
+    else
+      ok "CONTROL GNUFIND: the stub find refuses -flags, as GNU find does"
+      OUT="$(run_block "$D2" "$GF")"
+      case "$OUT" in *"RC=1"*"$D2/app/engine/x.js"*|*"$D2/app/engine/x.js"*"RC=1"*) ok "GNUFIND: with a GNU find first on PATH the locked file still refuses the update" ;; *) bad "GNUFIND: not refused with a GNU find first on PATH: $OUT" ;; esac
+    fi
+    chflags -R nouchg "$D2" 2>/dev/null
     # RELOCK: this fixture's app was WRITABLE before the update, so the refusal leaves it writable.
     [ -w "$D/app" ] && [ -w "$D/app/server.js" ] && ok "RELOCK: an app that was writable is still writable after the refusal" || bad "RELOCK: the refusal locked an app that was not locked"
     # And one that was read-only (what the installer leaves) is read-only again: the lift had opened it to look.
@@ -232,9 +250,16 @@ else
   # Only 0 is off. Empty, 1, and words a person might try all leave it read-only.
   for _v in "" 1 no false junk; do
     D="$(mk_install "default-v${_v:-empty}")"; in_sb "$D"
-    KOSMOS_READONLY_APP="$_v" sh "$SB/lock-driver.sh" "$D" >/dev/null 2>&1
+    _out="$(KOSMOS_READONLY_APP="$_v" sh "$SB/lock-driver.sh" "$D" 2>&1)"
     locked "$D" && ok "DEFAULT: KOSMOS_READONLY_APP='$_v' leaves the app read-only (only 0 is off)" || bad "DEFAULT: KOSMOS_READONLY_APP='$_v' left the app writable"
+    # #6149: a value that is not 0 or 1 is said aloud, so a person who set =false to opt out learns it did not.
+    case "$_v" in
+      ""|1) case "$_out" in *"other than 0 or 1"*) bad "DEFAULT: '$_v' printed the not-understood note" ;; *) ok "DEFAULT: '$_v' prints no note" ;; esac ;;
+      *)    case "$_out" in *"other than 0 or 1"*"left read-only"*) ok "DEFAULT: '$_v' says it was not understood and the app stays read-only" ;; *) bad "DEFAULT: '$_v' gave no note: $_out" ;; esac ;;
+    esac
   done
+  _out="$(KOSMOS_READONLY_APP=0 sh "$SB/lock-driver.sh" "$(mk_install default-zero-note)" 2>&1)"
+  case "$_out" in *"other than 0 or 1"*) bad "DEFAULT: =0 printed the not-understood note" ;; *) ok "DEFAULT: =0 prints no note" ;; esac
 fi
 
 echo
