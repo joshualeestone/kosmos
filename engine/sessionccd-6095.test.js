@@ -55,7 +55,8 @@ test('#6095 review 1: an unpinned session while the SERVER has a global value is
   const got = sessionClaudeDirs(['pin', 'bare', 'off'], { run });
   assert.equal(got.get('pin'), '/a', 'its own pin wins over the global');
   assert.equal(got.get('bare'), null, 'it may have inherited /leaked: unknown');
-  assert.equal(got.get('off'), '', 'a session that removes the variable runs with none');
+  assert.equal(got.get('off'), null, 'review 3: a removal while the server has a value may be forged (names print unquoted): unknown');
+  assert.equal(sessionClaudeDirs(['off'], fakeRun({ off: [['CLAUDE_CONFIG_DIR', null]] })).get('off'), '', 'a removal with no server value: none either way');
   // review 2: a global that is removed, or set but empty
   assert.equal(sessionClaudeDirs(['bare'], fakeRun({ bare: [] }, { global: [['CLAUDE_CONFIG_DIR', null]] })).get('bare'), '');
   assert.equal(sessionClaudeDirs(['bare'], fakeRun({ bare: [] }, { global: [['CLAUDE_CONFIG_DIR', '']] })).get('bare'), null);
@@ -138,6 +139,14 @@ test('#6095: parseQuoted reads set, removed and absent, and refuses a variable n
   assert.deepEqual(parseQuoted(g + 'CLAUDE_CONFIG_DIRX="/a"; export CLAUDE_CONFIG_DIRX;\n', ['g']), [{}], 'a longer name is not the variable');
   assert.equal(parseQuoted(g + 'CLAUDE_CONFIG_DIR="/a"; export CLAUDE_CONFIG_DIR;\nunset CLAUDE_CONFIG_DIR;\n', ['g']), null);
   assert.equal(parseQuoted(g + 'CLAUDE_CONFIG_DIR="/a', ['g']), null, 'an unclosed quote');
+  // review 3: each shape guard, so removing any one of them reds a row
+  assert.equal(parseQuoted(g + 'CLAUDE_CONFIG_DIR="/a"; export CLAUDE_CONFIG_DIR;\nCLAUDE_CONFIG_DIR="/b"; export CLAUDE_CONFIG_DIR;\n', ['g']), null, 'set twice');
+  assert.equal(parseQuoted(g + 'CLAUDE_CONFIG_DIR="/a"; export OTHER;\n', ['g']), null, 'the export names another variable');
+  assert.equal(parseQuoted(g + 'CLAUDE_CONFIG_DIR="/a"; export CLAUDE_CONFIG_DIR; X="1"; export X;\n', ['g']), null, 'text after the statement, even a statement');
+  assert.equal(parseQuoted('X="1"; export X;\n' + g, ['g']), null, 'output before the first marker, even a statement');
+  assert.equal(parseQuoted(g + 'not a statement\nX="y"; export X;\n', ['g']), null, 'a line of no known shape, even with a statement after it');
+  assert.equal(parseQuoted(g + 'unset CLAUDE_CONFIG_DIR;\nunset CLAUDE_CONFIG_DIR;\n', ['g']), null, 'removed twice');
+  assert.deepEqual(parseQuoted(g + 'BASH_FUNC_f%%="() {  echo; }"; export BASH_FUNC_f%%;\nunset a b;\n', ['g']), [{}], 'names tmux allows (a bash function, a space) are read, not refused');
 });
 
 /* The real tmux, on a PRIVATE socket so the operator's sessions are never touched, started with no config file and
@@ -164,4 +173,7 @@ test('#6095: against real tmux on a private socket', { skip: TMUX ? false : 'no 
   got = sessionClaudeDirs(['inherits', 'pinned'], opts);
   assert.equal(got.get('inherits'), null, 'it inherited the leaked value, which its own environment does not show: unknown');
   assert.equal(got.get('pinned'), '/tmp/kosmos 6095 "x"$y', 'its own pin is still read');
+  // review 3: a NAME holding a newline forges a removal line (names print unquoted). With a global value set, unknown.
+  tm(['set-environment', '-r', '-t', '=inherits', 'Y;\nunset CLAUDE_CONFIG_DIR']);
+  assert.equal(sessionClaudeDirs(['inherits'], opts).get('inherits'), null, 'a forged removal is not trusted while the server has a value');
 });
