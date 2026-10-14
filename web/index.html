@@ -28242,7 +28242,8 @@ async function paintAccounts(opts) {
           const target = r || document.getElementById('set-accounts');   // the row gone: the list, never the page itself
           if (target) { target.setAttribute('tabindex', '-1'); target.focus(); }
         };
-        if (msg) msg.textContent = OK_SAY;
+        if (msg && PAINT_SAYS.includes(msg.textContent)) msg.textContent = OK_SAY;   // review 4: never over another writer's text, even the first time
+        else if (msg) return;   // someone else spoke while the repaint ran: theirs stands, and so does their focus
         claimFocus();
         for (let i = 0; i < 10; i++) {
           await new Promise((r) => setTimeout(r, 100));
@@ -28267,6 +28268,7 @@ async function paintAccounts(opts) {
       if (msg) msg.textContent = say.textContent;   // review 1: the status region speaks it; the row keeps it in view
       btn.textContent = 'Set up usage reading';
       btn.disabled = false;
+      { const a = document.activeElement; if (btn.isConnected && (!a || a === document.body || !a.isConnected)) btn.focus(); }   // review 4: a keyboard user can retry from here
     });
   }
   for (const btn of box.querySelectorAll('[data-check-claude]')) {

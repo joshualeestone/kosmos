@@ -20,8 +20,8 @@ Card: kosmos#6175 (#6108 follow-up).
 
 ## Review 2 (sonnet)
 - The explainer's id is a sequence (ACCT_SOON_SEQ), not derived from the folder (two folders could collide).
-- A paint already in flight could replace the row and clear the status line after the success: the claim (message and
-  focus) is re-made for about a second whenever the row node changes or the line is no longer ours.
+- A paint already in flight could replace the row and clear the status line after the success: the claim is re-made
+  for about a second (narrowed in review 3: the message only over paint-written text, focus only when lost).
 - A body that cannot be read is 400; a fault after reading is 500 with its message.
 
 ## Review 3 (opus)
@@ -30,6 +30,13 @@ Card: kosmos#6175 (#6108 follow-up).
 - The page's own fallback is not lowercased; the 500 sends a plain sentence and logs the detail.
 - The test stubs the API-key live check (the fixture key never reaches Anthropic), removes its folder, and covers a
   malformed body (400).
+
+## Review 4 (sonnet)
+- The first success write is guarded too (never over another writer's text; if someone spoke during the repaint,
+  theirs stands and the claim stops). After a refusal, focus returns to the button when it was lost. A thrown
+  ensureStatusLine is logged. Browser arms added: focus back after a refusal (pressed from the focused button), and
+  another writer's sentence plus a focus the person moved both survive the re-claim second; a missing offer is a FAIL
+  line, not a thrown evaluate.
 
 ## Decided, not missed
 - The default account (~/.claude) is offered too: the person presses the button, and the line says what it changes in
@@ -40,4 +47,4 @@ Card: kosmos#6175 (#6108 follow-up).
 - server.allowance-3946.test.js #6175: wired, the row stops saying not-wired, a second press changes nothing, an own
   status line refused and untouched, unknown dir 404, empty body 400. Passing (7/7 with #6108), with the API-key arm.
 - docs/browser-checks/render-account-usage-6108.js #6175 arms: offer, no offer on own-statusline, refusal said once,
-  success repaints. NOT RUN YET (needs a queued browser run).
+  success repaints, re-claim limits. Queued (not yet run). Server arms include the malformed-body 400.

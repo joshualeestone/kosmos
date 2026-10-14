@@ -313,16 +313,24 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
            again with its label back; the success when the offer is gone. */
         const until = async (cond) => { for (let i = 0; i < 100 && !cond(); i++) await new Promise((r) => setTimeout(r, 25)); return cond(); };
         const idle = () => btnOf('unwired') && !btnOf('unwired').disabled && btnOf('unwired').textContent === 'Set up usage reading';
+        if (!btnOf('unwired')) { window.fetch = prior; return out; }   // review 4: no offer is a FAIL line below, not a thrown evaluate
         const b0 = btnOf('unwired'); const why0 = b0 && document.getElementById(b0.getAttribute('aria-describedby') || '');
         out.describedBy = why0 ? why0.textContent.trim() : null;
-        btnOf('unwired').click(); await until(() => posts1() >= 1 && idle());
+        btnOf('unwired').focus(); btnOf('unwired').click(); await until(() => posts1() >= 1 && idle());   // review 4: from the button, as a keyboard user
+        out.refocus = document.activeElement === btnOf('unwired');
         out.say1 = [...row('unwired').querySelectorAll('[data-usage-say]')].map((e) => e.textContent);
         out.msg1 = document.getElementById('set-accounts-msg').textContent;
         btnOf('unwired').click(); await until(() => posts1() >= 2 && idle());
         out.say2 = [...row('unwired').querySelectorAll('[data-usage-say]')].map((e) => e.textContent);
-        btnOf('unwired').click(); await until(() => !btnOf('unwired') && /Usage reading set up/.test(document.getElementById('set-accounts-msg').textContent));
+        btnOf('unwired').focus(); btnOf('unwired').click(); await until(() => !btnOf('unwired') && /Usage reading set up/.test(document.getElementById('set-accounts-msg').textContent));
         out.after = { offer: !!btnOf('unwired'), line: row('unwired') && row('unwired').querySelector('.acct-usage-line') ? row('unwired').querySelector('.acct-usage-line').textContent.trim() : null,
           msg: document.getElementById('set-accounts-msg').textContent, focusIsRow: document.activeElement === row('unwired') };
+        /* Review 4: another writer's sentence and a focus the person moved both stand during the re-claim second. */
+        const sentinel = document.createElement('input'); document.body.appendChild(sentinel); sentinel.focus();
+        document.getElementById('set-accounts-msg').textContent = 'Moved Dana to spare@example.com.';
+        await new Promise((r) => setTimeout(r, 400));
+        out.foreign = { msg: document.getElementById('set-accounts-msg').textContent, focusKept: document.activeElement === sentinel };
+        sentinel.remove();
         window.fetch = prior;
         return out;
       });
@@ -330,6 +338,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(/adds Kosmos\u2019s status line/.test(s6175.describedBy || ''), tag + ' #6175 the button is described by the line that says what it adds', JSON.stringify(s6175.describedBy));
       say(s6175.msg1 === s6175.say1[0], tag + ' #6175 a refusal is also said in the panel\'s status line (heard by a screen reader)', JSON.stringify(s6175.msg1));
       say(s6175.after.focusIsRow && s6175.after.msg === 'Usage reading set up. Kosmos reads it once an agent on this account is working.', tag + ' #6175 a success is said in the status line and focus lands on the row', JSON.stringify({ focus: s6175.after.focusIsRow, msg: s6175.after.msg }));
+      say(s6175.refocus === true, tag + ' #6175 after a refusal, focus is back on the button for a keyboard user', String(s6175.refocus));
+      say(!!s6175.foreign && s6175.foreign.msg === 'Moved Dana to spare@example.com.' && s6175.foreign.focusKept, tag + ' #6175 the re-claim leaves another writer\'s sentence and a focus the person moved alone', JSON.stringify(s6175.foreign));
       say(!s6175.ownOffer, tag + ' #6175 a row with the person\'s own status line is not offered it (control)', String(s6175.ownOffer));
       say(s6175.say1.length === 1 && s6175.say1[0] === 'Not set up: this account already has its own status line, so it was left alone.', tag + ' #6175 a refusal is said on the row', JSON.stringify(s6175.say1));
       say(s6175.say2.length === 1, tag + ' #6175 a second refusal replaces the first', JSON.stringify(s6175.say2));
