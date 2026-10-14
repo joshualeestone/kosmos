@@ -543,8 +543,8 @@ run_deploy "$S34" "$L34" --promote
 { [ "$RC" = 75 ] && has "$out" "could not read the live pointers at the start"; } \
   && pass "#5589: a pointer answering 5xx through every retry counts as unread (exit 75)" || bad "#5589 persistent 503 (rc=$RC) out=$out"
 # 35) kosmos#6149: with the REAL setup floor (0.7.45; this file lowers it for its 0.6.x fixtures), the committed
-#     0.6.31 pointer is refused before anything is deployed: LIVE still serves OLD. Arm 1 is the control (the same
-#     scenario deploys under the lowered floor).
+#     0.6.31 pointer is refused before anything is deployed: LIVE still serves OLD. The control is arm 1 above (the
+#     same make_scenario deploys under the file's lowered floor), and arm 38 below under the real floor.
 read -r S35 L35 <<<"$(make_scenario)"
 out="$(env -u KOSMOS_SETUP_FLOOR_TEST -u KOSMOS_SETUP_FLOOR_LOWER PATH="$BIN:$PATH" LIVE_DIR="$L35" HOST_URL="$HOSTURL" \
   KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S35" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" \

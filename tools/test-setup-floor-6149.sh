@@ -92,6 +92,16 @@ out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"; rc=$?
 case "$out" in *"setup-staging (about to become /setup) does not know KOSMOS_READONLY_APP"*) pass "promote refuses an old setup-staging before it becomes /setup (rc $rc)";; *) bad "promote and an old setup-staging: $out";; esac
 [ "$(cd "$T/site/dist" && ls -la && cat ./*)" = "$before" ] && [ ! -e "$T/site/setup" ] && pass "that refusal wrote nothing" || bad "that refusal wrote something"
 rm -rf "$T/site/.git"
+# ...and with no installer named, prod keeps its /setup beside the promoted pointer: an old one is refused too.
+site; printf 'an installer from before 0.7.45\n' > "$T/site/setup"
+printf 'a build\n' > "$T/site/dist/kosmos-0.7.49-arm64.tar.gz"
+( cd "$T/site/dist" && shasum -a 256 kosmos-0.7.49-arm64.tar.gz > kosmos-0.7.49-arm64.tar.gz.sha256 )
+asha="$(shasum -a 256 < "$T/site/dist/kosmos-0.7.49-arm64.tar.gz" | awk '{print $1}')"
+printf '{"version":"0.7.49","sha256":"%s","artifact":"kosmos-0.7.49-arm64.tar.gz"}' "$asha" > "$T/site/dist/latest-staging.json"
+before="$(cd "$T/site/dist" && ls -la && cat ./*)"
+out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"
+case "$out" in *"the /setup prod keeps serving does not know KOSMOS_READONLY_APP"*) pass "promote refuses an old /setup that prod would keep beside the new pointer";; *) bad "promote and a kept old /setup: $out";; esac
+[ "$(cd "$T/site/dist" && ls -la && cat ./*)" = "$before" ] && pass "that refusal wrote nothing" || bad "that refusal wrote something"
 
 # publish-staging-pointer.sh: refused below the floor before any write.
 site; out="$(bash "$HERE/publish-staging-pointer.sh" "$T/site" 0.7.44 2>&1)"; rc=$?
@@ -121,6 +131,7 @@ kosmos_setup_floor_site_untouched_ok t "$T/site" prod 2>/dev/null && bad "a prod
 kosmos_setup_floor_site_untouched_ok t "$T/site" nightly 2>/dev/null && bad "an unknown channel passed" || pass "an unknown channel is refused"
 n="$(grep -c 'kosmos_setup_floor_site_untouched_ok "the site checkout" "\$SITE" "\$CUT_CHANNEL"' "$HERE/release.sh")"
 [ "$n" = 1 ] && pass "release.sh runs it on its channel at step 1a-floor" || bad "release.sh 1a-floor calls: $n"
+grep -q 'must never reach a cut -- refusing' "$HERE/release.sh" && pass "release.sh refuses the test knob in a cut" || bad "release.sh does not refuse the test knob"
 a1="$(grep -n 'kosmos_setup_floor_ok "this \$CUT_CHANNEL cut" "\$V"' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 b2="$(grep -n '^step "== 2\. ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 { [ -n "$a1" ] && [ -n "$b2" ] && [ "$a1" -lt "$b2" ]; } && pass "release.sh checks the cut's own version (line $a1) before step 2, the build (line $b2)" || bad "release.sh own-version check line '${a1:-none}', step 2 line '${b2:-none}'"

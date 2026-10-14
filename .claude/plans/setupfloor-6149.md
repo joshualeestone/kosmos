@@ -29,7 +29,9 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
     installers too, including the ones the cut does not touch), and early (step 1a-floor) on the site checkout's
     pair the cut re-publishes UNTOUCHED (the prod pair for a staging cut, the staging pair for a prod cut: the pair
     a cut writes is the remedy, not checked there), a fail-fast on a checkout that may be behind origin/main.
-  - promote-channel.sh also checks setup-staging's marker before copying it onto /setup (before any write).
+  - promote-channel.sh also checks the installer before any write: setup-staging when it is about to become /setup,
+    or, when the staging pointer names no installer, the /setup prod keeps serving beside the new pointer.
+  - release.sh refuses the test knob outright (no test drives a cut with it).
 - deploy-site's early committed-pointer check is a fail-fast: its export check would refuse the same pointers;
   only the staging-pointer arm of the test is specific to it.
 - Out of scope, on purpose: the .pkg (its postinstall fetches and verifies /setup, so /setup covers it) and the
