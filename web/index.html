@@ -67627,8 +67627,8 @@ function pjPhoneOrder() {
     else if (grid.lastElementChild !== tasks) grid.append(tasks);
   }
   if (focused && document.activeElement !== focused && focused.isConnected) focused.focus({ preventScroll: true });
-  // Members/Files going above the room pushes the composer down the page; a person mid-post
-  // keeps it in view (WebKit has no scroll anchoring to do it).
+  // Members/Files going above the room (or, on an upright tablet, Tasks going to the top) pushes the composer down
+  // the page; a person mid-post keeps it in view (WebKit has no scroll anchoring to do it).
   const moved = Array.from(grid.children).some((c, i) => c !== before[i]);
   const post = document.getElementById('pj-post');
   if (moved && post && document.activeElement === post && post.scrollIntoView) post.scrollIntoView({ block: 'nearest' });

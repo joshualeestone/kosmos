@@ -1116,6 +1116,14 @@ function tapProbe4663(skip) {
       const tip800 = await tipWalk();
       chk(!tip800.error && tip800.places === 4 && tip800.steps.length === 4 && tip800.steps.every(stepOk(800)),
         `[tablet 800x800] every step of the project tip is a pointing card, on screen, in the tablet layout`, JSON.stringify(tip800));
+      // And the wide single-column layout (Members/Files, room, Tasks), which a touch screen in landscape under 68rem
+      // still gets: 1024x768 is wider than a phone, under the three-column width, and landscape keeps it off the tablet.
+      await phonePage.setViewportSize({ width: 1024, height: 768 });
+      await phonePage.waitForTimeout(100);
+      const tipWideOrder = await order();
+      const tip1024 = await tipWalk();
+      chk(tipWideOrder.startsWith('members-files,room') && !tip1024.error && tip1024.places === 4 && tip1024.steps.length === 4 && tip1024.steps.every(stepOk(1024)),
+        `[wide] every step of the project tip is a pointing card, on screen, in the wide single-column layout`, JSON.stringify({ order: tipWideOrder, tip: tip1024 }));
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
       // Wide and short (a phone on its side): 800x800 on a touchscreen is an upright tablet since #6107 (tablet arm above).
