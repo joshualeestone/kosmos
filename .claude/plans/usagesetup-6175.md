@@ -45,6 +45,8 @@ Card: kosmos#6175 (#6108 follow-up).
   (no path in the body).
 
 ## Decided, not missed
+- Review 12 nit, the test message "the row still says it is not set up" on `assert.equal(blockedOf(), null)`: kept. An
+  assertion message describes the failure, and a non-null weeklyBlocked is exactly the row still saying it is not set up.
 - Review 11 nit, the setup succeeds but the repaint cannot read the list: the paint's own error sentence stands and the
   success goes unsaid; the old row still offers the button. Not built: pressing again answers changed:false and says
   it is set up once the list reads, and a second sentence beside an error the person must act on would compete with it.

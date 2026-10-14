@@ -311,6 +311,10 @@ test('#6175 the usage-reading route wires a not-set-up account and never replace
     const listedKeyed = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];
     assert.ok(listedKeyed.some((a) => a && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(keyed) && a.apiKey === true), 'precondition: the key account is listed as an API key');
     assert.equal((await post({ dir: keyed })).status, 400, 'an API-key account was wired');
+    // Review 12: a caller not from the page is refused before any lookup: the same 403 for a key account and a non-account.
+    const notPage = async (d) => (await fetch(base + '/api/accounts/claude/usage-reading', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: d }) })).status;
+    assert.equal(await notPage(keyed), 403, 'a caller not from the page learned the folder is an API-key account');
+    assert.equal(await notPage(path.join(SANDBOX, 'not-an-account')), 403, 'a caller not from the page learned the folder is not an account');
     assert.ok(!fs.existsSync(path.join(keyed, 'settings.json')), 'a settings file was written into an API-key account');
     // Only an account this computer lists, and a request it can read.
     assert.equal((await post({ dir: path.join(SANDBOX, 'not-an-account') })).status, 404);
