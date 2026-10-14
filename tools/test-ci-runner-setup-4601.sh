@@ -37,7 +37,9 @@ case "$me" in
   pgrep)
     [ "${FX_PGREP_FAIL:-0}" = 1 ] && exit 3
     # A Listener runs while this runner dir's svc state is "started" (cwd is the runner dir), with the pid start gave it.
-    case "$*" in *Runner.Listener*) [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ] || exit 1; [ -z "${FX_OLD_TOO:-}" ] || echo "$FX_OLD_TOO"; cat .svc-pid 2>/dev/null || echo 4343; exit 0 ;; esac
+    case "$*" in *Runner.Listener*) [ "${FX_LISTENER_PGREP_FAIL:-0}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ] && [ -e .svc-pid ] && exit 3; # FX_OLD_TOO: another Listener (an old one, or one started by hand) listed first whatever the service's state.
+      if [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ]; then [ -z "${FX_OLD_TOO:-}" ] || echo "$FX_OLD_TOO"; cat .svc-pid 2>/dev/null || echo 4343; exit 0; fi
+      [ -n "${FX_OLD_TOO:-}" ] && { echo "$FX_OLD_TOO"; exit 0; }; exit 1 ;; esac
     case "$*" in *Runner.Worker*) [ "${FX_WORKER:-0}" = 1 ] || exit 1; echo 4242; exit 0 ;; esac
     [ -z "${FX_LIVE:-}" ] && exit 1; printf '%s\n' "$FX_LIVE" ;;
   df) [ "${FX_DF_NOROW:-0}" = 1 ] && { echo "Filesystem 1024-blocks Used Available Capacity Mounted"; exit 0; }
@@ -417,6 +419,9 @@ run in-partial "$R13" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R13" FX_DL_PARTIAL=1 -- 
 R14="$T/run14"; svc_home "$R14"; echo 5000 > "$R14/actions-runner/.svc-pid"
 run in-bothlisteners "$R14" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R14" FX_OLD_TOO=4999 KOSMOS_CI_START_WAIT_S=2 -- --apply install "$C" "$G"
 [ "$(rc in-bothlisteners)" = 0 ] && has in-bothlisteners "runner started again" && pass "install --apply accepts the new Listener while the old one is still listed first" || fail "install old+new listeners: rc $(rc in-bothlisteners): $(tail -1 "$T/in-bothlisteners.out")"
+R15="$T/run15"; svc_home "$R15"
+run in-pgrepdead "$R15" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R15" FX_LISTENER_PGREP_FAIL=1 -- --apply install "$C" "$G"
+[ "$(rc in-pgrepdead)" = 1 ] && has in-pgrepdead "could not list processes (pgrep exit" && pass "install --apply says pgrep failed rather than timing out on it" || fail "install pgrep failure in the wait: rc $(rc in-pgrepdead): $(tail -1 "$T/in-pgrepdead.out")"
 R4="$T/run4"; mkdir -p "$R4/actions-runner"; printf 'RUNNER_KEEP=1\n' > "$R4/actions-runner/.env"; chmod 000 "$R4/actions-runner/.env"
 run in-unread "$R4" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R4" -- --apply install "$C" "$G"
 chmod 600 "$R4/actions-runner/.env"
@@ -451,6 +456,10 @@ STDIN_FILE="$T/token" run rg-twice "$RS" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$RS" -
 run rg-sudo "$CH" FX_WHO=kosmos-ci -- --apply register
 [ "$(rc rg-sudo)" = 2 ] && has rg-sudo "not /Users/kosmos-ci" && ! grep -q '^config\.sh' "$T/rg-sudo.calls" && pass "register --apply refuses when HOME is not kosmos-ci's (sudo -u keeps HOME)" || fail "register HOME check: rc $(rc rg-sudo)"
 rm -f "$CH/actions-runner/.service"   # rg-apply registered it; this case is about the token
+echo stopped > "$CH/actions-runner/.svc-state"; rm -f "$CH/actions-runner/.service"
+STDIN_FILE="$T/token" run rg-handrun "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" FX_OLD_TOO=3333 FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply register
+[ "$(rc rg-handrun)" = 1 ] && has rg-handrun "no new Runner.Listener" && pass "register --apply does not take a hand-started Listener for the service's" || fail "register hand-run listener: rc $(rc rg-handrun): $(tail -1 "$T/rg-handrun.out")"
+rm -f "$CH/actions-runner/.service"
 run rg-none "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
 [ "$(rc rg-none)" = 1 ] && has rg-none "no registration token" && ! grep -q '^config\.sh' "$T/rg-none.calls" && pass "register --apply refuses with no token" || fail "register no token: rc $(rc rg-none)"
 
@@ -462,7 +471,7 @@ GS="$(shasum -a 256 "$VCI/.kosmos-ci/job-guard.sh" | cut -d' ' -f1)"
 vcase() {  # vcase <name> <want rc> <want text> <env...>
   local name="$1" want="$2" text="$3"; shift 3
   run "v-$name" "$H" FX_CI_EXISTS=1 KOSMOS_CI_HOME="$VCI" KOSMOS_CI_GUARD_SHA="$GS" "$@" -- verify
-  [ "$(rc "v-$name")" = "$want" ] && has "v-$name" "$text" && pass "verify: $name" || fail "verify $name: rc $(rc "v-$name"): $(grep -E 'REFUSE|clear' "$T/v-$name.out" | head -2)"
+  [ "$(rc "v-$name")" = "$want" ] && has "v-$name" "$text" && pass "verify: $name" || fail "verify $name: rc $(rc "v-$name"): $(grep -E 'PROBLEM|UNCHECKED|clear' "$T/v-$name.out" | head -2)"
 }
 vcase clear 0 "verify: clear"
 vcase labels 1 "labels are 'arm64,macos,self-hosted'" "FX_RUNNER_ROW=online false arm64,macos,self-hosted"
