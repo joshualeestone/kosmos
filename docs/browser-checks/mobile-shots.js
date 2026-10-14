@@ -130,7 +130,8 @@ function fetchBoard(route) {
 }
 const DEFAULT_SIZES = ['se', 'iphone15', 'promax', 'android'];
 /* Why a screen is not shot at a size, or '' when it is. A tablet (#6107) is a touch size like a phone, but a
-   phone-only screen (the #burger menu, hidden above 40rem) does not exist there either. */
+   phone-only screen (the #burger menu, hidden above 40rem) does not exist there either; a desktop-only screen is
+   skipped at every size that is not the desktop one, tablets included. */
 const skipWhy = (s, sc) => (sc.phoneOnly && (s.desktop || s.tablet) ? 'phone-only screen' : (sc.desktopOnly && !s.desktop ? 'desktop-only screen' : ''));
 const THEMES = ['light', 'dark'];
 const ENGINES = ['chromium', 'webkit'];
