@@ -2614,7 +2614,12 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
 /* #6108: every Claude agent on this computer grouped by the account folder it runs on, in ONE pass, for the accounts
    list (which used to need a full walk per account row). The same reading as enumerateAgentsOnAccount: a job with no
    configDir runs on the default account; `complete` is false when anything could not be read. */
-function claudeAgentsByAccount() {
+/* #6174: `live` (optional) maps a session to what its running process reads (runningas.everyone): an agent whose launch
+   file names one account but whose process still runs on another (a move that came back partial: the window could
+   not be closed) is listed under the account it was moved to, and marked moving there until it restarts. Listed by
+   the launch file on purpose: a stopped agent, or one whose relaunch failed, runs nowhere, so the new row is right for
+   it. Never marked without a good reading of a Claude process (a failed read, Windows, another runner: unmarked). */
+function claudeAgentsByAccount(live) {
   const walk = agentsByAccountWalk('claude', { skipGuide: true });
   let complete = walk.complete;
   const byDir = new Map(), onDefault = [];
@@ -2629,6 +2634,18 @@ function claudeAgentsByAccount() {
     on(dir, isDefault) {   // the agents on one account row
       let key = null; try { key = dir ? path.resolve(dir) : null; } catch { key = null; }
       return [...(isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])];
+    },
+    moving(dir, isDefault) {   // #6174: the agents on this row whose process still runs on another account
+      if (!(live instanceof Map)) return [];
+      return this.on(dir, isDefault).filter((name) => {
+        const l = live.get(name);
+        if (!l || l.ok !== true || l.runner !== 'claude' || typeof l.configDir !== 'string' || !l.configDir) return false;
+        let liveDefault = null; try { liveDefault = accounts.isDefaultDir(l.configDir); } catch { liveDefault = null; }
+        if (liveDefault === null) return false;   // unknown: never marked
+        if (isDefault) return liveDefault === false;
+        if (liveDefault === true) return true;
+        try { return !dir || path.resolve(l.configDir) !== path.resolve(dir); } catch { return false; }
+      });
     },
   };
 }
@@ -11030,7 +11047,13 @@ const server = http.createServer(async (req, res) => {
         let wantAgents = false;
         try { wantAgents = new URL(req.url, ROUTING_BASE).searchParams.get('agents') === '1'; } catch { wantAgents = false; }
         let claudeAgents = null;
-        if (wantAgents) { try { claudeAgents = claudeAgentsByAccount(); } catch { claudeAgents = null; } }
+        if (wantAgents) {
+          /* #6174: one read of every agent's running process, bounded (#1366), so an agent still running on its old
+             account after a partial move is marked moving; a failed read marks nobody. */
+          let live = null;
+          try { live = new Map(runningas.everyone({ budgetMs: 1500 }).map((r) => [r.session, r])); } catch { live = null; }
+          try { claudeAgents = claudeAgentsByAccount(live); } catch { claudeAgents = null; }
+        }
         const claude = claudeRows.map((a) => {
           /* #3136: the badge is the FRESHER of a passively-witnessed agent
              observation (obsByDir, filled by the ~60s sweep) and a
@@ -11126,7 +11149,7 @@ const server = http.createServer(async (req, res) => {
             })(),
             /* #6108: the agents on this account on THIS computer, by session name. complete is false when any could not
                be read, so the page can say the list may be short rather than call it whole. */
-            ...(wantAgents ? { agentsHere: claudeAgents ? { names: claudeAgents.on(a.dir, !!a.isDefault), complete: !!claudeAgents.complete } : { names: [], complete: false } } : {}),
+            ...(wantAgents ? { agentsHere: claudeAgents ? { names: claudeAgents.on(a.dir, !!a.isDefault), complete: !!claudeAgents.complete, moving: claudeAgents.moving(a.dir, !!a.isDefault) } : { names: [], complete: false, moving: [] } } : {}),
           };
         });
         /* 🛑 `offerable` TRAVELS WITH THE ROW, for the same reason `memoryShared` does
