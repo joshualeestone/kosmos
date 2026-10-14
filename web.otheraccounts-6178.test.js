@@ -344,3 +344,22 @@ test('#6178 an old empty answer says it is old', () => {
   const t = text(api.aoGroup({ name: 'studio', address: 'studio.kosmosplus.com' }, { state: 'out', at: now - 600e3 }, { accounts: [], agents: [], at: now - 600e3 }, now));
   assert.match(t, /No Claude account is set up on studio\. Showing what this page last read, 10 minutes ago\./);
 });
+
+test('#6178 a repaint keeps an unchanged group, and focus in a changed one moves to its new Open link', () => {
+  const { api, d } = load();
+  const now = Date.now();
+  api.OA_SEEN.set('studio.kosmosplus.com', { state: 'ok', agents: [], at: now });
+  api.aoKeep('studio.kosmosplus.com', 'ok', STATUS, now);
+  api.aoPaint();
+  const list = d.getElementById('set-other');
+  const first = list.children[0];
+  first.querySelector('.oa-open').focus();
+  api.aoPaint();
+  assert.equal(list.children[0], first, 'an unchanged group was rebuilt (focus in it would be lost)');
+  assert.equal(d.activeElement, first.querySelector('.oa-open'), 'CONTROL: focus stayed on the Open link');
+  api.aoKeep('studio.kosmosplus.com', 'ok', { ...STATUS, accountsWeekly: [] }, now);
+  api.aoPaint();
+  const next = list.children[0];
+  assert.notEqual(next, first, 'CONTROL: a group whose words changed was not replaced');
+  assert.equal(d.activeElement, next.querySelector('.oa-open'), 'focus was lost when its group was replaced');
+});
