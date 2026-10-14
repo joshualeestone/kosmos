@@ -1296,13 +1296,17 @@ test('#4934/#5967: four consecutive acknowledgement-only posts hold the room, so
     armSender('leo-discord');
     const tmux = arm([]);
     const held = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks' }, board.agents, MEMBERS);
-    assert.equal(held.state, chat.DELIVERY.COULD_NOT, 'a run of four acknowledgements did not hold the room');
-    assert.equal(held.code, 'room_held', 'the ack hold must reuse the honest room_held code so the CLI says nothing was kept');
-    assert.match(held.because, /only agreeing back and forth without adding anything new/, 'the ack hold does not name the acknowledgement loop');
-    assert.equal(held.id, null, 'the ack hold kept a copy; it must not');
+    assert.equal(held.state, chat.DELIVERY.COULD_NOT, 'a run of four acknowledgements was passed on');
+    assert.equal(held.code, 'ack_only', 'the ack refusal must carry the DISTINCT ack_only code, not room_held: it is not a hold, so the CLI must not say the room is paused');
+    assert.match(held.because, /stopped passing on agreement-only replies/, 'the ack refusal does not carry the honest, non-hold person-facing text');
+    assert.doesNotMatch(held.because, /bring you in|paused|for the person/i, 'the ack refusal still speaks of a hold; it must not, the room is not held');
+    assert.equal(held.id, null, 'the ack refusal kept a copy; it must not');
     assert.equal(tmux.sends().length, 0, 'the refused ack was typed anyway');
     assert.equal(messages.record().rows.filter((m) => m.kind === 'post' && m.text === 'thanks').length, 0, 'the refused ack was stored');
-    assert.equal(messages.record().rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 1, 'the ack hold valve row was not logged exactly once');
+    // It is NOT a hold: no valve row, no refused row, and roomHeld (volume-only) stays null.
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 0, 'the ack refusal wrote a valve row; that feeds roomHeld and the held-tell staleness check, reporting a hold that does not exist');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'refused' && m.project === 'henderson-lease').length, 0, 'the ack refusal wrote a refused row; the volume path dedup would read it as a prior room hold');
+    assert.equal(messages.roomHeld('henderson-lease', now), null, 'roomHeld reports the room held after an ack-only refusal; it must stay null, the room is not held');
 
     // BOUNDARY: three acks (two seeded, one incoming) must NOT hold -- the threshold is four.
     wipeLog(); chat.resetForTests(); armSender('leo-discord'); arm([]);
@@ -1362,7 +1366,7 @@ test('#4934/#5967: an operator post resets the ack run (countFrom), so an ack ri
   });
 });
 
-test('#4934/#5967: a second refused ack does not duplicate the valve row or the per-agent refused row', () => {
+test('#4934/#5967: repeated ack-only refusals write no valve row and no refused row (it is not a hold)', () => {
   withFleet(room3(), (board) => {
     const now = Date.now();
     seedPosts(now, [
@@ -1371,16 +1375,20 @@ test('#4934/#5967: a second refused ack does not duplicate the valve row or the 
       { from: 'april', text: 'confirmed' },
     ]);
     armSender('leo-discord'); arm([]);
-    // First refusal: the run reaches four and the room holds (one valve row, one refused row).
+    // First ack-only refusal: the run reaches four, so the fourth ack is not passed on.
     const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks' }, board.agents, MEMBERS);
-    assert.equal(first.state, chat.DELIVERY.COULD_NOT, 'the first ack did not hold the room');
-    // Second refusal by the SAME agent, still within the window: held again, but the record
-    // is deduplicated per room (valve) and per agent (refused), exactly as the volume path.
+    assert.equal(first.state, chat.DELIVERY.COULD_NOT, 'the first content-free ack was passed on');
+    assert.equal(first.code, 'ack_only', 'the first ack refusal must carry ack_only');
+    // A second content-free ack by the SAME agent: refused again. Because the refusal is NOT a
+    // hold, nothing is recorded for either one -- no valve row, no refused row -- so there is
+    // nothing to deduplicate, and roomHeld stays null throughout.
     const second = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'sure' }, board.agents, MEMBERS);
-    assert.equal(second.state, chat.DELIVERY.COULD_NOT, 'the second ack landed though the room was still held');
+    assert.equal(second.state, chat.DELIVERY.COULD_NOT, 'a second content-free ack was passed on');
+    assert.equal(second.code, 'ack_only', 'the second ack refusal must carry ack_only');
     const rows = messages.record().rows;
-    assert.equal(rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 1, 'a second refusal wrote a duplicate valve row');
-    assert.equal(rows.filter((m) => m.kind === 'refused' && m.project === 'henderson-lease').length, 1, 'a second refusal by the same agent wrote a duplicate refused row');
+    assert.equal(rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 0, 'an ack refusal wrote a valve row; it is not a hold');
+    assert.equal(rows.filter((m) => m.kind === 'refused' && m.project === 'henderson-lease').length, 0, 'an ack refusal wrote a refused row; it is not a hold');
+    assert.equal(messages.roomHeld('henderson-lease', now), null, 'roomHeld must stay null across repeated ack-only refusals');
   });
 });
 
@@ -1406,7 +1414,7 @@ test('#4934/#5967: a reopen resets the ack run (the other countFrom writer), so 
   });
 });
 
-test('#4934/#5967: a held room still accepts a content post (the ack hold blocks only acks, not the room)', () => {
+test('#4934/#5967: after an ack-only refusal a content post from the same agent is delivered straight away (it is not a hold)', () => {
   withFleet(room3(), (board) => {
     const now = Date.now();
     seedPosts(now, [
@@ -1415,14 +1423,45 @@ test('#4934/#5967: a held room still accepts a content post (the ack hold blocks
       { from: 'april', text: 'confirmed' },
     ]);
     armSender('leo-discord'); arm([]);
-    // The run reaches four and the room holds against a fourth ACK.
+    // The run reaches four, so a fourth ACK is refused (ack_only).
     const held = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks' }, board.agents, MEMBERS);
-    assert.equal(held.state, chat.DELIVERY.COULD_NOT, 'the ack did not hold the room');
-    // A CONTENT post from the same agent lands: the hold stops acks, not the room, and the
-    // content resets the run (it is the person being "brought in" with something new).
+    assert.equal(held.state, chat.DELIVERY.COULD_NOT, 'the fourth content-free ack was passed on');
+    assert.equal(held.code, 'ack_only', 'the ack refusal must carry ack_only');
+    // The room is NOT held: roomHeld stays null, and a CONTENT post from the SAME agent is
+    // delivered at once (it resets the run and is the new thing worth passing on). This is the
+    // end-to-end guard: the dangerous direction was an agent told to wait on real content.
+    assert.equal(messages.roomHeld('henderson-lease', now), null, 'roomHeld reported a hold after the ack-only refusal; the room is not held');
     const content = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'the deploy is green, 3 of 3 checks passed' }, board.agents, MEMBERS);
-    assert.equal(content.state, chat.DELIVERY.PLACED, 'a content post was refused though only acks should be held');
+    assert.equal(content.state, chat.DELIVERY.PLACED, 'a content post after an ack-only refusal was not delivered');
+    assert.ok(content.id, 'the delivered content post has no id (it was not really delivered)');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'post' && m.text === 'the deploy is green, 3 of 3 checks passed').length, 1, 'the content post was not stored, so it never reached the room');
   });
+});
+
+test('#4934/#5967: the CLI copy for ack_only tells the agent to post something new, never that the room is held', () => {
+  const cli = fs.readFileSync(path.join(__dirname, '..', 'install', 'kosmos'), 'utf8');
+  // The refusal copy branch for a code runs from its first case token to the next `;;`.
+  // The first occurrence is the main copy branch (the hand-back branch comes later).
+  const branch = (code) => {
+    const i = cli.indexOf('"code":"' + code + '"');
+    assert.ok(i >= 0, 'install/kosmos has no refusal copy branch for code ' + code);
+    const end = cli.indexOf(';;', i);
+    assert.ok(end > i, 'the ' + code + ' copy branch is not terminated by ;;');
+    return cli.slice(i, end);
+  };
+  const ack = branch('ack_only');
+  // Honest, non-hold copy: post something new and it goes through at once.
+  assert.match(ack, /something new/, 'the ack_only CLI copy does not tell the agent to post something new');
+  assert.match(ack, /straight away/, 'the ack_only CLI copy does not say the new post goes through straight away');
+  // It must carry NO hold vocabulary at all -- a hold is exactly the false thing it must not say,
+  // and copy that says it would make an agent sit on real content (the dangerous direction).
+  assert.doesNotMatch(ack, /paused|an hour|steps in|bring you in|reopen/i,
+    'the ack_only CLI copy speaks of a hold; the room is not held, so it must not');
+  // Negative control: the room_held copy (the real volume hold) DOES speak of a hold, so this
+  // test can actually tell the two codes apart (a-control-proves-only-the-arm-you-aim-it-at).
+  const held = branch('room_held');
+  assert.match(held, /paused|an hour|steps in/i,
+    'control: the room_held CLI copy no longer speaks of a hold, so the ack_only absence check proves nothing');
 });
 
 test('#2710: reopening a held room clears the loop-guard budget so the next post lands', () => {
