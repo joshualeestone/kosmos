@@ -24,7 +24,7 @@ Card: kosmos#6105 (recurrence of #5373). Test-only change: docs/browser-checks/r
 
 ## Review 1 (opus) fixes
 - C1 had the same race: its "says Copied" is now read inside the wait (not frozen, because C1 tests the revert next),
-  and the 2.3 s sleep before "reverts" is untilReverted.
+  and the 2.3 s sleep before "reverts" is untilReverted (superseded by review 5: C1 waits on the revert the page recorded).
 - C7b now freezes the stale write's own Copied too and judges the LAST line written (a line cleared after it reds),
   with a 4 s wait that logs a NOTE; press() in C9 logs a NOTE when its wait times out; untilReverted's comment says it
   returns at once when no Copied is showing.
@@ -45,6 +45,12 @@ Card: kosmos#6105 (recurrence of #5373). Test-only change: docs/browser-checks/r
   a correct revert is never under 2000 ms).
 - The same read-after-wait race in C4b, C7, C7c and C7d: they use untilCopied now. C9's press() returns the line its
   own wait saw instead of reading it again.
+
+## Review 7 (opus) fix
+- holdCopied is armed BEFORE each action that says a Copied (C4b, C6, C7, C7b's newer press, C7c, C7d): a
+  MutationObserver freezes the revert as a microtask the instant the line is said, so a page stalled past both the
+  30 ms say and the 2 s revert cannot let the revert run before untilCopied's first poll. C1's label says "after the
+  press" and its NOTE prints what the page recorded.
 
 ## Decided, not missed
 - Freezing the revert inside the wait changes page state, but only the timer the arm does not test; the alternative

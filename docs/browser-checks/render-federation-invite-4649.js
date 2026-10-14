@@ -1599,6 +1599,19 @@ const closeAll = (page) => page.evaluate(() => {
        past that and see an empty line, so once the wanted line is up its revert is cancelled: the read sees what the
        wait saw. Only the shared copy timer (FEDINV_COPY_TIMER, here the Copied revert) is stopped; the arm's assertion is
        unchanged. */
+    /* #6105 review 7: armed BEFORE the action, so the revert is frozen the instant the line is said (an observer runs as
+       a microtask after the write), even if the page stalls past both the 30 ms say and the 2 s revert before any poll
+       could see the line. untilCopied below then only waits for it. */
+    const holdCopied = (page, text) => page.evaluate((t) => {
+      const line = document.getElementById('fedinv-status');
+      if (window.__holdObs) window.__holdObs.disconnect();
+      window.__holdObs = new MutationObserver(() => {
+        if (line.textContent !== t) return;
+        if (FEDINV_COPY_TIMER) { clearTimeout(FEDINV_COPY_TIMER); FEDINV_COPY_TIMER = null; }
+        window.__holdObs.disconnect(); window.__holdObs = null;
+      });
+      window.__holdObs.observe(line, { childList: true, characterData: true, subtree: true });
+    }, text);
     const untilCopied = (page, text, ms = 4000) => page.waitForFunction((t) => {
       if (document.getElementById('fedinv-status').textContent !== t) return false;
       if (FEDINV_COPY_TIMER) { clearTimeout(FEDINV_COPY_TIMER); FEDINV_COPY_TIMER = null; }
@@ -1695,9 +1708,9 @@ const closeAll = (page) => page.evaluate(() => {
     // 2 s revert is never under 2000 ms; 5000 ms leaves room for a stalled page (residual in the plan).
     const c1rev = await page.waitForFunction(() => (window.__c1.revert != null && window.__c1.press != null)
       ? { ms: window.__c1.revert - window.__c1.press } : false, null, { timeout: 8000 })
-      .then((h) => h.jsonValue()).catch(() => { console.log('NOTE  a wait timed out and the arm read anyway: C1 revert'); return null; });
+      .then((h) => h.jsonValue()).catch(async () => { console.log('NOTE  a wait timed out and the arm read anyway: C1 revert ' + JSON.stringify(await page.evaluate(() => window.__c1).catch(() => null))); return null; });
     st = await step(page);
-    check('C1 the button reverts to "Copy the invitation", about 2 s after it said Copied',
+    check('C1 the button reverts to "Copy the invitation", about 2 s after the press',
       st.allText === 'Copy the invitation' && st.status === '' && !!c1rev && c1rev.ms >= 1950 && c1rev.ms <= 5000,
       JSON.stringify({ all: st.allText, status: st.status, revertMs: c1rev && Math.round(c1rev.ms) }));
 
@@ -1792,6 +1805,7 @@ const closeAll = (page) => page.evaluate(() => {
       focusC4 === 'fedinv-whole' && backTo === 'fedinv-copy-all', JSON.stringify({ before: focusC4, after: backTo }));
     // C4b: the clipboard still refuses, but the select-and-copy fallback works: the same exact text, and Copied.
     await page.evaluate(() => { window.__execTexts.length = 0; window.__execOk = true; });
+    await holdCopied(page, 'Invitation copied.');
     await copyAll(page);
     await untilCopied(page, 'Invitation copied.');   // #5373; #6105 review 5: its revert held so the read below sees it
     st = await step(page);
@@ -1914,6 +1928,7 @@ const closeAll = (page) => page.evaluate(() => {
         moved.focus === 'fedinv-code' && moved.shown && moved.sel[0] === 0 && moved.sel[1] === moved.sel[2]
         && moved.status === 'Kosmos could not copy the invitation, so it is below. Click in it, press ' + keysC6[0] + ', then ' + keysC6[1] + ', and paste it into your message.',
         JSON.stringify(moved));
+      await holdCopied(pc.page, 'Invitation copied.');
       await pc.page.evaluate(() => window.__releaseClip());
       await untilCopied(pc.page, 'Invitation copied.');   // #6105: said 30 ms after the write lands, then reverts at 2 s
       const goneC6 = await pc.page.evaluate(() => { const w = document.getElementById('fedinv-whole'); return !!(w && w.hidden && w.value === ''); });
@@ -2050,6 +2065,7 @@ const closeAll = (page) => page.evaluate(() => {
       await p7.page.click('#fedinv-copy-all');
       await untilRefused(p7.page);   // past the limit: the refusal is up and the busy flag is free
       await p7.page.evaluate(() => { window.__execOk = true; });
+      await holdCopied(p7.page, 'Code copied.');
       await p7.page.click('#fedinv-copy');
       await untilCopied(p7.page, 'Code copied.');   // #6105 review 5
       const newer = await step(p7.page);
@@ -2071,6 +2087,7 @@ const closeAll = (page) => page.evaluate(() => {
       await untilRefused(p7.page);
       await p7.page.click('#fedinv-copy-all');
       await p7.page.waitForFunction(() => window.__holds.length === 2, null, { timeout: 4000 }).catch(() => {});
+      await holdCopied(p7.page, 'Invitation copied.');
       await p7.page.evaluate(() => window.__holds[1]());   // the newer press lands first
       await untilCopied(p7.page, 'Invitation copied.');
       /* #6105: every line written from here is recorded, so the read cannot fall between a reset and the sentence said
@@ -2104,6 +2121,7 @@ const closeAll = (page) => page.evaluate(() => {
       await p7.page.waitForFunction(() => FEDINV_COPY_BUSY, null, { timeout: 4000 }).catch(() => {});   // its own write is in flight
       await untilRefused(p7.page);
       const refused = await step(p7.page);
+      await holdCopied(p7.page, 'Invitation copied.');
       await p7.page.evaluate(() => window.__holds[0]());   // the stale write, same text, lands
       await untilCopied(p7.page, 'Invitation copied.');   // #6105 review 5
       const landed = await step(p7.page);
@@ -2128,6 +2146,7 @@ const closeAll = (page) => page.evaluate(() => {
       await p7d.page.click('#fedinv-copy');
       await untilRefused(p7d.page);
       await p7d.page.evaluate(() => { window.__execOk = true; });
+      await holdCopied(p7d.page, 'Invitation copied.');
       await p7d.page.click('#fedinv-copy-all');
       await untilCopied(p7d.page, 'Invitation copied.');   // #6105 review 5
       const newer = await step(p7d.page);
