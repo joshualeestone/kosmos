@@ -157,9 +157,14 @@ test('#5531: the world id is minted once, kept, owner-only, and the enrollment f
   const { a } = sandbox(t);
   const id1 = org.worldId({ root: a }); const id2 = org.worldId({ root: a });
   assert.equal(id1, id2, 'the id changed between reads');
-  assert.equal(fs.statSync(path.join(a, org.WORLD_ID_FILE)).mode & 0o777, 0o600);
+  /* #6113: Windows keeps no POSIX mode (a file reads back 0666 whatever was asked), so the owner-only mode is a
+     Mac and Linux fact. On Windows these files sit in the person's own %APPDATA% (engine/store.js), whose folder
+     permissions Windows sets to that person, SYSTEM and Administrators; that is what keeps them owner-only there.
+     Read from Windows' documented defaults, not measured on a Windows box. */
+  const posix = process.platform !== 'win32';
+  if (posix) assert.equal(fs.statSync(path.join(a, org.WORLD_ID_FILE)).mode & 0o777, 0o600);
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
-  assert.equal(fs.statSync(path.join(a, org.ENROLLMENT_FILE)).mode & 0o777, 0o600);
+  if (posix) assert.equal(fs.statSync(path.join(a, org.ENROLLMENT_FILE)).mode & 0o777, 0o600);
 });
 
 test('#5531: the coordinator\'s public error codes are said in plain words; an unknown error is a fixed sentence', async (t) => {
@@ -413,11 +418,18 @@ test('#5531 review 9: an unreadable local world id is an unclear answer, and a c
   const { a } = sandbox(t);
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
   const idFile = path.join(a, org.WORLD_ID_FILE);
-  fs.chmodSync(idFile, 0o000);   // there, but unreadable (review 14 made a MISSING file mean stale; this one is not)
-  t.after(() => { try { fs.chmodSync(idFile, 0o600); } catch { /* removed with the sandbox */ } });
+  /* There, but unreadable (review 14 made a MISSING file mean stale; this one is not). #6113: chmod 000 does not stop
+     a read on Windows, so there the id file is swapped for a folder of the same name, which no platform reads as a
+     file. The Mac and Linux keep the permission form this review wrote. */
+  const win = process.platform === 'win32';
+  const kept = fs.readFileSync(idFile);
+  const unreadable = () => { if (win) { fs.rmSync(idFile); fs.mkdirSync(idFile); } else fs.chmodSync(idFile, 0o000); };
+  const readable = () => { if (win) { fs.rmSync(idFile, { recursive: true, force: true }); fs.writeFileSync(idFile, kept); } else fs.chmodSync(idFile, 0o600); };
+  unreadable();
+  t.after(() => { try { readable(); } catch { /* removed with the sandbox */ } });
   await org.refresh({ root: a, remote: { macRequest: async () => ({ ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: 'e'.repeat(32), thisComputer: true } } }) } });
   assert.ok(fs.existsSync(path.join(a, org.ENROLLMENT_FILE)), 'an unreadable local id was read as the company moving on');
-  fs.chmodSync(idFile, 0o600);
+  readable();
   assert.equal(org.stoppedFor({ root: a }), null);
   const errs = []; const orig = console.error; console.error = (m) => errs.push(String(m)); t.after(() => { console.error = orig; });
   await org.preview('Secret-Code-7777', { root: a, remote: { macRequest: async () => ({ ok: false, because: 'HTTP 502 for SECRET-CODE-7777' }) } });
