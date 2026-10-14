@@ -48680,7 +48680,8 @@ function openConsolidatedCreate() {
 /* #2154: the header board-view toggle. A delegated click, matching the header
    theme picker's pattern, and one press applies (the Settings tiles keep their
    deliberate select-then-activate; this is the quick flip). It writes the SAME
-   /api/style layout the tiles do -- no second store -- then re-lays the current
+   /api/style layout the tiles do -- no second store, EXCEPT on a touch tablet held sideways, where #6107 keeps the
+   choice on that tablet (TABLET_LAYOUT_KEY) and never writes the board -- then re-lays the current
    tab via applyLayout, which also re-paints every picker's checked state, so the
    header, the tiles and the board never diverge. No navigation is forced: the
    moving highlight is the feedback, and the choice applies to the Agents/Projects
