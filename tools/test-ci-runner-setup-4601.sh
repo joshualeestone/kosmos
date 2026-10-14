@@ -21,7 +21,13 @@ cat > "$BIN/_stub" <<'STUB'
 me="$(basename "$0")"
 printf '%s' "$me" >> "$CALL_LOG"; printf ' %s' "$@" >> "$CALL_LOG"; printf '\n' >> "$CALL_LOG"
 case "$me" in
-  launchctl) [ "${FX_LAUNCHCTL_FAIL:-0}" = 1 ] && exit 1; printf 'PID\tStatus\tLabel\n-\t0\tcom.apple.Finder\n123\t0\tapplication.com.apple.Terminal.1234.5678\n'; [ -z "${FX_JOBS:-}" ] || printf '%s\n' "$FX_JOBS" | sed 's/^/-\t0\t/' ;;
+  launchctl)   # `launchctl print gui/<uid>`, in the shape measured on Agent1s 2026-10-14
+    [ "${FX_LAUNCHCTL_FAIL:-0}" = 1 ] && exit 1
+    [ "$1 ${2%%/*}" = "print gui" ] || exit 1
+    printf 'gui/501 = {\n\ttype = login\n\tservices = {\n'
+    printf '\t\t     %s      - \t%s\n' 874 com.apple.Finder 471 application.com.apple.Terminal.1234.5678
+    [ -z "${FX_JOBS:-}" ] || printf '%s\n' "$FX_JOBS" | sed 's/^/\t\t     -      0 \t/'
+    printf '\t}\n\n\tunmanaged processes = {\n\t\tcom.example.notajob = {\n\t\t}\n\t}\n}\n' ;;
   crontab)
     [ "${FX_CRON_FAIL:-0}" = 1 ] && { echo "crontab: tmp/tmp.123: Operation not permitted" >&2; exit 1; }
     [ -z "${FX_CRON:-}" ] && { echo "crontab: no crontab for ${FX_WHO:-agent1}" >&2; exit 1; }; printf '%s\n' "$FX_CRON" ;;
@@ -61,7 +67,7 @@ case "$me" in
     elif [ "$big" = 1 ]; then printf 'runner-package' > "$(basename "$url")"
     else case "$url" in
       */compare/*) printf '{\n  "status": "%s",\n' "${FX_COMPARE:-ahead}" ;;
-      */releases/latest) printf '{"tag_name": "v2.999.0", "body": "<!-- BEGIN SHA osx-arm64 -->%s<!-- END SHA osx-arm64 -->"}' "$(printf 'runner-package' | shasum -a 256 | cut -d' ' -f1)" ;;
+      */releases/latest) printf '{"tag_name": "v2.999.0", "body": "<!-- BEGIN SHA osx-arm64 -->%s<!-- END SHA osx-arm64 -->"}' "${FX_RELEASE_SHA:-$(printf 'runner-package' | shasum -a 256 | cut -d' ' -f1)}" ;;
     esac; fi ;;
   sudo) case "$*" in *"sysadminctl -addUser"*) [ "${FX_SYSADMIN_NOOP:-0}" = 1 ] || : > "$(dirname "$CALL_LOG")/user-created" ;; esac ;;
   tar) [ "${FX_TAR_FAIL:-0}" = 1 ] && exit 1 ;;
@@ -118,7 +124,7 @@ refuse disk "under the 20 GiB floor" FX_FREE_KIB=10485760
 refuse filevault "FileVault is not off" "FX_FV=FileVault is On."
 refuse sleep "system sleep is not 'never'" FX_SLEEP=10
 refuse autorestart "autorestart is not 1" FX_AUTORESTART=0
-refuse launchctl-unreadable "could not read launchctl list" FX_LAUNCHCTL_FAIL=1
+refuse launchctl-unreadable "could not read launchctl print gui/" FX_LAUNCHCTL_FAIL=1
 refuse tmux35a "is 3.5a" "FX_TMUX_V=tmux 3.5a"
 refuse admin "kosmos-ci is an admin" FX_CI_EXISTS=1 "FX_GROUPS=staff admin"
 refuse shards "KOSMOS_CI_SHELL_SHARDS is '1/2'" FX_SHARDS=1/2
@@ -170,7 +176,7 @@ run cu-blocked "$H" FX_JOBS=com.kosmos.board -- --apply create-user
   || fail "create-user while blocked: rc $(rc cu-blocked), calls: $(changed cu-blocked)"
 # preflight runs inside `||` here, where set -e is off: an unreadable launchctl must still refuse.
 run cu-nolaunchctl "$H" FX_LAUNCHCTL_FAIL=1 -- --apply create-user
-[ "$(rc cu-nolaunchctl)" = 1 ] && ! changed cu-nolaunchctl >/dev/null && has cu-nolaunchctl "could not read launchctl list" \
+[ "$(rc cu-nolaunchctl)" = 1 ] && ! changed cu-nolaunchctl >/dev/null && has cu-nolaunchctl "could not read launchctl print gui/" \
   && pass "create-user --apply refuses when launchctl cannot be read (no fail-open under ||)" || fail "create-user, launchctl unreadable: rc $(rc cu-nolaunchctl)"
 run cu-noop "$H" FX_SYSADMIN_NOOP=1 -- --apply create-user
 [ "$(rc cu-noop)" = 1 ] && has cu-noop "was not created" && pass "create-user --apply stops when sysadminctl made no user" || fail "create-user no-op: rc $(rc cu-noop)"
@@ -243,6 +249,11 @@ R7="$T/run7"; svc_home "$R7"
 run in-pgrepfail "$R7" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R7" FX_PGREP_FAIL=1 -- --apply install "$C" "$G"
 [ "$(rc in-pgrepfail)" = 1 ] && has in-pgrepfail "could not list processes" && ! grep -q -E '^(svc.sh stop|tar )' "$T/in-pgrepfail.calls" \
   && pass "install --apply refuses when pgrep cannot say whether a job runs" || fail "install pgrep failure: rc $(rc in-pgrepfail)"
+R8="$T/run8"; svc_home "$R8"
+run in-pkgsha "$R8" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R8" FX_RELEASE_SHA=deadbeef -- --apply install "$C" "$G"
+[ "$(rc in-pkgsha)" = 1 ] && has in-pkgsha "is not the published 'deadbeef'" && ! grep -q -E '^(tar |svc.sh stop)' "$T/in-pkgsha.calls" \
+  && [ ! -e "$R8/actions-runner/actions-runner-osx-arm64-2.999.0.tar.gz" ] \
+  && pass "install --apply refuses a runner package whose sha256 is not the published one, and removes it" || fail "install package sha: rc $(rc in-pkgsha): $(tail -1 "$T/in-pkgsha.out")"
 R4="$T/run4"; mkdir -p "$R4/actions-runner"; printf 'RUNNER_KEEP=1\n' > "$R4/actions-runner/.env"; chmod 000 "$R4/actions-runner/.env"
 run in-unread "$R4" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R4" -- --apply install "$C" "$G"
 chmod 600 "$R4/actions-runner/.env"
