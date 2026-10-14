@@ -2266,10 +2266,12 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
   opacity: 0; transform: translateY(-3px); transition: opacity .12s ease, transform .12s ease; pointer-events: none; }
 .kstreak[hidden], .kcongrats[hidden] { display: none; }
 .klink:hover ~ .kstreak, .klink:focus-visible ~ .kstreak, .kstreak.show { opacity: 1; transform: none; }
-.kcongrats { display: flex; align-items: center; gap: 6px; padding: 5px 5px 5px 12px; border: 1px solid var(--gold-edge); font-weight: 600; }
+.kcongrats { display: flex; align-items: center; gap: 6px; padding: 5px 5px 5px 12px; border: 1px solid var(--gold-edge); font-weight: 600;
+  white-space: normal; width: max-content; max-width: min(380px, calc(100vw - 48px)); }   /* wraps on a narrow phone rather than running off it */
 .kcongrats .ux { flex: 0 0 auto; width: 28px; height: 28px; border: 0; border-radius: 7px; cursor: pointer;
   background: none; color: var(--label-2); font-size: 1.125rem; line-height: 1; }
 .kcongrats .ux:hover { background: var(--bg); color: var(--label); }
+@media (pointer: coarse) { .kcongrats .ux { width: 44px; height: 44px; margin: -8px -5px -8px 0; } }   /* a finger-sized target; the margins keep the note as small as it looks */
 .kcongrats:not([hidden]) ~ .kstreak { display: none; }   /* the note already says it; never two bubbles at once */
 html.kremote .kstreak, html.kremote .kcongrats { display: none; }
 @media (prefers-reduced-motion: reduce) { .kstreak { transition: none; } }
