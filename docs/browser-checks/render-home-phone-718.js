@@ -235,7 +235,10 @@ function emptySpot(page, sel) {
             chk(!fit.error && fit.cleoState === 'in' && fit.cleoAnswer === 'in' && fit.longName === 'in' && /^(left|start)$/.test(fit.nameAlign) && fit.clearOfFace && fit.cardFits,
               `${tag} #6107: a needs-you card's state and Answer stay inside it, and a long name wraps beside the face, left-aligned`, JSON.stringify(fit));
           } else {
-            chk(card.columns > 2 && !beside, `${tag} CONTROL: ${mouse ? 'a mouse at iPad portrait size' : 'landscape'} keeps the desktop card (more than two across, the face above the name)`, JSON.stringify({ columns: card.columns, g: card.g, n: card.n }));
+            // The desktop card's mark is the face ABOVE the name (the tablet card puts it beside); the column count is
+            // not, since the desktop grid is two across at 834 and three at 1024 (seen in CI, #6135).
+            const above = card.g.b <= card.n.t + 1;
+            chk(above && !beside, `${tag} CONTROL: ${mouse ? 'a mouse at iPad portrait size' : 'landscape'} keeps the desktop card (the face above the name)`, JSON.stringify({ columns: card.columns, g: card.g, n: card.n }));
           }
           await ctx.close();
         }
