@@ -52,3 +52,8 @@ wide, portrait) gets the tablet layout, which suits its screen. Landscape tablet
 they wait on Josh's split-view call. Review round 1 moved the queries from min-height to orientation.
 Done when: the shots at tab8 / ipadmini / ipad11 show the two-across cards and the tasks-first room,
 the room browser check passes, CI is green, and Josh has seen the shots.
+Known limit (review round 2): orientation is the viewport's aspect, not the device's. Where an
+on-screen keyboard shrinks the layout viewport enough to make a portrait tablet wider than tall
+(split screen, some Android WebViews), the room reorders mid-post. The composer's column never
+moves, so focus survives; the page shifts. A real iPad or 10-inch Android keeps portrait with the
+keyboard up (834x~750, 800x~880). Revisit with the landscape split view.
