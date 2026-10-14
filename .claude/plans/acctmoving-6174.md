@@ -75,3 +75,8 @@ same name without the agent moving would clear the mark early (safe direction).
   (a lost write under-marks or leaves a leftover); the header says so rather than claiming atomicity.
 - (review 13) The list reads the session start fresh for an agent with a note (a 2 s cached read could mark an agent
   that just restarted); the header lists every over-mark case together.
+- (review 14, decided, no change) Marker wording kept as "(still running on its old account)": it states the very
+  likely state; the rare over-mark cases are listed in engine/accountmoving.js. Rounds 11, 12 and 14 each moved the
+  wording (promise, fact, then "has not restarted"); further rotation is churn, not a fix. The fresh read costs one
+  tmux read per noted agent per ?agents=1 list, only while a note exists; accepted. The unlocked notes file was
+  stated in round 12.
