@@ -8,7 +8,29 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+
+// Fully sandboxed before anything requires engine/status, so test-support/fleet's real cards stay hermetic
+// (#6095). All or none: server.js refuses to load half-sandboxed.
+const SANDBOX = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'pluginreach-')));
+const HOME = nodePath.join(SANDBOX, 'home');
+fs.mkdirSync(HOME, { recursive: true });
+process.env.HOME = HOME;
+process.env.AGENT_WORKFORCE_HOME = HOME;
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = nodePath.join(SANDBOX, 'claude-config-dir');
+process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
 const { attachPluginReach } = require('./server');
+const fleet = require('./test-support/fleet');
 const { _resetCache } = require('./engine/pluginreach');
 
 // A fake fs serving a fixed file map, counting reads/stats (so a test can prove the mtime cache stops a
@@ -181,7 +203,14 @@ test('#6095 review 5: a card with no pane runs nothing, keeps the account readin
   _resetCache();
   const fs = fakeFs(personFiles(), personMtimes());
   let asked = null;
-  const rows = [{ runner: 'claude', account: { ...DEFAULT_ACCOUNT }, session: null, sessionName: 'other-world-name' }];
+  // A real card (its sessionName differs from its session), with the pane gone.
+  const board = fleet.install([fleet.agent('bee')], { strict: false });
+  let rows;
+  try {
+    const real = board.card('bee');
+    assert.ok(real.sessionName && real.sessionName !== real.session, 'the real card carries a sessionName to ignore');
+    rows = [{ ...real, runner: 'claude', account: { ...DEFAULT_ACCOUNT }, session: null }];
+  } finally { board.restore(); }
   attachPluginReach(rows, { personHome: '/person', fs, sessionDirs: (n) => { asked = n; return new Map(n.map((x) => [x, '/agent-sep'])); } });
   assert.equal(asked, null, 'nothing to ask about');
   assert.deepEqual(rows[0].reach, { reaches: true, reason: 'reaches' });
@@ -191,14 +220,19 @@ test('#6095: one session read for every default agent; accounts of their own and
   _resetCache();
   const fs = fakeFs(personFiles(), personMtimes());
   const asked = [];
+  // The runner-null default row is a REAL card, so its sessionName ('bee') differs from its pane session.
+  const board = fleet.install([fleet.agent('bee')], { strict: false });
+  let real;
+  try { real = { ...board.card('bee') }; } finally { board.restore(); }
+  assert.ok(real.session && real.sessionName && real.sessionName !== real.session, 'the real card carries a sessionName to ignore');
   const rows = [
     { runner: 'claude', account: { ...DEFAULT_ACCOUNT }, session: 'a' },
-    { runner: null, account: { ...DEFAULT_ACCOUNT }, session: 'b', sessionName: 'b-name' },
+    { ...real, runner: null, account: { ...DEFAULT_ACCOUNT } },
     { runner: 'claude', account: { dir: '/agent-sep', isDefault: false }, session: 'c' },
     { runner: 'codex', account: { dir: '/person/.codex', isDefault: true }, session: 'd' },
   ];
   attachPluginReach(rows, { personHome: '/person', fs, sessionDirs: (names) => { asked.push(names); return new Map(names.map((n) => [n, ''])); } });
-  assert.deepEqual(asked, [['a', 'b']], 'one call; the pane session, not the sessionName; only default Claude agents');
+  assert.deepEqual(asked, [['a', real.session]],'one call; the pane session, not the sessionName; only default Claude agents');
   assert.deepEqual(rows[0].reach, { reaches: true, reason: 'reaches' });
   assert.deepEqual(rows[1].reach, { reaches: true, reason: 'reaches' });
 });
