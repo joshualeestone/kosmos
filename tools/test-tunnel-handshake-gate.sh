@@ -138,8 +138,9 @@ run "control: tunnel up and the session page -> PASS"                0 "tunnel-g
 run "no relay ticket, control passes -> FAIL at ticket"              1 "FAIL at ticket"                     "ticket"        "up"
 run "relay TLS refused, control passes -> FAIL at dial-auth"         1 "FAIL at dial-auth: the relay session" "auth"        "up"
 run "the connector exits, control passes -> FAIL at dial-auth"       1 "the connector exited"               "exits"         "up"
-# #5907: the three deadline paths below wait out the whole timeout on each attempt, so they take 3 s, not run()'s 6
-# (the last --timeout wins in the gate's parser). Their control still comes up at once; 3 s leaves room under load.
+# #5907: these three wait on the timeout on each attempt (two are the deadline paths; the different-page case's serve
+# step too, measured 12.8 s at 6 and 4.3 s at 3), so they get 3 s, not run()'s 6 (the last --timeout wins in the
+# gate's parser). The gate counts whole seconds, so this is about 2 to 3 s; their control comes up at once.
 run "no tunnel up in time, control passes -> FAIL at dial-auth"      1 "no \"tunnel up\" within 3s"         "silent"        "up"   --timeout 3
 # The deadline path WITH an ended session (the connector keeps retrying, as the real one does):
 run "a ticket failure that keeps retrying -> FAIL at ticket, at the deadline" 1 "no relay ticket within 3s" "ticketh" "up" --timeout 3
