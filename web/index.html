@@ -12086,14 +12086,12 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
 }
 /* #6107 piece 2, the project room on an upright tablet (classic tab layout; the hidden new look and the consolidated
    view keep their own grids). Under 68rem the room is one column in source order: Members and Files, then the
-   conversation, then Tasks, so on an iPad the conversation started a screen down. Here the tasks come first as one
-   row of cards you swipe sideways, then the conversation, then Members and Files. Order only: no element moves in
-   the DOM, so focus and screen-reader order are unchanged (WCAG 1.3.2 is about meaning, and these three are
-   independent panels). */
+   conversation, then Tasks, so on an iPad the conversation started a screen down. pjPhoneOrder (PJ_TABLET_MQ, the
+   exact query of this block) MOVES the columns in the DOM: Tasks first, as one row of cards you swipe sideways,
+   then the conversation, then Members and Files side by side. Never CSS order: that splits reading order from what
+   is seen (#1017, pinned by web.room-phone-718.test.js). */
 @media (hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 67.99rem) and (min-height: 560px) {
-  :root:not([data-look="new"]) body:not(.consolidated) .pj3 > aside.pjcol:not(.pjsplit) { order: 1; }
-  :root:not([data-look="new"]) body:not(.consolidated) .pj3 > .pjmid { order: 2; }
-  :root:not([data-look="new"]) body:not(.consolidated) .pj3 > .pjsplit { order: 3; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :root:not([data-look="new"]) body:not(.consolidated) .pj3 > .pjsplit { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   :root:not([data-look="new"]) body:not(.consolidated) .pj3 #pj-tasklist { flex-direction: row; overflow-x: auto; min-height: 0;
     scroll-snap-type: x proximity; padding-bottom: 4px; }
   :root:not([data-look="new"]) body:not(.consolidated) .pj3 #pj-tasklist > .tkcard { flex: 0 0 min(260px, 70%); width: auto; scroll-snap-align: start; }
@@ -34613,6 +34611,10 @@ function placeLook(cons) {
     if (want && mid.firstElementChild !== crumb) mid.insertBefore(crumb, mid.firstChild);
     else if (!want && crumb.parentElement === mid) oneView.insertBefore(crumb, pj3);
   }
+  /* #6107: an upright tablet keeps Tasks at the top of the tab layout; a switch to the consolidated view or the new
+     look must put it back where they expect it. In a try: placeLook can run before PJ_TABLET_MQ (a const further
+     down) is declared, and pjPhoneOrder's own first call at load orders the room then. */
+  try { pjPhoneOrder(); } catch { /* not declared yet: the load-time call covers it */ }
 }
 function lookToggleClick() {
   const on = document.documentElement.getAttribute('data-look') !== 'new';
@@ -67286,6 +67288,9 @@ document.getElementById('d-dmthread').addEventListener('focusin', dmRxnKeepInsid
 // 30rem (480px): above the widest phone in portrait (430px) and below a small tablet.
 const PJ_PHONE_MQ = '(max-width: 30rem)';   // the room's phone CSS block uses this exact query (pinned by web.room-phone-718.test.js)
 const PJ_TOUCH_MQ = '(hover: none)';         // the room's touchscreen CSS block uses this exact query (pinned the same way)
+// #6107: an upright tablet. The room's tablet CSS block uses this exact query (pinned the same way); a phone held
+// sideways is under 560px tall, so it stays out.
+const PJ_TABLET_MQ = '(hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 67.99rem) and (min-height: 560px)';
 /* #5312: when the touch test changes (a tablet turned, a pointer attached), every Copy in a hover bar is renamed for
    what a press now does (msgCopyButton, msgCopyPressed). */
 function msgCopyRelabel() {
@@ -67302,16 +67307,26 @@ function pjPhoneOrder() {
   const mid = grid && grid.querySelector(':scope > .pjmid');
   const split = grid && grid.querySelector(':scope > .pjsplit');
   if (!grid || !mid || !split || !window.matchMedia) return;
-  // Only these two swap. The grid's third child (Tasks) is last in the markup and stays last
-  // in both orders, because split only ever moves to just before or just after mid.
+  // Members/Files and the conversation swap, split moving to just before or just after mid. The grid's third
+  // child (Tasks) is last in the markup and stays last, except on an upright tablet (#6107, below).
   // A control focused in the column that moves (a keyboard or VoiceOver user in Members or
   // Files) is blurred by the move. Those are buttons and links, not text fields, so putting
   // the focus back works on every engine.
-  const focused = document.activeElement && split.contains(document.activeElement) ? document.activeElement : null;
-  if (window.matchMedia(PJ_PHONE_MQ).matches) {
+  // #6107: on an upright tablet the Tasks column (the grid's last child in the markup) also moves, to the top.
+  // Not in the consolidated view, which places its columns by grid position, nor the new look, which moves Tasks
+  // into the Members column itself (placeLook).
+  const tasks = grid.querySelector(':scope > aside.pjcol:not(.pjsplit)');
+  const tablet = window.matchMedia(PJ_TABLET_MQ).matches && !document.body.classList.contains('consolidated')
+    && document.documentElement.dataset.look !== 'new';
+  const focused = document.activeElement && (split.contains(document.activeElement) || (tasks && tasks.contains(document.activeElement))) ? document.activeElement : null;
+  if (window.matchMedia(PJ_PHONE_MQ).matches || tablet) {
     if (mid.nextElementSibling !== split) mid.after(split);
   } else if (mid.previousElementSibling !== split) {
     grid.insertBefore(split, mid);
+  }
+  if (tasks) {
+    if (tablet) { if (grid.firstElementChild !== tasks) grid.insertBefore(tasks, grid.firstElementChild); }
+    else if (grid.lastElementChild !== tasks) grid.append(tasks);
   }
   if (focused && document.activeElement !== focused && focused.isConnected) focused.focus({ preventScroll: true });
   // Members/Files going above the room pushes the composer down the page; a person mid-post
@@ -67324,6 +67339,9 @@ if (window.matchMedia) {
   const pjPhoneMq = window.matchMedia(PJ_PHONE_MQ);
   if (pjPhoneMq.addEventListener) pjPhoneMq.addEventListener('change', pjPhoneOrder);
   else if (pjPhoneMq.addListener) pjPhoneMq.addListener(pjPhoneOrder);
+  const pjTabletMq = window.matchMedia(PJ_TABLET_MQ);   // #6107: a tablet turned, or a keyboard and trackpad attached
+  if (pjTabletMq.addEventListener) pjTabletMq.addEventListener('change', pjPhoneOrder);
+  else if (pjTabletMq.addListener) pjTabletMq.addListener(pjPhoneOrder);
 }
 /* The post whose touchscreen reaction bar is open, and its project (post ids are per project),
    so a repaint can put it back (below) and another project's same id never inherits it. */
