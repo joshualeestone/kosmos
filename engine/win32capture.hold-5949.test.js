@@ -113,12 +113,13 @@ test('#5949 an unknown status token and a state file that does not match are cau
   /* bob: no status listed and no matching state file in the sandbox; held, with that cause. */
   assert.equal(w.cap('bob:0.0'), 'idle');
   assert.deepEqual(w.cap.note('bob:0.0'), { held: true, cause: 'its state file did not match the running session' });
-  /* cy was never read well: nothing to hold, so Can't tell at once; said only once it keeps
-     failing (a streaming agent that has just started has no state file for a moment). */
+  /* cy was never read well: nothing to hold, so Can't tell at once; said (logged, and marked on the card) only once
+     it keeps failing (a streaming agent that has just started has no state file for a moment). */
   assert.equal(w.cap('cy:0.0'), null);
-  assert.deepEqual(w.cap.note('cy:0.0'), { unreadable: true, cause: 'its state file did not match the running session' });
+  assert.equal(w.cap.note('cy:0.0'), null, 'a first look with no state yet is not marked');
   assert.equal(w.lines.filter((l) => l.name === 'cy').length, 0, 'a first look with no state yet is not logged');
   w.look('cy:0.0'); w.look('cy:0.0');
+  assert.deepEqual(w.cap.note('cy:0.0'), { unreadable: true, cause: 'its state file did not match the running session' });
   assert.equal(w.lines.filter((l) => l.name === 'cy' && l.event === 'cant-tell' && /3 times in a row/.test(l.because)).length, 1);
   w.look('cy:0.0');
   assert.equal(w.lines.filter((l) => l.name === 'cy').length, 1, 'said once');
@@ -288,7 +289,7 @@ test('#5949 a remembered state from a board that stopped long ago is not used', 
   const cap = win32capture.make({ run: () => [{ pid: 2, cwd: '/w', kind: 'interactive', startedAt: 1, sessionId: 'sid-a', name: 'x' }],
     record: rec, now: () => t0, lastState: store, log: () => {} });
   assert.equal(cap('ada:0.0'), null);
-  assert.equal(cap.note('ada:0.0').unreadable, true);
+  assert.notEqual((cap.note('ada:0.0') || {}).held, true, 'nothing is carried');
 });
 
 test('#5949 fileLastState keeps the states on disk under the store root, and reads a missing or broken file as none', () => {
@@ -427,7 +428,7 @@ test('#5949 after the first good read, an agent that starts again does not wear 
   answer = [live('sid-b', 'idle'), { pid: 3, cwd: '/w', kind: 'interactive', startedAt: 2, sessionId: 'sid-a', name: 'x' }];
   t += 5000;
   assert.equal(cap('ada:0.0'), null, 'no carried state for a start after the board was already reading');
-  assert.equal(cap.note('ada:0.0').unreadable, true);
+  assert.notEqual((cap.note('ada:0.0') || {}).held, true, 'nothing is carried');
 });
 
 test('#5949 a changing state is written at most once every few seconds', () => {
@@ -560,4 +561,23 @@ test('#5949 a held "working" never outranks a fresh idle report (the Stop hook s
     status.setPaneSource(null);
     status.setPaneCapture(null);
   }
+});
+
+test('#5949 a streaming agent that has just started is not marked "could not check" until it keeps failing', () => {
+  const record = { read: () => ({ 'sid-n': { name: 'nia', runner: 'claude' } }) };
+  const row = { pid: 3, cwd: '/w', kind: 'interactive', startedAt: 1, sessionId: 'sid-n', name: 'nia' };   // streaming: no status
+  let token = null;   // its supervisor has not written its state file yet
+  const w = { t: 1000 };
+  const cap = win32capture.make({ run: () => [row], record, now: () => w.t, ttlMs: 1000, streamState: () => token, log: () => {} });
+  const look = () => { w.t += 2000; return cap('nia:0.0'); };
+  assert.equal(look(), null, 'no state yet');
+  assert.equal(cap.note('nia:0.0'), null, 'one look with no state file yet is not a failure the card shows');
+  look();
+  assert.equal(cap.note('nia:0.0'), null);
+  look();
+  assert.deepEqual(cap.note('nia:0.0'), { unreadable: true, cause: 'its state file did not match the running session' },
+    'it keeps failing: now the card says so, as the log does');
+  token = 'idle';
+  assert.equal(look(), 'idle', 'CONTROL: once its state file is written it reads as usual');
+  assert.equal(cap.note('nia:0.0'), null);
 });

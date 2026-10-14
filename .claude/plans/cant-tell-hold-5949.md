@@ -74,7 +74,7 @@ a Mac card, and the tmux path has no `note`.
 
 ## Tests
 - engine/win32capture.hold-5949.test.js (22): hold, give-up timing (count AND time), recovery, per-cause log
-  lines once per change (and none for a first look with no state yet), unknown token and state-file causes, a
+  lines once per change (and none, nor a card mark, for a first look with no state yet), unknown token and state-file causes, a
   stopped agent forgotten quietly, a throwing log, end to end through status.snapshot (one failed read keeps EVERY
   card, marked; the roster refuses after 15 s; a good read clears the mark), a held working is not "Working now"
   beside a wait, the roster's 15 s hold, the cached read's why, the causes on the error shapes measured on this

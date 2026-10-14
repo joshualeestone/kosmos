@@ -224,7 +224,7 @@ function make(opts) {
     // capturePane -> snapshot and blanking the whole tick. Date.now never throws,
     // so this only defends an injected clock, for full parity with the contract.
     let t;
-    try { t = now(); } catch { return { at: 0, ok: false, byName: new Map() }; }
+    try { t = now(); } catch { return { at: 0, ok: false, claudeOk: false, byName: new Map(), why: new Map(), runners: new Map(), readWhy: 'the clock could not be read' }; }
     if (cache && (t - cache.at) < ttlMs) return cache;
     const byName = new Map();
     const why = new Map();   // #5949: name -> why its live row gave no usable token
@@ -285,6 +285,7 @@ function make(opts) {
       // An injected run()/record.read() threw. Treat it as a failed read: no state
       // is a safe answer (null -> UNKNOWN), a thrown one is not.
       ok = false;
+      readWhy = readWhy || 'the status read could not be matched to the agents Kosmos started';
       byName.clear();
       why.clear();
       runners.clear();
@@ -383,6 +384,9 @@ function make(opts) {
     /* Never read well, and the last read failed outright: unreadable, with that read's why. */
     if (!m) return cache && !cache.claudeOk ? { unreadable: true, cause: cache.readWhy } : null;
     if (m.phase === 'held') return { held: true, cause: m.cause };
+    /* Never read well and not yet failing for long: a streaming agent that has just started has no state file for a
+       moment, which is not a fault. The card says so only when the log does (see failed). */
+    if (m.phase === 'unknown' && !GOOD.has(m.token) && m.fails < failsToUnknown) return null;
     if (m.phase === 'unknown') return { unreadable: true, cause: m.cause };
     return null;
   }
