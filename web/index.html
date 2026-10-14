@@ -12100,7 +12100,7 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
    then the conversation, then Members and Files side by side. Never CSS order: that splits reading order from what
    is seen (#1017, pinned by web.room-phone-718.test.js). */
 @media (hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 67.99rem) and (orientation: portrait) {
-  :root:not([data-look="new"]) body:not(.consolidated) .pj3 > .pjsplit { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :root:not([data-look="new"]) body:not(.consolidated) .pj3 > .pjsplit { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }   /* side by side, each card its own height: stretched, Files spread its few lines over the Members card's height */
   /* The padding and the matching negative side margins keep a card's focus ring (2px at a 2px offset) inside the
      scroller, which clips whatever overflows it; scroll-padding does the same for a card snapped or scrolled to an edge. */
   :root:not([data-look="new"]) body:not(.consolidated) .pj3 #pj-tasklist { flex-direction: row; overflow-x: auto; min-height: 0;
