@@ -10966,7 +10966,7 @@ const server = http.createServer(async (req, res) => {
                Kosmos leaves alone) or 'not-wired' (no status line yet: nothing records a reading until setup wires it).
                null when Kosmos's own status line is there, so a reading comes once an agent on it works. The page says "cannot read" only for these, never as a guess. */
             weeklyBlocked: (() => {
-              if (a.apiKey) return null;
+              if (a.apiKey || typeof a.dir !== 'string' || !a.dir) return null;   // no folder: nothing to say about it
               if (process.platform === 'win32') return 'windows';
               try {
                 const j = JSON.parse(fs.readFileSync(path.join(a.dir, 'settings.json'), 'utf8'));

@@ -38,6 +38,7 @@ const ACCOUNTS = [
   claude('gone@example.com', 'gone', { weekly: { usedPct: 10, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
   claude('lost@example.com', 'lost', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-lo'], complete: true } }),
   claude('fullstop@example.com', 'fullstop', { weekly: { usedPct: 100, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-z2'], complete: true } }),
+  claude('nearfull@example.com', 'nearfull', { weekly: { usedPct: 99.6, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
   claude('weekout@example.com', 'weekout', { weekly: { usedPct: 3, resetsAt: now + 162 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
   claude('mixed@example.com', 'mixed', { weekly: { usedPct: 95, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-p', 's-r1', 's-r2', 's-slow'], complete: true } }),
   claude('spare@example.com', 'spare', { weekly: { usedPct: 20, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
@@ -232,6 +233,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!full && full.warnText === 'At its weekly limit. Move its agent to another account to get it working again.', tag + ' at 100% the row says it is at its limit', JSON.stringify(full && full.warnText));
       say(!!busy && busy.agents === 'Its agents on this computer: Dana, Eli', tag + ' it names its agents by display name, leaving out the setup guide', JSON.stringify(busy && busy.agents));
       say(!!busy && Array.isArray(busy.options) && busy.options.some((o) => o === 'spare@example.com (20% used)') && !busy.options.some((o) => o.startsWith('busy@')), tag + ' Move offers the other account with its own reading, never itself', JSON.stringify(busy && busy.options));
+      say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('nearfull@')), tag + ' an account its own row calls full (99.6% shows as 100%) is not offered either', JSON.stringify(busy && busy.options));
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('key@')), tag + ' an API-key account is not a bulk target (that would change who pays)', JSON.stringify(busy && busy.options));
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('full@')), tag + ' a full account (100%) is not offered: it cannot run them either', JSON.stringify(busy && busy.options));
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('noshare@')), tag + ' an account without shared history is not offered (a move there always fails)', JSON.stringify(busy && busy.options));

@@ -27103,7 +27103,7 @@ function acctBulkTarget(x, fromDir) {
   return !!x && x.provider === 'anthropic' && !!x.dir && x.dir !== fromDir && !!x.memoryShared
     && acctOfferableTarget(x)   // the create picker's own test: not refused, not signed out
     && !x.apiKey   // not a key: moving a whole account's agents onto a key changes who pays, so that stays a one-agent choice on its page
-    && !(x.weekly && Number.isFinite(x.weekly.usedPct) && x.weekly.usedPct >= 100);   // a full account cannot run them either
+    && !(x.weekly && Number.isFinite(x.weekly.usedPct) && Math.round(x.weekly.usedPct) >= 100);   // a full account cannot run them either (rounded as its row shows it)
 }
 function acctUsageHtml(a, list) {
   /* An older board sends neither field: show nothing. The meter needs only the weekly fields (always sent on a Claude
