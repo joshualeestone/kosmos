@@ -263,9 +263,11 @@ function workExcused(summary, member, readHistory, nowMs) {
   const busy = (st) => st !== 'idle' && st !== 'started' && st !== 'stopped';
   if (!reportsWorking) {
     const after = valid.filter((r) => r.at > wroteAt);
-    // A busy report it filed itself (kosmos report working, needs_you, blocked) is reported work: left stale.
+    // A busy report it filed itself (kosmos report working, needs_you, blocked) is reported work: left stale, even when
+    // the wait has since been answered (errs toward stale).
     if (after.some((r) => busy(r.state))) return summary;
-    // Idle rows within TURN_END_SAME_MS of the one before are one turn end (an automatic idle and a manual one together).
+    // Idle rows within TURN_END_SAME_MS of the one before are one turn end (an automatic idle and a manual one together);
+    // a real second turn that short is counted with the first, the window's known cost.
     let turnsEnded = 0; let lastIdle = -Infinity;
     for (const r of after) {
       if (r.state !== 'idle') continue;
