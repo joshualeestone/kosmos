@@ -510,10 +510,11 @@ test('#5636 F7a: with stamp, the line says when it was sent (date and time) and 
   assert.match(sent[0][1], / \(Sent \d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]) ([01]\d|2[0-3]):[0-5]\d\. /, 'the stamp is not a date and a time');
   // Two sends a day apart at the same clock time carry different stamps (the date), so a real reminder is never "the same".
   assert.notEqual(ct.stamped('x', NOW), ct.stamped('x', NOW + 24 * H));
-  // The waiting-activity line (lineFor) is stamped too.
+  // The waiting-activity line (lineFor) is NOT stamped (review 4): it asks for several things and changes, so "do not
+  // act on it again" could make a model skip what is still owed.
   const over = tickArgs({ stamp: true, lineFor: () => 'Kosmos here: 2 comments wait for your answer.' });
   ct.tickOnce(over.o);
-  assert.ok(over.sent[0][1].startsWith('Kosmos here: 2 comments wait for your answer. (Sent '), over.sent[0][1]);
+  assert.equal(over.sent[0][1], 'Kosmos here: 2 comments wait for your answer.');
   // CONTROL: without the option the line is the reminder alone (what other callers and tests compare).
   const plain = tickArgs();
   ct.tickOnce(plain.o);

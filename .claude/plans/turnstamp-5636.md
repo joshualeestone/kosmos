@@ -26,3 +26,5 @@ tests that compare the generic lines are unaffected.
   was old could let a model skip tomorrow's real floor prompt, which has no opt-out (#5315).
 - (review 3) The sentence speaks to the case that matters (a model meeting its one old copy: do not act on it again
   once acted on), still tied to this one Sent time. The local clock is pinned by a test under a fixed time zone.
+- (review 4) Only the generic lines are stamped; the waiting-activity line (lineFor: answer each comment) is not, since it
+  asks for several things, changes, and is sent afresh. The clock is the board's local one, usually the agent's too.

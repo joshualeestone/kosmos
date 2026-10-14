@@ -186,13 +186,14 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
 
 /* #5636 F7a (0.7.49 report: a Meta seat met "your last post was 3 hours ago or more" every few hours while the board
    logged one send a day): a runner that keeps one long session (Muse) has the old line in the conversation it rereads
-   every turn, and can act on it again. The line therefore says when it was sent, date and time on the board's clock
-   (the same clock the agent reads with date), and not to act on it again once acted on (review 3: what a model meeting
-   its one old copy needs). Tied to this one Sent time, never "any later line like it", which would let a model skip
-   tomorrow's real reminder (the floor prompt has no opt-out, #5315). One Sent time names one line because tickOnce
-   never sends one agent two lines within a minute (sends are TURN_GAP_MS apart); a second sender reusing stamped()
-   would need the same guarantee. Only the
-   board's caller asks for it (o.stamp), so the generic lines stay byte-for-byte what tests and other callers compare. */
+   every turn, and can act on it again. So the generic line says when it was sent (date and time on the board's local
+   clock, usually the one the agent reads with date) and not to act on it again once acted on (review 3). Tied to this
+   one Sent time, never "any later line like it", which would let a model skip tomorrow's real reminder (the floor
+   prompt has no opt-out, #5315). One Sent time names one line: tickOnce books a sent line and waits TURN_GAP_MS, and a
+   held or busy try is not booked but retried on a later pass, never within the minute. Review 4: the waiting-activity
+   line (lineFor) is not stamped: it asks for several things (answer each comment), changes with what waits, and is sent
+   afresh, so "do not act on it again" could make a model skip what is still owed. Only the board's caller asks for the
+   stamp (o.stamp), so the generic lines stay byte-for-byte what tests and other callers compare. */
 function stamped(text, now) {
   const d = new Date(Number.isFinite(now) ? now : Date.now());
   const p2 = (n) => String(n).padStart(2, '0');
@@ -262,10 +263,11 @@ function tickOnce(o) {
       // #5315: below the daily floor, the opt-out is dropped (FLOOR_TEXT); beyond it, kept (TURN_TEXT). A never-posted
       // agent gets INTRO_TEXT (no opt-out either, #6076). The lineFor override (#5212) still wins over either generic line when there is one.
       let text = d.first ? INTRO_TEXT : (d.postedToday ? TURN_TEXT : FLOOR_TEXT);
+      // #5636 F7a: the board's own caller stamps (server.js), and only a generic line, the one that repeats word for word.
+      if (o.stamp === true) text = stamped(text, now);
       if (!d.first && typeof o.lineFor === 'function') {
         try { const l = o.lineFor(d.session); if (typeof l === 'string' && l.trim()) text = l; } catch { /* the generic line */ }
       }
-      if (o.stamp === true) text = stamped(text, now);   // #5636 F7a: the board's own caller stamps (server.js)
       try { v = o.deliver(d.session, text, roster); } catch { v = { state: D.UNCONFIRMED }; }
       const state = v && v.state;
       const held = Boolean(v && v.held === true);
