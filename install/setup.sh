@@ -741,8 +741,10 @@ LOG="$LOG_DIR/install.log"
 # a never-touched Mac we want to test the INSTALLER, not the CDN, so
 # KOSMOS_TMUX_SRC and KOSMOS_SRC can point at local files carried over on a
 # thumb drive. Same code path, one variable different.
-# KOSMOS_READONLY_APP=1 leaves the installed app/ folder read-only after an install or update (#4449). Off by
-# default; #4455 turns it on once every installer in circulation can lift it.
+# The installed app/ folder is left read-only after an install or update (#4449; on by default since #4455).
+# KOSMOS_READONLY_APP=0 leaves it writable, as before. Only 0 is off: unset, EMPTY, or any other value is on.
+# It is read on EACH run and kept nowhere: the board's own updater runs this file with the board's environment,
+# so unless the board itself was started with =0, an app left writable is read-only again after its next update.
 KOSMOS_RELEASE_BASE="${KOSMOS_RELEASE_BASE:-https://installkosmos.com/dist}"
 
 # ⚠️ EVERY DOWNLOAD IS CHECKSUM-VERIFIED before anything is extracted. The
@@ -1338,14 +1340,71 @@ install_kosmos() {
     return 1
   fi
   local part
+  # BEGIN #4455 lift-then-check
   # #4449: the previous install may have left `app` read-only (KOSMOS_READONLY_APP, below), and rm -rf cannot
   # remove files from a folder nobody may write to, so every part is made writable again before the swap starts.
-  # Harmless on a part that never was read-only. A chmod that fails is tolerated here on purpose: with the switch
-  # off (the default) nothing was locked, so the swap below behaves as it always has. Refusing before anything is
-  # removed when a locked part cannot be unlocked is a condition of turning the switch on (#4455).
+  # Harmless on a part that never was read-only.
+  # #4455: ALL THREE are lifted and checked BEFORE ANY is removed. The swap below removes them one at a time, so a
+  # part that cannot be removed used to be found only after `bin` was already gone: half an install and a paused
+  # board. The lift gives the owner back read and search as well as write (u+rwX): rm needs all three on a folder
+  # to empty it. Two things then still keep rm from removing a part, and each has its own check:
+  #   a locked or append-only file or folder (the Finder's Locked box, chflags uchg). chmod does NOT report
+  #     these: it leaves a file that is already writable alone and exits 0 (measured; the first version of this
+  #     check asked only after a failed chmod and let a locked file through). So every part is searched, on macOS.
+  #   a folder with something in it that this user may not read, write or search. Only possible where the lift
+  #     failed, so only those parts are walked (a `test` per folder is slow on a big tree and the usual update
+  #     never pays it). An EMPTY such folder is not stuck: rm removes it through its parent. "May search" is asked
+  #     as "does <folder>/. exist", which needs the search bit to answer; the usual spelling of that test is the
+  #     one tools/test-installer-runnable-guard.sh reserves for runnable FILES, and it cannot judge one on a folder.
+  # A chmod that fails is not by itself a reason to refuse: a file somebody else owns, in a folder this user may
+  # write to, is removed fine.
+  # 🛑 NEVER GIVE THESE TWO ASSIGNMENTS A FALLBACK THAT CLEARS THE VARIABLE (`|| _stuck_at=""`). find exits non-zero
+  # when it meets a folder it cannot read, which under this script's pipefail fails the whole pipeline AFTER the
+  # stuck path was printed, and the first version's fallback then threw that path away and the update went on
+  # (review 1, measured). What was printed is what counts; the status says nothing. The `|| true` inside each
+  # substitution only keeps a failed search from ending the script if this is ever called without `||` after it.
+  # NOT caught ahead of time: a deny-delete ACL, another user's file in a sticky folder, an immutable file on Linux.
+  local _lift_failed="" _stuck_at="" _stuck_why="" _app_was_locked=no
+  # Sampled BEFORE the lift, for the refusal below: an app that was read-only is left read-only again. By the
+  # folder's own mode bit, not `[ -w ]`: that asks whether THIS run may write, which is always yes for root, and a
+  # root run would then leave a read-only app open after a refusal (review 4). A sample that cannot be taken
+  # (no find, a folder that cannot be read) counts as read-only, on purpose: it is used only after a refusal,
+  # where the wrong guess in that direction locks an app that was open, never the other way round.
+  if [ -d "$dest/app" ] && [ -z "$(find "$dest/app" -maxdepth 0 -perm -u+w 2>/dev/null || true)" ]; then _app_was_locked=yes; fi
   for part in bin app runtime; do
-    [ -d "$dest/$part" ] && chmod -R u+w "$dest/$part" 2>/dev/null || true
+    [ -d "$dest/$part" ] || continue
+    chmod -R u+rwX "$dest/$part" 2>/dev/null || _lift_failed="$_lift_failed $part"
   done
+  if [ "$(uname -s)" = "Darwin" ]; then
+    for part in bin app runtime; do
+      [ -z "$_stuck_at" ] && [ -d "$dest/$part" ] || continue
+      _stuck_at="$(find "$dest/$part" \( -flags +uchg -o -flags +schg -o -flags +uappnd -o -flags +sappnd \) -print 2>/dev/null | sed -n '1p' || true)"
+      [ -z "$_stuck_at" ] || _stuck_why=locked
+    done
+  fi
+  for part in $_lift_failed; do
+    [ -z "$_stuck_at" ] || break
+    _stuck_at="$(find "$dest/$part" -type d ! -empty ! \( -exec test -r {} \; -exec test -w {} \; -exec test -e {}/. \; \) -print 2>/dev/null | sed -n '1p' || true)"
+    [ -z "$_stuck_at" ] || _stuck_why=permissions
+  done
+  if [ -n "$_stuck_at" ]; then
+    info "the installed Kosmos cannot be replaced, because this cannot be removed:"
+    info "  $_stuck_at"
+    if [ "$_stuck_why" = locked ]; then
+      info "It is locked. Unlock it (in the Finder: Get Info, untick Locked; a lock set by an administrator needs"
+      info "one to remove it), then paste the install line again."
+    else
+      info "This account may not change that folder. Give it back to this account, then paste the install line again."
+    fi
+    info "Nothing was removed."
+    # The lift above opened the app to look. An app that was read-only before it is made read-only again, so a
+    # refused update does not leave it open to an agent's edit. One that was writable (an install from before
+    # #4455, or KOSMOS_READONLY_APP=0) is left writable: a refusal changes nothing about how the install was.
+    if [ "$_app_was_locked" = yes ]; then chmod -R a-w "$dest/app" 2>/dev/null || true; fi
+    rm -rf "$stage"
+    return 1
+  fi
+  # END #4455 lift-then-check
   for part in bin app runtime; do
     rm -rf "$dest/$part" || { rm -rf "$stage"; return 1; }
     mv "$stage/$part" "$dest/$part" || { rm -rf "$stage"; return 1; }
@@ -1357,19 +1416,23 @@ install_kosmos() {
     mv "$stage/VERSION" "$dest/VERSION" || { rm -rf "$stage"; return 1; }
   fi
   rm -rf "$stage"
-  # #4449: with KOSMOS_READONLY_APP=1 the installed app is left read-only, so an agent's edit is refused rather
-  # than changing the board every agent on this computer runs on (a tester's board went stale that way). OFF by
-  # default, see the stop sign below. Folders too, not only files: an editor
+  # #4449: the installed app is left read-only, so an agent's edit is refused rather
+  # than changing the board every agent on this computer runs on (a tester's board went stale that way). ON by
+  # default since #4455, see below. Folders too, not only files: an editor
   # writes a temp file beside the target and renames it over, which a read-only file alone does not stop
   # (measured, the card). Nothing writes under app/ at runtime (measured on a live install); this updater is its one
   # writer and lifts it for its own swap (above). Mode bits only: an ACL that allows writing is left as it is.
-  # 🛑 OFF UNTIL EVERY INSTALLER IN CIRCULATION CAN LIFT IT (review iteration 1): an installer from before #4449
-  # (a rollback of /setup, or a cache still serving the last one) cannot remove a read-only app, so its update would
-  # die with the board paused. This release ships the lifting (above, and in uninstall); a later release turns this
-  # on by default (follow-up card). KOSMOS_READONLY_APP=1 turns it on now (test-install does).
-  if [ "${KOSMOS_READONLY_APP:-0}" = 1 ]; then
+  # 🛑 IT WAS OFF FOR ONE RELEASE ON PURPOSE (#4449 review iteration 1): an installer from before #4449 cannot
+  # remove a read-only app, so its update would die with the board paused. 0.7.45 was the first /setup served to
+  # people that can lift it (above, and in uninstall), from 2026-10-13; it is on from the release that carries #4455.
+  # STILL TRUE: a /setup or /setup-staging rolled back to before 0.7.45, meeting an install this one locked, fails that way. The
+  # way out for that person is the lift by hand, `chmod -R u+w` on the app folder, then the install line again.
+  # KOSMOS_READONLY_APP=0 leaves the app writable (anything but 0, or unset, is on).
+  # BEGIN #4455 lock
+  if [ "${KOSMOS_READONLY_APP:-1}" != 0 ]; then
     chmod -R a-w "$dest/app" 2>/dev/null || info "note: the Kosmos app folder could not be made read-only; the install is otherwise complete"
   fi
+  # END #4455 lock
   # 🛑 THE READ-BACK IS THE PROOF. Every claim above is about what this
   # run DID; this is the only line that looks at what the destination
   # HOLDS. A landed version that differs from the run's target means some

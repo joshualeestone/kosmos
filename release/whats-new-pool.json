@@ -450,6 +450,17 @@
       "rank": 16.5,
       "since": "0.7.48",
       "status": "pending"
+    },
+    {
+      "title": "The Kosmos app itself is read-only",
+      "line": "The installed Kosmos app is read-only, so an agent's edit to the app your agents run on is refused.",
+      "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 16,
+      "since": "0.7.49",
+      "status": "pending"
     }
   ]
 }

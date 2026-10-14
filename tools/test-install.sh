@@ -303,8 +303,8 @@ done
 # the real shared file is never touched. Scoped to accounts/home resolution, NOT
 # $HOME, so nothing else that reads $HOME is repointed.
 export KOSMOS_HOME="$SB/home" AGENT_WORKFORCE_HOME="$SB/home" KOSMOS_BIN_DIR="$SB/bin" KOSMOS_APP_DIR="$SB/apps"
-# #4449: the read-only app ships OFF by default (an older installer cannot lift it) and is on for this harness, so
-# every install below exercises it; the Applications probe's install runs with it off to check the default.
+# #4449: the installed app is read-only. On by default since #4455 and set here too, so every install below
+# exercises it whatever the default; the Applications probe's install runs with the switch UNSET to check the default.
 export KOSMOS_READONLY_APP=1
 export KOSMOS_PROFILE_FILE="$SB/zprofile"
 # SHELL pinned for determinism only (belt and suspenders): with
@@ -1228,8 +1228,8 @@ export KOSMOS_HOME="$SB/home2" KOSMOS_BIN_DIR="$SB/bin2"
 # override present (SYS_APP_DIR) and no profile named, the profile gate
 # must SKIP -- this is the arm that stops a harness run writing the
 # operator's real ~/.zprofile (leaked once, 2026-08-18, before the gate).
-RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_PROFILE_FILE= KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" KOSMOS_READONLY_APP= sh > "$SB/probe1.log" 2>&1 || RC=$?
-chk "#4449: by default (the switch unset) the installed app stays writable, as before" "[ -w \"$SB/home2/app/server.js\" ] && [ -w \"$SB/home2/app/engine\" ]"
+RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_PROFILE_FILE= KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" env -u KOSMOS_READONLY_APP sh > "$SB/probe1.log" 2>&1 || RC=$?
+chk "#4455: by default (the switch unset) the installed app is read-only" "[ -f \"$SB/home2/app/server.js\" ] && [ ! -w \"$SB/home2/app/server.js\" ] && [ ! -w \"$SB/home2/app/engine\" ] && [ ! -w \"$SB/home2/app\" ]"
 chk "the profile gate skipped: no zprofile written under the sandbox HOME" "[ ! -e \"$SBH/.zprofile\" ]"
 chk "probe install exits 0" "rc_ok $RC"
 chk "app landed in the system folder" "[ -x \"$SYS_OK/Kosmos.app/Contents/MacOS/Kosmos\" ]"
@@ -1242,11 +1242,18 @@ chk "the success closing line is pinned" "grep -q '^  Kosmos is running\\.\$' \"
 chk "#2073: fresh install launched the app (not a browser)" "[ \"\$(wc -l < \"$SB/opened.log\" 2>/dev/null | tr -d ' ')\" = \"1\" ] && grep -q \"Kosmos.app\" \"$SB/opened.log\" && ! grep -q \"127.0.0.1:$PORT\" \"$SB/opened.log\""
 
 # The update run through the same probe env must NOT open the browser.
-# #4449: this update runs with the harness's KOSMOS_READONLY_APP=1 on purpose (only the install above checks the
-# default), so it also updates a WRITABLE app into a read-only one; its uninstall later lifts it.
-RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe1b.log" 2>&1 || RC=$?
+# #4455: this update runs with KOSMOS_READONLY_APP=0, the off switch, over the read-only app the install above
+# left: it must lift that app, replace it, and leave the new one WRITABLE. Its uninstall later removes it.
+RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" KOSMOS_READONLY_APP=0 sh > "$SB/probe1b.log" 2>&1 || RC=$?
 chk "probe update exits 0" "rc_ok $RC"
+chk "#4455: KOSMOS_READONLY_APP=0 still leaves the app writable (the off switch)" "[ -w \"$SB/home2/app/server.js\" ] && [ -w \"$SB/home2/app/engine\" ] && [ -w \"$SB/home2/app\" ]"
 chk "update did not open the dashboard" "[ \"\$(wc -l < \"$SB/opened.log\" | tr -d ' ')\" = \"1\" ]"
+# #4455: a second update, the switch UNSET, over the app the =0 update above left WRITABLE. That is the shape
+# every install from before this release has at its first update afterwards. It must end read-only.
+RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" env -u KOSMOS_READONLY_APP sh > "$SB/probe1c.log" 2>&1 || RC=$?
+chk "probe second update exits 0" "rc_ok $RC"
+chk "#4455: an update over a writable app leaves the new app read-only" "[ -f \"$SB/home2/app/server.js\" ] && [ ! -w \"$SB/home2/app/server.js\" ] && [ ! -w \"$SB/home2/app/engine\" ] && [ ! -w \"$SB/home2/app\" ]"
+chk "second update did not open the dashboard" "[ \"\$(wc -l < \"$SB/opened.log\" | tr -d ' ')\" = \"1\" ]"
 KOSMOS_HOME="$SB/home2" "$SB/bin2/kosmos" stop > /dev/null 2>&1 || true
 
 export KOSMOS_HOME="$SB/home3" KOSMOS_BIN_DIR="$SB/bin3"

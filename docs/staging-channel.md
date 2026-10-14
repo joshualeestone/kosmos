@@ -187,6 +187,17 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
 6. **Rollback** = promote a prior staging pointer, or flip `latest.json` back, then re-deploy per
    step 5. No rebuild.
 
+## A floor under the installer: never serve one from before 0.7.45 (kosmos#4455)
+
+From the release that carries kosmos#4455, the installer leaves the installed `app/` read-only by default. An
+installer from before 0.7.45 cannot lift a read-only app: its update removes `bin/`, fails at `app/`, and cannot
+put the board back, because `bin/kosmos` is gone. So a ROLLBACK of `/setup` or `/setup-staging` to a build older
+than 0.7.45 breaks the next update of every Mac and Linux install a later build has touched. Nothing in the
+tools refuses such a rollback. The way out for a person it happens to is `chmod -R u+w` on the app folder
+(`~/.local/share/kosmos/app`) and the install line again, which nothing on their screen tells them. If an
+installer that old must be served, serve it only after confirming no install was updated by the release that
+carries kosmos#4455, or a later one.
+
 ## Windows (the same model, two more pointers)
 
 A Windows build follows the same rule: staging first, prod only after Josh's go.
