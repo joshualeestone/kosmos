@@ -4,17 +4,19 @@
  * #6160 (Josh, 10-14): the streak in the Kosmos. engine/streak.js counts the days in a row this person opened the
  * board; POST /api/streak records a visit on the page's own local date and answers { count, congrats }. The page puts
  * the count in a label under the K mark (shown on hover, focus, or a long press on a phone) and, when congrats is
- * true, a small note there in Josh's words. This drives the REAL page with only /api/streak stubbed:
+ * true, a notice in #topnotes (#streak-slot) in Josh's words. This drives the REAL page with /api/streak stubbed:
  *
- *   note       -> 12 days, congrats: the note says "Congrats you've been in the Kosmos for 12 days!", and the label
- *                 is hidden while it shows; the page sent ITS local date
- *   dismiss    -> the X hides the note; from the keyboard, focus moves to the K mark
+ *   note       -> 12 days, congrats: the notice says "Congrats you've been in the Kosmos for 12 days!", in the notice
+ *                 stack (not under the K mark), gold-toned; the page sent ITS local date
+ *   together   -> with the restart notice also showing, the two never overlap
+ *   dismiss    -> the X empties the slot; from the keyboard, focus moves to the K mark
  *   no note    -> 12 days, no congrats: no note (the control for the arm above); hovering shows the label
  *   day 1      -> "1 day in the Kosmos", and no note even if the board said congrats (nothing to congratulate yet)
  *   none       -> count 0: no label, and the K mark is not described by an empty one
  *   click      -> a click on the K mark still goes to Agents
  *   long press -> on a touch screen, a long press shows the label and does NOT navigate; a tap still does (control)
- *   midnight   -> a page left open across the person's midnight asks again with the new date
+ *   midnight   -> a page left open across the person's midnight, with the person there, asks again with the new
+ *                 date; a hidden page does not (it counts when the person comes back)
  *   narrow     -> at 360px the note stays inside the screen
  *
  *   AGENT_WORKFORCE_DATA=/tmp/st PORT=17372 node server.js &
@@ -50,14 +52,18 @@ async function open(b, answer, opts = {}) {
   await pg.goto(URL, { waitUntil: 'domcontentloaded' });
   if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
   say(await asked, (opts.key || 'page') + ': the page asked the board for the streak');
+  // Measure the app, not its loading screen: the K mark is visible once the board view is up.
+  say(await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).then(() => true, () => false), (opts.key || 'page') + ': the app is up (the K mark is visible)');
   await pg.waitForTimeout(250);
   return { pg, errs, posts };
 }
 const read = (pg) => pg.evaluate(() => {
-  const note = document.getElementById('kcongrats'), lab = document.getElementById('kstreak'), k = document.getElementById('klink');
-  const r = note && !note.hidden ? note.getBoundingClientRect() : null;
+  const note = document.querySelector('#streak-slot .utoast.streak'), lab = document.getElementById('kstreak'), k = document.getElementById('klink');
+  const r = note ? note.getBoundingClientRect() : null;
+  const words = note && note.querySelector('.utxt');
   return {
-    note: note ? { hidden: note.hidden, text: (note.querySelector('.kcongrats-txt') || {}).textContent, role: note.getAttribute('role'), x: (note.querySelector('.ux') || { getAttribute: () => null }).getAttribute('aria-label'), right: r ? r.right : null, left: r ? r.left : null } : null,
+    slot: Boolean(document.getElementById('streak-slot')),
+    note: note ? { hidden: false, text: (note.querySelector('.utxt b') || {}).textContent, role: words ? words.getAttribute('role') : null, x: (note.querySelector('.ux') || { getAttribute: () => null }).getAttribute('aria-label'), right: r.right, left: r.left, top: r.top, bottom: r.bottom, tone: getComputedStyle(note).getPropertyValue('--utone').trim(), gold: getComputedStyle(note).getPropertyValue('--gold-edge').trim(), inStack: Boolean(note.closest('#topnotes')) } : { hidden: true },
     label: lab ? { hidden: lab.hidden, text: lab.textContent, display: getComputedStyle(lab).display, opacity: getComputedStyle(lab).opacity } : null,
     described: k ? k.getAttribute('aria-describedby') : null,
     vw: window.innerWidth,
@@ -72,21 +78,49 @@ const read = (pg) => pg.evaluate(() => {
   {
     const { pg, errs, posts } = await open(b, () => ({ count: 12, congrats: true }), { key: 'note' });
     const g = await read(pg);
-    say(Boolean(g.note) && !g.note.hidden, 'note: it shows');
+    say(g.slot && !g.note.hidden, 'note: it shows');
+    say(g.note.inStack, 'note: it is a notice in the stack under the navigation (#5018), not under the K mark');
+    say(g.note.tone !== '' && g.note.tone === g.note.gold, 'note: gold-toned (--gold-edge)', g.note.tone + ' vs ' + g.note.gold);
     say(g.note && g.note.text === JOSH, "note: Josh's sentence, word for word", JSON.stringify(g.note && g.note.text));
-    say(g.note && g.note.role === 'status' && g.note.x === 'Dismiss', 'note: role=status, and the X is labelled Dismiss', JSON.stringify(g.note));
+    say(g.note && g.note.role === 'status' && g.note.x === 'Dismiss', 'note: role=status on the words, and the X is labelled Dismiss', JSON.stringify(g.note));
     say(g.label && g.label.text === '12 days in a row in the Kosmos', 'note: the label carries the count', JSON.stringify(g.label));
-    say(g.label && g.label.display === 'none', 'note: the label is hidden while the note shows (never two bubbles)', JSON.stringify(g.label));
     say(posts.length >= 1 && posts[0].method === 'POST' && posts[0].body.today === localDay(NOON) && posts[0].body.remote === false, "note: the page sent its own local date, as a screen at this computer (remote: false)", JSON.stringify(posts[0]));
     await pg.screenshot({ path: path.join(OUT, 'streak-note.png') }).catch(() => {});
-    await pg.focus('#kcongrats .ux');
+    await pg.focus('#streak-slot .ux');
     await pg.keyboard.press('Enter');
     await pg.waitForTimeout(200);
     const after = await read(pg);
-    say(after.note && after.note.hidden, 'dismiss: the X hides the note');
+    say(after.note.hidden, 'dismiss: the X empties the slot');
     const focus = await pg.evaluate(() => (document.activeElement || {}).id || null);
     say(focus === 'klink', 'dismiss: focus moves to the K mark', JSON.stringify(focus));
     say(errs.length === 0, 'note: no page errors', errs.join(' | '));
+    await pg.close();
+  }
+
+  // together: the restart notice and the streak notice at once never overlap, at a desk and on a phone
+  for (const vp of [{ width: 1400, height: 800 }, { width: 390, height: 844 }]) {
+    const pg = await b.newPage({ viewport: vp });
+    await pg.clock.setFixedTime(new Date(NOON));
+    const at = new Date(NOON - 7 * 60000).toISOString();
+    await pg.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note: { lastAliveAt: at, bootAt: at, upAt: new Date(NOON).toISOString() } }) }).catch(() => {}));
+    await pg.route('**/api/streak', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: true }) }).catch(() => {}));
+    await pg.goto(URL, { waitUntil: 'domcontentloaded' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
+    const up = await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).then(() => true, () => false);
+    say(up, 'together (' + vp.width + 'px): the app is up (the K mark is visible)');
+    const both = await pg.waitForFunction(() => document.querySelector('#reboot-slot .utoast') && document.querySelector('#streak-slot .utoast'), null, { timeout: 12000 }).then(() => true, () => false);
+    await pg.waitForTimeout(400);   // let the stack settle before measuring it
+    say(both, 'together (' + vp.width + 'px): both notices show');
+    const boxes = await pg.evaluate(() => [...document.querySelectorAll('#reboot-slot .utoast, #streak-slot .utoast')].map((e) => { const r = e.getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom }; }));
+    const [a, c] = boxes;
+    const overlap = a && c && a.l < c.r && c.l < a.r && a.t < c.b && c.t < a.b;
+    say(boxes.length === 2 && !overlap, 'together (' + vp.width + 'px): the two notices do not overlap', JSON.stringify(boxes));
+    /* The label's anchor must not capture the notice stack: #topnotes is a child of .headleft and floats centred under
+       the navigation (#5018). Making .headleft positioned once squeezed every notice into a column at the left. */
+    const vw = await pg.evaluate(() => window.innerWidth);
+    const centred = boxes.every((x) => Math.abs((x.l + x.r) / 2 - vw / 2) < 4);
+    say(centred, 'together (' + vp.width + 'px): the notices stay centred under the navigation', JSON.stringify({ vw, centres: boxes.map((x) => (x.l + x.r) / 2) }));
+    await pg.screenshot({ path: path.join(OUT, 'streak-together-' + vp.width + '.png') }).catch(() => {});
     await pg.close();
   }
 
@@ -178,17 +212,28 @@ const read = (pg) => pg.evaluate(() => {
     await pg.close();
   }
 
-  // midnight: a page open across the person's midnight asks again with the new date
+  // midnight: a page open across the person's midnight, with the person there, asks again with the new date
   {
     const before = (() => { const d = new Date(); d.setHours(23, 59, 30, 0); return d.getTime(); })();
     const { pg, posts } = await open(b, (body) => ({ count: 3, congrats: false, echo: body.today }), { key: 'midnight', clockInstall: before });
     const first = posts.length ? posts[posts.length - 1].body.today : null;
+    await pg.mouse.move(5, 300); await pg.mouse.down(); await pg.mouse.up();   // the person is there
     await pg.clock.runFor(2 * 60 * 1000);
     await pg.waitForTimeout(300);
     const days = posts.map((p) => p.body.today);
     say(first === localDay(before), 'midnight: the first visit is the old day', JSON.stringify(first));
     say(days.includes(localDay(before + 60 * 1000)), 'midnight: after midnight the page asks again with the new day', JSON.stringify(days));
     say(days.filter((d) => d === localDay(before)).length === 1, 'midnight: the old day was asked once, not every minute', JSON.stringify(days));
+    await pg.close();
+  }
+  // midnight, nobody there: a page left open with no input does not count the new day (control for the arm above)
+  {
+    const before = (() => { const d = new Date(); d.setHours(23, 50, 0, 0); return d.getTime(); })();
+    const { pg, posts } = await open(b, () => ({ count: 3, congrats: false }), { key: 'midnight, idle', clockInstall: before });
+    await pg.clock.runFor(20 * 60 * 1000);   // past midnight, and past the ten-minute window since the last input
+    await pg.waitForTimeout(300);
+    const days = posts.map((p) => p.body.today);
+    say(!days.includes(localDay(before + 20 * 60 * 1000)), 'midnight, idle: an open page with nobody at it does not count the new day', JSON.stringify(days));
     await pg.close();
   }
 

@@ -429,7 +429,7 @@ const SCREENS = [
   { name: 'streak-congrats', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
     await page.route('**/api/streak', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: true }) }));
     await at(page, '');
-    await page.waitForSelector('#kcongrats:not([hidden])', { state: 'visible', timeout: 12000 });
+    await page.waitForSelector('#streak-slot .utoast.streak', { state: 'visible', timeout: 12000 });
   } },
   { name: 'streak-hover', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
     await page.route('**/api/streak', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: false }) }));

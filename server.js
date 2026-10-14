@@ -17637,11 +17637,11 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/streak' && req.method === 'POST') {
     readBody(req, 4096).then((buf) => {
       let body;
-      try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'that was not a date we could read' }); return; }
+      try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
       let out;
       try { out = require('./engine/streak').record(String(body.today || ''), Date.now(), { quiet: body.remote === true }); } catch { out = { count: 0, congrats: false }; }
       sendJson(res, 200, out);
-    }).catch(() => { if (!res.headersSent) sendJson(res, 400, { error: 'that was not a date we could read' }); });
+    }).catch(() => { if (!res.headersSent) sendJson(res, 400, { error: 'we could not read that request' }); });
     return;
   }
   /* --- engineering mode (whether the raw session is shown) ---------------- */
