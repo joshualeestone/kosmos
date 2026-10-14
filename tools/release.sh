@@ -645,7 +645,7 @@ kosmos_setup_floor_installer_ok "this cut's install/setup.sh" "$REPO/install/set
 # Read origin/main's copies (what the cut's fresh-main site commit will carry), not a checkout that may be behind:
 # fetch, then lay the four files out in a scratch dir (removed after). If the fetch fails, check the checkout, and say so.
 _floor_site="$SITE"; _floor_tmp=""
-if git -C "$SITE" fetch -q origin 2>/dev/null; then
+if git -C "$SITE" fetch -q origin 2>/dev/null && git -C "$SITE" rev-parse -q --verify origin/main >/dev/null; then
   _floor_tmp="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-floor-site.XXXXXX")" || { echo "could not make a scratch dir for the setup floor check"; exit 1; }
   mkdir -p "$_floor_tmp/dist" || { echo "could not make a scratch dir for the setup floor check"; rm -rf "$_floor_tmp"; exit 1; }
   for _f in dist/latest.json dist/latest-staging.json setup setup-staging; do
@@ -653,7 +653,7 @@ if git -C "$SITE" fetch -q origin 2>/dev/null; then
   done
   _floor_site="$_floor_tmp"
 else
-  echo "(could not fetch the site; checking the checkout at $SITE as it is)"
+  echo "(could not fetch the site's origin/main; checking the checkout at $SITE as it is)"
 fi
 _floor_hint="(fix what it named: a POINTER below the floor needs publish-staging-pointer.sh (staging) or a promote (prod) of a build at or above it; an INSTALLER that does not know the read-only app needs a cut on that channel, which writes its installer)"
 kosmos_setup_floor_site_untouched_ok "the site (origin/main, or the checkout if it could not be fetched)" "$_floor_site" "$CUT_CHANNEL" || { echo "$_floor_hint"; [ -z "$_floor_tmp" ] || rm -rf "$_floor_tmp"; exit 1; }
