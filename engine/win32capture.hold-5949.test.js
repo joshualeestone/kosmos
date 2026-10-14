@@ -641,3 +641,22 @@ test('#5949 a cached read given its own reader reports no cause rather than anot
   assert.equal(told(), null);
   assert.equal(told.problem(), 'the status read timed out after 15 s', 'CONTROL: a cause it is given is kept');
 });
+
+test('#5949 each answer keeps its own why: a background read\'s cause rides with its answer, never another read\'s', () => {
+  const clock = { t: 0 };
+  const pending = [];
+  const cached = win32roster.makeCachedRun({ run: () => [], runAsync: (cb) => { pending.push(cb); }, now: () => clock.t, freshMs: 2000, staleMs: 30000 });
+  assert.deepEqual(cached(), [], 'CONTROL: the first read is a good list');
+  assert.equal(cached.problem(), null);
+  clock.t = 5000;
+  cached();   // stale: a background read starts
+  assert.equal(pending.length, 1);
+  pending[0](null, 'the status read timed out after 15 s');
+  assert.equal(cached(), null);
+  assert.equal(cached.problem(), 'the status read timed out after 15 s', 'the cause the background read gave');
+  clock.t = 10000;
+  cached();
+  pending[1]([], null);
+  assert.deepEqual(cached(), []);
+  assert.equal(cached.problem(), null, 'a good answer carries no cause');
+});

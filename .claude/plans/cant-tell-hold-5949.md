@@ -113,6 +113,9 @@ not a look taken this tick, so snapshot reconciles first as if the look had fail
 in only when that leaves the card unknown. A fresh idle from a Stop hook therefore wins over a remembered working.
 That reported idle is the agent's own word, so it carries no `screenRead` and the code that acts on idle may use it;
 any other reported state keeps `screenRead`, since a limit wait carries the held screen along as `screenState`.
+Cost, accepted: a fresh reported WORKING over a held screen also keeps it, so the Recommender and the account notice
+skip that agent for up to 15 s where main (unknown screen, working report) would not. Cautious and bounded.
+Likewise the Codex live sign-in probe (#2093) runs on an unknown screen only, so during a hold it starts up to 15 s late.
 
 ## Restarts, and boxes without a Claude read
 - A held reading never stands in while a restart is on record (#2019): it is from before the restart, and the

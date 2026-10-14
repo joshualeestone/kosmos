@@ -71,14 +71,10 @@ function flat(v) {
   return String(v == null ? '' : v).replace(/[\t\r\n]+/g, ' ');
 }
 
-/* #5949: WHY the last read failed, in words for an agent's log. A read still answers only
-   the array or null (every caller's contract is unchanged); this is the one extra fact a
-   failed look keeps, so a card that falls to "Can't tell" can be looked up afterwards. Set by
-   both readers on every outcome, null after a good one. */
-let lastProblem = null;
-/* ⚠️ Module state, read right after the reader that set it returns (makeCachedRun's whyOf runs in the same
-   synchronous step, or first thing in the async callback); keep it that way, or a later read can carry
-   another read's why. */
+/* #5949: WHY a read failed, in words for an agent's log, so a card that falls to "Can't tell" can be looked up
+   afterwards. Each answer carries its own cause ({ value, why } inside this module, a second callback argument from
+   the async reader); there is no shared "last problem", so no read can carry another read's why. The public
+   readers still answer only the array or null, so every caller's contract is unchanged. */
 const READ_TIMEOUT_MS = 15000;
 /* The error shapes, measured with this runtime's node on Windows (2026-10-12): a sync timeout is code ETIMEDOUT with
    signal SIGTERM, but a sync buffer overflow is ALSO signal SIGTERM (code ENOBUFS), so the signal alone does not mean
@@ -93,22 +89,24 @@ function problemOf(err) {
   if (Number.isInteger(err.code)) return 'the status read failed (claude exited with code ' + err.code + ')';
   return 'the status read failed (' + String((err && err.code) || 'unknown') + ')';
 }
+/** `out` parsed: { value: the array, why: null }, or { value: null, why } (#5949). */
 function parseAnswer(out) {
   let parsed;
-  try { parsed = JSON.parse(out); } catch { lastProblem = 'the status read answered with something that is not JSON'; return null; }
-  if (!Array.isArray(parsed)) { lastProblem = 'the status read answered with something other than a list'; return null; }
-  lastProblem = null;
-  return parsed;
+  try { parsed = JSON.parse(out); } catch { return { value: null, why: 'the status read answered with something that is not JSON' }; }
+  if (!Array.isArray(parsed)) return { value: null, why: 'the status read answered with something other than a list' };
+  return { value: parsed, why: null };
 }
-/** Why the last read failed, or null when it did not (#5949). */
-function readProblem() { return lastProblem; }
+const NOT_FOUND = 'Claude Code could not be found to ask';
 
 /**
  * Default exec: run `claude agents --json` and parse it. Returns the array, or
  * null on ANY failure (claude missing, non-zero exit, unparseable) so the caller
  * refuses honestly. Never throws.
  */
-function defaultRun() {
+function defaultRun() { return readList().value; }
+
+/** #5949: `defaultRun` with its cause: { value, why }, `why` null exactly when `value` is the array. Never throws. */
+function readList() {
   let out;
   try {
     // Resolve `claude` through the codebase's ONE runner-resolution seam
@@ -116,33 +114,34 @@ function defaultRun() {
     // override is honoured, exactly like every other claude invocation
     // (connect/create/machine/subscription) rather than a second bare `claude`.
     let bin;
-    try { bin = require('./runners').resolveBin('claude').bin; } catch { lastProblem = 'Claude Code could not be found to ask'; return null; }
+    try { bin = require('./runners').resolveBin('claude').bin; } catch { return { value: null, why: NOT_FOUND }; }
     // ⚠️ maxBuffer RAISED to 16 MiB for the SAME reason machine.js:43-50 did:
     // a busy machine with many concurrent sessions makes `claude agents --json`
     // large (long cwd/name fields), and Node's 1 MiB default would make
     // execFileSync throw -> null -> the whole roster blanks on a healthy box.
     out = execFileSync(bin, ['agents', '--json'], { encoding: 'utf8', timeout: READ_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 });
   } catch (err) {
-    lastProblem = problemOf(err);
-    return null;
+    return { value: null, why: problemOf(err) };
   }
   return parseAnswer(out);
 }
 
 /* The same read as `defaultRun`, without blocking: the child runs while the board
    goes on answering. Calls back with the array, or null on any failure, exactly
-   the shapes `defaultRun` returns. Never throws. */
+   the shapes `defaultRun` returns, and (#5949) why as a second argument (null after a
+   good read). Never throws. */
 function defaultRunAsync(cb) {
   let bin;
-  try { bin = require('./runners').resolveBin('claude').bin; } catch { lastProblem = 'Claude Code could not be found to ask'; cb(null); return; }
+  try { bin = require('./runners').resolveBin('claude').bin; } catch { cb(null, NOT_FOUND); return; }
   try {
     require('node:child_process').execFile(bin, ['agents', '--json'],
       { encoding: 'utf8', timeout: READ_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024, windowsHide: true },
       (err, out) => {
-        if (err) { lastProblem = problemOf(err); cb(null); return; }
-        cb(parseAnswer(out));
+        if (err) { cb(null, problemOf(err)); return; }
+        const r = parseAnswer(out);
+        cb(r.value, r.why);
       });
-  } catch (err) { lastProblem = problemOf(err); cb(null); }
+  } catch (err) { cb(null, problemOf(err)); }
 }
 
 /* How long an answer is served as it stands, and how long past that it is still
@@ -178,16 +177,19 @@ const STALE_MS = 30000;
  */
 function makeCachedRun(opts) {
   const o = opts || {};
-  const run = typeof o.run === 'function' ? o.run : defaultRun;
   const runAsync = typeof o.runAsync === 'function' ? o.runAsync : defaultRunAsync;
   const now = typeof o.now === 'function' ? o.now : Date.now;
   const freshMs = Number.isFinite(o.freshMs) ? o.freshMs : FRESH_MS;
   const staleMs = Number.isFinite(o.staleMs) ? o.staleMs : STALE_MS;
-  /* #5949: why a read failed, asked right after it answered null (default: the readers' own, but only for the
-     readers that set it: a caller's own reader says nothing about why, so it gets no cause rather than another's). */
-  const ownReaders = typeof o.run !== 'function' && typeof o.runAsync !== 'function';
-  const problem = typeof o.problem === 'function' ? o.problem : (ownReaders ? readProblem : () => null);
-  const whyOf = (value) => { if (Array.isArray(value)) return null; try { return problem() || null; } catch { return null; } };
+  /* #5949: each answer keeps its own why. The default readers give it with the answer; a caller's own reader gives
+     none unless the caller passes `problem` (asked right after that reader answers null), so it never borrows one. */
+  const problem = typeof o.problem === 'function' ? o.problem : () => null;
+  const asked = () => { try { return problem() || null; } catch { return null; } };
+  const readSync = typeof o.run === 'function'
+    ? () => { const value = o.run(); return { value, why: Array.isArray(value) ? null : asked() }; }
+    : readList;
+  const entry = (value, why) => (Array.isArray(value) ? { value, why: null }
+    : { value: null, why: typeof why === 'string' && why ? why : asked() });
   let cache = null;       // { at, value, why }
   let inFlight = false;
   function cachedRun() {
@@ -199,17 +201,17 @@ function makeCachedRun(opts) {
         inFlight = true;
         const started = t;
         try {
-          runAsync((value) => {
+          runAsync((value, why) => {
             inFlight = false;
             // A synchronous read that landed while this one ran is newer; keep it.
-            if (!cache || cache.at <= started) cache = { at: now(), value: Array.isArray(value) ? value : null, why: whyOf(value) };
+            if (!cache || cache.at <= started) cache = { at: now(), ...entry(value, why) };
           });
         } catch { inFlight = false; }
       }
       return cache.value;
     }
-    const value = run();
-    cache = { at: now(), value: Array.isArray(value) ? value : null, why: whyOf(value) };
+    const r = readSync();
+    cache = { at: now(), ...entry(r && r.value, r && r.why) };
     return cache.value;
   }
   cachedRun.forget = () => { cache = null; };
