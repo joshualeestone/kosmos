@@ -488,15 +488,22 @@ test('#6065 N1: a room post still shortened carries the request to each member i
     assert.ok(mara.includes('Where it names you: "@Mara-Lisa, please confirm the Gemini delivery on your seat."'), mara.slice(-300));
     // leo is not asked and the post has no question: no request clause at all.
     assert.doesNotMatch(leo, /Where it names you:|A question in it:/, leo.slice(-300));
-    // leo is named only in the head, so the later question is quoted for him; april is not named, so a question in
-    // the post is not quoted to her (review 9: no steering a reader the post is not to).
-    const q = messages.sendPost({ operator: true, project: 'henderson-lease', text: 'Briefing two for @leo. ' + long + 'Did everyone get the notes? The end.' }, board.agents, MEMBERS);
+    // A colleague's post naming leo only in the head: the later question is quoted for leo; april is a background
+    // member (not named), so it is not quoted to her (review 9: no steering a reader the post is not to).
+    armSender('mara-discord');
+    const q = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'Briefing two for @leo. ' + long + 'Did everyone get the notes? The end.' }, board.agents, MEMBERS);
     assert.ok(q && q.id, JSON.stringify(q));
     const two = tmux.pastedMessages().filter((l) => l.includes('Briefing two'));
-    const of = (who) => two.find((l) => l.includes(path.join(require('./dmfiles').ownDir(who, 'Inbox'))));
-    assert.ok(of('leo') && of('april'), 'CONTROL: shortened for both: ' + two.map((l) => l.slice(0, 80)).join(' | '));
-    assert.ok(of('leo').includes('A question in it: "Did everyone get the notes?"'), of('leo').slice(-300));
-    assert.doesNotMatch(of('april'), /Where it names you:|A question in it:/, of('april').slice(-300));
+    const of = (who, set) => set.find((l) => l.includes(path.join(require('./dmfiles').ownDir(who, 'Inbox'))));
+    assert.ok(of('leo', two) && of('april', two), 'CONTROL: shortened for both: ' + two.map((l) => l.slice(0, 80)).join(' | '));
+    assert.ok(of('leo', two).includes('A question in it: "Did everyone get the notes?"'), of('leo', two).slice(-300));
+    assert.match(of('april', two), /not addressed to you/, 'CONTROL: april is a background member');
+    assert.doesNotMatch(of('april', two), /Where it names you:|A question in it:/, of('april', two).slice(-300));
+    // An operator post is for the whole room (review 10): every member gets its question, named or not.
+    const w = messages.sendPost({ operator: true, project: 'henderson-lease', text: 'Briefing three. ' + long + 'Can everyone confirm delivery? The end.' }, board.agents, MEMBERS);
+    assert.ok(w && w.id, JSON.stringify(w));
+    const three = tmux.pastedMessages().filter((l) => l.includes('Briefing three'));
+    for (const who of ['leo', 'april']) assert.ok(of(who, three) && of(who, three).includes('A question in it: "Can everyone confirm delivery?"'), who + ': ' + String(of(who, three)).slice(-300));
   });
 });
 

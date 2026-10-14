@@ -40,3 +40,6 @@ the head is skipped for the next one; nothing when there is none. At most 300 ch
 - (round 9) A question is quoted only to a member the post names (or a DM's reader): quoting one to a background
   member would steer an agent the post was not addressed to, which the room already avoids (no answer line). A long
   question with no space in its last 100 characters (a link) is cut by character, never down to the bare ?.
+- (round 10) A question is quoted to every reader the post is to, as the answer line and the hold already decide it:
+  an operator post (the whole room), a member it names, or the author of the post it replies to; never a background
+  member. A sentence the opening cut only started is quoted whole (its unseen part may hold the request).

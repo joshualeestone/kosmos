@@ -255,16 +255,16 @@ function spillHead(text) {
   return { head, words };
 }
 /* #6065 N1 (0.7.48 report: Gemini and Meta still had long room posts arrive shortened): where a post is still
-   shortened, its preview carries the request (Josh: "put the request in the preview"). That is the first sentence that
-   names this member, at the positions mentionedMembers recorded (`namedAt`: exactly what the room read as a mention,
-   so an ambiguous or unmatched @-word is never quoted as naming the member), labelled Where it names you rather than
-   as a request, since a mention can be a thank-you; else the first question past the head (labelled A question in
-   it, since one in the head is skipped) (a ? after a word and before a space or
-   the end, so not one partway through a link; a link ending in ? still counts). A sentence that ends inside the head is
-   skipped for the next one (one the opening cut only started is not). Cut at a whole word to at most REQUEST_MAX
-   characters plus an ellipsis. A sentence runs from the end of the one before (. ! ? then a space) to its own end;
-   both callers pass chat.cleanMessage's text, which has no line breaks, so a list with no punctuation reads as one
-   sentence, and an abbreviation such as "e.g." or a sentence ending in a closing quote can start one early. */
+   shortened, its preview carries the request (Josh: "put the request in the preview").
+   - Where it names you: the first sentence that names this member, at the positions mentionedMembers recorded
+     (`namedAt`, exactly what the room read as a mention). Not called a request: a mention can be a thank-you.
+   - A question in it: otherwise the first question past the head, for a reader the post is to (`questions`). A ?
+     counts after a word and before a space or the end, so not one partway through a link.
+   - A sentence that ends inside the head is skipped for the next one; one the opening cut only started is quoted.
+   - At most REQUEST_MAX characters plus an ellipsis, cut at a whole word.
+   A sentence runs from the end of the one before (. ! ? then a space) to its own end. Both callers pass
+   chat.cleanMessage's text, which has no line breaks, so a list with no punctuation reads as one sentence, and an
+   abbreviation such as "e.g." or a sentence ending in a closing quote can start one early. */
 const REQUEST_MAX = 300;
 const REQUEST_LEAD = 100;   // how much of a long sentence is kept before its mention or question
 function sentenceAt(t, at) {
@@ -307,8 +307,8 @@ function requestIn(text, opts = {}) {
     const s = sentenceAt(t, at);
     if (s && s.end > headEnd) return { sentence: unquotable(s.sentence), asked: true };
   }
-  /* Review 9: a question only for a reader the post is to (a mentioned member, a DM's reader): quoting one to a
-     background member would steer an agent the post was not addressed to, which the room avoids (no answer line). */
+  /* Review 9: a question only for a reader the post is to (the caller decides: questions: false for a background
+     member): quoting one would steer an agent the post was not addressed to, which the room avoids (no answer line). */
   if (opts.questions === false) return null;
   for (const m of t.matchAll(/(?<=\S)\?(?=\s|$)/g)) {
     const s = sentenceAt(t, m.index);
@@ -2505,7 +2505,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       }
       spilled[name] = spill.file;
       // #6065 N1: the preview carries the request to this member: where the room's resolver read it as named.
-      envelope = wrap(spillLine(cleaned, spill.file, { namedAt: namedAt.get(name) || [], questions: mentioned.has(name) }));   // #5706
+      /* Review 10: a question is quoted to every reader the post is to, as the answer line and the hold decide it: an
+         operator post (the whole room), a member it names, or the author of the post it replies to; never to a
+         background member. */
+      const isTo = operator === true || mentioned.has(name) || Boolean(answered && answered.operator !== true && answered.from === name);
+      envelope = wrap(spillLine(cleaned, spill.file, { namedAt: namedAt.get(name) || [], questions: isTo }));   // #5706
     }
     const finish = (sent) => {
       /* #4588 PR B: held (the shared Google quota, #5743/#5754 an answer awaited on its screen: question menu, permission prompt, safeguards menu, or #5805 a usage limit), nothing typed. The post is kept for this member like a #4624
