@@ -53,7 +53,7 @@ test('#2618: the in-tab layout picker and the Styles tab are gone; the header fl
   assert.doesNotMatch(SCRIPT, /getElementById\('style-theme'\)\.addEventListener/, 'the theme-select change handler is gone');
   // The header flipper survives, still wired to applyLayout over /api/style.
   assert.ok((PAGE.match(/data-layout-switch="/g) || []).length >= 2, 'the header flipper (two segments) survives');
-  assert.match(SCRIPT, /BOARD_LAYOUT = r\.layout === 'consolidated' \? 'consolidated' : 'tabs';\n  applyLayout\(deviceLayout\(BOARD_LAYOUT\), apply\);/, 'paintStyles still applies the saved layout on load (through the #6107 per-device rule)');
+  assert.match(SCRIPT, /STYLE_LAYOUT = r\.layout === 'consolidated' \? 'consolidated' : 'tabs';\n  applyLayout\(deviceLayout\(STYLE_LAYOUT\), apply\);/, 'paintStyles still applies the saved layout on load (through the #6107 per-device rule)');
 });
 
 test('the root attribute is written from the engine\'s answer, and a click only asks the engine', () => {
@@ -67,7 +67,7 @@ test('the root attribute is written from the engine\'s answer, and a click only 
   // and falls back to the pressed segment.
   assert.match(click, /applyLayout\(\(r && r\.layout\) \|\| want, true\)/, 'the header flipper applies via applyLayout (engine answer, falling back to the pressed segment)');
   assert.doesNotMatch(click, /setAttribute\('data-layout'/, 'the click writes the root attribute directly');
-  assert.match(SCRIPT, /applyLayout\(deviceLayout\(BOARD_LAYOUT\), apply\);/, 'paintStyles does not carry the layout');
+  assert.match(SCRIPT, /applyLayout\(deviceLayout\(STYLE_LAYOUT\), apply\);/, 'paintStyles does not carry the layout');
 });
 
 test('the mode is gated on width and on the two tabs it merges; Settings stays a whole page', () => {
@@ -394,5 +394,5 @@ test('#6107: a landscape touch tablet keeps its own layout, defaulting to the on
   assert.ok(tab > 0 && put > tab, 'the tablet branch comes before the board PUT');
   assert.match(click.slice(tab, put), /localStorage\.setItem\(TABLET_LAYOUT_KEY, want\);[\s\S]*applyLayout\(want, true\);\n    return;/);
   // Turning the tablet re-applies the rule.
-  assert.match(SCRIPT, /tlq\.addEventListener\('change', \(\) => applyLayout\(deviceLayout\(BOARD_LAYOUT\), true\)\)/);
+  assert.match(SCRIPT, /tlq\.addEventListener\('change', \(\) => applyLayout\(deviceLayout\(STYLE_LAYOUT\), true\)\)/);
 });
