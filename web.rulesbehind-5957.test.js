@@ -12,7 +12,7 @@ const reasonOf = (a, opts) => new Function('a', 'opts',
   `${page.lift(SCRIPT, 'quotaResetWords')}\n${page.lift(SCRIPT, 'waitingLine')}\n${page.lift(SCRIPT, 'rulesBehindLine')}\n${page.lift(SCRIPT, 'stateReason')}\nreturn stateReason(a, opts);`)(a, opts);
 const SAID = 'Its working rules are 13 versions behind. Open it to update them.';
 
-const CARD = { noQuote: true, card: true };   // what card() and lrow() pass
+const CARD = { card: true };   // what card() and lrow() pass (#6118 removed the noQuote opt-out)
 
 test('#5957: an idle card far behind says so; with no number it says nothing (control)', () => {
   assert.equal(reasonOf({ state: 'idle', rulesBehind: 13 }, CARD), SAID);
@@ -22,7 +22,6 @@ test('#5957: an idle card far behind says so; with no number it says nothing (co
 });
 
 test('#5957: not on the agent\'s own page (the detail header passes no card flag), which has the update note itself', () => {
-  assert.equal(reasonOf({ state: 'idle', rulesBehind: 13 }, { noQuote: true }), '');
   assert.equal(reasonOf({ state: 'idle', rulesBehind: 13 }), '');
 });
 

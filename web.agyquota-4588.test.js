@@ -17,7 +17,7 @@ test('#4588: a quota-paused card names when the quota resets, and its line quote
   // The shape a real card has: reported, with the engine's own sentence as its because (status.js).
   const card = { state: 'rate_limited', stateConfidence: 'structured', stateReported: true, quotaUntil: until,
     because: "its Google account's shared Antigravity quota ran out; it resets at " + hhmm };
-  assert.equal(reasonOf(card, { noQuote: true }), 'Usage limit reached. The Google quota resets at ' + hhmm + '.');
+  assert.equal(reasonOf(card, { card: true }), 'Usage limit reached. The Google quota resets at ' + hhmm + '.');
   const detail = reasonOf(card);
   assert.match(detail, /resets at/);
   assert.doesNotMatch(detail, /RESOURCE_EXHAUSTED|Resets in|Kosmos resumes/);
