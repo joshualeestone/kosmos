@@ -1,10 +1,12 @@
 # kosmos#6149 point 1: the rollback floor for the Mac and Linux installer.
 #
-# #4455 (merged as #6146, in 0.7.49) makes the installed app read-only. An installer older than 0.7.45 does not know
-# to lift that lock: it removes bin/, fails at the read-only app/, and cannot put the board back, on every install
-# 0.7.49 touched. So no Mac pointer (dist/latest.json, dist/latest-staging.json) may name a build older than
-# KOSMOS_SETUP_FLOOR, and no /setup or /setup-staging may be an installer that cannot lift the lock (the marker, below). There is no override: serving such a build breaks
-# installs, so the fix is a newer build, never a flag.
+# #4455 (merged as #6146, in 0.7.49) makes the installed app read-only. An installer that cannot lift that lock
+# removes bin/ on update, fails at the read-only app/, and cannot put the board back, on every install 0.7.49
+# touched. Installers from 0.7.42 on can lift it (#4449); 0.7.45 is the first such installer served on prod. So no Mac
+# pointer (dist/latest.json, dist/latest-staging.json) may name a build older than KOSMOS_SETUP_FLOOR (0.7.45,
+# stricter than needed, which fails closed), and no /setup or /setup-staging may be an installer that cannot lift
+# the lock (the marker, below). There is no override: serving such an installer breaks installs, so the fix is a
+# newer build, never a flag.
 #
 # Usage: source this file, then `kosmos_setup_floor_ok <label> <version>` (exit 0 = at or above the floor; 1 = refused,
 # with the reason on stderr). A version that is not plain numbers and dots is refused: the floor cannot be checked.
