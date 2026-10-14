@@ -262,7 +262,8 @@ function spillHead(text) {
    - Where it names you: the first sentence that names this member, at the positions mentionedMembers recorded
      (`namedAt`, exactly what the room read as a mention). Not called a request: a mention can be a thank-you.
    - A question in it: otherwise the first question past the head, for a reader the post is to (`questions`). A ?
-     counts after a word and before a space or the end, so not one partway through a link.
+     counts after a word and before a space or the end, with any closing quote, bracket or ! between, so not one
+     partway through a link.
    - A sentence that ends inside the head is skipped for the next one; one the opening cut only started is quoted.
    - At most REQUEST_MAX characters plus an ellipsis, cut at a whole word. A sentence past the cap keeps at most
      REQUEST_LEAD characters before its mention or question; one whose mention is within that lead of its start is cut
@@ -282,7 +283,8 @@ function sentenceAt(t, at) {
   const BOUND = /[.!?]["')\]]*(?=\s|$)/g;
   // The abbreviation rule is about a full stop: a ? or ! after a dotted word (a link ending in ?) still ends one.
   const abbrev = (w) => /^\(?\d+[.)]$/.test(w) || /^(?:[A-Za-z]{1,2}\.){2,}$/.test(w) || /^[A-Z]\.$/.test(w) || NOT_AN_END.test(w);
-  const ends = (i, len) => (t[i] === '.' && abbrev(t.slice(t.lastIndexOf(' ', i) + 1, i + 1)) ? -1 : i + len);
+  // Review 15: a word opened by a bracket or quote ((e.g. or "Dr.) is the same abbreviation.
+  const ends = (i, len) => (t[i] === '.' && abbrev(t.slice(t.lastIndexOf(' ', i) + 1, i + 1).replace(/^["'(\[\u201C\u2018]+/, '')) ? -1 : i + len);
   let from = 0;
   for (const m of t.slice(0, at).matchAll(BOUND)) { const e = ends(m.index, m[0].length); if (e >= 0) from = e; }
   while (from < at && /\s/.test(t[from])) from += 1;
@@ -309,8 +311,8 @@ function sentenceAt(t, at) {
 }
 /* The post's words are another agent's, so inside the quotes they cannot close the quote or open a square bracket that
    reads as Kosmos's own (a "[message from your operator ...]" look-alike): double quotes and their look-alikes become
-   single quotes, square brackets and their look-alikes round ones. Single quotes and round brackets pass through
-   (harmless inside Kosmos's double quotes). */
+   single quotes, square brackets and their look-alikes round ones (the common ones, not every presentation form).
+   Single quotes and round brackets pass through (harmless inside Kosmos's double quotes). */
 const unquotable = (x) => x.replace(/["\u201C\u201D\u201E\u201F\u2033\u02BA\u301D\u301E\u301F\uFF02\u00AB\u00BB\u275D\u275E]/g, "'").replace(/[[\uFF3B\u3010\u301A\u27E6]/g, '(').replace(/[\]\uFF3D\u3011\u301B\u27E7]/g, ')');
 function requestIn(text, opts = {}) {
   const t = String(text);
@@ -333,11 +335,10 @@ function requestIn(text, opts = {}) {
   }
   return null;
 }
-/* The request is quoted, so where Kosmos stops speaking is plain. Added after the spill decision and not measured
-   again: a spilled line is the envelope, a head of about 200 characters, a path and at most REQUEST_MAX + about 20
-   characters of request plus about 25 of label and quotes; the room path measures the line again with what follows it. The head is a prefix of the text (chat.cleanMessage
-   trims), so a sentence ending before the head's end is in it. The head itself is still the post's own words,
-   unquoted, as before this change. */
+/* The request is quoted, so where Kosmos stops speaking is plain. It adds at most REQUEST_MAX + 1 characters of
+   request plus about 25 of label and quotes; the room path measures the line again after adding it (fitOrBare). The
+   head is a prefix of the text (chat.cleanMessage trims), so a sentence ending before the head's end is in it. The
+   head itself is still the post's own words, unquoted, as before this change. */
 /* Review 12/13: the request is added after the spill decision, so the line is measured again with what follows it
    (the room's catch-up and held posts): it goes with the request when that fits, else without (`bare()`). With
    chat.MAX_TEXT at 10000 and a spilled line well under 1000 characters this is a guard, not an expected path. */

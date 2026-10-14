@@ -55,3 +55,6 @@ the head is skipped for the next one; nothing when there is none. At most 300 ch
 - (round 14) For the request a full stop ends a sentence unless the word is a known abbreviation, a list number, a
   dotted word of two or more short pieces (e.g., p.m., U.S.) or a capital initial: a filename, domain, version or
   ellipsis (config.yaml., example.com., v1.2., wait...) ends one. The head's own cut rule is unchanged.
+- (round 15) An abbreviation opened by a bracket or quote ((e.g., "Dr.) is still one. Not done: a room-level test that
+  reaches fitOrBare's bare arm (it needs a catch-up and held-posts clause near the limit); fitOrBare is unit-tested
+  on both arms and the room call passes catchUp + heldLine, read in review.

@@ -470,6 +470,11 @@ test('#6065 N1: requestIn: the sentence at the room\'s own mention positions, el
   // ...and the sentence before a mention is not pulled in when it ends that way.
   const prev = 'News. ' + fill + 'I fixed config.yaml. @mara please check it.';
   assert.equal(messages.requestIn(prev, { namedAt: at(prev, '@mara') }).sentence, '@mara please check it.');
+  // An abbreviation opened by a bracket or quote still does not end a sentence (review 15), at either end.
+  const eg = 'News. ' + fill + 'Please @mara check the terms (e.g. the lease) by Friday. Done.';
+  assert.equal(messages.requestIn(eg, { namedAt: at(eg, '@mara') }).sentence, 'Please @mara check the terms (e.g. the lease) by Friday.');
+  const dr = 'News. ' + fill + 'Talk to "Dr. Smith" now @mara please. Done.';
+  assert.equal(messages.requestIn(dr, { namedAt: at(dr, '@mara') }).sentence, "Talk to 'Dr. Smith' now @mara please.");
   // The re-measure (review 12/13): with the request when it fits, without it when what follows would push it over.
   let bareCalls = 0;
   const bareLine = () => { bareCalls += 1; return 'BARE'; };
