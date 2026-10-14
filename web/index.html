@@ -728,6 +728,31 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-box-top > .acct-unknown { margin-left: auto; max-width: 100%; white-space: normal; }
 .acct-who b { font-weight: 650; display: block; }
 .acct-org, .acct-keytail { display: block; color: var(--label-2); font-size: .8125rem; }
+/* #6108: how much of its weekly limit a Claude account has used, and the agents on it here. The meter is the memory
+   meter's own .bar, so the two read as one family. The paragraph rules are scoped under #set-accounts so they outrank
+   `.panel p` (body size, grey, a large bottom margin), the way the row's sign-in line is scoped. */
+.acct-usage { display: flex; flex-direction: column; gap: 8px; }
+.acct-usage-meter { display: flex; align-items: center; gap: 10px; }
+.acct-usage-meter .bar { flex: 0 0 120px; }
+#set-accounts .acct-usage-line, #set-accounts .acct-agents-line { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); }
+#set-accounts .acct-usage-none { color: var(--label-2); }
+#set-accounts .acct-usage-warn { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); display: flex; gap: 8px; align-items: baseline; }
+#set-accounts .acct-usage-warn::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); transform: translateY(-1px); }
+#set-accounts .acct-usage-warn.high::before { background: var(--danger); }   /* themed: the raw reds fail on the dark card */
+.acct-move { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.acct-move select { min-height: 44px; font-size: .875rem; max-width: 100%; }
+/* The account panel's own primary action shape (Sign in again's gold outline), so Move reads as this panel's button. */
+.acct-move button { min-height: 44px; font: inherit; font-size: .875rem; font-weight: 600; padding: .45em 1.1em; border-radius: 8px;
+  border: 1px solid var(--gold-bright); background: var(--k-surface); color: var(--label); cursor: pointer; }
+.acct-move button[disabled] { opacity: .5; cursor: default; }
+@media (max-width: 40rem) {
+  .acct-move select { font-size: 16px; flex: 1 1 100%; }   /* 16px: iOS zooms into a smaller field */
+  .acct-usage-meter { flex-direction: column; align-items: stretch; gap: 6px; }
+  .acct-usage-meter .bar { flex: none; width: 100%; }
+}
+#set-accounts .acct-move-msg { margin: 0; font-size: .8125rem; color: var(--label); }
+#set-accounts .acct-move-msg:empty { margin-top: -8px; }   /* kept in the page (a live region must exist before it speaks), but no gap */
+#set-accounts .acct-move-note { margin: 0; flex: 1 1 100%; font-size: .8125rem; color: var(--label-2); }   /* the only before-click word on the restart: not the smallest text on the row */
 /* The disambiguator beside a name two accounts share. Quiet on purpose: it is
    an answer to "why are there two of these", not a thing to read first. Same
    token as .acct-org, which is defined on the light, dark and increased-contrast
@@ -27104,6 +27129,157 @@ function acctFollowUp(n, busy) {
     paintAccounts({ followUp: n });
   }, ACCT_FOLLOWUP.ms);
 }
+/* #6108 (feedback + Josh 10-13, "no one should ever be out"): a Claude account row says how much of its weekly limit
+   it has used, which of this computer's agents run on it, and offers to move them to another account ahead of time.
+   Only what Kosmos knows: the weekly reading exists for accounts Kosmos set up, while an agent on them runs, so a row
+   without one says so plainly instead of guessing. An API key has no weekly limit, so its row shows no meter. */
+const ACCT_WARN_PCT = 75, ACCT_HIGH_PCT = 90;
+/* A move in progress or its outcome, by the source account's dir. The list repaints while agents move and after (a
+   source row with no agents left has no move control), so the sentence lives here, not in the old element. */
+const ACCT_MOVE = new Map();
+const ACCT_MOVE_SHOW_MS = 2 * 60e3;   // a finished move's sentence stays two minutes, then the row is plain again
+const ACCT_PICK = new Map();          // the target picked in a row's menu, so a poll's repaint does not undo a half-made choice
+/* #6108: whether an account can take another account's agents in one move. One rule for the menu and for the check
+   made again at the click (the menu can be a while old: Settings repaints when something is pressed). */
+function acctBulkTarget(x, fromDir) {
+  return !!x && x.provider === 'anthropic' && !!x.dir && x.dir !== fromDir && !!x.memoryShared
+    && acctOfferableTarget(x)   // the create picker's own test: not refused, not signed out
+    && !x.apiKey   // not a key: moving a whole account's agents onto a key changes who pays, so that stays a one-agent choice on its page
+    && !(x.weekly && Number.isFinite(x.weekly.usedPct) && Math.round(x.weekly.usedPct) >= 100);   // a full account cannot run them either (rounded as its row shows it)
+}
+function acctUsageHtml(a, list) {
+  /* An older board sends neither field: show nothing. The meter needs only the weekly fields (always sent on a Claude
+     row); the agents line and the move need agentsHere, which comes only when the page asks (?agents=1). */
+  if (!a || a.provider !== 'anthropic' || (!('weekly' in a) && !('weeklyBlocked' in a) && !a.agentsHere)) return '';
+  const here = a.agentsHere && Array.isArray(a.agentsHere.names) ? a.agentsHere : null;
+  const w = a.weekly && Number.isFinite(a.weekly.usedPct) ? a.weekly : null;
+  /* The setup guide is left out, as everywhere the page lists or counts agents (#3739); it is not moved either. The
+     warning, the agents line and the move all count this one list, so they cannot disagree. */
+  const known = new Map((Array.isArray(LAST) ? LAST : []).filter((x) => x && x.sessionName).map((x) => [x.sessionName, x]));
+  const sessions = (here ? here.names : []).filter((n) => !(known.get(n) && known.get(n).isGuide));
+  const names = sessions.map((n) => (known.get(n) && known.get(n).name) || n);
+  /* Only accounts a move can land on: shared history (as the agent page's picker requires, #1492: an option that
+     always fails is worse than none) and not signed out or refused. */
+  const targets = (list || []).filter((x) => acctBulkTarget(x, a.dir));
+  const canMove = names.length > 0 && targets.length > 0;
+  const allRunning = sessions.length > 0 && sessions.every((n) => known.get(n) && cardStOf(known.get(n)).pres === 'on');   // a move restarts only a running agent
+  /* Why there can be no reading, when the server knows (never a guess). Also said under an old reading that can no
+     longer change, so a stale meter is not read as current. */
+  const blockedSay = {
+    'windows': 'Kosmos cannot read usage for this account on Windows yet.',
+    'own-statusline': 'Kosmos cannot read usage for this account. It is set up its own way, and Kosmos leaves that alone.',
+    'unreadable-settings': 'Kosmos cannot read this account\'s settings, so it cannot read its usage.',
+    'not-wired': 'Kosmos is not set up to read usage for this account.',
+  }[a.weeklyBlocked] || '';
+  /* Under a reading, "cannot read" would contradict the number above it: say it is the last one and will not change. */
+  const frozenSay = {
+    'windows': 'This is the last reading Kosmos saw. It will not update on Windows yet.',
+    'own-statusline': 'This is the last reading Kosmos saw. It will not update, because this account is set up its own way.',
+    'unreadable-settings': 'This is the last reading Kosmos saw. It will not update, because Kosmos cannot read this account\'s settings.',
+    'not-wired': 'This is the last reading Kosmos saw. It will not update, because Kosmos is not set up to read this account\'s usage.',
+  }[a.weeklyBlocked] || '';
+  let usage = '';
+  if (!a.apiKey) {
+    if (w) {
+      const pct = Math.max(0, Math.min(100, Math.round(w.usedPct)));
+      const band = pct >= ACCT_HIGH_PCT ? 'high' : pct >= ACCT_WARN_PCT ? 'warn' : 'ok';
+      /* A weekday alone reads as today when the reset is a week out (just after one), so then the date is said too. */
+      const resets = new Date(w.resetsAt).toLocaleString([], w.resetsAt - Date.now() > 6 * 864e5
+        ? { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+      const age = agoWords(Date.now() - w.at);
+      usage = '<div class="acct-usage-meter"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
+        + '<p class="acct-usage-line">' + pct + '% of its weekly limit used · resets ' + esc(resets) + (age ? ' · Kosmos last saw it change ' + esc(age) : '') + '</p></div>'   // what Kosmos saw: use elsewhere (claude.ai, another computer) is not seen
+        + (frozenSay ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenSay) + '</p>' : '')
+        + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its weekly limit.' : 'Close to its weekly limit.')
+          + (canMove ? ' Move its ' + (names.length === 1 ? 'agent' : 'agents') + ' to another account' + (pct >= 100 ? (allRunning ? ' to get ' + (names.length === 1 ? 'it' : 'them') + ' working again.' : '.') : (allRunning ? ' before ' + (names.length === 1 ? 'it stops.' : 'they stop.') : '.')) : '') + '</p>' : '');
+    } else {
+      /* "Cannot read" only when the server knows there will be no reading; otherwise one comes once an agent works. */
+      usage = '<p class="acct-usage-line acct-usage-none">' + esc(blockedSay || 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.') + '</p>';
+    }
+  }
+  const short = here && here.complete ? '' : ' (some could not be checked)';
+  const agentsLine = !here ? '' : !names.length && !here.complete ? '<p class="acct-agents-line">Kosmos could not check which agents are on it.</p>'   // unknown, never "none"
+    : names.length
+    ? '<p class="acct-agents-line">Its agents on this computer: ' + names.map(esc).join(', ') + esc(short) + '</p>'
+    : '<p class="acct-agents-line">Kosmos cannot see any agents on it on this computer' + esc(short) + '.</p>';   // a reading, never a fact about the computer (web.empty-scope)
+  let st = ACCT_MOVE.get(a.dir) || null;
+  if (st && !st.moving && !st.announce && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) st = null;   // expired: drawn plain (the paint loop deletes it and clears the panel line); never before it is said
+  const busy = !!(st && st.moving);
+  /* Named the way every other account picker names them (#1917/#2095): two accounts on one email get their qualifier. */
+  const qual = accountQualifiers(list || []);
+  const nameOf = (x) => acctPrimaryName(x) + (qual.get(String(x.dir || '')) ? ' (' + qual.get(String(x.dir || '')) + ')' : '');
+  const who = esc(nameOf(a) || 'this account');
+  const picked = targets.some((x) => x.dir === ACCT_PICK.get(a.dir)) ? ACCT_PICK.get(a.dir) : '';
+  /* The restart note describes the menu and the button, so a screen reader hears it before the click, not only after.
+     Id from the dir's character codes: unique per dir, and safe in an attribute. */
+  const noteId = 'acct-move-note-' + Array.from(String(a.dir)).map((c) => c.charCodeAt(0).toString(16)).join('');
+  const described = names.length ? ' aria-describedby="' + noteId + '"' : '';
+  const move = canMove || busy
+    ? '<div class="acct-move"><select' + (busy ? ' disabled' : '') + ' data-acct-move-to="' + esc(a.dir) + '"' + described + ' aria-label="Move the agents on ' + who + ' to another account">'
+      + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
+      + targets.map((x) => '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + '>' + esc(nameOf(x)) + (x.weekly && Number.isFinite(x.weekly.usedPct) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
+      + '</select><button type="button" data-acct-move="' + esc(a.dir) + '"' + described + (busy || !picked ? ' disabled' : '') + '>' + (busy ? esc(st.progress || 'Moving…') : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
+      + (names.length ? '<p class="acct-move-note" id="' + noteId + '">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p>' : '') + '</div>'   // said before the click; a busy row repainted to no agents says nothing
+    : '';
+  /* After a move focus goes to the menu or the list, never here (it would read this a second time over the panel's
+     status line), so the sentence takes no focus. It is shown as soon as the move ends; only the panel line is
+     written a moment later, so that live region hears a change. */
+  /* The row shows the sentence; the panel's own status line (#set-accounts-msg, never replaced by a repaint) speaks
+     it, because a live region drawn new by each paint may not be announced at all. */
+  const said = st && st.said ? esc(st.said) : '';
+  return '<div class="acct-usage">' + usage + agentsLine + move
+    + '<p class="acct-move-msg" data-acct-move-msg="' + esc(a.dir) + '">' + said + '</p></div>';
+}
+/* #6108: what a move does to these agents, before the click. The route restarts a running agent on the new account; a
+   STOPPED one is moved but not started (the account route never starts a dead agent; that is a separate decision in
+   engine/remove.js), so it is named as staying stopped. */
+function acctMoveNote(cards) {
+  const n = cards.length;
+  const pres = cards.map((c) => (c ? cardStOf(c).pres : 'unsure'));
+  const stopped = pres.filter((p) => p === 'off').length, unsure = pres.filter((p) => p !== 'on' && p !== 'off').length;
+  const all = n === 1 ? 'it' : n === 2 ? 'both' : 'all ' + n;
+  if (!stopped && !unsure) return 'Moving restarts ' + all + ' on the new account.';
+  if (stopped === n) return 'Moving sets ' + (n === 1 ? 'it' : 'them') + ' up on the new account. ' + (n === 1 ? 'It is' : 'They are') + ' not running now.';
+  /* Some are stopped or their state is not known: no count of restarts that the route may not keep. */
+  return 'Moving restarts the running ones on the new account.' + (stopped ? ' Any that are not running now are not started.' : '');
+}
+/* #6108: move every agent this computer has on `fromDir` to `toDir`, one at a time through the same route the agent's
+   own page uses, and say how it went in one line: the engine's own sentence for any that did not move. */
+async function moveAccountAgents(fromDir, toDir, names, onProgress, stoppedAtClick) {
+  let moved = 0; const movedStopped = [];
+  const wasStopped = stoppedAtClick instanceof Set ? stoppedAtClick : new Set();
+  const restarting = new Map(), misses = new Map(), silent = [];   // reason -> names, so one sentence is said once
+  const add = (m, why, who) => { if (!m.has(why)) m.set(why, []); m.get(why).push(who); };
+  const nameOf = (n) => (((LAST || []).find((x) => x && x.sessionName === n) || {}).name || n);
+  const end = (t) => t + (/[.!?]$/.test(t) ? '' : '.');
+  for (const [i, n] of names.entries()) {
+    /* A move that never answers must not hold the row disabled for the life of the page. The limit covers the reply's
+       body too. A timeout is NOT a failure: the route works before it answers, so the agent may well have moved. */
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), 60e3) : null;
+    try {
+      const res = await fetch('/api/agent/' + encodeURIComponent(n) + '/account', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: toDir }), ...(ctl ? { signal: ctl.signal } : {}) });
+      const out = await res.json().catch((e) => { if (e && e.name === 'AbortError') throw e; return null; });
+      if (res.ok && out && out.outcome === 'changed') moved++;
+      /* Stopped, saved, and not started, as the note said: only when the card said stopped AND the engine's own sentence
+         says so. A partial for any other reason (a stale card, a window it could not close) keeps the engine's words. */
+      else if (res.ok && out && out.outcome === 'partial' && wasStopped.has(n) && /is not running, so there is nothing to restart/.test(String(out.because || ''))) movedStopped.push(nameOf(n));
+      else if (res.ok && out && out.outcome === 'partial') add(restarting, (out.because || '').trim(), nameOf(n));   // saved; still on the old one until it restarts
+      else add(misses, (out && (out.because || out.error)) || 'that did not work', nameOf(n));
+    } catch (e) {
+      if (e && e.name === 'AbortError') silent.push(nameOf(n)); else add(misses, 'that did not work', nameOf(n));
+    } finally { if (timer) clearTimeout(timer); }
+    if (onProgress) onProgress(i + 1, names.length);
+  }
+  const parts = [];
+  if (moved) parts.push('Moved ' + moved + (moved === 1 ? ' agent. It restarts on the new account.' : ' agents. They restart on the new account.'));
+  if (movedStopped.length) parts.push('Moved ' + movedStopped.join(', ') + ' (stopped). ' + (movedStopped.length === 1 ? 'It is' : 'They are') + ' not running now.');
+  for (const [why, who] of restarting) parts.push('Not restarted yet (' + who.join(', ') + ')' + (why ? ': ' + end(why) : '.'));   // the engine's sentence says what was saved and why
+  for (const [why, who] of misses) parts.push('Not moved (' + who.join(', ') + '): ' + end(why));
+  if (silent.length) parts.push('No answer yet for ' + silent.join(', ') + '. Check ' + (silent.length === 1 ? 'its' : 'their') + ' account in a moment.');
+  return parts.join(' ');
+}
+
 async function paintAccounts(opts) {
   const followUp = (opts && Number.isInteger(opts.followUp)) ? opts.followUp : 0;
   const box = document.getElementById('set-accounts');
@@ -27139,7 +27315,7 @@ async function paintAccounts(opts) {
   if (msg && !followUp) msg.textContent = 'Checking your accounts…';
   let list = [];
   try {
-    const res = await fetch('/api/accounts', { cache: 'no-store' });
+    const res = await fetch('/api/accounts?agents=1', { cache: 'no-store' });   // #6108: only Settings asks for each account's agents
     if (mine !== ACCT_EPOCH) return;
     if (!res.ok) throw new Error('no');
     list = ((await res.json()) || {}).accounts || [];
@@ -27519,6 +27695,7 @@ async function paintAccounts(opts) {
       + '</b>' + qualTag + keyDetail + org + '</div>'
       + connBadge + '</div>'
       + (soonLine ? '<p class="acct-expiring-line" id="' + soonId + '">' + esc(soonLine) + '</p>' : '')
+      + acctUsageHtml(a, list)   // #6108: weekly limit used, its agents here, and a move
       + shared
       /* ✅ LIVE FOR BOTH PROVIDERS (#1372 OpenAI, #1659 Claude). Each route
          enumerates the agents on an account and REFUSES while any is on it,
@@ -27738,6 +27915,108 @@ async function paintAccounts(opts) {
      reauth mode rather than duplicating its flow, code step and cancel button
      into the row -- there is one connect flow on the engine, so there is one
      place to watch it. */
+  /* #6108: Move these agents. The button wakes when a target is picked; the outcome stays on the row until the list
+     repaints, then the repaint shows where the agents now are. */
+  /* A finished move whose sentence has not been spoken yet: the paint that draws its row speaks it, a frame later so
+     the region sees a change. Done here, not in the move's handler, so a paint that superseded the handler's own still
+     announces it. */
+  for (const [dir, st] of ACCT_MOVE) {
+    if (st && !st.moving && !st.announce && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) {   // also for a row no longer drawn; never before it is said
+      const ps = document.getElementById('set-accounts-msg'); if (ps && ps.textContent === st.said) ps.textContent = '';   // the panel line expires with it
+      ACCT_MOVE.delete(dir); continue;
+    }
+    if (!st || !st.announce) continue;
+    if (!box.querySelector('[data-acct-move-msg="' + CSS.escape(dir) + '"]')) continue;   // its row is not drawn yet: a later paint speaks it
+    st.announce = false;
+    const panelSay = document.getElementById('set-accounts-msg');
+    acctCancelSay();
+    if (panelSay) { panelSay.textContent = ''; setTimeout(() => { panelSay.textContent = st.said; }, 150); }   // a change the persistent region hears
+  }
+  for (const sel of box.querySelectorAll('[data-acct-move-to]')) {
+    const btn = box.querySelector('[data-acct-move="' + CSS.escape(sel.dataset.acctMoveTo) + '"]');
+    sel.addEventListener('change', () => { if (sel.value) ACCT_PICK.set(sel.dataset.acctMoveTo, sel.value); else ACCT_PICK.delete(sel.dataset.acctMoveTo); if (btn) btn.disabled = !sel.value; });
+  }
+  for (const btn of box.querySelectorAll('[data-acct-move]')) {
+    btn.addEventListener('click', async () => {
+      const from = btn.dataset.acctMove;
+      const sel = box.querySelector('[data-acct-move-to="' + CSS.escape(from) + '"]');
+      const moveMsg = box.querySelector('[data-acct-move-msg="' + CSS.escape(from) + '"]');
+      const row = list.find((x) => String(x.dir) === from);
+      const to = sel && sel.value;
+      if (!row || !row.agentsHere || !to) return;
+      if (ACCT_MOVE.get(from) && ACCT_MOVE.get(from).moving) return;   // a repaint mid-move must not start a second one
+      const guide = new Set((LAST || []).filter((x) => x && x.isGuide).map((x) => x.sessionName));
+      /* Progress goes on the button, not the live region, so a screen reader hears the result once, not every step. */
+      ACCT_MOVE.set(from, { moving: true, said: '' });
+      btn.disabled = true; sel.disabled = true; btn.textContent = 'Moving…';
+      if (moveMsg) moveMsg.textContent = '';
+      /* try/finally: whatever happens inside, the row is released (never left "Moving…" for the life of the page). */
+      let said = '';
+      try {
+        /* The list drawn at the last paint can be a poll old: an agent moved on its own page since then must not be
+           moved again to an account nobody picked for it (the route moves an agent from wherever it is). So ask again,
+           and move only the ones still here. If that cannot be asked, move nothing rather than guess. */
+        let fresh = null, ft = null, fr0 = null;
+        try {
+          /* The same 60 s limit as each move: a slow live check must not leave the row on "Moving…" with nothing moved.
+             A timeout lands in the refusal below (nothing moves). */
+          const ac = new AbortController(), tm = setTimeout(() => ac.abort(), 60e3);
+          let r; try { r = await fetch('/api/accounts?agents=1', { cache: 'no-store', signal: ac.signal }); } finally { clearTimeout(tm); }
+          const j = r && r.ok ? await r.json() : null;
+          const fr = j && Array.isArray(j.accounts) ? j.accounts.find((x) => x && String(x.dir) === from) : null;
+          fr0 = fr;
+          fresh = fr && fr.agentsHere && Array.isArray(fr.agentsHere.names) ? new Set(fr.agentsHere.names) : null;
+          ft = fresh ? j.accounts.find((x) => x && String(x.dir) === to) || null : null;   // and the account they go to, as it is now
+        } catch { fresh = null; }
+        const drawn = row.agentsHere.names.filter((n) => !guide.has(n));
+        /* A list that says it is incomplete cannot tell "gone" from "not read": if it lost any drawn agent, move nothing. */
+        if (fresh && !(fr0 && fr0.agentsHere && fr0.agentsHere.complete === true) && drawn.some((n) => !fresh.has(n))) fresh = null;
+        const names = fresh ? drawn.filter((n) => fresh.has(n)) : [];
+        const stoppedAtClick = new Set(names.filter((n) => { const c = (LAST || []).find((x) => x && x.sessionName === n); return c && cardStOf(c).pres === 'off'; }));
+        if (!fresh) throw new Error('unchecked');
+        if (!names.length) said = drawn.length === 1 ? 'Nothing moved: its agent is no longer on this account.' : 'Nothing moved: its agents are no longer on this account.';
+        else if (!acctBulkTarget(ft, from)) {   // signed out, refused, full or gone since the menu was drawn
+          const was = list.find((x) => String(x.dir) === to);
+          said = 'Nothing moved: ' + ((ft && acctPrimaryName(ft)) || (was && acctPrimaryName(was)) || 'that account') + ' cannot take ' + (names.length === 1 ? 'it' : 'them') + ' now. Pick another account.';
+        }
+        else said = await moveAccountAgents(from, to, names, (done, all) => {
+          const b = document.querySelector('[data-acct-move="' + CSS.escape(from) + '"]');   // the current button, after any repaint
+          const t = 'Moving ' + done + ' of ' + all + '…';
+          const cur = ACCT_MOVE.get(from); if (cur && cur.moving) cur.progress = t;   // a repaint mid-move draws the same count
+          if (b) b.textContent = t;
+        }, stoppedAtClick);
+      } catch (e) {
+        said = e && e.message === 'unchecked' ? 'Nothing moved: Kosmos could not check which agents are on this account. Try again in a moment.'
+          : 'The move stopped part way. Check where the agents are now.';
+      }
+      finally { ACCT_MOVE.set(from, { moving: false, said, doneAt: Date.now(), announce: true }); }
+      ACCT_PICK.delete(from);
+      accountsDropped();
+      try { await paintAccounts(); } catch { /* said below */ }
+      /* The paint says it when it draws the row. When it did not (the list could not be read, or the row is gone), say it
+         here, so a move that happened is never left unsaid. */
+      const left = ACCT_MOVE.get(from);
+      if (left && left.announce) {
+        left.announce = false;
+        const panelSay = document.getElementById('set-accounts-msg');
+        acctCancelSay();
+        if (panelSay) { panelSay.textContent = ''; setTimeout(() => { panelSay.textContent = left.said; }, 150); }
+      }
+      /* The paint speaks the sentence (above). Put focus where the pressed button was: the row's move menu if it is
+         still there, else the list. */
+      const m = document.querySelector('[data-acct-move-msg="' + CSS.escape(from) + '"]');
+      const again = document.querySelector('[data-acct-move-to="' + CSS.escape(from) + '"]');
+      /* Only if the person is still here: a long move must not pull focus from something they moved on to. */
+      const ae = document.activeElement;
+      const stillHere = !ae || ae === document.body || !!(ae.closest && ae.closest('#set-accounts'));
+      /* The row's menu if it is still there, else the list itself (the panel's own pattern): never the sentence, which
+         the panel's status line already speaks, so focus does not read it a second time. */
+      const listEl = document.getElementById('set-accounts');
+      if (listEl && !listEl.hasAttribute('tabindex')) listEl.setAttribute('tabindex', '-1');
+      const target = again && !again.disabled ? again : listEl;
+      if (stillHere && target) { try { target.focus({ preventScroll: true }); } catch { /* focus is best effort */ } }
+    });
+  }
   for (const btn of box.querySelectorAll('[data-reauth]')) {
     btn.addEventListener('click', () => {
       const row = list.find((x) => String(x.dir) === btn.dataset.reauth);

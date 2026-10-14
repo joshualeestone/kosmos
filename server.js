@@ -2546,6 +2546,40 @@ function knownAgentNames() {
   }
   return { names, complete, roster };
 }
+/* #6108: the ONE walk over this computer's agents and the account folder each runs on, so the account guards and the
+   accounts list cannot drift. Fail-closed: `complete` is false whenever anything could not be
+   read. `skipGuide` leaves the setup guide out (lists, #3739); a guard that must count every agent leaves it in. */
+function agentsByAccountWalk(runner, { skipGuide = false } = {}) {
+  const known = knownAgentNames();
+  let complete = known.complete;
+  const entries = [];   // { sessionName, home } with home null for the default account
+  let guideFolderName = null;
+  if (skipGuide) { try { guideFolderName = setupAssistant.guideName(); } catch { guideFolderName = null; } }   // read once per walk
+  for (const sessionName of known.names) {
+    let job = null;
+    try { job = create.readJob(sessionName); }
+    catch { complete = false; continue; }
+    // A null job is TWO answers readJob cannot separate: "no launch file" (a real
+    // answer) vs "could not read it" (ignorance). jobMissing splits them -- only
+    // ENOENT is evidence of absence; any other failure makes this incomplete.
+    if (!job) {
+      let absent = true;
+      try { absent = create.jobMissing(sessionName); } catch { absent = false; }
+      if (!absent) complete = false;
+      continue;
+    }
+    if (job.runner !== runner) continue;
+    if (skipGuide) {
+      let guide = false;
+      try { guide = setupAssistant.isGuideFolder(sessionName)
+        || (!!guideFolderName && create.cleanName(guideFolderName).toLowerCase() === create.cleanName(sessionName).toLowerCase() && setupAssistant.isGuideFolder(guideFolderName)); }
+      catch { guide = false; }
+      if (guide) continue;
+    }
+    entries.push({ sessionName, home: job.configDir || null });
+  }
+  return { entries, complete };
+}
 /* #3296/#3391 accounts slice: the fail-closed "which agents run on this account
    directory" enumeration, shared by EVERY provider's disconnect/remove route so the
    safety property lives in ONE place rather than being copied per provider (the
@@ -2563,31 +2597,38 @@ function knownAgentNames() {
    by a gemini agent). This is the exact logic the OpenAI DELETE route grew inline;
    that route now calls this so the four providers cannot drift. */
 function enumerateAgentsOnAccount(dir, isDefault, runner) {
-  const known = knownAgentNames();
-  let complete = known.complete;
-  const names = known.names;
+  const walk = agentsByAccountWalk(runner);
+  let complete = walk.complete;
   const usedBy = [];
-  for (const sessionName of names) {
-    let job = null;
-    try { job = create.readJob(sessionName); }
-    catch { complete = false; continue; }
-    // A null job is TWO answers readJob cannot separate: "no launch file" (a real
-    // answer) vs "could not read it" (ignorance). jobMissing splits them -- only
-    // ENOENT is evidence of absence; any other failure makes this incomplete.
-    if (!job) {
-      let absent = true;
-      try { absent = create.jobMissing(sessionName); } catch { absent = false; }
-      if (!absent) complete = false;
-      continue;
-    }
-    if (job.runner !== runner) continue;
-    const home = job.configDir || null;
+  for (const { sessionName, home } of walk.entries) {
     let onIt = false;
     try { onIt = home ? path.resolve(home) === path.resolve(dir) : isDefault; }
     catch { complete = false; continue; }
     if (onIt) usedBy.push(sessionName);
   }
   return { usedBy, complete };
+}
+
+/* #6108: every Claude agent on this computer grouped by the account folder it runs on, in ONE pass, for the accounts
+   list (which used to need a full walk per account row). The same reading as enumerateAgentsOnAccount: a job with no
+   configDir runs on the default account; `complete` is false when anything could not be read. */
+function claudeAgentsByAccount() {
+  const walk = agentsByAccountWalk('claude', { skipGuide: true });
+  let complete = walk.complete;
+  const byDir = new Map(), onDefault = [];
+  for (const { sessionName, home } of walk.entries) {
+    if (!home) { onDefault.push(sessionName); continue; }
+    let key; try { key = path.resolve(home); } catch { complete = false; continue; }
+    if (!byDir.has(key)) byDir.set(key, []);
+    byDir.get(key).push(sessionName);
+  }
+  return {
+    complete,
+    on(dir, isDefault) {   // the agents on one account row
+      let key = null; try { key = dir ? path.resolve(dir) : null; } catch { key = null; }
+      return [...(isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])];
+    },
+  };
 }
 
 /* #3296/#3391 accounts slice: store a NAMED gemini/grok account from a pasted API
@@ -10938,6 +10979,12 @@ const server = http.createServer(async (req, res) => {
         // Only a signed-in row can show its login as good, so only those are read (review iteration 4).
         const loginUntil = new Map(await Promise.all(claudeRows.map(async (a) => [a,
           (a.connection && a.connection.state === 'connected') ? await claudeloginlive.validUntilWithin(a, undefined, nowMs) : null])));
+        /* #6108: one walk for every row below, and only when the caller asks (?agents=1, Settings): the other pages that
+           read this list never show the agents, so they do not pay for the walk. */
+        let wantAgents = false;
+        try { wantAgents = new URL(req.url, ROUTING_BASE).searchParams.get('agents') === '1'; } catch { wantAgents = false; }
+        let claudeAgents = null;
+        if (wantAgents) { try { claudeAgents = claudeAgentsByAccount(); } catch { claudeAgents = null; } }
         const claude = claudeRows.map((a) => {
           /* #3136: the badge is the FRESHER of a passively-witnessed agent
              observation (obsByDir, filled by the ~60s sweep) and a
@@ -10999,6 +11046,33 @@ const server = http.createServer(async (req, res) => {
                 return stops ? { loginStopsAt: stops } : {};
               })()) },
             weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
+            /* #6108: how much of the weekly limit this account has used, as Kosmos last recorded it (the statusline
+               writes it while an agent on the account runs), or null when there is no reading this week: an API key, none
+               recorded, unreadable, or the week has reset. A reading can be here beside a weeklyBlocked reason (it was
+               recorded before); the page then says it will not update. resetsAt and at are epoch ms here (readWeekly gives resetsAt in seconds). */
+            weekly: (() => {
+              try {
+                const r = a.dir && !a.apiKey ? require('./engine/allowance').readWeekly(a.dir, nowMs) : null;   // a key has no weekly limit
+                return r ? { usedPct: r.usedPct, resetsAt: r.resetsAt * 1000, at: r.at } : null;
+              } catch { return null; }
+            })(),
+            /* #6108: why there can be NO reading for this account, when that is known: 'windows' (the statusline that
+               records it is not wired there) or 'own-statusline' (the account already has a status line of its own, which
+               Kosmos leaves alone) or 'not-wired' (no status line: nothing records a reading; Kosmos wires one only when an account is added).
+               null when Kosmos's own status line is there, so a reading comes once an agent on it works. The page says "cannot read" only for these, never as a guess. */
+            weeklyBlocked: (() => {
+              if (a.apiKey || typeof a.dir !== 'string' || !a.dir) return null;   // no folder: nothing to say about it
+              if (process.platform === 'win32') return 'windows';
+              try {
+                const j = JSON.parse(fs.readFileSync(path.join(a.dir, 'settings.json'), 'utf8'));
+                const sl = j && j.statusLine;
+                if (sl === undefined || sl === null) return 'not-wired';   // nothing records a reading here
+                return require('./engine/allowance').isOurs(sl) ? null : 'own-statusline';
+              } catch (e) { return e && e.code === 'ENOENT' ? 'not-wired' : 'unreadable-settings'; }   // missing: nothing records one; unreadable: Kosmos cannot tell
+            })(),
+            /* #6108: the agents on this account on THIS computer, by session name. complete is false when any could not
+               be read, so the page can say the list may be short rather than call it whole. */
+            ...(wantAgents ? { agentsHere: claudeAgents ? { names: claudeAgents.on(a.dir, !!a.isDefault), complete: !!claudeAgents.complete } : { names: [], complete: false } } : {}),
           };
         });
         /* 🛑 `offerable` TRAVELS WITH THE ROW, for the same reason `memoryShared` does
@@ -23930,6 +24004,7 @@ module.exports = {
   taskFinalWordHint, // #6066: the line a task's holder is told after posting in it, for its test
   ASSIGNER_VIEW, // #6072: the Assigner memory the project list reads, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
+  enumerateAgentsOnAccount, claudeAgentsByAccount, // #6108: the shared walk's two readings (guards count the guide, lists do not), for their tests
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests
