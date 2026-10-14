@@ -643,6 +643,7 @@ kosmos_setup_floor_ok "this $CUT_CHANNEL cut" "$V" || exit 1
 kosmos_setup_floor_installer_ok "this cut's install/setup.sh" "$REPO/install/setup.sh" || exit 1
 kosmos_setup_floor_site_untouched_ok "the site checkout" "$SITE" "$CUT_CHANNEL" || {
   echo "(this read the site CHECKOUT at $SITE: if it is behind origin/main, refresh it and cut again; if origin/main holds the old file too, fix what it named: a POINTER below the floor needs publish-staging-pointer.sh (staging) or a promote (prod) of a build at or above it; an INSTALLER that does not know the read-only app needs a cut on that channel, which writes its installer)"; exit 1; }
+# ---- (end of step 1a-floor; what follows belongs to step 1b) ----
 # ⚠️ LAST IN STEP 1, NOT FIRST, AND THE ORDER IS LOAD-BEARING. Placed before
 # the divergence guard this pre-empts it, and a cut from a diverged tree then
 # refuses with "no versions entry" instead of naming the stranded commits --

@@ -187,6 +187,7 @@ if [ "$FAMILY" = mac ] && [ -n "$PTR_SETUP" ]; then
   SETUP_STAGING="$_sg"
   # kosmos#6149: setup-staging is about to become /setup: it must know the read-only app (before any write).
   kosmos_setup_floor_installer_ok "setup-staging (about to become /setup)" "$SITE/setup-staging" || exit 1
+# (No /setup in the site at all: nothing here to check; deploy-site's export check covers whatever is published.)
 elif [ "$FAMILY" = mac ] && [ -f "$SITE/setup" ]; then
   # kosmos#6149: no installer named, so prod keeps its /setup beside the promoted pointer: the COMMITTED one (what a
   # deploy serves) must know the read-only app too. Checked before the gates (minutes) and not again before the write,
