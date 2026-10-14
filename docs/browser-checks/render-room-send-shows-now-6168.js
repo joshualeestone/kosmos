@@ -171,6 +171,7 @@ async function postAndMeasure(page, words) {
   await page.evaluate(() => loadRoom());
   const landed = await readRoom(page, LOST);
   chk(landed.copies === 1 && !landed.pending, 'when the room shows it did arrive, the Not confirmed bubble gives way: one copy', JSON.stringify(landed));
+  chk(await page.inputValue('#pj-post') === '', 'review 5: and the words put back in the box are taken out again, so one more press cannot post it twice');
   await page.fill('#pj-post', '');
 
   /* 2d. A relay's bare 502 (no sentence of the board's) may have been delivered: "Not confirmed", not "Not posted". */
