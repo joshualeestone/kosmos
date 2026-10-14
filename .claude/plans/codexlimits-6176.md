@@ -55,6 +55,9 @@ the default account). My first version read only the account folder and would ne
   systemd unit, e.g. Windows), the home is not filtered: that keeps the reading, without the move protection.
   Any other rewrite of the job (a rename, a model change) also hides that agent's earlier reports until Codex reports
   again: a missing meter for a while, never a wrong figure.
+- The account's own folder counts only reports written since its auth.json was last written (a re-sign-in under
+  another login leaves the old login's sessions there). A token refresh also rewrites auth.json: a missing meter for a
+  while, never a wrong figure.
 - The six files read are shared by all of an account's homes (its folder and every agent's private one). With several
   busy agents writing sessions that carry no report, an older report in a seventh file is not seen: a missing or older
   meter, with its age shown, never a wrong one.

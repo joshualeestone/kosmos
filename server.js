@@ -11182,7 +11182,10 @@ const server = http.createServer(async (req, res) => {
               byDir.get(key).push(priv);
             }
           } catch { /* the account folder alone is still read */ } };
-          return (a) => { walk(); let key = null; try { key = path.resolve(a.dir); } catch { key = null; } return [a.dir, ...(a.isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])]; };
+          return (a) => { walk(); let key = null; try { key = path.resolve(a.dir); } catch { key = null; } /* The account's own folder counts only since its sign-in file was last written: a re-sign-in under another login
+             leaves the old login's sessions there. (A token refresh also rewrites it: a missing meter for a while, never a wrong one.) */
+            let since = null; try { since = fs.statSync(path.join(a.dir, 'auth.json')).mtimeMs; } catch { since = null; }
+            return [{ home: a.dir, since }, ...(a.isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])]; };
         })();
         const openai = openaiRows.map((a) => {
           /* Checking = still running NOW, or it finished during this read with a real answer the row does not show
