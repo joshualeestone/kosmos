@@ -114,8 +114,9 @@ jobs:
           # #4455: the installed app is read-only BY DEFAULT. This install ran with KOSMOS_READONLY_APP unset, so
           # this is the one place that checks the default on every pull request (tools/test-install.sh checks it
           # too, but past the point where the release gate stops, and nothing runs that file automatically).
-          # One test a line, never `a && b`: under `bash -e` a failing test that is not the LAST of an && list
-          # does not stop the step (measured: with the default put back to off, the && form passed).
+          # One test a line, never a bare `a && b`: under `bash -e` a failing test that is not the LAST of an && list
+          # does not stop the step (measured: with the default put back to off, the && form passed). An && list
+          # ending in an explicit `|| { ...; exit 1; }` handler is fine.
           test "$(id -u)" != 0          # root can write anything, so every line below would pass for nothing
           test -d "$KOSMOS_HOME/app"
           test -f "$KOSMOS_HOME/app/server.js"
