@@ -394,11 +394,13 @@ test('#6174 the session is found through the pane roster as remove.js does: the 
   const fleet = require('./test-support/fleet');
   fleet.install([fleet.agent('rs-tied'), fleet.stranger('rs-untied')]);
   try {
-    const asked = [];
-    const deps = { startedAt: (s) => { asked.push(s); return 1000e3; } };
+    const asked = []; const freshness = [];
+    const deps = { startedAt: (s, fresh) => { asked.push(s); freshness.push(fresh); return 1000e3; } };
     assert.deepEqual(claudeAgentsByAccount().moving(acct, false, deps), ['rs-tied'], 'the tied card was not used, or a bystander was');
     assert.ok(asked.includes('rs-tied-discord'), 'the start was not read from the card\'s own session: ' + JSON.stringify(asked));
     assert.ok(!asked.includes('rs-untied'), 'a session not tied to the agent was read');
+    // A cached start can be 2 s old and mark an agent that has just restarted: the list reads it fresh.
+    assert.ok(freshness.length > 0 && freshness.every((f) => f === true), 'the list read a cached session start: ' + JSON.stringify(freshness));
   } finally { fleet.restore(); }
 });
 
@@ -406,7 +408,9 @@ test('#6174 the account route reads the account it moves FROM before it writes t
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'server.js'), 'utf8');
   const start = src.indexOf("const acctRoute = pathname.match(");
   assert.ok(start > 0, 'the account route was not found');
-  const route = src.slice(start, src.indexOf('\n  }\n', start));
+  const end = src.indexOf('\n  }\n', start);
+  assert.ok(end > start, 'the end of the account route was not found');
+  const route = src.slice(start, end);
   const from = route.indexOf('const fromDir = moveFromDir(name)');
   const write = route.indexOf('create.setAccount(name');
   assert.ok(from > 0 && write > 0, 'the from-read or the account write was not found in the route');

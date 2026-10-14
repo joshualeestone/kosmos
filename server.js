@@ -2620,7 +2620,7 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
    onto the new account, which would then be marked wrongly with nothing to clear it, so that case stays unmarked.
    The session is found as remove.js sessionFor finds it (the roster card for the cleaned name, tied to the agent), so
    a legacy session (`angel-discord` for `angel`) is read and a bystander that merely shares the name is not. Both
-   reads are fresh (no cache), so a session restarted moments ago is read as it is. The note keeps the account the
+   session-start reads are fresh (no cache), so a session restarted moments ago is read as it is. The note keeps the account the
    agent ran on before its FIRST partial move (`from`), so moving it back there is not marked. `deps` (restart,
    sessionOf, roster, startedAt) is for tests. Never throws: the note is not the move. */
 function moveFromDir(rawName) {   // the account folder the agent is on before the move (null: the default account)
@@ -2636,7 +2636,10 @@ function ourSessionFor(name, roster) {
 function sessionStartFor(name, fresh, deps = {}) {
   const session = deps.sessionOf ? deps.sessionOf(name) : ourSessionFor(name, deps.roster);
   if (!session) return null;
-  try { return (deps.startedAt || ((s) => require('./engine/status').sessionStartedAtFromTmux(s, Date.now(), { fresh })))(session); } catch { return null; }
+  try {
+    return deps.startedAt ? deps.startedAt(session, fresh)
+      : require('./engine/status').sessionStartedAtFromTmux(session, Date.now(), { fresh });
+  } catch { return null; }
 }
 function restartForMove(rawName, fromDir, deps = {}) {
   const name = create.cleanName(rawName) || rawName;   // the roster's spelling, the key the account list reads
@@ -2697,16 +2700,14 @@ function claudeAgentsByAccount() {
       return this.on(dir, isDefault).filter((n) => {
         try {
           if (!notes[n]) return false;
+          // Read fresh (no cache), only for an agent with a note: a cached start could be up to 2 s old, which would
+          // mark an agent that has just restarted, or prune a note a move has just written.
           let now = null;
-          const startedAt = (x) => { now = sessionStartFor(x, false, readDeps()); return now; };
+          const startedAt = (x) => { now = sessionStartFor(x, true, readDeps()); return now; };
           if (!am.isMoving(n, startedAt, notes)) {
             // A readable, different session: it has restarted (not proof it reached the new account; see
             // engine/accountmoving.js). Drop that very note, never one a move just wrote.
-            // Confirmed by a fresh read first: a cached read may predate a session the move just noted.
-            if (Number.isFinite(now)) {
-              const fresh = sessionStartFor(n, true, readDeps());
-              if (Number.isFinite(fresh) && fresh !== notes[n].started) am.clearIf(n, notes[n].started);
-            }
+            if (Number.isFinite(now) && now !== notes[n].started) am.clearIf(n, notes[n].started);
             return false;
           }
           // Moved back to the account it is still running on: it runs here, so it is not moving.

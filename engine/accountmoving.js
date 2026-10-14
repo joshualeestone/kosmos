@@ -11,10 +11,12 @@
  * never a wrong one; telling it apart would need launchd's loaded job, which is not read here. No session, or an
  * unreadable one, marks nobody. The move route clears a note on its next move; a list read drops one whose session is
  * readably another (clearIf, only that exact note, so it cannot race a move's write); a leftover note never marks.
- * Limits (unmeasured on a real partial move): the mark reads the tmux SESSION, not the process, so a process that
- * restarted inside the same session onto the new account would stay marked until the session changes (the one way it
- * could over-mark); and tmux keeps the session start in whole seconds, so a session recreated within the same second
- * reads as the same one. `from` is the account the launch file named before the move, not one read from the process:
+ * Ways it can over-mark (each unmeasured on a real partial move): it reads the tmux SESSION, not the process, so a
+ * process that restarted inside the same session onto the new account stays marked until the session changes; tmux
+ * keeps the session start in whole seconds, so a session recreated within the same second reads as the same one;
+ * and, below, a move back after two partial moves in a row. Only Claude account rows read and prune notes: a note
+ * for another runner is cleared only by that agent's next move (it never marks).
+ * `from` is the account the launch file named before the move, not one read from the process:
  * after an earlier partial move whose session has since changed, the two can differ, and a move back can then mark an
  * agent that already runs on the row's account (needs two partial moves in a row). The page states only the fact
  * ("still running on its old account"): whether a Kosmos restart then finishes the move is not measured here.
