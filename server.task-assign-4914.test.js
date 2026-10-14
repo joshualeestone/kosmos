@@ -204,4 +204,8 @@ test('#6103: an agent that moves a task is recorded as its mover; an unnamed cal
   assert.equal(anon.code, 200, anon.text.slice(0, 200));
   assert.deepEqual(ownerOf(m), ['otto']);
   assert.equal(partOf(m).movedBy, undefined, 'a caller nobody named was recorded as somebody');
+  // And an unnamed move CLEARS an earlier mover, so the record never names an agent that did not make this move.
+  assert.equal((await assign(n, { who: 'otto' })).code, 200);
+  assert.deepEqual(ownerOf(n), ['otto']);
+  assert.equal(partOf(n).movedBy, undefined, 'an unnamed move kept the previous agent as its mover');
 });

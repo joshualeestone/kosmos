@@ -534,7 +534,8 @@ function viaOf(made) {
   return 'screen';
 }
 /* #6103: the agent that made a move, when a process caller was named (as `addedBy` is for an add); null otherwise.
-   A move from the screen or by the Assigner has its own provenance in `via`, and names no agent. */
+   A move from the screen or by the Assigner has its own provenance in `via`, and names no agent. Capped at WHO_MAX,
+   as `who` is: a longer value is no agent's name, so nothing is recorded rather than a cut one. */
 function movedByOf(made) {
   const by = made && made.via === 'process' && typeof made.by === 'string' ? made.by.trim() : '';
   return by && by.length <= WHO_MAX ? by : null;

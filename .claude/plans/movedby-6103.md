@@ -23,3 +23,8 @@ A pane-named caller is advisory, not verified; `addedBy` takes the same risk. Th
 - server.task-assign-4914.test.js: a token-named agent is the recorded mover; an unnamed caller is recorded as nobody.
 - Seven mutants, each reds a test: givePart drops by, the route drops the caller, partsOf drops it, no clear on a
   later move, any via names an agent, no length cap, the activity line drops by.
+
+## Review
+1. opus: no blocker or warning; traced every part writer and reader. NITs taken: the route test now shows an unnamed
+   move clears an earlier mover (and reds the no-clear mutant on its own); the WHO_MAX cap is documented. Left: a
+   token-vs-pane flag (`caller.byToken`) is a design choice for whoever builds a map on this.
