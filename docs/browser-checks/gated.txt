@@ -170,6 +170,7 @@ render-phone-pass-5510
 render-phone-taps-5218
 render-picker-provider-2097
 render-pj-clear-2575
+render-pj-question-text-6129
 render-pjadd-back-2850
 render-pjcreate-nav-3134
 render-pjmode-style-3495
