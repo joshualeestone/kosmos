@@ -1248,6 +1248,12 @@ RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_
 chk "probe update exits 0" "rc_ok $RC"
 chk "#4455: KOSMOS_READONLY_APP=0 still leaves the app writable (the off switch)" "[ -w \"$SB/home2/app/server.js\" ] && [ -w \"$SB/home2/app/engine\" ] && [ -w \"$SB/home2/app\" ]"
 chk "update did not open the dashboard" "[ \"\$(wc -l < \"$SB/opened.log\" | tr -d ' ')\" = \"1\" ]"
+# #4455: a second update, the switch UNSET, over the app the =0 update above left WRITABLE. That is the shape
+# every install from before this release has at its first update afterwards. It must end read-only.
+RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" env -u KOSMOS_READONLY_APP sh > "$SB/probe1c.log" 2>&1 || RC=$?
+chk "probe second update exits 0" "rc_ok $RC"
+chk "#4455: an update over a writable app leaves the new app read-only" "[ ! -w \"$SB/home2/app/server.js\" ] && [ ! -w \"$SB/home2/app/engine\" ] && [ ! -w \"$SB/home2/app\" ]"
+chk "second update did not open the dashboard" "[ \"\$(wc -l < \"$SB/opened.log\" | tr -d ' ')\" = \"1\" ]"
 KOSMOS_HOME="$SB/home2" "$SB/bin2/kosmos" stop > /dev/null 2>&1 || true
 
 export KOSMOS_HOME="$SB/home3" KOSMOS_BIN_DIR="$SB/bin3"
@@ -1267,9 +1273,6 @@ else
   # set must stay quiet, which pins the suppressor itself.
   RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_RO" KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe2.log" 2>&1 || RC=$?
   chk "fallback install exits 0" "rc_ok $RC"
-  # #4455: this run is an UPDATE over the app the =0 update above left WRITABLE, which is the shape every install
-  # from before this release has at its first update afterwards. It must end read-only.
-  chk "#4455: an update over a writable app leaves the new app read-only" "[ ! -w \"$SB/home2/app/server.js\" ] && [ ! -w \"$SB/home2/app/engine\" ] && [ ! -w \"$SB/home2/app\" ]"
   chk "app fell back to the home folder" "[ -x \"$SBH/Applications/Kosmos.app/Contents/MacOS/Kosmos\" ]"
   chk "transcript names the home folder" "grep -q 'you will find it in the Applications folder inside your home folder' \"$SB/probe2.log\""
   chk "no probe residue in the read-only folder" "[ -z \"\$(ls -A \"$SYS_RO\")\" ]"
