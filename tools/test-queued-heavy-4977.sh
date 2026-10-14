@@ -71,7 +71,10 @@ until_true() { local end=$(( $(date +%s) + $1 )); while ! eval "$2"; do [ "$(dat
 gone() { ! pgrep -f "^sleep $1$" >/dev/null; }
 # #5331: wait for a wrapper this file stopped, but never without a bound: 0 when it exited within $2 quarter-seconds,
 # 1 (and KILLed, so nothing is left holding a claim) when it did not.
-reap() { local p=$1 i=0; while [ "$i" -lt "${2:-40}" ]; do [ "$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')" = "$$" ] || return 0; case "$(ps -o stat= -p "$p" 2>/dev/null)" in ''|Z*) wait "$p" 2>/dev/null; return 0;; esac; sleep 0.25; i=$((i+1)); done; ours "$p" && kill -KILL "$p" 2>/dev/null; wait "$p" 2>/dev/null; return 1; }
+# kosmos#6048: REAP_HOW says which way it decided (notours: ps did not name this shell as the parent, which an empty ps
+# answer also reads as; exited; killed) and REAP_RC the wrapper's exit status where wait got one, so a red can say.
+# The notours branch does not wait: the wrapper may still be ours and running, and that wait would have no bound.
+reap() { local p=$1 i=0 pp; REAP_HOW=""; REAP_RC=""; while [ "$i" -lt "${2:-40}" ]; do pp="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')"; [ "$pp" = "$$" ] || { REAP_HOW="notours(ppid='$pp')"; return 0; }; case "$(ps -o stat= -p "$p" 2>/dev/null)" in ''|Z*) wait "$p" 2>/dev/null; REAP_RC=$?; REAP_HOW=exited; return 0;; esac; sleep 0.25; i=$((i+1)); done; ours "$p" && kill -KILL "$p" 2>/dev/null; wait "$p" 2>/dev/null; REAP_RC=$?; REAP_HOW=killed; return 1; }
 hold
 o=$(/bin/bash $QH --light "a" sh -c 'cut -d" " -f4- $KOSMOS_RUN_MARKER_DIR/light-side-claim' 2>&1)
 o2=$(cd /tmp && QUEUED_HEAVY_LIB=$QUEUED_HEAVY_LIB KOSMOS_RUN_MARKER_DIR=$S/mlab /bin/bash $QH "lab" sh -c 'cat $KOSMOS_RUN_MARKER_DIR/machine-claim; echo "CL=${KOSMOS_CLAIM_LABEL:-unset}"' 2>&1)
@@ -488,17 +491,15 @@ side5331() {   # $1 the copy, $2 its marker dir, $3 the reap bound in 0.25 s pol
   # `sleep 7`s (its poll body runs ps and pgrep), come back empty, stop nothing, and let the old teardown release: the
   # control's two CI reds on 2026-10-11 (got 0, by the code: review 1 of #5839). An empty pid, or a stop that did not
   # take, is a run that never raced: 2, which is tried again below.
-  until_true 40 "grep -q 'SIDE TURN: running' '$m.log' && cap=\$(capper_of $w)" || { kill -KILL $w 2>/dev/null; echo 2 > "$m.r"; return; }
-  [ -n "$cap" ] || { kill -KILL $w 2>/dev/null; echo 2 > "$m.r"; return; }
+  echo "attempt (wrapper $w)" >> "$m.why"   # kosmos#6048: kept across a retry (the caller removes only $m and $m.log)
+  until_true 40 "grep -q 'SIDE TURN: running' '$m.log' && cap=\$(capper_of $w)" || { kill -KILL $w 2>/dev/null; echo "never started: no side turn or no capper in 40 s" >> "$m.why"; echo 2 > "$m.r"; return; }
+  [ -n "$cap" ] || { kill -KILL $w 2>/dev/null; echo "never started: the capper look came back empty" >> "$m.why"; echo 2 > "$m.r"; return; }
   kill -STOP "$cap" 2>/dev/null
-  case "$(ps -o stat= -p "$cap" 2>/dev/null)" in T*) ;; *) kill -CONT "$cap" 2>/dev/null; kill -KILL $w 2>/dev/null; echo 2 > "$m.r"; return ;; esac
-  # kosmos#6048: TERM FIRST, while the wrapper is still in `wait "$CMD"` (its command runs on). The TERM interrupts that
-  # wait, and the teardown runs from the EXIT trap with TERM ignored, so nothing can interrupt it there: the old
-  # teardown's wait on the stopped capper holds for good, the new one releases. Ending the command first raced: a TERM
-  # landing while the old teardown already sat in its wait cut that wait short (bash runs a trapped signal's handler
-  # at once), so the control sometimes released (CI 2026-10-14 01:50, "got 0").
+  case "$(ps -o stat= -p "$cap" 2>/dev/null)" in T*) ;; *) kill -CONT "$cap" 2>/dev/null; kill -KILL $w 2>/dev/null; echo "never started: the STOP did not show (stat '$(ps -o stat= -p "$cap" 2>/dev/null | tr -d ' ')')" >> "$m.why"; echo 2 > "$m.r"; return ;; esac
+  for p in $(pgrep -f "^sleep $((U+3))$"); do kill -KILL $p; done
+  echo "capper $cap stat $(ps -o stat= -p "$cap" 2>/dev/null | tr -d ' ') before the reap" >> "$m.why"   # kosmos#6048
   kill $w 2>/dev/null; t0=$(date +%s); reap $w "$3"; r=$?; echo $(( $(date +%s) - t0 )) > "$m.t"
-  for p in $(pgrep -f "^sleep $((U+3))$"); do kill -KILL $p; done   # whatever the teardown left of the command
+  echo "reap: $REAP_HOW, wrapper exit ${REAP_RC:-?}" >> "$m.why"
   # The control's capper is left stopped: KILLed here, only while it is still the copy's subshell (a pid can be reused).
   case "$(ps -o command= -p "$cap" 2>/dev/null)" in *qh-*5331.sh*) kill -KILL "$cap" 2>/dev/null;; esac
   echo $r > "$m.r"
@@ -518,7 +519,10 @@ if [ "$c5331" = 2 ]; then rm -rf $S/m5331c $S/m5331c.log; side5331 $S/qh-old5331
 o="$(tail -6 $S/m5331.log 2>/dev/null)"; t5331="$(cat $S/m5331.t 2>/dev/null)"
 ok "#5331: a capper that is not a group leader and is stopped is KILLed by pid, so the teardown releases at once (got $r5331: 0 reaped, 1 hung, 2 never started; $(case "$r5331" in (1) echo "not done after";; (2) echo "no teardown, bound";; (*) echo "teardown";; esac) ${t5331:-?} s of $((B5331 / 4)))" '[ "$r5331" = 0 ] && [ ! -e $S/m5331/light-side-claim ] && grep -q "claim released" $S/m5331.log && ! grep -q "did not stop" $S/m5331.log'
 # kosmos#5839: the value and the control's own log are printed on a BAD, so a red says which shape it was.
-o="$(tail -6 $S/m5331c.log 2>/dev/null)"
+# kosmos#6048: on a BAD the control's whole log and its record (attempts, the capper's state, how reap decided, the wrapper's
+# exit status) are printed, and whether the teardown said "claim released": a 0 without that line is a wrapper that died
+# (or a reap that misread it), not the old teardown releasing.
+o="$(cat $S/m5331c.why 2>/dev/null; echo "teardown said claim released: $(grep -q 'claim released' $S/m5331c.log 2>/dev/null && echo yes || echo no)"; cat $S/m5331c.log 2>/dev/null)"
 ok "#5331 CONTROL: with the old teardown the same capper holds it (the arm above is not vacuous) (got $c5331: 0 reaped, 1 hung, 2 never started)" '[ "$c5331" = 1 ] && grep -q "SIDE TURN: running" $S/m5331c.log'
 o=""   # kosmos#5839 review 1: a later arm's BAD must not print this control's log
 # #5467: a WAITING run must not carry its wrapped command in its own command line (a `pgrep -f browser-checks.sh` in a
