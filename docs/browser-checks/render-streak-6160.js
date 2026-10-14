@@ -212,6 +212,23 @@ const read = (pg) => pg.evaluate(() => {
     await pg.close();
   }
 
+  // retry: an answer with no count (count 0) is not a settled day; the next minute asks again, so it does not hide the label all day
+  {
+    let calls = 0;
+    const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
+    await pg.clock.install({ time: NOON });
+    await pg.route('**/api/streak', (route) => { calls++; return route.fulfill(calls === 1 ? { status: 200, contentType: 'application/json', body: '{"count":0,"congrats":false}' } : { status: 200, contentType: 'application/json', body: JSON.stringify({ count: 5, congrats: false }) }).catch(() => {}); });
+    await pg.goto(URL, { waitUntil: 'domcontentloaded' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
+    await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).catch(() => {});
+    const first = await read(pg);
+    await pg.clock.runFor(61 * 1000);
+    await pg.waitForTimeout(300);
+    const later = await read(pg);
+    say(first.label && first.label.hidden && later.label && !later.label.hidden && later.label.text === '5 days in a row in the Kosmos', 'retry: after a failed answer the next minute asks again and the label appears', JSON.stringify({ calls, first: first.label, later: later.label }));
+    await pg.close();
+  }
+
   // midnight: a page open across the person's midnight, with the person there, asks again with the new date
   {
     const before = (() => { const d = new Date(); d.setHours(23, 59, 30, 0); return d.getTime(); })();

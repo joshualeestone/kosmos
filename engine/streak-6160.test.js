@@ -119,6 +119,17 @@ test('record: a missed day on disk starts again at 1, with no note', () => {
   assert.deepEqual(streak.record('2026-10-14', at('2026-10-14')), { count: 1, congrats: false });
 });
 
+test('record: a write that fails reports the count on disk, not one that was never kept', (t) => {
+  fresh();
+  streak.record('2026-10-13', at('2026-10-13'));
+  const dir = path.dirname(streak.file());
+  fs.chmodSync(dir, 0o500);   // the next save cannot create its temp file
+  t.after(() => fs.chmodSync(dir, 0o700));
+  assert.deepEqual(streak.record('2026-10-14', at('2026-10-14')), { count: 1, congrats: false });
+  fs.chmodSync(dir, 0o700);
+  assert.deepEqual(streak.record('2026-10-14', at('2026-10-14')), { count: 2, congrats: true }, 'once the write works the day counts');
+});
+
 test('record: an implausible date changes nothing on disk', () => {
   fresh();
   streak.record('2026-10-14', NOW);

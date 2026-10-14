@@ -108,7 +108,7 @@ function record(today, now = Date.now(), { quiet = false } = {}) {
   let after = visit(before, today);
   const congrats = !quiet && congratsDue(after, today);
   if (congrats) after = markCongratulated(after, today);
-  if (JSON.stringify(after) !== JSON.stringify(before) && !save(after)) return { count: after.count, congrats: false };
+  if (JSON.stringify(after) !== JSON.stringify(before) && !save(after)) return { count: before.count, congrats: false };   // what is on disk, not a count that was never kept
   return { count: after.count, congrats };
 }
 

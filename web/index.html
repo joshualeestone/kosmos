@@ -35324,8 +35324,9 @@ async function streakCheck() {
   try {
     const r = await fetch('/api/streak', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ today, remote: kplusRemote() }), cache: 'no-store' });   // remote: counts the day, keeps the note for a screen with the K mark
     if (!r.ok) return;
-    streakDay = today;
-    paintStreak(await r.json());
+    const got = await r.json();
+    if (got && Number.isInteger(got.count) && got.count > 0) streakDay = today;   // a reply with no count is not a settled day: the next minute asks again
+    paintStreak(got);
   } catch { /* the streak can wait */ } finally { streakAsking = false; }
 }
 (() => {
@@ -35339,7 +35340,7 @@ async function streakCheck() {
       held = setTimeout(() => { held = null; swallow = true; lab.classList.add('show'); clearTimeout(shown); shown = setTimeout(() => lab.classList.remove('show'), 2500); }, 500);
     });
     const cancel = () => { if (held) { clearTimeout(held); held = null; } };
-    k.addEventListener('pointerup', cancel); k.addEventListener('pointercancel', cancel); k.addEventListener('pointerleave', cancel);
+    k.addEventListener('pointerup', cancel); k.addEventListener('pointercancel', cancel); k.addEventListener('pointerleave', cancel);   // leave: a finger that slides off the mark is not a long press
     k.addEventListener('contextmenu', (e) => { if (swallow) e.preventDefault(); });
     k.addEventListener('click', (e) => { if (swallow) { swallow = false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
   }

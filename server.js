@@ -17639,7 +17639,10 @@ const server = http.createServer(async (req, res) => {
       let body;
       try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
       let out;
-      try { out = require('./engine/streak').record(String(body.today || ''), Date.now(), { quiet: body.remote === true }); } catch { out = { count: 0, congrats: false }; }
+      try { out = require('./engine/streak').record(String(body.today || ''), Date.now(), { quiet: body.remote === true }); } catch (e) {
+        console.error('[streak] could not record a visit:', e && e.message);
+        sendJson(res, 500, { error: 'we could not read the streak just now' }); return;   // a 500, so the page asks again rather than settling on 0
+      }
       sendJson(res, 200, out);
     }).catch(() => { if (!res.headersSent) sendJson(res, 400, { error: 'we could not read that request' }); });
     return;
