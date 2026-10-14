@@ -131,6 +131,9 @@ const REPORTS_WORKING = new Set(['claude', 'gemini', 'grok', 'antigravity', 'mus
 // #5635 F2 (0.7.48): runners whose only reports are turn ends (idle), so their work can be counted in turns, not timed.
 const REPORTS_TURN_ENDS = new Set(['codex']);
 const TURN_END_SAME_MS = 2 * 60000;   // idle reports this close together are the same turn ending
+// A turn-ends-only summary is never excused past this much clock time: it bounds a seat whose turn-end reports stopped
+// arriving (no rows read as no turns). Six rhythms; the 0.7.48 GPT repro was 18 hours.
+const TURN_ENDS_CAP_MS = 6 * SUMMARY_RHYTHM_HOURS * 3600000;
 function idleExcused(summary, member, readReport, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied || member.state !== 'idle') return summary;
@@ -225,7 +228,7 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
    - A runner that reports working too (REPORTS_WORKING) is timed. One that reports turn ends only (REPORTS_TURN_ENDS,
      codex) is counted in turns instead (below); any other runner is left as it was.
    - Busy is any report but idle, started and stopped (as communityturn's workedSince), so a wait (needs_you, blocked,
-     a provider failure) counts as work: it errs toward stale.
+     a provider failure) counts as work: it errs toward stale. (For codex only a wait reported after the summary counts.)
    - The stretch before the member's first report after the summary is counted as work unless an earlier report shows
      what it was doing then; a history cut short (selfreport's bounded tail) that starts after the summary is unknown,
      and leaves the summary as it was.
@@ -262,12 +265,14 @@ function workExcused(summary, member, readHistory, nowMs) {
   const valid = kept.map((r, i) => ({ r, i })).sort((a, b) => (a.r.at - b.r.at) || (a.i - b.i)).map((x) => x.r);
   const busy = (st) => st !== 'idle' && st !== 'started' && st !== 'stopped';
   if (!reportsWorking) {
+    if (now - wroteAt > TURN_ENDS_CAP_MS) return summary;
     const after = valid.filter((r) => r.at > wroteAt);
     // A busy report it filed itself (kosmos report working, needs_you, blocked) is reported work: left stale, even when
     // the wait has since been answered (errs toward stale).
     if (after.some((r) => busy(r.state))) return summary;
     // Idle rows within TURN_END_SAME_MS of the one before are one turn end (an automatic idle and a manual one together);
-    // a real second turn that short is counted with the first, the window's known cost.
+    // a real second turn that short is counted with the first, the window's known cost. The window chains (each idle is
+    // measured from the one before), so a run of idles each under 2 min apart is one turn end.
     let turnsEnded = 0; let lastIdle = -Infinity;
     for (const r of after) {
       if (r.state !== 'idle') continue;

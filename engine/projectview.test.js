@@ -687,6 +687,10 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 40]]), NOW).state, 'stale');
   assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1200]]), NOW).state, 'worked', 'no turn ended since: current');
   assert.equal(gr.turnsOnly, true);
+  // Bounded: past six rhythms (24 h) of clock time a turn-ends-only summary is not excused, so a seat whose turn-end
+  // reports stopped arriving cannot read current for ever. CONTROL: the 18 h repro above is under it.
+  assert.equal(v.workExcused(stale(1500), gpt, hist([]), NOW).state, 'stale', 'a codex seat with no turn ends read current past the cap');
+  assert.equal(v.workExcused(stale(1400), gpt, hist([]), NOW).state, 'worked');
   // A busy report it filed itself after the summary is reported work: stale.
   assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['working', 600]]), NOW).state, 'stale', 'a codex seat\'s own working report was ignored');
   for (const st of ['needs_you', 'blocked']) assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], [st, 600], ['idle', 590]]), NOW).state, 'stale', 'a codex seat\'s answered ' + st + ' was not read as work');
