@@ -701,6 +701,9 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   // An automatic idle and a manual one at the same turn end are one turn (within 2 min); 3 min apart are two.
   assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1094]]), NOW).state, 'worked', 'a duplicate idle at the same turn end counted as a later turn');
   assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1092]]), NOW).state, 'stale', 'CONTROL: two turn ends 3 min apart');
+  // The window chains: idles each under 2 min after the one before are one turn end; one 3 min after the last is a second.
+  assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1094], ['idle', 1093]]), NOW).state, 'worked');
+  assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1094], ['idle', 1093], ['idle', 1090]]), NOW).state, 'stale');
   // An operator's clear is not a turn end; a cut history that starts after the summary is unknown (left stale).
   const gptOp = () => { const a = [{ state: 'idle', at: at(1095) }, { state: 'idle', at: at(40), by: 'operator' }]; a.truncated = false; return a; };
   assert.equal(v.workExcused(stale(1100), gpt, gptOp, NOW).state, 'worked', 'an operator clear counted as a turn end');

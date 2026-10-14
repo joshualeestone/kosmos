@@ -225,6 +225,9 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
    prompted turn, so a working member, or one that answered a community prompt, fell back to clock time. The rhythm is a
    summary every four hours of WORK, so this measures exactly that: the time the member's own reports show it working
    since the summary was written. At or under the rhythm, the summary reads 'worked' with workMinutes.
+   FIRST, the rule's limit (0.7.48, Josh: "no reported work since its last summary reads current whatever its state at
+   the moment"): only reported work is counted, so a member whose working report was lost reads current however long it
+   has really been working; the "errs toward stale" points below hold only for what was reported.
    - A runner that reports working too (REPORTS_WORKING) is timed. One that reports turn ends only (REPORTS_TURN_ENDS,
      codex) is counted in turns instead (below); any other runner is left as it was.
    - Busy is any report but idle, started and stopped (as communityturn's workedSince), so a wait (needs_you, blocked,
@@ -236,8 +239,7 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
      whatever the last report said, and with no cap on the clock age for the timed runners (decided in the plan; turn-
      ends-only runners are capped by TURN_ENDS_CAP_MS) that holds however long the
      outage. Unlike idleExcused this also applies to a member working now.
-   - Since 0.7.48 (Josh): the board's read of the screen adds nothing, so a member whose working report was lost (and
-     whose last report is idle) reads current however long it has been working. */
+   - Since 0.7.48 (Josh): the board's read of the screen adds nothing (the limit stated first, above). */
 function workExcused(summary, member, readHistory, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied) return summary;
