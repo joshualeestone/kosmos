@@ -4,13 +4,14 @@
  * its session still ran) keeps running on its old account until it restarts. The account list groups agents by their
  * launch file, which already names the new account, so the agent sat under the new account as if it ran there.
  *
- * The move route reads the agent's session start BEFORE its restart attempt and, when the move comes back partial with
- * that very session still running (the same start), notes it. The agent counts as moving while its current session is
- * still that one (the same start): it runs on the old account. Any other session restarted onto the new account; no
- * session at all (stopped, or a relaunch that failed) runs nowhere. Neither is moving; the move route clears the
- * note on its next move, and a leftover note never marks (it needs the very same session). Tmux's own session start is the only reading (status.sessionStartedAtFromTmux), so a failed read (null)
- * marks nobody. Comparing the exact start, not a time window, means a restart that relaunched the agent but still
- * reported partial is never marked.
+ * The move route notes the session left running on the old account (server.js noteMoveOutcome): the SAME session as
+ * before the restart when the window could not be closed, or the session running right after when the old launch job
+ * was held. The agent counts as moving while its current session is still the noted one (the same start). Any other
+ * session restarted onto the new account; no session at all (stopped, or a relaunch that failed) runs nowhere. Neither
+ * is moving; the move route clears the note on its next move, and a leftover note never marks (it needs the very same
+ * session). The reading is the agent's own session (the pane roster) and its tmux start, so a failed read (null)
+ * marks nobody. Comparing the exact start, not a time window, means a restart that relaunched the agent onto the new
+ * account is never marked.
  *
  * { name: { started, from } } in one small file, atomic tmp + rename; an unreadable or odd file reads as empty.
  */

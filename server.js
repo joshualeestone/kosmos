@@ -2622,6 +2622,9 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
    FIRST partial move (`from`), so moving it back there is not marked. Not covered (accepted, as restartInner accepts
    it): macOS refusing to stop the launch job after the window closed, where launchd may respawn the old job later
    under a new session. `deps` (restart, sessionOf, startedAt) is for tests. Never throws: the note is not the move. */
+function moveFromDir(rawName) {   // the account folder the agent is on before the move (null: the default account)
+  try { return create.readJob(create.cleanName(rawName)).configDir || null; } catch { return null; }
+}
 function ourSessionFor(name) {
   try {
     const card = require('./engine/status').paneRoster().find((p) => p && p.sessionName === name);
@@ -2639,24 +2642,29 @@ function restartForMove(rawName, fromDir, deps = {}) {
   let back;
   try { back = (deps.restart || removal.restart)(name, 'account'); }
   catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
-  noteMoveOutcome(name, back && back.outcome, startedBefore, fromDir, deps);
+  noteMoveOutcome(name, back && back.outcome, startedBefore, fromDir, deps, !!(back && back.oldJobHeld));
   return back;
 }
-function noteMoveOutcome(name, outcome, startedBefore, fromDir, deps = {}) {
+function noteMoveOutcome(name, outcome, startedBefore, fromDir, deps = {}, oldJobHeld = false) {
   try {
     const accountmoving = require('./engine/accountmoving');
     const after = outcome === removal.OUTCOME.PARTIAL ? sessionStartFor(name, true, deps) : null;
-    if (!(Number.isFinite(startedBefore) && after === startedBefore)) { accountmoving.clear(name); return; }
+    /* Two partials leave it on the account it ran on: the window could not be closed (the SAME session runs on), or the
+       old launch job was held (review 5: it runs on under its old arguments, in whatever session is running now). The
+       session running right after is the one marked; none yet (the held job has not started one) marks nobody. */
+    const sameSession = Number.isFinite(startedBefore) && after === startedBefore;
+    if (!(sameSession || (oldJobHeld && Number.isFinite(after)))) { accountmoving.clear(name); return; }
     const prior = accountmoving.notes()[name];
-    // The same session moved again: it still runs where it ran before the first move.
-    const from = prior && prior.started === startedBefore ? prior.from : (fromDir || null);
-    accountmoving.note(name, startedBefore, from);
+    // Moved again while noted: it still runs where it ran before its first partial move.
+    const from = prior && (prior.started === startedBefore || prior.started === after) ? prior.from : (fromDir || null);
+    accountmoving.note(name, after, from);
   } catch { /* the marker is not the move */ }
 }
 /* #6174: an agent whose move came back partial while its session kept running (engine/accountmoving.js) is listed
    under the account it was moved to, by its launch file, and marked moving there until it restarts. Listed by the
    launch file on purpose: a stopped agent, or one whose relaunch failed, runs nowhere, so the new row is right for it.
-   The mark needs only tmux's session start (status.sessionStartedAtFromTmux, cached two seconds): no process reads. */
+   The mark reads the agent's own session from the pane roster and its tmux start, only for agents with a note: no
+   process reads. */
 /* #6108: every Claude agent on this computer grouped by the account folder it runs on, in ONE pass, for the accounts
    list (which used to need a full walk per account row). The same reading as enumerateAgentsOnAccount: a job with no
    configDir runs on the default account; `complete` is false when anything could not be read. */
@@ -2686,7 +2694,8 @@ function claudeAgentsByAccount() {
           // Moved back to the account it is still running on: it runs here, so it is not moving.
           const from = notes[n].from;
           const fromKey = from == null ? null : path.resolve(from);
-          return !(fromKey === rowKey || (isDefault && from == null));
+          let dirKey = null; try { dirKey = dir ? path.resolve(dir) : null; } catch { dirKey = null; }
+          return !(fromKey === rowKey || (isDefault && (from == null || fromKey === dirKey)));
         } catch { return false; }
       });
     },
@@ -13504,7 +13513,7 @@ const server = http.createServer(async (req, res) => {
       .then((raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
-        const fromDir = (() => { try { return create.readJob(name).configDir || null; } catch { return null; } })();   // #6174
+        const fromDir = moveFromDir(name);   // #6174
         const wrote = create.setAccount(name, body && body.dir);
         if (wrote.outcome === create.OUTCOME.REFUSED) {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
@@ -24188,7 +24197,7 @@ module.exports = {
   taskFinalWordHint, // #6066: the line a task's holder is told after posting in it, for its test
   ASSIGNER_VIEW, // #6072: the Assigner memory the project list reads, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
-  enumerateAgentsOnAccount, claudeAgentsByAccount, noteMoveOutcome, restartForMove, // #6108 (+ #6174's note): the shared walk's two readings (guards count the guide, lists do not), for their tests
+  enumerateAgentsOnAccount, claudeAgentsByAccount, restartForMove, // #6108 (+ #6174's note): the shared walk's two readings (guards count the guide, lists do not), for their tests
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests
