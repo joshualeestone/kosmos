@@ -295,6 +295,7 @@ vcase missing 1 "no runner named kosmos-ci-agent1s" FX_RUNNER_ROW=
 vcase switchoff 1 "KOSMOS_CI_RUNNER is 'off'" FX_RUNNER_VAR=off
 vcase shards 1 "KOSMOS_CI_SHELL_SHARDS is '2/2'" FX_SHARDS=2/2
 vcase leftover 1 "kosmos-ci still runs" "FX_PS=/opt/homebrew/bin/tmux -L t new-session -d"
+vcase leftover-tmux-server 1 "kosmos-ci still runs" "FX_PS=tmux: server (/private/tmp/tmux-777/default) (tmux)"
 vcase leftover-node 1 "kosmos-ci still runs" "FX_PS=node server.js --port 16190"
 vcase leftover-busy 0 "while a job is in flight (busy=true)" "FX_PS=node server.js" "FX_RUNNER_ROW=online true arm64,kosmos-ci,macos,self-hosted"
 vcase raced 1 "went busy or idle during verify" FX_BUSY2=true

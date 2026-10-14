@@ -315,7 +315,7 @@ HOOK
     echo "ACTIONS_RUNNER_HOOK_JOB_COMPLETED=$CI_DIR/job-completed.sh"
     echo "LANG=en_US.UTF-8"   # launchd gives none; the tmux tests need it
     echo "PATH=$RUNNER_PATH"; } > "$RUNNER_DIR/.env.new"
-  # A rename takes the new file's mode, not the old one's: carry the old mode over.
+  # A rename takes the new file's mode, not the old one's: carry the old mode over (a first .env takes the umask).
   [ ! -e "$RUNNER_DIR/.env" ] || chmod "$(stat -f %Lp "$RUNNER_DIR/.env")" "$RUNNER_DIR/.env.new"
   mv -f "$RUNNER_DIR/.env.new" "$RUNNER_DIR/.env"
   echo "hooks and .env written (merged)"
@@ -403,8 +403,9 @@ EOF
   elif [ -n "$row" ] && ! busy2="$(runner_busy)"; then problem "could not read the runners API a second time"
   elif [ -n "$row" ] && [ "$busy2" != "$busy" ]; then problem "the runner went busy or idle during verify; run verify again"
   else
-    # By program name (first word, path stripped). The runner's own service host is node running RunnerService.js.
-    left="$(printf '%s\n' "$left" | awk '{ n = $1; sub(/.*\//, "", n) } (n == "tmux" || n == "node") && !/\/bin\/RunnerService\.js/ { print n }')"
+    # By program name (first word, path and any trailing colon stripped: on macOS a tmux server keeps the argv it
+    # was started with, measured 05:12 10-14, but some builds retitle it "tmux: server"). The runner's own service host is node running RunnerService.js.
+    left="$(printf '%s\n' "$left" | awk '{ n = $1; sub(/.*\//, "", n); sub(/:$/, "", n) } (n == "tmux" || n == "node") && !/\/bin\/RunnerService\.js/ { print n }')"
     if [ -z "$left" ]; then ok "no tmux or node left under $CI_USER"
     elif [ "$busy" = true ]; then ok "tmux or node running under $CI_USER, while a job is in flight (busy=true)"
     else problem "$CI_USER still runs: $(printf '%s\n' "$left" | sort | uniq -c | tr -s ' ' | tr '\n' ' ')with no job in flight"; fi

@@ -29,7 +29,7 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 76 ok. Forty-one mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 77 ok. Forty-two mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
@@ -39,10 +39,14 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   blind to .env, a false 'no jobs' line, register before install; then .path not written, .path unchecked;
   then an allow list that clears every job, pgrep and crontab failures read as none, .env mode dropped; then a
   failed Runner.Worker pgrep read as idle, any gh error read as unset; then the package sha check removed, a bare
-  `launchctl list`, the services block unbounded).
+  `launchctl list`, the services block unbounded; then a retitled `tmux: server` missed).
 - preflight reads `launchctl print gui/<uid>`, not `launchctl list`: a bare list reads the caller's session, which
   over ssh is not the owner's GUI. Measured 05:10 on Agent1s from a tmux pane whose session is Background: both
   forms give the same 72 non-Apple jobs, so `launchctl managername` cannot gate it.
+- Deferred: the compare API is unauthenticated (60 an hour). It refuses, naming a possible rate limit, and a bearer
+  token would sit in curl's argv.
+- Deferred: job-completed.sh empties _work/_temp after JOB_COMPLETED. Baron's hook, unchanged, and the mini has run
+  jobs with it since 10-07; not re-measured against the runner source here.
 - Deferred: anonymous launchd labels (0x..., [..]) as false refusals. 0 of 72 such labels on Agent1s at 05:04,
   the failure is a refusal, and KOSMOS_CI_ALLOW_JOBS covers it.
 - The jobs' PATH lives in two files: `.env`, and `.path`, which config.sh's env.sh fills from the login shell and
