@@ -56,7 +56,7 @@ Known limit (review round 2): orientation is the viewport's aspect, not the devi
 on-screen keyboard shrinks the layout viewport enough to make a portrait tablet wider than tall
 (split screen, some Android WebViews), the room reorders mid-post. The composer's column never
 moves, so focus survives; the page shifts. A real iPad or 10-inch Android keeps portrait with the
-keyboard up (834x~750, 800x~880). Revisit with the landscape split view.
+keyboard up: iOS does not shrink the layout viewport for the keyboard (the visual viewport shrinks, the media query does not change), and a 10-inch Android at 800x1280 stays taller than wide (about 800x880). Revisit with the landscape split view.
 Design note for Josh's review (round 5): with no tasks, the empty Tasks block (its message and New task)
 sits above the conversation on an upright tablet, pushing the composer down by that block. Shown in the
 tablet shots; he can rule it smaller or folded away.
