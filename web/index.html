@@ -35290,7 +35290,7 @@ function streakLocalDay(d) {
 }
 function streakLabel(n) { return n === 1 ? '1 day in the Kosmos' : n + ' days in a row in the Kosmos'; }
 function streakCongrats(n) { return "Congrats you've been in the Kosmos for " + n + ' days!'; }
-let streakDay = null, streakAsking = false, streakNoteTimer = null, streakInputAt = Date.now();
+let streakDay = null, streakAsking = false, streakNoteTimer = null, streakInputAt = 0;   // the load itself is not input: it already counted its own day
 function streakNoteGone() {
   const slot = document.getElementById('streak-slot');
   if (!slot) return;
@@ -35344,8 +35344,8 @@ async function streakCheck() {
     const cancel = () => { if (held) { clearTimeout(held); held = null; } };
     // Escape puts the label away without moving the pointer or focus; the next hover or focus brings it back.
     // On the document, so it works while only the pointer is on the mark; it only adds a class, so Escape still does its other jobs.
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !lab.hidden) { lab.classList.add('quiet'); lab.classList.remove('show'); } });
-    for (const ev of ['blur', 'mouseleave']) k.addEventListener(ev, () => lab.classList.remove('quiet'));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !lab.hidden && getComputedStyle(lab).opacity !== '0') { lab.classList.add('quiet'); lab.classList.remove('show'); } });   // only when it is up: Escape elsewhere must not silence the next hover
+    for (const ev of ['focus', 'mouseenter']) k.addEventListener(ev, () => lab.classList.remove('quiet'));
     k.addEventListener('pointerup', cancel); k.addEventListener('pointercancel', cancel); k.addEventListener('pointerleave', cancel);   // leave: a finger that slides off the mark is not a long press
     k.addEventListener('contextmenu', (e) => { if (swallow) e.preventDefault(); });
     // Capture phase: at the target, capture listeners run before the K mark's own click handler, whatever order they were added in.
@@ -35357,7 +35357,11 @@ streakCheck();
    they clicked or typed in the last ten minutes. A window left open overnight on an empty desk is not a visit. Coming
    back to the page (visibilitychange) counts at once. */
 for (const ev of ['pointerdown', 'keydown']) document.addEventListener(ev, () => { streakInputAt = Date.now(); }, { capture: true, passive: true });
-setInterval(() => { if (!document.hidden && Date.now() - streakInputAt < 10 * 60 * 1000) streakCheck(); }, 60 * 1000);
+const streakLoadDay = streakLocalDay(new Date());   // asking again for the day this page opened on (a failed answer) needs no input
+setInterval(() => {
+  if (document.hidden) return;
+  if (streakLocalDay(new Date()) === streakLoadDay || Date.now() - streakInputAt < 10 * 60 * 1000) streakCheck();
+}, 60 * 1000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) streakCheck(); });
 
 // ---------------------------------------------------------------------------

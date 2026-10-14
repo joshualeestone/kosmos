@@ -172,6 +172,12 @@ const read = (pg) => pg.evaluate(() => {
     const back = (await read(pg)).label;
     say(esc1.opacity === '0', 'Escape: the label goes away with the pointer still on the mark', JSON.stringify(esc1));
     say(back.opacity === '1', 'Escape: the next hover brings it back', JSON.stringify(back));
+    // Escape pressed somewhere else (closing a dialog), with the label not up, must not silence the next hover
+    await pg.mouse.move(700, 700); await pg.waitForTimeout(200);
+    await pg.keyboard.press('Escape'); await pg.waitForTimeout(150);
+    await pg.hover('#klink'); await pg.waitForTimeout(250);
+    const elsewhere = (await read(pg)).label;
+    say(elsewhere.opacity === '1', 'Escape elsewhere: the next hover still shows the label', JSON.stringify(elsewhere));
     // click: still goes to Agents
     await pg.evaluate(() => { const t = document.querySelector('#tabs [data-tab="projects"]'); if (t) t.click(); });
     await pg.waitForTimeout(150);

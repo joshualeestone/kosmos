@@ -435,7 +435,9 @@ const SCREENS = [
     await page.route('**/api/streak', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: false }) }));
     await at(page, '');
     await page.waitForSelector('#kstreak:not([hidden])', { state: 'attached', timeout: 12000 });
-    await page.hover('#klink');
+    // A touch size has no hover (the label is gated on (hover: hover)); there it shows the way a long press does.
+    if (await page.evaluate(() => matchMedia('(hover: hover)').matches)) await page.hover('#klink');
+    else await page.evaluate(() => document.getElementById('kstreak').classList.add('show'));
     await page.waitForFunction(() => getComputedStyle(document.getElementById('kstreak')).opacity === '1', null, { timeout: 5000 });
   } },
   /* Both assert they got there: a renamed control must fail the shot, not
