@@ -11976,8 +11976,21 @@ const server = http.createServer(async (req, res) => {
         const acct = accounts.list().find((a) => a.dir === resolved);
         if (!acct) { sendJson(res, 404, { error: 'we could not find that account on this computer' }); return; }
         if (acct.apiKey) { sendJson(res, 400, { error: 'an account that uses an API key has no weekly limit to read' }); return; }
+        /* Review 11: this writes into the person's own Claude Code setup, so only the person, from Settings (as other
+           person-only Settings changes are); an agent's token is refused. */
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
+        /* Review 11: a settings file that is a link to a file outside this account's folder (one shared with another
+           account, say) is left alone: the status line names ONE account's folder, so wiring it there would send every
+           account that shares the file's readings to this one. */
+        const settingsFile = path.join(acct.dir, 'settings.json');
+        try {
+          if (path.dirname(fs.realpathSync(settingsFile)) !== fs.realpathSync(acct.dir)) {
+            sendJson(res, 409, { wired: false, because: 'this account\u2019s settings file is shared with a folder outside it, so it was left alone' });
+            return;
+          }
+        } catch { /* no settings file yet (or no folder): ensureStatusLine decides, as for a new account */ }
         let r;
-        try { r = require('./engine/allowance').ensureStatusLine(path.join(acct.dir, 'settings.json')); }
+        try { r = require('./engine/allowance').ensureStatusLine(settingsFile); }
         catch (e) {   // review 5: a throw is a fault, 500 (a refusal ensureStatusLine ANSWERS, including a failed save, is 409)
           try { console.error('usage-reading: ' + String((e && e.stack) || e)); } catch { /* best effort */ }
           sendJson(res, 500, { error: 'the usage reading could not be set up' });

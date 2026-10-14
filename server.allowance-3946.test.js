@@ -260,7 +260,7 @@ test('#6175 the usage-reading route wires a not-set-up account and never replace
   fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com', accountUuid: 'u-6175' } }));
   const settings = path.join(def, 'settings.json');
   const post = async (body) => {
-    const r = await fetch(base + '/api/accounts/claude/usage-reading', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const r = await fetch(base + '/api/accounts/claude/usage-reading', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify(body) });   // the page, as the browser sends it
     return { status: r.status, j: await r.json() };
   };
   const blockedOf = async () => {
@@ -277,6 +277,19 @@ test('#6175 the usage-reading route wires a not-set-up account and never replace
   try {
     fs.rmSync(settings, { force: true });
     assert.equal(await blockedOf(), 'not-wired', 'precondition: the account has no status line');
+    // Review 11: only the person, from Settings: a request that is not from the page is refused and writes nothing.
+    const noScreen = await fetch(base + '/api/accounts/claude/usage-reading', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: def }) });
+    assert.equal(noScreen.status, 403, 'a request not from the page was let through');
+    assert.ok(!fs.existsSync(settings), 'a request not from the page wrote a settings file');
+    // Review 11: a settings file linked to a file outside the account's folder is left alone, byte for byte.
+    const shared = path.join(SANDBOX, 'shared-settings-6175.json');
+    fs.writeFileSync(shared, '{"theme":"light"}');
+    fs.symlinkSync(shared, settings);
+    const linked = await post({ dir: def });
+    assert.equal(linked.status, 409, JSON.stringify(linked));
+    assert.match(linked.j.because, /shared with a folder outside it/, linked.j.because);
+    assert.equal(fs.readFileSync(shared, 'utf8'), '{"theme":"light"}', 'a shared settings file was written');
+    fs.rmSync(settings, { force: true }); fs.rmSync(shared, { force: true });
     const r = await post({ dir: def });
     assert.equal(r.status, 200, JSON.stringify(r));
     assert.equal(r.j.wired, true);
@@ -315,6 +328,7 @@ test('#6175 the usage-reading route wires a not-set-up account and never replace
     assert.equal(bad.status, 400, 'a body that is not JSON was not refused as unreadable');
   } finally {
     fs.rmSync(settings, { force: true });
+    fs.rmSync(path.join(SANDBOX, 'shared-settings-6175.json'), { force: true });
     fs.rmSync(keyed, { recursive: true, force: true });
     require('./engine/claudeaccounts').setFetcher(null);
   }

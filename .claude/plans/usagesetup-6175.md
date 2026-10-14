@@ -45,6 +45,13 @@ Card: kosmos#6175 (#6108 follow-up).
   (no path in the body).
 
 ## Decided, not missed
+- Review 11 nit, the setup succeeds but the repaint cannot read the list: the paint's own error sentence stands and the
+  success goes unsaid; the old row still offers the button. Not built: pressing again answers changed:false and says
+  it is set up once the list reads, and a second sentence beside an error the person must act on would compete with it.
+- Review 11 (built): the route is person-only (isViaScreen, 403 otherwise), and a settings.json that resolves outside
+  the account's own folder (a link shared with another account) is refused with 409 and left byte-for-byte. Weakest
+  premise: a HARD link shared between two folders is not detected (realpath cannot see it); judged rare enough for hand
+  setups, and the refusal is the safe direction if it is ever added.
 - Review 9 nit, a second account-list refresh started during the press: the newer refresh can land after the 1 s
   re-claim and blank "Usage reading set up". Not built (the ACCT_MOVE pending-outcome pattern would be a second state
   machine for a case that needs a second refresh trigger inside the press): the row still repaints correctly without
