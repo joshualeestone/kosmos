@@ -235,10 +235,15 @@ test('#4926 N7: one reply to the round\'s newest post (m1032) answers the 8 olde
   const after = post('m1037', 5);
   const base = [post('m1024', 40), ...filler.slice(1), post('m1032', 32)];
   assert.ok(!messages.staleHeld('p1', ['m1024'], [...base, between, answer], NOW, 'mark').has('m1024'), 'a row between the answered post and the reply did not narrow the window');
-  assert.ok(messages.staleHeld('p1', ['m1024'], [...base, answer, after], NOW, 'mark').has('m1024'), 'control: a row after the reply narrowed the window');
+  assert.ok(messages.staleHeld('p1', ['m1024'], [...base, answer, after], NOW, 'mark').has('m1024'), 'a row after the reply narrowed the window (control: it must not)');
   // A held post whose time does not parse does not switch the rule off for the others.
   assert.ok(messages.staleHeld('p1', ['m1028', 'm1050'], [...round, { ...post('m1050', 31), at: 'not a time' }, answer], NOW, 'mark').has('m1028'),
     'an unreadable held post switched N7 off');
+  // Deliberate: an older ask a usage limit kept (#5805) is covered too, so withoutStale drops it rather than keep it back.
+  roomhold.noteLimit('mark', 'p1', ['m1028'], new Date(Date.now() + 3600000).toISOString());
+  const limitJudge = (lg) => (p, got, who) => messages.staleHeld(p, got, lg, NOW, who);
+  assert.deepEqual(roomhold.withoutStale('p1', [roomhold.addressedId('m1028')], limitJudge(log), 'mark'), [], 'a limit-kept ask the reply covered was kept back');
+  assert.deepEqual(roomhold.withoutStale('p1', [roomhold.addressedId('m1028')], limitJudge([...round]), 'mark'), [roomhold.addressedId('m1028')], 'control: without the reply the limit-kept ask was dropped');
   // Rows the room read does not show (a reaction) do not use up the window.
   const unseen = filler.map(() => ({ kind: 'reaction', project: 'p1', from: 'ann', at: ago(35) }));
   assert.ok(messages.staleHeld('p1', ['m1024'], [post('m1024', 40), ...unseen, post('m1032', 32), answer], NOW, 'mark').has('m1024'),
