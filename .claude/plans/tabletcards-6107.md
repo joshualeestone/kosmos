@@ -34,3 +34,18 @@ D. Agent page, portrait: conversation full width, the list as a slide-over.
 E. Project room: three columns in landscape, the tasks strip in portrait.
 Each slice is its own PR with tablet shots from mobile-shots.js (sizes added in this branch).
 Order: A, B (now), then C to E after Josh answers or by 2026-10-14 noon on my own call.
+
+## This branch (tabletcards-6107): slices A and B plus the room, 2026-10-13 evening
+Built ahead of Josh's answer on the landscape question, on the standing rule (decide, keep going):
+these pieces hold whichever landscape layout he picks.
+- Cards: an upright touch tablet (600 to 1023.98px wide, at least 560px tall) gets the agent cards two
+  across, face left, name, role and state stacked beside it, the task underneath. Classic look only.
+- Room: pjPhoneOrder gains PJ_TABLET_MQ. On an upright tablet the conversation goes before
+  Members/Files (as on a phone) and Tasks moves to the front as a sideways row. DOM moves only (#1017).
+- Checks: web.room-phone-718.test.js covers the tablet branch; render-room-msgbox-2806.js turns the
+  phone to 800x400 (800x800 with touch is now a tablet) and gains a tablet arm at 834x1194.
+Rejected: CSS order for the room (splits reading order from what is seen; the guard refuses it).
+Weakest premise: that 560px of height separates a tablet from a phone on its side. Every current
+phone is under 500px tall in landscape; a foldable opened sideways could land either side.
+Done when: the shots at tab8 / ipadmini / ipad11 show the two-across cards and the tasks-first room,
+the room browser check passes, CI is green, and Josh has seen the shots.
