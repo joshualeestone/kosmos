@@ -5,16 +5,16 @@
  * GET /api/accounts gives each Claude row `weekly` and `weeklyBlocked` (#6108). GET /api/status now carries the same two
  * facts per account as `accountsWeekly`, so another of the person's computers can read them through the sibling path
  * #4812 built (this browser asks that computer, which answers only a browser it already lets in). Both routes call
- * weeklyOf and weeklyBlockedOf here, so the two answers cannot drift.
+ * weeklyOf and weeklyBlockedOf here.
  *
  * summary() is what /api/status sends. The status poll runs every five seconds, so the summary is kept for CACHE_MS and
- * rebuilt only when it is older or the account list changed. readWeekly is one small file read per account; the cache
- * keeps even that off most polls.
+ * rebuilt only when it is older or the account list changed. A reading or a reason can therefore be up to CACHE_MS old
+ * here while /api/accounts reads it live.
  */
 const fs = require('node:fs');
 const path = require('node:path');
 
-const CACHE_MS = 60000;
+const CACHE_MS = 15000;   // the other computers' read interval (OA_STATUS_EVERY_MS, #4812)
 const MAX_ACCOUNTS = 50;   // what one computer sends; far past any real list
 
 /** The account's weekly reading, or null when there is none this week (an API key, none recorded, unreadable, the week

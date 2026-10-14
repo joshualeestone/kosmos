@@ -9,7 +9,9 @@ Tested: a server test (red on main), a page test, and a browser check in Chromiu
 
 ## Engine
 - `engine/accountsweekly.js`: `weeklyOf`, `weeklyBlockedOf` (moved out of /api/accounts, unchanged), `summary(list)`
-  for /api/status, cached 60 s and keyed on the account list.
+  for /api/status, cached 15 s (the other computers' read interval) and keyed on the account list. A reading can be
+  that old there while /api/accounts reads it live. On a read error it sends null, which the page words as "could not
+  read its accounts", never as "no account".
 - `GET /api/status` gains `accountsWeekly: [{ dir, email, label, organization, isDefault, weekly, blocked }]`. It reuses
   the poll's one Claude list read (`claudeKnown`). Each agent already carries `account.dir`, which is the join.
 
