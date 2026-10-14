@@ -180,7 +180,7 @@ const { chromium } = require('playwright');
       await tOpenPop();
       await tp.click(LAY + ' [data-layout-switch="consolidated"]');
       await tSettled(true);
-      say((await savedLayoutOf()) === 'tabs', 'tablet: pressing one screen there is remembered on the tablet; the board setting is still tabs');
+      say((await savedLayoutOf()) === 'tabs', 'tablet: pressing there does not save to the board; the board setting is still tabs');
       // Persistence, on the NON-default choice (one screen is the default, so keeping it proves nothing): tabs, reload.
       await tOpenPop();
       await tp.click(LAY + ' [data-layout-switch="tabs"]');
@@ -189,7 +189,7 @@ const { chromium } = require('playwright');
       await tp.waitForFunction(() => document.documentElement.hasAttribute('data-layout'), null, { timeout: 15000 }).catch(() => {});
       await tp.waitForTimeout(300);
       say(!(await tp.evaluate(() => document.body.classList.contains('consolidated'))) && (await tp.evaluate(() => document.documentElement.getAttribute('data-layout'))) === 'tabs',
-        'tablet: its own non-default choice (tabs) survives a reload');
+        'tablet: after a reload it is on tabs (whether that is its own choice is proved next, with the board on one screen)');
       // Turned upright at 1024x1366 (wide enough for one screen, so only the rule decides): the BOARD's setting applies
       // again. The board is made consolidated first (reloaded so the page has read it) while the tablet's own choice
       // is tabs, so the two disagree and the turn must pick the board's.
