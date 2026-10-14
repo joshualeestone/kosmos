@@ -34,6 +34,9 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
   - release.sh refuses the test knob outright (no test drives a cut with it).
 - deploy-site's early committed-pointer check is a fail-fast: its export check would refuse the same pointers;
   only the staging-pointer arm of the test is specific to it.
+- NOT covered, and said so in docs/staging-channel.md: a rollback done in Vercel itself (Instant Rollback or
+  `vercel rollback`) to a deployment from before 0.7.45 goes around every script. No code here can close it.
+- docs/staging-channel.md's floor section no longer says nothing in the tools refuses it.
 - Out of scope, on purpose: the .pkg (its postinstall fetches and verifies /setup, so /setup covers it) and the
   unversioned alias tarball (the app, not an installer).
 - No override for real use: the fix for an old build is a newer build, never a flag.

@@ -70,7 +70,7 @@ kosmos_setup_floor_pointer_ok() {
     echo "setup floor (kosmos#6149): $label names no artifact, so what it installs cannot be checked -- refusing" >&2
     return 1
   }
-  av=$(printf '%s' "$art" | sed -n 's/^kosmos-\(.*\)-[a-z0-9_]*\.tar\.gz$/\1/p')
+  av=$(printf '%s' "$art" | sed -n 's/^kosmos-\(.*\)-[a-z0-9_][a-z0-9_]*\.tar\.gz$/\1/p')
   if [ -z "$av" ] || [ "$av" != "$v" ]; then
     echo "setup floor (kosmos#6149): $label says version $v but names artifact $art -- refusing (the tarball is what installs)" >&2
     return 1
@@ -79,7 +79,7 @@ kosmos_setup_floor_pointer_ok() {
 
 # The installer's own bytes. A pointer's version says nothing about the /setup or /setup-staging served beside it,
 # and a hand rollback can commit an old one next to a new pointer. The switch (KOSMOS_READONLY_APP) and the lift that
-# removes a read-only app before the swap came in ONE change, #4449 (74ed0594c7), so an installer that names the
+# removes a read-only app before the swap came in ONE change, card #4449 (merged as PR #4476, 74ed0594c7), so an installer that names the
 # switch can lift the lock, and one that does not cannot. install/setup.sh has it from 0.7.42 (measured by Ice Cream
 # Kitty at each version commit: 0.7.42 6 mentions, 0.7.43 to 0.7.48 7, 0.7.49 9); the prod /setup served before
 # 0.7.45 (0.7.35's) has 0. So this check accepts exactly the installers that can lift (0.7.42 on), while the
