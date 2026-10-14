@@ -23,12 +23,18 @@
 # user on this Mac and waits. The run markers are per-HOME and do not cross users; the name arm does. So the
 # runner's .env must never set a KOSMOS_ variable (KOSMOS_TESTS_IGNORE_SUITE, KOSMOS_NO_WAIT and the other wait
 # controls would turn the lock off for every job), and install refuses one.
+# The runner package is the latest actions/runner release, checked against the sha256 that same release publishes:
+# that catches a damaged download, not a compromised release (trust on first fetch, as Baron's script had it).
+# The job guard is pinned harder, by a main commit and a sha256 the operator supplies.
 # KOSMOS_CI_RUNNER (the kill switch) is READ here, never written. KOSMOS_CI_SHELL_SHARDS must stay unset (#4601:
 # one runner cannot carry a shell shard), and preflight and verify refuse when it is set.
 set -euo pipefail
 
 APPLY=0
 if [ "${1:-}" = --apply ]; then APPLY=1; shift; fi
+for a in "$@"; do
+  [ "$a" != --apply ] || { echo "refused: --apply goes first (tools/ci-runner-setup.sh --apply <stage> ...); nothing ran" >&2; exit 2; }
+done
 STAGE="${1:-}"
 REPO="joshualeestone/kosmos"
 REPO_URL="https://github.com/$REPO"
@@ -122,7 +128,7 @@ preflight() {
   local tv
   if [ -x "$BREW/bin/tmux" ]; then
     tv="$("$BREW/bin/tmux" -V 2>&1 || true)"
-    case "$tv" in
+    case "$tv" in   # a literal match: 3.5a is the one version #2955's test refuses
       "tmux 3.5a") problem "$BREW/bin/tmux is 3.5a, which #2955's test refuses (build one: baron-jobs/ci-mini-build-tmux.sh)" ;;
       *) ok "$BREW/bin/tmux ($tv)" ;;
     esac
@@ -200,9 +206,18 @@ install_runner() {
   pub="$(printf '%s' "$rel" | grep -o 'BEGIN SHA osx-arm64 -->[0-9a-f]*' | head -1 | sed 's/.*-->//' || true)"
   have="$(shasum -a 256 "$tgz" | cut -d' ' -f1)"
   [ -n "$pub" ] && [ "$pub" = "$have" ] || { rm -f "$tgz" "$newg"; echo "runner package sha256 $have is not the published '${pub:-none}': refused, nothing changed" >&2; exit 1; }
+  # A Runner.Worker of this user is a job in flight: stopping the runner now would kill it.
+  if pgrep -u "$(id -u)" -x Runner.Worker >/dev/null; then
+    rm -f "$newg"; echo "refused: a job is running on this runner; install again when it is idle. Nothing changed" >&2; exit 1
+  fi
   if [ -x ./svc.sh ]; then
     sv="$(./svc.sh status 2>&1 || true)"
     case "$sv" in *Started*) was_running=1; ./svc.sh stop >/dev/null 2>&1 || true ;; esac
+    if [ "$was_running" = 1 ]; then
+      case "$(./svc.sh status 2>&1 || true)" in
+        *Started*) rm -f "$newg"; echo "refused: the runner did not stop; nothing unpacked" >&2; exit 1 ;;
+      esac
+    fi
   fi
   tar xzf "$tgz"
   chmod +x "$newg" && mv -f "$newg" "$CI_DIR/job-guard.sh"
@@ -233,7 +248,9 @@ exec "$D/job-cleanup.sh"
 HOOK
   # MERGE into .env (config.sh writes keys there): replace only the keys this sets.
   touch "$RUNNER_DIR/.env"
-  grep -v -E '^(ACTIONS_RUNNER_HOOK_JOB_STARTED|ACTIONS_RUNNER_HOOK_JOB_COMPLETED|PATH|LANG)=' "$RUNNER_DIR/.env" > "$RUNNER_DIR/.env.new" || true
+  # grep exits 1 when no line is left (fine) and 2 when it could not read .env, which must not drop config.sh's keys.
+  if grep -v -E '^(ACTIONS_RUNNER_HOOK_JOB_STARTED|ACTIONS_RUNNER_HOOK_JOB_COMPLETED|PATH|LANG)=' "$RUNNER_DIR/.env" > "$RUNNER_DIR/.env.new"; then :
+  else [ $? = 1 ] || { rm -f "$RUNNER_DIR/.env.new"; echo "could not read $RUNNER_DIR/.env; it is unchanged" >&2; exit 1; }; fi
   { echo "ACTIONS_RUNNER_HOOK_JOB_STARTED=$CI_DIR/job-started.sh"
     echo "ACTIONS_RUNNER_HOOK_JOB_COMPLETED=$CI_DIR/job-completed.sh"
     echo "LANG=en_US.UTF-8"   # launchd gives none; the tmux tests need it
@@ -261,6 +278,11 @@ register() {
   ./svc.sh install   # a LaunchAgent for this user (starts at login)
   ./svc.sh start
   ./svc.sh status
+}
+
+# runner_busy: true, false, or "unknown" when the API could not say.
+runner_busy() {
+  gh api "repos/$REPO/actions/runners" --jq ".runners[] | select(.name == \"$NAME\") | .busy" 2>/dev/null || echo unknown
 }
 
 verify() {
@@ -293,6 +315,8 @@ verify() {
   if ! id "$CI_USER" >/dev/null 2>&1; then problem "no user $CI_USER on this Mac: run verify on the runner's own Mac"
   # macOS ps -U exits 1 for a user with no processes, which here means the user is not logged in.
   elif ! left="$(ps -U "$CI_USER" -o comm=)"; then problem "$CI_USER runs no processes (not logged in? the runner needs auto-login), or ps failed"
+  # The busy flag was read before ps: read it again, and a job that started or ended in between is a rerun.
+  elif [ -n "$row" ] && [ "$(runner_busy)" != "$busy" ]; then problem "the runner went busy or idle during verify; run verify again"
   elif left="$(printf '%s\n' "$left" | awk -F/ '{ print $NF }' | grep -x -E 'tmux|node' || true)"; [ -n "$left" ] && [ "$busy" != true ]; then problem "$CI_USER still runs: $(printf '%s\n' "$left" | sort | uniq -c | tr -s ' ' | tr '\n' ' ')(fine only while a job runs)"
   else ok "no tmux or node left under $CI_USER"; fi
   if [ "$PROBLEMS" -gt 0 ]; then say "verify: $PROBLEMS problem(s)"; return 1; fi

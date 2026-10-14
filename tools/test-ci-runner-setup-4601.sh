@@ -23,7 +23,9 @@ printf '%s' "$me" >> "$CALL_LOG"; printf ' %s' "$@" >> "$CALL_LOG"; printf '\n' 
 case "$me" in
   launchctl) [ "${FX_LAUNCHCTL_FAIL:-0}" = 1 ] && exit 1; printf 'PID\tStatus\tLabel\n-\t0\tcom.apple.Finder\n123\t0\tapplication.com.apple.Terminal.1234.5678\n'; [ -z "${FX_JOBS:-}" ] || printf '%s\n' "$FX_JOBS" | sed 's/^/-\t0\t/' ;;
   crontab) [ -z "${FX_CRON:-}" ] && exit 1; printf '%s\n' "$FX_CRON" ;;
-  pgrep) [ -z "${FX_LIVE:-}" ] && exit 1; printf '%s\n' "$FX_LIVE" ;;
+  pgrep)
+    case "$*" in *Runner.Worker*) [ "${FX_WORKER:-0}" = 1 ] || exit 1; echo 4242; exit 0 ;; esac
+    [ -z "${FX_LIVE:-}" ] && exit 1; printf '%s\n' "$FX_LIVE" ;;
   df) printf 'Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/disk3s1 239362496 1 %s 50%% /\n' "${FX_FREE_KIB:-31457280}" ;;
   fdesetup) echo "${FX_FV:-FileVault is Off.}" ;;
   pmset) printf 'System-wide power settings:\nCurrently in use:\n standby              0\n sleep                %s\n autorestart          %s\n displaysleep         10\n' "${FX_SLEEP:-0}" "${FX_AUTORESTART:-1}" ;;
@@ -40,6 +42,7 @@ case "$me" in
     case "$*" in
       *"variable list"*KOSMOS_CI_SHELL_SHARDS*) printf '%s' "${FX_SHARDS:-}" ;;
       *"variable list"*KOSMOS_CI_RUNNER*) printf '%s' "${FX_RUNNER_VAR-on}" ;;
+      *"| .busy"*) row="${FX_RUNNER_ROW-online false x}"; set -- $row; printf '%s\n' "${FX_BUSY2:-$2}" ;;
       *actions/runners*) printf '%s\n' "${FX_RUNNER_ROW-online false arm64,kosmos-ci,macos,self-hosted}" ;;
     esac ;;
   curl)
@@ -53,7 +56,13 @@ case "$me" in
       */releases/latest) printf '{"tag_name": "v2.999.0", "body": "<!-- BEGIN SHA osx-arm64 -->%s<!-- END SHA osx-arm64 -->"}' "$(printf 'runner-package' | shasum -a 256 | cut -d' ' -f1)" ;;
     esac; fi ;;
   config.sh) printf 'token-in-env=%s\n' "${ACTIONS_RUNNER_INPUT_TOKEN:-}" >> "$CALL_LOG" ;;
-  svc.sh) [ "$1" = status ] && echo "status: not installed" ;;
+  svc.sh)
+    st="$(dirname "$0")/.svc-state"
+    case "$1" in
+      status) if [ "${FX_SVC_STUCK:-0}" = 1 ] || [ "$(cat "$st" 2>/dev/null)" = started ]; then echo "Started"; else echo "Stopped"; fi ;;
+      stop) echo stopped > "$st" ;;
+      start) echo started > "$st" ;;
+    esac ;;
 esac
 exit 0
 STUB
@@ -150,7 +159,7 @@ else fail "install dry run: rc $(rc in-dry), changing calls: $(changed in-dry | 
 run in-fork "$CH" FX_WHO=kosmos-ci FX_COMPARE=diverged -- install "$C" "$G"
 [ "$(rc in-fork)" = 1 ] && has in-fork "is not on main" && pass "install refuses a commit not on main" || fail "install off-main: rc $(rc in-fork)"
 run in-who "$CH" -- --apply install "$C" "$G"
-[ "$(rc in-who)" = 2 ] && ! changed in-who >/dev/null && pass "install --apply refuses as any user but kosmos-ci" || fail "install as agent1: rc $(rc in-who)"
+[ "$(rc in-who)" = 2 ] && has in-who "runs as kosmos-ci" && ! changed in-who >/dev/null && pass "install --apply refuses as any user but kosmos-ci" || fail "install as agent1: rc $(rc in-who)"
 mkdir -p "$CH/actions-runner"; printf 'LANG=C\nKOSMOS_TESTS_IGNORE_SUITE=1\n' > "$CH/actions-runner/.env"
 run in-env "$CH" FX_WHO=kosmos-ci -- install "$C" "$G"
 [ "$(rc in-env)" = 1 ] && has in-env "KOSMOS_TESTS_IGNORE_SUITE" && pass "install refuses a runner .env with a KOSMOS_ wait control (the suite lock)" \
@@ -169,6 +178,28 @@ run in-badsha "$T/cihome2" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$T/cihome2" FX_GUARD
 [ "$(rc in-badsha)" = 1 ] && ! grep -q '^tar ' "$T/in-badsha.calls" && pass "install --apply refuses a guard whose sha256 differs, before unpacking" \
   || fail "install bad guard: rc $(rc in-badsha)"
 
+# A running runner: stopped, unpacked over, started again. A job in flight, or a stop that does not take, refuses.
+svc_home() { mkdir -p "$1/actions-runner"; cp "$BIN/_stub" "$1/actions-runner/svc.sh"; chmod +x "$1/actions-runner/svc.sh"; echo started > "$1/actions-runner/.svc-state"; }
+R1="$T/run1"; svc_home "$R1"
+run in-restart "$R1" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R1" -- --apply install "$C" "$G"
+[ "$(rc in-restart)" = 0 ] && grep -q '^svc.sh stop' "$T/in-restart.calls" && grep -q '^tar ' "$T/in-restart.calls" && has in-restart "runner started again" \
+  && pass "install --apply stops a running runner, unpacks, starts it again" || fail "install restart: rc $(rc in-restart): $(tail -2 "$T/in-restart.out")"
+R2="$T/run2"; svc_home "$R2"
+run in-job "$R2" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R2" FX_WORKER=1 -- --apply install "$C" "$G"
+[ "$(rc in-job)" = 1 ] && has in-job "a job is running" && ! grep -q -E '^(svc.sh stop|tar )' "$T/in-job.calls" \
+  && pass "install --apply refuses while a job runs, before stopping anything" || fail "install with a job: rc $(rc in-job): $(cat "$T/in-job.calls" | tail -3)"
+R3="$T/run3"; svc_home "$R3"
+run in-stuck "$R3" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R3" FX_SVC_STUCK=1 -- --apply install "$C" "$G"
+[ "$(rc in-stuck)" = 1 ] && has in-stuck "did not stop" && ! grep -q '^tar ' "$T/in-stuck.calls" \
+  && pass "install --apply refuses to unpack when the runner did not stop" || fail "install stuck stop: rc $(rc in-stuck)"
+R4="$T/run4"; mkdir -p "$R4/actions-runner"; printf 'RUNNER_KEEP=1\n' > "$R4/actions-runner/.env"; chmod 000 "$R4/actions-runner/.env"
+run in-unread "$R4" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R4" -- --apply install "$C" "$G"
+chmod 600 "$R4/actions-runner/.env"
+[ "$(rc in-unread)" = 1 ] && grep -qx 'RUNNER_KEEP=1' "$R4/actions-runner/.env" && pass "install --apply leaves an unreadable .env unchanged rather than rewriting it" \
+  || fail "install unreadable .env: rc $(rc in-unread), .env: $(cat "$R4/actions-runner/.env")"
+run late-apply "$H" -- preflight --apply
+[ "$(rc late-apply)" = 2 ] && has late-apply "--apply goes first" && [ ! -s "$T/late-apply.calls" ] && pass "a late --apply refuses before anything runs" || fail "late --apply: rc $(rc late-apply)"
+
 # --- register ---------------------------------------------------------------------------------------------------
 printf 'tok-SECRET-123\n' > "$T/token"
 STDIN_FILE="$T/token" run rg-dry "$CH" FX_WHO=kosmos-ci -- register
@@ -184,7 +215,7 @@ else fail "register --apply: rc $(rc rg-apply), calls: $(cat "$T/rg-apply.calls"
 run rg-none "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
 run rg-sudo "$CH" FX_WHO=kosmos-ci -- --apply register
 [ "$(rc rg-sudo)" = 2 ] && has rg-sudo "not /Users/kosmos-ci" && ! grep -q '^config\.sh' "$T/rg-sudo.calls" && pass "register --apply refuses when HOME is not kosmos-ci's (sudo -u keeps HOME)" || fail "register HOME check: rc $(rc rg-sudo)"
-[ "$(rc rg-none)" = 1 ] && ! grep -q '^config\.sh' "$T/rg-none.calls" && pass "register --apply refuses with no token" || fail "register no token: rc $(rc rg-none)"
+[ "$(rc rg-none)" = 1 ] && has rg-none "no registration token" && ! grep -q '^config\.sh' "$T/rg-none.calls" && pass "register --apply refuses with no token" || fail "register no token: rc $(rc rg-none)"
 
 # --- verify -----------------------------------------------------------------------------------------------------
 vcase() {  # vcase <name> <want rc> <want text> <env...>
@@ -200,6 +231,7 @@ vcase switchoff 1 "KOSMOS_CI_RUNNER is 'off'" FX_RUNNER_VAR=off
 vcase shards 1 "KOSMOS_CI_SHELL_SHARDS is '2/2'" FX_SHARDS=2/2
 vcase leftover 1 "kosmos-ci still runs" "FX_PS=/opt/homebrew/bin/tmux"
 vcase leftover-busy 0 "verify: clear" "FX_PS=node" "FX_RUNNER_ROW=online true arm64,kosmos-ci,macos,self-hosted"
+vcase raced 1 "went busy or idle during verify" FX_BUSY2=true
 vcase psfail 1 "kosmos-ci runs no processes" FX_PS_FAIL=1
 run v-nouser "$H" -- verify
 [ "$(rc v-nouser)" = 1 ] && has v-nouser "no user kosmos-ci on this Mac" && pass "verify: no CI user here is a problem, not a clean 'nothing left'" || fail "verify no user: rc $(rc v-nouser)"
