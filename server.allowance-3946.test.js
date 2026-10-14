@@ -410,7 +410,13 @@ test('#6174 an agent whose move came back partial while the same session runs is
   accountmoving.note('mv-default-back', 1000e3, null);
   starts['mv-default-back-discord'] = 1000e3;
   const def = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
+  assert.ok(claudeAgentsByAccount().on(def, true).includes('mv-default-back'), 'CONTROL: it is listed on the default row');
   assert.ok(!claudeAgentsByAccount().moving(def, true, deps).includes('mv-default-back'), 'an agent back on the default account it runs on was marked');
+  // Review 5: one whose note names the default folder by path (not null) is not marked on the default row either.
+  lead('mv-default-path', { role: 'writer' }, null);
+  accountmoving.note('mv-default-path', 1000e3, def);
+  starts['mv-default-path-discord'] = 1000e3;
+  assert.ok(!claudeAgentsByAccount().moving(def, true, deps).includes('mv-default-path'), 'a note naming the default folder by path marked it on the default row');
   // Once its session restarts, the mark goes.
   starts = { 'mv-still-old-discord': 3000e3 };
   assert.deepEqual(claudeAgentsByAccount().moving(newAcct, false, deps), [], 'a restarted agent is still marked moving');
@@ -420,12 +426,12 @@ test('#6174 restartForMove reads the start BEFORE the restart, notes only a PART
   const { restartForMove } = require('./server');
   const accountmoving = require('./engine/accountmoving');
   const remove = require('./engine/remove');
-  const run = (name, outcome, before, after, from) => {
+  const run = (name, outcome, before, after, from, held = false) => {
     let reads = 0;
     const deps = {
       sessionOf: (n) => n + '-discord',
       startedAt: () => { reads += 1; return reads === 1 ? before : after; },
-      restart: () => { assert.equal(reads, 1, 'the start was not read before the restart'); return { outcome }; },
+      restart: () => { assert.equal(reads, 1, 'the start was not read before the restart'); return { outcome, oldJobHeld: held }; },
     };
     return restartForMove(name, from, deps);
   };
@@ -437,6 +443,12 @@ test('#6174 restartForMove reads the start BEFORE the restart, notes only a PART
   const n = accountmoving.notes();
   assert.deepEqual(n['rf-same'], { started: 1000e3, from: '/acct/a' }, 'a partial move with the same session running was not noted');
   for (const k of ['rf-new', 'rf-gone', 'rf-refused', 'rf-unread']) assert.ok(!(k in n), k + ' was noted');
+  // Review 5: the old launch job was held (the window closed, the old job runs on in a session it started): the
+  // session running right after is noted; with no session yet, nothing is.
+  run('rf-held', remove.OUTCOME.PARTIAL, 1000e3, 2000e3, '/acct/a', true);
+  assert.deepEqual(accountmoving.notes()['rf-held'], { started: 2000e3, from: '/acct/a' }, 'a held old job was not noted');
+  run('rf-held-none', remove.OUTCOME.PARTIAL, 1000e3, null, '/acct/a', true);
+  assert.ok(!('rf-held-none' in accountmoving.notes()), 'a held job with no session yet was noted');
   // Moved again while the same session still runs: the account it runs on is still the first one.
   run('rf-same', remove.OUTCOME.PARTIAL, 1000e3, 1000e3, '/acct/b');
   assert.equal(accountmoving.notes()['rf-same'].from, '/acct/a', 'a second partial move replaced the account it still runs on');
@@ -445,7 +457,7 @@ test('#6174 restartForMove reads the start BEFORE the restart, notes only a PART
   assert.ok(!('rf-same' in accountmoving.notes()), 'a full restart left the note');
 });
 
-test('#6174 accountmoving: a failed reading marks nobody and keeps the note; another session clears it', () => {
+test('#6174 accountmoving: a failed reading marks nobody and keeps the note; another session is not moving and keeps it too', () => {
   const accountmoving = require('./engine/accountmoving');
   assert.equal(accountmoving.note('', 1), false);
   assert.equal(accountmoving.note('x-6174', NaN), false);

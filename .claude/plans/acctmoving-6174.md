@@ -29,9 +29,9 @@ running process then reads the new account. Every other agent reads as before.
   partial is a different session and is never marked.
 
 ## Not done
-- (review 2, accepted) macOS refusing to stop the launch job after the window closed (restartInner's bootout-refused
-  partial): launchd may respawn the old job later under a new session, which the note cannot see; restartInner itself
-  accepts that case.
+- (review 5) macOS refusing to stop the launch job after the window closed is now covered: restartInner returns
+  oldJobHeld, and the route notes the session running right after the restart. If the held job has not started a
+  session yet at that moment, nothing is noted (unmarked, the safe direction).
 - (review 2) A note for an agent that is then removed stays in account-moving.json until a reused name's different
   session clears it: a few bytes, never a wrong mark.
 - The disconnect guard (enumerateAgentsOnAccount) still counts launch files only, so it does not see an agent still
@@ -55,3 +55,6 @@ same name without the agent moving would clear the mark early (safe direction).
   route clears, so a page read cannot race a move's write; the notes file is read once per row and agents with no note
   cost nothing. The mark reads the tmux session, not the process: a process relaunched inside the same session would
   stay marked (unmeasured; restartInner kills the session). A default-account agent moved away and back is tested.
+- (review 5) The default row also compares a note's `from` with its own folder (an agent whose launch file names the
+  default folder by path); the from-account read cleans the name first (moveFromDir), and is not exercised by a test
+  (the route's other reads are; the helper is a one-line readJob).
