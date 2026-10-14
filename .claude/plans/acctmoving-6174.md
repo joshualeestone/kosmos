@@ -25,7 +25,7 @@ account and is then unmarked: under-marking, never a wrong mark (review 9). Ever
 - Rejected (review 1): reading every agent's process environment (runningas) on this route. A failed environment read
   falls back to the default account and would mark agents wrongly, the read blocks the board per pane, a default-
   account agent inherits the tmux server's environment, and on Windows it costs a read that can mark nobody. The
-  session start is one cached tmux read and the move route knows the exact case.
+  session start is one tmux read (fresh, only for an agent with a note) and the move route knows the exact case.
 - Compare the exact session start, not a time window: a restart that did relaunch the agent but still reported
   partial is a different session and is never marked.
 
@@ -51,7 +51,7 @@ same name without the agent moving would clear the mark early (safe direction).
   `name-discord` sessions are read and a bystander sharing the name is not; only a PARTIAL outcome notes (a REFUSED
   restart never does); the note keeps the account the agent ran on before its first partial move, so moving it back
   there is not marked. Tests drive restartForMove with injected readers (start read before the restart, each outcome).
-- Not testable through the seam: the fresh read (the session seam never caches), so it is covered by reading only.
+- (review 13) The fresh read is now testable: the session seam receives the fresh flag and a test pins that the list reads fresh.
 - Windows, or any machine where tmux cannot be read: no session start, so nobody is ever marked there.
 - (review 4, superseded by review 8) The list was read-only; it now prunes through clearIf (see below).
   The mark reads the tmux session, not the process: a process relaunched inside the same session would stay marked
@@ -62,7 +62,7 @@ same name without the agent moving would clear the mark early (safe direction).
 - (review 6) The held-job case is noted only if the held job's session already exists right after the restart;
   usually it does not yet, so this case is usually unmarked (safe direction). Rejected: adopting the next session
   later, because a manual Restart (not the move route) would then leave a lasting wrong mark. The pane roster is read
-  once per row, only when an agent on it has a note. oldJobHeld is pinned false for a stop launchd accepted.
+  once per row, only when an agent on it has a note. (oldJobHeld and this case were removed in review 8.)
 - (review 8) A list read prunes a note whose session is readably another (clearIf: only that exact note, so it cannot
   race a move that just wrote a new one); a note with no readable session is kept. Both session reads in the move route
   are fresh. restartForMove passes the cleaned name to removal.restart (restartInner cleans it again; no change).
