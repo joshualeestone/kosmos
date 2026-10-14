@@ -27259,9 +27259,19 @@ function acctFollowUp(n, busy) {
 /* #6176: a five-hour window resets within hours, so a list left open is read again just after the soonest reset it
    shows, and that row's line goes. One timer at a time; a repaint of the list first replaces it (ACCT_EPOCH). It reads
    as a follow-up at the cap: no "Checking…", a failed read keeps the list, and it starts no further follow-ups. */
-let acctFiveTimer = null;
+let acctFiveTimer = null, acctFiveMisses = 0;
+/* A failed re-read keeps the list, so a five-hour line drawn past its reset would stay: while one is on screen, try again
+   in a minute, at most ten times in a row (a paint that succeeds starts the count again). */
+function acctFiveHourRetry() {
+  const due = [...document.querySelectorAll('#set-accounts .acct-usage-five[data-resets]')].some((el) => Number(el.dataset.resets) <= Date.now());
+  if (!due || acctFiveMisses >= 10) return;
+  acctFiveMisses++;
+  clearTimeout(acctFiveTimer);
+  const mine = ACCT_EPOCH;
+  acctFiveTimer = setTimeout(() => { acctFiveTimer = null; if (mine === ACCT_EPOCH && document.getElementById('set-accounts')) paintAccounts({ followUp: ACCT_FOLLOWUP.max }); }, 60e3);
+}
 function acctFiveHourRepaint(list) {
-  clearTimeout(acctFiveTimer); acctFiveTimer = null;
+  clearTimeout(acctFiveTimer); acctFiveTimer = null; acctFiveMisses = 0;
   const soon = (list || []).map((a) => a && a.fiveHour && a.fiveHour.resetsAt).filter((t) => Number.isFinite(t) && t > Date.now());
   if (!soon.length) return;
   const mine = ACCT_EPOCH;
@@ -27376,7 +27386,7 @@ function acctUsageHtml(a, list) {
     const sameDay = new Date(f.resetsAt).toDateString() === new Date().toDateString();
     const fresets = new Date(f.resetsAt).toLocaleString([], sameDay ? { hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
     const fage = agoWords(Date.now() - f.at);
-    five = '<div class="acct-usage-meter acct-usage-five"><span class="bar" aria-hidden="true"><i class="' + fband + '" style="width:' + fp + '%"></i></span>'
+    five = '<div class="acct-usage-meter acct-usage-five" data-resets="' + Math.round(f.resetsAt) + '"><span class="bar" aria-hidden="true"><i class="' + fband + '" style="width:' + fp + '%"></i></span>'
       + '<p class="acct-usage-line">' + fp + '% of its 5-hour limit used · resets ' + esc(fresets) + (fage ? ' · Kosmos last saw it change ' + esc(fage) : '') + '</p></div>'
       + (fp >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (fband === 'high' ? ' high' : '') + '">' + (fp >= 100 ? 'At its 5-hour limit until ' + esc(fresets) + '.' : 'Close to its 5-hour limit.') + '</p>' : '');
   }
@@ -27571,7 +27581,7 @@ async function paintAccounts(opts) {
     if (mine !== ACCT_EPOCH) return;
   } catch {
     if (mine !== ACCT_EPOCH) return;
-    if (followUp) return;   // #3997: a failed background re-read keeps the list the person is looking at
+    if (followUp) { acctFiveHourRetry(); return; }   // #3997: a failed background re-read keeps the list the person is looking at (#6176: and tries again if it shows a five-hour line past its reset)
     /* 🛑 CANCEL HERE TOO. The cancel at the top of this function runs BEFORE the
        await, so these two writes were the third and fourth exceptions to the
        "every writer cancels" claim above, and this diff has already corrected

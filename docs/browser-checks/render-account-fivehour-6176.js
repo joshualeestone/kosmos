@@ -155,6 +155,25 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     await page.waitForTimeout(300);
     const after = await page.evaluate(() => ({ fives: [...document.querySelectorAll('#set-accounts .acct-usage-five')].length, reads: window.__reads }));
     say(before === 2 && after.fives === 1 && after.reads === 2, '[chromium open] a list left open past a five-hour reset is read again, and that line goes', JSON.stringify({ before, after }));
+    // The read at the reset fails: the list stays, and a minute later it tries again and the line goes.
+    const p2 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p2.clock.install({ time: new Date(now) });
+    await p2.goto('file://' + PAGE);
+    await p2.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => {
+        if (String(u).indexOf('/api/accounts') === -1) return realFetch(u, o);
+        window.__reads++;
+        return window.__reads === 2 ? Promise.resolve({ ok: false, status: 503, json: async () => ({}) }) : Promise.resolve({ ok: true, json: async () => ({ accounts }) });
+      };
+      await paintAccounts();
+    }, rows);
+    await p2.clock.runFor(11 * 60e3); await p2.waitForTimeout(200);
+    const failed = await p2.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
+    await p2.clock.runFor(61e3); await p2.waitForTimeout(300);
+    const retried = await p2.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
+    say(failed.reads === 2 && failed.fives === 2 && retried.reads === 3 && retried.fives === 1, '[chromium open] a failed read at the reset is tried again a minute later, and the line goes', JSON.stringify({ failed, retried }));
     await browser.close();
   }
   console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nall good');
