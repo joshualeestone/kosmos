@@ -30286,7 +30286,7 @@ function oaRefreshComputers() {
         for (const a of [...OA_SEEN.keys()]) if (!keep.has(a)) OA_SEEN.delete(a);
       } else if (data && data.signedIn === false) OA_COMPUTERS = null;   // no Kosmos+ here: nothing to show
     } catch { /* keep the last good list */ }
-    finally { OA_REFRESHING = false; try { oaPaint(); } catch { /* next paint */ } }
+    finally { OA_REFRESHING = false; try { oaPaint(); } catch { /* next paint */ } try { if (typeof aoPaint === 'function') aoPaint(); } catch { /* next paint */ } }
   })();
 }
 function oaStart() {
@@ -30306,7 +30306,7 @@ function oaStart() {
    replaces it, "not let in" forgets it, and no answer keeps the last one (shown with its age), as #4812 does for agents.
    ⚠️ The other computer's answer is untrusted: every field is checked here and every string goes in through
    textContent. */
-const AO_SEEN = new Map();   // address -> { accounts: [...] | null (an older Kosmos), agents: [{ name, dir }], at }
+const AO_SEEN = new Map();   // address -> { accounts: [...] | null (an older Kosmos) | false (it could not read them), agents: [{ name, dir }], unknown, skew, at }
 const AO_MAX_ACCOUNTS = 50;
 const AO_MAX_AGENTS = 500;
 
@@ -30317,8 +30317,9 @@ function aoAccountsOf(body) {
   if (body && body.accountsWeekly === null) return false;
   if (!body || !Array.isArray(body.accountsWeekly)) return null;
   return body.accountsWeekly.filter((e) => e && typeof e === 'object' && aoStr(e.dir, 4096)).slice(0, AO_MAX_ACCOUNTS).map((e) => {
+    const when = (v) => Number.isFinite(v) && v > 0 && v < 1e13;   // epoch ms a Date can show (1e13 is the year 2286)
     const w = e.weekly && typeof e.weekly === 'object' && Number.isFinite(e.weekly.usedPct)
-      && Number.isFinite(e.weekly.resetsAt) && Number.isFinite(e.weekly.at) ? e.weekly : null;
+      && when(e.weekly.resetsAt) && when(e.weekly.at) ? e.weekly : null;
     return {
       dir: aoStr(e.dir, 4096), email: aoStr(e.email), label: aoStr(e.label), organization: aoStr(e.organization),
       isDefault: e.isDefault === true,
@@ -30335,8 +30336,21 @@ function aoAgentsOf(body) {
     .slice(0, AO_MAX_AGENTS)
     .map((a) => ({ name: aoStr(a.name) || aoStr(a.sessionName), dir: aoStr(a.account.dir, 4096) }));
 }
+/* How many of that computer's agents it could not tie to an account (their launch file unreadable): the list of an
+   account's agents is then "some could not be checked", as the row there says, never a confident "none". */
+function aoUnknownOf(body) {
+  if (!body || !Array.isArray(body.agents)) return 0;
+  return body.agents.slice(0, AO_MAX_AGENTS).filter((a) => a && typeof a === 'object' && a.isGuide !== true && aoStr(a.sessionName)
+    && !(a.account && typeof a.account === 'object' && aoStr(a.account.dir, 4096))).length;
+}
+/* That computer's clock against this page's: its answer's checkedAt is its "now", this read's time is ours. Its readings'
+   times are moved by the difference, so an age or a reset time is said in this page's clock. 0 when it sent none. */
+function aoSkewOf(body, now) {
+  const t = body && typeof body.checkedAt === 'string' ? Date.parse(body.checkedAt) : NaN;
+  return Number.isFinite(t) ? now - t : 0;
+}
 function aoKeep(address, state, body, now) {
-  if (state === 'ok') AO_SEEN.set(address, { accounts: aoAccountsOf(body), agents: aoAgentsOf(body), at: now });
+  if (state === 'ok') AO_SEEN.set(address, { accounts: aoAccountsOf(body), agents: aoAgentsOf(body), unknown: aoUnknownOf(body), skew: aoSkewOf(body, now), at: now });
   else if (state === 'notin') AO_SEEN.delete(address);   // a browser no longer let in must not keep showing them
 }
 /* Settings > AI Models is on screen. */
@@ -30347,7 +30361,8 @@ function aoShown() {
 }
 /* One account's weekly line, in the words its own row uses on that computer (acctUsageHtml): the same numbers,
    the same reasons. No warning and no move: those act on this board's engine, and the account is not here. */
-function aoUsageWords(e, now) {
+function aoUsageWords(e, now, skew) {
+  const k = Number.isFinite(skew) ? skew : 0;   // that computer's clock to this page's (aoSkewOf)
   const blockedSay = {
     'windows': 'Kosmos cannot read usage for this account on Windows yet.',
     'own-statusline': 'Kosmos cannot read usage for this account. It is set up its own way, and Kosmos leaves that alone.',
@@ -30361,7 +30376,7 @@ function aoUsageWords(e, now) {
     'not-wired': 'This is the last reading Kosmos saw. It will not update, because Kosmos is not set up to read this account\'s usage.',
   }[e.blocked] || '';
   /* A reading kept from an earlier read can outlive its week; the row there would no longer show it (readWeekly). */
-  const w = e.weekly && e.weekly.resetsAt > now ? e.weekly : null;
+  const w = e.weekly && e.weekly.resetsAt + k > now ? { usedPct: e.weekly.usedPct, resetsAt: e.weekly.resetsAt + k, at: e.weekly.at + k } : null;
   if (!w) return { pct: null, line: blockedSay || 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.', frozen: '' };
   const pct = Math.max(0, Math.min(100, Math.round(w.usedPct)));
   const resets = new Date(w.resetsAt).toLocaleString([], w.resetsAt - now > 6 * 864e5
@@ -30379,8 +30394,16 @@ function aoEl(tag, cls, text) {
 function aoGroup(c, seen, ao, now) {
   const g = aoEl('div', 'ao-computer');
   g.dataset.address = c.address;
-  g.appendChild(aoEl('p', 'ao-name', c.name));
+  const head = aoEl('p', 'ao-name', c.name);
+  g.appendChild(head);
   const st = seen ? seen.state : 'reading';
+  if (st !== 'out') {   // as the Agents view's group (#4812): where to sign in, or to see it there
+    const open = aoEl('a', 'oa-open', 'Open ' + c.name);
+    open.href = 'https://' + c.address + '/';
+    open.target = '_blank';
+    open.rel = 'noopener noreferrer';
+    g.appendChild(open);
+  }
   const stale = typeof oaStale === 'function' && oaStale(seen, now);
   let note = '';
   if (!ao) {
@@ -30402,7 +30425,7 @@ function aoGroup(c, seen, ao, now) {
     for (const e of ao.accounts) {
       const row = aoEl('div', 'ao-acct');
       row.appendChild(aoEl('p', 'ao-acct-name', e.email || e.label || (e.isDefault ? 'The first Claude account' : 'A Claude account')));
-      const u = aoUsageWords(e, now);
+      const u = aoUsageWords(e, now, ao.skew);
       if (u.pct !== null) {
         const meter = aoEl('div', 'acct-usage-meter');
         const bar = aoEl('span', 'bar');
@@ -30416,8 +30439,10 @@ function aoGroup(c, seen, ao, now) {
         if (u.frozen) row.appendChild(aoEl('p', 'acct-usage-line acct-usage-none', u.frozen));
       } else row.appendChild(aoEl('p', 'acct-usage-line acct-usage-none', u.line));
       const names = ao.agents.filter((a) => a.dir === e.dir).map((a) => a.name);
+      const some = ao.unknown > 0 ? ' (some could not be checked)' : '';   // the row's own words for an incomplete list
       row.appendChild(aoEl('p', 'acct-agents-line', names.length
-        ? 'Its agents on ' + c.name + ': ' + names.join(', ')
+        ? 'Its agents on ' + c.name + ': ' + names.join(', ') + some
+        : ao.unknown > 0 ? 'Kosmos could not check which agents on ' + c.name + ' are on it.'
         : 'Kosmos cannot see any agents on it on ' + c.name + '.'));
       g.appendChild(row);
     }
