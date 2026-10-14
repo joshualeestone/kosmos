@@ -390,19 +390,22 @@ const ACK_MAX_WORDS = 5;
 // round 8). 200 is comfortably above any genuine five-word ack with a long @mention and an
 // emoji, and far below the length at which the regex is slow.
 const ACK_MAX_CHARS = 200;
-// A closed lexicon of acknowledgement words. Two tokens are deliberately excluded to keep
-// a directive or a request from reading as agreement: "it" (a pronoun, never agreement on
-// its own -- it only glued "do it", an instruction) and bare "confirm" (a request to
-// confirm, not an acknowledgement; "confirmed"/"confirms" stay, since those ARE the ack).
+// A closed lexicon of acknowledgement words. Several tokens are deliberately excluded to keep
+// a directive, a request or a status report from reading as agreement: "it" (a pronoun, never
+// agreement on its own -- it only glued "do it", an instruction); the bare imperatives
+// "confirm" and "acknowledge" (an instruction to the reader -- "confirm this" / "acknowledge
+// this" -- not the reader agreeing; the past forms "confirmed"/"confirms"/"acknowledged" ARE
+// the ack and stay); and "done" (it reports that something finished, it does not agree, so a
+// "done" answering "is it ready?" is a status the room may need, not a content-free ack).
 // "do"/"will do" stay (willingness to act is agreement; without "it", "do it" cannot form).
-// "done"/"yes" are kept knowingly: they are acknowledgements in the loop context, and a run
-// of four bare status/answer posts with no content signal is itself loop-shaped, which is
-// exactly what this trigger is meant to catch; the 4-consecutive gate bounds the false-positive.
+// "yes" stays: it is an acknowledgement in the loop context, and the run gate in messages.js
+// (4 consecutive AND at least one sender repeating -- a true back-and-forth, not a poll of
+// distinct answerers) bounds the false-positive.
 const ACK_WORDS = new Set([
   'agreed', 'agree', 'agrees', 'thanks', 'thank', 'thx', 'ty', 'confirmed',
-  'confirms', 'ack', 'acked', 'acknowledged', 'acknowledge', 'ok', 'okay', 'okey', 'k',
+  'confirms', 'ack', 'acked', 'acknowledged', 'ok', 'okay', 'okey', 'k',
   'kk', 'yes', 'yep', 'yeah', 'yup', 'sure', 'sounds', 'good', 'great', 'perfect',
-  'will', 'do', 'done', 'noted', 'got', 'understood', 'roger', 'cool', 'nice',
+  'will', 'do', 'noted', 'got', 'understood', 'roger', 'cool', 'nice',
   'fine', 'right', 'correct', 'indeed', 'affirmative', 'ditto', 'same', 'to', 'me',
 ]);
 // A few common acknowledgement emoji, judged whole (never trimmed as punctuation).
