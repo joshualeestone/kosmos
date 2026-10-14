@@ -2,32 +2,41 @@
 pre_challenge: true
 method: challenge-loop
 branch: ackrun-4934
-diff_hash: c70200d38e853285d8ee10cd047a67f413671355a7307ee0e1299943297353bf
+diff_hash: 91f4c01b75632b12d8729fe252acca66dc319dc3c197408eba59b36c7f5f9e2b
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-14T20:32:01Z
-iterations: 11
+timestamp: 2026-10-14T21:20:43Z
+iterations: 15
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 11 (converged at iteration 11, zero new BLOCKER/WARNING/CONVENTION)
+**Iterations:** 15 (converged at iteration 15, zero new BLOCKER/WARNING/CONVENTION)
 **Converged:** Yes
-**Reviewer model rotation:** Opus (1,3,5,7,9,11) and Sonnet (2,4,6,8,10); convergence witnessed by both.
+**Reviewer model rotation:** Opus (1,3,5,7,9,11,13,15) and Sonnet (2,4,6,8,10,12,14); convergence witnessed by both.
 
-The loop ran 1-7 before the first PR, converging at 7. The PR was then reviewed by the PM
-(Liu Kang), who found a BLOCKER the blind loop had not: the ack-run refusal reused the
-`room_held` code and wrote a stopped valve row, so every message about it (the CLI, the
-person's feed) falsely said the room was HELD, when in fact only the ack-only post is
-refused and the next content post is delivered at once. A false hold makes agents sit on
-real content, the dangerous direction this trigger exists to prevent. The loop was reopened
-(skill step 6e) and rounds 8-11 hardened the fix to convergence.
+The loop ran 1-7 before the first PR, converging at 7. The PR was reviewed by the PM (Liu
+Kang), who found a BLOCKER the blind loop had not: the ack-run refusal reused the `room_held`
+code and wrote a stopped valve row, so every message about it (the CLI, the person's feed)
+falsely said the room was HELD, when in fact only the ack-only post is refused and the next
+content post is delivered at once. The loop was reopened (skill step 6e) and rounds 8-11
+hardened that fix to convergence; the heavy suite passed and the fix was pushed.
+
+The PM then RE-REVIEWED at that head, cleared the hold-honesty blocker, and ruled two more
+changes as one problem: (1) drop the lexicon's bare `acknowledge` (an imperative like the
+excluded `confirm`) and `done` (a status report, not agreement); (2) a second BLOCKER he
+found by reading the code: the run counted every sender together with no sender dimension,
+so a POLL (a person or agent asks the room "everyone ready?" and four fighters each answer
+"yes") dropped the fourth answer and told its sender it only agreed with what was said,
+recording nothing. An answer someone asked for was lost, the dangerous direction. The loop
+was reopened again and rounds 12-15 implemented and hardened the sender-dimension fix to
+convergence.
 
 Every fixed finding was in the DANGEROUS direction (real content or a real participant
-wrongly treated as a content-free acknowledgement loop, or the refusal falsely presented as
-a hold). The deferred findings are lexicon-tuning refinements to the approved core, each
-judged defensible and flagged for the PM.
+wrongly treated as a content-free acknowledgement loop, a requested answer dropped, or the
+refusal falsely presented as a hold). The deferred findings are lexicon-tuning refinements to
+the approved core, each judged defensible and flagged for the PM.
 
 ### Per-Iteration Breakdown
 
@@ -94,6 +103,64 @@ the under-budget gate verified, the doctrine fingerprint/length recomputed and m
 all touched + doctrine test files green. NITs: the lexicon standalone words (deferred family);
 ACK_RUN_LIMIT declared after its one use (no runtime effect, mirrors ROOM_HELD_REFUSAL).
 
+#### Iteration 12 (loop reopened after PM RE-REVIEW; PM ruled the lexicon + a sender-dimension BLOCKER)
+**Reviewer model:** sonnet
+**New findings:** 1 WARNING (dangerous direction), CONVENTION + NITs.
+Implemented the PM ruling first: dropped `acknowledge`/`done` from the lexicon, and added the
+sender dimension (a run is a loop only when a sender repeats; a poll of distinct answerers is
+delivered), with both required test arms. The blind round then found: [WARNING] the run keyed a
+sender on `from`, a capped display NAME, so two outsiders sharing a name (or an outsider whose
+name equals a local agent's) read as a false repeat and a poll's answer was dropped in federated
+rooms -> FIXED (keyed on the stable `member` id, namespaced, empty excluded; later simplified in
+15). [CONVENTION] the lexicon comment implied `ack` was excluded -> reworded (`ack`/`acked` stay
+as the acknowledgement token). [NIT] no classifier test pinned the lexicon change -> added.
+
+#### Iteration 13
+**Reviewer model:** opus
+**New findings:** 1 BLOCKER-class (dangerous direction).
+[WARNING, treated as blocker] the back-and-forth test gated on "any sender repeats ANYWHERE in the
+run", which punished the NEXT arrival rather than the repeater: once one sender double-acked, a
+brand-new distinct answerer's first reply was refused and dropped with nothing stored -> FIXED:
+refuse only when the INCOMING sender is already in the trailing run (continuing its own loop). A
+first-time answerer is delivered even when others have repeated. Added a poison-case test with a
+control. This refines the PM's literal "at least one sender appears twice" to "the INCOMING sender
+appears twice", serving the same intent and both his arms (flagged to the PM).
+
+#### Iteration 14
+**Reviewer model:** sonnet
+**New findings:** 1 WARNING (dead code), CONVENTION + NITs.
+[WARNING] the `member`-keyed external identity was DEAD: the incoming post is always a local agent
+and external identities were namespaced apart, so an external row could never match the incoming
+and never changed a verdict; the federated test passed for the wrong reason -> FIXED by simplifying
+to the real rule (only a LOCAL prior sender can be the incoming local agent repeating; external
+rows count toward run LENGTH, not who-is-repeating; no namespacing needed). [CONVENTION] two
+comments still said "at least one sender repeats" -> aligned to the incoming-sender rule. Replaced
+the federated test with a discriminating one (an outsider sharing a local name does not refuse the
+local agent's first ack).
+
+#### Iteration 15
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs (NITs only, all non-gating).
+**Converged**: traced the data flow (`from` == stored `.from` == sessionName), confirmed a
+first-time answerer can never be refused and a two-party loop is always caught, verified external
+rows affect length not repetition, all three comments consistent with the code, the tests
+discriminate with real controls and correct time-ordering, no ReDoS and no security concern; ran
+the targeted suite green. NITs: the large-room poll bound (intended tradeoff, volume-valve
+backstopped); the pre-existing standalone lexicon words (deferred family).
+
+### Final Ledger (continuation rounds 12-15, after the PM re-review)
+
+| # | Iter | Category | File | Origin | Description | Status | Resolution |
+|---|------|----------|------|--------|-------------|--------|------------|
+| K | 12 | PM-RULING | chat.js lexicon | PM | drop bare `acknowledge` (imperative) and `done` (status) | FIXED | removed from ACK_WORDS; pinned as content in chat.test.js |
+| L | 12 | PM-BLOCKER | messages.js | PM | run had no sender dimension; a poll dropped a requested answer | FIXED | a run is a loop only on a repeating sender; poll delivered; both arms tested |
+| M | 12 | WARNING | messages.js | SELF | sender keyed on display `from`; federated false repeat dropped a poll answer | FIXED | keyed on stable identity (simplified in 14 to local-sender-only) |
+| N | 12 | CONVENTION | chat.js lexicon | SELF | comment implied `ack` excluded | FIXED | reworded; `ack`/`acked` stay as the ack token |
+| O | 13 | BLOCKER | messages.js | SELF | "any repeat in run" punished the next arrival, dropping a first-time answer | FIXED | refuse only when the INCOMING sender is already in the run |
+| P | 14 | WARNING | messages.js | SELF | member-keyed external identity was dead code; test passed for the wrong reason | FIXED | simplified to local-prior-sender rule; discriminating test |
+| Q | 14 | CONVENTION | messages.js / chat.js | SELF | two comments said "any sender repeats" | FIXED | aligned to the incoming-sender rule |
+| R | 15 | NIT | messages.js / chat.js lexicon | SELF | large-room poll bound; standalone lexicon words | DEFERRED | intended tradeoff (volume valve); lexicon family flagged for PM |
+
 ### Final Ledger (continuation rounds 8-11; the first-loop 15-row ledger is preserved in the
 section below)
 
@@ -156,6 +223,11 @@ do not block convergence.
   "goes through straight away" promise always holds (over budget yields the genuine room_held).
 - No stored isAck flag: the run is recomputed from stored text on read, so the verdict cannot
   drift; the run scan includes federated external posts, classified by text.
+- A poll is not a loop: the incoming ack is refused only when its OWN sender already appears in the
+  trailing run (a back-and-forth it is continuing). Distinct senders each answering once -- a poll
+  like "everyone ready?" -> four "yes"es -- are delivered; a first-time answerer is never refused
+  even when others have repeated; two agents trading acks are still caught by the trader's own
+  repeat; a poll that grows past the volume budget is held by the volume valve, not here.
 - The doctrine bump is internally consistent end to end (DOCTRINE_VERSION 32, version-log entry,
   pinned fp 73e44376fbc76c20 == doctrine-past v32 sha256 prefix, length 28522), and the doctrine
   text teaches "stops passing on", never "hold".
@@ -164,9 +236,13 @@ do not block convergence.
   external ack control.
 
 ### Final validation (6j): full heavy suite on the converged head
-- **Head:** 4194d48d7a200c12ed6e15f406a29bc606e438d4 (converged; diff_hash above)
+- **Head:** f4219b20a027ab61de9d7b583789de5027cbc767 (converged at iteration 15; diff_hash above)
 - **Command:** `unset KOSMOS_AGENT_TOKEN; bash tools/run-tests.sh` (token unset so the 3
   server.subtasks-3861 tests do not false-red)
-- **Result:** node suite 20593 tests: 20341 pass, 252 skip, 0 fail, 0 cancelled, 0 todo (accounted: 20341 + 252 = 20593, zero unaccounted). Shell suite: all 232 passed, 0 failed. HEAVY_EXIT=0.
+- **Result:** GREEN. HEAVY_EXIT=0. Node: tests 20598, pass 20346, skip 252, fail 0,
+  cancelled 0, todo 0 (20346 + 252 = 20598, fully accounted). Shell: 232/232 passed.
 - Two-signal gate: exit code AND the tally fully accounts for every test (pass + skip + fail +
   cancelled = total), so this is not a killed-suite false green.
+- (An earlier rounds-8-11 head, 4194d48d7, passed the heavy suite before the PM re-review: node
+  20593 tests, 20341 pass, 252 skip, 0 fail, 0 cancelled, exit 0. This run re-validates the
+  converged head after the rounds-12-15 changes.)
