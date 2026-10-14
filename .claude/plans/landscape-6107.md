@@ -44,6 +44,12 @@ behave exactly as before.
 - Known limit (review round 10): the layout is applied when /api/style answers, so a sideways tablet paints the
   tabbed board for a moment before one screen, as every screen does with the board's setting today. Applying the
   tablet's own choice before that read would change the boot order for every screen; not done here.
+- Known limit (review round 15): the rule keys on the pointer, not on the screen being another device. A Windows
+  touchscreen that hosts the board itself, in tablet mode with no keyboard, also matches: its header toggle then keeps
+  a per-device choice and stops changing the board setting, and attaching the keyboard brings the board's layout back.
+  Rare (a board host used keyboardless); keying the rule on a remote screen is the next step if it is reported.
+- Not done (review round 15): an addListener fallback for the turn listener, which only Safari before 14 (iPadOS 13)
+  needs; there the layout is re-applied at the next reload instead.
 ## Done when
 Shots at ipadminiland and ipad11land show the one-screen view by default with the rail open; a browser check
 pins the default, the per-device toggle (board setting unchanged) and the controls (turned upright, a mouse at

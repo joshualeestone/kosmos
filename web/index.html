@@ -48901,7 +48901,7 @@ async function paintStyles(apply) {
   }
 }
 /* #2618: paintStyles(true) still runs on load -- it applies the saved LAYOUT
-   (applyLayout) and any saved palette tokens, and self-guards the now-removed
+   (applyLayout, through deviceLayout: a sideways touch tablet gets its own, #6107) and any saved palette tokens, and self-guards the now-removed
    #style-theme / #style-msg elements. The Settings > Styles theme <select> and its
    change handler were removed with the tab. */
 paintStyles(true);
