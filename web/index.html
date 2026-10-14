@@ -27282,10 +27282,10 @@ function acctUsageHtml(a, list) {
   let usage = '';
   /* #6175: an account with no status line at all can have the reading set up here (the same wiring as when Kosmos
      creates an account; a status line of the person's own is never replaced, which is 'own-statusline', not this). */
-  const acctIdOf = (d) => String(d).replace(/[^A-Za-z0-9_-]/g, '_');   // an id from the folder, for aria-describedby
+  const whyId = 'acct-usage-why-' + (++ACCT_SOON_SEQ);   // review 2: a sequence, as the warning lines use (a folder-derived id could collide)
   const usageSetup = a.weeklyBlocked === 'not-wired' && !a.apiKey
-    ? '<p class="acct-usage-line acct-usage-none" id="acct-usage-why-' + acctIdOf(a.dir) + '">Setting it up adds Kosmos\u2019s status line to this account\u2019s Claude Code. It shows nothing, but it takes one empty row under the prompt.</p>'
-      + '<button class="acct-check" type="button" data-usage-setup="' + esc(a.dir) + '" aria-describedby="acct-usage-why-' + acctIdOf(a.dir) + '">Set up usage reading</button>'
+    ? '<p class="acct-usage-line acct-usage-none" id="' + whyId + '">Setting it up adds Kosmos\u2019s status line to this account\u2019s Claude Code. It shows nothing, but it takes one empty row under the prompt.</p>'
+      + '<button class="acct-check" type="button" data-usage-setup="' + esc(a.dir) + '" aria-describedby="' + whyId + '">Set up usage reading</button>'
     : '';
   if (!a.apiKey) {
     if (w) {
@@ -28227,9 +28227,21 @@ async function paintAccounts(opts) {
         try { await paintAccounts(); } catch { /* the next paint shows it */ }
         /* Review 1: the repaint removed the focused button; say it worked in the panel's status line (after the
            repaint, which writes there too) and put focus on the account's row. */
-        if (msg) msg.textContent = 'Usage reading set up. Kosmos reads it once an agent on this account is working.';
-        const rowNow = [...box.querySelectorAll('.acct-box')].find((b) => b.dataset.acctDir === dir);
-        if (rowNow) { rowNow.setAttribute('tabindex', '-1'); rowNow.focus(); }
+        /* Review 2: a paint already in flight can replace the row and clear the line after ours, so the claim is
+           re-made for about a second whenever the row node changes or the line is no longer ours. */
+        const OK_SAY = 'Usage reading set up. Kosmos reads it once an agent on this account is working.';
+        const claim = () => {
+          const r = [...box.querySelectorAll('.acct-box')].find((b) => b.dataset.acctDir === dir) || null;
+          if (r && document.activeElement !== r) { r.setAttribute('tabindex', '-1'); r.focus(); }
+          if (msg && msg.textContent !== OK_SAY) msg.textContent = OK_SAY;
+          return r;
+        };
+        let last = claim();
+        for (let i = 0; i < 10; i++) {
+          await new Promise((r) => setTimeout(r, 100));
+          const r = [...box.querySelectorAll('.acct-box')].find((b) => b.dataset.acctDir === dir) || null;
+          if (r !== last || (msg && msg.textContent !== OK_SAY)) last = claim();
+        }
         return;
       }
       const raw = j.because || j.error;
