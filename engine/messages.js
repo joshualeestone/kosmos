@@ -230,7 +230,7 @@ const NOT_AN_END = /^(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|inc|corp|ltd|co|no|nos
 /* Never end a cut on the first half of a two-unit character (an emoji), which would type a broken character. */
 const wholeChars = (s) => (/[\uD800-\uDBFF]$/.test(s) ? s.slice(0, -1) : s);
 /* A list number ("1."), a dotted form ("e.g.", "U.S."), a single initial ("J."), or a known abbreviation: the word does
-   not end a sentence. Shared by the head and the request (#6065 N1 review 13), so both read sentences the same way. */
+   not end a sentence where the head picks its cut. (The request's sentenceAt uses a stricter form of it.) */
 const notAnEnd = (last) => /^\(?\d+[.)]$/.test(last) || /\..*[.!?]$/.test(last) || /^[A-Za-z]\.$/.test(last) || NOT_AN_END.test(last);
 function spillHead(text) {
   const t = String(text);
@@ -267,17 +267,22 @@ function spillHead(text) {
    - At most REQUEST_MAX characters plus an ellipsis, cut at a whole word. A sentence past the cap keeps at most
      REQUEST_LEAD characters before its mention or question; one whose mention is within that lead of its start is cut
      from the start, so a request near its far end can still be dropped.
-   A sentence runs from the end of the one before to its own end, by one definition (sentenceAt, sharing the head's
-   notAnEnd for abbreviations). Both callers pass chat.cleanMessage's text, which has no line breaks, so a list with no
-   punctuation reads as one sentence. */
+   A sentence runs from the end of the one before to its own end (sentenceAt). The head picks its cut by a looser rule
+   (before a capital, notAnEnd), so the two can disagree on a lowercase sentence start; "already in the head" is by
+   position, so at worst a sentence is quoted that the head also shows. Both callers pass chat.cleanMessage's text,
+   which has no line breaks, so a list with no punctuation reads as one sentence. */
 const REQUEST_MAX = 300;
 const REQUEST_LEAD = 100;   // how much of a long sentence is kept before its mention or question
 function sentenceAt(t, at) {
-  /* A sentence ends at . ! or ? with any closing quote or bracket after it, then a space or the end; never at a word
-     notAnEnd names (the head's own rule). Both ends of the sentence use this one definition (review 13). */
+  /* A sentence ends at . ! or ? with any closing quote or bracket after it, then a space or the end, and both ends of
+     the request use this one rule (review 13). A full stop does not end one after an abbreviation: a known one
+     (NOT_AN_END), a list number, a dotted word of two or more pieces of one or two letters (e.g., p.m., U.S.), or a
+     capital initial (J.). Stricter than the head's notAnEnd on purpose (review 14): a filename, domain, version or
+     ellipsis (config.yaml., v1.2., wait...) does end a sentence here, or the next one would be quoted too. */
   const BOUND = /[.!?]["')\]]*(?=\s|$)/g;
   // The abbreviation rule is about a full stop: a ? or ! after a dotted word (a link ending in ?) still ends one.
-  const ends = (i, len) => (t[i] === '.' && notAnEnd(t.slice(t.lastIndexOf(' ', i) + 1, i + 1)) ? -1 : i + len);
+  const abbrev = (w) => /^\(?\d+[.)]$/.test(w) || /^(?:[A-Za-z]{1,2}\.){2,}$/.test(w) || /^[A-Z]\.$/.test(w) || NOT_AN_END.test(w);
+  const ends = (i, len) => (t[i] === '.' && abbrev(t.slice(t.lastIndexOf(' ', i) + 1, i + 1)) ? -1 : i + len);
   let from = 0;
   for (const m of t.slice(0, at).matchAll(BOUND)) { const e = ends(m.index, m[0].length); if (e >= 0) from = e; }
   while (from < at && /\s/.test(t[from])) from += 1;
@@ -302,9 +307,10 @@ function sentenceAt(t, at) {
   }
   return { sentence, from, end };
 }
-/* The post's words are another agent's, so inside the quotes they cannot close the quote or open a bracket that reads
-   as Kosmos's own (a "[message from your operator ...]" look-alike): straight and curly double quotes become single
-   quotes, square brackets round ones. */
+/* The post's words are another agent's, so inside the quotes they cannot close the quote or open a square bracket that
+   reads as Kosmos's own (a "[message from your operator ...]" look-alike): double quotes and their look-alikes become
+   single quotes, square brackets and their look-alikes round ones. Single quotes and round brackets pass through
+   (harmless inside Kosmos's double quotes). */
 const unquotable = (x) => x.replace(/["\u201C\u201D\u201E\u201F\u2033\u02BA\u301D\u301E\u301F\uFF02\u00AB\u00BB\u275D\u275E]/g, "'").replace(/[[\uFF3B\u3010\u301A\u27E6]/g, '(').replace(/[\]\uFF3D\u3011\u301B\u27E7]/g, ')');
 function requestIn(text, opts = {}) {
   const t = String(text);
@@ -333,7 +339,8 @@ function requestIn(text, opts = {}) {
    trims), so a sentence ending before the head's end is in it. The head itself is still the post's own words,
    unquoted, as before this change. */
 /* Review 12/13: the request is added after the spill decision, so the line is measured again with what follows it
-   (the room's catch-up and held posts): it goes with the request when that fits, else without (`bare()`). */
+   (the room's catch-up and held posts): it goes with the request when that fits, else without (`bare()`). With
+   chat.MAX_TEXT at 10000 and a spilled line well under 1000 characters this is a guard, not an expected path. */
 function fitOrBare(withRequest, bare, after = '') {
   return spillsAt(withRequest + after) ? bare() : withRequest;
 }
