@@ -80,3 +80,13 @@ test('review 1: a repaint with nothing changed writes nothing (no re-announce ev
   r3.paint({ id: 'p1', goalAskGaveUp: { ...GAVE, tries: 'many' } });
   assert.equal(r3.line().hidden, true, 'a count the board never sends was shown');
 });
+
+test('review 3: when Kosmos\'s own ask failed (threw), the line does not blame the agent', () => {
+  const { paint, line } = rig(false);
+  paint({ id: 'p1', goalAskGaveUp: { ...GAVE, because: 'threw' } });
+  assert.match(line().textContent, /^Kosmos could not ask Echo to plan/);
+  assert.doesNotMatch(line().textContent, /could not reach/);
+  const c = rig(false);
+  c.paint({ id: 'p1', goalAskGaveUp: GAVE });
+  assert.match(c.line().textContent, /^Kosmos could not reach Echo/, 'CONTROL: an undelivered ask still says could not reach');
+});

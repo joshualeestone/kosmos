@@ -73976,8 +73976,10 @@ function paintGoalAsk(p) {
   const show = PJ_READ_FAILED !== true && !!(g && typeof g.agent === 'string' && g.agent && Number.isInteger(g.tries) && g.tries > 0);
   /* Review 1: the board's words, not a guess at the calendar: a give-up stands for a day from its own time, and the
      next ask is due a day after the last try (later if the hourly caps are spent). */
+  /* Review 3: 'threw' is Kosmos's own ask failing, not the agent being out of reach, so it is not blamed on the agent. */
+  const lead = g && g.because === 'threw' ? 'Kosmos could not ask ' : 'Kosmos could not reach ';
   const words = show
-    ? 'Kosmos could not reach ' + g.agent + ' to plan the next work toward this project\'s goal (' + g.tries
+    ? lead + g.agent + ' to plan the next work toward this project\'s goal (' + g.tries
       + (g.tries === 1 ? ' try' : ' tries') + ' in the last day). It will try again later; to start sooner, give the project a task.'
     : '';
   /* Review 1: written only when it changes, as paintHeadPause does, so this status line is not re-announced on every
