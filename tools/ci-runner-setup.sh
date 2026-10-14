@@ -52,13 +52,13 @@ NAME="${KOSMOS_CI_RUNNER_NAME:-kosmos-ci-agent1s}"
 LABELS="self-hosted,macOS,arm64,kosmos-ci"
 BREW="${KOSMOS_CI_BREW:-/opt/homebrew}"            # the engine's fixed tmux fallback is /opt/homebrew/bin/tmux
 MIN_FREE_GIB="${KOSMOS_CI_MIN_FREE_GIB:-20}"       # the fleet's disk floor
-ALLOW_JOBS="${KOSMOS_CI_ALLOW_JOBS:-}"
-SYSTEM_AGENTS="${KOSMOS_CI_SYSTEM_AGENTS:-/System/Library/LaunchAgents}"   # Apple's own, whatever their label             # an ERE of non-Apple launchd labels that may stay loaded
+ALLOW_JOBS="${KOSMOS_CI_ALLOW_JOBS:-}"             # an ERE of non-Apple launchd labels that may stay loaded
+SYSTEM_AGENTS="${KOSMOS_CI_SYSTEM_AGENTS:-/System/Library/LaunchAgents}"   # Apple's own, whatever their label
 # From CI_HOME, not HOME: a dry run rehearsed as the owner then names and checks kosmos-ci's own paths. With --apply,
 # need_user refuses unless HOME is CI_HOME, so the two agree.
 RUNNER_DIR="$CI_HOME/actions-runner"
-# The jobs' PATH, written to BOTH places the runner reads one: .env, and .path, which config.sh's env.sh fills from
-# the PATH of the shell that ran config.sh and runsvc.sh exports. register rewrites .path after config.sh so the two agree.
+# The jobs' PATH. .env carries it, and .env wins: runsvc.sh exports .path, then Runner.Listener's LoadAndSetEnv
+# (Program.cs) sets every .env line over it. register still writes .path to match, so the two never disagree.
 RUNNER_PATH="/usr/bin:/bin:/usr/sbin:/sbin:$BREW/bin:/usr/local/bin:$CI_HOME/.local/bin"
 CI_DIR="$CI_HOME/.kosmos-ci"
 
@@ -99,9 +99,13 @@ ok() { printf 'ok:     %s\n' "$*"; }
 # One variable by name, so no listing page can hide it.
 repo_variable() {
   local out rc=0
-  out="$(gh api "repos/$REPO/actions/variables/$1" --jq '"=" + .value' 2>&1)" || rc=$?
+  local errf err
+  errf="$(mktemp)" || return 1
+  # stderr apart: a warning gh prints on success must not become part of the value.
+  out="$(gh api "repos/$REPO/actions/variables/$1" --jq '"=" + .value' 2>"$errf")" || rc=$?
+  err="$(cat "$errf")"; rm -f "$errf"
   if [ "$rc" = 0 ]; then printf '%s' "${out#=}"; return 0; fi
-  case "$out" in *"HTTP 404"*) ;; *) return 1 ;; esac
+  case "$out$err" in *"HTTP 404"*) ;; *) return 1 ;; esac
   # GitHub also answers 404 for a repo the token cannot see: trust it only if the variables list itself reads.
   gh api "repos/$REPO/actions/variables?per_page=1" >/dev/null 2>&1 || return 1
   printf '<unset>'
@@ -233,6 +237,8 @@ install_runner() {
   if [ -e "$RUNNER_DIR/.env" ] && [ ! -r "$RUNNER_DIR/.env" ]; then
     echo "refused: cannot read $RUNNER_DIR/.env (run as $CI_USER), so its KOSMOS_ keys cannot be ruled out; nothing changed" >&2; exit 1
   fi
+  # The runner names each .env variable by the text before "=" (Program.cs LoadAndSetEnv), so "export KOSMOS_X=1" is
+  # inert to it; that line is refused anyway, as a lock override somebody meant to set.
   if [ -f "$RUNNER_DIR/.env" ] && grep -q -E '^[[:space:]]*(export[[:space:]]+)?KOSMOS_' "$RUNNER_DIR/.env"; then
     echo "refused: $RUNNER_DIR/.env sets a KOSMOS_ variable ($(grep -E '^[[:space:]]*(export[[:space:]]+)?KOSMOS_' "$RUNNER_DIR/.env" | cut -d= -f1 | tr '\n' ' ')); a wait control there turns the suite lock off for every job. Remove it first." >&2
     exit 1
@@ -401,7 +407,7 @@ EOF
     else ok "$RUNNER_DIR/.env sets no KOSMOS_ variable"; fi
     for k in STARTED COMPLETED; do
       f="job-$(printf '%s' "$k" | tr '[:upper:]' '[:lower:]').sh"
-      if grep -q -x "ACTIONS_RUNNER_HOOK_JOB_$k=$CI_DIR/$f" "$RUNNER_DIR/.env"; then ok "the $f hook is wired"
+      if grep -q -F -x "ACTIONS_RUNNER_HOOK_JOB_$k=$CI_DIR/$f" "$RUNNER_DIR/.env"; then ok "the $f hook is wired"
       else problem "$RUNNER_DIR/.env does not set ACTIONS_RUNNER_HOOK_JOB_$k=$CI_DIR/$f: the job guard is not wired"; fi
     done
   fi
@@ -411,12 +417,12 @@ EOF
     done
     [ ! -r "$CI_DIR/job-guard.sh" ] || echo "note:   job guard sha256 $(shasum -a 256 "$CI_DIR/job-guard.sh" | cut -d' ' -f1) (compare with the install pin)"
   else echo "note:   cannot read $CI_DIR as $(id -un); the hook files are unchecked"; fi
-  # .path is what runsvc.sh exports; config.sh refills it from its own shell, so a re-register can undo register's
-  # (a re-register needs ./svc.sh uninstall and ./config.sh remove first: config.sh refuses a configured runner).
+  # .env's PATH wins for jobs (see RUNNER_PATH), so a different .path is a note, not a problem. config.sh refills it
+  # from its own shell, so a re-register (./svc.sh uninstall and ./config.sh remove first) can undo register's.
   if [ ! -e "$RUNNER_DIR/.path" ]; then ok "no $RUNNER_DIR/.path here"
   elif [ ! -r "$RUNNER_DIR/.path" ]; then echo "note:   cannot read $RUNNER_DIR/.path as $(id -un)"
   elif [ "$(cat "$RUNNER_DIR/.path")" = "$RUNNER_PATH" ]; then ok ".path is the PATH .env sets"
-  else problem "$RUNNER_DIR/.path is not $RUNNER_PATH (config.sh's own shell PATH?): as $CI_USER in its Screen Sharing session, write that line to it, then ./svc.sh stop and ./svc.sh start"; fi
+  else echo "note:   $RUNNER_DIR/.path is not $RUNNER_PATH (config.sh's own shell PATH?). Jobs use .env's PATH; to tidy it, write that line to .path"; fi
   say "what a job left behind (between jobs, $CI_USER should run no tmux or node but the runner's own)"
   local left busy2
   # ps reads THIS Mac only, and an unknown user makes it fail with no lines, which must not read as "nothing left".

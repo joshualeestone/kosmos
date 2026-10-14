@@ -53,10 +53,10 @@ case "$me" in
     [ -z "${FX_PS:-}" ] || printf '%s\n' "$FX_PS" ;;
   gh)
     [ "${FX_GH_FAIL:-0}" = 1 ] && exit 1
-    [ "${FX_GH_500:-0}" = 1 ] && { echo "gh: Server Error (HTTP 500)"; exit 1; }
+    [ "${FX_GH_500:-0}" = 1 ] && { echo "gh: Server Error (HTTP 500)" >&2; exit 1; }
     case "$*" in
-      *"actions/variables?per_page=1"*) [ "${FX_VARLIST_FAIL:-0}" = 1 ] && { echo "gh: Not Found (HTTP 404)"; exit 1; }; echo '{}' ;;
-      *actions/variables/KOSMOS_CI_SHELL_SHARDS*) [ -n "${FX_SHARDS+set}" ] || { echo "gh: Not Found (HTTP 404)"; exit 1; }; printf '=%s' "$FX_SHARDS" ;;
+      *"actions/variables?per_page=1"*) [ "${FX_VARLIST_FAIL:-0}" = 1 ] && { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }; echo '{}' ;;
+      *actions/variables/KOSMOS_CI_SHELL_SHARDS*) [ -n "${FX_SHARDS+set}" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }; [ -z "${FX_GH_STDERR:-}" ] || echo "$FX_GH_STDERR" >&2; printf '=%s' "$FX_SHARDS" ;;
       *actions/variables/KOSMOS_CI_RUNNER*) printf '=%s' "${FX_RUNNER_VAR-on}" ;;
       *"| .busy"*) [ "${FX_BUSY2_FAIL:-0}" = 1 ] && exit 1; row="${FX_RUNNER_ROW-online false x}"; set -- $row; printf '%s\n' "${FX_BUSY2:-$2}" ;;
       *actions/runners*) printf '%s\n' "${FX_RUNNER_ROW-online false arm64,kosmos-ci,macos,self-hosted}" ;;
@@ -185,6 +185,10 @@ run cu-nolaunchctl "$H" FX_LAUNCHCTL_FAIL=1 -- --apply create-user
   && pass "create-user --apply refuses when launchctl cannot be read (no fail-open under ||)" || fail "create-user, launchctl unreadable: rc $(rc cu-nolaunchctl)"
 run cu-noop "$H" FX_SYSADMIN_NOOP=1 -- --apply create-user
 [ "$(rc cu-noop)" = 1 ] && has cu-noop "was not created" && pass "create-user --apply stops when sysadminctl made no user" || fail "create-user no-op: rc $(rc cu-noop)"
+run cu-admin "$H" "FX_GROUPS=staff admin" -- --apply create-user
+[ "$(rc cu-admin)" = 1 ] && has cu-admin "came out an admin" && pass "create-user --apply stops when the new user is an admin" || fail "create-user admin: rc $(rc cu-admin)"
+run pf-ghwarn "$H" FX_SHARDS=off "FX_GH_STDERR=A new release of gh is available: 1/2" -- preflight
+[ "$(rc pf-ghwarn)" = 0 ] && has pf-ghwarn "set to 'off', which names no shard" && pass "a gh warning on stderr is not read as the variable's value" || fail "gh stderr warning: rc $(rc pf-ghwarn): $(grep -i shards "$T/pf-ghwarn.out")"
 run cu-exists "$H" FX_CI_EXISTS=1 -- --apply create-user
 [ "$(rc cu-exists)" = 1 ] && ! changed cu-exists >/dev/null && pass "create-user refuses when kosmos-ci exists" || fail "create-user exists: rc $(rc cu-exists)"
 
@@ -203,7 +207,7 @@ run in-who "$CH" -- --apply install "$C" "$G"
 [ "$(rc in-who)" = 2 ] && has in-who "runs as kosmos-ci" && ! changed in-who >/dev/null && pass "install --apply refuses as any user but kosmos-ci" || fail "install as agent1: rc $(rc in-who)"
 mkdir -p "$CH/actions-runner"; printf 'LANG=C\nexport KOSMOS_NO_WAIT=1\n' > "$CH/actions-runner/.env"
 run in-env-export "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- install "$C" "$G"
-[ "$(rc in-env-export)" = 1 ] && has in-env-export "KOSMOS_NO_WAIT" && pass "install refuses an 'export KOSMOS_' line in the runner .env" || fail "install export KOSMOS_: rc $(rc in-env-export)"
+[ "$(rc in-env-export)" = 1 ] && has in-env-export "KOSMOS_NO_WAIT" && pass "install refuses an 'export KOSMOS_' line in the runner .env (inert to the runner, refused as a meant override)" || fail "install export KOSMOS_: rc $(rc in-env-export)"
 printf 'LANG=C\nKOSMOS_TESTS_IGNORE_SUITE=1\n' > "$CH/actions-runner/.env"
 run in-env "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- install "$C" "$G"
 [ "$(rc in-env)" = 1 ] && has in-env "KOSMOS_TESTS_IGNORE_SUITE" && pass "install refuses a runner .env with a KOSMOS_ wait control (the suite lock)" \
@@ -322,7 +326,7 @@ chmod 755 "$VCI/.kosmos-ci/job-guard.sh"
 printf '%s\n' "/usr/bin:/bin:/usr/sbin:/sbin:$BREWD/bin:/usr/local/bin:$VCI/.local/bin" > "$VCI/actions-runner/.path"
 vcase path-agrees 0 ".path is the PATH .env sets"
 echo "/login/shell/path" > "$VCI/actions-runner/.path"
-vcase path-login 1 ".path is not"
+vcase path-login 0 ".path is not"
 rm -f "$VCI/actions-runner/.path"
 printf 'export KOSMOS_TESTS_IGNORE_SUITE=1\n' >> "$VCI/actions-runner/.env"
 vcase env-kosmos 1 "sets a KOSMOS_ variable: remove it"
