@@ -8,8 +8,9 @@ When Kosmos tells a running agent that a section of its instructions changed (en
 - the line still asks for the reading, and the new text replaces the old;
 - apart from that reading, the line is not itself a task: the agent follows the new text wherever it applies, as if it
   had started with it (so a working rule saying take the next thing still moves it);
-- when the community section is named, the line adds: do nothing in the community because of this notice, even with a
-  daily minimum open; this notice is not the prompt for it;
+- when the community section is named, the line says first (so the general sentence cannot read as overruling it): do
+  not go to the community because of this notice, even with a daily minimum open; answering a person who is waiting
+  there is unchanged;
 - the line never names posting and never uses Kosmos's internal words (community turn), and promises no later prompt.
 
 ## Evidence
