@@ -122,7 +122,7 @@ test('#4382: each run is the engine\'s, off the window\'s thread, counted so Run
   assert.match(look, /look\.IsBackground = false;/, 'closing the window could cut an install off between its steps');
   /* The window's own look is given up on (its flags let go) after the limit, and nothing is killed. */
   inOrder(look, ['if (action == "look")', 'giveUp.Interval = KosmosLauncher.UpdateLookTimeoutMs;', 'if (finished[0]) return;', 'gaveUp[0] = true;',
-    'updateLookInFlight = false;', 'stopsInFlight--;', 'finished[0] = true;', 'if (gaveUp[0]) return;'], 'giving up on a look that hangs');
+    'updateLookInFlight = false;', 'stopsInFlight--;', 'finished[0] = true;', 'if (gaveUp[0]) { if (answer.Kind == KosmosLauncher.ConnectUpdateKind.Updated) UpdateLookDone(answer, action); return; }'], 'giving up on a look that hangs, still recording an install it did');
   assert.doesNotMatch(look, /\.Kill\(/, 'a kill could land while the engine holds its lock or has written a journal');
   inOrder(method('void RunAgentsHere()'), [
     'if (mode != KosmosLauncher.ComputerMode.Connect) return;',
@@ -362,7 +362,7 @@ test('#4382: what each answer does: the same consent as the board, never a resta
   /* The words on the bar, for the rows whose wording is the point. */
   assert.match(stateOf(got[4]).bar, /^Kosmos could not update \(The update did not take\.\)\. Press Update to try again\.$/);
   assert.doesNotMatch(stateOf(got[5]).bar, /Press Update/, 'a note that names a button the bar does not have');
-  assert.match(stateOf(got[6]).msg, /^Kosmos could not roll back \(no\)\./);
+  assert.equal(stateOf(got[6]).msg, 'The roll back did not finish: no.', 'a failed roll back never claims which version is in place');
   assert.notEqual(stateOf(got[9]).bar, '-', 'the person asked and heard nothing');
   assert.equal(stateOf(got[13]).bar, 'Kosmos is up to date.', 'the person pressed Update and saw nothing happen');
   const args = runProbe(['args|rollback|0.7.46', 'args|look|0.7.46', 'args|rollback|0.7.46 --yes', 'args|rollback|-']);

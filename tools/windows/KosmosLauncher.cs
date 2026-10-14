@@ -2968,7 +2968,7 @@ class KosmosLauncher
     }
     internal static string RollbackFailedMessage(string why)
     {
-        return "Kosmos could not roll back" + (string.IsNullOrEmpty(why) ? "" : " (" + why + ")") + ". It is still on the version it was.";
+        return "The roll back did not finish" + (string.IsNullOrEmpty(why) ? "." : ": " + why + ".");
     }
     internal const string UpToDateNote = "Kosmos is up to date.";
     internal const string UpdateUnreachableNote = "Kosmos could not check for updates. Check this computer's internet connection, then try again.";
@@ -3993,7 +3993,9 @@ class BoardWindowForm : System.Windows.Forms.Form
                 {
                     finished[0] = true;
                     if (giveUp != null && !gaveUp[0]) { giveUp.Stop(); giveUp.Dispose(); }
-                    if (gaveUp[0]) return;   // its flags were let go already; the next look starts afresh
+                    // Its flags were let go already. An install it did is still recorded, so the Restart is offered
+                    // and no further look runs while this window runs from the copy that install moved aside.
+                    if (gaveUp[0]) { if (answer.Kind == KosmosLauncher.ConnectUpdateKind.Updated) UpdateLookDone(answer, action); return; }
                     updateLookInFlight = false;
                     stopsInFlight--;
                     UpdateLookDone(answer, action);

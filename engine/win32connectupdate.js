@@ -59,6 +59,7 @@ const win32apply = require('./win32apply');
 const win32handoff = require('./win32handoff');
 const liveExec = require('./live-execution');
 const win32anchor = require('./win32anchor');
+const win32swap = require('./win32swap');
 
 const ACTIONS = Object.freeze(['look', 'install', 'rollback']);
 const EXIT = Object.freeze({ current: 0, newer: 0, updated: 0, rolledback: 0, board: 0, failed: 1, unknown: 1, refused: 3 });
@@ -111,7 +112,7 @@ function readHeld(env, home) {
   try { const v = JSON.parse(fs.readFileSync(heldPath(env, home), 'utf8')).version; return typeof v === 'string' ? v : null; } catch { return null; }
 }
 function writeHeld(env, home, version, log) {
-  try { fs.writeFileSync(heldPath(env, home), JSON.stringify({ version, at: new Date().toISOString() }) + '\n'); } catch (e) {
+  try { win32swap.writeFileAtomic(heldPath(env, home), JSON.stringify({ version, at: new Date().toISOString() }) + '\n'); } catch (e) {
     log(`could not record that ${version} was rolled back from, so the next look may install it again (${(e && e.code) || 'error'})`);
   }
 }
@@ -186,12 +187,15 @@ async function run(action, opts) {
     }
     const r = await (o.rollbackToPrevious || win32update.rollbackToPrevious)(common);
     if (!r || !r.ok) return done(['refused', oneLine((r && r.because) || 'the rollback could not be started')]);
+    /* The hold is written as soon as the rollback is on its way, not when it is seen to finish: a wait that
+       runs out must not leave the next automatic look free to put back the version rolled back from. If
+       the rollback does not take, the held version is the one installed, which no look offers anyway. */
+    if (r.from) writeHeld(env, home, r.from, log);
     const outcome = await outcomeOf(r.journal, probe, o.wait);
-    if (outcome.outcome === 'updated') {
-      if (r.from) writeHeld(env, home, r.from, log);
-      return done(['rolledback', r.version]);
-    }
-    return done(['failed', r.version, oneLine(outcome.sentence || outcome.because || `the rollback ended as ${outcome.outcome || 'unknown'}`)]);
+    if (outcome.outcome === 'updated') return done(['rolledback', r.version]);
+    /* No outcome yet is not a failure: the helper may still finish the rollback. Its hold is already written. */
+    if (!outcome.outcome) return done(['failed', r.version, `the roll back to ${r.version} has not finished yet and may still finish; open Kosmos again in a few minutes to see which version it is on`]);
+    return done(['failed', r.version, oneLine(outcome.sentence || outcome.because || `the rollback ended as ${outcome.outcome}`)]);
   }
 
   /* decide() reads the consent and the channel through update.js and autoupdate.js, which use process.env

@@ -514,3 +514,34 @@ test('#4382: an update left unfinished (a crash, a helper killed) is handed to i
   assert.deepEqual(s.urls, [], 'no look at the release host, and no new download');
   assert.equal(versionIn(c.root), INSTALLED);
 });
+
+test('#4382: a version strictly newer than the one rolled back from installs by itself as usual; the held one is only offered', T, async () => {
+  setMode('connect\n');
+  setConsent(true);
+  for (const [held, want] of [[INSTALLED, 'updated'], [NEXT, 'newer']]) {
+    const c = freshCase();
+    const sim = stoppedBoard(c);
+    fs.writeFileSync(path.join(c.anchor, win32anchor.UPDATE_HELD_NAME), JSON.stringify({ version: held }) + '\n');
+    const r = await connectUpdate.run('look', seamsFor(c, site(NEXT), sim));
+    assert.equal(r.answer[0], want, `held ${held}: ${c.log.join('\n')}`);
+    assert.equal(versionIn(c.root), want === 'updated' ? NEXT : INSTALLED);
+    if (want === 'updated') assert.equal(fs.existsSync(path.join(c.anchor, win32anchor.UPDATE_HELD_NAME)), false, 'the finished update let the hold go');
+  }
+});
+
+test('#4382: a roll back whose outcome is not seen in time is not called finished or undone, and its hold is already written', T, async () => {
+  setMode('connect\n');
+  setConsent(true);
+  const c = freshCase();
+  const sim = stoppedBoard(c);
+  const up = await connectUpdate.run('look', seamsFor(c, site(NEXT), sim));
+  assert.deepEqual(up.answer, ['updated', NEXT], c.log.join('\n'));
+  let clock = 0;
+  const slow = seamsFor(c, null, sim);
+  slow.helperOptions = { ...slow.helperOptions, spawn: (file, args) => { c.spawned.push({ file, args }); return { pid: 4242, on() {}, unref() {} }; } };
+  slow.wait = { now: () => clock, sleep: async (ms) => { clock += ms; }, waitMs: 1000 };
+  const back = await connectUpdate.run('rollback', slow);
+  assert.equal(back.answer[0], 'failed');
+  assert.match(back.answer[2], /has not finished yet and may still finish/);
+  assert.equal(readJson(path.join(c.anchor, win32anchor.UPDATE_HELD_NAME)).version, NEXT, 'the next automatic look will not put it back');
+});
