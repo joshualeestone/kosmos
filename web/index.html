@@ -27125,14 +27125,14 @@ function acctUsageHtml(a, list) {
     'windows': 'Kosmos cannot read usage for this account on Windows yet.',
     'own-statusline': 'Kosmos cannot read usage for this account. It is set up its own way, and Kosmos leaves that alone.',
     'unreadable-settings': 'Kosmos cannot read this account\'s settings, so it cannot read its usage.',
-    'not-wired': 'Kosmos has not set this account up to read usage yet.',
+    'not-wired': 'Kosmos is not set up to read usage for this account.',
   }[a.weeklyBlocked] || '';
   /* Under a reading, "cannot read" would contradict the number above it: say it is the last one and will not change. */
   const frozenSay = {
     'windows': 'This is the last reading Kosmos saw. It will not update on Windows yet.',
     'own-statusline': 'This is the last reading Kosmos saw. It will not update, because this account is set up its own way.',
     'unreadable-settings': 'This is the last reading Kosmos saw. It will not update, because Kosmos cannot read this account\'s settings.',
-    'not-wired': 'This is the last reading Kosmos saw. It will not update until Kosmos sets this account up to read usage.',
+    'not-wired': 'This is the last reading Kosmos saw. It will not update, because Kosmos is not set up to read this account\'s usage.',
   }[a.weeklyBlocked] || '';
   let usage = '';
   if (!a.apiKey) {

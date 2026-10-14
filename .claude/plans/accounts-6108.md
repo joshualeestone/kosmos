@@ -61,8 +61,9 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
 - Agents per account are walked only when the caller asks (/api/accounts?agents=1, Settings), so the other pages that
   read the list do not pay for it.
 
-- weeklyBlocked 'not-wired' (no status line, or no settings file): "Kosmos has not set this account up to read usage
-  yet", since nothing records a reading until setup wires it.
+- weeklyBlocked 'not-wired' (no status line, or no settings file): "Kosmos is not set up to read usage for this
+  account." (round 27: the first wording, "has not set this account up ... yet", promised a setup nothing performs;
+  ensureStatusLine runs only when an account is created). Re-wiring an existing account is a follow-up, not slice 1.
 
 - weeklyBlocked 'unreadable-settings' (a settings file that cannot be parsed): says Kosmos cannot read the account's
   settings, since setup could not wire it either.

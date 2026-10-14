@@ -250,7 +250,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('noshare@')), tag + ' an account without shared history is not offered (a move there always fails)', JSON.stringify(busy && busy.options));
       say(!!def && def.line === 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.', tag + ' the default account (wired by the installer) waits for a reading, never "cannot"', JSON.stringify(def && def.line));
       say(!!r.mine && r.mine.line === 'Kosmos cannot read usage for this account. It is set up its own way, and Kosmos leaves that alone.', tag + ' "cannot read" appears only when the server knows why', JSON.stringify(r.mine && r.mine.line));
-      say(!!r.unwired && r.unwired.line === 'Kosmos has not set this account up to read usage yet.', tag + ' an account with no status line is not promised a reading', JSON.stringify(r.unwired && r.unwired.line));
+      say(!!r.unwired && r.unwired.line === 'Kosmos is not set up to read usage for this account.', tag + ' an account with no status line is not promised a reading', JSON.stringify(r.unwired && r.unwired.line));
       say(r.unsureNote === 'Moving restarts the running ones on the new account.', tag + ' an agent of unknown state gets no restart count it may not keep', JSON.stringify(r.unsureNote));
       say(!!r.sleepyMove && r.sleepyMove.msg === 'Moved Zed (stopped). It is not running now.', tag + ' moving a stopped agent reads as moved, still stopped, through the route\'s real reply', JSON.stringify(r.sleepyMove));
       say(!!busy && busy.btnDisabled === true, tag + ' Move is disabled until a target is picked');
