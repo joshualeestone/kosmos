@@ -2310,6 +2310,53 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      busy room with the limit off would otherwise re-read its task files on every post). Each post over the cap
      (refused, or let through on the allowance) lists the task-chats folder and reads every file of this project
      written since countFrom, synchronously. */
+  /* #4934 / #5967: HOLD A RUN OF ACKNOWLEDGEMENT-ONLY POSTS SOONER than the volume
+     valve below. The volume valve counts arrivals; two agents trading "agreed" and
+     "acknowledged" about a settled decision fill a room with noise well under that
+     cap (a user's Windows room traded eleven before it fired). This is a SEPARATE,
+     earlier trigger on the trailing run of consecutive acknowledgement-only posts
+     since countFrom -- the SAME reset point the volume valve uses, so an operator
+     post or a reopen clears it exactly as it clears the arrival budget. A post with
+     any new facts is content (chat.acknowledgementOnly is false) and RESETS the run,
+     so the volume valve below, and ordinary back-and-forth with real content, are
+     left exactly as they were. The hold reuses the honest refusal #4967 shipped
+     (COULD_NOT / room_held: nothing kept, do not send it another way). */
+  if (lim.on && operator !== true) {
+    const ackPosts = log
+      .filter((m) => m && m.kind === 'post' && !m.operator && m.project === projectId && Date.parse(m.at) >= countFrom)
+      .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    let ackRun = 0;
+    for (let i = ackPosts.length - 1; i >= 0; i -= 1) {
+      if (chat.acknowledgementOnly(ackPosts[i].text)) ackRun += 1; else break;
+    }
+    // This incoming post, not yet in the log: it extends the run only if it, too, is
+    // acknowledgement-only; otherwise it is content and the run is broken (0).
+    ackRun = chat.acknowledgementOnly(stored) ? ackRun + 1 : 0;
+    if (ackRun >= ACK_RUN_LIMIT) {
+      const because = 'This conversation was only agreeing back and forth without adding anything new, '
+        + 'so Kosmos stopped it and asked everyone to bring you in.';
+      // Same valve-row dedup as the volume path (per room, per stopped-state, from
+      // countFrom): the ack hold fires sooner, so its row and reason are logged first.
+      const prior = log.filter((m) => m && m.kind === 'valve'
+        && m.project === projectId && Date.parse(m.at) >= countFrom);
+      const latest = prior[prior.length - 1];
+      if (!latest || (latest.stopped !== false) !== true) {
+        appendLog({ kind: 'valve', from, to: projectId, project: projectId, at, because, stopped: true });
+      }
+      try {
+        // One refused row per agent per window, keyed on ROOM_HELD_REFUSAL like the
+        // volume path, so the two holds share the "who was refused" dedup (#315).
+        const already = log.some((m) => m && m.kind === 'refused'
+          && m.from === from && m.project === projectId && m.because === ROOM_HELD_REFUSAL
+          && Date.parse(m.at) >= countFrom);
+        if (!already) {
+          appendLog({ kind: 'refused', from, to: projectId, project: projectId, because: ROOM_HELD_REFUSAL, at });
+        }
+      } catch { /* the record is best-effort; the verdict is not */ }
+      return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, id: null, at, outcomes: null };
+    }
+  }
+
   let allowed = lim.roomArrivalsPerWindow;
   if (lim.on && operator !== true && arrivals + charged > allowed) {
     /* #5260: a file in the project's folder changed since countFrom is a step forward too, each file once, in the
@@ -3175,6 +3222,12 @@ function messageIdOf(value) {
    adding the agent to the project would end: the room offers the person the add on that row. Best effort: a failed
    write loses the row, never the verdict. Shared by the room post's refusal and the board's task-write refusals. */
 const ROOM_HELD_REFUSAL = 'the room was going back and forth without landing, so Kosmos was holding it for the person';
+// #4934 / #5967: the room is held once a trailing run of this many consecutive
+// acknowledgement-only posts (chat.acknowledgementOnly) is reached, sooner than the
+// volume valve. A content post resets the run. A short run is a normal thread close;
+// a run this long with no new facts is the loop a user's Windows room hit (eleven
+// "agreed"/"acknowledged" posts before the volume valve fired). Reversible constant.
+const ACK_RUN_LIMIT = 4;
 function logRoomRefusal({ from, project, because, at, doing, addable }) {
   if (typeof from !== 'string' || !from) return;   // a row with no sender is dropped on read anyway
   const toLogged = String(project == null ? '' : project).slice(0, 120) || '(no project named)';

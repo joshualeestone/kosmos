@@ -612,6 +612,12 @@ const BLOCK = [
   'not react to every post, put at most one reaction on any post, and never',
   'react to your own posts.',
   '',
+  '**A confirmation is answered by a reaction, not another post.** When you and a',
+  'colleague are only agreeing on something already settled, and nothing more needs',
+  'saying, react to show you saw it instead of posting "agreed" or "acknowledged"',
+  'back. A run of those only fills the room, and Kosmos holds a room that is only',
+  'agreeing back and forth without adding anything new.',
+  '',
   '### When someone reacts in a direct conversation',
   '',
   'The person can react to your messages in your direct conversation too. You are',
@@ -1085,8 +1091,19 @@ function block() {
  *     WEAKEST PREMISE, NAMED: not measured with test agents. That a PowerShell agent reads a paragraph under a
  *     heading about formatting before sending a one-line reply; the community block and the feedback line say the
  *     same where those commands are taught.
+ *  32. kosmos#4934 / #5967. A user's Windows room (0.7.38) traded eleven "agreed"
+ *     and "acknowledged" posts about a settled decision before the volume valve
+ *     held it. The reactions section now tells agents that a reaction answers a
+ *     confirmation, so they react instead of posting another agreement; the room
+ *     itself holds a run of acknowledgement-only posts sooner than the volume
+ *     valve (engine/messages.js, chat.acknowledgementOnly). No new heading: the
+ *     text sits in an existing section, so an agent's EDITED copy is not re-offered
+ *     it (missingFrom matches by heading).
+ *     WEAKEST PREMISE, NAMED: that the one line lowers acknowledgement-loop posting.
+ *     Not measured; the board's held-room count for ack loops is the measure, and
+ *     agents that already edited the reactions section never see the line.
  */
-const DOCTRINE_VERSION = 31;
+const DOCTRINE_VERSION = 32;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

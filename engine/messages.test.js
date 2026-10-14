@@ -1266,6 +1266,80 @@ test('the room valve closes across the whole thread regardless of sender, once, 
   });
 });
 
+/* #4934 / #5967: the ACKNOWLEDGEMENT-LOOP hold, an earlier trigger than the volume
+   valve. Distinct ack words per post (so the retry dedup never folds them) and
+   alternating senders (so no pair cap fires), exactly as the volume-valve test does,
+   so the ONLY thing that can refuse here is the ack-run trigger -- and the post
+   counts (4 or 5) stay far under ROOM_BUDGET, so it is never the volume valve. */
+function seedPosts(now, posts) {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  posts.forEach((p, i) => {
+    fs.appendFileSync(messages.LOG, JSON.stringify({
+      kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease',
+      from: p.from, to: MEMBERS.filter((m) => m !== p.from),
+      text: p.text, at: new Date(now - (posts.length - i) * 1000).toISOString(), outcomes: {},
+    }) + '\n');
+  });
+}
+
+test('#4934/#5967: four consecutive acknowledgement-only posts hold the room, sooner than the volume valve', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    assert.ok(4 < ROOM_BUDGET, 'control: four posts must be far under the volume cap, or this proves nothing about the ack trigger');
+
+    // ARM 1: three acks already, a fourth incoming -> the run reaches 4 -> held.
+    seedPosts(now, [
+      { from: 'leo', text: 'agreed' },
+      { from: 'mara', text: 'ok' },
+      { from: 'april', text: 'confirmed' },
+    ]);
+    armSender('leo-discord');
+    const tmux = arm([]);
+    const held = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks' }, board.agents, MEMBERS);
+    assert.equal(held.state, chat.DELIVERY.COULD_NOT, 'a run of four acknowledgements did not hold the room');
+    assert.equal(held.code, 'room_held', 'the ack hold must reuse the honest room_held code so the CLI says nothing was kept');
+    assert.match(held.because, /only agreeing back and forth without adding anything new/, 'the ack hold does not name the acknowledgement loop');
+    assert.equal(held.id, null, 'the ack hold kept a copy; it must not');
+    assert.equal(tmux.sends().length, 0, 'the refused ack was typed anyway');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'post' && m.text === 'thanks').length, 0, 'the refused ack was stored');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 1, 'the ack hold was not logged as a valve row');
+
+    // BOUNDARY: three acks (two seeded, one incoming) must NOT hold -- the threshold is four.
+    wipeLog(); chat.resetForTests(); armSender('leo-discord'); arm([]);
+    seedPosts(now, [{ from: 'leo', text: 'agreed' }, { from: 'mara', text: 'ok' }]);
+    const three = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'confirmed' }, board.agents, MEMBERS);
+    assert.equal(three.state, chat.DELIVERY.PLACED, 'a run of three acknowledgements held the room (the threshold fired too early)');
+
+    // CONTROL: the SAME volume of CONTENT posts does not hold -- this is the ack signal, not volume.
+    wipeLog(); chat.resetForTests(); armSender('leo-discord'); arm([]);
+    seedPosts(now, [
+      { from: 'leo', text: 'the first finding is ready for review' },
+      { from: 'mara', text: 'the second needs another pass' },
+      { from: 'april', text: 'the third one is blocked on the deploy' },
+    ]);
+    const content = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'the fourth is in progress now' }, board.agents, MEMBERS);
+    assert.equal(content.state, chat.DELIVERY.PLACED, 'four CONTENT posts were held like an ack loop; the trigger is reading volume, not acknowledgement');
+  });
+});
+
+test('#4934/#5967: a content post resets the run, so ack, ack, content, ack, ack does not hold', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    // ack, ack, content (a real "here is the number" post), ack -- then a fifth ack incoming.
+    // The content post breaks the run, so the trailing run including the incoming post is 2.
+    seedPosts(now, [
+      { from: 'leo', text: 'agreed' },
+      { from: 'mara', text: 'ok' },
+      { from: 'april', text: 'the deploy finished, 3 checks are green' },
+      { from: 'leo', text: 'thanks' },
+    ]);
+    armSender('mara-discord'); arm([]);
+    const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'confirmed' }, board.agents, MEMBERS);
+    assert.equal(out.state, chat.DELIVERY.PLACED, 'the content post did not reset the acknowledgement run');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 0, 'the room was held though a content post had reset the run');
+  });
+});
+
 test('#2710: reopening a held room clears the loop-guard budget so the next post lands', () => {
   withFleet(room3(), (board) => {
     const now = Date.now();

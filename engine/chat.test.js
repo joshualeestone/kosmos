@@ -3362,3 +3362,45 @@ test('#4557 defaultAgentFor: in a deeper chart the TOP opens the room, not a mid
   // A cycle has no root: it falls to most reports, then list order, and never throws.
   assert.equal(chat.defaultAgentFor(membersFor(['p', 'q'], { p: 'q', q: 'p' })), 'p');
 });
+
+/* #4934 / #5967: acknowledgementOnly is the pure classifier the room's ack-loop
+   hold is judged by. The whole design risk is a word list that would hold a real
+   "agreed, and here is the number" post, so the escapes are tested as hard as the
+   positives. */
+test('#4934: acknowledgementOnly matches whole-post acknowledgements, case- and punctuation-insensitively', () => {
+  for (const s of [
+    'agreed', 'acknowledged', 'ok', 'yes', 'confirmed', 'sounds good', 'will do',
+    'got it', 'noted', 'sounds good to me', 'yes, agreed', 'confirmed, thanks',
+    // case and trailing punctuation must not matter (the fleet's most repeated false zero)
+    'AGREED.', 'Agreed', 'Thanks!!', 'THANKS', 'OK.', 'Confirmed!', 'YES',
+    // a leading @mention is stripped before judging the words
+    '@Kano agreed', '@Sub-Zero ok',
+    // an acknowledgement emoji, alone or with a word
+    '👍', 'thanks 👍',
+  ]) {
+    assert.equal(chat.acknowledgementOnly(s), true, 'should be acknowledgement-only: ' + JSON.stringify(s));
+  }
+});
+
+test('#4934: acknowledgementOnly lets a post with new facts escape, by a word outside the lexicon OR a new-info signal', () => {
+  for (const s of [
+    // the named failure to avoid: "agreed, and here is the number: 42" escapes TWICE
+    // over (words outside the lexicon AND a digit) -- prove each escape alone, too.
+    'agreed, and here is the number: 42',
+    'agreed, and here is the number',        // words outside the lexicon alone
+    'ok 42',                                 // a digit alone
+    'agreed, the cost is $5',                // currency
+    'agreed, it is 100% done',               // percent (and a digit)
+    'agreed, what about the edge case?',     // a question
+    'agreed, run `kosmos start`',            // inline code
+    'agreed, he said "ship it"',             // a quoted span
+    'agreed, see https://x.io',              // a url
+    'agreed, the fix is in engine/foo.js',   // a path / filename.ext
+    'let us ship the new valve logic today', // ordinary content, no ack words
+    'fix it', 'do it now',                   // short but not acknowledgement
+    'agreed and here are six more words past the cap', // over the brevity cap
+    '', '   ', '@Kano',                      // nothing said, or only a mention
+  ]) {
+    assert.equal(chat.acknowledgementOnly(s), false, 'should be content (escape): ' + JSON.stringify(s));
+  }
+});
