@@ -17631,6 +17631,22 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, { dismissed: true });
     return;
   }
+  /* #6160: the person's streak in the Kosmos. The page posts its own local date ({ today: 'YYYY-MM-DD' }) once per
+     load and per new day; the reply is { count, congrats }, and congrats is true for exactly one load on each new day
+     (engine/streak.js records it as shown in the same write). A POST because it records the visit. */
+  if (pathname === '/api/streak' && req.method === 'POST') {
+    readBody(req, 4096).then((buf) => {
+      let body;
+      try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      let out;
+      try { out = require('./engine/streak').record(String(body.today || '')); } catch (e) {
+        console.error('[streak] could not record a visit:', e && e.message);
+        sendJson(res, 500, { error: 'we could not read the streak just now' }); return;
+      }
+      sendJson(res, 200, out);
+    }).catch(() => { if (!res.headersSent) sendJson(res, 400, { error: 'we could not read that request' }); });
+    return;
+  }
   /* --- engineering mode (whether the raw session is shown) ---------------- */
   /* The automatic-updates switch. Same shape as /api/engmode deliberately:
      one preference, GET to learn it, PUT to set it, and the READ is echoed
