@@ -254,9 +254,43 @@ function spillHead(text) {
   }
   return { head, words };
 }
-function spillLine(text, file) {
+/* #6065 N1 (0.7.48 report: Gemini and Meta still had long room posts arrive shortened): where a post is still
+   shortened, its preview carries the request (Josh: "put the request in the preview"). The request is the sentence
+   that @-mentions this member (any of `spellings`, matched as the room's mentions are, by agentnames.nameKey), else
+   the post's first question; none when neither exists or it already sits in the head. At most REQUEST_MAX characters,
+   cut at a whole word. A sentence runs from the end of the one before (. ! ? or a line break) to its own end. */
+const REQUEST_MAX = 300;
+function requestIn(text, spellings) {
+  const t = String(text);
+  const nameKey = require('./agentnames').nameKey;
+  const keys = new Set((Array.isArray(spellings) ? spellings : []).filter((x) => typeof x === 'string' && x).map((x) => nameKey(x)));
+  let at = -1; let asked = false;
+  if (keys.size) {
+    for (const m of t.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
+      const token = m[2]; const stripped = token.replace(/[._-]+$/, '');
+      if (keys.has(nameKey(token)) || (stripped && keys.has(nameKey(stripped)))) { at = m.index + m[1].length; asked = true; break; }
+    }
+  }
+  if (at < 0) { const q = t.indexOf('?'); if (q < 0) return null; at = q; }
+  const before = t.slice(0, at);
+  const from = Math.max(before.lastIndexOf('\n'), ...['. ', '! ', '? '].map((e) => { const i = before.lastIndexOf(e); return i < 0 ? -1 : i + 1; })) + 1;
+  const rest = t.slice(at);
+  const stop = rest.search(/[.!?](\s|$)|\n/);
+  let sentence = t.slice(from, stop < 0 ? t.length : at + stop + 1).replace(/\s+/g, ' ').trim();
+  if (!sentence) return null;
+  if (sentence.length > REQUEST_MAX) {
+    const open = wholeChars(sentence.slice(0, REQUEST_MAX));
+    const sp = open.lastIndexOf(' ');
+    sentence = (sp >= REQUEST_MAX / 2 ? open.slice(0, sp) : open).replace(/[\s,;:]+$/, '') + '\u2026';
+  }
+  return { sentence, asked };
+}
+function spillLine(text, file, spellings) {
   const { head, words } = spillHead(text);
-  return head + ' (long message, ' + words + (words === 1 ? ' word' : ' words') + '; the full text is in your own folder at ' + file + ')';
+  const req = requestIn(text, spellings);
+  const shown = req && !head.includes(req.sentence.replace(/\u2026$/, ''));
+  return head + ' (long message, ' + words + (words === 1 ? ' word' : ' words') + '; the full text is in your own folder at ' + file + ')'
+    + (shown ? (req.asked ? ' It asks you: ' : ' Its first question: ') + req.sentence : '');
 }
 /* The ceiling past which a body is a document, not a message (spill
    relaxes chat's cap, never the idea of one). The log itself has no
@@ -2429,7 +2463,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         return null;
       }
       spilled[name] = spill.file;
-      envelope = wrap(spillLine(cleaned, spill.file));   // #5706
+      // #6065 N1: the preview carries the request to this member (its @-mention by handle or display name).
+      const card = (Array.isArray(roster) ? roster : []).find((c) => c && c.sessionName === name);
+      envelope = wrap(spillLine(cleaned, spill.file, [name, card && card.name]));   // #5706
     }
     const finish = (sent) => {
       /* #4588 PR B: held (the shared Google quota, #5743/#5754 an answer awaited on its screen: question menu, permission prompt, safeguards menu, or #5805 a usage limit), nothing typed. The post is kept for this member like a #4624
@@ -3461,6 +3497,7 @@ function resetOwnPostNudgesForTests() { ownPostNudgedAt.clear(); }
 
 module.exports = {
   spillLimit,   // #6065: the longest line typed whole
+  spillLine, requestIn,   // #6065 N1: the shortened line and its request (tests)
   HELD_STATE, heldAccepted, logHeldDelivered, logHeldDropped, tellHeldDropped,   // kosmos#5805 slice 2a
   keepTaskLine, tellTaskLineDropped, recordTaskLineOutcome,   // kosmos#5805: task messages; #5842: their outcome on the task
   NOT_ON_PROJECT_FIX,   // kosmos#5752 slice 2
