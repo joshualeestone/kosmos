@@ -422,6 +422,11 @@ test('#6065 N1: requestIn: the sentence at the room\'s own mention positions, el
   // A first mention inside the head gives way to the next one (by position, not by text).
   const two = 'Hi @mara. ' + fill + '@mara please ship it. End.';
   assert.equal(messages.requestIn(two, { namedAt: [two.indexOf('@mara'), two.lastIndexOf('@mara')], headEnd: 9 }).sentence, '@mara please ship it.');
+  // A run-on opening: the head is a cut partway through the first sentence, and the ask past the cut is still shown.
+  const runon = 'Update on the lease and the deposit and the dates and ' + 'the many other details '.repeat(12) + 'so @mara please send the signed lease today. More.';
+  const runLine = messages.spillLine(runon, '/f.md', { namedAt: at(runon, '@mara') });
+  assert.ok(!runLine.slice(0, runLine.indexOf(' (long message')).includes('@mara'), 'CONTROL: the head is an opening cut before the mention: ' + runLine.slice(0, 260));
+  assert.match(runLine, /It asks you: "\u2026[^"]{0,110}@mara please send the signed lease today\."$/, runLine.slice(-400));
   // A short request whose words also appear in the head is still shown (position, not substring).
   const yes = 'Yes. Yesterday went well. ' + fill + 'Ok?';
   assert.equal(messages.requestIn(yes, { headEnd: 4 }).sentence, 'Ok?');
@@ -429,7 +434,7 @@ test('#6065 N1: requestIn: the sentence at the room\'s own mention positions, el
   // A request longer than REQUEST_MAX is cut at a whole word and says so.
   const longT = 'Intro. @mara ' + 'please read '.repeat(60) + 'now.';
   const long = messages.requestIn(longT, { namedAt: at(longT, '@mara') });
-  assert.ok(long.sentence.length <= 301 && long.sentence.endsWith('…') && !/ …$/.test(long.sentence), long.sentence);
+  assert.ok(long.sentence.length <= 301 && long.sentence.endsWith('\u2026') && !/ \u2026$/.test(long.sentence), long.sentence);
   // spillLine: quoted; nothing when the request starts inside the head.
   assert.match(messages.spillLine(body, '/f.md', { namedAt: at(body, '@mara') }), /It asks you: "Please, @mara, check the lease dates before Friday\."$/);
   const opener = 'Hi  @mara, read this. ' + fill;

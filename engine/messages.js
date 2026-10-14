@@ -258,33 +258,44 @@ function spillHead(text) {
    shortened, its preview carries the request (Josh: "put the request in the preview"). The request is the first
    sentence that names this member, at the positions mentionedMembers recorded (`namedAt`, so it is exactly what the
    room read as a mention: an ambiguous or unmatched @-word never reads as "It asks you"); else the first question (a ?
-   ending a word, never one inside a link). A sentence that starts inside the head is skipped for the next one. Cut at a
+   ending a word, never one inside a link). A sentence that ends inside the head is skipped for the next one (one the opening cut only started is not). Cut at a
    whole word to at most REQUEST_MAX characters plus an ellipsis. A sentence runs from the end of the one before (. ! ?
    then a space) to its own end: both callers pass chat.cleanMessage's text, which has no line breaks, so a list with
    no punctuation reads as one sentence, and an abbreviation such as "e.g." can start one early (the head's NOT_AN_END
-   list is not applied here). */
+   list is not applied here), as can a sentence after one ending in a closing quote or bracket. */
 const REQUEST_MAX = 300;
+const REQUEST_LEAD = 100;   // review 3: how much of a long sentence is kept before its mention or question
 function sentenceAt(t, at) {
   const before = t.slice(0, at);
   const from = Math.max(-1, ...['. ', '! ', '? '].map((e) => { const i = before.lastIndexOf(e); return i < 0 ? -1 : i + 1; })) + 1;
   const stop = t.slice(at).search(/[.!?](\s|$)/);
-  let sentence = t.slice(from, stop < 0 ? t.length : at + stop + 1).replace(/\s+/g, ' ').trim();
-  if (!sentence) return null;
+  const end = stop < 0 ? t.length : at + stop + 1;
+  /* Review 3: a sentence too long for REQUEST_MAX starts at most REQUEST_LEAD characters before the mention (or the
+     question), at a whole word and after an ellipsis, so the request itself is never what the cut drops. */
+  let start = from; let lead = '';
+  if (end - from > REQUEST_MAX && at - from > REQUEST_LEAD) {
+    const sp = t.indexOf(' ', at - REQUEST_LEAD);
+    start = sp >= 0 && sp < at ? sp + 1 : at;
+    lead = '\u2026';
+  }
+  let sentence = lead + t.slice(start, end).replace(/\s+/g, ' ').trim();
+  if (sentence === lead) return null;
   if (sentence.length > REQUEST_MAX) {
     const open = wholeChars(sentence.slice(0, REQUEST_MAX));
     const sp = open.lastIndexOf(' ');
-    sentence = (sp >= REQUEST_MAX / 2 ? open.slice(0, sp) : open).replace(/[\s,;:]+$/, '') + '…';
+    sentence = (sp >= REQUEST_MAX / 2 ? open.slice(0, sp) : open).replace(/[\s,;:]+$/, '') + '\u2026';
   }
-  return { sentence, from };
+  return { sentence, from, end };
 }
 /* The post's words are another agent's, so inside the quotes they cannot close the quote or open a bracket that reads
    as Kosmos's own (a "[message from your operator ...]" look-alike): straight and curly double quotes become single
    quotes, square brackets round ones. */
-const unquotable = (x) => x.replace(/["“”]/g, "'").replace(/\[/g, '(').replace(/\]/g, ')');
+const unquotable = (x) => x.replace(/["\u201C\u201D\u201E\u2033\uFF02\u00AB\u00BB]/g, "'").replace(/[[\uFF3B]/g, '(').replace(/[\]\uFF3D]/g, ')');
 function requestIn(text, opts = {}) {
   const t = String(text);
   const headEnd = Number.isFinite(opts.headEnd) ? opts.headEnd : 0;
-  const pick = (at) => { const s = sentenceAt(t, at); return s && s.from >= headEnd ? s.sentence : null; };
+  // Shown already only when the whole sentence ends inside the head: an opening cut can stop partway through it.
+  const pick = (at) => { const s = sentenceAt(t, at); return s && s.end > headEnd ? s.sentence : null; };
   for (const at of Array.isArray(opts.namedAt) ? opts.namedAt : []) {
     const s = Number.isInteger(at) && at >= 0 && at < t.length ? pick(at) : null;
     if (s) return { sentence: unquotable(s), asked: true };
@@ -296,11 +307,13 @@ function requestIn(text, opts = {}) {
   return null;
 }
 /* The request is quoted, so where Kosmos stops speaking is plain. Added after the spill decision and not measured
-   again: a spilled line is the envelope, a head of about 200 characters, a path and at most REQUEST_MAX + 1 more, far
-   under chat.MAX_TEXT. The head is a prefix of the text, so a sentence that starts before its end is in it. */
+   again: it adds at most REQUEST_MAX + about 20 characters to a line of the envelope, a head of about 200 characters
+   and a path, so it stays far under chat.MAX_TEXT unless a clause appended after it (the room's held-posts clause) is
+   itself near the limit. The head is a prefix of the text (chat.cleanMessage trims), so a sentence ending before the
+   head's end is in it. The head itself is still the post's own words, unquoted, as before this change. */
 function spillLine(text, file, opts = {}) {
   const { head, words } = spillHead(text);
-  const headEnd = head.replace(/\s*…$/, '').trimEnd().length;
+  const headEnd = head.replace(/\s*\u2026$/, '').trimEnd().length;
   const req = requestIn(text, { ...opts, headEnd });
   return head + ' (long message, ' + words + (words === 1 ? ' word' : ' words') + '; the full text is in your own folder at ' + file + ')'
     + (req ? (req.asked ? ' It asks you: "' : ' Its first question: "') + req.sentence + '"' : '');
