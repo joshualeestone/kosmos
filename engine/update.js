@@ -811,7 +811,7 @@ function lastAttemptView() {
 }
 /* #6149 point 8: the record setup.sh leaves when an update refuses before removing anything (a locked part, or a
    folder this account may not change), and removes once a swap goes through. Returns { why, at, parts, paths, ts } or null.
-   why is 'locked' or 'permissions'; at is the first stuck path; parts are the locked parts' names (bin, app or
+   why is 'locked' (macOS flags), 'immutable' (Linux chattr +i or +a) or 'permissions'; at is the first stuck path; parts are the locked parts' names (bin, app or
    runtime) and paths their full paths here, for the unlock line. A key written twice, a why it does not know, or a missing at is damage: null. */
 function updateRefusedFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'update-refused') : null; }
 function updateRefused() {
@@ -830,7 +830,7 @@ function updateRefused() {
     kv[m[1]] = m[2];
   }
   if (twice.has('why') || twice.has('at') || twice.has('ts')) return null;
-  if (kv.why !== 'locked' && kv.why !== 'permissions') return null;
+  if (kv.why !== 'locked' && kv.why !== 'permissions' && kv.why !== 'immutable') return null;
   if (!kv.at) return null;
   const root = installedRoot();
   return { why: kv.why, at: kv.at, parts, paths: parts.map((x) => path.join(root, x)), ts: kv.ts || null };

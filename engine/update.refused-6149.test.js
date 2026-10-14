@@ -96,3 +96,10 @@ test('lastAttempt: an attempt still in flight (no code) carries no refusal', () 
     assert.equal(a.refused, undefined);
   });
 });
+
+test('updateRefused: an immutable refusal (Linux chattr) reads like a locked one', () => {
+  withRoot((root) => {
+    writeRefused(root, 'why=immutable\nat=/k/app/engine/x.js\nts=2026-10-14T13:00:05Z\npart=app\n');
+    assert.deepEqual(update.updateRefused(), { why: 'immutable', at: '/k/app/engine/x.js', parts: ['app'], paths: [path.join(root, 'app')], ts: '2026-10-14T13:00:05Z' });
+  });
+});

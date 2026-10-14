@@ -23911,6 +23911,12 @@ function updateRefusedText(attempt) {
       + 'refused, the lock was set by an administrator, who can clear it with: <code>'
       + esc('sudo chflags -R noschg,nosappnd ' + list) + '</code>';
   }
+  if (r.why === 'immutable') {
+    const paths = Array.isArray(r.paths) && r.paths.length ? r.paths : [r.at];
+    return ' Part of it is marked immutable: <code>' + esc(r.at) + '</code>. Nothing was removed. Only an administrator '
+      + 'can clear that, with this line in a terminal, then update again: <code>'
+      + esc('sudo chattr -R -i -a ' + paths.map(quote).join(' ')) + '</code>';
+  }
   if (r.why === 'permissions') {
     return ' This account may not change <code>' + esc(r.at) + '</code>. Nothing was removed. Give that folder back to '
       + 'this account, then update again.';
