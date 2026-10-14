@@ -40,4 +40,6 @@ Card: kosmos#6048 (CI job 115702676926, PR #6135). Test-only: tools/test-queued-
 - Weakest premise: that the next red will show one of the recorded shapes; a cause outside them still prints the log.
 
 ## Tests
-- tools/test-queued-heavy-4977.sh focused (queued): results recorded here once measured.
+- The full validation runs tools/test-queued-heavy-4977.sh in its shell shards; its result is the measurement (a
+  separately queued focused run was dropped as redundant). A green CONTROL there is one observation, not proof the
+  rare red is gone: this change does not claim to remove it.
