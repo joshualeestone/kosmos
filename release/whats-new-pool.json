@@ -428,8 +428,8 @@
       "status": "pending"
     },
     {
-      "title": "The Agents list fits a phone",
-      "line": "On a phone, the Agents list shows each agent's role and AI model in full under its name, instead of cutting the model short.",
+      "title": "The Agents list fits a narrow window",
+      "line": "In a narrow browser window, the Agents list shows each running agent's role and AI model under its name, not cut short.",
       "icon": "list",
       "rank": 9.2,
       "since": "0.7.48",
@@ -437,7 +437,7 @@
     },
     {
       "title": "Agents are told how to finish a task",
-      "line": "An agent that posts in a task it holds is told how to mark it done, so a task waiting on its review does not stay stuck.",
+      "line": "An agent that posts in a task it holds is now told the command that marks the task done.",
       "icon": "tasks",
       "rank": 11.5,
       "since": "0.7.48",

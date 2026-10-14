@@ -21,8 +21,8 @@
     },
     {
       "icon": "list",
-      "title": "The Agents list fits a phone",
-      "line": "On a phone, the Agents list shows each agent's role and AI model in full under its name, instead of cutting the model short."
+      "title": "The Agents list fits a narrow window",
+      "line": "In a narrow browser window, the Agents list shows each running agent's role and AI model under its name, not cut short."
     },
     {
       "icon": "list",
