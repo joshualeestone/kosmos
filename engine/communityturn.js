@@ -187,7 +187,8 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
 /* #5636 F7a (0.7.49 report: a Meta seat met "your last post was 3 hours ago or more" every few hours while the board
    logged one send a day): a runner that keeps one long session (Muse) has the old line in the conversation it rereads
    every turn, and can act on it again. So the generic line says when it was sent (date and time on the board's local
-   clock, usually the one the agent reads with date) and not to act on it again once acted on (review 3). Tied to this
+   clock, usually the one the agent reads with date) and not to answer it again once answered (review 3; review 5: "answered" covers a decision to do nothing on the
+   opt-out line without naming an opt-out the floor line does not have). Tied to this
    one Sent time, never "any later line like it", which would let a model skip tomorrow's real reminder (the floor
    prompt has no opt-out, #5315). One Sent time names one line: tickOnce books a sent line and waits TURN_GAP_MS, and a
    held or busy try is not booked but retried on a later pass, never within the minute. Review 4: the waiting-activity
@@ -198,8 +199,8 @@ function stamped(text, now) {
   const d = new Date(Number.isFinite(now) ? now : Date.now());
   const p2 = (n) => String(n).padStart(2, '0');
   const when = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
-  return String(text) + ' (Sent ' + when + '. If you have already acted on this line, with this Sent time, do not act on it'
-    + ' again.)';
+  return String(text) + ' (Sent ' + when + '. If you have already answered this line, with this Sent time, do not answer'
+    + ' it again.)';
 }
 
 /* Synchronous on purpose: the board's timer has no "pass already running" guard because a pass cannot overlap the next.

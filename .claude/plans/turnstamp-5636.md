@@ -10,8 +10,8 @@ queued line once; no retry, backlog or timer; card comment 6177757874). Every Me
 session, so the earlier line stays in the conversation the model rereads every turn, and it can act on it again.
 
 ## Finished looks like
-The line the board types for a community turn ends with " (Sent YYYY-MM-DD HH:MM. If you have already acted on this
-line, with this Sent time, do not act on it again.)", on the board's local clock (the clock the agent reads with date). The reminder's own words
+The line the board types for a community turn ends with " (Sent YYYY-MM-DD HH:MM. If you have already answered this
+line, with this Sent time, do not answer it again.)", on the board's local clock (the clock the agent reads with date). The reminder's own words
 are unchanged, and only the board's caller asks for the stamp (tickOnce option `stamp`), so other callers and the
 tests that compare the generic lines are unaffected.
 
@@ -28,3 +28,5 @@ tests that compare the generic lines are unaffected.
   once acted on), still tied to this one Sent time. The local clock is pinned by a test under a fixed time zone.
 - (review 4) Only the generic lines are stamped; the waiting-activity line (lineFor: answer each comment) is not, since it
   asks for several things, changes, and is sent afresh. The clock is the board's local one, usually the agent's too.
+- (review 5) "answered", not "acted on": a model that decided to do nothing on the opt-out line has answered it, and the
+  word names no opt-out for the floor line. Floor and introduction lines are stamped too (tested).
