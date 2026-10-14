@@ -36392,12 +36392,15 @@ function orgFirstRingClear(placed) {
    fleet, whose floored layout equals its proportional one) does pay the second, diagnostic, pass. */
 function orgPlaceGated(nodes) {
   const pre = orgPlace(nodes, false);
-  const preClear = orgFirstRingClear(pre.placed);
   let roots = 0;
   for (const s of pre.placed.values()) if (!s.node.parent) roots += 1;
   const maxFundable = Math.floor((Math.PI * 2) / Math.asin(Math.min(1, (ORG_LINE_CLEAR + ORG_LINE_MARGIN) / ORG_R0)));
-  // Only a chart WITH the bug (a sub-ORG_LINE_CLEAR first-ring line), few enough roots to seat the floor, is a candidate.
-  if (preClear >= ORG_LINE_CLEAR || roots > maxFundable) return { placed: pre.placed, maxR: pre.maxR, funded: false };
+  // Reject on root count BEFORE the O(roots^2) first-ring scan: a chart with more roots than the floor can seat is
+  // never funded, so a large flat fleet (rejected on count) skips the quadratic scan on every paint.
+  if (roots > maxFundable) return { placed: pre.placed, maxR: pre.maxR, funded: false };
+  // Only a chart WITH the bug (a sub-ORG_LINE_CLEAR first-ring line) is a candidate.
+  const preClear = orgFirstRingClear(pre.placed);
+  if (preClear >= ORG_LINE_CLEAR) return { placed: pre.placed, maxR: pre.maxR, funded: false };
   const flo = orgPlace(nodes, true);
   const floClear = orgFirstRingClear(flo.placed);
   // Fund (use the floored layout) only when it is measured size-safe and clears ORG_LINE_CLEAR. Otherwise keep
