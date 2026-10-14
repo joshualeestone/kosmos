@@ -29,7 +29,7 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 105 ok. Seventy-two mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 106 ok. Seventy-three mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
@@ -48,7 +48,8 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   taken for a new one, an unchecked guard reported clear, the owner note printed twice; then register without a
   wired guard; then an allow list matching every label, allowed jobs not named, register's hook-file refusal; then
   a probe string a narrow allow list could match, an 'export PATH' line kept by the .env merge; then no
-  manageruid check, a partial download kept, register without a Listener wait).
+  manageruid check, a partial download kept, register without a Listener wait; then register over an existing
+  service).
 - install and register --apply also require `launchctl manageruid` to be the caller's uid: `sudo -iu` or `su` from
   the owner's GUI reads Aqua but acts on the owner's session. manageruid measured on Agent1s (501 = id -u); its value
   under sudo -iu is reasoned, not measured.

@@ -5,7 +5,8 @@
 #
 # 🛑 DRY RUN IS THE DEFAULT. Nothing changes unless --apply is given: a change either goes through act(), which
 # otherwise prints "WOULD: <command>", or sits after a stage's own dry-run return (install, register).
-# Reads always run, dry or not: pgrep, df, gh api GETs, and install's unauthenticated compare GET to api.github.com.
+# Reads always run, dry or not: launchctl print, crontab -l, pgrep, ps, id, df, fdesetup, pmset, xcode-select, gh api
+# GETs, and install's unauthenticated compare GET to api.github.com. A temp file for gh's stderr comes and goes in TMPDIR.
 #
 # Usage: tools/ci-runner-setup.sh [--apply] <stage> [args]
 #   preflight                 as the machine owner. Reads only. Refuses while the agents' launchd jobs, crontab
@@ -306,7 +307,7 @@ install_runner() {
   local env_keep=""
   if [ -f "$RUNNER_DIR/.env" ]; then
     if env_keep="$(grep -v -E '^[[:space:]]*(export[[:space:]]+)?(ACTIONS_RUNNER_HOOK_JOB_STARTED|ACTIONS_RUNNER_HOOK_JOB_COMPLETED|PATH|LANG)=' "$RUNNER_DIR/.env")"; then :
-    else [ $? = 1 ] || { rm -f "$newg"; echo "could not read $RUNNER_DIR/.env; nothing changed" >&2; exit 1; }; fi
+    else [ $? = 1 ] || { rm -f "$newg"; echo "could not read $RUNNER_DIR/.env; nothing changed" >&2; exit 1; }; fi   # $? is grep's: an assignment carries its substitution's status
   fi
   # A Runner.Worker of this user is a job in flight: refuse rather than kill it. A job that starts between this check
   # and the stop below is still killed; that window is accepted for a step an operator runs by hand.
@@ -395,6 +396,8 @@ register() {
     return 0
   fi
   [ -x "$RUNNER_DIR/config.sh" ] || { echo "refused: no runner in $RUNNER_DIR; run install first" >&2; exit 1; }
+  # Registered already: config.sh would replace the registration and then svc.sh install would fail on its plist.
+  [ ! -f "$RUNNER_DIR/.service" ] || { echo "refused: $RUNNER_DIR is registered as a service already; to register again, as $CI_USER: ./svc.sh uninstall and ./config.sh remove (with a removal token), then register" >&2; exit 1; }
   # The job guard is the boundary on a public repo: never register a runner that would take jobs without it.
   local k f
   for k in STARTED COMPLETED; do

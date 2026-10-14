@@ -113,7 +113,7 @@ run() {
 rc() { cat "$T/$1.rc"; }
 has() { grep -q -F -- "$2" "$T/$1.out"; }
 # A changing call: anything but a read. curl counts only with -o or -O (a download); gh only with -X.
-changed() { grep -E '^(sudo|sysadminctl|tar|config\.sh|svc\.sh) |^curl .*(-o |-[a-zA-Z]*O|--output|--remote-name)|^gh .*-X|^launchctl (bootout|disable|load|unload)' "$T/$1.calls"; }
+changed() { grep -E '^(sudo|sysadminctl|tar|config\.sh|svc\.sh) |^curl .*(-o |-[a-zA-Z]*O|--output|--remote-name| -X | -T | -d |--data)|^gh .*-X|^launchctl (bootout|disable|load|unload)' "$T/$1.calls"; }
 
 H="$T/home"; mkdir -p "$H"
 
@@ -346,6 +346,12 @@ else fail "register --apply: rc $(rc rg-apply), calls: $(cat "$T/rg-apply.calls"
 echo stopped > "$CH/actions-runner/.svc-state"
 STDIN_FILE="$T/token" run rg-nolistener "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply register
 [ "$(rc rg-nolistener)" = 1 ] && has rg-nolistener "no new Runner.Listener is running" && pass "register --apply fails when no Listener comes up" || fail "register no listener: rc $(rc rg-nolistener): $(tail -1 "$T/rg-nolistener.out")"
+RS="$T/rg-service"; svc_home "$RS"; cp "$BIN/_stub" "$RS/actions-runner/config.sh"; chmod +x "$RS/actions-runner/config.sh"
+mkdir -p "$RS/.kosmos-ci"; printf 'ACTIONS_RUNNER_HOOK_JOB_STARTED=%s\nACTIONS_RUNNER_HOOK_JOB_COMPLETED=%s\n' "$RS/.kosmos-ci/job-started.sh" "$RS/.kosmos-ci/job-completed.sh" > "$RS/actions-runner/.env"
+for f in job-guard.sh job-started.sh job-completed.sh job-cleanup.sh; do printf '#!/bin/bash\n' > "$RS/.kosmos-ci/$f"; chmod 755 "$RS/.kosmos-ci/$f"; done
+STDIN_FILE="$T/token" run rg-twice "$RS" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$RS" -- --apply register
+[ "$(rc rg-twice)" = 1 ] && has rg-twice "registered as a service already" && ! grep -q '^config\.sh' "$T/rg-twice.calls" \
+  && pass "register --apply refuses a runner already registered as a service, before config.sh" || fail "register twice: rc $(rc rg-twice): $(tail -1 "$T/rg-twice.out")"
 run rg-none "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
 run rg-sudo "$CH" FX_WHO=kosmos-ci -- --apply register
 [ "$(rc rg-sudo)" = 2 ] && has rg-sudo "not /Users/kosmos-ci" && ! grep -q '^config\.sh' "$T/rg-sudo.calls" && pass "register --apply refuses when HOME is not kosmos-ci's (sudo -u keeps HOME)" || fail "register HOME check: rc $(rc rg-sudo)"
