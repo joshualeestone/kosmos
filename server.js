@@ -19399,8 +19399,8 @@ const server = http.createServer(async (req, res) => {
        (`kosmos room`) passes ?as=text, the web board reads JSON. #2702's reject
        and the existing render must agree on which arm this is. */
     let asText = false;
-    /* #4891 N8: `kosmos room <id> -n N` asks for the last N rows of the text view (1 to 200; messages.ROOM_READ_ROWS when not given or
-       not a whole number in range, so an older CLI and a bad value both get what they always got). */
+    /* #4891 N8: `kosmos room <id> -n N` asks for the last N rows of the text view (1 to 200; messages.ROOM_READ_ROWS
+       when not given or not a whole number in range, so an older CLI and a bad value both get what they always got). */
     let textRows = messages.ROOM_READ_ROWS;
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
@@ -19521,7 +19521,7 @@ const server = http.createServer(async (req, res) => {
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
       /* Plain text on ?as=text, for `kosmos room <id>` (#314): the CLI runs on
          stock bash 3.2 with no JSON parser, so the server does the shaping.
-         The tail only (the last 40, or the last `n` the CLI asks for, #4891), oldest first, one line per row, and the
+         The tail only (the last messages.ROOM_READ_ROWS, or the last `n` the CLI asks for, #4891), oldest first, one line per row, and the
          unreadable case says so rather than printing an empty room.
          #2702: `asText` is computed once at the top of this route now and reused
          here, so the reject arm and this render arm cannot disagree. */
@@ -19544,7 +19544,7 @@ const server = http.createServer(async (req, res) => {
            machine the operator is sitting at, never to an error. */
         let zone = null;
         try { zone = (store.readSettings() || {}).timezone || null; } catch { zone = null; }
-        /* #3311: at most half the rows shown (20 of the default 40) come from outside, so a busy
+        /* #3311: at most half the rows shown (half of the default messages.ROOM_READ_ROWS) come from outside, so a busy
            peer cannot push every local post out of the view agents read. #4891: of `textRows`. */
         const tail = [];
         let outside = 0;

@@ -28,12 +28,14 @@ covered, so an older unseen post can still be dropped:
   and replied to it having seen none of the older posts;
 - a read the runner cut short: the server returned the rows, but the tool output limit dropped the oldest before
   the model saw them;
+- a read the server itself could only partly render ("We could not read some of this room"), which showed fewer
+  rows than the window assumes;
 - two sends interleaving (the window itself follows the read's order by `at`, so a late-appended row is counted
   where the read shows it). A post restored after its typing failed and then held again is the same shape: Y's send starts first (earlier `at`), X reaches the member first and takes the held list,
   then Y is held. Milliseconds wide.
 Rejected for these: recording what each read showed per member (dropShown already clears what a token read showed;
 this rule exists for readers Kosmos cannot see), and dropping on any later post (an unrelated post would erase asks).
-A reply to the member's own post covers nothing.
+A reply to the member's own post covers nothing, and so does a reply to an outside (external) row (conservative).
 
 Second premise (review 8): seeing an older ask is not answering it. An ask from another sender on another topic,
 shown in the read, is dropped from the reminder though the member's reply was about X. Kept deliberately: it drops in the

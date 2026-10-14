@@ -1090,7 +1090,7 @@ const HELD_TELL_MAX_MS = 2 * 60 * 60 * 1000;
 const HELD_ASKED_MAX_MS = 24 * 60 * 60 * 1000;
 /* How many rows `kosmos room` shows when not given -n (server.js reads it from here). */
 const ROOM_READ_ROWS = 40;
-/* The row kinds that read shows (server.js filters a room's rows to these). */
+/* The row kinds that read shows: kept equal to server.js's room-read filter by roomhold-stale-4926.test.js. */
 const ROOM_READ_KINDS = Object.freeze(['post', 'valve', 'note', 'external', 'refused']);
 function staleHeld(projectId, ids, log, now, member) {
   const out = new Set();

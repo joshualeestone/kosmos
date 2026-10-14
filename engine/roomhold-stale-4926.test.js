@@ -250,6 +250,17 @@ test('#4926 N7: one reply to the round\'s newest post (m1032) answers the 8 olde
   assert.deepEqual(roomhold.withoutStale('p1', ask, limitJudge([dayOld, post('m1032', 32), answer]), 'mark'), [], 'a limit-kept ask the reply covered was kept back');
   // A reply stamped no later than the post it answers covers nothing (no read before it could have shown that post).
   assert.deepEqual([...judge([...round, { ...answer, at: round[8].at }], 'mark')], ['m1032'], 'a reply at the answered post\'s own instant covered the older posts');
+  // The member's FIRST reply to X sets the window: a second reply later, after more rows, does not widen it, and
+  // does not narrow it either.
+  const second = { ...answer, id: 'm1038', text: 'one more thing', at: ago(1) };
+  assert.ok(messages.staleHeld('p1', ['m1024'], [...base, answer, after, second], NOW, 'mark').has('m1024'), 'a later second reply narrowed the window');
+  assert.ok(!messages.staleHeld('p1', ['m1024'], [...base, between, answer, second], NOW, 'mark').has('m1024'), 'a later second reply widened the window');
+  // With ROOM_READ_ROWS - 1 rows between X and the reply, no read before the reply showed anything before X.
+  const busy = filler.map((f, k) => ({ ...f, at: new Date(NOW - 25 * 60000 + k * 1000).toISOString() }));
+  assert.equal(messages.staleHeld('p1', ['m1031'], [post('m1031', 33), post('m1032', 32), ...busy, answer], NOW, 'mark').has('m1031'), false,
+    'a post was covered though the rows after X filled every read before the reply');
+  assert.ok(messages.staleHeld('p1', ['m1031'], [post('m1031', 33), post('m1032', 32), ...busy.slice(1), answer], NOW, 'mark').has('m1031'),
+    'control: with one row fewer between them, the post just before X was not covered');
   // Rows the room read does not show (a reaction) do not use up the window.
   const unseen = filler.map(() => ({ kind: 'reaction', project: 'p1', from: 'ann', at: ago(35) }));
   assert.ok(messages.staleHeld('p1', ['m1024'], [post('m1024', 40), ...unseen, post('m1032', 32), answer], NOW, 'mark').has('m1024'),
