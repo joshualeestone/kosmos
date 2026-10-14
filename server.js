@@ -11105,16 +11105,24 @@ const server = http.createServer(async (req, res) => {
             /* #6108: why there can be NO reading for this account, when that is known: 'windows' (the statusline that
                records it is not wired there) or 'own-statusline' (the account already has a status line of its own, which
                Kosmos leaves alone) or 'not-wired' (no status line: nothing records a reading; Kosmos wires one when an account is added, or when the person asks on the row via POST /api/accounts/claude/usage-reading, #6175).
-               null when Kosmos's own status line is there, so a reading comes once an agent on it works. The page says "cannot read" only for these, never as a guess. */
+               null when Kosmos's own status line is there, so a reading comes once an agent on it works. The page says "cannot read" only for these, never as a guess.
+               #6175 review 13: 'linked-settings' instead of 'not-wired' when settings.json is a link whose file is not in this
+               folder (or points at nothing): the set-up route refuses those every time, so the row must not offer it. */
             weeklyBlocked: (() => {
               if (a.apiKey || typeof a.dir !== 'string' || !a.dir) return null;   // no folder: nothing to say about it
               if (process.platform === 'win32') return 'windows';
+              const sp = path.join(a.dir, 'settings.json');
+              const linkedAway = () => {   // the same test the route makes before it writes
+                try { if (!fs.lstatSync(sp).isSymbolicLink()) return false; } catch { return false; }
+                try { return path.dirname(fs.realpathSync(sp)) !== fs.realpathSync(a.dir); } catch { return true; }   // a link to nothing
+              };
+              const unwired = () => (linkedAway() ? 'linked-settings' : 'not-wired');
               try {
-                const j = JSON.parse(fs.readFileSync(path.join(a.dir, 'settings.json'), 'utf8'));
+                const j = JSON.parse(fs.readFileSync(sp, 'utf8'));
                 const sl = j && j.statusLine;
-                if (sl === undefined || sl === null) return 'not-wired';   // nothing records a reading here
+                if (sl === undefined || sl === null) return unwired();   // nothing records a reading here
                 return require('./engine/allowance').isOurs(sl) ? null : 'own-statusline';
-              } catch (e) { return e && e.code === 'ENOENT' ? 'not-wired' : 'unreadable-settings'; }   // missing: nothing records one; unreadable: Kosmos cannot tell
+              } catch (e) { return e && e.code === 'ENOENT' ? unwired() : 'unreadable-settings'; }   // missing (or a link to nothing): nothing records one; unreadable: Kosmos cannot tell
             })(),
             /* #6108: the agents on this account on THIS computer, by session name. complete is false when any could not
                be read, so the page can say the list may be short rather than call it whole. */
@@ -11986,7 +11994,7 @@ const server = http.createServer(async (req, res) => {
         const settingsFile = path.join(acct.dir, 'settings.json');
         try {
           if (path.dirname(fs.realpathSync(settingsFile)) !== fs.realpathSync(acct.dir)) {
-            sendJson(res, 409, { wired: false, because: 'this account\u2019s settings file is shared with a folder outside it, so it was left alone' });
+            sendJson(res, 409, { wired: false, because: 'this account\u2019s settings file is a link to a file elsewhere, so it was left alone' });   // review 13: true for a subfolder too
             return;
           }
         } catch { /* no settings file yet (or no folder): ensureStatusLine decides, as for a new account */ }

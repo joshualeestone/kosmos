@@ -239,6 +239,7 @@ test('#6108 /api/accounts says when an account cannot have a reading: its own st
     assert.ok(row, 'the default Claude account is not listed');
     return row.weeklyBlocked;
   };
+  const away = path.join(SANDBOX, 'away-settings-6175.json');
   if (process.platform === 'win32') { assert.equal(await blockedOf(), 'windows'); return; }
   try {
     fs.rmSync(settings, { force: true });
@@ -249,7 +250,15 @@ test('#6108 /api/accounts says when an account cannot have a reading: its own st
     assert.equal(await blockedOf(), 'own-statusline', 'an account with its own status line was not marked');
     fs.writeFileSync(settings, '{ not json');
     assert.equal(await blockedOf(), 'unreadable-settings', 'a settings file that cannot be parsed was promised a set-up that cannot happen');
-  } finally { fs.rmSync(settings, { force: true }); }
+    // #6175 review 13: a settings file that is a link away (or to nothing) is not offered a set-up the route always refuses.
+    fs.rmSync(settings, { force: true });
+    fs.writeFileSync(away, '{"theme":"light"}'); fs.symlinkSync(away, settings);
+    assert.equal(await blockedOf(), 'linked-settings', 'a settings file linked elsewhere was offered a set-up that is always refused');
+    fs.writeFileSync(away, JSON.stringify({ statusLine: { type: 'command', command: 'node /x/' + allowance.MARKER + ' ' + def } }));
+    assert.equal(await blockedOf(), null, 'CONTROL: a linked file that already carries Kosmos\'s status line reads as set up');
+    fs.rmSync(away, { force: true });
+    assert.equal(await blockedOf(), 'linked-settings', 'a link to nothing was offered a set-up that is always refused');
+  } finally { fs.rmSync(settings, { force: true }); fs.rmSync(away, { force: true }); }
 });
 
 /* #6175: an existing Claude account with no status line can have its usage reading set up from Settings; one with a
@@ -287,7 +296,7 @@ test('#6175 the usage-reading route wires a not-set-up account and never replace
     fs.symlinkSync(shared, settings);
     const linked = await post({ dir: def });
     assert.equal(linked.status, 409, JSON.stringify(linked));
-    assert.match(linked.j.because, /shared with a folder outside it/, linked.j.because);
+    assert.match(linked.j.because, /a link to a file elsewhere/, linked.j.because);
     assert.equal(fs.readFileSync(shared, 'utf8'), '{"theme":"light"}', 'a shared settings file was written');
     fs.rmSync(settings, { force: true }); fs.rmSync(shared, { force: true });
     const r = await post({ dir: def });

@@ -47,9 +47,19 @@ Card: kosmos#6175 (#6108 follow-up).
 ## Decided, not missed
 - Review 12 nit, the test message "the row still says it is not set up" on `assert.equal(blockedOf(), null)`: kept. An
   assertion message describes the failure, and a non-null weeklyBlocked is exactly the row still saying it is not set up.
-- Review 11 nit, the setup succeeds but the repaint cannot read the list: the paint's own error sentence stands and the
-  success goes unsaid; the old row still offers the button. Not built: pressing again answers changed:false and says
-  it is set up once the list reads, and a second sentence beside an error the person must act on would compete with it.
+- Review 11 nit, the setup succeeds but the repaint cannot read the list: my first Decided note here said the error
+  stood alone; review 13 showed that was FALSE (the failed paint empties the status line, so "set up" was written over
+  it). Now built: paintAccounts returns false when it drew the error, and the success stands down (focus only); a
+  browser arm pins it. The success is then unsaid; pressing again after the list reads answers changed:false and says it.
+- Review 13 (built): a settings.json that is a link whose file is not in the account folder (or a link to nothing)
+  reads 'linked-settings', not 'not-wired', so the row says why and offers no set-up the route always refuses (a link
+  to a file that already carries our status line still reads as set up; server arm + control). Declined: the other
+  fixed refusals of ensureStatusLine (unsafe path characters, a folder under the temp root, a missing script) still
+  read 'not-wired'; each needs a broken install or an odd folder name, and the refusal says why on the row.
+- Review 13 nit, focus re-claim scrolls: kept; it moves focus only when focus is LOST (on body or a removed node), so
+  a scroll only follows a click on blank page inside that one second.
+- Review 13 nit, rowFocusable arm message: it checks the attribute that makes the hand-back possible; the hand-back
+  itself is the focusIsRow arm. Kept both.
 - Review 11 (built): the route is person-only (isViaScreen, 403 otherwise), and a settings.json that resolves outside
   the account's own folder (a link shared with another account) is refused with 409 and left byte-for-byte. Weakest
   premise: a HARD link shared between two folders is not detected (realpath cannot see it); judged rare enough for hand

@@ -56,6 +56,7 @@ const ACCOUNTS = [
   claude('sleepy@example.com', 'sleepy', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-z'], complete: true } }),
   claude('unwired@example.com', 'unwired', { weekly: null, weeklyBlocked: 'not-wired', agentsHere: { names: [], complete: true } }),
   claude('mine@example.com', 'mine', { weekly: null, weeklyBlocked: 'own-statusline', agentsHere: { names: [], complete: true } }),
+  claude('linkedset@example.com', 'linkedset', { weekly: null, weeklyBlocked: 'linked-settings', agentsHere: { names: [], complete: true } }),
   claude('stalewired@example.com', 'stalewired', { weekly: { usedPct: 30, resetsAt: now + 50 * H, at: now - 30 * H }, weeklyBlocked: 'not-wired', agentsHere: { names: [], complete: true } }),
   claude('default@example.com', 'default', { isDefault: true, weekly: null, agentsHere: { names: [], complete: true } }),
   claude('noshare@example.com', 'noshare', { memoryShared: false, weekly: { usedPct: 5, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
@@ -297,11 +298,12 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         const row = (n) => document.querySelector('#set-accounts .acct-box[data-acct-dir="/home/.claude-' + n + '"]');
         const btnOf = (n) => row(n) && row(n).querySelector('[data-usage-setup]');
         const out = { offer: !!btnOf('unwired'), offerText: btnOf('unwired') ? btnOf('unwired').textContent.trim() : null,
-          explain: row('unwired') ? row('unwired').textContent.replace(/\s+/g, ' ') : '', ownOffer: !!btnOf('mine'), posts: [] };
+          explain: row('unwired') ? row('unwired').textContent.replace(/\s+/g, ' ') : '', ownOffer: !!btnOf('mine'), posts: [],
+          linked: { offer: !!btnOf('linkedset'), text: row('linkedset') ? row('linkedset').textContent.replace(/\s+/g, ' ') : '' } };
         /* a row that still shows an old reading is offered it too, with the same explainer */
         const sb = btnOf('stalewired'), sd = sb && document.getElementById(sb.getAttribute('aria-describedby') || '');
         out.stale = { offer: !!sb, describedBy: sd ? sd.textContent : null, stillShows: (() => { const i = row('stalewired') && row('stalewired').querySelector('.acct-usage-meter .bar i'); return !!i && i.style.width === '30%'; })() };
-        let refuse = 2; let staleN = 0;
+        let refuse = 2; let staleN = 0; let listDown = false;
         const posts1 = () => out.posts.length;
         const prior = window.fetch;
         window.fetch = (u, opts) => {
@@ -310,7 +312,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
             /* Review 10: the stale row answers wired first (its row is left not-wired, so the offer stays), then refused. */
             if (dir === '/home/.claude-stalewired') {
               staleN++;
-              if (staleN === 1) return Promise.resolve({ ok: true, status: 200, json: async () => ({ wired: true, changed: true }) });
+              if (staleN === 1 || staleN === 3) return Promise.resolve({ ok: true, status: 200, json: async () => ({ wired: true, changed: true }) });
               return Promise.resolve({ ok: false, status: 409, json: async () => ({ wired: false, because: 'the settings file could not be read' }) });
             }
             out.posts.push(dir);
@@ -320,6 +322,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
             (window.__acctPatch = window.__acctPatch || {})[dir] = { weeklyBlocked: null };
             return Promise.resolve({ ok: true, status: 200, json: async () => ({ wired: true, changed: true }) });
           }
+          if (listDown && String(u).indexOf('/api/accounts') !== -1) return Promise.reject(new TypeError('the list is down (stub)'));   // review 13
           return prior(u, opts);
         };
         /* Waits on the state each step reads (review 1), never a fixed sleep: a refusal is done when the button is enabled
@@ -360,6 +363,14 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           sb2().click(); await until(() => staleN >= 2 && sb2() && !sb2().disabled);
           await new Promise((r) => setTimeout(r, 400));
           out.newerRefusal = { n: staleN, msg: document.getElementById('set-accounts-msg').textContent };
+          /* Review 13: wired, but the list cannot be read after: the error stands alone, never "set up" beside it. */
+          await new Promise((r) => setTimeout(r, 300));   // the refusal's deferred write has landed
+          listDown = true;
+          sb2().click();
+          await until(() => staleN >= 3 && /We could not read the accounts on this computer/.test(document.getElementById('set-accounts').textContent));
+          await new Promise((r) => setTimeout(r, 400));
+          out.listDown = { n: staleN, listError: /We could not read the accounts on this computer/.test(document.getElementById('set-accounts').textContent), msg: document.getElementById('set-accounts-msg').textContent };
+          listDown = false;
         }
         window.fetch = prior;
         return out;
@@ -369,11 +380,13 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(s6175.msg1 === s6175.say1[0], tag + ' #6175 a refusal is also said in the panel\'s status line (heard by a screen reader)', JSON.stringify(s6175.msg1));
       say(s6175.after.focusIsRow && s6175.after.msg === 'Usage reading set up. Kosmos reads it once an agent on this account is working.', tag + ' #6175 a success is said in the status line and focus lands on the row', JSON.stringify({ focus: s6175.after.focusIsRow, msg: s6175.after.msg }));
       say(!!s6175.newerRefusal && s6175.newerRefusal.n === 2 && s6175.newerRefusal.msg === 'Not set up: the settings file could not be read.', tag + ' #6175 a refusal pressed during an earlier success\'s re-claim second stands in the status line', JSON.stringify(s6175.newerRefusal));
+      say(!!s6175.listDown && s6175.listDown.n === 3 && s6175.listDown.listError && !/Usage reading set up/.test(s6175.listDown.msg), tag + ' #6175 a set-up whose list cannot be read after does not say "set up" beside the error', JSON.stringify(s6175.listDown));
       say(s6175.reSaid === true, tag + ' #6175 the same refusal twice is emptied and said again, so a screen reader hears it again', String(s6175.reSaid));
       say(s6175.rowFocusable === true, tag + ' #6175 the row itself takes focus, so a repaint can hand focus back to it', String(s6175.rowFocusable));
       say(s6175.refocus === true, tag + ' #6175 after a refusal, focus is back on the button for a keyboard user', String(s6175.refocus));
       say(!!s6175.foreign && s6175.foreign.msg === 'Moved Dana to spare@example.com.' && s6175.foreign.focusKept, tag + ' #6175 the re-claim leaves another writer\'s sentence and a focus the person moved alone', JSON.stringify(s6175.foreign));
       say(s6175.stale.offer && /adds Kosmos\u2019s status line/.test(s6175.stale.describedBy || '') && s6175.stale.stillShows, tag + ' #6175 a row still showing an old reading is offered it too, described by its explainer', JSON.stringify(s6175.stale));
+      say(!s6175.linked.offer && /Its settings file is a link to a file elsewhere, and Kosmos leaves that alone\./.test(s6175.linked.text), tag + ' #6175 a row whose settings file is a link elsewhere says so and is not offered a set-up that is always refused', JSON.stringify(s6175.linked));
       say(!s6175.ownOffer, tag + ' #6175 a row with the person\'s own status line is not offered it (control)', String(s6175.ownOffer));
       say(s6175.say1.length === 1 && s6175.say1[0] === 'Not set up: this account already has its own status line, so it was left alone.', tag + ' #6175 a refusal is said on the row', JSON.stringify(s6175.say1));
       say(s6175.say2.length === 1, tag + ' #6175 a second refusal replaces the first', JSON.stringify(s6175.say2));
