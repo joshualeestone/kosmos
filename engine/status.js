@@ -1590,7 +1590,8 @@ function captureNote(target) {
  * failed goes to the agent's log, never to a card (#3729: no diagnostic lines on agent cards).
  * Also { screenRead: 'remembered' } whenever the SCREEN reading was held, even when a report
  * decided the state (the page draws no mark then): a report can carry the screen's reading along
- * (a limit wait's `screenState`), and code that acts on it asks stateIsRemembered.
+ * (a limit wait's `screenState`), and code that acts on it asks stateIsRemembered. Except a
+ * REPORTED idle, which is the agent's own word and not the held screen.
  */
 function stateReadFields(note, status, scraped) {
   if (!note || !status) return {};
@@ -1599,7 +1600,10 @@ function stateReadFields(note, status, scraped) {
      the look failed outright, and also over a HELD reading (a held idle cannot end that report: see liveToken in
      snapshot). Either card needs the hover's why as much as any (the #5949 symptom itself). */
   if ((note.unreadable === true || note.held === true) && status.state === STATE.UNKNOWN) return { stateRead: 'unreadable', ...screen };
-  if (status.reported === true) return screen;
+  /* A report decided the state. An IDLE it decided is the agent's own word (a Stop hook), not the held screen, so code
+     that acts on idle may act on it: no screenRead. Any other reported state keeps it, since a report can carry the
+     screen's reading along (a limit wait's `screenState`) and the code that acts on that reading must wait. */
+  if (status.reported === true) return status.state === STATE.IDLE ? {} : screen;
   /* Only when the card shows the held reading itself: a state something else decided this tick (a
      stop, a sign-in failure, a limit) is not "what it was doing when last seen". */
   if (note.held === true && status.state !== STATE.UNKNOWN && scraped && status.state === scraped.state) return { stateRead: 'remembered', ...screen };

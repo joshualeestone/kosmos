@@ -108,6 +108,8 @@ with the hover's why (`stateRead: 'unreadable'`), exactly as a failed look under
 reconcileReport lets a screen read this tick lead a report (a working screen over an idle report). A held reading is
 not a look taken this tick, so snapshot reconciles first as if the look had failed, and lets the held reading stand
 in only when that leaves the card unknown. A fresh idle from a Stop hook therefore wins over a remembered working.
+That reported idle is the agent's own word, so it carries no `screenRead` and the code that acts on idle may use it;
+any other reported state keeps `screenRead`, since a limit wait carries the held screen along as `screenState`.
 
 ## Not done
 A browser check: the change is a hover title and a CSS qualifier behind no click (Browser-check trailer).

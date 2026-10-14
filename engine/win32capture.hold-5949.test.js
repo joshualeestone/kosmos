@@ -327,10 +327,16 @@ test('#5949 code that acts because an agent is idle waits for a fresh look, not 
   const owes = { state: 'owes', heardAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), because: null };
   assert.equal(nudge.plan(card, owes, undefined, Date.now()).act, 'nudge', 'CONTROL: a fresh idle that owes a first reply is reminded');
   assert.equal(nudge.plan({ ...card, screenRead: 'remembered' }, owes, undefined, Date.now()).act, 'none');
-  const typed = [];
-  nudge.sweepOnce({ roster: [{ ...card, screenRead: 'remembered' }], book: new Map(), now: Date.now(), thread: () => null,
-    paused: () => null, replyChannel: () => null, deliver: (session) => { typed.push(session); return { state: 'placed' }; } });
-  assert.deepEqual(typed, [], 'the sweep types nothing into a pane whose idle is remembered');
+  /* The sweep, with a thread that owes a first reply, so only the remembered mark can stop it. */
+  const sweep = (c) => {
+    const typed = [];
+    const thread = () => ({ messages: [{ text: 'hello', at: new Date(Date.now() - 5 * 60 * 1000).toISOString(), delivery: { state: 'placed' } }] });
+    nudge.sweepOnce({ roster: [c], book: new Map(), now: Date.now(), thread, paused: () => null, replyChannel: () => null,
+      deliver: (session) => { typed.push(session); return { state: 'placed' }; } });
+    return typed;
+  };
+  assert.deepEqual(sweep(card), [card.sessionName], 'CONTROL: the sweep types into a fresh idle pane that owes a first reply');
+  assert.deepEqual(sweep({ ...card, screenRead: 'remembered' }), [], 'the sweep types nothing into a pane whose idle is remembered');
 });
 
 test('#5949 the carry is aged on when a state was last SEEN: an agent idle all morning still carries', () => {
@@ -556,7 +562,7 @@ test('#5949 a held "working" never outranks a fresh idle report (the Stop hook s
     const after = card();
     assert.equal(after.state, status.STATE.IDLE, 'the fresh report decides, not the remembered look');
     assert.equal('stateRead' in after, false, 'a state the report decided carries no remembered mark');
-    assert.equal(after.screenRead, 'remembered', 'the code that acts on the screen still sees it is held');
+    assert.equal(status.stateIsRemembered(after), false, 'a reported idle is the agent\'s own word: code that acts on idle may use it');
   } finally {
     status.setPaneSource(null);
     status.setPaneCapture(null);
