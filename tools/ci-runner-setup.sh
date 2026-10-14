@@ -23,6 +23,11 @@
 #                             Exit 0 clear, 1 a problem, 3 a check it could not make (neither pass nor fail)
 #   machine-settings          prints the settings that need an admin in System Settings
 #
+# HOW kosmos-ci GETS THIS SCRIPT, since the owner's home is closed to it (mode 700): pinned like the guard. As kosmos-ci,
+#   curl -fsSL https://raw.githubusercontent.com/joshualeestone/kosmos/<commit>/tools/ci-runner-setup.sh -o ~/ci-runner-setup.sh
+# with the same main <commit> you give install, and check `shasum -a 256 ~/ci-runner-setup.sh` against what the owner
+# gets from `git show <commit>:tools/ci-runner-setup.sh | shasum -a 256`. Run that copy only if the two match.
+#
 # The one-suite-per-Mac lock (#4574) needs nothing new here, only nothing switched OFF: a CI job runs
 # tools/run-tests.sh, whose name arm is `pgrep -fl` with no -u (tools/lib/cut-guard.sh), so it sees a suite of ANY
 # user on this Mac and waits. The run markers are per-HOME and do not cross users; the name arm does. So the
@@ -125,14 +130,14 @@ repo_variable() {
 
 # shards_check <value>: test.yml's scope job routes a shell shard only for the tokens 1/2 and 2/2 (split on commas and
 # whitespace), and only while the node part routes here too, so
-# any other value, empty included, routes none. Refuse exactly when one would route.
+# any other value, empty included, routes none. Refuse whenever a token could route (whatever KOSMOS_CI_RUNNER is).
 shards_check() {
   local v="$1" tok routed=""
   if [ "$v" = "<unset>" ]; then ok "KOSMOS_CI_SHELL_SHARDS unset"; return; fi
   set -f   # as test.yml's parse: a "*" stays literal
   for tok in $(printf '%s' "$v" | tr ',' ' '); do case "$tok" in 1/2|2/2) routed="$routed $tok" ;; esac; done
   set +f
-  if [ -n "$routed" ]; then problem "KOSMOS_CI_SHELL_SHARDS is '$v', which would route shell shard(s)$routed here: one runner cannot carry a shell shard (#4601); unset it first"
+  if [ -n "$routed" ]; then problem "KOSMOS_CI_SHELL_SHARDS is '$v', which could route shell shard(s)$routed here: one runner cannot carry a shell shard (#4601); unset it first"
   else ok "KOSMOS_CI_SHELL_SHARDS is set to '$v', which names no shard (test.yml routes none)"; fi
 }
 
@@ -205,15 +210,15 @@ preflight() {
   if [ -x "$BREW/bin/tmux" ]; then
     tv="$("$BREW/bin/tmux" -V 2>&1 || true)"
     case "$tv" in   # a literal match: 3.5a is the one version #2955's test refuses
-      "tmux 3.5a") problem "$BREW/bin/tmux is 3.5a, which #2955's test refuses (build one: baron-jobs/ci-mini-build-tmux.sh)" ;;
+      "tmux 3.5a") problem "$BREW/bin/tmux is 3.5a, which #2955's test refuses (build one with /Users/$OWNER/.cache/claude-handoffs/baron-jobs/ci-mini-build-tmux.sh)" ;;
       *) ok "$BREW/bin/tmux ($tv)" ;;
     esac
-  else problem "no $BREW/bin/tmux (the engine's fixed fallback; build one: baron-jobs/ci-mini-build-tmux.sh)"; fi
+  else problem "no $BREW/bin/tmux (the engine's fixed fallback; build one with /Users/$OWNER/.cache/claude-handoffs/baron-jobs/ci-mini-build-tmux.sh)"; fi
   # Jobs check out with git; without the Command Line Tools /usr/bin/git is only a stub that asks to install them.
   if xcode-select -p >/dev/null 2>&1; then ok "Command Line Tools present (git)"
   else problem "no Command Line Tools (xcode-select -p fails): /usr/bin/git cannot run for jobs; xcode-select --install"; fi
   if [ -x "$BREW/bin/pwsh" ]; then ok "$BREW/bin/pwsh"
-  else problem "no $BREW/bin/pwsh (install one: baron-jobs/ci-mini-install-pwsh.sh)"; fi
+  else problem "no $BREW/bin/pwsh (install one with /Users/$OWNER/.cache/claude-handoffs/baron-jobs/ci-mini-install-pwsh.sh)"; fi
 
   say "the owner's home (kosmos-ci is in group staff, so a group-readable home is readable by every CI job)"
   local om
@@ -545,6 +550,8 @@ machine_settings() {
 #  3. Log in as $CI_USER once in Screen Sharing before install: its home and GUI session come with that login.
 #  4. Keep $OWNER_HOME at mode 700 (preflight checks it). If $CI_USER's own home is closed too, verify run as
 #     $OWNER cannot see the runner's files and exits 3 (unchecked); run verify as $CI_USER then.
+#  5. $CI_USER cannot read this script in $OWNER_HOME: fetch it at the install commit and match its sha256 (see the
+#     header, "HOW kosmos-ci GETS THIS SCRIPT").
 EOF
 }
 

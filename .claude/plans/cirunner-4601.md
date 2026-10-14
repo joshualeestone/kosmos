@@ -52,6 +52,9 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   service; then the job-started hook not calling the guard (the reviewer's own mutation), the owner-home check
   removed, the restart trap left armed; then job-completed's RUNNER_TEMP gate opened, its temp path wrong, register
   without the KOSMOS_ check).
+- How kosmos-ci gets the script once the owner's home is 700: fetch it raw at the install commit and match its
+  sha256 to `git show <commit>:tools/ci-runner-setup.sh` on the owner's side. The two forms gave the same sha256 for
+  tools/ci-runner-job-guard.sh at origin/main (measured 06:31).
 - preflight refuses while the owner's home is readable by group or other: kosmos-ci is in staff, and /Users/agent1
   is 750 (measured 06:16). On migration day: chmod 700 /Users/agent1. Not done now; nothing touches this Mac.
 - The test runs the installed job-started hook against stand-ins, with job-cleanup.sh replaced by a marker first,
