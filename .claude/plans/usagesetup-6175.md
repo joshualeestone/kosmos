@@ -45,6 +45,10 @@ Card: kosmos#6175 (#6108 follow-up).
   (no path in the body).
 
 ## Decided, not missed
+- Review 15 (built, no browser arm): a refusal that arrives while a full repaint has no row drawn leaves the status line
+  ("Checking your accounts…") alone; the refusal is then said nowhere that lasts, and pressing again says it (it is
+  deterministic). Not built: a per-folder map the next paint renders (more state for a case needing a paint inside the
+  press). Also built: the list's fallback tabindex comes off on blur; a paint that throws restores the button.
 - Review 14 (built, no browser arm): an older press's late refusal no longer empties the status line once a newer press
   began (gen check), and the success re-claim also stands down while ACCOUNTS_UNREADABLE is set (a superseding paint
   that failed). Both need two things in flight inside one press; they are guarded by reading, not by a test.

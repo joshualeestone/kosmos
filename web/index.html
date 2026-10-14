@@ -28231,7 +28231,10 @@ async function paintAccounts(opts) {
       const msg = document.getElementById('set-accounts-msg');
       if (ok) {
         let drawn = true;
-        try { drawn = (await paintAccounts()) !== false; } catch { drawn = false; /* the next paint shows it */ }
+        try { drawn = (await paintAccounts()) !== false; } catch {
+          drawn = false;   // the next paint shows it
+          if (btn.isConnected) { btn.disabled = false; btn.textContent = 'Set up usage reading'; }   // review 15: never left "Setting up…" (and busy)
+        }
         /* Review 1: the repaint removed the focused button; say it worked in the panel's status line (after the
            repaint, which writes there too) and put focus on the account's row. */
         /* Review 2: a paint already in flight can replace the row and clear the line after ours, so the claim is
@@ -28247,7 +28250,12 @@ async function paintAccounts(opts) {
           if (!focusLost()) return;
           const r = rowOf();
           const target = r || document.getElementById('set-accounts');   // the row gone: the list, never the page itself
-          if (target) { target.setAttribute('tabindex', '-1'); target.focus(); }
+          if (!target) return;
+          if (!target.hasAttribute('tabindex')) {   // review 15: the list is made focusable only for this, and not left so
+            target.setAttribute('tabindex', '-1');
+            target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
+          }
+          target.focus();
         };
         if (gen !== ACCT_USAGE_GEN) { claimFocus(); return; }   // review 10: a newer press owns the line now
         if (!drawn || ACCOUNTS_UNREADABLE) { claimFocus(); return; }   // review 13: the list could not be read; "set up" must not compete with that (review 14: nor after a newer paint that failed)
@@ -28280,7 +28288,7 @@ async function paintAccounts(opts) {
       const prevLive = live.nextElementSibling;
       if (live !== btn && prevLive && prevLive.dataset && prevLive.dataset.usageSay) prevLive.remove();
       live.after(say);
-      if (msg && gen === ACCT_USAGE_GEN) {   // every writer to that line cancels (the #2684 note); review 14: an older press's late refusal leaves the line to the newer one (the row still says it)
+      if (msg && gen === ACCT_USAGE_GEN && live.isConnected) {   // review 15: a refusal with no row drawn to keep it (a repaint is under way) leaves "Checking your accounts…" alone   // every writer to that line cancels (the #2684 note); review 14: an older press's late refusal leaves the line to the newer one (the row still says it)
         /* Review 9: emptied, then written a frame later, so the same refusal twice is announced again (as a move's sentence is). */
         acctCancelSay(); const said = say.textContent; msg.textContent = '';
         acctSayTimer = setTimeout(() => { acctSayTimer = null; if (gen === ACCT_USAGE_GEN && msg.textContent === '') msg.textContent = said; }, 150);   // review 10: never over another writer's text
