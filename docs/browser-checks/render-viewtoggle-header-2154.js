@@ -211,6 +211,24 @@ const { chromium } = require('playwright');
     } finally {
       await tctx.close();
     }
+    // CONTROL: a MOUSE at the same 1194x834 is not a tablet. With the board on tabs it opens on tabs, and a press
+    // there DOES save to the board (the old behaviour), so the per-device rule is keyed on touch, not on the size.
+    await putLayout('tabs');
+    const mctx = await b.newContext({ viewport: { width: 1194, height: 834 } });
+    const mp = await mctx.newPage();
+    try {
+      await mp.goto(URL + '/?tab=agents', { waitUntil: 'networkidle' });
+      if (!(await mp.$('#firstrun[hidden]'))) { await mp.keyboard.press('Escape'); await mp.waitForTimeout(400); }
+      await mp.waitForFunction(() => document.documentElement.hasAttribute('data-layout'), null, { timeout: 15000 }).catch(() => {});
+      await mp.waitForTimeout(300);
+      say((await mp.evaluate(() => document.documentElement.getAttribute('data-layout'))) === 'tabs', 'mouse at 1194x834 (CONTROL): follows the board, still on separate tabs');
+      if (!(await mp.locator('#userpop-menu').isVisible())) { await mp.click('#userpop-btn'); await mp.waitForTimeout(200); }
+      await mp.click(LAY + ' [data-layout-switch="consolidated"]');
+      await mp.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 15000 });
+      say((await savedLayoutOf()) === 'consolidated', 'mouse at 1194x834 (CONTROL): a press there saves to the board, as before');
+    } finally {
+      await mctx.close();
+    }
   } finally {
     try { await putLayout(savedLayout); } catch { /* the server may be gone */ }
     await b.close();

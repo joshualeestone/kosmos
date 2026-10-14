@@ -31,7 +31,13 @@ behave exactly as before.
   iPad); to confirm on Josh's tablet. If it drops out, the next step is keying the per-device choice on the
   device rather than the pointer.
 
+- Known limit (review round 3): the page reads the board's layout once, at load. A tablet left open sideways
+  while the Mac changes the board, then turned upright, applies the layout from load until the next reload.
+  This was already true of every screen before this change.
+- Measured (2026-10-13, Playwright 1.x): WebKit with hasTouch reports (hover: none) and (pointer: coarse) like
+  Chromium, so the WebKit tablet shots do exercise the rule.
 ## Done when
 Shots at ipadminiland and ipad11land show the one-screen view by default with the rail open; a browser check
-pins the default, the per-device toggle (board setting unchanged) and the controls (upright tablet, mouse,
-phone unchanged); CI green; Josh has answered or noon has passed.
+pins the default, the per-device toggle (board setting unchanged) and the controls (turned upright, a mouse at
+the same size, the rail folding under 1100px; a phone needs none, the view is not offered under 960px); CI green; Josh has answered or noon has passed.
+
