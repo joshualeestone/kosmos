@@ -267,3 +267,23 @@ Not taken, with reasons: the four small points about the installer's logic (re-l
 a hint for `=false`, the Finder advice, a GNU `find` first on PATH). Each is a real edge and each is a change to
 the installer's update path, which would need the install test run again on Mortals for one line apiece. They go
 on the card as a follow-up, not into this change.
+
+## Review round 2, and a check of mine that could not fail (21:14 CDT)
+- **The Linux workflow check I added in round 1 could not fail, and I only know because I ran its control.** I
+  had written `test ! -w app && test ! -w app/server.js`. Under the step's `bash -e`, a failing test that is not
+  the last of an `&&` list does not stop the step. Measured: on a throwaway branch with the default put back to
+  off, that form PASSED (run 38499195513). Rewritten one test a line, with a check that the runner is not root
+  and that `app/` and `app/server.js` exist. Measured again: this branch green (run 38499461803), the
+  default-off control RED at "Verify installed pieces" (run 38499467680). The control branch is deleted.
+  The same file's older lines (`test -f X && test -x X`) have the same hole for their first half. Not this
+  change's; named on the card.
+- **How short the soak was** (round 2's first warning): 0.7.45, the first served installer that can lift a
+  read-only app, went out the morning of 2026-10-13, the same day as this. What is exposed is only an installer
+  OLDER than that being run over an app this one locked. Measured now: `/setup` and `/setup-staging` are the same
+  file (sha256 cb886011..., the one 0.7.47's sidecar names) and it carries the lift. The app's own updater and the
+  pkg both fetch `/setup` when they run and carry no copy (read in round 1, `engine/update.js` and the pkg's
+  postinstall), so an old APP still gets today's installer. Not measured: a cache between a person and
+  installkosmos.com still holding a file from before 0.7.45. My control for "carries the lift" was weak: the
+  commit before 0.7.45's version bump also matches, because the lift was merged before that bump.
+- Round 2's second warning (the workflow check is empty under root, and did not check a folder that must stay
+  writable) is covered by the rewrite above: it now fails under root and checks `bin/` and the home folder.
