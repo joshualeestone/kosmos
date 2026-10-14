@@ -1,6 +1,14 @@
 {
-  "version": "0.7.48",
+  "version": "0.7.49",
   "highlights": [
+    {
+      "icon": "list",
+      "title": "See each Claude account's weekly usage",
+      "line": "Settings, AI Models shows how much of each Claude account's weekly limit is used, which agents run on it, and moves them elsewhere.",
+      "platforms": [
+        "mac"
+      ]
+    },
     {
       "icon": "spark",
       "title": "Qwen in Add a provider",
@@ -20,14 +28,9 @@
       "line": "When a Claude agent is stopped on Claude Code's allow external imports question, its page now shows that question."
     },
     {
-      "icon": "list",
-      "title": "The Agents list fits a narrow window",
-      "line": "In a narrow browser window, the Agents list shows each running agent's role and AI model under its name, not cut short."
-    },
-    {
-      "icon": "list",
-      "title": "Quiet runs of a recurring task roll up",
-      "line": "Runs of a recurring task that found nothing new, or repeated the same note, fold into one row; its card says when something last changed."
+      "icon": "tasks",
+      "title": "A project says when goal planning gave up",
+      "line": "A project's page now says when Kosmos gave up today on asking its agent to plan toward the goal; giving it a task starts sooner."
     }
   ]
 }
