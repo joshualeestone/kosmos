@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: landscape-6107
-diff_hash: 016a442ac6cdefdc11e0fbbbf07dfae221b724b0d048bf169ec52c6d621238ef
-validation: passed (Mortals, full suite, clean entry for this hash)
+diff_hash: bd667be59659b1003b9447f2958dee0afc7e6a3fd70af3cd379eeeffb065c2f9
+validation: passed (Mortals full suite on 016a442a; changes since are browser checks, tests and two comments, focused 2951/2951 and render-phone-taps-5218 on the final head)
 subdir_audit: passed
-timestamp: 2026-10-14T13:43:48Z
-iterations: 12
+timestamp: 2026-10-14T15:47:27Z
+iterations: 16
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 12
-**Converged:** Yes (iteration 12: nits only, plus a documented known limit)
-**Total actionable findings:** 1 BLOCKER, 27 WARNINGs, 4 CONVENTIONs (plus NITs)
-**Fixed:** 27 | **Deferred:** 5 | **Asked (awaiting user):** 0
+**Iterations:** 16
+**Converged:** Yes (iteration 16: nits only; its two warnings restate the merge hold and the documented trackpad limit)
+**Total actionable findings:** 1 BLOCKER, 32 WARNINGs, 5 CONVENTIONs (plus NITs)
+**Fixed:** 31 | **Deferred:** 7 | **Asked (awaiting user):** 0
 
 Reviewer models alternated: odd iterations opus, even iterations sonnet.
 Self-generated (Origin): not computed by blame (the branch was rebuilt by cherry-pick and rebased), so every finding is recorded BRANCH.
@@ -89,8 +89,35 @@ Self-generated (Origin): not computed by blame (the branch was rebuilt by cherry
 **New findings:** 0 actionable (nits; the trackpad limit again, already documented)
 **Converged:** no new actionable findings.
 
+#### Iteration 13
+**Reviewer model:** opus
+(After the PR opened: CI red on render-phone-taps-5218. Its 1366 touch tablet arm, created without isMobile and missed by
+my sweep, waited for a card-grid name the tablet no longer shows. Fixed before this round: it waits for the one-screen
+rows and asserts the tablet opened them by itself.)
+- [WARNING] render-room-msgbox-2806.js: the one-screen comment said the page does not choose it by itself --> FIXED
+- [WARNING] web/index.html: the failed-read branch and the session-kept press were untested --> FIXED (pinned; removing the failed-read branch fails the test, measured)
+- [CONVENTION] web.layout-picker.test.js: a test name claimed more than the code --> FIXED (scoped off sideways tablets)
+- NITs: mobile-shots #boardbar note fixed; storage key name and the cwd-relative breakpoint test left as they are
+
+#### Iteration 14
+**Reviewer model:** sonnet
+- [WARNING] render-phone-taps-5218.js: the touch precondition used OR while the rule needs AND --> FIXED (passed on a local run)
+- [WARNING] render-voice-4409.js not updated --> DEFERRED as not an issue: it reads only the mic class on a file page
+- NITs: two whitespace-exact test patterns loosened
+
+#### Iteration 15
+**Reviewer model:** opus
+- [WARNING] a Windows touchscreen that hosts the board, in tablet mode, also matches the rule --> DEFERRED: known limit in the plan (rare; next step is keying on a remote screen)
+- NITs: paintStyles and mobile-shots comments fixed; the iPadOS 13 addListener fallback not added (plan says why)
+
+#### Iteration 16
+**Reviewer model:** sonnet
+**New findings:** 0 actionable (its two warnings restate the merge hold and the documented trackpad limit; nits)
+**Converged:** no new actionable findings.
+
 ### Evidence outside the loop
-- Focused node tests 2950/2950 on the final head; the whole page script parses; surface gate clean (three trailers).
+- Focused node tests 2951/2951 on the final head; the whole page script parses.
+- render-phone-taps-5218 on the final head (10:37): all checks passed, including the new tablet default assertion.
 - render-room-msgbox-2806 on the final head (07:28): 0 FAIL. render-home-phone-718 (06:51, before changes it does not exercise): ALL PASS.
 - render-viewtoggle-header-2154, render-room-reply-3745, render-mobilenav-4823, render-dm-chatfirst-718: run by CI on the PR.
 
