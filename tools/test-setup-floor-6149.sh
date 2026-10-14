@@ -128,7 +128,8 @@ live() { grep -n "$1" "$2" | grep -v '^[0-9]*:[[:space:]]*#'; }
 # Each publisher checks its export BEFORE its own vercel deploy: the first tree check sits above the first deploy line.
 # (release.sh's cannot run in the suite; this is the arm that fails if it is moved below the deploy or deleted.)
 for f in release.sh deploy-site.sh; do
-  chk="$(live 'kosmos_setup_floor_tree_ok ".*|| {' "$HERE/$f" | head -1 | cut -d: -f1)"
+  # (the order pin assumes one vercel deploy line per script, as today; a second deploy above the check would need its own pin)
+  chk="$(live 'kosmos_setup_floor_tree_ok ".*|| {.*exit 1; }$' "$HERE/$f" | head -1 | cut -d: -f1)"
   dep="$(grep -n 'vercel deploy --prod --yes' "$HERE/$f" | grep -v '^[0-9]*:[[:space:]]*#' | head -1 | cut -d: -f1)"
   if [ -n "$chk" ] && [ -n "$dep" ] && [ "$chk" -lt "$dep" ]; then pass "$f checks its export (line $chk) before its vercel deploy (line $dep)"
   else bad "$f: tree check line '${chk:-none}', deploy line '${dep:-none}'"; fi
@@ -141,9 +142,9 @@ kosmos_setup_floor_site_untouched_ok t "$T/site" prod 2>/dev/null && pass "a pro
 printf 'old\n' > "$T/site/setup-staging"
 kosmos_setup_floor_site_untouched_ok t "$T/site" prod 2>/dev/null && bad "a prod cut passed an old /setup-staging it re-publishes" || pass "a prod cut refuses the old /setup-staging it re-publishes untouched"
 kosmos_setup_floor_site_untouched_ok t "$T/site" nightly 2>/dev/null && bad "an unknown channel passed" || pass "an unknown channel is refused"
-n="$(live 'kosmos_setup_floor_site_untouched_ok "the site (origin/main.*"\$_floor_site" "\$CUT_CHANNEL" || {' "$HERE/release.sh" | wc -l | tr -d ' ')"
+n="$(live 'kosmos_setup_floor_site_untouched_ok "the site (origin/main.*"\$_floor_site" "\$CUT_CHANNEL" || {.*exit 1; }$' "$HERE/release.sh" | wc -l | tr -d ' ')"
 [ "$n" = 1 ] && pass "release.sh runs it on its channel at step 1a-floor" || bad "release.sh 1a-floor calls: $n"
-live 'must never reach a cut -- refusing' "$HERE/release.sh" >/dev/null && live '\[ -z "\${KOSMOS_SETUP_FLOOR_TEST:-}\${KOSMOS_SETUP_FLOOR_LOWER:-}" \]' "$HERE/release.sh" >/dev/null && pass "release.sh refuses the test knob in a cut" || bad "release.sh does not refuse the test knob"
+live 'must never reach a cut -- refusing' "$HERE/release.sh" >/dev/null && live '\[ -z "\${KOSMOS_SETUP_FLOOR_TEST:-}\${KOSMOS_SETUP_FLOOR_LOWER:-}" \] || { echo "\$_floor_knob"; exit 1; }$' "$HERE/release.sh" >/dev/null && pass "release.sh refuses the test knob in a cut" || bad "release.sh does not refuse the test knob"
 i1="$(live 'kosmos_setup_floor_installer_ok "this cut.s install/setup.sh" "\$REPO/install/setup.sh" || exit 1' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 s2="$(grep -n '^step "== 2\. ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 { [ -n "$i1" ] && [ -n "$s2" ] && [ "$i1" -lt "$s2" ]; } && pass "release.sh checks the cut's own installer (line $i1) before step 2" || bad "release.sh own-installer check line '${i1:-none}'"

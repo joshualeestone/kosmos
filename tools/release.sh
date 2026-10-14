@@ -633,27 +633,30 @@ git -C "$REPO" log --oneline -8 | cat
 
 step "== 1a-floor. the setup floor on the pair this cut re-publishes untouched (kosmos#6149) =="
 # A cut's site deploy (step 8) re-publishes the OTHER channel's pointer and installer as the site holds them. This is a
-# fail-fast on the site checkout (which may be behind origin/main), seconds in, so a site below the floor refuses
-# before anything is built; the export check before the deploy reads the bytes actually published and is the authority.
+# fail-fast, seconds in, on the site's origin/main (fetched; the checkout if the fetch fails), so a site below the floor
+# refuses before anything is built; the export check before the deploy reads the bytes actually published and is the
+# authority. Every refusal here is one line ending in exit 1 (tools/test-setup-floor-6149.sh pins each by that line).
 . "$REPO/tools/lib/setup-floor.sh" || { echo "could not load tools/lib/setup-floor.sh"; exit 1; }
-# The test-only knob that lowers the floor has no place in a cut: refuse it outright.
-[ -z "${KOSMOS_SETUP_FLOOR_TEST:-}${KOSMOS_SETUP_FLOOR_LOWER:-}" ] || {
-  echo "KOSMOS_SETUP_FLOOR_TEST / KOSMOS_SETUP_FLOOR_LOWER are set: they lower the setup floor for test fixtures and must never reach a cut -- refusing"; exit 1; }
+_floor_knob="KOSMOS_SETUP_FLOOR_TEST / KOSMOS_SETUP_FLOOR_LOWER are set: they lower the setup floor for test fixtures and must never reach a cut -- refusing"
+[ -z "${KOSMOS_SETUP_FLOOR_TEST:-}${KOSMOS_SETUP_FLOOR_LOWER:-}" ] || { echo "$_floor_knob"; exit 1; }
 kosmos_setup_floor_ok "this $CUT_CHANNEL cut" "$V" || exit 1
 kosmos_setup_floor_installer_ok "this cut's install/setup.sh" "$REPO/install/setup.sh" || exit 1
 # Read origin/main's copies (what the cut's fresh-main site commit will carry), not a checkout that may be behind:
-# fetch, then lay the four files out in a scratch dir. If the fetch fails, fall back to the checkout and say so.
-_floor_site="$SITE"
+# fetch, then lay the four files out in a scratch dir (removed after). If the fetch fails, check the checkout, and say so.
+_floor_site="$SITE"; _floor_tmp=""
 if git -C "$SITE" fetch -q origin 2>/dev/null; then
-  _floor_site="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-floor-site.XXXXXX")" && mkdir -p "$_floor_site/dist"
+  _floor_tmp="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-floor-site.XXXXXX")" || { echo "could not make a scratch dir for the setup floor check"; exit 1; }
+  mkdir -p "$_floor_tmp/dist" || { echo "could not make a scratch dir for the setup floor check"; exit 1; }
   for _f in dist/latest.json dist/latest-staging.json setup setup-staging; do
-    git -C "$SITE" show "origin/main:$_f" > "$_floor_site/$_f" 2>/dev/null || rm -f "$_floor_site/$_f"
+    git -C "$SITE" show "origin/main:$_f" > "$_floor_tmp/$_f" 2>/dev/null || rm -f "$_floor_tmp/$_f"
   done
+  _floor_site="$_floor_tmp"
 else
   echo "(could not fetch the site; checking the checkout at $SITE as it is)"
 fi
-kosmos_setup_floor_site_untouched_ok "the site (origin/main, or the checkout if it could not be fetched)" "$_floor_site" "$CUT_CHANNEL" || {
-  echo "(fix what it named: a POINTER below the floor needs publish-staging-pointer.sh (staging) or a promote (prod) of a build at or above it; an INSTALLER that does not know the read-only app needs a cut on that channel, which writes its installer)"; exit 1; }
+_floor_hint="(fix what it named: a POINTER below the floor needs publish-staging-pointer.sh (staging) or a promote (prod) of a build at or above it; an INSTALLER that does not know the read-only app needs a cut on that channel, which writes its installer)"
+kosmos_setup_floor_site_untouched_ok "the site (origin/main, or the checkout if it could not be fetched)" "$_floor_site" "$CUT_CHANNEL" || { echo "$_floor_hint"; [ -z "$_floor_tmp" ] || rm -rf "$_floor_tmp"; exit 1; }
+[ -z "$_floor_tmp" ] || rm -rf "$_floor_tmp"
 # ---- (end of step 1a-floor; what follows belongs to step 1b) ----
 # ⚠️ LAST IN STEP 1, NOT FIRST, AND THE ORDER IS LOAD-BEARING. Placed before
 # the divergence guard this pre-empts it, and a cut from a diverged tree then
