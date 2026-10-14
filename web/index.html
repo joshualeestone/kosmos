@@ -27797,7 +27797,7 @@ async function paintAccounts(opts) {
       + (main && soonId ? 'aria-describedby="' + soonId + '" ' : '')
       + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
       + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>';
-    return '<div class="acct-box' + (soonLine ? ' acct-expiring' : '') + (loginEnded && claudeSignIn ? ' acct-ended' : '') + (acctLanded(a.dir) ? ' acct-land' : '') + '" data-acct-dir="' + esc(a.dir || '') + '">'
+    return '<div class="acct-box' + (soonLine ? ' acct-expiring' : '') + (loginEnded && claudeSignIn ? ' acct-ended' : '') + (acctLanded(a.dir) ? ' acct-land' : '') + '" tabindex="-1" data-acct-dir="' + esc(a.dir || '') + '">'   // #6175 review 9: a repaint can hand focus back to the row
       + '<div class="acct-box-top"><div class="acct-who"><b>' + who
       // No "your first account" tag (#394): the email is the answer, whole.
       + '</b>' + qualTag + keyDetail + org + '</div>'
@@ -28269,7 +28269,11 @@ async function paintAccounts(opts) {
       const prevLive = live.nextElementSibling;
       if (live !== btn && prevLive && prevLive.dataset && prevLive.dataset.usageSay) prevLive.remove();
       live.after(say);
-      if (msg) { acctCancelSay(); msg.textContent = say.textContent; }   // every writer to that line cancels (the #2684 note)   // review 1: the status region speaks it; the row keeps it in view
+      if (msg) {   // every writer to that line cancels (the #2684 note)
+        /* Review 9: emptied, then written a frame later, so the same refusal twice is announced again (as a move's sentence is). */
+        acctCancelSay(); const said = say.textContent; msg.textContent = '';
+        acctSayTimer = setTimeout(() => { acctSayTimer = null; msg.textContent = said; }, 150);
+      }   // review 1: the status region speaks it; the row keeps it in view
       btn.textContent = 'Set up usage reading';
       btn.disabled = false;
       { const a = document.activeElement; if (live.isConnected && (!a || a === document.body || !a.isConnected)) live.focus(); }   // review 4: a keyboard user can retry from here

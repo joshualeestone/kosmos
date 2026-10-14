@@ -45,6 +45,12 @@ Card: kosmos#6175 (#6108 follow-up).
   (no path in the body).
 
 ## Decided, not missed
+- Review 9 nit, a second account-list refresh started during the press: the newer refresh can land after the 1 s
+  re-claim and blank "Usage reading set up". Not built (the ACCT_MOVE pending-outcome pattern would be a second state
+  machine for a case that needs a second refresh trigger inside the press): the row still repaints correctly without
+  the offer, so only the sentence is lost, and focus is kept because rows now carry tabindex=-1 (review 9's other nit).
+  Weakest premise: that nothing else triggers a refresh in that window; a future timer that refreshes the list would
+  make this common, and then the pending-outcome pattern is the fix.
 - Review 8 nit, exact dir match: the route finds the account by its exact resolved folder from this computer's own list.
   A symlinked or differently spelled folder gets 404, never an alias. Kept: the page always sends the listed folder, and
   matching aliases would widen what the route can write to.

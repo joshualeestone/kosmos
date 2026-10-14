@@ -325,8 +325,15 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         btnOf('unwired').focus(); btnOf('unwired').click(); await until(() => posts1() >= 1 && idle());   // review 4: from the button, as a keyboard user
         out.refocus = document.activeElement === btnOf('unwired');
         out.say1 = [...row('unwired').querySelectorAll('[data-usage-say]')].map((e) => e.textContent);
+        await until(() => document.getElementById('set-accounts-msg').textContent === (out.say1[0] || '\u0000'));   // review 9: written a frame later
         out.msg1 = document.getElementById('set-accounts-msg').textContent;
+        /* Review 9: the same refusal again must change the status line (emptied, then written), or a screen reader stays silent. */
+        const seen = []; const mo = new MutationObserver(() => seen.push(document.getElementById('set-accounts-msg').textContent));
+        mo.observe(document.getElementById('set-accounts-msg'), { childList: true, characterData: true, subtree: true });
         btnOf('unwired').click(); await until(() => posts1() >= 2 && idle());
+        await until(() => seen.length >= 2 && seen[seen.length - 1] === out.msg1); mo.disconnect();
+        out.reSaid = seen.indexOf('') >= 0 && seen[seen.length - 1] === out.msg1;
+        out.rowFocusable = row('unwired') ? row('unwired').getAttribute('tabindex') === '-1' : false;
         out.say2 = [...row('unwired').querySelectorAll('[data-usage-say]')].map((e) => e.textContent);
         btnOf('unwired').focus(); btnOf('unwired').click(); await until(() => !btnOf('unwired') && /Usage reading set up/.test(document.getElementById('set-accounts-msg').textContent));
         out.after = { offer: !!btnOf('unwired'), line: row('unwired') && row('unwired').querySelector('.acct-usage-line') ? row('unwired').querySelector('.acct-usage-line').textContent.trim() : null,
@@ -344,6 +351,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(/adds Kosmos\u2019s status line/.test(s6175.describedBy || ''), tag + ' #6175 the button is described by the line that says what it adds', JSON.stringify(s6175.describedBy));
       say(s6175.msg1 === s6175.say1[0], tag + ' #6175 a refusal is also said in the panel\'s status line (heard by a screen reader)', JSON.stringify(s6175.msg1));
       say(s6175.after.focusIsRow && s6175.after.msg === 'Usage reading set up. Kosmos reads it once an agent on this account is working.', tag + ' #6175 a success is said in the status line and focus lands on the row', JSON.stringify({ focus: s6175.after.focusIsRow, msg: s6175.after.msg }));
+      say(s6175.reSaid === true, tag + ' #6175 the same refusal twice is emptied and said again, so a screen reader hears it again', String(s6175.reSaid));
+      say(s6175.rowFocusable === true, tag + ' #6175 the row itself takes focus, so a repaint can hand focus back to it', String(s6175.rowFocusable));
       say(s6175.refocus === true, tag + ' #6175 after a refusal, focus is back on the button for a keyboard user', String(s6175.refocus));
       say(!!s6175.foreign && s6175.foreign.msg === 'Moved Dana to spare@example.com.' && s6175.foreign.focusKept, tag + ' #6175 the re-claim leaves another writer\'s sentence and a focus the person moved alone', JSON.stringify(s6175.foreign));
       say(s6175.stale.offer && /adds Kosmos\u2019s status line/.test(s6175.stale.describedBy || '') && s6175.stale.stillShows, tag + ' #6175 a row still showing an old reading is offered it too, described by its explainer', JSON.stringify(s6175.stale));
