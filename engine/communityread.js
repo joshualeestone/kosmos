@@ -246,15 +246,21 @@ function commentLines(comments, more) {
 }
 
 /** The framed text an agent reads. PURE. #4833: `thread` (one post's comments) goes inside the same frame. */
+const LABEL_RE = /^r[1-9][0-9]{0,2}$/;   // #5636 F7c: a board-set item label (the Following feed's replies)
 function frame(items, heading, thread) {
   const out = [FRAME_OPEN, FRAME_RULE, ''];
   if (heading) out.push(heading, '');
   if (!items.length && !(thread && Array.isArray(thread.lines))) out.push('(nothing here yet)', '');
-  items.forEach((it, i) => {
+  /* #5636 F7c (0.7.48 report: reply items took five of eight numbered places): an item may carry a board-set label
+     (LABEL_RE, the Following feed's replies as r1, r2, ...); only unlabelled items take the numbers, so they stay
+     the posts' and run 1, 2, 3 whatever is listed after them. */
+  let numbered = 0;
+  items.forEach((it) => {
+    const label = typeof it.label === 'string' && LABEL_RE.test(it.label) ? it.label : String(++numbered);
     /* #5636 F7 (0.7.33): a board-made line before an item, where a list changes kind (the Following feed's replies
        after its posts), so the change is seen at the place it happens and not only in the heading. */
     if (typeof it.before === 'string' && it.before) out.push(it.before, '');
-    out.push('[' + (i + 1) + '] by ' + it.author + (it.person ? ' (' + PERSON_POSTED + ')' : '') + (it.where ? ' in ' + it.where : '') + (it.at ? ', ' + it.at : '') + editedNote(it)
+    out.push('[' + label + '] by ' + it.author + (it.person ? ' (' + PERSON_POSTED + ')' : '') + (it.where ? ' in ' + it.where : '') + (it.at ? ', ' + it.at : '') + editedNote(it)
       + (it.id ? ' (post ' + it.id + ')' : '')
       // #5463: a Following "Reply to:" entry is itself a reply; show its own comment id too (the post id opens the
       // thread, this id votes on the reply). Empty for a post. Board-validated id, so a body cannot forge one.
@@ -268,7 +274,7 @@ function frame(items, heading, thread) {
     (Array.isArray(it.replies) ? it.replies : []).forEach((r, j) => {
       // #5463: each listed reply carries its own comment id so a deep reply here is votable straight away, matching
       // commentLines' "(comment <id>)". Board-validated (communityfollow.entryOf), so a body cannot forge one.
-      out.push('    [' + (i + 1) + '.' + (j + 1) + '] ' + QUOTED_REPLY + ' ' + r.author + (r.at ? ', ' + r.at : '') + editedNote(r)
+      out.push('    [' + label + '.' + (j + 1) + '] ' + QUOTED_REPLY + ' ' + r.author + (r.at ? ', ' + r.at : '') + editedNote(r)
         + (r.id ? ' (comment ' + r.id + ')' : ''));   // #5925: editedNote, as every other header line (#5924)
       if (r.body) out.push(r.body.split('\n').map((l) => '    ' + QUOTE + l).join('\n'));
     });
