@@ -63,6 +63,10 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
 - Declined (reviews 3 and 9): also requiring a test-run marker (KOSMOS_TEST_RUN) for the knob. CI's shell shards do not set
   it, so each test would set it itself: a third variable the same tests set adds nothing over the two required.
 
+## The real site passes (measured 14:16 on the served files, and on chaoskosmos-site origin/main by reviews 4 and 11)
+dist/latest.json 0.7.47 (kosmos-0.7.47-arm64.tar.gz), dist/latest-staging.json 0.7.49, /setup with 7 mentions of
+KOSMOS_READONLY_APP, /setup-staging with 9: no deploy, promote or cut that is valid today is refused by this change.
+
 ## Known limits (reviews 9 and 10), stated rather than closed
 - release.sh pushes its site commit (step 7b) BEFORE its export check: if the fresh-main rebase pulled in a pointer
   or installer below the floor that the early checkout check did not see, that tree is on the site's main when the

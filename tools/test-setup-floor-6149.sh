@@ -98,15 +98,22 @@ case "$out" in *"setup-staging (about to become /setup) does not know KOSMOS_REA
 [ "$(cd "$T/site/dist" && ls -la && cat ./*)" = "$before" ] && [ ! -e "$T/site/setup" ] && pass "that refusal wrote nothing" || bad "that refusal wrote something"
 rm -rf "$T/site/.git"
 # ...and with no installer named, prod keeps its /setup beside the promoted pointer: an old one is refused too.
-site; printf 'an installer from before 0.7.45\n' > "$T/site/setup"
+site; git init -q "$T/site"; printf 'an installer from before 0.7.45\n' > "$T/site/setup"
 printf 'a build\n' > "$T/site/dist/kosmos-0.7.49-arm64.tar.gz"
 ( cd "$T/site/dist" && shasum -a 256 kosmos-0.7.49-arm64.tar.gz > kosmos-0.7.49-arm64.tar.gz.sha256 )
 asha="$(shasum -a 256 < "$T/site/dist/kosmos-0.7.49-arm64.tar.gz" | awk '{print $1}')"
 printf '{"version":"0.7.49","sha256":"%s","artifact":"kosmos-0.7.49-arm64.tar.gz"}' "$asha" > "$T/site/dist/latest-staging.json"
 before="$(cd "$T/site/dist" && ls -la && cat ./*)"
 out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"
-case "$out" in *"the /setup prod keeps serving does not know KOSMOS_READONLY_APP"*) pass "promote refuses an old /setup that prod would keep beside the new pointer";; *) bad "promote and a kept old /setup: $out";; esac
+git -C "$T/site" add -A && git -C "$T/site" commit -q -m site
+before="$(cd "$T/site/dist" && ls -la && cat ./*)"
+out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"
+case "$out" in *"the /setup prod keeps serving does not know KOSMOS_READONLY_APP"*) pass "promote refuses an old committed /setup that prod would keep beside the new pointer";; *) bad "promote and a kept old /setup: $out";; esac
 [ "$(cd "$T/site/dist" && ls -la && cat ./*)" = "$before" ] && pass "that refusal wrote nothing" || bad "that refusal wrote something"
+printf 'x KOSMOS_READONLY_APP\n' > "$T/site/setup"   # a current installer in the working tree only, not committed
+out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"
+case "$out" in *"is not committed or differs from its committed copy"*) pass "a /setup that differs from its committed copy is refused (not what prod serves)";; *) bad "promote and an uncommitted /setup: $out";; esac
+rm -rf "$T/site/.git"
 
 # publish-staging-pointer.sh: refused below the floor before any write.
 site; out="$(bash "$HERE/publish-staging-pointer.sh" "$T/site" 0.7.44 2>&1)"; rc=$?

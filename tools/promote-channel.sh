@@ -137,7 +137,7 @@ V="$(read_field version)"; SHA="$(read_field sha256)"; ARTIFACT="$(read_field "$
 # corruption threat model -- anyone who can write the pointer can write latest.json -- but cheap.
 reject_pathy() { case "$2" in *"/"*|*".."*) echo "promote-channel: the staging pointer's $1 ('$2') is not a bare filename - refusing" >&2; exit 1 ;; esac; }
 reject_pathy "$ARTIFACT_FIELD" "$ARTIFACT"
-# kosmos#6149 point 1 (after the bare-filename check, before any write): prod must never be pointed at a Mac build older than the setup floor (its /setup comes with it).
+# kosmos#6149 point 1 (after the bare-filename check, before any write): prod must never be pointed at a Mac build older than the setup floor; the installer prod serves beside it is checked below.
 if [ "$FAMILY" = mac ]; then
   . "$(dirname "$0")/lib/setup-floor.sh" || { echo "promote-channel: cannot load tools/lib/setup-floor.sh" >&2; exit 1; }
   # The snapshot's own bytes (what is copied to prod), so a doubled key is refused here too: readers of a doubled key
@@ -188,8 +188,10 @@ if [ "$FAMILY" = mac ] && [ -n "$PTR_SETUP" ]; then
   # kosmos#6149: setup-staging is about to become /setup: it must know the read-only app (before any write).
   kosmos_setup_floor_installer_ok "setup-staging (about to become /setup)" "$SITE/setup-staging" || exit 1
 elif [ "$FAMILY" = mac ] && [ -f "$SITE/setup" ]; then
-  # kosmos#6149: no installer named, so prod keeps its /setup beside the promoted pointer: it must know the read-only
-  # app too (before any write).
+  # kosmos#6149: no installer named, so prod keeps its /setup beside the promoted pointer: the COMMITTED one (what a
+  # deploy serves) must know the read-only app too, before any write.
+  git -C "$SITE" ls-files --error-unmatch setup >/dev/null 2>&1 && git -C "$SITE" diff --quiet HEAD -- setup \
+    || { echo "promote-channel: $SITE/setup is not committed or differs from its committed copy, so it is not what prod serves - refusing; nothing was written." >&2; exit 1; }
   kosmos_setup_floor_installer_ok "the /setup prod keeps serving" "$SITE/setup" || exit 1
 fi
 
