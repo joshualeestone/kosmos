@@ -38,7 +38,11 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
 - The marker is a content check, so an installer that drops KOSMOS_READONLY_APP some day would be refused: that
   fails closed and loud, and the fix is to update KOSMOS_SETUP_FLOOR_MARKER with it.
 - release.sh's call is not run by a test (a cut cannot run in the suite); it is the same function the export arms
-  of test-deploy-site-promote.sh run.
+  of test-deploy-site-promote.sh run, and test-setup-floor-6149.sh asserts it sits above release.sh's vercel deploy.
+- A consequence, intended: once a committed pointer is below the floor, every site deploy is refused, an HTML-only
+  one included, until a Mac build at or above the floor is cut. That is the fail-closed shape: the fix is a build.
+- Declined (review 3): also requiring a test-run marker (KOSMOS_TEST_RUN) for the knob. CI's shell shards do not set
+  it, so each test would set it itself: a third variable the same tests set adds nothing over the two required.
 
 ## Tests
 tools/test-setup-floor-6149.sh: the library (boundary, numeric compare, unreadable versions, the knob in each
