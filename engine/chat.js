@@ -365,10 +365,11 @@ function cleanMessage(raw) {
  *   B. every remaining word is in the closed ACK_WORDS lexicon (the WHOLE post, not a
  *      prefix), matched case-insensitively and with edge punctuation trimmed, so
  *      "AGREED." and "Thanks!!" still count (a case-sensitive match is this fleet's
- *      most repeated false zero). A token is skippable only if it is pure
- *      punctuation/symbol/emoji; a word in ANY script (not only Latin) that is not in
- *      the lexicon is content, so a non-English post is never mistaken for an
- *      acknowledgement;
+ *      most repeated false zero). A token is skippable only if it is PURE PUNCTUATION
+ *      ("!!", "..."); a symbol or an off-lexicon emoji (❌, ✗, ⚠️, 🚀) is content,
+ *      because it can carry meaning, often negation, and holding "ok ❌" would hold a
+ *      disagreement. A word in ANY script (not only Latin) that is not in the lexicon is
+ *      also content, so a non-English post is never mistaken for an acknowledgement;
  *   C. it carries no new-information signal: a digit, a url or scheme, a file path or
  *      a filename.ext, inline code/backticks, a question mark, a currency or percent
  *      sign, or a double-quoted span.
@@ -421,9 +422,16 @@ function acknowledgementOnly(raw) {
   // token to empty and mistake real non-English content for an acknowledgement -- the
   // dangerous direction.
   for (const tok of tokens) {
-    if (ACK_EMOJI.has(tok)) continue;
+    if (ACK_EMOJI.has(tok)) continue;            // a listed acknowledgement emoji, judged whole
     const w = tok.toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
-    if (w === '') continue;                      // pure punctuation/symbol/emoji such as "!!" or an off-lexicon emoji
+    if (w === '') {
+      // No letters or numbers in any script. Pure punctuation ("!!", "...") is noise and
+      // skippable, but a SYMBOL that is not a listed acknowledgement emoji can carry
+      // meaning -- often negation (❌, ✗, ⚠️) -- so it is content. The dangerous direction
+      // is calling "ok ❌" an acknowledgement and holding a disagreement.
+      if (/\p{S}/u.test(tok)) return false;      // a non-ack symbol or off-lexicon emoji -> content
+      continue;                                  // pure punctuation -> skippable
+    }
     if (!ACK_WORDS.has(w)) return false;         // a word outside the lexicon (any script) -> content
   }
   return true;

@@ -3410,6 +3410,9 @@ test('#4934: acknowledgementOnly lets a post with new facts escape, by a word ou
     // content an acknowledgement (which would refuse it with nothing stored).
     '同意', 'Принято',
     'こんにちは', '我不同意这个方案',
+    // a symbol that is not a listed acknowledgement emoji is content, not skippable noise:
+    // it can carry meaning (often negation), so "ok ❌" must not be held as an agreement.
+    'ok ❌', 'yes ✗', 'agreed ⚠️', 'agreed \u{1F680}',
   ]) {
     assert.equal(chat.acknowledgementOnly(s), false, 'should be content (escape): ' + JSON.stringify(s));
   }

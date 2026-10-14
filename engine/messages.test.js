@@ -1149,7 +1149,7 @@ test('#4934/#5967: four consecutive acknowledgement-only posts hold the room, so
     assert.equal(held.id, null, 'the ack hold kept a copy; it must not');
     assert.equal(tmux.sends().length, 0, 'the refused ack was typed anyway');
     assert.equal(messages.record().rows.filter((m) => m.kind === 'post' && m.text === 'thanks').length, 0, 'the refused ack was stored');
-    assert.equal(messages.record().rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 1, 'the ack hold was not logged as a valve row');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 1, 'the ack hold valve row was not logged exactly once');
 
     // BOUNDARY: three acks (two seeded, one incoming) must NOT hold -- the threshold is four.
     wipeLog(); chat.resetForTests(); armSender('leo-discord'); arm([]);
@@ -1228,6 +1228,47 @@ test('#4934/#5967: a second refused ack does not duplicate the valve row or the 
     const rows = messages.record().rows;
     assert.equal(rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 1, 'a second refusal wrote a duplicate valve row');
     assert.equal(rows.filter((m) => m.kind === 'refused' && m.project === 'henderson-lease').length, 1, 'a second refusal by the same agent wrote a duplicate refused row');
+  });
+});
+
+test('#4934/#5967: a reopen resets the ack run (the other countFrom writer), so an ack right after it does not hold', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    // Three acks, then an operator REOPEN row (a different lastOperatorAt writer than a
+    // plain operator post, per roomHeldRead): the run counts only from the reopen, so the
+    // incoming ack is run 1 and lands.
+    seedPosts(now, [
+      { from: 'leo', text: 'agreed' },
+      { from: 'mara', text: 'ok' },
+      { from: 'april', text: 'confirmed' },
+    ]);
+    fs.appendFileSync(messages.LOG, JSON.stringify({
+      kind: 'reopen', from: 'you', to: 'henderson-lease', project: 'henderson-lease',
+      operator: true, at: new Date(now - 200).toISOString(),
+    }) + '\n');
+    armSender('leo-discord'); arm([]);
+    const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks' }, board.agents, MEMBERS);
+    assert.equal(out.state, chat.DELIVERY.PLACED, 'the ack run was not reset by the reopen (countFrom ignored the reopen row)');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 0, 'the room was held though the reopen had reset the run');
+  });
+});
+
+test('#4934/#5967: a held room still accepts a content post (the ack hold blocks only acks, not the room)', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    seedPosts(now, [
+      { from: 'leo', text: 'agreed' },
+      { from: 'mara', text: 'ok' },
+      { from: 'april', text: 'confirmed' },
+    ]);
+    armSender('leo-discord'); arm([]);
+    // The run reaches four and the room holds against a fourth ACK.
+    const held = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks' }, board.agents, MEMBERS);
+    assert.equal(held.state, chat.DELIVERY.COULD_NOT, 'the ack did not hold the room');
+    // A CONTENT post from the same agent lands: the hold stops acks, not the room, and the
+    // content resets the run (it is the person being "brought in" with something new).
+    const content = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'the deploy is green, 3 of 3 checks passed' }, board.agents, MEMBERS);
+    assert.equal(content.state, chat.DELIVERY.PLACED, 'a content post was refused though only acks should be held');
   });
 });
 
