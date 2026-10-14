@@ -42,6 +42,8 @@ kosmos_setup_floor_pointer_ok t "$(ptr 0.7.49 kosmos-0.7.40-arm64.tar.gz)" 2>/de
 kosmos_setup_floor_pointer_ok t "$(ptr 0.7.44 kosmos-0.7.44-arm64.tar.gz)" 2>/dev/null && bad "a 0.7.44 pointer passed" || pass "a 0.7.44 pointer is refused"
 kosmos_setup_floor_pointer_ok t '{"sha256":"bb"}' 2>/dev/null && bad "a pointer with no version passed" || pass "a pointer with no version is refused"
 kosmos_setup_floor_pointer_ok t '{"version":"0.7.49","sha256":"bb"}' 2>/dev/null && bad "a pointer with no artifact passed" || pass "a pointer with no artifact is refused (fail closed)"
+dup='{"version":"0.6.1","artifact":"kosmos-0.6.1-arm64.tar.gz","version":"0.7.49","artifact":"kosmos-0.7.49-arm64.tar.gz","sha256":"bb"}'
+kosmos_setup_floor_pointer_ok t "$dup" 2>/dev/null && bad "a pointer with doubled keys passed" || pass "a pointer naming version and artifact twice is refused (the installer reads the first)"
 for art in kosmos-arm64.tar.gz kosmos-0.7.49.tar.gz not-a-build.zip; do
   kosmos_setup_floor_pointer_ok t "$(ptr 0.7.49 "$art")" 2>/dev/null && bad "artifact $art passed" || pass "a 0.7.49 pointer naming $art is refused (fail closed)"
 done
@@ -119,6 +121,9 @@ kosmos_setup_floor_site_untouched_ok t "$T/site" prod 2>/dev/null && bad "a prod
 kosmos_setup_floor_site_untouched_ok t "$T/site" nightly 2>/dev/null && bad "an unknown channel passed" || pass "an unknown channel is refused"
 n="$(grep -c 'kosmos_setup_floor_site_untouched_ok "the site checkout" "\$SITE" "\$CUT_CHANNEL"' "$HERE/release.sh")"
 [ "$n" = 1 ] && pass "release.sh runs it on its channel at step 1a-floor" || bad "release.sh 1a-floor calls: $n"
+a1="$(grep -n 'kosmos_setup_floor_ok "this \$CUT_CHANNEL cut" "\$V"' "$HERE/release.sh" | head -1 | cut -d: -f1)"
+b2="$(grep -n '^step "== 2\. ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
+{ [ -n "$a1" ] && [ -n "$b2" ] && [ "$a1" -lt "$b2" ]; } && pass "release.sh checks the cut's own version (line $a1) before step 2, the build (line $b2)" || bad "release.sh own-version check line '${a1:-none}', step 2 line '${b2:-none}'"
 
 # deploy-site.sh is run for real by tools/test-deploy-site-promote.sh (its kosmos#6149 arms: the real floor refuses
 # a committed pointer below it with nothing deployed, and a pointer whose tarball is older than its version).

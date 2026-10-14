@@ -54,6 +54,13 @@ kosmos_setup_floor_ok() {
 # a versioned kosmos tarball name is refused too (fail closed): every real Mac pointer names one.
 kosmos_setup_floor_pointer_ok() {
   local label="$1" json="$2" v art av
+  # One of each key: a reader that takes the FIRST of a doubled key (install/setup.sh does) and this check, which
+  # would see the last, could otherwise disagree about which build installs.
+  if [ "$(printf '%s' "$json" | grep -o '"version"[[:space:]]*:' | wc -l | tr -d ' ')" -gt 1 ] ||
+     [ "$(printf '%s' "$json" | grep -o '"artifact"[[:space:]]*:' | wc -l | tr -d ' ')" -gt 1 ]; then
+    echo "setup floor (kosmos#6149): $label names version or artifact more than once -- refusing" >&2
+    return 1
+  fi
   v=$(printf '%s' "$json" | sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p')
   art=$(printf '%s' "$json" | sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p')
   kosmos_setup_floor_ok "$label" "$v" || return 1
@@ -77,12 +84,6 @@ kosmos_setup_floor_pointer_ok() {
 # pointers' floor stays 0.7.45, the first PROD-served one: stricter than needed, which fails closed.
 KOSMOS_SETUP_FLOOR_MARKER="KOSMOS_READONLY_APP"
 
-# `kosmos_setup_floor_tree_ok <who> <dir>`: the tree a deploy is about to publish (its export) must hold no Mac
-# pointer and no installer older than the floor: dir/dist/latest.json and dir/dist/latest-staging.json (when present)
-# through kosmos_setup_floor_pointer_ok, and dir/setup and dir/setup-staging (when present) must carry the marker.
-# Under a lowered floor (test fixtures) the installer check is skipped, with a warning. Out of its scope, on purpose:
-# the .pkg (its postinstall fetches and verifies /setup, so /setup covers it) and the unversioned alias tarball (the
-# app, not an installer).
 # `kosmos_setup_floor_installer_ok <label> <file>`: the installer must know the read-only app (the marker). Under a
 # lowered floor (test fixtures, whose installers are stand-ins) it is skipped, with the warning.
 kosmos_setup_floor_installer_ok() {
@@ -97,6 +98,12 @@ kosmos_setup_floor_installer_ok() {
   }
 }
 
+# `kosmos_setup_floor_tree_ok <who> <dir>`: the tree a deploy is about to publish (its export) must hold no Mac
+# pointer and no installer older than the floor: dir/dist/latest.json and dir/dist/latest-staging.json (when present)
+# through kosmos_setup_floor_pointer_ok, and dir/setup and dir/setup-staging (when present) must carry the marker.
+# Under a lowered floor (test fixtures) the installer check is skipped, with a warning. Out of its scope, on purpose:
+# the .pkg (its postinstall fetches and verifies /setup, so /setup covers it) and the unversioned alias tarball (the
+# app, not an installer).
 kosmos_setup_floor_tree_ok() {
   local who="$1" dir="$2" f
   for f in dist/latest.json dist/latest-staging.json; do
