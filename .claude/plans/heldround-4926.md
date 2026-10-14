@@ -7,7 +7,9 @@ reply to m1032. The idle flush dropped only m1032 as answered (staleHeld matches
 
 ## Change
 engine/messages.js staleHeld: when the member has replied in the room to ANOTHER member's post X, the held posts
-among the ROOM_READ_ROWS - 1 room rows before X (and earlier than X) are answered too: dropped even if they ask, and
+among the room rows before X that every default read showing X, made before that reply, showed are answered too:
+ROOM_READ_ROWS - 1 rows, less one per row after X and before the member's first reply to it, in the read's order and
+kinds (and earlier than X; nothing when the reply is not later than X). They are dropped even if they ask, and
 marked `answered` so a limit hold does not keep them back. Posts after X are untouched. ROOM_READ_ROWS (40) is the
 default `kosmos room` row count, now read by server.js from messages.js rather than kept as a second literal.
 

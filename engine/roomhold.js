@@ -24,7 +24,8 @@
  * you (the card's third point). #4926: a held post that asks nothing of you and has gone stale (older than
  * messages.HELD_TELL_MAX_MS, counted from a quota pause's end for a quota hold, or the room's loop guard stopped the
  * conversation after it) is dropped from that line instead (withoutStale): it is still in the room. #4926 R2: so is one
- * that asks something of you, once you have answered it, or a post it was shown with in a default room read, or it is over a day old (messages.staleHeld).
+ * that asks something of you, once you have answered it, or a later post of another member's that it sat a few rows
+ * before and that you answered (N7), or it is over a day old (messages.staleHeld).
  *
  * Left exactly as before: the person's posts (to the room or to you), any post that @-names you, and
  * every agent whose latest report is neither a fresh `working` nor `idle` (needs_you, blocked, stopped, never
@@ -318,7 +319,9 @@ function clauseFor(projectId, shown, ids) {
    caller decides, messages.staleHeld says older than HELD_TELL_MAX_MS or the room's loop guard has stopped it since) is
    dropped rather than told: hours later, or after the room was stopped, it woke agents into one more short reply after
    the person had asked for quiet. A held post that names the member and asks for an answer is told unless the member
-   has answered it, or a post it was shown with in a default room read, or it is over a day old (#4926 R2 and N7, staleHeld's evenIfAsked). The post itself is in the room either way (kosmos room shows it). Without `stale`, nothing is dropped. */
+   has answered it, or a later post of another member's that it sat a few rows before (N7), or it is over a day old
+   (#4926 R2, staleHeld's evenIfAsked). The post itself is in the room either way (kosmos room shows it). Without
+   `stale`, nothing is dropped. */
 function withoutStale(projectId, ids, stale, name) {
   if (!ids.length || typeof stale !== 'function') return ids;
   let gone;
