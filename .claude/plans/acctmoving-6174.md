@@ -73,3 +73,5 @@ same name without the agent moving would clear the mark early (safe direction).
 - (review 12) The marker states only the fact, "(still running on its old account)": whether a Kosmos restart
   finishes the move is unmeasured, so the page does not promise it. The notes file's read-change-write has no lock
   (a lost write under-marks or leaves a leftover); the header says so rather than claiming atomicity.
+- (review 13) The list reads the session start fresh for an agent with a note (a 2 s cached read could mark an agent
+  that just restarted); the header lists every over-mark case together.
