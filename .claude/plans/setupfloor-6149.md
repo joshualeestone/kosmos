@@ -33,7 +33,10 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
   - promote-channel.sh also checks the installer before any write: setup-staging when it is about to become /setup,
     or, when the staging pointer names no installer, the /setup prod keeps serving beside the new pointer.
   - release.sh refuses the test knob outright (no test drives a cut with it), and at step 1a also checks the cut's
-    own install/setup.sh, before anything is built or pushed.
+    own install/setup.sh (the checkout's), then, right after the freeze (step 2b), the FROZEN install/setup.sh it
+    actually publishes (a pinned or behind-main cut ships the frozen one): both before anything is built or pushed.
+    The library is loaded once, at step 1a; after the freeze REPO is the frozen tree, which a pinned cut's older sha
+    may not hold, so it is never sourced from there.
 - deploy-site's early committed-pointer check is a fail-fast: its export check would refuse the same pointers;
   only the staging-pointer arm of the test is specific to it.
 - NOT covered, and said so in docs/staging-channel.md: a rollback done in Vercel itself (Instant Rollback,
