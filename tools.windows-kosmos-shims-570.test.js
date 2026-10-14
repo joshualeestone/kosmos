@@ -278,7 +278,7 @@ test('no hang: `kosmos feedback write` with no text (the one verb that reads std
       assert.equal(r.exited, true, 'feedback write hung on an open stdin: ' + r.out);
       assert.equal(r.code, 2, r.out);
       assert.match(r.out, /^Nothing to write/);
-      assert.match(r.out, /in PowerShell, pass the text as an argument/);
+      assert.match(r.out, /in PowerShell, text piped into kosmos does not reach it: save the report in a file and give its path with --body-file <file>/);   // #5946
     }
   } finally { try { removeZip(root); } finally { removeTree(data); } }
 });

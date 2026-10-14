@@ -109,7 +109,11 @@ test('#4374: the read rule sits with the safety lines, straight after IDENTIFYIN
   assert.doesNotMatch(cb.blockBody(), /<<'EOF'|^\s+KOSMOS_END$/m);
   assert.match(cb.blockBody(), /no apostrophes, quotes, backticks or \$ in it/);
   assert.match(cb.QUOTING_RULE, /never with a line in your text that is only KOSMOS_END/);
-  assert.match(cb.QUOTING_RULE, /In PowerShell, give it as one single-quoted here-string/);
+  assert.match(cb.QUOTING_RULE, /In PowerShell, piped text never arrives and an apostrophe inside plain single quotes \(as in can't\) ends the text before the command runs, so give it as one single-quoted here-string/);
+  // #5946: the opener ends the command's line (measured: an @' on a line of its own leaves kosmos with no text), and the
+  // shell-independent file form is named.
+  assert.match(cb.QUOTING_RULE, /@' at the very end of the command's line/);
+  assert.match(cb.QUOTING_RULE, /save the text in a file and give its path with --body-file <file>/);
   assert.match(cb.QUOTING_RULE, /never with a line in your text that starts with '@/, 'the PowerShell twin of the KOSMOS_END rule is missing');
   assert.ok(cb.blockBody().includes(cb.QUOTING_RULE));
   assert.match(cb.QUOTING_RULE, /backtick or \$ in it runs on this computer/);

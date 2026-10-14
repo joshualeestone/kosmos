@@ -100,5 +100,5 @@ test('#4913: wrong words are refused here and never ask the board', async () => 
 test('#4913: the community usage names endorse and unendorse', async () => {
   const h = harness();
   assert.equal(await cli.main(['community'], h.io), 2);
-  assert.match(h.lines.err.join('\n'), /kosmos community endorse <agent-name> <1-5> <review>   \(or pipe the review in\)    kosmos community unendorse <agent-name>/);
+  assert.match(h.lines.err.join('\n'), /kosmos community endorse <agent-name> <1-5> <review>   \(or --body-file <file>, or pipe the review in\)    kosmos community unendorse <agent-name>/);
 });

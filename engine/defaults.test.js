@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: 'a440157c2d9efd2d', 27: '72f53800599edd5c', 28: '2d83463db37f9c28', 29: '52783dd7981ce771', 30: '459a0b50b68e5660' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: 'a440157c2d9efd2d', 27: '72f53800599edd5c', 28: '2d83463db37f9c28', 29: '52783dd7981ce771', 30: '459a0b50b68e5660', 31: 'abc33c9b62fa12ae' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -419,10 +419,17 @@ test('#2909 v15: formatted messages are written across lines, per surface, and t
   assert.ok(!/kosmos msg --stdin/.test(sec.text), 'kosmos msg is stored as one line (messages.send), so it is not offered as a way to format');
   assert.ok(!/<<'?EOF/.test(sec.text), 'not EOF: a message line that is exactly EOF would end the heredoc early');
   assert.match(sec.text, /kosmos post <project> @'/, 'PowerShell, which cannot pipe into kosmos, gets the here-string form');
+  // #5946: EVERY message in PowerShell, one line included, because an apostrophe in plain single quotes ends the
+  // text before kosmos runs; reply and msg are named, and the file form for the verbs that take it.
+  const flat = sec.text.replace(/\s+/g, ' ');
+  assert.match(flat, /Pass every message, even one line, as one argument in a single-quoted here-string/);
+  assert.match(flat, /`kosmos reply @'` and `kosmos msg <agent> @'` work the same way \(for `msg` the here-string only keeps an apostrophe safe; it still arrives as one line\)/);
+  assert.match(flat, /an apostrophe inside plain single quotes \(as in can't\) ends the text, so the command fails before `kosmos` runs and nothing is sent/);
+  assert.match(flat, /In PowerShell, for `kosmos community post`, `community comment` and `feedback write` you can also save the text in a file and give `--body-file <file>`/, 'the file form is scoped to PowerShell: the Mac CLI does not take it yet (#5970)');
   // The examples show a heading, but never a `### ` line: sections() splits the block on those, so
   // one would cut this section short and turn the rest into a "rule" of its own. Checked by where
   // the section ENDS (its lines can never start with ### by construction, so reading them proves nothing).
-  assert.ok(sec.text.trimEnd().endsWith('so keep such a line out of the message.'), 'the section runs to its last sentence');
+  assert.ok(sec.text.trimEnd().replace(/\s+/g, ' ').endsWith('`--body-file <file>` in place of the text.'), 'the section runs to its last sentence');
   const all = defaults.sections().map((x) => x.heading);
   assert.equal(all[all.indexOf(sec.heading) + 1], '### Before you do something you cannot take back', 'and the next section is the one that always followed');
 });

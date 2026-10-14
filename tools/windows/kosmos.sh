@@ -11,4 +11,30 @@ command -v cygpath >/dev/null 2>&1 || { echo "kosmos: this shim runs in Git Bash
 here=$(cd "$(dirname "$0")" && pwd)
 node=$(cygpath -w "$here/../runtime/node.exe")
 cli=$(cygpath -w "$here/kosmos-cli.js")
+# #5946: the one argument that IS a path, --body-file's, is converted here, since
+# conversion is off for the rest: a Git Bash path such as /tmp/post.txt (mktemp's)
+# would otherwise reach Windows node as C:\tmp\post.txt, which does not exist.
+# Only a value starting with / is converted, nothing after a bare --, which
+# ends the options and starts the agent's own words, and only for the two verbs
+# that take --body-file (feedback, community): any other verb's words go as typed.
+convert_next=
+past_options=
+case ${1-} in community|feedback) ;; *) past_options=1 ;; esac
+for arg do
+  shift
+  if [ -n "$convert_next" ]; then
+    convert_next=
+    case $arg in
+      /*) arg=$(cygpath -w -- "$arg") ;;
+      --) past_options=1 ;;   # no value given; the CLI refuses it, and nothing after it is converted
+    esac
+  elif [ -z "$past_options" ]; then
+    case $arg in
+      --) past_options=1 ;;
+      --body-file) convert_next=1 ;;
+      --body-file=/*) arg="--body-file=$(cygpath -w -- "${arg#--body-file=}")" ;;
+    esac
+  fi
+  set -- "$@" "$arg"
+done
 MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' exec "$node" "$cli" "$@"

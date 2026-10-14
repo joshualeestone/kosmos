@@ -260,7 +260,8 @@ test('#2909: post --stdin sends the piped text verbatim (backticks, $, newlines)
   assert.equal(empty.code, 2);
   assert.equal(empty.calls.length, 0, 'nothing piped in must send nothing');
   assert.match(empty.err, /nothing was piped in/);
-  assert.match(empty.err, /in PowerShell, pass the text as an argument/, 'kosmos.ps1 never forwards piped input, so the refusal must say so');
+  assert.match(empty.err, /in PowerShell, text piped into kosmos does not reach it: pass the text as one single-quoted here-string/, 'kosmos.ps1 never forwards piped input, so the refusal must say so');
+  assert.doesNotMatch(empty.err, /pass the text as an argument/, '#5946: a plain argument breaks on an apostrophe in PowerShell');
   const crlf = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: 'line one\r\nline two\r\n', ended: true }));
   assert.equal(crlf.calls[0].body.text, 'line one\r\nline two', 'a CRLF file loses its trailing line ending, not just the \\n');
   const esc = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: '\u001b[31mred\u001b[0m\tdone\u0007\n', ended: true }));
@@ -599,7 +600,7 @@ test('round 2: feedback write REFUSES a piped report that stopped without ending
   const r = await feedbackRun(['feedback', 'write'], () => cli.readStandardInput(pipe, SHORT_QUIET_MS));
   assert.equal(r.code, 2);
   assert.deepEqual(r.written, [], 'half a report was saved');
-  assert.match(r.err, /^Nothing was saved: .*Pass the report as an argument/);
+  assert.match(r.err, /^Nothing was saved: .*Save it in a file instead and give its path: kosmos feedback write --body-file <file>/);
 });
 
 test('round 2: feedback write saves a piped report that ENDED, a late second part included', async () => {
