@@ -53,10 +53,11 @@ test('#5309 p2 /api/status: a default-account agent reaches (true) and a Gemini 
   _resetCache();
   const fs = fakeFs(personFiles(), personMtimes());
   const rows = [
-    { runner: 'claude', account: { dir: null } },     // raiden, default -> shares the home
+    { runner: 'claude', account: { dir: null }, session: 'raiden' },     // raiden, default -> shares the home
     { runner: 'gemini', account: { dir: '/g' } },   // grok-one, other runner -> not-applicable
   ];
-  attachPluginReach(rows, { personHome: '/person', fs });
+  // #6095: a default agent's session is read for its real folder; '' is the clean default launch.
+  attachPluginReach(rows, { personHome: '/person', fs, sessionDirs: () => new Map([['raiden', '']]) });
   assert.deepEqual(rows[0].reach, { reaches: true, reason: 'reaches' });
   assert.equal(rows[1].reach.reaches, null);
 });
@@ -139,4 +140,62 @@ test('#5309 p2 /api/status: a workerDir thunk that THROWS falls back to top-leve
   const r = [{ runner: 'claude', account: { dir: '/agent-sep' } }];
   attachPluginReach(r, { personHome: '/person', fs: fakeFs(projectFiles(), projectMtimes()), workerDir: () => { throw new Error('boom'); }, canonicalize: idCanon });
   assert.deepEqual(r[0].reach.missing.sort(), ['crm@acme', 'tickets']);
+});
+
+/* #6095: a default-account Claude agent is not ASSUMED to run in the person's folder. Its tmux session's real
+   CLAUDE_CONFIG_DIR is read (engine/sessionccd, one call for every such agent): a pinned folder is judged as that
+   folder, '' is the clean default, and unknown gives reach UNKNOWN (the board renders nothing). */
+test('#6095: a default agent whose session is pinned to another folder is judged as that folder', () => {
+  _resetCache();
+  const fs = fakeFs(personFiles(), personMtimes());
+  const rows = [{ runner: 'claude', account: { dir: null }, session: 'pinned' }];
+  attachPluginReach(rows, { personHome: '/person', fs, sessionDirs: () => new Map([['pinned', '/agent-sep']]) });
+  assert.equal(rows[0].reach.reaches, false, 'it runs in /agent-sep, not the person\'s folder');
+  assert.equal(rows[0].reach.reason, 'separate-account-folder');
+  assert.deepEqual(rows[0].reach.missing.sort(), ['crm@acme', 'tickets']);
+});
+
+test('#6095: unknown (no answer, a failed read, no session) is UNKNOWN, never the default', () => {
+  _resetCache();
+  const fs = fakeFs(personFiles(), personMtimes());
+  const unknownRow = () => ({ runner: 'claude', account: { dir: null }, session: 'u' });
+  for (const [why, dirs] of [
+    ['answered unknown', () => new Map([['u', null]])],
+    ['not in the answer', () => new Map()],
+    ['the read threw', () => { throw new Error('tmux gone'); }],
+  ]) {
+    const rows = [unknownRow()];
+    attachPluginReach(rows, { personHome: '/person', fs, sessionDirs: dirs });
+    assert.deepEqual(rows[0].reach, { reaches: null, reason: 'unknown' }, why);
+  }
+  const noSession = [{ runner: 'claude', account: { dir: null } }];
+  attachPluginReach(noSession, { personHome: '/person', fs, sessionDirs: () => new Map() });
+  assert.deepEqual(noSession[0].reach, { reaches: null, reason: 'unknown' }, 'no session to name');
+});
+
+test('#6095: one session read for every default agent; accounts with a folder and other runners are not asked about', () => {
+  _resetCache();
+  const fs = fakeFs(personFiles(), personMtimes());
+  const asked = [];
+  const rows = [
+    { runner: 'claude', account: { dir: null }, session: 'a' },
+    { runner: null, account: { dir: null }, session: 'b', sessionName: 'b-name' },
+    { runner: 'claude', account: { dir: '/agent-sep' }, session: 'c' },
+    { runner: 'codex', account: { dir: null }, session: 'd' },
+    { runner: 'claude', account: { dir: null }, sessionName: 'e' },
+  ];
+  attachPluginReach(rows, { personHome: '/person', fs, sessionDirs: (names) => { asked.push(names); return new Map(names.map((n) => [n, ''])); } });
+  assert.deepEqual(asked, [['a', 'b', 'e']], 'one call; the session first, else the sessionName; only default Claude agents');
+  assert.deepEqual(rows[0].reach, { reaches: true, reason: 'reaches' });
+  assert.deepEqual(rows[1].reach, { reaches: true, reason: 'reaches' });
+});
+
+test('#6095: Windows has no tmux sessions and keeps the default reading, with no session read', () => {
+  _resetCache();
+  const fs = fakeFs(personFiles(), personMtimes());
+  let called = 0;
+  const rows = [{ runner: 'claude', account: { dir: null }, session: 'w' }];
+  attachPluginReach(rows, { personHome: '/person', fs, platform: 'win32', sessionDirs: () => { called += 1; return new Map(); } });
+  assert.equal(called, 0);
+  assert.deepEqual(rows[0].reach, { reaches: true, reason: 'reaches' });
 });
