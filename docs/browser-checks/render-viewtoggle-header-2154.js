@@ -20,6 +20,8 @@
  *
  * Writes the board's saved layout (the same field the Settings tiles write) and
  * puts it back to what it was on exit. Refuses a board that is not a fixture.
+ * #6107: a landscape touch tablet (1194x834) opens on one screen whatever the board says, with the agents rail
+ * open, and a press there is kept on the tablet (the board setting does not move; the desktop page is the control).
  */
 const { chromium } = require('playwright');
 (async () => {
@@ -144,6 +146,54 @@ const { chromium } = require('playwright');
     await pg.waitForTimeout(200);
     await openPop();
     say(await visible(LAY), 'back to a wide window: the view toggle is shown again (control)');
+
+    // --- #6107: a touch tablet held sideways keeps its OWN layout, defaulting to one screen. ---
+    // The board's setting is tabs. A landscape iPad (1194x834, touch) opens on one screen anyway, with the agents
+    // rail open (1100px and up); a press on the tablet is remembered on the tablet and the board's setting never
+    // moves (the desktop page below is the control); turning the tablet upright gives the board's setting back.
+    await putLayout('tabs');
+    const tctx = await b.newContext({ viewport: { width: 1194, height: 834 }, hasTouch: true, isMobile: true });
+    const tp = await tctx.newPage();
+    tp.on('pageerror', (e) => say(false, 'tablet page error: ' + e.message));
+    const tSettled = async (cons) => { await tp.waitForFunction((c) => document.body.classList.contains('consolidated') === c, cons, { timeout: 15000 }); await tp.waitForTimeout(200); };
+    const tOpenPop = async () => {
+      if (!(await tp.locator('#userpop-menu').isVisible())) {
+        await tp.click('#userpop-btn');
+        await tp.waitForFunction(() => { const m = document.getElementById('userpop-menu'); return m && !m.hidden; }, null, { timeout: 5000 });
+        await tp.waitForTimeout(120);
+      }
+    };
+    try {
+      await tp.goto(URL + '/?tab=agents', { waitUntil: 'networkidle' });
+      if (!(await tp.$('#firstrun[hidden]'))) { await tp.keyboard.press('Escape'); await tp.waitForTimeout(400); }
+      const touch = await tp.evaluate(() => matchMedia('(hover: none) and (pointer: coarse) and (orientation: landscape)').matches);
+      say(touch, 'tablet: the context reports a touch screen held sideways (harness precondition)');
+      await tSettled(true);
+      say(true, 'tablet, board set to tabs: it opens on one screen (#6107)');
+      say(!(await tp.evaluate(() => document.body.classList.contains('fold-a'))), 'tablet at 1194px: the agents rail is open, not folded to faces');
+      say((await savedLayoutOf()) === 'tabs', 'tablet: opening it did not change the board setting (still tabs)');
+      await tOpenPop();
+      await tp.click(LAY + ' [data-layout-switch="tabs"]');
+      await tSettled(false);
+      await tOpenPop();
+      await tp.click(LAY + ' [data-layout-switch="consolidated"]');
+      await tSettled(true);
+      // A board PUT here would have made the board consolidated; it must still say tabs.
+      say((await savedLayoutOf()) === 'tabs', 'tablet: pressing one screen there is remembered on the tablet; the board setting is still tabs');
+      await tp.reload({ waitUntil: 'networkidle' });
+      await tSettled(true);
+      say(true, 'tablet: its own choice survives a reload');
+      await tp.setViewportSize({ width: 834, height: 1194 });
+      await tSettled(false);
+      say(true, 'tablet turned upright: the board setting (tabs) applies again');
+      // CONTROL: the desktop page, reloaded, still follows the board (tabs), whatever the tablet chose.
+      await pg.reload({ waitUntil: 'networkidle' });
+      await dismissFirstRun();
+      await settled(false);
+      say((await htmlLayout()) === 'tabs', 'desktop (control): still on separate tabs after the tablet\'s presses');
+    } finally {
+      await tctx.close();
+    }
   } finally {
     try { await putLayout(savedLayout); } catch { /* the server may be gone */ }
     await b.close();
