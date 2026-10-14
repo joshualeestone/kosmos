@@ -11,11 +11,12 @@ Draw every option the prompt lists, labelled with its own text, and keep review 
 - engine/status.js claudePermissionPrompt returns every option; the ones other than "Yes" and the one "No" are marked
   `lasting` (an allow rule, auto mode, accept edits). Still refused unless option 1 is "Yes" and exactly one starts "No".
 - engine/chat.js optionsIn passes `lasting` through, so the GET serves it.
-- server.js refuses a press of a lasting option without `lasting: true` (409, before any key), so a stale page or a
-  hand-made request cannot one-tap it.
+- server.js refuses a press of a lasting option without `lasting: true` (409, before any key), so a page from before
+  this change cannot one-tap it. It is a mis-tap guard, not access control: a request that sets `lasting` is honoured.
 - web/index.html: the first press of a lasting button arms it (drawn, said "This one changes what the agent may do
   from now on. Press it again to choose it.", kept across repaints for 15 s, for the same question only); the second
-  press sends it with `lasting: true`.
+  press sends it with `lasting: true`, but not sooner than 600 ms after arming (a double-click or double-tap is one
+  gesture), and a held Enter's repeats do not press a choice button.
 
 Rejected: leaving them out (the person's ask; the choice exists on the screen and the page hid it); one-tap buttons
 (review 5's mis-tap risk is real on a phone, and auto mode stops the agent asking about anything); a modal dialog
