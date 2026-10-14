@@ -24,6 +24,13 @@ Card: kosmos#6175 (#6108 follow-up).
   focus) is re-made for about a second whenever the row node changes or the line is no longer ours.
 - A body that cannot be read is 400; a fault after reading is 500 with its message.
 
+## Review 3 (opus)
+- The re-claim takes back only what a paint wrote ('' or "Checking your accounts...") and stops at another writer's
+  text; it moves focus only when focus is lost (falling back to the list when the row is gone).
+- The page's own fallback is not lowercased; the 500 sends a plain sentence and logs the detail.
+- The test stubs the API-key live check (the fixture key never reaches Anthropic), removes its folder, and covers a
+  malformed body (400).
+
 ## Decided, not missed
 - The default account (~/.claude) is offered too: the person presses the button, and the line says what it changes in
   their own Claude Code.

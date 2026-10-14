@@ -28229,29 +28229,40 @@ async function paintAccounts(opts) {
            repaint, which writes there too) and put focus on the account's row. */
         /* Review 2: a paint already in flight can replace the row and clear the line after ours, so the claim is
            re-made for about a second whenever the row node changes or the line is no longer ours. */
+        /* Review 3: it takes back only what a PAINT wrote (an empty line or "Checking your accounts…"), and stops at the
+           first text another writer put there (a Check, a move's sentence); it moves focus only when focus is lost
+           (on the page itself or in a removed node), never off something the person moved to. */
         const OK_SAY = 'Usage reading set up. Kosmos reads it once an agent on this account is working.';
-        const claim = () => {
-          const r = [...box.querySelectorAll('.acct-box')].find((b) => b.dataset.acctDir === dir) || null;
-          if (r && document.activeElement !== r) { r.setAttribute('tabindex', '-1'); r.focus(); }
-          if (msg && msg.textContent !== OK_SAY) msg.textContent = OK_SAY;
-          return r;
+        const PAINT_SAYS = ['', 'Checking your accounts\u2026'];
+        const rowOf = () => [...box.querySelectorAll('.acct-box')].find((b) => b.dataset.acctDir === dir) || null;
+        const focusLost = () => { const a = document.activeElement; return !a || a === document.body || !a.isConnected; };
+        const claimFocus = () => {
+          if (!focusLost()) return;
+          const r = rowOf();
+          const target = r || document.getElementById('set-accounts');   // the row gone: the list, never the page itself
+          if (target) { target.setAttribute('tabindex', '-1'); target.focus(); }
         };
-        let last = claim();
+        if (msg) msg.textContent = OK_SAY;
+        claimFocus();
         for (let i = 0; i < 10; i++) {
           await new Promise((r) => setTimeout(r, 100));
-          const r = [...box.querySelectorAll('.acct-box')].find((b) => b.dataset.acctDir === dir) || null;
-          if (r !== last || (msg && msg.textContent !== OK_SAY)) last = claim();
+          if (msg && msg.textContent !== OK_SAY) {
+            if (!PAINT_SAYS.includes(msg.textContent)) break;   // another writer spoke: theirs stands
+            msg.textContent = OK_SAY;
+          }
+          claimFocus();
         }
         return;
       }
       const raw = j.because || j.error;
-      const why = typeof raw === 'string' && raw ? raw : 'Kosmos could not set it up just now.';
+      const fromServer = typeof raw === 'string' && raw;   // review 3: only the server's clause is lowercased, never the page's own fallback
+      const why = fromServer ? raw.replace(/^./, (c) => c.toLowerCase()) : 'Kosmos could not set it up just now';
       const prev = btn.nextElementSibling;
       if (prev && prev.dataset && prev.dataset.usageSay) prev.remove();   // a second refusal replaces the first
       const say = document.createElement('p');
       say.dataset.usageSay = '1';
       say.className = 'acct-usage-line acct-usage-none';
-      say.textContent = 'Not set up: ' + why.replace(/^./, (c) => c.toLowerCase()) + (/[.!?]$/.test(why) ? '' : '.');
+      say.textContent = 'Not set up: ' + why + (/[.!?]$/.test(why) ? '' : '.');
       btn.after(say);
       if (msg) msg.textContent = say.textContent;   // review 1: the status region speaks it; the row keeps it in view
       btn.textContent = 'Set up usage reading';
