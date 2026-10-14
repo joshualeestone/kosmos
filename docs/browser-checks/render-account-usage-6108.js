@@ -6,7 +6,7 @@
  *
  * Drives the real paintAccounts() against a stubbed /api/accounts and a stubbed move route (no board), in Chromium
  * and WebKit, at desktop and phone width. The claims, each one able to fail:
- *  - an 82% row draws its meter at 82%, says "82% of its weekly limit used · resets ... · last changed ...", carries the
+ *  - an 82% row draws its meter at 82%, says "82% of its weekly limit used · resets ... · Kosmos last saw it change ...", carries the
  *    warning, and names its agents by their display names (not session names);
  *  - Move offers the other Claude account with its own reading, stays disabled until a target is picked, then sends
  *    one move per agent to the existing per-agent route with the target's dir, and says how many moved;
@@ -39,6 +39,10 @@ const ACCOUNTS = [
   claude('lost@example.com', 'lost', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-lo'], complete: true } }),
   claude('fullstop@example.com', 'fullstop', { weekly: { usedPct: 100, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-z2'], complete: true } }),
   claude('nearfull@example.com', 'nearfull', { weekly: { usedPct: 99.6, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
+  claude('frozen@example.com', 'frozen', { weekly: { usedPct: 30, resetsAt: now + 50 * H, at: now - 30 * H }, weeklyBlocked: 'own-statusline', agentsHere: { names: [], complete: true } }),
+  claude('unknown@example.com', 'unknown', { weekly: { usedPct: 30, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: false } }),
+  claude('inc@example.com', 'inc', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-in'], complete: true } }),
+  claude('fullmix@example.com', 'fullmix', { weekly: { usedPct: 100, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-q2', 's-z3'], complete: true } }),
   claude('weekout@example.com', 'weekout', { weekly: { usedPct: 3, resetsAt: now + 162 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
   claude('mixed@example.com', 'mixed', { weekly: { usedPct: 95, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-p', 's-r1', 's-r2', 's-slow'], complete: true } }),
   claude('spare@example.com', 'spare', { weekly: { usedPct: 20, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
@@ -55,7 +59,7 @@ const ACCOUNTS = [
   claude('noshare@example.com', 'noshare', { memoryShared: false, weekly: { usedPct: 5, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
 ];
 const AGENTS = [{ sessionName: 's-dana', name: 'Dana', state: 'working' }, { sessionName: 's-eli', name: 'Eli', state: 'working' }, { sessionName: 's-x', name: 'x<b>y', state: 'working' },
-  { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true, state: 'working' }, { sessionName: 's-guide2', name: 'Kosmos Guide', isGuide: true, state: 'working' }, { sessionName: 's-q', name: 'Quinn', state: 'working' }, { sessionName: 's-z', name: 'Zed', state: 'stopped' }, { sessionName: 's-z2', name: 'Zoe', state: 'stopped' }, { sessionName: 's-p', name: 'Pia', state: 'working' }, { sessionName: 's-r1', name: 'Rex', state: 'working' }, { sessionName: 's-r2', name: 'Rio', state: 'working' }, { sessionName: 's-slow', name: 'Sol', state: 'working' }];
+  { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true, state: 'working' }, { sessionName: 's-guide2', name: 'Kosmos Guide', isGuide: true, state: 'working' }, { sessionName: 's-q', name: 'Quinn', state: 'working' }, { sessionName: 's-z', name: 'Zed', state: 'stopped' }, { sessionName: 's-z2', name: 'Zoe', state: 'stopped' }, { sessionName: 's-z3', name: 'Zia', state: 'stopped' }, { sessionName: 's-q2', name: 'Quill', state: 'working' }, { sessionName: 's-p', name: 'Pia', state: 'working' }, { sessionName: 's-r1', name: 'Rex', state: 'working' }, { sessionName: 's-r2', name: 'Rio', state: 'working' }, { sessionName: 's-slow', name: 'Sol', state: 'working' }];
 
 const fails = [];
 const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fails.push(label); };
@@ -130,7 +134,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           const label = getComputedStyle(document.documentElement).getPropertyValue('--label').trim();
           const probe = document.createElement('span'); probe.style.color = 'var(--label)'; b.appendChild(probe); const labelRgb = getComputedStyle(probe).color; probe.remove();
           return { vis, font: cs ? cs.fontSize : null, color: cs ? cs.color : null, labelRgb, margin: cs ? cs.marginBottom : null, warnText: warnEl ? warnEl.textContent.trim() : null, note: note ? note.textContent.trim() : null, has: !!u, line: u && u.querySelector('.acct-usage-line') ? u.querySelector('.acct-usage-line').textContent.trim() : null,
-            fill: fill ? fill.style.width : null, warn: !!(u && u.querySelector('.acct-usage-warn')),
+            fill: fill ? fill.style.width : null, warn: !!(u && u.querySelector('.acct-usage-warn')), text: u ? u.textContent.replace(/\s+/g, ' ').trim() : null,
             agents: u && u.querySelector('.acct-agents-line') ? u.querySelector('.acct-agents-line').textContent.trim() : null,
             agentsEls: u && u.querySelector('.acct-agents-line') ? u.querySelector('.acct-agents-line').querySelectorAll('b').length : 0,
             options: sel ? [...sel.options].map((o) => o.textContent.trim()) : null, btnDisabled: btn ? btn.disabled : null,
@@ -210,6 +214,12 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         await new Promise((r) => setTimeout(r, 300));
         if (lostMove) { const pl = document.getElementById('set-accounts-msg'); lostMove.spoken = pl ? pl.textContent.trim() : null; lostMove.left = window.__failAccounts; }
         window.__failAccounts = 0; await paintAccounts();
+        /* The fresh list is incomplete and lost a drawn agent: gone and not-read look the same, so nothing moves. */
+        where.delete('s-in'); window.__acctPatch = { '/home/.claude-inc': { agentsHere: { names: [], complete: false } } };
+        const incMove = await runMove('inc@example.com', '/home/.claude-spare', 0, true);
+        if (incMove) incMove.msg = msgOf('/home/.claude-inc');
+        window.__acctPatch = null; where.set('s-in', '/home/.claude-inc'); await paintAccounts();
+        const frozen = read('frozen@example.com'), unknown = read('unknown@example.com'), fullmix = read('fullmix@example.com');
         const fullstop = read('fullstop@example.com'), weekout = read('weekout@example.com');
         const mine = read('mine@example.com'), unwired = read('unwired@example.com');
         const unsureNote = acctMoveNote([{ sessionName: 'a', state: 'working' }, { sessionName: 'b', state: 'unknown' }]);
@@ -218,14 +228,14 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         await paintAccounts();
         const expired = msgOf('/home/.claude-busy');
         /* Sideways overflow of the page itself, with the list in its real place. */
-        return { contrast, tgMove, lostMove, fullstop, weekout, weekoutDay: new Date(Date.now() + 162 * 3600e3).getDate(), staleMove, ncMove, sleepyMove, mine, unwired, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
+        return { contrast, incMove, frozen, unknown, fullmix, tgMove, lostMove, fullstop, weekout, weekoutDay: new Date(Date.now() + 162 * 3600e3).getDate(), staleMove, ncMove, sleepyMove, mine, unwired, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
       }, { accounts: ACCOUNTS, agents: AGENTS });
       await page.close();
       if (r.error) { say(false, tag + ' ' + r.error); continue; }
       const { busy, fresh, calm, key, old, def, guideonly, full, sleepy } = r.before;
       say(!!busy && busy.has && busy.fill === '82%', tag + ' an 82% row draws its meter at 82%', JSON.stringify(busy && busy.fill));
       say(!!busy && busy.vis && busy.font === '13px' && busy.color === busy.labelRgb && busy.margin === '0px', tag + ' inside the real Settings panel the usage line keeps its own size, ink and spacing (the panel\'s paragraph rule does not win)', JSON.stringify(busy && { vis: busy.vis, font: busy.font, color: busy.color, label: busy.labelRgb, margin: busy.margin }));
-      say(!!busy && /^82% of its weekly limit used · resets .+ · last changed 2 hours ago$/.test(busy.line || ''), tag + ' the row says how much is used, when it resets and how old the reading is', JSON.stringify(busy && busy.line));
+      say(!!busy && /^82% of its weekly limit used · resets .+ · Kosmos last saw it change 2 hours ago$/.test(busy.line || ''), tag + ' the row says how much is used, when it resets and how old the reading is', JSON.stringify(busy && busy.line));
       say(!!busy && busy.warn && busy.warnText === 'Close to its weekly limit. Move its agents to another account before they stop.', tag + ' at 82% the row warns, and says what to do', JSON.stringify(busy && busy.warnText));
       say(!!busy && busy.note === 'Moving restarts both on the new account.', tag + ' the restart is said before the click, beside the control', JSON.stringify(busy && busy.note));
       say(!!guideonly && guideonly.warnText === 'Close to its weekly limit.' && guideonly.agents === 'No agents on it on this computer.' && guideonly.options === null, tag + ' a guide-only row warns but never says to move agents it does not show', JSON.stringify(guideonly));
@@ -238,7 +248,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('full@')), tag + ' a full account (100%) is not offered: it cannot run them either', JSON.stringify(busy && busy.options));
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('noshare@')), tag + ' an account without shared history is not offered (a move there always fails)', JSON.stringify(busy && busy.options));
       say(!!def && def.line === 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.', tag + ' the default account (wired by the installer) waits for a reading, never "cannot"', JSON.stringify(def && def.line));
-      say(!!r.mine && r.mine.line === 'Kosmos cannot read usage for this account, because it has its own status line.', tag + ' "cannot read" appears only when the server knows why', JSON.stringify(r.mine && r.mine.line));
+      say(!!r.mine && r.mine.line === 'Kosmos cannot read usage for this account. It is set up its own way, and Kosmos leaves that alone.', tag + ' "cannot read" appears only when the server knows why', JSON.stringify(r.mine && r.mine.line));
       say(!!r.unwired && r.unwired.line === 'Kosmos has not set this account up to read usage yet.', tag + ' an account with no status line is not promised a reading', JSON.stringify(r.unwired && r.unwired.line));
       say(r.unsureNote === 'Moving restarts the running ones on the new account.', tag + ' an agent of unknown state gets no restart count it may not keep', JSON.stringify(r.unsureNote));
       say(!!r.sleepyMove && r.sleepyMove.msg === 'Moved Zed (stopped). It is not running now.', tag + ' moving a stopped agent reads as moved, still stopped, through the route\'s real reply', JSON.stringify(r.sleepyMove));
@@ -257,6 +267,10 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!r.ncMove && r.ncMove.posts.length === 0 && r.ncMove.msg === 'Nothing moved: Kosmos could not check which agents are on this account. Try again in a moment.', tag + ' when the fresh list cannot be read, nothing moves and the row says so', JSON.stringify(r.ncMove));
       say(!!r.tgMove && r.tgMove.posts.length === 0 && r.tgMove.msg === 'Nothing moved: gone@example.com cannot take them now. Pick another account.', tag + ' an account that went full since the menu was drawn takes nothing (Move checks the target afresh)', JSON.stringify(r.tgMove));
       say(!!r.lostMove && r.lostMove.posts.length === 1 && r.lostMove.left === 0 && /^Moved 1 agent\b/.test(r.lostMove.spoken || ''), tag + ' when the list cannot be read after a move, the result is still said', JSON.stringify(r.lostMove));
+      say(!!r.incMove && r.incMove.posts.length === 0 && r.incMove.msg === 'Nothing moved: Kosmos could not check which agents are on this account. Try again in a moment.', tag + ' an incomplete fresh list that lost an agent moves nothing, and says it could not check (not that they left)', JSON.stringify(r.incMove));
+      say(!!r.frozen && r.frozen.fill === '30%' && /Kosmos cannot read usage for this account\. It is set up its own way, and Kosmos leaves that alone\. This reading will not update\./.test(r.frozen.text || ''), tag + ' an old reading Kosmos can no longer update says so under the meter', JSON.stringify(r.frozen && r.frozen.text));
+      say(!!r.unknown && r.unknown.agents === 'Kosmos could not check which agents are on it.', tag + ' an agent list that could not be read is never called empty', JSON.stringify(r.unknown && r.unknown.agents));
+      say(!!r.fullmix && r.fullmix.warnText === 'At its weekly limit. Move its agents to another account.', tag + ' at its limit with a stopped agent among them, no promise that a move gets them working', JSON.stringify(r.fullmix && r.fullmix.warnText));
       say(!!r.fullstop && r.fullstop.warnText === 'At its weekly limit. Move its agent to another account.', tag + ' at its limit with only a stopped agent, no promise that a move gets it working', JSON.stringify(r.fullstop && r.fullstop.warnText));
       say(!!r.weekout && new RegExp('resets [^·]*\\b' + r.weekoutDay + '\\b').test(r.weekout.line || ''), tag + ' a reset a week out names its date, not only a weekday that reads as today', JSON.stringify(r.weekout && r.weekout.line));
       say(!!r.mixed && r.mixed.posts.length === 4, tag + ' a mixed move sends one move per agent', JSON.stringify(r.mixed && r.mixed.posts));

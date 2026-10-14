@@ -752,8 +752,6 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 }
 #set-accounts .acct-move-msg { margin: 0; font-size: .8125rem; color: var(--label); }
 #set-accounts .acct-move-msg:empty { margin-top: -8px; }   /* kept in the page (a live region must exist before it speaks), but no gap */
-#set-accounts .acct-move-msg:focus { outline: none; }
-#set-accounts .acct-move-msg:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; border-radius: 4px; }
 #set-accounts .acct-move-note { margin: 0; flex: 1 1 100%; font-size: .8125rem; color: var(--label-2); }   /* the only before-click word on the restart: not the smallest text on the row */
 /* The disambiguator beside a name two accounts share. Quiet on purpose: it is
    an answer to "why are there two of these", not a thing to read first. Same
@@ -27120,7 +27118,15 @@ function acctUsageHtml(a, list) {
      always fails is worse than none) and not signed out or refused. */
   const targets = (list || []).filter((x) => acctBulkTarget(x, a.dir));
   const canMove = names.length > 0 && targets.length > 0;
-  const anyRunning = sessions.some((n) => known.get(n) && cardStOf(known.get(n)).pres === 'on');   // a move restarts only a running agent
+  const allRunning = sessions.length > 0 && sessions.every((n) => known.get(n) && cardStOf(known.get(n)).pres === 'on');   // a move restarts only a running agent
+  /* Why there can be no reading, when the server knows (never a guess). Also said under an old reading that can no
+     longer change, so a stale meter is not read as current. */
+  const blockedSay = {
+    'windows': 'Kosmos cannot read usage for this account on Windows yet.',
+    'own-statusline': 'Kosmos cannot read usage for this account. It is set up its own way, and Kosmos leaves that alone.',
+    'unreadable-settings': 'Kosmos cannot read this account\'s settings, so it cannot read its usage.',
+    'not-wired': 'Kosmos has not set this account up to read usage yet.',
+  }[a.weeklyBlocked] || '';
   let usage = '';
   if (!a.apiKey) {
     if (w) {
@@ -27131,24 +27137,18 @@ function acctUsageHtml(a, list) {
         ? { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
       const age = agoWords(Date.now() - w.at);
       usage = '<div class="acct-usage-meter"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
-        + '<p class="acct-usage-line">' + pct + '% of its weekly limit used · resets ' + esc(resets) + (age ? ' · last changed ' + esc(age) : '') + '</p></div>'
+        + '<p class="acct-usage-line">' + pct + '% of its weekly limit used · resets ' + esc(resets) + (age ? ' · Kosmos last saw it change ' + esc(age) : '') + '</p></div>'   // what Kosmos saw: use elsewhere (claude.ai, another computer) is not seen
+        + (blockedSay ? '<p class="acct-usage-line acct-usage-none">' + esc(blockedSay) + ' This reading will not update.</p>' : '')
         + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its weekly limit.' : 'Close to its weekly limit.')
-          + (canMove ? ' Move its ' + (names.length === 1 ? 'agent' : 'agents') + ' to another account' + (pct >= 100 ? (anyRunning ? ' to get ' + (names.length === 1 ? 'it' : 'them') + ' working again.' : '.') : ' before ' + (names.length === 1 ? 'it stops.' : 'they stop.')) : '') + '</p>' : '');
+          + (canMove ? ' Move its ' + (names.length === 1 ? 'agent' : 'agents') + ' to another account' + (pct >= 100 ? (allRunning ? ' to get ' + (names.length === 1 ? 'it' : 'them') + ' working again.' : '.') : ' before ' + (names.length === 1 ? 'it stops.' : 'they stop.')) : '') + '</p>' : '');
     } else {
       /* "Cannot read" only when the server knows there will be no reading; otherwise one comes once an agent works. */
-      usage = a.weeklyBlocked === 'windows'
-        ? '<p class="acct-usage-line acct-usage-none">Kosmos cannot read usage for this account on Windows yet.</p>'
-        : a.weeklyBlocked === 'own-statusline'
-          ? '<p class="acct-usage-line acct-usage-none">Kosmos cannot read usage for this account, because it has its own status line.</p>'
-          : a.weeklyBlocked === 'unreadable-settings'
-            ? '<p class="acct-usage-line acct-usage-none">Kosmos cannot read this account\'s settings, so it cannot read its usage.</p>'
-          : a.weeklyBlocked === 'not-wired'
-            ? '<p class="acct-usage-line acct-usage-none">Kosmos has not set this account up to read usage yet.</p>'
-            : '<p class="acct-usage-line acct-usage-none">No usage reading for this account yet. Kosmos reads it while an agent on it is working.</p>';
+      usage = '<p class="acct-usage-line acct-usage-none">' + esc(blockedSay || 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.') + '</p>';
     }
   }
   const short = here && here.complete ? '' : ' (some could not be checked)';
-  const agentsLine = !here ? '' : names.length
+  const agentsLine = !here ? '' : !names.length && !here.complete ? '<p class="acct-agents-line">Kosmos could not check which agents are on it.</p>'   // unknown, never "none"
+    : names.length
     ? '<p class="acct-agents-line">Its agents on this computer: ' + names.map(esc).join(', ') + esc(short) + '</p>'
     : '<p class="acct-agents-line">No agents on it on this computer' + esc(short) + '.</p>';
   let st = ACCT_MOVE.get(a.dir) || null;
@@ -27166,14 +27166,14 @@ function acctUsageHtml(a, list) {
       + '</select><button type="button" data-acct-move="' + esc(a.dir) + '"' + (busy || !picked ? ' disabled' : '') + '>' + (busy ? esc(st.progress || 'Moving…') : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
       + (names.length ? '<p class="acct-move-note">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p>' : '') + '</div>'   // said before the click; a busy row repainted to no agents says nothing
     : '';
-  /* tabindex -1 so the sentence can be reached; after a move focus goes to the list instead (it would read this a second
-     time over the panel's status line). The sentence is drawn empty
+  /* After a move focus goes to the menu or the list, never here (it would read this a second time over the panel's
+     status line), so the sentence takes no focus. It is drawn empty
      while a finished move is being announced (the handler writes it a frame later, so the live region hears a change). */
   /* The row shows the sentence; the panel's own status line (#set-accounts-msg, never replaced by a repaint) speaks
      it, because a live region drawn new by each paint may not be announced at all. */
   const said = st && st.said ? esc(st.said) : '';
   return '<div class="acct-usage">' + usage + agentsLine + move
-    + '<p class="acct-move-msg" tabindex="-1" data-acct-move-msg="' + esc(a.dir) + '">' + said + '</p></div>';
+    + '<p class="acct-move-msg" data-acct-move-msg="' + esc(a.dir) + '">' + said + '</p></div>';
 }
 /* #6108: what a move does to these agents, before the click. The route restarts a running agent on the new account; a
    STOPPED one is moved but not started (the account route never starts a dead agent; that is a separate decision in
@@ -27901,15 +27901,19 @@ async function paintAccounts(opts) {
         /* The list drawn at the last paint can be a poll old: an agent moved on its own page since then must not be
            moved again to an account nobody picked for it (the route moves an agent from wherever it is). So ask again,
            and move only the ones still here. If that cannot be asked, move nothing rather than guess. */
-        let fresh = null, ft = null;
+        let fresh = null, ft = null, fr0 = null;
         try {
           const r = await fetch('/api/accounts?agents=1', { cache: 'no-store' });
           const j = r && r.ok ? await r.json() : null;
           const fr = j && Array.isArray(j.accounts) ? j.accounts.find((x) => x && String(x.dir) === from) : null;
+          fr0 = fr;
           fresh = fr && fr.agentsHere && Array.isArray(fr.agentsHere.names) ? new Set(fr.agentsHere.names) : null;
           ft = fresh ? j.accounts.find((x) => x && String(x.dir) === to) || null : null;   // and the account they go to, as it is now
         } catch { fresh = null; }
-        const names = fresh ? row.agentsHere.names.filter((n) => !guide.has(n) && fresh.has(n)) : [];
+        const drawn = row.agentsHere.names.filter((n) => !guide.has(n));
+        /* A list that says it is incomplete cannot tell "gone" from "not read": if it lost any drawn agent, move nothing. */
+        if (fresh && !(fr0 && fr0.agentsHere && fr0.agentsHere.complete === true) && drawn.some((n) => !fresh.has(n))) fresh = null;
+        const names = fresh ? drawn.filter((n) => fresh.has(n)) : [];
         const stoppedAtClick = new Set(names.filter((n) => { const c = (LAST || []).find((x) => x && x.sessionName === n); return c && cardStOf(c).pres === 'off'; }));
         if (!fresh) throw new Error('unchecked');
         if (!names.length) said = 'Nothing moved: its agents are no longer on this account.';
