@@ -45,6 +45,11 @@ Card: kosmos#6175 (#6108 follow-up).
   (no path in the body).
 
 ## Decided, not missed
+- Review 14 (built, no browser arm): an older press's late refusal no longer empties the status line once a newer press
+  began (gen check), and the success re-claim also stands down while ACCOUNTS_UNREADABLE is set (a superseding paint
+  that failed). Both need two things in flight inside one press; they are guarded by reading, not by a test.
+- Review 14 nit, the Windows branch of the server test returns before the 403 and link arms: kept, the repo's pattern
+  (no weekly reading is wired on Windows, so the route answers 409 there first).
 - Review 12 nit, the test message "the row still says it is not set up" on `assert.equal(blockedOf(), null)`: kept. An
   assertion message describes the failure, and a non-null weeklyBlocked is exactly the row still saying it is not set up.
 - Review 11 nit, the setup succeeds but the repaint cannot read the list: my first Decided note here said the error
