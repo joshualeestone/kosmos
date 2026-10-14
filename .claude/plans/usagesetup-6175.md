@@ -45,15 +45,18 @@ Card: kosmos#6175 (#6108 follow-up).
   (no path in the body).
 
 ## Decided, not missed
-- After review 16 (NO FINDINGS), found myself: rows and the list now take focus from code, and the page's own #4961 note
-  says such a move after a click in the Mac app can match :focus-visible and draw a stroke. Built: no outline on
-  #set-accounts and its rows when focused (as .dsec), with a browser arm armed by a weaker injected ring rule. Rejected:
-  a keyboard-only ring like .dsec.kbd-landed (no keyboard signal exists in this handler). Weakest premise: a keyboard
-  user loses the visible mark of where focus landed after a press; the status line says what happened.
+- After review 16 (NO FINDINGS), found myself: rows now take focus from code, and the page's own #4961 note says such a
+  move after a click in the Mac app can match :focus-visible and draw a stroke. My first fix turned the outline off on
+  the rows AND the list and said "no keyboard signal exists in this handler"; review 17 showed both wrong (the list's
+  ring belongs to Remove and Move, and DSEC_KEYBOARD is set while the click handler runs). Now: rows only, and the
+  ring is keyboard-only as for sections (kbd = DSEC_KEYBOARD read at the click; kbd-landed on the landed row; cleared on
+  pointerdown). Browser arms: no ring after a pointer press (armed by a weaker injected rule), a solid ring after a key
+  press.
 - Review 15 (built, no browser arm): a refusal that arrives while a full repaint has no row drawn leaves the status line
   ("Checking your accounts…") alone; the refusal is then said nowhere that lasts, and pressing again says it (it is
   deterministic). Not built: a per-folder map the next paint renders (more state for a case needing a paint inside the
-  press). Also built: the list's fallback tabindex comes off on blur; a paint that throws restores the button.
+  press). Also built: a paint that throws restores the button. (A "fallback tabindex off on blur" for the list was built and
+  then removed in review 17: the list already carries tabindex=-1 in its markup, so that branch never ran.)
 - Review 14 (built, no browser arm): an older press's late refusal no longer empties the status line once a newer press
   began (gen check), and the success re-claim also stands down while ACCOUNTS_UNREADABLE is set (a superseding paint
   that failed). Both need two things in flight inside one press; they are guarded by reading, not by a test.

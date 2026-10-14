@@ -363,7 +363,14 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         await new Promise((r) => setTimeout(r, 1100));   // the unwired press's re-claim second is over
         const sb2 = () => btnOf('stalewired');
         if (sb2()) {
-          sb2().click(); await until(() => staleN >= 1 && document.getElementById('set-accounts-msg').textContent.indexOf('Usage reading set up') === 0 && sb2() && !sb2().disabled);
+          /* Review 17: this press is a KEY press (Enter), so the row it lands on draws the keyboard-only ring. */
+          if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          sb2().click();
+          document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }));
+          await until(() => staleN >= 1 && document.getElementById('set-accounts-msg').textContent.indexOf('Usage reading set up') === 0 && sb2() && !sb2().disabled);
+          const kr = row('stalewired');
+          out.kbdRing = { onRow: document.activeElement === kr, landed: !!kr && kr.classList.contains('kbd-landed'), ring: kr ? getComputedStyle(kr).outlineStyle : null };
           sb2().click(); await until(() => staleN >= 2 && sb2() && !sb2().disabled);
           await new Promise((r) => setTimeout(r, 400));
           out.newerRefusal = { n: staleN, msg: document.getElementById('set-accounts-msg').textContent };
@@ -387,6 +394,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!s6175.listDown && s6175.listDown.n === 3 && s6175.listDown.listError && !/Usage reading set up/.test(s6175.listDown.msg), tag + ' #6175 a set-up whose list cannot be read after does not say "set up" beside the error', JSON.stringify(s6175.listDown));
       say(s6175.reSaid === true, tag + ' #6175 the same refusal twice is emptied and said again, so a screen reader hears it again', String(s6175.reSaid));
       say(s6175.rowFocusable === true, tag + ' #6175 the row itself takes focus, so a repaint can hand focus back to it', String(s6175.rowFocusable));
+      say(!!s6175.kbdRing && s6175.kbdRing.onRow && s6175.kbdRing.landed && s6175.kbdRing.ring === 'solid', tag + ' #6175 after a KEY press the row focus lands on draws the keyboard-only ring', JSON.stringify(s6175.kbdRing));
       say(s6175.after.ring === 'none', tag + ' #6175 the row focused from code after a press draws no focus ring', JSON.stringify(s6175.after.ring));
       say(s6175.refocus === true, tag + ' #6175 after a refusal, focus is back on the button for a keyboard user', String(s6175.refocus));
       say(!!s6175.foreign && s6175.foreign.msg === 'Moved Dana to spare@example.com.' && s6175.foreign.focusKept, tag + ' #6175 the re-claim leaves another writer\'s sentence and a focus the person moved alone', JSON.stringify(s6175.foreign));
