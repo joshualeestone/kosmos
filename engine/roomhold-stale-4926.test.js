@@ -240,10 +240,15 @@ test('#4926 N7: one reply to the round\'s newest post (m1032) answers the 8 olde
   assert.ok(messages.staleHeld('p1', ['m1028', 'm1050'], [...round, { ...post('m1050', 31), at: 'not a time' }, answer], NOW, 'mark').has('m1028'),
     'an unreadable held post switched N7 off');
   // Deliberate: an older ask a usage limit kept (#5805) is covered too, so withoutStale drops it rather than keep it back.
-  roomhold.noteLimit('mark', 'p1', ['m1028'], new Date(Date.now() + 3600000).toISOString());
+  // The ask is over a day old, so the day rule would drop it; the limit hold keeps it back unless it was answered.
+  assert.equal(roomhold.noteLimit('mark', 'p1', ['m1028'], new Date(Date.now() + 3600000).toISOString()), true, 'fixture: the limit was not noted');
+  const dayOld = post('m1028', messages.HELD_ASKED_MAX_MS / 60000 + 10);
   const limitJudge = (lg) => (p, got, who) => messages.staleHeld(p, got, lg, NOW, who);
-  assert.deepEqual(roomhold.withoutStale('p1', [roomhold.addressedId('m1028')], limitJudge(log), 'mark'), [], 'a limit-kept ask the reply covered was kept back');
-  assert.deepEqual(roomhold.withoutStale('p1', [roomhold.addressedId('m1028')], limitJudge([...round]), 'mark'), [roomhold.addressedId('m1028')], 'control: without the reply the limit-kept ask was dropped');
+  const ask = [roomhold.addressedId('m1028')];
+  assert.deepEqual(roomhold.withoutStale('p1', ask, limitJudge([dayOld, post('m1032', 32)]), 'mark'), ask, 'control: the limit hold did not keep a day-old ask back');
+  assert.deepEqual(roomhold.withoutStale('p1', ask, limitJudge([dayOld, post('m1032', 32), answer]), 'mark'), [], 'a limit-kept ask the reply covered was kept back');
+  // A reply stamped no later than the post it answers covers nothing (no read before it could have shown that post).
+  assert.deepEqual([...judge([...round, { ...answer, at: round[8].at }], 'mark')], ['m1032'], 'a reply at the answered post\'s own instant covered the older posts');
   // Rows the room read does not show (a reaction) do not use up the window.
   const unseen = filler.map(() => ({ kind: 'reaction', project: 'p1', from: 'ann', at: ago(35) }));
   assert.ok(messages.staleHeld('p1', ['m1024'], [post('m1024', 40), ...unseen, post('m1032', 32), answer], NOW, 'mark').has('m1024'),

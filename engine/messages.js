@@ -1128,6 +1128,7 @@ function staleHeld(projectId, ids, log, now, member) {
         if (firstWanted < 0 || i <= firstWanted || x.kind !== 'post' || !answered.has(x.id) || x.from === member) return;
         const xAt = Date.parse(x.at);
         const replyAt = firstReply.get(x.id);
+        if (!(replyAt > xAt)) return;   // no read before the reply could have shown X
         let after = 0;   // rows after X a read before the reply could have shown; an unreadable time counts
         for (let j = i + 1; j < room.length && after < ROOM_READ_ROWS; j += 1) {
           if (Date.parse(room[j].at) >= replyAt) break;
