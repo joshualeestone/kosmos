@@ -27262,13 +27262,17 @@ function acctFollowUp(n, busy) {
 let acctFiveTimer = null, acctFiveMisses = 0;
 /* A failed re-read keeps the list, so a five-hour line drawn past its reset would stay: while one is on screen, try again
    in a minute, at most ten times in a row (a paint that succeeds starts the count again). */
+/* Only while the list is on screen: #set-accounts is static markup, so finding it says nothing; a list in a hidden
+   panel has no boxes. Opening Settings paints the list again anyway, so nothing is lost by stopping. */
+function acctListShown() { const box = document.getElementById('set-accounts'); return !!box && box.getClientRects().length > 0; }
 function acctFiveHourRetry() {
+  if (!acctListShown()) return;
   const due = [...document.querySelectorAll('#set-accounts .acct-usage-five[data-resets]')].some((el) => Number(el.dataset.resets) <= Date.now());
   if (!due || acctFiveMisses >= 10) return;
   acctFiveMisses++;
   clearTimeout(acctFiveTimer);
   const mine = ACCT_EPOCH;
-  acctFiveTimer = setTimeout(() => { acctFiveTimer = null; if (mine === ACCT_EPOCH && document.getElementById('set-accounts')) paintAccounts({ followUp: ACCT_FOLLOWUP.max }); }, 60e3);
+  acctFiveTimer = setTimeout(() => { acctFiveTimer = null; if (mine === ACCT_EPOCH && acctListShown()) paintAccounts({ followUp: ACCT_FOLLOWUP.max }); }, 60e3);
 }
 function acctFiveHourRepaint(list) {
   clearTimeout(acctFiveTimer); acctFiveTimer = null; acctFiveMisses = 0;
@@ -27277,7 +27281,7 @@ function acctFiveHourRepaint(list) {
   const mine = ACCT_EPOCH;
   acctFiveTimer = setTimeout(() => {
     acctFiveTimer = null;
-    if (mine !== ACCT_EPOCH || !document.getElementById('set-accounts')) return;
+    if (mine !== ACCT_EPOCH || !acctListShown()) return;   // Settings closed: nobody is reading the line
     if (acctListBusy(document.getElementById('set-accounts'))) { acctFollowUp(ACCT_FOLLOWUP.max, 1); return; }
     paintAccounts({ followUp: ACCT_FOLLOWUP.max });
   }, Math.min(Math.min(...soon) - Date.now() + 1000, 6 * 3600e3));
@@ -27414,7 +27418,7 @@ function acctUsageHtml(a, list) {
           + (canMove ? ' Move its ' + (names.length === 1 ? 'agent' : 'agents') + ' to another account' + (pct >= 100 ? (allRunning ? ' to get ' + (names.length === 1 ? 'it' : 'them') + ' working again.' : '.') : (allRunning ? ' before ' + (names.length === 1 ? 'it stops.' : 'they stop.') : '.')) : '') + '</p>' : '')
         + five   // after the weekly block whole, so the weekly warning's move suggestion never reads as the five-hour line's
         /* Both readings and neither will update: one note after both, so the five-hour meter is not read as live. */
-        + (frozenBothSay && five ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenBothSay) + '</p>' : '');
+        + (frozenSay && five ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenBothSay || frozenSay) + '</p>' : '');   // a reason with no plural words yet still gets a note
     } else if (five) {
       /* A five-hour reading with no weekly one: "no reading yet" would contradict it, so it stands alone (and is said
          to be the last one when the account cannot be read any more). */

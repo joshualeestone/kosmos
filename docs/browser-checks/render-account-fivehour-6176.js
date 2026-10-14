@@ -148,6 +148,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       window.__reads = 0;
       const realFetch = window.fetch;
       window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const showList = () => { const l = document.getElementById('set-accounts'); for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; } };
+      showList();   // on screen, as Settings would be: the re-read happens only while the list is shown
       await paintAccounts();
       return [...document.querySelectorAll('#set-accounts .acct-usage-five')].length;
     }, rows);
@@ -167,6 +169,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         window.__reads++;
         return window.__reads === 2 ? Promise.resolve({ ok: false, status: 503, json: async () => ({}) }) : Promise.resolve({ ok: true, json: async () => ({ accounts }) });
       };
+      const showList = () => { const l = document.getElementById('set-accounts'); for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; } };
+      showList();
       await paintAccounts();
     }, rows);
     await p2.clock.runFor(11 * 60e3); await p2.waitForTimeout(200);
@@ -174,6 +178,22 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     await p2.clock.runFor(61e3); await p2.waitForTimeout(300);
     const retried = await p2.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
     say(failed.reads === 2 && failed.fives === 2 && retried.reads === 3 && retried.fives === 1, '[chromium open] a failed read at the reset is tried again a minute later, and the line goes', JSON.stringify({ failed, retried }));
+    // Settings closed (the list's panel hidden): the reset brings no read; nobody is looking at the line.
+    const p3 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p3.clock.install({ time: new Date(now) });
+    await p3.goto('file://' + PAGE);
+    await p3.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const showList = () => { const l = document.getElementById('set-accounts'); for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; } };
+      showList();
+      await paintAccounts();
+      document.getElementById('set-accounts').closest('.panel').style.display = 'none';   // the person left Settings
+    }, rows);
+    await p3.clock.runFor(30 * 60e3); await p3.waitForTimeout(200);
+    const closed = await p3.evaluate(() => window.__reads);
+    say(closed === 1, '[chromium open] with Settings closed, a reset brings no read', 'reads=' + closed);
     await browser.close();
   }
   console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nall good');

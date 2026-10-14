@@ -32,6 +32,10 @@ reading record the five-hour one on their next update.
 2. No move suggestion on the five-hour line: it resets within hours, so the cure is waiting, not another account.
 3. The reset time shows only the time when it is today, the weekday as well when it is not.
 
+## Known limits
+- A list left open re-reads at the soonest five-hour reset only while Settings is on screen. If that read keeps failing
+  (ten tries a minute apart), a line past its reset stays until the next repaint.
+
 ## Weakest premise
 The five-hour figure updates only while a Claude agent on that account is running, so it can be hours old. The line
 shows its age, and a reading from a window that has reset is not drawn at all.
