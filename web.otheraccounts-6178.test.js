@@ -28,7 +28,7 @@ const SRC = [
   constLine('OA_STALE_MS'), constLine('OA_READ_LIMIT_MS'), constLine('OA_MAX_AGENTS'), constLine('ACCT_WARN_PCT'), constLine('AO_SEEN'), constLine('AO_MAX_ACCOUNTS'), constLine('AO_MAX_AGENTS'),
   'const OA_SEEN = new Map();\n',
   ...['computerAddressOk', 'agoWords', 'oaEligible', 'oaOthers', 'oaStale', 'oaClassify', 'oaRemember', 'oaAgentsOf', 'oaReadOne', 'aoStr', 'aoAccountsOf', 'aoAgentsOf', 'aoKeep',
-    'aoShown', 'aoUsageWords', 'aoEl', 'aoGroup', 'aoPaint'].map(slice),
+    'aoShown', 'aoUnknownOf', 'aoSkewOf', 'aoUsageWords', 'aoEl', 'aoGroup', 'aoPaint'].map(slice),
 ].join('\n');
 
 const LIST = {
@@ -120,9 +120,9 @@ test('#6178 the usage words are the ones the row on that computer uses (acctUsag
   /* Read from the row's own source, not restated: if #6108's row changes a sentence, this goes red until the other
      computers' section says the same. (Lifting acctUsageHtml to run it needs most of the Settings page.) */
   const row = slice('acctUsageHtml');
-  const mine = slice('aoUsageWords');
+  const mine = slice('aoUsageWords') + slice('aoGroup');
   for (const piece of ["'% of its weekly limit used · resets '", "' · Kosmos last saw it change '",
-    "'No usage reading for this account yet. Kosmos reads it while an agent on it is working.'"]) {
+    "'No usage reading for this account yet. Kosmos reads it while an agent on it is working.'", "' (some could not be checked)'"]) {
     assert.ok(row.includes(piece), 'CONTROL: the row no longer says ' + piece + '; re-anchor');
     assert.ok(mine.includes(piece), 'the other computers\' section words this differently: ' + piece);
   }
@@ -294,4 +294,44 @@ test('#6178 a kept list for a computer that has gone unreadable says so, not jus
   const t = text(api.aoGroup({ name: 'studio', address: 'studio.kosmosplus.com' }, { state: 'blocked', at: now - 60e3 },
     { accounts: [STATUS.accountsWeekly[0]], agents: [], at: now - 60e3 }, now));
   assert.match(t, /studio cannot be read from here right now\. Showing what this page last read/);
+});
+
+test('#6178 an agent whose account could not be read makes the list "some could not be checked", never "none"', () => {
+  const { api } = load();
+  const now = Date.now();
+  api.aoKeep('studio.kosmosplus.com', 'ok', STATUS, now);
+  const kept = api.AO_SEEN.get('studio.kosmosplus.com');
+  assert.equal(kept.unknown, 1, 'the agent with no account (and not the guide) was not counted');
+  const c = { name: 'studio', address: 'studio.kosmosplus.com' };
+  const t = text(api.aoGroup(c, { state: 'ok', at: now }, kept, now));
+  assert.match(t, /Its agents on studio: Ann \(some could not be checked\)/);
+  const onlyUnknown = { ...kept, agents: [] };
+  assert.match(text(api.aoGroup(c, { state: 'ok', at: now }, onlyUnknown, now)), /Kosmos could not check which agents on studio are on it/);
+  assert.match(text(api.aoGroup(c, { state: 'ok', at: now }, { ...onlyUnknown, unknown: 0 }, now)), /Kosmos cannot see any agents on it on studio\./,
+    'CONTROL: with every agent readable, none is said plainly');
+});
+
+test('#6178 each group opens its computer, except one not connected', () => {
+  const { api } = load();
+  const c = { name: 'studio', address: 'studio.kosmosplus.com' };
+  const now = Date.now();
+  const link = (seen) => { const g = api.aoGroup(c, seen, null, now); const a = g.querySelector('.oa-open'); return a ? a.href : null; };
+  assert.equal(link({ state: 'notin' }), 'https://studio.kosmosplus.com/', 'not let in: told to open it, with nothing to open');
+  assert.equal(link({ state: 'out' }), null, 'a computer that is not connected was linked');
+});
+
+test('#6178 ages and reset times are said in this page\'s clock, not the other computer\'s', () => {
+  const { api } = load();
+  const now = Date.now();
+  const theirs = now - 3600e3;   // that computer's clock runs an hour behind this one
+  api.aoKeep('studio.kosmosplus.com', 'ok', { ...STATUS, checkedAt: new Date(theirs).toISOString() }, now);
+  const kept = api.AO_SEEN.get('studio.kosmosplus.com');
+  assert.ok(Math.abs(kept.skew - 3600e3) < 1000, 'the skew was not measured: ' + kept.skew);
+  const e = { weekly: { usedPct: 50, resetsAt: theirs + 30e3, at: theirs - 120e3 }, blocked: null };   // resets in 30 s, changed 2 minutes ago, by ITS clock
+  const u = api.aoUsageWords(e, now, kept.skew);
+  assert.equal(u.pct, 50, 'a reading that has not reset by its own clock was dropped');
+  assert.match(u.line, /Kosmos last saw it change 2 minutes ago/, 'the age was not said in this page\'s clock: ' + u.line);
+  assert.equal(api.aoUsageWords(e, now, 0).pct, null, 'CONTROL: read in this clock unshifted, the reading looks a week old');
+  assert.equal(api.aoAccountsOf({ accountsWeekly: [{ dir: '/d', weekly: { usedPct: 1, resetsAt: 1e300, at: now } }] })[0].weekly, null,
+    'a reset time no Date can show was kept');
 });
