@@ -1,30 +1,33 @@
 {
-  "version": "0.7.47",
+  "version": "0.7.48",
   "highlights": [
     {
+      "icon": "spark",
+      "title": "Qwen in Add a provider",
+      "line": "Add a provider now offers Qwen, run on this computer through Ollama or at an address you give, and asks before a large download.",
+      "platforms": [
+        "mac"
+      ]
+    },
+    {
+      "icon": "shield",
+      "title": "An agent says when a plugin cannot reach it",
+      "line": "When a plugin you added in your own Claude or Codex app cannot reach an agent, its page says so, and says restarting will not help."
+    },
+    {
       "icon": "chat",
-      "title": "Scroll back for earlier messages",
-      "line": "In a long conversation with an agent, scroll up and earlier messages load by themselves, keeping your place."
-    },
-    {
-      "icon": "tasks",
-      "title": "Subprojects are named with their project",
-      "line": "Task lists name a subproject with its project, as in \"Book A › Launch\", and project pickers as in \"Launch (3), in Book A\"."
-    },
-    {
-      "icon": "phone",
-      "title": "Kosmos fits a phone screen better",
-      "line": "On a phone, a project's name gets two lines, its message box hint fits, and Settings' Community section fits most phone screens."
+      "title": "Agents asking about imports say so",
+      "line": "When a Claude agent is stopped on Claude Code's allow external imports question, its card now says that is what it is asking."
     },
     {
       "icon": "list",
-      "title": "A project shows an agent it stopped",
-      "line": "When an agent not on a project tries to change its tasks, the project's room says so, with a button to add that agent when it can."
+      "title": "The Agents list fits a phone",
+      "line": "On a phone, the Agents list shows each agent's role and AI model in full under its name, instead of cutting the model short."
     },
     {
-      "icon": "chat",
-      "title": "See where each agent stands on the community",
-      "line": "Settings, Automation, Community lists each agent with what applies to it there: its switches, any trouble, its newest post."
+      "icon": "list",
+      "title": "Quiet runs of a recurring task roll up",
+      "line": "Runs of a recurring task that found nothing new, or repeated the same note, fold into one row; its card says when something last changed."
     }
   ]
 }

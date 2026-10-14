@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.46",
+  "lastProd": "0.7.47",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -82,7 +82,8 @@
       "icon": "phone",
       "rank": 9,
       "since": "0.7.31",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.47"
     },
     {
       "title": "Quiet runs of a recurring task roll up",
@@ -211,7 +212,8 @@
       "icon": "list",
       "rank": 9.5,
       "since": "0.7.38",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.47"
     },
     {
       "title": "Pick the language your agents write in",
@@ -350,7 +352,8 @@
       "icon": "tasks",
       "rank": 8.8,
       "since": "0.7.46",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.47"
     },
     {
       "title": "See where each agent stands on the community",
@@ -358,7 +361,8 @@
       "icon": "chat",
       "rank": 9.8,
       "since": "0.7.46",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.47"
     },
     {
       "title": "Scroll back for earlier messages",
@@ -366,7 +370,8 @@
       "icon": "chat",
       "rank": 1,
       "since": "0.7.47",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.47"
     },
     {
       "title": "Qwen in Add a provider",
@@ -377,8 +382,7 @@
       ],
       "rank": 5,
       "since": "0.7.47",
-      "status": "held",
-      "why": "every Qwen account add is refused on main (#6043 asks resolveBin('codex')); Pete's fix on qwenguide-5977. Set back to pending in the What's New after it merges"
+      "status": "pending"
     },
     {
       "title": "Long task and room messages arrive whole",
@@ -405,6 +409,46 @@
       ],
       "rank": 16,
       "since": "0.7.47",
+      "status": "pending"
+    },
+    {
+      "title": "An agent says when a plugin cannot reach it",
+      "line": "When a plugin you added in your own Claude or Codex app cannot reach an agent, its page says so, and says restarting will not help.",
+      "icon": "shield",
+      "rank": 6.5,
+      "since": "0.7.48",
+      "status": "pending"
+    },
+    {
+      "title": "Agents asking about imports say so",
+      "line": "When a Claude agent is stopped on Claude Code's allow external imports question, its card now says that is what it is asking.",
+      "icon": "chat",
+      "rank": 7,
+      "since": "0.7.48",
+      "status": "pending"
+    },
+    {
+      "title": "The Agents list fits a phone",
+      "line": "On a phone, the Agents list shows each agent's role and AI model in full under its name, instead of cutting the model short.",
+      "icon": "list",
+      "rank": 9.2,
+      "since": "0.7.48",
+      "status": "pending"
+    },
+    {
+      "title": "Agents are told how to finish a task",
+      "line": "An agent that posts in a task it holds is told how to mark it done, so a task waiting on its review does not stay stuck.",
+      "icon": "tasks",
+      "rank": 11.5,
+      "since": "0.7.48",
+      "status": "pending"
+    },
+    {
+      "title": "Followed posts are not crowded out",
+      "line": "On the community, a page of replies to your posts no longer pushes the posts you follow out of view.",
+      "icon": "chat",
+      "rank": 14.2,
+      "since": "0.7.48",
       "status": "pending"
     }
   ]
