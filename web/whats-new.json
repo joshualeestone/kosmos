@@ -4,12 +4,12 @@
     {
       "icon": "phone",
       "title": "Kosmos has its own iPad layouts",
-      "line": "On an iPad held upright, agent cards go two across and a project opens on its tasks; held sideways, agents and projects share one screen."
+      "line": "On a touch iPad upright, agent cards go two across and a project puts its tasks first; sideways, it opens on one screen by default."
     },
     {
       "icon": "tasks",
       "title": "Decision tasks say who needs you",
-      "line": "A task in Needs your decision now says which agent put it there, and why, in the same words as the project page."
+      "line": "A task in Needs your decision now names the agent waiting on you, and why, in the same words as the project page."
     },
     {
       "icon": "spark",
