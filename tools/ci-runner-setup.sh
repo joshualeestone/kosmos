@@ -144,8 +144,9 @@ preflight() {
     printf 'x\n' | grep -E -e "$ALLOW_JOBS" >/dev/null 2>&1 || [ $? = 1 ] || { problem "KOSMOS_CI_ALLOW_JOBS is not a valid ERE: $ALLOW_JOBS"; jobs=""; unknown=1; }
     # A valid pattern can still match everything (".*", "^", a trailing "|"): one that matches a label nobody would
     # allow is refused rather than allowed to clear every job.
-    if [ "$unknown" = 0 ] && printf 'kosmos-ci.sentinel.never-allowed\n' | grep -q -E -e "$ALLOW_JOBS"; then
-      problem "KOSMOS_CI_ALLOW_JOBS matches any label (tried kosmos-ci.sentinel.never-allowed): $ALLOW_JOBS"; jobs=""; unknown=1
+    # The probe is a string no real label contains, so only a pattern that matches anything matches it.
+    if [ "$unknown" = 0 ] && printf 'Qz7xK4.wV2pR9\n' | grep -q -E -e "$ALLOW_JOBS"; then
+      problem "KOSMOS_CI_ALLOW_JOBS matches any label (it matched the probe Qz7xK4.wV2pR9): $ALLOW_JOBS"; jobs=""; unknown=1
     fi
     if [ "$unknown" = 0 ] && [ -n "$jobs" ]; then
       printf '%s\n' "$jobs" | grep -E -e "$ALLOW_JOBS" | sed 's/^/note:   allowed to stay loaded (KOSMOS_CI_ALLOW_JOBS): /' || true
@@ -297,7 +298,7 @@ install_runner() {
   # grep exits 1 when no line is left (fine) and 2 when it could not read .env, which must not drop config.sh's keys.
   local env_keep=""
   if [ -f "$RUNNER_DIR/.env" ]; then
-    if env_keep="$(grep -v -E '^(ACTIONS_RUNNER_HOOK_JOB_STARTED|ACTIONS_RUNNER_HOOK_JOB_COMPLETED|PATH|LANG)=' "$RUNNER_DIR/.env")"; then :
+    if env_keep="$(grep -v -E '^[[:space:]]*(export[[:space:]]+)?(ACTIONS_RUNNER_HOOK_JOB_STARTED|ACTIONS_RUNNER_HOOK_JOB_COMPLETED|PATH|LANG)=' "$RUNNER_DIR/.env")"; then :
     else [ $? = 1 ] || { rm -f "$newg"; echo "could not read $RUNNER_DIR/.env; nothing changed" >&2; exit 1; }; fi
   fi
   # A Runner.Worker of this user is a job in flight: refuse rather than kill it. A job that starts between this check
