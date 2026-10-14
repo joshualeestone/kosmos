@@ -157,7 +157,7 @@ test('ORG_LINE_CLEAR is the 12px rule this file pins', () => {
 });
 
 test('FLOOR FORMULA PINNED: orgPlace (floor) and orgPlaceGated (fundability ceiling) derive from ONE expression (#4499)', () => {
-  if (!hasGate) { assert.fail('orgPlaceGated is absent, so the floor and the ceiling cannot be pinned'); return; }
+  if (!hasGate) assert.fail('orgPlaceGated is absent, so the floor and the ceiling cannot be pinned');
   // The floor (orgPlace's MIN_SPAN) and the gate's fundability ceiling (orgPlaceGated's maxFundable) are inverses
   // of the SAME angular floor. Repo convention #5 (this codebase's most-shipped defect): one source of truth, or
   // a test that pins the two derivations equal. They live in two functions, so this is that test -- change the
@@ -207,7 +207,7 @@ test('12px WHERE FUNDED: a funded clustered chart clears ORG_LINE_CLEAR by the f
 });
 
 test('NON-BUG IDENTICAL: a chart with no sub-12 first-ring line gets a layout identical to main (#4499, m5385)', () => {
-  if (!hasGate) { assert.fail('orgPlaceGated is absent, so the fix is not present (identical-to-main cannot hold)'); return; }
+  if (!hasGate) assert.fail('orgPlaceGated is absent, so the fix is not present (identical-to-main cannot hold)');
   // Charts with no first-ring clustering: a lone lead, a shallow team, a sparse random tree.
   const nonBug = [
     ['lead+10', [['lead']].concat(Array.from({ length: 10 }, (_, i) => ['r' + i, 'lead']))],  // single root, always non-bug
@@ -234,14 +234,17 @@ test('NON-BUG IDENTICAL: a chart with no sub-12 first-ring line gets a layout id
 });
 
 test('HONEST FUNDED + CLEARANCE NEVER WORSE BY FULL: the first-ring gate never disagrees with the full check (#4499 condition 1)', () => {
-  if (!hasGate) { assert.fail('orgPlaceGated is absent, so the measured gate is not present'); return; }
+  if (!hasGate) assert.fail('orgPlaceGated is absent, so the measured gate is not present');
   // A representative set of shapes (the exhaustive 1000+ tree sweep is offline; this guards against regression).
-  // One per shape family across the funded/fallback boundary, kept small so the installs + full O(n^2) stay fast.
+  // Several per shape family across the funded/fallback boundary at a spread of fan sizes and random densities,
+  // kept bounded so the installs + full O(n^2) stay under the guard's time budget.
   const sweep = [];
-  for (const [n, f] of [[16, 60], [36, 60], [41, 20]]) sweep.push(['heavyFan(' + n + ',' + f + ')', heavyFan(n, f)]);  // funded and fallback
+  for (const [n, f] of [[10, 60], [16, 60], [23, 60], [36, 60], [30, 20], [41, 20], [20, 5]]) sweep.push(['heavyFan(' + n + ',' + f + ')', heavyFan(n, f)]); // funded and fallback at several fan sizes
   sweep.push(['twoHeavy(20,30,30)', twoHeavy(20, 30, 30)]);                                                           // two heavy roots
+  sweep.push(['twoHeavy(15,40,20)', twoHeavy(15, 40, 20)]);                                                           // two heavy roots, uneven
   sweep.push(['deepHeavy(24,40)', deepHeavy(24, 40)]);                                                                // heavy root at depth
-  for (const [seed, n, p] of [[1, 50, 0.3], [2, 70, 0.3]]) sweep.push(['rt(' + seed + ',' + n + ',' + p + ')', randomTree(seed, n, p)]); // random fans
+  sweep.push(['deepHeavy(12,60)', deepHeavy(12, 60)]);                                                                // heavy root at depth, fewer roots
+  for (const [seed, n, p] of [[1, 50, 0.3], [2, 70, 0.3], [3, 40, 0.2], [4, 90, 0.4], [5, 100, 0.08]]) sweep.push(['rt(' + seed + ',' + n + ',' + p + ')', randomTree(seed, n, p)]); // random fans across density
 
   let funded = 0; let checked = 0;
   for (const [label, spec] of sweep) {
@@ -262,7 +265,7 @@ test('HONEST FUNDED + CLEARANCE NEVER WORSE BY FULL: the first-ring gate never d
       assert.ok(shipW >= LINE_CLEAR - 1e-6, label + ': FUNDED but the full check finds a line at ' + shipW.toFixed(2) + 'px, under ' + LINE_CLEAR + ' (dishonest funded decision)');
     }
   }
-  assert.ok(checked >= 7, 'CONTROL: only ' + checked + ' charts swept, too few to exercise the shapes');
+  assert.ok(checked >= 14, 'CONTROL: only ' + checked + ' charts swept, too few to exercise the shapes across the funded/fallback boundary');
   assert.ok(funded > 0, 'CONTROL: no chart in the sweep was funded, so the funded path asserted nothing');
 });
 
