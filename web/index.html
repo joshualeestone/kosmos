@@ -12121,8 +12121,10 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
    is seen (#1017, pinned by web.room-phone-718.test.js). */
 @media (hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 67.99rem) and (orientation: portrait) {
   :root:not([data-look="new"]) body:not(.consolidated) .pj3 > .pjsplit { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* The padding and the matching negative side margins keep a card's focus ring (2px at a 2px offset) inside the
+     scroller, which clips whatever overflows it. */
   :root:not([data-look="new"]) body:not(.consolidated) .pj3 #pj-tasklist { flex-direction: row; overflow-x: auto; min-height: 0;
-    scroll-snap-type: x proximity; padding-bottom: 4px; }
+    scroll-snap-type: x proximity; padding: 4px; margin-left: -4px; margin-right: -4px; }
   :root:not([data-look="new"]) body:not(.consolidated) .pj3 #pj-tasklist > .tkcard { flex: 0 0 min(260px, 70%); width: auto; margin-left: 0; scroll-snap-align: start; }   /* margin: a sub-task's indent (.sub1/.sub2) means nothing in a row */
 }
 </style>
@@ -67655,6 +67657,7 @@ function pjPhoneOrder() {
   const tablet = window.matchMedia(PJ_TABLET_MQ).matches && !document.body.classList.contains('consolidated')
     && document.documentElement.dataset.look !== 'new';
   const focused = document.activeElement && (split.contains(document.activeElement) || (tasks && tasks.contains(document.activeElement))) ? document.activeElement : null;
+  const before = Array.from(grid.children);   // placeLook calls this on every paint: scroll below only when a column moved
   if (window.matchMedia(PJ_PHONE_MQ).matches || tablet) {
     if (mid.nextElementSibling !== split) mid.after(split);
   } else if (mid.previousElementSibling !== split) {
@@ -67667,8 +67670,9 @@ function pjPhoneOrder() {
   if (focused && document.activeElement !== focused && focused.isConnected) focused.focus({ preventScroll: true });
   // Members/Files going above the room pushes the composer down the page; a person mid-post
   // keeps it in view (WebKit has no scroll anchoring to do it).
+  const moved = Array.from(grid.children).some((c, i) => c !== before[i]);
   const post = document.getElementById('pj-post');
-  if (post && document.activeElement === post && post.scrollIntoView) post.scrollIntoView({ block: 'nearest' });
+  if (moved && post && document.activeElement === post && post.scrollIntoView) post.scrollIntoView({ block: 'nearest' });
 }
 pjPhoneOrder();
 if (window.matchMedia) {
