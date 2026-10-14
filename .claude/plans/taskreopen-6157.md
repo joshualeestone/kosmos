@@ -36,3 +36,5 @@ agent without one gets an honest unnamed line.
    either escape reds it). Also: a non-JSON body is a reopen with no reason (tested); the body cap is 8 KiB; the
    card's comment corrected to the positional reason. Left as NITs: UTF-16 length counting, control-byte drop vs
    space between the two CLIs, "Put back" printed for an already-open task (as close does).
+2. sonnet: no blocker or warning. Converged. NITs left: "Put back" printed for an already-open task (close does the
+   same); an optional What's New line (written at cut time).
