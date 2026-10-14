@@ -22,6 +22,7 @@
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels.
 #                             Exit 0 clear, 1 a problem, 3 a check it could not make (neither pass nor fail)
 #   machine-settings          prints the settings that need an admin in System Settings
+#   jq-programs               prints the jq programs handed to gh --jq; reads nothing (the test runs them through jq)
 #
 # HOW kosmos-ci GETS THIS SCRIPT, since the owner's home is closed to it (mode 700): pinned like the guard. As kosmos-ci,
 #   curl -fsSL https://raw.githubusercontent.com/joshualeestone/kosmos/<commit>/tools/ci-runner-setup.sh -o ~/ci-runner-setup.sh
@@ -61,6 +62,8 @@ JQ_VAR='"=" + .value'                                  # "=" tells set-but-empty
 jq_busy() { printf '.runners[] | select(.name == "%s") | .busy' "$NAME"; }
 jq_row() { printf '.runners[] | select(.name == "%s") | "\(.status) \(.busy) \([.labels[].name | ascii_downcase] | sort | join(","))"' "$NAME"; }
 NAME="${KOSMOS_CI_RUNNER_NAME:-kosmos-ci-agent1s}"
+# NAME goes into a jq string literal (jq_busy, jq_row): only characters that need no escaping there.
+case "$NAME" in ''|*[!A-Za-z0-9._-]*) echo "refused: KOSMOS_CI_RUNNER_NAME '$NAME' may hold only letters, digits, '.', '_' and '-'" >&2; exit 2 ;; esac
 LABELS="self-hosted,macOS,arm64,kosmos-ci"
 BREW="${KOSMOS_CI_BREW:-/opt/homebrew}"            # the engine's fixed tmux fallback is /opt/homebrew/bin/tmux
 MIN_FREE_GIB="${KOSMOS_CI_MIN_FREE_GIB:-20}"       # the fleet's disk floor
@@ -301,7 +304,7 @@ install_runner() {
     echo "WOULD: fetch tools/ci-runner-job-guard.sh at $commit and refuse unless its sha256 is $want"
     echo "WOULD: fetch the latest actions/runner osx-arm64 package and refuse unless its sha256 is the published one"
     echo "WOULD: stop the runner if it is running, unpack into $RUNNER_DIR, install the guard as $CI_DIR/job-guard.sh"
-    echo "WOULD: write $CI_DIR/job-cleanup.sh, job-completed.sh, job-started.sh (Baron's #5488 hooks, unchanged)"
+    echo "WOULD: write $CI_DIR/job-cleanup.sh, job-completed.sh, job-started.sh (Baron's #5488 hooks, with the dotfile sweep and comments revised here)"
     echo "WOULD: merge into $RUNNER_DIR/.env: ACTIONS_RUNNER_HOOK_JOB_STARTED, ACTIONS_RUNNER_HOOK_JOB_COMPLETED, LANG, PATH (no KOSMOS_ key)"
     return 0
   fi
@@ -516,7 +519,7 @@ EOF
     # A job the guard admits could rewrite it (the header): KOSMOS_CI_GUARD_SHA, the install pin, makes drift a problem.
     if [ -r "$CI_DIR/job-guard.sh" ]; then
       local gs; gs="$(shasum -a 256 "$CI_DIR/job-guard.sh" | cut -d' ' -f1)"
-      if [ -z "${KOSMOS_CI_GUARD_SHA:-}" ]; then echo "note:   job guard sha256 $gs (set KOSMOS_CI_GUARD_SHA to the install pin to have it checked)"
+      if [ -z "${KOSMOS_CI_GUARD_SHA:-}" ]; then unchecked "the job guard's integrity: its sha256 is $gs; set KOSMOS_CI_GUARD_SHA to the install pin"
       elif [ "$gs" = "$KOSMOS_CI_GUARD_SHA" ]; then ok "job guard sha256 is the install pin"
       else problem "job guard sha256 $gs is not the install pin $KOSMOS_CI_GUARD_SHA: something rewrote it"; fi
     fi

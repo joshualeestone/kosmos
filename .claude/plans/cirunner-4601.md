@@ -29,7 +29,7 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 132 ok. Eighty-nine mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 137 ok. Ninety-one mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
@@ -53,7 +53,8 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   removed, the restart trap left armed; then job-completed's RUNNER_TEMP gate opened, its temp path wrong, register
   without the KOSMOS_ check; then the runner row unsorted, busy read from any runner, an empty df read as 0 GiB;
   then shards_check routing 'all' or splitting on commas only (both caught by the parity test), the guard pin
-  unchecked, the temp's dotfiles kept; then the same-account refusal by name and by uid removed).
+  unchecked, the temp's dotfiles kept; then the same-account refusal by name and by uid removed; then an unpinned
+  guard reported clear, the runner name unvalidated).
 - How kosmos-ci gets the script once the owner's home is 700: fetch it raw at the install commit and match its
   sha256 to `git show <commit>:tools/ci-runner-setup.sh` on the owner's side. The two forms gave the same sha256 for
   tools/ci-runner-job-guard.sh at origin/main (measured 06:31).
@@ -80,8 +81,9 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   forms give the same 72 non-Apple jobs, so `launchctl managername` cannot gate it.
 - Deferred: the compare API is unauthenticated (60 an hour). It refuses, naming a possible rate limit, and a bearer
   token would sit in curl's argv.
-- Deferred: job-completed.sh empties _work/_temp after JOB_COMPLETED. Baron's hook, unchanged, and the mini has run
-  jobs with it since 10-07; not re-measured against the runner source here.
+- Deferred: job-completed.sh empties _work/_temp after JOB_COMPLETED. Baron's hook, and the mini has run
+  jobs with it since 10-07. Revised here (dotfiles swept too, comments corrected): the sweep itself was never run on
+  the mini, only in the test's sandbox runner layout.
 - Deferred: anonymous launchd labels (0x..., [..]) as false refusals. 0 of 72 such labels on Agent1s at 05:04,
   the failure is a refusal, and KOSMOS_CI_ALLOW_JOBS covers it.
 - The jobs' PATH lives in two files: `.env`, and `.path`, which config.sh's env.sh fills from its own shell and
@@ -110,3 +112,5 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   owner can read the file half; a gh token in kosmos-ci's home would be readable by every admitted job.
 - Every stage refuses, dry or not, when the CI user is the owner by name or by uid: the cleanup hook ends every tmux
   and node process of the CI user, which would be the agents'.
+- verify exits 3 when no KOSMOS_CI_GUARD_SHA is given: a guard a job could have rewritten is not checked until it is
+  compared with the install pin.
