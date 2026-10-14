@@ -197,12 +197,12 @@ it (kosmos#6149, `tools/lib/setup-floor.sh`): publish-staging-pointer, promote-c
 will not publish a Mac pointer below 0.7.45, and promote-channel, deploy-site and release.sh will not publish a
 `/setup` or `/setup-staging` that does not name `KOSMOS_READONLY_APP` (the switch and the lift came in one change, so
 an installer that names it can lift the lock; a string check, not a proof).
-NOT covered: a rollback done in Vercel itself (the dashboard's Instant Rollback, or `vercel rollback`) to a
-deployment from before 0.7.45. It goes around every script, so never use it for the site once 0.7.49 is out: roll
-back by committing the older pointer and installer and running deploy-site.sh, which checks them. The way out for a person it happens to is `chmod -R u+w` on the app folder
-(`~/.local/share/kosmos/app`) and the install line again, which nothing on their screen tells them. If an
-installer that old must be served, serve it only after confirming no install was updated by the release that
-carries kosmos#4455, or a later one.
+NOT covered, because each goes around every script: a rollback done in Vercel itself (the dashboard's Instant
+Rollback, `vercel rollback`, or `vercel promote` of an older deployment), and a hand-run `vercel deploy --prod` (the
+site's README still shows one). Never use any of them for the site once 0.7.49 is out: roll back by committing the
+older pointer and installer and running deploy-site.sh, which checks them.
+The way out for a person an old installer reached anyway is `chmod -R u+w` on the app folder
+(`~/.local/share/kosmos/app`) and the install line again, which nothing on their screen tells them.
 
 ## Windows (the same model, two more pointers)
 

@@ -400,7 +400,7 @@ ptr_versioned() { printf '%s' "$1" | sed -n 's/.*"versioned":[[:space:]]*"\([^"]
 win_zip_version() { printf '%s' "$1" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p'; }
 # kosmos#6149 point 1: the rollback floor. The COMMITTED Mac pointers are what this deploy serves (and with them
 # /setup and /setup-staging), so neither may name a build older than the setup floor (tools/lib/setup-floor.sh).
-. "$(dirname "$0")/lib/setup-floor.sh" || { echo "deploy-site: cannot load tools/lib/setup-floor.sh -- refusing"; exit 1; }
+. "$REPO/tools/lib/setup-floor.sh"   # as this script's other libs (a failed . ends sh, which refuses)
 CSJ=$(git -C "$SITE" show "$H:dist/latest-staging.json" 2>/dev/null) || CSJ=""
 [ -z "$CJ" ] || kosmos_setup_floor_pointer_ok "the committed dist/latest.json" "$CJ" || exit 1
 [ -z "$CSJ" ] || kosmos_setup_floor_pointer_ok "the committed dist/latest-staging.json" "$CSJ" || exit 1
