@@ -532,3 +532,32 @@ test('#5949 a per-turn agent that stops while the Claude read is failing is forg
     win32live.byName = realByName;
   }
 });
+
+test('#5949 a held "working" never outranks a fresh idle report (the Stop hook said idle while the read failed)', () => {
+  const selfreport = require('./selfreport');
+  const record = { read: () => ({ 'sid-l': { name: 'lia', runner: 'claude' } }) };
+  let answer = [live('sid-l', 'busy')];
+  let t = 1000;
+  const run = () => answer;
+  status.setPaneSource(win32roster.make({ run, record, now: () => t, codexLive: () => [] }));
+  status.setPaneCapture(win32capture.make({ run, record, now: () => t, ttlMs: 1000, log: () => {} }));
+  try {
+    const card = () => status.snapshot().agents.find((a) => a.sessionName === 'lia');
+    assert.equal(card().state, status.STATE.WORKING, 'CONTROL: read working');
+    answer = null;   // the read fails ...
+    t += 5000;
+    const held = card();
+    assert.equal(held.state, status.STATE.WORKING, 'CONTROL: with no report, the held working stands in');
+    assert.equal(held.stateRead, 'remembered');
+    assert.equal(selfreport.record('lia', { state: 'idle', because: 'finished its turn', auto: true }).recorded, true,
+      'CONTROL: the idle report was recorded');   // ... while its Stop hook says idle
+    t += 1000;
+    const after = card();
+    assert.equal(after.state, status.STATE.IDLE, 'the fresh report decides, not the remembered look');
+    assert.equal('stateRead' in after, false, 'a state the report decided carries no remembered mark');
+    assert.equal(after.screenRead, 'remembered', 'the code that acts on the screen still sees it is held');
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+});

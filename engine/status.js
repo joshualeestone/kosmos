@@ -8764,9 +8764,15 @@ function snapshot() {
         activityStore.clear(pane.name, 'auth-error');
       }
     }
-    const status = reconcileReport(
-      isNamedOurs(pane) ? selfreport.read(pane.name) : { found: false },
-      scrapedStatus, now, liveAuth, disruptionRec, codexLiveAuth, activityFresh, cardRunnerOf(pane));   // #5948: the card's own runner
+    const reportNow = isNamedOurs(pane) ? selfreport.read(pane.name) : { found: false };
+    const reconcileWith = (scrape) => reconcileReport(reportNow, scrape, now, liveAuth, disruptionRec, codexLiveAuth, activityFresh, cardRunnerOf(pane));   // #5948: the card's own runner
+    /* #5949: A HELD READING IS A MEMORY, SO IT NEVER OUTRANKS A REPORT. reconcileReport lets a screen lead a report (a
+       working screen over an idle report, #188), which is right for a look taken this tick and wrong for a remembered
+       one: an agent whose Stop hook just said idle would read working off a look from before it stopped. So a held
+       reading is first left out (as the failed look it stands in for), and stands in only when nothing else decides. */
+    let status = reconcileWith(scrapedNow ? scrapedStatus
+      : { ...scrapedStatus, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its state' });
+    if (!scrapedNow && status.state === STATE.UNKNOWN) status = reconcileWith(scrapedStatus);
     /* #2019 forward self-heal (challenge iter 2): a disruption record on file
        but a reconciled state that is a confident LIVE reading means the restart
        COMPLETED -- drop the record now rather than waiting out the window. This

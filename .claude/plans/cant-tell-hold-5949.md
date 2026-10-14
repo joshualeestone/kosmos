@@ -104,5 +104,10 @@ stops matching for a moment (a relaunch) also keeps its last token, marked. #597
 HELD idle is not that record, so snapshot drops `liveToken` from a held reading and the card falls to "Can't tell",
 with the hover's why (`stateRead: 'unreadable'`), exactly as a failed look under a stale report now does.
 
+## A held reading never outranks a report
+reconcileReport lets a screen read this tick lead a report (a working screen over an idle report). A held reading is
+not a look taken this tick, so snapshot reconciles first as if the look had failed, and lets the held reading stand
+in only when that leaves the card unknown. A fresh idle from a Stop hook therefore wins over a remembered working.
+
 ## Not done
 A browser check: the change is a hover title and a CSS qualifier behind no click (Browser-check trailer).
