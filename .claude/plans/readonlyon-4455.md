@@ -287,3 +287,21 @@ on the card as a follow-up, not into this change.
   commit before 0.7.45's version bump also matches, because the lift was merged before that bump.
 - Round 2's second warning (the workflow check is empty under root, and did not check a folder that must stay
   writable) is covered by the rewrite above: it now fails under root and checks `bin/` and the home folder.
+
+## Review round 3 (21:22 CDT)
+- **macOS had no automatic check of the default** (round 1's fix covered Linux only). Fixed: the installer's
+  three lock lines are marked (`# BEGIN #4455 lock`, comment lines only), and `tools/test-update-locked-app-4455.sh`,
+  which the shell suite runs, lifts them and drives them with the switch unset, `0`, empty, `1`, `no`, `false`
+  and junk. 40 passed, 0 failed. Control: with the default put back to off in a scratch copy, 2 fail (unset and
+  empty) and 38 pass.
+- **The rollback floor is now in `docs/staging-channel.md`**, where whoever cuts or rolls back reads. Nothing
+  enforces it; a guard in the deploy tool is a card of its own.
+- **Decided, and not changed: an update interrupted after the lift leaves the app WRITABLE until its next
+  update.** Round 3 raised it as a warning (round 1 as a small point). It is the state every install is in today,
+  it cannot leave an install that will not update or uninstall, and the next update locks it. Re-locking from
+  the exit trap would put a chmod over the whole app into the path that runs when something has already gone
+  wrong, in the function that puts the board back. I would rather that path stay as small as it is. What would
+  change my mind: evidence that interrupted updates are common, or an agent using that window on purpose. On
+  the follow-up card with the other small installer points.
+- The header's sentence about the off switch lasting one run now says the true condition (the updater runs the
+  installer with the board's own environment).

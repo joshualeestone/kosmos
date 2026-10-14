@@ -743,8 +743,8 @@ LOG="$LOG_DIR/install.log"
 # thumb drive. Same code path, one variable different.
 # The installed app/ folder is left read-only after an install or update (#4449; on by default since #4455).
 # KOSMOS_READONLY_APP=0 leaves it writable, as before. Only 0 is off: unset, EMPTY, or any other value is on.
-# It is read on EACH run and kept nowhere: the board's own updater runs this file without it, so an app left
-# writable with =0 is read-only again after its next update.
+# It is read on EACH run and kept nowhere: the board's own updater runs this file with the board's environment,
+# so unless the board itself was started with =0, an app left writable is read-only again after its next update.
 KOSMOS_RELEASE_BASE="${KOSMOS_RELEASE_BASE:-https://installkosmos.com/dist}"
 
 # ⚠️ EVERY DOWNLOAD IS CHECKSUM-VERIFIED before anything is extracted. The
@@ -1428,9 +1428,11 @@ install_kosmos() {
   # STILL TRUE: a /setup or /setup-staging rolled back to before 0.7.45, meeting an install this one locked, fails that way. The
   # way out for that person is the lift by hand, `chmod -R u+w` on the app folder, then the install line again.
   # KOSMOS_READONLY_APP=0 leaves the app writable (anything but 0, or unset, is on).
+  # BEGIN #4455 lock
   if [ "${KOSMOS_READONLY_APP:-1}" != 0 ]; then
     chmod -R a-w "$dest/app" 2>/dev/null || info "note: the Kosmos app folder could not be made read-only; the install is otherwise complete"
   fi
+  # END #4455 lock
   # 🛑 THE READ-BACK IS THE PROOF. Every claim above is about what this
   # run DID; this is the only line that looks at what the destination
   # HOLDS. A landed version that differs from the run's target means some

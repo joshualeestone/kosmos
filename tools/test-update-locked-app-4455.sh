@@ -199,6 +199,44 @@ else
   echo "SKIP LOCKED: the locked-file flag is macOS's (this is $(uname -s)); NODIR covers the refusal here"
 fi
 
+# ---- DEFAULT: the line that decides whether the app is left read-only, driven with the switch unset and set.
+# Lifted from the shipped file like the block above. This is what checks the DEFAULT on a Mac without a hand run
+# of tools/test-install.sh (whose own #4455 checks sit past the point where the release gate stops).
+LOCK="$(awk '/^  # BEGIN #4455 lock$/{f=1; next} /^  # END #4455 lock$/{f=0} f' "$SETUP")"
+case "$LOCK" in *'KOSMOS_READONLY_APP'*'chmod -R a-w "$dest/app"'*) : ;;
+  *) echo "FAIL: could not extract the #4455 lock lines (anchor drift?)" >&2; exit 1 ;; esac
+cat > "${SB:?}/lock-driver.sh" <<DRIVER
+$OPTS
+info()  { printf '     %s\n' "\$*"; }
+lock() {
+  local dest="\$1"
+$LOCK
+  return 0
+}
+[ -n "\${1:-}" ] && [ -d "\$1" ] || { echo "the driver was given no install"; exit 2; }
+lock "\$1"
+DRIVER
+locked()   { [ ! -w "$1/app" ] && [ ! -w "$1/app/engine" ] && [ ! -w "$1/app/server.js" ]; }
+writable() { [ -w "$1/app" ] && [ -w "$1/app/engine" ] && [ -w "$1/app/server.js" ]; }
+if [ "$(id -u)" -eq 0 ]; then
+  echo "SKIP DEFAULT: running as root, which can write a read-only folder, so these arms would say nothing"
+else
+  D="$(mk_install default-unset)"; in_sb "$D"
+  writable "$D" && ok "CONTROL DEFAULT: the fixture's app starts writable" || bad "CONTROL DEFAULT: the fixture's app is not writable"
+  env -u KOSMOS_READONLY_APP sh "$SB/lock-driver.sh" "$D" >/dev/null 2>&1
+  locked "$D" && ok "DEFAULT: with the switch unset the app is left read-only" || bad "DEFAULT: with the switch unset the app is still writable"
+  [ -w "$D/bin" ] && [ -w "$D/runtime" ] && ok "DEFAULT: bin and runtime stay writable" || bad "DEFAULT: bin or runtime was made read-only"
+  D="$(mk_install default-zero)"; in_sb "$D"
+  KOSMOS_READONLY_APP=0 sh "$SB/lock-driver.sh" "$D" >/dev/null 2>&1
+  writable "$D" && ok "DEFAULT: KOSMOS_READONLY_APP=0 leaves the app writable (the off switch)" || bad "DEFAULT: =0 did not leave the app writable"
+  # Only 0 is off. Empty, 1, and words a person might try all leave it read-only.
+  for _v in "" 1 no false junk; do
+    D="$(mk_install "default-v${_v:-empty}")"; in_sb "$D"
+    KOSMOS_READONLY_APP="$_v" sh "$SB/lock-driver.sh" "$D" >/dev/null 2>&1
+    locked "$D" && ok "DEFAULT: KOSMOS_READONLY_APP='$_v' leaves the app read-only (only 0 is off)" || bad "DEFAULT: KOSMOS_READONLY_APP='$_v' left the app writable"
+  done
+fi
+
 echo
 echo "test-update-locked-app-4455: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
