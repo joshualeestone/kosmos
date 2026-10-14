@@ -76,7 +76,7 @@ function windowOf(payload, key) {
  *  `opt` names another window's file, its same-window tolerance, and whether it keeps history (#6176). */
 function record(dir, reading, now, opt = {}) {
   const file = path.join(dir, opt.file || FILE);
-  const tolerance = opt.tolerance || SAME_WEEK_TOLERANCE_SECONDS;
+  const tolerance = opt.tolerance ?? SAME_WEEK_TOLERANCE_SECONDS;
   const keepHistory = opt.history !== false;
   let cur = null;
   try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* absent or unreadable: start fresh */ }

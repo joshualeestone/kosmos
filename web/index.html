@@ -27375,10 +27375,12 @@ function acctUsageHtml(a, list) {
       const age = agoWords(Date.now() - w.at);
       usage = '<div class="acct-usage-meter"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
         + '<p class="acct-usage-line">' + pct + '% of its weekly limit used · resets ' + esc(resets) + (age ? ' · Kosmos last saw it change ' + esc(age) : '') + '</p></div>'   // what Kosmos saw: use elsewhere (claude.ai, another computer) is not seen
-        + (frozenSay ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenSay) + '</p>' : '') + usageSetup
+        + (frozenSay && !five ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenSay) + '</p>' : '') + usageSetup
         + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its weekly limit.' : 'Close to its weekly limit.')
           + (canMove ? ' Move its ' + (names.length === 1 ? 'agent' : 'agents') + ' to another account' + (pct >= 100 ? (allRunning ? ' to get ' + (names.length === 1 ? 'it' : 'them') + ' working again.' : '.') : (allRunning ? ' before ' + (names.length === 1 ? 'it stops.' : 'they stop.') : '.')) : '') + '</p>' : '')
-        + five;   // after the weekly block whole, so the weekly warning's move suggestion never reads as the five-hour line's
+        + five   // after the weekly block whole, so the weekly warning's move suggestion never reads as the five-hour line's
+        /* Both readings and neither will update: one note after both, so the five-hour meter is not read as live. */
+        + (frozenSay && five ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenSay.replace('This is the last reading Kosmos saw. It will not update', 'These are the last readings Kosmos saw. They will not update')) + '</p>' : '');
     } else if (five) {
       /* A five-hour reading with no weekly one: "no reading yet" would contradict it, so it stands alone (and is said
          to be the last one when the account cannot be read any more). */

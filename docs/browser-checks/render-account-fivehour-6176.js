@@ -45,6 +45,8 @@ const ACCOUNTS = [
   claude('bothwarn', { weekly: week(90), fiveHour: five(85), agentsHere: { names: ['s-b'], complete: true } }),
   claude('tomorrow', { weekly: week(20), fiveHour: { usedPct: 30, resetsAt: now + 14 * H, at: now - 60e3 } }),
   claude('expired', { weekly: week(20), fiveHour: { usedPct: 99, resetsAt: now - 60e3, at: now - 3 * H } }),
+  claude('bothfrozen', { weekly: week(40), weeklyBlocked: 'not-wired', fiveHour: five(30) }),
+  claude('weekfrozen', { weekly: week(40), weeklyBlocked: 'not-wired', fiveHour: null }),
   claude('key', { apiKey: true, keyTail: 'abcd', weekly: null, fiveHour: five(50) }),
   claude('spare', { weekly: week(5), fiveHour: null }),
 ];
@@ -93,6 +95,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
             warns: u ? [...u.querySelectorAll('.acct-usage-warn')].map((x) => x.textContent.trim()) : [],
             order: u ? [...u.querySelectorAll('.acct-usage-meter, .acct-usage-warn')].map((x) => x.classList.contains('acct-usage-five') ? 'five' : x.classList.contains('acct-usage-meter') ? 'week' : (/5-hour/.test(x.textContent) ? 'fivewarn' : 'weekwarn')) : [],
             nones: u ? [...u.querySelectorAll('.acct-usage-none')].map((x) => x.textContent.trim()) : [],
+            lastIsNone: u ? (() => { const kids = [...u.querySelectorAll('.acct-usage-meter, .acct-usage-warn, .acct-usage-none')]; return kids.length > 0 && kids[kids.length - 1].classList.contains('acct-usage-none'); })() : false,
           };
         };
         const out = {};
@@ -109,6 +112,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.fivefull && r.fivefull.warns.length === 1 && new RegExp('^At its 5-hour limit until ' + T + '\\.$').test(r.fivefull.warns[0]), tag + ' at 100% it says until when', JSON.stringify(r.fivefull && r.fivefull.warns));
       say(r.fiveonly && r.fiveonly.meters === 1 && r.fiveonly.fiveFill === '30%' && r.fiveonly.nones.length === 0, tag + ' only a five-hour reading: shown, with no "no reading yet" beside it', JSON.stringify(r.fiveonly));
       say(r.fivefrozen && r.fivefrozen.fiveFill === '30%' && r.fivefrozen.nones.length === 1 && /^This is the last reading Kosmos saw\. It will not update, because this account is set up its own way\.$/.test(r.fivefrozen.nones[0]), tag + ' under a blocked account it is the last reading', JSON.stringify(r.fivefrozen));
+      say(r.bothfrozen && r.bothfrozen.meters === 2 && r.bothfrozen.nones.length === 1 && r.bothfrozen.lastIsNone
+        && r.bothfrozen.nones[0] === "These are the last readings Kosmos saw. They will not update, because Kosmos is not set up to read this account's usage.",
+        tag + ' both readings, neither updating: one note after both, in the plural', JSON.stringify(r.bothfrozen && r.bothfrozen.nones));
+      say(r.weekfrozen && r.weekfrozen.nones.length === 1 && /^This is the last reading Kosmos saw\. It will not update/.test(r.weekfrozen.nones[0]),
+        tag + ' weekly only, not updating: the singular note, as before (control)', JSON.stringify(r.weekfrozen && r.weekfrozen.nones));
       say(r.key && r.key.meters === 0, tag + ' an API-key row draws no meter', JSON.stringify(r.key));
       say(r.bothwarn && r.bothwarn.order.join(',') === 'week,weekwarn,five,fivewarn' && /Move its agent/.test(r.bothwarn.warns[0] || '') && r.bothwarn.warns[1] === 'Close to its 5-hour limit.',
         tag + ' both warning: the weekly block (with its move) comes whole, then the five-hour one (with none)', JSON.stringify(r.bothwarn && { order: r.bothwarn.order, warns: r.bothwarn.warns }));
