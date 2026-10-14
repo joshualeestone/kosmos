@@ -70816,7 +70816,13 @@ async function pjPostSend(attachment) {
   const UNSURE_WHY = 'we could not tell whether it was posted';
   const UNSURE_LINE = 'We could not tell whether that was posted. Check the room before posting it again.';
   const failed = (line, because, unsure) => {
-    if (PJ_ROOM_PENDING[sentProject] !== pend) return;
+    if (PJ_ROOM_PENDING[sentProject] !== pend) {
+      /* Handed over already. For an unsure failure that means it went: say nothing. A DEFINITE refusal means the board
+         did not keep THIS post, so the row it was handed to was someone else's same words (another window, inside the
+         slack): draw it again, marked, and give the words back rather than lose them silently (review 4). */
+      if (unsure || PJ_ROOM_PENDING[sentProject]) return;
+      PJ_ROOM_PENDING[sentProject] = pend;
+    }
     verdict(line);
     notKept(because, unsure);
   };

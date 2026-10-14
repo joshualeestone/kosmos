@@ -9,8 +9,8 @@ docs/browser-checks/render-room-send-shows-now-6168.js holds the room POST open 
 
 ## Change (web/index.html)
 - `PJ_ROOM_PENDING[project]`, `pjRoomPendingRow` (the person's own bubble, time slot "Sending…", or "Not posted." /
-  "Not confirmed." with the reason) and `pjRoomPendingKept` (same words from the person, kept no earlier than a minute
-  before the press), mirroring dmPendingRow / dmPendingKept.
+  "Not confirmed." with the reason) and `pjRoomPendingKept` (same words from the person, a row not in the room at the press and stamped
+  no earlier than the press less 10 s), mirroring dmPendingRow / dmPendingKept.
 - paintRoom: the pending row after the room's rows until the room holds it; not during a search.
 - pjPostSend: drawn at the press from the room's last read (only while still in that project); a refused post and an
   unreachable board mark it (unreachable as "Not confirmed": it may have arrived); a kept post drops it after the re-read.
@@ -22,12 +22,13 @@ docs/browser-checks/render-room-send-shows-now-6168.js holds the room POST open 
 ## Weakest premise
 That a row id the room did not have at the press is this post. The board writes the row only when its fan-out is done,
 so an older row can never be it; the snapshot can be stale, so the row must also be stamped no earlier than the press
-less 10 s (review 3). A post of the same words from another window inside those 10 s could still hand over early. An earlier version of this plan said the agent page "has the same
+less 10 s (review 3). A post of the same words from another window inside those 10 s can still hand over early; if this post is then
+refused, it is drawn again as Not posted with its words back (review 4); if this post is unsure, it is treated as gone. An earlier version of this plan said the agent page "has the same
 rule" for identical words; it does not (it matches only after the POST answers). Corrected in review 1.
 
 ## Evidence
 - The browser check above: its arms grew with each review (see Review); on origin/main the press-to-drawn arm and every arm built on it are red, all green after.
-- The node tests that read the room's send or paint pass (526 after review 1); gated.txt (sorted) and the README list the check.
+- The node tests that read the room's send or paint, plus every browser-check guard, pass; gated.txt (sorted), the README and browser-checks-reason-grep's SITE_COUNTS list the check.
 
 ## Review
 1. opus: no blocker. WARNINGs fixed, each with a mutant that reds the check: an older post with the same words
@@ -50,3 +51,8 @@ rule" for identical words; it does not (it matches only after the POST answers).
    line when a read already showed the room holding the post; the line under the box starts empty at the press (a
    verdict about an earlier post sat under the next); the hand-over also requires the row stamped after the press, so a
    stale snapshot no longer lets an older same-words post swallow a new one (and lose its words on a refusal).
+4. sonnet: no blocker. WARNINGs fixed, each with an arm a mutant reds: the check now asserts the pending bubble is
+   visibly drawn (a real box), not only present in text; a definite refusal after the room handed over to another
+   window's same words draws the post again as Not posted and gives the words back (it vanished silently). Stale plan
+   lines corrected. Left: a board clock more than 10 s behind the browser's keeps an arrived "Not confirmed" post beside
+   its kept copy until the next post.
