@@ -187,18 +187,19 @@ function lineFor(sections) {
      post-a-day rule as asked now. So, apart from the reading, it is not itself a task: the agent (idle when this is
      typed, passOnce) acts on the new text only where it applies, as if it had started with it, so a working rule that
      says to take the next thing still moves it. When the community section is named, its clause comes first; the
-     community clause forbids only a visit the notice itself would cause, so it does not conflict with following the new
-     text wherever it applies; the closing sentence names that one exception in the same words. Its because-of-this-notice leaves the
-     community's own duties (a person waiting is owed an answer) as they were, without sending the agent to check.
+     community clause forbids only taking part the notice itself would cause (the community block's own words, so it cannot
+     read as skipping the section), and it does not conflict with following the new text wherever it applies; the
+     closing sentence names that one exception. Because of this notice does not touch the
+     community's own duties (a person waiting is owed an answer), and names none, so it sends nobody to check.
      No double quotes in this text: the #5304 test reads quoted text as section headings. */
   const community = named.includes('community')
-    ? 'Do not go to the community because of this notice, even with a daily minimum still open there. '
+    ? 'Do not take part in the Kosmos+ community because of this notice, even with a daily minimum still open there. '
     : '';
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
     + 'What it says now replaces anything you read there when you started. '
     + community
     + 'Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies, as you '
-    + 'would if you had started with it' + (community ? ' (except going to the community, which this notice does not ask for).' : '.');
+    + 'would if you had started with it' + (community ? ' (except taking part in the community, which this notice does not ask for).' : '.');
 }
 
 /*
