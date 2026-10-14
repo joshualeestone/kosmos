@@ -35,10 +35,13 @@
  * Without --yes nothing is looked at or changed (exit 2). The answer is the FIRST line of the report
  * (and of stdout), one word and its value:
  *   current <v>        nothing newer than <v>, the installed version
- *   newer <v>          newer, and updates are off here (or the switch cannot be read): offered, not installed
+ *   newer <v>          newer, offered and not installed: updates are off here (or the switch cannot be read),
+ *                      the version was rolled back from here, a newer release appeared after the one picked,
+ *                      or an automatic install could not be started (the report's `note` says which)
  *   updated <v>        installed; the board was left stopped
  *   rolledback <v>     rolled back to <v>; the board was left stopped
  *   failed <v> <why>   the update to <v>, or the rollback to <v>, was started and did not finish
+ *   failed <why>       an update was started and not seen to finish; it may still finish, so no retry is offered
  *   board              a Kosmos board answers on this computer, and it updates itself
  *   unknown <why>      the release host could not be reached or read, or this is not an installed Kosmos
  *   refused <why>      not done here: not a connect computer, an agent asked, or a precondition failed

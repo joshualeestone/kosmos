@@ -364,7 +364,9 @@ test('#4382: what each answer does: the same consent as the board, never a resta
     const s = stateOf(got[i]);
     for (const [k, v] of Object.entries(want)) assert.equal(s[k], v, `${input}: ${k} (got ${got[i]})`);
   });
-  /* The words on the bar, for the rows whose wording is the point. */
+  /* The words on the bar, for the rows whose wording is the point. An offer is worded for every `newer`
+     answer, which is also a version held after a roll back, or one whose automatic install could not start. */
+  assert.equal(stateOf(got[0]).bar, 'Kosmos 0.7.50 is ready. Press Update to install it.', 'never claims updates are off');
   assert.match(stateOf(got[4]).bar, /^Kosmos could not update \(The update did not take\.\)\. Press Update to try again\.$/);
   assert.doesNotMatch(stateOf(got[5]).bar, /Press Update/, 'an update that may still finish invites no retry');
   assert.doesNotMatch(stateOf(got[6]).bar, /Press Update/, 'a note that names a button the bar does not have');
@@ -396,6 +398,8 @@ test('#4382: Not now, the daily look, and Update: pure decisions', WINDOWS_ONLY,
 test('#4382: an update on its way on disk holds Run agents, a stale or finished one does not', WINDOWS_ONLY, (t) => {
   if (!needsProbe(t)) return;
   const fresh = String(Math.floor(constant('UpdateOnDiskFreshMs') / 1000));
+  assert.ok(constant('UpdateOnDiskFreshMs') > constant('UpdateLookTimeoutMs'),
+    'once the window gives up on a look, the files it left must still hold Run agents while that run can still be going');
   const unfinished = '{  "token": "t",  "finished": false }'.replace(/\s+/g, ' ');
   const finished = '{ "token": "t", "finished": true }';
   const got = runProbe([

@@ -2768,7 +2768,7 @@ class KosmosLauncher
     // What the connect window knows about updates, and what it should show. Main-thread only, in the window.
     internal sealed class ConnectUpdateState
     {
-        internal string Offer;       // a newer version offered (updates are off here), or null
+        internal string Offer;       // a newer version offered, not installed by itself (the engine's `newer`), or null
         internal string Installed;   // a version an unasked look installed, waiting for the person's Restart, or null
         internal string Rollback;    // the kept build a rollback restores, or null
         internal string Dismissed;   // the version whose bar the person put away with Not now
@@ -2909,7 +2909,9 @@ class KosmosLauncher
     // Kosmos folder (the download), or an update journal not yet finished (the swap). Either counts only
     // while it is young, so one a crash left behind does not hold "Run agents" for good; the board's start
     // finishes or undoes such an update (the logon shim's recovery).
-    internal const int UpdateOnDiskFreshMs = 30 * 60 * 1000;
+    // Longer than UpdateLookTimeoutMs: once the window gives up on a look that hangs, these files are all that
+    // hold Run agents, so they must still count as fresh for as long as the engine run can still be going.
+    internal const int UpdateOnDiskFreshMs = 45 * 60 * 1000;
 
     // PURE: the rule above, from what was read. Null times are files that are not there.
     internal static bool UpdateUnderWayOnDisk(DateTime? lockWrittenUtc, string journalText, DateTime? journalWrittenUtc, DateTime nowUtc)
@@ -2954,9 +2956,12 @@ class KosmosLauncher
     internal static string UpdateMenuText(string version) { return "Update Kosmos to " + version; }
     internal static string RestartMenuText(string version) { return "Restart Kosmos to use " + version; }
     internal static string RollbackMenuText(string version) { return "Roll back Kosmos to " + version; }
+    // Worded for every `newer` answer, not only "updates are off": the engine also offers rather than installs
+    // a version held after a roll back, a newer release that appeared after the person picked Update, and
+    // one whose automatic install could not be started (Update then says why).
     internal static string UpdateOfferNote(string version)
     {
-        return "Kosmos " + version + " is ready. Updates are off on this computer, so Kosmos asks first.";
+        return "Kosmos " + version + " is ready. Press Update to install it.";
     }
     internal static string UpdateInstalledNote(string version)
     {
@@ -3811,6 +3816,10 @@ class BoardWindowForm : System.Windows.Forms.Form
                     if (!stopped) KosmosLauncher.ShowWindowMessage(KosmosLauncher.BoardStillRunningMessage, true);
                     // #4382: with the stop done, a connect computer looks for an update now and once a day, as the
                     // Mac chains its look after stopBoardIfRunning. The look itself refuses while a board answers.
+                    // Only after a stop that held: a stop that did not hold may have left the board's logon task
+                    // switched on, and the engine's connect precondition (win32update B0) stands in for the board-task
+                    // rule, so nothing else would keep that task from starting a board under a swap. The person is
+                    // told (BoardStillRunningMessage), and the next launch stops the board and looks again.
                     if (stopped && mode == KosmosLauncher.ComputerMode.Connect) StartUpdateLooks();
                 }));
             }
