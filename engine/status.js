@@ -1567,6 +1567,52 @@ let paneCapture = null;
 
 function setPaneCapture(fn) { paneCapture = typeof fn === 'function' ? fn : null; }
 
+/**
+ * #5949: how the capture reached its last answer for `target`, when it can say: the Windows
+ * capture (win32capture) answers { held } while a last good reading stands in for a failed look,
+ * { unreadable } when it could not read one and is not holding, or null for a fresh look. Null
+ * for any capture without a `note` (tmux, and every test seam). Never throws.
+ */
+function captureNote(target) {
+  if (!paneCapture || typeof paneCapture.note !== 'function') return null;
+  try {
+    const n = paneCapture.note(target);
+    return n && typeof n === 'object' ? n : null;
+  } catch { return null; }
+}
+
+/**
+ * #5949: the card's `stateRead` field, as an object to spread into the row: { stateRead:
+ * 'remembered' } when the state shown is a held reading, { stateRead: 'unreadable' } when it is
+ * unknown because the look failed, and {} otherwise (a fresh look, a Mac pane, or a state the
+ * agent's own report decided, which no failed look touched).
+ * ⚠️ A WORD, NEVER A SENTENCE. The page says it in its own fixed words on hover; why the read
+ * failed goes to the agent's log, never to a card (#3729: no diagnostic lines on agent cards).
+ * Also { screenRead: 'remembered' } whenever the SCREEN reading was held, even when a report
+ * decided the state (the page draws no mark then): a report can carry the screen's reading along
+ * (a limit wait's `screenState`), and code that acts on it asks stateIsRemembered.
+ */
+function stateReadFields(note, status, scraped) {
+  if (!note || !status) return {};
+  const screen = note.held === true ? { screenRead: 'remembered' } : {};
+  if (status.reported === true) return screen;
+  /* Only when the card shows the held reading itself: a state something else decided this tick (a
+     stop, a sign-in failure, a limit) is not "what it was doing when last seen". */
+  if (note.held === true && status.state !== STATE.UNKNOWN && scraped && status.state === scraped.state) return { stateRead: 'remembered', ...screen };
+  if (note.unreadable === true && status.state === STATE.UNKNOWN) return { stateRead: 'unreadable' };
+  return screen;
+}
+
+/**
+ * #5949: does this card carry a HELD screen reading (stateReadFields' screenRead), not one seen this tick? For the code
+ * that ACTS because an agent reads idle (the Assigner handing it work, a limit backlog released to it, the failover
+ * tell): a remembered idle is not evidence it is idle now, so those wait for a fresh look, a few seconds at most.
+ * Asked with `in`: most cards never carry the field.
+ */
+function stateIsRemembered(card) {
+  return Boolean(card && typeof card === 'object' && 'screenRead' in card && card.screenRead === 'remembered');
+}
+
 function capturePane(target, lines = 40) {
   if (paneCapture) return paneCapture(target, lines);
   /* 🛑 `-J` JOINS WRAPPED ROWS, AND WITHOUT IT PANE WIDTH IS A HIDDEN INPUT TO
@@ -4905,10 +4951,12 @@ function classify(pane, paneText) {
    * which is where "stopped" is decided for win32 -- not here.
    */
   if (require('./win32roster').isWin32Pane(pane)) {
-    if (paneText === 'busy') {
+    /* The two tokens are win32streamstate's, the one vocabulary win32capture holds by too (#5949). */
+    const { BUSY: WIN32_BUSY, IDLE: WIN32_IDLE } = require('./win32streamstate');
+    if (paneText === WIN32_BUSY) {
       return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is working' };
     }
-    if (paneText === 'idle') {
+    if (paneText === WIN32_IDLE) {
       /* #5949: `liveToken` marks this idle as the state file a per-turn runner's supervisor (Codex, Gemini, Grok,
          Antigravity) writes when a turn ends: there is no turn running, so it is not a guess. reconcileReport lets it
          end a stale automatic "working" (see there). NOT for a Windows Claude agent, whose idle comes from
@@ -8546,6 +8594,14 @@ function snapshot() {
   if (panes.length) limitCaptureSweep(panes.map((pane) => pane.name));
   const agents = panes.map((pane) => {
     const text = capturePane(pane.target);
+    /* #5949: a Windows agent's state can be its LAST GOOD reading, held through a short gap in
+       `claude agents --json` (win32capture). The capture says so here, so the card is marked as
+       remembered and a held "working" is never counted as a witnessed live turn below. Asked
+       only for a Windows row; a Mac pane never reaches it, so the Mac card is unchanged. */
+    const readNote = require('./win32roster').isWin32Pane(pane) ? captureNote(pane.target) : null;
+    /* One fact, read at both places that ask whether the pane is working NOW (#1921's account badge and #2146's
+       'Working now' beside a wait): a held reading is a memory, not a turn seen this tick. */
+    const scrapedNow = !(readNote && readNote.held);
     noteLimitRows(pane.name, text, Date.now());   // #5805 slice 3b: before retiring, so a first sighting never retires
     const scrapedStatus = classify(pane, retireResetLimits(text, Date.now(), (row) => limitFirstSeenOf(pane.name, row)));   // #5031
     /* The agent's own account outranks the scrape when fresh (#188); only a
@@ -8840,8 +8896,9 @@ function snapshot() {
            sentence, so the two cannot drift apart. Pinned by
            `status.observed-1921.test.js`, whose row was confirmed to FAIL against
            this line before the guard was added. */
+        /* #5949: nor a HELD Windows reading: it is what we saw before the read failed, not a turn seen now. */
         const outcome = (scrapedStatus.state === STATE.WORKING
-          && scrapedStatus.backgroundWait !== true) ? observed.OUTCOME.OK
+          && scrapedStatus.backgroundWait !== true && scrapedNow) ? observed.OUTCOME.OK
           : status.state === STATE.AUTH_FAILED ? observed.OUTCOME.REJECTED
           : null;
         if (outcome) observed.saw(observed.PROVIDER.ANTHROPIC, pane.name, outcome, now);
@@ -8982,7 +9039,7 @@ function snapshot() {
       const waitReport = tied ? selfreport.read(pane.name) : { found: false };
       const fresh = freshestActivity(tied ? pane.name : null, {
         nowMs: now,
-        paneWorking: scrapedStatus.state === STATE.WORKING,
+        paneWorking: scrapedStatus.state === STATE.WORKING && scrapedNow,   // #5949: not a held reading
       });
       activeWhileWaiting = activeWhileWaitingFrom(status.state, fresh, waitReport.found === true ? Date.parse(waitReport.at || '') : NaN);
       waitingSince = waitingSinceFrom(waitReport, status.state, now);
@@ -9038,6 +9095,9 @@ function snapshot() {
          arm uses too, so chat.js reads a fact about the card rather than
          re-deciding what platform it is on. */
       reachedByChannel: require('./win32roster').isWin32Pane(pane),
+      /* #5949: only on a Windows card whose state did not come from a fresh look (see
+         stateReadFields); absent everywhere else, so a Mac card is byte-identical. */
+      ...stateReadFields(readNote, status, scrapedStatus),
       /* Which runner this pane RECORDED at launch (#245/#246): 'codex',
          'gemini', 'grok', 'antigravity' or 'claude', with empty meaning claude the way it does
          everywhere the option is absent. The switch screen keys on this, and it is
@@ -9491,7 +9551,7 @@ module.exports = {
      which would report a different moment from the one that failed. */
   lastLookProblem,
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
-  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, createdKeysStrict, tmuxSaidNoServer, lookProblemFor,
+  setPaneSource, setPaneCapture, stateIsRemembered, setCreatedSource, createdKeys, createdKeysStrict, tmuxSaidNoServer, lookProblemFor,
   // #2955: the version-wall switch, and its test seams (excused by name in engine.reachable.test.js).
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite

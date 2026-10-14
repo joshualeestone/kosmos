@@ -2041,6 +2041,7 @@ function accountHeldVerdict(sessionName, roster, now = Date.now()) {
    next turn, which the held posts are what gives it). */
 function limitReleased(card) {
   if (!limitable(card)) return false;
+  if (status.stateIsRemembered(card)) return false;   // #5949: a remembered screen (either arm below) waits for a fresh look
   if (card.state === status.STATE.IDLE) return true;
   return card.state === status.STATE.BLOCKED && card.screenState === status.STATE.IDLE;
 }

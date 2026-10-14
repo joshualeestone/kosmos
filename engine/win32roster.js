@@ -71,6 +71,38 @@ function flat(v) {
   return String(v == null ? '' : v).replace(/[\t\r\n]+/g, ' ');
 }
 
+/* #5949: WHY the last read failed, in words for an agent's log. A read still answers only
+   the array or null (every caller's contract is unchanged); this is the one extra fact a
+   failed look keeps, so a card that falls to "Can't tell" can be looked up afterwards. Set by
+   both readers on every outcome, null after a good one. */
+let lastProblem = null;
+/* ⚠️ Module state, read right after the reader that set it returns (makeCachedRun's whyOf runs in the same
+   synchronous step, or first thing in the async callback); keep it that way, or a later read can carry
+   another read's why. */
+const READ_TIMEOUT_MS = 15000;
+/* The error shapes, measured with this runtime's node on Windows (2026-10-12): a sync timeout is code ETIMEDOUT with
+   signal SIGTERM, but a sync buffer overflow is ALSO signal SIGTERM (code ENOBUFS), so the signal alone does not mean
+   a timeout; async, a timeout is killed:true with code null and an overflow is ERR_CHILD_PROCESS_STDIO_MAXBUFFER. An
+   exit is status N (sync) or code N (async). So the buffer arm comes first and the timeout arm names its own shapes. */
+function problemOf(err) {
+  if (!err) return null;
+  if (err.code === 'ENOBUFS' || err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return 'the status read answered with more text than it can hold';
+  if (err.code === 'ENOENT') return 'Claude Code could not be started to ask (ENOENT)';
+  if (err.code === 'ETIMEDOUT' || err.killed === true) return 'the status read timed out after ' + Math.round(READ_TIMEOUT_MS / 1000) + ' s';
+  if (Number.isInteger(err.status)) return 'the status read failed (claude exited with code ' + err.status + ')';
+  if (Number.isInteger(err.code)) return 'the status read failed (claude exited with code ' + err.code + ')';
+  return 'the status read failed (' + String((err && err.code) || 'unknown') + ')';
+}
+function parseAnswer(out) {
+  let parsed;
+  try { parsed = JSON.parse(out); } catch { lastProblem = 'the status read answered with something that is not JSON'; return null; }
+  if (!Array.isArray(parsed)) { lastProblem = 'the status read answered with something other than a list'; return null; }
+  lastProblem = null;
+  return parsed;
+}
+/** Why the last read failed, or null when it did not (#5949). */
+function readProblem() { return lastProblem; }
+
 /**
  * Default exec: run `claude agents --json` and parse it. Returns the array, or
  * null on ANY failure (claude missing, non-zero exit, unparseable) so the caller
@@ -83,18 +115,18 @@ function defaultRun() {
     // (engine/runners.resolveBin) so the AGENT_WORKFORCE_CLAUDE_BIN sandbox
     // override is honoured, exactly like every other claude invocation
     // (connect/create/machine/subscription) rather than a second bare `claude`.
-    const bin = require('./runners').resolveBin('claude').bin;
+    let bin;
+    try { bin = require('./runners').resolveBin('claude').bin; } catch { lastProblem = 'Claude Code could not be found to ask'; return null; }
     // ⚠️ maxBuffer RAISED to 16 MiB for the SAME reason machine.js:43-50 did:
     // a busy machine with many concurrent sessions makes `claude agents --json`
     // large (long cwd/name fields), and Node's 1 MiB default would make
     // execFileSync throw -> null -> the whole roster blanks on a healthy box.
-    out = execFileSync(bin, ['agents', '--json'], { encoding: 'utf8', timeout: 15000, maxBuffer: 16 * 1024 * 1024 });
-  } catch {
+    out = execFileSync(bin, ['agents', '--json'], { encoding: 'utf8', timeout: READ_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 });
+  } catch (err) {
+    lastProblem = problemOf(err);
     return null;
   }
-  let parsed;
-  try { parsed = JSON.parse(out); } catch { return null; }
-  return Array.isArray(parsed) ? parsed : null;
+  return parseAnswer(out);
 }
 
 /* The same read as `defaultRun`, without blocking: the child runs while the board
@@ -102,17 +134,15 @@ function defaultRun() {
    the shapes `defaultRun` returns. Never throws. */
 function defaultRunAsync(cb) {
   let bin;
-  try { bin = require('./runners').resolveBin('claude').bin; } catch { cb(null); return; }
+  try { bin = require('./runners').resolveBin('claude').bin; } catch { lastProblem = 'Claude Code could not be found to ask'; cb(null); return; }
   try {
     require('node:child_process').execFile(bin, ['agents', '--json'],
-      { encoding: 'utf8', timeout: 15000, maxBuffer: 16 * 1024 * 1024, windowsHide: true },
+      { encoding: 'utf8', timeout: READ_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024, windowsHide: true },
       (err, out) => {
-        if (err) { cb(null); return; }
-        let parsed;
-        try { parsed = JSON.parse(out); } catch { cb(null); return; }
-        cb(Array.isArray(parsed) ? parsed : null);
+        if (err) { lastProblem = problemOf(err); cb(null); return; }
+        cb(parseAnswer(out));
       });
-  } catch { cb(null); }
+  } catch (err) { lastProblem = problemOf(err); cb(null); }
 }
 
 /* How long an answer is served as it stands, and how long past that it is still
@@ -153,7 +183,10 @@ function makeCachedRun(opts) {
   const now = typeof o.now === 'function' ? o.now : Date.now;
   const freshMs = Number.isFinite(o.freshMs) ? o.freshMs : FRESH_MS;
   const staleMs = Number.isFinite(o.staleMs) ? o.staleMs : STALE_MS;
-  let cache = null;       // { at, value }
+  /* #5949: why a read failed, asked right after it answered null (default: the readers' own). */
+  const problem = typeof o.problem === 'function' ? o.problem : readProblem;
+  const whyOf = (value) => { if (Array.isArray(value)) return null; try { return problem() || null; } catch { return null; } };
+  let cache = null;       // { at, value, why }
   let inFlight = false;
   function cachedRun() {
     const t = now();
@@ -167,23 +200,29 @@ function makeCachedRun(opts) {
           runAsync((value) => {
             inFlight = false;
             // A synchronous read that landed while this one ran is newer; keep it.
-            if (!cache || cache.at <= started) cache = { at: now(), value: Array.isArray(value) ? value : null };
+            if (!cache || cache.at <= started) cache = { at: now(), value: Array.isArray(value) ? value : null, why: whyOf(value) };
           });
         } catch { inFlight = false; }
       }
       return cache.value;
     }
     const value = run();
-    cache = { at: now(), value: Array.isArray(value) ? value : null };
+    cache = { at: now(), value: Array.isArray(value) ? value : null, why: whyOf(value) };
     return cache.value;
   }
   cachedRun.forget = () => { cache = null; };
+  /** #5949: why the answer being served is null, or null when it is a list (or nothing was read yet). */
+  cachedRun.problem = () => (cache && cache.value === null ? cache.why : null);
   return cachedRun;
 }
 
 /* The one shared reader the board's roster and live-state sources use, so a
    request that asks both pays for one read, not two. */
 const cachedRun = makeCachedRun();
+
+/* #5949: how long after its last good read the roster keeps showing the Claude agents it saw
+   then, when a read fails. See `make`. */
+const HOLD_MS = 15000;
 
 /**
  * Build the paneSource function to hand to `status.setPaneSource` on win32.
@@ -202,8 +241,31 @@ function make(opts) {
   const record = opts && opts.record ? opts.record : win32sessions;
   /* #3380: the codex live source, injectable for tests. */
   const codexLive = opts && typeof opts.codexLive === 'function' ? opts.codexLive : win32codexlive.liveSessions;
+  const now = opts && typeof opts.now === 'function' ? opts.now : Date.now;
+  const holdMs = opts && Number.isFinite(opts.holdMs) ? opts.holdMs : HOLD_MS;
+  /* 🛑 #5949: ONE FAILED READ USED TO TAKE EVERY CLAUDE CARD OFF THE BOARD AT ONCE. A null
+     here makes `listPanes` refuse, so the whole board said "we cannot read the agents" for a
+     read that fails now and then while every agent is fine (and with a codex agent up, every
+     Claude card vanished instead). So the Claude list from the last GOOD read is kept for a
+     short while and used when a read fails. Each card's state is held, marked as remembered,
+     by the capture (win32capture), so nothing on the board claims a fresh look.
+     ⚠️ THE KIND OF STALENESS THE BOARD ALREADY ACCEPTS, A LITTLE LONGER: the shared cachedRun
+     serves a list up to STALE_MS (30 s) old while it refreshes, and nothing acts on this list
+     without checking again (see makeCachedRun). `lastGood.at` is when the roster LOOKED, not
+     when that list was read, so the hold can stretch a stale-served list by up to `holdMs` more.
+     Past `holdMs` without one good read, the null goes through exactly as before: a failure that
+     lasts is said as one. */
+  let lastGood = null;   // { at, agents }
+  function readClaude() {
+    const got = run();
+    let t;
+    try { t = now(); } catch { t = NaN; }
+    if (Array.isArray(got)) { if (Number.isFinite(t)) lastGood = { at: t, agents: got }; return got; }
+    if (lastGood && Number.isFinite(t) && t - lastGood.at >= 0 && t - lastGood.at < holdMs) return lastGood.agents;
+    return got;
+  }
   return function win32PaneSource() {
-    const agents = run();
+    const agents = readClaude();
     /* #3380: the codex live source is INDEPENDENT of `claude agents --json` -- it
        reads the ownership record and the codex supervisors' presence, never claude
        -- so it is asked whether or not the claude read succeeded. */
@@ -277,4 +339,4 @@ function win32RowValue(name, runner) {
 }
 const WIN32_ROW_KEYS = Object.keys(win32RowValue('', ''));
 
-module.exports = { WIN32_ROW_KEYS, make, defaultRun, defaultRunAsync, makeCachedRun, cachedRun, FRESH_MS, STALE_MS, WIN32_COMMAND, isWin32Pane, flat };
+module.exports = { WIN32_ROW_KEYS, make, defaultRun, defaultRunAsync, makeCachedRun, cachedRun, FRESH_MS, STALE_MS, HOLD_MS, WIN32_COMMAND, isWin32Pane, flat, problemOf };

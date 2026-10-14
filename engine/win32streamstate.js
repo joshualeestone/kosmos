@@ -305,4 +305,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { lineReader, parseEvent, publisher, stateFor, liveIdentity };
+module.exports = { BUSY, IDLE, lineReader, parseEvent, publisher, stateFor, liveIdentity };
