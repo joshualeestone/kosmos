@@ -29,7 +29,7 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 102 ok. Sixty-nine mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 105 ok. Seventy-two mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
@@ -47,7 +47,11 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   then FileVault matched by glob, no Command Line Tools check, an allow list read as a grep option, the old Listener
   taken for a new one, an unchecked guard reported clear, the owner note printed twice; then register without a
   wired guard; then an allow list matching every label, allowed jobs not named, register's hook-file refusal; then
-  a probe string a narrow allow list could match, an 'export PATH' line kept by the .env merge).
+  a probe string a narrow allow list could match, an 'export PATH' line kept by the .env merge; then no
+  manageruid check, a partial download kept, register without a Listener wait).
+- install and register --apply also require `launchctl manageruid` to be the caller's uid: `sudo -iu` or `su` from
+  the owner's GUI reads Aqua but acts on the owner's session. manageruid measured on Agent1s (501 = id -u); its value
+  under sudo -iu is reasoned, not measured.
 - register --apply refuses unless .env wires both hooks exactly once and every hook file is executable: a runner
   must never go online on a public repo without its guard.
 - verify exits 3, not 0, when it could not make a check (a home it cannot read): whether the job guard is wired is

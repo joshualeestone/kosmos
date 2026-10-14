@@ -24,6 +24,7 @@ case "$me" in
   launchctl)   # `launchctl print gui/<uid>`, in the shape measured on Agent1s 2026-10-14
     [ "${FX_LAUNCHCTL_FAIL:-0}" = 1 ] && exit 1
     [ "$1" = managername ] && { echo "${FX_MANAGER:-Aqua}"; exit 0; }
+    [ "$1" = manageruid ] && { echo "${FX_MANAGERUID:-777}"; exit 0; }
     [ "$1 ${2%%/*}" = "print gui" ] || exit 1
     printf 'gui/501 = {\n\ttype = login\n\tservices = {\n'
     printf '\t\t     %s      - \t%s\n' 874 com.apple.Finder 471 application.com.apple.Terminal.1234.5678 612 com.openssh.ssh-agent
@@ -69,7 +70,9 @@ case "$me" in
     for a in "$@"; do [ "$prev" = -o ] && out="$a"; case "$a" in -*O*) big=1 ;; esac; prev="$a"; done
     url="${*: -1}"
     if [ -n "$out" ]; then printf '%s' "${FX_GUARD_BODY:-guard}" > "$out"
-    elif [ "$big" = 1 ]; then printf 'runner-package' > "$(basename "$url")"
+    elif [ "$big" = 1 ]; then
+      if [ "${FX_DL_PARTIAL:-0}" = 1 ]; then printf 'runner-pa' > "$(basename "$url")"; exit 18; fi
+      printf 'runner-package' > "$(basename "$url")"
     else case "$url" in
       */compare/*) printf '{\n  "status": "%s",\n' "${FX_COMPARE:-ahead}" ;;
       */releases/latest) printf '{"tag_name": "v2.999.0", "body": "<!-- BEGIN SHA osx-arm64 -->%s<!-- END SHA osx-arm64 -->"}' "${FX_RELEASE_SHA:-$(printf 'runner-package' | shasum -a 256 | cut -d' ' -f1)}" ;;
@@ -137,7 +140,7 @@ refuse launchctl-unreadable "could not read launchctl print gui/" FX_LAUNCHCTL_F
 refuse tmux35a "is 3.5a" "FX_TMUX_V=tmux 3.5a"
 refuse admin "kosmos-ci is an admin" FX_CI_EXISTS=1 "FX_GROUPS=staff admin"
 refuse shards "KOSMOS_CI_SHELL_SHARDS is '1/2'" FX_SHARDS=1/2
-refuse shards-pair "routes shell shard(s) 1/2 2/2" FX_SHARDS=1/2,2/2
+refuse shards-pair "would route shell shard(s) 1/2 2/2" FX_SHARDS=1/2,2/2
 refuse gh "could not read the repo variables" FX_GH_FAIL=1
 refuse gh-not-404 "could not read the repo variables" FX_GH_500=1
 refuse gh-404-unseen "could not read the repo variables" FX_VARLIST_FAIL=1
@@ -307,11 +310,17 @@ run in-ssh "$R9" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R9" FX_MANAGER=Background -- 
 [ "$(rc in-ssh)" = 2 ] && has in-ssh "Screen Sharing session" && ! changed in-ssh >/dev/null && pass "install --apply refuses outside the GUI session (svc.sh would misread)" || fail "install over ssh: rc $(rc in-ssh)"
 R10="$T/run10"; svc_home "$R10"
 run in-nolistener "$R10" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R10" FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply install "$C" "$G"
-[ "$(rc in-nolistener)" = 1 ] && has in-nolistener "no Runner.Listener is running" && ! has in-nolistener "runner started again" \
+[ "$(rc in-nolistener)" = 1 ] && has in-nolistener "no new Runner.Listener is running" && ! has in-nolistener "runner started again" \
   && pass "install --apply fails when the runner loads but no Listener comes up" || fail "install no listener: rc $(rc in-nolistener): $(tail -1 "$T/in-nolistener.out")"
 R11="$T/run11"; svc_home "$R11"; echo 5000 > "$R11/actions-runner/.svc-pid"
 run in-oldlistener "$R11" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R11" FX_SAME_PID=1 KOSMOS_CI_START_WAIT_S=1 -- --apply install "$C" "$G"
-[ "$(rc in-oldlistener)" = 1 ] && has in-oldlistener "no Runner.Listener is running" && pass "install --apply does not take the old Listener for a restarted one" || fail "install old listener: rc $(rc in-oldlistener): $(tail -1 "$T/in-oldlistener.out")"
+[ "$(rc in-oldlistener)" = 1 ] && has in-oldlistener "no new Runner.Listener is running" && pass "install --apply does not take the old Listener for a restarted one" || fail "install old listener: rc $(rc in-oldlistener): $(tail -1 "$T/in-oldlistener.out")"
+R12="$T/run12"; svc_home "$R12"
+run in-sudo-iu "$R12" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R12" FX_MANAGERUID=501 -- --apply install "$C" "$G"
+[ "$(rc in-sudo-iu)" = 2 ] && has in-sudo-iu "belongs to another user" && ! changed in-sudo-iu >/dev/null && pass "install --apply refuses inside another user's GUI session (sudo -iu)" || fail "install sudo -iu: rc $(rc in-sudo-iu)"
+R13="$T/run13"; svc_home "$R13"
+run in-partial "$R13" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R13" FX_DL_PARTIAL=1 -- --apply install "$C" "$G"
+[ "$(rc in-partial)" = 1 ] && [ ! -e "$R13/actions-runner/actions-runner-osx-arm64-2.999.0.tar.gz" ] && pass "install --apply removes a partly downloaded package" || fail "install partial download: rc $(rc in-partial), left: $(ls "$R13/actions-runner" | tr '\n' ' ')"
 R4="$T/run4"; mkdir -p "$R4/actions-runner"; printf 'RUNNER_KEEP=1\n' > "$R4/actions-runner/.env"; chmod 000 "$R4/actions-runner/.env"
 run in-unread "$R4" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R4" -- --apply install "$C" "$G"
 chmod 600 "$R4/actions-runner/.env"
@@ -334,6 +343,9 @@ if [ "$(rc rg-apply)" = 0 ] && grep -qx 'token-in-env=tok-SECRET-123' "$T/rg-app
    && [ "$(cat "$CH/actions-runner/.path")" = "/usr/bin:/bin:/usr/sbin:/sbin:$BREWD/bin:/usr/local/bin:$CH/.local/bin" ] \
    && grep -qx "PATH=$(cat "$CH/actions-runner/.path")" "$CH/actions-runner/.env"; then pass "CONTROL: register --apply passes the token in the environment, never in argv, and makes .path the PATH .env sets"
 else fail "register --apply: rc $(rc rg-apply), calls: $(cat "$T/rg-apply.calls")"; fi
+echo stopped > "$CH/actions-runner/.svc-state"
+STDIN_FILE="$T/token" run rg-nolistener "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply register
+[ "$(rc rg-nolistener)" = 1 ] && has rg-nolistener "no new Runner.Listener is running" && pass "register --apply fails when no Listener comes up" || fail "register no listener: rc $(rc rg-nolistener): $(tail -1 "$T/rg-nolistener.out")"
 run rg-none "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
 run rg-sudo "$CH" FX_WHO=kosmos-ci -- --apply register
 [ "$(rc rg-sudo)" = 2 ] && has rg-sudo "not /Users/kosmos-ci" && ! grep -q '^config\.sh' "$T/rg-sudo.calls" && pass "register --apply refuses when HOME is not kosmos-ci's (sudo -u keeps HOME)" || fail "register HOME check: rc $(rc rg-sudo)"
