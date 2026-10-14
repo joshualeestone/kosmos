@@ -39350,8 +39350,9 @@ const DM_CHOICE_ANSWERED_MS = 6000;
 /* #6172: a lasting choice ("Yes, and don't ask again for ...", auto mode, accept edits) is sent on its second press; the
    first only arms it, here, so a repaint keeps it armed. Disarmed by time, by another question, or by the send. */
 let DM_CHOICE_ARMED = null;   // { session, asked, gen, n, at }
-const DM_CHOICE_ARM_MS = 15000;
-/* Review 1: a second press sooner than this after arming is the same gesture (a double-click, a double-tap), not a confirm. */
+let DM_CHOICE_ARM_MS = 15000;   // let: the browser check shortens it
+/* Review 1: a second press sooner than this after arming is the same gesture (a double-click, a double-tap), not a confirm,
+   so it does nothing and the choice stays armed. */
 const DM_CHOICE_ARM_MIN_MS = 600;
 const dmChoiceArmed = (c, n) => Boolean(DM_CHOICE_ARMED && c && DM_CHOICE_ARMED.session === c.session && DM_CHOICE_ARMED.asked === c.asked
   && DM_CHOICE_ARMED.gen === c.gen && DM_CHOICE_ARMED.n === n && Date.now() - DM_CHOICE_ARMED.at < DM_CHOICE_ARM_MS);
@@ -39424,7 +39425,16 @@ async function dmChoicePress(btn) {
   /* #6172: a lasting choice's first press only arms it; the second, on the same button for the same question, sends it. */
   if (opt.lasting === true && dmChoiceArmed(c, opt.n) && Date.now() - DM_CHOICE_ARMED.at < DM_CHOICE_ARM_MIN_MS) return;
   if (opt.lasting === true && !dmChoiceArmed(c, opt.n)) {
-    DM_CHOICE_ARMED = { session: c.session, asked: c.asked, gen: c.gen, n: opt.n, at: Date.now() };
+    const armed = { session: c.session, asked: c.asked, gen: c.gen, n: opt.n, at: Date.now() };
+    DM_CHOICE_ARMED = armed;
+    /* Review 2: when the window ends the screen stops saying armed, so a press after it is not a surprise re-arm. */
+    setTimeout(() => {
+      if (DM_CHOICE_ARMED !== armed) return;
+      DM_CHOICE_ARMED = null;
+      // What is on screen now: a repaint since the press drew new nodes.
+      document.querySelectorAll('#d-dmthread .dmchoice.armed').forEach((b) => { b.classList.remove('armed'); b.removeAttribute('aria-describedby'); });
+      document.querySelectorAll('#d-dmthread .dmchoices-msg').forEach((m) => { if (m.textContent === DM_CHOICE_ARM_NOTE) m.textContent = ''; });
+    }, DM_CHOICE_ARM_MS);
     if (box) box.querySelectorAll('.dmchoice').forEach((b) => {
       b.classList.toggle('armed', b === btn);
       if (b === btn && msg && msg.id) b.setAttribute('aria-describedby', msg.id); else b.removeAttribute('aria-describedby');
