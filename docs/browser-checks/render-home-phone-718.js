@@ -185,6 +185,10 @@ function emptySpot(page, sel) {
           const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, isMobile: engine === 'chromium' });
           const page = await ctx.newPage();
           await home(page, URL, 'grid');
+          // Precondition: the engine reports a touch screen. If it does not (WebKit without mobile emulation may not),
+          // the tablet layout cannot apply here, and this says so instead of reading as a product failure.
+          const touch = await page.evaluate(() => matchMedia('(hover: none) and (pointer: coarse)').matches);
+          if (!touch) { chk(false, `${tag} harness: this engine does not report a touch screen here, so the tablet arm cannot run`, 'matchMedia((hover: none) and (pointer: coarse)) is false'); await ctx.close(); continue; }
           const card = await page.evaluate(() => {
             const cards = [...document.querySelectorAll('#grid .acard:not(.notrunning)')];
             const lefts = new Set(cards.map((c) => Math.round(c.getBoundingClientRect().left)));
