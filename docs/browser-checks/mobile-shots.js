@@ -108,7 +108,8 @@ const SIZES = {
   ipad13: { width: 1024, height: 1366, dpr: 2, label: 'iPad Pro 13-inch', tablet: true },
   /* The landscape sizes (tab8land, ipadminiland, ipad11land) are touch screens held sideways at 960px+, so the board
      opens there on the one-screen view (#6107), as a real tablet does: a screen whose go waits on the tabbed board
-     (#boardbar, the Agents tab panel) shoots that view or times out at those sizes. They are opt-in, not in the sweep. */
+     (#boardbar, the Agents tab panel) shoots that view or times out at those sizes; MSHOTS_TABLET_LAYOUT=tabs shoots the
+     tabbed board there instead. They are opt-in, not in the sweep. */
   // claude-setup#100 (/design-shots): a computer screen, so one sanctioned run shoots a change at
   // desktop and phone. No touch and no mobile viewport, and the tap and field-font audits (phone
   // rules) are skipped for it. Not in the default sweep.
@@ -2283,6 +2284,11 @@ async function run() {
                 // A page.route stub needs the service worker off in WebKit (see allow-card).
                 ...(sc.noServiceWorker || DATA.connected ? { serviceWorkers: 'block' } : {}),
               });
+              /* #6107: MSHOTS_TABLET_LAYOUT=tabs (or consolidated) sets a sideways tablet's own layout choice before the
+                 page loads, so the tabbed board can be shot on a landscape iPad too (its default is one screen). */
+              if (process.env.MSHOTS_TABLET_LAYOUT) {
+                await ctx.addInitScript((v) => { try { localStorage.setItem('kosmos-tablet-layout', v); } catch { /* storage refused */ } }, process.env.MSHOTS_TABLET_LAYOUT);
+              }
               /* --remote (kosmos#5510): every request to the made-up Kosmos+ host is answered by the throwaway board
                  itself, so the page's own address is not loopback (kplusRemote() true -> html.kremote) while every
                  byte still comes from this board. Registered FIRST so the stubs below, registered after it, win

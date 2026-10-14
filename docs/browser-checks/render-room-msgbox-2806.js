@@ -1808,6 +1808,7 @@ function tapProbe4663(skip) {
       // 15 fields render at 1180 (measured, both engines; others sit in views hidden at that width).
       chk(!tablet.error && tablet.hoverNone && tablet.fields >= 12 && tablet.at16 === tablet.fields && tablet.outside.length === 0,
         `[tablet 1180/touch] at 16px every field stays inside its nearest container, one view at a time`, JSON.stringify(tablet));
+      chk((await tabletPage.evaluate(() => document.documentElement.getAttribute('data-layout') || 'tabs')) === 'tabs', '[tablet 1180/touch] precondition: the tablet chose tabs (#6107), so the TAB arms below measure the tab layout');
       // #4663 on a touchscreen tablet in the TAB layout (the static page's own layout at 1180).
       const ttaps = await tabletPage.evaluate(tapProbe4663);
       chk(ttaps.out.length === 6 && ttaps.out.every((x) => !x.error && x.reach), `[tablet 1180/touch tabs] #4663: all six small project controls take a tap across at least 36px`, JSON.stringify(ttaps.out));

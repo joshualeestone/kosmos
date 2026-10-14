@@ -12488,8 +12488,9 @@ window.kosmosMeasureScrollbarWidth();
           </div>
         </div>
         <!-- #2154: the board-view toggle. One press flips the whole board between the
-             tabbed view and the consolidated "one screen" view, over the SAME mechanism
-             the Settings tiles use (applyLayout + PUT /api/style) -- not a second store.
+             tabbed view and the consolidated "one screen" view, through applyLayout and
+             PUT /api/style (the board's one layout setting), EXCEPT on a touch tablet held
+             sideways, where #6107 keeps the choice on that tablet and sends no PUT.
              Shown only at >= 960px, the floor at which the consolidated view is offered;
              the CSS carries that gate (on .laypick) so no dead affordance appears on a
              narrow window, here inside the menu exactly as it did in the header. -->
@@ -48243,7 +48244,7 @@ function applyLayout(layout, apply) {
   placeProjectHead();
   // #980: the "Search" placeholder swap lives in showTab's consolidated
   // toggle (the one place that knows the EFFECTIVE view, resize included),
-  // not here -- this function only knows the saved preference.
+  // not here -- this function only knows the chosen layout (the board's, or a sideways tablet's own, #6107).
   if (was !== want && typeof URL_TAB === 'string') showTab(URL_TAB);
   /* #2929: switching INTO or OUT of the consolidated rail changes whether the
      project tree folds, so re-sync the fold state onto the rows -- add/drop
