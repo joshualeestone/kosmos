@@ -398,7 +398,8 @@ test('#6174 an agent whose move came back partial while the same session runs is
   const by = claudeAgentsByAccount();
   assert.ok(by.on(newAcct, false).includes('mv-still-old'), 'listed by its launch file (the account it was moved to)');
   assert.deepEqual(by.moving(newAcct, false, deps), ['mv-still-old'], 'only the agent whose old session still runs is marked');
-  assert.ok('mv-restarted' in accountmoving.notes(), 'a read cleared a note (only the move route clears; review 4)');
+  assert.ok(!('mv-restarted' in accountmoving.notes()), 'a note whose session is readably another was not pruned');
+  assert.ok('mv-stopped' in accountmoving.notes(), 'a note with no readable session was pruned (only a readable other session may be)');
   assert.deepEqual(by.moving(oldAcct, false, deps), [], 'an agent moved back to the account it still runs on was marked');
   // An agent that ran on the default account (from: null), moved to a named one: marked there, not on the default row.
   lead('mv-from-default', { role: 'writer' }, newAcct);
@@ -446,12 +447,9 @@ test('#6174 restartForMove reads the start BEFORE the restart, notes only a PART
   const n = accountmoving.notes();
   assert.deepEqual(n['rf-same'], { started: 1000e3, from: '/acct/a' }, 'a partial move with the same session running was not noted');
   for (const k of ['rf-new', 'rf-gone', 'rf-refused', 'rf-unread']) assert.ok(!(k in n), k + ' was noted');
-  // Review 5: the old launch job was held (the window closed, the old job runs on in a session it started): the
-  // session running right after is noted; with no session yet, nothing is.
+  // A held old launch job is not marked, by decision: the session after cannot be told from a real relaunch.
   run('rf-held', remove.OUTCOME.PARTIAL, 1000e3, 2000e3, '/acct/a', true);
-  assert.deepEqual(accountmoving.notes()['rf-held'], { started: 2000e3, from: '/acct/a' }, 'a held old job was not noted');
-  run('rf-held-none', remove.OUTCOME.PARTIAL, 1000e3, null, '/acct/a', true);
-  assert.ok(!('rf-held-none' in accountmoving.notes()), 'a held job with no session yet was noted');
+  assert.ok(!('rf-held' in accountmoving.notes()), 'a held old job was noted (a relaunch onto the new account would be marked)');
   // Moved again while the same session still runs: the account it runs on is still the first one.
   run('rf-same', remove.OUTCOME.PARTIAL, 1000e3, 1000e3, '/acct/b');
   assert.equal(accountmoving.notes()['rf-same'].from, '/acct/a', 'a second partial move replaced the account it still runs on');
@@ -460,7 +458,7 @@ test('#6174 restartForMove reads the start BEFORE the restart, notes only a PART
   assert.ok(!('rf-same' in accountmoving.notes()), 'a full restart left the note');
 });
 
-test('#6174 accountmoving: a failed reading marks nobody and keeps the note; another session is not moving and keeps it too', () => {
+test('#6174 accountmoving: a failed reading marks nobody and keeps the note; isMoving is read-only; clearIf drops only that note', () => {
   const accountmoving = require('./engine/accountmoving');
   assert.equal(accountmoving.note('', 1), false);
   assert.equal(accountmoving.note('x-6174', NaN), false);
@@ -470,7 +468,13 @@ test('#6174 accountmoving: a failed reading marks nobody and keeps the note; ano
   assert.equal(accountmoving.isMoving('x-6174', () => { throw new Error('boom'); }), false);
   assert.equal(accountmoving.isMoving('x-6174', () => 5000), true, 'the same session is moving');
   assert.equal(accountmoving.isMoving('x-6174', () => 6000), false, 'another session is not');
-  assert.ok('x-6174' in accountmoving.notes(), 'a read cleared the note (only the move route clears)');
+  assert.ok('x-6174' in accountmoving.notes(), 'isMoving cleared the note (it is read-only)');
+  // clearIf drops only that very note: a newer note for the name (another start) is kept.
+  accountmoving.note('x-6174', 7000);
+  assert.equal(accountmoving.clearIf('x-6174', 5000), false);
+  assert.ok('x-6174' in accountmoving.notes(), 'clearIf dropped a note for another session');
+  assert.equal(accountmoving.clearIf('x-6174', 7000), true);
+  assert.ok(!('x-6174' in accountmoving.notes()), 'clearIf kept the note it was asked to drop');
   assert.equal(accountmoving.isMoving('never-6174', () => 1), false, 'an agent with no note was marked');
 });
 
