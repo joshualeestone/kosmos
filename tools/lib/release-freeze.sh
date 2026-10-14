@@ -28,31 +28,31 @@
 #   release_bundle_expected_files <tree>           prints that set, one per line
 
 # 🔑 WHAT THE FREEZE MEANS, SAID FOR THE FLEET RATHER THAN FOR THE CUTTER
-# (kosmos#1369). This used to be an inline echo reading "a pull into <repo> from
-# now on changes nothing below". True, and useless to the person who needs it:
-# it is about the CUTTER'S tree, and the people it should reach are colleagues
-# deciding whether to merge.
+# (kosmos#1369). The cutter's own tree is safe from here, but the people this
+# line reaches are colleagues deciding whether to merge, so it speaks to them.
 #
-# 🛑 THE COST WAS MEASURED, NOT IMAGINED. On 2026-08-28 a merge freeze was
-# announced that does not exist and retracted four minutes later; the retraction
-# arrived truncated. Five PRs sat for an hour, the oldest with nothing blocking
-# it, and it was the answer to the operator asking why he was seeing no updates.
-# The rule "wait for no cut" had silently inverted into "never merge" the moment
-# cuts began running back to back, and nothing announced the change.
+# 🛑 #6130: IT USED TO SAY "MERGING TO MAIN IS SAFE FROM NOW ON", AND THAT IS
+# TRUE ONLY FOR A CUT THAT FINISHES FIRST TIME. A cut that aborts and is redone
+# freezes CURRENT main, so anything merged in between rides the re-cut untested:
+# 0.7.19 took a third cut when #5063 rode one. The team therefore holds merges
+# until the cut's version serves on its channel (docs/releasing.md, "call a merge
+# freeze for its duration"). On 2026-10-13 an agent read this banner, told the
+# PM no hold was needed, and had to be corrected: a prose rule loses to a tool
+# that prints the opposite, so the tool now prints the rule.
 #
-# ⭐ THE FIX IS NOT A LOCK, AND THAT IS THE WHOLE POINT. A cut-in-progress flag
-# or a merge lock would make the wrong belief TRUE, and then nobody would ever
-# question it again because the tool would be enforcing it. Merges are always
-# safe. The fix is to say so where somebody deciding can see it.
+# ⚠️ #1369's lesson still stands, and it is why the hold has an END: a hold with
+# no stated end silently became "never merge" on 2026-08-28. This names the
+# version, and the hold lifts when that version serves.
 #
 # It is a function rather than an echo so it can be asserted on: the message IS
 # the deliverable here, and an inline echo is not something a test can hold.
 release_freeze_notice() {
-  local sha="$1" build="$2"
-  [ -n "$sha" ] && [ -n "$build" ] || { echo "release_freeze_notice: sha and build are required" >&2; return 1; }
+  local sha="$1" build="$2" version="$3" channel="$4"
+  [ -n "$sha" ] && [ -n "$build" ] && [ -n "$version" ] && [ -n "$channel" ] || { echo "release_freeze_notice: sha, build, version and channel are required" >&2; return 1; }
   printf '   frozen at %s, building in %s\n' "${sha:0:12}" "$build"
-  printf '   MERGING TO MAIN IS SAFE FROM NOW ON: this cut has left main, and nothing merged\n'
-  printf '   after this line can reach it, help it or break it. There is no merge freeze.\n'
+  printf '   Merges after this line are NOT in %s. HOLD MERGES TO MAIN until %s serves on\n' "$version" "$version"
+  printf '   %s: if this cut is redone, the re-cut freezes CURRENT main, and anything\n' "$channel"
+  printf '   merged in between rides along untested (#6130).\n'
 }
 
 release_freeze() {
