@@ -130,13 +130,16 @@ function openTasks(tasks) {
 const REPORTS_WORKING = new Set(['claude', 'gemini', 'grok', 'antigravity', 'muse']);
 // #5635 F2 (0.7.48): runners whose only reports are turn ends (idle), so their work can be counted in turns, not timed.
 const REPORTS_TURN_ENDS = new Set(['codex']);
+const TURN_END_SAME_MS = 2 * 60000;   // idle reports this close together are the same turn ending
 function idleExcused(summary, member, readReport, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied || member.state !== 'idle') return summary;
   /* Review 4/5: only a runner known to REPORT working too, so a newer working report always replaces an old idle. Codex
      reports idle and nothing else (bin/codex-report-bridge.js), and a paneless member (Windows, remote) carries no
      runner at all; for either, an older idle after an unfinished turn would hide hours of unsummarised work. An
-     allowlist, so a runner added later is not excused until someone checks its bridge. */
+     allowlist, so a runner added later is not excused until someone checks its bridge.
+     NOTE: workExcused (#5635 F2, 0.7.48) does excuse codex by counting turn ends, accepting that cost on Josh's ask;
+     this function stays strict because it says "idle since", which a running turn would make false. */
   if (!REPORTS_WORKING.has(member.runner)) return summary;
   let rep = null;
   try { rep = readReport(member.sessionName); } catch { rep = null; }
@@ -259,7 +262,16 @@ function workExcused(summary, member, readHistory, nowMs) {
   const valid = kept.map((r, i) => ({ r, i })).sort((a, b) => (a.r.at - b.r.at) || (a.i - b.i)).map((x) => x.r);
   const busy = (st) => st !== 'idle' && st !== 'started' && st !== 'stopped';
   if (!reportsWorking) {
-    const turnsEnded = valid.filter((r) => r.at > wroteAt && r.state === 'idle').length;
+    const after = valid.filter((r) => r.at > wroteAt);
+    // A busy report it filed itself (kosmos report working, needs_you, blocked) is reported work: left stale.
+    if (after.some((r) => busy(r.state))) return summary;
+    // Idle rows within TURN_END_SAME_MS of the one before are one turn end (an automatic idle and a manual one together).
+    let turnsEnded = 0; let lastIdle = -Infinity;
+    for (const r of after) {
+      if (r.state !== 'idle') continue;
+      if (r.at - lastIdle > TURN_END_SAME_MS) turnsEnded += 1;
+      lastIdle = r.at;
+    }
     return turnsEnded <= 1 ? { ...summary, state: 'worked', workMinutes: 0, turnsOnly: true } : summary;
   }
   let state = null;   // what the member was doing at wroteAt: its last report at or before it; none known reads as busy
