@@ -84,8 +84,10 @@ say() { printf '== %s\n' "$*"; }
 act() {
   if [ "$APPLY" = 1 ]; then "$@"; else printf 'WOULD:'; printf ' %q' "$@"; printf '\n'; fi
 }
-# put <path> <mode>: stdin becomes the file. Only used past a stage's dry-run return.
-put() { cat > "$1"; chmod "$2" "$1"; }
+# put <path> <mode>: stdin becomes the file, written beside it and renamed in, so a write that fails partway (a full
+# disk) leaves the old file whole rather than a truncated hook a restarted runner would run. Only used past a stage's
+# dry-run return.
+put() { cat > "$1.new" && chmod "$2" "$1.new" && mv -f "$1.new" "$1" || { rm -f "$1.new"; return 1; }; }
 # hook_body <cleanup|completed|started>: the text of each job hook, in one place, so install writes it and verify
 # can compare the installed file byte for byte (a job could rewrite a hook to skip the guard; see the header).
 hook_body() {
@@ -188,7 +190,7 @@ shards_check() {
 
 preflight() {
   [ "${1:-}" = --from-create ] || need_user "$OWNER"   # create-user has already said who it runs as
-  [ -z "${KOSMOS_CI_SYSTEM_AGENTS:-}${KOSMOS_CI_OWNER_HOME:-}" ] || echo "note:   a test seam is set (KOSMOS_CI_SYSTEM_AGENTS or KOSMOS_CI_OWNER_HOME): these checks are not this Mac's own"
+  [ -z "${KOSMOS_CI_SYSTEM_AGENTS:-}${KOSMOS_CI_OWNER_HOME:-}${KOSMOS_CI_BREW:-}" ] || echo "note:   a test seam is set (KOSMOS_CI_SYSTEM_AGENTS, KOSMOS_CI_OWNER_HOME or KOSMOS_CI_BREW): these checks are not this Mac's own"
   say "runbook part 3, step 0: the agents have left this Mac"
   # Explicit status checks throughout: create-user calls preflight inside `||`, where set -e is off, and a failed
   # read must refuse there too rather than read as empty.
@@ -272,7 +274,7 @@ preflight() {
   if [ -x "$BREW/bin/pwsh" ]; then ok "$BREW/bin/pwsh"
   else problem "no $BREW/bin/pwsh (as the owner of $BREW: brew install --cask powershell)"; fi
 
-  say "the owner's home (kosmos-ci is in group staff, so a group-readable home is readable by every CI job)"
+  say "the owner's home ($CI_USER is in group staff, so a group-readable home is readable by every CI job)"
   local om
   if ! om="$(stat -f %Lp "$OWNER_HOME" 2>/dev/null)"; then problem "could not read the mode of $OWNER_HOME"
   elif [ $(( 8#$om & 8#077 )) != 0 ]; then problem "$OWNER_HOME is mode $om: CI jobs could read it; as $OWNER: chmod 700 $OWNER_HOME"
@@ -355,6 +357,7 @@ install_runner() {
     echo "WOULD: merge into $RUNNER_DIR/.env: ACTIONS_RUNNER_HOOK_JOB_STARTED, ACTIONS_RUNNER_HOOK_JOB_COMPLETED, LANG, PATH (no KOSMOS_ key)"
     return 0
   fi
+  # The only change before the checks below: their two directories. "Nothing changed" in a refusal means nothing else.
   mkdir -p "$RUNNER_DIR" "$CI_DIR"; cd "$RUNNER_DIR"
   # Every download and read before the runner is touched, so a refusal never leaves it stopped; after the stop, an
   # EXIT trap starts it again on any failure.
@@ -483,12 +486,13 @@ register() {
 # A Listener other than <pid before> (the old one may still be shutting down) must appear, or this fails.
 # <pids before> may hold several (one per line): the old Listener can outlive the stop, so any pid not among them counts.
 wait_for_listener() {
-  local before="$1" now waited=0
+  local before="$1" now waited=0 limit="${KOSMOS_CI_START_WAIT_S:-30}"
+  case "$limit" in ''|*[!0-9]*) echo "FAILED: KOSMOS_CI_START_WAIT_S is '$limit', not a number of seconds" >&2; exit 1 ;; esac
   local prc
   while prc=0; now="$(pgrep -u "$(id -u)" -x Runner.Listener)" || prc=$?
         [ "$prc" -lt 2 ] || { echo "FAILED: could not list processes (pgrep exit $prc) to see whether the runner started" >&2; exit 1; }
         [ -z "$(printf '%s\n' "$now" | grep -v -x -F -e "${before:-none}" || true)" ]; do
-    [ "$waited" -lt "${KOSMOS_CI_START_WAIT_S:-30}" ] || { echo "FAILED: the runner was loaded but no new Runner.Listener is running after ${waited}s; see ~/Library/Logs/actions.runner.*/stderr.log" >&2; exit 1; }
+    [ "$waited" -lt "$limit" ] || { echo "FAILED: the runner was loaded but no new Runner.Listener is running after ${waited}s; see ~/Library/Logs/actions.runner.*/stderr.log" >&2; exit 1; }
     sleep 1; waited=$((waited + 1))
   done
 }
