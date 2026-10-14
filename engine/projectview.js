@@ -229,7 +229,11 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
 function workExcused(summary, member, readHistory, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied) return summary;
-  if (!REPORTS_WORKING.has(member.runner)) return summary;
+  const reportsWorking = REPORTS_WORKING.has(member.runner);
+  /* #5635 F2 (0.7.48 five-family report, Josh 2026-10-14): a runner that reports idle only (codex) has turn ends as its
+     only reports, so its work cannot be timed; it reads current while at most one turn has ended since the summary was
+     written (the turn that wrote it), and stays stale once a later turn has ended. An unknown runner is left as it was. */
+  if (!reportsWorking && member.runner !== 'codex') return summary;
   let rows = null;
   try { rows = readHistory(member.sessionName); } catch { rows = null; }
   if (!Array.isArray(rows)) return summary;
@@ -246,6 +250,10 @@ function workExcused(summary, member, readHistory, nowMs) {
   // Review 1: in time order (stable, so equal times keep file order); a clock stepped back must not shorten the work.
   const valid = kept.map((r, i) => ({ r, i })).sort((a, b) => (a.r.at - b.r.at) || (a.i - b.i)).map((x) => x.r);
   const busy = (st) => st !== 'idle' && st !== 'started' && st !== 'stopped';
+  if (!reportsWorking) {
+    const turnsEnded = valid.filter((r) => r.at > wroteAt && r.state === 'idle').length;
+    return turnsEnded <= 1 ? { ...summary, state: 'worked', workMinutes: 0, turnsOnly: true } : summary;
+  }
   let state = null;   // what the member was doing at wroteAt: its last report at or before it; none known reads as busy
   for (const r of valid) { if (r.at <= wroteAt) state = r.state; }
   let from = wroteAt;
@@ -256,10 +264,11 @@ function workExcused(summary, member, readHistory, nowMs) {
     state = r.state;
     from = r.at;
   }
-  /* Review 3: the board's own read wins over a reported idle (#1995), so a member it shows busy now is working since its
-     last report, whatever that report said. */
-  const busyNow = member.state !== 'idle';   // any read but idle (rate limited, unknown too): errs toward stale
-  if (state === null || busy(state) || busyNow) worked += now - from;
+  /* #5635 F2 (0.7.48 five-family report, Josh 2026-10-14: "a seat with no reported work since its last summary reads
+     current whatever its state at the moment of the check"): only REPORTED work counts. The time since the last report
+     is work only when that report says busy (or there is none); the board's read of the screen right now does not add
+     to it. This replaces review 3's rule that the board's busy read wins (#1995). */
+  if (state === null || busy(state)) worked += now - from;
   if (worked > SUMMARY_RHYTHM_HOURS * 3600000) return summary;
   // Review 5: rounded up, so any reported work reads as at least a minute, never as none.
   return { ...summary, state: 'worked', workMinutes: Math.max(0, Math.ceil(worked / 60000)) };
