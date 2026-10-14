@@ -45,6 +45,17 @@ fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
 fs.mkdirSync(create.workerDir('codexsub'), { recursive: true });
 fs.writeFileSync(jobfix.jobPath('codexsub'), jobfix.jobFor('codexsub', '/usr/bin/true', process.env.AGENT_WORKFORCE_TMUX_BIN, null, null, 'codex'), 'utf8');
 require('./engine/store').writeProfile('codexsub', { role: 'writer' });   // registered, so the board knows it when it is not running
+// A second ChatGPT sign-in, with its own agent, and an agent on the API-key account: each must reach only its own row.
+const CODEX_WORK = nodePath.join(HOME, '.codex-work');
+fs.mkdirSync(CODEX_WORK, { recursive: true });
+fs.writeFileSync(nodePath.join(CODEX_WORK, 'auth.json'), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: 'x.' + Buffer.from(JSON.stringify({ email: 'work@example.com' })).toString('base64url') + '.y' } }));
+for (const [name, dir] of [['codexwork', CODEX_WORK], ['codexkey', CODEX_KEY]]) {
+  fs.mkdirSync(create.workerDir(name), { recursive: true });
+  fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, '/usr/bin/true', process.env.AGENT_WORKFORCE_TMUX_BIN, null, dir, 'codex'), 'utf8');
+  require('./engine/store').writeProfile(name, { role: 'writer' });
+}
+// Each agent has been on its account for a while: its job was last written two hours ago (a move would rewrite it).
+for (const n of ['codexsub', 'codexwork', 'codexkey']) { const t = new Date(Date.now() - 2 * 3600e3); fs.utimesSync(jobfix.jobPath(n), t, t); }
 const codexruntime = require('./engine/codexruntime');
 const codexsigninlive = require('./engine/codexsigninlive');
 const openaiAccounts = require('./engine/openaiaccounts');
@@ -97,6 +108,31 @@ test('#6176 a report written only in an agent\'s private Codex home reaches its 
   assert.ok(sub && sub.limits, 'the private home was not read: ' + JSON.stringify(sub && sub.limits));
   assert.equal(sub.limits.windows[0].usedPct, 41);
   fs.rmSync(nodePath.join(priv, 'sessions'), { recursive: true, force: true });
+});
+
+test('#6176 each private home reaches only its own account: a named sign-in\'s agent, and none from the key account', async () => {
+  for (const d of [CODEX, CODEX_WORK]) fs.rmSync(nodePath.join(d, 'sessions'), { recursive: true, force: true });
+  const week = Math.floor(Date.now() / 1000) + 3 * 86400, at = new Date(Date.now() - 30e3).toISOString();
+  writeReport(codexruntime.forAgent('codexwork'), at, { used_percent: 17, window_minutes: 10080, resets_at: week }, null);
+  writeReport(codexruntime.forAgent('codexkey'), at, { used_percent: 93, window_minutes: 10080, resets_at: week }, null);
+  const all = await rows();
+  const work = all.find((a) => a.provider === 'openai' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(CODEX_WORK));
+  const sub = all.find((a) => a.provider === 'openai' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(CODEX));
+  assert.ok(work && work.limits, 'the named sign-in\'s agent did not reach its row: ' + JSON.stringify(work && work.limits));
+  assert.equal(work.limits.windows[0].usedPct, 17);
+  assert.ok(!sub.limits || sub.limits.windows[0].usedPct !== 93, 'the key account\'s agent leaked into the default sign-in');
+  assert.ok(!sub.limits || sub.limits.windows[0].usedPct !== 17, 'the named sign-in\'s agent leaked into the default sign-in');
+  for (const n of ['codexwork', 'codexkey']) fs.rmSync(nodePath.join(codexruntime.forAgent(n), 'sessions'), { recursive: true, force: true });
+});
+
+test('#6176 a moved agent: a report from before its job last changed does not count', async () => {
+  for (const d of [CODEX, CODEX_WORK]) fs.rmSync(nodePath.join(d, 'sessions'), { recursive: true, force: true });
+  const week = Math.floor(Date.now() / 1000) + 3 * 86400;
+  writeReport(codexruntime.forAgent('codexwork'), new Date(Date.now() - 3600e3).toISOString(), { used_percent: 66, window_minutes: 10080, resets_at: week }, null);
+  const job = jobfix.jobPath('codexwork'); fs.utimesSync(job, new Date(), new Date());   // the move rewrote the job just now
+  const work = (await rows()).find((a) => a.provider === 'openai' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(CODEX_WORK));
+  assert.equal(work.limits, null, 'the old account\'s report was shown on the new one');
+  fs.rmSync(nodePath.join(codexruntime.forAgent('codexwork'), 'sessions'), { recursive: true, force: true });
 });
 
 test('#6176 a ChatGPT row whose last report is over carries limits: null', async () => {

@@ -9,7 +9,9 @@
  * (measured 2026-10-14 on this computer, a ChatGPT sign-in on the prolite plan). Since #4592 a launched agent writes
  * its sessions into its own private Codex home (codexruntime.forAgent), not the account's, so the caller passes every
  * home that writes for the account: the account's own and each of its agents' private ones. Nothing here asks OpenAI
- * anything. Only the account's own limit bucket counts (limit_id "codex", or none).
+ * anything. Only the account's own limit bucket counts (limit_id "codex", or none). A private home is passed as
+ * { home, since }: an agent moved between accounts keeps its old account's sessions in the same home, so only reports
+ * written since its current job took effect (`since`, ms) count for the account it is on now.
  *
  * Read cheaply, and bounded: only the newest seven day folders are listed (sessions/YYYY/MM/DD), their files ranked by
  * when they were last WRITTEN (a long or resumed session keeps writing to a file named for when it started), and only
@@ -70,8 +72,8 @@ function numbered(dir) {
  *  at most FILES_MAX in total. */
 function recentFiles(homes) {
   const files = [];
-  for (const h of homes) for (const f of filesIn(h)) files.push(f);
-  return files.sort((a, b) => b.m - a.m).slice(0, FILES_MAX).map((x) => x.f);
+  for (const h of homes) for (const f of filesIn(h.home)) files.push({ ...f, since: h.since });
+  return files.sort((a, b) => b.m - a.m).slice(0, FILES_MAX);
 }
 function filesIn(home) {
   const root = path.join(home, 'sessions'), days = [], files = [];
@@ -115,14 +117,20 @@ function lastReport(file) {
  * resetsAt (ms) }], plan, at (ms) }`, or null when none carries one, or the latest names no window that is current.
  */
 function read(homes, now = Date.now()) {
-  const list = (Array.isArray(homes) ? homes : [homes]).filter((h) => typeof h === 'string' && h);
+  const seen = new Set(), list = [];
+  for (const h of (Array.isArray(homes) ? homes : [homes])) {
+    const home = typeof h === 'string' ? h : (h && typeof h.home === 'string' ? h.home : '');
+    if (!home || seen.has(home)) continue;
+    seen.add(home);
+    list.push({ home, since: h && Number.isFinite(h.since) ? h.since : -Infinity });
+  }
   if (!list.length) return null;
   let best = null;
   let found = 0;
   try {
-    for (const f of recentFiles([...new Set(list)])) {
+    for (const { f, since } of recentFiles(list)) {
       const r = lastReport(f);
-      if (!r) continue;
+      if (!r || r.at < since) continue;   // a report from before this agent's current account is not this account's
       if (!best || r.at > best.at) best = r;
       if (++found >= FILES_TRIED) break;   // three reports compared is enough; files with none do not count
     }

@@ -11170,8 +11170,12 @@ const server = http.createServer(async (req, res) => {
           let walked = false;   // built on the first ChatGPT row only: an API-key-only list never walks the agents
           const walk = () => { if (walked) return; walked = true; try {
             const runtime = require('./engine/codexruntime');
+            const jobFile = (n) => (process.platform === 'linux' ? require('./engine/linuxjob').unitPath(n) : create.plistPath(n));
             for (const { sessionName, home } of agentsByAccountWalk('codex').entries) {
-              const priv = runtime.forAgent(sessionName);
+              /* Only reports written since the agent's job last changed: a move between accounts rewrites the job, and the
+                 private home still holds the old account's sessions. A job whose time cannot be read is not filtered. */
+              let since = null; try { since = fs.statSync(jobFile(sessionName)).mtimeMs; } catch { since = null; }
+              const priv = { home: runtime.forAgent(sessionName), since };
               if (!home) { onDefault.push(priv); continue; }
               let key; try { key = path.resolve(home); } catch { continue; }
               if (!byDir.has(key)) byDir.set(key, []);

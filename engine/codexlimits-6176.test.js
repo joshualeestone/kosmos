@@ -161,6 +161,15 @@ test('a home lists at most LISTED_PER_HOME files, newest day folders first', () 
   assert.equal(codexlimits.read(h, NOW), null, 'twelve newer files fill the listing; the oldest folder is not listed');
 });
 
+test('a private home passed with `since` counts only reports written since then (an agent moved between accounts)', () => {
+  const priv = home();
+  writeRollout(priv, '14', '09-00-00', [tokenRow('2026-10-14T09:00:00Z', rl(win(88, 10080, NOW + 864e5), null))]);   // its old account's report
+  const movedAt = Date.parse('2026-10-14T10:00:00Z');
+  assert.equal(codexlimits.read([{ home: priv, since: movedAt }], NOW), null, 'a report from before the move is not this account\'s');
+  assert.equal(codexlimits.read([{ home: priv, since: Date.parse('2026-10-14T08:00:00Z') }], NOW).windows[0].usedPct, 88);
+  assert.equal(codexlimits.read([{ home: priv, since: null }], NOW).windows[0].usedPct, 88, 'an unknown time is not filtered');
+});
+
 test('a large file is read from its end', () => {
   const h = home();
   const filler = (JSON.stringify({ timestamp: '2026-10-14T09:00:00Z', type: 'response_item', payload: { text: 'x'.repeat(1000) } }) + '\n').repeat(600);   // about 600 KB

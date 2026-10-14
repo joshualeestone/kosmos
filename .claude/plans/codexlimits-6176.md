@@ -49,6 +49,10 @@ the default account). My first version read only the account folder and would ne
 - `render-accounts-openai.js` needs the runner's seeded board (sb4); run alone against an unseeded board it stops in
   the Add a provider flow, before any OpenAI row exists. It is measured in the full validation, on its own board.
 
+- Agents move between accounts (#2338) but keep one private home, so a private home's reports count only when written
+  after the agent's job file last changed (a move rewrites it). Where the job file's time cannot be read (no plist or
+  systemd unit, e.g. Windows), the home is not filtered: that keeps the reading, without the move protection.
+
 ## Weakest premise
 That `rate_limits` keeps this shape across Codex versions. A changed shape reads as no reading (validated, never a
 guess), so the failure mode is a missing meter, not a wrong one.
