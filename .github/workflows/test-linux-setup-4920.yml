@@ -232,8 +232,8 @@ jobs:
           test ! -f "$UNIT_FILE"
           # The enable link is what a failed disable leaves behind (the file is deleted either way).
           test ! -e "$HOME/.config/systemd/user/default.target.wants/kosmos-board.service"
-          # #6149: the uninstall removes the app too (the read-only one included).
-          test ! -e "$HOME/.local/share/kosmos/app"
+          # #6149: the uninstall removes the whole Kosmos folder, the read-only app included.
+          test ! -e "$HOME/.local/share/kosmos"
 
       - name: An update keeps an old unit's other processes alive (KillMode fix, measured both ways)
         # 0.7.27's shell-written unit has no KillMode=, so stopping it kills its whole cgroup, which on an in-app update
