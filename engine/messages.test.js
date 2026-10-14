@@ -441,6 +441,11 @@ test('#6065 N1: requestIn: the sentence at the room\'s own mention positions, el
   assert.equal(messages.requestIn(thanks, { namedAt: at(thanks, '@mara') }).sentence, 'Great work from @leo and @mara.');
   // A lone ? after a space is not a question ending a word.
   assert.equal(messages.requestIn('Is it ok ? yes. Fine.', {}), null);
+  // Mentioned only inside the head, with a question in the head and another later: the later question, neutrally labelled.
+  const headOnly = 'Ready @mara? ' + fill + 'Can someone check the dates?';
+  const hl = messages.spillLine(headOnly, '/f.md', { namedAt: at(headOnly, '@mara') });
+  assert.match(hl, / A question in it: "Can someone check the dates\?"$/, hl.slice(-200));
+  assert.doesNotMatch(hl, /Where it names you/, hl.slice(-200));
   assert.equal(messages.requestIn('No ask in here. Just news.', {}), null);
   // A request longer than REQUEST_MAX is cut at a whole word and says so.
   const longT = 'Intro. @mara ' + 'please read '.repeat(60) + 'now.';
@@ -475,13 +480,13 @@ test('#6065 N1: a room post still shortened carries the request to each member i
     // Mentioned by DISPLAY name: the roster lookup at delivery is what finds it.
     assert.ok(mara.includes('Where it names you: "Then: @Mara-Lisa, please confirm the Gemini delivery on your seat."'), mara.slice(-300));
     // leo is not asked and the post has no question: no request clause at all.
-    assert.doesNotMatch(leo, /Where it names you:|Its first question:/, leo.slice(-300));
+    assert.doesNotMatch(leo, /Where it names you:|A question in it:/, leo.slice(-300));
     // With a question and no mention of leo: leo's preview carries the first question.
     tmux.pastedMessages().length = 0;
     const q = messages.sendPost({ operator: true, project: 'henderson-lease', text: 'Briefing two. ' + long + 'Did everyone get the notes? The end.' }, board.agents, MEMBERS);
     assert.ok(q && q.id, JSON.stringify(q));
     const leo2 = tmux.pastedMessages().filter((l) => l.includes('Briefing two.')).find((l) => l.includes(path.join(require('./dmfiles').ownDir('leo', 'Inbox'))));
-    assert.ok(leo2 && leo2.includes('Its first question: "Did everyone get the notes?"'), String(leo2).slice(-300));
+    assert.ok(leo2 && leo2.includes('A question in it: "Did everyone get the notes?"'), String(leo2).slice(-300));
   });
 });
 
@@ -495,7 +500,7 @@ test('#6065 N1: a DM still shortened carries its first question (a DM is wholly 
     assert.equal(sent.state, chat.DELIVERY.PLACED);
     const typed = tmux.pastedMessages()[0];
     assert.match(typed, /long message, \d+ words; the full text is in your own folder at /, 'CONTROL: the DM was shortened');
-    assert.ok(typed.includes('Its first question: "Can you sign by Friday?"'), typed.slice(-300));
+    assert.ok(typed.includes('A question in it: "Can you sign by Friday?"'), typed.slice(-300));
   });
 });
 

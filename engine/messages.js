@@ -258,7 +258,8 @@ function spillHead(text) {
    shortened, its preview carries the request (Josh: "put the request in the preview"). That is the first sentence that
    names this member, at the positions mentionedMembers recorded (`namedAt`: exactly what the room read as a mention,
    so an ambiguous or unmatched @-word is never quoted as naming the member), labelled Where it names you rather than
-   as a request, since a mention can be a thank-you; else the first question (a ? after a word and before a space or
+   as a request, since a mention can be a thank-you; else the first question past the head (labelled A question in
+   it, since one in the head is skipped) (a ? after a word and before a space or
    the end, so not one partway through a link; a link ending in ? still counts). A sentence that ends inside the head is
    skipped for the next one (one the opening cut only started is not). Cut at a whole word to at most REQUEST_MAX
    characters plus an ellipsis. A sentence runs from the end of the one before (. ! ? then a space) to its own end;
@@ -320,7 +321,7 @@ function spillLine(text, file, opts = {}) {
   const headEnd = head.replace(/\s*\u2026$/, '').trimEnd().length;
   const req = requestIn(text, { ...opts, headEnd });
   return head + ' (long message, ' + words + (words === 1 ? ' word' : ' words') + '; the full text is in your own folder at ' + file + ')'
-    + (req ? (req.asked ? ' Where it names you: "' : ' Its first question: "') + req.sentence + '"' : '');
+    + (req ? (req.asked ? ' Where it names you: "' : ' A question in it: "') + req.sentence + '"' : '');
 }
 /* The ceiling past which a body is a document, not a message (spill
    relaxes chat's cap, never the idea of one). The log itself has no
