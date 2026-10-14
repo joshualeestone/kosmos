@@ -421,12 +421,13 @@ test('#5531 review 9: an unreadable local world id is an unclear answer, and a c
   const idFile = path.join(a, org.WORLD_ID_FILE);
   /* There, but unreadable (review 14 made a MISSING file mean stale; this one is not). #6113: chmod 000 does not stop
      a read on Windows, nor for root on Linux, so in those two cases the id file is swapped for a folder of the same
-     name, which readFileSync refuses (EISDIR) on every platform. Elsewhere the permission form this review wrote is
-     kept. */
+     name, which readFileSync is expected to refuse (EISDIR) on every platform (measured on a Mac only). Other tests
+     here skip under root; this one swaps instead, so the unreadable arm still runs there. Elsewhere the permission
+     form this review wrote is kept. */
   const asFolder = process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0);
   const kept = fs.readFileSync(idFile);
   const unreadable = () => { if (asFolder) { fs.rmSync(idFile); fs.mkdirSync(idFile); } else fs.chmodSync(idFile, 0o000); };
-  const readable = () => { if (asFolder) { fs.rmSync(idFile, { recursive: true, force: true }); fs.writeFileSync(idFile, kept); } else fs.chmodSync(idFile, 0o600); };
+  const readable = () => { if (asFolder) { fs.rmSync(idFile, { recursive: true, force: true }); fs.writeFileSync(idFile, kept, { mode: 0o600 }); } else fs.chmodSync(idFile, 0o600); };
   t.after(() => { try { readable(); } catch { /* removed with the sandbox */ } });
   unreadable();
   await org.refresh({ root: a, remote: { macRequest: async () => ({ ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: 'e'.repeat(32), thisComputer: true } } }) } });
