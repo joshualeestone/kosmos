@@ -201,6 +201,24 @@ else
   fail "no jq to run the script's jq programs (macOS ships /usr/bin/jq)"
 fi
 
+# shards_check is a second copy of test.yml's shard parse: run the REAL decide step body (as
+# test-ci-runner-route-5488.sh extracts it) on each value, and preflight must refuse exactly when it routes a shard.
+if command -v ruby >/dev/null 2>&1 && ruby -ryaml -e '
+    d = YAML.load_file(ARGV[0])["jobs"]["scope"]["steps"].find { |x| x["id"] == "decide" }
+    File.write(ARGV[1], d["run"])' "$HERE/../.github/workflows/test.yml" "$T/decide.sh" 2>/dev/null; then
+  for v in "1/2" "2/2" "1/2,2/2" "1/2 2/2" " 2/2 " "" "off" "all" "1/3" "2/2,," "*" "1/2x"; do
+    : > "$T/gh-out"; mkdir -p "$T/dcwd" "$T/drt"
+    (cd "$T/dcwd" && CI_SHELL_SHARDS="$v" CI_RUNNER=on EVENT_NAME=push HEAD_REPO="" THIS_REPO=o/k BASE_REF=x HEAD_SHA=x HEAD_REF=y \
+      RUNNER_TEMP="$T/drt" GITHUB_OUTPUT="$T/gh-out" PATH="/usr/bin:/bin" bash --noprofile --norc -eo pipefail "$T/decide.sh" >/dev/null 2>&1)
+    routed=no; grep -q -E '^shell[12]_runner=\[' "$T/gh-out" && routed=yes
+    run pf-shard-parity "$H" FX_SHARDS="$v" -- preflight
+    refused=no; has pf-shard-parity "could route shell shard" && refused=yes
+    [ "$routed" = "$refused" ] && pass "shards '$v': test.yml routes=$routed, preflight refuses=$refused" || fail "shards '$v': test.yml routes=$routed but preflight refuses=$refused"
+  done
+else
+  echo "skip shard parity: no ruby to parse test.yml (tools.shell-shard-4317.test.js skips the same way)"
+fi
+
 # --- create-user ------------------------------------------------------------------------------------------------
 before="$(snap "$H")"
 run cu-dry "$H" -- create-user
@@ -290,8 +308,9 @@ TMPD_REAL="$(cd "$HC/actions-runner/_work/_temp" && pwd -P)"
 : > "$HC/actions-runner/_work/_temp/payload"; : > "$HC/actions-runner/_work/keep"
 RUNNER_TEMP="/somewhere/else" "$HC/.kosmos-ci/job-completed.sh"
 [ -e "$HC/actions-runner/_work/_temp/payload" ] && [ -e "$HC/.kosmos-ci/cleanup-ran" ] && pass "job-completed runs cleanup and leaves the temp alone when RUNNER_TEMP is elsewhere" || fail "job-completed with a foreign RUNNER_TEMP"
+: > "$HC/actions-runner/_work/_temp/.hidden"
 RUNNER_TEMP="$TMPD_REAL" "$HC/.kosmos-ci/job-completed.sh"
-[ ! -e "$HC/actions-runner/_work/_temp/payload" ] && [ -d "$HC/actions-runner/_work/_temp" ] && [ -e "$HC/actions-runner/_work/keep" ] \
+[ ! -e "$HC/actions-runner/_work/_temp/payload" ] && [ ! -e "$HC/actions-runner/_work/_temp/.hidden" ] && [ -d "$HC/actions-runner/_work/_temp" ] && [ -e "$HC/actions-runner/_work/keep" ] \
   && pass "job-completed empties exactly the job's temp when RUNNER_TEMP is it" || fail "job-completed with the matching RUNNER_TEMP: $(ls -a "$HC/actions-runner/_work/_temp" "$HC/actions-runner/_work" | tr '\n' ' ')"
 
 # A running runner: stopped, unpacked over, started again. A job in flight, or a stop that does not take, refuses.
@@ -424,6 +443,9 @@ vcase leftover-busy 0 "while a job is in flight (busy=true)" "FX_PS=node server.
 vcase raced 1 "went busy or idle during verify" FX_BUSY2=true
 vcase reread-fails 1 "could not read the runners API a second time" FX_BUSY2_FAIL=1
 vcase nolabels 1 "labels are '', not" "FX_RUNNER_ROW=online false"
+GS="$(shasum -a 256 "$VCI/.kosmos-ci/job-guard.sh" | cut -d' ' -f1)"
+vcase guard-pin 0 "job guard sha256 is the install pin" KOSMOS_CI_GUARD_SHA="$GS"
+vcase guard-drift 1 "something rewrote it" KOSMOS_CI_GUARD_SHA=0000000000000000000000000000000000000000000000000000000000000000
 vcase psfail 1 "kosmos-ci runs no processes" FX_PS_FAIL=1
 grep -q 'no tmux or node left' "$T/v-clear.out" && pass "verify: an idle runner's own node (RunnerService.js) is not a leftover" || fail "verify idle runner: $(grep -E 'REFUSE|ok' "$T/v-clear.out" | tail -2)"
 cp "$VCI/actions-runner/.env" "$T/vci.env"
