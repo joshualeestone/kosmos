@@ -70809,7 +70809,7 @@ async function pjPostSend(attachment) {
       && roomEl.querySelector('.pj-pending[data-mid="pending:' + pend.startedAt + '"]'));   // startedAt is a number
     if (drawn && input.value === text) {
       tookBox = true; rawBox = input.value;
-      input.value = ''; pjGrowComposer(input);
+      pjComposerReset(input);   // #1303C: the pair, so the emptied box also gives back its height
       if ((PJ_ROOM_DRAFTS[sentProject] || '').trim() === sentText) delete PJ_ROOM_DRAFTS[sentProject];
     }
     /* #4639: at the press, as the DM does, not when the server answers: a fan-out can take
