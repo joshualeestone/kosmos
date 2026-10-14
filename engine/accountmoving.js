@@ -16,10 +16,12 @@
  * could over-mark); and tmux keeps the session start in whole seconds, so a session recreated within the same second
  * reads as the same one. `from` is the account the launch file named before the move, not one read from the process:
  * after an earlier partial move whose session has since changed, the two can differ, and a move back can then mark an
- * agent that already runs on the row's account (needs two partial moves in a row). The page asks the person to restart
- * the agent, since a Kosmos restart reloads the launch job; a restart the old job makes by itself does not.
+ * agent that already runs on the row's account (needs two partial moves in a row). The page states only the fact
+ * ("still running on its old account"): whether a Kosmos restart then finishes the move is not measured here.
  *
- * { name: { started, from } } in one small file, atomic tmp + rename; an unreadable or odd file reads as empty.
+ * { name: { started, from } } in one small file. Each write is atomic (tmp + rename), but note, clear and clearIf read,
+ * change and write back with no lock, so two overlapping writes can lose one change: a lost note under-marks and a
+ * lost prune leaves a harmless leftover, never a wrong mark. An unreadable or odd file reads as empty.
  */
 const fs = require('node:fs');
 const path = require('node:path');

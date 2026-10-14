@@ -1,4 +1,4 @@
-# #6174: an agent mid-move is marked as still on its old account until it restarts
+# #6174: an agent mid-move is marked as still on its old account
 
 Owner: Angel. 2026-10-14 16:05 CDT. Follow-up named in the #6108 plan ("After a 'partial' move the server already lists
 the agent under the new account, though it still runs on the old one until it restarts").
@@ -6,7 +6,7 @@ the agent under the new account, though it still runs on the old one until it re
 ## Finished looks like
 In Settings, AI Models, an agent moved to another account whose process is still running on its old account (the move
 came back partial because its window could not be closed) is listed under the account it was moved to, with "(still on
-its old account: restart it to finish the move)" after its name, while that same session runs. Once it has restarted the marker
+running on its old account)" after its name, while that same session runs. Once it has restarted the marker
 goes. A restart that came from the still-loaded old launch job (a crash, the agent exiting) can still be on the old
 account and is then unmarked: under-marking, never a wrong mark (review 9). Every other agent reads as before.
 
@@ -66,7 +66,10 @@ same name without the agent moving would clear the mark early (safe direction).
 - (review 8) A list read prunes a note whose session is readably another (clearIf: only that exact note, so it cannot
   race a move that just wrote a new one); a note with no readable session is kept. Both session reads in the move route
   are fresh. restartForMove passes the cleaned name to removal.restart (restartInner cleans it again; no change).
-- (review 11) The page says "restart it to finish the move": a restart the never-booted-out old job makes by itself
+- (review 11, wording superseded by review 12) The page said "restart it to finish the move": a restart the never-booted-out old job makes by itself
   stays on the old account, so only a Kosmos restart finishes it. The list prunes only after a FRESH read confirms a
   different session. `from` is the launch file's account, so two partial moves in a row can mark an agent already on
   the row's account (stated in the module header). The route test pins that `from` is read before setAccount.
+- (review 12) The marker states only the fact, "(still running on its old account)": whether a Kosmos restart
+  finishes the move is unmeasured, so the page does not promise it. The notes file's read-change-write has no lock
+  (a lost write under-marks or leaves a leftover); the header says so rather than claiming atomicity.
