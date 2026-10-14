@@ -29,7 +29,7 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 82 ok. Forty-eight mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 84 ok. Fifty-one mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
@@ -40,7 +40,8 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   then an allow list that clears every job, pgrep and crontab failures read as none, .env mode dropped; then a
   failed Runner.Worker pgrep read as idle, any gh error read as unset; then the package sha check removed, a bare
   `launchctl list`, the services block unbounded; then a retitled `tmux: server` missed; then Apple's own agents
-  counted, a 404 trusted without a control, unwired hooks, hook files unchecked, no GUI-session check, df unchecked).
+  counted, a 404 trusted without a control, unwired hooks, hook files unchecked, no GUI-session check, df unchecked;
+  then gh stderr merged into a value, a .path mismatch a problem again, the admin STOP removed).
 - Apple ships agents outside com.apple.* (com.openssh.ssh-agent): preflight skips any label whose plist is in
   /System/Library/LaunchAgents. On Agent1s at 05:20 that was the only one, and the count went from 72 to 71.
 - install and register --apply refuse unless `launchctl managername` is Aqua: svc.sh reads and drives the caller's
@@ -54,9 +55,11 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   jobs with it since 10-07; not re-measured against the runner source here.
 - Deferred: anonymous launchd labels (0x..., [..]) as false refusals. 0 of 72 such labels on Agent1s at 05:04,
   the failure is a refusal, and KOSMOS_CI_ALLOW_JOBS covers it.
-- The jobs' PATH lives in two files: `.env`, and `.path`, which config.sh's env.sh fills from the login shell and
-  runsvc.sh exports (actions/runner source). Which wins for a job was not settled from source, so register writes
-  .path to the same value after config.sh and verify checks they agree.
+- The jobs' PATH lives in two files: `.env`, and `.path`, which config.sh's env.sh fills from its own shell and
+  runsvc.sh exports. Settled from source (Runner.Listener Program.cs LoadAndSetEnv, read 05:23): the Listener sets
+  every .env line over the exported environment, so .env wins. register still writes .path to match; verify notes
+  a mismatch rather than refusing. The same reader takes the text before "=" as the name, so an `export KOSMOS_`
+  line is inert; install refuses it anyway.
 - The runner's service host is node (actions/runner runsvc.sh runs externals/node24/bin/node RunnerService.js),
   so verify reads `ps -o args` and excludes RunnerService.js. The cleanup hook's `pkill -x node` does not reach it
   because it is the hook's ancestor and macOS pkill skips ancestors without -a; that is why the mini stays online.
