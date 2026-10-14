@@ -4107,10 +4107,12 @@ function withUnread(list) {
    per-agent-folder case this read needs. `a.reach` is null for a pane we cannot tie to an agent.
    #6095: a default-account Claude agent (no account.dir) is not assumed to run in the person's folder: its
    tmux session may be pinned to another one (the supervisor's EFFECTIVE_CCD block) or have inherited a
-   leaked server value. engine/sessionccd reads every such session's real CLAUDE_CONFIG_DIR in ONE tmux call
-   per poll: a folder is judged as that folder, '' is the clean default (as before), and null (unknown: no
-   session, an unreadable answer, or a server value it may have inherited) gives reach UNKNOWN, which the
-   board renders as nothing. Windows has no tmux sessions and keeps the default reading. Exported + injectable (opts.fs, opts.personHome) so a test can drive it with
+   leaked server value. engine/sessionccd reads every such session's real CLAUDE_CONFIG_DIR (a list-sessions
+   plus one read per batch of 40, a retry on failure; synchronous, small next to status's own tmux reads): a
+   folder is judged as that folder, '' is the clean default (as before), and null (unknown: an unreadable answer,
+   or a server value it may have inherited) gives reach UNKNOWN, which the board renders as nothing. A card with
+   no pane runs nothing, so nothing is pinned and it keeps the account's reading. Windows has no tmux sessions and
+   keeps it too. Exported + injectable (opts.fs, opts.personHome) so a test can drive it with
    fixture rows and count reads, exactly like withAgentSortFields. */
 function attachPluginReach(agents, opts) {
   const o = opts || {};
@@ -4123,8 +4125,13 @@ function attachPluginReach(agents, opts) {
   const trust = require('./engine/trust'); // memoized; canonicalOnDisk keys a folder the way Claude Code does
   const canon = o.canonicalize || trust.canonicalOnDisk; // injectable for tests; realpath the way Claude keys projects
   // #6095: the real folder of each default-account Claude agent's session, read once for all of them.
-  const isDefaultClaude = (a) => a && a.account && !a.account.dir && (a.runner === null || a.runner === undefined || a.runner === 'claude');
-  const sessionOf = (a) => (typeof a.session === 'string' && a.session) || a.sessionName || null;
+  // Review 5: a real card's default account carries dir: <home>/.claude and isDefault: true (accountForAgent), never
+  // a null dir, so isDefault is the test; a null dir is kept as the same case.
+  const isDefaultClaude = (a) => a && a.account && (a.account.isDefault === true || !a.account.dir)
+    && (a.runner === null || a.runner === undefined || a.runner === 'claude');
+  // Review 5: the PANE's own session only. A paneless card runs nothing; and its sessionName is a store key that, in a
+  // named world, can name another world's session.
+  const sessionOf = (a) => (typeof a.session === 'string' && a.session) || null;
   let sessionDirs = null;
   const onWindows = (o.platform || process.platform) === 'win32';
   if (personClaudeDir && !onWindows) {
@@ -4156,9 +4163,9 @@ function attachPluginReach(agents, opts) {
     // Per-agent guard (#5309 iter 4): a surprise in ONE row's reach computation must never 500 the whole
     // /api/status response (its agents list has its own never-throw contract). An unexpected input -> null reach.
     let agentClaudeDir = a.account.dir || null;
-    if (!onWindows && isDefaultClaude(a)) {
-      // #6095: no answer at all (the read failed, or this agent has no session to name) is UNKNOWN too.
-      const d = sessionDirs && sessionOf(a) && sessionDirs.has(sessionOf(a)) ? sessionDirs.get(sessionOf(a)) : null;
+    if (!onWindows && isDefaultClaude(a) && sessionOf(a)) {
+      // #6095: no answer at all for a running session (the read failed) is UNKNOWN too.
+      const d = sessionDirs && sessionDirs.has(sessionOf(a)) ? sessionDirs.get(sessionOf(a)) : null;
       if (d === null) { a.reach = { reaches: null, reason: pluginreach.UNKNOWN }; continue; }
       agentClaudeDir = d || null;
     }
