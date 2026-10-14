@@ -157,6 +157,10 @@ preflight() {
   local unknown=0
   # The owner's GUI domain by name: a bare `launchctl list` reads the caller's session, which over ssh is not it.
   if ! raw="$(launchctl print "gui/$(id -u)")"; then problem "could not read launchctl print gui/$(id -u)"; raw=""; unknown=1; fi
+  # A GUI domain always lists Apple's own services: an empty services block means the format changed, not "no jobs".
+  if [ "$unknown" = 0 ] && [ -z "$(printf '%s\n' "$raw" | awk '/^\tservices = \{/ { f = 1; next } f && /^\t\}/ { f = 0 } f { print $NF }')" ]; then
+    problem "launchctl print gui/$(id -u) listed no services at all (has its format changed?)"; unknown=1
+  fi
   jobs="$(printf '%s\n' "$raw" | awk '/^\tservices = \{/ { f = 1; next } f && /^\t\}/ { f = 0 } f { print $NF }' \
     | awk '$1 !~ /^com\.apple\./ && $1 !~ /^application\./' \
     | while IFS= read -r l; do [ -f "$SYSTEM_AGENTS/$l.plist" ] || printf '%s\n' "$l"; done)"   # com.openssh.ssh-agent
@@ -196,9 +200,11 @@ preflight() {
   say "the machine"
   local free_kib
   free_kib="$(df -k / | awk 'NR == 2 { print $4 }')" || free_kib=""
-  case "$free_kib:$MIN_FREE_GIB" in :*|*:|*[!0-9:]*) problem "could not read free disk (df gave '$free_kib', floor '$MIN_FREE_GIB')"; free_kib=0; MIN_FREE_GIB=0 ;; esac
-  if [ "$((free_kib / 1048576))" -lt "$MIN_FREE_GIB" ]; then problem "$((free_kib / 1048576)) GiB free, under the ${MIN_FREE_GIB} GiB floor"
-  else ok "$((free_kib / 1048576)) GiB free"; fi
+  case "$free_kib:$MIN_FREE_GIB" in
+    :*|*:|*[!0-9:]*) problem "could not read free disk (df gave '$free_kib', floor '$MIN_FREE_GIB')" ;;
+    *) if [ "$((free_kib / 1048576))" -lt "$MIN_FREE_GIB" ]; then problem "$((free_kib / 1048576)) GiB free, under the ${MIN_FREE_GIB} GiB floor"
+       else ok "$((free_kib / 1048576)) GiB free"; fi ;;
+  esac
   # The exact line: "FileVault is Off, but will be enabled after the next restart." is not off for long.
   case "$(fdesetup status 2>&1)" in
     "FileVault is Off.") ok "FileVault off (auto-login is possible)" ;;
@@ -383,6 +389,7 @@ HOOK
 D="$(cd "$(/usr/bin/dirname "$0")" && pwd -P)" || exit 1
 "$D/job-cleanup.sh"
 TMPD="$(cd "$D/../actions-runner/_work/_temp" 2>/dev/null && pwd -P)" || exit 0
+# Only when RUNNER_TEMP is that resolved path: one that differs (a symlinked home) skips the sweep, safely and silently.
 case "${RUNNER_TEMP:-}" in "$TMPD") find "${TMPD:?}" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true ;; esac   # dotfiles too
 HOOK
   put "$CI_DIR/job-started.sh" 755 <<'HOOK'
@@ -443,6 +450,8 @@ register() {
   if [ -t 0 ]; then printf 'registration token: ' >&2; IFS= read -r -s token || true; echo >&2; else IFS= read -r token || true; fi
   [ -n "$token" ] || { echo "refused: no registration token on stdin" >&2; exit 1; }
   # The runner reads ACTIONS_RUNNER_INPUT_<ARG> for a config argument it is not given, so the token stays out of argv.
+  # If svc.sh install fails after this, the runner is configured but not a service: no .service file, so a re-run
+  # reaches config.sh again, whose --replace takes the same name over.
   ACTIONS_RUNNER_INPUT_TOKEN="$token" ./config.sh --unattended --url "$REPO_URL" --name "$NAME" --labels "$LABELS" --work _work --replace
   printf '%s\n' "$RUNNER_PATH" > .path
   ./svc.sh install   # a LaunchAgent for this user (starts at login)
@@ -543,7 +552,7 @@ EOF
   elif [ -n "$row" ] && [ "$busy2" != "$busy" ]; then problem "the runner went busy or idle during verify; run verify again"
   else
     # By program name (first word, path and any trailing colon stripped: on macOS a tmux server keeps the argv it
-    # was started with, measured 05:12 10-14, but some builds retitle it "tmux: server"). The runner's own service host is node running RunnerService.js.
+    # was started with, measured 05:12 CDT 10-14, but some builds retitle it "tmux: server"). The runner's own service host is node running RunnerService.js.
     left="$(printf '%s\n' "$left" | awk '{ n = $1; sub(/.*\//, "", n); sub(/:$/, "", n) } (n == "tmux" || n == "node") && !/\/bin\/RunnerService\.js/ { print n }')"
     if [ -z "$left" ]; then ok "no tmux or node left under $CI_USER"
     elif [ "$busy" = true ]; then ok "tmux or node running under $CI_USER, while a job is in flight (busy=true)"
@@ -586,5 +595,5 @@ case "$STAGE" in
   verify) verify ;;
   machine-settings) machine_settings ;;
   jq-programs) printf '%s\n' "$JQ_VAR" "$(jq_busy)" "$(jq_row)" ;;   # reads nothing; for the test
-  *) echo "usage: tools/ci-runner-setup.sh [--apply] preflight | create-user | install <commit> <sha256> | register | verify | machine-settings" >&2; exit 2 ;;
+  *) echo "usage: tools/ci-runner-setup.sh [--apply] preflight | create-user | install <commit> <sha256> | register | verify | machine-settings | jq-programs" >&2; exit 2 ;;
 esac

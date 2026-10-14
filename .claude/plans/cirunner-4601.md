@@ -29,7 +29,7 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 137 ok. Ninety-one mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 141 ok. Ninety-three mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
@@ -54,7 +54,8 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   without the KOSMOS_ check; then the runner row unsorted, busy read from any runner, an empty df read as 0 GiB;
   then shards_check routing 'all' or splitting on commas only (both caught by the parity test), the guard pin
   unchecked, the temp's dotfiles kept; then the same-account refusal by name and by uid removed; then an unpinned
-  guard reported clear, the runner name unvalidated).
+  guard reported clear, the runner name unvalidated; then a false 'GiB free' beside a df refusal, an empty services
+  block read as no jobs).
 - How kosmos-ci gets the script once the owner's home is 700: fetch it raw at the install commit and match its
   sha256 to `git show <commit>:tools/ci-runner-setup.sh` on the owner's side. The two forms gave the same sha256 for
   tools/ci-runner-job-guard.sh at origin/main (measured 06:31).
