@@ -41,18 +41,24 @@ test('the two provenances get their ruled words, and only those two speak', () =
   assert.equal(saidLineOf(null), '');
 });
 
-test('a reported state speaks in the agent\'s own sentence, quoted, on the shared task derivation', () => {
+test('a reported state no longer speaks in a quoted sentence on the shared task derivation (#6118)', () => {
+  /* #569 rendered the agent's reported sentence here, quoted. #6118 removed that arm: it was
+     dead (the grid, list and detail all passed noQuote:true, taking the fall-through), so
+     taskLine now returns '' for a reported working agent. The sentence surfaces via the Talk
+     waiting box (waitingLine) and the engine-state sentences instead. */
   const got = taskLineOf({ state: 'working', stateReported: true, because: 'wiring the report route' });
-  assert.equal(got, '“wiring the report route”');
-  /* The quotes are the sighted mark for "in its own words": a scraped row has
-     no quoted sentence, so a statement and a guess cannot look the same. */
+  assert.equal(got, '', 'the quoted reported sentence must not come back on the task line');
   const scraped = taskLineOf({ state: 'working', stateReported: false, because: 'it is mid-task' });
   assert.equal(scraped, '');
 });
 
-test('a reported needs_you puts the actual question on the card', () => {
+test('a reported needs_you no longer puts the quoted question on the shared task derivation (#6118)', () => {
+  /* The question shows in the project answer menu (#pj-question, paintThread) and the Talk
+     waiting box, NOT via the quoted stateReason arm that #6118 removed. The grid/list cards
+     already took the fall-through (they passed noQuote:true), so this changes only the dead
+     no-opts library path, not what the person sees. */
   const got = taskLineOf({ state: 'needs_you', stateReported: true, because: 'Which domain should the relay use?' });
-  assert.match(got, /Which domain should the relay use\?/);
+  assert.equal(got, '', 'the reported question must not come back on the task line');
 });
 
 test('#209 still holds for reporters: the frozen pane title never leaks back through the reported arm', () => {
