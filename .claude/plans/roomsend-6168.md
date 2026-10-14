@@ -26,8 +26,8 @@ early (harmless: the kept row is then on screen). An earlier version of this pla
 rule" for identical words; it does not (it matches only after the POST answers). Corrected in review 1.
 
 ## Evidence
-- The browser check above: 7 assertions, 4 red on origin/main, all green after.
-- 515 node tests that read the room's send or paint pass; gated.txt (sorted) and the README list the check.
+- The browser check above: its arms grew with each review (see Review); on origin/main the press-to-drawn arm and every arm built on it are red, all green after.
+- The node tests that read the room's send or paint pass (526 after review 1); gated.txt (sorted) and the README list the check.
 
 ## Review
 1. opus: no blocker. WARNINGs fixed, each with a mutant that reds the check: an older post with the same words
@@ -38,3 +38,9 @@ rule" for identical words; it does not (it matches only after the POST answers).
    the post is still answering, plus same-words and dropped-connection arms). Also: the first repaint is inside the try.
    Left: no reply header or file cards on the pending row (they appear on the swap); "Sending…" not announced (failures
    and success are); an unsure post that did land leaves its words back in the box.
+2. sonnet: no blocker. WARNINGs fixed, each with a check arm that a mutant reds: a failure no longer puts the words back
+   when a read already showed the room holding the post (a second press would have posted it twice); a throw after the
+   board answered is not reported as a failed post; the id snapshot no longer throws on a malformed read before the try;
+   the check gained a bare 5xx, an already-shown-then-dropped post, and a refusal after moving project (parked draft).
+   Stale counts in the README and here removed. Left (NITs): a success whose re-read fails shows the post again only at
+   the next poll; files-only posts show their names as text until the kept row.

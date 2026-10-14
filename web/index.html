@@ -70902,8 +70902,10 @@ async function pjPostSend(attachment) {
      room already had at the press: the board writes the row only once its fan-out is done, so no row that was there
      then can be this post (review 1: an earlier post with the same words, an "ok" said twice, used to swallow it). */
   const roomEl = document.getElementById('pj-room');
-  const before = new Set(((roomEl && roomEl.__lastBody && roomEl.__lastBody.rows) || [])
-    .map((r) => r && r.id).filter((id) => typeof id === 'string'));
+  /* Review 2: guarded, because this runs after PJ_POSTING is set and before the try: a read whose rows are not a list
+     must not throw here and leave Post disabled for the page's life. */
+  const lastRows = roomEl && roomEl.__lastBody && Array.isArray(roomEl.__lastBody.rows) ? roomEl.__lastBody.rows : [];
+  const before = new Set(lastRows.map((r) => r && r.id).filter((id) => typeof id === 'string'));
   const pend = { text: sentText, startedAt: Date.now(), before };
   PJ_ROOM_PENDING[sentProject] = pend;
   const repaintPending = () => {
@@ -70922,18 +70924,21 @@ async function pjPostSend(attachment) {
     }
     if (input.value.trim() === '') { input.value = rawBox; pjGrowComposer(input); PJ_ROOM_DRAFTS[sentProject] = input.value; }
   };
-  /* A post that did not go stays drawn, marked, with the reason; its words go back in the box to send again. */
+  /* A post that did not go stays drawn, marked, with the reason; its words go back in an empty box to send again. If a
+     read already showed the room holding it (paintRoom handed over and dropped the pending entry), it did go: nothing is
+     marked and the words are NOT put back, or a second press would post it twice (review 2). */
   const notKept = (because, unsure) => {
+    if (PJ_ROOM_PENDING[sentProject] !== pend) return;
     restoreUnsent();
-    if (PJ_ROOM_PENDING[sentProject] !== pend) return;   // a newer post has taken its place
     pend.failed = true; pend.because = because; pend.unsure = !!unsure;
     repaintPending();
   };
+  let answered = false;   // the board kept it: from here a throw is the page's own, not the post's (review 2)
   try {
     repaintPending();   // inside the try (review 1): a throw here must not leave PJ_POSTING set for the page's life
     const drawn = !!(PJ_CURRENT === sentProject && roomEl
       && roomEl.querySelector('.pj-pending[data-mid="pending:' + pend.startedAt + '"]'));   // startedAt is a number
-    if (drawn && input.value === text) {
+    if (drawn) {
       tookBox = true; rawBox = input.value;
       pjComposerReset(input);   // #1303C: the pair, so the emptied box also gives back its height
       if ((PJ_ROOM_DRAFTS[sentProject] || '').trim() === sentText) delete PJ_ROOM_DRAFTS[sentProject];
@@ -70966,6 +70971,7 @@ async function pjPostSend(attachment) {
       notKept(d.because || 'we could not post that');
       return;
     }
+    answered = true;
     if (PJ_CURRENT === sentProject && input.value.trim() === sentText) pjComposerReset(input);
     if ((PJ_ROOM_DRAFTS[sentProject] || '').trim() === sentText) delete PJ_ROOM_DRAFTS[sentProject];
     if (pendingIds.length) attachClear(ATTACH_ROOM, sentProject);   // the files went with it; the composer repaints if it is this project
@@ -70983,9 +70989,15 @@ async function pjPostSend(attachment) {
        the person left the project), the pending row goes now rather than lingering as "Sending…". */
     if (PJ_ROOM_PENDING[sentProject] === pend) { delete PJ_ROOM_PENDING[sentProject]; repaintPending(); }
   } catch {
-    verdict('We could not reach Kosmos to post that.');
-    /* The post may have arrived before the connection died, so it is not said to have failed. */
-    notKept('we could not reach Kosmos to post that', true);
+    if (answered) {
+      /* Review 2: the board kept the post; something on this page threw while showing it. Not a failed post: the
+         pending row goes (the next read draws the kept one) and nothing says it did not arrive. */
+      if (PJ_ROOM_PENDING[sentProject] === pend) { delete PJ_ROOM_PENDING[sentProject]; try { repaintPending(); } catch { /* the next read paints */ } }
+    } else {
+      verdict('We could not reach Kosmos to post that.');
+      /* The post may have arrived before the connection died, so it is not said to have failed. */
+      notKept('we could not reach Kosmos to post that', true);
+    }
   } finally {
     PJ_POSTING = false;
     PJ_REPLY_SENDING = null;

@@ -38,6 +38,8 @@ function initStub() {
   window.__rows = [{ kind: 'post', id: 'r1', from: 'Mara', text: 'ready when you are', at: new Date(Date.now() - 60000).toISOString() }];
   window.__refuse = null;     // a sentence: the next POST is refused with it
   window.__throw = false;     // the next POST's connection dies (fetch rejects)
+  window.__bare502 = false;   // the next POST is a relay's bare 502 (no JSON sentence of the board's)
+  window.__p2 = { id: 'p2', name: 'Other room', parent: null, archived: false, agents: [{ sessionName: 'Mara', name: 'Mara' }], defaultAgent: 'Mara', summary: { total: 1, needsYou: 0 } };
   window.__kept = false;      // the row was already written by the check (the room's read handed over first)
   window.__release = null;    // set while a POST is held; calling it answers the POST
   const enc = (o, status) => new Response(JSON.stringify(o), { status: status || 200, headers: { 'content-type': 'application/json' } });
@@ -49,6 +51,7 @@ function initStub() {
       await new Promise((resolve) => { window.__release = resolve; });
       window.__release = null;
       if (window.__throw) { window.__throw = false; throw new TypeError('Failed to fetch'); }
+      if (window.__bare502) { window.__bare502 = false; return new Response('<html>Bad Gateway</html>', { status: 502, headers: { 'content-type': 'text/html' } }); }
       if (window.__refuse) {
         const because = window.__refuse; window.__refuse = null;
         return enc({ ok: true, delivery: { state: 'could_not', because } });
@@ -58,7 +61,8 @@ function initStub() {
       return enc({ ok: true, delivery: { state: 'placed', outcomes: { Mara: 'placed' } } });
     }
     if (/\/api\/project\/p1\/room$/.test(u)) return enc({ ok: true, rows: window.__rows.slice() });
-    if (/\/api\/projects(\?|$)/.test(u) && method === 'GET') return enc({ ok: true, projects: [window.__project] });
+    if (/\/api\/project\/p2\/room$/.test(u)) return enc({ ok: true, rows: [] });
+    if (/\/api\/projects(\?|$)/.test(u) && method === 'GET') return enc({ ok: true, projects: [window.__project, window.__p2] });
     if (u.includes('/thread/')) return enc({ ok: true, asking: false, agent: { sessionName: 'Mara' }, messages: [], viewport: { text: null } });
     return enc({ ok: true, agents: [] });
   };
@@ -107,7 +111,7 @@ async function postAndMeasure(page, words) {
     document.querySelectorAll('body > [inert]').forEach((el) => el.removeAttribute('inert'));
     LAST = [];
     PROJECTS.length = 0;
-    PROJECTS.push(window.__project);
+    PROJECTS.push(window.__project, window.__p2);
     openProject('p1');
   });
   await page.waitForFunction(() => document.querySelector('#pj-room').textContent.includes('ready when you are'), { timeout: 5000 });
@@ -167,6 +171,51 @@ async function postAndMeasure(page, words) {
   await page.evaluate(() => loadRoom());
   const landed = await readRoom(page, LOST);
   chk(landed.copies === 1 && !landed.pending, 'when the room shows it did arrive, the Not confirmed bubble gives way: one copy', JSON.stringify(landed));
+  await page.fill('#pj-post', '');
+
+  /* 2d. A relay's bare 502 (no sentence of the board's) may have been delivered: "Not confirmed", not "Not posted". */
+  const GATE = 'a relay timed out on this one';
+  await page.evaluate(() => { window.__bare502 = true; });
+  await page.fill('#pj-post', GATE);
+  await page.click('#pj-post-go');
+  await page.waitForFunction(() => typeof window.__release === 'function', { timeout: 3000 }).catch(() => {});
+  await page.evaluate(() => window.__release && window.__release());
+  await page.waitForFunction(() => document.getElementById('pj-post-go').disabled === false, { timeout: 5000 }).catch(() => {});
+  const gateText = await page.evaluate((w) => { const r = [...document.querySelectorAll('#pj-room .msg.pj-pending')].find((x) => x.textContent.includes(w)); return r ? r.textContent : ''; }, GATE);
+  chk(/Not confirmed\./.test(gateText) && !/Not posted/.test(gateText), 'review 2: a bare 5xx is Not confirmed, never Not posted', gateText.slice(0, 140));
+  await page.fill('#pj-post', '');
+
+  /* 2e. The room already showed it landed, then the connection died (review 2): one copy, nothing marked, and the words
+     NOT put back in the box, or a second press would post it twice. */
+  const SEEN = 'this one landed before the line dropped';
+  await page.evaluate(() => { window.__throw = true; });
+  await page.fill('#pj-post', SEEN);
+  await page.click('#pj-post-go');
+  await page.waitForFunction(() => typeof window.__release === 'function', { timeout: 3000 }).catch(() => {});
+  await page.evaluate((w) => { window.__rows.push({ kind: 'post', id: 'rseen', operator: true, text: w, at: new Date().toISOString() }); }, SEEN);
+  await page.evaluate(() => loadRoom());
+  await page.evaluate(() => window.__release && window.__release());
+  await page.waitForFunction(() => document.getElementById('pj-post-go').disabled === false, { timeout: 5000 }).catch(() => {});
+  const seen = await readRoom(page, SEEN);
+  const seenText = await page.evaluate((w) => [...document.querySelectorAll('#pj-room .msg')].filter((x) => x.textContent.includes(w)).map((x) => x.textContent).join(' | '), SEEN);
+  chk(seen.copies === 1 && !seen.pending && !/Not confirmed/.test(seenText), 'review 2: a post the room already shows is not marked when its connection then dies', JSON.stringify(seen));
+  chk(await page.inputValue('#pj-post') === '', 'review 2: and its words are not put back in the box to be posted twice');
+
+  /* 2f. Moving to another project mid-post, then refused: the words are parked as that project's draft, never put into
+     the other project's box (review 2: the parking branch). */
+  const AWAY = 'sent from p1, refused after I moved to p2';
+  await page.evaluate(() => { window.__refuse = 'the room is on hold'; });
+  await page.fill('#pj-post', AWAY);
+  await page.click('#pj-post-go');
+  await page.waitForFunction(() => typeof window.__release === 'function', { timeout: 3000 }).catch(() => {});
+  await page.evaluate(() => openProject('p2'));
+  await page.evaluate(() => window.__release && window.__release());
+  await page.waitForFunction(() => document.getElementById('pj-post-go').disabled === false, { timeout: 5000 }).catch(() => {});
+  const away = await page.evaluate(() => ({ box: document.getElementById('pj-post').value, draft: PJ_ROOM_DRAFTS.p1 || '' }));
+  chk(away.box !== 'sent from p1, refused after I moved to p2' && away.draft === 'sent from p1, refused after I moved to p2',
+    'review 2: refused after moving to another project, the words are parked under the project they were sent from', JSON.stringify(away));
+  await page.evaluate(() => { delete PJ_ROOM_DRAFTS.p1; openProject('p1'); });
+  await page.waitForFunction(() => document.querySelector('#pj-room').textContent.includes('ready when you are'), { timeout: 5000 }).catch(() => {});
   await page.fill('#pj-post', '');
 
   /* 3. A post the board refuses stays drawn, marked, with the reason. */
