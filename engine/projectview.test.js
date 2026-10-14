@@ -693,7 +693,11 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   assert.equal(v.workExcused(stale(1400), gpt, hist([]), NOW).state, 'worked');
   // A busy report it filed itself after the summary is reported work: stale.
   assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['working', 600]]), NOW).state, 'stale', 'a codex seat\'s own working report was ignored');
-  for (const st of ['needs_you', 'blocked']) assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], [st, 600], ['idle', 590]]), NOW).state, 'stale', 'a codex seat\'s answered ' + st + ' was not read as work');
+  // The busy row is the only reason here (one turn end): selfreport refuses the automatic idle while such a wait stands.
+  for (const st of ['needs_you', 'blocked']) assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], [st, 600]]), NOW).state, 'stale', 'a codex seat\'s own ' + st + ' was not read as work');
+  // ...and answered by an operator clear (filtered out), it still counts.
+  const answered = () => { const a = [{ state: 'idle', at: at(1095) }, { state: 'needs_you', at: at(600) }, { state: 'idle', at: at(500), by: 'operator' }]; a.truncated = false; return a; };
+  assert.equal(v.workExcused(stale(1100), gpt, answered, NOW).state, 'stale', 'an answered wait stopped counting as work');
   // An automatic idle and a manual one at the same turn end are one turn (within 2 min); 3 min apart are two.
   assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1094]]), NOW).state, 'worked', 'a duplicate idle at the same turn end counted as a later turn');
   assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1092]]), NOW).state, 'stale', 'CONTROL: two turn ends 3 min apart');
