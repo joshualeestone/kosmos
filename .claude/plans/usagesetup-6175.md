@@ -98,7 +98,14 @@ Card: kosmos#6175 (#6108 follow-up).
 - An own status line is never replaced (ensureStatusLine refuses; the test pins the file byte for byte).
 
 ## Tests
-- server.allowance-3946.test.js #6175: wired, the row stops saying not-wired, a second press changes nothing, an own
-  status line refused and untouched, unknown dir 404, empty body 400. Passing (7/7 with #6108), with the API-key arm.
-- docs/browser-checks/render-account-usage-6108.js #6175 arms: offer, no offer on own-statusline, refusal said once,
-  success repaints, re-claim limits. Queued (not yet run). Server arms include the malformed-body 400.
+- server.allowance-3946.test.js #6175 (and #6108's weeklyBlocked test): wired, the row stops saying not-wired, a second
+  press changes nothing, an own status line refused and untouched, a settings link away refused (409) and untouched,
+  'linked-settings' for a link away and a link to nothing (control: a linked file with our line reads set up), 403 for a
+  caller not from the page (before any lookup), API key 400, unknown dir 404, empty and malformed body 400, a thrown
+  wiring 500 with no path. 7/7 with #6108. Mutants measured red: no screen check, check after the lookups, no link
+  check, no 'linked-settings' reason.
+- docs/browser-checks/render-account-usage-6108.js #6175 arms. MEASURED: the first run (16:24) showed none had ever run
+  (the step sat after page.close; its "mutant red" was the same crash). At 9957b2599 the check is "all good" with 108
+  #6175 PASS lines (chromium and webkit, both themes). The no-offer mutant went red on the offer and describedby arms
+  but then crashed on the missing fields; the says are now safe on a missing field, so a missing offer is FAIL lines,
+  not a crash. Re-run queued for a clean mutant verdict.
