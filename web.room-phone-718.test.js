@@ -44,7 +44,7 @@ const outsideMedia = (q) => { let t = html; MEDIA.filter((b) => b.query === '(' 
 
 test('on a phone the conversation comes first IN THE DOM, never by CSS order (#1017)', () => {
   // A visual-only reorder splits reading order from tab order; the browser check measures the
-  // real DOM order at 375 and 800 (render-room-msgbox-2806, phone arm).
+  // real DOM order at 375, 800x400 and 834x1194 (render-room-msgbox-2806, phone and tablet arms).
   const phone = blocks('max-width: 30rem');
   assert.match(phone, /#pj-room\.thread \{/, 'the phone block was found (an empty block would make the next line vacuous)');
   // No CSS order on either column, in any rule anywhere on the page.

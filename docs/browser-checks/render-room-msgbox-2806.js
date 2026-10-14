@@ -804,7 +804,7 @@ function tapProbe4663(skip) {
       await phonePage.goto(PAGE);
       // Conversation first on a phone, in the DOM (reading order == tab order, #1017), and back
       // after Members/Files once the window is wider than a phone.
-      const order = () => phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : 'other')).join(','));
+      const order = () => phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : (c.matches('aside.pjcol') ? 'tasks' : 'other'))).join(','));
       const order375 = await order();
       chk(order375.startsWith('room,'), `[phone] the conversation is first in the DOM at 375px`, order375);
       // Turning a phone mid-post reorders the columns. The conversation column (the composer's)
@@ -823,7 +823,9 @@ function tapProbe4663(skip) {
           .observe(document.querySelector('.pj3'), { childList: true });
         const t = document.getElementById('pj-post'); if (!t) return 'no #pj-post'; t.focus(); return document.activeElement === t ? 'pj-post' : 'not focusable';
       });
-      await phonePage.setViewportSize({ width: 800, height: 800 });
+      // A phone turned: wide and short. (800x800 on a touchscreen is an upright tablet since #6107, which has its
+      // own order, measured in the tablet arm below.)
+      await phonePage.setViewportSize({ width: 800, height: 400 });
       await phonePage.waitForTimeout(100);
       const focusedWide = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
       const orderTurned = await order();   // the move really happened in this same turn
@@ -831,7 +833,7 @@ function tapProbe4663(skip) {
       await phonePage.waitForTimeout(100);
       const focusedBack = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
       chk(focusedBefore === 'pj-post' && focusedWide === 'pj-post' && focusedBack === 'pj-post', `[phone] turning the phone keeps the composer focused across the move`, `${focusedBefore} -> ${focusedWide} -> ${focusedBack}`);
-      const orderBack = await phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => (c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : 'other'))).join(','));
+      const orderBack = await phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => (c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : (c.matches('aside.pjcol') ? 'tasks' : 'other')))).join(','));
       const midRemoved = await phonePage.evaluate(() => window.__midRemoved);
       // Control: the reorder must actually have happened both ways (back at 375 now), or "never removed" is vacuous.
       chk(midRemoved === 0 && order375.startsWith('room,') && orderTurned.startsWith('members-files,room') && orderBack.startsWith('room,'), `[phone] the conversation column never leaves the page while the phone turns (the Members/Files column moves instead)`, `removed=${midRemoved} turned=${orderTurned} back=${orderBack}`);
@@ -850,7 +852,7 @@ function tapProbe4663(skip) {
         b.hidden = false; b.style.display = 'inline-block'; b.focus();
         return document.activeElement === b ? 'pj-add-member' : 'not focusable';
       });
-      await phonePage.setViewportSize({ width: 800, height: 800 });
+      await phonePage.setViewportSize({ width: 800, height: 400 });
       await phonePage.waitForTimeout(100);
       const splitWide = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
       const splitOrder = await order();
@@ -860,6 +862,25 @@ function tapProbe4663(skip) {
       chk(splitFocus === 'pj-add-member' && splitWide === 'pj-add-member' && splitBack === 'pj-add-member' && splitOrder.startsWith('members-files,room'),
         `[phone] a control focused in Members/Files keeps its focus when the phone turns`, `${splitFocus} -> ${splitWide} -> ${splitBack} (order ${splitOrder})`);
       await phonePage.evaluate(() => { const b = document.getElementById('pj-add-member'); if (b) b.blur(); if (window.__splitUndo) window.__splitUndo(); });
+      // #6107: an upright tablet (iPad 11-inch, 834x1194, touch). Tasks moves to the top, then the conversation, then
+      // Members/Files, all by DOM; the conversation column still never leaves the page, so a focused composer stays.
+      // Control: back at 375 the phone order returns with Tasks last again, so the tablet order is not the page's default.
+      const tabletArm = await phonePage.evaluate(() => {
+        window.__midRemoved = 0;
+        const t = document.getElementById('pj-post'); if (!t) return 'no #pj-post'; t.focus(); return document.activeElement === t ? 'pj-post' : 'not focusable';
+      });
+      await phonePage.setViewportSize({ width: 834, height: 1194 });
+      await phonePage.waitForTimeout(100);
+      const tabletOrder = await order();
+      const tabletFocus = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const tabletBack = await order();
+      const tabletMidRemoved = await phonePage.evaluate(() => window.__midRemoved);
+      chk(tabletArm === 'pj-post' && tabletFocus === 'pj-post' && tabletMidRemoved === 0 && tabletOrder === 'tasks,room,members-files' && tabletBack === 'room,members-files,tasks',
+        `[tablet] #6107: an upright tablet puts Tasks first, then the room, then Members/Files, by DOM, and the composer keeps its focus`,
+        `${tabletOrder} (back at 375: ${tabletBack}), focus ${tabletArm} -> ${tabletFocus}, room column removed ${tabletMidRemoved}x`);
+      await phonePage.evaluate(() => { const t = document.getElementById('pj-post'); if (t) t.blur(); });
       // #4663: on a touchscreen the project page's small controls (drawn 22 to 28px) take a tap across at least 36px
       // on each, and none of those areas takes any part of a neighbouring control (the first task and file included).
       const taps = await phonePage.evaluate(tapProbe4663);
