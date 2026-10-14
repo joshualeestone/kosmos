@@ -12102,6 +12102,9 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
   :root:not([data-look="new"]) body:not(.consolidated) #grid.cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) { display: grid; grid-template-columns: auto minmax(0, 1fr);
     grid-template-areas: "g n" "g m" "g s" "g w" "t t" "c c" "md md";
+    /* A row of cards stretches to its tallest: the spare height goes to the last row, so the lines stay together and
+       the model line sits at the foot, as .amodel's margin-top: auto does on the column card. */
+    grid-template-rows: repeat(6, auto) 1fr; align-content: start;
     column-gap: 14px; row-gap: 2px; align-items: center; text-align: left; padding: 18px 18px 16px; }
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .agauge { grid-area: g; width: 64px; margin: 0; }
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .agauge svg { width: 64px; height: 64px; }
@@ -12111,7 +12114,7 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .alsowork { grid-area: w; justify-self: start; margin: 4px 0 0; }
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .atask { grid-area: t; margin-top: 12px; }
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .acommunity { grid-area: c; }
-  :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .amodel { grid-area: md; padding-top: 10px; }
+  :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .amodel { grid-area: md; padding-top: 10px; align-self: end; }
 }
 /* #6107 piece 2, the project room on an upright tablet (classic tab layout; the hidden new look and the consolidated
    view keep their own grids). Under 68rem the room is one column in source order: Members and Files, then the
@@ -12122,9 +12125,9 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
 @media (hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 67.99rem) and (orientation: portrait) {
   :root:not([data-look="new"]) body:not(.consolidated) .pj3 > .pjsplit { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   /* The padding and the matching negative side margins keep a card's focus ring (2px at a 2px offset) inside the
-     scroller, which clips whatever overflows it. */
+     scroller, which clips whatever overflows it; scroll-padding does the same for a card snapped or scrolled to an edge. */
   :root:not([data-look="new"]) body:not(.consolidated) .pj3 #pj-tasklist { flex-direction: row; overflow-x: auto; min-height: 0;
-    scroll-snap-type: x proximity; padding: 4px; margin-left: -4px; margin-right: -4px; }
+    scroll-snap-type: x proximity; scroll-padding-inline: 4px; padding: 4px; margin-left: -4px; margin-right: -4px; }
   :root:not([data-look="new"]) body:not(.consolidated) .pj3 #pj-tasklist > .tkcard { flex: 0 0 min(260px, 70%); width: auto; margin-left: 0; scroll-snap-align: start; }   /* margin: a sub-task's indent (.sub1/.sub2) means nothing in a row */
 }
 </style>
