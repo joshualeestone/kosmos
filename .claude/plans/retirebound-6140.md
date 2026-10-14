@@ -15,14 +15,22 @@ Card: kosmos#6140. Test-only change: engine/remote.test.js.
 - The retire bound is raised to 20000 ms (the register's) in every arm where the retire must ANSWER: the four that
   expect it to succeed (1955, 2376, 2500, 2677) and the three that expect a quick refusal or a 502 answer (2614, 2863,
   3058), whose message assertions a timeout would break the same way.
-- Kept at 1500 ms: the hung-retire arm (#3827 "a half identity whose retire gets no answer is kept"), whose timeout is
-  what it tests; its comment says so.
+- Kept at 1500 ms: the hung retire in #3827 "a half identity whose retire gets no answer is kept", whose timeout is
+  what it tests. The retry after it must answer, so it gets 20000 ms (review 1).
+- #4824's CONTROL (a refusal that is not a timeout, under the arm's 400 ms bound) gets 20000 ms for its refusal
+  (review 1): on a loaded box the refusal would become the timeout the first half tests, which removeAnswer reads as
+  removed.
 
 ## Decided, not missed
 - engine/remote.js is unchanged: a 60 s retire bound in production is right; the 1.5 s was a test speed choice.
 - Cost: a hung retire in a raised arm now ends at 20 s instead of 1.5 s, only on a failing run.
 - Weakest premise: that load is the only way the retire exceeds 1.5 s here. The fake tunnel's retire answers at once;
   nothing else in the test waits on it.
+
+## Note
+- A filtered run (`--test-name-pattern='4824|3827|5422'`) reds '#3827 an in-app sign-in from a switched-off computer'
+  at remote.test.js:1645 on origin/main too (measured): an ordering dependence of filtered runs, not this change. The
+  whole file passes.
 
 ## Tests
 - The squeeze reproduction above (1 ms reds at 1958; the raised bound passes).
