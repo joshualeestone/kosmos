@@ -8,7 +8,8 @@ on prod: stricter than needed (0.7.42 to 0.7.44 can lift too), which fails close
 only. Splinter asked for it in the promote and rollback path before Josh's go for 0.7.49's prod promote.
 
 ## What
-- tools/lib/setup-floor.sh, the floor (0.7.45) and five checks (the three below, plus _tree_ok and _site_untouched_ok that combine them):
+- tools/lib/setup-floor.sh, the floor (0.7.45) and five checks: floor_ok, pointer_ok, installer_ok, tree_ok and site_untouched_ok (the last two
+  combine the first three):
   - `kosmos_setup_floor_ok <label> <version>`: a numeric part-by-part compare (0.7.100 is above 0.7.45); a version
     that is not plain numbers and dots is refused.
   - `kosmos_setup_floor_pointer_ok <label> <json>`: a Mac pointer's version AND the version in its artifact name
