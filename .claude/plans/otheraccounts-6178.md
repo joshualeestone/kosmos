@@ -15,6 +15,12 @@ Tested: a server test (red on main), a page test, and a browser check in Chromiu
 - `GET /api/status` gains `accountsWeekly: [{ dir, email, label, organization, isDefault, weekly, blocked }]`. It reuses
   the poll's one Claude list read (`claudeKnown`). Each agent already carries `account.dir`, which is the join.
 
+- Who can read it: the same audience as before. /api/status is behind the board token; through the tunnel the token is
+  added only for a device that computer admitted, or for a sibling read from one of the account's own computers in a
+  browser that computer admitted (kosmos-relay siblingcors-4812). Every such reader can already read /api/accounts,
+  which carries the same accounts with more. New on /api/status itself: the accounts no agent runs on, and organization
+  (agents' account rows already carried email and dir).
+
 ## Page
 - `#set-other-wrap` under the account list. `aoPaint` draws it from `AO_SEEN`, which `oaReadOne` (#4812) fills through
   one guarded call (`aoKeep`): a fresh answer replaces, not-let-in forgets, no answer keeps the last (said with its age).
