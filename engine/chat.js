@@ -403,7 +403,7 @@ function acknowledgementOnly(raw) {
   if (/[0-9]/.test(text)) return false;          // a digit
   if (/:\/\//.test(text) || /\bhttps?:/i.test(text)) return false; // a url or scheme
   if (text.includes('`')) return false;          // inline code / backticks
-  if (text.includes('?')) return false;          // a question
+  if (/[?？؟]/.test(text)) return false; // a question (ASCII ?, full-width CJK ？, Arabic ؟)
   if (/[$%£€]/.test(text)) return false;         // a currency or percent sign
   if (text.includes('"')) return false;          // a double-quoted span
   if (/\S+\.[A-Za-z]{1,8}(?![A-Za-z])/.test(text) || /\/\S/.test(text)) return false; // filename.ext or a path

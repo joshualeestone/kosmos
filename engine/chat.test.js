@@ -3413,6 +3413,9 @@ test('#4934: acknowledgementOnly lets a post with new facts escape, by a word ou
     // a symbol that is not a listed acknowledgement emoji is content, not skippable noise:
     // it can carry meaning (often negation), so "ok ❌" must not be held as an agreement.
     'ok ❌', 'yes ✗', 'agreed ⚠️', 'agreed \u{1F680}',
+    // a question is content in any script: the ASCII '?', the full-width CJK '？' and the
+    // Arabic '؟' all escape, so a non-English question is never mistaken for an ack.
+    'ok?', 'ok？', 'agreed？', 'ok؟',
   ]) {
     assert.equal(chat.acknowledgementOnly(s), false, 'should be content (escape): ' + JSON.stringify(s));
   }
