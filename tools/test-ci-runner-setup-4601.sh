@@ -63,7 +63,7 @@ case "$me" in
     case "$1" in
       status) if [ "${FX_SVC_STUCK:-0}" = 1 ] || [ "$(cat "$st" 2>/dev/null)" = started ]; then echo "Started"; else echo "Stopped"; fi ;;
       stop) echo stopped > "$st" ;;
-      start) echo started > "$st" ;;
+      start) [ "${FX_SVC_START_FAIL:-0}" = 1 ] && exit 1; echo started > "$st" ;;
     esac ;;
 esac
 exit 0
@@ -104,7 +104,7 @@ refuse() {  # refuse <case> <expected REFUSE text> <env...>
 }
 refuse launchd "non-Apple launchd job(s) still loaded" FX_JOBS=com.kosmos.board
 refuse crontab "crontab still has lines" "FX_CRON=*/10 * * * * mcp-sweep-alert.sh"
-refuse suite "a suite is live on this Mac" "FX_LIVE=123 bash tools/run-tests.sh"
+refuse suite "a suite looks live on this Mac" "FX_LIVE=123 bash tools/run-tests.sh"
 refuse disk "under the 20 GiB floor" FX_FREE_KIB=10485760
 refuse filevault "FileVault is not off" "FX_FV=FileVault is On."
 refuse sleep "system sleep is not 'never'" FX_SLEEP=10
@@ -201,9 +201,14 @@ R5="$T/run5"; svc_home "$R5"
 run in-tarfail "$R5" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R5" FX_TAR_FAIL=1 -- --apply install "$C" "$G"
 [ "$(rc in-tarfail)" != 0 ] && grep -q '^svc.sh stop' "$T/in-tarfail.calls" && grep -q '^svc.sh start' "$T/in-tarfail.calls" \
   && pass "install --apply starts the runner again when it fails after stopping it" || fail "install fail after stop: rc $(rc in-tarfail), calls: $(grep svc "$T/in-tarfail.calls" | tr '\n' ' ')"
-run in-owner "$H" -- install "$C" "$G"
-[ "$(rc in-owner)" = 0 ] && has in-owner "unpack into /Users/kosmos-ci/actions-runner" && ! has in-owner "$H/" \
+run in-owner "$H" KOSMOS_CI_HOME="$T/ci-home-elsewhere" -- install "$C" "$G"
+[ "$(rc in-owner)" = 0 ] && has in-owner "unpack into $T/ci-home-elsewhere/actions-runner" && ! has in-owner "$H/" \
   && pass "install dry run as the owner names kosmos-ci's paths, not the owner's" || fail "install dry as owner: $(grep WOULD "$T/in-owner.out" | head -2)"
+R6="$T/run6"; svc_home "$R6"
+run in-nostart "$R6" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R6" FX_SVC_START_FAIL=1 -- --apply install "$C" "$G"
+[ "$(rc in-nostart)" = 1 ] && has in-nostart "FAILED to start the runner again" && ! has in-nostart "runner started again" \
+  && pass "install --apply says so, and fails, when the runner does not start again" || fail "install start fails: rc $(rc in-nostart): $(tail -2 "$T/in-nostart.out")"
+[ ! -e "$R1/actions-runner/actions-runner-osx-arm64-2.999.0.tar.gz" ] && pass "install --apply removes the package after unpacking it" || fail "the runner package was left in $R1/actions-runner"
 R4="$T/run4"; mkdir -p "$R4/actions-runner"; printf 'RUNNER_KEEP=1\n' > "$R4/actions-runner/.env"; chmod 000 "$R4/actions-runner/.env"
 run in-unread "$R4" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R4" -- --apply install "$C" "$G"
 chmod 600 "$R4/actions-runner/.env"
