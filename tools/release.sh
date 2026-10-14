@@ -647,7 +647,7 @@ kosmos_setup_floor_installer_ok "this cut's install/setup.sh" "$REPO/install/set
 _floor_site="$SITE"; _floor_tmp=""
 if git -C "$SITE" fetch -q origin 2>/dev/null; then
   _floor_tmp="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-floor-site.XXXXXX")" || { echo "could not make a scratch dir for the setup floor check"; exit 1; }
-  mkdir -p "$_floor_tmp/dist" || { echo "could not make a scratch dir for the setup floor check"; exit 1; }
+  mkdir -p "$_floor_tmp/dist" || { echo "could not make a scratch dir for the setup floor check"; rm -rf "$_floor_tmp"; exit 1; }
   for _f in dist/latest.json dist/latest-staging.json setup setup-staging; do
     git -C "$SITE" show "origin/main:$_f" > "$_floor_tmp/$_f" 2>/dev/null || rm -f "$_floor_tmp/$_f"
   done

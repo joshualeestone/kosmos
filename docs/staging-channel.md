@@ -191,17 +191,18 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
 ## A floor under the installer: never serve one from before 0.7.45 (kosmos#4455)
 
 From the release that carries kosmos#4455, the installer leaves the installed `app/` read-only by default. An
-installer that cannot lift a read-only app (none before 0.7.42 can; 0.7.45 is the first one served to people on prod)
-removes `bin/` on update, fails at `app/`, and cannot
-put the board back, because `bin/kosmos` is gone. So a ROLLBACK of `/setup` or `/setup-staging` to a build older
-than 0.7.45 breaks the next update of every Mac and Linux install a later build has touched. The tools refuse
-it (kosmos#6149, `tools/lib/setup-floor.sh`): publish-staging-pointer, promote-channel, deploy-site and release.sh
-will not publish a Mac pointer below 0.7.45; deploy-site and release.sh will not publish a `/setup` or
-`/setup-staging` that does not name `KOSMOS_READONLY_APP`, and promote-channel will not make one prod's `/setup` (the switch and the lift came in one change, so
-an installer that names it can lift the lock; a string check, not a proof).
+installer that cannot lift a read-only app (none before 0.7.42 can; 0.7.45 is the first one served to people on
+prod) removes `bin/` on update, fails at `app/`, and cannot put the board back, because `bin/kosmos` is gone. So a
+ROLLBACK of `/setup` or `/setup-staging` to a build older than 0.7.45 (the floor; 0.7.42 to 0.7.44 can lift too, the
+floor is stricter on purpose) breaks the next update of every Mac and Linux install a later build has touched. The
+tools refuse it (kosmos#6149, `tools/lib/setup-floor.sh`): publish-staging-pointer, promote-channel, deploy-site and
+release.sh will not publish a Mac pointer below 0.7.45; deploy-site and release.sh will not publish a `/setup` or
+`/setup-staging` that does not name `KOSMOS_READONLY_APP`, , and promote-channel will not make such an installer
+prod's `/setup` (the switch and the lift came in one change, so an installer that names it can lift the lock; a
+string check, not a proof).
 NOT covered, because each goes around every script: a rollback done in Vercel itself (the dashboard's Instant
 Rollback, `vercel rollback`, or `vercel promote` of an older deployment), and any other hand-run `vercel deploy
---prod` (the site's README still shows one; the step 5 fallback above runs the floor's check on its export first). Never use any of them for the site once 0.7.49 is out: roll back by committing the
+--prod` (the site's README still shows one; the manual release.sh step-8 fallback above runs the floor's check on its export first). Never use any of them for the site once 0.7.49 is out: roll back by committing the
 older pointer and installer and running deploy-site.sh, which checks them.
 The way out for a person an old installer reached anyway is `chmod -R u+w` on the app folder
 (`~/.local/share/kosmos/app`) and the install line again, which nothing on their screen tells them.
