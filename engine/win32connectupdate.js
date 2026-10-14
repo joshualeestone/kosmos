@@ -41,13 +41,15 @@
  *   updated <v>        installed; the board was left stopped
  *   rolledback <v>     rolled back to <v>; the board was left stopped
  *   failed <v> <why>   the update to <v>, or the rollback to <v>, was started and did not finish
- *   failed <why>       an update was started and not seen to finish; it may still finish, so no retry is offered
+ *   pending <why>      an update or rollback was started and not seen to finish in time; it may still finish,
+ *                      so the window that ran it may now run from the copy it moved aside: it starts nothing more
+ *                      until Kosmos is opened again
  *   board              a Kosmos board answers on this computer, and it updates itself
  *   unknown <why>      the release host could not be reached or read, or this is not an installed Kosmos
  *   refused <why>      not done here: not a connect computer, an agent asked, or a precondition failed
  * and, after it, when a kept build can be rolled back to on this computer (connectReadyBuild):
  *   rollback <v>
- * Exit 0 for current, newer, updated, rolledback and board; 1 for failed and unknown; 3 for refused.
+ * Exit 0 for current, newer, updated, rolledback and board; 1 for failed, pending and unknown; 3 for refused.
  */
 
 const os = require('node:os');
@@ -65,7 +67,7 @@ const win32anchor = require('./win32anchor');
 const win32swap = require('./win32swap');
 
 const ACTIONS = Object.freeze(['look', 'install', 'rollback']);
-const EXIT = Object.freeze({ current: 0, newer: 0, updated: 0, rolledback: 0, board: 0, failed: 1, unknown: 1, refused: 3 });
+const EXIT = Object.freeze({ current: 0, newer: 0, updated: 0, rolledback: 0, board: 0, failed: 1, pending: 1, unknown: 1, refused: 3 });
 
 /** An agent never updates the Kosmos it runs under (install/kosmos _invoked_by_agent, the same marks). */
 function invokedByAgent(env) {
@@ -208,7 +210,7 @@ async function run(action, opts) {
     const outcome = await outcomeOf(r.journal, probe, o.wait);
     if (outcome.outcome === 'updated') return done(['rolledback', r.version]);
     /* No outcome yet is not a failure: the helper may still finish the rollback. Its hold is already written. */
-    if (!outcome.outcome) return done(['failed', r.version, `the roll back to ${r.version} has not finished yet and may still finish; open Kosmos again in a few minutes to see which version it is on`]);
+    if (!outcome.outcome) return done(['pending', `the roll back to ${r.version} has not been seen to finish yet`]);
     return done(['failed', r.version, oneLine(outcome.sentence || outcome.because || `the rollback ended as ${outcome.outcome}`)]);
   }
 
@@ -251,9 +253,9 @@ async function run(action, opts) {
     if (outcome.finishUnrecorded) note = `${version} is in place, but its helper did not record the finish in time`;
     return done(['updated', outcome.to || r.version || version]);
   }
-  /* No outcome yet is not a failure the person should retry: the detached helper may still finish. No
-     version leads the answer, so the window offers no retry, and no file paths reach the person. */
-  if (!outcome.outcome) return done(['failed', `the update to ${version} has not finished yet and may still finish; open Kosmos again in a few minutes`]);
+  /* No outcome yet is not a failure the person should retry: the detached helper may still finish, and
+     the window may already run from the copy it moved aside (pending). No file paths reach the person. */
+  if (!outcome.outcome) return done(['pending', `the update to ${version} has not been seen to finish yet`]);
   return done(['failed', version, oneLine(outcome.sentence || outcome.because || `the update ended as ${outcome.outcome}`)]);
 }
 

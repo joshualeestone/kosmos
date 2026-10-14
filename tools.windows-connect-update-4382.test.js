@@ -123,7 +123,7 @@ test('#4382: each run is the engine\'s, off the window\'s thread, counted so Run
   /* The window's own look is given up on (its flags let go) after the limit, and nothing is killed. */
   inOrder(look, ['if (action == "look")', 'giveUp.Interval = KosmosLauncher.UpdateLookTimeoutMs;', 'if (finished[0]) return;', 'gaveUp[0] = true;',
     'updateLookInFlight = false;', 'stopsInFlight--;', 'lookThread[0].IsBackground = true;', 'finished[0] = true;', 'if (gaveUp[0])',
-    'if (answer.Kind != KosmosLauncher.ConnectUpdateKind.Updated) return;', 'if (updateLookInFlight) lateInstall = answer;', 'else UpdateLookDone(answer, action);',
+    'if (answer.Kind != KosmosLauncher.ConnectUpdateKind.Updated && answer.Kind != KosmosLauncher.ConnectUpdateKind.Pending) return;', 'if (updateLookInFlight) lateInstall = answer;', 'else UpdateLookDone(answer, action);',
     'UpdateLookDone(answer, action);', 'if (lateInstall != null)', 'lateInstall = null;', 'if (RelaunchAfterClose == null && !IsDisposed) UpdateLookDone(late, "look");',
     'lookThread[0] = look;', 'look.Start();'],
     'giving up on a look that hangs (no longer keeping Kosmos.exe open), still recording an install it did, after any run in flight');
@@ -159,7 +159,7 @@ test('#4382: the window applies the pure decisions, and nothing else installs, r
   inOrder(method('void UpdatePicked()'), ['KosmosLauncher.UpdatePickedAction(updateState, updateLookInFlight);',
     'if (next == "busy") { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }',
     'if (next == "restart") { RelaunchAfterClose = "update"; Close(); return; }', 'if (next == "install") LookForUpdate("install");'], 'Update');
-  inOrder(method('void RollbackPicked()'), ['updateState.Rollback == null || updateState.Installed != null) return;',
+  inOrder(method('void RollbackPicked()'), ['updateState.Rollback == null || updateState.Installed != null || updateState.Unsettled) return;',
     'if (updateLookInFlight) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }',
     'if (!KosmosLauncher.askYesNo(KosmosLauncher.RollbackQuestion(updateState.Rollback))) return;',
     'if (updateLookInFlight) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }', 'LookForUpdate("rollback");'], 'Roll back, checked again after the question');
@@ -181,8 +181,10 @@ test('#4382: Update and Roll back are in the system menu, only on a connect comp
   assert.match(proc, /== UpdateMenuId\) \{ UpdatePicked\(\); return; \}/);
   assert.match(proc, /== RollbackMenuId\) \{ RollbackPicked\(\); return; \}/);
   const menu = method('void UpdateRunAgentsItem()');
-  inOrder(menu, ['bool want = mode == KosmosLauncher.ComputerMode.Connect;', 'updateState.Installed != null ? KosmosLauncher.RestartMenuText(updateState.Installed)',
-    'updateState.Offer != null ? KosmosLauncher.UpdateMenuText(updateState.Offer)', 'want && updateState.Rollback != null && updateState.Installed == null ? KosmosLauncher.RollbackMenuText(updateState.Rollback) : null;',
+  inOrder(menu, ['bool want = mode == KosmosLauncher.ComputerMode.Connect;', 'string updateText = !want || updateState.Unsettled ? null',
+    'updateState.Installed != null ? KosmosLauncher.RestartMenuText(updateState.Installed)',
+    'updateState.Offer != null ? KosmosLauncher.UpdateMenuText(updateState.Offer)',
+    'want && updateState.Rollback != null && updateState.Installed == null && !updateState.Unsettled ? KosmosLauncher.RollbackMenuText(updateState.Rollback) : null;',
     'if (systemMenuShown != null) GetSystemMenu(Handle, true);',
     'if (updateText != null) AppendMenuW(menu, MF_STRING, new UIntPtr((uint)UpdateMenuId), updateText);',
     'if (rollbackText != null) AppendMenuW(menu, MF_STRING, new UIntPtr((uint)RollbackMenuId), rollbackText);'], 'the menu');
@@ -226,13 +228,14 @@ static class UpdateProbe
         string[] p = f.Split(';');
         var s = new KosmosLauncher.ConnectUpdateState();
         s.Offer = N(p[0]); s.Installed = N(p[1]); s.Rollback = N(p[2]); s.Dismissed = N(p[3]);
+        s.Unsettled = p.Length > 4 && p[4] == "U";
         return s;
     }
     static string[] Lines(string f) { return f == "-" ? null : f.Split(new[] { "\\n" }, StringSplitOptions.None); }
     static string State(KosmosLauncher.ConnectUpdateState s)
     {
         return "O=" + Show(s.Offer) + "|I=" + Show(s.Installed) + "|R=" + Show(s.Rollback) + "|D=" + Show(s.Dismissed)
-            + "|bar=" + Show(s.BarNote) + "|btn=" + Show(s.BarButton) + "|msg=" + Show(s.Message) + "|re=" + Show(s.Relaunch) + "|next=" + s.NextLookMs;
+            + "|bar=" + Show(s.BarNote) + "|btn=" + Show(s.BarButton) + "|msg=" + Show(s.Message) + "|re=" + Show(s.Relaunch) + "|next=" + s.NextLookMs + "|U=" + (s.Unsettled ? "1" : "0");
     }
     static int Main(string[] a)
     {
@@ -305,6 +308,7 @@ test('#4382: the launcher reads every answer the engine gives as the engine mean
     [{ answer: ['updated', '0.7.50'], rollback: '0.7.46' }, 'Updated|0.7.50|-|0.7.46'],
     [{ answer: ['rolledback', '0.7.46'], rollback: null }, 'RolledBack|0.7.46|-|-'],
     [{ answer: ['failed', '0.7.50', 'The update did not take. Kosmos is still on 0.7.46.'], rollback: null }, 'Failed|0.7.50|The update did not take. Kosmos is still on 0.7.46.|-'],
+    [{ answer: ['pending', 'the update to 0.7.50 has not been seen to finish yet'], rollback: '0.7.46' }, 'Pending|-|the update to 0.7.50 has not been seen to finish yet|0.7.46'],
     [{ answer: ['board'], rollback: '0.7.40' }, 'Board|-|-|0.7.40'],
     [{ answer: ['unknown', 'the release host could not be reached'], rollback: null }, 'Unknown|-|the release host could not be reached|-'],
     [{ answer: ['refused', 'an agent may not update Kosmos; the person who runs this computer does'], rollback: null }, 'Refused|-|an agent may not update Kosmos; the person who runs this computer does|-'],
@@ -339,8 +343,8 @@ test('#4382: what each answer does: the same consent as the board, never a resta
     ['state|-;-;0.7.46;-|rolledback 0.7.46|rollback', { re: 'rollback', I: '-', O: '-' }],
     /* MUST FIX 1: an automatic install that failed: the version stays on offer, so Update can try again */
     ['state|-;-;-;-|failed 0.7.50 The update did not take.|look', { O: '0.7.50', btn: 'Update', re: '-' }],
-    /* an update not seen to finish (no version leads it): no retry offered, even with an offer on hand */
-    ['state|0.7.50;-;-;-|failed the update to 0.7.50 has not finished yet and may still finish|install', { O: '0.7.50', btn: '-' }],
+    /* an update or roll back not seen to finish: no button, and nothing more starts until Kosmos opens again */
+    ['state|0.7.50;-;-;-|pending the update to 0.7.50 has not been seen to finish yet|install', { btn: '-', U: '1', re: '-' }],
     /* a failure with no version to retry: said, and no button that would do nothing */
     ['state|-;-;-;-|failed something broke|look', { O: '-', btn: '-' }],
     /* a failed rollback is a box, and the offer bar stays as it was */
@@ -362,6 +366,11 @@ test('#4382: what each answer does: the same consent as the board, never a resta
     ['state|0.7.50;-;-;0.7.50|failed 0.7.50 again|look', { O: '0.7.50', bar: '-', btn: '-' }],
     /* a version put away with Not now stays off the bar (the menu keeps it) */
     ['state|-;-;-;0.7.50|newer 0.7.50|look', { O: '0.7.50', bar: '-' }],
+    /* a roll back not seen to finish, and the window's own look: the same, a note and nothing more started */
+    ['state|-;-;0.7.46;-|pending the roll back to 0.7.46 has not been seen to finish yet|rollback', { btn: '-', U: '1', re: '-', msg: '-' }],
+    ['state|-;-;-;-|pending the update to 0.7.50 has not been seen to finish yet|look', { btn: '-', U: '1' }],
+    /* once unsettled, it stays so whatever a later answer says, until Kosmos opens again */
+    ['state|-;-;-;-;U|updated 0.7.50|look', { U: '1' }],
   ];
   const got = runProbe(rows.map((r) => r[0]));
   rows.forEach(([input, want], i) => {
@@ -372,7 +381,8 @@ test('#4382: what each answer does: the same consent as the board, never a resta
      answer, which is also a version held after a roll back, or one whose automatic install could not start. */
   assert.equal(stateOf(got[0]).bar, 'Kosmos 0.7.50 is ready. Press Update to install it.', 'never claims updates are off');
   assert.match(stateOf(got[4]).bar, /^Kosmos could not update \(The update did not take\.\)\. Press Update to try again\.$/);
-  assert.doesNotMatch(stateOf(got[5]).bar, /Press Update/, 'an update that may still finish invites no retry');
+  assert.equal(stateOf(got[5]).bar, 'Kosmos has not finished (the update to 0.7.50 has not been seen to finish yet). Close Kosmos and open it again in a few minutes to see which version it is on.',
+    'an update that may still finish invites no retry, and says the way on');
   assert.doesNotMatch(stateOf(got[6]).bar, /Press Update/, 'a note that names a button the bar does not have');
   assert.equal(stateOf(got[7]).msg, 'The roll back did not finish: no.', 'a failed roll back never claims which version is in place');
   assert.notEqual(stateOf(got[10]).bar, '-', 'the person asked and heard nothing');
@@ -390,11 +400,14 @@ test('#4382: Not now, the daily look, and Update: pure decisions', WINDOWS_ONLY,
     'notnow|0.7.50;-;-;-|Update', 'notnow|-;0.7.50;-;-|Restart', 'notnow|0.7.50;-;-;-|-',
     'due|-;-;-;-', 'due|0.7.50;-;-;-', 'due|-;0.7.50;-;-',
     'picked|0.7.50;-;-;-|0', 'picked|-;0.7.50;-;-|0', 'picked|0.7.50;-;-;-|1', 'picked|-;-;-;-|0',
+    'due|0.7.50;-;-;-;U', 'picked|0.7.50;-;-;-;U|0', 'picked|-;0.7.50;-;-;U|0',
   ]);
   assert.deepEqual([stateOf(got[0]).D, stateOf(got[0]).bar, stateOf(got[1]).D], ['0.7.50', '-', '0.7.50'], 'Not now puts the offer, or the Restart, away');
   /* MUST FIX 2: no look (so no second install, whose cleanup would delete the folder this window runs from) while a Restart waits */
   assert.deepEqual(got.slice(3, 6), ['due', 'due', 'not-due']);
   assert.deepEqual(got.slice(6, 10), ['install', 'restart', 'busy', '-'], 'Update installs, restarts into an installed one, or says a run is under way');
+  /* An update or roll back not seen to finish: no look, and Update does nothing, until Kosmos opens again. */
+  assert.deepEqual(got.slice(10, 13), ['not-due', '-', '-']);
   /* Not now on a note with no button (could not reach the host, say) puts away the note, not the offer under it. */
   assert.deepEqual([stateOf(got[2]).D, stateOf(got[2]).bar, stateOf(got[2]).O], ['-', '-', '0.7.50']);
 });

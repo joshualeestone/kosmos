@@ -381,7 +381,7 @@ test('#4382: the report Kosmos.exe reads: the answer first, then the rollback of
   assert.equal(await connectUpdate.cliMain(['--look'], (t) => said.push(t)), 2);
   assert.match(said.join(''), /add --yes/);
   assert.equal(await connectUpdate.cliMain(['--look', '--install', '--yes'], () => {}), 2, 'one action at a time');
-  assert.deepEqual(connectUpdate.EXIT, { current: 0, newer: 0, updated: 0, rolledback: 0, board: 0, failed: 1, unknown: 1, refused: 3 });
+  assert.deepEqual(connectUpdate.EXIT, { current: 0, newer: 0, updated: 0, rolledback: 0, board: 0, failed: 1, pending: 1, unknown: 1, refused: 3 });
 });
 
 test('#4382: a status record that was never written does not turn an update that went in into a failure, on a computer with no board', T, async () => {
@@ -505,7 +505,7 @@ test('#4382: an update left unfinished (a crash, a helper killed) is handed to i
   dying.helperOptions = { ...dying.helperOptions, spawn: (file, args) => { c.spawned.push({ file, args }); return { pid: 4242, on() {}, unref() {} }; } };
   dying.wait = { now: () => clock, sleep: async (ms) => { clock += ms; }, waitMs: 1000 };
   const first = await connectUpdate.run('look', dying);
-  assert.equal(first.answer[0], 'failed', JSON.stringify(first));
+  assert.equal(first.answer[0], 'pending', JSON.stringify(first));
   assert.equal(win32apply.readJournal(win32apply.journalPathFor(c.anchor)).state, 'unfinished');
   /* An hour on, the next look finds it. */
   const s = site(NEXT);
@@ -546,12 +546,11 @@ test('#4382: a roll back whose outcome is not seen in time is not called finishe
   slow.helperOptions = { ...slow.helperOptions, spawn: (file, args) => { c.spawned.push({ file, args }); return { pid: 4242, on() {}, unref() {} }; } };
   slow.wait = { now: () => clock, sleep: async (ms) => { clock += ms; }, waitMs: 1000 };
   const back = await connectUpdate.run('rollback', slow);
-  assert.equal(back.answer[0], 'failed');
-  assert.match(back.answer[2], /has not finished yet and may still finish/);
+  assert.deepEqual(back.answer, ['pending', `the roll back to ${INSTALLED} has not been seen to finish yet`], 'pending, so the window starts nothing more until it is opened again');
   assert.equal(readJson(path.join(c.anchor, win32anchor.UPDATE_HELD_NAME)).version, NEXT, 'the next automatic look will not put it back');
 });
 
-test('#4382: an install whose outcome is not seen in time is not offered for a retry, and no file paths reach the person', T, async () => {
+test('#4382: an install whose outcome is not seen in time is pending, not offered for a retry, and no file paths reach the person', T, async () => {
   setMode('connect\n');
   setConsent(true);
   const c = freshCase();
@@ -561,10 +560,9 @@ test('#4382: an install whose outcome is not seen in time is not offered for a r
   slow.helperOptions = { ...slow.helperOptions, spawn: (file, args) => { c.spawned.push({ file, args }); return { pid: 4242, on() {}, unref() {} }; } };
   slow.wait = { now: () => clock, sleep: async (ms) => { clock += ms; }, waitMs: 1000 };
   const r = await connectUpdate.run('look', slow);
-  assert.equal(r.answer[0], 'failed');
-  assert.equal(r.answer.length, 2, 'no version leads it, so the window offers no retry');
-  assert.match(r.answer[1], /has not finished yet and may still finish/);
+  assert.deepEqual(r.answer, ['pending', `the update to ${NEXT} has not been seen to finish yet`], 'pending: the window may now run from the copy the update moved aside');
   assert.doesNotMatch(r.answer[1], /\.json|[A-Z]:\\/, 'no file paths');
+  assert.equal(connectUpdate.EXIT.pending, 1);
 });
 
 test('#4382: a board that starts while the look runs is asked about again right before anything is started', T, async () => {
