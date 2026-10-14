@@ -15,6 +15,9 @@
 #
 #   bash tools/test-setup-staging-5032.sh
 set -uo pipefail
+# kosmos#6149: these fixtures' installers are stand-ins (they do not carry KOSMOS_READONLY_APP), so the setup floor is
+# lowered here, which skips its installer check. tools/test-setup-floor-6149.sh tests the floor itself.
+export KOSMOS_SETUP_FLOOR_TEST=1 KOSMOS_SETUP_FLOOR_LOWER=0.0.0
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/setup-staging-5032.XXXXXXXX")"

@@ -62,27 +62,42 @@ kosmos_setup_floor_pointer_ok() {
 }
 
 # The installer's own bytes. A pointer's version says nothing about the /setup or /setup-staging served beside it,
-# and a hand rollback can commit an old one next to a new pointer. Every installer from 0.7.45 on knows the read-only
-# app and its switch (KOSMOS_READONLY_APP, #4449); none before 0.7.45 does (measured on the served history: 0.7.44's
-# /setup has 0 mentions, 0.7.45's 7). So an installer without it is older than the floor.
+# and a hand rollback can commit an old one next to a new pointer. The switch (KOSMOS_READONLY_APP) and the lift that
+# removes a read-only app before the swap came in ONE change, #4449 (74ed0594c7), so an installer that names the
+# switch can lift the lock, and one that does not cannot. install/setup.sh has it from 0.7.42 (measured by Ice Cream
+# Kitty at each version commit: 0.7.42 6 mentions, 0.7.43 to 0.7.48 7, 0.7.49 9); the prod /setup served before
+# 0.7.45 (0.7.35's) has 0. So this check accepts exactly the installers that can lift (0.7.42 on), while the
+# pointers' floor stays 0.7.45, the first PROD-served one: stricter than needed, which fails closed.
 KOSMOS_SETUP_FLOOR_MARKER="KOSMOS_READONLY_APP"
 
 # `kosmos_setup_floor_tree_ok <who> <dir>`: the tree a deploy is about to publish (its export) must hold no Mac
 # pointer and no installer older than the floor: dir/dist/latest.json and dir/dist/latest-staging.json (when present)
 # through kosmos_setup_floor_pointer_ok, and dir/setup and dir/setup-staging (when present) must carry the marker.
-# Under a lowered floor (test fixtures) the installer check is skipped, with the same warning.
+# Under a lowered floor (test fixtures) the installer check is skipped, with a warning. Out of its scope, on purpose:
+# the .pkg (its postinstall fetches and verifies /setup, so /setup covers it) and the unversioned alias tarball (the
+# app, not an installer).
+# `kosmos_setup_floor_installer_ok <label> <file>`: the installer must know the read-only app (the marker). Under a
+# lowered floor (test fixtures, whose installers are stand-ins) it is skipped, with the warning.
+kosmos_setup_floor_installer_ok() {
+  local label="$1" file="$2"
+  if [ "$KOSMOS_SETUP_FLOOR" != "$KOSMOS_SETUP_FLOOR_REAL" ]; then
+    echo "setup floor (kosmos#6149): WARNING the floor is LOWERED to $KOSMOS_SETUP_FLOOR (the real floor is $KOSMOS_SETUP_FLOOR_REAL): the installer check on $label is skipped: tests only" >&2
+    return 0
+  fi
+  grep -q "$KOSMOS_SETUP_FLOOR_MARKER" "$file" || {
+    echo "setup floor (kosmos#6149): $label does not know $KOSMOS_SETUP_FLOOR_MARKER, so it is an installer from before $KOSMOS_SETUP_FLOOR_REAL and would break every install a read-only build has touched -- refusing" >&2
+    return 1
+  }
+}
+
 kosmos_setup_floor_tree_ok() {
   local who="$1" dir="$2" f
   for f in dist/latest.json dist/latest-staging.json; do
     [ -f "$dir/$f" ] || continue
     kosmos_setup_floor_pointer_ok "$who: $f" "$(cat "$dir/$f")" || return 1
   done
-  [ "$KOSMOS_SETUP_FLOOR" = "$KOSMOS_SETUP_FLOOR_REAL" ] || return 0
   for f in setup setup-staging; do
     [ -f "$dir/$f" ] || continue
-    grep -q "$KOSMOS_SETUP_FLOOR_MARKER" "$dir/$f" || {
-      echo "setup floor (kosmos#6149): $who: $f does not know $KOSMOS_SETUP_FLOOR_MARKER, so it is an installer from before $KOSMOS_SETUP_FLOOR_REAL and would break every install a read-only build has touched -- refusing" >&2
-      return 1
-    }
+    kosmos_setup_floor_installer_ok "$who: $f" "$dir/$f" || return 1
   done
 }

@@ -14,19 +14,30 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
     (kosmos-<v>-<arch>.tar.gz) must clear the floor and agree; any other artifact shape is refused (fail closed).
   - `kosmos_setup_floor_tree_ok <who> <dir>`: the tree a deploy publishes: both pointers through the pointer check,
     and /setup and /setup-staging must carry KOSMOS_READONLY_APP. A pointer's version says nothing about the
-    installer bytes beside it (a hand rollback can commit an old one next to a new pointer); every installer from
-    0.7.45 on knows that switch (#4449) and none before does (measured on the served history: 0.7.44's /setup 0,
-    0.7.45's 7, today's /setup 7 and /setup-staging 9).
+    installer bytes beside it (a hand rollback can commit an old one next to a new pointer). The switch and the
+    lift came in one change, #4449, so naming the switch means the installer can lift the lock. Measured by Ice
+    Cream Kitty at each version commit's install/setup.sh: 0.7.42 6 mentions, 0.7.43 to 0.7.48 7, 0.7.49 9; the prod
+    /setup served before 0.7.45 (0.7.35's) has 0; today's /setup 7, /setup-staging 9.
+    CORRECTION (mine): an earlier version of this plan said "0.7.44's /setup 0"; the file I read was the previous
+    commit in the site's setup history, which is 0.7.35's prod /setup, not 0.7.44's.
 - Called:
   - publish-staging-pointer.sh, before the staging pointer is written (version);
   - promote-channel.sh (mac family), on the staging snapshot's version and artifact, before prod is touched;
   - deploy-site.sh, early on both committed pointers (fail fast), and on its EXPORT right before vercel (the bytes
     it publishes);
   - release.sh, on its own site export right before its vercel deploy (a cut publishes both pointers and both
-    installers too, including the prod ones a staging cut does not touch).
+    installers too, including the prod ones a staging cut does not touch), and early (step 1a-floor) on the site
+    checkout's prod pointer and /setup, so a site below the floor refuses before anything is built.
+  - promote-channel.sh also checks setup-staging's marker before copying it onto /setup (before any write).
+- deploy-site's early committed-pointer check is a fail-fast: its export check would refuse the same pointers;
+  only the staging-pointer arm of the test is specific to it.
+- Out of scope, on purpose: the .pkg (its postinstall fetches and verifies /setup, so /setup covers it) and the
+  unversioned alias tarball (the app, not an installer).
 - No override for real use: the fix for an old build is a newer build, never a flag.
 
 ## Decided
+- The pointer floor is 0.7.45, the first PROD-served installer that can lift the lock; 0.7.42 to 0.7.44 can lift
+  too (the marker check accepts them), so 0.7.45 is stricter than needed, which fails closed.
 - The floor is unconditional, not "only once 0.7.49 is served": a rollback of staging to 0.7.47 would disarm a
   conditional floor, and the next step down would break installs that had 0.7.49.
 - Tests whose fixtures are 0.6.x builds lower it with BOTH KOSMOS_SETUP_FLOOR_TEST=1 and a plain-number

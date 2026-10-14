@@ -183,6 +183,8 @@ if [ "$FAMILY" = mac ] && [ -n "$PTR_SETUP" ]; then
   [ "$_sw" = "$_sg" ] \
     || { echo "promote-channel: setup-staging.sha256 names '${_sw:-nothing}', not the setup-staging bytes $_sg - refusing; nothing was written." >&2; exit 1; }
   SETUP_STAGING="$_sg"
+  # kosmos#6149: setup-staging is about to become /setup: it must know the read-only app (before any write).
+  kosmos_setup_floor_installer_ok "setup-staging (about to become /setup)" "$SITE/setup-staging" || exit 1
 fi
 
 
