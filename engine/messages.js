@@ -1111,8 +1111,8 @@ function staleHeld(projectId, ids, log, now, member) {
        the round's other posts were told to it again as new. So a reply to another's post X also answers the posts
        before X that any default room read showing X, made before the member's first reply to X, showed: the
        ROOM_READ_ROWS - 1 rows before X, less one for each row after X and before that reply, of the kinds the read
-       shows, in the order it shows them (server.js). Outside rows count as full slots, which the read's outside cap
-       only makes smaller. */
+       shows, in the order it shows them (server.js). Outside rows count as full slots; the read skips outside rows past
+       its cap, so it reaches further back than that, never less far. */
     const covered = new Set();
     const firstReply = new Map();
     if (answered.size && rows.some((r) => r && r.kind === 'post' && r.project === projectId && want.has(r.id))) {

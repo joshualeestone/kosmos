@@ -238,7 +238,7 @@ test('#4926 N7: one reply to the round\'s newest post (m1032) answers the 8 olde
   assert.ok(!messages.staleHeld('p1', ['m1024'], [...base, between, answer], NOW, 'mark').has('m1024'), 'a row between the answered post and the reply did not narrow the window');
   assert.ok(messages.staleHeld('p1', ['m1024'], [...base, answer, after], NOW, 'mark').has('m1024'), 'a row after the reply narrowed the window (control: it must not)');
   // A held post whose time does not parse does not switch the rule off for the others.
-  assert.ok(messages.staleHeld('p1', ['m1028', 'm1050'], [...round, { ...post('m1050', 31), at: 'not a time' }, answer], NOW, 'mark').has('m1028'),
+  assert.ok(messages.staleHeld('p1', ['m1028', 'm1050'], [...round, { ...post('m1050', 31), at: '' }, answer], NOW, 'mark').has('m1028'),
     'an unreadable held post switched N7 off');
   // Deliberate: an older ask a usage limit kept (#5805) is covered too, so withoutStale drops it rather than keep it back.
   // The ask is over a day old, so the day rule would drop it; the limit hold keeps it back unless it was answered.
