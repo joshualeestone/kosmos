@@ -55,7 +55,9 @@ function runTmux(args, opts) {
    (measured, tmux 3.6a), so text inside a value is consumed as the value and can never be read as an entry or a
    marker. Statements are exactly  NAME="<escaped>"; export NAME;  or  unset NAME;  and anything else makes the whole
    batch unknown. */
-const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/* Review 3: any name tmux accepts (it refuses only '='; a bash-exported function is BASH_FUNC_f%%). A narrower
+   pattern defended nothing and turned EVERY read unknown on a server whose global held one such name. */
+const NAME_RE = /^[^=\n]+$/;
 
 /* Parse one batch's output. order: the markers expected, in order ('g', '0', '1', ...). Returns the
    CLAUDE_CONFIG_DIR entry per block ({ set } | { removed } | {}) or null when the output is not that exact shape. */
@@ -76,14 +78,14 @@ function parseQuoted(text, order) {
     }
     if (!blocks.length) return null;   // output before the first marker: not the shape asked for
     const cur = blocks[blocks.length - 1];
-    const unset = /^unset ([A-Za-z_][A-Za-z0-9_]*);$/.exec(head);
+    const unset = /^unset ([^=\n]+);$/.exec(head);
     if (unset) {
       if (unset[1] === 'CLAUDE_CONFIG_DIR') { if ('set' in cur || cur.removed) return null; cur.removed = true; }
       i = end + 1;
       continue;
     }
     const eq = text.indexOf('="', i);
-    if (eq < 0 || eq > end) return null;
+    if (eq < 0) return null;   // a '="' on a later line leaves a newline in the name, which NAME_RE refuses
     const name = text.slice(i, eq);
     if (!NAME_RE.test(name)) return null;
     let j = eq + 2;
@@ -150,7 +152,10 @@ function sessionClaudeDirs(names, opts) {
     part.forEach((n, i) => {
       const e = read.sessions[i];
       if ('set' in e) { if (e.set !== '') out.set(n, e.set); }   // set but empty: what the runner does with it is unknown
-      else if (e.removed) out.set(n, '');
+      /* Review 3: names print UNquoted, and a name may hold a newline, so a session-level removal line can be forged
+         (tmux refuses '=' in a name, so a forged SET cannot). The supervisor never removes the variable per session,
+         so a removal while the server has a global value is answered unknown rather than trusted. */
+      else if (e.removed) { if (!globalSet) out.set(n, ''); }
       else if (!globalSet) out.set(n, '');
       // else: no entry of its own while the server has a global value: it may have inherited it. Unknown.
     });
