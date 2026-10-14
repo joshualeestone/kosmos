@@ -45,6 +45,12 @@ Card: kosmos#6175 (#6108 follow-up).
   (no path in the body).
 
 ## Decided, not missed
+- Review 8 nit, exact dir match: the route finds the account by its exact resolved folder from this computer's own list.
+  A symlinked or differently spelled folder gets 404, never an alias. Kept: the page always sends the listed folder, and
+  matching aliases would widen what the route can write to.
+- Review 8 nit, success said while a concurrent writer re-breaks the file: "Usage reading set up" reports what the route
+  did to the file at that moment; the repaint shows the row's real state, and the next paint corrects a race. Not built:
+  a second status ("set up, but changed since") would be a rare message with no action the person can take.
 - The default account (~/.claude) is offered too: the person presses the button, and the line says what it changes in
   their own Claude Code.
 - An own status line is never replaced (ensureStatusLine refuses; the test pins the file byte for byte).

@@ -11104,7 +11104,7 @@ const server = http.createServer(async (req, res) => {
             })(),
             /* #6108: why there can be NO reading for this account, when that is known: 'windows' (the statusline that
                records it is not wired there) or 'own-statusline' (the account already has a status line of its own, which
-               Kosmos leaves alone) or 'not-wired' (no status line: nothing records a reading; Kosmos wires one only when an account is added).
+               Kosmos leaves alone) or 'not-wired' (no status line: nothing records a reading; Kosmos wires one when an account is added, or when the person asks on the row via POST /api/accounts/claude/usage-reading, #6175).
                null when Kosmos's own status line is there, so a reading comes once an agent on it works. The page says "cannot read" only for these, never as a guess. */
             weeklyBlocked: (() => {
               if (a.apiKey || typeof a.dir !== 'string' || !a.dir) return null;   // no folder: nothing to say about it
