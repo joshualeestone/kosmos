@@ -48780,8 +48780,13 @@ function paintPjNone(which) {
    key -- an untouched rail has to stay reactive to resize AFTER a wide
    session where the person never touched it, not freeze at whatever it
    happened to render on the one tick they clicked something else. */
+/* #6107 landscape slice: a touch tablet held sideways, 1100px and wider (an iPad mini is 1133, an 11-inch 1194),
+   is the split view: the agents rail starts OPEN there, with names and latest lines, rather than folded to faces.
+   Under 1100px the three columns do not fit and the old fold stays. The person's own choice (the > button,
+   stored for the session) still wins either way. */
+const CONSOLIDATED_TABLET_OPEN_MQ = '(hover: none) and (pointer: coarse) and (orientation: landscape) and (min-width: 1100px)';
 function railFoldsApply() {
-  const narrow = layoutConsolidated() && window.innerWidth < CONSOLIDATED_FOLD_WIDTH;
+  const narrow = layoutConsolidated() && window.innerWidth < CONSOLIDATED_FOLD_WIDTH && !(window.matchMedia && window.matchMedia(CONSOLIDATED_TABLET_OPEN_MQ).matches);
   /* #3126 (Josh, 6.68): the Projects column is no longer collapsible - its "<"
      control was removed, so only the agents column ('a') folds here. Clear any
      stale fold-p (a prior session's stored '1', or a narrow-width auto-fold from
