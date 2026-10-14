@@ -87,7 +87,7 @@
     },
     {
       "title": "Quiet runs of a recurring task roll up",
-      "line": "Runs of a recurring task that found nothing new, or repeated the same note, fold into one row; its card says when something last changed.",
+      "line": "Runs of a recurring task that found nothing new fold into one row in its history; the task says when something last changed.",
       "icon": "list",
       "rank": 10,
       "since": "0.7.32",
@@ -488,7 +488,7 @@
     },
     {
       "title": "Kosmos has its own iPad layouts",
-      "line": "On an iPad held sideways, Agents and Projects open on One screen unless you chose Tabs on it; upright, Tabs puts agent cards two across.",
+      "line": "Sideways, an iPad shows Agents and Projects side by side (its View switch changes only that iPad); upright, cards go two across.",
       "icon": "phone",
       "rank": 3,
       "since": "0.7.49",
@@ -496,15 +496,15 @@
     },
     {
       "title": "Decision tasks say who needs you",
-      "line": "A task in Needs Your Decision now names the agent waiting on you, when one is, and why, in the project page's words.",
+      "line": "A task in Needs Your Decision now names the agent waiting on you, when one is, and why.",
       "icon": "tasks",
       "rank": 6,
       "since": "0.7.50",
       "status": "pending"
     },
     {
-      "title": "Kosmos restarts behind your app",
-      "line": "When Kosmos restarts itself onto a new version while another app is in front, it now opens behind that app.",
+      "title": "Kosmos restarts behind the app you use",
+      "line": "From the next update on, when Kosmos restarts itself onto a new version while another app is in front, it opens behind that app.",
       "icon": "spark",
       "platforms": [
         "mac"
