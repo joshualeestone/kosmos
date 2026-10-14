@@ -28242,14 +28242,14 @@ async function paintAccounts(opts) {
           const target = r || document.getElementById('set-accounts');   // the row gone: the list, never the page itself
           if (target) { target.setAttribute('tabindex', '-1'); target.focus(); }
         };
-        if (msg && PAINT_SAYS.includes(msg.textContent)) msg.textContent = OK_SAY;   // review 4: never over another writer's text, even the first time
+        if (msg && PAINT_SAYS.includes(msg.textContent)) { acctCancelSay(); msg.textContent = OK_SAY; }   // review 4: never over another writer's text, even the first time
         else if (msg) { claimFocus(); return; }   // someone else spoke while the repaint ran: theirs stands; focus is still not left on the page (review 5)
         claimFocus();
         for (let i = 0; i < 10; i++) {
           await new Promise((r) => setTimeout(r, 100));
           if (msg && msg.textContent !== OK_SAY) {
             if (!PAINT_SAYS.includes(msg.textContent)) break;   // another writer spoke: theirs stands
-            msg.textContent = OK_SAY;
+            acctCancelSay(); msg.textContent = OK_SAY;
           }
           claimFocus();
         }
@@ -28269,7 +28269,7 @@ async function paintAccounts(opts) {
       const prevLive = live.nextElementSibling;
       if (live !== btn && prevLive && prevLive.dataset && prevLive.dataset.usageSay) prevLive.remove();
       live.after(say);
-      if (msg) msg.textContent = say.textContent;   // review 1: the status region speaks it; the row keeps it in view
+      if (msg) { acctCancelSay(); msg.textContent = say.textContent; }   // every writer to that line cancels (the #2684 note)   // review 1: the status region speaks it; the row keeps it in view
       btn.textContent = 'Set up usage reading';
       btn.disabled = false;
       { const a = document.activeElement; if (live.isConnected && (!a || a === document.body || !a.isConnected)) live.focus(); }   // review 4: a keyboard user can retry from here
