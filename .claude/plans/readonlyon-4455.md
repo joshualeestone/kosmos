@@ -240,3 +240,30 @@ shell the signing fails and no bundle is built).
 - What that rests on: the bundles were built at 83e1349de2 and only `tools/test-install.sh` changed after, so the
   rerun did not rebuild them. One run of each form. Logs: `~/.cache/ick-validation/ick-4455-installtest-*.log`
   on Mortals, the gate one copied to Agent1s.
+
+## A fresh review after the merges (2026-10-13 21:05 CDT): round 1, what it found and what I did
+The branch changed after the first loop converged (two merges of main, the What's New label, the install test's
+check), so the review starts again from nothing. Round 1 raised four warnings and one convention finding.
+- **Nothing that runs by itself checked the new default.** True, and worse than I had it: the release gate stops
+  before this branch's checks, the shell suite only syntax-checks `tools/test-install.sh`, and with the default
+  put back to off the branch's own shell test still passed (it lifts one block out of the installer, and the
+  default is read outside it). Fixed: the Linux install workflow, which runs on every pull request and installs
+  with the switch unset, now fails if `app/` or `app/server.js` is writable after the install (and if `bin/`
+  is not). First measured when the pull request's own run of it finishes; not measured before that.
+- **The What's New entry would show on Windows**, where nothing is read-only (`tools/windows/setup.ps1` has no
+  such step). Fixed: tagged `"platforms": ["mac"]`, as its neighbour is.
+- **`KOSMOS_READONLY_APP=0` lasts one run.** The board's own updater runs the installer without it, so an app
+  left writable is read-only again after its next update. Decided: say so, in the installer's header, and keep it
+  that way. Rejected: recording the choice in the install so it sticks. The switch is a way out for one bad
+  update, not a setting; a stored "stay writable" is a second thing to keep right at every update, for a state
+  the card exists to end. What would change my mind: someone who needs a writable installed app for good (a
+  developer running from the installed copy). Then it is a stored choice, with its own test.
+- **The rollback hazard, restated for whoever cuts:** a `/setup` OR a `/setup-staging` older than 0.7.45, run
+  over an app this installer locked, removes `bin/`, fails at the read-only `app/`, and cannot put the board
+  back. Nothing guards it. Both served files are 0.7.47 today. The way out for that person is `chmod -R u+w` on
+  the app folder and the install line again, which they would have no way to know. On the card.
+- **The comment "this turns it on in the release after"** was no longer true (two releases went by). Corrected.
+Not taken, with reasons: the four small points about the installer's logic (re-locking after an interrupted swap,
+a hint for `=false`, the Finder advice, a GNU `find` first on PATH). Each is a real edge and each is a change to
+the installer's update path, which would need the install test run again on Mortals for one line apiece. They go
+on the card as a follow-up, not into this change.

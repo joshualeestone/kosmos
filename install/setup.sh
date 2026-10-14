@@ -743,6 +743,8 @@ LOG="$LOG_DIR/install.log"
 # thumb drive. Same code path, one variable different.
 # The installed app/ folder is left read-only after an install or update (#4449; on by default since #4455).
 # KOSMOS_READONLY_APP=0 leaves it writable, as before. Only 0 is off: unset, EMPTY, or any other value is on.
+# It is read on EACH run and kept nowhere: the board's own updater runs this file without it, so an app left
+# writable with =0 is read-only again after its next update.
 KOSMOS_RELEASE_BASE="${KOSMOS_RELEASE_BASE:-https://installkosmos.com/dist}"
 
 # ⚠️ EVERY DOWNLOAD IS CHECKSUM-VERIFIED before anything is extracted. The
@@ -1422,8 +1424,8 @@ install_kosmos() {
   # writer and lifts it for its own swap (above). Mode bits only: an ACL that allows writing is left as it is.
   # 🛑 IT WAS OFF FOR ONE RELEASE ON PURPOSE (#4449 review iteration 1): an installer from before #4449 cannot
   # remove a read-only app, so its update would die with the board paused. 0.7.45 was the first /setup served to
-  # people that can lift it (above, and in uninstall), from 2026-10-13; this turns it on in the release after.
-  # STILL TRUE: a /setup rolled back to before 0.7.45, meeting an install this one locked, fails that way. The
+  # people that can lift it (above, and in uninstall), from 2026-10-13; it is on from the release that carries #4455.
+  # STILL TRUE: a /setup or /setup-staging rolled back to before 0.7.45, meeting an install this one locked, fails that way. The
   # way out for that person is the lift by hand, `chmod -R u+w` on the app folder, then the install line again.
   # KOSMOS_READONLY_APP=0 leaves the app writable (anything but 0, or unset, is on).
   if [ "${KOSMOS_READONLY_APP:-1}" != 0 ]; then

@@ -102,6 +102,12 @@ jobs:
           test -f "$KOSMOS_HOME/runtime/bin/node" && test -x "$KOSMOS_HOME/runtime/bin/node"
           "$KOSMOS_HOME/runtime/bin/node" --version
 
+          # #4455: the installed app is read-only BY DEFAULT. This install ran with KOSMOS_READONLY_APP unset, so
+          # this is the one place that checks the default on every pull request (tools/test-install.sh checks it
+          # too, but past the point where the release gate stops, and nothing runs that file automatically).
+          test ! -w "$KOSMOS_HOME/app" && test ! -w "$KOSMOS_HOME/app/server.js"
+          test -w "$KOSMOS_HOME/bin"
+
           # #4920: the unit is piece B's (engine/linuxboard.js boardUnitFor), written by installBoard. grep -F: the
           # values are literal text, and the unit quotes them.
           UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.service"
