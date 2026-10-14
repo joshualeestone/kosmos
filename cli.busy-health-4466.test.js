@@ -25,6 +25,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFile, spawn } = require('node:child_process');
+const { eventually } = require('./test-support/eventually');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const SCRATCH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-scratch-'));
@@ -187,7 +188,9 @@ test('#4466 one probe keeps to ONE budget: an older board whose 404 is slow does
   const first = Number(fs.readFileSync(firstFile, 'utf8'));
   // Review: the stub writes .pageclose on its own clock; give it up to 2 s rather than reading a file that may lag.
   const closeFile = firstFile + '.pageclose';
-  for (let i = 0; i < 40 && !fs.existsSync(closeFile); i++) await new Promise((r) => setTimeout(r, 50));
+  // #5727: load-aware poll for the stub's async .pageclose write, was a count-based for-tick loop (40 x 50ms, positive wait); .catch keeps the old no-throw fall-through so the assert below stays the check.
+  // Scaling only lengthens the wait for the marker file: pageBudgetMs is read from the file's contents and `ended` was captured before this poll, so no measured budget shifts.
+  await eventually(() => fs.existsSync(closeFile), (v) => v, { timeoutMs: 2000, stepMs: 50 }).catch(() => {});
   assert.ok(fs.existsSync(closeFile), 'the page was never requested, or its connection never closed');
   const pageClose = Number(fs.readFileSync(closeFile, 'utf8'));
   const pageBudgetMs = pageClose - first;

@@ -1027,6 +1027,7 @@ const reports = require('./engine/reports');
 const limits = require('./engine/limits');
 const engmode = require('./engine/engmode');
 const accounts = require('./engine/accounts');
+const pluginreach = require('./engine/pluginreach'); // #5309 p2: per-agent "a plugin you added does not reach this agent"
 const observed = require('./engine/observed');
 const codexsigninlive = require('./engine/codexsigninlive');   // #3997: the ChatGPT sign-in's free live check
 const claudeloginlive = require('./engine/claudeloginlive');   // #3997 (ruling C): a Claude login's own date, never a token
@@ -3399,7 +3400,11 @@ const outbox = require('./engine/outbox');
    sends the header on EVERY call, including person-side ones such as `kosmos
    open`'s board-nonce run from a terminal with no KOSMOS_WORLD, and those must
    never be refused for it. */
-const WORLD_CHECKED_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply', 'POST /api/msg', 'POST /api/post', 'POST /api/react']);
+const WORLD_CHECKED_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail']);   // toolfail: #6071, a digest meant for another Kosmos is refused like a report
+
+/* #6071: when POST /api/toolfail last said each kind of line (a refusal reason, an agent's first failure of a run). */
+const TOOLFAIL_SAID = new Map();
+const TOOLFAIL_SAY_MS = 10 * 60 * 1000;
 
 /* 421 Misdirected Request: the request is well formed and was sent to a server
    that cannot answer for it, which is exactly "this board is serving another
@@ -4033,6 +4038,54 @@ function withUnread(list) {
    chats dir, or that one thread) -- unknown is not zero -- and never a 500: an
    agents list that failed because a badge could not be computed would be the
    wrong thing to lose. A per-agent null in the map passes through as null. */
+/* #5309 slice 2: attach a per-agent plugin-reach signal (`a.reach`) to the status rows. For each agent
+   we started (it has an `account` row), does a plugin/connection the person added in their OWN provider
+   app reach this agent -- and if not, is there EVIDENCE they added one it lacks, else render nothing (so
+   a secondary-account or Codex agent with nothing added does NOT false-warn). Resolved from the row's own
+   runner + account.dir, so NO extra launch-file read; the evidence (enabledPlugins / mcpServers, or
+   ~/.codex for Codex) is mtime-cached per folder in engine/pluginreach, so an unchanged poll adds no
+   settings.json/.claude.json read -- the read-once-per-poll discipline #5314 uses, extended to the
+   per-agent-folder case this read needs. `a.reach` is null for a pane we cannot tie to an agent.
+   The live pane's CLAUDE_CONFIG_DIR is not available at /api/status, so a default-account agent
+   EFFECTIVE_CCD-pinned elsewhere stays reaches:true and stays silent -- a missed notice, never a false
+   one (the safe direction). Exported + injectable (opts.fs, opts.personHome) so a test can drive it with
+   fixture rows and count reads, exactly like withAgentSortFields. */
+function attachPluginReach(agents, opts) {
+  const o = opts || {};
+  let personHome;
+  try { personHome = (o.personHome !== undefined) ? o.personHome : accounts.homeDir(); } catch { personHome = null; }
+  const personClaudeDir = personHome ? path.join(personHome, '.claude') : null;
+  const personClaudeJson = personHome ? path.join(personHome, '.claude.json') : null;
+  const personCodexHome = personHome ? path.join(personHome, '.codex') : null;
+  const deps = o.fs ? { fs: o.fs } : undefined;
+  const trust = require('./engine/trust'); // memoized; canonicalOnDisk keys a folder the way Claude Code does
+  const canon = o.canonicalize || trust.canonicalOnDisk; // injectable for tests; realpath the way Claude keys projects
+  for (const a of (agents || [])) {
+    if (!(personClaudeDir && a && a.account)) { if (a) a.reach = null; continue; }
+    // This agent's own working folder, canonicalized the way Claude Code keys .claude.json `projects`
+    // (#5309, Liu Kang's ruling): it selects ONLY the per-project mcpServers added in THIS agent's folder.
+    // Passed as a LAZY THUNK so its syscalls (workerDir read + realpath) run ONLY on the separate-account
+    // path that uses it, never for a default-account or other-runner agent every poll (#5309 iter 3).
+    // Unknown (no name / no worker dir / unresolvable) -> null -> top-level only (the safe, missed direction).
+    const agentWorkFolder = () => {
+      try {
+        const wd = (o.workerDir ? o.workerDir(a.sessionName) : (a.sessionName ? create.workerDir(a.sessionName) : null));
+        return wd ? canon(wd) : null;
+      } catch { return null; }
+    };
+    // Per-agent guard (#5309 iter 4): a surprise in ONE row's reach computation must never 500 the whole
+    // /api/status response (its agents list has its own never-throw contract). An unexpected input -> null reach.
+    try {
+      a.reach = pluginreach.agentPluginReach({
+        runner: a.runner,
+        agentClaudeDir: (a.account.dir || null),
+        personClaudeDir, personClaudeJson, personCodexHome, agentWorkFolder,
+      }, deps);
+    } catch { a.reach = null; }
+  }
+  return agents;
+}
+
 function withAgentSortFields(list, supplied) {
   let direct = null; let roomRows = null; let births = null;
   let communityOn = false;
@@ -4630,7 +4683,7 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    as any agent holding the board token already can. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/community/read',
-  'POST /api/undo/keep', 'POST /api/agent/reply-channel']);   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler
+  'POST /api/undo/keep', 'POST /api/agent/reply-channel', 'POST /api/toolfail']);   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler; toolfail: #6071, its handler resolves the caller token-first (resolveAgentSender)
 /* kosmos#5805 part 2: `kosmos reply-channel` (POST /api/agent/reply-channel) joins: its handler names the caller
    (processCaller) and sets only that agent's own channel; no name in the body is read. Every Windows agent holds a
    token and no board token, and the report came from there. */
@@ -4678,6 +4731,26 @@ function sameAgentName(a, b, byKey) {
    with no JSON parser and reads it with sed, as it reads `error`), so neither says an assignee was told when it was
    not. No double quote, backslash or control character (JSON would escape one with a backslash), so that read cannot be cut short and prints as sent. `assigned` is how many are on the task; the
    sender is already off `delivered`. */
+/* #6066: a reviewer that posts its verdict with `kosmos task message` has finished the task in words only, so the task
+   stays open and whatever waits on it (a parent that is ready when its subtasks are, #5956) waits on a review that is
+   done. The reply to the task's OWN holder says how to finish it, at the moment it gives its word. Never inferred from
+   the text (a message that looks final is a guess), never for the screen, a non-holder, a repeating task (never
+   built, #4787), a task already built or closed, one on hold, or one waiting on the person's decision (something does
+   still wait on it then). Review 1: never for a task of more than one part either: `task built` marks the WHOLE task,
+   so one part's holder would finish everybody's parts. The holder is matched as the route matches its sender
+   (sameAgentName with the paneless key), so a Windows or other paneless agent is told too. Single quotes, no
+   backslash and no < or > (a cmd.exe redirection): the Mac CLI reads `summary` with sed up to the first double quote. */
+function taskFinalWordHint(t, senderName, projectId, byKey) {
+  if (!t || !senderName || t.repeat) return '';
+  if (tasks.partsOf(t).length > 1) return '';
+  if (!tasks.whoOf(t).some((m) => sameAgentName(m, senderName, byKey))) return '';
+  const st = tasks.taskState(t);
+  if (st === 'closed' || st === 'built' || st === 'held' || st === 'decision') return '';
+  const pid = String(projectId).replace(/["\\\s\u0000-\u001f\u007f-\u009f\u2028\u2029']/g, '');
+  if (!pid || !/^\d+$/.test(String(t.number))) return '';
+  return `If that is your final word on it, kosmos task built ${pid} ${t.number} 'what you decided' marks it done, so nothing waits on it.`;
+}
+
 function taskMessageSummary(delivered, assigned) {
   const plain = (x) => String(x == null ? '' : x).toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
   const list = Array.isArray(delivered) ? delivered : [];
@@ -5758,6 +5831,7 @@ const server = http.createServer(async (req, res) => {
           ? projects.toldOverride(instructions.staleness(a.sessionName, undefined, a.session), a.sessionName)
           : { state: 'unknown', editable: false, version: null, startedAt: null, because: 'we cannot tie this pane to an agent by name' },
       }));
+      attachPluginReach(agents); // #5309 slice 2: per-agent plugin-reach notice signal (see the function)
       // ⚠️ THE COUNTS DESCRIBE THE CARDS THAT ARE LEFT. Computed over the
       // unfiltered snapshot they put "12 agents" above 11 cards, and can put
       // "1 needs you" on screen with no card anywhere to click. Recomputed with
@@ -15440,6 +15514,49 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
+  if (pathname === '/api/toolfail' && req.method === 'POST') {
+    /* #6071: say a line at most once per key per TOOLFAIL_SAY_MS, so a refused or looping agent cannot fill the log. */
+    const toolfailSay = (key, line) => {
+      const now = Date.now();
+      if (now - (TOOLFAIL_SAID.get(key) || 0) < TOOLFAIL_SAY_MS) return;
+      TOOLFAIL_SAID.set(key, now);
+      if (TOOLFAIL_SAID.size > 500) TOOLFAIL_SAID.clear();
+      console.log(line);
+    };
+    /* #6071 (slice D1): the report hook's digest of one failed tool call (Claude Code's PostToolUseFailure),
+       counted by engine/toolloop.js. The sender is resolved exactly as POST /api/report resolves it (token
+       first, then pane, the same pane refusal on an enforcing board), so a failure lands on the same agent its
+       reports do. Records only: nothing is raised yet. The first time a run reaches the threshold is logged,
+       so the threshold can be read against real boards before it is shown to anyone. */
+    readBody(req, 8 * 1024)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { recorded: false, because: 'that request is not the shape we expect' }); return; }
+        const roster = safeRoster();
+        if (roster === null) { sendJson(res, 200, { recorded: false, because: 'we could not check which agents are running, so we could not tell who this is from' }); return; }
+        const denyPaneFallback = boardAuthState.on
+          && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+        const sender = resolveAgentSender(req, body, roster, {
+          denyPaneFallback,
+          denyBecause: 'this board only records a failed tool call from the account that started it, or one that presents an agent token',
+        });
+        if (!sender.ok) { toolfailSay('refused:' + sender.because, `[toolloop] a failed-call digest was refused: ${sender.because}`); sendJson(res, 200, { recorded: false, because: sender.because }); return; }
+        const who = sender.card.sessionName;
+        /* The values this board holds, masked by value in the stored error line, as the diagnostics file masks them. */
+        const secrets = [boardAuthState.token, ...(KNOWN_WORLD_TOKENS ? [...KNOWN_WORLD_TOKENS.values()].filter(Boolean) : []), ...sendertoken.heldValues()];
+        const r = require('./engine/toolloop').noteFailure(who, { tool: body.tool, sig: body.sig, error: body.error }, { secrets });
+        if (!r.ok) { toolfailSay('refused:' + r.because, `[toolloop] ${who}: a failed-call digest was refused: ${r.because}`); sendJson(res, 200, { recorded: false, because: r.because }); return; }
+        /* What D1 is for: the log shows that digests arrive at all (the first of a run, at most once per agent per
+           TOOLFAIL_SAY_MS) and when one reaches the threshold (every time). Never the error line itself. */
+        if (r.count === 1) toolfailSay('first:' + who, `[toolloop] ${who}: a ${r.tool} failure was recorded (#6071, recorded only)`);
+        if (r.reached) console.log(`[toolloop] ${who}: ${r.tool} failed the same way ${r.count} times in one turn (#6071, recorded only)`);
+        sendJson(res, 200, { recorded: true, count: r.count, looping: r.looping });
+      })
+      .catch(() => sendJson(res, 400, { recorded: false, because: 'that request is not something we can read' }));
+    return;
+  }
+
   if (pathname === '/api/report' && req.method === 'POST') {
     /* #188's third verb: records rather than delivers. The agent says what
        it is DOING (one of selfreport.STATES); nothing is typed anywhere,
@@ -15501,6 +15618,13 @@ const server = http.createServer(async (req, res) => {
         if (!sender.ok) { sendJson(res, 200, { recorded: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
+        /* #6071: an automatic idle, stopped or started, or the prompt that starts a new turn, ends a turn for
+           engine/toolloop.js's count of one repeating tool failure. Here, BEFORE selfreport.record: that record
+           refuses an automatic idle over a standing deliberate wait, and the turn ended all the same. */
+        const turnEnd = body.auto === true ? require('./engine/toolloop').endsTurn(body.state, body.text) : null;
+        if (turnEnd) {
+          try { require('./engine/toolloop').noteTurnEnd(who, { kind: turnEnd }); } catch { /* the count is best-effort */ }
+        }
         // #718: a phone buzzes on the change INTO needs_you, not on every repeat
         // report, so read what this agent said last before recording this one.
         let wasNeedsYou = false;
@@ -20096,12 +20220,25 @@ const server = http.createServer(async (req, res) => {
           try {
             const raw = projects.readAll().find((x) => x && x.id === id);
             const alike = raw ? tasks.sameTextOpen(raw, made.sentence, made.number, { parent: made.parent || null, detail: made.detail, who: tasks.whoOf(made), doneWhen: made.doneWhen }) : [];
+            const shown = (v) => { const c = Array.from(String(v).replace(/["\\\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff\ud800-\udfff\u{e0000}-\u{e007f}]/gu, ' ').replace(/\s+/g, ' ').trim());
+              return c.length > 60 ? c.slice(0, 57).join('') + '...' : c.join(''); };
             if (alike.length) {
-              const shown = (v) => { const c = Array.from(String(v).replace(/["\\\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff\ud800-\udfff\u{e0000}-\u{e007f}]/gu, ' ').replace(/\s+/g, ' ').trim());
-                return c.length > 60 ? c.slice(0, 57).join('') + '...' : c.join(''); };
               note = 'Note: ' + (alike.length === 1 ? 'an open task with the same text already exists: ' : 'open tasks with the same text already exist: ')
                 + alike.map((t) => '#' + t.number + ' (' + shown(t.sentence) + ')').join(', ')
                 + '. If this is the same ask, close the new one: kosmos task close ' + id + ' ' + made.number;
+            }
+            /* #6083: the weaker note for a NEAR title added in the last few minutes (engine/tasks.js nearOpen). It never
+               names the similar task and says to close the NEW one only if it is the same ask (review 1: the older may
+               already hold history). nearOpen skips same-text tasks, so a task #5319 names is never named twice. */
+            // Review 3: its own try, so a malformed task that trips nearOpen never costs #5319's note.
+            let near = [];
+            try { near = raw ? tasks.nearOpen(raw, made) : []; } catch { near = []; }
+            if (near.length) {
+              // Review 2: placed BEFORE #5319's note, whose copyable command must stay the end of the line.
+              note = 'Note: ' + (near.length === 1 ? 'a similar open task was added in the last few minutes: ' : 'similar open tasks were added in the last few minutes: ')
+                + near.map((t) => '#' + t.number + ' (' + shown(t.sentence) + ')').join(', ')
+                + '. If it is the same ask, close this new one (#' + made.number + '); if it is a different ask, ignore this note.'
+                + (note ? ' ' + note : '');
             }
           } catch { note = ''; }
           // The assignee's managed block now lists this task in the exact
@@ -21041,7 +21178,8 @@ const server = http.createServer(async (req, res) => {
             ...(outcome && outcome.heldFor === 'signin' ? { heldFor: 'signin' } : {}) });
         }
         if (!viaScreen) taskMessageValveRecord();
-        sendJson(res, 200, { ok: true, delivered, summary: taskMessageSummary(delivered, named.length) });
+        const finalWord = !viaScreen && senderCard ? taskFinalWordHint(t, senderCard.sessionName, id, byKey) : '';   // #6066
+        sendJson(res, 200, { ok: true, delivered, summary: taskMessageSummary(delivered, named.length) + (finalWord ? ' ' + finalWord : '') });
       } catch (err) {
         const msg = String((err && err.message) || '');
         // A failed append is a server-side (disk/IO) condition, not a bad request,
@@ -23747,6 +23885,7 @@ module.exports = {
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
+  taskFinalWordHint, // #6066: the line a task's holder is told after posting in it, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
@@ -23778,6 +23917,7 @@ module.exports = {
      are pinned DIRECTLY, without an HTTP harness that cannot inject agents. */
   someAgentNeedsClaude,
   withAgentSortFields,
+  attachPluginReach,
   /* #1304: exported so the two-reader precedence can be driven directly. A test
      that needed a real process tree, a tmux server and a signed-in account would
      not run anywhere, and the precedence is the part worth pinning.

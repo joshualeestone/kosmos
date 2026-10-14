@@ -3993,7 +3993,19 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
        min-width: 2.4rem; text-align: right; }
 @media (max-width: 56rem) {
   .lrow { grid-template-columns: 34px 1fr; row-gap: 8px; }
-  .lstate, .ltask, .lmem { grid-column: 2; }
+  /* #6053: .ltitle and .lmodel were missing from this list, so auto-placement
+     dropped each into the 34px avatar column: the role spilled out under the
+     avatar, and every model read "Cla..." beside the memory bar. In column 2
+     the role sits under the name and the model gets its own line just above
+     the memory bar (its desktop neighbour, Josh's #856 order). */
+  .ltitle, .lstate, .ltask, .lmodel, .lmem { grid-column: 2; }
+  /* With a line of its own the model may wrap rather than be cut, so a long
+     name still reads in full on a narrow phone. A not-running row has no
+     model, and its empty cell would spend a line and a row-gap here (it
+     shared the memory cell's line before #6053). Both skip html.kremote,
+     which places .lmodel itself. */
+  html:not(.kremote) .lrow > .lmodel { white-space: normal; overflow-wrap: anywhere; }
+  html:not(.kremote) .lrow > .lmodel:empty { display: none; }
 }
 /* Grid mode for the projects list: the same rows laid as cards. */
 .pj-list.asgrid { display: grid; gap: 16px;
@@ -12668,6 +12680,13 @@ window.kosmosMeasureScrollbarWidth();
         <button type="button" class="linkish" id="d-replychan-clear" data-agent="" aria-label="Clear the reply channel">Clear</button></div>
       <!-- Outside the line, so it is still there (and said) when a Clear that worked takes the line away. -->
       <p class="fhint" id="d-replychan-msg" role="status" aria-live="polite" tabindex="-1"></p>
+      <!-- #5309 p2: a plugin/connection the person added in their OWN provider app does not reach THIS agent,
+           and there is evidence they added one it lacks (the SERVER gates on that evidence; reach.reaches===false).
+           One sentence of effect + the one remedy, in plain words. Shown ONLY when reach.reaches===false, by
+           reason. Text only: the remedy names Settings, which the person opens themselves (a deep link is a
+           follow-up). A secondary-account or Codex agent with nothing added carries reaches:null and shows
+           nothing, so this never reads as a warning a healthy setup does not need. -->
+      <p class="fhint detail-pluginreach" id="d-pluginreach" hidden><span id="d-pluginreach-text"></span></p>
       <!-- 🛑 THE "ASSIGNED TO" ROW IS GONE (Josh, 2026-08-22), and what went with
            it is worth knowing before anybody brings it back. It listed the
            projects this agent is on, read from the agent's end, and it carried a
@@ -40446,6 +40465,32 @@ function paintDetailState(card) {
     // declaring again): the line is the newer truth.
     const m = document.getElementById('d-replychan-msg');
     if (m && m.textContent && (m.dataset.agent !== a.sessionName || (on && /^Cleared\./.test(m.textContent)))) { m.textContent = ''; m.dataset.agent = ''; }
+  }
+  /* #5309 p2: the plugin-reach notice. Fires ONLY on reach.reaches===false, switched by the fixed reason
+     strings the engine exports; true / null / a missing reach all hide it, so a secondary-account or Codex
+     agent with nothing added (reaches:null, the server already gated on evidence) shows nothing. Text only,
+     written when it changes, like the re-auth and link-lost notices above. */
+  const preach = document.getElementById('d-pluginreach');
+  if (preach) {
+    // `reach` is a /api/status augmentation (attachPluginReach), absent from a raw snapshot() row, so it is
+    // asked with `in` and never read blind -- matching the #5668 / #5820 notices above (fixture-discipline).
+    const r = a && 'reach' in a ? a.reach : null;
+    let words = '';
+    if (r && r.reaches === false) {
+      if (r.reason === 'separate-account-folder') {
+        words = 'The plugins and connections you added in your own Claude app do not reach ' + a.name
+          + ', because it runs on a different Claude account. Restarting will not change that: add them to'
+          + ' that account, or switch ' + a.name + ' to yours in Settings.';
+      } else if (r.reason === 'codex-isolated-runtime') {
+        words = 'The plugins and connections you set up in the Codex app do not reach ' + a.name
+          + ', because Codex agents run in their own private space. Restarting will not change that: connect'
+          + ' the service through the Connections tab in Settings, where ' + a.name + ' can use it.';
+      }
+    }
+    const pt = document.getElementById('d-pluginreach-text');
+    if (pt && pt.textContent !== words) pt.textContent = words;
+    const show = Boolean(words);
+    if (preach.hidden === show) preach.hidden = !show;
   }
   const copy = stateCopyOf(a);
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the

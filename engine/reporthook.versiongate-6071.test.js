@@ -1,0 +1,198 @@
+'use strict';
+
+/* #6071: PostToolUseFailure is wired only for a Claude Code that knows it (2.1.0+). A Claude Code before 2.1.0
+   validates `hooks` against its own event list and, on a failure, drops the WHOLE settings file, so an unknown or
+   older version must never get the key. */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-reporthook-vg-'));
+process.env.AGENT_WORKFORCE_HOME = SANDBOX;
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const reporthook = require('./reporthook');
+
+const SCRIPT = path.join(SANDBOX, 'kosmos-report-hook.sh');
+fs.writeFileSync(SCRIPT, '#!/bin/bash\nexit 0\n', { mode: 0o755 });
+let n = 0;
+const fresh = () => path.join(fs.mkdtempSync(path.join(SANDBOX, 'case-')), `settings${n++}.json`);
+const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
+const oursIn = (data, event) => ((data.hooks || {})[event] || []).filter(reporthook.entryIsOurs).length;
+const EV = 'PostToolUseFailure';
+
+test('HOOK_EVENTS is the seven report events; PostToolUseFailure is versioned at 2.1.0', () => {
+  assert.equal(reporthook.HOOK_EVENTS.length, 7);
+  assert.ok(!reporthook.HOOK_EVENTS.includes(EV));
+  assert.equal(reporthook.VERSIONED_EVENTS[EV], '2.1.0');
+});
+
+test('versionAtLeast compares numerically, and an unparseable side is false', () => {
+  const at = reporthook.versionAtLeast;
+  assert.equal(at('2.1.0', '2.1.0'), true);
+  assert.equal(at('2.1.296', '2.1.0'), true);
+  assert.equal(at('2.10.0', '2.9.9'), true);
+  assert.equal(at('3.0.0', '2.1.0'), true);
+  assert.equal(at('2.0.50', '2.1.0'), false);
+  assert.equal(at('1.0.100', '2.1.0'), false);
+  assert.equal(at(null, '2.1.0'), false);
+  assert.equal(at('', '2.1.0'), false);
+  assert.equal(at('latest', '2.1.0'), false);
+});
+
+for (const v of [undefined, null, 'garbage', '1.0.100', '2.0.50']) {
+  test(`version ${JSON.stringify(v)}: a new settings file gets the seven and no ${EV} key`, () => {
+    const p = fresh();
+    const got = reporthook.ensureWired(p, SCRIPT, { claudeVersion: v });
+    assert.equal(got.wired, true);
+    const data = readJson(p);
+    for (const ev of reporthook.HOOK_EVENTS) assert.equal(oursIn(data, ev), 1, ev + ' is not wired');
+    assert.ok(!Object.prototype.hasOwnProperty.call(data.hooks, EV), `${EV} was written for ${v}`);
+  });
+}
+
+for (const v of ['2.1.0', '2.1.296', '3.0.0']) {
+  test(`version ${v}: ${EV} is wired with the seven`, () => {
+    const p = fresh();
+    reporthook.ensureWired(p, SCRIPT, { claudeVersion: v });
+    const data = readJson(p);
+    for (const ev of reporthook.eventsFor(v)) assert.equal(oursIn(data, ev), 1, ev + ' is not wired');
+    assert.equal(oursIn(data, EV), 1);
+  });
+}
+
+test('an already wired file: unknown version leaves an existing entry untouched and writes nothing', () => {
+  const p = fresh();
+  reporthook.ensureWired(p, SCRIPT, { claudeVersion: '2.1.296' });
+  const before = fs.readFileSync(p, 'utf8');
+  const got = reporthook.ensureWired(p, SCRIPT, { claudeVersion: null });
+  assert.equal(got.changed, false);
+  assert.equal(fs.readFileSync(p, 'utf8'), before);
+});
+
+test('an older known version takes OUR entry back out and keeps a person\'s own entry for the event', () => {
+  const p = fresh();
+  reporthook.ensureWired(p, SCRIPT, { claudeVersion: '2.1.296' });
+  const data = readJson(p);
+  const theirs = { hooks: [{ type: 'command', command: 'bash their-own.sh' }] };
+  data.hooks[EV].push(theirs);
+  data.model = 'opus';
+  fs.writeFileSync(p, JSON.stringify(data));
+  const got = reporthook.ensureWired(p, SCRIPT, { claudeVersion: '2.0.50' });
+  assert.equal(got.changed, true);
+  const after = readJson(p);
+  assert.equal(oursIn(after, EV), 0);
+  assert.deepEqual(after.hooks[EV], [theirs]);
+  assert.equal(after.model, 'opus');
+  for (const ev of reporthook.HOOK_EVENTS) assert.equal(oursIn(after, ev), 1, ev + ' lost');
+});
+
+test('an older known version with only our entry removes the event key entirely', () => {
+  const p = fresh();
+  reporthook.ensureWired(p, SCRIPT, { claudeVersion: '2.1.0' });
+  reporthook.ensureWired(p, SCRIPT, { claudeVersion: '1.0.100' });
+  assert.ok(!Object.prototype.hasOwnProperty.call(readJson(p).hooks, EV));
+});
+
+test('claudeVersion reads the version a program prints, and answers null for a missing or failing program', () => {
+  /* node stands in for claude: `node --version` prints "v22.x.y", the same dotted triple `claude --version` leads
+     with, and it runs on every host this suite does. */
+  assert.equal(reporthook.claudeVersion(process.execPath), process.versions.node);
+  assert.equal(reporthook.claudeVersion(SANDBOX), null, 'a folder is not a program');
+  assert.equal(reporthook.claudeVersion(path.join(SANDBOX, 'nope')), null);
+  assert.equal(reporthook.claudeVersion(null), null);
+});
+
+test('accounts.prepare with no claude on the machine is born without the versioned event', () => {
+  const accounts = require('./accounts');
+  const got = accounts.prepare('vg6071');
+  assert.equal(got.ok, true);
+  const data = readJson(path.join(got.dir, 'settings.json'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(data.hooks, EV));
+  for (const ev of reporthook.HOOK_EVENTS) assert.equal(oursIn(data, ev), 1, ev + ' missing');
+});
+
+test('oldestClaudeVersion: the oldest of the programs that exist, each counted once', () => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'bins-'));
+  const a = path.join(dir, 'a'); const b = path.join(dir, 'b'); const link = path.join(dir, 'a-link');
+  fs.writeFileSync(a, ''); fs.writeFileSync(b, ''); fs.symlinkSync(a, link);
+  const real = (p) => fs.realpathSync(p);
+  const versions = { [real(a)]: '2.1.296', [real(b)]: '2.1.3' };
+  const asked = [];
+  const versionOf = (p) => { asked.push(p); return versions[p] || null; };
+  assert.equal(reporthook.oldestClaudeVersion([a, path.join(dir, 'missing'), b, link], { versionOf }), '2.1.3');
+  assert.equal(asked.length, 2, 'a program reached twice (a link) is asked once');
+});
+
+test('oldestClaudeVersion: one present program whose version cannot be read makes the answer unknown', () => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'bins-'));
+  const a = path.join(dir, 'a'); const b = path.join(dir, 'b');
+  fs.writeFileSync(a, ''); fs.writeFileSync(b, '');
+  const versionOf = (p) => (p === fs.realpathSync(a) ? '2.1.296' : null);
+  assert.equal(reporthook.oldestClaudeVersion([a, b], { versionOf }), null);
+  assert.equal(reporthook.oldestClaudeVersion([path.join(dir, 'none')], { versionOf }), null, 'none found is unknown');
+});
+
+test('a person\'s older claude on PATH keeps the event out of the default folder', () => {
+  const accounts = require('./accounts');
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'pathdir-'));
+  /* A folder named claude: present on PATH, and its version cannot be read, so the answer is unknown (left out). */
+  fs.mkdirSync(path.join(dir, 'claude'));
+  assert.equal(accounts.defaultFolderClaudeVersion(process.platform, { PATH: dir }), null);
+  assert.equal(accounts.defaultFolderClaudeVersion(process.platform, { PATH: '' }), null, 'nothing found is unknown');
+});
+
+test('oldestClaudeVersion on win32: a claude.cmd (an npm install) makes the answer unknown', () => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'winbins-'));
+  fs.writeFileSync(path.join(dir, 'claude.cmd'), '@echo off\n');
+  const versionOf = () => '2.1.296';
+  assert.equal(reporthook.oldestClaudeVersion([path.join(dir, 'claude')], { platform: 'win32', versionOf }), null);
+  assert.equal(reporthook.oldestClaudeVersion([path.join(dir, 'claude')], { platform: 'darwin', versionOf }), null,
+    'off win32 the bare name only: nothing there, so unknown');
+});
+
+test('the default folder also looks where a claude is usually installed, not only on PATH (an nvm copy here)', () => {
+  const accounts = require('./accounts');
+  assert.equal(accounts.defaultFolderClaudeVersion('darwin', { PATH: '' }), null, 'nothing installed: unknown');
+  const bin = path.join(SANDBOX, '.nvm', 'versions', 'node', 'v22.0.0', 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  /* node stands in for claude, as above: it prints a dotted version. */
+  fs.symlinkSync(process.execPath, path.join(bin, 'claude'));
+  assert.equal(accounts.defaultFolderClaudeVersion('darwin', { PATH: '' }), process.versions.node);
+});
+
+test('oldestClaudeVersion: once the time budget is spent, the answer is unknown', () => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'slow-'));
+  const a = path.join(dir, 'a'); const b = path.join(dir, 'b');
+  fs.writeFileSync(a, ''); fs.writeFileSync(b, '');
+  const slow = () => { const until = Date.now() + 30; while (Date.now() < until) { /* a slow read */ } return '2.1.296'; };
+  assert.equal(reporthook.oldestClaudeVersion([a, b], { versionOf: slow, budgetMs: 10 }), null);
+  assert.equal(reporthook.oldestClaudeVersion([a, b], { versionOf: slow, budgetMs: 5000 }), '2.1.296', 'CONTROL: in budget');
+});
+
+test('one rule per folder: the default folder takes the oldest claude found, an added account folder only Kosmos\'s', () => {
+  const accounts = require('./accounts');
+  const bin = path.join(SANDBOX, '.nvm', 'versions', 'node', 'v22.0.0', 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  try { fs.symlinkSync(process.execPath, path.join(bin, 'claude')); } catch { /* made by the test above */ }
+  assert.equal(accounts.claudeVersionForFolder(path.join(SANDBOX, '.claude'), 'darwin', { PATH: '' }), process.versions.node,
+    'the default folder sees the nvm claude');
+  const added = accounts.prepare('vg6071-rule');
+  assert.equal(added.ok, true);
+  assert.equal(accounts.claudeVersionForFolder(added.dir, 'darwin', { PATH: '' }), null,
+    'an added folder asks only Kosmos\'s claude, which this sandbox does not have');
+});
+
+test('oldestClaudeVersion: each read is given only what is left of the budget as its timeout', () => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'left-'));
+  const a = path.join(dir, 'a'); const b = path.join(dir, 'b');
+  fs.writeFileSync(a, ''); fs.writeFileSync(b, '');
+  const given = [];
+  const versionOf = (p, o) => { given.push(o.timeoutMs); const until = Date.now() + 20; while (Date.now() < until) { /* slow */ } return '2.1.296'; };
+  reporthook.oldestClaudeVersion([a, b], { versionOf, budgetMs: 1000 });
+  assert.equal(given.length, 2);
+  assert.ok(given.every((t) => t > 0 && t <= 1000), 'timeouts ' + given.join(','));
+  assert.ok(given[1] < given[0], 'the second read gets less than the first: ' + given.join(','));
+});

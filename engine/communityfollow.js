@@ -17,7 +17,8 @@
  * (the route resolves it from the agent token); a name in the request is only ever WHO TO FOLLOW.
  *
  * 🛑 THE FEED IS OTHER AGENTS' PUBLIC WRITING ENTERING A SESSION, exactly as `community read` is (#4373). So it goes
- * through the same bounded, reduced, scrubbed and framed path (communityread.itemOf / frame), at most MAX_ITEMS.
+ * through the same bounded, reduced, scrubbed and framed path (communityread.itemOf / frame), at most MAX_ITEMS items
+ * from the newest page plus POSTS_WANTED older posts (#5636 F7c).
  *
  * 🛑 NOTHING HAPPENS WHILE THE OWNER HAS COMMUNITY SWITCHED OFF (agentCall checks the switch first).
  *
@@ -236,10 +237,23 @@ function noteSeen(agentKey, ids) {
   } catch { /* a nudge may repeat; the read stands */ }
 }
 
+/* #5636 F7c (0.7.46 report: on GPT the feed was six replies and no posts, so "comment on a followed post" had nothing to
+   use): a busy run of replies fills the newest page. When it holds fewer than POSTS_WANTED posts and the service says
+   there is more, up to FEED_PAGES_MAX pages are read in all, and only their POSTS are added: the replies stay the first
+   page's, so they can never push the posts out, and at most POSTS_WANTED posts are added in all. The older pages are
+   best effort: each waits at most PAGE_WAIT_MS for the agent's call chain, and none starts READ_PAGES_MS or more after
+   the read began. A later page that fails or is busy costs only its posts. */
+const POSTS_WANTED = 3;
+const FEED_PAGES_MAX = 3;
+const PAGE_WAIT_MS = 1000;
+let READ_PAGES_MS = 10000;
+function _setReadPagesMs(ms) { READ_PAGES_MS = Number.isFinite(ms) ? ms : 10000; }   // tests: the read-time bound
+
 const REPLIES_START = '----- Below: replies by the agents you follow, on posts not shown here (each line names the post it answers). To comment on a post, pick one above. -----';
 
 /** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
 async function readFollowing(agentKey) {
+  const began = Date.now();
   const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS, { register: false });
   if (!r.ok) return { ok: false, upstream: !r.local, because: r.because };
   if (r.unregistered) {
@@ -247,7 +261,22 @@ async function readFollowing(agentKey) {
   }
   const items = r.status === 200 && r.json && Array.isArray(r.json.items) ? r.json.items : null;
   if (!items) return unreadable;
-  const entries = groupByPost(items.slice(0, communityread.MAX_ITEMS)).map(entryOf).filter(Boolean);
+  const page = items.slice(0, communityread.MAX_ITEMS);
+  const isPost = (it) => it && typeof it === 'object' && it.kind === 'post';
+  let found = page.filter(isPost).length;
+  let cursor = r.json.next_cursor;
+  for (let pages = 1; found < POSTS_WANTED && pages < FEED_PAGES_MAX && typeof cursor === 'string'
+    && communityread.CURSOR_RE.test(cursor) && Date.now() - began < READ_PAGES_MS; pages += 1) {
+    const more = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS
+      + '&cursor=' + encodeURIComponent(cursor), { register: false, waitMs: PAGE_WAIT_MS });
+    const got = more.ok && more.status === 200 && more.json && Array.isArray(more.json.items) ? more.json.items : null;
+    if (!got) break;
+    const older = got.slice(0, communityread.MAX_ITEMS).filter(isPost).slice(0, POSTS_WANTED - found);
+    page.push(...older);
+    found += older.length;
+    cursor = more.json.next_cursor;
+  }
+  const entries = groupByPost(page).map(entryOf).filter(Boolean);
   /* #5636 F7 (0.7.27 model feedback): the "Reply to: ..." entries (a followed agent's reply on a post the feed does not
      carry) sat among the posts, by time, and the community block asks for a comment on a post from this feed that is
      NOT one of them, so agents picked through it. The posts come first, then those replies, each part newest first
@@ -260,11 +289,11 @@ async function readFollowing(agentKey) {
   noteSeen(agentKey, posts.map((it) => String(it.id || '').toLowerCase()).filter((x) => UUID_RE.test(x)));
   const heading = !shown.length ? 'Nothing new from the agents you follow.'
     : posts.length && replies.length ? 'Newest posts from the agents you follow, then their replies on posts not shown here (titled "Reply to: ..."):'
-      /* Review 3: about the newest items read (the feed's first page), never about the agents' posts in general: a post
+      /* Review 3: about the newest items read, never about the agents' posts in general: a post
          just past the page is not "no new post". */
       : replies.length ? 'None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'
         : 'Newest from the agents you follow:';
   return { ok: true, count: shown.length, text: communityread.frame(shown, heading) };
 }
 
-module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, PAGE_WAIT_MS, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };

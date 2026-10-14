@@ -458,7 +458,7 @@ function prepare(label) {
      while a refused prepare would be a worse failure for a smaller cause.
      The field in the return is what lets a screen say which happened.
      Reused spots get this free: the connect route re-runs prepare. */
-  const hooks = reporthook.ensureWired(path.join(dir, 'settings.json'), reporthook.hookScriptPath());
+  const hooks = reporthook.ensureWired(path.join(dir, 'settings.json'), reporthook.hookScriptPath(), { claudeVersion: claudeVersionForFolder(dir) });
   /* #3946: and with the statusline that records its weekly usage, so a swarm
      on it can be limited in "% of weekly allowance". Same fail-soft posture:
      an account that already has its own statusline keeps it and simply has
@@ -474,6 +474,42 @@ function prepare(label) {
     weeklyBecause: weekly.wired === true ? null : (weekly.because || null) };
 }
 
+/* #6071: the Claude Code version this machine runs (reporthook.claudeVersion), or null when it cannot be told. It
+   decides whether the hooks include PostToolUseFailure, which a Claude Code before 2.1.0 does not know and answers by
+   dropping the whole settings file. Required lazily (accounts must load without runners) and fail-soft to null. */
+function claudeVersionNow(plat) {
+  try { return reporthook.claudeVersion(require('./runners').resolveBin('claude').bin, { platform: plat }); }
+  catch { return null; }
+}
+
+/* #6071: THE rule for which claude decides a folder's hooks, used by prepare, wireDefaultHooks and setup.sh alike:
+   the default folder (~/.claude) is read by the person's own claude too, so it takes the oldest claude found; an
+   added account folder takes Kosmos's own claude. One function, so the callers cannot disagree and undo each other. */
+function claudeVersionForFolder(dir, plat, env) {
+  return isDefaultDir(dir) === true ? defaultFolderClaudeVersion(plat, env) : claudeVersionNow(plat);
+}
+
+/* #6071: for the DEFAULT folder (~/.claude), which the person's own claude reads too: the oldest version among
+   Kosmos's claude, every claude on PATH, and the places a claude is usually installed (PATH alone is not enough: the
+   .pkg runs setup under sudo's short PATH, not the person's); null if any of them cannot be read. */
+function defaultFolderClaudeVersion(plat, env) {
+  const p = plat || process.platform;
+  const e = env || process.env;
+  try {
+    const home = homeDir();
+    const bins = [require('./runners').resolveBin('claude').bin, path.join(home, '.claude', 'local', 'claude')];
+    if (p === 'win32') {
+      if (e.APPDATA) bins.push(path.join(e.APPDATA, 'npm', 'claude'));
+    } else {
+      bins.push('/opt/homebrew/bin/claude', '/usr/local/bin/claude', path.join(home, '.npm-global', 'bin', 'claude'));
+      const nvm = path.join(home, '.nvm', 'versions', 'node');
+      try { for (const v of fs.readdirSync(nvm)) bins.push(path.join(nvm, v, 'bin', 'claude')); } catch { /* no nvm */ }
+    }
+    for (const d of String(e.PATH || e.Path || '').split(p === 'win32' ? ';' : ':')) if (d) bins.push(path.join(d, 'claude'));
+    return reporthook.oldestClaudeVersion(bins, { platform: p });
+  } catch { return null; }
+}
+
 /**
  * kosmos#5612: the DEFAULT account's reporting hooks, on Windows. On a Mac install/setup.sh wires them into every
  * account folder, and prepare() above wires an added one; nothing on Windows ever wired the default folder, so a
@@ -485,7 +521,7 @@ function prepare(label) {
  * is returned, never thrown. Anywhere else it does nothing, because setup.sh owns the Mac. Note: the person's own
  * Claude Code sessions read this file too, so they run the hook as well, as they always have on a Mac (#561).
  *   { wired, changed?, because?, skipped, busy? }   busy: the lock was held, so the caller may try again soon
- * `platform`, `script`, `node` are injectable for tests. `waitMs` is withFileLock's wait for a held lock (its default
+ * `platform`, `script`, `node`, `claudeVersion` are injectable for tests. `waitMs` is withFileLock's wait for a held lock (its default
  * when absent); a caller that retries on its own passes 0 (a held lock then refuses within one 20 ms spin), since
  * withFileLock's wait blocks the event loop.
  */
@@ -502,8 +538,10 @@ function wireDefaultHooks(opts) {
     if (!script) return { wired: false, skipped: false, because: 'the reporting hook script is not on this machine' };
     fs.mkdirSync(path.dirname(settings), { recursive: true });
     const BUSY = 'another writer held the settings file';
+    // Read before the lock: it may start a process, and the lock is held only around the file.
+    const claudeVersion = o.claudeVersion !== undefined ? o.claudeVersion : claudeVersionForFolder(path.dirname(settings), plat);
     const locked = require('./filelock').withFileLock(settings,
-      () => reporthook.ensureWired(settings, script, { platform: plat, node: o.node }),
+      () => reporthook.ensureWired(settings, script, { platform: plat, node: o.node, claudeVersion }),
       { busy: BUSY, cannotAccess: 'the settings folder refused the lock file, so the hooks were not written', waitMs: o.waitMs });
     if (!locked || locked.ok !== true) {
       // Only a held lock is worth trying again; a folder that refuses the lock file will refuse it next time too.
@@ -940,5 +978,5 @@ function removeAccount(dir, usedBy) {
   return { ok: true, removed: true, because: null };
 }
 
-module.exports = { homeDir, wireDefaultHooks, list, listLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, dirForLabel, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+module.exports = { homeDir, wireDefaultHooks, claudeVersionForFolder, defaultFolderClaudeVersion, list, listLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, dirForLabel, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); } };

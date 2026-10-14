@@ -23,7 +23,7 @@ const fresh = () => path.join(fs.mkdtempSync(path.join(SANDBOX, 'case-')), `sett
 const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
 const oursIn = (data, event) => (data.hooks[event] || []).filter(reporthook.entryIsOurs).length;
 
-test('an absent settings.json is born with all seven events wired', () => {
+test('an absent settings.json is born with every hook event wired', () => {
   const p = fresh();
   const got = reporthook.ensureWired(p, SCRIPT);
   assert.equal(got.wired, true);
@@ -318,7 +318,7 @@ test('#570 unsafeForCommand: backslash is a normal separator on win32 but danger
   assert.equal(reporthook.unsafeForCommand(null, 'win32'), true, 'a non-string is unsafe, not a throw');
 });
 
-test('#570 ensureWired win32: all seven events wired with the node.exe EXEC-form entry', () => {
+test('#570 ensureWired win32: every hook event wired with the node.exe EXEC-form entry', () => {
   const p = fresh();
   const r = reporthook.ensureWired(p, WIN_SCRIPT, { platform: 'win32', node: WIN_NODE });
   assert.equal(r.wired, true);
