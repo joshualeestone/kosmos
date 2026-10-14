@@ -261,8 +261,10 @@ run cu-groups "$H" FX_GROUPS_FAIL=1 -- --apply create-user
 [ "$(rc cu-groups)" = 1 ] && has cu-groups "could not read kosmos-ci's groups" && pass "create-user stops when the new user's groups cannot be read" || fail "create-user groups unreadable: rc $(rc cu-groups): $(tail -1 "$T/cu-groups.out")"
 run pf-groups "$H" FX_CI_EXISTS=1 FX_GROUPS_FAIL=1 -- preflight
 [ "$(rc pf-groups)" = 1 ] && has pf-groups "could not read kosmos-ci's groups" && pass "preflight: unreadable groups refuse rather than read as standard" || fail "preflight groups: rc $(rc pf-groups)"
-run cu-note "$H" FX_WHO=someone -- create-user
-[ "$(grep -c 'runs as agent1' "$T/cu-note.out")" = 1 ] && pass "create-user dry run by another user says who it runs as once" || fail "create-user note count: $(grep -c 'runs as agent1' "$T/cu-note.out")"
+for st in preflight create-user verify; do
+  run wrong-$st "$H" FX_WHO=kosmos-ci FX_CI_EXISTS=1 -- $st
+  [ "$(rc wrong-$st)" = 2 ] && has wrong-$st "run it as agent1" && ! has wrong-$st "clear" && pass "$st as another account refuses rather than judging that account's state" || fail "$st as kosmos-ci: rc $(rc wrong-$st): $(tail -1 "$T/wrong-$st.out")"
+done
 run same-name "$H" KOSMOS_CI_USER=agent1 -- preflight
 [ "$(rc same-name)" = 2 ] && has same-name "both 'agent1'" && ! has same-name "==" && pass "every stage refuses a CI user named as the owner, before any check" || fail "same name: rc $(rc same-name)"
 run same-uid "$H" FX_CI_EXISTS=1 FX_SAME_UID=1 -- create-user
@@ -279,6 +281,12 @@ run in-dry "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- install "$C" "$G"
 if [ "$(rc in-dry)" = 0 ] && has in-dry "WOULD: fetch tools/ci-runner-job-guard.sh at $C" && grep -q '^curl .*/compare/' "$T/in-dry.calls" && ! changed in-dry >/dev/null && [ "$(snap "$CH")" = "$before" ]; then
   pass "install dry run: checks the commit is on main, downloads nothing, HOME unchanged"
 else fail "install dry run: rc $(rc in-dry), changing calls: $(changed in-dry | head -2), $(tail -2 "$T/in-dry.out")"; fi
+run in-noargs "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- install
+[ "$(rc in-noargs)" = 2 ] && has in-noargs "install needs <main commit>" && pass "install refuses with no commit and sha" || fail "install no args: rc $(rc in-noargs)"
+run in-shortsha "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- install 0123456 "$G"
+[ "$(rc in-shortsha)" = 2 ] && has in-shortsha "full 40-character sha" && ! grep -q '^curl' "$T/in-shortsha.calls" && pass "install refuses a short commit before any network call" || fail "install short commit: rc $(rc in-shortsha)"
+run in-badpin "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- install "$C" "not-a-sha"
+[ "$(rc in-badpin)" = 2 ] && has in-badpin "64 hex characters" && ! grep -q '^curl' "$T/in-badpin.calls" && pass "install refuses a guard pin that is not 64 hex" || fail "install bad pin: rc $(rc in-badpin)"
 run in-fork "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" FX_COMPARE=diverged -- install "$C" "$G"
 [ "$(rc in-fork)" = 1 ] && has in-fork "is not on main" && pass "install refuses a commit not on main" || fail "install off-main: rc $(rc in-fork)"
 run in-who "$CH" -- --apply install "$C" "$G"
@@ -469,6 +477,7 @@ vcase nolabels 1 "labels are '', not" "FX_RUNNER_ROW=online false"
 vcase guard-unpinned 3 "the job guard's integrity" KOSMOS_CI_GUARD_SHA=
 chmod 000 "$VCI/actions-runner/.env"; vcase env-unreadable 3 "cannot read $VCI/actions-runner/.env"; chmod 644 "$VCI/actions-runner/.env"
 chmod 000 "$VCI/.kosmos-ci"; vcase cidir-unreadable 3 "cannot read $VCI/.kosmos-ci"; chmod 755 "$VCI/.kosmos-ci"
+mv "$VCI/.kosmos-ci" "$VCI/.kosmos-ci.away"; vcase cidir-missing 1 "no $VCI/.kosmos-ci: the job guard and its hooks are not installed"; mv "$VCI/.kosmos-ci.away" "$VCI/.kosmos-ci"
 vcase guard-pin 0 "job guard sha256 is the install pin" KOSMOS_CI_GUARD_SHA="$GS"
 vcase guard-drift 1 "something rewrote it" KOSMOS_CI_GUARD_SHA=0000000000000000000000000000000000000000000000000000000000000000
 vcase psfail 1 "kosmos-ci runs no processes" FX_PS_FAIL=1
