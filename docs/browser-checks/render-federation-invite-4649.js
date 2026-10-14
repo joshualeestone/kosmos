@@ -135,8 +135,8 @@
  *      now holds. Control: C6. C7b: the same with the SAME button (same text): the line keeps the newer "Copied".
  *      C7c: the same button, both presses refused: the stale write that lands turns the refusal into "Copied".
  *      C7d: the other direction: a held bare-code write landing after a newer invitation copy names the code alone.
- *      (C7b fails only if the stale write wrongly prints the "finished late" line; it cannot tell silence from a
- *      second Copied.)
+ *      (C7b fails if the stale write prints the "finished late" line, or leaves the line anything but
+ *      "Invitation copied."; it cannot tell silence from a second Copied.)
  *  C9e the stubbed select-and-copy fires the copy event as a real one does; the record survives its own event.
  *  C9  the clipboard-holds record through its real listeners (blur, copy events) and an in-time write, and a held
  *      write from a closed sheet landing under a new code.
@@ -1595,13 +1595,10 @@ const closeAll = (page) => page.evaluate(() => {
       const s = document.getElementById('fedinv-status').textContent;
       return w.prefix ? s.startsWith(w.text) : s === w.text;
     }, want, { timeout: ms }).catch(() => console.log('NOTE  a wait timed out and the arm read anyway: untilStatus ' + JSON.stringify(want.text)));
-    /* #6105: a "Copied" line reverts after 2 s. On a box saturated by the full suite the read after a wait could land
-       past that and see an empty line, so once the wanted line is up its revert is cancelled: the read sees what the
-       wait saw. Only the shared copy timer (FEDINV_COPY_TIMER, here the Copied revert) is stopped; the arm's assertion is
-       unchanged. */
     /* #6105 review 7: armed BEFORE the action, so the revert is frozen the instant the line is said (an observer runs as
        a microtask after the write), even if the page stalls past both the 30 ms say and the 2 s revert before any poll
        could see the line. untilCopied below then only waits for it. */
+    // Single use per page: arm it again before each action (a line never said leaves it connected until then).
     const holdCopied = (page, text) => page.evaluate((t) => {
       const line = document.getElementById('fedinv-status');
       if (window.__holdObs) window.__holdObs.disconnect();
@@ -1612,6 +1609,10 @@ const closeAll = (page) => page.evaluate(() => {
       });
       window.__holdObs.observe(line, { childList: true, characterData: true, subtree: true });
     }, text);
+    /* #6105: a "Copied" line reverts after 2 s. On a box saturated by the full suite the read after a wait could land
+       past that and see an empty line, so once the wanted line is up its revert is cancelled: the read sees what the
+       wait saw. Only the shared copy timer (FEDINV_COPY_TIMER, here the Copied revert) is stopped; the arm's assertion is
+       unchanged. */
     const untilCopied = (page, text, ms = 4000) => page.waitForFunction((t) => {
       if (document.getElementById('fedinv-status').textContent !== t) return false;
       if (FEDINV_COPY_TIMER) { clearTimeout(FEDINV_COPY_TIMER); FEDINV_COPY_TIMER = null; }
