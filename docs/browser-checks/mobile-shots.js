@@ -2206,6 +2206,10 @@ async function run() {
   if (COVER_CONTROL && !['overlay', 'spill'].includes(COVER_CONTROL)) {
     throw new Error('MSHOTS_COVER_CONTROL must be overlay or spill, not ' + COVER_CONTROL);
   }
+  // #6107: the same for the sideways-tablet layout choice: a typo would silently shoot one screen.
+  if (process.env.MSHOTS_TABLET_LAYOUT && !['tabs', 'consolidated'].includes(process.env.MSHOTS_TABLET_LAYOUT)) {
+    throw new Error('MSHOTS_TABLET_LAYOUT must be tabs or consolidated, not ' + process.env.MSHOTS_TABLET_LAYOUT);
+  }
   if (args.list) { for (const s of SCREENS) console.log(s.name.padEnd(20) + s.owner); return 0; }
   const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
   // The overlay control is planted by allow-card and (#5800) project-room-held-5800 only; spill by allow-card only. On

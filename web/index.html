@@ -48234,7 +48234,8 @@ function deviceLayout(boardLayout) {
 function applyLayout(layout, apply) {
   const want = layout === 'consolidated' ? 'consolidated' : 'tabs';
   /* #2154 + #2618: the header board-view toggle is re-painted from every path that
-     lands a layout -- boot (paintStyles) and a resize re-check -- above the apply gate,
+     lands a layout -- boot (paintStyles), a resize re-check, the toggle itself and a sideways tablet turned (#6107) --
+     above the apply gate,
      so a paintStyles(false) with apply=false still corrects the header. (The Settings
      layout tiles it used to also mirror were removed with the Styles tab in #2618.) */
   document.querySelectorAll('[data-layout-switch]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.layoutSwitch === want)));

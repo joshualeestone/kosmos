@@ -61,6 +61,19 @@ test('a mistyped MSHOTS_COVER_CONTROL is refused with exit 2, before a browser s
   assert.match(r.stderr, /MSHOTS_COVER_CONTROL must be overlay or spill, not overlai/);
 });
 
+/* #6107: a mistyped sideways-tablet layout is refused the same way; the correct spelling is the control. */
+test('#6107: a mistyped MSHOTS_TABLET_LAYOUT is refused with exit 2, before a browser starts', () => {
+  const r = run(['--sizes', 'ipadminiland', '--screens', 'home'], { MSHOTS_TABLET_LAYOUT: 'tab' });
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /MSHOTS_TABLET_LAYOUT must be tabs or consolidated, not tab/);
+});
+
+test('#6107 control: MSHOTS_TABLET_LAYOUT=tabs is accepted and the run is planned', () => {
+  const r = run(['--sizes', 'ipadminiland', '--screens', 'home', '--themes', 'light', '--engines', 'chromium'], { MSHOTS_TABLET_LAYOUT: 'tabs' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /planned 1 screen\(s\)/);
+});
+
 /* kosmos#4820: the cmnotice control went with the Community notice; asking for it is refused, not armed with nothing. */
 test('MSHOTS_COVER_CONTROL=cmnotice is refused now that the notice is gone', () => {
   const r = run(['--sizes', 'se', '--screens', 'home'], { MSHOTS_COVER_CONTROL: 'cmnotice' });
