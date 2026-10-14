@@ -29,7 +29,7 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 153 ok. One hundred and one mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 155 ok. One hundred and four mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
@@ -58,7 +58,9 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   block read as no jobs; then preflight run as another account reporting clear (reproduced: 'preflight: clear' as
   kosmos-ci), a missing hook dir read as unchecked, install's commit format unchecked; then the Listener wait
   comparing the first pid only, no note on temp leftovers, a closed home counted twice; then register taking a
-  hand-started Listener as the service's, a pgrep failure in the wait read as no Listener).
+  hand-started Listener as the service's, a pgrep failure in the wait read as no Listener; then (after the rebase
+  onto origin/main, which conflicted only in package.json) verify blind to a rewritten hook, install taking extra
+  arguments, and the guard call dropped from job-started).
 - How kosmos-ci gets the script once the owner's home is 700: fetch it raw at the install commit and match its
   sha256 to `git show <commit>:tools/ci-runner-setup.sh` on the owner's side. The two forms gave the same sha256 for
   tools/ci-runner-job-guard.sh at origin/main (measured 06:31).
@@ -122,3 +124,7 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   domain, crontab and gh, so as another account a dry run would judge the wrong state.
 - On the first live job after migration, check _work/_temp is empty once the job ends: the sweep has only run in
   the test's sandbox. verify notes leftovers there while the runner is idle.
+- The hook texts live in one function (hook_body): install writes from it and verify compares each installed hook
+  with it byte for byte, so a job that rewrites job-started.sh to skip the guard is a problem, not a pinned guard.
+- Rebased onto origin/main 07:29 (81 commits): package.json conflicted twice and took main's line plus this branch's
+  two commands; the three files of this branch were byte-identical to the pre-rebase head.

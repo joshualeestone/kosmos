@@ -14,6 +14,7 @@
 #                             or a suite are live (runbook part 3, step 0), and checks disk, FileVault, sleep,
 #                             power restore, tmux, pwsh, the Command Line Tools, the owner's home mode, the CI
 #                             user and the repo variables. KOSMOS_CI_ALLOW_JOBS (an ERE) lets named launchd jobs stay
+#                             loaded. KOSMOS_CI_SYSTEM_AGENTS, KOSMOS_CI_OWNER_HOME and KOSMOS_CI_BREW are test seams.
 #   create-user               as the machine owner (an admin). Runs preflight first. A STANDARD user kosmos-ci
 #   install <commit> <sha256> as kosmos-ci, in its Screen Sharing session (svc.sh, which stops and starts the
 #                             runner, needs the GUI session, not ssh). The runner, the hooks and the job guard
@@ -85,6 +86,40 @@ act() {
 }
 # put <path> <mode>: stdin becomes the file. Only used past a stage's dry-run return.
 put() { cat > "$1"; chmod "$2" "$1"; }
+# hook_body <cleanup|completed|started>: the text of each job hook, in one place, so install writes it and verify
+# can compare the installed file byte for byte (a job could rewrite a hook to skip the guard; see the header).
+hook_body() {
+  case "$1" in
+    cleanup) cat <<'HOOK'
+#!/bin/bash
+# Ends what a job left running. kosmos-ci is a DEDICATED user and no step runs while a hook does, so every tmux
+# server and node process of this user is a leftover. The runner's own service host IS node (RunnerService.js), but
+# it is this hook's ancestor, and pkill leaves its own ancestors alone unless given -a (man pkill).
+pkill -u "$(id -u)" -x tmux 2>/dev/null || true
+pkill -u "$(id -u)" -x node 2>/dev/null || true
+HOOK
+      ;;
+    completed) cat <<'HOOK'
+#!/bin/bash
+# Located by its own path: the hooks live beside each other. The job's temp is emptied AFTER a job only: at job
+# start it holds the event payload the guard reads.
+D="$(cd "$(/usr/bin/dirname "$0")" && pwd -P)" || exit 1
+"$D/job-cleanup.sh"
+TMPD="$(cd "$D/../actions-runner/_work/_temp" 2>/dev/null && pwd -P)" || exit 0
+# Only when RUNNER_TEMP is that resolved path: one that differs (a symlinked home) skips the sweep, safely and silently.
+case "${RUNNER_TEMP:-}" in "$TMPD") find "${TMPD:?}" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true ;; esac   # dotfiles too
+HOOK
+      ;;
+    started) cat <<'HOOK'
+#!/bin/bash
+# Guard first: a refused job fails here, before cleanup and before any of its steps.
+D="$(cd "$(/usr/bin/dirname "$0")" && pwd -P)" || exit 1
+"$D/job-guard.sh" || exit 1
+exec "$D/job-cleanup.sh"
+HOOK
+      ;;
+  esac
+}
 mode_line() { if [ "$APPLY" = 1 ]; then say "APPLYING $STAGE"; else say "DRY RUN of $STAGE (nothing changes; --apply to do it)"; fi; }
 need_user() {
   if [ "$(id -un)" = "$1" ]; then
@@ -153,6 +188,7 @@ shards_check() {
 
 preflight() {
   [ "${1:-}" = --from-create ] || need_user "$OWNER"   # create-user has already said who it runs as
+  [ -z "${KOSMOS_CI_SYSTEM_AGENTS:-}${KOSMOS_CI_OWNER_HOME:-}" ] || echo "note:   a test seam is set (KOSMOS_CI_SYSTEM_AGENTS or KOSMOS_CI_OWNER_HOME): these checks are not this Mac's own"
   say "runbook part 3, step 0: the agents have left this Mac"
   # Explicit status checks throughout: create-user calls preflight inside `||`, where set -e is off, and a failed
   # read must refuse there too rather than read as empty.
@@ -287,6 +323,7 @@ create_user() {
 
 install_runner() {
   local commit="${2:-}" want="${3:-}"
+  [ $# -le 3 ] || { echo "install takes <commit> <sha256> and nothing more" >&2; exit 2; }
   [ -n "$commit" ] && [ -n "$want" ] || { echo "install needs <main commit> <sha256 of tools/ci-runner-job-guard.sh there>" >&2; exit 2; }
   [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "the commit must be a full 40-character sha" >&2; exit 2; }
   [[ "$want" =~ ^[0-9a-f]{64}$ ]] || { echo "the guard sha256 must be 64 hex characters" >&2; exit 2; }
@@ -378,31 +415,7 @@ install_runner() {
   echo "runner $ver unpacked in $RUNNER_DIR; job guard installed from $commit, sha256 $got"
   # Job hooks. NOT a fresh VM: the checkout and ~ persist between jobs. They end what a previous job left running,
   # and only THIS user's: the agents' processes (another user) are never touched.
-  put "$CI_DIR/job-cleanup.sh" 755 <<'HOOK'
-#!/bin/bash
-# Ends what a job left running. kosmos-ci is a DEDICATED user and no step runs while a hook does, so every tmux
-# server and node process of this user is a leftover. The runner's own service host IS node (RunnerService.js), but
-# it is this hook's ancestor, and pkill leaves its own ancestors alone unless given -a (man pkill).
-pkill -u "$(id -u)" -x tmux 2>/dev/null || true
-pkill -u "$(id -u)" -x node 2>/dev/null || true
-HOOK
-  put "$CI_DIR/job-completed.sh" 755 <<'HOOK'
-#!/bin/bash
-# Located by its own path: the hooks live beside each other. The job's temp is emptied AFTER a job only: at job
-# start it holds the event payload the guard reads.
-D="$(cd "$(/usr/bin/dirname "$0")" && pwd -P)" || exit 1
-"$D/job-cleanup.sh"
-TMPD="$(cd "$D/../actions-runner/_work/_temp" 2>/dev/null && pwd -P)" || exit 0
-# Only when RUNNER_TEMP is that resolved path: one that differs (a symlinked home) skips the sweep, safely and silently.
-case "${RUNNER_TEMP:-}" in "$TMPD") find "${TMPD:?}" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true ;; esac   # dotfiles too
-HOOK
-  put "$CI_DIR/job-started.sh" 755 <<'HOOK'
-#!/bin/bash
-# Guard first: a refused job fails here, before cleanup and before any of its steps.
-D="$(cd "$(/usr/bin/dirname "$0")" && pwd -P)" || exit 1
-"$D/job-guard.sh" || exit 1
-exec "$D/job-cleanup.sh"
-HOOK
+  for h in cleanup completed started; do hook_body "$h" | put "$CI_DIR/job-$h.sh" 755; done
   { [ -z "$env_keep" ] || printf '%s\n' "$env_keep"
     echo "ACTIONS_RUNNER_HOOK_JOB_STARTED=$CI_DIR/job-started.sh"
     echo "ACTIONS_RUNNER_HOOK_JOB_COMPLETED=$CI_DIR/job-completed.sh"
@@ -536,6 +549,13 @@ EOF
   elif [ -r "$CI_DIR" ] && [ -x "$CI_DIR" ]; then
     for f in job-guard.sh job-started.sh job-completed.sh job-cleanup.sh; do
       [ -x "$CI_DIR/$f" ] || problem "$CI_DIR/$f is missing or not executable"
+    done
+    # The hooks around the guard, byte for byte: rewriting job-started.sh to skip the guard would leave the guard pinned.
+    for h in cleanup completed started; do
+      if [ -r "$CI_DIR/job-$h.sh" ]; then
+        if hook_body "$h" | cmp -s - "$CI_DIR/job-$h.sh"; then ok "job-$h.sh is what install writes"
+        else problem "$CI_DIR/job-$h.sh differs from what install writes: something rewrote it"; fi
+      fi
     done
     # A job the guard admits could rewrite it (the header): KOSMOS_CI_GUARD_SHA, the install pin, makes drift a problem.
     if [ -r "$CI_DIR/job-guard.sh" ]; then
