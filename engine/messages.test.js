@@ -1340,6 +1340,50 @@ test('#4934/#5967: a content post resets the run, so ack, ack, content, ack, ack
   });
 });
 
+test('#4934/#5967: an operator post resets the ack run (countFrom), so an ack right after it does not hold', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    // Three acks, then the OPERATOR posts. The ack hold counts only from countFrom, which
+    // the operator post advances (the same reset point the volume valve uses), so the three
+    // seeded acks fall out of the run: the incoming ack is run 1, far under the threshold.
+    seedPosts(now, [
+      { from: 'leo', text: 'agreed' },
+      { from: 'mara', text: 'ok' },
+      { from: 'april', text: 'confirmed' },
+    ]);
+    fs.appendFileSync(messages.LOG, JSON.stringify({
+      kind: 'post', id: 'mop', project: 'henderson-lease', operator: true,
+      from: 'you', to: MEMBERS, text: 'bringing myself in here', at: new Date(now - 200).toISOString(), outcomes: {},
+    }) + '\n');
+    armSender('leo-discord'); arm([]);
+    const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks' }, board.agents, MEMBERS);
+    assert.equal(out.state, chat.DELIVERY.PLACED, 'the ack run was not reset by the operator post (countFrom was ignored)');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 0, 'the room was held though the operator post had reset the run');
+  });
+});
+
+test('#4934/#5967: a second refused ack does not duplicate the valve row or the per-agent refused row', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    seedPosts(now, [
+      { from: 'leo', text: 'agreed' },
+      { from: 'mara', text: 'ok' },
+      { from: 'april', text: 'confirmed' },
+    ]);
+    armSender('leo-discord'); arm([]);
+    // First refusal: the run reaches four and the room holds (one valve row, one refused row).
+    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks' }, board.agents, MEMBERS);
+    assert.equal(first.state, chat.DELIVERY.COULD_NOT, 'the first ack did not hold the room');
+    // Second refusal by the SAME agent, still within the window: held again, but the record
+    // is deduplicated per room (valve) and per agent (refused), exactly as the volume path.
+    const second = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'sure' }, board.agents, MEMBERS);
+    assert.equal(second.state, chat.DELIVERY.COULD_NOT, 'the second ack landed though the room was still held');
+    const rows = messages.record().rows;
+    assert.equal(rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 1, 'a second refusal wrote a duplicate valve row');
+    assert.equal(rows.filter((m) => m.kind === 'refused' && m.project === 'henderson-lease').length, 1, 'a second refusal by the same agent wrote a duplicate refused row');
+  });
+});
+
 test('#2710: reopening a held room clears the loop-guard budget so the next post lands', () => {
   withFleet(room3(), (board) => {
     const now = Date.now();

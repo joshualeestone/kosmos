@@ -358,12 +358,17 @@ function cleanMessage(raw) {
  * avoid is a word list that would hold a real "agreed, and here is the number: 42":
  * that post escapes two ways here, by words outside the lexicon AND by a digit, so it
  * is content. A post is acknowledgement-only only if ALL of these hold:
- *   A. after @mention tokens are stripped it is at most ACK_MAX_WORDS words (brevity:
- *      necessary, since a real update is almost never this short, not sufficient);
+ *   A. after a single LEADING @mention is stripped it is at most ACK_MAX_WORDS words
+ *      (brevity: necessary, since a real update is almost never this short, not
+ *      sufficient); a further or non-leading @mention is a new-information signal
+ *      (pulling a colleague into the thread), so it is content;
  *   B. every remaining word is in the closed ACK_WORDS lexicon (the WHOLE post, not a
  *      prefix), matched case-insensitively and with edge punctuation trimmed, so
  *      "AGREED." and "Thanks!!" still count (a case-sensitive match is this fleet's
- *      most repeated false zero);
+ *      most repeated false zero). A token is skippable only if it is pure
+ *      punctuation/symbol/emoji; a word in ANY script (not only Latin) that is not in
+ *      the lexicon is content, so a non-English post is never mistaken for an
+ *      acknowledgement;
  *   C. it carries no new-information signal: a digit, a url or scheme, a file path or
  *      a filename.ext, inline code/backticks, a question mark, a currency or percent
  *      sign, or a double-quoted span.
@@ -373,11 +378,19 @@ function cleanMessage(raw) {
  * calling a real post an acknowledgement, and that needs every word in the lexicon.
  */
 const ACK_MAX_WORDS = 5;
+// A closed lexicon of acknowledgement words. Two tokens are deliberately excluded to keep
+// a directive or a request from reading as agreement: "it" (a pronoun, never agreement on
+// its own -- it only glued "do it", an instruction) and bare "confirm" (a request to
+// confirm, not an acknowledgement; "confirmed"/"confirms" stay, since those ARE the ack).
+// "do"/"will do" stay (willingness to act is agreement; without "it", "do it" cannot form).
+// "done"/"yes" are kept knowingly: they are acknowledgements in the loop context, and a run
+// of four bare status/answer posts with no content signal is itself loop-shaped, which is
+// exactly what the hold is meant to catch; the 4-consecutive gate bounds the false-positive.
 const ACK_WORDS = new Set([
-  'agreed', 'agree', 'agrees', 'thanks', 'thank', 'thx', 'ty', 'confirmed', 'confirm',
+  'agreed', 'agree', 'agrees', 'thanks', 'thank', 'thx', 'ty', 'confirmed',
   'confirms', 'ack', 'acked', 'acknowledged', 'acknowledge', 'ok', 'okay', 'okey', 'k',
   'kk', 'yes', 'yep', 'yeah', 'yup', 'sure', 'sounds', 'good', 'great', 'perfect',
-  'will', 'do', 'done', 'noted', 'got', 'it', 'understood', 'roger', 'cool', 'nice',
+  'will', 'do', 'done', 'noted', 'got', 'understood', 'roger', 'cool', 'nice',
   'fine', 'right', 'correct', 'indeed', 'affirmative', 'ditto', 'same', 'to', 'me',
 ]);
 // A few common acknowledgement emoji, judged whole (never trimmed as punctuation).
@@ -393,17 +406,25 @@ function acknowledgementOnly(raw) {
   if (/[$%£€]/.test(text)) return false;         // a currency or percent sign
   if (text.includes('"')) return false;          // a double-quoted span
   if (/\S+\.[A-Za-z]{1,8}(?![A-Za-z])/.test(text) || /\/\S/.test(text)) return false; // filename.ext or a path
-  // A: strip @mention tokens, then the brevity gate.
-  const stripped = text.replace(/(^|\s)@\S+/g, ' ').replace(/\s+/g, ' ').trim();
-  if (!stripped) return false;                   // only @mentions: nothing acknowledged
+  // A: allow a SINGLE leading @mention (a reply addressing one colleague is still an
+  // acknowledgement); a further or non-leading @mention pulls a new colleague in and is
+  // content. Then the brevity gate.
+  const stripped = text.replace(/^@\S+\s*/, '').replace(/\s+/g, ' ').trim();
+  if (!stripped) return false;                   // only a leading @mention: nothing acknowledged
+  if (/(^|\s)@\S+/.test(stripped)) return false; // a @mention beyond the leading one -> content
   const tokens = stripped.split(' ');
   if (tokens.length > ACK_MAX_WORDS) return false;
-  // B: every content token is an acknowledgement word (or an acknowledgement emoji).
+  // B: every content token is an acknowledgement word (or an acknowledgement emoji). The
+  // \p{L}\p{N} trim keeps letters and numbers of ANY script, so a token is skippable only
+  // when it is pure punctuation/symbol/emoji; a word in any script that is not in the
+  // lexicon is content. Trimming with a Latin-only class would strip a CJK/Cyrillic/etc.
+  // token to empty and mistake real non-English content for an acknowledgement -- the
+  // dangerous direction.
   for (const tok of tokens) {
     if (ACK_EMOJI.has(tok)) continue;
-    const w = tok.toLowerCase().replace(/^[^0-9a-zÀ-ɏ]+|[^0-9a-zÀ-ɏ]+$/gi, '');
-    if (w === '') continue;                      // a pure-punctuation token such as "!!"
-    if (!ACK_WORDS.has(w)) return false;         // a word outside the lexicon -> content
+    const w = tok.toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+    if (w === '') continue;                      // pure punctuation/symbol/emoji such as "!!" or an off-lexicon emoji
+    if (!ACK_WORDS.has(w)) return false;         // a word outside the lexicon (any script) -> content
   }
   return true;
 }

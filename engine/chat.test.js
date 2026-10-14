@@ -3370,10 +3370,11 @@ test('#4557 defaultAgentFor: in a deeper chart the TOP opens the room, not a mid
 test('#4934: acknowledgementOnly matches whole-post acknowledgements, case- and punctuation-insensitively', () => {
   for (const s of [
     'agreed', 'acknowledged', 'ok', 'yes', 'confirmed', 'sounds good', 'will do',
-    'got it', 'noted', 'sounds good to me', 'yes, agreed', 'confirmed, thanks',
+    'noted', 'sounds good to me', 'yes, agreed', 'confirmed, thanks',
     // case and trailing punctuation must not matter (the fleet's most repeated false zero)
     'AGREED.', 'Agreed', 'Thanks!!', 'THANKS', 'OK.', 'Confirmed!', 'YES',
-    // a leading @mention is stripped before judging the words
+    // a SINGLE leading @mention is stripped before judging the words (a reply addressing
+    // one colleague is still an ack); a further/non-leading mention is content (arm below)
     '@Kano agreed', '@Sub-Zero ok',
     // an acknowledgement emoji, alone or with a word
     '👍', 'thanks 👍',
@@ -3398,8 +3399,17 @@ test('#4934: acknowledgementOnly lets a post with new facts escape, by a word ou
     'agreed, the fix is in engine/foo.js',   // a path / filename.ext
     'let us ship the new valve logic today', // ordinary content, no ack words
     'fix it', 'do it now',                   // short but not acknowledgement
+    'do it', 'got it',                       // a directive / object-reference, not agreement ("it" is out of the lexicon)
+    'confirm',                               // a bare request to confirm is content ("confirmed"/"confirms" are the ack)
     'agreed and here are six more words past the cap', // over the brevity cap
-    '', '   ', '@Kano',                      // nothing said, or only a mention
+    '', '   ', '@Kano',                      // nothing said, or only a leading mention
+    // a @mention BEYOND the single leading one pulls a colleague in -> a new-info signal
+    'ok @Raiden', '@Alice @Bob ok',
+    // the dangerous direction, guarded: a word in ANY script that is not in the lexicon is
+    // content. A Latin-only trim would strip these to empty and call real non-English
+    // content an acknowledgement (which would refuse it with nothing stored).
+    '同意', 'Принято',
+    'こんにちは', '我不同意这个方案',
   ]) {
     assert.equal(chat.acknowledgementOnly(s), false, 'should be content (escape): ' + JSON.stringify(s));
   }
