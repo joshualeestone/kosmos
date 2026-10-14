@@ -128,8 +128,9 @@ function writeHeld(env, home, version, log) {
  * a newer release than that is offered, not installed). Seams, each with
  * its production default: platform, env, home, port, root (update.installedRoot), probe
  * (win32handoff.probeBoard), readsConnect (win32apply.readsConnect), decide (update-ifnewer.decide),
- * begin, rollbackToPrevious, wait (waitForOutcome's seams), liveExecutionAllowed (the live-execution
- * gate; cliMain's --yes opens it), log.
+ * begin, rollbackToPrevious, wait (waitForOutcome's seams), helperOptions (handed on to begin and
+ * rollbackToPrevious, for the helper's own seams), liveExecutionAllowed (the live-execution gate; cliMain's
+ * --yes opens it), log.
  */
 async function run(action, opts) {
   const o = opts || {};

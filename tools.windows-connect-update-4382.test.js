@@ -122,7 +122,11 @@ test('#4382: each run is the engine\'s, off the window\'s thread, counted so Run
   assert.match(look, /look\.IsBackground = false;/, 'closing the window could cut an install off between its steps');
   /* The window's own look is given up on (its flags let go) after the limit, and nothing is killed. */
   inOrder(look, ['if (action == "look")', 'giveUp.Interval = KosmosLauncher.UpdateLookTimeoutMs;', 'if (finished[0]) return;', 'gaveUp[0] = true;',
-    'updateLookInFlight = false;', 'stopsInFlight--;', 'finished[0] = true;', 'if (gaveUp[0]) { if (answer.Kind == KosmosLauncher.ConnectUpdateKind.Updated && !updateLookInFlight) UpdateLookDone(answer, action); return; }'], 'giving up on a look that hangs, still recording an install it did');
+    'updateLookInFlight = false;', 'stopsInFlight--;', 'lookThread[0].IsBackground = true;', 'finished[0] = true;', 'if (gaveUp[0])',
+    'if (answer.Kind != KosmosLauncher.ConnectUpdateKind.Updated) return;', 'if (updateLookInFlight) lateInstall = answer;', 'else UpdateLookDone(answer, action);',
+    'UpdateLookDone(answer, action);', 'if (lateInstall != null)', 'lateInstall = null;', 'if (RelaunchAfterClose == null && !IsDisposed) UpdateLookDone(late, "look");',
+    'lookThread[0] = look;', 'look.Start();'],
+    'giving up on a look that hangs (no longer keeping Kosmos.exe open), still recording an install it did, after any run in flight');
   assert.doesNotMatch(look, /\.Kill\(/, 'a kill could land while the engine holds its lock or has written a journal');
   inOrder(method('void RunAgentsHere()'), [
     'if (mode != KosmosLauncher.ComputerMode.Connect) return;',

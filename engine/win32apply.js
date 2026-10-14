@@ -853,8 +853,8 @@ async function stopBoard(ctx) {
      board that just booted) owns the recovery now. */
   assertStillOwner(ctx);
   /* #4382: a computer whose choice forbids a board start (connect, or a choice that cannot be read) runs no
-     board on purpose, and its update names none (pid null). When nothing answers on the port and the port is free there is nothing to end, so /End is not
-     issued at all: win32board.end recognises "not running" only in English, so on a Windows in another
+     board on purpose, and its update names none (pid null). When nothing answers on the port and the port
+     is free there is nothing to end, so /End is not issued at all: win32board.end recognises "not running" only in English, so on a Windows in another
      language /End would fail every such update. Anything that answers, or holds the port, takes the
      ordinary path below. */
   if (j.board.pid === null && !deps.mayStartBoard()) {

@@ -3257,6 +3257,9 @@ class BoardWindowForm : System.Windows.Forms.Form
     // #4382: the connect computer's update looks (KosmosLauncher.ConnectUpdateScript). Main-thread only.
     System.Windows.Forms.Timer updateTimer;
     bool updateLookInFlight;
+    // An install a given-up look finished while another run was in flight: recorded when that run is done,
+    // so the Restart is still offered and no later look starts a second update under this window.
+    KosmosLauncher.ConnectUpdateAnswer lateInstall;
     // What the window knows (the offer, an installed update waiting for Restart, the rollback) and shows;
     // every change goes through KosmosLauncher.AfterConnectUpdate / AfterNotNow, which are pure.
     KosmosLauncher.ConnectUpdateState updateState = new KosmosLauncher.ConnectUpdateState();
@@ -3975,6 +3978,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         // its own, and while its lock or journal is fresh Run agents is still held by UpdateUnderWayHere.
         bool[] finished = new bool[1];
         bool[] gaveUp = new bool[1];
+        Thread[] lookThread = new Thread[1];
         System.Windows.Forms.Timer giveUp = null;
         if (action == "look")
         {
@@ -3988,6 +3992,9 @@ class BoardWindowForm : System.Windows.Forms.Form
                 gaveUp[0] = true;
                 updateLookInFlight = false;
                 stopsInFlight--;
+                // No longer waited for, so it no longer keeps Kosmos.exe open once the window closes: the engine
+                // run is its own process and finishes or fails on its own either way.
+                try { if (lookThread[0] != null) lookThread[0].IsBackground = true; } catch (ThreadStateException) { /* it ended meanwhile */ }
             };
             giveUp.Start();
         }
@@ -4011,16 +4018,30 @@ class BoardWindowForm : System.Windows.Forms.Form
                     if (giveUp != null && !gaveUp[0]) { giveUp.Stop(); giveUp.Dispose(); }
                     // Its flags were let go already. An install it did is still recorded, so the Restart is offered
                     // and no further look runs while this window runs from the copy that install moved aside.
-                    if (gaveUp[0]) { if (answer.Kind == KosmosLauncher.ConnectUpdateKind.Updated && !updateLookInFlight) UpdateLookDone(answer, action); return; }
+                    // If another run is in flight, it is recorded once that run is done (lateInstall).
+                    if (gaveUp[0])
+                    {
+                        if (answer.Kind != KosmosLauncher.ConnectUpdateKind.Updated) return;
+                        if (updateLookInFlight) lateInstall = answer;
+                        else UpdateLookDone(answer, action);
+                        return;
+                    }
                     updateLookInFlight = false;
                     stopsInFlight--;
                     UpdateLookDone(answer, action);
+                    if (lateInstall != null)
+                    {
+                        KosmosLauncher.ConnectUpdateAnswer late = lateInstall;
+                        lateInstall = null;
+                        if (RelaunchAfterClose == null && !IsDisposed) UpdateLookDone(late, "look");
+                    }
                 }));
             }
             catch { /* the window closed meanwhile; the next launch looks again */ }
         });
         // Not a background thread: closing the window must not cut an install off between its steps.
         look.IsBackground = false;
+        lookThread[0] = look;
         look.Start();
     }
 

@@ -159,7 +159,8 @@ order mark, a read error) is `unreadable` and asks again. Only `Kosmos.exe` writ
   board unless the mode file is absent or reads `run` or `both`.
 - **A connect computer updates and rolls back with no board** (#4382, the Windows half). The window
   runs `app\engine\win32connectupdate.js` with the bundle's node once its stop of the board is done,
-  then once a day while it is open, and an hour after a look that could not reach the release host.
+  then once a day while it is open, and an hour after a look that could not reach the release host
+  or was refused for now (another update under way, say).
   That file runs the board's own look and consent (`engine/update-ifnewer.js`, `latest-win.json`),
   and the board's own updater and rollback (`win32update.begin` / `rollbackToPrevious`), held to the
   connect computer's preconditions (the mode file reads `connect`, nothing answers on the port) in
