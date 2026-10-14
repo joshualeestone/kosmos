@@ -901,6 +901,12 @@ function tapProbe4663(skip) {
       const tkRow = await phonePage.evaluate(() => {
         const list = document.getElementById('pj-tasklist');
         if (!list) return { error: 'no #pj-tasklist' };
+        // The static page shows no project: un-hide the list's ancestors (as the New task arm does) and put them back.
+        const unhide = [];
+        for (let el = list; el && el !== document.body; el = el.parentElement) {
+          unhide.push([el, el.hidden, el.hasAttribute('inert'), el.style.display]);
+          el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block';
+        }
         // Whatever the list holds (an empty-state line, say) is set aside, so the first stand-in card starts at the
         // scroller's own edge, and put back after.
         const kept = [...list.childNodes]; kept.forEach((n) => n.remove());
@@ -932,6 +938,7 @@ function tapProbe4663(skip) {
         fourth.blur(); list.querySelectorAll('.tk-probe').forEach((n) => n.remove()); list.scrollLeft = 0;
         kept.forEach((n) => list.appendChild(n));
         out.restored = list.childNodes.length === kept.length && kept.every((n, i) => list.childNodes[i] === n);
+        for (const [el, h, inert, disp] of unhide.reverse()) { el.hidden = h; if (inert) el.setAttribute('inert', ''); el.style.display = disp; }
         return out;
       });
       chk(!tkRow.error && tkRow.dir === 'row' && tkRow.scrolls && tkRow.pageFits && tkRow.focused && tkRow.ring > 0
