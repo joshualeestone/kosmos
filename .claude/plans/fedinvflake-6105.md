@@ -33,7 +33,7 @@ Card: kosmos#6105 (recurrence of #5373). Test-only change: docs/browser-checks/r
 - C9's run() waits for the last arm's Copied to revert first, so press()'s NOTE fires only on a real timeout (it
   compared against the same sentence and timed out on every passing run, a 3 s stall the old code hid).
 
-## Review 4 (sonnet) fix
+## Review 4 (sonnet) fix (its bound is SUPERSEDED by review 5: 1950 to 5000 ms from the press, recorded on the page)
 - C1 times its revert on the page's clock from the moment the Copied was seen and requires 1.5 s to 4.5 s (the 6 s
   wait alone let a much slower revert pass, which the old 2.3 s read caught); its snapshot reads the real status line.
   This also covers the too-short revert for C1 (the residual below remains for C6 and C7b).
