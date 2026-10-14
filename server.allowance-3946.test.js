@@ -302,6 +302,15 @@ test('#6175 the usage-reading route wires a not-set-up account and never replace
     // Only an account this computer lists, and a request it can read.
     assert.equal((await post({ dir: path.join(SANDBOX, 'not-an-account') })).status, 404);
     assert.equal((await post({})).status, 400);
+    // A fault after the request was read is 500, and says no path (review 5).
+    const al = require('./engine/allowance'); const realEnsure = al.ensureStatusLine;
+    al.ensureStatusLine = () => { throw new Error('EACCES: permission denied, open \'/Users/someone/.claude/settings.json\''); };
+    const errLog = console.error; console.error = () => {};
+    try {
+      const fault = await post({ dir: def });
+      assert.equal(fault.status, 500, JSON.stringify(fault));
+      assert.ok(!/\/Users\//.test(JSON.stringify(fault.j)), 'a path reached the page: ' + JSON.stringify(fault.j));
+    } finally { al.ensureStatusLine = realEnsure; console.error = errLog; }
     const bad = await fetch(base + '/api/accounts/claude/usage-reading', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{' });
     assert.equal(bad.status, 400, 'a body that is not JSON was not refused as unreadable');
   } finally {

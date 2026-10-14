@@ -13,7 +13,7 @@ Card: kosmos#6175 (#6108 follow-up).
 
 ## Review 1 (opus)
 - The button is described by its explainer (aria-describedby); a refusal is also written to the panel's status line
-  (#set-accounts-msg, role=status); a success is said there after the repaint and focus moves to the account's row.
+  (#set-accounts-msg, role=status); a success is said there after the repaint and focus moves to the account's row (narrowed in reviews 3 to 5).
 - A test for the API-key refusal (a stored key, no sign-in: 400 and no settings.json written; mutant reds it).
 - The route comment says it is narrower than creation on purpose and that a misaimed status line of ours reads as
   wired on the page, so its repoint is reachable only through the route. The browser arms wait on state, not 120 ms.
@@ -37,6 +37,12 @@ Card: kosmos#6175 (#6108 follow-up).
   ensureStatusLine is logged. Browser arms added: focus back after a refusal (pressed from the focused button), and
   another writer's sentence plus a focus the person moved both survive the re-claim second; a missing offer is a FAIL
   line, not a thrown evaluate.
+
+## Review 5 (opus)
+- Focus is still claimed (when lost) on the early return where another writer spoke; a refusal during a repaint is
+  said on the button that is there now; a THROWN ensureStatusLine is 500 (a refusal it answers, including a failed
+  save, stays 409); the refocus arm blurs the button inside the stubbed refusal so it can fail; a test for the 500
+  (no path in the body).
 
 ## Decided, not missed
 - The default account (~/.claude) is offered too: the person presses the button, and the line says what it changes in

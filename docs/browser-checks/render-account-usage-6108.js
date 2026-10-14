@@ -303,7 +303,9 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         window.fetch = (u, opts) => {
           if (String(u).indexOf('/api/accounts/claude/usage-reading') !== -1) {
             const dir = JSON.parse(opts.body).dir; out.posts.push(dir);
-            if (refuse > 0) { refuse--; return Promise.resolve({ ok: false, status: 409, json: async () => ({ wired: false, because: 'this account already has its own status line, so it was left alone' }) }); }
+            /* Review 5: the button loses focus during the refusal (some engines keep it on a disabled button), so the arm
+               below fails unless the handler gives it back. */
+            if (refuse > 0) { refuse--; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); return Promise.resolve({ ok: false, status: 409, json: async () => ({ wired: false, because: 'this account already has its own status line, so it was left alone' }) }); }
             (window.__acctPatch = window.__acctPatch || {})[dir] = { weeklyBlocked: null };
             return Promise.resolve({ ok: true, status: 200, json: async () => ({ wired: true, changed: true }) });
           }
