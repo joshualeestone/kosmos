@@ -435,6 +435,8 @@ function writeGuard(j, journalAt) {
     statusPathFor(j.anchor),
     path.join(j.anchor, win32anchor.POINTER_NAME),
     path.join(j.anchor, win32anchor.NODE_NAME),
+    /* #4382: a hold after a connect computer's rollback, let go at a finished forward update (finishUpdated). */
+    path.join(j.anchor, win32anchor.UPDATE_HELD_NAME),
   ];
   return (target) => {
     const t = path.resolve(target);
@@ -1277,6 +1279,11 @@ function finishUpdated(ctx) {
     ['the download', () => fs.rmSync(ctx.guard(path.join(j.work, win32update.DOWNLOAD_PART_NAME)), { force: true })],
     ['the safety copy of node.exe', () => fs.rmSync(ctx.guard(path.join(j.previous, ANCHORED_NODE_COPY_NAME)), { force: true })],
   ];
+  /* #4382: a forward update, however it was started (the board's button, its automatic install, a connect
+     computer's look), lets go of a version held after a rollback (win32anchor.UPDATE_HELD_NAME), as one
+     more removal, so a loss of ownership stops it like the rest. A hold left behind only offers a version
+     where it could have installed it. */
+  if (!j.rollback) removals.push(['the hold after a rollback', () => fs.rmSync(ctx.guard(path.join(j.anchor, win32anchor.UPDATE_HELD_NAME)), { force: true })]);
   let names = [];
   try { names = fs.readdirSync(j.work); } catch { names = []; }
   for (const name of names) {

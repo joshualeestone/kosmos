@@ -1468,7 +1468,11 @@ async function begin(opts) {
       return { ok: false, because: `an earlier update to ${j.to.version} has not finished, so Kosmos is finishing it now, or putting ${j.from.version} back. Try again in a minute` };
     }
     log(`cleared an earlier update no resumer could finish (${settled.action}${settled.because ? ': ' + settled.because : ''})`);
+    if (o.resumeOnly) return { ok: false, because: `an earlier update to ${j.to.version} could not be finished, and was cleared` };
   }
+  /* #4382: resumeOnly asks only for the unfinished-journal handling above (a computer with no board, whose
+     logon shim never runs to resume one), never for a new install. */
+  if (o.resumeOnly) return { ok: false, because: 'there is no unfinished update to finish' };
 
   const script = path.join(root, 'app', 'engine', path.basename(__filename));
   if (!fs.existsSync(script) || !fs.existsSync(path.join(root, 'app', 'engine', apply.MODULE_FILE_NAME))) {

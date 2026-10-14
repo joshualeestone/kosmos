@@ -25,5 +25,12 @@
 - **The window's own look is given up on after 40 minutes** (above the engine's 15-minute download and 10-minute wait), so a hung helper cannot hold Run agents for good. A run the person asked for is waited for as long as it takes.
 - Deferred: the `--expect` check reads the kept build outside the update lock, as `rollbackToPrevious` itself does before taking the lock; the window is milliseconds and the build is validated again (`keptBuildRefusal`) before anything moves.
 
+- **An unfinished update is resumed on the next run:** the board's logon shim, which resumes one at every start, never runs on a connect computer, so every look, install and rollback first hands an unfinished journal to `begin({ resumeOnly })` (the resumer from the old build's code, or clearing one nobody can finish; never a new install). Any finished forward update lets go of the rollback hold (helper's H9 removals, inside the write guard).
+- **A look that hangs is given up on, not killed:** after 40 minutes the window stops waiting and lets its flags go; a kill could land while the engine holds its lock or has written a journal. Run agents is still held by the updater's own files while they are fresh.
+- Deferred: renaming `stopsInFlight` (now also counts update runs): the name is pinned by #4381's tests and mirrors the Mac app's.
+
+## Residual, named (why FirstRunChoice stays off until a real connect computer is watched)
+A crash in the moment between H3 (the old build moved aside, Kosmos.exe with it) and H4 (the new build moved in) leaves the Kosmos folder with no Kosmos.exe and no app, so the window cannot open and nothing on a connect computer resumes the journal. On a board computer the logon shim (an anchored node.exe) does that. Closing it needs a resumer that does not live in the Kosmos folder (for example a one-shot logon task or the Start menu entry pointing at the anchored runtime); left for its own change.
+
 ## Weakest part
 With no board, a new build that will not boot is not caught by H7 (nothing is started to confirm). It surfaces when the person opens Kosmos (the relaunch) or picks Run agents; the Roll back menu item is the way back only if the new Kosmos.exe itself still opens.

@@ -488,3 +488,29 @@ test('#4382: run() itself keeps the live-execution gate; only cliMain, with the 
   assert.deepEqual(c.spawned, []);
   assert.equal(versionIn(c.root), INSTALLED);
 });
+
+test('#4382: an update left unfinished (a crash, a helper killed) is handed to its resumer on the next run, and nothing new is installed', T, async () => {
+  setMode('connect\n');
+  setConsent(true);
+  const c = freshCase();
+  const sim = stoppedBoard(c);
+  let clock = 0;
+  /* The helper is started and dies before it does anything: the journal stays staged, unfinished. */
+  const dying = seamsFor(c, site(NEXT), sim);
+  dying.helperOptions = { ...dying.helperOptions, spawn: (file, args) => { c.spawned.push({ file, args }); return { pid: 4242, on() {}, unref() {} }; } };
+  dying.wait = { now: () => clock, sleep: async (ms) => { clock += ms; }, waitMs: 1000 };
+  const first = await connectUpdate.run('look', dying);
+  assert.equal(first.answer[0], 'failed', JSON.stringify(first));
+  assert.equal(win32apply.readJournal(win32apply.journalPathFor(c.anchor)).state, 'unfinished');
+  /* An hour on, the next look finds it. */
+  const s = site(NEXT);
+  const later = seamsFor(c, s, sim);
+  later.helperOptions = { ...dying.helperOptions, now: () => Date.now() + 60 * 60 * 1000 };
+  const next = await connectUpdate.run('look', later);
+  assert.equal(next.answer[0], 'refused');
+  assert.match(next.note, /an earlier update had not finished/);
+  assert.equal(c.spawned.length, 2);
+  assert.equal(c.spawned[1].args[1], win32update.RECOVER_FLAG, 'the resumer, from the old build\'s code');
+  assert.deepEqual(s.urls, [], 'no look at the release host, and no new download');
+  assert.equal(versionIn(c.root), INSTALLED);
+});

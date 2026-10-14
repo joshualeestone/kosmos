@@ -2675,11 +2675,10 @@ class KosmosLauncher
     // A day between looks, and an hour after a look that could not reach the release host.
     internal const int UpdateLookEveryMs = 24 * 60 * 60 * 1000;
     internal const int UpdateLookRetryMs = 60 * 60 * 1000;
-    // The longest the window's own look may run before it is given up on, so a helper that hangs cannot
-    // hold "Run agents" for good: above the engine's own limits for a look that installs (a 15-minute
-    // download, then a 10-minute wait for the helper's outcome). The helper it starts runs detached and
-    // finishes on its own. A run the person asked for (Update, Roll back) is waited for as long as it takes,
-    // as the move and the uninstall are.
+    // How long the window waits on its own look before it stops waiting (LookForUpdate; nothing is killed),
+    // so an engine run that hangs cannot hold "Run agents" for good: above the engine's own limits for a look
+    // that installs (a 15-minute download, then a 10-minute wait for the helper's outcome). A run the person
+    // asked for (Update, Roll back) is waited for as long as it takes, as the move and the uninstall are.
     internal const int UpdateLookTimeoutMs = 40 * 60 * 1000;
 
     internal const string StillUpdatingMessage = "Kosmos is still updating on this computer. Try again in a moment.";
@@ -3954,6 +3953,28 @@ class BoardWindowForm : System.Windows.Forms.Form
         int boardPort = port;
         string folder = here;
         string expect = action == "rollback" ? updateState.Rollback : null;
+        // The window's own look is given up on after UpdateLookTimeoutMs: this window stops WAITING (its flags
+        // are let go, so Run agents is no longer held by them), but nothing is killed, because a kill could land
+        // while the engine holds the prepare lock or has written a journal. The engine run finishes or fails on
+        // its own, and while its lock or journal is fresh Run agents is still held by UpdateUnderWayHere.
+        bool[] finished = new bool[1];
+        bool[] gaveUp = new bool[1];
+        System.Windows.Forms.Timer giveUp = null;
+        if (action == "look")
+        {
+            giveUp = new System.Windows.Forms.Timer();
+            giveUp.Interval = KosmosLauncher.UpdateLookTimeoutMs;
+            giveUp.Tick += (sender, args) =>
+            {
+                giveUp.Stop();
+                giveUp.Dispose();
+                if (finished[0]) return;
+                gaveUp[0] = true;
+                updateLookInFlight = false;
+                stopsInFlight--;
+            };
+            giveUp.Start();
+        }
         Thread look = new Thread(() =>
         {
             string problem = null;
@@ -3961,7 +3982,7 @@ class BoardWindowForm : System.Windows.Forms.Form
             try
             {
                 lines = KosmosLauncher.runEngineHelper(Path.Combine(folder, "runtime\\node.exe"), folder, KosmosLauncher.ConnectUpdateScript,
-                    KosmosLauncher.ConnectUpdateArguments(action, boardPort, expect), action == "look" ? KosmosLauncher.UpdateLookTimeoutMs : 0, out problem);
+                    KosmosLauncher.ConnectUpdateArguments(action, boardPort, expect), 0, out problem);
             }
             catch (Exception e) { problem = e.Message; }
             KosmosLauncher.ConnectUpdateAnswer answer = KosmosLauncher.ReadConnectUpdateReport(lines);
@@ -3970,6 +3991,9 @@ class BoardWindowForm : System.Windows.Forms.Form
             {
                 BeginInvoke(new Action(() =>
                 {
+                    finished[0] = true;
+                    if (giveUp != null && !gaveUp[0]) { giveUp.Stop(); giveUp.Dispose(); }
+                    if (gaveUp[0]) return;   // its flags were let go already; the next look starts afresh
                     updateLookInFlight = false;
                     stopsInFlight--;
                     UpdateLookDone(answer, action);

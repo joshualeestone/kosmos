@@ -112,7 +112,7 @@ test('#4382: each run is the engine\'s, off the window\'s thread, counted so Run
     'stopsInFlight++;',
     'new Thread(',
     'KosmosLauncher.runEngineHelper(Path.Combine(folder, "runtime\\\\node.exe"), folder, KosmosLauncher.ConnectUpdateScript,',
-    'KosmosLauncher.ConnectUpdateArguments(action, boardPort, expect), action == "look" ? KosmosLauncher.UpdateLookTimeoutMs : 0, out problem);',
+    'KosmosLauncher.ConnectUpdateArguments(action, boardPort, expect), 0, out problem);',
     'KosmosLauncher.ReadConnectUpdateReport(lines);',
     'BeginInvoke(',
     'updateLookInFlight = false;',
@@ -120,6 +120,10 @@ test('#4382: each run is the engine\'s, off the window\'s thread, counted so Run
     'UpdateLookDone(answer, action);',
   ], 'the look');
   assert.match(look, /look\.IsBackground = false;/, 'closing the window could cut an install off between its steps');
+  /* The window's own look is given up on (its flags let go) after the limit, and nothing is killed. */
+  inOrder(look, ['if (action == "look")', 'giveUp.Interval = KosmosLauncher.UpdateLookTimeoutMs;', 'if (finished[0]) return;', 'gaveUp[0] = true;',
+    'updateLookInFlight = false;', 'stopsInFlight--;', 'finished[0] = true;', 'if (gaveUp[0]) return;'], 'giving up on a look that hangs');
+  assert.doesNotMatch(look, /\.Kill\(/, 'a kill could land while the engine holds its lock or has written a journal');
   inOrder(method('void RunAgentsHere()'), [
     'if (mode != KosmosLauncher.ComputerMode.Connect) return;',
     'if (updateLookInFlight) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }',

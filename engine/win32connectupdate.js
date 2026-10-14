@@ -102,11 +102,11 @@ function connectRollbackOffer(root) {
  * A version the person rolled back from, so the window's own look does not install it again by itself a
  * few seconds later (updates are on by default). Kept beside the update journal, in the updater's anchor
  * folder. The look offers a held version instead of installing it; the person picking Update installs it
- * (and lets it go), and a version strictly newer than the held one installs as usual. The board's own
+ * (the helper lets it go at any finished forward update, win32apply.finishUpdated), and a version strictly
+ * newer than the held one installs as usual. The board's own
  * automatic install has the same gap after its Roll back button; that is not changed here.
  */
-const HELD_NAME = 'update-held.json';
-function heldPath(env, home) { return path.join(win32anchor.anchorDir(process.platform, home, env), HELD_NAME); }
+function heldPath(env, home) { return path.join(win32anchor.anchorDir(process.platform, home, env), win32anchor.UPDATE_HELD_NAME); }
 function readHeld(env, home) {
   try { const v = JSON.parse(fs.readFileSync(heldPath(env, home), 'utf8')).version; return typeof v === 'string' ? v : null; } catch { return null; }
 }
@@ -115,7 +115,6 @@ function writeHeld(env, home, version, log) {
     log(`could not record that ${version} was rolled back from, so the next look may install it again (${(e && e.code) || 'error'})`);
   }
 }
-function clearHeld(env, home) { try { fs.rmSync(heldPath(env, home), { force: true }); } catch { /* the next install clears it again */ } }
 
 /**
  * One run. Resolves to `{ answer: [word, value?], rollback: <version>|null, note: <text>|null }`. Options:
@@ -162,6 +161,19 @@ async function run(action, opts) {
     liveExecutionAllowed: o.liveExecutionAllowed || liveExec.liveExecutionAllowed,
     ...(o.helperOptions || {}),
   };
+
+  /* An update this computer started and never finished (a crash, a power cut, a helper killed) has nobody
+     else to finish it here: the board's logon shim, which resumes one at every start, never runs on a
+     computer that connects elsewhere. So every run first hands such a journal to begin()'s own resume
+     (resumeOnly: it starts the resumer from the old build's code, or clears a journal nobody can finish,
+     and never installs anything new), and says so instead of doing what it was asked. */
+  const journalAt = win32apply.journalPathFor(win32anchor.anchorDir(process.platform, home, env));
+  if (win32apply.readJournal(journalAt).state === 'unfinished') {
+    const resumed = await (o.begin || win32update.begin)({ ...common, resumeOnly: true });
+    note = 'an earlier update had not finished: ' + oneLine((resumed && resumed.because) || 'it was handed to its resumer');
+    log(note);
+    return done(['refused', oneLine((resumed && resumed.because) || 'an earlier update has not finished')]);
+  }
 
   if (action === 'rollback') {
     const kept = win32update.keptPreviousBuild(root);
@@ -210,10 +222,7 @@ async function run(action, opts) {
     return done(['refused', because]);
   }
   const outcome = await outcomeOf(r.journal, probe, o.wait);
-  if (outcome.outcome === 'updated') {
-    clearHeld(env, home);
-    return done(['updated', outcome.to || r.version || version]);
-  }
+  if (outcome.outcome === 'updated') return done(['updated', outcome.to || r.version || version]);
   return done(['failed', version, oneLine(outcome.sentence || outcome.because || `the update ended as ${outcome.outcome || 'unknown'}`)]);
 }
 
