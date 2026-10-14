@@ -879,7 +879,9 @@ function tapProbe4663(skip) {
       const tkRow = await phonePage.evaluate(() => {
         const list = document.getElementById('pj-tasklist');
         if (!list) return { error: 'no #pj-tasklist' };
-        const kept = [...list.childNodes];
+        // Whatever the list holds (an empty-state line, say) is set aside, so the first stand-in card starts at the
+        // scroller's own edge, and put back after.
+        const kept = [...list.childNodes]; kept.forEach((n) => n.remove());
         for (let i = 0; i < 6; i += 1) { const b = document.createElement('button'); b.type = 'button'; b.className = 'tkcard tk-probe'; b.textContent = 'Task ' + (i + 1) + ': a stand-in card with a title long enough to wrap'; list.appendChild(b); }
         const first = list.querySelector('.tk-probe');
         first.focus();
@@ -888,13 +890,20 @@ function tapProbe4663(skip) {
         const out = { dir: getComputedStyle(list).flexDirection, scrolls: list.scrollWidth > list.clientWidth + 1,
           pageFits: document.documentElement.scrollWidth <= window.innerWidth, ring,
           roomTop: Math.round(C.top - L.top), roomLeft: Math.round(C.left - L.left), focused: document.activeElement === first };
-        first.blur(); list.querySelectorAll('.tk-probe').forEach((n) => n.remove());
+        // A card further along, focused: the browser scrolls it into view, and its ring must still clear the scroller's
+        // left edge (scroll-padding), not only the first card's at scrollLeft 0.
+        const fourth = list.querySelectorAll('.tk-probe')[3];
+        fourth.scrollIntoView({ block: 'nearest', inline: 'start' }); fourth.focus();
+        const L4 = list.getBoundingClientRect(); const C4 = fourth.getBoundingClientRect();
+        out.scrolledBy = Math.round(list.scrollLeft); out.roomLeft4 = Math.round(C4.left - L4.left);
+        fourth.blur(); list.querySelectorAll('.tk-probe').forEach((n) => n.remove()); list.scrollLeft = 0;
+        kept.forEach((n) => list.appendChild(n));
         out.restored = list.childNodes.length === kept.length && kept.every((n, i) => list.childNodes[i] === n);
         return out;
       });
       chk(!tkRow.error && tkRow.dir === 'row' && tkRow.scrolls && tkRow.pageFits && tkRow.focused && tkRow.ring > 0
-        && tkRow.roomTop >= tkRow.ring && tkRow.roomLeft >= tkRow.ring && tkRow.restored,
-        `[tablet] #6107: the Tasks row runs sideways, scrolls inside itself, leaves the page its width, and has room for a focus ring`, JSON.stringify(tkRow));
+        && tkRow.roomTop >= tkRow.ring && tkRow.roomLeft >= tkRow.ring && tkRow.scrolledBy > 0 && tkRow.roomLeft4 >= tkRow.ring && tkRow.restored,
+        `[tablet] #6107: the Tasks row runs sideways, scrolls inside itself, leaves the page its width, and a focus ring fits at the start and after a scroll`, JSON.stringify(tkRow));
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
       const tabletBack = await order();
