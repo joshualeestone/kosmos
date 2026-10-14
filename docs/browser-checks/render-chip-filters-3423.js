@@ -1,6 +1,10 @@
-// Browser-check-surface: st-attn-tile st-attn-noproj-tile data-attn data-noproj
+// Browser-check-surface: st-attn-tile st-attn-noproj-tile data-attn data-noproj BOARD_FILTERS
 'use strict';
 /**
+ * #6180 (Josh, 2026-10-14): the "No project" chip and filter are GONE ("people dont have to assign an agent to a
+ * project"); this check now pins their absence (no tile, no data-noproj anywhere, no noproj filter) and keeps the
+ * Issue filter it always covered. The original #3423 contract below is kept for history.
+ *
  * #3423 (Josh, 0.6.88 live test): the Agents top chips "Issue" and "No project"
  * become clickable filter toggles, the same pattern as the "Messages" tile, and
  * "No project" is NOT falsely demoted (it stays the #1898 needs-you-no-project
@@ -91,10 +95,17 @@ function chk(ok, label, extra) {
         beaNoproj: bea ? bea.hasAttribute('data-noproj') : null,
       };
     });
-    chk(markers.nyxAttn === true && markers.nyxNoproj === true,
-      'a needs_you (no project) agent card carries BOTH data-attn and data-noproj', JSON.stringify(markers));
+    chk(markers.nyxAttn === true && markers.nyxNoproj === false,
+      '#6180: a needs_you (no project) agent card carries data-attn and no longer any data-noproj', JSON.stringify(markers));
     chk(markers.beaAttn === false && markers.beaNoproj === false,
       'an idle agent card carries NEITHER marker', JSON.stringify(markers));
+    /* #6180 (Josh, 10-14: "people dont have to assign an agent to a project"): the No project tile is gone. */
+    const tileGone = await page.evaluate(() => ({
+      tile: !!document.getElementById('st-attn-noproj-tile'),
+      count: !!document.getElementById('st-attn-noproj'),
+      chipWords: [...document.querySelectorAll('.stat .slab')].some((s) => /no project/i.test(s.textContent)),
+    }));
+    chk(!tileGone.tile && !tileGone.count && !tileGone.chipWords, '#6180: the Agents board has no "No project" chip', JSON.stringify(tileGone));
 
     // 2. The attn-vs-noproj distinction, via the real card() on a clone WITH a project.
     const distinction = await page.evaluate(() => {
@@ -109,8 +120,8 @@ function chk(ok, label, extra) {
     });
     chk(distinction.withProject_attn === true && distinction.withProject_noproj === false,
       'a needs_you agent WITH a project gets data-attn but NOT data-noproj', JSON.stringify(distinction));
-    chk(distinction.noProject_noproj === true,
-      'and a needs_you agent with NO project does get data-noproj', JSON.stringify(distinction));
+    chk(distinction.noProject_noproj === false,
+      '#6180: and a needs_you agent with NO project is not marked for having none', JSON.stringify(distinction));
 
     // 2b. #3718 (Mona Lisa, 2026-09-25): a needs_trust card wears the red .attn visual
     // and IS marked data-attn, because the Issue tile c.needsYou now counts it too
@@ -145,9 +156,9 @@ function chk(ok, label, extra) {
       };
     });
     chk(lrowMarks.wp_attn === true && lrowMarks.wp_noproj === false
-        && lrowMarks.np_attn === true && lrowMarks.np_noproj === true
+        && lrowMarks.np_attn === true && lrowMarks.np_noproj === false
         && lrowMarks.idle_attn === false && lrowMarks.idle_noproj === false,
-      'lrow() (#alist) marks match card(): data-attn on needs_you, data-noproj only when no project, neither when idle', JSON.stringify(lrowMarks));
+      'lrow() (#alist) marks match card(): data-attn on needs_you, never data-noproj (#6180), neither when idle', JSON.stringify(lrowMarks));
 
     // 2d. #orgview family: onode markup is built inline in paintOrg (not a callable
     // fn), so render the org view and read the REAL DOM. Same drift guard for the
@@ -167,9 +178,9 @@ function chk(ok, label, extra) {
         beaNoproj: bea ? bea.hasAttribute('data-noproj') : null,
       };
     });
-    chk(onodeMarks.nyxFound === true && onodeMarks.nyxAttn === true && onodeMarks.nyxNoproj === true
+    chk(onodeMarks.nyxFound === true && onodeMarks.nyxAttn === true && onodeMarks.nyxNoproj === false
         && onodeMarks.beaFound === true && onodeMarks.beaAttn === false && onodeMarks.beaNoproj === false,
-      'onode() (#orgview) marks match: the needs_you-no-project node gets both markers, the idle node gets neither', JSON.stringify(onodeMarks));
+      'onode() (#orgview) marks match: the needs_you node gets data-attn and never data-noproj (#6180), the idle node neither', JSON.stringify(onodeMarks));
 
     // 2e. the QUESTION divergence (the one case where the red look and the Issue filter
     // differ, now that 2b's needs_trust is in both): a needs_you agent whose question
@@ -232,14 +243,15 @@ function chk(ok, label, extra) {
           .filter((id) => { const t = document.getElementById(id); return t && t.getAttribute('aria-pressed') === 'true'; }),
       });
       setBoardFilter('attn'); const a = snap();
-      setBoardFilter('noproj'); const b = snap();
+      setBoardFilter('msgs'); const b = snap();
       setBoardFilter(null); const c = snap();
-      return { a, b, c };
+      return { a, b, c, keys: Object.keys(BOARD_FILTERS).sort() };
     });
     chk(excl.a.cls.join() === 'filter-attn' && excl.a.pressed.join() === 'st-attn-tile',
       'setBoardFilter(attn): exactly filter-attn + st-attn-tile pressed', JSON.stringify(excl.a));
-    chk(excl.b.cls.join() === 'filter-noproj' && excl.b.pressed.join() === 'st-attn-noproj-tile',
-      'setBoardFilter(noproj): switches cleanly (mutual exclusivity, no leftover attn)', JSON.stringify(excl.b));
+    chk(excl.b.cls.join() === 'filter-msgs' && excl.b.pressed.join() === 'st-dm-tile',
+      'setBoardFilter(msgs): switches cleanly (mutual exclusivity, no leftover attn)', JSON.stringify(excl.b));
+    chk(excl.keys.join() === 'attn,msgs', '#6180: the board filters are Messages and Issue; there is no noproj filter', JSON.stringify(excl.keys));
     chk(excl.c.cls.length === 0 && excl.c.pressed.length === 0,
       'setBoardFilter(null): clears every filter class and aria-pressed', JSON.stringify(excl.c));
 

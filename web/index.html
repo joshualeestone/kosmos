@@ -2603,8 +2603,7 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
 .board-msgfilter-exit:hover { text-decoration-color: var(--k-ink); }
 .board-msgfilter-exit:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 body.filter-msgs .board-msgfilter-exit,
-body.filter-attn .board-msgfilter-exit,
-body.filter-noproj .board-msgfilter-exit { display: inline-flex; }
+body.filter-attn .board-msgfilter-exit { display: inline-flex; }
 /* The filter: hide no-message agents in grid + list; DIM them in the org chart so the hierarchy
    (and its wires) stay intact -- keeping the tree is the UI-owner call for org, and it is reversible.
    Keyed on data-has-msgs, set at render from a finite a.dmUnread > 0. The marker is
@@ -2613,10 +2612,10 @@ body.filter-noproj .board-msgfilter-exit { display: inline-flex; }
 body.filter-msgs #grid .acard:not([data-has-msgs]),
 body.filter-msgs #alist .lrow:not([data-has-msgs]) { display: none; }
 body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
-/* #3423 (Josh 0.6.88): the Issue + No-project tiles are ALSO clickable filter
-   toggles, the same pattern as Messages above. Keyed on data-attn
-   (needs the person, matching the Issue tile count c.needsYou) and data-noproj
-   (needs_you && no project, matching c.needsYouUnattributed). Only one board filter
+/* #3423 (Josh 0.6.88): the Issue tile is ALSO a clickable filter
+   toggle, the same pattern as Messages above. Keyed on data-attn
+   (needs the person, matching the Issue tile count c.needsYou). #6180 (Josh, 10-14): the No-project tile
+   and its filter are gone (an agent need not be on a project). Only one board filter
    is active at a time (the JS setBoardFilter enforces it); each hides non-matching
    rows in grid+list and DIMS them in org so the tree stays intact. The gold
    pressed/hover accent signals the active filter regardless of the tile's own red
@@ -2624,19 +2623,15 @@ body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
    #3410/#3718 (Mona Lisa, 2026-09-25): the Issue tile and filter mean "needs the person",
    so data-attn and c.needsYou (engine/status.js countAgents) both count needs_you,
    needs_trust, and a connection Kosmos has given up reconnecting. The filter must still
-   match its chip count: change the two together. render-chip-filters-3423.js pins it.
-   data-noproj is unchanged (needs_you with no project). */
-#st-attn-tile, #st-attn-noproj-tile { cursor: pointer; }
-#st-attn-tile:hover, #st-attn-noproj-tile:hover { border-color: var(--gold-deep); background: rgba(198,154,50,.07); }
-#st-attn-tile:focus-visible, #st-attn-noproj-tile:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-#st-attn-tile[aria-pressed="true"], #st-attn-noproj-tile[aria-pressed="true"] { border-color: var(--gold-deep); background: rgba(198,154,50,.14); }
-#st-attn-tile[aria-pressed="true"] .slab, #st-attn-noproj-tile[aria-pressed="true"] .slab { color: var(--k-ink); font-weight: 600; }
+   match its chip count: change the two together. render-chip-filters-3423.js pins it. */
+#st-attn-tile { cursor: pointer; }
+#st-attn-tile:hover { border-color: var(--gold-deep); background: rgba(198,154,50,.07); }
+#st-attn-tile:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+#st-attn-tile[aria-pressed="true"] { border-color: var(--gold-deep); background: rgba(198,154,50,.14); }
+#st-attn-tile[aria-pressed="true"] .slab { color: var(--k-ink); font-weight: 600; }
 body.filter-attn #grid .acard:not([data-attn]),
 body.filter-attn #alist .lrow:not([data-attn]) { display: none; }
 body.filter-attn #orgview .onode:not([data-attn]) { opacity: .26; }
-body.filter-noproj #grid .acard:not([data-noproj]),
-body.filter-noproj #alist .lrow:not([data-noproj]) { display: none; }
-body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .stat.alert { border-color: rgba(179,38,30,.45); }
 /* The pack's status glyph family, shared by the tiles, the pills, and the
    list rows. The hazard is a TRIANGLE because shape is the carrier and
@@ -16074,7 +16069,7 @@ window.kosmosMeasureScrollbarWidth();
          structure as that screen, .field > .flabel + .frow, and its stepped Model block (.msteps/.mstep), so
          the spacing and widths are its rules (extended to this step in the CSS), not a second set. -->
     <div class="field">
-      <label class="flabel" for="tc-project">Project</label>
+      <label class="flabel" for="tc-project">Project (optional)</label>
       <div class="frow"><select id="tc-project"></select></div>
     </div>
     <!-- #4719: ONE provider and account for the whole team, the same choice the single-agent form offers
@@ -19682,21 +19677,6 @@ window.kosmosMeasureScrollbarWidth();
       <span class="haz" aria-hidden="true">!</span>
       <b id="st-attn" data-count="attn">0</b><span class="slab">Issue</span>
     </div>
-    <!-- #1898: of the "Issue" above, the ones that named NO project. A
-         needs_you without a project lights no project tile, so a person scanning
-         the Projects board never sees it; this is where the omission is caught.
-         🔑 A DRILL-DOWN OF THE RED TILE, NOT A NEW STATE. It is a SUBSET of
-         "Issue", so it does not enter the Working + Idle + Issue = Agents
-         arithmetic, and it sits immediately after its parent tile. Hidden at zero
-         exactly as its parent is, so a healthy board (and the common case where
-         every question named its project) is unchanged and it only appears when
-         there is an omission to catch. The count is `counts.needsYouUnattributed`
-         from /api/status (engine/status.js countAgents), the fleet subset the
-         per-project engine/projects.js `needsYouUnattributed` mirrors. -->
-    <div class="stat alert" id="st-attn-noproj-tile" hidden role="button" tabindex="0" aria-pressed="false" title="Show only agents that need you and named no project">
-      <span class="haz" aria-hidden="true">!</span>
-      <b id="st-attn-noproj" data-count="attn-noproj">0</b><span class="slab">No project</span>
-    </div>
     <!-- #2863 (Josh): the unread direct-message tally, the rollup of the
          per-agent DM bubbles, so at a glance you see how many messages are
          waiting across the fleet ("tally those at the top... so you can see
@@ -19742,7 +19722,7 @@ window.kosmosMeasureScrollbarWidth();
     </button>
   </div></div>
   <!-- the exit affordance, shown while ANY board filter is on (CSS keys on
-       body.filter-msgs, filter-attn or filter-noproj). Josh's words: a "View all agents"
+       body.filter-msgs or filter-attn). Josh's words: a "View all agents"
        text link. Clicking it clears whichever board filter is active. -->
   <button class="board-msgfilter-exit" type="button">View all agents</button>
 </div>
@@ -22257,7 +22237,7 @@ function card(a) {
        the stronger, more specific fact. Its own `needstrust` marker class and the
        attn pill make it read as an agent that wants a person, not one that is off. */
     if (a.needsTrust === true) {
-      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
       <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
       <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -22273,7 +22253,7 @@ function card(a) {
        disagreeing facts. Everything else about the card stays the offline
        shape: there is still no pane to act on. */
     const split = a.jobRunningUnseen === true;
-    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
     <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. ${split ? 'Could not check.' : 'Not running.'}">${face(a)}</svg>
       <!-- ⚠️ THE DOT IS DECORATIVE HERE, unlike on a running card. Its hidden
            text is PRESSAY.off, which is the same words as the pill two rows
@@ -22322,7 +22302,7 @@ function card(a) {
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
   const comm = typeof communityLine === 'function' ? communityLine(a) : (a && a.communityOn !== false && a.lastCommunityPost ? a.lastCommunityPost : '');
 
-  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -22468,7 +22448,7 @@ function lrow(a) {
       const tav = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
         ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
       <div class="lav">${tav}<span class="pres lpres unsure" aria-hidden="true"></span></div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -22481,7 +22461,7 @@ function lrow(a) {
     const off = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
       <div class="lav">${off}<span class="pres lpres off" aria-hidden="true"></span></div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -22540,7 +22520,7 @@ function lrow(a) {
   const mem = pct === null
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
-  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}<span class="pres lpres ${m.pres}" aria-hidden="true"></span></div>${dmBadge(a)}
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
     <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -25072,15 +25052,6 @@ async function tick() {
     /* #3423: if the Issue filter is on and there is nothing left to filter, exit it
        (same auto-exit the Messages filter does at dmTotal <= 0). */
     if (!c.needsYou && document.body && boardFilterActive() === 'attn') setBoardFilter(null);
-    /* #1898: the no-project subset of "Issue". Same hide-at-zero grammar as
-       its parent tile above, so it appears only when an agent needs you AND named
-       no project -- the case that lights no project tile and is otherwise caught
-       only on the agent's own card. `needsYouUnattributed` is served on the
-       /api/status counts alongside `needsYou`. */
-    document.getElementById('st-attn-noproj').textContent = String(c.needsYouUnattributed || 0);
-    document.getElementById('st-attn-noproj-tile').hidden = !c.needsYouUnattributed;
-    /* #3423: same auto-exit for the No-project filter. */
-    if (!c.needsYouUnattributed && document.body && boardFilterActive() === 'noproj') setBoardFilter(null);
     /* #2863: the unread-DM tally, summed client-side from the fleet (a.dmUnread)
        exactly as Working/Idle are counted from data.agents rather than trusting a
        second server derivation. A null dmUnread (unknown, mirroring p.unread null)
@@ -25370,10 +25341,6 @@ async function tick() {
        change than this one (Mona Lisa raised it; recorded, not half-built). */
     document.getElementById('st-attn').textContent = '?';
     document.getElementById('st-attn-tile').hidden = true;
-    /* #1898: blank the no-project drill-down on a failed poll too, so a stale
-       count from the last good tick cannot linger beside a `?`. */
-    document.getElementById('st-attn-noproj').textContent = '?';
-    document.getElementById('st-attn-noproj-tile').hidden = true;
     /* #2863: a failed poll cannot count unread DMs either. Hidden rather than a
        standing count, the same choice the red tiles make here: a stale "5
        Messages" from the last good tick would claim something this poll cannot
@@ -25383,10 +25350,10 @@ async function tick() {
     // messages-filter: the Messages tile is withdrawn (status unknowable), so exit the filter too.
     // Guard the body read: tick() is unit-tested with a body-less document; real DOM has a body.
     if (document.body && document.body.classList.contains('filter-msgs')) setMsgFilter(false);
-    /* #3423: same for the Issue / No-project filters -- the status is unknowable this
+    /* #3423: same for the Issue filter -- the status is unknowable this
        tick, so exit whichever board filter is on rather than filtering against a
        withdrawn count. */
-    if (document.body) { const bf = boardFilterActive(); if (bf === 'attn' || bf === 'noproj') setBoardFilter(null); }
+    if (document.body) { const bf = boardFilterActive(); if (bf === 'attn') setBoardFilter(null); }
     /* #3216: /api/status failed, so both nav-tab counts are unknowable this tick -- withdraw
        them (hide) exactly as the tiles do, rather than leaving a stale count asserting something
        this failed read cannot stand behind. null is the "unknown" input (per setNavBadge's
@@ -36435,7 +36402,6 @@ function paintOrg() {
          The Issue contract is wider than this node's visual badge: an agent's
          question stays calm-looking but still needs the person. */
       + (agentNeedsAttention(a) ? ' data-attn' : '')
-      + (a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : '')
       + ' style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px"'
       /* #2577: the badge's own aria-label is inert inside a button that has its
          own aria-label (the accessible name comes from the attribute alone, not
@@ -37084,14 +37050,13 @@ for (const box of document.querySelectorAll('.viewtoggle')) {
    rows in grid/list and dims them in the org chart (keeping the tree). Not persisted: the filter
    is a transient view state, cleared on reload, and auto-cleared when the Messages tile hides
    because the fleet has no unread messages left (see the dmTotal poll). */
-/* #3423: the three board filters (Messages, Issue, No project) are MUTUALLY
+/* #3423: the board filters (Messages, Issue; #6180 removed No project) are MUTUALLY
    EXCLUSIVE toggles. setBoardFilter is the single source of truth: it clears every
-   filter class and resets all three tiles' aria-pressed, then applies the one
+   filter class and resets every tile's aria-pressed, then applies the one
    requested facet (or none). Only one filter can be on at a time by construction. */
 const BOARD_FILTERS = {
   msgs:   { cls: 'filter-msgs',   tile: 'st-dm-tile' },
   attn:   { cls: 'filter-attn',   tile: 'st-attn-tile' },
-  noproj: { cls: 'filter-noproj', tile: 'st-attn-noproj-tile' },
 };
 function boardFilterActive() {
   for (const key of Object.keys(BOARD_FILTERS)) {
@@ -55278,7 +55243,7 @@ function tcFillProjects() {
   let next = 2;
   for (; taken.has(wanted.toLowerCase()) && next < TC_PROJECT_NAME_CAP; next++) wanted = base + ' ' + next;
   TC.newProjectName = wanted; TC.newProjectBase = base; TC.newProjectNext = next;
-  const opts = [['new', 'A new project called ' + wanted], ['none', 'No project']];
+  const opts = [['new', 'A new project called ' + wanted], ['none', 'No project for now']];   // #6180 (Josh): a team need not be on a project
   for (const p of (Array.isArray(PROJECTS) ? PROJECTS : [])) {
     if (p && p.id && !p.archived) opts.push(['id:' + p.id, p.name || p.id]);
   }
