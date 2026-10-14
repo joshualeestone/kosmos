@@ -23,9 +23,10 @@ printf '%s' "$me" >> "$CALL_LOG"; printf ' %s' "$@" >> "$CALL_LOG"; printf '\n' 
 case "$me" in
   launchctl)   # `launchctl print gui/<uid>`, in the shape measured on Agent1s 2026-10-14
     [ "${FX_LAUNCHCTL_FAIL:-0}" = 1 ] && exit 1
+    [ "$1" = managername ] && { echo "${FX_MANAGER:-Aqua}"; exit 0; }
     [ "$1 ${2%%/*}" = "print gui" ] || exit 1
     printf 'gui/501 = {\n\ttype = login\n\tservices = {\n'
-    printf '\t\t     %s      - \t%s\n' 874 com.apple.Finder 471 application.com.apple.Terminal.1234.5678
+    printf '\t\t     %s      - \t%s\n' 874 com.apple.Finder 471 application.com.apple.Terminal.1234.5678 612 com.openssh.ssh-agent
     [ -z "${FX_JOBS:-}" ] || printf '%s\n' "$FX_JOBS" | sed 's/^/\t\t     -      0 \t/'
     printf '\t}\n\n\tunmanaged processes = {\n\t\tcom.example.notajob = {\n\t\t}\n\t}\n}\n' ;;
   crontab)
@@ -54,6 +55,7 @@ case "$me" in
     [ "${FX_GH_FAIL:-0}" = 1 ] && exit 1
     [ "${FX_GH_500:-0}" = 1 ] && { echo "gh: Server Error (HTTP 500)"; exit 1; }
     case "$*" in
+      *"actions/variables?per_page=1"*) [ "${FX_VARLIST_FAIL:-0}" = 1 ] && { echo "gh: Not Found (HTTP 404)"; exit 1; }; echo '{}' ;;
       *actions/variables/KOSMOS_CI_SHELL_SHARDS*) [ -n "${FX_SHARDS+set}" ] || { echo "gh: Not Found (HTTP 404)"; exit 1; }; printf '=%s' "$FX_SHARDS" ;;
       *actions/variables/KOSMOS_CI_RUNNER*) printf '=%s' "${FX_RUNNER_VAR-on}" ;;
       *"| .busy"*) [ "${FX_BUSY2_FAIL:-0}" = 1 ] && exit 1; row="${FX_RUNNER_ROW-online false x}"; set -- $row; printf '%s\n' "${FX_BUSY2:-$2}" ;;
@@ -85,6 +87,7 @@ exit 0
 STUB
 chmod +x "$BIN/_stub"
 for c in launchctl crontab pgrep df fdesetup pmset id ps gh curl sudo sysadminctl tar; do ln -s _stub "$BIN/$c"; done
+mkdir -p "$T/sysagents"; : > "$T/sysagents/com.openssh.ssh-agent.plist"   # Apple ships it under /System/Library
 BREWD="$T/brew"; mkdir -p "$BREWD/bin"
 printf '#!/bin/bash\necho "${FX_TMUX_V:-tmux 3.6a}"\n' > "$BREWD/bin/tmux"; printf '#!/bin/bash\n' > "$BREWD/bin/pwsh"; chmod +x "$BREWD/bin/"*
 
@@ -95,7 +98,7 @@ run() {
   local envs=()
   while [ "$1" != -- ]; do envs+=("$1"); shift; done; shift
   : > "$LOG"; rm -f "$T/user-created"
-  env -i PATH="$BIN:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$home" CALL_LOG="$LOG" KOSMOS_CI_BREW="$BREWD" \
+  env -i PATH="$BIN:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$home" CALL_LOG="$LOG" KOSMOS_CI_BREW="$BREWD" KOSMOS_CI_SYSTEM_AGENTS="$T/sysagents" \
     ${envs[@]+"${envs[@]}"} bash "$S" "$@" > "$T/$name.out" 2>&1 < "${STDIN_FILE:-/dev/null}"
   echo $? > "$T/$name.rc"
   cp "$LOG" "$T/$name.calls"
@@ -131,6 +134,8 @@ refuse shards "KOSMOS_CI_SHELL_SHARDS is '1/2'" FX_SHARDS=1/2
 refuse shards-pair "routes shell shard(s) 1/2 2/2" FX_SHARDS=1/2,2/2
 refuse gh "could not read the repo variables" FX_GH_FAIL=1
 refuse gh-not-404 "could not read the repo variables" FX_GH_500=1
+refuse gh-404-unseen "could not read the repo variables" FX_VARLIST_FAIL=1
+refuse df-garbage "could not read free disk" FX_FREE_KIB=abc
 refuse pgrep-fails "could not list processes (pgrep exit 3)" FX_PGREP_FAIL=1
 refuse crontab-unreadable "could not read the crontab" FX_CRON_FAIL=1
 refuse allow-keeps-others "1 non-Apple launchd job(s) still loaded" "FX_JOBS=io.tailscale.ipn.helper
@@ -254,6 +259,9 @@ run in-pkgsha "$R8" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R8" FX_RELEASE_SHA=deadbee
 [ "$(rc in-pkgsha)" = 1 ] && has in-pkgsha "is not the published 'deadbeef'" && ! grep -q -E '^(tar |svc.sh stop)' "$T/in-pkgsha.calls" \
   && [ ! -e "$R8/actions-runner/actions-runner-osx-arm64-2.999.0.tar.gz" ] \
   && pass "install --apply refuses a runner package whose sha256 is not the published one, and removes it" || fail "install package sha: rc $(rc in-pkgsha): $(tail -1 "$T/in-pkgsha.out")"
+R9="$T/run9"; svc_home "$R9"
+run in-ssh "$R9" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R9" FX_MANAGER=Background -- --apply install "$C" "$G"
+[ "$(rc in-ssh)" = 2 ] && has in-ssh "Screen Sharing session" && ! changed in-ssh >/dev/null && pass "install --apply refuses outside the GUI session (svc.sh would misread)" || fail "install over ssh: rc $(rc in-ssh)"
 R4="$T/run4"; mkdir -p "$R4/actions-runner"; printf 'RUNNER_KEEP=1\n' > "$R4/actions-runner/.env"; chmod 000 "$R4/actions-runner/.env"
 run in-unread "$R4" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R4" -- --apply install "$C" "$G"
 chmod 600 "$R4/actions-runner/.env"
@@ -282,7 +290,9 @@ run rg-sudo "$CH" FX_WHO=kosmos-ci -- --apply register
 [ "$(rc rg-none)" = 1 ] && has rg-none "no registration token" && ! grep -q '^config\.sh' "$T/rg-none.calls" && pass "register --apply refuses with no token" || fail "register no token: rc $(rc rg-none)"
 
 # --- verify -----------------------------------------------------------------------------------------------------
-VCI="$T/vci"; mkdir -p "$VCI/actions-runner"; printf 'LANG=en_US.UTF-8\n' > "$VCI/actions-runner/.env"
+VCI="$T/vci"; mkdir -p "$VCI/actions-runner" "$VCI/.kosmos-ci"
+printf 'LANG=en_US.UTF-8\nACTIONS_RUNNER_HOOK_JOB_STARTED=%s\nACTIONS_RUNNER_HOOK_JOB_COMPLETED=%s\n' "$VCI/.kosmos-ci/job-started.sh" "$VCI/.kosmos-ci/job-completed.sh" > "$VCI/actions-runner/.env"
+for f in job-guard.sh job-started.sh job-completed.sh job-cleanup.sh; do printf '#!/bin/bash\n' > "$VCI/.kosmos-ci/$f"; chmod 755 "$VCI/.kosmos-ci/$f"; done
 vcase() {  # vcase <name> <want rc> <want text> <env...>
   local name="$1" want="$2" text="$3"; shift 3
   run "v-$name" "$H" FX_CI_EXISTS=1 KOSMOS_CI_HOME="$VCI" "$@" -- verify
@@ -303,6 +313,12 @@ vcase reread-fails 1 "could not read the runners API a second time" FX_BUSY2_FAI
 vcase nolabels 1 "labels are '', not" "FX_RUNNER_ROW=online false"
 vcase psfail 1 "kosmos-ci runs no processes" FX_PS_FAIL=1
 grep -q 'no tmux or node left' "$T/v-clear.out" && pass "verify: an idle runner's own node (RunnerService.js) is not a leftover" || fail "verify idle runner: $(grep -E 'REFUSE|ok' "$T/v-clear.out" | tail -2)"
+cp "$VCI/actions-runner/.env" "$T/vci.env"
+grep -v HOOK_JOB_STARTED "$T/vci.env" > "$VCI/actions-runner/.env"
+vcase unwired 1 "the job guard is not wired"
+cp "$T/vci.env" "$VCI/actions-runner/.env"; chmod 644 "$VCI/.kosmos-ci/job-guard.sh"
+vcase guard-not-executable 1 "job-guard.sh is missing or not executable"
+chmod 755 "$VCI/.kosmos-ci/job-guard.sh"
 printf '%s\n' "/usr/bin:/bin:/usr/sbin:/sbin:$BREWD/bin:/usr/local/bin:$VCI/.local/bin" > "$VCI/actions-runner/.path"
 vcase path-agrees 0 ".path is the PATH .env sets"
 echo "/login/shell/path" > "$VCI/actions-runner/.path"
