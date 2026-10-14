@@ -97,10 +97,12 @@ WORK=""; PID=""; OWN_LOCK=0; OWN_TAKEOVER=0; LOCK="$STATE.gate-lock"
 stop_connector() {
   [ -n "$PID" ] || return 0
   # In one redirected block: bash reports a signalled background job ("Terminated: 15")
-  # on stderr, which is noise here, not a finding. Bounded: TERM, 5 s, KILL.
+  # on stderr, which is noise here, not a finding. Bounded: TERM, 5 s, KILL. #5907: checked every 0.1 s (still 5 s in
+  # all), since a connector that has just been sent TERM is nearly always still alive at the first check, and a 0.5 s
+  # step cost every stop half a second.
   {
     kill "$PID"
-    i=0; while kill -0 "$PID" && [ "$i" -lt 10 ]; do sleep 0.5; i=$((i + 1)); done
+    i=0; while kill -0 "$PID" && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
     kill -0 "$PID" && kill -9 "$PID"
     wait "$PID"
   } 2>/dev/null
