@@ -19,6 +19,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { eventually } = require('./test-support/eventually');
 /* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
    travels to this test's stub board (or into anything the test records). */
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-connections-4451-'));
@@ -149,8 +150,9 @@ test('#4451: an interrupt while the door checks the token leaves no token file b
   /* exit code not read (#3628) as a code: a close with none resolves the signal's NAME, which can never equal the 143 asserted, so a kill still fails. */
   const child = spawn(CLI, ['connect', 'brave-search'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   child.stdin.end(TOKEN);
-  // Wait until the request is at the door (the token file exists by then), then interrupt.
-  for (let i = 0; i < 100 && !seen.some((q) => q.method === 'POST'); i += 1) await new Promise((r) => setTimeout(r, 50));
+  // Wait until the request is at the door (the token file exists by then), then interrupt. #5727:
+  // this SETUP wait ends before the at= mark below; non-throwing, the CONTROL assert is the check.
+  await eventually(() => seen.some((q) => q.method === 'POST'), (v) => v, { timeoutMs: 5000, stepMs: 50 }).catch(() => {});
   assert.ok(seen.some((q) => q.method === 'POST'), 'CONTROL: the request never reached the door, so the interrupt is not mid-request');
   const during = fs.readdirSync(tmp).filter((f) => f.startsWith('kosmos-connect.'));   // the token's file (the answer's is kosmos-connect-answer.)
   assert.equal(during.length, 1, 'CONTROL: the token file is not there mid-request, so its absence after proves nothing');
@@ -178,7 +180,8 @@ test('#4451: an interrupt while the token is still arriving on stdin stops at on
   const child = spawn(CLI, ['connect', 'brave-search'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   child.stdin.write(TOKEN.slice(0, 8));   // a producer that has not finished (stdin stays open)
   // Wait until the private token file exists: the writer is running and waiting for the rest of stdin.
-  for (let i = 0; i < 100 && !fs.readdirSync(tmp).some((f) => f.startsWith('kosmos-connect.')); i += 1) await new Promise((r) => setTimeout(r, 50));
+  // #5727: this SETUP wait ends before the at= mark below; non-throwing, the CONTROL assert is the check.
+  await eventually(() => fs.readdirSync(tmp).some((f) => f.startsWith('kosmos-connect.')), (v) => v, { timeoutMs: 5000, stepMs: 50 }).catch(() => {});
   assert.ok(fs.readdirSync(tmp).some((f) => f.startsWith('kosmos-connect.')), 'CONTROL: the private file was never made, so the writer was never reached');
   await new Promise((r) => setTimeout(r, 300));
   const at = Date.now();
