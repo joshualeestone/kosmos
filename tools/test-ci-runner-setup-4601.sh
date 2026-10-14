@@ -61,7 +61,8 @@ case "$me" in
     esac; fi ;;
   sudo) case "$*" in *"sysadminctl -addUser"*) [ "${FX_SYSADMIN_NOOP:-0}" = 1 ] || : > "$(dirname "$CALL_LOG")/user-created" ;; esac ;;
   tar) [ "${FX_TAR_FAIL:-0}" = 1 ] && exit 1 ;;
-  config.sh) printf 'token-in-env=%s\n' "${ACTIONS_RUNNER_INPUT_TOKEN:-}" >> "$CALL_LOG" ;;
+  config.sh) printf 'token-in-env=%s\n' "${ACTIONS_RUNNER_INPUT_TOKEN:-}" >> "$CALL_LOG"
+    echo "/login/shell/path:/usr/bin" > "$(dirname "$0")/.path" ;;   # as actions/runner env.sh does
   svc.sh)
     st="$(dirname "$0")/.svc-state"
     case "$1" in
@@ -245,7 +246,9 @@ for x in config.sh svc.sh; do cp "$BIN/_stub" "$CH/actions-runner/$x"; chmod +x 
 STDIN_FILE="$T/token" run rg-apply "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
 if [ "$(rc rg-apply)" = 0 ] && grep -qx 'token-in-env=tok-SECRET-123' "$T/rg-apply.calls" \
    && grep '^config\.sh ' "$T/rg-apply.calls" | grep -q -- '--labels self-hosted,macOS,arm64,kosmos-ci' \
-   && ! grep '^config\.sh ' "$T/rg-apply.calls" | grep -q SECRET; then pass "CONTROL: register --apply passes the token in the environment, never in config.sh's argv"
+   && ! grep '^config\.sh ' "$T/rg-apply.calls" | grep -q SECRET \
+   && [ "$(cat "$CH/actions-runner/.path")" = "/usr/bin:/bin:/usr/sbin:/sbin:$BREWD/bin:/usr/local/bin:$CH/.local/bin" ] \
+   && grep -qx "PATH=$(cat "$CH/actions-runner/.path")" "$CH/actions-runner/.env"; then pass "CONTROL: register --apply passes the token in the environment, never in argv, and makes .path the PATH .env sets"
 else fail "register --apply: rc $(rc rg-apply), calls: $(cat "$T/rg-apply.calls")"; fi
 run rg-none "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
 run rg-sudo "$CH" FX_WHO=kosmos-ci -- --apply register
@@ -273,6 +276,11 @@ vcase reread-fails 1 "could not read the runners API a second time" FX_BUSY2_FAI
 vcase nolabels 1 "labels are '', not" "FX_RUNNER_ROW=online false"
 vcase psfail 1 "kosmos-ci runs no processes" FX_PS_FAIL=1
 grep -q 'no tmux or node left' "$T/v-clear.out" && pass "verify: an idle runner's own node (RunnerService.js) is not a leftover" || fail "verify idle runner: $(grep -E 'REFUSE|ok' "$T/v-clear.out" | tail -2)"
+printf '%s\n' "/usr/bin:/bin:/usr/sbin:/sbin:$BREWD/bin:/usr/local/bin:$VCI/.local/bin" > "$VCI/actions-runner/.path"
+vcase path-agrees 0 ".path is the PATH .env sets"
+echo "/login/shell/path" > "$VCI/actions-runner/.path"
+vcase path-login 1 ".path is not"
+rm -f "$VCI/actions-runner/.path"
 printf 'export KOSMOS_TESTS_IGNORE_SUITE=1\n' >> "$VCI/actions-runner/.env"
 vcase env-kosmos 1 "sets a KOSMOS_ variable: remove it"
 run v-nouser "$H" -- verify

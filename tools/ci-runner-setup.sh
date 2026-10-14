@@ -46,7 +46,7 @@ REPO="joshualeestone/kosmos"
 REPO_URL="https://github.com/$REPO"
 CI_USER="${KOSMOS_CI_USER:-kosmos-ci}"
 CI_HOME="${KOSMOS_CI_HOME:-/Users/$CI_USER}"
-OWNER="${KOSMOS_CI_OWNER:-agent1}"
+OWNER="${KOSMOS_CI_OWNER:-agent1}"                 # Agent1s' only user today (runbook part 2); override elsewhere
 NAME="${KOSMOS_CI_RUNNER_NAME:-kosmos-ci-agent1s}"
 LABELS="self-hosted,macOS,arm64,kosmos-ci"
 BREW="${KOSMOS_CI_BREW:-/opt/homebrew}"            # the engine's fixed tmux fallback is /opt/homebrew/bin/tmux
@@ -55,6 +55,9 @@ ALLOW_JOBS="${KOSMOS_CI_ALLOW_JOBS:-}"             # an ERE of non-Apple launchd
 # From CI_HOME, not HOME: a dry run rehearsed as the owner then names and checks kosmos-ci's own paths. With --apply,
 # need_user refuses unless HOME is CI_HOME, so the two agree.
 RUNNER_DIR="$CI_HOME/actions-runner"
+# The jobs' PATH, written to BOTH places the runner reads one: .env, and .path, which config.sh's env.sh fills from
+# the login shell's PATH and runsvc.sh exports. register rewrites .path after config.sh so the two agree.
+RUNNER_PATH="/usr/bin:/bin:/usr/sbin:/sbin:$BREW/bin:/usr/local/bin:$CI_HOME/.local/bin"
 CI_DIR="$CI_HOME/.kosmos-ci"
 
 say() { printf '== %s\n' "$*"; }
@@ -122,13 +125,14 @@ preflight() {
   fi
   if [ -n "$jobs" ]; then
     problem "$(printf '%s\n' "$jobs" | grep -c .) non-Apple launchd job(s) still loaded for $(id -un) (bootout + disable each, runbook part 3 step 0): $(printf '%s\n' "$jobs" | head -5 | tr '\n' ' ')(KOSMOS_CI_ALLOW_JOBS=<ERE> keeps one deliberately)"
-  elif [ "$unknown" = 0 ]; then ok "no non-Apple launchd jobs loaded"; fi
+  elif [ "$unknown" = 0 ]; then ok "no non-Apple launchd jobs loaded for $(id -un) (its own domain; the system domain is not read)"; fi
   # crontab -l fails when there is no crontab at all, which is the clear case.
   local cron
   cron="$(crontab -l 2>/dev/null || true)"
   if [ -n "$(printf '%s\n' "$cron" | grep -v -E '^[[:space:]]*(#|$)' || true)" ]; then problem "crontab still has lines (crontab -r, runbook part 3 step 0)"
   else ok "crontab empty"; fi
   local live
+  # Any command line naming either script (a tail of its log too): a false refusal is the safe side, and it is printed.
   live="$(pgrep -fl 'run-tests\.sh|queued-heavy\.sh' || true)"
   if [ -n "$live" ]; then problem "a suite looks live on this Mac (a process of any user names run-tests.sh or queued-heavy.sh): $(printf '%s\n' "$live" | head -3 | tr '\n' ' ')"
   else ok "no suite live (any user)"; fi
@@ -206,7 +210,7 @@ install_runner() {
   # fork in the network). compare/<commit>...main: "ahead" = main contains it, "identical" = it is main's tip.
   local st
   st="$(curl -fsSL "https://api.github.com/repos/$REPO/compare/$commit...main" | sed -n 's/^  "status": "\([a-z]*\)".*/\1/p' | head -1 || true)"
-  case "$st" in ahead|identical) ok "$commit is on main ($st)" ;; *) echo "refused: commit $commit is not on main (compare status '${st:-unknown}'), nothing changed" >&2; exit 1 ;; esac
+  case "$st" in ahead|identical) ok "$commit is on main ($st)" ;; *) echo "refused: commit $commit is not on main (compare status '${st:-unknown}'; unknown can also be a GitHub rate limit or no network), nothing changed" >&2; exit 1 ;; esac
   if [ -e "$RUNNER_DIR/.env" ] && [ ! -r "$RUNNER_DIR/.env" ]; then
     echo "refused: cannot read $RUNNER_DIR/.env (run as $CI_USER), so its KOSMOS_ keys cannot be ruled out; nothing changed" >&2; exit 1
   fi
@@ -294,7 +298,7 @@ HOOK
     echo "ACTIONS_RUNNER_HOOK_JOB_STARTED=$CI_DIR/job-started.sh"
     echo "ACTIONS_RUNNER_HOOK_JOB_COMPLETED=$CI_DIR/job-completed.sh"
     echo "LANG=en_US.UTF-8"   # launchd gives none; the tmux tests need it
-    echo "PATH=/usr/bin:/bin:/usr/sbin:/sbin:$BREW/bin:/usr/local/bin:$CI_HOME/.local/bin"; } > "$RUNNER_DIR/.env.new"
+    echo "PATH=$RUNNER_PATH"; } > "$RUNNER_DIR/.env.new"
   mv -f "$RUNNER_DIR/.env.new" "$RUNNER_DIR/.env"
   echo "hooks and .env written (merged)"
   trap - EXIT
@@ -309,6 +313,7 @@ register() {
   need_user "$CI_USER"
   mode_line
   if [ "$APPLY" != 1 ]; then
+    echo "WOULD: write $RUNNER_DIR/.path as $RUNNER_PATH after config.sh (config.sh writes the login shell's there)"
     echo "WOULD: read a registration token from stdin (mint it as $OWNER: gh api -X POST repos/$REPO/actions/runners/registration-token --jq .token)"
     printf 'WOULD: ACTIONS_RUNNER_INPUT_TOKEN=<token>'; printf ' %q' ./config.sh --unattended --url "$REPO_URL" --name "$NAME" --labels "$LABELS" --work _work --replace; printf '\n'
     printf 'WOULD: %q install\nWOULD: %q start\n' ./svc.sh ./svc.sh
@@ -321,6 +326,7 @@ register() {
   [ -n "$token" ] || { echo "refused: no registration token on stdin" >&2; exit 1; }
   # The runner reads ACTIONS_RUNNER_INPUT_<ARG> for a config argument it is not given, so the token stays out of argv.
   ACTIONS_RUNNER_INPUT_TOKEN="$token" ./config.sh --unattended --url "$REPO_URL" --name "$NAME" --labels "$LABELS" --work _work --replace
+  printf '%s\n' "$RUNNER_PATH" > .path
   ./svc.sh install   # a LaunchAgent for this user (starts at login)
   ./svc.sh start
   ./svc.sh status
@@ -338,7 +344,7 @@ verify() {
   row="$(gh api --paginate "repos/$REPO/actions/runners" --jq ".runners[] | select(.name == \"$NAME\") | \"\(.status) \(.busy) \([.labels[].name | ascii_downcase] | sort | join(\",\"))\"")" \
     || { problem "could not read the runners API"; row=""; }
   local want_labels
-  want_labels="$(printf '%s\n' "$LABELS" | tr ',' '\n' | tr '[:upper:]' '[:lower:]' | sort | paste -sd, -)"
+  want_labels="$(printf '%s\n' "$LABELS" | tr ',' '\n' | tr '[:upper:]' '[:lower:]' | LC_ALL=C sort | paste -sd, -)"
   local busy=false
   if [ -z "$row" ]; then problem "no runner named $NAME"
   else
@@ -362,6 +368,11 @@ EOF
   elif [ ! -r "$RUNNER_DIR/.env" ]; then echo "note:   cannot read $RUNNER_DIR/.env as $(id -un); install refused KOSMOS_ keys, later edits are unchecked"
   elif grep -q -E '^[[:space:]]*(export[[:space:]]+)?KOSMOS_' "$RUNNER_DIR/.env"; then problem "$RUNNER_DIR/.env sets a KOSMOS_ variable: remove it"
   else ok "$RUNNER_DIR/.env sets no KOSMOS_ variable"; fi
+  # .path is what runsvc.sh exports; config.sh refills it from a login shell, so a re-register can undo register's.
+  if [ ! -e "$RUNNER_DIR/.path" ]; then ok "no $RUNNER_DIR/.path here"
+  elif [ ! -r "$RUNNER_DIR/.path" ]; then echo "note:   cannot read $RUNNER_DIR/.path as $(id -un)"
+  elif [ "$(cat "$RUNNER_DIR/.path")" = "$RUNNER_PATH" ]; then ok ".path is the PATH .env sets"
+  else problem "$RUNNER_DIR/.path is not $RUNNER_PATH (a login shell's PATH from config.sh?): register again, or write it"; fi
   say "what a job left behind (between jobs, $CI_USER should run no tmux or node but the runner's own)"
   local left busy2
   # ps reads THIS Mac only, and an unknown user makes it fail with no lines, which must not read as "nothing left".
@@ -388,6 +399,7 @@ machine_settings() {
 #  1. Users & Groups: automatic login as $CI_USER. The runner is a LaunchAgent of $CI_USER, so after a restart it is
 #     offline until $CI_USER is logged in. Needs FileVault off (preflight checks it).
 #  2. Energy: keep "prevent automatic sleeping" and "start up after a power failure" (preflight checks both).
+#  3. Log in as $CI_USER once in Screen Sharing before install: its home and GUI session come with that login.
 EOF
 }
 
