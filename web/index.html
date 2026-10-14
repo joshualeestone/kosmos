@@ -1515,7 +1515,7 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
     margin-right: -16px; padding: 0; border: 0; background: none; color: #fff; cursor: pointer; -webkit-tap-highlight-color: transparent; }
   html.kremote .kplus-bar-menu:focus-visible { outline: 2px solid #fff; outline-offset: -7px; }
   html.kremote .kplus-bar-menu svg { display: block; }
-  html.kremote .apphead header .klink, html.kremote .apphead header .worldsw, html.kremote .apphead header .userpop,
+  html.kremote .apphead header .kmark, html.kremote .apphead header .klink, html.kremote .apphead header .worldsw, html.kremote .apphead header .userpop,
   html.kremote .apphead header .burger, html.kremote .apphead .tabs { display: none; }
   /* With those gone the header row holds only notices, which are empty on a quiet board: no gap, no padding, no rule,
      so the navy bar is the whole header (the mock). */
@@ -2263,7 +2263,6 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
    child of .headleft and anchors to the header; making .headleft positioned squeezed every notice into its corner. The once-a-day note is a notice in #topnotes
    (#streak-slot, .utoast.streak), not under the mark: #5018 keeps notices off the left column. */
 .kmark { position: relative; display: block; line-height: 0; }
-html.kremote .apphead header .kmark { display: none; }   /* its mark is hidden there; so is the wrapper, or it would cost a gap */
 .kstreak { position: absolute; top: calc(100% + 8px); left: 0; z-index: 5; padding: 6px 10px;
   background: var(--bg-elevated); color: var(--label); border: 1px solid var(--separator); border-radius: 9px;
   box-shadow: 0 6px 22px rgba(20,22,26,.13); font-size: 0.8125rem; font-weight: 600; line-height: 1.3; white-space: nowrap;
@@ -2271,7 +2270,6 @@ html.kremote .apphead header .kmark { display: none; }   /* its mark is hidden t
 .kstreak[hidden] { display: none; }
 .klink:focus-visible ~ .kstreak, .kstreak.show { opacity: 1; transform: none; }
 @media (hover: hover) { .klink:hover ~ .kstreak { opacity: 1; transform: none; } }   /* a tap leaves :hover stuck on a touch screen */
-html.kremote .kstreak { display: none; }
 @media (prefers-reduced-motion: reduce) { .kstreak { transition: none; } }
 /* ---- grid / list toggle. One component, each instance NAMES its scope with
    data-scope (the control says what it operates on rather than assuming there
@@ -35313,8 +35311,11 @@ function paintStreak(got) {
       + '<button type="button" class="ux" aria-label="Dismiss">&times;</button>'
       + '</div>';
     slot.querySelector('.ux').addEventListener('click', streakNoteGone);
-    clearTimeout(streakNoteTimer);
-    streakNoteTimer = setTimeout(streakNoteGone, 12000);   // it was shown; it does not need to stay
+    const note = slot.firstElementChild, later = (ms) => { clearTimeout(streakNoteTimer); streakNoteTimer = setTimeout(streakNoteGone, ms); };
+    // It goes by itself after 12 s, but never from under a pointer or the keyboard: it waits while they are on it.
+    for (const ev of ['mouseenter', 'focusin']) note.addEventListener(ev, () => clearTimeout(streakNoteTimer));
+    for (const ev of ['mouseleave', 'focusout']) note.addEventListener(ev, () => { if (!note.matches(':hover') && !note.contains(document.activeElement)) later(6000); });
+    later(12000);
   }
 }
 async function streakCheck() {
@@ -35322,7 +35323,7 @@ async function streakCheck() {
   if (today === streakDay || streakAsking) return;   // once per day per page; a reload asks again and the board answers "already shown"
   streakAsking = true;
   try {
-    const r = await fetch('/api/streak', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ today, remote: kplusRemote() }), cache: 'no-store' });   // remote: counts the day, keeps the note for a screen with the K mark
+    const r = await fetch('/api/streak', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ today }), cache: 'no-store' });
     if (!r.ok) return;
     const got = await r.json();
     if (got && Number.isInteger(got.count) && got.count > 0) streakDay = today;   // a reply with no count is not a settled day: the next minute asks again
@@ -35342,6 +35343,7 @@ async function streakCheck() {
     const cancel = () => { if (held) { clearTimeout(held); held = null; } };
     k.addEventListener('pointerup', cancel); k.addEventListener('pointercancel', cancel); k.addEventListener('pointerleave', cancel);   // leave: a finger that slides off the mark is not a long press
     k.addEventListener('contextmenu', (e) => { if (swallow) e.preventDefault(); });
+    // Capture phase: at the target, capture listeners run before the K mark's own click handler, whatever order they were added in.
     k.addEventListener('click', (e) => { if (swallow) { swallow = false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
   }
 })();

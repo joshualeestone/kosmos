@@ -84,7 +84,7 @@ const read = (pg) => pg.evaluate(() => {
     say(g.note && g.note.text === JOSH, "note: Josh's sentence, word for word", JSON.stringify(g.note && g.note.text));
     say(g.note && g.note.role === 'status' && g.note.x === 'Dismiss', 'note: role=status on the words, and the X is labelled Dismiss', JSON.stringify(g.note));
     say(g.label && g.label.text === '12 days in a row in the Kosmos', 'note: the label carries the count', JSON.stringify(g.label));
-    say(posts.length >= 1 && posts[0].method === 'POST' && posts[0].body.today === localDay(NOON) && posts[0].body.remote === false, "note: the page sent its own local date, as a screen at this computer (remote: false)", JSON.stringify(posts[0]));
+    say(posts.length >= 1 && posts[0].method === 'POST' && posts[0].body.today === localDay(NOON), "note: the page sent its own local date", JSON.stringify(posts[0]));
     await pg.screenshot({ path: path.join(OUT, 'streak-note.png') }).catch(() => {});
     await pg.focus('#streak-slot .ux');
     await pg.keyboard.press('Enter');
@@ -121,6 +121,34 @@ const read = (pg) => pg.evaluate(() => {
     const centred = boxes.every((x) => Math.abs((x.l + x.r) / 2 - vw / 2) < 4);
     say(centred, 'together (' + vp.width + 'px): the notices stay centred under the navigation', JSON.stringify({ vw, centres: boxes.map((x) => (x.l + x.r) / 2) }));
     await pg.screenshot({ path: path.join(OUT, 'streak-together-' + vp.width + '.png') }).catch(() => {});
+    await pg.close();
+  }
+
+  // Kosmos+ remote: the K mark (and so its label) is hidden only at phone width, as on main; the note still shows there
+  for (const vp of [{ width: 1400, height: 800 }, { width: 390, height: 844 }]) {
+    const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'remote ' + vp.width, viewport: vp });
+    const g = await pg.evaluate(() => {
+      document.documentElement.classList.add('kremote');
+      const k = document.getElementById('klink'), n = document.querySelector('#streak-slot .utoast.streak');
+      return { mark: k.getClientRects().length > 0, note: Boolean(n) && n.getClientRects().length > 0 };
+    });
+    if (vp.width > 600) say(g.mark, 'remote 1400: the K mark stays (only phones hide it)', JSON.stringify(g));
+    else say(!g.mark, 'remote 390: the K mark is hidden there, as on main', JSON.stringify(g));
+    say(g.note, 'remote ' + vp.width + ': the day\'s note shows', JSON.stringify(g));
+    await pg.close();
+  }
+
+  // the note waits while a pointer is on it, then goes
+  {
+    const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'pause', clockInstall: NOON });
+    await pg.hover('#streak-slot .utoast.streak');
+    await pg.clock.runFor(20 * 1000);
+    const held = await pg.evaluate(() => Boolean(document.querySelector('#streak-slot .utoast.streak')));
+    await pg.mouse.move(700, 700);
+    await pg.clock.runFor(7 * 1000);
+    const gone = await pg.evaluate(() => !document.querySelector('#streak-slot .utoast'));
+    say(held, 'pause: 20 s with the pointer on it, the note is still there');
+    say(gone, 'pause: once the pointer leaves, it goes');
     await pg.close();
   }
 
@@ -245,9 +273,9 @@ const read = (pg) => pg.evaluate(() => {
   }
   // midnight, nobody there: a page left open with no input does not count the new day (control for the arm above)
   {
-    const before = (() => { const d = new Date(); d.setHours(23, 50, 0, 0); return d.getTime(); })();
+    const before = (() => { const d = new Date(); d.setHours(23, 45, 0, 0); return d.getTime(); })();   // midnight is well past the 10-minute window, whatever open() pressed
     const { pg, posts } = await open(b, () => ({ count: 3, congrats: false }), { key: 'midnight, idle', clockInstall: before });
-    await pg.clock.runFor(20 * 60 * 1000);   // past midnight, and past the ten-minute window since the last input
+    await pg.clock.runFor(25 * 60 * 1000);   // past midnight, and well past the ten-minute window since the last input
     await pg.waitForTimeout(300);
     const days = posts.map((p) => p.body.today);
     say(!days.includes(localDay(before + 20 * 60 * 1000)), 'midnight, idle: an open page with nobody at it does not count the new day', JSON.stringify(days));

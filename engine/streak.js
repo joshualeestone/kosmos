@@ -98,15 +98,14 @@ function save(s) {
 /**
  * The board's entry point for a page load: records a visit on the page's local `today` and returns what to show,
  * `{ count, congrats }`. When the note is due, the same write records it as shown, so exactly one page load per day
- * is told to show it, even with two screens open at once. A `quiet` visit (a Kosmos+ remote screen, which has no K
- * mark to show it under) counts the day but never spends the note. An implausible date records nothing and returns
- * the streak as it stands, with no note. Writes only when something changed. Never throws.
+ * is told to show it, even with two screens open at once. An implausible date records nothing and returns the streak
+ * as it stands, with no note. Writes only when something changed.
  */
-function record(today, now = Date.now(), { quiet = false } = {}) {
+function record(today, now = Date.now()) {
   const before = read();
   if (!plausible(today, now)) return { count: before.count, congrats: false };
   let after = visit(before, today);
-  const congrats = !quiet && congratsDue(after, today);
+  const congrats = congratsDue(after, today);
   if (congrats) after = markCongratulated(after, today);
   if (JSON.stringify(after) !== JSON.stringify(before) && !save(after)) return { count: before.count, congrats: false };   // what is on disk, not a count that was never kept
   return { count: after.count, congrats };
