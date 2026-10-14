@@ -1378,7 +1378,9 @@ install_kosmos() {
   if [ "$(uname -s)" = "Darwin" ]; then
     for part in bin app runtime; do
       [ -z "$_stuck_at" ] && [ -d "$dest/$part" ] || continue
-      _stuck_at="$(find "$dest/$part" \( -flags +uchg -o -flags +schg -o -flags +uappnd -o -flags +sappnd \) -print 2>/dev/null | sed -n '1p' || true)"
+      # /usr/bin/find, not the first find on PATH: a GNU find (Homebrew findutils) has no -flags, and its error
+      # would read as "nothing locked" (#6149).
+      _stuck_at="$(/usr/bin/find "$dest/$part" \( -flags +uchg -o -flags +schg -o -flags +uappnd -o -flags +sappnd \) -print 2>/dev/null | sed -n '1p' || true)"
       [ -z "$_stuck_at" ] || _stuck_why=locked
     done
   fi
@@ -1391,8 +1393,9 @@ install_kosmos() {
     info "the installed Kosmos cannot be replaced, because this cannot be removed:"
     info "  $_stuck_at"
     if [ "$_stuck_why" = locked ]; then
-      info "It is locked. Unlock it (in the Finder: Get Info, untick Locked; a lock set by an administrator needs"
-      info "one to remove it), then paste the install line again."
+      info "It is locked. Unlock it with this line in Terminal (a lock set by an administrator needs one to remove it):"
+      info "  chflags -R nouchg \"$dest\""
+      info "then paste the install line again."
     else
       info "This account may not change that folder. Give it back to this account, then paste the install line again."
     fi
@@ -1429,6 +1432,10 @@ install_kosmos() {
   # way out for that person is the lift by hand, `chmod -R u+w` on the app folder, then the install line again.
   # KOSMOS_READONLY_APP=0 leaves the app writable (anything but 0, or unset, is on).
   # BEGIN #4455 lock
+  case "${KOSMOS_READONLY_APP:-1}" in
+    0|1) ;;
+    *) info "note: KOSMOS_READONLY_APP is set to something other than 0 or 1, so the Kosmos app is left read-only (only 0 turns that off)" ;;
+  esac
   if [ "${KOSMOS_READONLY_APP:-1}" != 0 ]; then
     chmod -R a-w "$dest/app" 2>/dev/null || info "note: the Kosmos app folder could not be made read-only; the install is otherwise complete"
   fi

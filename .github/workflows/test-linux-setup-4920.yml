@@ -103,9 +103,12 @@ jobs:
       - name: Verify installed pieces
         run: |
           KOSMOS_HOME="$HOME/.local/share/kosmos"
-          test -f "$KOSMOS_HOME/bin/kosmos" && test -x "$KOSMOS_HOME/bin/kosmos"
-          test -f "$KOSMOS_HOME/tmux/bin/tmux" && test -x "$KOSMOS_HOME/tmux/bin/tmux"
-          test -f "$KOSMOS_HOME/runtime/bin/node" && test -x "$KOSMOS_HOME/runtime/bin/node"
+          test -f "$KOSMOS_HOME/bin/kosmos"
+          test -x "$KOSMOS_HOME/bin/kosmos"
+          test -f "$KOSMOS_HOME/tmux/bin/tmux"
+          test -x "$KOSMOS_HOME/tmux/bin/tmux"
+          test -f "$KOSMOS_HOME/runtime/bin/node"
+          test -x "$KOSMOS_HOME/runtime/bin/node"
           "$KOSMOS_HOME/runtime/bin/node" --version
 
           # #4455: the installed app is read-only BY DEFAULT. This install ran with KOSMOS_READONLY_APP unset, so
@@ -229,6 +232,8 @@ jobs:
           test ! -f "$UNIT_FILE"
           # The enable link is what a failed disable leaves behind (the file is deleted either way).
           test ! -e "$HOME/.config/systemd/user/default.target.wants/kosmos-board.service"
+          # #6149: the uninstall removes the app too (the read-only one included).
+          test ! -e "$HOME/.local/share/kosmos/app"
 
       - name: An update keeps an old unit's other processes alive (KillMode fix, measured both ways)
         # 0.7.27's shell-written unit has no KillMode=, so stopping it kills its whole cgroup, which on an in-app update
@@ -346,7 +351,8 @@ jobs:
           sleep 12
           N2="$(systemctl --user show -p NRestarts --value kosmos-board.service)"
           echo "after the update: NRestarts $N1 -> $N2"
-          test -n "$N1" && test "$N1" = "$N2"
+          test -n "$N1"
+          test "$N1" = "$N2"
           curl -fsS -m 5 http://127.0.0.1:16180/ >/dev/null
           sh install/setup.sh --uninstall
           test ! -f "$UNIT"

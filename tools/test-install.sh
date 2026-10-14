@@ -303,9 +303,9 @@ done
 # the real shared file is never touched. Scoped to accounts/home resolution, NOT
 # $HOME, so nothing else that reads $HOME is repointed.
 export KOSMOS_HOME="$SB/home" AGENT_WORKFORCE_HOME="$SB/home" KOSMOS_BIN_DIR="$SB/bin" KOSMOS_APP_DIR="$SB/apps"
-# #4449: the installed app is read-only. On by default since #4455 and set here too, so every install below
-# exercises it whatever the default; the Applications probe's install runs with the switch UNSET to check the default.
-export KOSMOS_READONLY_APP=1
+# #4449: the installed app is read-only, on by default since #4455. The switch is UNSET here, not set to 1, so
+# every install below (the part a cut's gate runs included) measures the default people get (#6149).
+unset KOSMOS_READONLY_APP
 export KOSMOS_PROFILE_FILE="$SB/zprofile"
 # SHELL pinned for determinism only (belt and suspenders): with
 # KOSMOS_PROFILE_FILE exported above, setup.sh's non-zsh hedge is
@@ -1138,7 +1138,7 @@ if cp "$HERE/dist/tmux-arm64.tar.gz" "$HERE/dist/tmux-arm64.tar.gz.sha256" \
     "$SB/bin/kosmos" stop > /dev/null 2>&1 || true
     chk "CONTROL: the connect computer's board is down before the look" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
     _pkg="$SB/home/app/package.json"
-    # #4449: this harness installs with KOSMOS_READONLY_APP=1, so the fixture lifts that for its own edit first (a
+    # #4449: this harness installs with the app read-only (the default), so the fixture lifts that for its own edit first (a
     # failed redirect here would end the whole run under set -e with no tally). The next update replaces app/.
     _older() { chmod u+w "$SB/home/app" "$_pkg" && sed 's/"version":[[:space:]]*"[^"]*"/"version": "0.0.1"/' "$_pkg" > "$_pkg.t" && mv "$_pkg.t" "$_pkg"; }
     _older
@@ -2528,7 +2528,7 @@ D918_NOARGS
 
 # Scenario A's scratch directory is deleted DIRECTLY -- exactly the walk
 # convention #918 is about, never running --uninstall against it.
-# #4449: its app may be read-only (KOSMOS_READONLY_APP, on for this harness), so a direct delete lifts that first, as a person deleting the folder by
+# #4449: its app may be read-only (the default since #4455), so a direct delete lifts that first, as a person deleting the folder by
 # hand would have to (a plain rm -rf is refused inside it, and under set -e that ended this whole harness).
 chmod -R u+w "$D918_KHOME_A" 2>/dev/null || true
 rm -rf "$D918_KHOME_A"
