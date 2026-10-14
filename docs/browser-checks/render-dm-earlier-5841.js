@@ -16,6 +16,8 @@
  *   - messages that leave the latest while earlier ones are loaded are fetched in (no gap);
  *   - another agent on screen starts with only its own rows, including when that agent's read FAILS;
  *   - a failed load says so at the top with Try again, and scrolling does not ask again until the person does;
+ *   - when the oldest message on screen answers the one right before it, its "further back" line going away as
+ *     the page lands does not move the words on screen (kosmos#6119);
  *   - a thread too short to scroll loads the earlier pages by itself.
  *
  * Harness posture mirrors render-agentdm-3414.js: load over file://, answer the fetches from fixtures, set CURRENT,
@@ -296,6 +298,26 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' +
     await page.evaluate(() => { window.__olderHold = false; window.__olderRelease(); }); await settle();
     s = await state();
     chk(s.asked.join(',') === 'quin:5' && s.rows.join(',') === 'm0,m1,m2' && !s.line, '#6086: a page that lands after another agent was opened is dropped (only that agent\'s rows, no line)', JSON.stringify(s));
+
+    /* #6119: the oldest message on screen ANSWERS the one right before it, which is in the page about to load. Until
+       that page lands the reply says "Original message is further back"; once its original sits right above it that
+       line is left out. The words on screen must not move by the line's height. Twice: the reply is the agent's row
+       (a name line above it stays), then the person's own row (nothing above it stays). */
+    for (const [who, Who, kept] of [['tess', 'Tess', 8], ['uma', 'Uma', 9]]) {
+      const oldest = kept - 3;   // the oldest of the latest 3
+      await setAll(who, kept, { [oldest]: { replyTo: at(oldest - 1) } });
+      await page.evaluate(() => { window.__asked.length = 0; window.__olderHold = true; });
+      await switchTo(who, Who); await settle();
+      await toTop(); await settle();
+      const next = 'msg-' + (oldest + 1) + '!';
+      s = await state(); w = await where(next);
+      const beforeNext = w.row;
+      chk(/further back/i.test(s.reply) && s.asked.join(',') === who + ':' + oldest, '#6119 CONTROL (' + Who + '): the oldest message says its original is further back, and the page is on its way', JSON.stringify([s.reply, s.asked]));
+      await page.evaluate(() => { window.__olderHold = false; window.__olderRelease(); }); await settle();
+      s = await state(); w = await where(next);
+      chk(!/further back/i.test(s.reply) && s.rows.length === 5, '#6119 CONTROL (' + Who + '): the page landed and that line is gone', JSON.stringify([s.reply, s.rows]));
+      chk(!!beforeNext && !!w.row && Math.abs(w.row.top - beforeNext.top) <= 2, '#6119 (' + Who + '): the words on screen did not move when that line went (the message under it is where it was)', JSON.stringify([beforeNext, w.row]));
+    }
 
     // A thread too short to scroll has no scroll to wait for: it loads the earlier pages by itself, to the first message.
     await page.addStyleTag({ content: '#d-dmthread { height: 4000px !important; max-height: 4000px !important; }' });

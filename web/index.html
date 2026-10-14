@@ -38138,6 +38138,24 @@ function threadAtBottom(el) {
    `data-mid` is stamped by dmRow. Returns the first row whose bottom is past the
    viewport top (the one the reader is on) with its offset below the fold, or null
    on a box with no rows (a note, a first paint) where there is nothing to hold. */
+/* #6119: where a row's own WORDS start, as an offset in the thread: under its name line and its answers-line when it
+   has them, else at the top of its bubble's content. The anchor holds this, not the row's top, because those lines
+   can come and go between two paints of the same message: a reply's "Original message is further back" is left out
+   once the message it answers arrives right above it (a page of earlier messages landing, #6086), and holding the
+   row's top then moved the words and everything under them up by that line. A row with no bubble (Kosmos's own
+   line) is held by its top, as before. */
+function threadRowWordsTop(r) {
+  const bd = r && typeof r.querySelector === 'function' ? r.querySelector('.msg-bd') : null;
+  if (!bd || typeof bd.getBoundingClientRect !== 'function' || typeof getComputedStyle !== 'function') return r.offsetTop;
+  const px = (v) => parseFloat(v) || 0;
+  const rowTop = r.getBoundingClientRect().top;
+  const heads = bd.querySelectorAll(':scope > .msg-nm, :scope > .msg-replyto');
+  let last = null;
+  for (let i = 0; i < heads.length; i += 1) if (heads[i].offsetHeight) last = heads[i];
+  if (last) return r.offsetTop + (last.getBoundingClientRect().bottom - rowTop) + px(getComputedStyle(last).marginBottom);
+  const cs = getComputedStyle(bd);
+  return r.offsetTop + (bd.getBoundingClientRect().top - rowTop) + px(cs.borderTopWidth) + px(cs.paddingTop);
+}
 function threadAnchor(el) {
   if (!el || typeof el.querySelectorAll !== 'function') return null;
   const top = el.scrollTop;
@@ -38149,7 +38167,7 @@ function threadAnchor(el) {
        zero-height row next poll. */
     if (!r.offsetHeight) continue;
     if (r.offsetTop + r.offsetHeight > top) {
-      return { mid: r.getAttribute('data-mid'), delta: r.offsetTop - top };
+      return { mid: r.getAttribute('data-mid'), delta: r.offsetTop - top, words: threadRowWordsTop(r) - top };
     }
   }
   return null;
@@ -38166,7 +38184,7 @@ function restoreThreadAnchor(el, a) {
          (offsetHeight 0): restoring to `0 - delta` would jump. Fall back to the
          pixel offset instead, which is no worse than the old behaviour. */
       if (!rows[i].offsetHeight) return false;
-      el.scrollTop = rows[i].offsetTop - a.delta;
+      el.scrollTop = Number.isFinite(a.words) ? threadRowWordsTop(rows[i]) - a.words : rows[i].offsetTop - a.delta;
       return true;
     }
   }
