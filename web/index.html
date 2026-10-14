@@ -35306,12 +35306,10 @@ function paintStreak(got) {
   }
 }
 async function streakCheck() {
-  // A Kosmos+ remote screen hides the K mark, so it neither counts a visit nor spends the day's note where it cannot show.
-  if (document.documentElement.classList.contains('kremote')) return;
   const today = streakLocalDay(new Date());
   if (today === streakDay) return;   // once per day per page: a reload asks again, the board answers "already shown"
   try {
-    const r = await fetch('/api/streak', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ today }), cache: 'no-store' });
+    const r = await fetch('/api/streak', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ today, remote: kplusRemote() }), cache: 'no-store' });   // remote: counts the day, keeps the note for a screen with the K mark
     if (!r.ok) return;
     streakDay = today;
     paintStreak(await r.json());
@@ -35325,11 +35323,11 @@ async function streakCheck() {
   });
   // A phone has no hover: a long press on the mark shows the label for a moment, and that press does not also navigate.
   if (k && lab) {
-    let held = null, swallow = false;
+    let held = null, swallow = false, shown = null;
     k.addEventListener('pointerdown', (e) => {
       swallow = false;   // a long press that ended with no click (Android raises contextmenu instead) must not eat this press
       if (e.pointerType !== 'touch' || lab.hidden) return;
-      held = setTimeout(() => { held = null; swallow = true; lab.classList.add('show'); setTimeout(() => lab.classList.remove('show'), 2500); }, 500);
+      held = setTimeout(() => { held = null; swallow = true; lab.classList.add('show'); clearTimeout(shown); shown = setTimeout(() => lab.classList.remove('show'), 2500); }, 500);
     });
     const cancel = () => { if (held) { clearTimeout(held); held = null; } };
     k.addEventListener('pointerup', cancel); k.addEventListener('pointercancel', cancel); k.addEventListener('pointerleave', cancel);

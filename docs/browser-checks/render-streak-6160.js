@@ -77,7 +77,7 @@ const read = (pg) => pg.evaluate(() => {
     say(g.note && g.note.role === 'status' && g.note.x === 'Dismiss', 'note: role=status, and the X is labelled Dismiss', JSON.stringify(g.note));
     say(g.label && g.label.text === '12 days in a row in the Kosmos', 'note: the label carries the count', JSON.stringify(g.label));
     say(g.label && g.label.display === 'none', 'note: the label is hidden while the note shows (never two bubbles)', JSON.stringify(g.label));
-    say(posts.length >= 1 && posts[0].method === 'POST' && posts[0].body.today === localDay(NOON), "note: the page sent its own local date", JSON.stringify(posts[0]));
+    say(posts.length >= 1 && posts[0].method === 'POST' && posts[0].body.today === localDay(NOON) && posts[0].body.remote === false, "note: the page sent its own local date, as a screen at this computer (remote: false)", JSON.stringify(posts[0]));
     await pg.screenshot({ path: path.join(OUT, 'streak-note.png') }).catch(() => {});
     await pg.focus('#kcongrats .ux');
     await pg.keyboard.press('Enter');

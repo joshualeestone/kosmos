@@ -104,6 +104,14 @@ test('record: a rollover on disk, the note exactly once, and a restart keeps the
   assert.deepEqual(JSON.parse(fs.readFileSync(again.file(), 'utf8')), { count: 3, last: '2026-10-15', congratulated: '2026-10-15' });
 });
 
+test('record: a quiet (Kosmos+ remote) visit counts the day but keeps the note for a screen that can show it', () => {
+  fresh();
+  streak.record('2026-10-13', at('2026-10-13'));
+  assert.deepEqual(streak.record('2026-10-14', at('2026-10-14'), { quiet: true }), { count: 2, congrats: false });
+  assert.deepEqual(streak.record('2026-10-14', at('2026-10-14')), { count: 2, congrats: true }, 'the desk visit later that day lost its note');
+  assert.deepEqual(streak.record('2026-10-14', at('2026-10-14')), { count: 2, congrats: false });
+});
+
 test('record: a missed day on disk starts again at 1, with no note', () => {
   fresh();
   streak.record('2026-10-10', at('2026-10-10'));

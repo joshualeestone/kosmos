@@ -15,7 +15,8 @@ X days!".
 ## Calls (written on the card, Josh can override)
 1. A day = the person opened the board that day, by the page's local date. Agent work does not count.
 2. A missed day resets to 1 (no grace day).
-3. The count lives on this board (`streak.json` under the data root), not synced through Kosmos+.
+3. The count lives on this board (`streak.json` under the data root), not synced through Kosmos+. A Kosmos+ remote
+   screen (`kplusRemote()`, which has no K mark) counts the day but never spends the note (`remote: true`).
 4. The label words are ours; the note is Josh's sentence verbatim.
 5. The note shows from day 2, is recorded as shown in the same write that says to show it, and hides after 12 s.
 

@@ -36,6 +36,8 @@ test('#6160: POST /api/streak records a visit, grows across a day, and congratul
   };
 
   assert.deepEqual(await post(JSON.stringify({ today: YESTERDAY })), { status: 200, json: { count: 1, congrats: false } });
+  // a Kosmos+ remote screen: the day counts, the note is kept for the desk
+  assert.deepEqual(await post(JSON.stringify({ today: TODAY, remote: true })), { status: 200, json: { count: 2, congrats: false } });
   assert.deepEqual(await post(JSON.stringify({ today: TODAY })), { status: 200, json: { count: 2, congrats: true } });
   assert.deepEqual(await post(JSON.stringify({ today: TODAY })), { status: 200, json: { count: 2, congrats: false } }, 'the note was offered twice on one day');
   assert.deepEqual(JSON.parse(fs.readFileSync(streak.file(), 'utf8')), { count: 2, last: TODAY, congratulated: TODAY });
