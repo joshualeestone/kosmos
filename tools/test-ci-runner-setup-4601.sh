@@ -21,12 +21,12 @@ cat > "$BIN/_stub" <<'STUB'
 me="$(basename "$0")"
 printf '%s' "$me" >> "$CALL_LOG"; printf ' %s' "$@" >> "$CALL_LOG"; printf '\n' >> "$CALL_LOG"
 case "$me" in
-  launchctl) printf 'PID\tStatus\tLabel\n-\t0\tcom.apple.Finder\n'; [ -z "${FX_JOBS:-}" ] || printf '%s\n' "$FX_JOBS" | sed 's/^/-\t0\t/' ;;
+  launchctl) [ "${FX_LAUNCHCTL_FAIL:-0}" = 1 ] && exit 1; printf 'PID\tStatus\tLabel\n-\t0\tcom.apple.Finder\n123\t0\tapplication.com.apple.Terminal.1234.5678\n'; [ -z "${FX_JOBS:-}" ] || printf '%s\n' "$FX_JOBS" | sed 's/^/-\t0\t/' ;;
   crontab) [ -z "${FX_CRON:-}" ] && exit 1; printf '%s\n' "$FX_CRON" ;;
   pgrep) [ -z "${FX_LIVE:-}" ] && exit 1; printf '%s\n' "$FX_LIVE" ;;
   df) printf 'Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/disk3s1 239362496 1 %s 50%% /\n' "${FX_FREE_KIB:-31457280}" ;;
   fdesetup) echo "${FX_FV:-FileVault is Off.}" ;;
-  pmset) printf 'System-wide power settings:\nCurrently in use:\n standby              0\n sleep                %s\n displaysleep         10\n' "${FX_SLEEP:-0}" ;;
+  pmset) printf 'System-wide power settings:\nCurrently in use:\n standby              0\n sleep                %s\n autorestart          %s\n displaysleep         10\n' "${FX_SLEEP:-0}" "${FX_AUTORESTART:-1}" ;;
   id)
     case "$1" in
       -un) echo "${FX_WHO:-agent1}" ;;
@@ -97,6 +97,8 @@ refuse suite "a suite is live on this Mac" "FX_LIVE=123 bash tools/run-tests.sh"
 refuse disk "under the 20 GiB floor" FX_FREE_KIB=10485760
 refuse filevault "FileVault is not off" "FX_FV=FileVault is On."
 refuse sleep "system sleep is not 'never'" FX_SLEEP=10
+refuse autorestart "autorestart is not 1" FX_AUTORESTART=0
+refuse launchctl-unreadable "could not read launchctl list" FX_LAUNCHCTL_FAIL=1
 refuse tmux35a "is 3.5a" "FX_TMUX_V=tmux 3.5a"
 refuse admin "kosmos-ci is an admin" FX_CI_EXISTS=1 "FX_GROUPS=staff admin"
 refuse shards "KOSMOS_CI_SHELL_SHARDS is '1/2'" FX_SHARDS=1/2
@@ -107,10 +109,11 @@ mv "$BREWD/bin/pwsh" "$T/pwsh.away"
 run pf-nopwsh "$H" -- preflight
 mv "$T/pwsh.away" "$BREWD/bin/pwsh"
 [ "$(rc pf-nopwsh)" = 1 ] && has pf-nopwsh "no $BREWD/bin/pwsh" && pass "preflight refuses: no pwsh" || fail "no pwsh: $(grep REFUSE "$T/pf-nopwsh.out")"
+pf_changed=0
 for n in pf-clear pf-launchd pf-suite; do
-  if out="$(changed "$n")"; then fail "preflight $n changed something: $out"; fi
+  if out="$(changed "$n")"; then fail "preflight $n changed something: $out"; pf_changed=1; fi
 done
-pass "preflight made no changing call in any case above (checked on clear, launchd, suite)"
+[ "$pf_changed" = 0 ] && pass "preflight made no changing call (checked on clear, launchd, suite)"
 
 # --- create-user ------------------------------------------------------------------------------------------------
 before="$(snap "$H")"
@@ -118,7 +121,8 @@ run cu-dry "$H" -- create-user
 if [ "$(rc cu-dry)" = 0 ] && has cu-dry "DRY RUN of create-user" && has cu-dry "WOULD: sudo sysadminctl -addUser kosmos-ci" \
    && ! changed cu-dry >/dev/null && [ "$(snap "$H")" = "$before" ]; then pass "create-user dry run: prints the sysadminctl line, calls nothing, HOME unchanged"
 else fail "create-user dry run: rc $(rc cu-dry), changing calls: $(changed cu-dry | head -2)"; fi
-grep '^WOULD: sudo sysadminctl' "$T/cu-dry.out" | grep -q -w -- -admin && fail "create-user would make an ADMIN" || pass "create-user's user is standard (no -admin)"
+sl="$(grep '^WOULD: sudo sysadminctl' "$T/cu-dry.out")"
+[ -n "$sl" ] && ! printf '%s\n' "$sl" | grep -q -w -- -admin && pass "create-user's user is standard (no -admin)" || fail "create-user admin check: '$sl'"
 grep '^WOULD: sudo sysadminctl' "$T/cu-dry.out" | grep -q -- '-password -$' && pass "create-user: the password is prompted, never in argv" || fail "create-user password: $(grep sysadminctl "$T/cu-dry.out")"
 # CONTROL: the same stage with --apply reaches the stub, so the dry-run assertion above can see a call.
 run cu-apply "$H" -- --apply create-user
@@ -127,6 +131,10 @@ else fail "CONTROL create-user --apply: rc $(rc cu-apply), calls: $(head -3 "$T/
 run cu-blocked "$H" FX_JOBS=com.kosmos.board -- --apply create-user
 [ "$(rc cu-blocked)" = 1 ] && ! changed cu-blocked >/dev/null && pass "create-user --apply refuses, and calls nothing, while preflight refuses" \
   || fail "create-user while blocked: rc $(rc cu-blocked), calls: $(changed cu-blocked)"
+# preflight runs inside `||` here, where set -e is off: an unreadable launchctl must still refuse.
+run cu-nolaunchctl "$H" FX_LAUNCHCTL_FAIL=1 -- --apply create-user
+[ "$(rc cu-nolaunchctl)" = 1 ] && ! changed cu-nolaunchctl >/dev/null && has cu-nolaunchctl "could not read launchctl list" \
+  && pass "create-user --apply refuses when launchctl cannot be read (no fail-open under ||)" || fail "create-user, launchctl unreadable: rc $(rc cu-nolaunchctl)"
 run cu-exists "$H" FX_CI_EXISTS=1 -- --apply create-user
 [ "$(rc cu-exists)" = 1 ] && ! changed cu-exists >/dev/null && pass "create-user refuses when kosmos-ci exists" || fail "create-user exists: rc $(rc cu-exists)"
 
@@ -149,7 +157,7 @@ run in-env "$CH" FX_WHO=kosmos-ci -- install "$C" "$G"
   || fail "install .env override: rc $(rc in-env): $(tail -1 "$T/in-env.out")"
 # CONTROL and the real path: --apply, with the downloads stubbed. An existing .env key the install does not own survives.
 printf 'LANG=C\nRUNNER_KEEP=1\n' > "$CH/actions-runner/.env"
-run in-apply "$CH" FX_WHO=kosmos-ci -- --apply install "$C" "$G"
+run in-apply "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply install "$C" "$G"
 e="$CH/actions-runner/.env"
 if [ "$(rc in-apply)" = 0 ] && grep -q '^tar xzf actions-runner-osx-arm64-2.999.0.tar.gz' "$T/in-apply.calls" \
    && grep -qx 'RUNNER_KEEP=1' "$e" && grep -qx "ACTIONS_RUNNER_HOOK_JOB_STARTED=$CH/.kosmos-ci/job-started.sh" "$e" \
@@ -157,7 +165,7 @@ if [ "$(rc in-apply)" = 0 ] && grep -q '^tar xzf actions-runner-osx-arm64-2.999.
    && [ -x "$CH/.kosmos-ci/job-started.sh" ] && [ -x "$CH/.kosmos-ci/job-cleanup.sh" ] && [ -x "$CH/.kosmos-ci/job-guard.sh" ]; then
   pass "CONTROL: install --apply unpacks, installs the guard and hooks, merges .env keeping other keys"
 else fail "install --apply: rc $(rc in-apply): $(tail -3 "$T/in-apply.out")"; fi
-run in-badsha "$T/cihome2" FX_WHO=kosmos-ci FX_GUARD_BODY=tampered -- --apply install "$C" "$G"
+run in-badsha "$T/cihome2" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$T/cihome2" FX_GUARD_BODY=tampered -- --apply install "$C" "$G"
 [ "$(rc in-badsha)" = 1 ] && ! grep -q '^tar ' "$T/in-badsha.calls" && pass "install --apply refuses a guard whose sha256 differs, before unpacking" \
   || fail "install bad guard: rc $(rc in-badsha)"
 
@@ -168,12 +176,14 @@ if [ "$(rc rg-dry)" = 0 ] && has rg-dry "--name kosmos-ci-agent1s" && tr -d '\\'
    && ! grep -q SECRET "$T/rg-dry.out" "$T/rg-dry.calls" && ! changed rg-dry >/dev/null; then pass "register dry run: name and labels printed, token neither read nor printed, nothing called"
 else fail "register dry run: rc $(rc rg-dry): $(cat "$T/rg-dry.out")"; fi
 for x in config.sh svc.sh; do cp "$BIN/_stub" "$CH/actions-runner/$x"; chmod +x "$CH/actions-runner/$x"; done
-STDIN_FILE="$T/token" run rg-apply "$CH" FX_WHO=kosmos-ci -- --apply register
+STDIN_FILE="$T/token" run rg-apply "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
 if [ "$(rc rg-apply)" = 0 ] && grep -qx 'token-in-env=tok-SECRET-123' "$T/rg-apply.calls" \
    && grep '^config\.sh ' "$T/rg-apply.calls" | grep -q -- '--labels self-hosted,macOS,arm64,kosmos-ci' \
    && ! grep '^config\.sh ' "$T/rg-apply.calls" | grep -q SECRET; then pass "CONTROL: register --apply passes the token in the environment, never in config.sh's argv"
 else fail "register --apply: rc $(rc rg-apply), calls: $(cat "$T/rg-apply.calls")"; fi
-run rg-none "$CH" FX_WHO=kosmos-ci -- --apply register
+run rg-none "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
+run rg-sudo "$CH" FX_WHO=kosmos-ci -- --apply register
+[ "$(rc rg-sudo)" = 2 ] && has rg-sudo "not /Users/kosmos-ci" && ! grep -q '^config\.sh' "$T/rg-sudo.calls" && pass "register --apply refuses when HOME is not kosmos-ci's (sudo -u keeps HOME)" || fail "register HOME check: rc $(rc rg-sudo)"
 [ "$(rc rg-none)" = 1 ] && ! grep -q '^config\.sh' "$T/rg-none.calls" && pass "register --apply refuses with no token" || fail "register no token: rc $(rc rg-none)"
 
 # --- verify -----------------------------------------------------------------------------------------------------
@@ -190,7 +200,7 @@ vcase switchoff 1 "KOSMOS_CI_RUNNER is 'off'" FX_RUNNER_VAR=off
 vcase shards 1 "KOSMOS_CI_SHELL_SHARDS is '2/2'" FX_SHARDS=2/2
 vcase leftover 1 "kosmos-ci still runs" "FX_PS=/opt/homebrew/bin/tmux"
 vcase leftover-busy 0 "verify: clear" "FX_PS=node" "FX_RUNNER_ROW=online true arm64,kosmos-ci,macos,self-hosted"
-vcase psfail 1 "could not list kosmos-ci's processes" FX_PS_FAIL=1
+vcase psfail 1 "kosmos-ci runs no processes" FX_PS_FAIL=1
 run v-nouser "$H" -- verify
 [ "$(rc v-nouser)" = 1 ] && has v-nouser "no user kosmos-ci on this Mac" && pass "verify: no CI user here is a problem, not a clean 'nothing left'" || fail "verify no user: rc $(rc v-nouser)"
 for n in v-clear v-leftover; do if out="$(changed "$n")"; then fail "verify $n changed something: $out"; fi; done
