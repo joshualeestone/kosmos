@@ -34,3 +34,17 @@ D. Agent page, portrait: conversation full width, the list as a slide-over.
 E. Project room: three columns in landscape, the tasks strip in portrait.
 Each slice is its own PR with tablet shots from mobile-shots.js (sizes added in this branch).
 Order: A, B (now), then C to E after Josh answers or by 2026-10-14 noon on my own call.
+
+## Landscape slice: draft (2026-10-13 23:35, waits on Josh's split view or grid answer, default split view from noon 10-14)
+Finding: the split view already exists as the consolidated layout (agents rail plus the open thing),
+offered at 960px and up. render-room-msgbox-2806 already measures it on touch at 960, 1024 and 1180
+(tap areas, no script errors), so it works with a finger today; it is just not the default.
+Proposed build, smallest first:
+1. A landscape touch tablet (hover none, pointer coarse, landscape, 960px to about 1400px) opens on the
+   consolidated layout by default the first time, unless the person has picked a layout (the
+   header toggle's stored choice wins, so nobody's setting is overridden).
+2. Touch sizing in the consolidated rail where it is still mouse-sized (rows under 44px).
+3. Shots at ipadminiland and ipad11land: needs mobile-shots to shoot desktopOnly (consolidated)
+   screens at landscape tablet sizes over 960px (today skipWhy skips them at every tablet size).
+Rejected: a new split view built from scratch (duplicates the consolidated layout).
+Weakest premise: that the consolidated rail reads well at 1133px. Shots decide it.
