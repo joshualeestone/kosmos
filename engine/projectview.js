@@ -233,7 +233,8 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
      what it was doing then; a history cut short (selfreport's bounded tail) that starts after the summary is unknown,
      and leaves the summary as it was.
    - Known, as for idleExcused: reports reach the store only while the board runs, so work while it was down reads as
-     whatever the last report said, and with no cap on the clock age (decided in the plan) that holds however long the
+     whatever the last report said, and with no cap on the clock age for the timed runners (decided in the plan; turn-
+     ends-only runners are capped by TURN_ENDS_CAP_MS) that holds however long the
      outage. Unlike idleExcused this also applies to a member working now.
    - Since 0.7.48 (Josh): the board's read of the screen adds nothing, so a member whose working report was lost (and
      whose last report is idle) reads current however long it has been working. */
@@ -245,7 +246,8 @@ function workExcused(summary, member, readHistory, nowMs) {
      it reads current while at most one turn has ended since the summary was written (the turn that wrote it), and
      stale once a later turn has ended. Known costs, chosen over never excusing it (the GPT repro): a later turn still
      running reads current however long it runs, and so does the writing turn itself when no turn has ended since; so
-     does an agent in a blocked or needs-you wait (selfreport refuses the automatic idle then) or one whose turn-end
+     does an agent in a blocked or needs-you wait standing from before the summary was written (selfreport refuses the
+     automatic idle then) or one whose turn-end
      reports stopped arriving (bounded by TURN_ENDS_CAP_MS); a short prompted turn ending, or a manual idle report,
      makes it stale again; and if the writing turn's idle lands BEFORE the summary's time (clock skew, a late write), the
      next turn's idle is taken for it, so two real turns read as one. */
