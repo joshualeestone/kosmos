@@ -271,6 +271,8 @@ test('#6108 the account route moves a stopped agent without starting it, and say
   assert.equal(out.outcome, 'partial', 'a stopped agent did not come back partial: ' + JSON.stringify(out));
   assert.match(String(out.because || ''), /is not running, so there is nothing to restart/, 'the reason no longer carries the exact phrase the page keys on');
   assert.equal(path.resolve(create.readJob('sleeper-6108').configDir), path.resolve(to), 'the account was not saved');
+  // #6174: a stopped agent runs nowhere, so its partial move leaves no moving note.
+  assert.ok(!('sleeper-6108' in require('./engine/accountmoving').notes()), 'a stopped agent was noted as still running on its old account');
 });
 
 test('#6108 /api/accounts walks the agents only when asked (?agents=1): other pages do not pay for it', async () => {
@@ -280,34 +282,40 @@ test('#6108 /api/accounts walks the agents only when asked (?agents=1): other pa
   assert.ok(claude.every((a) => !('agentsHere' in a)), 'a caller that did not ask got agentsHere');
 });
 
-test('#6174 an agent moved here but still running on its old account is marked moving; only on a good Claude reading', () => {
+test('#6174 an agent whose move came back partial while the same session runs is marked moving, until it restarts', () => {
   const { claudeAgentsByAccount } = require('./server');
-  const accounts = require('./engine/accounts');
-  const def = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
-  const oldAcct = account('acct-6174-old');
+  const status = require('./engine/status');
+  const accountmoving = require('./engine/accountmoving');
   const newAcct = account('acct-6174-new');
-  lead('mv-still-old', { role: 'writer' }, newAcct);   // recorded on the new account, process still on the old one
-  lead('mv-arrived', { role: 'writer' }, newAcct);     // recorded and running on the new account
-  lead('mv-unread', { role: 'writer' }, newAcct);      // the reading failed
-  lead('mv-codex', { role: 'writer' }, newAcct);       // a reading from another runner
-  lead('mv-stopped', { role: 'writer' }, newAcct);     // no process at all (stopped): nothing to compare
-  lead('mv-to-default', { role: 'writer' }, null);     // moved to the default account, still running on another
-  lead('mv-on-default', { role: 'writer' }, null);     // CONTROL: on the default account and running there
-  const live = new Map([
-    ['mv-still-old', { ok: true, runner: 'claude', configDir: oldAcct }],
-    ['mv-arrived', { ok: true, runner: 'claude', configDir: newAcct }],
-    ['mv-unread', { ok: false }],
-    ['mv-codex', { ok: true, runner: 'codex', configDir: oldAcct }],
-    ['mv-to-default', { ok: true, runner: 'claude', configDir: oldAcct }],
-    ['mv-on-default', { ok: true, runner: 'claude', configDir: def }],
-  ]);
-  assert.equal(accounts.isDefaultDir(def), true, 'CONTROL: the sandbox default account is the default');
-  const by = claudeAgentsByAccount(live);
-  assert.ok(by.on(newAcct, false).includes('mv-still-old'), 'listed by its launch file (the account it was moved to)');
-  assert.deepEqual(by.moving(newAcct, false), ['mv-still-old'], 'only the agent still running on its old account is marked');
-  const onDefault = by.moving(def, true);
-  assert.ok(onDefault.includes('mv-to-default'), 'an agent moved to the default account but running elsewhere was not marked');
-  assert.ok(!onDefault.includes('mv-on-default'), 'an agent running on the default account was marked moving');
-  // Without a live reading, nobody is marked (the other callers of the walk pass none).
-  assert.deepEqual(claudeAgentsByAccount().moving(newAcct, false), []);
+  lead('mv-still-old', { role: 'writer' }, newAcct);   // moved here; its old session still runs
+  lead('mv-restarted', { role: 'writer' }, newAcct);   // moved here; a new session has started since
+  lead('mv-stopped', { role: 'writer' }, newAcct);     // moved here; no session at all
+  lead('mv-plain', { role: 'writer' }, newAcct);       // CONTROL: never had a partial move
+  accountmoving.note('mv-still-old', 1000e3);
+  accountmoving.note('mv-restarted', 1000e3);
+  accountmoving.note('mv-stopped', 1000e3);
+  status.setSessionSource(() => 'mv-still-old\t1000\nmv-restarted\t2000\nmv-plain\t500\n');
+  try {
+    const by = claudeAgentsByAccount();
+    assert.ok(by.on(newAcct, false).includes('mv-still-old'), 'listed by its launch file (the account it was moved to)');
+    assert.deepEqual(by.moving(newAcct, false), ['mv-still-old'], 'only the agent whose old session still runs is marked');
+    assert.ok(!('mv-restarted' in accountmoving.notes()), 'a restarted agent kept its note');
+    // Once its session restarts, the mark goes.
+    status.setSessionSource(() => 'mv-still-old\t3000\n');
+    assert.deepEqual(claudeAgentsByAccount().moving(newAcct, false), [], 'a restarted agent is still marked moving');
+  } finally { status.setSessionSource(null); }
+});
+
+test('#6174 accountmoving: a failed reading marks nobody and keeps the note; another session clears it', () => {
+  const accountmoving = require('./engine/accountmoving');
+  assert.equal(accountmoving.note('', 1), false);
+  assert.equal(accountmoving.note('x-6174', NaN), false);
+  accountmoving.note('x-6174', 5000);
+  assert.equal(accountmoving.isMoving('x-6174', () => null), false, 'an unreadable session was marked');
+  assert.ok('x-6174' in accountmoving.notes(), 'an unreadable reading dropped the note');
+  assert.equal(accountmoving.isMoving('x-6174', () => { throw new Error('boom'); }), false);
+  assert.equal(accountmoving.isMoving('x-6174', () => 5000), true, 'the same session is moving');
+  assert.equal(accountmoving.isMoving('x-6174', () => 6000), false, 'another session is not');
+  assert.ok(!('x-6174' in accountmoving.notes()), 'another session left the note behind');
+  assert.equal(accountmoving.isMoving('never-6174', () => 1), false, 'an agent with no note was marked');
 });
