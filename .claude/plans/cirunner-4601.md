@@ -29,7 +29,7 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 77 ok. Forty-two mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 82 ok. Forty-eight mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
@@ -39,7 +39,12 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   blind to .env, a false 'no jobs' line, register before install; then .path not written, .path unchecked;
   then an allow list that clears every job, pgrep and crontab failures read as none, .env mode dropped; then a
   failed Runner.Worker pgrep read as idle, any gh error read as unset; then the package sha check removed, a bare
-  `launchctl list`, the services block unbounded; then a retitled `tmux: server` missed).
+  `launchctl list`, the services block unbounded; then a retitled `tmux: server` missed; then Apple's own agents
+  counted, a 404 trusted without a control, unwired hooks, hook files unchecked, no GUI-session check, df unchecked).
+- Apple ships agents outside com.apple.* (com.openssh.ssh-agent): preflight skips any label whose plist is in
+  /System/Library/LaunchAgents. On Agent1s at 05:20 that was the only one, and the count went from 72 to 71.
+- install and register --apply refuse unless `launchctl managername` is Aqua: svc.sh reads and drives the caller's
+  session. preflight does NOT gate on it, because a tmux pane here reads Background and still sees the GUI domain.
 - preflight reads `launchctl print gui/<uid>`, not `launchctl list`: a bare list reads the caller's session, which
   over ssh is not the owner's GUI. Measured 05:10 on Agent1s from a tmux pane whose session is Background: both
   forms give the same 72 non-Apple jobs, so `launchctl managername` cannot gate it.

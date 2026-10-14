@@ -52,7 +52,8 @@ NAME="${KOSMOS_CI_RUNNER_NAME:-kosmos-ci-agent1s}"
 LABELS="self-hosted,macOS,arm64,kosmos-ci"
 BREW="${KOSMOS_CI_BREW:-/opt/homebrew}"            # the engine's fixed tmux fallback is /opt/homebrew/bin/tmux
 MIN_FREE_GIB="${KOSMOS_CI_MIN_FREE_GIB:-20}"       # the fleet's disk floor
-ALLOW_JOBS="${KOSMOS_CI_ALLOW_JOBS:-}"             # an ERE of non-Apple launchd labels that may stay loaded
+ALLOW_JOBS="${KOSMOS_CI_ALLOW_JOBS:-}"
+SYSTEM_AGENTS="${KOSMOS_CI_SYSTEM_AGENTS:-/System/Library/LaunchAgents}"   # Apple's own, whatever their label             # an ERE of non-Apple launchd labels that may stay loaded
 # From CI_HOME, not HOME: a dry run rehearsed as the owner then names and checks kosmos-ci's own paths. With --apply,
 # need_user refuses unless HOME is CI_HOME, so the two agree.
 RUNNER_DIR="$CI_HOME/actions-runner"
@@ -77,6 +78,10 @@ need_user() {
     if [ "$APPLY" = 1 ] && [ "$1" = "$CI_USER" ] && [ "$HOME" != "$CI_HOME" ]; then
       echo "refused: HOME is $HOME, not $CI_HOME (log in as $CI_USER rather than sudo -u)" >&2; exit 2
     fi
+    # svc.sh reads and drives the CALLER's launchd session: over ssh it reads a running runner as stopped.
+    if [ "$APPLY" = 1 ] && [ "$1" = "$CI_USER" ] && [ "$(launchctl managername 2>/dev/null || true)" != Aqua ]; then
+      echo "refused: run this in $CI_USER's Screen Sharing session (launchctl managername is not Aqua here)" >&2; exit 2
+    fi
     return 0
   fi
   if [ "$APPLY" = 1 ]; then echo "refused: $STAGE runs as $1, not $(id -un)" >&2; exit 2; fi
@@ -87,7 +92,7 @@ need_user() {
 is_admin() { local g; g="$(id -Gn "$1")" || return 1; case " $g " in *" admin "*) return 0 ;; *) return 1 ;; esac; }
 
 PROBLEMS=0
-problem() { printf 'REFUSE: %s\n' "$*"; PROBLEMS=$((PROBLEMS + 1)); }
+problem() { if [ "$STAGE" = verify ]; then printf 'PROBLEM: %s\n' "$*"; else printf 'REFUSE: %s\n' "$*"; fi; PROBLEMS=$((PROBLEMS + 1)); }
 ok() { printf 'ok:     %s\n' "$*"; }
 
 # repo_variable <name>: prints its value ("" when set but empty), "<unset>" on a 404, or fails when it cannot tell.
@@ -96,7 +101,10 @@ repo_variable() {
   local out rc=0
   out="$(gh api "repos/$REPO/actions/variables/$1" --jq '"=" + .value' 2>&1)" || rc=$?
   if [ "$rc" = 0 ]; then printf '%s' "${out#=}"; return 0; fi
-  case "$out" in *"HTTP 404"*) printf '<unset>' ;; *) return 1 ;; esac
+  case "$out" in *"HTTP 404"*) ;; *) return 1 ;; esac
+  # GitHub also answers 404 for a repo the token cannot see: trust it only if the variables list itself reads.
+  gh api "repos/$REPO/actions/variables?per_page=1" >/dev/null 2>&1 || return 1
+  printf '<unset>'
 }
 
 # shards_check <value>: test.yml's scope job routes a shell shard only for the tokens 1/2 and 2/2 (comma separated), so
@@ -122,7 +130,8 @@ preflight() {
   # The owner's GUI domain by name: a bare `launchctl list` reads the caller's session, which over ssh is not it.
   if ! raw="$(launchctl print "gui/$(id -u)")"; then problem "could not read launchctl print gui/$(id -u)"; raw=""; unknown=1; fi
   jobs="$(printf '%s\n' "$raw" | awk '/^\tservices = \{/ { f = 1; next } f && /^\t\}/ { f = 0 } f { print $NF }' \
-    | awk '$1 !~ /^com\.apple\./ && $1 !~ /^application\./')"
+    | awk '$1 !~ /^com\.apple\./ && $1 !~ /^application\./' \
+    | while IFS= read -r l; do [ -f "$SYSTEM_AGENTS/$l.plist" ] || printf '%s\n' "$l"; done)"   # com.openssh.ssh-agent
   if [ -n "$ALLOW_JOBS" ]; then
     # grep exits 2 on a bad pattern and prints nothing, which would clear every job.
     printf 'x\n' | grep -E "$ALLOW_JOBS" >/dev/null 2>&1 || [ $? = 1 ] || { problem "KOSMOS_CI_ALLOW_JOBS is not a valid ERE: $ALLOW_JOBS"; jobs=""; unknown=1; }
@@ -148,7 +157,8 @@ preflight() {
 
   say "the machine"
   local free_kib
-  free_kib="$(df -k / | awk 'NR == 2 { print $4 }')"
+  free_kib="$(df -k / | awk 'NR == 2 { print $4 }')" || free_kib=""
+  case "$free_kib$MIN_FREE_GIB" in ''|*[!0-9]*) problem "could not read free disk (df gave '$free_kib', floor '$MIN_FREE_GIB')"; free_kib=0; MIN_FREE_GIB=0 ;; esac
   if [ "$((free_kib / 1048576))" -lt "$MIN_FREE_GIB" ]; then problem "$((free_kib / 1048576)) GiB free, under the ${MIN_FREE_GIB} GiB floor"
   else ok "$((free_kib / 1048576)) GiB free"; fi
   case "$(fdesetup status 2>&1)" in
@@ -382,11 +392,25 @@ EOF
   if v="$(repo_variable KOSMOS_CI_SHELL_SHARDS)"; then
     shards_check "$v"
   else problem "could not read KOSMOS_CI_SHELL_SHARDS"; fi
-  say "the runner's .env (a KOSMOS_ key there would turn the suite lock off for every job)"
-  if [ ! -e "$RUNNER_DIR/.env" ]; then ok "no $RUNNER_DIR/.env here"
-  elif [ ! -r "$RUNNER_DIR/.env" ]; then echo "note:   cannot read $RUNNER_DIR/.env as $(id -un); install refused KOSMOS_ keys, later edits are unchecked"
-  elif grep -q -E '^[[:space:]]*(export[[:space:]]+)?KOSMOS_' "$RUNNER_DIR/.env"; then problem "$RUNNER_DIR/.env sets a KOSMOS_ variable: remove it"
-  else ok "$RUNNER_DIR/.env sets no KOSMOS_ variable"; fi
+  say "the job guard and the runner's .env (a KOSMOS_ key there would turn the suite lock off for every job)"
+  local k f
+  if [ ! -e "$RUNNER_DIR/.env" ]; then problem "no $RUNNER_DIR/.env: install has not run here, so no job guard is wired"
+  elif [ ! -r "$RUNNER_DIR/.env" ]; then echo "note:   cannot read $RUNNER_DIR/.env as $(id -un); its hooks and KOSMOS_ keys are unchecked"
+  else
+    if grep -q -E '^[[:space:]]*(export[[:space:]]+)?KOSMOS_' "$RUNNER_DIR/.env"; then problem "$RUNNER_DIR/.env sets a KOSMOS_ variable: remove it"
+    else ok "$RUNNER_DIR/.env sets no KOSMOS_ variable"; fi
+    for k in STARTED COMPLETED; do
+      f="job-$(printf '%s' "$k" | tr '[:upper:]' '[:lower:]').sh"
+      if grep -q -x "ACTIONS_RUNNER_HOOK_JOB_$k=$CI_DIR/$f" "$RUNNER_DIR/.env"; then ok "the $f hook is wired"
+      else problem "$RUNNER_DIR/.env does not set ACTIONS_RUNNER_HOOK_JOB_$k=$CI_DIR/$f: the job guard is not wired"; fi
+    done
+  fi
+  if [ -r "$CI_DIR" ] && [ -x "$CI_DIR" ]; then
+    for f in job-guard.sh job-started.sh job-completed.sh job-cleanup.sh; do
+      [ -x "$CI_DIR/$f" ] || problem "$CI_DIR/$f is missing or not executable"
+    done
+    [ ! -r "$CI_DIR/job-guard.sh" ] || echo "note:   job guard sha256 $(shasum -a 256 "$CI_DIR/job-guard.sh" | cut -d' ' -f1) (compare with the install pin)"
+  else echo "note:   cannot read $CI_DIR as $(id -un); the hook files are unchecked"; fi
   # .path is what runsvc.sh exports; config.sh refills it from its own shell, so a re-register can undo register's
   # (a re-register needs ./svc.sh uninstall and ./config.sh remove first: config.sh refuses a configured runner).
   if [ ! -e "$RUNNER_DIR/.path" ]; then ok "no $RUNNER_DIR/.path here"
@@ -401,6 +425,7 @@ EOF
   elif ! left="$(ps -U "$CI_USER" -o args=)"; then problem "$CI_USER runs no processes (not logged in? the runner needs auto-login), or ps failed"
   # The busy flag was read before ps: read it again, and a job that started or ended in between is a rerun.
   elif [ -n "$row" ] && ! busy2="$(runner_busy)"; then problem "could not read the runners API a second time"
+  elif [ -n "$row" ] && [ -z "$busy2" ]; then problem "the runner left the API during verify; run verify again"
   elif [ -n "$row" ] && [ "$busy2" != "$busy" ]; then problem "the runner went busy or idle during verify; run verify again"
   else
     # By program name (first word, path and any trailing colon stripped: on macOS a tmux server keeps the argv it
