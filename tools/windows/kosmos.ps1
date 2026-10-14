@@ -40,10 +40,10 @@
 # the report. When the process was started to run this very file, the flag is not sent:
 # any host argument naming it counts, so -File, its abbreviations and pwsh 7's positional
 # form (`pwsh kosmos.ps1 ...`, where the first argument is the file) are all covered.
-# A host started with -Command or -EncodedCommand (or an abbreviation) is never the -File
+# A host started with -Command, -EncodedCommand or pwsh 7.4's -CommandWithArgs (or an abbreviation) is never the -File
 # case, and a pipe written inside its command text is a real in-session pipe, so the scan
 # is skipped there even when the script's path appears among its arguments.
-# Only the host's arguments before the script's path are read, never the agent's words. A path that
+# Only the host's arguments before the script's path are read, never the words after it. A path that
 # does not match (an 8.3 short name) sends the flag, and the verb then refuses with the
 # sentence naming --body-file: a refusal, never a lost text.
 $pipedIn = [bool]$MyInvocation.ExpectingInput
@@ -51,14 +51,16 @@ if ($pipedIn -and $PSCommandPath) {
   # The host's own arguments are read in order, up to the first that names this script
   # (after it come the agent's words, which are never read here, so a word like /c or -e
   # cannot pass for a host switch and no word is resolved as a path) or the first
-  # -Command / -EncodedCommand switch (a pipe inside its text is a real in-session one,
-  # even when the script's path is one of the arguments after it).
+  # -Command / -EncodedCommand / -CommandWithArgs switch (a pipe inside its text is a real
+  # in-session one, even when the script's path is one of the arguments after it). When the
+  # script is not among them at all (a pipe inside another script run with -File), every
+  # argument is read; none matches, so the flag is sent, which is right for that pipe.
   $hostArgs = [Environment]::GetCommandLineArgs()
   for ($i = 1; $i -lt $hostArgs.Count; $i++) {
     $named = $hostArgs[$i]
     if ($named -match '^[-/](\w+)$') {
       $n = $Matches[1].ToLowerInvariant()
-      if ('command'.StartsWith($n) -or 'encodedcommand'.StartsWith($n) -or $n -eq 'ec') { break }
+      if ('command'.StartsWith($n) -or 'encodedcommand'.StartsWith($n) -or $n -eq 'ec' -or 'commandwithargs'.StartsWith($n) -or $n -eq 'cwa') { break }
     }
     # Two readings: against the process directory, and against PowerShell's own location
     # (where a relative path resolves after pwsh's -WorkingDirectory).

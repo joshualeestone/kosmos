@@ -115,7 +115,7 @@ test('#5946: comment, edit, endorse and feedback write take --body-file (UTF-8 w
 test('#5946: a --body-file that cannot be used is refused with the reason, and nothing is sent', async () => {
   const cases = [
     ['missing.txt', /could not read missing\.txt \(there is no such file\)/],
-    ['~\\post.txt', /there is no such file; PowerShell does not expand ~ here, so use \$HOME\\post\.txt/],
+    ['~\\post.txt', /there is no such file; ~ was not turned into your home folder, so give the full path \(in PowerShell, \$HOME\\post\.txt\)/],
     ['ansi.txt', /ansi\.txt is not UTF-8 text.*Set-Content -Encoding UTF8 <file> or Out-File <file>/],
     ['nul.txt', /nul\.txt holds NUL characters/],
     ['odd.txt', /odd\.txt is not whole UTF-16 text/],

@@ -338,8 +338,9 @@ function bodyFromFile(ctx, file, nothing) {
   let got;
   try { got = ctx.readBodyFile(file, POST_BODY_MAX_BYTES); } catch (e) {
     const code = e && e.code;
-    /* PowerShell 5.1 does not expand ~ in a native command's argument, so ~\post.txt arrives as typed. */
-    const why = code === 'ENOENT' ? (/^~[\\/]/.test(file) ? 'there is no such file; PowerShell does not expand ~ here, so use $HOME\\' + file.slice(2) : 'there is no such file') : code === 'EISDIR' ? 'it is a folder, not a file'
+    /* PowerShell 5.1 does not expand ~ in a native command's argument, so ~\post.txt arrives as typed; nor does Git
+       Bash in --body-file=~/x. The hint names no shell, and gives the PowerShell form, the usual one. */
+    const why = code === 'ENOENT' ? (/^~[\\/]/.test(file) ? 'there is no such file; ~ was not turned into your home folder, so give the full path (in PowerShell, $HOME\\' + file.slice(2) + ')' : 'there is no such file') : code === 'EISDIR' ? 'it is a folder, not a file'
       : code === 'NOTFILE' ? 'it is not a regular file'
       : code === 'EACCES' || code === 'EPERM' ? 'it cannot be read' : String((e && e.message) || e);
     ctx.err(nothing + ': kosmos could not read ' + file + ' (' + why + ').');
@@ -2365,20 +2366,31 @@ async function main(argv, io) {
       const st = fs.statSync(f);
       if (!st.isFile()) { const e = new Error('not a file'); e.code = st.isDirectory() ? 'EISDIR' : 'NOTFILE'; throw e; }
       if (st.size > max) return { overflow: true };
-      /* Read to the end in chunks sized to the file, stopping past max, so a file that grows after the stat still
-         cannot pass the cap and a two-line post never allocates the whole cap. */
+      /* One buffer sized to the file (plus a byte), never to the whole cap. A file that fills it grew after the stat:
+         read on in small chunks to its end, so it still cannot pass the cap. */
       const fd = fs.openSync(f, 'r');
-      try {
-        const chunks = [];
-        let total = 0;
-        for (;;) {
-          const buf = Buffer.alloc(Math.min(Math.max(st.size, 4096), max) + 1);
-          const n = fs.readSync(fd, buf, 0, buf.length, null);
+      const fill = (buf) => {
+        let got = 0;
+        while (got < buf.length) {
+          const n = fs.readSync(fd, buf, got, buf.length - got, null);
           if (n === 0) break;
-          chunks.push(buf.subarray(0, n));
-          total += n;
-          if (total > max) return { overflow: true };
+          got += n;
         }
+        return got;
+      };
+      try {
+        const first = Buffer.alloc(st.size + 1);
+        let total = fill(first);
+        if (total < first.length) return { buf: first.subarray(0, total) };
+        const chunks = [first];
+        const more = Buffer.alloc(64 * 1024);
+        while (total <= max) {
+          const n = fill(more);
+          if (n === 0) break;
+          chunks.push(Buffer.from(more.subarray(0, n)));
+          total += n;
+        }
+        if (total > max) return { overflow: true };
         return { buf: Buffer.concat(chunks, total) };
       } finally { fs.closeSync(fd); }
     }),

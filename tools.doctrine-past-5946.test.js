@@ -92,6 +92,26 @@ test('#5946: a committed row the prefix rule now leaves out is NOT kept', () => 
   } finally { removeTree(r.root); }
 });
 
+test('#5946: a kept row (no history here) that a later block extends inside its last section is left out too', () => {
+  const r = repo();
+  try {
+    /* The committed table holds a block this clone's history never produced; the working copy extends it inside
+       its last section. The kept row has no text, so the prefix rule must work from its length and sha256. */
+    const UNREACHED = '## Rules\n\nversion from elsewhere';
+    r.write('engine/defaults.js', defaultsSource(1, RELEASED));
+    r.write('engine/doctrine-past.js', tableSource([{ version: 1, length: UNREACHED.length, sha256: sha(UNREACHED) }, FOREIGN], []));
+    r.commit('released v1, with a table holding an unreached row');
+    r.write('engine/defaults.js', defaultsSource(2, UNREACHED + '\nand more of the same section'));
+    const warned = [];
+    const got = generateDoctrinePast(r.root, { log: () => {}, warn: (m) => warned.push(m) });
+    assert.equal(got.kept, 1, 'only the foreign row should be kept');
+    const shas = rowsOf(r.root).map((x) => x.sha256);
+    assert.ok(!shas.includes(sha(UNREACHED)), 'a kept row the prefix rule leaves out stayed in the table');
+    assert.ok(shas.includes(FOREIGN.sha256), 'an unrelated kept row was dropped');
+    assert.ok(warned.some((m) => /left out the kept \d+-character block/.test(m)), 'no warning named it: ' + warned.join(' | '));
+  } finally { removeTree(r.root); }
+});
+
 test('#5946: with no table committed yet, the run writes one from history alone', () => {
   const r = repo();
   try {

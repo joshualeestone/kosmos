@@ -115,7 +115,7 @@ for an in-session pipe.
 - **-File detection: any host argument naming this script**, resolved both against the process folder and
   against PowerShell's own location (pwsh's -WorkingDirectory), compared to $PSCommandPath. Any argument BEFORE the script's own path (the agent's words after it are never read, so a topic of /c or -e cannot pass for -Command, and no word is resolved as a path), not
   only the value after -File, so pwsh 7's positional form (`pwsh kosmos.ps1 ...`) and -File abbreviations are
-  covered. A host started with -Command or -EncodedCommand (or an abbreviation) is never the -File case, so the
+  covered. A host started with -Command, -EncodedCommand or -CommandWithArgs (or an abbreviation) is never the -File case, so the
   scan is skipped there: a pipe inside the command text stays flagged even when the script's path is one of the
   host's arguments (tested). Rejected: matching only the value after -File (misses the positional form). An 8.3 short path
   would not match, and the flag would be sent: the result is a clear refusal, not a silent loss. Measured on
