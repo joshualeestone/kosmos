@@ -73,7 +73,7 @@ gone() { ! pgrep -f "^sleep $1$" >/dev/null; }
 # 1 (and KILLed, so nothing is left holding a claim) when it did not.
 # kosmos#6048: REAP_HOW says which way it decided (notours: ps did not name this shell as the parent, which an empty ps
 # answer also reads as; exited; killed) and REAP_RC the wrapper's exit status where wait got one, so a red can say.
-# The notours branch waits only when the process is gone (kill -0 fails), which is bounded and gives a dead child's
+# The stat is read once, trimmed. The notours branch waits only when the process is gone (kill -0 fails), which is bounded and gives a dead child's
 # status (137 for a KILL); while it is alive it does not wait, since that wait would have no bound.
 reap() { local p=$1 i=0 pp st; REAP_HOW=""; REAP_RC=""; while [ "$i" -lt "${2:-40}" ]; do pp="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')"; [ "$pp" = "$$" ] || { if kill -0 "$p" 2>/dev/null; then REAP_HOW="notours(ppid='$pp', alive)"; else wait "$p" 2>/dev/null; REAP_RC=$?; REAP_HOW="notours(ppid='$pp', gone)"; fi; return 0; }; st="$(ps -o stat= -p "$p" 2>/dev/null | tr -d ' ')"; case "$st" in ''|Z*) wait "$p" 2>/dev/null; REAP_RC=$?; REAP_HOW="exited(stat='$st')"; return 0;; esac; sleep 0.25; i=$((i+1)); done; if ours "$p"; then kill -KILL "$p" 2>/dev/null; REAP_HOW=killed; else REAP_HOW="bound, not ours"; fi; wait "$p" 2>/dev/null; REAP_RC=$?; return 1; }
 hold
@@ -500,7 +500,7 @@ side5331() {   # $1 the copy, $2 its marker dir, $3 the reap bound in 0.25 s pol
   echo "capper $cap stat $(ps -o stat= -p "$cap" 2>/dev/null | tr -d ' '), wrapper $w stat $(ps -o stat= -p "$w" 2>/dev/null | tr -d ' ') before the TERM" >> "$m.why"   # kosmos#6048
   for p in $(pgrep -f "^sleep $((U+3))$"); do kill -KILL $p; done
   kill $w 2>/dev/null; t0=$(date +%s); reap $w "$3"; r=$?; echo $(( $(date +%s) - t0 )) > "$m.t"
-  echo "reap: $REAP_HOW, wrapper exit ${REAP_RC:-?}$([ "${REAP_RC:-}" = 127 ] && echo ' (not this shell'"'"'s child)'), 'claim released' lines by then: $(grep -c 'claim released' "$m.log" 2>/dev/null)" >> "$m.why"
+  echo "reap: $REAP_HOW, wrapper exit ${REAP_RC:-?}$([ "${REAP_RC:-}" = 127 ] && echo ' (not this shell'"'"'s child)'), 'claim released' lines by then: $([ -f "$m.log" ] && grep -c 'claim released' "$m.log" || echo 'no log')" >> "$m.why"
   # The control's capper is left stopped: KILLed here, only while it is still the copy's subshell (a pid can be reused).
   case "$(ps -o command= -p "$cap" 2>/dev/null)" in *qh-*5331.sh*) kill -KILL "$cap" 2>/dev/null;; esac
   echo $r > "$m.r"

@@ -17,7 +17,7 @@ Card: kosmos#6048 (CI job 115702676926, PR #6135). Test-only: tools/test-queued-
 
 ## Change: the next red says which shape it was
 - reap() records REAP_HOW (notours with the ppid ps gave, exited, killed) and REAP_RC (the wrapper's exit status where
-  wait got one). The notours branch does not wait (the wrapper may still be ours and running).
+  wait got one). The notours branch does not wait while the wrapper is alive; it waits when it is gone, which is bounded.
 - side5331 appends to <marker>.why: each attempt and its wrapper pid, why an attempt never started (no side turn, an
   empty capper look, a STOP that did not show and the stat it showed), the capper's stat just before the reap, and how
   reap decided with the exit status.
