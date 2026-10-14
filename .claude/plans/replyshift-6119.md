@@ -54,6 +54,13 @@ that message exactly one page back.
 - A phone, and touch scrolling. The capture's phone run did not work (the wheel never reached the thread).
 - (Corrected after review 1: I wrote that `setThread` serves a project room too. It does not. All its callers
   pass the direct conversation's thread; a room paints through `paintRoom` and never reaches this code.)
+- A header that GROWS while it is in view (a name wrapping to a second line, a "further back" line appearing):
+  the words are held, so the header moves up by what it grew. Reasoned, not driven.
+- A thread inside something scaled (a CSS zoom or transform). The place held adds a row's `offsetTop`, which
+  ignores scale, to a difference of two measured rectangles, which does not. Nothing above the thread is scaled
+  today (review 2 looked and found none); under a scale the hold would be off by the scale times the change.
+- The unit test's fake row ignores the selector and gives zero margins and padding, so it pins the choice (words,
+  not the row's top) and nothing about how the words' start is found. That part is the browser arms' alone.
 - One run of each arm.
 
 ## Weakest premise
