@@ -3,8 +3,8 @@
 ## Change
 - engine/tasks.js `waitingOnOf(task, roster, members)`: `[{ who, reason }]` from the SAME cards as waitingOnPerson
   (cardsNeedingPerson), in roster order; `reason` is the project page's code (projects.needsYouReason).
-- server.js `GET /api/tasks`: each row carries `waitingOn` (empty unless waiting); a missed run the person reviews is
-  `{ who: null, reason: 'missed_run' }`.
+- server.js `GET /api/tasks`: each row carries `waitingOn` (empty unless waiting; a missed run the person reviews
+  names no agent, its repeat line says it).
 - web/index.html tskRow: a decision row adds "<agent>: <the project page's words for that reason>" (PJ_NEEDS_WHY),
   after its "Waiting on you for ..." line. A missed run is not repeated (its repeat line already says it).
 
@@ -24,3 +24,9 @@ which a row prefixed with the agent's name keeps true.
 - web.tasks-look-3559.test.js: the page's own tskRow, tskAgentName and PJ_NEEDS_WHY: the line, an unknown code worded
   generally, no line for a missed run, a non-decision or an older board.
 - docs/browser-checks/render-tasks-view-3559.js: the real decision row names Max and his question.
+
+## Review
+1. opus: no blocker or warning. Taken: the row test now uses the page's real esc with a hostile agent name (removing
+   esc reds it); an own-key check on the reason lookup (a `__proto__` code is worded generally; removing the check reds
+   it); the missed-run entry dropped from the API (untested and unread); a test message corrected. Left: own_bound's
+   "Open it" wording on a row; tskNeedsSig not re-reading on a crash loop (older, not this slice).

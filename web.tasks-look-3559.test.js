@@ -189,8 +189,15 @@ test('#6157: a decision row names the waiting agent and its reason; not a decisi
   const one = row({ state: 'decision', waitingOn: [{ who: 'rex', reason: 'question' }] });
   assert.ok(one.includes('<div class="why tsk-waiting-who">' + name + ': Waiting for your answer.</div>'), one);
   const two = row({ state: 'decision', waitingOn: [{ who: 'rex', reason: 'trust' }, { who: 'rex', reason: 'no-such-code' }] });
-  assert.ok(two.includes(name + ': Waiting for you to approve it before it can start. ' + name + ': Kosmos needs you to look at it.'), 'an unknown code is not worded as the general reason: ' + two);
+  assert.ok(two.includes(name + ': Waiting for you to approve it before it can start. ' + name + ': Kosmos needs you to look at it.'), 'an unknown code is worded as the general reason: ' + two);
   assert.doesNotMatch(row({ state: 'decision', waitingOn: [{ who: null, reason: 'missed_run' }] }), /tsk-waiting-who/, 'a missed run (its repeat line says it) was said twice');
   assert.doesNotMatch(row({ state: 'assigned', waitingOn: [{ who: 'rex', reason: 'question' }] }), /tsk-waiting-who/, 'CONTROL: not a decision, no line');
   assert.doesNotMatch(row({ state: 'decision' }), /tsk-waiting-who/, 'an older board sends no waitingOn: nothing is said');
+  // Review 1: escaped with the page's real esc, and a code that is an Object property name is still worded generally.
+  const realEsc = new Function(page.liftAll(SCRIPT, ['esc']) + '\nreturn esc;')();
+  const hostile = new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey', PJW[0] + '\n' + GROUPS + '\n' + FNS + '\nreturn tskRow;')(
+    { sel: new Set(), by: 'status' }, [REX], realEsc, () => '1 hour ago', (x) => x.projectId + '#' + x.number)(
+    T({ state: 'decision', waitingOn: [{ who: '<img src=x onerror=alert(1)>', reason: '__proto__' }] }));
+  assert.ok(!hostile.includes('<img src=x'), 'an agent name was drawn as HTML: ' + hostile);
+  assert.match(hostile, /tsk-waiting-who">[^<]*&lt;img[^<]*: Kosmos needs you to look at it\.<\/div>/, hostile);
 });
