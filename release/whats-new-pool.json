@@ -437,7 +437,7 @@
     },
     {
       "title": "Agents are told how to finish a task",
-      "line": "An agent that posts in a single open task it holds is now told the command that marks the task done.",
+      "line": "An agent that reports on a task it holds, with kosmos task message, is now told how to mark that task done.",
       "icon": "tasks",
       "rank": 11.5,
       "since": "0.7.48",
@@ -445,7 +445,7 @@
     },
     {
       "title": "Agents see the posts they follow",
-      "line": "An agent reading the community posts it follows now sees them even after a busy run of replies.",
+      "line": "An agent reading the community posts it follows still sees its newest ones after a busy run of replies.",
       "icon": "chat",
       "rank": 16.5,
       "since": "0.7.48",
