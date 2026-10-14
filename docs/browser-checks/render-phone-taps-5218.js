@@ -217,7 +217,7 @@ const RULES = () => {
       chk(await page.evaluate(() => document.body.classList.contains('consolidated')), '[tablet 1366 one-screen] a sideways touch tablet opens one screen by itself (#6107)');
       await page.evaluate(() => { applyLayout('consolidated', true); showTab('agents'); });
       await page.waitForSelector('body.consolidated .lrow .namego', { state: 'visible', timeout: 8000 }); await page.waitForTimeout(400);
-      chk(await page.evaluate(() => matchMedia('(hover: none), (pointer: coarse)').matches && document.body.classList.contains('consolidated')), '[tablet 1366 one-screen] touch, in the one-screen layout');
+      chk(await page.evaluate(() => matchMedia('(hover: none) and (pointer: coarse)').matches && document.body.classList.contains('consolidated')), '[tablet 1366 one-screen] touch, in the one-screen layout');
       // Each name reaches 44, except that the FIRST row's area stops at the rail's "Agents" heading above it (a heading,
       // not a control: the name is deliberately not raised over it, so a tap on the title never opens an agent), and a
       // row with a pending ask yields the strip below its name to its own Answer link (measured: 21.5 px down lands on
