@@ -38,11 +38,21 @@ Card: kosmos#6105 (recurrence of #5373). Test-only change: docs/browser-checks/r
   wait alone let a much slower revert pass, which the old 2.3 s read caught); its snapshot reads the real status line.
   This also covers the too-short revert for C1 (the residual below remains for C6 and C7b).
 
+## Review 5 (opus) fixes
+- [BLOCKER] review 4's C1 bound was timed from the first POLL, so node-side latency could red a correct page under load.
+  Now the press (a capture-phase click listener) and the Copied and the revert (a MutationObserver) are recorded ON THE
+  PAGE as they happen; the revert must land 1950 to 5000 ms after the press (the timer is set at or after the press, so
+  a correct revert is never under 2000 ms).
+- The same read-after-wait race in C4b, C7, C7c and C7d: they use untilCopied now. C9's press() returns the line its
+  own wait saw instead of reading it again.
+
 ## Decided, not missed
 - Freezing the revert inside the wait changes page state, but only the timer the arm does not test; the alternative
   (racing a 2 s timer on a box that can stall for seconds) is the flake.
 - Residual (review 1): untilCopied cancels the revert as soon as the line is up, so a regression that shortened the
   2 s revert to about 100 ms is not caught by C6 or C7b (C1 now times its revert, review 4). Accepted: C1 is the revert-timing check, and the same revert serves every arm.
+- Residual (review 5): C1 allows the revert up to 5000 ms after the press, so a revert lengthened to under 5 s is not
+  caught, and a page stalled for more than 3 s past the timer reds C1. Accepted: the bound is on the page's own clock.
 - Residual (review 2): C7b's wait returns on the first line said, so a line cleared a few ms after the stale write's
   Copied could be missed; a narrow case of the revert-timing residual above.
 - Residual (review 1): C6's "nothing said while it waits" (a 300 ms read) and its busy line must both be read before the
