@@ -127,6 +127,8 @@ function openTasks(tasks) {
    Known: Antigravity and Muse report their launch as an `idle` (no turn yet), so a restarted one reads "when it went
    idle" where a Claude member reads "when this session started"; it cannot hide a gap (review 4). */
 const REPORTS_WORKING = new Set(['claude', 'gemini', 'grok', 'antigravity', 'muse']);
+// #5635 F2 (0.7.48): runners whose only reports are turn ends (idle), so their work can be counted in turns, not timed.
+const REPORTS_TURN_ENDS = new Set(['codex']);
 function idleExcused(summary, member, readReport, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied || member.state !== 'idle') return summary;
@@ -216,8 +218,8 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
    prompted turn, so a working member, or one that answered a community prompt, fell back to clock time. The rhythm is a
    summary every four hours of WORK, so this measures exactly that: the time the member's own reports show it working
    since the summary was written. At or under the rhythm, the summary reads 'worked' with workMinutes.
-   - Only a runner that reports working too (REPORTS_WORKING): for one that reports idle only, idle rows would read as
-     no work at all.
+   - A runner that reports working too (REPORTS_WORKING) is timed. One that reports turn ends only (REPORTS_TURN_ENDS,
+     codex) is counted in turns instead (below); any other runner is left as it was.
    - Busy is any report but idle, started and stopped (as communityturn's workedSince), so a wait (needs_you, blocked,
      a provider failure) counts as work: it errs toward stale.
    - The stretch before the member's first report after the summary is counted as work unless an earlier report shows
@@ -230,10 +232,13 @@ function workExcused(summary, member, readHistory, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied) return summary;
   const reportsWorking = REPORTS_WORKING.has(member.runner);
-  /* #5635 F2 (0.7.48 five-family report, Josh 2026-10-14): a runner that reports idle only (codex) has turn ends as its
-     only reports, so its work cannot be timed; it reads current while at most one turn has ended since the summary was
-     written (the turn that wrote it), and stays stale once a later turn has ended. An unknown runner is left as it was. */
-  if (!reportsWorking && member.runner !== 'codex') return summary;
+  /* #5635 F2 (0.7.48 five-family report, Josh 2026-10-14): a runner that reports turn ends only (codex) cannot be timed;
+     it reads current while at most one turn has ended since the summary was written (the turn that wrote it), and
+     stale once a later turn has ended. Known costs, chosen over never excusing it (the GPT repro): a later turn still
+     running reads current however long it runs; so does an agent in a blocked or needs-you wait (selfreport refuses
+     the automatic idle then) or one whose turn-end reports stopped arriving; and a short prompted turn ending makes it
+     stale again. */
+  if (!reportsWorking && !REPORTS_TURN_ENDS.has(member.runner)) return summary;
   let rows = null;
   try { rows = readHistory(member.sessionName); } catch { rows = null; }
   if (!Array.isArray(rows)) return summary;
@@ -320,7 +325,8 @@ function idleNoted(summary, member, readReport, nowMs) {
  * { state: 'idle', idleKind: 'idle'|'started', idleSince, idleMinutes } when it was current as the member stopped, or
  * (#4581 R9, quietExcused) { state: 'quiet', quietKind: 'own'|'project', quietSince, quietMinutes } when it was current
  * as its own tasks here, or the project's, ended, or (#5635 F2, workExcused) { state: 'worked', workMinutes } when the
- * member's reports show at most the rhythm of work since it was written.
+ * member's reports show at most the rhythm of work since it was written (for a turn-ends-only runner, at most the turn
+ * that wrote it has ended: { turnsOnly: true, workMinutes: 0 }).
  */
 function overviewOf(p, roster, o) {
   const opts = o || {};
@@ -495,7 +501,7 @@ const SUMMARY_WORDS = {
     ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ' and idle since then)'
     : 'current when it went idle (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; idle since ' + ago(s.idleMinutes) + ')',
   // #5635 F2: the rhythm is four hours of work, and the member's reports show less than that since it was written.
-  worked: (s) => 'current: ' + (s.workMinutes > 0 ? span(s.workMinutes) + ' of reported work' : 'no reported work') + ' since it was written ('
+  worked: (s) => 'current: ' + (s.turnsOnly ? 'no later turn has ended' : s.workMinutes > 0 ? span(s.workMinutes) + ' of reported work' : 'no reported work') + ' since it was written ('
     + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
   // #4581 R9: the project has no open task; this summary was current when its last task ended.
   quiet: (s) => (s.quietKind === 'own' ? 'current when its own tasks here ended' : 'current when work on the project\'s tasks ended')

@@ -682,6 +682,11 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   assert.equal(gr.workMinutes, 0);
   assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 40]]), NOW).state, 'stale');
   assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1200]]), NOW).state, 'worked', 'no turn ended since: current');
+  assert.equal(gr.turnsOnly, true);
+  // An operator's clear is not a turn end; a cut history that starts after the summary is unknown (left stale).
+  const gptOp = () => { const a = [{ state: 'idle', at: at(1095) }, { state: 'idle', at: at(40), by: 'operator' }]; a.truncated = false; return a; };
+  assert.equal(v.workExcused(stale(1100), gpt, gptOp, NOW).state, 'worked', 'an operator clear counted as a turn end');
+  assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095]], true), NOW).state, 'stale', 'a cut history starting after the summary was read');
   for (const runner of [null, 'someday-runner']) {
     assert.equal(v.workExcused(stale(331), Object.assign({}, mark, { runner }), woken, NOW).state, 'stale', 'excused runner ' + runner);
   }
@@ -747,5 +752,8 @@ test('#5635 F2: a working member woken after a quiet stretch reads current for t
   // Review 4: no work since reads as such, not "under a minute".
   const zero = v.renderShow({ project: { ...view(() => rows), members: [{ ...view(() => rows).members[0], summary: { ...view(() => rows).members[0].summary, workMinutes: 0 } }] } }).join('\n');
   assert.match(zero, /summary: current: no reported work since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, zero);
+  // 0.7.48: a turn-ends-only runner (codex) says what it can know, not a measurement it cannot make.
+  const turns = v.renderShow({ project: { ...view(() => rows), members: [{ ...view(() => rows).members[0], summary: { ...view(() => rows).members[0].summary, workMinutes: 0, turnsOnly: true } }] } }).join('\n');
+  assert.match(turns, /summary: current: no later turn has ended since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, turns);
   assert.ok(![0x2014, 0x2013].some((c) => text.includes(String.fromCharCode(c))), 'a dash in product copy');
 });
