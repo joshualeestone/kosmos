@@ -205,3 +205,14 @@ test('a Claude usage-limit reading (a pattern with a known false match) never in
   for (let i = 0; i < SEEN_SWEEPS + 1; i++) sent = sent.concat(sweep(cards, file, (i + 1) * 60000).sent);
   assert.deepEqual(sent, []);
 });
+
+test('#5949 a manager whose state is remembered through a failed look is not typed into until a fresh look', () => {
+  const file = newFile();
+  const cards = board('rate_limited');
+  const held = cards.map((c) => (c.sessionName === 'pat' ? { ...c, screenRead: 'remembered' } : c));
+  let t = 1000;
+  for (let i = 0; i < SEEN_SWEEPS + 1; i++) assert.equal(sweep(held, file, t += 60000).sent.length, 0, 'typed into a remembered idle');
+  const fresh = sweep(cards, file, t += 60000);
+  assert.equal(fresh.sent.length, 1, 'CONTROL: told once the manager is seen fresh');
+  assert.equal(fresh.sent[0].session, 'pat');
+});

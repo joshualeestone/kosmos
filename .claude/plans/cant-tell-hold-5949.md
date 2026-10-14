@@ -44,8 +44,11 @@ roster read failed), nothing logged why, and the card's explanation line is gone
    store.saveFlushed), with when it was last SEEN: written when a state changes and confirmed at most once a minute
    otherwise, so an agent idle all morning still carries; entries for agents no longer running drop out once too old
    to carry. server.js wires it on Windows (`fileLastState`). A state last seen more than 10 minutes before is not used. Its hold runs from the first look this run, so the usual 3 looks and 15 s apply.
+   Limit: it covers a first read that LISTS an agent with no usable token (a streaming agent whose state file has not
+   caught up). A first read that fails outright still refuses the board, since the roster has no earlier list.
 6. Code that ACTS because an agent reads idle waits for a fresh look: the Assigner (`assigner.idleCard`), the
-   limit backlog release (`chat.limitReleased`, both its arms), the failover tell sweep (server.js `isIdle`) and the first-reply reminder (`firstreply-nudge`, both `plan` and `sweepOnce`) skip
+   limit backlog release (`chat.limitReleased`, both its arms), the failover tell sweep (server.js `isIdle`) and the first-reply reminder (`firstreply-nudge`, both `plan` and `sweepOnce`), the account-problem notice to a manager
+   (`accountnotify`) and the Recommender's peers (`recommender.peersFor`, which types into idle or working peers) skip
    a card whose screen reading is held (`status.stateIsRemembered`, reading `screenRead`, which is set even when a
    report decided the state, since a limit wait carries the screen along as `screenState`). The other readers of a
    held state draw it (cards, counts, project rows). Found by grepping engine/ and server.js for code keyed on idle.
