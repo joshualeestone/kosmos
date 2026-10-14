@@ -44,7 +44,7 @@ kosmos_setup_floor_pointer_ok t '{"sha256":"bb"}' 2>/dev/null && bad "a pointer 
 kosmos_setup_floor_pointer_ok t '{"version":"0.7.49","sha256":"bb"}' 2>/dev/null && bad "a pointer with no artifact passed" || pass "a pointer with no artifact is refused (fail closed)"
 dup='{"version":"0.6.1","artifact":"kosmos-0.6.1-arm64.tar.gz","version":"0.7.49","artifact":"kosmos-0.7.49-arm64.tar.gz","sha256":"bb"}'
 kosmos_setup_floor_pointer_ok t "$dup" 2>/dev/null && bad "a pointer with doubled keys passed" || pass "a pointer naming version and artifact twice is refused (the installer reads the first)"
-for art in kosmos-arm64.tar.gz kosmos-0.7.49.tar.gz not-a-build.zip; do
+for art in kosmos-arm64.tar.gz kosmos-0.7.49.tar.gz kosmos-0.7.49-.tar.gz not-a-build.zip; do
   kosmos_setup_floor_pointer_ok t "$(ptr 0.7.49 "$art")" 2>/dev/null && bad "artifact $art passed" || pass "a 0.7.49 pointer naming $art is refused (fail closed)"
 done
 
@@ -76,6 +76,11 @@ out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"
 case "$out" in *"setup floor"*) bad "CONTROL: promote-channel's floor refused 0.7.49: $out";;
   *"refusing to promote a missing artifact"*) pass "CONTROL: promote-channel gets past the floor to its next check (the missing artifact)";;
   *) bad "CONTROL: promote-channel stopped somewhere unexpected: $out";; esac
+
+# promote-channel.sh checks the snapshot's own bytes: a doubled key is refused (JSON.parse would keep the last).
+site; printf '%s' "$dup" > "$T/site/dist/latest-staging.json"
+out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"
+case "$out" in *"names version or artifact more than once"*) pass "promote refuses a staging pointer with doubled keys";; *) bad "promote and doubled keys: $out";; esac
 
 # promote-channel.sh: setup-staging, about to become /setup, must know the read-only app (checked before any write).
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t

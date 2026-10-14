@@ -140,7 +140,9 @@ reject_pathy "$ARTIFACT_FIELD" "$ARTIFACT"
 # kosmos#6149 point 1 (after the bare-filename check, before any write): prod must never be pointed at a Mac build older than the setup floor (its /setup comes with it).
 if [ "$FAMILY" = mac ]; then
   . "$(dirname "$0")/lib/setup-floor.sh" || { echo "promote-channel: cannot load tools/lib/setup-floor.sh" >&2; exit 1; }
-  kosmos_setup_floor_pointer_ok "the staging pointer being promoted" "{\"version\":\"$V\",\"artifact\":\"$ARTIFACT\"}" || exit 1
+  # The snapshot's own bytes (what is copied to prod), so a doubled key is refused here too: JSON.parse keeps the last
+  # of a doubled key, setup.sh reads the first.
+  kosmos_setup_floor_pointer_ok "the staging pointer being promoted" "$(cat "$SNAP")" || exit 1
 fi
 [ -n "$V" ] && [ -n "$SHA" ] && [ -n "$ARTIFACT" ] || { echo "promote-channel: $STAGING is missing version/sha256/$ARTIFACT_FIELD - not a usable pointer" >&2; exit 1; }
 
