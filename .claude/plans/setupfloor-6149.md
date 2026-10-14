@@ -34,7 +34,8 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
     or, when the staging pointer names no installer, the /setup prod keeps serving beside the new pointer.
   - release.sh refuses the test knob outright (no test drives a cut with it), and at step 1a also checks the cut's
     own install/setup.sh (the checkout's), then, right after the freeze (step 2b), the FROZEN install/setup.sh it
-    actually publishes (a pinned or behind-main cut ships the frozen one): both before anything is built or pushed.
+    actually publishes (a pinned or behind-main cut ships the frozen one): both before anything is built (the frozen
+    one after step 2's bump push, see Known limits).
     The library is loaded once, at step 1a; after the freeze REPO is the frozen tree, which a pinned cut's older sha
     may not hold, so it is never sourced from there.
 - deploy-site's early committed-pointer check is a fail-fast: its export check would refuse the same pointers;
@@ -72,7 +73,10 @@ Before the 0.7.49 promote: dist/latest.json 0.7.47, dist/latest-staging.json 0.7
 /setup-staging 9. After it (16:2x, origin/main): both pointers 0.7.49, /setup 9, /setup-staging 9. Either way no
 deploy, promote or cut that is valid today is refused by this change.
 
-## Known limits (reviews 9 to 18), stated rather than closed
+## Known limits (reviews 9 to 20), stated rather than closed
+- release.sh's frozen-installer check runs after step 2's version-bump push (the freeze follows the bump). An
+  unpinned cut's step 1a already checked the same install/setup.sh before that push; a PINNED cut whose frozen
+  installer cannot lift the lock refuses with its bump already on origin. Nothing is built or served.
 - A checkout that predates this change has no floor at all: site-autodeploy runs that checkout's own
   tools/deploy-site.sh. Every checkout that pulls main after the merge has it; until then the hand check stands.
 - release.sh pushes its site commit (step 7b) BEFORE its export check: if the fresh-main rebase pulled in a pointer
