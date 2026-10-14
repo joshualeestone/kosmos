@@ -53,6 +53,10 @@ kosmos_setup_floor_pointer_ok t '{"sha256":"bb"}' 2>/dev/null && bad "a pointer 
 kosmos_setup_floor_pointer_ok t '{"version":"0.7.49","sha256":"bb"}' 2>/dev/null && bad "a pointer with no artifact passed" || pass "a pointer with no artifact is refused (fail closed)"
 dup='{"version":"0.6.1","artifact":"kosmos-0.6.1-arm64.tar.gz","version":"0.7.49","artifact":"kosmos-0.7.49-arm64.tar.gz","sha256":"bb"}'
 kosmos_setup_floor_pointer_ok t "$dup" 2>/dev/null && bad "a pointer with doubled keys passed" || pass "a pointer naming version and artifact twice is refused (readers of a doubled key disagree)"
+esc1='{"version":"0.7.49","artifact":"kosmos-0.7.49-arm64.tar.gz","\u0061rtifact":"kosmos-0.6.1-arm64.tar.gz","sha256":"bb"}'
+esc2='{"version":"0.7.49","\u0076ersion":"0.6.1","artifact":"kosmos-0.7.49-arm64.tar.gz","sha256":"bb"}'
+kosmos_setup_floor_pointer_ok t "$esc1" 2>/dev/null && bad "an escaped doubled artifact key passed" || pass "an escaped (hidden) second artifact key is refused"
+kosmos_setup_floor_pointer_ok t "$esc2" 2>/dev/null && bad "an escaped doubled version key passed" || pass "an escaped (hidden) second version key is refused"
 for art in kosmos-arm64.tar.gz kosmos-0.7.49.tar.gz kosmos-0.7.49-.tar.gz not-a-build.zip; do
   kosmos_setup_floor_pointer_ok t "$(ptr 0.7.49 "$art")" 2>/dev/null && bad "artifact $art passed" || pass "a 0.7.49 pointer naming $art is refused (fail closed)"
 done

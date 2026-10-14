@@ -948,7 +948,9 @@ trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/nu
 REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD" "$V" "$CUT_CHANNEL"
 # kosmos#6149: the installer this cut publishes is the FROZEN tree's (step 1a-floor checked the checkout's, which a
-# pinned or behind-main cut does not ship): check it here, after the freeze and before anything is built or pushed.
+# pinned or behind-main cut does not ship): check it here, after the freeze and before the build and the site push.
+# Step 2's version-bump push comes BEFORE this (the freeze follows it): for an unpinned cut step 1a already checked the
+# same file before that push; for a pinned one the bump can be on origin when this refuses (a stated limit).
 kosmos_setup_floor_installer_ok "the frozen install/setup.sh this cut publishes" "$BUILD/install/setup.sh" || exit 1
 step "== 2b-ii. the What's new highlights, again, in the tree that ships (#3955) =="
 # The shared checkout can move between step 1 and the freeze (two cuts in a row were fast-forwarded

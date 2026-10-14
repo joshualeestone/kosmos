@@ -60,6 +60,11 @@ kosmos_setup_floor_pointer_ok() {
   # greedy sed the last on one line), so with one key each every reader agrees on which build installs. The extractors read `"key":` (the real
   # writer, write-latest-pointer.js, writes one line in that form); a pointer spelled `"key" :` reads as having no
   # version and is refused, which fails closed.
+  # No escapes: a key spelled with a JSON escape (\u0076ersion) is invisible to these extractors yet read by a JSON
+  # parser, so a pointer with any backslash is refused (the real writer, write-latest-pointer.js, never emits one).
+  case "$json" in
+    *\\*) echo "setup floor (kosmos#6149): $label has a backslash (a JSON escape could hide a key) -- refusing" >&2; return 1 ;;
+  esac
   if [ "$(printf '%s' "$json" | grep -o '"version"[[:space:]]*:' | wc -l | tr -d ' ')" -gt 1 ] ||
      [ "$(printf '%s' "$json" | grep -o '"artifact"[[:space:]]*:' | wc -l | tr -d ' ')" -gt 1 ]; then
     echo "setup floor (kosmos#6149): $label names version or artifact more than once -- refusing" >&2
