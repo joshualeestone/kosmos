@@ -69,7 +69,8 @@ test('#5531 done-when: enrolling world A sends nothing about world B, and every 
   await org.refresh({ root: a, remote });
   const all = JSON.stringify(remote.sent);
   assert.ok(!all.includes(idB), 'world B was named to the coordinator: ' + all);
-  // #6113: JSON doubles a Windows path's backslashes, so look for the escaped form too, or this cannot fail there.
+  // #6113: JSON doubles a Windows path's backslashes, so look for the escaped form too (the folder-name check below
+  // also catches it).
   assert.ok(!all.includes(b) && !all.includes(JSON.stringify(b).slice(1, -1)), "world B's folder appeared in a payload");
   assert.ok(!all.includes('worldB') && !all.includes('worldA'), 'a world folder name appeared in a payload');
   for (const r of remote.sent) {
@@ -158,7 +159,7 @@ test('#5531: the world id is minted once, kept, owner-only, and the enrollment f
   const { a } = sandbox(t);
   const id1 = org.worldId({ root: a }); const id2 = org.worldId({ root: a });
   assert.equal(id1, id2, 'the id changed between reads');
-  /* #6113: Windows keeps no POSIX mode (a file reads back 0666 whatever was asked), so these two checks mean nothing
+  /* #6113: Windows keeps no POSIX mode (a file asked for 0600 reads back 0666), so these two checks mean nothing
      there and run on Mac and Linux only. In a real install on Windows the files sit in the person's own %APPDATA%
      (engine/store.js; an AGENT_WORKFORCE_HOME or AGENT_WORKFORCE_DATA override moves them), and Windows' default
      permissions on a profile are expected to keep them to that person, SYSTEM and Administrators. That is reasoned
