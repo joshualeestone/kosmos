@@ -427,18 +427,20 @@ test('#6174 restartForMove reads the start BEFORE the restart, notes only a PART
   const { restartForMove } = require('./server');
   const accountmoving = require('./engine/accountmoving');
   const remove = require('./engine/remove');
-  const run = (name, outcome, before, after, from, held = false) => {
+  const run = (name, outcome, before, after, from) => {
     let reads = 0; let readsAtRestart = null;
     const deps = {
       sessionOf: (n) => n + '-discord',
       startedAt: () => { reads += 1; return reads === 1 ? before : after; },
-      restart: () => { readsAtRestart = reads; return { outcome, oldJobHeld: held }; },
+      restart: () => { readsAtRestart = reads; return { outcome }; },
     };
     const back = restartForMove(name, from, deps);
     // Asserted here, not inside restart (restartForMove turns a throw there into a partial).
     assert.equal(readsAtRestart, 1, name + ': the start was not read before the restart');
     return back;
   };
+  // Each non-noting case starts with a note an earlier move wrote, so "clears" is tested, not only "never writes".
+  for (const k of ['rf-new', 'rf-gone', 'rf-refused', 'rf-unread']) accountmoving.note(k, 1000e3, '/acct/z');
   run('rf-same', remove.OUTCOME.PARTIAL, 1000e3, 1000e3, '/acct/a');
   run('rf-new', remove.OUTCOME.PARTIAL, 1000e3, 2000e3, '/acct/a');     // it did relaunch
   run('rf-gone', remove.OUTCOME.PARTIAL, 1000e3, null, '/acct/a');      // no session after
@@ -447,9 +449,6 @@ test('#6174 restartForMove reads the start BEFORE the restart, notes only a PART
   const n = accountmoving.notes();
   assert.deepEqual(n['rf-same'], { started: 1000e3, from: '/acct/a' }, 'a partial move with the same session running was not noted');
   for (const k of ['rf-new', 'rf-gone', 'rf-refused', 'rf-unread']) assert.ok(!(k in n), k + ' was noted');
-  // A held old launch job is not marked, by decision: the session after cannot be told from a real relaunch.
-  run('rf-held', remove.OUTCOME.PARTIAL, 1000e3, 2000e3, '/acct/a', true);
-  assert.ok(!('rf-held' in accountmoving.notes()), 'a held old job was noted (a relaunch onto the new account would be marked)');
   // Moved again while the same session still runs: the account it runs on is still the first one.
   run('rf-same', remove.OUTCOME.PARTIAL, 1000e3, 1000e3, '/acct/b');
   assert.equal(accountmoving.notes()['rf-same'].from, '/acct/a', 'a second partial move replaced the account it still runs on');

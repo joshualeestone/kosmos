@@ -2684,7 +2684,7 @@ function claudeAgentsByAccount() {
        process reads. */
     moving(dir, isDefault, deps = {}) {   // #6174: the agents on this row still running on the account they were moved from
       const am = require('./engine/accountmoving');
-      let notes = {}; try { notes = am.notes(); } catch { notes = {}; }   // read once; agents with no note cost nothing
+      let notes = {}; try { notes = am.notes(); } catch { notes = {}; }   // read once per row; agents with no note cost nothing
       // The pane roster once per call, and only when some agent on this row has a note (review 6).
       let roster;
       const readDeps = () => {
@@ -2700,7 +2700,8 @@ function claudeAgentsByAccount() {
           let now = null;
           const startedAt = (x) => { now = sessionStartFor(x, false, readDeps()); return now; };
           if (!am.isMoving(n, startedAt, notes)) {
-            // A readable, different session: it has restarted since. Drop that very note (never one a move just wrote).
+            // A readable, different session: it has restarted (not proof it reached the new account; see
+            // engine/accountmoving.js). Drop that very note, never one a move just wrote.
             if (Number.isFinite(now)) am.clearIf(n, notes[n].started);
             return false;
           }
