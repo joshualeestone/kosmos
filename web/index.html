@@ -28027,6 +28027,7 @@ async function paintAccounts(opts) {
   if (fAttr) {
     const back = [...box.querySelectorAll('[' + fAttr.name + ']')].find((x) => x.getAttribute(fAttr.name) === fAttr.value);
     if (back && typeof back.focus === 'function') back.focus();
+    if (back && fEl.classList.contains('kbd-landed')) back.classList.add('kbd-landed');   // #6175 review 18: a key press's landing ring survives the rebuild
   }
   /* #1372: remove an OpenAI account. The engine FORGETS rather than
      deletes, so the sentence says the sign-in file is still on the
