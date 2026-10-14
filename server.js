@@ -18760,6 +18760,10 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#5942: since when an agent holding it has needed the person, from the same cards. Null when no card
            knows, and whenever a missed repeating run is waiting too: that wait has no start, so any age could be short. */
         waitingSince: waitingOnPerson && !runMissed ? tasks.waitingSinceOf(t, roster, membersOf.get(t.projectId)) : null,
+        /* #6157: who put it in Needs your decision, and why ({ who, reason }, the project page's reason codes), from the
+           same cards; a missed run the person reviews is its own reason with no agent. Empty when it is not waiting. */
+        waitingOn: !waitingOnPerson ? [] : tasks.waitingOnOf(t, roster, membersOf.get(t.projectId))
+          .concat(runMissed ? [{ who: null, reason: 'missed_run' }] : []),
         state: tasks.taskState(Object.assign({}, t, { claim, waitingOnPerson })),
         lastActivityAt: tasks.lastActivityOf(t.projectId, t),
         /* kosmos#4787: a repeating task's rule in words and its next run (this board's local time), worked out here so

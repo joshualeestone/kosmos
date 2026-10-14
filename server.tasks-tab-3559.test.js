@@ -290,3 +290,23 @@ test('GET /api/tasks?view=tasks: an unreadable roster is reported (rosterUnreada
   } finally { status.setPaneSource(null); }
   assert.equal((await view()).rosterUnreadable, false, 'CONTROL: a good read reports a readable roster');
 });
+
+test('#6157 GET /api/tasks?view=tasks: a decision row says WHICH agents put it there and why; other rows say nobody', async () => {
+  const fleet = require('./test-support/fleet');
+  const selfreport = require('./engine/selfreport');
+  const p = projects.create({ name: 'Who waits' });
+  for (const a of ['whoasks', 'whoasks2', 'whoworks']) projects.addAgent(p.id, a, null);
+  const shared = tasks.create(p.id, { sentence: 'Two holders waiting', who: 'whoasks' });
+  assert.equal(tasks.addPart(p.id, shared.number, { sentence: 'The other half', who: 'whoasks2' }).ok, true);
+  tasks.create(p.id, { sentence: 'Just working', who: 'whoworks' });
+  assert.equal(selfreport.record('whoasks', { state: 'needs_you', project: p.id, because: 'which cover?' }).recorded, true);
+  assert.equal(selfreport.record('whoasks2', { state: 'needs_you', project: p.id, because: 'which font?' }).recorded, true);
+  const board = fleet.install([fleet.agent('whoasks', { state: 'needs_you' }), fleet.agent('whoasks2', { state: 'needs_you' }), fleet.agent('whoworks', { state: 'working' })]);
+  let body;
+  try { body = await all(`?view=tasks&project=${encodeURIComponent(p.id)}`); } finally { board.restore(); }
+  const by = Object.fromEntries(body.tasks.map((t) => [t.sentence, t]));
+  assert.equal(by['Two holders waiting'].state, 'decision', JSON.stringify(by['Two holders waiting']));
+  assert.deepEqual(by['Two holders waiting'].waitingOn, [{ who: 'whoasks', reason: 'question' }, { who: 'whoasks2', reason: 'question' }],
+    'the row does not say who is waiting, or why');
+  assert.deepEqual(by['Just working'].waitingOn, [], 'a task nobody is waiting on names somebody');
+});

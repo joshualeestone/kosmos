@@ -176,3 +176,21 @@ test('kosmos#5942: a decision row says "Waiting on you for 12 days"; no known st
     assert.doesNotMatch(row({ state: 'assigned', waitingSince: '2026-09-30T15:00:00Z' }), /tsk-waiting/, 'CONTROL: not a decision, no wait line');
   } finally { Date.now = realNow; }
 });
+
+/* #6157: a decision row says WHO put it there and why, in the project page's words for the same reason (PJ_NEEDS_WHY). */
+test('#6157: a decision row names the waiting agent and its reason; not a decision, or no agent, says nothing', () => {
+  const PJW = SCRIPT.match(/const PJ_NEEDS_WHY = \{[\s\S]*?\n\};/);
+  assert.ok(PJW, 'PJ_NEEDS_WHY moved');
+  const row = (over) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey',
+    PJW[0] + '\n' + GROUPS + '\n' + FNS + '\nreturn tskRow;')(
+    { sel: new Set(), by: 'status' }, [REX], (s) => String(s), () => '1 hour ago', (x) => x.projectId + '#' + x.number)(T(over));
+  const name = new Function('LAST', page.liftAll(SCRIPT, ['tskAgentName']) + '\nreturn tskAgentName;')([REX])('rex');
+  assert.ok(name && name.length, 'CONTROL: rex has a name to show');
+  const one = row({ state: 'decision', waitingOn: [{ who: 'rex', reason: 'question' }] });
+  assert.ok(one.includes('<div class="why tsk-waiting-who">' + name + ': Waiting for your answer.</div>'), one);
+  const two = row({ state: 'decision', waitingOn: [{ who: 'rex', reason: 'trust' }, { who: 'rex', reason: 'no-such-code' }] });
+  assert.ok(two.includes(name + ': Waiting for you to approve it before it can start. ' + name + ': Kosmos needs you to look at it.'), 'an unknown code is not worded as the general reason: ' + two);
+  assert.doesNotMatch(row({ state: 'decision', waitingOn: [{ who: null, reason: 'missed_run' }] }), /tsk-waiting-who/, 'a missed run (its repeat line says it) was said twice');
+  assert.doesNotMatch(row({ state: 'assigned', waitingOn: [{ who: 'rex', reason: 'question' }] }), /tsk-waiting-who/, 'CONTROL: not a decision, no line');
+  assert.doesNotMatch(row({ state: 'decision' }), /tsk-waiting-who/, 'an older board sends no waitingOn: nothing is said');
+});

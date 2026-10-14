@@ -130,6 +130,8 @@ function chk(ok, label, extra) {
       /* #5942: a row's own wait line says "Waiting on you for ..." from a recorded start, which is provable;
          the #3559 rule below is about GROUPS and categories, so it reads the panel without those lines. */
       waitLines: [...panel.querySelectorAll('.tsk-row .tsk-waiting')].map((el) => el.textContent),
+      /* #6157: the decision row's line naming who put it there and why. */
+      whoLines: [...panel.querySelectorAll('.tsk-row .tsk-waiting-who')].map((el) => el.textContent),
       textNoWait: (() => { const c = panel.cloneNode(true); c.querySelectorAll('.tsk-row .tsk-waiting').forEach((el) => el.remove()); return c.textContent; })(),
       tiles,
       rows,
@@ -425,6 +427,7 @@ function chk(ok, label, extra) {
       chk(a.tiles.every((t) => t.n === EXPECT[t.k]), `${tag} each tile counts its group`, JSON.stringify(a.tiles));
       chk(!/Waiting on you|Done, check it|Categor/i.test(a.textNoWait), `${tag} no unprovable group or category is drawn`);
       chk(a.waitLines.every((t) => /^(Waiting on you for \d+ (seconds|minutes?|hours?|days?)|Just started waiting on you)$/.test(t)), `${tag} the only lines that rule leaves out are rows' own wait lines`, JSON.stringify(a.waitLines));
+      chk(a.whoLines.length === 1 && /^Max: Waiting for your answer\.$/i.test(a.whoLines[0]), `${tag} #6157: the decision row names the agent that put it there (Max, asking) and why`, JSON.stringify(a.whoLines));
       const cover = a.rows.find((r) => r.text === 'Approve the cover');
       chk(cover && /Needs Your Decision/.test(cover.group), `${tag} the task whose agent needs the person is under Needs Your Decision`, JSON.stringify(cover));
       chk(!/Archived away task|Old catalog/.test(a.text), `${tag} an archived project's tasks are left out`);
