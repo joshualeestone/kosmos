@@ -101,7 +101,7 @@ const SIZES = {
   // desktop and phone. No touch and no mobile viewport, and the tap and field-font audits (phone
   // rules) are skipped for it. Not in the default sweep.
   /* #6107: tablets, touch and not desktop, so the tap and field audits run. Not in the default sweep.
-     tab8 is a small Android tablet (about 600 wide), the size that gets the phone layout widened today. */
+     tab8 is a small Android tablet (about 600 wide), the size that got the phone layout widened before #6107. */
   tab8: { width: 600, height: 960, dpr: 2, label: 'small Android tablet', tablet: true },
   tab8land: { width: 960, height: 600, dpr: 2, label: 'small Android tablet, landscape', tablet: true },
   ipadmini: { width: 744, height: 1133, dpr: 2, label: 'iPad mini', tablet: true },
@@ -131,7 +131,7 @@ function fetchBoard(route) {
 const DEFAULT_SIZES = ['se', 'iphone15', 'promax', 'android'];
 /* Why a screen is not shot at a size, or '' when it is. A tablet (#6107) is a touch size like a phone, but a
    phone-only screen (the #burger menu, hidden above 40rem) does not exist there either, except at tab8 (600px,
-   under 40rem), which still shows it; a desktop-only screen is
+   under 40rem), which still shows it. The 640 below is that 40rem by value: today every phoneOnly screen keys on it; a desktop-only screen is
    skipped at every size that is not the desktop one, tablets included. */
 const skipWhy = (s, sc) => (sc.phoneOnly && (s.desktop || (s.tablet && s.width > 640)) ? 'phone-only screen' : (sc.desktopOnly && !s.desktop ? 'desktop-only screen' : ''));
 const THEMES = ['light', 'dark'];
