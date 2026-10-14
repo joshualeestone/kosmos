@@ -63,6 +63,10 @@ test('on a phone the conversation comes first IN THE DOM, never by CSS order (#1
 test('an upright tablet moves the room by DOM too: Tasks first, then the conversation (#6107)', () => {
   const q = html.match(/const PJ_TABLET_MQ = '([^']+)';/);
   assert.ok(q, 'PJ_TABLET_MQ is declared');
+  // What the query says, not only that the copies agree: a touch screen (a mouse in a tall window keeps the desktop
+  // layout) held upright (landscape waits on its own design).
+  assert.match(q[1], /\(hover: none\) and \(pointer: coarse\)/, 'the tablet query requires a touch screen');
+  assert.match(q[1], /\(orientation: portrait\)/, 'the tablet query requires portrait');
   const tablet = MEDIA.filter((b) => b.query === q[1]).map((b) => b.body).join('\n');
   // The CSS block with the script's exact query holds the room's tablet rules (the swipe row of tasks).
   assert.match(tablet, /#pj-tasklist \{ flex-direction: row;/, 'the room tablet rules live under PJ_TABLET_MQ');
