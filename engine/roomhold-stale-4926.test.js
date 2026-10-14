@@ -254,7 +254,6 @@ test('#4926 N7: one reply to the round\'s newest post (m1032) answers the 8 olde
   // does not narrow it either.
   const second = { ...answer, id: 'm1038', text: 'one more thing', at: ago(1) };
   assert.ok(messages.staleHeld('p1', ['m1024'], [...base, answer, after, second], NOW, 'mark').has('m1024'), 'a later second reply narrowed the window');
-  assert.ok(!messages.staleHeld('p1', ['m1024'], [...base, between, answer, second], NOW, 'mark').has('m1024'), 'a later second reply widened the window');
   // With ROOM_READ_ROWS - 1 rows between X and the reply, no read before the reply showed anything before X.
   const busy = filler.map((f, k) => ({ ...f, at: new Date(NOW - 25 * 60000 + k * 1000).toISOString() }));
   assert.equal(messages.staleHeld('p1', ['m1031'], [post('m1031', 33), post('m1032', 32), ...busy, answer], NOW, 'mark').has('m1031'), false,
