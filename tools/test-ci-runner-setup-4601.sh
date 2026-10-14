@@ -94,6 +94,7 @@ exit 0
 STUB
 chmod +x "$BIN/_stub"
 for c in launchctl crontab pgrep df fdesetup pmset id ps gh curl sudo sysadminctl tar xcode-select; do ln -s _stub "$BIN/$c"; done
+mkdir -p "$T/ownerhome"; chmod 700 "$T/ownerhome"
 mkdir -p "$T/sysagents"; : > "$T/sysagents/com.openssh.ssh-agent.plist"   # Apple ships it under /System/Library
 BREWD="$T/brew"; mkdir -p "$BREWD/bin"
 printf '#!/bin/bash\necho "${FX_TMUX_V:-tmux 3.6a}"\n' > "$BREWD/bin/tmux"; printf '#!/bin/bash\n' > "$BREWD/bin/pwsh"; chmod +x "$BREWD/bin/"*
@@ -105,7 +106,7 @@ run() {
   local envs=()
   while [ "$1" != -- ]; do envs+=("$1"); shift; done; shift
   : > "$LOG"; rm -f "$T/user-created"
-  env -i PATH="$BIN:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$home" CALL_LOG="$LOG" KOSMOS_CI_BREW="$BREWD" KOSMOS_CI_SYSTEM_AGENTS="$T/sysagents" \
+  env -i PATH="$BIN:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$home" CALL_LOG="$LOG" KOSMOS_CI_BREW="$BREWD" KOSMOS_CI_SYSTEM_AGENTS="$T/sysagents" KOSMOS_CI_OWNER_HOME="$T/ownerhome" \
     ${envs[@]+"${envs[@]}"} bash "$S" "$@" > "$T/$name.out" 2>&1 < "${STDIN_FILE:-/dev/null}"
   echo $? > "$T/$name.rc"
   cp "$LOG" "$T/$name.calls"
@@ -134,6 +135,9 @@ refuse disk "under the 20 GiB floor" FX_FREE_KIB=10485760
 refuse filevault "FileVault is not plainly off" "FX_FV=FileVault is On."
 refuse filevault-deferred "FileVault is not plainly off" "FX_FV=FileVault is Off, but will be enabled after the next restart."
 refuse no-clt "no Command Line Tools" FX_NO_CLT=1
+chmod 750 "$T/ownerhome"
+refuse owner-home-open "is mode 750: CI jobs could read it" FX_NONE=1
+chmod 700 "$T/ownerhome"
 refuse sleep "system sleep is not 'never'" FX_SLEEP=10
 refuse autorestart "autorestart is not 1" FX_AUTORESTART=0
 refuse launchctl-unreadable "could not read launchctl print gui/" FX_LAUNCHCTL_FAIL=1
@@ -253,6 +257,17 @@ run in-badsha "$T/cihome2" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$T/cihome2" FX_GUARD
 [ "$(rc in-badsha)" = 1 ] && ! grep -q '^tar ' "$T/in-badsha.calls" && pass "install --apply refuses a guard whose sha256 differs, before unpacking" \
   || fail "install bad guard: rc $(rc in-badsha)"
 
+# The installed job-started hook must run the guard and stop on its refusal. Run it against stand-ins: the guard
+# exits as told, and job-cleanup.sh is replaced by a marker FIRST, because the real one ends this user's tmux and node.
+HK="$T/hookcheck"; mkdir -p "$HK"; cp "$CH/.kosmos-ci/job-started.sh" "$HK/"
+printf '#!/bin/bash\n: > "$(dirname "$0")/cleanup-ran"\n' > "$HK/job-cleanup.sh"
+printf '#!/bin/bash\nexit 1\n' > "$HK/job-guard.sh"; chmod 755 "$HK/"*
+"$HK/job-started.sh" >/dev/null 2>&1; hrc=$?
+[ "$hrc" != 0 ] && [ ! -e "$HK/cleanup-ran" ] && pass "job-started stops on a guard refusal, before cleanup" || fail "job-started with a refusing guard: rc $hrc, cleanup ran: $([ -e "$HK/cleanup-ran" ] && echo yes || echo no)"
+printf '#!/bin/bash\nexit 0\n' > "$HK/job-guard.sh"
+"$HK/job-started.sh" >/dev/null 2>&1; hrc=$?
+[ "$hrc" = 0 ] && [ -e "$HK/cleanup-ran" ] && pass "job-started runs cleanup once the guard admits the job" || fail "job-started with an admitting guard: rc $hrc"
+
 # A running runner: stopped, unpacked over, started again. A job in flight, or a stop that does not take, refuses.
 svc_home() {   # an installed runner: svc.sh, its .service marker, and (as the new package would bring) bin/runsvc.sh
   mkdir -p "$1/actions-runner/bin"; cp "$BIN/_stub" "$1/actions-runner/svc.sh"; chmod +x "$1/actions-runner/svc.sh"
@@ -262,7 +277,7 @@ svc_home() {   # an installed runner: svc.sh, its .service marker, and (as the n
 R1="$T/run1"; svc_home "$R1"
 run in-restart "$R1" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R1" -- --apply install "$C" "$G"
 [ "$(rc in-restart)" = 0 ] && grep -q '^svc.sh stop' "$T/in-restart.calls" && grep -q '^tar ' "$T/in-restart.calls" && has in-restart "runner started again" \
-  && grep -qx '# runsvc new' "$R1/actions-runner/runsvc.sh" \
+  && grep -qx '# runsvc new' "$R1/actions-runner/runsvc.sh" && [ "$(grep -c '^svc.sh start' "$T/in-restart.calls")" = 1 ] \
   && pass "install --apply stops a running runner, unpacks, starts it again" || fail "install restart: rc $(rc in-restart): $(tail -2 "$T/in-restart.out")"
 R2="$T/run2"; svc_home "$R2"
 run in-job "$R2" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R2" FX_WORKER=1 -- --apply install "$C" "$G"
@@ -352,9 +367,10 @@ for f in job-guard.sh job-started.sh job-completed.sh job-cleanup.sh; do printf 
 STDIN_FILE="$T/token" run rg-twice "$RS" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$RS" -- --apply register
 [ "$(rc rg-twice)" = 1 ] && has rg-twice "registered as a service already" && ! grep -q '^config\.sh' "$T/rg-twice.calls" \
   && pass "register --apply refuses a runner already registered as a service, before config.sh" || fail "register twice: rc $(rc rg-twice): $(tail -1 "$T/rg-twice.out")"
-run rg-none "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
 run rg-sudo "$CH" FX_WHO=kosmos-ci -- --apply register
 [ "$(rc rg-sudo)" = 2 ] && has rg-sudo "not /Users/kosmos-ci" && ! grep -q '^config\.sh' "$T/rg-sudo.calls" && pass "register --apply refuses when HOME is not kosmos-ci's (sudo -u keeps HOME)" || fail "register HOME check: rc $(rc rg-sudo)"
+rm -f "$CH/actions-runner/.service"   # rg-apply registered it; this case is about the token
+run rg-none "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
 [ "$(rc rg-none)" = 1 ] && has rg-none "no registration token" && ! grep -q '^config\.sh' "$T/rg-none.calls" && pass "register --apply refuses with no token" || fail "register no token: rc $(rc rg-none)"
 
 # --- verify -----------------------------------------------------------------------------------------------------

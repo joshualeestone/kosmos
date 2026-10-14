@@ -49,6 +49,7 @@ REPO_URL="https://github.com/$REPO"
 CI_USER="${KOSMOS_CI_USER:-kosmos-ci}"
 CI_HOME="${KOSMOS_CI_HOME:-/Users/$CI_USER}"
 OWNER="${KOSMOS_CI_OWNER:-agent1}"                 # Agent1s' only user today (runbook part 2); override elsewhere
+OWNER_HOME="${KOSMOS_CI_OWNER_HOME:-/Users/$OWNER}"
 NAME="${KOSMOS_CI_RUNNER_NAME:-kosmos-ci-agent1s}"
 LABELS="self-hosted,macOS,arm64,kosmos-ci"
 BREW="${KOSMOS_CI_BREW:-/opt/homebrew}"            # the engine's fixed tmux fallback is /opt/homebrew/bin/tmux
@@ -152,7 +153,8 @@ preflight() {
     printf 'x\n' | grep -E -e "$ALLOW_JOBS" >/dev/null 2>&1 || [ $? = 1 ] || { problem "KOSMOS_CI_ALLOW_JOBS is not a valid ERE: $ALLOW_JOBS"; jobs=""; unknown=1; }
     # A valid pattern can still match everything (".*", "^", a trailing "|"): one that matches a label nobody would
     # allow is refused rather than allowed to clear every job.
-    # The probe is a string no real label contains, so only a pattern that matches anything matches it.
+    # A heuristic for the match-everything class (".*", "^", a trailing "|"): a probe no real label contains. A broad
+    # pattern can still miss it, which is why every job the list keeps is printed below.
     if [ "$unknown" = 0 ] && printf 'Qz7xK4.wV2pR9\n' | grep -q -E -e "$ALLOW_JOBS"; then
       problem "KOSMOS_CI_ALLOW_JOBS matches any label (it matched the probe Qz7xK4.wV2pR9): $ALLOW_JOBS"; jobs=""; unknown=1
     fi
@@ -211,6 +213,12 @@ preflight() {
   else problem "no Command Line Tools (xcode-select -p fails): /usr/bin/git cannot run for jobs; xcode-select --install"; fi
   if [ -x "$BREW/bin/pwsh" ]; then ok "$BREW/bin/pwsh"
   else problem "no $BREW/bin/pwsh (install one: baron-jobs/ci-mini-install-pwsh.sh)"; fi
+
+  say "the owner's home (kosmos-ci is in group staff, so a group-readable home is readable by every CI job)"
+  local om
+  if ! om="$(stat -f %Lp "$OWNER_HOME" 2>/dev/null)"; then problem "could not read the mode of $OWNER_HOME"
+  elif [ $(( 8#$om & 8#077 )) != 0 ]; then problem "$OWNER_HOME is mode $om: CI jobs could read it; as $OWNER: chmod 700 $OWNER_HOME"
+  else ok "$OWNER_HOME is mode $om (closed to other users)"; fi
 
   say "the CI user"
   if id "$CI_USER" >/dev/null 2>&1; then
@@ -527,6 +535,8 @@ machine_settings() {
 #     offline until $CI_USER is logged in. Needs FileVault off (preflight checks it).
 #  2. Energy: keep "prevent automatic sleeping" and "start up after a power failure" (preflight checks both).
 #  3. Log in as $CI_USER once in Screen Sharing before install: its home and GUI session come with that login.
+#  4. Keep $OWNER_HOME at mode 700 (preflight checks it). If $CI_USER's own home is closed too, verify run as
+#     $OWNER cannot see the runner's files and exits 3 (unchecked); run verify as $CI_USER then.
 EOF
 }
 
