@@ -62,6 +62,18 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
 - Declined (reviews 3 and 9): also requiring a test-run marker (KOSMOS_TEST_RUN) for the knob. CI's shell shards do not set
   it, so each test would set it itself: a third variable the same tests set adds nothing over the two required.
 
+## Known limits (reviews 9 and 10), stated rather than closed
+- release.sh pushes its site commit (step 7b) BEFORE its export check: if the fresh-main rebase pulled in a pointer
+  or installer below the floor that the early checkout check did not see, that tree is on the site's main when the
+  cut refuses. It is never served by these tools (site-autodeploy runs deploy-site.sh, which refuses it), but every
+  site deploy then stays refused until a fix lands. Checking inside site_commit_on_fresh_main before the push would
+  close it; not done here, to keep tools/lib/site-deploy.sh out of this change.
+- release.sh's calls are tested by source (order and presence), not run: a cut cannot run in the suite.
+- deploy-site's own #4819 refusal is shadowed for a malformed staging artifact by the floor's earlier refusal in
+  test-deploy-site-promote.sh arm 20; it is still covered by test-deploy-site-staged-mac-4819.sh (st8, st13).
+- deploy-site.sh, promote-channel.sh and publish-staging-pointer.sh honour the knob (their tests use it); only
+  release.sh refuses it. Every lowered check warns.
+
 ## Tests
 tools/test-setup-floor-6149.sh: the library (boundary, numeric compare, unreadable versions, the knob in each
 combination, the pointer check, the tree check), then the REAL promote-channel.sh and publish-staging-pointer.sh on a
