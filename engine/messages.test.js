@@ -1282,7 +1282,7 @@ function seedPosts(now, posts) {
   });
 }
 
-test('#4934/#5967: four consecutive acknowledgement-only posts hold the room, sooner than the volume valve', () => {
+test('#4934/#5967: the fourth consecutive acknowledgement-only post is not passed on, sooner than the volume valve (and it is not a hold)', () => {
   withFleet(room3(), (board) => {
     const now = Date.now();
     assert.ok(4 < ROOM_BUDGET, 'control: four posts must be far under the volume cap, or this proves nothing about the ack trigger');
@@ -1462,6 +1462,52 @@ test('#4934/#5967: the CLI copy for ack_only tells the agent to post something n
   const held = branch('room_held');
   assert.match(held, /paused|an hour|steps in/i,
     'control: the room_held CLI copy no longer speaks of a hold, so the ack_only absence check proves nothing');
+});
+
+test('#4934/#5967: with the room limit OFF, an ack run is not stopped (the ack block is gated on lim.on)', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    try {
+      // The ack block runs only `if (lim.on && operator !== true)`. With the limit off the
+      // whole feature is skipped, so even a run of four acks is delivered, exactly as the
+      // volume valve is skipped when the limit is off.
+      assert.equal(limits.write({ on: false, perHour: 10 }).ok, true);
+      seedPosts(now, [
+        { from: 'leo', text: 'agreed' },
+        { from: 'mara', text: 'ok' },
+        { from: 'april', text: 'confirmed' },
+      ]);
+      armSender('leo-discord'); arm([]);
+      const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks' }, board.agents, MEMBERS);
+      assert.equal(out.state, chat.DELIVERY.PLACED, 'a fourth ack was stopped though the room limit is off');
+      assert.notEqual(out.code, 'ack_only', 'the ack trigger fired with the limit off');
+    } finally {
+      fs.rmSync(limits.FILE, { force: true });
+    }
+  });
+});
+
+test('#4934/#5967: the Windows CLI copy for ack_only matches, and never speaks of a hold', () => {
+  // The reporting room (0.7.38) was Windows, so the Windows CLI must carry the same honest,
+  // non-hold copy as install/kosmos -- not fall through to "re-post when the room is ready".
+  const cli = fs.readFileSync(path.join(__dirname, '..', 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
+  // Each refusal branch runs from its `d.code === '<code>'` test to the next `} else`.
+  const jsBranch = (code) => {
+    const i = cli.indexOf("d.code === '" + code + "'");
+    assert.ok(i >= 0, 'kosmos-cli.js has no refusal branch for code ' + code);
+    const end = cli.indexOf('} else', i);
+    assert.ok(end > i, 'the ' + code + ' branch is not closed by } else');
+    return cli.slice(i, end);
+  };
+  const ack = jsBranch('ack_only');
+  assert.match(ack, /something new/, 'the Windows ack_only copy does not tell the agent to post something new');
+  assert.match(ack, /straight away/, 'the Windows ack_only copy does not say the new post goes through straight away');
+  assert.doesNotMatch(ack, /paused|an hour|steps in|bring you in|reopen/i,
+    'the Windows ack_only copy speaks of a hold; the room is not held, so it must not');
+  // Negative control: the Windows room_held copy DOES speak of a hold.
+  const held = jsBranch('room_held');
+  assert.match(held, /paused|an hour|steps in/i,
+    'control: the Windows room_held copy no longer speaks of a hold, so the ack_only absence check proves nothing');
 });
 
 test('#2710: reopening a held room clears the loop-guard budget so the next post lands', () => {

@@ -3223,11 +3223,13 @@ function messageIdOf(value) {
    adding the agent to the project would end: the room offers the person the add on that row. Best effort: a failed
    write loses the row, never the verdict. Shared by the room post's refusal and the board's task-write refusals. */
 const ROOM_HELD_REFUSAL = 'the room was going back and forth without landing, so Kosmos was holding it for the person';
-// #4934 / #5967: the room is held once a trailing run of this many consecutive
-// acknowledgement-only posts (chat.acknowledgementOnly) is reached, sooner than the
-// volume valve. A content post resets the run. A short run is a normal thread close;
-// a run this long with no new facts is the loop a user's Windows room hit (eleven
-// "agreed"/"acknowledged" posts before the volume valve fired). Reversible constant.
+// #4934 / #5967: Kosmos stops passing on an acknowledgement-only post once a trailing run
+// of this many consecutive acknowledgement-only posts (chat.acknowledgementOnly) is reached,
+// sooner than the volume valve. This is NOT a room hold: it refuses only the ack-only post;
+// the next post with content is delivered at once (see the block in sendPost). A content post
+// resets the run. A short run is a normal thread close; a run this long with no new facts is
+// the loop a user's Windows room hit (eleven "agreed"/"acknowledged" posts before the volume
+// valve fired). Reversible constant.
 const ACK_RUN_LIMIT = 4;
 function logRoomRefusal({ from, project, because, at, doing, addable }) {
   if (typeof from !== 'string' || !from) return;   // a row with no sender is dropped on read anyway

@@ -349,10 +349,11 @@ function cleanMessage(raw) {
 
 /*
  * #4934 / #5967: a room post that is ONLY acknowledgement (agreed, thanks, confirmed)
- * and carries no new facts. The room valve (engine/messages.js) holds on the VOLUME
- * of arrivals; this is the separate signal a RUN of these is judged by, so a room
- * that is only agreeing back and forth is held sooner than volume alone would hold
- * it. The classification is pure text, so it is unit-tested on its own.
+ * and carries no new facts. The room valve (engine/messages.js) HOLDS the room on the
+ * VOLUME of arrivals; this is a separate signal that a RUN of these reached a bound, so
+ * engine/messages.js stops passing on the ack-only posts (NOT a hold: the next post with
+ * content goes through) sooner than the volume valve would hold the room. The
+ * classification is pure text, so it is unit-tested on its own.
  *
  * Whole-post judgment with STRUCTURAL escapes, never a prefix check. The failure to
  * avoid is a word list that would hold a real "agreed, and here is the number: 42":
@@ -367,8 +368,9 @@ function cleanMessage(raw) {
  *      "AGREED." and "Thanks!!" still count (a case-sensitive match is this fleet's
  *      most repeated false zero). A token is skippable only if it is PURE PUNCTUATION
  *      ("!!", "..."); a symbol or an off-lexicon emoji (❌, ✗, ⚠️, 🚀) is content,
- *      because it can carry meaning, often negation, and holding "ok ❌" would hold a
- *      disagreement. A word in ANY script (not only Latin) that is not in the lexicon is
+ *      because it can carry meaning, often negation, and treating "ok ❌" as an
+ *      acknowledgement would stop a disagreement from being passed on. A word in ANY
+ *      script (not only Latin) that is not in the lexicon is
  *      also content, so a non-English post is never mistaken for an acknowledgement;
  *   C. it carries no new-information signal: a digit, a url or scheme, a file path or
  *      a filename.ext, inline code/backticks, a question mark, a currency or percent
@@ -379,6 +381,15 @@ function cleanMessage(raw) {
  * calling a real post an acknowledgement, and that needs every word in the lexicon.
  */
 const ACK_MAX_WORDS = 5;
+// A hard character ceiling, checked BEFORE any regex below. A real acknowledgement is at
+// most ACK_MAX_WORDS short lexicon words (plus a leading @mention); nothing longer can be
+// one, so a longer post is content. This matters for more than brevity: the filename/path
+// test is `\S+\.[A-Za-z]{1,8}` and backtracks QUADRATICALLY on a long unbroken token, so a
+// single MAX_BODY-sized post (tens of KB) would block the event loop for seconds. Bounding
+// the input here first keeps every regex below linear on a tiny string (challenge-loop
+// round 8). 200 is comfortably above any genuine five-word ack with a long @mention and an
+// emoji, and far below the length at which the regex is slow.
+const ACK_MAX_CHARS = 200;
 // A closed lexicon of acknowledgement words. Two tokens are deliberately excluded to keep
 // a directive or a request from reading as agreement: "it" (a pronoun, never agreement on
 // its own -- it only glued "do it", an instruction) and bare "confirm" (a request to
@@ -386,7 +397,7 @@ const ACK_MAX_WORDS = 5;
 // "do"/"will do" stay (willingness to act is agreement; without "it", "do it" cannot form).
 // "done"/"yes" are kept knowingly: they are acknowledgements in the loop context, and a run
 // of four bare status/answer posts with no content signal is itself loop-shaped, which is
-// exactly what the hold is meant to catch; the 4-consecutive gate bounds the false-positive.
+// exactly what this trigger is meant to catch; the 4-consecutive gate bounds the false-positive.
 const ACK_WORDS = new Set([
   'agreed', 'agree', 'agrees', 'thanks', 'thank', 'thx', 'ty', 'confirmed',
   'confirms', 'ack', 'acked', 'acknowledged', 'acknowledge', 'ok', 'okay', 'okey', 'k',
@@ -399,11 +410,12 @@ const ACK_EMOJI = new Set(['👍', '🙏', '✅', '👌', '💯', '🔥']);
 function acknowledgementOnly(raw) {
   const text = cleanMessage(raw);
   if (!text) return false;                       // nothing said is not an acknowledgement
+  if (text.length > ACK_MAX_CHARS) return false; // too long to be an ack; also bounds the regexes below (no ReDoS)
   // C: a new-information signal. Any one present means the post carries new facts.
   if (/[0-9]/.test(text)) return false;          // a digit
   if (/:\/\//.test(text) || /\bhttps?:/i.test(text)) return false; // a url or scheme
   if (text.includes('`')) return false;          // inline code / backticks
-  if (/[?？؟]/.test(text)) return false; // a question (ASCII ?, full-width CJK ？, Arabic ؟)
+  if (/[?？؟¿]/.test(text)) return false; // a question (ASCII ?, full-width CJK ？, Arabic ؟, inverted ¿)
   if (/[$%£€]/.test(text)) return false;         // a currency or percent sign
   if (text.includes('"')) return false;          // a double-quoted span
   if (/\S+\.[A-Za-z]{1,8}(?![A-Za-z])/.test(text) || /\/\S/.test(text)) return false; // filename.ext or a path
@@ -425,7 +437,7 @@ function acknowledgementOnly(raw) {
     if (ACK_EMOJI.has(tok)) continue;            // a listed acknowledgement emoji, judged whole
     // A symbol ANYWHERE in the token makes the post content, whether it stands alone
     // ("ok ❌") or is glued to a word ("ok❌"): a negation (❌, ✗, ⚠️) or an off-lexicon
-    // emoji carries meaning, and the dangerous direction is holding "ok❌" as an
+    // emoji carries meaning, and the dangerous direction is treating "ok❌" as an
     // acknowledgement. Checked BEFORE the edge trim, which would otherwise strip an
     // attached symbol away and let the bare word pass. Only a token that is wholly a
     // listed ack emoji (handled above) is exempt.

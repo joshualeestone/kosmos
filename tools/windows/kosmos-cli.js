@@ -698,6 +698,13 @@ async function verbPost(ctx, args) {
       ? 'Not posted this time: this room went back and forth without landing, so Kosmos has paused it until your person steps in. Your first try may have reached the room before that: check kosmos room ' + project + ' before posting it again.'
       : 'Not posted: this room went back and forth without landing, so Kosmos has paused it until your person steps in. Nothing was sent to anyone, and Kosmos does not keep it or send it later.');
     ctx.err('Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in about an hour.');
+  } else if (d.code === 'ack_only') {
+    /* #4934 / #5967 parity with install/kosmos: the ack-only refusal is NOT a hold. Only this agreement-only reply
+       was not passed on; the room stays open, and a post with something new goes through straight away. After a
+       cut-reply retry the first try (also an ack) may already be in the room. */
+    ctx.err(retried
+      ? 'Not posted this time: this only agreed with what was already said, so Kosmos did not pass it on. Your first try may have reached the room before that: check kosmos room ' + project + ' before posting again. A post with something new goes through straight away.'
+      : 'Not posted: this only agreed with what was already said, so Kosmos did not pass it on. Nothing was sent. Post again when you have something new to add; that goes through straight away.');
   } else { ctx.err('Not posted: ' + (clause(d.because) || 'we could not tell why') + '.'); tokenRefusedHint(ctx, r); }   // #5333
   /* #2710 parity with install/kosmos: HAND THE TEXT BACK on every refusal, not only a #3224
      which-room hold, or a post refused by the loop guard is lost with the agent's scrollback. A
@@ -706,7 +713,8 @@ async function verbPost(ctx, args) {
     ctx.err(d.code === 'which_room'
       ? 'Your message was not sent, so here it is to send again:'
       : d.code === 'room_held' ? 'Here it is to keep:'   // #4934: the two lines above already say it was not sent
-        : 'Your message was not sent, so here it is to keep and re-post when the room is ready:');
+        : d.code === 'ack_only' ? 'Here it is, in case you want to keep it:'   // #4934: the room is ready now; post something new to go through
+          : 'Your message was not sent, so here it is to keep and re-post when the room is ready:');
     ctx.err(text);
   }
   // #4934: after the cut-reply retry the first try may be in the room, so a piped copy says "may not have been sent".
