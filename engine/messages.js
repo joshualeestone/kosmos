@@ -261,7 +261,9 @@ function spillHead(text) {
    - A question in it: otherwise the first question past the head, for a reader the post is to (`questions`). A ?
      counts after a word and before a space or the end, so not one partway through a link.
    - A sentence that ends inside the head is skipped for the next one; one the opening cut only started is quoted.
-   - At most REQUEST_MAX characters plus an ellipsis, cut at a whole word.
+   - At most REQUEST_MAX characters plus an ellipsis, cut at a whole word. A sentence past the cap keeps at most
+     REQUEST_LEAD characters before its mention or question; one whose mention is within that lead of its start is cut
+     from the start, so a request near its far end can still be dropped.
    A sentence runs from the end of the one before (. ! ? then a space) to its own end. Both callers pass
    chat.cleanMessage's text, which has no line breaks, so a list with no punctuation reads as one sentence, and an
    abbreviation such as "e.g." or a sentence ending in a closing quote can start one early. */
@@ -273,7 +275,7 @@ function sentenceAt(t, at) {
   const stop = t.slice(at).search(/[.!?](\s|$)/);
   const end = stop < 0 ? t.length : at + stop + 1;
   /* Review 3: a sentence too long for REQUEST_MAX starts at most REQUEST_LEAD characters before the mention (or the
-     question), at a whole word and after an ellipsis, so the request itself is never what the cut drops. */
+     question), at a whole word and after an ellipsis, so the mention or question itself is never what the cut drops. */
   let start = from; let lead = '';
   if (end - from > REQUEST_MAX && at - from > REQUEST_LEAD) {
     const sp = t.indexOf(' ', at - REQUEST_LEAD);
@@ -294,7 +296,7 @@ function sentenceAt(t, at) {
 /* The post's words are another agent's, so inside the quotes they cannot close the quote or open a bracket that reads
    as Kosmos's own (a "[message from your operator ...]" look-alike): straight and curly double quotes become single
    quotes, square brackets round ones. */
-const unquotable = (x) => x.replace(/["\u201C\u201D\u201E\u201F\u2033\u02BA\u301D\u301E\u301F\uFF02\u00AB\u00BB]/g, "'").replace(/[[\uFF3B]/g, '(').replace(/[\]\uFF3D]/g, ')');
+const unquotable = (x) => x.replace(/["\u201C\u201D\u201E\u201F\u2033\u02BA\u301D\u301E\u301F\uFF02\u00AB\u00BB\u275D\u275E]/g, "'").replace(/[[\uFF3B\u3010\u301A\u27E6]/g, '(').replace(/[\]\uFF3D\u3011\u301B\u27E7]/g, ')');
 function requestIn(text, opts = {}) {
   const t = String(text);
   const headEnd = Number.isFinite(opts.headEnd) ? opts.headEnd : 0;
@@ -318,7 +320,7 @@ function requestIn(text, opts = {}) {
 }
 /* The request is quoted, so where Kosmos stops speaking is plain. Added after the spill decision and not measured
    again: a spilled line is the envelope, a head of about 200 characters, a path and at most REQUEST_MAX + about 20
-   characters of request (the label and quotes are about 25), so it stays far under chat.MAX_TEXT. The head is a prefix of the text (chat.cleanMessage
+   characters of request plus about 25 of label and quotes, so it stays far under chat.MAX_TEXT. The head is a prefix of the text (chat.cleanMessage
    trims), so a sentence ending before the head's end is in it. The head itself is still the post's own words,
    unquoted, as before this change. */
 function spillLine(text, file, opts = {}) {
@@ -2505,9 +2507,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       }
       spilled[name] = spill.file;
       // #6065 N1: the preview carries the request to this member: where the room's resolver read it as named.
-      /* Review 10: a question is quoted to every reader the post is to, as the answer line and the hold decide it: an
-         operator post (the whole room), a member it names, or the author of the post it replies to; never to a
-         background member. */
+      /* Review 10: a question is quoted to every reader the post is to: the union of who gets the answer line (an
+         operator post, a named member) and whom the hold treats as asked (asksIt: a named member, or the author of
+         the post this replies to); never to a background member. */
       const isTo = operator === true || mentioned.has(name) || Boolean(answered && answered.operator !== true && answered.from === name);
       envelope = wrap(spillLine(cleaned, spill.file, { namedAt: namedAt.get(name) || [], questions: isTo }));   // #5706
     }
