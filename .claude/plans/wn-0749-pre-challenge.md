@@ -17,13 +17,14 @@ converged: true
 **Total findings:** 8 actionable WARNINGs plus NITs
 **Fixed:** 8 | **Deferred:** 0 | **Asked (awaiting user):** 0
 
-Validation: Mortals full suite on a3cb08e277 (this head's diff), clean: 20548 tests, 0 failed; the browser-check gate
-passed on the branch's Browser-check trailer. Mortals hashed with ids at 9 (8c027c15c75c); mortals-validate's ladder
-matched it to this diff (local f20842dda56c, git's own length), and run_or_skip matched it (kosmos#6002). The FIRST
-Mortals run (96ddd592fb, same diff) was red ONLY on the #1720 browser-check gate (20548 tests, 0 failed): web/whats-new.json
-is a web/ path and the branch had no trailer. The trailer is an empty commit, so the diff and its hash are unchanged.
-The gate run alone: rc 0 with the trailer, rc 1 on the commit before it (control).
-An earlier Mortals run (843413e93f, before iteration 1) was stopped by me on purpose: the copy was about to change.
+Validation of record: a Mortals full-suite run on the REBASED diff (e9a92fbdf63c, head ba0a03e3e). The merge job
+merges only on its MV-RC=0, so this proof is not merged without it. Before the rebase, the same content passed on
+Mortals (diff f20842dda56c: 20548 tests, 0 failed; the browser-check gate passed on the Browser-check trailer; the
+mortals-validate id-length ladder matched Mortals' abbrev-9 hash 8c027c15c75c, kosmos#6002). The run before that was
+red ONLY on the #1720 browser-check gate (20548 tests, 0 failed): web/whats-new.json is a web/ path and the branch
+had no trailer; the trailer is an empty commit, so the diff did not change. The gate run alone: rc 0 with the
+trailer, rc 1 on the commit before it (control). A first run (before iteration 1) was stopped on purpose: the copy
+was about to change.
 
 ### Per-Iteration Breakdown
 
