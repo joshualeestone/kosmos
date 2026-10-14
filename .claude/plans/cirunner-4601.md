@@ -29,7 +29,7 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 87 ok. Fifty-five mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 90 ok. Fifty-seven mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
@@ -43,7 +43,7 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   counted, a 404 trusted without a control, unwired hooks, hook files unchecked, no GUI-session check, df unchecked;
   then gh stderr merged into a value, a .path mismatch a problem again, the admin STOP removed; then runsvc.sh not
   refreshed, no Listener wait, unreadable groups read as standard, and my own intermediate one-liner that skipped
-  the admin STOP when is_admin succeeded).
+  the admin STOP when is_admin succeeded; then a hidden runner dir read as missing, a duplicate hook key missed).
 - After a restart, install waits up to KOSMOS_CI_START_WAIT_S (30) for a Runner.Listener: svc.sh start is a
   launchctl load and succeeds for a service that dies at once. It refreshes ./runsvc.sh from bin/ when the runner
   is a service, as svc.sh install does, since a self-updated runner's versioned dirs are replaced by the unpack.

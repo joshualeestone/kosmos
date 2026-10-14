@@ -419,14 +419,20 @@ EOF
   else problem "could not read KOSMOS_CI_SHELL_SHARDS"; fi
   say "the job guard and the runner's .env (a KOSMOS_ key there would turn the suite lock off for every job)"
   local k f
-  if [ ! -e "$RUNNER_DIR/.env" ]; then problem "no $RUNNER_DIR/.env: install has not run here, so no job guard is wired"
+  # -e cannot see into a home the caller may not traverse, so a hidden .env is "cannot read", not "missing".
+  local hidden=0
+  if [ -d "$CI_HOME" ] && { [ ! -x "$CI_HOME" ] || { [ -d "$RUNNER_DIR" ] && [ ! -x "$RUNNER_DIR" ]; }; }; then
+    hidden=1; echo "note:   cannot look inside $RUNNER_DIR as $(id -un); its .env, hooks and KOSMOS_ keys are unchecked"
+  elif [ ! -e "$RUNNER_DIR/.env" ]; then problem "no $RUNNER_DIR/.env: install has not run here, so no job guard is wired"
   elif [ ! -r "$RUNNER_DIR/.env" ]; then echo "note:   cannot read $RUNNER_DIR/.env as $(id -un); its hooks and KOSMOS_ keys are unchecked"
   else
     if grep -q -E '^[[:space:]]*(export[[:space:]]+)?KOSMOS_' "$RUNNER_DIR/.env"; then problem "$RUNNER_DIR/.env sets a KOSMOS_ variable: remove it"
     else ok "$RUNNER_DIR/.env sets no KOSMOS_ variable"; fi
     for k in STARTED COMPLETED; do
       f="job-$(printf '%s' "$k" | tr '[:upper:]' '[:lower:]').sh"
-      if grep -q -F -x "ACTIONS_RUNNER_HOOK_JOB_$k=$CI_DIR/$f" "$RUNNER_DIR/.env"; then ok "the $f hook is wired"
+      # The runner sets .env lines in order, so a second line for the key would override the first.
+      if [ "$(grep -c "^ACTIONS_RUNNER_HOOK_JOB_$k=" "$RUNNER_DIR/.env")" -gt 1 ]; then problem "$RUNNER_DIR/.env sets ACTIONS_RUNNER_HOOK_JOB_$k more than once: the last one wins"
+      elif grep -q -F -x "ACTIONS_RUNNER_HOOK_JOB_$k=$CI_DIR/$f" "$RUNNER_DIR/.env"; then ok "the $f hook is wired"
       else problem "$RUNNER_DIR/.env does not set ACTIONS_RUNNER_HOOK_JOB_$k=$CI_DIR/$f: the job guard is not wired"; fi
     done
   fi
@@ -438,7 +444,8 @@ EOF
   else echo "note:   cannot read $CI_DIR as $(id -un); the hook files are unchecked"; fi
   # .env's PATH wins for jobs (see RUNNER_PATH), so a different .path is a note, not a problem. config.sh refills it
   # from its own shell, so a re-register (./svc.sh uninstall and ./config.sh remove first) can undo register's.
-  if [ ! -e "$RUNNER_DIR/.path" ]; then ok "no $RUNNER_DIR/.path here"
+  if [ "$hidden" = 1 ]; then :
+  elif [ ! -e "$RUNNER_DIR/.path" ]; then ok "no $RUNNER_DIR/.path here"
   elif [ ! -r "$RUNNER_DIR/.path" ]; then echo "note:   cannot read $RUNNER_DIR/.path as $(id -un)"
   elif [ "$(cat "$RUNNER_DIR/.path")" = "$RUNNER_PATH" ]; then ok ".path is the PATH .env sets"
   else echo "note:   $RUNNER_DIR/.path is not $RUNNER_PATH (config.sh's own shell PATH?). Jobs use .env's PATH; to tidy it, write that line to .path"; fi
