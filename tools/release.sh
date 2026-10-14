@@ -641,8 +641,19 @@ step "== 1a-floor. the setup floor on the pair this cut re-publishes untouched (
   echo "KOSMOS_SETUP_FLOOR_TEST / KOSMOS_SETUP_FLOOR_LOWER are set: they lower the setup floor for test fixtures and must never reach a cut -- refusing"; exit 1; }
 kosmos_setup_floor_ok "this $CUT_CHANNEL cut" "$V" || exit 1
 kosmos_setup_floor_installer_ok "this cut's install/setup.sh" "$REPO/install/setup.sh" || exit 1
-kosmos_setup_floor_site_untouched_ok "the site checkout" "$SITE" "$CUT_CHANNEL" || {
-  echo "(this read the site CHECKOUT at $SITE: if it is behind origin/main, refresh it and cut again; if origin/main holds the old file too, fix what it named: a POINTER below the floor needs publish-staging-pointer.sh (staging) or a promote (prod) of a build at or above it; an INSTALLER that does not know the read-only app needs a cut on that channel, which writes its installer)"; exit 1; }
+# Read origin/main's copies (what the cut's fresh-main site commit will carry), not a checkout that may be behind:
+# fetch, then lay the four files out in a scratch dir. If the fetch fails, fall back to the checkout and say so.
+_floor_site="$SITE"
+if git -C "$SITE" fetch -q origin 2>/dev/null; then
+  _floor_site="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-floor-site.XXXXXX")" && mkdir -p "$_floor_site/dist"
+  for _f in dist/latest.json dist/latest-staging.json setup setup-staging; do
+    git -C "$SITE" show "origin/main:$_f" > "$_floor_site/$_f" 2>/dev/null || rm -f "$_floor_site/$_f"
+  done
+else
+  echo "(could not fetch the site; checking the checkout at $SITE as it is)"
+fi
+kosmos_setup_floor_site_untouched_ok "the site (origin/main, or the checkout if it could not be fetched)" "$_floor_site" "$CUT_CHANNEL" || {
+  echo "(fix what it named: a POINTER below the floor needs publish-staging-pointer.sh (staging) or a promote (prod) of a build at or above it; an INSTALLER that does not know the read-only app needs a cut on that channel, which writes its installer)"; exit 1; }
 # ---- (end of step 1a-floor; what follows belongs to step 1b) ----
 # ⚠️ LAST IN STEP 1, NOT FIRST, AND THE ORDER IS LOAD-BEARING. Placed before
 # the divergence guard this pre-empts it, and a cut from a diverged tree then

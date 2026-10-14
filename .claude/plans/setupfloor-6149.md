@@ -73,7 +73,15 @@ KOSMOS_READONLY_APP, /setup-staging with 9: no deploy, promote or cut that is va
   cut refuses. It is never served by these tools (site-autodeploy runs deploy-site.sh, which refuses it), but every
   site deploy then stays refused until a fix lands. Checking inside site_commit_on_fresh_main before the push would
   close it; not done here, to keep tools/lib/site-deploy.sh out of this change.
-- release.sh's calls are tested by source (order and presence), not run: a cut cannot run in the suite.
+- release.sh's calls are tested by source (order, presence, and their failure tails), not run: a cut cannot run in
+  the suite.
+- docs/staging-channel.md's manual fallback commits and pushes the pointer BEFORE its floor check (which runs on the
+  export, before vercel): the same class as release.sh's step 7b. Never served (the site does not deploy main by
+  itself, and site-autodeploy runs deploy-site.sh, which refuses it), but site deploys stay refused until fixed.
+- deploy-site's early committed latest.json check is not separately pinned: its export check refuses the same
+  pointer with the same words, so deleting the early one only loses the fail-fast (the staging one is pinned, arm 39).
+- release.sh step 1a reads origin/main after a fetch (a stale checkout once refused a valid cut in review 15's
+  reading); if the fetch fails it reads the checkout and says so.
 - deploy-site's own #4819 refusal is shadowed for a malformed staging artifact by the floor's earlier refusal in
   test-deploy-site-promote.sh arm 20; it is still covered by test-deploy-site-staged-mac-4819.sh (st8, st13).
 - deploy-site.sh, promote-channel.sh and publish-staging-pointer.sh honour the knob (their tests use it); only

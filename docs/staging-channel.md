@@ -196,8 +196,8 @@ removes `bin/` on update, fails at `app/`, and cannot
 put the board back, because `bin/kosmos` is gone. So a ROLLBACK of `/setup` or `/setup-staging` to a build older
 than 0.7.45 breaks the next update of every Mac and Linux install a later build has touched. The tools refuse
 it (kosmos#6149, `tools/lib/setup-floor.sh`): publish-staging-pointer, promote-channel, deploy-site and release.sh
-will not publish a Mac pointer below 0.7.45, and promote-channel, deploy-site and release.sh will not publish a
-`/setup` or `/setup-staging` that does not name `KOSMOS_READONLY_APP` (the switch and the lift came in one change, so
+will not publish a Mac pointer below 0.7.45; deploy-site and release.sh will not publish a `/setup` or
+`/setup-staging` that does not name `KOSMOS_READONLY_APP`, and promote-channel will not make one prod's `/setup` (the switch and the lift came in one change, so
 an installer that names it can lift the lock; a string check, not a proof).
 NOT covered, because each goes around every script: a rollback done in Vercel itself (the dashboard's Instant
 Rollback, `vercel rollback`, or `vercel promote` of an older deployment), and any other hand-run `vercel deploy
