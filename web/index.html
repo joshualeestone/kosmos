@@ -23913,7 +23913,7 @@ function updateRefusedText(attempt) {
       + esc('sudo chflags -R noschg,nosappnd ' + list) + '</code>';
   }
   if (r.why === 'immutable') {
-    return ' Part of it is marked immutable: <code>' + esc(r.at) + '</code>. Nothing was removed. Only an administrator '
+    return ' Part of it is marked immutable or append-only: <code>' + esc(r.at) + '</code>. Nothing was removed. Only an administrator '
       + 'can clear that, with this line in a terminal, then update again: <code>'
       + esc('sudo chattr -R -i -a ' + paths.map(quote).join(' ')) + '</code>';
   }

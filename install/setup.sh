@@ -1399,6 +1399,7 @@ install_kosmos() {
     # -d first: the part folder itself (-R lists only what is inside it). -a: dot-files too; it also lists each
     # folder's . and .. entries, which are skipped. The flag match is lowercase on purpose: i and a are the locks,
     # while the uppercase I (indexed folder, on nearly every ext4 folder) and A (no access time) are harmless.
+    # lsattr opens each file to read its flags (find on macOS only stats them), so this costs more on a big tree.
     for part in bin app runtime; do
       [ -d "$dest/$part" ] || continue
       _found="$( { lsattr -d "$dest/$part"; lsattr -Ra "$dest/$part"; } 2>/dev/null | awk '$1 ~ /^[-a-zA-Z]+$/ && $1 ~ /[ia]/ { sub(/^[^ ]+ /, ""); if ($0 ~ /\/\.\.?$/) next; print; exit }' || true)"

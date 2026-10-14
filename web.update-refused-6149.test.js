@@ -80,7 +80,7 @@ test('Windows and the came-back-on-the-same-version case are untouched', () => {
 test('an immutable refusal (Linux) names the path and gives the administrator chattr line', () => {
   const { updateRefusedText } = lifted();
   const t = updateRefusedText({ refused: { why: 'immutable', at: '/k/app/engine/x.js', parts: ['app'], paths: ['/k/app'] } });
-  assert.match(t, /Part of it is marked immutable: <code>\/k\/app\/engine\/x\.js<\/code>\. Nothing was removed\./);
+  assert.match(t, /Part of it is marked immutable or append-only: <code>\/k\/app\/engine\/x\.js<\/code>\. Nothing was removed\./);
   assert.match(t, /<code>sudo chattr -R -i -a '\/k\/app'<\/code>/);
   assert.doesNotMatch(t, /chflags/, 'not the macOS line');
 });
