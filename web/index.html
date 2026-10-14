@@ -21150,32 +21150,13 @@ function stateReason(a, opts) {
       ? 'This is taking longer than usual. Nothing was lost.'
       : 'This takes a few seconds. Nothing was lost.';
   }
-  /* 🛑 THE CARD AND THE ROW ASK FOR THIS WITHOUT THE QUOTE (#986). Josh, twice:
-     the quoted last-words line is "just kind of pointless" on the grid and list,
-     and it was STILL THERE after that card closed. The close removed
-     `saidLine()`, which is a different derivation that produced a
-     similar-looking line; the quote he can actually see comes from HERE.
-     ⭐ RIGHT METHOD, WRONG NOUN -- two functions rendered a quoted sentence into
-     that slot and only one of them was cut.
-     📌 An option rather than a second function: the one-derivation rule above is
-     what stops the card and the detail header disagreeing by accident, so the
-     one place they differ ON PURPOSE says so by name. Everything below this arm
-     is a STATE, which Josh explicitly kept, so the card still gets it. */
-  if (opts && opts.noQuote && a && a.stateReported === true && a.because) {
-    /* fall through to the states below rather than returning '': a
-       rate-limited agent that also reported a sentence must still say it is
-       rate limited. */
-  } else
-  /* #569: A REPORTED STATE SPEAKS IN THE AGENT'S OWN SENTENCE, quoted. The
-     quotation marks are the point, not decoration: they are the plain-words
-     mark for "in its own words", so a statement and a guess cannot render
-     alike (the engine's whole distinction, kept visible). This is the live
-     version of what this slot always wanted -- #209 emptied it because the
-     pane title was a fossil; a report is current by construction, and a
-     stale one already decayed to unknown server-side before reaching here. */
-  if (a && a.stateReported === true && a.because) {
-    return '“' + a.because + '”';
-  }
+  /* #569 once rendered a reported state in the agent's own sentence, QUOTED, right here.
+     Josh then ruled the quoted line off every surface that showed it: #986 (grid and list),
+     #3043 and #3271 (the detail header, removed entirely). After those, the quoted arm was
+     dead (every caller passed noQuote:true to skip it), so #6118 removed it and the noQuote
+     opt-out with it. A reported+because agent now falls through to the state rules below,
+     exactly as the noQuote path did; the reported sentence still surfaces via the Talk
+     waiting box (waitingLine) and the engine-state sentences, which are untouched. */
   /* #874: same hedge shape as rate_limited below -- SCRAPED means a regex
      over a pane, not a live check of the account, so this says what was
      SEEN ("looks like") rather than what is concluded ("is not"). */
@@ -22255,7 +22236,7 @@ function card(a) {
     <div class="astate st-${m.st}">${glyphOf(a)}<b>${esc(copy.label)}</b>${answer}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(modelLine(a))}</div>
-    <div class="atask">${esc(taskLine(a, { noQuote: true, card: true }))}</div>
+    <div class="atask">${esc(taskLine(a, { card: true }))}</div>
     ${comm ? `<div class="acommunity">${esc(comm)}</div>` : ''}
   </div>`;
 }
@@ -22487,7 +22468,7 @@ function lrow(a) {
          because they are actions, not status text. This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
     <div class="lstate"><span class="vh">${glyphOf(a)}${esc(copy.label)}</span><span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}">${glyphOf(a)}</span>${answerBtn(a)}${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
-    ${lrowTask(taskLine(a, { noQuote: true, card: true }), rulesBehindLine(a, false))}
+    ${lrowTask(taskLine(a, { card: true }), rulesBehindLine(a, false))}
     <div class="lmodel">${esc(modelLine(a))}</div>
     <div class="lmem">${mem}</div>
   </div>`;
@@ -40858,16 +40839,17 @@ function paintDetailState(card) {
      self-reported text Josh flagged, and
      dropping them would silently undo those prior rulings.
      (#2833 still holds: needs_you hides its quote here, and the Talk waiting box carries it.)
-     taskLine / stateReason are UNCHANGED, so the grid/list cards that share them are unaffected.
-     🔑 The mechanism is the SAME derivation the grid/list cards already use -- taskLine with
-     { noQuote: true }. That path falls through stateReason's reported branch (returning '' for a
-     reported self-quote) while KEEPING the engine-state sentences (auth/rate-limit/restart), which
-     is exactly what this line wants. Delegating rather than re-deriving the "is this the reported
-     quote" test inline keeps the header and the cards from ever disagreeing about what drops beside
-     the bubble (one fact, one derivation), and the noQuote behavior is already unit-tested. */
+     taskLine / stateReason share ONE derivation with the grid/list cards, so the bubble and the
+     cards can never disagree about what drops beside it.
+     🔑 The mechanism is the SAME derivation the grid/list cards already use: taskLine. Since #6118
+     removed the quoted reported-reason arm (and its noQuote opt-out), a reported self-quote now
+     ALWAYS falls through stateReason's reported branch (returning '' for the quote) while KEEPING
+     the engine-state sentences (auth/rate-limit/restart), which is exactly what this line wants.
+     Delegating rather than re-deriving the "is this the reported quote" test inline keeps the
+     header and the cards from ever disagreeing, and the fall-through behavior is unit-tested. */
   const dtask = document.getElementById('d-task');
   if (!dtask) return;
-  const taskText = taskLine(a, { noQuote: true });
+  const taskText = taskLine(a);
   if (dtask.textContent !== taskText) dtask.textContent = taskText; // every poll: keep a selection
   dtask.hidden = !taskText || (a.state === 'needs_you');
 }
