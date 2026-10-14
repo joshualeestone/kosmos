@@ -138,10 +138,12 @@ run "control: tunnel up and the session page -> PASS"                0 "tunnel-g
 run "no relay ticket, control passes -> FAIL at ticket"              1 "FAIL at ticket"                     "ticket"        "up"
 run "relay TLS refused, control passes -> FAIL at dial-auth"         1 "FAIL at dial-auth: the relay session" "auth"        "up"
 run "the connector exits, control passes -> FAIL at dial-auth"       1 "the connector exited"               "exits"         "up"
-run "no tunnel up in time, control passes -> FAIL at dial-auth"      1 "no \"tunnel up\" within 6s"         "silent"        "up"
+# #5907: the three deadline paths below wait out the whole timeout on each attempt, so they take 3 s, not run()'s 6
+# (the last --timeout wins in the gate's parser). Their control still comes up at once; 3 s leaves room under load.
+run "no tunnel up in time, control passes -> FAIL at dial-auth"      1 "no \"tunnel up\" within 3s"         "silent"        "up"   --timeout 3
 # The deadline path WITH an ended session (the connector keeps retrying, as the real one does):
-run "a ticket failure that keeps retrying -> FAIL at ticket, at the deadline" 1 "no relay ticket within 6s" "ticketh" "up"
-run "a different page, control passes -> FAIL at serve"              1 "not the connector's session page"   "wrong"         "up"
+run "a ticket failure that keeps retrying -> FAIL at ticket, at the deadline" 1 "no relay ticket within 3s" "ticketh" "up" --timeout 3
+run "a different page, control passes -> FAIL at serve"              1 "not the connector's session page"   "wrong"         "up"   --timeout 3
 run "HTTP 500, control passes -> FAIL at serve"                      1 "got HTTP 500"                       "boom"          "up"
 # The environment: the control fails too. This is the 502-mid-deploy / relay-restart / lapsed-
 # identity family, whatever the connector's words, never a refusal.
