@@ -48,5 +48,7 @@ the head is skipped for the next one; nothing when there is none. At most 300 ch
   than the cap is quoted from the start, so a request near that sentence's far end can still be cut off.
 - (round 12) A question ending in a closing quote or bracket (ready?" or (ready?)) counts and is quoted with its closer.
   The room path measures the line again after adding the request, with the catch-up and held-posts clauses after it,
-  and drops the request in the unlikely case it no longer fits. That guard is not covered by a test: reaching it needs
-  a held-posts clause near 9,000 characters, which no realistic fixture produces.
+  and drops the request in the unlikely case it no longer fits. (Round 13: that choice is fitOrBare, tested on both arms.)
+- (round 13) One definition of a sentence for both ends of the request, with the head's own abbreviation rule
+  (notAnEnd, for a full stop only): a sentence ending in a closing quote is not pulled in, and p.m. or e.g. does not
+  split one.

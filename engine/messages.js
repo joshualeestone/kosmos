@@ -229,6 +229,9 @@ const SPILL_HEAD = 200;
 const NOT_AN_END = /^(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|inc|corp|ltd|co|no|nos|fig|vol|dept|approx|est|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec|gen|sen|rep|gov|pres|capt|lt|col|sgt|rev|hon|mt|ft|ave|rd|blvd|univ|al|cf|ca|ch|sec|eq|ex|pp|ref)\.$/i;
 /* Never end a cut on the first half of a two-unit character (an emoji), which would type a broken character. */
 const wholeChars = (s) => (/[\uD800-\uDBFF]$/.test(s) ? s.slice(0, -1) : s);
+/* A list number ("1."), a dotted form ("e.g.", "U.S."), a single initial ("J."), or a known abbreviation: the word does
+   not end a sentence. Shared by the head and the request (#6065 N1 review 13), so both read sentences the same way. */
+const notAnEnd = (last) => /^\(?\d+[.)]$/.test(last) || /\..*[.!?]$/.test(last) || /^[A-Za-z]\.$/.test(last) || NOT_AN_END.test(last);
 function spillHead(text) {
   const t = String(text);
   const words = (t.match(/\S+/g) || []).length;
@@ -240,7 +243,7 @@ function spillHead(text) {
     const upto = t.slice(0, m.index + 1).trim();
     const last = upto.slice(upto.lastIndexOf(' ') + 1);
     /* A list number ("1."), a dotted form ("e.g.", "U.S."), a single initial ("J."), or a known abbreviation. */
-    if (/^\(?\d+[.)]$/.test(last) || /\..*[.!?]$/.test(last) || /^[A-Za-z]\.$/.test(last) || NOT_AN_END.test(last)) continue;
+    if (notAnEnd(last)) continue;
     /* Review 4: a spilled message always goes on past its first sentence, so the head always ends in an ellipsis. A
        word this list misses can then never pass a fragment off as the whole message; the list only picks a better cut. */
     if (upto.length >= 20) { head = upto + ' \u2026'; break; }
@@ -264,17 +267,22 @@ function spillHead(text) {
    - At most REQUEST_MAX characters plus an ellipsis, cut at a whole word. A sentence past the cap keeps at most
      REQUEST_LEAD characters before its mention or question; one whose mention is within that lead of its start is cut
      from the start, so a request near its far end can still be dropped.
-   A sentence runs from the end of the one before (. ! ? then a space) to its own end. Both callers pass
-   chat.cleanMessage's text, which has no line breaks, so a list with no punctuation reads as one sentence, and an
-   abbreviation such as "e.g." or a sentence ending in a closing quote can start one early. */
+   A sentence runs from the end of the one before to its own end, by one definition (sentenceAt, sharing the head's
+   notAnEnd for abbreviations). Both callers pass chat.cleanMessage's text, which has no line breaks, so a list with no
+   punctuation reads as one sentence. */
 const REQUEST_MAX = 300;
 const REQUEST_LEAD = 100;   // how much of a long sentence is kept before its mention or question
 function sentenceAt(t, at) {
-  const before = t.slice(0, at);
-  const from = Math.max(-1, ...['. ', '! ', '? '].map((e) => { const i = before.lastIndexOf(e); return i < 0 ? -1 : i + 1; })) + 1;
-  const stop = t.slice(at).search(/[.!?]["')\]]*(\s|$)/);   // review 12: a closing quote or bracket may follow
-  const closer = stop < 0 ? '' : t.slice(at + stop + 1).match(/^["')\]]*/)[0];
-  const end = stop < 0 ? t.length : at + stop + 1 + closer.length;
+  /* A sentence ends at . ! or ? with any closing quote or bracket after it, then a space or the end; never at a word
+     notAnEnd names (the head's own rule). Both ends of the sentence use this one definition (review 13). */
+  const BOUND = /[.!?]["')\]]*(?=\s|$)/g;
+  // The abbreviation rule is about a full stop: a ? or ! after a dotted word (a link ending in ?) still ends one.
+  const ends = (i, len) => (t[i] === '.' && notAnEnd(t.slice(t.lastIndexOf(' ', i) + 1, i + 1)) ? -1 : i + len);
+  let from = 0;
+  for (const m of t.slice(0, at).matchAll(BOUND)) { const e = ends(m.index, m[0].length); if (e >= 0) from = e; }
+  while (from < at && /\s/.test(t[from])) from += 1;
+  let end = t.length;
+  for (const m of t.slice(at).matchAll(BOUND)) { const e = ends(at + m.index, m[0].length); if (e >= 0) { end = e; break; } }
   /* Review 3: a sentence too long for REQUEST_MAX starts at most REQUEST_LEAD characters before the mention (or the
      question), at a whole word and after an ellipsis, so the mention or question itself is never what the cut drops. */
   let start = from; let lead = '';
@@ -324,6 +332,11 @@ function requestIn(text, opts = {}) {
    characters of request plus about 25 of label and quotes; the room path measures the line again with what follows it. The head is a prefix of the text (chat.cleanMessage
    trims), so a sentence ending before the head's end is in it. The head itself is still the post's own words,
    unquoted, as before this change. */
+/* Review 12/13: the request is added after the spill decision, so the line is measured again with what follows it
+   (the room's catch-up and held posts): it goes with the request when that fits, else without (`bare()`). */
+function fitOrBare(withRequest, bare, after = '') {
+  return spillsAt(withRequest + after) ? bare() : withRequest;
+}
 function spillLine(text, file, opts = {}) {
   const { head, words } = spillHead(text);
   const headEnd = head.replace(/\s*\u2026$/, '').trimEnd().length;
@@ -1511,7 +1524,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     const spill = spillInto(toName, id, cleaned);   // #4447: the recipient's own Inbox
     if (!spill.file) return refuse(toName, 'that message is long enough to need a file, and ' + spill.because);
     spillFile = spill.file;
-    body = spillLine(cleaned, spillFile);   // #5706
+    body = spillLine(cleaned, spillFile);   // #5706 (a DM line has nothing typed after it, so no re-measure: see fitOrBare)
   }
   const envelope = prefix + body;
   /* #5805 slice 2a: the recipient is out of usage (slice 1's hold): typed now, the message would land on its limit
@@ -2512,10 +2525,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
          operator post, a named member) and whom the hold treats as asked (asksIt: a named member, or the author of
          the post this replies to); never to a background member. */
       const isTo = operator === true || mentioned.has(name) || Boolean(answered && answered.operator !== true && answered.from === name);
-      envelope = wrap(spillLine(cleaned, spill.file, { namedAt: namedAt.get(name) || [], questions: isTo }));   // #5706
-      /* Review 12: the request is added after the spill decision, so the line is measured again with what follows it
-         (catch-up, held posts); in the unlikely case it no longer fits, the line goes without the request. */
-      if (spillsAt(envelope + catchUp + heldLine)) envelope = wrap(spillLine(cleaned, spill.file, { namedAt: [], questions: false }));
+      envelope = fitOrBare(wrap(spillLine(cleaned, spill.file, { namedAt: namedAt.get(name) || [], questions: isTo })),   // #5706
+        () => wrap(spillLine(cleaned, spill.file, { namedAt: [], questions: false })), catchUp + heldLine);
     }
     const finish = (sent) => {
       /* #4588 PR B: held (the shared Google quota, #5743/#5754 an answer awaited on its screen: question menu, permission prompt, safeguards menu, or #5805 a usage limit), nothing typed. The post is kept for this member like a #4624
@@ -3547,7 +3558,7 @@ function resetOwnPostNudgesForTests() { ownPostNudgedAt.clear(); }
 
 module.exports = {
   spillLimit,   // #6065: the longest line typed whole
-  spillLine, requestIn,   // #6065 N1: the shortened line and its request (tests)
+  spillLine, requestIn, fitOrBare,   // #6065 N1: the shortened line, its request, and the re-measure (tests)
   HELD_STATE, heldAccepted, logHeldDelivered, logHeldDropped, tellHeldDropped,   // kosmos#5805 slice 2a
   keepTaskLine, tellTaskLineDropped, recordTaskLineOutcome,   // kosmos#5805: task messages; #5842: their outcome on the task
   NOT_ON_PROJECT_FIX,   // kosmos#5752 slice 2

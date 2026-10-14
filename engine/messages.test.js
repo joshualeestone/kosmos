@@ -457,6 +457,18 @@ test('#6065 N1: requestIn: the sentence at the room\'s own mention positions, el
   assert.equal(messages.requestIn(quoted, {}).sentence, "He asked: is it ready?'");
   const bracket = 'News. ' + fill + 'Check the dates (are they final?) today. Fine.';
   assert.equal(messages.requestIn(bracket, {}).sentence, 'Check the dates (are they final?)');
+  // One sentence definition (review 13): a sentence ending in a closer, or an abbreviation, is not pulled in or split.
+  const said = 'News. ' + fill + 'He said "go." @mara please ship. Done.';
+  assert.equal(messages.requestIn(said, { namedAt: at(said, '@mara') }).sentence, '@mara please ship.');
+  const pm = 'News. ' + fill + 'Meet at 3 p.m. tomorrow, @mara? Done.';
+  assert.equal(messages.requestIn(pm, { namedAt: at(pm, '@mara') }).sentence, 'Meet at 3 p.m. tomorrow, @mara?');
+  // The re-measure (review 12/13): with the request when it fits, without it when what follows would push it over.
+  let bareCalls = 0;
+  const bareLine = () => { bareCalls += 1; return 'BARE'; };
+  assert.equal(messages.fitOrBare('WITH', bareLine, 'tail'), 'WITH');
+  assert.equal(bareCalls, 0);
+  assert.equal(messages.fitOrBare('WITH', bareLine, 'x'.repeat(messages.spillLimit())), 'BARE');
+  assert.equal(bareCalls, 1);
   assert.equal(messages.requestIn('No ask in here. Just news.', {}), null);
   // A request longer than REQUEST_MAX is cut at a whole word and says so.
   const longT = 'Intro. @mara ' + 'please read '.repeat(60) + 'now.';
