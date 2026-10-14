@@ -7,16 +7,17 @@ in a loaded suite this morning, the third slowest shell script; measured alone 9
 - tools/tunnel-handshake-gate.sh `stop_connector`: after TERM, check for the connector every 0.1 s (50 checks)
   instead of every 0.5 s (10 checks). Same 5 s bound before KILL. A connector just sent TERM is nearly always still
   alive at the first check, so every stop paid 0.5 s, three stops a case.
-- tools/test-tunnel-handshake-gate.sh: the three deadline-path cases (no tunnel up, a ticket failure that keeps
-  retrying, a different page) pass `--timeout 3` after run()'s `--timeout 6` (the gate keeps the last), and their
+- tools/test-tunnel-handshake-gate.sh: the two deadline-path cases (no tunnel up, a ticket failure that keeps
+  retrying) pass `--timeout 3` after run()'s `--timeout 6` (the gate keeps the last), and their
   expected texts say 3s. They wait out the whole timeout on each attempt by design; their control stub comes up at
   once, so 3 s keeps room under load. Every other case keeps 6 s.
 
 ## Proven
-- Alone on Agent1s: 98 s before, 75 s with the timeouts, 57 s with both; 57 of 57 pass each time.
-- Review 1 asked whether the "different page" case is time-bound (its stub prints "tunnel up" at once and fails at
-  serve). Measured, it is: 12.8 s at the 6 s timeout, 4.3 s at 3 s (before the poll change), so its serve step waits on
-  the timeout too. The other two are the deadline paths by design.
+- Alone on Agent1s: 98 s before, 57 to 60 s after; 57 of 57 pass each time.
+- Review 1 said the "different page" case is not time-bound; I answered with a measurement (12.8 s at 6, 4.3 s at 3)
+  and kept it. Review 2 read the code (the serve stage never reads TIMEOUT), and an INTERLEAVED re-measure agreed with
+  it: 3.19, 2.62, 2.78 s at 6 against 2.69, 2.97, 2.66 s at 3. My first numbers were one noisy run each, not an
+  effect. The flag is removed from that case; the 98 s to 57 s total is the measured outcome, not split by cause.
 
 ## Not covered (before or after)
 - A connector that ignores TERM (the KILL after 5 s): no case exercises it. The bound is unchanged (50 x 0.1 s).
