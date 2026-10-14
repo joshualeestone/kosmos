@@ -130,9 +130,10 @@ function fetchBoard(route) {
 }
 const DEFAULT_SIZES = ['se', 'iphone15', 'promax', 'android'];
 /* Why a screen is not shot at a size, or '' when it is. A tablet (#6107) is a touch size like a phone, but a
-   phone-only screen (the #burger menu, hidden above 40rem) does not exist there either; a desktop-only screen is
+   phone-only screen (the #burger menu, hidden above 40rem) does not exist there either, except at tab8 (600px,
+   under 40rem), which still shows it; a desktop-only screen is
    skipped at every size that is not the desktop one, tablets included. */
-const skipWhy = (s, sc) => (sc.phoneOnly && (s.desktop || s.tablet) ? 'phone-only screen' : (sc.desktopOnly && !s.desktop ? 'desktop-only screen' : ''));
+const skipWhy = (s, sc) => (sc.phoneOnly && (s.desktop || (s.tablet && s.width > 640)) ? 'phone-only screen' : (sc.desktopOnly && !s.desktop ? 'desktop-only screen' : ''));
 const THEMES = ['light', 'dark'];
 const ENGINES = ['chromium', 'webkit'];
 
@@ -2211,8 +2212,8 @@ async function run() {
   if (COVER_CONTROL === 'spill' && args.sizes.every((sz) => SIZES[sz].desktop)) {
     throw new Error('MSHOTS_COVER_CONTROL=spill needs a phone size');
   }
-  /* Nothing to shoot is not a pass: every requested screen is skipped at the sizes asked for (phone-only at desktop,
-     desktop-only at a phone). Decided before any browser or board starts (tools.mobile-shots-desktop.test.js). */
+  /* Nothing to shoot is not a pass: every requested screen is skipped at the sizes asked for (skipWhy:
+     phone-only at desktop or a tablet over 40rem, desktop-only at a phone or tablet). Decided before any browser or board starts (tools.mobile-shots-desktop.test.js). */
   const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !skipWhy(SIZES[sz], sc)).length, 0);
   if (!planned) throw new Error('no shot would be taken: every requested screen is skipped at these sizes (phone-only at desktop, desktop-only at a phone)');
   // Test hook (tools.mobile-shots-desktop.test.js): report the plan and stop, before any browser or board.
