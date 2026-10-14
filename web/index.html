@@ -35593,6 +35593,10 @@ const ORG_R0 = 120;          // the first ring
 const ORG_STEP = 74;         // how much further out each generation sits
 const ORG_MIN_ARC = 62;      // the arc a 44px node needs to not touch its neighbour
 const ORG_FACE_R = 22;       // #4502: a face's radius (a 44px node), the clearance a line to another agent keeps from it
+/* #4472: the least distance from a line to the CENTRE of a face that is not one of its ends (a face is 44px
+   across, so a line at 12px still crosses its disc: it keeps a line off the middle, not off the face).
+   #4499: hoisted to module scope so orgPlaceGated and orgFirstRingClear (the first-ring gate) can read it. */
+const ORG_LINE_CLEAR = 12;
 
 /* ---- the organic layer (#285) ----------------------------------------------
    Josh: "grab a hold of one of the nodes and move it and it moves the whole
@@ -35885,7 +35889,7 @@ function orgTreeOf(agents) {
   return out;
 }
 
-function orgPlace(nodes) {
+function orgPlace(nodes, floored) {
   const placed = new Map();
   let maxR = ORG_R0;
   /* kosmos#4434 (Josh, 2026-09-28: "the agents in the bottom left are crossing over lines"). A FLAT fleet
@@ -36011,9 +36015,6 @@ function orgPlace(nodes) {
   /* #4472: how much further out a big team's second ring sits. Its faces sit on slanted lines, which carry them
      sideways toward an inner neighbour, so the flat spill's 58 left them ~60px apart; measured best of 58-70. */
   const ORG_LANE = ORG_MIN_ARC;
-  /* #4472: the least distance from a line to the CENTRE of a face that is not one of its ends (#4472's rule; a face
-     is 44px across, so a line at 12px still crosses its disc: it keeps a line off the middle, not off the face). */
-  const ORG_LINE_CLEAR = 12;
   const ORG_BRANCH_ROOM = 0.85;  // #4472: the share of its leaves' room a branch's slice must have (best of 0.5-1.2)
   const ORG_CLEAR_REACH = 1.25;  // #4472: how far past the spacing radius a team may go for that clearance
   const ORG_LANE_SLOT = 31;   // #4472: a two-ring team's line past a face's CENTRE, at least: half ORG_MIN_ARC (9px past its edge)
@@ -36059,13 +36060,50 @@ function orgPlace(nodes) {
   // The first ring: slices by leaf count, the first one centred at the top as before.
   const roots = kids.get('') || [];
   const total = roots.reduce((sum, n) => sum + weigh(n), 0) || 1;
-  let at = -Math.PI / 2 - (TAU * weigh(roots[0])) / total / 2;
+  /* #4499: the first-ring minimum-span floor, applied through a measured gate (orgPlaceGated). Light roots get a
+     sliver of a proportional slice and cluster at near-equal angles; a crowded pair is bumped to a further lane
+     but keeps its angle, so an outer root's hub line grazes an inner root's face below ORG_LINE_CLEAR (measured:
+     122 of 123 lines within 12px of an unrelated face across 300 trees were this). A hub line to a root on an
+     outer lane clears an inner face at radius q by about q * sin(gap), so at ORG_R0 the roots must be at least
+     asin(ORG_LINE_CLEAR / ORG_R0) apart; the floor seats every root that far apart, with a 6px margin so 18px
+     natural holds at or above 12px as drawn down to ORG_SQUEEZE_MIN (0.7), where orgFit floors the scale. The
+     floor is funded from roots with span to spare, but clearing a dense first ring costs the donor roots angle
+     their own subtrees need, which can grow a crowded chart; orgPlaceGated therefore applies this floored layout
+     ONLY when it measures size-safe against the proportional layout, and keeps the proportional layout otherwise
+     (a chart that cannot be cleared without growing is left exactly as it was; that size work is #4499's size
+     card). floored=false returns the proportional spans (what the chart drew before #4499); floored=true returns
+     the floored spans. Slices stay contiguous and disjoint either way, so nothing new can cross. */
+  const prop = roots.map((n) => (TAU * weigh(n)) / total);
+  const MIN_SPAN = Math.asin(Math.min(1, (ORG_LINE_CLEAR + 6) / ORG_R0));
+  let spans;
+  if (!floored) {
+    spans = prop;
+  } else if (roots.length * MIN_SPAN >= TAU) {
+    // More roots than the floor can seat: equal shares, the lanes carry the face spacing (orgPlaceGated keeps
+    // this only when it measures size-safe and clears ORG_LINE_CLEAR).
+    spans = roots.map(() => TAU / roots.length);
+  } else {
+    // Water-fill: lift every under-floor span to the floor, taking the deficit from the roots with span to spare
+    // in proportion to their surplus, until no lifted root dips back under.
+    spans = prop.slice();
+    for (let pass = 0; pass < 60; pass += 1) {
+      let deficit = 0; let surplus = 0;
+      for (const s of spans) { if (s < MIN_SPAN) deficit += MIN_SPAN - s; else surplus += s - MIN_SPAN; }
+      if (deficit <= 1e-12 || surplus <= 1e-12) break;
+      const take = Math.min(1, deficit / surplus);
+      spans = spans.map((s) => (s < MIN_SPAN ? MIN_SPAN : s - (s - MIN_SPAN) * take));
+    }
+    const sum = spans.reduce((a, b) => a + b, 0) || 1;
+    spans = spans.map((s) => (s * TAU) / sum);   // renormalise to exactly TAU (rounding guard)
+  }
+  let at = -Math.PI / 2 - (spans[0] || 0) / 2;
   const lanes = [];   // per lane, the angles already on it
-  for (const n of roots) {
-    const span = (TAU * weigh(n)) / total;
+  roots.forEach((n, idx) => {
+    const span = spans[idx];
     const ang = at + span / 2;
     /* A crowded first ring still spills to a further lane. Its lines come straight from the hub, so a
-       lane cannot cause a crossing; it only keeps two faces from touching. */
+       lane cannot cause a crossing; it only keeps two faces from touching. The minimum span above keeps
+       an outer lane's line clear of the inner faces. */
     let lane = 0;
     while (lanes[lane] && tightest(lanes[lane].concat(ang), ORG_R0 + lane * 58) < ORG_MIN_ARC) lane += 1;
     if (!lanes[lane]) lanes[lane] = [];
@@ -36074,7 +36112,7 @@ function orgPlace(nodes) {
     placed.set(n.agent.sessionName, { ang, r, node: n, lo: at, hi: at + span });
     maxR = Math.max(maxR, r);
     at += span;
-  }
+  });
   // The rings beyond, a generation at a time: each manager's reports inside its window, at the team's own radius.
   let prev = roots;
   while (true) {
@@ -36306,6 +36344,47 @@ function orgPlace(nodes) {
   }
   return { placed, maxR };
 }
+/* #4499: the least distance any first-ring root's hub line passes from another first-ring root's face. This is
+   the bug surface: an outer-lane root's line grazing an inner root's face. Deeper lines are kept at or above
+   ORG_LINE_CLEAR by the sector layout's own clear() step, so a sub-ORG_LINE_CLEAR line is always first-ring,
+   which is why orgPlaceGated can decide with this O(roots^2) check instead of a full O(n^2) scan. */
+function orgFirstRingClear(placed) {
+  const roots = [];
+  for (const s of placed.values()) if (!s.node.parent) roots.push({ x: Math.cos(s.ang) * s.r, y: Math.sin(s.ang) * s.r });
+  let worst = Infinity;
+  for (const r of roots) {
+    const len2 = r.x * r.x + r.y * r.y || 1;
+    for (const o of roots) {
+      if (o === r) continue;
+      const t = Math.max(0, Math.min(1, (o.x * r.x + o.y * r.y) / len2));   // nearest point on hub(0,0)->r
+      const d = Math.hypot(o.x - t * r.x, o.y - t * r.y);
+      if (d < worst) worst = d;
+    }
+  }
+  return worst;
+}
+/* #4499 (option A): draw the proportional layout, which is IDENTICAL to the pre-#4499 layout, unless the first
+   ring has the line-to-face bug AND the minimum-span floor clears it WITHOUT growing the chart. The decision is
+   measured, not estimated: lay the chart out both ways and keep the floored one only when it is size-safe. It is
+   all-or-nothing per chart: a chart that cannot be cleared size-safely (two heavy roots, or many roots with one
+   heavy root) keeps the proportional layout and its first-ring clearance is handled by #4499's size card. The
+   second layout runs only when a chart actually has the bug and has few enough roots to seat the floor, so an
+   unaffected chart pays one layout pass, not two. */
+function orgPlaceGated(nodes) {
+  const pre = orgPlace(nodes, false);
+  const preClear = orgFirstRingClear(pre.placed);
+  let roots = 0;
+  for (const s of pre.placed.values()) if (!s.node.parent) roots += 1;
+  const maxFundable = Math.floor((Math.PI * 2) / Math.asin(Math.min(1, (ORG_LINE_CLEAR + 6) / ORG_R0)));
+  // Only a chart WITH the bug (a sub-ORG_LINE_CLEAR first-ring line), few enough roots to seat the floor, is a candidate.
+  if (preClear >= ORG_LINE_CLEAR || roots > maxFundable) return { placed: pre.placed, maxR: pre.maxR, funded: false };
+  const flo = orgPlace(nodes, true);
+  const floClear = orgFirstRingClear(flo.placed);
+  // Fund (use the floored layout) only when it is measured size-safe, clears ORG_LINE_CLEAR, and is no worse than
+  // the proportional first-ring clearance. Otherwise keep the proportional layout.
+  const funded = flo.maxR <= pre.maxR * 1.01 + 1 && floClear >= ORG_LINE_CLEAR && floClear >= preClear - 0.05;
+  return funded ? { placed: flo.placed, maxR: flo.maxR, funded: true } : { placed: pre.placed, maxR: pre.maxR, funded: false };
+}
 
 /* #718: the chart on a phone. The canvas is a square (maxR + ORG_PAD) * 2 wide,
    396px for a flat fleet of five, and it was drawn at that width whatever the
@@ -36394,7 +36473,7 @@ function paintOrg() {
     ORG_HTML = null;
     return;
   }
-  const { placed, maxR } = orgPlace(orgTreeOf(agents));
+  const { placed, maxR } = orgPlaceGated(orgTreeOf(agents));
   const natural = orgNatural(maxR);   // the square before any fit (#718)
   // #718: fit the width it is given (see orgFit); the rings come in, the nodes do not shrink.
   const viewW = wrap.clientWidth;   // one read: the fit and the scroll logic below agree on the width

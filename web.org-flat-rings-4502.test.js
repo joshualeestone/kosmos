@@ -36,7 +36,7 @@ function fnBody(name) {
   }
   throw new Error(name + ' has no end');
 }
-const consts = ['ORG_R0', 'ORG_STEP', 'ORG_MIN_ARC', 'ORG_FACE_R'].map((k) => 'const ' + k + ' = ' + pageConst(k) + ';').join('\n');
+const consts = ['ORG_R0', 'ORG_STEP', 'ORG_MIN_ARC', 'ORG_FACE_R', 'ORG_LINE_CLEAR'].map((k) => 'const ' + k + ' = ' + pageConst(k) + ';').join('\n');
 // eslint-disable-next-line no-new-func
 const place = new Function(consts + '\n' + fnBody('orgTreeOf') + '\n' + fnBody('orgPlace') + '\nreturn { orgTreeOf, orgPlace };')();
 const sim = (() => {
