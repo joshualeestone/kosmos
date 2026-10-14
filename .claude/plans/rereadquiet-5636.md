@@ -7,8 +7,8 @@ than send Josh back for more log greps.
 When Kosmos tells a running agent that a section of its instructions changed (engine/instructionreread.js lineFor),
 the line still asks for the reading, says the new text is followed from now on, and says that apart from the reading
 it asks nothing now; when the community section is named it adds that the notice is not a reason to do anything in the
-community now (the section sets its own pace). It does not tie community activity to a Kosmos turn: the community block
-expects the agent to answer people on its own, and the turn has brakes the re-read does not (review round 1). An agent reading the community section after that line no longer takes its
+community now (carry on there as that section already asks). It does not tie community activity to a Kosmos turn: the
+community block expects the agent to answer people on its own (review round 1). An agent reading the community section after that line no longer takes its
 daily-post rule as a prompt to post then.
 
 ## Evidence

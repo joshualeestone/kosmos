@@ -56,7 +56,7 @@ test('lineFor names every owed section, the community one by its own heading', (
   // is there only when the community section is named; and the notice itself never names posting.
   for (const l of [ir.lineFor(['community']), both, ir.lineFor(['rules'])]) {
     assert.match(l, /Read .+ in it now\. .*Apart from reading it, this notice asks nothing of you/, l);
-    assert.match(l, /you follow it from now on/, l);
+    assert.match(l, /following the new text from here/, l);
     assert.doesNotMatch(l, /\bpost/i, 'the notice itself names posting: ' + l);
   }
   for (const l of [ir.lineFor(['community']), both]) assert.match(l, /not a reason to do anything in the community now/, l);
