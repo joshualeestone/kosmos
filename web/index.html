@@ -3648,10 +3648,13 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
    Safari does not focus a clicked button, so the focus moved next can match :focus-visible.
    Sections are tabindex=-1 (web.agent-nav.test.js pins the agent page's). */
 .dsec:focus { outline: none; }
-/* #6175: account rows (tabindex=-1) and the accounts list take focus FROM CODE after a press removes the button that held
-   it, so a screen reader is not left on the page itself. Same hazard as the sections above: after a click in the Mac app
-   that moved focus can match :focus-visible and draw a stroke round the row, so no ring on these. */
-#set-accounts:focus, #set-accounts .acct-box:focus { outline: none; }
+/* #6175: an account row (tabindex=-1) takes focus FROM CODE after a press removes the button that held it, so a screen
+   reader is not left on the page itself. Same hazard as the sections above: after a click in the Mac app that moved
+   focus can match :focus-visible and draw a stroke round the row. So, as for sections, the ring is keyboard-only
+   (kbd-landed, set from DSEC_KEYBOARD when the press was a key). The list itself (#set-accounts) is left as it was:
+   Remove and Move already land focus there and keep the engine's own ring. */
+#set-accounts .acct-box:focus { outline: none; }
+#set-accounts .acct-box.kbd-landed:focus { outline: 2px solid var(--k-ink); outline-offset: 4px; }
 .dsec.kbd-landed:focus { outline: 2px solid var(--k-ink); outline-offset: 4px; }
 /* One of three sentences while the box is hidden, chosen by `data-tied`;
    none while the box is showing. ⚠️ ORDER-DEPENDENT: the sibling rule last
@@ -28225,6 +28228,7 @@ async function paintAccounts(opts) {
      agent on it works). A refusal (an own status line, an unreadable settings file) is said on the row, not hidden. */
   for (const btn of box.querySelectorAll('[data-usage-setup]')) {
     btn.addEventListener('click', async () => {
+      const kbd = DSEC_KEYBOARD;   // review 17: read now (a key press is still under way); the focus move comes seconds later
       const dir = btn.dataset.usageSetup;
       const gen = ++ACCT_USAGE_GEN;   // review 10: a newer press (any row) ends this one's claim on the status line
       btn.disabled = true;
@@ -28259,11 +28263,8 @@ async function paintAccounts(opts) {
           if (!focusLost()) return;
           const r = rowOf();
           const target = r || document.getElementById('set-accounts');   // the row gone: the list, never the page itself
-          if (!target) return;
-          if (!target.hasAttribute('tabindex')) {   // review 15: the list is made focusable only for this, and not left so
-            target.setAttribute('tabindex', '-1');
-            target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
-          }
+          if (!target) return;   // both are focusable by their markup (rows and #set-accounts carry tabindex=-1)
+          if (r && kbd) r.classList.add('kbd-landed');   // review 17: a key press gets the landing ring; a pointer press does not
           target.focus();
         };
         if (gen !== ACCT_USAGE_GEN) { claimFocus(); return; }   // review 10: a newer press owns the line now
@@ -41787,7 +41788,7 @@ window.addEventListener('blur', () => { DSEC_KEYBOARD = false; });   // a keyup 
 
 document.addEventListener('pointerdown', () => {
   DSEC_KEYBOARD = false;
-  document.querySelectorAll('.dsec.kbd-landed').forEach((sec) => sec.classList.remove('kbd-landed'));
+  document.querySelectorAll('.dsec.kbd-landed, #set-accounts .acct-box.kbd-landed').forEach((sec) => sec.classList.remove('kbd-landed'));   // #6175: rows too
 }, true);
 function detailGo(section, opts) {
   if (!DETAIL_SECTIONS.includes(section)) section = 'talk';
