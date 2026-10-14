@@ -67,7 +67,7 @@ test('an upright tablet moves the room by DOM too: Tasks first, then the convers
   // The CSS block with the script's exact query holds the room's tablet rules (the swipe row of tasks).
   assert.match(tablet, /#pj-tasklist \{ flex-direction: row;/, 'the room tablet rules live under PJ_TABLET_MQ');
   // The agent cards' tablet block is the same tablet, so it must carry the same query (written three times by value).
-  assert.match(tablet, /#grid\.cards \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/, 'the card tablet rules live under PJ_TABLET_MQ too');
+  assert.match(tablet, /#grid\.cards \{ grid-template-columns: repeat\(auto-fill, minmax\(min\(100%, 330px\), 1fr\)\);/, 'the card tablet rules live under PJ_TABLET_MQ too');
   // Reading order follows the DOM: the same no-CSS-order rule as the phone, for the tablet block.
   assert.doesNotMatch(tablet, /\border\s*:/);
   // Tasks moves to the front on a tablet and back to the end otherwise; the conversation column never moves.

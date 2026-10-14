@@ -12065,15 +12065,17 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
    An upright tablet is a touch screen in portrait, 600px to 68rem wide. Before this it took the phone layout
    (600-639px) or the desktop one squeezed (640px up). Landscape is left alone here: it waits on Josh's call
    between a split view and the desktop grid. A phone is under 600px wide in portrait, so it never matches.
-   Agents board: cards two across, face on the left, name, role and state beside it, and what the agent is on
-   underneath. The state sits under the name, not beside it: an upright iPad card is about 390px, and a
-   Question pill with its Answer button beside the name would leave the name 60px. The visual order (task last)
-   differs from the card's DOM order (task after model) only among plain text lines; nothing focusable moves.
+   Agents board: cards two across where each gets 330px or more (an iPad), one across below that (a 7 or 8 inch
+   tablet, where a needs-you card's Question pill and Answer button need the width). Face on the left, name, role
+   and state beside it, and what the agent is on underneath. The state sits under the name, not beside it: an
+   upright iPad card is about 390px, and the Question pill with its Answer button beside the name would leave the
+   name 60px. Visually the task comes before the model line; in the DOM it comes after. Both are plain text
+   lines, so nothing focusable changes order.
    Only the ordinary card: the stopped and needs-trust cards keep their own stacked shape, which carries a note
    and a button the grid areas below do not place. The classic look only: the hidden new look draws its own
    cards (#4470) and gets its tablet pass with it. Measured by render-home-phone-718.js (tablet arm). */
 @media (hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 67.99rem) and (orientation: portrait) {
-  :root:not([data-look="new"]) body:not(.consolidated) #grid.cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  :root:not([data-look="new"]) body:not(.consolidated) #grid.cards { grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 14px; }
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) { display: grid; grid-template-columns: auto minmax(0, 1fr);
     grid-template-areas: "g n" "g m" "g s" "g w" "t t" "c c" "md md";
     /* A row of cards stretches to its tallest: the spare height goes to the last row, so the lines stay together and
