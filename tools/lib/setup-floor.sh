@@ -54,8 +54,8 @@ kosmos_setup_floor_ok() {
 # a versioned kosmos tarball name is refused too (fail closed): every real Mac pointer names one.
 kosmos_setup_floor_pointer_ok() {
   local label="$1" json="$2" v art av
-  # One of each key: a reader that takes the FIRST of a doubled key (install/setup.sh does) and this check, which
-  # would see the last, could otherwise disagree about which build installs. The extractors read `"key":` (the real
+  # One of each key: readers of a doubled key disagree (JSON.parse keeps the last, a first-match reader the first, a
+  # greedy sed the last on one line), so with one key each every reader agrees on which build installs. The extractors read `"key":` (the real
   # writer, write-latest-pointer.js, writes one line in that form); a pointer spelled `"key" :` reads as having no
   # version and is refused, which fails closed.
   if [ "$(printf '%s' "$json" | grep -o '"version"[[:space:]]*:' | wc -l | tr -d ' ')" -gt 1 ] ||
@@ -82,7 +82,8 @@ kosmos_setup_floor_pointer_ok() {
 # removes a read-only app before the swap came in ONE change, card #4449 (merged as PR #4476, 74ed0594c7), so an installer that names the
 # switch can lift the lock, and one that does not cannot. install/setup.sh has it from 0.7.42 (measured by Ice Cream
 # Kitty at each version commit: 0.7.42 6 mentions, 0.7.43 to 0.7.48 7, 0.7.49 9); the prod /setup served before
-# 0.7.45 (0.7.35's) has 0. So this check accepts exactly the installers that can lift (0.7.42 on), while the
+# 0.7.45 (0.7.35's) has 0. So this check accepts the installers that name the switch, which came with the lift (0.7.42
+# on; a string-presence check, not a proof), while the
 # pointers' floor stays 0.7.45, the first PROD-served one: stricter than needed, which fails closed.
 KOSMOS_SETUP_FLOOR_MARKER="KOSMOS_READONLY_APP"
 
