@@ -320,8 +320,7 @@ function clauseFor(projectId, shown, ids) {
    dropped rather than told: hours later, or after the room was stopped, it woke agents into one more short reply after
    the person had asked for quiet. A held post that names the member and asks for an answer is told unless the member
    has answered it, or a post just after it, in that room, or it is over a day old (#4926 R2 and N7, staleHeld's
-   evenIfAsked). The post
-   itself is in the room either way (kosmos room shows it). Without `stale`, nothing is dropped. */
+   evenIfAsked). The post itself is in the room either way (kosmos room shows it). Without `stale`, nothing is dropped. */
 function withoutStale(projectId, ids, stale, name) {
   if (!ids.length || typeof stale !== 'function') return ids;
   let gone;

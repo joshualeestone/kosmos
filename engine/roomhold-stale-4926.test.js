@@ -222,5 +222,18 @@ test('#4926 N7: one reply to the round\'s newest post (m1032) answers the 8 olde
   assert.ok(!far.has('m1024'), 'a post more than ROOM_READ_ROWS - 1 rows before the answered one was dropped');
   const near = messages.staleHeld('p1', ['m1024'], [post('m1024', 40), ...filler.slice(1), post('m1032', 32), answer], NOW, 'mark');
   assert.ok(near.has('m1024'), 'control: the post exactly ROOM_READ_ROWS - 1 rows before the answered one was kept');
+  // Rows the room read does not show (a reaction) do not use up the window.
+  const unseen = filler.map(() => ({ kind: 'reaction', project: 'p1', from: 'ann', at: ago(35) }));
+  assert.ok(messages.staleHeld('p1', ['m1024'], [post('m1024', 40), ...unseen, post('m1032', 32), answer], NOW, 'mark').has('m1024'),
+    'rows the room read does not show narrowed the window');
   roomhold.forget('mark');
+});
+
+test('#4926 N7: ROOM_READ_KINDS is the list of row kinds the server room read keeps', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const at = src.indexOf('const rows = guideMaskedRows(rec.rows, null)');
+  assert.notEqual(at, -1, 'the room read\'s row filter was not found');
+  const kept = new Set([...src.slice(at, at + 1500).matchAll(/m\.kind === '([a-z]+)'/g)].map((x) => x[1]));
+  assert.ok(kept.size >= 4, 'fixture: too few kinds read from the filter: ' + [...kept]);
+  assert.deepEqual([...messages.ROOM_READ_KINDS].sort(), [...kept].sort(), 'the room read and staleHeld disagree on which rows a read shows');
 });

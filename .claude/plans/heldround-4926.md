@@ -26,6 +26,12 @@ Rejected for these: recording what each read showed per member (dropShown alread
 this rule exists for readers Kosmos cannot see), and dropping on any later post (an unrelated post would erase asks).
 A reply to the member's own post covers nothing.
 
+The rule covers asks too (@-named, cap-held and limit-held), deliberately: the 19:31 round may have been asks, and a
+plain-only rule would then not fix N7. An older ask held for the member is unseen at the moment of its reply to X
+only if X reached it without the held list, and the paths that deliver X (a typed arrival takes the held list; a
+room read shows the window) do not, outside the two residuals above. The window counts only the row kinds the read
+shows; outside rows are capped in the read, so the window is the smaller of the two, never the larger.
+
 ## Tests
 engine/roomhold-stale-4926.test.js N7: 9 held (asks and plain), one reply to m1032 -> none of the 9 told, a newer
 post told; controls for no reply, another room, another member, no member, a reply to the oldest post, a
