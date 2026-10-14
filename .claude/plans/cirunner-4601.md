@@ -27,5 +27,5 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
 ## Proof
 - Test: 39 ok. Six mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads).
-- Live dry run on Agent1s 04:50 CDT: preflight refuses on exactly the three step-0 conditions (81 launchd jobs,
+- Live dry run on Agent1s about 04:19 CDT: preflight refuses on exactly the three step-0 conditions (81 launchd jobs,
   crontab, live suites) and passes every machine check; verify against kosmos-ci-mini is clear on the API rows.
