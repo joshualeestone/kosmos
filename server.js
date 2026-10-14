@@ -23461,6 +23461,7 @@ function start(port = PORT) {
           postTimes: (session) => { const all = allPosts(); return all === null ? null : (all.get(String(session).trim().toLowerCase()) || []); },
           book: COMMUNITY_TURN_BOOK, idleSeen: COMMUNITY_TURN_IDLE_SEEN,
           lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)
+          stamp: true,   // #5636 F7a: the line says when it was sent, for a runner that rereads one long session
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,
           log: (r) => process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),

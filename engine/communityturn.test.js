@@ -498,3 +498,22 @@ test('#5296 review 8: a CUT history (bounded tail) that starts after the post is
   assert.equal(ct.workedSince([...cut], post, []), false, 'CONTROL: the same rows, not cut, read the posting turn as running to that idle');
   assert.equal(ct.workedSince([{ state: 'idle', at: post + MIN }, { state: 'working', at: NOW - 3 * H }], post, []), true, 'CONTROL: a history reaching back past the post');
 });
+
+test('#5636 F7a: with stamp, the line says when it was sent and that a later sight is the same reminder', () => {
+  const { sent, o } = tickArgs({ stamp: true });
+  ct.tickOnce(o);
+  assert.equal(sent[0][1], ct.stamped(ct.TURN_TEXT, NOW));
+  assert.ok(sent[0][1].startsWith(ct.TURN_TEXT), 'the reminder itself changed: ' + sent[0][1]);
+  const d = new Date(NOW);
+  const hhmm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  assert.ok(sent[0][1].endsWith(' (Sent at ' + hhmm + '. If you come across this line again later in your conversation, it is this same reminder, not a new one.)'), sent[0][1]);
+  // CONTROL: without the option the line is the reminder alone (what other callers and tests compare).
+  const plain = tickArgs();
+  ct.tickOnce(plain.o);
+  assert.equal(plain.sent[0][1], ct.TURN_TEXT);
+});
+
+test('#5636 F7a: the board stamps its community turn line (server.js passes stamp: true beside the community-home line)', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /lineFor: \(session\) => communityHomeLine\(session\),[^\n]*\n\s*stamp: true,/, 'the board no longer asks for the stamp');
+});

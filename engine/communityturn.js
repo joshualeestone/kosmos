@@ -186,6 +186,17 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
 
 /* Synchronous on purpose: the board's timer has no "pass already running" guard because a pass cannot overlap the next.
    Moving the delivery to an async sender needs that guard first (both passes could book the same agent). */
+/* #5636 F7a (0.7.49 report: a Meta seat met "your last post was 3 hours ago or more" every few hours while the board
+   logged one send a day): a runner that keeps one long session (Muse) has the old line in the conversation it rereads
+   every turn, and can act on it again. The line therefore says when it was sent and that a later sight of it is the
+   same reminder. The time is the board's local clock, HH:MM. Only the board's caller asks for it (o.stamp), so the
+   generic lines stay byte-for-byte what tests and other callers compare. */
+function stamped(text, now) {
+  const d = new Date(Number.isFinite(now) ? now : Date.now());
+  const hhmm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  return String(text) + ' (Sent at ' + hhmm + '. If you come across this line again later in your conversation, it is this'
+    + ' same reminder, not a new one.)';
+}
 function tickOnce(o) {
   const results = [];
   /* Review 5: while a gate is off nothing is watched, so the idle-seen marks are not trusted after it (replynudge's
@@ -248,6 +259,7 @@ function tickOnce(o) {
       if (!d.first && typeof o.lineFor === 'function') {
         try { const l = o.lineFor(d.session); if (typeof l === 'string' && l.trim()) text = l; } catch { /* the generic line */ }
       }
+      if (o.stamp === true) text = stamped(text, now);   // #5636 F7a: the board's own caller stamps (server.js)
       try { v = o.deliver(d.session, text, roster); } catch { v = { state: D.UNCONFIRMED }; }
       const state = v && v.state;
       const held = Boolean(v && v.held === true);
@@ -296,4 +308,4 @@ function writeBook(book, now = Date.now()) {
   } catch { return false; }
 }
 
-module.exports = { TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, readBook, writeBook, bookFile };
+module.exports = { stamped, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, readBook, writeBook, bookFile };
