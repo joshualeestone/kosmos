@@ -73,6 +73,10 @@ test('an upright tablet moves the room by DOM too: Tasks first, then the convers
   // Tasks moves to the front on a tablet and back to the end otherwise; the conversation column never moves.
   assert.match(html, /if \(tablet\) \{ if \(grid\.firstElementChild !== tasks\) grid\.insertBefore\(tasks, grid\.firstElementChild\); \}\n    else if \(grid\.lastElementChild !== tasks\) grid\.append\(tasks\);/);
   assert.match(html, /pjTabletMq\.addEventListener\('change', pjPhoneOrder\)/);
+  // placeLook can run before the room's const queries exist; it waits on a hoisted var set right after them (a
+  // typeof check on a const in its dead zone would still throw).
+  assert.match(html, /const PJ_TABLET_MQ = '[^']+';\n(?:\/\/[^\n]*\n)*var PJ_ORDER_READY = true;/);
+  assert.match(html, /\n  if \(PJ_ORDER_READY\) pjPhoneOrder\(\);\n\}\nfunction lookToggleClick\(\)/);
   // Not in the consolidated view or the new look, which place Tasks themselves.
   assert.match(html, /const tablet = window\.matchMedia\(PJ_TABLET_MQ\)\.matches && !document\.body\.classList\.contains\('consolidated'\)\n    && document\.documentElement\.dataset\.look !== 'new';/);
 });

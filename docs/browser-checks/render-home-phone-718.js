@@ -222,9 +222,10 @@ function emptySpot(page, sel) {
               if (!nm) return Object.assign(res, { error: 'no ada name' });
               const was = nm.textContent;
               nm.textContent = 'Alexandria Constantinople-Vanderberg the Second';
-              const g = ada.querySelector('.agauge').getBoundingClientRect(); const n = ada.querySelector('.aname').getBoundingClientRect();
-              res.longName = inside(ada, '.aname .namego'); res.clearOfFace = n.left >= g.right - 0.5; res.cardFits = ada.scrollWidth <= ada.clientWidth + 1;
-              nm.textContent = was;
+              try {
+                const g = ada.querySelector('.agauge').getBoundingClientRect(); const n = ada.querySelector('.aname').getBoundingClientRect();
+                res.longName = inside(ada, '.aname .namego'); res.clearOfFace = n.left >= g.right - 0.5; res.cardFits = ada.scrollWidth <= ada.clientWidth + 1;
+              } finally { nm.textContent = was; }
               return res;
             });
             chk(!fit.error && fit.cleoState === 'in' && fit.cleoAnswer === 'in' && fit.longName === 'in' && fit.clearOfFace && fit.cardFits,
