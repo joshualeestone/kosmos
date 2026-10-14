@@ -190,8 +190,9 @@ function emptySpot(page, sel) {
           const ctx = await browser.newContext(mouse ? { viewport: { width: w, height: h } } : { viewport: { width: w, height: h }, hasTouch: true, isMobile: engine === 'chromium' });
           const page = await ctx.newPage();
           await home(page, URL, 'grid');
-          // Precondition: the engine reports a touch screen (a mouse context: that it does NOT) (both do with hasTouch: hover none, pointer coarse). If one
-          // ever stops, the tablet layout cannot apply here, and this says so instead of reading as a product failure.
+          // Precondition: a touch context reports a touch screen (hover none, pointer coarse; both engines do with
+          // hasTouch) and the mouse context does not. If either is wrong the arm cannot measure what it claims, and it
+          // says so as a harness failure instead of a product one.
           const touch = await page.evaluate(() => matchMedia('(hover: none) and (pointer: coarse)').matches);
           if (mouse && touch) { chk(false, `${tag} harness: a mouse context reports a touch screen, so the mouse control cannot run`, 'matchMedia((hover: none) and (pointer: coarse)) is true'); await ctx.close(); continue; }
           if (!mouse && !touch) { chk(false, `${tag} harness: this engine does not report a touch screen here, so the tablet arm cannot run`, 'matchMedia((hover: none) and (pointer: coarse)) is false'); await ctx.close(); continue; }

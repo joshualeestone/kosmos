@@ -67671,7 +67671,7 @@ function pjPhoneOrder() {
   }
   if (tasks) {
     if (tablet) { if (grid.firstElementChild !== tasks) grid.insertBefore(tasks, grid.firstElementChild); }
-    else if (grid.lastElementChild !== tasks) grid.append(tasks);
+    else if (grid.firstElementChild === tasks) grid.append(tasks);   // undo only our own move: the markup puts Tasks last
   }
   if (focused && document.activeElement !== focused && focused.isConnected) focused.focus({ preventScroll: true });
   // Members/Files going above the room (or, on an upright tablet, Tasks going to the top) pushes the composer down

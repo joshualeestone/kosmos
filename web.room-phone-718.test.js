@@ -75,7 +75,7 @@ test('an upright tablet moves the room by DOM too: Tasks first, then the convers
   // Reading order follows the DOM: the same no-CSS-order rule as the phone, for the tablet block.
   assert.doesNotMatch(tablet, /\border\s*:/);
   // Tasks moves to the front on a tablet and back to the end otherwise; the conversation column never moves.
-  assert.match(html, /if \(tablet\) \{ if \(grid\.firstElementChild !== tasks\) grid\.insertBefore\(tasks, grid\.firstElementChild\); \}\n    else if \(grid\.lastElementChild !== tasks\) grid\.append\(tasks\);/);
+  assert.match(html, /if \(tablet\) \{ if \(grid\.firstElementChild !== tasks\) grid\.insertBefore\(tasks, grid\.firstElementChild\); \}\n    else if \(grid\.firstElementChild === tasks\) grid\.append\(tasks\);/);
   assert.match(html, /pjTabletMq\.addEventListener\('change', pjPhoneOrder\)/);
   // placeLook can run before the room's const queries exist; it waits on a hoisted var set right after them (a
   // typeof check on a const in its dead zone would still throw).
