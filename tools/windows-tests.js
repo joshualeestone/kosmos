@@ -76,7 +76,8 @@ const ALSO = ['agentpermission-5406.test.js', 'backupdevicekey-5535.test.js', 'p
   'sendertoken.prune-ended-5208.test.js',   // kosmos#5208: sealing, compacting and deleting files a reader may hold open, on Windows too
   'restoresink.test.js',   // #5536: the restore sink's Windows duties (Unicode names, link on NTFS, junction refusal) are measured here
   'accounts.wiredefaulthooks-5612.test.js',   // #5612: the default account's reporting hooks, wired on the real win32 platform
-  'computerprint-5532.test.js'];   // #5532: the computer print's real-registry arm reads this runner's registry
+  'computerprint-5532.test.js',   // #5532: the computer print's real-registry arm reads this runner's registry
+  'orgenroll-5531.test.js'];   // #6113: its owner-only checks skip and its unreadable-id arm swaps the file for a folder on Windows
 // test-support.remove-tree.test.js (#5074): the shared win32 cleanup retry's own tests, which ran here inside the
 // shims file before the helper moved.
 const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'report-hook-allowed-5495.test.js',
