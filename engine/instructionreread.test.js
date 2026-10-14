@@ -55,10 +55,10 @@ test('lineFor names every owed section, the community one by its own heading', (
   // #5636 F7a: a notice, not a task. It still asks for the reading first, then asks nothing else; the community clause
   // is there only when the community section is named; and the notice itself never names posting.
   // Every section alone and all of them at once: the agent is idle when this is typed (passOnce), so nothing may read
-  // as start or resume work.
+  // as a task of its own, while the new text still applies (a rule saying take the next thing still moves it).
   const every = Object.keys(ir.SECTIONS);
   for (const l of [...every.map((k) => ir.lineFor([k])), ir.lineFor(every)]) {
-    assert.match(l, /Read .+ in it now\. .*Apart from reading it, this notice asks nothing of you: do not start or resume anything because of it/, l);
+    assert.match(l, /Read .+ in it now\. .*Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies, as you would if you had started with it\./, l);
     assert.doesNotMatch(l, /\bpost/i, 'the notice itself names posting: ' + l);
     assert.doesNotMatch(l, /community turn/i, 'the notice uses Kosmos\'s internal name, which agents never see: ' + l);
   }
