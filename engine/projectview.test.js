@@ -646,8 +646,16 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   // Short prompted turns while otherwise idle (the latest idle report moves on, which idleExcused cannot see past).
   const idleNow = Object.assign({}, claude, { state: 'idle' });
   assert.equal(v.workExcused(stale(900), idleNow, hist([['idle', 890], ['working', 600], ['idle', 590], ['working', 300], ['idle', 280]]), NOW).state, 'worked');
-  // Review 3: the board reads it busy now, so the time since its last (idle) report is work: 30 + 280 min, stale.
-  assert.equal(v.workExcused(stale(900), claude, hist([['idle', 890], ['working', 600], ['idle', 590], ['working', 300], ['idle', 280]]), NOW).state, 'stale');
+  // 0.7.48 (Josh 2026-10-14): only REPORTED work counts; the board reading it busy now adds nothing. Same timeline, shown
+  // working: 30 min of reported work, current (review 3's "the board's read wins" is replaced).
+  assert.equal(v.workExcused(stale(900), claude, hist([['idle', 890], ['working', 600], ['idle', 590], ['working', 300], ['idle', 280]]), NOW).state, 'worked');
+  // The 0.7.48 Grok repro: wrote its summary while working, idle since, shown working at the check: current.
+  const grokNow = Object.assign({}, mark, { runner: 'grok' });
+  const g = v.workExcused(stale(480), grokNow, hist([['working', 485], ['idle', 478]]), NOW);
+  assert.equal(g.state, 'worked', 'a seat with no reported work since its summary read stale because the screen read busy');
+  assert.equal(g.workMinutes, 2);
+  // CONTROL: a reported busy stretch still counts to now (working since 300 min ago): stale.
+  assert.equal(v.workExcused(stale(480), grokNow, hist([['working', 485], ['idle', 478], ['working', 300]]), NOW).state, 'stale');
   // Review 3: an operator's clear is not the agent stopping; it changes nothing (working from 400 to now: stale).
   const cleared = () => { const a = [{ state: 'working', at: at(400) }, { state: 'idle', at: at(325), by: 'operator' }]; a.truncated = false; return a; };
   assert.equal(v.workExcused(stale(331), idleNow, cleared, NOW).state, 'stale', 'an operator clear read as the agent stopping');
@@ -666,7 +674,15 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   // No history, an unreadable one, a runner that reports idle only, no runner, an untied member: unchanged.
   assert.equal(v.workExcused(stale(331), claude, () => null, NOW).state, 'stale');
   assert.equal(v.workExcused(stale(331), claude, () => { throw new Error('x'); }, NOW).state, 'stale');
-  for (const runner of ['codex', null, 'someday-runner']) {
+  // 0.7.48 GPT repro (codex reports turn ends only): one turn ended since the summary (the one that wrote it), shown
+  // working now: current, with no reported work. CONTROL: a later turn has ended too: stale (its length is unknown).
+  const gpt = Object.assign({}, mark, { runner: 'codex' });
+  const gr = v.workExcused(stale(1100), gpt, hist([['idle', 1095]]), NOW);
+  assert.equal(gr.state, 'worked', 'the GPT seat idle all night read stale');
+  assert.equal(gr.workMinutes, 0);
+  assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 40]]), NOW).state, 'stale');
+  assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1200]]), NOW).state, 'worked', 'no turn ended since: current');
+  for (const runner of [null, 'someday-runner']) {
     assert.equal(v.workExcused(stale(331), Object.assign({}, mark, { runner }), woken, NOW).state, 'stale', 'excused runner ' + runner);
   }
   assert.equal(v.workExcused(stale(331), Object.assign({}, claude, { tied: false }), woken, NOW).state, 'stale');
