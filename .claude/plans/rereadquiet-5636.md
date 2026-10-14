@@ -7,7 +7,8 @@ than send Josh back for more log greps.
 When Kosmos tells a running agent that a section of its instructions changed (engine/instructionreread.js lineFor):
 - the line still asks for the reading, and the new text replaces the old;
 - apart from that reading, the line is not itself a task: the agent follows the new text wherever it applies, as if it
-  had started with it (so a working rule saying take the next thing still moves it) (round 10: on a community notice it adds the community aside, as above, so the as-if cannot undo the community clause);
+  had started with it (so a working rule saying take the next thing still moves it) (rounds 10-11: on a community notice it adds: except going to the community, which this notice does not ask for;
+  the new community text itself still applies);
 - when the community section is named, the line says first (so the general sentence cannot read as overruling it): do
   not go to the community because of this notice, even with a daily minimum open (round 9: no clause about a person
   waiting, which would send the agent to check; because-of-this-notice already leaves that duty as it was);
@@ -29,3 +30,6 @@ one that sends an agent to the community section ("Post at least once a day") an
 - Known interaction (round 9): communityturn.workedSince counts a turn a re-read line woke as Kosmos's own until the next
   idle report, so real work an agent takes up from a re-read rules notice is not counted as work since its post. It errs
   toward fewer community prompts (the daily floor still applies); unchanged here.
+- Closing the card (round 11): this change does not close #5636 F7a. It stays open until the next five-family report
+  shows whether the Meta seat still gets an unprompted post prompt; Splinter ruled (10-14 10:05) not to send Josh back
+  for the instruction-reread grep this morning.

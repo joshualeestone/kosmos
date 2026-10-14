@@ -186,8 +186,9 @@ function lineFor(sections) {
      an agent got a prompt to post with no community turn that day, plausibly from reading the community section's
      post-a-day rule as asked now. So, apart from the reading, it is not itself a task: the agent (idle when this is
      typed, passOnce) acts on the new text only where it applies, as if it had started with it, so a working rule that
-     says to take the next thing still moves it. When the community section is named, its clause comes first; the two
-     sentences agree (because of this notice, against wherever it applies). Its because-of-this-notice leaves the
+     says to take the next thing still moves it. When the community section is named, its clause comes first; the
+     community clause forbids only a visit the notice itself would cause, so it does not conflict with following the new
+     text wherever it applies; the closing sentence names that one exception in the same words. Its because-of-this-notice leaves the
      community's own duties (a person waiting is owed an answer) as they were, without sending the agent to check.
      No double quotes in this text: the #5304 test reads quoted text as section headings. */
   const community = named.includes('community')
@@ -197,7 +198,7 @@ function lineFor(sections) {
     + 'What it says now replaces anything you read there when you started. '
     + community
     + 'Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies, as you '
-    + 'would if you had started with it' + (community ? ' (the community aside, as above).' : '.');
+    + 'would if you had started with it' + (community ? ' (except going to the community, which this notice does not ask for).' : '.');
 }
 
 /*
