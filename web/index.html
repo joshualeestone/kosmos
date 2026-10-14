@@ -48214,6 +48214,21 @@ const CONSOLIDATED_FOLD_WIDTH = 1280;
 function layoutConsolidated() {
   return document.documentElement.getAttribute('data-layout') === 'consolidated' && window.innerWidth >= CONSOLIDATED_MIN_WIDTH;
 }
+/* #6107 landscape slice (Angel, 2026-10-14): a touch tablet held sideways, wide enough for the one-screen view
+   (960px and up), opens on it: the split view, agents and projects beside the open thing. The board keeps ONE layout
+   setting for every screen that opens it (the Mac and an iPad over Kosmos+ alike), so on such a tablet the choice is
+   kept per device instead: the header toggle there is remembered on the tablet only (TABLET_LAYOUT_KEY) and never
+   changes the board's setting, so the Mac keeps its own. Everywhere else the board's setting applies as before. */
+const TABLET_LAYOUT_MQ = '(hover: none) and (pointer: coarse) and (orientation: landscape) and (min-width: 960px)';
+const TABLET_LAYOUT_KEY = 'kosmos-tablet-layout';
+let BOARD_LAYOUT = 'tabs';   // the board's own setting, last read by paintStyles; what every other screen uses
+function tabletLandscape() { return !!(window.matchMedia && window.matchMedia(TABLET_LAYOUT_MQ).matches); }
+function deviceLayout(boardLayout) {
+  if (!tabletLandscape()) return boardLayout;
+  let mine = null;
+  try { mine = localStorage.getItem(TABLET_LAYOUT_KEY); } catch { mine = null; }
+  return mine === 'tabs' ? 'tabs' : 'consolidated';
+}
 function applyLayout(layout, apply) {
   const want = layout === 'consolidated' ? 'consolidated' : 'tabs';
   /* #2154 + #2618: the header board-view toggle is re-painted from every path that
@@ -48702,6 +48717,12 @@ document.addEventListener('click', async (e) => {
   if (!b) return;
   const want = b.dataset.layoutSwitch === 'consolidated' ? 'consolidated' : 'tabs';
   if ((document.documentElement.getAttribute('data-layout') || 'tabs') === want) return;
+  // #6107: on a landscape touch tablet the choice is this tablet's own; the board's setting is left alone.
+  if (tabletLandscape()) {
+    try { localStorage.setItem(TABLET_LAYOUT_KEY, want); } catch { /* not remembered, but applied now */ }
+    applyLayout(want, true);
+    return;
+  }
   try {
     const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: want }) });
     if (!res.ok) return;
@@ -48709,6 +48730,11 @@ document.addEventListener('click', async (e) => {
     applyLayout((r && r.layout) || want, true);
   } catch { /* the engine is unreachable; the board is already in a failure state */ }
 });
+// #6107: turning a tablet (or attaching a keyboard and trackpad) moves it in or out of the per-device rule.
+try {
+  const tlq = window.matchMedia && window.matchMedia(TABLET_LAYOUT_MQ);
+  if (tlq && tlq.addEventListener) tlq.addEventListener('change', () => applyLayout(deviceLayout(BOARD_LAYOUT), true));
+} catch { /* no media queries: the board's setting stands */ }
 /* #774: the consolidated centre with nothing open says what to press. */
 function paintPjNone(which) {
   const el = document.getElementById('pj-none');
@@ -48868,7 +48894,8 @@ async function paintStyles(apply) {
   try { r = await (await fetch('/api/style', { cache: 'no-store' })).json(); } catch { r = null; }
   if (!r || ticket !== STYLE_REQ) return;
   if (apply) applyStyle(r.tokens);
-  applyLayout(r.layout, apply);
+  BOARD_LAYOUT = r.layout === 'consolidated' ? 'consolidated' : 'tabs';
+  applyLayout(deviceLayout(BOARD_LAYOUT), apply);
   const sel = document.getElementById('style-theme');
   if (sel) {
     const html = (r.themes || []).map((t) => '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>').join('');
