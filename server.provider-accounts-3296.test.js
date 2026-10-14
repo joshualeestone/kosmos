@@ -31,6 +31,7 @@ const geminiAccounts = require('./engine/geminiaccounts');
 const grokAccounts = require('./engine/grokaccounts');
 const runners = require('./engine/runners');
 const { start, server } = require('./server');
+const { eventually } = require('./test-support/eventually');
 
 // Runner PRESENT so the store route reaches key validation (never the machine's gemini/grok).
 const _origResolveBin = runners.resolveBin;
@@ -212,7 +213,9 @@ test('#3566 store: two label-less adds IN FLIGHT AT ONCE claim two different slo
   geminiAccounts.setFetcher(async () => { entered += 1; await gate; return { status: 200, body: {} }; });
   const p1 = post('/api/accounts/gemini/apikey', { key: 'AIzaSy-race-one-key-11112222' });
   const p2 = post('/api/accounts/gemini/apikey', { key: 'AIzaSy-race-two-key-33334444' });
-  for (let i = 0; i < 100 && entered < 2; i += 1) await new Promise((r) => setTimeout(r, 20));
+  // #5727: wait for both requests to be inside the live check at once. Non-throwing like the old
+  // loop; the CONTROL assert below checks entered reached 2, so a timeout fails (never vacuous).
+  await eventually(() => entered, (n) => n >= 2, { timeoutMs: 2000, stepMs: 20 }).catch(() => {});
   assert.equal(entered, 2, 'CONTROL: both requests must be inside the live check at once, or this proves nothing');
   release();
   const [r1, r2] = await Promise.all([p1, p2]);
@@ -308,7 +311,9 @@ test('#3566 store: an explicitly-labelled add cannot take a slot an unnamed add 
   const claimedBefore = new Set(fs.readdirSync(SANDBOX).filter((n) => n.startsWith('.grok-work')
     && fs.existsSync(nodePath.join(SANDBOX, n, '.kosmos-claim'))));
   const p1 = post('/api/accounts/grok/apikey', { key: 'xai-unnamed-inflight-key-1111' });
-  for (let i = 0; i < 100 && entered < 1; i += 1) await new Promise((r) => setTimeout(r, 20));
+  // #5727: wait for the unnamed add to be inside its live check. Non-throwing like the old loop;
+  // the CONTROL assert below checks entered reached 1, so a timeout fails (never vacuous).
+  await eventually(() => entered, (n) => n >= 1, { timeoutMs: 2000, stepMs: 20 }).catch(() => {});
   assert.equal(entered, 1, 'CONTROL: the unnamed add must be inside its live check');
   // The slot it ACTUALLY claimed: the one whose claim appeared since (earlier arms leave claims).
   const mine = fs.readdirSync(SANDBOX).filter((n) => n.startsWith('.grok-work')
