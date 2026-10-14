@@ -59,7 +59,7 @@ function visit(state, today) {
   const gap = daysBetween(s.last, today);
   if (gap <= 0) return s;
   if (gap === 1) return { ...s, count: s.count + 1, last: today };
-  return { count: 1, last: today, congratulated: s.congratulated };
+  return { count: 1, last: today, congratulated: null };
 }
 
 /** True when the daily note is owed on `today`: today is the streak's day, it is day 2 or later, and not shown yet. */

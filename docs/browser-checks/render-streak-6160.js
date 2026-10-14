@@ -156,6 +156,24 @@ const read = (pg) => pg.evaluate(() => {
     const tapped = await press(60);
     const tabAfterTap = (await read(pg)).tab;
     say(!tapped && tabAfterTap === 'agents', 'tap (control): a short tap still goes to Agents', JSON.stringify({ tapped, tabAfterTap }));
+    // A long press that ends with NO click (Android raises contextmenu instead), then an ordinary tap: the tap navigates.
+    await pg.evaluate(() => { const t = document.querySelector('#tabs [data-tab="projects"]'); if (t) t.click(); });
+    await pg.evaluate(async () => {
+      const k = document.getElementById('klink'), r = k.getBoundingClientRect();
+      const o = { pointerType: 'touch', isPrimary: true, bubbles: true, clientX: r.left + 5, clientY: r.top + 5, pointerId: 8 };
+      k.dispatchEvent(new PointerEvent('pointerdown', o));
+      await new Promise((res) => setTimeout(res, 700));
+      k.dispatchEvent(new PointerEvent('pointerup', o));   // no click follows
+    });
+    await pg.waitForTimeout(2800);
+    await press(60);
+    const tabAfterNoClick = (await read(pg)).tab;
+    say(tabAfterNoClick === 'agents', 'long press with no click, then a tap: the tap still goes to Agents', tabAfterNoClick);
+    // A real tap leaves :hover stuck on a touch screen; the label must not hang under the mark after it.
+    await pg.tap('#klink');
+    await pg.waitForTimeout(300);
+    const afterTap = await read(pg);
+    say(afterTap.label && afterTap.label.opacity === '0', 'touch: after a real tap the label does not stay up', JSON.stringify(afterTap.label));
     say(errs.length === 0, 'long press: no page errors', errs.join(' | '));
     await pg.close();
   }

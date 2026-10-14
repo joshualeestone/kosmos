@@ -2265,7 +2265,8 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
 .kstreak { padding: 6px 10px; border: 1px solid var(--separator); font-weight: 600;
   opacity: 0; transform: translateY(-3px); transition: opacity .12s ease, transform .12s ease; pointer-events: none; }
 .kstreak[hidden], .kcongrats[hidden] { display: none; }
-.klink:hover ~ .kstreak, .klink:focus-visible ~ .kstreak, .kstreak.show { opacity: 1; transform: none; }
+.klink:focus-visible ~ .kstreak, .kstreak.show { opacity: 1; transform: none; }
+@media (hover: hover) { .klink:hover ~ .kstreak { opacity: 1; transform: none; } }   /* a tap leaves :hover stuck on a touch screen */
 .kcongrats { display: flex; align-items: center; gap: 6px; padding: 5px 5px 5px 12px; border: 1px solid var(--gold-edge); font-weight: 600;
   white-space: normal; width: max-content; max-width: min(380px, calc(100vw - 48px)); }   /* wraps on a narrow phone rather than running off it */
 .kcongrats .ux { flex: 0 0 auto; width: 28px; height: 28px; border: 0; border-radius: 7px; cursor: pointer;
@@ -35305,6 +35306,8 @@ function paintStreak(got) {
   }
 }
 async function streakCheck() {
+  // A Kosmos+ remote screen hides the K mark, so it neither counts a visit nor spends the day's note where it cannot show.
+  if (document.documentElement.classList.contains('kremote')) return;
   const today = streakLocalDay(new Date());
   if (today === streakDay) return;   // once per day per page: a reload asks again, the board answers "already shown"
   try {
@@ -35324,6 +35327,7 @@ async function streakCheck() {
   if (k && lab) {
     let held = null, swallow = false;
     k.addEventListener('pointerdown', (e) => {
+      swallow = false;   // a long press that ended with no click (Android raises contextmenu instead) must not eat this press
       if (e.pointerType !== 'touch' || lab.hidden) return;
       held = setTimeout(() => { held = null; swallow = true; lab.classList.add('show'); setTimeout(() => lab.classList.remove('show'), 2500); }, 500);
     });
