@@ -4,7 +4,7 @@
     {
       "icon": "phone",
       "title": "Kosmos has its own iPad layouts",
-      "line": "Sideways, an iPad shows Agents and Projects side by side (its View switch changes only that iPad); upright, cards go two across."
+      "line": "Sideways, an iPad shows Agents and Projects side by side (its View choice changes only that iPad); upright, most put cards two across."
     },
     {
       "icon": "tasks",
@@ -13,8 +13,8 @@
     },
     {
       "icon": "spark",
-      "title": "Kosmos restarts behind the app you use",
-      "line": "From the next update on, when Kosmos restarts itself onto a new version while another app is in front, it opens behind that app.",
+      "title": "Kosmos restarts without taking focus",
+      "line": "From the next update on, when Kosmos restarts itself onto a new version while another app is in front, it no longer takes focus.",
       "platforms": [
         "mac"
       ]

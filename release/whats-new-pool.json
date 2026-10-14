@@ -488,7 +488,7 @@
     },
     {
       "title": "Kosmos has its own iPad layouts",
-      "line": "Sideways, an iPad shows Agents and Projects side by side, and its View choice changes only that iPad; upright, most iPads put cards two across.",
+      "line": "Sideways, an iPad shows Agents and Projects side by side (its View choice changes only that iPad); upright, most put cards two across.",
       "icon": "phone",
       "rank": 3,
       "since": "0.7.49",
