@@ -189,7 +189,8 @@ if [ "$FAMILY" = mac ] && [ -n "$PTR_SETUP" ]; then
   kosmos_setup_floor_installer_ok "setup-staging (about to become /setup)" "$SITE/setup-staging" || exit 1
 elif [ "$FAMILY" = mac ] && [ -f "$SITE/setup" ]; then
   # kosmos#6149: no installer named, so prod keeps its /setup beside the promoted pointer: the COMMITTED one (what a
-  # deploy serves) must know the read-only app too, before any write.
+  # deploy serves) must know the read-only app too. Checked before the gates (minutes) and not again before the write,
+  # unlike setup-staging below; deploy-site's export check is the authority on what is served.
   git -C "$SITE" ls-files --error-unmatch setup >/dev/null 2>&1 && git -C "$SITE" diff --quiet HEAD -- setup \
     || { echo "promote-channel: $SITE/setup is not committed or differs from its committed copy, so it is not what prod serves - refusing; nothing was written." >&2; exit 1; }
   kosmos_setup_floor_installer_ok "the /setup prod keeps serving" "$SITE/setup" || exit 1

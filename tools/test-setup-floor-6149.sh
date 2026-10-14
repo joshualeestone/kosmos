@@ -103,8 +103,6 @@ printf 'a build\n' > "$T/site/dist/kosmos-0.7.49-arm64.tar.gz"
 ( cd "$T/site/dist" && shasum -a 256 kosmos-0.7.49-arm64.tar.gz > kosmos-0.7.49-arm64.tar.gz.sha256 )
 asha="$(shasum -a 256 < "$T/site/dist/kosmos-0.7.49-arm64.tar.gz" | awk '{print $1}')"
 printf '{"version":"0.7.49","sha256":"%s","artifact":"kosmos-0.7.49-arm64.tar.gz"}' "$asha" > "$T/site/dist/latest-staging.json"
-before="$(cd "$T/site/dist" && ls -la && cat ./*)"
-out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"
 git -C "$T/site" add -A && git -C "$T/site" commit -q -m site
 before="$(cd "$T/site/dist" && ls -la && cat ./*)"
 out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"
