@@ -55,9 +55,24 @@ test('on a phone the conversation comes first IN THE DOM, never by CSS order (#1
   // The Members/Files column is what moves. The conversation column holds the composer, and
   // moving it would blur the composer (iOS does not restore the keyboard for a scripted focus).
   // Anchored to its branch: a swap of the phone and wide moves must fail here, not only in the browser.
-  assert.match(html, /if \(window\.matchMedia\(PJ_PHONE_MQ\)\.matches\) \{\n    if \(mid\.nextElementSibling !== split\) mid\.after\(split\);\n  \} else if \(mid\.previousElementSibling !== split\) \{\n    grid\.insertBefore\(split, mid\);\n  \}/);
+  assert.match(html, /if \(window\.matchMedia\(PJ_PHONE_MQ\)\.matches \|\| tablet\) \{\n    if \(mid\.nextElementSibling !== split\) mid\.after\(split\);\n  \} else if \(mid\.previousElementSibling !== split\) \{\n    grid\.insertBefore\(split, mid\);\n  \}/);
   assert.doesNotMatch(html, /grid\.insertBefore\(mid,|split\.after\(mid\)/);
   assert.match(html, /pjPhoneMq\.addEventListener\('change', pjPhoneOrder\)/);
+});
+
+test('an upright tablet moves the room by DOM too: Tasks first, then the conversation (#6107)', () => {
+  const q = html.match(/const PJ_TABLET_MQ = '([^']+)';/);
+  assert.ok(q, 'PJ_TABLET_MQ is declared');
+  const tablet = MEDIA.filter((b) => b.query === q[1]).map((b) => b.body).join('\n');
+  // The CSS block with the script's exact query holds the room's tablet rules (the swipe row of tasks).
+  assert.match(tablet, /#pj-tasklist \{ flex-direction: row;/, 'the room tablet rules live under PJ_TABLET_MQ');
+  // Reading order follows the DOM: the same no-CSS-order rule as the phone, for the tablet block.
+  assert.doesNotMatch(tablet, /\border\s*:/);
+  // Tasks moves to the front on a tablet and back to the end otherwise; the conversation column never moves.
+  assert.match(html, /if \(tablet\) \{ if \(grid\.firstElementChild !== tasks\) grid\.insertBefore\(tasks, grid\.firstElementChild\); \}\n    else if \(grid\.lastElementChild !== tasks\) grid\.append\(tasks\);/);
+  assert.match(html, /pjTabletMq\.addEventListener\('change', pjPhoneOrder\)/);
+  // Not in the consolidated view or the new look, which place Tasks themselves.
+  assert.match(html, /const tablet = window\.matchMedia\(PJ_TABLET_MQ\)\.matches && !document\.body\.classList\.contains\('consolidated'\)\n    && document\.documentElement\.dataset\.look !== 'new';/);
 });
 
 test("the script's phone and touch queries are the CSS blocks' exact queries", () => {
