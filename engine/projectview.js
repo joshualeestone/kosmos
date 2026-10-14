@@ -37,7 +37,8 @@ const FUTURE_SLACK_MINUTES = 5;
 /* #5635 0.7.33: a stale summary of a member the board reads as rate limited now carries limitedNow (idleNoted).
    overviewOf may then mark a stale summary 'idle', with idleKind ('idle' or 'started'), idleSince and idleMinutes
    (#4581 N10, idleExcused), or 'quiet', with quietSince and quietMinutes (#4581 R9, quietExcused), or 'worked', with
-   workMinutes (#5635 F2, workExcused). Not the member's
+   workMinutes (#5635 F2, workExcused; a turn-ends-only runner also carries turnsOnly, and its 0 minutes mean
+   unmeasured, not none). Not the member's
    own state, which also reads 'idle'. */
 function summaryFreshness(folder, nowMs) {
   const none = { state: 'none', file: null, at: null, ageMinutes: null };
@@ -227,7 +228,9 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
      and leaves the summary as it was.
    - Known, as for idleExcused: reports reach the store only while the board runs, so work while it was down reads as
      whatever the last report said, and with no cap on the clock age (decided in the plan) that holds however long the
-     outage. Unlike idleExcused this also applies to a member working now. */
+     outage. Unlike idleExcused this also applies to a member working now.
+   - Since 0.7.48 (Josh): the board's read of the screen adds nothing, so a member whose working report was lost (and
+     whose last report is idle) reads current however long it has been working. */
 function workExcused(summary, member, readHistory, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied) return summary;
@@ -235,9 +238,9 @@ function workExcused(summary, member, readHistory, nowMs) {
   /* #5635 F2 (0.7.48 five-family report, Josh 2026-10-14): a runner that reports turn ends only (codex) cannot be timed;
      it reads current while at most one turn has ended since the summary was written (the turn that wrote it), and
      stale once a later turn has ended. Known costs, chosen over never excusing it (the GPT repro): a later turn still
-     running reads current however long it runs; so does an agent in a blocked or needs-you wait (selfreport refuses
-     the automatic idle then) or one whose turn-end reports stopped arriving; and a short prompted turn ending makes it
-     stale again. */
+     running reads current however long it runs, and so does the writing turn itself when no turn has ended since; so
+     does an agent in a blocked or needs-you wait (selfreport refuses the automatic idle then) or one whose turn-end
+     reports stopped arriving; a short prompted turn ending, or a manual idle report, makes it stale again. */
   if (!reportsWorking && !REPORTS_TURN_ENDS.has(member.runner)) return summary;
   let rows = null;
   try { rows = readHistory(member.sessionName); } catch { rows = null; }
