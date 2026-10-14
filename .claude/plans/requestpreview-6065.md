@@ -46,3 +46,7 @@ the head is skipped for the next one; nothing when there is none. At most 300 ch
 - (round 11) With --no-reply (FYI, no reply requested), a member the post is to still gets A question in it: the
   label is neutral and does not ask for an answer. A mention within 100 characters of the start of a sentence longer
   than the cap is quoted from the start, so a request near that sentence's far end can still be cut off.
+- (round 12) A question ending in a closing quote or bracket (ready?" or (ready?)) counts and is quoted with its closer.
+  The room path measures the line again after adding the request, with the catch-up and held-posts clauses after it,
+  and drops the request in the unlikely case it no longer fits. That guard is not covered by a test: reaching it needs
+  a held-posts clause near 9,000 characters, which no realistic fixture produces.

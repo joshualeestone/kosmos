@@ -272,8 +272,9 @@ const REQUEST_LEAD = 100;   // how much of a long sentence is kept before its me
 function sentenceAt(t, at) {
   const before = t.slice(0, at);
   const from = Math.max(-1, ...['. ', '! ', '? '].map((e) => { const i = before.lastIndexOf(e); return i < 0 ? -1 : i + 1; })) + 1;
-  const stop = t.slice(at).search(/[.!?](\s|$)/);
-  const end = stop < 0 ? t.length : at + stop + 1;
+  const stop = t.slice(at).search(/[.!?]["')\]]*(\s|$)/);   // review 12: a closing quote or bracket may follow
+  const closer = stop < 0 ? '' : t.slice(at + stop + 1).match(/^["')\]]*/)[0];
+  const end = stop < 0 ? t.length : at + stop + 1 + closer.length;
   /* Review 3: a sentence too long for REQUEST_MAX starts at most REQUEST_LEAD characters before the mention (or the
      question), at a whole word and after an ellipsis, so the mention or question itself is never what the cut drops. */
   let start = from; let lead = '';
@@ -312,7 +313,7 @@ function requestIn(text, opts = {}) {
   /* Review 9: a question only for a reader the post is to (the caller decides: questions: false for a background
      member): quoting one would steer an agent the post was not addressed to, which the room avoids (no answer line). */
   if (opts.questions === false) return null;
-  for (const m of t.matchAll(/(?<=\S)\?(?=\s|$)/g)) {
+  for (const m of t.matchAll(/(?<=\S)\?(?=["')\]!]*(\s|$))/g)) {   // review 12: ready?" and (ready?) are questions
     const s = sentenceAt(t, m.index);
     if (s && s.end > headEnd) return { sentence: unquotable(s.sentence), asked: false };
   }
@@ -320,7 +321,7 @@ function requestIn(text, opts = {}) {
 }
 /* The request is quoted, so where Kosmos stops speaking is plain. Added after the spill decision and not measured
    again: a spilled line is the envelope, a head of about 200 characters, a path and at most REQUEST_MAX + about 20
-   characters of request plus about 25 of label and quotes, so it stays far under chat.MAX_TEXT. The head is a prefix of the text (chat.cleanMessage
+   characters of request plus about 25 of label and quotes; the room path measures the line again with what follows it. The head is a prefix of the text (chat.cleanMessage
    trims), so a sentence ending before the head's end is in it. The head itself is still the post's own words,
    unquoted, as before this change. */
 function spillLine(text, file, opts = {}) {
@@ -2512,6 +2513,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
          the post this replies to); never to a background member. */
       const isTo = operator === true || mentioned.has(name) || Boolean(answered && answered.operator !== true && answered.from === name);
       envelope = wrap(spillLine(cleaned, spill.file, { namedAt: namedAt.get(name) || [], questions: isTo }));   // #5706
+      /* Review 12: the request is added after the spill decision, so the line is measured again with what follows it
+         (catch-up, held posts); in the unlikely case it no longer fits, the line goes without the request. */
+      if (spillsAt(envelope + catchUp + heldLine)) envelope = wrap(spillLine(cleaned, spill.file, { namedAt: [], questions: false }));
     }
     const finish = (sent) => {
       /* #4588 PR B: held (the shared Google quota, #5743/#5754 an answer awaited on its screen: question menu, permission prompt, safeguards menu, or #5805 a usage limit), nothing typed. The post is kept for this member like a #4624
