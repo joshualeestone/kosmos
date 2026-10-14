@@ -157,10 +157,11 @@ test('#5531: the world id is minted once, kept, owner-only, and the enrollment f
   const { a } = sandbox(t);
   const id1 = org.worldId({ root: a }); const id2 = org.worldId({ root: a });
   assert.equal(id1, id2, 'the id changed between reads');
-  /* #6113: Windows keeps no POSIX mode (a file reads back 0666 whatever was asked), so the owner-only mode is a
-     Mac and Linux fact. On Windows these files sit in the person's own %APPDATA% (engine/store.js), whose folder
-     permissions Windows sets to that person, SYSTEM and Administrators; that is what keeps them owner-only there.
-     Read from Windows' documented defaults, not measured on a Windows box. */
+  /* #6113: Windows keeps no POSIX mode (a file reads back 0666 whatever was asked), so these two checks mean nothing
+     there and run on Mac and Linux only. In a real install on Windows the files sit in the person's own %APPDATA%
+     (engine/store.js; an AGENT_WORKFORCE_HOME or AGENT_WORKFORCE_DATA override moves them), and Windows' default
+     permissions on a profile are expected to keep them to that person, SYSTEM and Administrators. That is reasoned
+     from Windows' documented defaults, not measured (an icacls read is asked for on #6113). */
   const posix = process.platform !== 'win32';
   if (posix) assert.equal(fs.statSync(path.join(a, org.WORLD_ID_FILE)).mode & 0o777, 0o600);
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
@@ -419,14 +420,14 @@ test('#5531 review 9: an unreadable local world id is an unclear answer, and a c
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
   const idFile = path.join(a, org.WORLD_ID_FILE);
   /* There, but unreadable (review 14 made a MISSING file mean stale; this one is not). #6113: chmod 000 does not stop
-     a read on Windows, so there the id file is swapped for a folder of the same name, which no platform reads as a
-     file. The Mac and Linux keep the permission form this review wrote. */
+     a read on Windows, so there the id file is swapped for a folder of the same name, which readFileSync refuses on
+     every platform. The Mac and Linux keep the permission form this review wrote. */
   const win = process.platform === 'win32';
   const kept = fs.readFileSync(idFile);
   const unreadable = () => { if (win) { fs.rmSync(idFile); fs.mkdirSync(idFile); } else fs.chmodSync(idFile, 0o000); };
   const readable = () => { if (win) { fs.rmSync(idFile, { recursive: true, force: true }); fs.writeFileSync(idFile, kept); } else fs.chmodSync(idFile, 0o600); };
-  unreadable();
   t.after(() => { try { readable(); } catch { /* removed with the sandbox */ } });
+  unreadable();
   await org.refresh({ root: a, remote: { macRequest: async () => ({ ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: 'e'.repeat(32), thisComputer: true } } }) } });
   assert.ok(fs.existsSync(path.join(a, org.ENROLLMENT_FILE)), 'an unreadable local id was read as the company moving on');
   readable();
