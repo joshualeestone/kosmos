@@ -14,7 +14,9 @@
  * and at desktop width (1280) the button keeps its old height (the same with any min-height
  * taken away). The tab layout only: the consolidated layout does not show #restart-wrap.
  * #6107, an upright tablet (834x1194, touch): the cards are two across (one across at 600x960, a small tablet) with
- * the face on the left, name, role and state beside it and the task underneath, a needs-you card and a long name fitting; a 1024x768 tablet in landscape keeps the desktop card (the control).
+ * the face on the left, name, role and state beside it and the task underneath, a needs-you card and a long name fitting;
+ * also two across at 744x1133 (the iPad mini, the 330px floor). CONTROLS, each keeping the desktop card (face above the
+ * name): a 1024x768 tablet in landscape, and a MOUSE at 834x1194 (the only arm that fails if the touch clause is dropped).
  * #4662, at the same phone sizes: the Agents Sort dropdown is at least 16px (iOS zooms into a
  * smaller field), and every .sortctl select in the page plus one built by agentSortControlHtml
  * (how the one-screen layout builds its own) is at least 16px; at 1280 the Sort stays under 16px.
@@ -177,7 +179,7 @@ function emptySpot(page, sel) {
         }
         // #6107: an upright tablet (iPad 11-inch portrait, touch) gets the cards two across, face on the left, name,
         // role and state beside it, the task underneath. CONTROL: the same tablet turned to landscape keeps the
-        // desktop card (more than two columns, the face above the name), so the arm cannot pass on a page that
+        // desktop card (the face above the name), so the arm cannot pass on a page that
         // simply always draws the tablet card. 1024x768 is inside the tablet width range, so only the orientation
         // clause keeps it out.
         // 744 is the iPad mini, the narrowest screen that gets two across (each card at its 330px floor).
