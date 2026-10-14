@@ -23905,8 +23905,11 @@ function updateRefusedText(attempt) {
   const quote = (p) => "'" + String(p).replace(/'/g, "'\\''") + "'";
   if (r.why === 'locked') {
     const paths = Array.isArray(r.paths) && r.paths.length ? r.paths : [r.at];
+    const list = paths.map(quote).join(' ');
     return ' Part of it is locked: <code>' + esc(r.at) + '</code>. Nothing was removed. Unlock it with this line in '
-      + 'Terminal, then update again: <code>' + esc('chflags -R nouchg,nouappnd ' + paths.map(quote).join(' ')) + '</code>';
+      + 'Terminal, then update again: <code>' + esc('chflags -R nouchg,nouappnd ' + list) + '</code>. If it is still '
+      + 'refused, the lock was set by an administrator, who can clear it with: <code>'
+      + esc('sudo chflags -R noschg,nosappnd ' + list) + '</code>';
   }
   if (r.why === 'permissions') {
     return ' This account may not change <code>' + esc(r.at) + '</code>. Nothing was removed. Give that folder back to '

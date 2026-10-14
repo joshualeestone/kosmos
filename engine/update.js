@@ -1333,7 +1333,7 @@ module.exports = {
   setBoardContext, // S4: server tells update.js its own {port, pid} at listen time
   setPlatform, setWindowsBundleRoot, setWindowsInstaller, setWindowsRollback, setKeptPreviousBuild, setWindowsHelperWitnessMs,
   updateAbort, // #2055, #4675: the durable stopped-at-the-pause marker ({count,reason,same,port,ts} or null)
-  updateRefused, // #6149 point 8: why an update refused before removing anything ({why,at,parts,ts} or null)
+  updateRefused, // #6149 point 8: why an update refused before removing anything ({why,at,parts,paths,ts} or null)
   installStartedFile, // #1728: the durable in-flight marker path (tests + direct readers)
   selfInstallRefusal, // #570: null where self-update works, else the sentence to show
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,
