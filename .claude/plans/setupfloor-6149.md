@@ -35,8 +35,9 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
     own install/setup.sh, before anything is built or pushed.
 - deploy-site's early committed-pointer check is a fail-fast: its export check would refuse the same pointers;
   only the staging-pointer arm of the test is specific to it.
-- NOT covered, and said so in docs/staging-channel.md: a rollback done in Vercel itself (Instant Rollback or
-  `vercel rollback`) to a deployment from before 0.7.45 goes around every script. No code here can close it.
+- NOT covered, and said so in docs/staging-channel.md: a rollback done in Vercel itself (Instant Rollback,
+  `vercel rollback`, `vercel promote` of an older deployment) and a hand-run `vercel deploy --prod` go around every
+  script. No code here can close them.
 - docs/staging-channel.md's floor section no longer says nothing in the tools refuses it.
 - Out of scope, on purpose: the .pkg (its postinstall fetches and verifies /setup, so /setup covers it) and the
   unversioned alias tarball (the app, not an installer).
@@ -78,6 +79,6 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
 tools/test-setup-floor-6149.sh: the library (boundary, numeric compare, unreadable versions, the knob in each
 combination, the pointer check, the tree check), then the REAL promote-channel.sh and publish-staging-pointer.sh on a
 temp site (refused below the floor with nothing written; a 0.7.49 control reaches each script's next check).
-tools/test-deploy-site-promote.sh runs deploy-site for real under the real floor: a pointer below it, a pointer naming
-another version's tarball, an old installer beside a 0.7.49 pointer, a staging pointer below it (each refused with
-nothing deployed) and a control that deploys. Registered in test:shell.
+tools/test-deploy-site-promote.sh runs deploy-site for real: under the real floor, a pointer below it, an old installer beside a 0.7.49 pointer, a staging pointer below it (each refused with
+nothing deployed) and a control that deploys; under the lowered floor, a pointer naming another version's tarball (a
+check that does not depend on the floor). Registered in test:shell.
