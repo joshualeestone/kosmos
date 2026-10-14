@@ -8,7 +8,7 @@
 set -u
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 S="$HERE/ci-runner-setup.sh"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)"; trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT   # chmod: some cases make dirs 000
 fails=0
 pass() { printf 'ok   %s\n' "$1"; }
 fail() { printf 'FAIL %s\n' "$1"; fails=$((fails + 1)); }
@@ -272,6 +272,11 @@ run in-nostart "$R6" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R6" FX_SVC_START_FAIL=1 -
 [ "$(rc in-nostart)" = 1 ] && has in-nostart "FAILED to start the runner again" && ! has in-nostart "runner started again" \
   && pass "install --apply says so, and fails, when the runner does not start again" || fail "install start fails: rc $(rc in-nostart): $(tail -2 "$T/in-nostart.out")"
 [ ! -e "$R1/actions-runner/actions-runner-osx-arm64-2.999.0.tar.gz" ] && pass "install --apply removes the package after unpacking it" || fail "the runner package was left in $R1/actions-runner"
+RG="$T/rg-unwired"; mkdir -p "$RG/actions-runner"; cp "$BIN/_stub" "$RG/actions-runner/config.sh"; chmod +x "$RG/actions-runner/config.sh"
+printf 'LANG=C\n' > "$RG/actions-runner/.env"
+run rg-unwired "$RG" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$RG" -- --apply register
+[ "$(rc rg-unwired)" = 1 ] && has rg-unwired "does not wire ACTIONS_RUNNER_HOOK_JOB_STARTED" && ! grep -q '^config\.sh' "$T/rg-unwired.calls" \
+  && pass "register --apply refuses a runner whose job guard is not wired" || fail "register unwired: rc $(rc rg-unwired): $(tail -1 "$T/rg-unwired.out")"
 run rg-noinstall "$T/empty-ci" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$T/empty-ci" -- --apply register
 [ "$(rc rg-noinstall)" = 1 ] && has rg-noinstall "run install first" && pass "register --apply before install says so" || fail "register before install: rc $(rc rg-noinstall): $(tail -1 "$T/rg-noinstall.out")"
 R7="$T/run7"; svc_home "$R7"

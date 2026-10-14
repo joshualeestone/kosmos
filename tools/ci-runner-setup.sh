@@ -5,7 +5,7 @@
 #
 # 🛑 DRY RUN IS THE DEFAULT. Nothing changes unless --apply is given: a change either goes through act(), which
 # otherwise prints "WOULD: <command>", or sits after a stage's own dry-run return (install, register).
-# Reads (pgrep, df, gh api GETs) always run.
+# Reads always run, dry or not: pgrep, df, gh api GETs, and install's unauthenticated compare GET to api.github.com.
 #
 # Usage: tools/ci-runner-setup.sh [--apply] <stage> [args]
 #   preflight                 as the machine owner. Reads only. Refuses while the agents' launchd jobs, crontab
@@ -104,6 +104,7 @@ repo_variable() {
   local errf err
   errf="$(mktemp)" || return 1
   # stderr apart: a warning gh prints on success must not become part of the value.
+  # The "=" prefix tells set-but-empty ("=") from no output at all.
   out="$(gh api "repos/$REPO/actions/variables/$1" --jq '"=" + .value' 2>"$errf")" || rc=$?
   err="$(cat "$errf")"; rm -f "$errf"
   if [ "$rc" = 0 ]; then printf '%s' "${out#=}"; return 0; fi
@@ -380,6 +381,17 @@ register() {
     return 0
   fi
   [ -x "$RUNNER_DIR/config.sh" ] || { echo "refused: no runner in $RUNNER_DIR; run install first" >&2; exit 1; }
+  # The job guard is the boundary on a public repo: never register a runner that would take jobs without it.
+  local k f
+  for k in STARTED COMPLETED; do
+    f="job-$(printf '%s' "$k" | tr '[:upper:]' '[:lower:]').sh"
+    [ "$(grep -c "^ACTIONS_RUNNER_HOOK_JOB_$k=" "$RUNNER_DIR/.env" 2>/dev/null || true)" = 1 ] \
+      && grep -q -F -x "ACTIONS_RUNNER_HOOK_JOB_$k=$CI_DIR/$f" "$RUNNER_DIR/.env" \
+      || { echo "refused: $RUNNER_DIR/.env does not wire ACTIONS_RUNNER_HOOK_JOB_$k to $CI_DIR/$f once; run install" >&2; exit 1; }
+  done
+  for f in job-guard.sh job-started.sh job-completed.sh job-cleanup.sh; do
+    [ -x "$CI_DIR/$f" ] || { echo "refused: $CI_DIR/$f is missing or not executable; run install" >&2; exit 1; }
+  done
   cd "$RUNNER_DIR"
   local token=""
   if [ -t 0 ]; then printf 'registration token: ' >&2; IFS= read -r -s token || true; echo >&2; else IFS= read -r token || true; fi
