@@ -30460,8 +30460,8 @@ function aoPaint() {
   const https = typeof location !== 'undefined' && location.protocol === 'https:';
   const others = https && OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) ? oaOthers(OA_COMPUTERS) : [];
   for (const a of [...AO_SEEN.keys()]) if (!others.some((c) => c.address === a)) AO_SEEN.delete(a);
-  list.textContent = '';
   if (!others.length) {
+    list.textContent = '';
     /* The app's own board (127.0.0.1) is another site to every other computer, so this browser's sign-in there is
        never sent: say where they can be seen, but only when this account has another computer to see. */
     const elsewhere = !https && typeof COMPUTERS_OPENABLE !== 'undefined' && COMPUTERS_OPENABLE === true;
@@ -30471,7 +30471,23 @@ function aoPaint() {
   }
   noteEl.textContent = 'As each computer reads its own accounts. Usage on one computer is not added to another\'s.';
   const now = Date.now();
-  for (const c of others) list.appendChild(aoGroup(c, OA_SEEN.get(c.address), AO_SEEN.get(c.address) || null, now));
+  /* One group at a time, only when its words changed, so focus in an unchanged group stays (web.otheraccounts-6178). */
+  const groups = others.map((c) => aoGroup(c, OA_SEEN.get(c.address), AO_SEEN.get(c.address) || null, now));
+  const shown = [...list.children];
+  const same = shown.length === groups.length && shown.every((el, i) => el.dataset && el.dataset.address === groups[i].dataset.address);
+  if (!same) {
+    list.textContent = '';
+    for (const g of groups) list.appendChild(g);
+  } else {
+    groups.forEach((g, i) => {
+      const old = shown[i];
+      if (old.textContent === g.textContent) return;   // nothing it says changed: keep it, and any focus in it
+      const active = typeof document !== 'undefined' ? document.activeElement : null;
+      const had = !!(active && active.closest && active.closest('.ao-computer') === old);
+      old.replaceWith(g);
+      if (had) { const link = g.querySelector('.oa-open'); if (link) link.focus(); }
+    });
+  }
   wrap.hidden = false;
 }
 /* Settings > AI Models was painted: show what is known now, and read the other computers if a round can. */
