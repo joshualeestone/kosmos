@@ -27203,7 +27203,14 @@ function accountGroupsHtml(list, rowHtml) {
    scenario that can no longer occur; they are harmless (a no-op cannot land a
    stale write) and were left rather than sweep 11 call sites in the live handler.
    Tracked as a follow-up cleanup; do NOT trust those local comments over this note. */
+/* #6175 (review 10): the note above is no longer true in full. The usage-setup refusal ARMS acctSayTimer again (it empties
+   the line, then writes its sentence 150 ms later so a repeated refusal is re-announced), so every acctCancelSay() call site
+   now cancels that pending write: a refusal followed within 150 ms by another writer is not said in the line (it stays on
+   the row). The deferred write also lands only on a still-empty line. */
 let acctSayTimer = null;
+/* #6175 review 10: one number per "Set up usage reading" press; an older press's re-claim or deferred write stands down
+   once a newer press has begun. */
+let ACCT_USAGE_GEN = 0;
 function acctCancelSay() { if (acctSayTimer) { clearTimeout(acctSayTimer); acctSayTimer = null; } }
 
 /* #3997: how often, and how many times, the list is read again while a sign-in's free check (ChatGPT or Grok) is still under way.
@@ -27282,8 +27289,9 @@ function acctUsageHtml(a, list) {
   let usage = '';
   /* #6175: an account with no status line at all can have the reading set up here (the same wiring as when Kosmos
      creates an account; a status line of the person's own is never replaced, which is 'own-statusline', not this). */
-  const whyId = 'acct-usage-why-' + (++ACCT_SOON_SEQ);   // review 2: a sequence, as the warning lines use (a folder-derived id could collide)
-  const usageSetup = a.weeklyBlocked === 'not-wired' && !a.apiKey
+  const offerSetup = a.weeklyBlocked === 'not-wired' && !a.apiKey;
+  const whyId = offerSetup ? 'acct-usage-why-' + (++ACCT_SOON_SEQ) : '';   // review 2: a sequence (a folder-derived id could collide); review 10: only for a row that offers it
+  const usageSetup = offerSetup
     ? '<p class="acct-usage-line acct-usage-none" id="' + whyId + '">Setting it up adds Kosmos\u2019s status line to this account\u2019s Claude Code. It shows nothing, but it takes one empty row under the prompt.</p>'
       + '<button class="acct-check" type="button" data-usage-setup="' + esc(a.dir) + '" aria-describedby="' + whyId + '">Set up usage reading</button>'
     : '';
@@ -28212,6 +28220,7 @@ async function paintAccounts(opts) {
   for (const btn of box.querySelectorAll('[data-usage-setup]')) {
     btn.addEventListener('click', async () => {
       const dir = btn.dataset.usageSetup;
+      const gen = ++ACCT_USAGE_GEN;   // review 10: a newer press (any row) ends this one's claim on the status line
       btn.disabled = true;
       btn.textContent = 'Setting up\u2026';
       let j = {}; let ok = false;
@@ -28242,11 +28251,13 @@ async function paintAccounts(opts) {
           const target = r || document.getElementById('set-accounts');   // the row gone: the list, never the page itself
           if (target) { target.setAttribute('tabindex', '-1'); target.focus(); }
         };
+        if (gen !== ACCT_USAGE_GEN) { claimFocus(); return; }   // review 10: a newer press owns the line now
         if (msg && PAINT_SAYS.includes(msg.textContent)) { acctCancelSay(); msg.textContent = OK_SAY; }   // review 4: never over another writer's text, even the first time
         else if (msg) { claimFocus(); return; }   // someone else spoke while the repaint ran: theirs stands; focus is still not left on the page (review 5)
         claimFocus();
         for (let i = 0; i < 10; i++) {
           await new Promise((r) => setTimeout(r, 100));
+          if (gen !== ACCT_USAGE_GEN) break;   // review 10: a newer press began; its sentence is not ours to replace
           if (msg && msg.textContent !== OK_SAY) {
             if (!PAINT_SAYS.includes(msg.textContent)) break;   // another writer spoke: theirs stands
             acctCancelSay(); msg.textContent = OK_SAY;
@@ -28272,7 +28283,7 @@ async function paintAccounts(opts) {
       if (msg) {   // every writer to that line cancels (the #2684 note)
         /* Review 9: emptied, then written a frame later, so the same refusal twice is announced again (as a move's sentence is). */
         acctCancelSay(); const said = say.textContent; msg.textContent = '';
-        acctSayTimer = setTimeout(() => { acctSayTimer = null; msg.textContent = said; }, 150);
+        acctSayTimer = setTimeout(() => { acctSayTimer = null; if (gen === ACCT_USAGE_GEN && msg.textContent === '') msg.textContent = said; }, 150);   // review 10: never over another writer's text
       }   // review 1: the status region speaks it; the row keeps it in view
       btn.textContent = 'Set up usage reading';
       btn.disabled = false;

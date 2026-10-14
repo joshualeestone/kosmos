@@ -301,12 +301,19 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         /* a row that still shows an old reading is offered it too, with the same explainer */
         const sb = btnOf('stalewired'), sd = sb && document.getElementById(sb.getAttribute('aria-describedby') || '');
         out.stale = { offer: !!sb, describedBy: sd ? sd.textContent : null, stillShows: (() => { const i = row('stalewired') && row('stalewired').querySelector('.acct-usage-meter .bar i'); return !!i && i.style.width === '30%'; })() };
-        let refuse = 2;
+        let refuse = 2; let staleN = 0;
         const posts1 = () => out.posts.length;
         const prior = window.fetch;
         window.fetch = (u, opts) => {
           if (String(u).indexOf('/api/accounts/claude/usage-reading') !== -1) {
-            const dir = JSON.parse(opts.body).dir; out.posts.push(dir);
+            const dir = JSON.parse(opts.body).dir;
+            /* Review 10: the stale row answers wired first (its row is left not-wired, so the offer stays), then refused. */
+            if (dir === '/home/.claude-stalewired') {
+              staleN++;
+              if (staleN === 1) return Promise.resolve({ ok: true, status: 200, json: async () => ({ wired: true, changed: true }) });
+              return Promise.resolve({ ok: false, status: 409, json: async () => ({ wired: false, because: 'the settings file could not be read' }) });
+            }
+            out.posts.push(dir);
             /* Review 5: the button loses focus during the refusal (some engines keep it on a disabled button), so the arm
                below fails unless the handler gives it back. */
             if (refuse > 0) { refuse--; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); return Promise.resolve({ ok: false, status: 409, json: async () => ({ wired: false, because: 'this account already has its own status line, so it was left alone' }) }); }
@@ -344,6 +351,16 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         await new Promise((r) => setTimeout(r, 400));
         out.foreign = { msg: document.getElementById('set-accounts-msg').textContent, focusKept: document.activeElement === sentinel };
         sentinel.remove();
+        /* Review 10: a refusal pressed during an earlier success's re-claim second is what the status line says, not the
+           older "set up" sentence. */
+        await new Promise((r) => setTimeout(r, 1100));   // the unwired press's re-claim second is over
+        const sb2 = () => btnOf('stalewired');
+        if (sb2()) {
+          sb2().click(); await until(() => staleN >= 1 && document.getElementById('set-accounts-msg').textContent.indexOf('Usage reading set up') === 0 && sb2() && !sb2().disabled);
+          sb2().click(); await until(() => staleN >= 2 && sb2() && !sb2().disabled);
+          await new Promise((r) => setTimeout(r, 400));
+          out.newerRefusal = { n: staleN, msg: document.getElementById('set-accounts-msg').textContent };
+        }
         window.fetch = prior;
         return out;
       });
@@ -351,6 +368,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(/adds Kosmos\u2019s status line/.test(s6175.describedBy || ''), tag + ' #6175 the button is described by the line that says what it adds', JSON.stringify(s6175.describedBy));
       say(s6175.msg1 === s6175.say1[0], tag + ' #6175 a refusal is also said in the panel\'s status line (heard by a screen reader)', JSON.stringify(s6175.msg1));
       say(s6175.after.focusIsRow && s6175.after.msg === 'Usage reading set up. Kosmos reads it once an agent on this account is working.', tag + ' #6175 a success is said in the status line and focus lands on the row', JSON.stringify({ focus: s6175.after.focusIsRow, msg: s6175.after.msg }));
+      say(!!s6175.newerRefusal && s6175.newerRefusal.n === 2 && s6175.newerRefusal.msg === 'Not set up: the settings file could not be read.', tag + ' #6175 a refusal pressed during an earlier success\'s re-claim second stands in the status line', JSON.stringify(s6175.newerRefusal));
       say(s6175.reSaid === true, tag + ' #6175 the same refusal twice is emptied and said again, so a screen reader hears it again', String(s6175.reSaid));
       say(s6175.rowFocusable === true, tag + ' #6175 the row itself takes focus, so a repaint can hand focus back to it', String(s6175.rowFocusable));
       say(s6175.refocus === true, tag + ' #6175 after a refusal, focus is back on the button for a keyboard user', String(s6175.refocus));
