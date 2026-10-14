@@ -32,6 +32,8 @@ case "$out" in *"LOWERED"*) pass "a lowered floor says so";; *) bad "a lowered f
 lowered KOSMOS_SETUP_FLOOR_LOWER=0.0.0 >/dev/null && bad "LOWER alone lowered the floor" || pass "KOSMOS_SETUP_FLOOR_LOWER alone keeps the real floor"
 lowered KOSMOS_SETUP_FLOOR_TEST=1 >/dev/null && bad "TEST alone lowered the floor" || pass "KOSMOS_SETUP_FLOOR_TEST alone keeps the real floor"
 lowered KOSMOS_SETUP_FLOOR_TEST=1 KOSMOS_SETUP_FLOOR_LOWER=abc >/dev/null && bad "a non-numeric LOWER lowered the floor" || pass "a non-numeric KOSMOS_SETUP_FLOOR_LOWER keeps the real floor"
+out="$(KOSMOS_SETUP_FLOOR_TEST=1 KOSMOS_SETUP_FLOOR_LOWER=9.9.9 bash -c '. "$1"; echo "$KOSMOS_SETUP_FLOOR"' _ "$HERE/lib/setup-floor.sh")"
+[ "$out" = 0.7.45 ] && pass "a LOWER at or above the real floor is ignored (it only ever lowers)" || bad "LOWER=9.9.9 set the floor to '$out'"
 
 # The pointer check: the artifact name's version must be the pointer's, and both above the floor.
 ptr() { printf '{"version":"%s","sha256":"bb","artifact":"%s"}' "$1" "$2"; }
@@ -107,6 +109,17 @@ for f in release.sh deploy-site.sh; do
   if [ -n "$chk" ] && [ -n "$dep" ] && [ "$chk" -lt "$dep" ]; then pass "$f checks its export (line $chk) before its vercel deploy (line $dep)"
   else bad "$f: tree check line '${chk:-none}', deploy line '${dep:-none}'"; fi
 done
+# release.sh step 1a-floor's check: the pair a cut re-publishes UNTOUCHED, by channel.
+site; printf 'old\n' > "$T/site/setup"; ptr 0.7.47 kosmos-0.7.47-arm64.tar.gz > "$T/site/dist/latest.json"
+printf 'x KOSMOS_READONLY_APP\n' > "$T/site/setup-staging"; ptr 0.7.49 kosmos-0.7.49-arm64.tar.gz > "$T/site/dist/latest-staging.json"
+kosmos_setup_floor_site_untouched_ok t "$T/site" staging 2>/dev/null && bad "a staging cut passed an old /setup it re-publishes" || pass "a staging cut refuses the old /setup it re-publishes untouched"
+kosmos_setup_floor_site_untouched_ok t "$T/site" prod 2>/dev/null && pass "a prod cut, which REPLACES /setup, is not refused by it (the remedy)" || bad "a prod cut was refused by the /setup it replaces"
+printf 'old\n' > "$T/site/setup-staging"
+kosmos_setup_floor_site_untouched_ok t "$T/site" prod 2>/dev/null && bad "a prod cut passed an old /setup-staging it re-publishes" || pass "a prod cut refuses the old /setup-staging it re-publishes untouched"
+kosmos_setup_floor_site_untouched_ok t "$T/site" nightly 2>/dev/null && bad "an unknown channel passed" || pass "an unknown channel is refused"
+n="$(grep -c 'kosmos_setup_floor_site_untouched_ok "the site checkout" "\$SITE" "\$CUT_CHANNEL"' "$HERE/release.sh")"
+[ "$n" = 1 ] && pass "release.sh runs it on its channel at step 1a-floor" || bad "release.sh 1a-floor calls: $n"
+
 # deploy-site.sh is run for real by tools/test-deploy-site-promote.sh (its kosmos#6149 arms: the real floor refuses
 # a committed pointer below it with nothing deployed, and a pointer whose tarball is older than its version).
 

@@ -16,7 +16,14 @@ KOSMOS_SETUP_FLOOR="$KOSMOS_SETUP_FLOOR_REAL"
 if [ "${KOSMOS_SETUP_FLOOR_TEST:-}" = 1 ]; then
   case "${KOSMOS_SETUP_FLOOR_LOWER:-}" in
     ''|*[!0-9.]*|.*|*.|*..*) ;;
-    *) KOSMOS_SETUP_FLOOR="$KOSMOS_SETUP_FLOOR_LOWER" ;;
+    *) # only ever LOWER: a value at or above the real floor is ignored (it would also skip the installer check)
+      if awk -v a="$KOSMOS_SETUP_FLOOR_LOWER" -v b="$KOSMOS_SETUP_FLOOR_REAL" 'BEGIN {
+          n = split(a, x, "."); m = split(b, y, "."); k = (n > m) ? n : m
+          for (i = 1; i <= k; i++) { p = (i <= n) ? x[i] + 0 : 0; q = (i <= m) ? y[i] + 0 : 0
+            if (p < q) exit 0; if (p > q) exit 1 }
+          exit 1 }'; then
+        KOSMOS_SETUP_FLOOR="$KOSMOS_SETUP_FLOOR_LOWER"
+      fi ;;
   esac
 fi
 
@@ -100,4 +107,20 @@ kosmos_setup_floor_tree_ok() {
     [ -f "$dir/$f" ] || continue
     kosmos_setup_floor_installer_ok "$who: $f" "$dir/$f" || return 1
   done
+}
+
+# `kosmos_setup_floor_site_untouched_ok <who> <site> <channel>`: a cut's FAIL-FAST, on the pair it re-publishes WITHOUT
+# writing it: a staging cut leaves the prod pair (dist/latest.json, setup), a prod cut leaves the staging pair
+# (dist/latest-staging.json, setup-staging). The pair the cut writes is not checked here (the cut replaces it with
+# the new build, which is how an old one gets fixed). It reads the site CHECKOUT, which may be behind origin/main:
+# the cut's export check before its deploy reads the bytes actually published and stays the authority.
+kosmos_setup_floor_site_untouched_ok() {
+  local who="$1" site="$2" channel="$3" ptr inst
+  case "$channel" in
+    staging) ptr="dist/latest.json"; inst="setup" ;;
+    prod) ptr="dist/latest-staging.json"; inst="setup-staging" ;;
+    *) echo "setup floor (kosmos#6149): $who: unknown channel '$channel' -- refusing" >&2; return 1 ;;
+  esac
+  [ ! -f "$site/$ptr" ] || kosmos_setup_floor_pointer_ok "$who: $ptr" "$(cat "$site/$ptr")" || return 1
+  [ ! -f "$site/$inst" ] || kosmos_setup_floor_installer_ok "$who: $inst" "$site/$inst" || return 1
 }

@@ -400,7 +400,8 @@ write_ptr "$S20/dist/latest-staging.json" 0.6.32 "$(printf 'x' | shasum -a 256 |
 git -C "$S20" add dist/latest-staging.json && git -C "$S20" commit -q -m "malformed staging"
 run_deploy "$S20" "$L20" --promote
 # kosmos#6149: the setup floor now refuses the malformed artifact name first (fail closed), before any fetch too.
-{ [ "$RC" = 1 ] && { has "$out" "repair the committed pointer" || has "$out" "names artifact not-a-build.zip"; } && [ ! -e "$S20/dist/$NEWART" ]; } \
+# (deploy-site's own #4819 refusal is now shadowed for this shape by the floor's, which fires first.)
+{ [ "$RC" = 1 ] && has "$out" "names artifact not-a-build.zip" && [ ! -e "$S20/dist/$NEWART" ]; } \
   && pass "mac staged: a malformed committed staging pointer refuses before any fetch" || bad "mac staged malformed (rc=$RC) out=$out"
 
 # 17) THE INCIDENT'S PATH: a plain site-copy --publish (live latest.json == committed), from a checkout

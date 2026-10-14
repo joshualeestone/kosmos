@@ -26,8 +26,9 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
   - deploy-site.sh, early on both committed pointers (fail fast), and on its EXPORT right before vercel (the bytes
     it publishes);
   - release.sh, on its own site export right before its vercel deploy (a cut publishes both pointers and both
-    installers too, including the prod ones a staging cut does not touch), and early (step 1a-floor) on the site
-    checkout's prod pointer and /setup, so a site below the floor refuses before anything is built.
+    installers too, including the ones the cut does not touch), and early (step 1a-floor) on the site checkout's
+    pair the cut re-publishes UNTOUCHED (the prod pair for a staging cut, the staging pair for a prod cut: the pair
+    a cut writes is the remedy, not checked there), a fail-fast on a checkout that may be behind origin/main.
   - promote-channel.sh also checks setup-staging's marker before copying it onto /setup (before any write).
 - deploy-site's early committed-pointer check is a fail-fast: its export check would refuse the same pointers;
   only the staging-pointer arm of the test is specific to it.
