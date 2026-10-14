@@ -11973,12 +11973,13 @@ const server = http.createServer(async (req, res) => {
         const dir = body && typeof body === 'object' ? String(body.dir || '') : '';
         if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const resolved = path.resolve(dir);
+        /* Review 11: this writes into the person's own Claude Code setup, so only the person, from Settings (as other
+           person-only Settings changes are); an agent's token is refused. Review 12: before any lookup, so a
+           refused caller learns nothing about which folders are accounts. */
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
         const acct = accounts.list().find((a) => a.dir === resolved);
         if (!acct) { sendJson(res, 404, { error: 'we could not find that account on this computer' }); return; }
         if (acct.apiKey) { sendJson(res, 400, { error: 'an account that uses an API key has no weekly limit to read' }); return; }
-        /* Review 11: this writes into the person's own Claude Code setup, so only the person, from Settings (as other
-           person-only Settings changes are); an agent's token is refused. */
-        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
         /* Review 11: a settings file that is a link to a file outside this account's folder (one shared with another
            account, say) is left alone: the status line names ONE account's folder, so wiring it there would send every
            account that shares the file's readings to this one. */
