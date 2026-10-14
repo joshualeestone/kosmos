@@ -98,7 +98,9 @@ repo_variable() {
 shards_check() {
   local v="$1" tok routed=""
   if [ "$v" = "<unset>" ]; then ok "KOSMOS_CI_SHELL_SHARDS unset"; return; fi
+  set -f   # as test.yml's parse: a "*" stays literal
   for tok in $(printf '%s' "$v" | tr ',' ' '); do case "$tok" in 1/2|2/2) routed="$routed $tok" ;; esac; done
+  set +f
   if [ -n "$routed" ]; then problem "KOSMOS_CI_SHELL_SHARDS is '$v', which routes shell shard(s)$routed here: one runner cannot carry a shell shard (#4601); unset it first"
   else ok "KOSMOS_CI_SHELL_SHARDS is set to '$v', which names no shard (test.yml routes none)"; fi
 }
@@ -110,16 +112,17 @@ preflight() {
   # read must refuse there too rather than read as empty.
   # application.* labels are the owner's open GUI apps (Terminal among them), not jobs.
   local jobs raw
-  if ! raw="$(launchctl list)"; then problem "could not read launchctl list"; raw=""; fi
+  local unknown=0
+  if ! raw="$(launchctl list)"; then problem "could not read launchctl list"; raw=""; unknown=1; fi
   jobs="$(printf '%s\n' "$raw" | awk 'NR > 1 && $3 !~ /^com\.apple\./ && $3 !~ /^application\./ { print $3 }')"
   if [ -n "$ALLOW_JOBS" ]; then
     # grep exits 2 on a bad pattern and prints nothing, which would clear every job.
-    printf 'x\n' | grep -E "$ALLOW_JOBS" >/dev/null 2>&1 || [ $? = 1 ] || { problem "KOSMOS_CI_ALLOW_JOBS is not a valid ERE: $ALLOW_JOBS"; jobs=""; }
+    printf 'x\n' | grep -E "$ALLOW_JOBS" >/dev/null 2>&1 || [ $? = 1 ] || { problem "KOSMOS_CI_ALLOW_JOBS is not a valid ERE: $ALLOW_JOBS"; jobs=""; unknown=1; }
     [ -z "$jobs" ] || jobs="$(printf '%s\n' "$jobs" | grep -v -E "$ALLOW_JOBS" || true)"
   fi
   if [ -n "$jobs" ]; then
     problem "$(printf '%s\n' "$jobs" | grep -c .) non-Apple launchd job(s) still loaded for $(id -un) (bootout + disable each, runbook part 3 step 0): $(printf '%s\n' "$jobs" | head -5 | tr '\n' ' ')(KOSMOS_CI_ALLOW_JOBS=<ERE> keeps one deliberately)"
-  else ok "no non-Apple launchd jobs loaded"; fi
+  elif [ "$unknown" = 0 ]; then ok "no non-Apple launchd jobs loaded"; fi
   # crontab -l fails when there is no crontab at all, which is the clear case.
   local cron
   cron="$(crontab -l 2>/dev/null || true)"
@@ -169,7 +172,8 @@ preflight() {
   if v="$(repo_variable KOSMOS_CI_SHELL_SHARDS)"; then
     shards_check "$v"
   else problem "could not read the repo variables (gh): cannot rule out KOSMOS_CI_SHELL_SHARDS"; fi
-  if v="$(repo_variable KOSMOS_CI_RUNNER)"; then ok "KOSMOS_CI_RUNNER is $v (read only; the runbook keeps it on)"; fi
+  if v="$(repo_variable KOSMOS_CI_RUNNER)"; then ok "KOSMOS_CI_RUNNER is $v (read only; the runbook keeps it on)"
+  else echo "note:   could not read KOSMOS_CI_RUNNER (verify checks it)"; fi
 
   if [ "$PROBLEMS" -gt 0 ]; then say "preflight: $PROBLEMS refusal(s)"; return 1; fi
   say "preflight: clear"
@@ -265,7 +269,8 @@ install_runner() {
   act_write "$CI_DIR/job-cleanup.sh" 755 <<'HOOK'
 #!/usr/bin/env bash
 # Ends what a job left running. kosmos-ci is a DEDICATED user and no step runs while a hook does, so every tmux
-# server and node process of this user is a leftover. The runner itself is not node.
+# server and node process of this user is a leftover. The runner's own service host IS node (RunnerService.js), but
+# it is this hook's ancestor, and pkill leaves its own ancestors alone unless given -a (man pkill).
 pkill -u "$(id -u)" -x tmux 2>/dev/null || true
 pkill -u "$(id -u)" -x node 2>/dev/null || true
 HOOK
@@ -309,6 +314,7 @@ register() {
     printf 'WOULD: %q install\nWOULD: %q start\n' ./svc.sh ./svc.sh
     return 0
   fi
+  [ -x "$RUNNER_DIR/config.sh" ] || { echo "refused: no runner in $RUNNER_DIR; run install first" >&2; exit 1; }
   cd "$RUNNER_DIR"
   local token=""
   if [ -t 0 ]; then printf 'registration token: ' >&2; IFS= read -r -s token; echo >&2; else IFS= read -r token || true; fi
@@ -351,17 +357,23 @@ EOF
   if v="$(repo_variable KOSMOS_CI_SHELL_SHARDS)"; then
     shards_check "$v"
   else problem "could not read KOSMOS_CI_SHELL_SHARDS"; fi
-  say "what a job left behind (between jobs, $CI_USER should run no tmux or node)"
+  say "the runner's .env (a KOSMOS_ key there would turn the suite lock off for every job)"
+  if [ ! -e "$RUNNER_DIR/.env" ]; then ok "no $RUNNER_DIR/.env here"
+  elif [ ! -r "$RUNNER_DIR/.env" ]; then echo "note:   cannot read $RUNNER_DIR/.env as $(id -un); install refused KOSMOS_ keys, later edits are unchecked"
+  elif grep -q -E '^[[:space:]]*(export[[:space:]]+)?KOSMOS_' "$RUNNER_DIR/.env"; then problem "$RUNNER_DIR/.env sets a KOSMOS_ variable: remove it"
+  else ok "$RUNNER_DIR/.env sets no KOSMOS_ variable"; fi
+  say "what a job left behind (between jobs, $CI_USER should run no tmux or node but the runner's own)"
   local left busy2
   # ps reads THIS Mac only, and an unknown user makes it fail with no lines, which must not read as "nothing left".
   if ! id "$CI_USER" >/dev/null 2>&1; then problem "no user $CI_USER on this Mac: run verify on the runner's own Mac"
   # macOS ps -U exits 1 for a user with no processes, which here means the user is not logged in.
-  elif ! left="$(ps -U "$CI_USER" -o comm=)"; then problem "$CI_USER runs no processes (not logged in? the runner needs auto-login), or ps failed"
+  elif ! left="$(ps -U "$CI_USER" -o args=)"; then problem "$CI_USER runs no processes (not logged in? the runner needs auto-login), or ps failed"
   # The busy flag was read before ps: read it again, and a job that started or ended in between is a rerun.
   elif [ -n "$row" ] && ! busy2="$(runner_busy)"; then problem "could not read the runners API a second time"
   elif [ -n "$row" ] && [ "$busy2" != "$busy" ]; then problem "the runner went busy or idle during verify; run verify again"
   else
-    left="$(printf '%s\n' "$left" | awk -F/ '{ print $NF }' | grep -x -E 'tmux|node' || true)"
+    # By program name (first word, path stripped). The runner's own service host is node running RunnerService.js.
+    left="$(printf '%s\n' "$left" | awk '{ n = $1; sub(/.*\//, "", n) } (n == "tmux" || n == "node") && !/\/bin\/RunnerService\.js/ { print n }')"
     if [ -z "$left" ]; then ok "no tmux or node left under $CI_USER"
     elif [ "$busy" = true ]; then ok "tmux or node running under $CI_USER, while a job is in flight (busy=true)"
     else problem "$CI_USER still runs: $(printf '%s\n' "$left" | sort | uniq -c | tr -s ' ' | tr '\n' ' ')with no job in flight"; fi

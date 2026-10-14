@@ -36,7 +36,11 @@ case "$me" in
       -u) echo 777 ;;
       *) [ "${FX_CI_EXISTS:-0}" = 1 ] || [ -f "$(dirname "$CALL_LOG")/user-created" ] || { echo "id: $1: no such user" >&2; exit 1; }; echo "uid=777($1)" ;;
     esac ;;
-  ps) [ "${FX_PS_FAIL:-0}" = 1 ] && exit 1; [ -z "${FX_PS:-}" ] || printf '%s\n' "$FX_PS" ;;
+  ps) [ "${FX_PS_FAIL:-0}" = 1 ] && exit 1
+    # An idle runner as svc.sh starts it (actions/runner runsvc.sh): its service host is node.
+    printf '%s\n' "/bin/bash /Users/kosmos-ci/actions-runner/runsvc.sh" "./externals/node24/bin/node ./bin/RunnerService.js" \
+      "/Users/kosmos-ci/actions-runner/bin/Runner.Listener run --startuptype service"
+    [ -z "${FX_PS:-}" ] || printf '%s\n' "$FX_PS" ;;
   gh)
     [ "${FX_GH_FAIL:-0}" = 1 ] && exit 1
     case "$*" in
@@ -121,6 +125,9 @@ for v in "" off; do
     || fail "shards '$v': rc $(rc pf-shards-off): $(grep -i shards "$T/pf-shards-off.out")"
 done
 refuse bad-allow-ere "KOSMOS_CI_ALLOW_JOBS is not a valid ERE" FX_JOBS=com.kosmos.board "KOSMOS_CI_ALLOW_JOBS=(unbalanced"
+for n in launchctl-unreadable bad-allow-ere; do
+  ! has "pf-$n" "no non-Apple launchd jobs loaded" && pass "preflight $n: no false 'no jobs loaded' line beside the refusal" || fail "preflight $n printed 'no non-Apple launchd jobs loaded' though it could not tell"
+done
 run pf-allow "$H" FX_JOBS=io.tailscale.ipn.helper KOSMOS_CI_ALLOW_JOBS='^io\.tailscale\.' -- preflight
 [ "$(rc pf-allow)" = 0 ] && pass "preflight: an allowed job (KOSMOS_CI_ALLOW_JOBS) does not refuse" || fail "allow-list: $(grep REFUSE "$T/pf-allow.out")"
 mv "$BREWD/bin/pwsh" "$T/pwsh.away"
@@ -218,6 +225,8 @@ run in-nostart "$R6" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R6" FX_SVC_START_FAIL=1 -
 [ "$(rc in-nostart)" = 1 ] && has in-nostart "FAILED to start the runner again" && ! has in-nostart "runner started again" \
   && pass "install --apply says so, and fails, when the runner does not start again" || fail "install start fails: rc $(rc in-nostart): $(tail -2 "$T/in-nostart.out")"
 [ ! -e "$R1/actions-runner/actions-runner-osx-arm64-2.999.0.tar.gz" ] && pass "install --apply removes the package after unpacking it" || fail "the runner package was left in $R1/actions-runner"
+run rg-noinstall "$T/empty-ci" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$T/empty-ci" -- --apply register
+[ "$(rc rg-noinstall)" = 1 ] && has rg-noinstall "run install first" && pass "register --apply before install says so" || fail "register before install: rc $(rc rg-noinstall): $(tail -1 "$T/rg-noinstall.out")"
 R4="$T/run4"; mkdir -p "$R4/actions-runner"; printf 'RUNNER_KEEP=1\n' > "$R4/actions-runner/.env"; chmod 000 "$R4/actions-runner/.env"
 run in-unread "$R4" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R4" -- --apply install "$C" "$G"
 chmod 600 "$R4/actions-runner/.env"
@@ -244,9 +253,10 @@ run rg-sudo "$CH" FX_WHO=kosmos-ci -- --apply register
 [ "$(rc rg-none)" = 1 ] && has rg-none "no registration token" && ! grep -q '^config\.sh' "$T/rg-none.calls" && pass "register --apply refuses with no token" || fail "register no token: rc $(rc rg-none)"
 
 # --- verify -----------------------------------------------------------------------------------------------------
+VCI="$T/vci"; mkdir -p "$VCI/actions-runner"; printf 'LANG=en_US.UTF-8\n' > "$VCI/actions-runner/.env"
 vcase() {  # vcase <name> <want rc> <want text> <env...>
   local name="$1" want="$2" text="$3"; shift 3
-  run "v-$name" "$H" FX_CI_EXISTS=1 "$@" -- verify
+  run "v-$name" "$H" FX_CI_EXISTS=1 KOSMOS_CI_HOME="$VCI" "$@" -- verify
   [ "$(rc "v-$name")" = "$want" ] && has "v-$name" "$text" && pass "verify: $name" || fail "verify $name: rc $(rc "v-$name"): $(grep -E 'REFUSE|clear' "$T/v-$name.out" | head -2)"
 }
 vcase clear 0 "verify: clear"
@@ -255,12 +265,16 @@ vcase offline 1 "kosmos-ci-agent1s is offline" "FX_RUNNER_ROW=offline false arm6
 vcase missing 1 "no runner named kosmos-ci-agent1s" FX_RUNNER_ROW=
 vcase switchoff 1 "KOSMOS_CI_RUNNER is 'off'" FX_RUNNER_VAR=off
 vcase shards 1 "KOSMOS_CI_SHELL_SHARDS is '2/2'" FX_SHARDS=2/2
-vcase leftover 1 "kosmos-ci still runs" "FX_PS=/opt/homebrew/bin/tmux"
-vcase leftover-busy 0 "while a job is in flight (busy=true)" "FX_PS=node" "FX_RUNNER_ROW=online true arm64,kosmos-ci,macos,self-hosted"
+vcase leftover 1 "kosmos-ci still runs" "FX_PS=/opt/homebrew/bin/tmux -L t new-session -d"
+vcase leftover-node 1 "kosmos-ci still runs" "FX_PS=node server.js --port 16190"
+vcase leftover-busy 0 "while a job is in flight (busy=true)" "FX_PS=node server.js" "FX_RUNNER_ROW=online true arm64,kosmos-ci,macos,self-hosted"
 vcase raced 1 "went busy or idle during verify" FX_BUSY2=true
 vcase reread-fails 1 "could not read the runners API a second time" FX_BUSY2_FAIL=1
 vcase nolabels 1 "labels are '', not" "FX_RUNNER_ROW=online false"
 vcase psfail 1 "kosmos-ci runs no processes" FX_PS_FAIL=1
+grep -q 'no tmux or node left' "$T/v-clear.out" && pass "verify: an idle runner's own node (RunnerService.js) is not a leftover" || fail "verify idle runner: $(grep -E 'REFUSE|ok' "$T/v-clear.out" | tail -2)"
+printf 'export KOSMOS_TESTS_IGNORE_SUITE=1\n' >> "$VCI/actions-runner/.env"
+vcase env-kosmos 1 "sets a KOSMOS_ variable: remove it"
 run v-nouser "$H" -- verify
 [ "$(rc v-nouser)" = 1 ] && has v-nouser "no user kosmos-ci on this Mac" && pass "verify: no CI user here is a problem, not a clean 'nothing left'" || fail "verify no user: rc $(rc v-nouser)"
 for n in v-clear v-leftover; do if out="$(changed "$n")"; then fail "verify $n changed something: $out"; fi; done
