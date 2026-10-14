@@ -49,43 +49,81 @@ function runTmux(args, opts) {
   }
 }
 
-/* What an environment listing says about CLAUDE_CONFIG_DIR: { set: '<dir>' } | { removed: true } | {} (no entry).
-   The last line wins, as in tmux. */
-function ccdEntry(lines) {
-  let e = {};
-  for (const line of lines) {
-    if (line.startsWith('CLAUDE_CONFIG_DIR=')) e = { set: line.slice('CLAUDE_CONFIG_DIR='.length) };
-    else if (line === '-CLAUDE_CONFIG_DIR') e = { removed: true };
+/* Review 2: values are read QUOTED (show-environment -s) and parsed as a stream, never split into lines. tmux prints
+   a raw value as-is, so a value holding a newline could print a line that reads as another entry ("unset
+   CLAUDE_CONFIG_DIR;") or as a marker. With -s every value sits between double quotes with " $ \ and backtick escaped
+   (measured, tmux 3.6a), so text inside a value is consumed as the value and can never be read as an entry or a
+   marker. Statements are exactly  NAME="<escaped>"; export NAME;  or  unset NAME;  and anything else makes the whole
+   batch unknown. */
+const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/* Parse one batch's output. order: the markers expected, in order ('g', '0', '1', ...). Returns the
+   CLAUDE_CONFIG_DIR entry per block ({ set } | { removed } | {}) or null when the output is not that exact shape. */
+function parseQuoted(text, order) {
+  const blocks = [];
+  let next = 0;
+  let i = 0;
+  const lineEnd = (from) => { const n = text.indexOf('\n', from); return n < 0 ? text.length : n; };
+  while (i < text.length) {
+    const end = lineEnd(i);
+    const head = text.slice(i, end);
+    if (head.startsWith(MARK)) {
+      if (next >= order.length || head !== MARK + order[next]) return null;
+      blocks.push({});
+      next += 1;
+      i = end + 1;
+      continue;
+    }
+    if (!blocks.length) return null;   // output before the first marker: not the shape asked for
+    const cur = blocks[blocks.length - 1];
+    const unset = /^unset ([A-Za-z_][A-Za-z0-9_]*);$/.exec(head);
+    if (unset) {
+      if (unset[1] === 'CLAUDE_CONFIG_DIR') { if ('set' in cur || cur.removed) return null; cur.removed = true; }
+      i = end + 1;
+      continue;
+    }
+    const eq = text.indexOf('="', i);
+    if (eq < 0 || eq > end) return null;
+    const name = text.slice(i, eq);
+    if (!NAME_RE.test(name)) return null;
+    let j = eq + 2;
+    let value = '';
+    for (;;) {
+      if (j >= text.length) return null;
+      const c = text[j];
+      if (c === '\\') { if (j + 1 >= text.length) return null; value += text[j + 1]; j += 2; continue; }
+      if (c === '"') break;
+      value += c;
+      j += 1;
+    }
+    const tail = '; export ' + name + ';';
+    if (!text.startsWith(tail, j + 1)) return null;
+    const after = j + 1 + tail.length;
+    if (after < text.length && text[after] !== '\n') return null;
+    if (name === 'CLAUDE_CONFIG_DIR') { if ('set' in cur || cur.removed) return null; cur.set = value; }
+    i = after + 1;
   }
-  return e;
+  if (next !== order.length) return null;
+  return blocks;
 }
 
 /* One batch: the global block first, then one block per session, each opened by its marker exactly once and in
-   order. Anything else (a missing, repeated or out-of-order marker, as a raw newline inside some value could forge)
-   answers null for the whole batch: no session is ever credited with another's value. */
+   order. Anything else answers null for the whole batch: no session is ever credited with another's value. */
 function readBatch(run, ask) {
-  const args = ['display-message', '-p', '-t', '=' + ask[0], MARK + 'g', ';', 'show-environment', '-g'];
-  ask.forEach((n, i) => args.push(';', 'display-message', '-p', '-t', '=' + n, MARK + i, ';', 'show-environment', '-t', '=' + n));
+  const args = ['display-message', '-p', '-t', '=' + ask[0], MARK + 'g', ';', 'show-environment', '-s', '-g'];
+  ask.forEach((n, i) => args.push(';', 'display-message', '-p', '-t', '=' + n, MARK + i, ';', 'show-environment', '-s', '-t', '=' + n));
   let got = run(args);
   // A session that went away between the listing and this read stops the sequence; try once more before giving up.
   if (!got || !got.ran || got.status !== 0) got = run(args);
   if (!got || !got.ran || got.status !== 0 || typeof got.out !== 'string') return null;
-  const order = ['g', ...ask.map((_, i) => String(i))];
-  const blocks = [];
-  let next = 0;
-  for (const line of got.out.split('\n')) {
-    if (line.startsWith(MARK)) {
-      if (next >= order.length || line !== MARK + order[next]) return null;
-      blocks.push([]);
-      next += 1;
-      continue;
-    }
-    if (!blocks.length) return null;   // output before the first marker: not the shape asked for
-    blocks[blocks.length - 1].push(line);
-  }
-  if (next !== order.length) return null;
-  return { global: ccdEntry(blocks[0]), sessions: blocks.slice(1).map(ccdEntry) };
+  const blocks = parseQuoted(got.out, ['g', ...ask.map((_, i) => String(i))]);
+  return blocks ? { global: blocks[0], sessions: blocks.slice(1) } : null;
 }
+
+/* Review 2: a name tmux reads specially in a target or a command line ($x, a trailing ;) fails the whole sequence,
+   so one such session would make its whole batch unknown on every read. Kosmos names its sessions from agent names;
+   anything outside this set is answered unknown without asking. */
+const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /**
  * names: session names to ask about. opts: { run } to replace the tmux call (tests), { bin, prefixArgs } to aim it
@@ -101,17 +139,17 @@ function sessionClaudeDirs(names, opts) {
   const listed = run(['list-sessions', '-F', '#{session_name}']);
   if (!listed || !listed.ran || listed.status !== 0 || typeof listed.out !== 'string') return out;
   const live = new Set(listed.out.split('\n').filter(Boolean));
-  const ask = wanted.filter((n) => live.has(n));
+  const ask = wanted.filter((n) => live.has(n) && SAFE_NAME.test(n));
 
   const size = Number.isInteger(o.batch) && o.batch > 0 ? o.batch : BATCH;
   for (let at = 0; at < ask.length; at += size) {
     const part = ask.slice(at, at + size);
     const read = readBatch(run, part);
     if (!read) continue;
-    const globalSet = read.global.set !== undefined;
+    const globalSet = 'set' in read.global;
     part.forEach((n, i) => {
       const e = read.sessions[i];
-      if (e.set !== undefined) out.set(n, e.set);
+      if ('set' in e) { if (e.set !== '') out.set(n, e.set); }   // set but empty: what the runner does with it is unknown
       else if (e.removed) out.set(n, '');
       else if (!globalSet) out.set(n, '');
       // else: no entry of its own while the server has a global value: it may have inherited it. Unknown.
@@ -120,4 +158,4 @@ function sessionClaudeDirs(names, opts) {
   return out;
 }
 
-module.exports = { sessionClaudeDirs, ccdEntry, MARK, BATCH };
+module.exports = { sessionClaudeDirs, parseQuoted, MARK, BATCH };
