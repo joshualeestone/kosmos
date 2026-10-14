@@ -428,7 +428,7 @@ test('#6172: the page arms a lasting choice on its first press and sends it, wit
   const arm = fn.indexOf("if (opt.lasting === true && !dmChoiceArmed(c, opt.n))");
   const send = fn.indexOf('await fetch(');
   assert.ok(arm > 0 && send > arm, 'the arming check is not before the send');
-  assert.match(fn.slice(arm, send), /DM_CHOICE_ARMED = \{[^}]*\};[\s\S]*?return;/, 'the first press does not stop at arming');
+  assert.match(fn.slice(arm, send), /DM_CHOICE_ARMED = armed;[\s\S]*?\n    return;\n  \}/, 'the first press does not stop at arming');
   assert.match(fn.slice(send), /lasting: true/, 'the second press does not carry lasting');
   // The behaviour (arming kept by a repaint, the gap, a question change disarming) is the browser check's render-dmchoices-5406.
 });
