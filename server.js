@@ -2612,17 +2612,17 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
 }
 
 /* #6174, for the account-move route: the restart, with the agent's tmux session start read before it and the note
-   written once the outcome is known. Two partials leave the agent on the account it ran on, and both are noted: the
-   window could not be closed (the SAME session runs on), or launchd/systemd held the old job (restartInner's
-   oldJobHeld: it runs on in a session it starts itself, noted only if that session already exists right after the
-   restart; usually it does not yet, so this case is usually unmarked, the safe direction). Rejected: adopting the next
-   session later, since a manual Restart (not this route) would then leave a lasting wrong mark. Any other outcome,
-   including a REFUSED restart (nothing confirmed as ours), clears a note an earlier move wrote. The session is found
-   as remove.js sessionFor finds it (the roster card for the cleaned name, tied to the agent), so a legacy session
-   (`angel-discord` for `angel`) is read and a bystander that merely shares the name is not. The read after the
-   restart is fresh (no cache). The note keeps the account the agent ran on before its FIRST partial move (`from`), so
-   moving it back there is not marked. A restart refused because tmux could not be read also clears a still-valid note
-   (the mark goes early, the safe direction). `deps` (restart, sessionOf, roster, startedAt) is for tests. Never throws. */
+   written once the outcome is known. Only a PARTIAL outcome with the SAME session still running (same start) is noted:
+   the window could not be closed, so the agent runs on the account it was moved from until it restarts. Any other
+   outcome clears a note an earlier move wrote, including a REFUSED restart (nothing confirmed as ours, or tmux could
+   not be read: the mark goes early, the safe direction). Not marked, by decision: launchd or systemd refusing to stop
+   the old job after the window closed. The session running right after cannot be told apart from a genuine relaunch
+   onto the new account, which would then be marked wrongly with nothing to clear it, so that case stays unmarked.
+   The session is found as remove.js sessionFor finds it (the roster card for the cleaned name, tied to the agent), so
+   a legacy session (`angel-discord` for `angel`) is read and a bystander that merely shares the name is not. Both
+   reads are fresh (no cache), so a session restarted moments ago is read as it is. The note keeps the account the
+   agent ran on before its FIRST partial move (`from`), so moving it back there is not marked. `deps` (restart,
+   sessionOf, roster, startedAt) is for tests. Never throws: the note is not the move. */
 function moveFromDir(rawName) {   // the account folder the agent is on before the move (null: the default account)
   try { return create.readJob(create.cleanName(rawName)).configDir || null; } catch { return null; }
 }
@@ -2640,26 +2640,22 @@ function sessionStartFor(name, fresh, deps = {}) {
 }
 function restartForMove(rawName, fromDir, deps = {}) {
   const name = create.cleanName(rawName) || rawName;   // the roster's spelling, the key the account list reads
-  const startedBefore = sessionStartFor(name, false, deps);
+  const startedBefore = sessionStartFor(name, true, deps);
   let back;
   try { back = (deps.restart || removal.restart)(name, 'account'); }
   catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
-  noteMoveOutcome(name, back && back.outcome, startedBefore, fromDir, deps, !!(back && back.oldJobHeld));
+  noteMoveOutcome(name, back && back.outcome, startedBefore, fromDir, deps);
   return back;
 }
-function noteMoveOutcome(name, outcome, startedBefore, fromDir, deps = {}, oldJobHeld = false) {
+function noteMoveOutcome(name, outcome, startedBefore, fromDir, deps = {}) {
   try {
     const accountmoving = require('./engine/accountmoving');
     const after = outcome === removal.OUTCOME.PARTIAL ? sessionStartFor(name, true, deps) : null;
-    /* Two partials leave it on the account it ran on: the window could not be closed (the SAME session runs on), or the
-       old launch job was held (review 5: it runs on under its old arguments, in whatever session is running now). The
-       session running right after is the one marked; none yet (the held job has not started one) marks nobody. */
-    const sameSession = Number.isFinite(startedBefore) && after === startedBefore;
-    if (!(sameSession || (oldJobHeld && Number.isFinite(after)))) { accountmoving.clear(name); return; }
+    if (!(Number.isFinite(startedBefore) && after === startedBefore)) { accountmoving.clear(name); return; }
     const prior = accountmoving.notes()[name];
-    // Moved again while noted: it still runs where it ran before its first partial move.
-    const from = prior && (prior.started === startedBefore || prior.started === after) ? prior.from : (fromDir || null);
-    accountmoving.note(name, after, from);
+    // Moved again while the same session runs: it still runs where it ran before its first partial move.
+    const from = prior && prior.started === startedBefore ? prior.from : (fromDir || null);
+    accountmoving.note(name, startedBefore, from);
   } catch { /* the marker is not the move */ }
 }
 /* #6108: every Claude agent on this computer grouped by the account folder it runs on, in ONE pass, for the accounts
@@ -2700,7 +2696,14 @@ function claudeAgentsByAccount() {
       const rowKey = isDefault ? null : (() => { try { return dir ? path.resolve(dir) : null; } catch { return null; } })();
       return this.on(dir, isDefault).filter((n) => {
         try {
-          if (!notes[n] || !am.isMoving(n, (x) => sessionStartFor(x, false, readDeps()), notes)) return false;
+          if (!notes[n]) return false;
+          let now = null;
+          const startedAt = (x) => { now = sessionStartFor(x, false, readDeps()); return now; };
+          if (!am.isMoving(n, startedAt, notes)) {
+            // A readable, different session: it has restarted since. Drop that very note (never one a move just wrote).
+            if (Number.isFinite(now)) am.clearIf(n, notes[n].started);
+            return false;
+          }
           // Moved back to the account it is still running on: it runs here, so it is not moving.
           const from = notes[n].from;
           const fromKey = from == null ? null : path.resolve(from);

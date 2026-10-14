@@ -29,9 +29,10 @@ running process then reads the new account. Every other agent reads as before.
   partial is a different session and is never marked.
 
 ## Not done
-- (review 5) macOS refusing to stop the launch job after the window closed is now covered: restartInner returns
-  oldJobHeld, and the route notes the session running right after the restart. If the held job has not started a
-  session yet at that moment, nothing is noted (unmarked, the safe direction).
+- (review 8, decided) macOS or systemd refusing to stop the old job after the window closed is NOT marked. Reviews 5-7
+  tried noting the session running right after (an oldJobHeld flag from restartInner): review 6 found it rarely
+  exists yet, review 8 found it can be a genuine relaunch onto the new account, marked wrongly with nothing to clear
+  it. Removed (remove.js is unchanged from main). That partial stays unmarked, the safe direction.
 - (review 2) A note for an agent that is then removed stays in account-moving.json until a reused name's different
   session clears it: a few bytes, never a wrong mark.
 - The disconnect guard (enumerateAgentsOnAccount) still counts launch files only, so it does not see an agent still
@@ -62,3 +63,6 @@ same name without the agent moving would clear the mark early (safe direction).
   usually it does not yet, so this case is usually unmarked (safe direction). Rejected: adopting the next session
   later, because a manual Restart (not the move route) would then leave a lasting wrong mark. The pane roster is read
   once per row, only when an agent on it has a note. oldJobHeld is pinned false for a stop launchd accepted.
+- (review 8) A list read prunes a note whose session is readably another (clearIf: only that exact note, so it cannot
+  race a move that just wrote a new one); a note with no readable session is kept. Both session reads in the move route
+  are fresh. restartForMove passes the cleaned name to removal.restart (restartInner cleans it again; no change).

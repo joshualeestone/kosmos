@@ -5,11 +5,10 @@
  * launch file, which already names the new account, so the agent sat under the new account as if it ran there.
  *
  * The move route notes the session left running on the old account (server.js noteMoveOutcome): the SAME session as
- * before the restart when the window could not be closed, or the session running right after when the old launch job
- * was held. The agent counts as moving while its current session is still the noted one (the same start). Any other
+ * before the restart, when the window could not be closed. The agent counts as moving while its current session is still the noted one (the same start). Any other
  * session restarted onto the new account; no session at all (stopped, or a relaunch that failed) runs nowhere. Neither
- * is moving; the move route clears the note on its next move, and a leftover note never marks (it needs the very same
- * session). The reading is the agent's own session (the pane roster) and its tmux start, so a failed read (null)
+ * is moving; the move route clears the note on its next move, a list read drops one whose session is readably another
+ * (clearIf, only that very note), and a leftover note never marks (it needs the very same session). The reading is the agent's own session (the pane roster) and its tmux start, so a failed read (null)
  * marks nobody. Comparing the exact start, not a time window, means a restart that relaunched the agent onto the new
  * account is never marked.
  *
@@ -66,4 +65,13 @@ function isMoving(name, startedAt, all) {
   return Number.isFinite(started) && started === rec.started;   // the same session: still on its old account
 }
 
-module.exports = { note, clear, isMoving, notes: readAll };
+/** Drop `name`'s note only if it is still the one for session start `started`: a list read can prune a note that can
+    never mark again without racing a move that just wrote a new one. */
+function clearIf(name, started) {
+  const d = readAll();
+  if (!d[name] || d[name].started !== started) return false;
+  delete d[name];
+  return writeAll(d);
+}
+
+module.exports = { note, clear, clearIf, isMoving, notes: readAll };
