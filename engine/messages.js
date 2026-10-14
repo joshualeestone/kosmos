@@ -2388,30 +2388,32 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       return (typeof id === 'string' && id.trim() !== '') ? 'local:' + id : null;
     };
     let ackRun = 0;
-    const runSenders = [];   // the stable identity of each sender in the trailing ack-only run
+    const priorSenders = [];   // the stable identity of each PRIOR sender in the trailing ack run (the incoming post is judged against these)
     for (let i = ackPosts.length - 1; i >= 0; i -= 1) {
       if (!chat.acknowledgementOnly(ackPosts[i].text)) break;
       ackRun += 1;
-      runSenders.push(identityOf(ackPosts[i]));
+      priorSenders.push(identityOf(ackPosts[i]));
     }
     // This incoming post, not yet in the log: it extends the run only if it, too, is
     // acknowledgement-only; otherwise it is content and the run is broken (0). The incoming post
     // is always a local agent (operator posts are excluded above), so its `from` is a sessionName.
     const incomingIsAck = chat.acknowledgementOnly(stored);
     ackRun = incomingIsAck ? ackRun + 1 : 0;
-    if (incomingIsAck) runSenders.push(identityOf({ kind: 'post', from }));
-    // A run is a LOOP only when it is a back-and-forth: at least one KNOWN sender appears more
-    // than once in the trailing run (this incoming post included). Distinct senders each answering
-    // ONCE are a POLL, not a loop -- a person or agent asks the room "everyone ready?" and the
-    // fighters each reply "yes" -- and refusing the last of those would DROP an answer someone
-    // asked for and record nothing of it, the dangerous direction this trigger exists to avoid
-    // (review round 2, PM Liu Kang). The run scan above has no sender dimension, so without this
-    // a poll of four distinct answerers trips the limit. A genuine loop (two agents trading acks)
-    // has a repeating identity and is still caught. A poll that grows past the room's volume budget
-    // is held by the volume valve below with the honest room_held, not here.
-    const known = runSenders.filter((s) => s !== null);
-    const backAndForth = new Set(known).size < known.length;
-    if (ackRun >= ACK_RUN_LIMIT && backAndForth) {
+    const incomingId = incomingIsAck ? identityOf({ kind: 'post', from }) : null;
+    // This incoming ack is refused ONLY when its OWN sender is CONTINUING the run: its identity
+    // already appears earlier in the trailing run, so it is adding yet another acknowledgement to a
+    // back-and-forth it is already part of. A sender posting its FIRST ack in the run is ANSWERING,
+    // not looping -- a person or agent asked the room "everyone ready?" and this is one fighter's
+    // reply -- so it is delivered even when OTHERS have already repeated. Refusing a first-time
+    // answerer because someone ELSE looped would drop an answer the room asked for and record
+    // nothing of it, the dangerous direction this trigger exists to avoid (review round 2, PM Liu
+    // Kang; and the blind round that found gating on "any repeat anywhere in the run" punished the
+    // next arrival rather than the repeater). Two agents trading acks are still caught: the
+    // trader's own next ack repeats its earlier one. An unknown identity (null, e.g. an external
+    // row with no member) never matches, so an unidentifiable incoming sender errs toward delivery,
+    // and a loop among unidentified external parties is left to the volume valve below, not here.
+    const incomingContinuesLoop = incomingId !== null && priorSenders.includes(incomingId);
+    if (ackRun >= ACK_RUN_LIMIT && incomingContinuesLoop) {
       const because = 'Kosmos stopped passing on agreement-only replies here; '
         + 'posts with something new still go through.';
       // No valve row and no refused row: see the block comment above. The ack-only
