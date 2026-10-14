@@ -5,14 +5,15 @@
 #
 # 🛑 DRY RUN IS THE DEFAULT. Nothing changes unless --apply is given: a change either goes through act(), which
 # otherwise prints "WOULD: <command>", or sits after a stage's own dry-run return (install, register).
-# Reads always run, dry or not: launchctl print, crontab -l, pgrep, ps, id, df, fdesetup, pmset, xcode-select, gh api
-# GETs, and install's unauthenticated compare GET to api.github.com. A temp file for gh's stderr comes and goes in TMPDIR.
+# Reads always run, dry or not: launchctl print, crontab -l, pgrep, ps, id, df, stat, shasum, fdesetup, pmset,
+# xcode-select, gh api GETs, and install's unauthenticated compare GET to api.github.com (with --apply, also
+# launchctl managername and manageruid). A temp file for gh's stderr comes and goes in TMPDIR.
 #
 # Usage: tools/ci-runner-setup.sh [--apply] <stage> [args]
 #   preflight                 as the machine owner. Reads only. Refuses while the agents' launchd jobs, crontab
 #                             or a suite are live (runbook part 3, step 0), and checks disk, FileVault, sleep,
-#                             power restore, tmux, pwsh, the CI user. KOSMOS_CI_ALLOW_JOBS (an ERE) lets named
-#                             launchd jobs stay
+#                             power restore, tmux, pwsh, the Command Line Tools, the owner's home mode, the CI
+#                             user and the repo variables. KOSMOS_CI_ALLOW_JOBS (an ERE) lets named launchd jobs stay
 #   create-user               as the machine owner (an admin). Runs preflight first. A STANDARD user kosmos-ci
 #   install <commit> <sha256> as kosmos-ci, in its Screen Sharing session (svc.sh, which stops and starts the
 #                             runner, needs the GUI session, not ssh). The runner, the hooks and the job guard
@@ -33,7 +34,7 @@
 # tools/run-tests.sh, whose name arm is `pgrep -fl` with no -u (tools/lib/cut-guard.sh), so it sees a suite of ANY
 # user on this Mac and waits. The run markers are per-HOME and do not cross users; the name arm does. So the
 # runner's .env must never set a KOSMOS_ variable (KOSMOS_TESTS_IGNORE_SUITE, KOSMOS_NO_WAIT and the other wait
-# controls would turn the lock off for every job): install refuses one and verify flags one. That file is the only
+# controls would turn the lock off for every job): install and register refuse one, verify flags one. That file is the only
 # place this script reads; a `launchctl setenv` or a shell profile in kosmos-ci's session would reach jobs too.
 # The runner package is the latest actions/runner release, checked against the sha256 that same release publishes:
 # that catches a damaged download, not a compromised release (trust on first fetch, as Baron's script had it).
@@ -458,8 +459,10 @@ register() {
   ACTIONS_RUNNER_INPUT_TOKEN="$token" ./config.sh --unattended --url "$REPO_URL" --name "$NAME" --labels "$LABELS" --work _work --replace
   printf '%s\n' "$RUNNER_PATH" > .path
   ./svc.sh install   # a LaunchAgent for this user (starts at login)
+  # A Listener already running (a runner started by hand with ./run.sh) must not count as the service's.
+  local before_start; before_start="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"
   ./svc.sh start
-  wait_for_listener ""
+  wait_for_listener "$before_start"
   ./svc.sh status
 }
 
@@ -468,7 +471,9 @@ register() {
 # <pids before> may hold several (one per line): the old Listener can outlive the stop, so any pid not among them counts.
 wait_for_listener() {
   local before="$1" now waited=0
-  while now="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"
+  local prc
+  while prc=0; now="$(pgrep -u "$(id -u)" -x Runner.Listener)" || prc=$?
+        [ "$prc" -lt 2 ] || { echo "FAILED: could not list processes (pgrep exit $prc) to see whether the runner started" >&2; exit 1; }
         [ -z "$(printf '%s\n' "$now" | grep -v -x -F -e "${before:-none}" || true)" ]; do
     [ "$waited" -lt "${KOSMOS_CI_START_WAIT_S:-30}" ] || { echo "FAILED: the runner was loaded but no new Runner.Listener is running after ${waited}s; see ~/Library/Logs/actions.runner.*/stderr.log" >&2; exit 1; }
     sleep 1; waited=$((waited + 1))
