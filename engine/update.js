@@ -796,7 +796,44 @@ function windowsStatusRecord() {
 function lastAttemptView() {
   if (!lastAttempt) seedFromDisk();
   if (!lastAttempt && updatePlatform() === 'win32') { const w = windowsStatusRecord(); if (w) return w; }
-  return lastAttempt ? { ...lastAttempt } : null;
+  if (!lastAttempt) return null;
+  const view = { ...lastAttempt };
+  /* #6149 point 8: a FAILED attempt is told why when the installer refused it before removing anything, so the
+     board can name what to unlock. Only a refusal stamped at or after this attempt's start (a second's slack: the
+     installer's stamp has no fraction) explains it; an older record never explains a newer failure. */
+  if (typeof view.code === 'number' && view.code !== 0) {
+    const r = updateRefused();
+    const started = Date.parse(view.startedAt || '');
+    const at = r ? Date.parse(r.ts || '') : NaN;
+    if (r && Number.isFinite(started) && Number.isFinite(at) && at >= started - 1000) view.refused = r;
+  }
+  return view;
+}
+/* #6149 point 8: the record setup.sh leaves when an update refuses before removing anything (a locked part, or a
+   folder this account may not change), and removes once a swap goes through. Returns { why, at, parts, paths, ts } or null.
+   why is 'locked' or 'permissions'; at is the first stuck path; parts are the locked parts' names (bin, app or
+   runtime) and paths their full paths here, for the unlock line. A key written twice, a why it does not know, or a missing at is damage: null. */
+function updateRefusedFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'update-refused') : null; }
+function updateRefused() {
+  const file = updateRefusedFile();
+  if (!file) return null;
+  let raw = '';
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { return null; }
+  const kv = Object.create(null);
+  const twice = new Set();
+  const parts = [];
+  for (const line of raw.split('\n')) {
+    const m = /^([a-z_]+)=(.*)$/.exec(line.replace(/\r$/, ''));
+    if (!m) continue;
+    if (m[1] === 'part') { if (/^(bin|app|runtime)$/.test(m[2]) && !parts.includes(m[2])) parts.push(m[2]); continue; }
+    if (m[1] in kv) twice.add(m[1]);
+    kv[m[1]] = m[2];
+  }
+  if (twice.has('why') || twice.has('at') || twice.has('ts')) return null;
+  if (kv.why !== 'locked' && kv.why !== 'permissions') return null;
+  if (!kv.at) return null;
+  const root = installedRoot();
+  return { why: kv.why, at: kv.at, parts, paths: parts.map((x) => path.join(root, x)), ts: kv.ts || null };
 }
 /* #2055: the durable marker of an update that stopped at its pause. setup.sh writes it (with a
    CONSECUTIVE count and the stop's reason) and clears it once an update gets past the pause. It is
@@ -1296,6 +1333,7 @@ module.exports = {
   setBoardContext, // S4: server tells update.js its own {port, pid} at listen time
   setPlatform, setWindowsBundleRoot, setWindowsInstaller, setWindowsRollback, setKeptPreviousBuild, setWindowsHelperWitnessMs,
   updateAbort, // #2055, #4675: the durable stopped-at-the-pause marker ({count,reason,same,port,ts} or null)
+  updateRefused, // #6149 point 8: why an update refused before removing anything ({why,at,parts,ts} or null)
   installStartedFile, // #1728: the durable in-flight marker path (tests + direct readers)
   selfInstallRefusal, // #570: null where self-update works, else the sentence to show
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,

@@ -14,6 +14,7 @@
 #   NOREAD    a folder with no permissions at all, owned by this user, is lifted and CAN then be removed
 #   LOCKED    a locked file in app/ (chflags uchg, macOS): refused, the path named, nothing removed   (the card's case)
 #   NODIR     a folder that cannot be made writable (chmod stubbed to fail): refused, nothing removed
+#   NORECORD  the same with logs/ a file, so the refusal's record cannot be written: still refused (#6149)
 #   NOSEARCH  a folder this user may read and write but not search (chmod stubbed): refused. rm needs all three.
 #   NOISY     the same, beside a folder find cannot read (find exits non-zero): STILL refused. It goes red if the
 #             search is ever given back a fallback that clears what it found (`|| _stuck_at=""`), which is the
@@ -97,6 +98,8 @@ DRIVER
   if [ -n "$_stub" ]; then PATH="$_stub:$PATH" sh "$SB/driver.sh" "$_dest" 2>&1
   else sh "$SB/driver.sh" "$_dest" 2>&1; fi
 }
+# #6149 point 8: the record a refusal leaves for the board, as "key=value" lines.
+refused_key() { sed -n "s/^$2=//p" "$1/logs/update-refused" 2>/dev/null; }
 all_there() { [ -f "$1/bin/kosmos" ] && [ -f "$1/app/server.js" ] && [ -f "$1/app/engine/x.js" ] && [ -f "$1/runtime/bin/node" ]; }
 # The swap's own removals, on a sandbox install, to see whether what the block let through can really be removed.
 swap_removes() {
@@ -116,6 +119,7 @@ OUT="$(run_block "$D")"
 case "$OUT" in *"RC=0"*) ok "READONLY: a read-only app does not refuse the update" ;; *) bad "READONLY: refused: $OUT" ;; esac
 [ -w "$D/app" ] && [ -w "$D/app/engine" ] && [ -w "$D/app/server.js" ] && ok "READONLY: the app is writable again" || bad "READONLY: the app was not lifted"
 [ -d "$D/.kosmos.stage.1" ] && ok "READONLY: the stage is kept for the swap" || bad "READONLY: the stage was removed on the way through"
+[ ! -e "$D/logs/update-refused" ] && ok "READONLY: an update that goes on leaves no refusal record" || bad "READONLY: a refusal record was written for an update that went on"
 
 # ---- NOREAD: a folder this user owns with no permissions at all. Write alone is not enough for rm to empty it
 # (review 1: lifted to write-only, the block passed it and the swap then failed with bin already gone).
@@ -133,6 +137,17 @@ case "$OUT" in *"Nothing was removed"*) ok "NODIR: it says nothing was removed" 
 case "$OUT" in *"may not change that folder"*) ok "NODIR: it says why in words that fit (not the Finder's Locked box)" ;; *) bad "NODIR: the wrong reason: $OUT" ;; esac
 all_there "$D" && ok "NODIR: bin, app and runtime are all still there" || bad "NODIR: a part was removed"
 [ ! -e "$D/.kosmos.stage.1" ] && ok "NODIR: the stage is cleared, as every other refusal of the swap does" || bad "NODIR: the stage was left behind"
+[ "$(refused_key "$D" why)" = permissions ] && ok "NODIR: the record says why: permissions" || bad "NODIR: the record's why is '$(refused_key "$D" why)'"
+[ "$(refused_key "$D" at)" = "$D/app/engine" ] && ok "NODIR: the record names the folder" || bad "NODIR: the record's at is '$(refused_key "$D" at)'"
+case "$(refused_key "$D" ts)" in 20[0-9][0-9]-[01][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z) ok "NODIR: the record is stamped in UTC" ;; *) bad "NODIR: the record's ts is '$(refused_key "$D" ts)'" ;; esac
+[ ! -e "$D/logs/update-refused.tmp" ] && ok "NODIR: no half-written record is left" || bad "NODIR: a .tmp record was left"
+# NORECORD (#6149 point 8): the record cannot be written (logs is a FILE here, so mkdir and the write fail). The
+# update must still be refused, with nothing removed: the record is for the board, never a reason to go on.
+D="$(mk_install norecord)"; in_sb "$D"; /bin/chmod a-w "${D:?}/app/engine"; : > "$D/logs"
+OUT="$(run_block "$D" "$STUB")"
+[ -f "$D/logs" ] && ok "CONTROL NORECORD: logs is a file, so no record can be written" || bad "CONTROL NORECORD: logs is not a file"
+case "$OUT" in *"RC=1"*) ok "NORECORD: a record that cannot be written still refuses the update" ;; *) bad "NORECORD: not refused: $OUT" ;; esac
+all_there "$D" && ok "NORECORD: bin, app and runtime are all still there" || bad "NORECORD: a part was removed"
 
 # ---- NOSEARCH: read and write but no search bit, with something in it. rm cannot reach what is inside.
 D="$(mk_install nosearch)"; in_sb "$D"; /bin/chmod 600 "${D:?}/app/engine"
@@ -169,6 +184,7 @@ D="$(mk_install harmless)"; in_sb "$D"
 OUT="$(run_block "$D" "$STUB")"
 case "$OUT" in *"RC=0"*) ok "HARMLESS: a failed chmod with nothing stuck does not refuse" ;; *) bad "HARMLESS: refused: $OUT" ;; esac
 case "$OUT" in *"cannot be replaced"*) bad "HARMLESS: it printed the refusal: $OUT" ;; *) ok "HARMLESS: no refusal is printed" ;; esac
+[ ! -e "$D/logs/update-refused" ] && ok "HARMLESS: and leaves no refusal record" || bad "HARMLESS: a refusal record was written"
 
 # ---- LOCKED: the card's case, a locked file (the Finder's Locked box). macOS only: the flag is BSD's.
 if [ "$(uname -s)" = "Darwin" ]; then
@@ -182,6 +198,8 @@ if [ "$(uname -s)" = "Darwin" ]; then
     case "$OUT" in *"$D/app/engine/x.js"*) ok "LOCKED: the refusal names the file" ;; *) bad "LOCKED: the file is not named: $OUT" ;; esac
     case "$OUT" in *"It is locked"*"chflags -R nouchg,nouappnd '$D/app'"*) ok "LOCKED: it says how to unlock it, on the stuck part only" ;; *) bad "LOCKED: the wrong reason or the wrong folder: $OUT" ;; esac
     all_there "$D" && ok "LOCKED: bin, app and runtime are all still there" || bad "LOCKED: a part was removed"
+    [ "$(refused_key "$D" why)" = locked ] && ok "LOCKED: the record says why: locked" || bad "LOCKED: the record's why is '$(refused_key "$D" why)'"
+    [ "$(refused_key "$D" part)" = app ] && ok "LOCKED: the record names the locked part" || bad "LOCKED: the record's parts are '$(refused_key "$D" part)'"
     # GNUFIND (#6149): a find first on PATH that knows no -flags (Homebrew findutils) must not read as "nothing
     # locked". The stub fails on -flags the way GNU find does and passes anything else to the real one.
     D2="$(mk_install lockedgnu)"; in_sb "$D2"; chflags uchg "${D2:?}/app/engine/x.js"
@@ -204,6 +222,7 @@ if [ "$(uname -s)" = "Darwin" ]; then
     case "$OUT" in *"nouchg,nouappnd '$D3/app' '$D3/runtime'"*) ok "TWOLOCKS: the advice names both locked parts" ;; *) bad "TWOLOCKS: the advice does not name both parts: $OUT" ;; esac
     case "$OUT" in *"'$D3/bin'"*) bad "TWOLOCKS: the advice names bin, which has no lock: $OUT" ;; *) ok "TWOLOCKS: and not the part with no lock" ;; esac
     all_there "$D3" && ok "TWOLOCKS: bin, app and runtime are all still there" || bad "TWOLOCKS: a part was removed"
+    [ "$(refused_key "$D3" part | tr '\n' ' ')" = "app runtime " ] && ok "TWOLOCKS: the record names both locked parts" || bad "TWOLOCKS: the record's parts are '$(refused_key "$D3" part | tr '\n' ' ')'"
     chflags -R nouchg "$D3" 2>/dev/null
     # RELOCK: this fixture's app was WRITABLE before the update, so the refusal leaves it writable.
     [ -w "$D/app" ] && [ -w "$D/app/server.js" ] && ok "RELOCK: an app that was writable is still writable after the refusal" || bad "RELOCK: the refusal locked an app that was not locked"
