@@ -303,8 +303,19 @@ test('#6174 an agent whose move came back partial while the same session runs is
   const by = claudeAgentsByAccount();
   assert.ok(by.on(newAcct, false).includes('mv-still-old'), 'listed by its launch file (the account it was moved to)');
   assert.deepEqual(by.moving(newAcct, false, deps), ['mv-still-old'], 'only the agent whose old session still runs is marked');
-  assert.ok(!('mv-restarted' in accountmoving.notes()), 'a restarted agent kept its note');
+  assert.ok('mv-restarted' in accountmoving.notes(), 'a read cleared a note (only the move route clears; review 4)');
   assert.deepEqual(by.moving(oldAcct, false, deps), [], 'an agent moved back to the account it still runs on was marked');
+  // An agent that ran on the default account (from: null), moved to a named one: marked there, not on the default row.
+  lead('mv-from-default', { role: 'writer' }, newAcct);
+  accountmoving.note('mv-from-default', 1000e3, null);
+  starts['mv-from-default-discord'] = 1000e3;
+  assert.ok(claudeAgentsByAccount().moving(newAcct, false, deps).includes('mv-from-default'), 'a default-account agent moved away was not marked');
+  // ...and one moved back to the default account it still runs on is not marked there.
+  lead('mv-default-back', { role: 'writer' }, null);
+  accountmoving.note('mv-default-back', 1000e3, null);
+  starts['mv-default-back-discord'] = 1000e3;
+  const def = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
+  assert.ok(!claudeAgentsByAccount().moving(def, true, deps).includes('mv-default-back'), 'an agent back on the default account it runs on was marked');
   // Once its session restarts, the mark goes.
   starts = { 'mv-still-old-discord': 3000e3 };
   assert.deepEqual(claudeAgentsByAccount().moving(newAcct, false, deps), [], 'a restarted agent is still marked moving');
@@ -349,6 +360,6 @@ test('#6174 accountmoving: a failed reading marks nobody and keeps the note; ano
   assert.equal(accountmoving.isMoving('x-6174', () => { throw new Error('boom'); }), false);
   assert.equal(accountmoving.isMoving('x-6174', () => 5000), true, 'the same session is moving');
   assert.equal(accountmoving.isMoving('x-6174', () => 6000), false, 'another session is not');
-  assert.ok(!('x-6174' in accountmoving.notes()), 'another session left the note behind');
+  assert.ok('x-6174' in accountmoving.notes(), 'a read cleared the note (only the move route clears)');
   assert.equal(accountmoving.isMoving('never-6174', () => 1), false, 'an agent with no note was marked');
 });

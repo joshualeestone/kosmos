@@ -7,8 +7,8 @@
  * The move route reads the agent's session start BEFORE its restart attempt and, when the move comes back partial with
  * that very session still running (the same start), notes it. The agent counts as moving while its current session is
  * still that one (the same start): it runs on the old account. Any other session restarted onto the new account; no
- * session at all (stopped, or a relaunch that failed) runs nowhere. Neither is moving, and the note is dropped when
- * read. Tmux's own session start is the only reading (status.sessionStartedAtFromTmux), so a failed read (null)
+ * session at all (stopped, or a relaunch that failed) runs nowhere. Neither is moving; the move route clears the
+ * note on its next move, and a leftover note never marks (it needs the very same session). Tmux's own session start is the only reading (status.sessionStartedAtFromTmux), so a failed read (null)
  * marks nobody. Comparing the exact start, not a time window, means a restart that relaunched the agent but still
  * reported partial is never marked.
  *
@@ -53,17 +53,16 @@ function clear(name) {
 
 /**
  * Whether `name` is still running on the account it was moved from. `startedAt(name)` answers its current session's
- * start in ms, or null when there is none or it could not be read.
+ * start in ms, or null when there is none or it could not be read. Read only (review 4): a stale note is harmless,
+ * since it marks only while the very same session runs, and clearing here would race the move route's write. The move
+ * route is the one writer that clears. `all` (optional) is the notes already read, so a list reads the file once.
  */
-function isMoving(name, startedAt) {
-  const rec = readAll()[name];
+function isMoving(name, startedAt, all) {
+  const rec = (all && typeof all === 'object' ? all : readAll())[name];
   if (!rec || !Number.isFinite(rec.started)) return false;
   let started = null;
   try { started = typeof startedAt === 'function' ? startedAt(name) : null; } catch { started = null; }
-  if (!Number.isFinite(started)) return false;   // unreadable: never marked (the note stays for a later reading)
-  if (started === rec.started) return true;    // the same session: still on its old account
-  clear(name);   // another session: it has restarted onto the new account
-  return false;
+  return Number.isFinite(started) && started === rec.started;   // the same session: still on its old account
 }
 
 module.exports = { note, clear, isMoving, notes: readAll };
