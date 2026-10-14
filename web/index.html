@@ -10851,6 +10851,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-made,
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-shared,
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-paused,   /* kosmos#5391 review 1 */
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-goalask,   /* kosmos#6072: its own row too */
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-head-pause-msg,
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .pjconvsearch > .tsearch { flex: 1 0 100%; }
 }
@@ -16600,7 +16601,7 @@ window.kosmosMeasureScrollbarWidth();
         <p class="dhint pj-paused-line" id="pj-one-paused" role="status" hidden></p>
         <!-- kosmos#6072: the Assigner tried today to ask an agent to plan work toward this project's goal and reached
              nobody; said where the goal is, not as the Issue pill (Issue is an agent needing the person, #4730). -->
-        <p class="dhint" id="pj-one-goalask" role="status" hidden></p>
+        <p class="dhint pj-paused-line" id="pj-one-goalask" role="status" hidden></p>
         <p class="fmsg" id="pj-head-pause-msg" aria-live="polite"></p>
         <!-- kosmos#5287: a project joined from another account says who shared it and what THEY wrote about it, as
              theirs. Their words are never this project's own description (the brief its agents get), so they live here. -->
@@ -73979,12 +73980,17 @@ function paintGoalAsk(p) {
   const line = document.getElementById('pj-one-goalask');
   if (!line) return;
   const g = p && p.goalAskGaveUp;
-  const show = PJ_READ_FAILED !== true && !!(g && typeof g.agent === 'string' && g.agent);
-  line.hidden = !show;
-  line.textContent = show
-    ? 'Kosmos could not reach ' + g.agent + ' to plan the next work toward this project\'s goal (' + (Number(g.tries) || 3)
-      + ' tries today). It will ask again tomorrow; to start sooner, give the project a task.'
+  const show = PJ_READ_FAILED !== true && !!(g && typeof g.agent === 'string' && g.agent && Number.isInteger(g.tries) && g.tries > 0);
+  /* Review 1: the board's words, not a guess at the calendar: a give-up stands for a day from its own time, and the
+     next ask is due a day after the last try (later if the hourly caps are spent). */
+  const words = show
+    ? 'Kosmos could not reach ' + g.agent + ' to plan the next work toward this project\'s goal (' + g.tries
+      + (g.tries === 1 ? ' try' : ' tries') + ' in the last day). It will try again later; to start sooner, give the project a task.'
     : '';
+  /* Review 1: written only when it changes, as paintHeadPause does, so this status line is not re-announced on every
+     5 s poll. */
+  if (line.hidden !== !show) line.hidden = !show;
+  if (line.textContent !== words) line.textContent = words;
 }
 
 function paintHeadPause(p) {
