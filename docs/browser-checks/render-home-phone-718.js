@@ -225,12 +225,12 @@ function emptySpot(page, sel) {
               nm.textContent = 'Alexandria Constantinople-Vanderberg the Second';
               try {
                 const g = ada.querySelector('.agauge').getBoundingClientRect(); const n = ada.querySelector('.aname').getBoundingClientRect();
-                res.longName = inside(ada, '.aname .namego'); res.clearOfFace = n.left >= g.right - 0.5; res.cardFits = ada.scrollWidth <= ada.clientWidth + 1;
+                res.longName = inside(ada, '.aname .namego'); res.nameAlign = getComputedStyle(nm).textAlign; res.clearOfFace = n.left >= g.right - 0.5; res.cardFits = ada.scrollWidth <= ada.clientWidth + 1;
               } finally { nm.textContent = was; }
               return res;
             });
-            chk(!fit.error && fit.cleoState === 'in' && fit.cleoAnswer === 'in' && fit.longName === 'in' && fit.clearOfFace && fit.cardFits,
-              `${tag} #6107: a needs-you card's state and Answer stay inside it, and a long name wraps beside the face`, JSON.stringify(fit));
+            chk(!fit.error && fit.cleoState === 'in' && fit.cleoAnswer === 'in' && fit.longName === 'in' && /^(left|start)$/.test(fit.nameAlign) && fit.clearOfFace && fit.cardFits,
+              `${tag} #6107: a needs-you card's state and Answer stay inside it, and a long name wraps beside the face, left-aligned`, JSON.stringify(fit));
           } else {
             chk(card.columns > 2 && !beside, `${tag} CONTROL: landscape keeps the desktop card (more than two across, the face above the name)`, JSON.stringify({ columns: card.columns, g: card.g, n: card.n }));
           }
