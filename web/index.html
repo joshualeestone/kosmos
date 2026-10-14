@@ -68317,7 +68317,7 @@ function pjRoomPendingKept(rows, pend) {
   const flat = (t) => String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
   const want = flat(pend.text);
   const before = pend.before instanceof Set ? pend.before : new Set();
-  /* Review 3: the snapshot is only as fresh as the last read, so the time decides too. The engine stamps `at` when the
+  /* The snapshot is only as fresh as the last read, so the time decides too. The engine stamps `at` when the
      send starts, after the press; an older post fails it even when the snapshot missed it (a failed re-read, another
      window). 10 s of slack for the two clocks; a row with no readable time is never this post. */
   const since = pend.startedAt - 10000;
@@ -70568,10 +70568,10 @@ function paintRoom(body) {
     const pend = PJ_ROOM_PENDING[p.id];
     if (!pend) return '';
     /* A refused post stays (the board said it did not keep it); a "Not confirmed" one goes once the room shows it
-       arrived (review 1: it used to sit under its own kept copy until the next post). */
+       arrived. */
     if ((!pend.failed || pend.unsure) && pjRoomPendingKept(allRows, pend)) {
       delete PJ_ROOM_PENDING[p.id];
-      /* Review 5: an unsure post that turns out to have arrived had its words put back in the box; take them out again
+      /* An unsure post that turns out to have arrived had its words put back in the box; take them out again
          (only if the box still holds exactly them), or one more press would post it twice. */
       if (pend.unsure && typeof pend.onKept === 'function') { try { pend.onKept(); } catch { /* the words stay; nothing is lost */ } }
       return '';
@@ -70784,14 +70784,14 @@ async function pjPostSend(attachment) {
   /* #6168: drawn now, from what was typed; repainted from the room's last read, only while the person is still in the
      project it was sent from (another project's read must never be painted under this one). `before` holds the ids the
      room already had at the press: the board writes the row only once its fan-out is done, so no row that was there
-     then can be this post (review 1: an earlier post with the same words, an "ok" said twice, used to swallow it). */
+     then can be this post, even one with the same words. */
   const roomEl = document.getElementById('pj-room');
-  /* Review 2: guarded, because this runs after PJ_POSTING is set and before the try: a read whose rows are not a list
+  /* Guarded, because this runs after PJ_POSTING is set and before the try: a read whose rows are not a list
      must not throw here and leave Post disabled for the page's life. */
   const lastRows = roomEl && roomEl.__lastBody && Array.isArray(roomEl.__lastBody.rows) ? roomEl.__lastBody.rows : [];
   const before = new Set(lastRows.map((r) => r && r.id).filter((id) => typeof id === 'string'));
   const pend = { text: sentText, startedAt: Date.now(), before };
-  /* Review 5: called by paintRoom when an unsure post is seen to have arrived; the success path's rule (#1303C pair). */
+  /* Called by paintRoom when an unsure post is seen to have arrived; the success path's rule (#1303C pair). */
   pend.onKept = () => {
     if (PJ_CURRENT === sentProject && input.value.trim() === sentText) pjComposerReset(input);
     if ((PJ_ROOM_DRAFTS[sentProject] || '').trim() === sentText) delete PJ_ROOM_DRAFTS[sentProject];
@@ -70800,7 +70800,7 @@ async function pjPostSend(attachment) {
   const repaintPending = () => {
     if (PJ_CURRENT === sentProject && roomEl && roomEl.__lastBody) paintRoom(roomEl.__lastBody);
   };
-  /* Review 1, as the DM's tookBox / restoreUnsent (#4944): the words are in the room OR in the box, never both. The box
+  /* As the DM's tookBox / restoreUnsent (#4944): the words are in the room OR in the box, never both. The box
      is emptied at the press only when the bubble was drawn; a post that did not go puts them back (or parks them, when
      the person has moved to another project) so they can be sent again. */
   let tookBox = false;
@@ -70815,14 +70815,14 @@ async function pjPostSend(attachment) {
   };
   /* A post that did not go stays drawn, marked, with the reason; its words go back in an empty box to send again. If a
      read already showed the room holding it (paintRoom handed over and dropped the pending entry), it did go: nothing is
-     marked and the words are NOT put back, or a second press would post it twice (review 2). */
+     marked and the words are NOT put back, or a second press would post it twice. */
   const notKept = (because, unsure) => {
     if (PJ_ROOM_PENDING[sentProject] !== pend) return;
     restoreUnsent();
     pend.failed = true; pend.because = because; pend.unsure = !!unsure;
     try { repaintPending(); } catch { /* the next read paints it; a throw here must not escape the catch below */ }
   };
-  /* Review 3: the sentence under the box and the bubble say the same thing, and neither speaks when a read already
+  /* The sentence under the box and the bubble say the same thing, and neither speaks when a read already
      showed the room holding the post (the screen says it went; a line saying it could not would contradict it). An
      unsure failure says it cannot tell, never that it failed. */
   const UNSURE_WHY = 'we could not tell whether it was posted';
@@ -70831,19 +70831,19 @@ async function pjPostSend(attachment) {
     if (PJ_ROOM_PENDING[sentProject] !== pend) {
       /* Handed over already. For an unsure failure that means it went: say nothing. A DEFINITE refusal means the board
          did not keep THIS post, so the row it was handed to was someone else's same words (another window, inside the
-         slack): draw it again, marked, and give the words back rather than lose them silently (review 4). */
+         slack): draw it again, marked, and give the words back rather than lose them silently. */
       if (unsure || PJ_ROOM_PENDING[sentProject]) return;
       PJ_ROOM_PENDING[sentProject] = pend;
     }
     verdict(line);
     notKept(because, unsure);
   };
-  let answered = false;   // the board kept it: from here a throw is the page's own, not the post's (review 2)
+  let answered = false;   // the board kept it: from here a throw is the page's own, not the post's
   try {
-    repaintPending();   // inside the try (review 1): a throw here must not leave PJ_POSTING set for the page's life
+    repaintPending();   // inside the try: a throw here must not leave PJ_POSTING set for the page's life
     const drawn = !!(PJ_CURRENT === sentProject && roomEl
       && roomEl.querySelector('.pj-pending[data-mid="pending:' + pend.startedAt + '"]'));   // startedAt is a number
-    /* Review 3, as the DM's line does (#4944): the line under the box starts empty, so a verdict about an earlier post
+    /* As the DM's line does (#4944): the line under the box starts empty, so a verdict about an earlier post
        never sits under this one. */
     if (drawn) msg.textContent = '';
     if (drawn) {
@@ -70867,8 +70867,8 @@ async function pjPostSend(attachment) {
     const body = await res.json().catch(() => ({}));
     const d = (body && body.delivery) || {};
     if (!res.ok || !d.state) {
-      /* Review 1: a 5xx with no sentence of the board's own (a relay timing out mid fan-out) may have been delivered,
-         so it is not said to have failed (review 3: in neither the line under the box nor the bubble). */
+      /* A 5xx with no sentence of the board's own (a relay timing out mid fan-out) may have been delivered,
+         so it is not said to have failed, in neither the line under the box nor the bubble. */
       if (res.status >= 500 && !(body && body.error)) failed(UNSURE_LINE, UNSURE_WHY, true);
       else failed((body && body.error) || 'We could not post that.', (body && body.error) || 'we could not post that');
       return;
@@ -70897,7 +70897,7 @@ async function pjPostSend(attachment) {
     if (PJ_ROOM_PENDING[sentProject] === pend) { delete PJ_ROOM_PENDING[sentProject]; repaintPending(); }
   } catch {
     if (answered) {
-      /* Review 2: the board kept the post; something on this page threw while showing it. Not a failed post: the
+      /* The board kept the post; something on this page threw while showing it. Not a failed post: the
          pending row goes (the next read draws the kept one) and nothing says it did not arrive. */
       if (PJ_ROOM_PENDING[sentProject] === pend) { delete PJ_ROOM_PENDING[sentProject]; try { repaintPending(); } catch { /* the next read paints */ } }
     } else {
