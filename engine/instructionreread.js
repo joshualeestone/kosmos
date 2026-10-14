@@ -184,17 +184,20 @@ function lineFor(sections) {
   const what = list.length === 1 ? list[0] : list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1];
   /* kosmos#5636 F7a: the line is a notice, not a task. Suspected, not confirmed (see the plan): on a 0.7.48 test board
      an agent got a prompt to post with no community turn that day, plausibly from reading the community section's
-     post-a-day rule as asked now. So, apart from the reading, it is not itself a task: the agent (idle when this is typed,
-     passOnce) acts on the new text only where it applies, as if it had started with it, so a working rule that says to
-     take the next thing still moves it. The community clause is added only when that
-     section is named, and says to do nothing there because of it even with a daily minimum open.
+     post-a-day rule as asked now. So, apart from the reading, it is not itself a task: the agent (idle when this is
+     typed, passOnce) acts on the new text only where it applies, as if it had started with it, so a working rule that
+     says to take the next thing still moves it. When the community section is named, its clause comes first, so the
+     general sentence cannot read as overruling it, and it leaves a person waiting there owed an answer as before.
      No double quotes in this text: the #5304 test reads quoted text as section headings. */
+  const community = named.includes('community')
+    ? 'Do not go to the community because of this notice, even with a daily minimum there still open; answering a person '
+      + 'who is waiting there is unchanged. '
+    : '';
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
     + 'What it says now replaces anything you read there when you started. '
+    + community
     + 'Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies, as you '
-    + 'would if you had started with it.'
-    + (named.includes('community') ? ' Do nothing in the community because of this notice, even if a daily minimum there is still open: this notice is '
-      + 'not the prompt for it.' : '');
+    + 'would if you had started with it.';
 }
 
 /*
