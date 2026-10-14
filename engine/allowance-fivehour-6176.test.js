@@ -62,6 +62,8 @@ test('the one-hour tolerance: inside it is the same window, beyond it an older w
   run(dir, payload({ used_percentage: 50, resets_at: R }));
   run(dir, payload({ used_percentage: 40, resets_at: R - 3599 }));   // same window, stamped a little earlier: stale
   assert.equal(readJson(path.join(dir, statusline.FIVE_HOUR_FILE)).usedPct, 50);
+  run(dir, payload({ used_percentage: 95, resets_at: R - 3601 }));   // just beyond the hour: an older window, refused
+  assert.equal(readJson(path.join(dir, statusline.FIVE_HOUR_FILE)).usedPct, 50);
   run(dir, payload({ used_percentage: 90, resets_at: R - 5 * 3600 }));   // the window before: older, refused even when higher
   const kept = readJson(path.join(dir, statusline.FIVE_HOUR_FILE));
   assert.equal(kept.usedPct, 50);

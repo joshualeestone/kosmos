@@ -916,7 +916,9 @@ const SCREENS = [
      first), one close to its five-hour limit, and one with only a weekly reading (the control). Only the account list
      is stubbed, with example.com accounts. */
   { name: 'settings-accounts-fivehour', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
-    const H = 3600000, now = Date.now();
+    // A pinned afternoon, so the shot always shows the time-only reset form, whatever hour it is taken.
+    const H = 3600000, now = (() => { const d = new Date(); d.setHours(15, 0, 0, 0); return d.getTime(); })();
+    await page.clock.setFixedTime(new Date(now));
     const row = (email, dir, extra) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email, label: email, dir,
       organization: null, isDefault: false, keyTail: null, memoryShared: true, offerable: true, apiKey: false,
       connection: { state: 'connected', badge: 'working', checkedLive: true, plan: null }, agentsHere: { names: [], complete: true }, ...extra });

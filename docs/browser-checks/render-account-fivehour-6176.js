@@ -136,6 +136,27 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     }
     await browser.close();
   }
+  /* A list left open across the soonest reset is read again just after it, and that row's five-hour line goes. The page
+     clock is installed (not pinned) so it can run forward; the stub keeps answering with the same data, now past. */
+  {
+    const browser = await pw.chromium.launch({ headless: process.env.HEADED === '0' });
+    const page = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await page.clock.install({ time: new Date(now) });
+    await page.goto('file://' + PAGE);
+    const rows = [claude('soon', { weekly: week(20), fiveHour: { usedPct: 70, resetsAt: now + 10 * 60e3, at: now - 60e3 } }), claude('later', { weekly: week(20), fiveHour: five(40) })];
+    const before = await page.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      await paintAccounts();
+      return [...document.querySelectorAll('#set-accounts .acct-usage-five')].length;
+    }, rows);
+    await page.clock.runFor(11 * 60e3);
+    await page.waitForTimeout(300);
+    const after = await page.evaluate(() => ({ fives: [...document.querySelectorAll('#set-accounts .acct-usage-five')].length, reads: window.__reads }));
+    say(before === 2 && after.fives === 1 && after.reads === 2, '[chromium open] a list left open past a five-hour reset is read again, and that line goes', JSON.stringify({ before, after }));
+    await browser.close();
+  }
   console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nall good');
   process.exit(fails.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

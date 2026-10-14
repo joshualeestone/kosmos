@@ -27256,6 +27256,22 @@ function acctFollowUp(n, busy) {
     paintAccounts({ followUp: n });
   }, ACCT_FOLLOWUP.ms);
 }
+/* #6176: a five-hour window resets within hours, so a list left open is read again just after the soonest reset it
+   shows, and that row's line goes. One timer at a time; a repaint of the list first replaces it (ACCT_EPOCH). It reads
+   as a follow-up at the cap: no "Checking…", a failed read keeps the list, and it starts no further follow-ups. */
+let acctFiveTimer = null;
+function acctFiveHourRepaint(list) {
+  clearTimeout(acctFiveTimer); acctFiveTimer = null;
+  const soon = (list || []).map((a) => a && a.fiveHour && a.fiveHour.resetsAt).filter((t) => Number.isFinite(t) && t > Date.now());
+  if (!soon.length) return;
+  const mine = ACCT_EPOCH;
+  acctFiveTimer = setTimeout(() => {
+    acctFiveTimer = null;
+    if (mine !== ACCT_EPOCH || !document.getElementById('set-accounts')) return;
+    if (acctListBusy(document.getElementById('set-accounts'))) { acctFollowUp(ACCT_FOLLOWUP.max, 1); return; }
+    paintAccounts({ followUp: ACCT_FOLLOWUP.max });
+  }, Math.min(Math.min(...soon) - Date.now() + 1000, 6 * 3600e3));
+}
 /* #6108 (feedback + Josh 10-13, "no one should ever be out"): a Claude account row says how much of its weekly limit
    it has used, which of this computer's agents run on it, and offers to move them to another account ahead of time.
    Only what Kosmos knows: the weekly reading exists for accounts Kosmos set up, while an agent on them runs, so a row
@@ -27352,7 +27368,7 @@ function acctUsageHtml(a, list) {
   /* #6176: the five-hour limit, from the same status line, as its own line under the weekly one. It resets within
      hours, so it warns but never suggests a move (the cure for a five-hour limit is waiting, not another account). */
   const f = a.fiveHour && Number.isFinite(a.fiveHour.usedPct) && Number.isFinite(a.fiveHour.resetsAt) && Number.isFinite(a.fiveHour.at)
-    && a.fiveHour.resetsAt > Date.now() ? a.fiveHour : null;   // a panel left open past the reset must not keep saying "at its limit until"
+    && a.fiveHour.resetsAt > Date.now() ? a.fiveHour : null;   // past its reset: not drawn (acctFiveHourRepaint repaints an open list then)
   let five = '';
   if (f && !a.apiKey) {
     const fp = Math.max(0, Math.min(100, Math.round(f.usedPct)));
@@ -27578,6 +27594,7 @@ async function paintAccounts(opts) {
   /* #3997: a sign-in (ChatGPT or Grok) whose free check is still under way is read again a few seconds on, so it turns green
      (or says what is wrong) without the person doing anything; bounded by ACCT_FOLLOWUP.max, never a loop. */
   if (followUp < ACCT_FOLLOWUP.max && list.some((a) => a && a.connection && a.connection.liveCheckPending)) acctFollowUp(followUp + 1);
+  acctFiveHourRepaint(list);
   if (!followUp) {
     acctCancelSay();  /* post-await writer, same reason as the catch above */
     if (msg) msg.textContent = '';
