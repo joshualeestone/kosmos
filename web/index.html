@@ -68311,14 +68311,17 @@ function pjRoomPendingRow(pend, p) {
 }
 /* Does the room already hold this pending post? A post the person made, with the same words, that was NOT in the room
    at the press (`pend.before`, its ids then): the board writes the row only when its fan-out is done, so an older post
-   with the same words is never this one. A row with no id falls back to the time: kept no earlier than a minute
-   before the press. */
+   with the same words is never this one. And stamped no earlier than the press, less a little slack (below). */
 function pjRoomPendingKept(rows, pend) {
   const flat = (t) => String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
   const want = flat(pend.text);
   const before = pend.before instanceof Set ? pend.before : new Set();
+  /* Review 3: the snapshot is only as fresh as the last read, so the time decides too. The engine stamps `at` when the
+     send starts, after the press; an older post fails it even when the snapshot missed it (a failed re-read, another
+     window). 10 s of slack for the two clocks; a row with no readable time is never this post. */
+  const since = pend.startedAt - 10000;
   return (rows || []).some((m) => m && m.kind === 'post' && m.operator === true && flat(m.text) === want
-    && (typeof m.id === 'string' ? !before.has(m.id) : !(Date.parse(m.at) < pend.startedAt - 60000)));
+    && !(typeof m.id === 'string' && before.has(m.id)) && Date.parse(m.at) >= since);
 }
 let PJ_ROOM_PARTIAL = false;   // the last room read could not read everything (ok:false)
 /* #5800: the hold the last room read reported (body.held: { at, because, until }), or null when the room is open. */
@@ -70805,13 +70808,26 @@ async function pjPostSend(attachment) {
     if (PJ_ROOM_PENDING[sentProject] !== pend) return;
     restoreUnsent();
     pend.failed = true; pend.because = because; pend.unsure = !!unsure;
-    repaintPending();
+    try { repaintPending(); } catch { /* the next read paints it; a throw here must not escape the catch below */ }
+  };
+  /* Review 3: the sentence under the box and the bubble say the same thing, and neither speaks when a read already
+     showed the room holding the post (the screen says it went; a line saying it could not would contradict it). An
+     unsure failure says it cannot tell, never that it failed. */
+  const UNSURE_WHY = 'we could not tell whether it was posted';
+  const UNSURE_LINE = 'We could not tell whether that was posted. Check the room before posting it again.';
+  const failed = (line, because, unsure) => {
+    if (PJ_ROOM_PENDING[sentProject] !== pend) return;
+    verdict(line);
+    notKept(because, unsure);
   };
   let answered = false;   // the board kept it: from here a throw is the page's own, not the post's (review 2)
   try {
     repaintPending();   // inside the try (review 1): a throw here must not leave PJ_POSTING set for the page's life
     const drawn = !!(PJ_CURRENT === sentProject && roomEl
       && roomEl.querySelector('.pj-pending[data-mid="pending:' + pend.startedAt + '"]'));   // startedAt is a number
+    /* Review 3, as the DM's line does (#4944): the line under the box starts empty, so a verdict about an earlier post
+       never sits under this one. */
+    if (drawn) msg.textContent = '';
     if (drawn) {
       tookBox = true; rawBox = input.value;
       pjComposerReset(input);   // #1303C: the pair, so the emptied box also gives back its height
@@ -70833,16 +70849,15 @@ async function pjPostSend(attachment) {
     const body = await res.json().catch(() => ({}));
     const d = (body && body.delivery) || {};
     if (!res.ok || !d.state) {
-      verdict((body && body.error) || 'We could not post that.');
       /* Review 1: a 5xx with no sentence of the board's own (a relay timing out mid fan-out) may have been delivered,
-         so it is not said to have failed. */
-      notKept((body && body.error) || 'we could not post that', res.status >= 500 && !(body && body.error));
+         so it is not said to have failed (review 3: in neither the line under the box nor the bubble). */
+      if (res.status >= 500 && !(body && body.error)) failed(UNSURE_LINE, UNSURE_WHY, true);
+      else failed((body && body.error) || 'We could not post that.', (body && body.error) || 'we could not post that');
       return;
     }
     if (d.state === 'could_not') {
       /* The engine's own sentence, verbatim. */
-      verdict(d.because || 'We could not post that.');
-      notKept(d.because || 'we could not post that');
+      failed(d.because || 'We could not post that.', d.because || 'we could not post that');
       return;
     }
     answered = true;
@@ -70868,9 +70883,8 @@ async function pjPostSend(attachment) {
          pending row goes (the next read draws the kept one) and nothing says it did not arrive. */
       if (PJ_ROOM_PENDING[sentProject] === pend) { delete PJ_ROOM_PENDING[sentProject]; try { repaintPending(); } catch { /* the next read paints */ } }
     } else {
-      verdict('We could not reach Kosmos to post that.');
       /* The post may have arrived before the connection died, so it is not said to have failed. */
-      notKept('we could not reach Kosmos to post that', true);
+      failed('We could not reach Kosmos, so we cannot tell whether that was posted. Check the room before posting it again.', UNSURE_WHY, true);
     }
   } finally {
     PJ_POSTING = false;

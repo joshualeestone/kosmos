@@ -183,6 +183,9 @@ async function postAndMeasure(page, words) {
   await page.waitForFunction(() => document.getElementById('pj-post-go').disabled === false, { timeout: 5000 }).catch(() => {});
   const gateText = await page.evaluate((w) => { const r = [...document.querySelectorAll('#pj-room .msg.pj-pending')].find((x) => x.textContent.includes(w)); return r ? r.textContent : ''; }, GATE);
   chk(/Not confirmed\./.test(gateText) && !/Not posted/.test(gateText), 'review 2: a bare 5xx is Not confirmed, never Not posted', gateText.slice(0, 140));
+  const gateLine = await page.evaluate(() => document.getElementById('pj-room-msg').textContent);
+  chk(!/could not post/i.test(gateText) && !/could not post/i.test(gateLine) && /could not tell whether/i.test(gateLine),
+    'review 3: and neither the bubble nor the line under the box says it could not be posted', JSON.stringify({ bubble: gateText.slice(0, 120), line: gateLine }));
   await page.fill('#pj-post', '');
 
   /* 2e. The room already showed it landed, then the connection died (review 2): one copy, nothing marked, and the words
@@ -200,6 +203,24 @@ async function postAndMeasure(page, words) {
   const seenText = await page.evaluate((w) => [...document.querySelectorAll('#pj-room .msg')].filter((x) => x.textContent.includes(w)).map((x) => x.textContent).join(' | '), SEEN);
   chk(seen.copies === 1 && !seen.pending && !/Not confirmed/.test(seenText), 'review 2: a post the room already shows is not marked when its connection then dies', JSON.stringify(seen));
   chk(await page.inputValue('#pj-post') === '', 'review 2: and its words are not put back in the box to be posted twice');
+  const seenLine = await page.evaluate(() => document.getElementById('pj-room-msg').textContent);
+  chk(!/could not/i.test(seenLine), 'review 3: and the line under the box does not contradict the room by saying it could not', JSON.stringify(seenLine));
+
+  /* 2e2. A stale snapshot (review 3): an older post with the same words reached the room after the page's last read, so
+     the press does not know its id. It must not swallow the new post; refused, the new one stays, marked, words back. */
+  const STALE = 'ok';
+  await page.evaluate((w) => { window.__rows.push({ kind: 'post', id: 'rold', operator: true, text: w, at: new Date(Date.now() - 30000).toISOString() }); window.__refuse = 'the room is on hold'; }, STALE);
+  await page.fill('#pj-post', STALE);
+  await page.click('#pj-post-go');
+  await page.waitForFunction(() => typeof window.__release === 'function', { timeout: 3000 }).catch(() => {});
+  await page.evaluate(() => loadRoom());   // a poll during the flight draws the older copy
+  const staleMid = await page.evaluate(() => [...document.querySelectorAll('#pj-room .msg')].filter((r) => /(^|\s)ok(\s|$)/.test(r.querySelector('.msg-bd') ? r.querySelector('.msg-bd').textContent.replace(/Sending…|just now|\d+ ?[smh] ago/g, ' ') : '')).map((r) => r.classList.contains('pj-pending')));
+  chk(staleMid.length === 2 && staleMid[1] === true, 'review 3: an older same-words post the press did not know about does not swallow the new one', JSON.stringify(staleMid));
+  await page.evaluate(() => window.__release && window.__release());
+  await page.waitForFunction(() => document.getElementById('pj-post-go').disabled === false, { timeout: 5000 }).catch(() => {});
+  const staleAfter = await page.evaluate(() => ({ box: document.getElementById('pj-post').value, refused: [...document.querySelectorAll('#pj-room .msg.pj-pending')].some((r) => /Not posted/.test(r.textContent)) }));
+  chk(staleAfter.refused && staleAfter.box === 'ok', 'review 3: refused, the new post stays marked Not posted and its words come back', JSON.stringify(staleAfter));
+  await page.fill('#pj-post', '');
 
   /* 2f. Moving to another project mid-post, then refused: the words are parked as that project's draft, never put into
      the other project's box (review 2: the parking branch). */

@@ -21,8 +21,8 @@ docs/browser-checks/render-room-send-shows-now-6168.js holds the room POST open 
 
 ## Weakest premise
 That a row id the room did not have at the press is this post. The board writes the row only when its fan-out is done,
-so an older row can never be it; a newer post of the same words from another window in the same flight could hand over
-early (harmless: the kept row is then on screen). An earlier version of this plan said the agent page "has the same
+so an older row can never be it; the snapshot can be stale, so the row must also be stamped no earlier than the press
+less 10 s (review 3). A post of the same words from another window inside those 10 s could still hand over early. An earlier version of this plan said the agent page "has the same
 rule" for identical words; it does not (it matches only after the POST answers). Corrected in review 1.
 
 ## Evidence
@@ -44,3 +44,9 @@ rule" for identical words; it does not (it matches only after the POST answers).
    the check gained a bare 5xx, an already-shown-then-dropped post, and a refusal after moving project (parked draft).
    Stale counts in the README and here removed. Left (NITs): a success whose re-read fails shows the post again only at
    the next poll; files-only posts show their names as text until the kept row.
+3. opus: BLOCKER fixed: browser-checks-reason-grep.test.js needed the new check's SITE_COUNTS entry (I had run only the
+   tests that read the room, not the browser-check guards; now run with them, 616/616). WARNINGs fixed, each with an arm
+   a mutant reds: an unsure failure says it cannot tell, in the line and the bubble, never "could not post"; no failure
+   line when a read already showed the room holding the post; the line under the box starts empty at the press (a
+   verdict about an earlier post sat under the next); the hand-over also requires the row stamped after the press, so a
+   stale snapshot no longer lets an older same-words post swallow a new one (and lose its words on a refusal).
