@@ -149,6 +149,20 @@ async function run() {
             window.__fx = window.__keep6172; DM_CHOICE_ARMED = null; await paintTalk('april', 'April'); return out; });
           check(`[${theme}] lasting: a changed question is not confirmed by a press armed on the old one`, !moved.armedAfterChange
             && changed.posted === 0 && changed.armed, JSON.stringify({ ...moved, ...changed }));
+          // Review 2: when the window ends, the screen stops saying armed (here shortened to 400 ms), even after a repaint.
+          const lapsed = await page.evaluate(async () => {
+            window.__posted = []; DM_CHOICE_ANSWERED.delete('april'); DM_CHOICE_ARMED = null; DM_CHOICE_ARM_MS = 400;
+            await paintTalk('april', 'April');
+            document.querySelector('#d-dmthread .dmchoice[data-n="2"]').click();
+            await paintTalk('april', 'April');
+            const before = !!document.querySelector('#d-dmthread .dmchoice[data-n="2"].armed');
+            await new Promise((r) => setTimeout(r, 600));
+            const out = { before, after: !!document.querySelector('#d-dmthread .dmchoice.armed'),
+              note: (document.querySelector('#d-dmthread .dmchoices-msg') || {}).textContent || '', posted: window.__posted.length };
+            DM_CHOICE_ARM_MS = 15000;
+            return out;
+          });
+          check(`[${theme}] lasting: an arm that lapses stops showing as armed`, lapsed.before && !lapsed.after && lapsed.note === '' && lapsed.posted === 0, JSON.stringify(lapsed));
           // CONTROL: No is not lasting, so one press sends it, without lasting.
           await page.evaluate(async () => { window.__posted = []; DM_CHOICE_ANSWERED.delete('april'); await paintTalk('april', 'April'); });
           await page.locator('#d-dmthread .dmchoice[data-n="3"]').click();

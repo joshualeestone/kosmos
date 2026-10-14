@@ -25,7 +25,7 @@ Rejected: leaving them out (the person's ask; the choice exists on the screen an
 ## Weakest premise
 That pressing 2 in Claude Code saves the rule (the card's done-when: the same command no longer prompts). It is what
 the option says and what Claude Code does by key, but it is not measured here: no fleet agent runs with permission
-prompts, and a throwaway Claude pane on this Mac shares tmux with the fleet board (Splinter, 10-14). Measure on the
+prompts, and a throwaway Claude pane on this computer shares tmux with the fleet board (Splinter, 10-14). Measure on the
 next real prompt, or on the M6 Mac.
 
 ## Tests
