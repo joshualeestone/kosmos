@@ -3,12 +3,14 @@
 # runbook on #5488 (comment 6154688503, part 2) says. Baron's ci-mini-setup.sh (#5488 part b) generalised: the same
 # install, plus the checks and the user the runbook adds.
 #
-# 🛑 DRY RUN IS THE DEFAULT. Nothing changes unless --apply is given: every command that changes something goes
-# through act(), which otherwise prints "WOULD: <command>". Reads (pgrep, df, gh api GETs) always run.
+# 🛑 DRY RUN IS THE DEFAULT. Nothing changes unless --apply is given: a change either goes through act(), which
+# otherwise prints "WOULD: <command>", or sits after a stage's own dry-run return (install, register).
+# Reads (pgrep, df, gh api GETs) always run.
 #
 # Usage: tools/ci-runner-setup.sh [--apply] <stage> [args]
 #   preflight                 as the machine owner. Reads only. Refuses unless the agents have left this Mac
-#                             (runbook part 3, step 0), and checks disk, FileVault, sleep, tmux, pwsh, the CI user
+#                             (runbook part 3, step 0), and checks disk, FileVault, sleep, power restore, tmux,
+#                             pwsh, the CI user. KOSMOS_CI_ALLOW_JOBS (an ERE) lets named launchd jobs stay
 #   create-user               as the machine owner (an admin). Runs preflight first. A STANDARD user kosmos-ci
 #   install <commit> <sha256> as kosmos-ci. The runner, the hooks and the job guard from THAT main commit
 #   register                  as kosmos-ci, in its Screen Sharing session (svc.sh needs the GUI session, not ssh).
@@ -31,6 +33,7 @@ STAGE="${1:-}"
 REPO="joshualeestone/kosmos"
 REPO_URL="https://github.com/$REPO"
 CI_USER="${KOSMOS_CI_USER:-kosmos-ci}"
+CI_HOME="${KOSMOS_CI_HOME:-/Users/$CI_USER}"
 OWNER="${KOSMOS_CI_OWNER:-agent1}"
 NAME="${KOSMOS_CI_RUNNER_NAME:-kosmos-ci-agent1s}"
 LABELS="self-hosted,macOS,arm64,kosmos-ci"
@@ -41,7 +44,7 @@ RUNNER_DIR="$HOME/actions-runner"
 CI_DIR="$HOME/.kosmos-ci"
 
 say() { printf '== %s\n' "$*"; }
-# act <command...>: the ONLY way this script changes anything.
+# act <command...>: runs it with --apply, else prints it.
 act() {
   if [ "$APPLY" = 1 ]; then "$@"; else printf 'WOULD:'; printf ' %q' "$@"; printf '\n'; fi
 }
@@ -51,10 +54,19 @@ act_write() {
 }
 mode_line() { if [ "$APPLY" = 1 ]; then say "APPLYING $STAGE"; else say "DRY RUN of $STAGE (nothing changes; --apply to do it)"; fi; }
 need_user() {
-  [ "$(id -un)" = "$1" ] && return 0
+  if [ "$(id -un)" = "$1" ]; then
+    # sudo keeps HOME on macOS, so `sudo -u kosmos-ci` would aim RUNNER_DIR at the caller's home.
+    if [ "$APPLY" = 1 ] && [ "$1" = "$CI_USER" ] && [ "$HOME" != "$CI_HOME" ]; then
+      echo "refused: HOME is $HOME, not $CI_HOME (log in as $CI_USER rather than sudo -u)" >&2; exit 2
+    fi
+    return 0
+  fi
   if [ "$APPLY" = 1 ]; then echo "refused: $STAGE runs as $1, not $(id -un)" >&2; exit 2; fi
   echo "note: $STAGE runs as $1 (this is $(id -un)); a dry run only prints"
 }
+
+# is_admin <user>: groups read whole first, never piped into an early-exiting grep under pipefail.
+is_admin() { local g; g="$(id -Gn "$1")" || return 1; case " $g " in *" admin "*) return 0 ;; *) return 1 ;; esac; }
 
 PROBLEMS=0
 problem() { printf 'REFUSE: %s\n' "$*"; PROBLEMS=$((PROBLEMS + 1)); }
@@ -70,13 +82,20 @@ repo_variable() {
 preflight() {
   need_user "$OWNER"
   say "runbook part 3, step 0: the agents have left this Mac"
-  local jobs
-  jobs="$(launchctl list | awk 'NR > 1 && $3 !~ /^com\.apple\./ { print $3 }')"
+  # Explicit status checks throughout: create-user calls preflight inside `||`, where set -e is off, and a failed
+  # read must refuse there too rather than read as empty.
+  # application.* labels are the owner's open GUI apps (Terminal among them), not jobs.
+  local jobs raw
+  if ! raw="$(launchctl list)"; then problem "could not read launchctl list"; raw=""; fi
+  jobs="$(printf '%s\n' "$raw" | awk 'NR > 1 && $3 !~ /^com\.apple\./ && $3 !~ /^application\./ { print $3 }')"
   [ -z "$ALLOW_JOBS" ] || jobs="$(printf '%s\n' "$jobs" | grep -v -E "$ALLOW_JOBS" || true)"
   if [ -n "$jobs" ]; then
-    problem "$(printf '%s\n' "$jobs" | grep -c .) non-Apple launchd job(s) still loaded for $(id -un) (bootout + disable each, runbook part 3 step 0): $(printf '%s\n' "$jobs" | head -5 | tr '\n' ' ')"
+    problem "$(printf '%s\n' "$jobs" | grep -c .) non-Apple launchd job(s) still loaded for $(id -un) (bootout + disable each, runbook part 3 step 0): $(printf '%s\n' "$jobs" | head -5 | tr '\n' ' ')(KOSMOS_CI_ALLOW_JOBS=<ERE> keeps one deliberately)"
   else ok "no non-Apple launchd jobs loaded"; fi
-  if crontab -l 2>/dev/null | grep -q -v -E '^[[:space:]]*(#|$)'; then problem "crontab still has lines (crontab -r, runbook part 3 step 0)"
+  # crontab -l fails when there is no crontab at all, which is the clear case.
+  local cron
+  cron="$(crontab -l 2>/dev/null || true)"
+  if [ -n "$(printf '%s\n' "$cron" | grep -v -E '^[[:space:]]*(#|$)' || true)" ]; then problem "crontab still has lines (crontab -r, runbook part 3 step 0)"
   else ok "crontab empty"; fi
   local live
   live="$(pgrep -fl 'run-tests\.sh|queued-heavy\.sh' || true)"
@@ -92,8 +111,12 @@ preflight() {
     *"FileVault is Off"*) ok "FileVault off (auto-login is possible)" ;;
     *) problem "FileVault is not off: auto-login, which the runner's LaunchAgent needs after a restart, is impossible" ;;
   esac
-  if pmset -g | grep -q -E '^[[:space:]]*sleep[[:space:]]+0([[:space:]]|$)'; then ok "system sleep never"
+  local pm
+  pm="$(pmset -g 2>&1 || true)"
+  if printf '%s\n' "$pm" | grep -E '^[[:space:]]*sleep[[:space:]]+0([[:space:]]|$)' >/dev/null; then ok "system sleep never"
   else problem "system sleep is not 'never' (pmset -g): the runner goes offline when the Mac sleeps"; fi
+  if printf '%s\n' "$pm" | grep -E '^[[:space:]]*autorestart[[:space:]]+1([[:space:]]|$)' >/dev/null; then ok "starts up after a power failure"
+  else problem "autorestart is not 1 (pmset -g): after a power cut the runner stays off (System Settings, Energy)"; fi
 
   say "tools the runner's PATH reaches ($BREW/bin)"
   local tv
@@ -109,7 +132,7 @@ preflight() {
 
   say "the CI user"
   if id "$CI_USER" >/dev/null 2>&1; then
-    if id -Gn "$CI_USER" | tr ' ' '\n' | grep -qx admin; then problem "$CI_USER is an admin; it must be a standard user"
+    if is_admin "$CI_USER"; then problem "$CI_USER is an admin; it must be a standard user"
     else ok "$CI_USER exists, standard user"; fi
   else ok "$CI_USER does not exist yet (create-user makes it)"; fi
 
@@ -131,8 +154,8 @@ create_user() {
   preflight || { echo "refused: preflight did not pass, nothing created" >&2; exit 1; }
   mode_line
   # A STANDARD user: no -admin. `-password -` prompts, so the password is never in an argv or this log.
-  act sudo sysadminctl -addUser "$CI_USER" -fullName "Kosmos CI" -shell /bin/zsh -home "/Users/$CI_USER" -password -
-  if [ "$APPLY" = 1 ] && id -Gn "$CI_USER" | tr ' ' '\n' | grep -qx admin; then
+  act sudo sysadminctl -addUser "$CI_USER" -fullName "Kosmos CI" -shell /bin/zsh -home "$CI_HOME" -password -
+  if [ "$APPLY" = 1 ] && is_admin "$CI_USER"; then
     echo "STOP: $CI_USER came out an admin; remove it (sudo sysadminctl -deleteUser $CI_USER) and report" >&2; exit 1
   fi
   machine_settings
@@ -268,7 +291,8 @@ verify() {
   local left
   # ps reads THIS Mac only, and an unknown user makes it fail with no lines, which must not read as "nothing left".
   if ! id "$CI_USER" >/dev/null 2>&1; then problem "no user $CI_USER on this Mac: run verify on the runner's own Mac"
-  elif ! left="$(ps -U "$CI_USER" -o comm=)"; then problem "could not list $CI_USER's processes"
+  # macOS ps -U exits 1 for a user with no processes, which here means the user is not logged in.
+  elif ! left="$(ps -U "$CI_USER" -o comm=)"; then problem "$CI_USER runs no processes (not logged in? the runner needs auto-login), or ps failed"
   elif left="$(printf '%s\n' "$left" | awk -F/ '{ print $NF }' | grep -x -E 'tmux|node' || true)"; [ -n "$left" ] && [ "$busy" != true ]; then problem "$CI_USER still runs: $(printf '%s\n' "$left" | sort | uniq -c | tr -s ' ' | tr '\n' ' ')(fine only while a job runs)"
   else ok "no tmux or node left under $CI_USER"; fi
   if [ "$PROBLEMS" -gt 0 ]; then say "verify: $PROBLEMS problem(s)"; return 1; fi
