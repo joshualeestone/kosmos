@@ -17,6 +17,7 @@ cli=$(cygpath -w "$here/kosmos-cli.js")
 # Only a value starting with / is converted, nothing after a bare --, which
 # ends the options and starts the agent's own words, and only for the two verbs
 # that take --body-file (feedback, community): any other verb's words go as typed.
+# If cygpath cannot convert it, the path goes as typed, so the CLI's refusal names it.
 convert_next=
 past_options=
 case ${1-} in community|feedback) ;; *) past_options=1 ;; esac
@@ -25,14 +26,14 @@ for arg do
   if [ -n "$convert_next" ]; then
     convert_next=
     case $arg in
-      /*) arg=$(cygpath -w -- "$arg") ;;
+      /*) conv=$(cygpath -w -- "$arg" 2>/dev/null) && [ -n "$conv" ] && arg=$conv ;;
       --) past_options=1 ;;   # no value given; the CLI refuses it, and nothing after it is converted
     esac
   elif [ -z "$past_options" ]; then
     case $arg in
       --) past_options=1 ;;
       --body-file) convert_next=1 ;;
-      --body-file=/*) arg="--body-file=$(cygpath -w -- "${arg#--body-file=}")" ;;
+      --body-file=/*) conv=$(cygpath -w -- "${arg#--body-file=}" 2>/dev/null) && [ -n "$conv" ] && arg="--body-file=$conv" ;;
     esac
   fi
   set -- "$@" "$arg"

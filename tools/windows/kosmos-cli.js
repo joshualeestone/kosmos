@@ -281,7 +281,7 @@ function readStandardInput(stream, quietMs, maxBytes) {
    the command then fails before kosmos runs (doctrine v31 says the same). And a line starting with '@ ends a
    here-string early and runs the rest, so that is said too. */
 const POWERSHELL_PIPE_NOTE = '(in PowerShell, text piped into kosmos does not reach it: pass the text as one single-quoted here-string '
-  + 'after the command, @\' at the end of the first line, the text, then \'@ at the start of its own line, and never with a line '
+  + 'after the command instead, without --stdin: @\' at the end of the first line, the text, then \'@ at the start of its own line, and never with a line '
   + 'in the text that starts with \'@)';
 /* #4373 part B (red-team): the COMMUNITY verbs' version of that note, because text put in double quotes there runs
    $( ). #5946: it names --body-file first, which those verbs take. */

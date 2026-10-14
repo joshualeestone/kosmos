@@ -49,6 +49,9 @@ line", which read literally leaves kosmos with no text.
 Separately measured: `printf report | powershell -File kosmos.ps1 feedback write` DOES deliver the report
 (node inherits the host's stdin there), and `$MyInvocation.ExpectingInput` reads true in that mode as well as
 for an in-session pipe.
+Also measured after the change (2026-10-13): the report on the host's stdin with `-Command` running the script
+(`printf report | powershell -Command "& kosmos.ps1 feedback write"`, and `-Command & <path> feedback write`)
+is saved, exactly as on origin/main: ExpectingInput reads false there, so no flag is sent. A Windows test pins it.
 
 ## The change
 

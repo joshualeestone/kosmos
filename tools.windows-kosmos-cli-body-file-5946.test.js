@@ -404,6 +404,13 @@ test('#5946 PowerShell: `powershell -File kosmos.ps1 feedback write` with a repo
       const s = cp.spawnSync(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ps1, 'feedback', 'show'], { env, input: '', encoding: 'utf8', timeout: 60000 });
       assert.ok(s.stdout.includes('from a -File pipe, ' + form.label), form.label + ': ' + s.stdout + s.stderr);
     }
+    /* The same report on the host's stdin with -Command running the script (no pipe written in the command text):
+       measured, ExpectingInput is false there and node gets the stdin, as before #5946. */
+    const viaCommand = 'café from -Command with the host stdin';
+    const c = cp.spawnSync(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', '&', ps1, 'feedback', 'write'], { env, input: viaCommand + '\n', encoding: 'utf8', timeout: 60000 });
+    assert.equal(c.status, 0, '-Command: ' + c.stdout + c.stderr);
+    const cs = cp.spawnSync(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ps1, 'feedback', 'show'], { env, input: '', encoding: 'utf8', timeout: 60000 });
+    assert.ok(cs.stdout.includes(viaCommand), '-Command: ' + cs.stdout + cs.stderr);
   } finally { try { removeZip(root); } finally { removeTree(data); } }
 });
 
