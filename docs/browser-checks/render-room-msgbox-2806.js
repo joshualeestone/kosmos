@@ -862,6 +862,28 @@ function tapProbe4663(skip) {
       chk(splitFocus === 'pj-add-member' && splitWide === 'pj-add-member' && splitBack === 'pj-add-member' && splitOrder.startsWith('members-files,room'),
         `[phone] a control focused in Members/Files keeps its focus when the phone turns`, `${splitFocus} -> ${splitWide} -> ${splitBack} (order ${splitOrder})`);
       await phonePage.evaluate(() => { const b = document.getElementById('pj-add-member'); if (b) b.blur(); if (window.__splitUndo) window.__splitUndo(); });
+      // #6107: the Tasks column moves too (to the top on an upright tablet). A control focused in it (New task) keeps
+      // its focus when the phone becomes a tablet and back, the same promise Members/Files keeps above.
+      const tasksFocus = await phonePage.evaluate(() => {
+        const undo = []; window.__tasksUndo = () => { for (const u of undo.reverse()) u(); };
+        const b = document.getElementById('pj-newtask'); if (!b) return 'no #pj-newtask';
+        for (let el = b; el && el !== document.body; el = el.parentElement) {
+          const was = [el.hidden, el.hasAttribute('inert'), el.style.display];
+          undo.push(() => { el.hidden = was[0]; if (was[1]) el.setAttribute('inert', ''); el.style.display = was[2]; });
+          el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block';
+        }
+        b.focus(); return document.activeElement === b ? 'pj-newtask' : 'not focusable';
+      });
+      await phonePage.setViewportSize({ width: 834, height: 1194 });
+      await phonePage.waitForTimeout(100);
+      const tasksTablet = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      const tasksOrder = await order();
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const tasksBack = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      chk(tasksFocus === 'pj-newtask' && tasksTablet === 'pj-newtask' && tasksBack === 'pj-newtask' && tasksOrder.startsWith('tasks,'),
+        `[tablet] #6107: a control focused in Tasks keeps its focus when the column moves to the top and back`, `${tasksFocus} -> ${tasksTablet} -> ${tasksBack} (order ${tasksOrder})`);
+      await phonePage.evaluate(() => { const b = document.getElementById('pj-newtask'); if (b) b.blur(); if (window.__tasksUndo) window.__tasksUndo(); });
       // #6107: an upright tablet (iPad 11-inch, 834x1194, touch). Tasks moves to the top, then the conversation, then
       // Members/Files, all by DOM; the conversation column still never leaves the page, so a focused composer stays.
       // Control: back at 375 the phone order returns with Tasks last again, so the tablet order is not the page's default.

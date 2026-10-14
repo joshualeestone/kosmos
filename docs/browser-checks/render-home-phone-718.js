@@ -195,7 +195,7 @@ function emptySpot(page, sel) {
           });
           if (card.error || !card.g || !card.n || !card.m || !card.st || !card.task) { chk(false, `${tag} the ada card and its parts are drawn`, JSON.stringify(card)); await ctx.close(); continue; }
           const beside = card.g.r <= card.n.l + 1 && card.g.r <= card.m.l + 1 && card.g.r <= card.st.l + 1;   // name, role and state right of the face
-          const stacked = card.st.t >= card.n.b - 1;                                  // state under the name
+          const stacked = card.st.t >= card.n.b - 1 && Math.abs(card.st.l - card.n.l) <= 1;   // state under the name, flush with it
           const under = card.task.t >= card.g.b - 1 && Math.abs(card.task.l - card.g.l) <= 2;   // task below the face, from its left edge
           if (upright) {
             // Two across on an iPad; one across on a 7 or 8 inch tablet, where two would leave a needs-you card too narrow.
