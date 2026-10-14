@@ -39351,6 +39351,8 @@ const DM_CHOICE_ANSWERED_MS = 6000;
    first only arms it, here, so a repaint keeps it armed. Disarmed by time, by another question, or by the send. */
 let DM_CHOICE_ARMED = null;   // { session, asked, gen, n, at }
 const DM_CHOICE_ARM_MS = 15000;
+/* Review 1: a second press sooner than this after arming is the same gesture (a double-click, a double-tap), not a confirm. */
+const DM_CHOICE_ARM_MIN_MS = 600;
 const dmChoiceArmed = (c, n) => Boolean(DM_CHOICE_ARMED && c && DM_CHOICE_ARMED.session === c.session && DM_CHOICE_ARMED.asked === c.asked
   && DM_CHOICE_ARMED.gen === c.gen && DM_CHOICE_ARMED.n === n && Date.now() - DM_CHOICE_ARMED.at < DM_CHOICE_ARM_MS);
 const DM_CHOICE_ARM_NOTE = 'This one changes what the agent may do from now on. Press it again to choose it.';
@@ -39404,10 +39406,11 @@ function dmChoicesHtml(m) {
   const pressing = DM_CHOICE_INFLIGHT.has(DM_CHOICES.session);   // a typed send in the air draws them off but says nothing here
   const armedN = DM_CHOICES.options.map((o) => o.n).find((n) => dmChoiceArmed(DM_CHOICES, n));
   const note = pressing ? 'Sending…' : (locked && done.sure) ? 'Sent.' : armedN !== undefined ? DM_CHOICE_ARM_NOTE : '';
+  const noteId = 'dmchoices-msg-' + DM_CHOICES.gen;
   return '<div class="dmchoices" role="group" aria-label="Choices">'
-    + DM_CHOICES.options.map((o) => '<button type="button" class="dmchoice' + (o.n === armedN ? ' armed' : '') + '" data-n="' + esc(String(o.n)) + '" data-gen="' + esc(String(DM_CHOICES.gen)) + '"' + (off ? ' disabled' : '') + '>'
+    + DM_CHOICES.options.map((o) => '<button type="button" class="dmchoice' + (o.n === armedN ? ' armed" aria-describedby="' + noteId : '') + '" data-n="' + esc(String(o.n)) + '" data-gen="' + esc(String(DM_CHOICES.gen)) + '"' + (off ? ' disabled' : '') + '>'
       + '<span class="dmchoice-n">' + esc(String(o.n)) + '</span> ' + esc(o.label) + '</button>').join('')
-    + '<span class="dmchoices-msg" role="status" aria-live="polite">' + esc(note) + '</span></div>';
+    + '<span class="dmchoices-msg" id="' + noteId + '" role="status" aria-live="polite">' + esc(note) + '</span></div>';
 }
 const DM_CHOICE_UNSURE = 'We could not confirm that it went (pressing again may answer twice).';
 async function dmChoicePress(btn) {
@@ -39419,9 +39422,13 @@ async function dmChoicePress(btn) {
   const box = btn.closest('.dmchoices');
   const msg = box && box.querySelector('.dmchoices-msg');
   /* #6172: a lasting choice's first press only arms it; the second, on the same button for the same question, sends it. */
+  if (opt.lasting === true && dmChoiceArmed(c, opt.n) && Date.now() - DM_CHOICE_ARMED.at < DM_CHOICE_ARM_MIN_MS) return;
   if (opt.lasting === true && !dmChoiceArmed(c, opt.n)) {
     DM_CHOICE_ARMED = { session: c.session, asked: c.asked, gen: c.gen, n: opt.n, at: Date.now() };
-    if (box) box.querySelectorAll('.dmchoice').forEach((b) => b.classList.toggle('armed', b === btn));
+    if (box) box.querySelectorAll('.dmchoice').forEach((b) => {
+      b.classList.toggle('armed', b === btn);
+      if (b === btn && msg && msg.id) b.setAttribute('aria-describedby', msg.id); else b.removeAttribute('aria-describedby');
+    });
     if (msg) msg.textContent = DM_CHOICE_ARM_NOTE;
     return;
   }
@@ -39506,6 +39513,10 @@ async function dmChoicePress(btn) {
 document.addEventListener('click', (e) => {
   const b = e.target && e.target.closest ? e.target.closest('#d-dmthread .dmchoice') : null;
   if (b && !b.disabled) dmChoicePress(b);
+});
+/* #6172 review 1: a held Enter repeats the button's click; on a choice button only its first keydown presses it. */
+document.addEventListener('keydown', (e) => {
+  if (e.repeat && e.target && e.target.closest && e.target.closest('#d-dmthread .dmchoice')) e.preventDefault();
 });
 /* #5943 (Josh: an answered question stayed the newest bubble for 12 days, and only an Engineering-mode button cleared
    it). Under a question the agent REPORTED: how long it has been asked ("Asked 12 days ago", agoWords, the wording

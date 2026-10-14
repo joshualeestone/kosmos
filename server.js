@@ -17610,7 +17610,7 @@ const server = http.createServer(async (req, res) => {
                only with the page's second press (`lasting: true`), so one mis-tap cannot change what the agent may do from
                now on. Refused before any key, so nothing was answered. */
             if (opt && opt.lasting && body.lasting !== true) {
-              const e = new Error('that choice changes what this agent may do from now on, so it needs a second press to confirm; nothing was sent');
+              const e = new Error('that choice changes what this agent may do from now on, so it needs a second press to confirm (reload this page if pressing it again does not ask). Nothing was sent.');
               e.status = 409; throw e;
             }
             if (opt && !files.recs.length && !answered) {

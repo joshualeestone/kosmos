@@ -402,7 +402,7 @@ test('#6172: a lasting option sent without the second press is refused and no ke
     const two = back.options.find((o) => o.n === 2);
     const r = await post({ text: '2', chose: two.label, asked: back.asked });
     assert.equal(r.status, 409, JSON.stringify(r.json));
-    assert.match(JSON.stringify(r.json), /needs a second press to confirm; nothing was sent/);
+    assert.match(JSON.stringify(r.json), /needs a second press to confirm .*Nothing was sent\./);
     assert.deepEqual(calls.keys(), [], 'a one-tap press saved an allow rule');
     // The same press with the page's confirmation goes out as the bare 2, which is what saves Claude Code's rule.
     const ok = await post({ text: '2', chose: two.label, asked: back.asked, lasting: true });
@@ -428,8 +428,7 @@ test('#6172: the page arms a lasting choice on its first press and sends it, wit
   const arm = fn.indexOf("if (opt.lasting === true && !dmChoiceArmed(c, opt.n))");
   const send = fn.indexOf('await fetch(');
   assert.ok(arm > 0 && send > arm, 'the arming check is not before the send');
-  assert.match(fn.slice(arm, send), /DM_CHOICE_ARMED = \{ session: c\.session, asked: c\.asked, gen: c\.gen, n: opt\.n, at: Date\.now\(\) \};[\s\S]*?return;/, 'the first press does not stop at arming');
-  assert.match(fn.slice(send), /\.\.\.\(lasting \? \{ lasting: true \} : \{\}\)/, 'the second press does not carry lasting');
-  // The armed state is drawn from DM_CHOICE_ARMED, so a repaint between the presses keeps it.
-  assert.match(src, /class="dmchoice' \+ \(o\.n === armedN \? ' armed' : ''\)/);
+  assert.match(fn.slice(arm, send), /DM_CHOICE_ARMED = \{[^}]*\};[\s\S]*?return;/, 'the first press does not stop at arming');
+  assert.match(fn.slice(send), /lasting: true/, 'the second press does not carry lasting');
+  // The behaviour (arming kept by a repaint, the gap, a question change disarming) is the browser check's render-dmchoices-5406.
 });

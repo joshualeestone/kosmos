@@ -120,11 +120,35 @@ async function run() {
             return !!document.querySelector('#d-dmthread .dmchoice[data-n="2"].armed'); });
           check(`[${theme}] lasting: a repaint between the presses keeps it armed`, kept);
           if (theme === 'light' && process.env.SHOT_6172) await page.locator('#d-dmthread').screenshot({ path: process.env.SHOT_6172 });
+          await page.waitForTimeout(700);   // past the gap: a confirm, not the same gesture
           await page.locator('#d-dmthread .dmchoice[data-n="2"]').click();
           await page.waitForTimeout(150);
           const sent = await page.evaluate(() => window.__posted);
           check(`[${theme}] lasting: the second press sends 2 with lasting`, sent.length === 1 && sent[0].text === '2' && sent[0].lasting === true
             && sent[0].chose === 'Yes, and don’t ask again for: cd *', JSON.stringify(sent));
+          // Review 1: a double-click (two presses in one gesture) arms and does not send.
+          await page.evaluate(async () => { window.__posted = []; DM_CHOICE_ANSWERED.delete('april'); DM_CHOICE_ARMED = null; await paintTalk('april', 'April'); });
+          await page.locator('#d-dmthread .dmchoice[data-n="2"]').dblclick();
+          await page.waitForTimeout(150);
+          const dbl = await page.evaluate(() => ({ posted: window.__posted.length, armed: !!document.querySelector('#d-dmthread .dmchoice[data-n="2"].armed') }));
+          check(`[${theme}] lasting: a double-click arms and sends nothing`, dbl.posted === 0 && dbl.armed, JSON.stringify(dbl));
+          // Review 1: armed on one question, a press after the question changed (same layout) arms again and sends nothing.
+          const moved = await page.evaluate(async () => {
+            const keep = window.__fx;
+            window.__fx = { ...keep, asked: 'cd /var' };
+            await paintTalk('april', 'April');
+            const out = { armedAfterChange: !!document.querySelector('#d-dmthread .dmchoice[data-n="2"].armed') };
+            window.__keep6172 = keep;
+            return out;
+          });
+          await page.waitForTimeout(700);
+          await page.locator('#d-dmthread .dmchoice[data-n="2"]').click();
+          await page.waitForTimeout(150);
+          const changed = await page.evaluate(async () => { const out = { posted: window.__posted.length,
+            armed: !!document.querySelector('#d-dmthread .dmchoice[data-n="2"].armed') };
+            window.__fx = window.__keep6172; DM_CHOICE_ARMED = null; await paintTalk('april', 'April'); return out; });
+          check(`[${theme}] lasting: a changed question is not confirmed by a press armed on the old one`, !moved.armedAfterChange
+            && changed.posted === 0 && changed.armed, JSON.stringify({ ...moved, ...changed }));
           // CONTROL: No is not lasting, so one press sends it, without lasting.
           await page.evaluate(async () => { window.__posted = []; DM_CHOICE_ANSWERED.delete('april'); await paintTalk('april', 'April'); });
           await page.locator('#d-dmthread .dmchoice[data-n="3"]').click();
