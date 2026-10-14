@@ -197,7 +197,7 @@ ROLLBACK of `/setup` or `/setup-staging` to a build older than 0.7.45 (the floor
 floor is stricter on purpose) breaks the next update of every Mac and Linux install a later build has touched. The
 tools refuse it (kosmos#6149, `tools/lib/setup-floor.sh`): publish-staging-pointer, promote-channel, deploy-site and
 release.sh will not publish a Mac pointer below 0.7.45; deploy-site and release.sh will not publish a `/setup` or
-`/setup-staging` that does not name `KOSMOS_READONLY_APP`, , and promote-channel will not make such an installer
+`/setup-staging` that does not name `KOSMOS_READONLY_APP`, and promote-channel will not make such an installer
 prod's `/setup` (the switch and the lift came in one change, so an installer that names it can lift the lock; a
 string check, not a proof).
 NOT covered, because each goes around every script: a rollback done in Vercel itself (the dashboard's Instant
