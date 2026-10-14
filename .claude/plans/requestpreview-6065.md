@@ -34,3 +34,6 @@ the head is skipped for the next one; nothing when there is none. At most 300 ch
   a greeting inside the head gives way to a later mention, else to the sentence after it. A member mentioned only
   inside the head gets the first later question instead, under the neutral label Its first question (it may be a
   question for someone else; the label does not claim it is theirs).
+- (round 7) The greeting rule from rounds 4 and 5 (a short mention sentence also takes the next one) is removed: each
+  version quoted unrelated text under a label saying it names the member, and the label (Where it names you, round 6)
+  is already true of "Hi @mara." alone. Only the naming sentence is quoted.
