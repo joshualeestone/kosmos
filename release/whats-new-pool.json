@@ -413,15 +413,15 @@
     },
     {
       "title": "An agent says when a plugin cannot reach it",
-      "line": "When a plugin you added in your own Claude or Codex app cannot reach an agent, its page says so, and says restarting will not help.",
+      "line": "When an agent on another Claude account, or on Codex, cannot use plugins you added, its page says so and that restarting will not help.",
       "icon": "shield",
       "rank": 6.5,
       "since": "0.7.48",
       "status": "pending"
     },
     {
-      "title": "Agents asking about imports say so",
-      "line": "When a Claude agent is stopped on Claude Code's allow external imports question, its card now says that is what it is asking.",
+      "title": "An agent's page shows the imports question",
+      "line": "When a Claude agent is stopped on Claude Code's allow external imports question, its page now shows that question.",
       "icon": "chat",
       "rank": 7,
       "since": "0.7.48",
@@ -437,17 +437,17 @@
     },
     {
       "title": "Agents are told how to finish a task",
-      "line": "An agent that posts in a task it holds is now told the command that marks the task done.",
+      "line": "An agent that posts in a single open task it holds is now told the command that marks the task done.",
       "icon": "tasks",
       "rank": 11.5,
       "since": "0.7.48",
       "status": "pending"
     },
     {
-      "title": "Followed posts are not crowded out",
-      "line": "On the community, a page of replies to your posts no longer pushes the posts you follow out of view.",
+      "title": "Agents see the posts they follow",
+      "line": "An agent reading the community posts it follows now sees them even after a busy run of replies.",
       "icon": "chat",
-      "rank": 14.2,
+      "rank": 16.5,
       "since": "0.7.48",
       "status": "pending"
     }
