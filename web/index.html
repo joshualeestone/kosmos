@@ -27277,6 +27277,7 @@ function acctUsageHtml(a, list) {
     'windows': 'Kosmos cannot read usage for this account on Windows yet.',
     'own-statusline': 'Kosmos cannot read usage for this account. It is set up its own way, and Kosmos leaves that alone.',
     'unreadable-settings': 'Kosmos cannot read this account\'s settings, so it cannot read its usage.',
+    'linked-settings': 'Kosmos cannot read usage for this account. Its settings file is a link to a file elsewhere, and Kosmos leaves that alone.',
     'not-wired': 'Kosmos is not set up to read usage for this account.',
   }[a.weeklyBlocked] || '';
   /* Under a reading, "cannot read" would contradict the number above it: say it is the last one and will not change. */
@@ -27284,6 +27285,7 @@ function acctUsageHtml(a, list) {
     'windows': 'This is the last reading Kosmos saw. It will not update on Windows yet.',
     'own-statusline': 'This is the last reading Kosmos saw. It will not update, because this account is set up its own way.',
     'unreadable-settings': 'This is the last reading Kosmos saw. It will not update, because Kosmos cannot read this account\'s settings.',
+    'linked-settings': 'This is the last reading Kosmos saw. It will not update, because this account\'s settings file is a link to a file elsewhere.',
     'not-wired': 'This is the last reading Kosmos saw. It will not update, because Kosmos is not set up to read this account\'s usage.',
   }[a.weeklyBlocked] || '';
   let usage = '';
@@ -27452,7 +27454,7 @@ async function paintAccounts(opts) {
     /* This branch used to leave the flags untouched, so a failure here could not be told
        apart from never having asked, and a stale LOADED from an earlier read outlived it. */
     accountsUnreadable();
-    return;
+    return false;   // #6175 review 13: a caller can tell the list was not drawn
   }
   /* #3997 round 10: the person may have started something WHILE this follow-up was reading (a Check now, a
      half-pressed Disconnect): look again before rebuilding, and if so wait a turn instead. */
@@ -28233,7 +28235,8 @@ async function paintAccounts(opts) {
       } catch { ok = false; }
       const msg = document.getElementById('set-accounts-msg');
       if (ok) {
-        try { await paintAccounts(); } catch { /* the next paint shows it */ }
+        let drawn = true;
+        try { drawn = (await paintAccounts()) !== false; } catch { drawn = false; /* the next paint shows it */ }
         /* Review 1: the repaint removed the focused button; say it worked in the panel's status line (after the
            repaint, which writes there too) and put focus on the account's row. */
         /* Review 2: a paint already in flight can replace the row and clear the line after ours, so the claim is
@@ -28252,6 +28255,7 @@ async function paintAccounts(opts) {
           if (target) { target.setAttribute('tabindex', '-1'); target.focus(); }
         };
         if (gen !== ACCT_USAGE_GEN) { claimFocus(); return; }   // review 10: a newer press owns the line now
+        if (!drawn) { claimFocus(); return; }   // review 13: the list could not be read; "set up" must not compete with that
         if (msg && PAINT_SAYS.includes(msg.textContent)) { acctCancelSay(); msg.textContent = OK_SAY; }   // review 4: never over another writer's text, even the first time
         else if (msg) { claimFocus(); return; }   // someone else spoke while the repaint ran: theirs stands; focus is still not left on the page (review 5)
         claimFocus();
