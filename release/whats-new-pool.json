@@ -464,7 +464,7 @@
     },
     {
       "title": "See a Claude account's weekly usage",
-      "line": "Settings, AI Models can show a Claude account's weekly usage, which of this computer's agents run on it, and move them to another account.",
+      "line": "Settings, AI Models can show a Claude account's weekly usage, which of this computer's agents run on it, and a way to move them.",
       "icon": "list",
       "platforms": [
         "mac"
@@ -474,8 +474,8 @@
       "status": "pending"
     },
     {
-      "title": "A project says when goal planning gave up",
-      "line": "A project's page says when Kosmos gave up in the last day on asking an agent to plan toward its goal; a project task starts sooner.",
+      "title": "A project says when goal planning is stuck",
+      "line": "A project's page says when Kosmos could not reach an agent to plan toward its goal. It tries again later; a project task starts it sooner.",
       "icon": "tasks",
       "rank": 8.5,
       "since": "0.7.49",
