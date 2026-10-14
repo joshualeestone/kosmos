@@ -35,6 +35,11 @@ merges. Card: joshualeestone/kosmos#6072 (the measured premise and the call are 
 - [CONVENTION] spacing differed from the paused line --> FIXED (same pj-paused-line class).
 - [NIT] a defaulted count --> FIXED (shown only for a whole-number count; "1 try" singular).
 
+## Review 3
+- A give-up whose cause is Kosmos's own ask throwing ('threw') said "could not reach" the agent, blaming it: now
+  "could not ask" (tested, with the could_not control).
+- The render block is in try/finally, so a throw inside cannot leave later checks on the faked answer or the new look.
+
 ## Weakest premise
 "It will ask again tomorrow": the next goal ask is due a day after the last try (GOAL_ASK_MS), but only if an idle
 member and a goal are there then. And "give the project a task" is the person's lever because open work switches
