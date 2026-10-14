@@ -399,7 +399,8 @@ read -r S20 L20 <<<"$(make_scenario)"
 write_ptr "$S20/dist/latest-staging.json" 0.6.32 "$(printf 'x' | shasum -a 256 | awk '{print $1}')" not-a-build.zip
 git -C "$S20" add dist/latest-staging.json && git -C "$S20" commit -q -m "malformed staging"
 run_deploy "$S20" "$L20" --promote
-{ [ "$RC" = 1 ] && has "$out" "repair the committed pointer" && [ ! -e "$S20/dist/$NEWART" ]; } \
+# kosmos#6149: the setup floor now refuses the malformed artifact name first (fail closed), before any fetch too.
+{ [ "$RC" = 1 ] && { has "$out" "repair the committed pointer" || has "$out" "names artifact not-a-build.zip"; } && [ ! -e "$S20/dist/$NEWART" ]; } \
   && pass "mac staged: a malformed committed staging pointer refuses before any fetch" || bad "mac staged malformed (rc=$RC) out=$out"
 
 # 17) THE INCIDENT'S PATH: a plain site-copy --publish (live latest.json == committed), from a checkout
@@ -558,5 +559,36 @@ git -C "$S36" add -A && git -C "$S36" commit -q -m "a pointer naming another ver
 run_deploy "$S36" "$L36" --promote
 { [ "$RC" = 1 ] && has "$out" "says version $NEW but names artifact kosmos-0.6.29-arm64.tar.gz"; } \
   && pass "#6149: a pointer naming another version's tarball is refused" || bad "#6149 version/artifact mismatch (rc=$RC) out=$out"
+# 37-39) kosmos#6149 under the REAL floor, on a scenario above it (live 0.7.47, committed 0.7.49).
+run_deploy_real() {  # <site> <live> <flag...> ; like run_deploy, without the lowered floor
+  local s="$1" live="$2"; shift 2
+  out="$(env -u KOSMOS_SETUP_FLOOR_TEST -u KOSMOS_SETUP_FLOOR_LOWER PATH="$BIN:$PATH" LIVE_DIR="$live" HOST_URL="$HOSTURL" \
+    KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$s" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" \
+    bash "$DEPLOY" "$@" 2>&1)"
+  RC=$?
+}
+above() { OLD=0.7.47 NEW=0.7.49 OLDART=kosmos-0.7.47-arm64.tar.gz NEWART=kosmos-0.7.49-arm64.tar.gz make_scenario; }
+# 37) The committed /setup does not know the read-only app (an installer from before 0.7.45): refused, nothing deployed.
+read -r S37 L37 <<<"$(above)"
+run_deploy_real "$S37" "$L37" --promote
+{ [ "$RC" = 1 ] && has "$out" "setup does not know KOSMOS_READONLY_APP"; } \
+  && pass "#6149: an installer from before 0.7.45 beside a 0.7.49 pointer is refused" || bad "#6149 old installer (rc=$RC) out=$out"
+[ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L37/dist/latest.json")" = 0.7.47 ] \
+  && pass "#6149: that refusal deployed nothing (LIVE still serves 0.7.47)" || bad "#6149 old-installer refusal still changed LIVE"
+# 38) CONTROL: the same scenario with an installer that knows it deploys under the real floor.
+read -r S38 L38 <<<"$(above)"
+printf 'setup-script KOSMOS_READONLY_APP\n' > "$S38/setup"; ( cd "$S38" && shasum -a 256 setup > setup.sha256 )
+git -C "$S38" add -A && git -C "$S38" commit -q -m "a current installer"
+run_deploy_real "$S38" "$L38" --promote
+{ [ "$RC" = 0 ] && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L38/dist/latest.json")" = 0.7.49 ]; } \
+  && pass "#6149 CONTROL: a 0.7.49 pointer with a current installer deploys under the real floor" || bad "#6149 control (rc=$RC) out=$out"
+# 39) The committed STAGING pointer below the floor (prod above it): refused, and the refusal names the staging pointer.
+read -r S39 L39 <<<"$(above)"
+printf 'setup-script KOSMOS_READONLY_APP\n' > "$S39/setup"
+write_ptr "$S39/dist/latest-staging.json" 0.7.44 "$(sha_of "$L39/dist/kosmos-0.7.49-arm64.tar.gz")" kosmos-0.7.44-arm64.tar.gz
+git -C "$S39" add -A && git -C "$S39" commit -q -m "a staging pointer below the floor"
+run_deploy_real "$S39" "$L39" --promote
+{ [ "$RC" = 1 ] && has "$out" "the committed dist/latest-staging.json names 0.7.44"; } \
+  && pass "#6149: a committed staging pointer below the floor is refused" || bad "#6149 staging below floor (rc=$RC) out=$out"
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

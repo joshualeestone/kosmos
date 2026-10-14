@@ -1635,6 +1635,10 @@ _site_export="$BUILD_ROOT/site-export"
 # it LANDING. The card that prompted both was filed by a careful reader who had
 # only this line to go on.
 site_deploy_export "$SITE" "$_site_export" "$SITE_SHA" || { echo "could not export the site for deploy; nothing was deployed"; exit 1; }
+# kosmos#6149: this deploy publishes BOTH pointers and BOTH installers at the site commit, including the prod ones a
+# staging cut does not touch: none of them may be older than the setup floor.
+. "$REPO/tools/lib/setup-floor.sh" || { echo "could not load tools/lib/setup-floor.sh; nothing was deployed"; exit 1; }
+kosmos_setup_floor_tree_ok "the release's site export" "$_site_export" || { echo "nothing was deployed"; exit 1; }
 # The filter that ACTUALLY ships is the export's; 3c read HEAD's early, and
 # the sha can have moved since. Same evaluator, same refusal, on the real file.
 set +e; _dep_dropped="$(pkg_upload_filter_excludes "$_site_export/.vercelignore")"; _dep_frc=$?; set -e

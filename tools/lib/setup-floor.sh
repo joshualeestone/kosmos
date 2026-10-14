@@ -43,8 +43,8 @@ kosmos_setup_floor_ok() {
 
 # `kosmos_setup_floor_pointer_ok <label> <pointer-json-text>`: a Mac pointer's version AND the version in its artifact
 # name (kosmos-<version>-<arch>.tar.gz) must both be at or above the floor, and must be the same version: a pointer
-# that says 0.7.49 but names an older tarball is refused, since the tarball is what installs. An artifact of any other
-# shape is left to the callers' own malformed-pointer refusals.
+# that says 0.7.49 but names an older tarball is refused, since the tarball is what installs. An artifact that is not
+# a versioned kosmos tarball name is refused too (fail closed): every real Mac pointer names one.
 kosmos_setup_floor_pointer_ok() {
   local label="$1" json="$2" v art av
   v=$(printf '%s' "$json" | sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p')
@@ -52,10 +52,34 @@ kosmos_setup_floor_pointer_ok() {
   kosmos_setup_floor_ok "$label" "$v" || return 1
   [ -n "$art" ] || return 0
   av=$(printf '%s' "$art" | sed -n 's/^kosmos-\(.*\)-[a-z0-9_]*\.tar\.gz$/\1/p')
-  # An artifact that is not a kosmos tarball name installs nothing; the callers' own pointer checks refuse it.
-  [ -n "$av" ] || return 0
-  if [ "$av" != "$v" ]; then
+  if [ -z "$av" ] || [ "$av" != "$v" ]; then
     echo "setup floor (kosmos#6149): $label says version $v but names artifact $art -- refusing (the tarball is what installs)" >&2
     return 1
   fi
+}
+
+# The installer's own bytes. A pointer's version says nothing about the /setup or /setup-staging served beside it,
+# and a hand rollback can commit an old one next to a new pointer. Every installer from 0.7.45 on knows the read-only
+# app and its switch (KOSMOS_READONLY_APP, #4449); none before 0.7.45 does (measured on the served history: 0.7.44's
+# /setup has 0 mentions, 0.7.45's 7). So an installer without it is older than the floor.
+KOSMOS_SETUP_FLOOR_MARKER="KOSMOS_READONLY_APP"
+
+# `kosmos_setup_floor_tree_ok <who> <dir>`: the tree a deploy is about to publish (its export) must hold no Mac
+# pointer and no installer older than the floor: dir/dist/latest.json and dir/dist/latest-staging.json (when present)
+# through kosmos_setup_floor_pointer_ok, and dir/setup and dir/setup-staging (when present) must carry the marker.
+# Under a lowered floor (test fixtures) the installer check is skipped, with the same warning.
+kosmos_setup_floor_tree_ok() {
+  local who="$1" dir="$2" f
+  for f in dist/latest.json dist/latest-staging.json; do
+    [ -f "$dir/$f" ] || continue
+    kosmos_setup_floor_pointer_ok "$who: $f" "$(cat "$dir/$f")" || return 1
+  done
+  [ "$KOSMOS_SETUP_FLOOR" = "$KOSMOS_SETUP_FLOOR_REAL" ] || return 0
+  for f in setup setup-staging; do
+    [ -f "$dir/$f" ] || continue
+    grep -q "$KOSMOS_SETUP_FLOOR_MARKER" "$dir/$f" || {
+      echo "setup floor (kosmos#6149): $who: $f does not know $KOSMOS_SETUP_FLOOR_MARKER, so it is an installer from before $KOSMOS_SETUP_FLOOR_REAL and would break every install a read-only build has touched -- refusing" >&2
+      return 1
+    }
+  done
 }

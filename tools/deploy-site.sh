@@ -763,6 +763,8 @@ echo "deploy-site: fetched and verified the current live GITIGNORED artifacts in
 # the first read of $HOST as well as after the deploy.)
 EXPORT=$(mktemp -d "${TMPDIR:-/tmp}/deploy-site.XXXXXX")
 site_deploy_export "$SITE" "$EXPORT" "$H" || { echo "deploy-site: site_deploy_export failed -- nothing deployed"; rm -rf "$EXPORT"; exit 1; }
+# kosmos#6149: the export IS what vercel publishes: no pointer and no installer in it older than the setup floor.
+kosmos_setup_floor_tree_ok "deploy-site's export" "$EXPORT" || { echo "deploy-site: nothing deployed"; rm -rf "$EXPORT"; exit 1; }
 
 # --- 3) HONEST-MARKER check: the export MUST have carried the critical artifacts ----
 # If it did not, the .kosmos-release-export marker would be a rubber stamp and the deploy
