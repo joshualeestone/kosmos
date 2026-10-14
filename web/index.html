@@ -30500,7 +30500,8 @@ function aoUsageWords(e, now) {
     'unreadable-settings': 'This is the last reading Kosmos saw. It will not update, because Kosmos cannot read this account\'s settings.',
     'not-wired': 'This is the last reading Kosmos saw. It will not update, because Kosmos is not set up to read this account\'s usage.',
   }[e.blocked] || '';
-  const w = e.weekly;
+  /* A reading kept from an earlier read can outlive its week; the row there would no longer show it (readWeekly). */
+  const w = e.weekly && e.weekly.resetsAt > now ? e.weekly : null;
   if (!w) return { pct: null, line: blockedSay || 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.', frozen: '' };
   const pct = Math.max(0, Math.min(100, Math.round(w.usedPct)));
   const resets = new Date(w.resetsAt).toLocaleString([], w.resetsAt - now > 6 * 864e5
@@ -30591,10 +30592,11 @@ const AO_KICK_GAP_MS = 5000;   // repaints come in bursts (an account action, it
 function aoKick() {
   try { aoPaint(); } catch { /* next paint */ }
   if (typeof location === 'undefined' || location.protocol !== 'https:') return;
+  if (typeof aoShown === 'function' && !aoShown()) return;   // a paint of another Settings section: no round, and no gap started
   const now = Date.now();
   if (now - AO_KICKED_AT < AO_KICK_GAP_MS) return;   // the 15 s round (oaStart) keeps it fresh between bursts
   AO_KICKED_AT = now;
-  try { Promise.resolve(oaRound()).catch(() => {}); } catch { /* the next tick */ }
+  try { Promise.resolve(oaRound(true)).catch(() => {}); } catch { /* the next tick */ }   // true: a busy round runs once more
 }
 function worldswToggle() {
   const menu = document.getElementById('worldsw-menu');

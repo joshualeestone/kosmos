@@ -78,3 +78,17 @@ test('#6178 /api/status carries each Claude account\'s weekly reading, equal to 
   // Exactly, as the page joins them (aoGroup compares the two strings): a realpath here would hide a join that fails there.
   assert.ok(agent.account && agent.account.dir === entry.dir, 'the agent does not join to its account entry by dir: ' + JSON.stringify([agent.account, entry.dir]));
 });
+
+test('#6178 a Claude list that cannot be read is sent as null ("could not read"), never as no accounts', async () => {
+  accountsweekly.resetForTests();
+  const accounts = require('./engine/accounts');
+  const real = accounts.list;
+  accounts.list = () => { throw new Error('unreadable for the test'); };
+  try {
+    const st = await (await fetch(base + '/api/status')).json();
+    assert.equal(st.accountsWeekly, null, 'a failed list read went out as ' + JSON.stringify(st.accountsWeekly));
+    assert.ok(Array.isArray(st.agents), 'CONTROL: the rest of the status still answered');
+  } finally { accounts.list = real; }
+  const ok = await (await fetch(base + '/api/status')).json();
+  assert.ok(Array.isArray(ok.accountsWeekly), 'CONTROL: with the list readable again it is a list');
+});

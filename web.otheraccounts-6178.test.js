@@ -227,3 +227,63 @@ test('#6178 a computer that could not read its own accounts says so, never "no a
   assert.match(t, /studio could not read its accounts just now/);
   assert.doesNotMatch(t, /No Claude account/, 'a failed read was reported as no accounts');
 });
+
+/* oaRound's arms for Settings (#6178), lifted with stand-ins for everything it calls: the read decision is the subject. */
+function roundWith({ host, models, thisOnly }) {
+  const reads = [];
+  const api = new Function('document', 'location', 'state', `
+    let OA_BUSY = false, OA_AGAIN = false, OA_COMPUTERS = state.list, OA_COMPUTERS_AT = Date.now();
+    const OA_COMPUTERS_EVERY_MS = 60000;
+    function oaHost() { return state.host ? {} : null; }
+    function aoShown() { return state.models; }
+    function oaThisOnly() { return state.thisOnly; }
+    function oaPaint() {}
+    function aoPaint() {}
+    function oaRefreshComputers() { return null; }
+    function oaEligible() { return true; }
+    function oaOthers() { return [{ address: 'studio.kosmosplus.com' }]; }
+    function oaReadOne(c) { state.reads.push(c.address); return Promise.resolve(null); }
+    ${slice('oaRound')}
+    return { oaRound };
+  `)({ hidden: false }, { protocol: 'https:' }, { list: LIST, host, models, thisOnly, reads });
+  return { api, reads };
+}
+test('#6178 oaRound reads for AI Models, even with "This computer only" ticked, and not when nothing is shown', async () => {
+  const a = roundWith({ host: false, models: true, thisOnly: false });
+  await a.api.oaRound();
+  assert.deepEqual(a.reads, ['studio.kosmosplus.com'], 'AI Models on screen, the Agents view not: nothing was read');
+  const b = roundWith({ host: false, models: true, thisOnly: true });
+  await b.api.oaRound();
+  assert.deepEqual(b.reads, ['studio.kosmosplus.com'], '"This computer only" (the Agents view\'s) stopped the Settings read');
+  const c = roundWith({ host: false, models: false, thisOnly: false });
+  await c.api.oaRound();
+  assert.deepEqual(c.reads, [], 'CONTROL: with neither on screen another computer was asked');
+  const d = roundWith({ host: true, models: false, thisOnly: true });
+  await d.api.oaRound();
+  assert.deepEqual(d.reads, [], 'CONTROL (#4812): the Agents view with "This computer only" ticked still reads nothing');
+});
+
+test('#6178 a kick while another Settings section is shown starts no round and no gap', () => {
+  const t = makeDom();
+  let rounds = 0;
+  const flags = { shown: false };
+  const k = new Function('document', 'location', 'Date', 'oaRound', 'aoPaint', 'aoShown', `
+    ${PAGE.slice(PAGE.indexOf('let AO_KICKED_AT = 0;'), PAGE.indexOf('\n', PAGE.indexOf('let AO_KICKED_AT = 0;')) + 1)}
+    ${constLine('AO_KICK_GAP_MS')}
+    ${slice('aoKick')}
+    return { aoKick };
+  `)(t.document, { protocol: 'https:' }, { now: () => 1e9 }, () => { rounds++; }, () => {}, () => flags.shown);
+  k.aoKick();
+  assert.equal(rounds, 0, 'a paint of another section asked for a round');
+  flags.shown = true;
+  k.aoKick();
+  assert.equal(rounds, 1, 'arriving on AI Models at once after was held back by a gap the hidden paint started');
+});
+
+test('#6178 a kept reading past its reset is not shown as this week\'s', () => {
+  const { api } = load();
+  const now = Date.now();
+  const u = api.aoUsageWords({ weekly: { usedPct: 90, resetsAt: now - 60e3, at: now - 864e5 }, blocked: null }, now);
+  assert.equal(u.pct, null, 'a reading from a week that has reset was drawn as a meter');
+  assert.match(u.line, /No usage reading for this account yet/);
+});

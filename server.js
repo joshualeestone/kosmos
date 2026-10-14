@@ -5857,8 +5857,11 @@ const server = http.createServer(async (req, res) => {
          them apart: a folder matches only its own row, and a dir-less default matches only the runner's
          provider. OpenAI's list is left out on purpose: codex agents keep their existing account shape. */
       const listOf = (m) => { try { return m.list(); } catch { return []; } };
-      const claudeKnown = listOf(accounts);   // #6178: kept apart for accountsWeekly below, so the poll still reads the list once
-      const known = claudeKnown.concat(listOf(geminiAccounts), listOf(grokAccounts), listOf(qwenAccounts));   // #5977: a Qwen agent names its Qwen account
+      /* #6178: kept apart for accountsWeekly below, so the poll still reads the list once. Its own try, not listOf: a list
+         that could not be read is null there ("could not read them"), and [] here as before. */
+      let claudeKnown;
+      try { claudeKnown = accounts.list(); } catch { claudeKnown = null; }
+      const known = (claudeKnown || []).concat(listOf(geminiAccounts), listOf(grokAccounts), listOf(qwenAccounts));   // #5977: a Qwen agent names its Qwen account
       /* 🛑 `null` HERE MEANS ONE THING ONLY: we could not read this agent's
          launch file, so we do not know. It does NOT mean the default account.
          The first version let the SCREEN decide, by falling back to "your
@@ -6466,7 +6469,7 @@ const server = http.createServer(async (req, res) => {
         /* #6178: each Claude account's weekly usage on this computer, from the helper /api/accounts uses, kept for
            CACHE_MS (engine/accountsweekly.js). Another of the person's computers reads it through the sibling path (#4812) for
            Settings > AI Models. */
-        accountsWeekly: (() => { try { return require('./engine/accountsweekly').summary(claudeKnown, Date.now()); } catch { return null; } })(),   // null: could not read them, never "none"
+        accountsWeekly: (() => { if (!Array.isArray(claudeKnown)) return null; try { return require('./engine/accountsweekly').summary(claudeKnown, Date.now()); } catch { return null; } })(),
         /* #2066: the board reads (version, sourceChannel); the version line and the
            federation gate use them (the corner marker went in #3641). Channel rides
            the 5s status tick the board already polls. #2934: no longer just a file
