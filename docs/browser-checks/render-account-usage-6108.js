@@ -234,8 +234,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         /* Sideways overflow of the page itself, with the list in its real place. */
         return { contrast, incMove, warmstop, frozen, unknown, fullmix, tgMove, lostMove, fullstop, weekout, weekoutDay: new Date(Date.now() + 162 * 3600e3).getDate(), staleMove, ncMove, sleepyMove, mine, unwired, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
       }, { accounts: ACCOUNTS, agents: AGENTS });
-      await page.close();
-      if (r.error) { say(false, tag + ' ' + r.error); continue; }
+      /* #6175: the page stays open for the set-up step below; it is closed after it (and here, on an error). */
+      if (r.error) { say(false, tag + ' ' + r.error); await page.close(); continue; }
       const { busy, fresh, calm, key, old, def, guideonly, full, sleepy } = r.before;
       say(!!busy && busy.has && busy.fill === '82%', tag + ' an 82% row draws its meter at 82%', JSON.stringify(busy && busy.fill));
       say(!!busy && busy.vis && busy.font === '13px' && busy.color === busy.labelRgb && busy.margin === '0px', tag + ' inside the real Settings panel the usage line keeps its own size, ink and spacing (the panel\'s paragraph rule does not win)', JSON.stringify(busy && { vis: busy.vis, font: busy.font, color: busy.color, label: busy.labelRgb, margin: busy.margin }));
@@ -397,6 +397,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(s6175.say2.length === 1, tag + ' #6175 a second refusal replaces the first', JSON.stringify(s6175.say2));
       say(s6175.posts.length === 3 && s6175.posts.every((d) => d === '/home/.claude-unwired') && !s6175.after.offer && s6175.after.line === 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.', tag + ' #6175 once set up, the row repaints without the offer and says a reading comes', JSON.stringify(s6175.after));
       say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
+      await page.close();
     }
     await browser.close();
   }
