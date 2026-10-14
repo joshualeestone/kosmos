@@ -23,11 +23,26 @@ once the original sits right above it, that line is left out (`dmReplyHead`, the
   to remember which rows used to show the line, state that a repaint would have to carry, for one case.
 - Rejected, holding the row after the one in view: a change at the BOTTOM of the first row (a picture, a link's
   preview) would then move its top instead.
-- Holding the words covers the class and needs no state: any line above a message's words that comes or goes
-  between two paints (this one today) no longer moves what the reader is reading. When nothing above the words
-  changed, the place held is the same distance from the row's top before and after, so nothing else moves.
+- Holding the words needs no state, and covers a line above the ANCHORED row's words coming or going between two
+  paints. When nothing above the words changed, the place held is the same distance from the row's top before
+  and after, so nothing else moves.
+
+## What it does not fix (review 1 measured this)
+
+Only the anchored row is held. If the TWO oldest messages on screen both answer the same message in the page
+about to load, both say "further back" and both lose the line when it lands. The first is the anchor and its
+words stay; the second is in view under it, and everything under the second still moves up one line. I am not
+fixing that here: a line that is on screen and goes away has to move something on screen, and with two of them
+no one place can be held that keeps all the words still. It needs two replies in a row to one message, with
+that message exactly one page back.
 
 ## Measured
+
+- The unit tests that lift these functions (`web.talk-scroll-1926.test.js`): 5 pass, one of them new (a header
+  line leaving the anchored row; with the restore put back to the row's top, that one fails and the other 4 pass).
+  My first commit left this file red: it lifts the anchor functions by name and did not lift the new one. Review
+  1 ran it; I had only run the two files whose names I guessed. All four test files that touch `setThread` or
+  the anchor: 34 pass.
 
 - The committed check on this branch: 48 passed, 0 failed. The SAME file against main's page (the fix absent):
   46 passed, 2 failed, and the two are the new arms (the message under the reply moved 29 px and 28 px).
@@ -37,8 +52,8 @@ once the original sits right above it, that line is left out (`dmReplyHead`, the
 ## Not measured
 
 - A phone, and touch scrolling. The capture's phone run did not work (the wheel never reached the thread).
-- A project room: `setThread` serves it too. Its rows are not `.msg-bd` rows of this shape everywhere, and a row
-  without one is held by its top as before. I have not looked for a room case that changes.
+- (Corrected after review 1: I wrote that `setThread` serves a project room too. It does not. All its callers
+  pass the direct conversation's thread; a room paints through `paintRoom` and never reaches this code.)
 - One run of each arm.
 
 ## Weakest premise
