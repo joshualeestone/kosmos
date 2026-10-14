@@ -194,8 +194,9 @@ installer from before 0.7.45 cannot lift a read-only app: its update removes `bi
 put the board back, because `bin/kosmos` is gone. So a ROLLBACK of `/setup` or `/setup-staging` to a build older
 than 0.7.45 breaks the next update of every Mac and Linux install a later build has touched. The tools refuse
 it (kosmos#6149, `tools/lib/setup-floor.sh`): publish-staging-pointer, promote-channel, deploy-site and release.sh
-will not publish a Mac pointer below 0.7.45, or a `/setup` or `/setup-staging` that does not know
-`KOSMOS_READONLY_APP` (the switch and the lift came in one change, so an installer that names it can lift the lock).
+will not publish a Mac pointer below 0.7.45, and promote-channel, deploy-site and release.sh will not publish a
+`/setup` or `/setup-staging` that does not name `KOSMOS_READONLY_APP` (the switch and the lift came in one change, so
+an installer that names it can lift the lock; a string check, not a proof).
 NOT covered: a rollback done in Vercel itself (the dashboard's Instant Rollback, or `vercel rollback`) to a
 deployment from before 0.7.45. It goes around every script, so never use it for the site once 0.7.49 is out: roll
 back by committing the older pointer and installer and running deploy-site.sh, which checks them. The way out for a person it happens to is `chmod -R u+w` on the app folder

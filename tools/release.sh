@@ -657,6 +657,7 @@ step "== 1a-floor. the setup floor on the pair this cut re-publishes untouched (
 [ -z "${KOSMOS_SETUP_FLOOR_TEST:-}${KOSMOS_SETUP_FLOOR_LOWER:-}" ] || {
   echo "KOSMOS_SETUP_FLOOR_TEST / KOSMOS_SETUP_FLOOR_LOWER are set: they lower the setup floor for test fixtures and must never reach a cut -- refusing"; exit 1; }
 kosmos_setup_floor_ok "this $CUT_CHANNEL cut" "$V" || exit 1
+kosmos_setup_floor_installer_ok "this cut's install/setup.sh" "$REPO/install/setup.sh" || exit 1
 kosmos_setup_floor_site_untouched_ok "the site checkout" "$SITE" "$CUT_CHANNEL" || {
   echo "(this read the site CHECKOUT at $SITE: if it is behind origin/main, refresh it and cut again; if origin/main holds the old file too, it needs a build at or above the floor)"; exit 1; }
 # 🛑 ITS OWN STEP LABEL, AND THAT IS NOT COSMETIC. `cut_record_done` writes

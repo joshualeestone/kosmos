@@ -31,7 +31,8 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
     a cut writes is the remedy, not checked there), a fail-fast on a checkout that may be behind origin/main.
   - promote-channel.sh also checks the installer before any write: setup-staging when it is about to become /setup,
     or, when the staging pointer names no installer, the /setup prod keeps serving beside the new pointer.
-  - release.sh refuses the test knob outright (no test drives a cut with it).
+  - release.sh refuses the test knob outright (no test drives a cut with it), and at step 1a also checks the cut's
+    own install/setup.sh, before anything is built or pushed.
 - deploy-site's early committed-pointer check is a fail-fast: its export check would refuse the same pointers;
   only the staging-pointer arm of the test is specific to it.
 - NOT covered, and said so in docs/staging-channel.md: a rollback done in Vercel itself (Instant Rollback or
@@ -58,7 +59,7 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
   of test-deploy-site-promote.sh run, and test-setup-floor-6149.sh asserts it sits above release.sh's vercel deploy.
 - A consequence, intended: once a committed pointer is below the floor, every site deploy is refused, an HTML-only
   one included, until a Mac build at or above the floor is cut. That is the fail-closed shape: the fix is a build.
-- Declined (review 3): also requiring a test-run marker (KOSMOS_TEST_RUN) for the knob. CI's shell shards do not set
+- Declined (reviews 3 and 9): also requiring a test-run marker (KOSMOS_TEST_RUN) for the knob. CI's shell shards do not set
   it, so each test would set it itself: a third variable the same tests set adds nothing over the two required.
 
 ## Tests
