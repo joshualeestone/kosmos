@@ -1553,6 +1553,55 @@ test('#4934/#5967: two agents TRADING acks are a back-and-forth loop -- the four
   });
 });
 
+test('#4934/#5967: federated posts are keyed on the stable member id, not the display name, so distinct outsiders sharing a name are a poll', () => {
+  withFleet(room4(), (board) => {
+    const now = Date.now();
+    seedPosts(now, []); // ensure the log dir exists
+    // Three DIFFERENT outsiders all DISPLAY as "Guest" (the external `from` is a capped display
+    // name) but carry DISTINCT member ids, each answering once -- a poll. Keying the run on `from`
+    // would read three "Guest"s as a repeating sender and refuse the fourth answer, dropping a
+    // requested message with nothing stored (the dangerous direction). Keyed on `member`, they are
+    // three distinct senders, so the local fourth answer is delivered.
+    [['acctA', 'agreed'], ['acctB', 'ok'], ['acctC:macX', 'yes']].forEach(([member, text], i) => {
+      fs.appendFileSync(messages.LOG, JSON.stringify({
+        kind: 'external', id: 'x-' + i, project: 'henderson-lease', from: 'Guest', member,
+        fromKind: 'person', external: true, text, at: new Date(now - (3 - i) * 1000).toISOString(),
+      }) + '\n');
+    });
+    armSender('leo-discord'); arm([]);
+    const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'yes' }, board.agents, MEMBERS4);
+    assert.equal(out.state, chat.DELIVERY.PLACED, 'three distinct outsiders sharing the display name "Guest" were read as a repeating sender; a poll answer was dropped');
+    assert.notEqual(out.code, 'ack_only', 'a poll of distinct outsiders must not be refused');
+
+    // CONTROL: the SAME outsider (one member id) trading acks with a local agent is a real loop,
+    // and is still refused on the fourth -- the member keying catches a repeat as well as it
+    // avoids a false one.
+    wipeLog(); chat.resetForTests(); armSender('leo-discord'); arm([]);
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'external', id: 'x-a', project: 'henderson-lease', from: 'Guest', member: 'acctA', fromKind: 'person', external: true, text: 'agreed', at: new Date(now - 3000).toISOString() }) + '\n');
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'p-1', project: 'henderson-lease', from: 'leo', to: MEMBERS4, text: 'ok', at: new Date(now - 2000).toISOString(), outcomes: {} }) + '\n');
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'external', id: 'x-b', project: 'henderson-lease', from: 'Guest', member: 'acctA', fromKind: 'person', external: true, text: 'thanks', at: new Date(now - 1000).toISOString() }) + '\n');
+    const refused = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'sure' }, board.agents, MEMBERS4);
+    assert.equal(refused.code, 'ack_only', 'a real loop between one outsider and one local agent, trading acks, was not stopped');
+  });
+});
+
+test('#4934/#5967: a poll does not become a loop by growing -- a fifth distinct answerer is still delivered', () => {
+  withFleet(room4(), (board) => {
+    const now = Date.now();
+    // Four distinct answerers (one seeded non-member string stands for a fifth participant), then
+    // a fifth distinct answerer. All distinct, so still a poll, so still delivered.
+    seedPosts(now, [
+      { from: 'mara', text: 'yes' },
+      { from: 'april', text: 'ok' },
+      { from: 'nova', text: 'agreed' },
+      { from: 'quinn', text: 'yep' },
+    ]);
+    armSender('leo-discord'); arm([]);
+    const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'yes' }, board.agents, MEMBERS4);
+    assert.equal(out.state, chat.DELIVERY.PLACED, 'a fifth distinct poll answer was refused; a poll does not become a loop by growing');
+  });
+});
+
 test('#4934/#5967: the CLI copy for ack_only tells the agent to post something new, never that the room is held', () => {
   const cli = fs.readFileSync(path.join(__dirname, '..', 'install', 'kosmos'), 'utf8');
   // The refusal copy branch for a code runs from its first case token to the next `;;`.
