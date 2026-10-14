@@ -16,8 +16,8 @@ Card: kosmos#6140. Test-only change: engine/remote.test.js.
   expect it to succeed (#5422 finishing an unfinished sign-in; #3827 Forget retires a half register; #3827 a register
   after one cut off; #3827 the Settings setup retires first) and the three that expect a quick refusal or a 502 answer
   (#3827 "already in use" after a refused retire; the Settings setup's stranded-name answer; the Settings setup keeps a
-  half identity whose retire got a 502), whose assertions on a refusal a timeout would break (a timed-out retire is kept, not refused: in "already in use" the
-  refusedThenFree, retired and retry checks; the stranded wording alone would still match).
+  half identity whose retire got a 502), whose assertions on a refusal a timeout would break. A timed-out retire is kept, not refused; in "already in use" that
+  breaks the refusedThenFree, retired and retry checks (the stranded wording alone would still match).
 - Kept at 1500 ms: the hung retire in #3827 "a half identity whose retire gets no answer is kept", whose timeout is
   what it tests. The retry after it must answer, so it gets 20000 ms (review 1).
 - #4824's CONTROL (a refusal that is not a timeout, under the arm's 400 ms bound) gets 20000 ms for its refusal
@@ -28,6 +28,12 @@ Card: kosmos#6140. Test-only change: engine/remote.test.js.
 - Each kill step (ten, in the arms above and the slow-retire arm) now asserts it left a half identity (key and id, no
   certificate): the kill shares the load problem one step earlier, and a kill landing before the fake writes them made
   a later precondition red with the wrong cause. The stranded-name arm's second half sets its retire bound itself.
+
+## Review 5 (opus)
+- The kill steps themselves were still bounded at 1.5 s: the fake must start, read the token and write key and id
+  before the kill, so a loaded box could still red there (now named by halfHere()). KILL_BOUND_MS = 5000 for the ten
+  kills: the fake hangs 15 s after the write, so a 5 s kill still lands after it. Cost: about 3.5 s per kill on every
+  run.
 
 ## Decided, not missed
 - engine/remote.js is unchanged: a 60 s retire bound in production is right; the 1.5 s was a test speed choice.

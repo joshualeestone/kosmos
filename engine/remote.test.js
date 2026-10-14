@@ -441,6 +441,9 @@ function halfHere() {
     && !fs.existsSync(nodePath.join(d, require('./enrolment').HELD_FILE)) && !fs.existsSync(nodePath.join(d, 'tls.crt'));
 }
 const HALF_MSG = 'fixture: the kill landed before the half identity was written (a loaded box: #6140)';
+/* #6140 review 5: the kill step's bound. The partial-register fake writes key and id and then hangs 15 s, so any
+   bound well under 15 s still kills it AFTER the write; 1.5 s let a slow spawn on a loaded box kill it before. */
+const KILL_BOUND_MS = '5000';
 
 function recorded() {
   try { return fs.readFileSync(RECORD, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse); }
@@ -1957,7 +1960,7 @@ test('kosmos#5422: an older tunnel after a key moves the id in use only once the
 test('kosmos#5422: finishing an unfinished earlier sign-in keeps the device key (no new device next time)', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.FAKE_TUNNEL_MODE = 'partial-register devkey';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
   const keyFile = nodePath.join(process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote'), 'signin-device.key');
   try {
     await remote.signinStart('her@example.com');
@@ -2379,7 +2382,7 @@ test('#3827: a register that hangs cannot hang Forget: both are bounded', async 
 test('#3827: a register killed after writing the key and id (mid-certificate) is still retired by Forget', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.FAKE_TUNNEL_MODE = 'partial-register';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
   try {
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
@@ -2505,7 +2508,7 @@ test('#3827: the older Settings setup is refused while a register is in flight',
 test('#3827: a register after one cut off mid-certificate retires the half identity first, with no dead end', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.FAKE_TUNNEL_MODE = 'partial-register';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
   try {
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
@@ -2583,7 +2586,7 @@ test('#3827: every sign-in step and the Settings setup are refused while a Forge
 test('#3827: a half identity whose retire gets no answer is kept, the register waits, and a retry retires it', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.FAKE_TUNNEL_MODE = 'partial-register';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
   const logged = [];
   const orig = process.stderr.write;
   try {
@@ -2627,7 +2630,7 @@ test('#3827: after Kosmos+ refused to retire a half identity, its "already in us
   const orig = process.stderr.write;
   const halfThen = async (mode) => {
     process.env.FAKE_TUNNEL_MODE = 'partial-register';
-    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
     assert.ok(halfHere(), HALF_MSG);
@@ -2689,7 +2692,7 @@ test('#3827: after Kosmos+ refused to retire a half identity, its "already in us
 test('#3827: the Settings setup also retires a half identity before it registers', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.FAKE_TUNNEL_MODE = 'partial-register';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
   try {
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
@@ -2875,7 +2878,7 @@ test('#3827: after a Sign out, a stale Try again at the same name does not switc
 
 test('#3827: the Settings setup gets the same stranded-name answer', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
   const orig = process.stderr.write;
   try {
     process.stderr.write = () => true;
@@ -2897,7 +2900,7 @@ test('#3827: the Settings setup gets the same stranded-name answer', async () =>
     // #4645: the same in the wording the coordinator can move to, from the same stranded start.
     process.env.FAKE_TUNNEL_MODE = '';
     await remote.forget();
-    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
     process.env.FAKE_TUNNEL_MODE = 'partial-register';
@@ -3073,7 +3076,7 @@ test('#3827: a tunnel restart while a register is out does not start a tunnel on
 });
 test('#3827: the Settings setup also keeps a half identity whose retire got no answer', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
   const orig = process.stderr.write;
   try {
     process.stderr.write = () => true;
@@ -3130,7 +3133,7 @@ test('#3827: a Settings setup in flight blocks the in-app register, turning on a
 
 test('#3827: a Sign out during the half-identity retire means the register is never sent', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
   try {
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
