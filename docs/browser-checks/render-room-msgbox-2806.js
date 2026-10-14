@@ -873,6 +873,28 @@ function tapProbe4663(skip) {
       await phonePage.waitForTimeout(100);
       const tabletOrder = await order();
       const tabletFocus = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      // #6107: the Tasks row on the tablet. Six stand-in task cards (removed after) so the row has something to scroll:
+      // it runs sideways, scrolls inside itself without widening the page, and a focused card's ring (2px at a 2px
+      // offset) is drawn inside the scroller, which clips whatever overflows it.
+      const tkRow = await phonePage.evaluate(() => {
+        const list = document.getElementById('pj-tasklist');
+        if (!list) return { error: 'no #pj-tasklist' };
+        const kept = [...list.childNodes];
+        for (let i = 0; i < 6; i += 1) { const b = document.createElement('button'); b.type = 'button'; b.className = 'tkcard tk-probe'; b.textContent = 'Task ' + (i + 1) + ': a stand-in card with a title long enough to wrap'; list.appendChild(b); }
+        const first = list.querySelector('.tk-probe');
+        first.focus();
+        const ring = parseFloat(getComputedStyle(first).outlineWidth) + parseFloat(getComputedStyle(first).outlineOffset);
+        const L = list.getBoundingClientRect(); const C = first.getBoundingClientRect();
+        const out = { dir: getComputedStyle(list).flexDirection, scrolls: list.scrollWidth > list.clientWidth + 1,
+          pageFits: document.documentElement.scrollWidth <= window.innerWidth, ring,
+          roomTop: Math.round(C.top - L.top), roomLeft: Math.round(C.left - L.left), focused: document.activeElement === first };
+        first.blur(); list.querySelectorAll('.tk-probe').forEach((n) => n.remove());
+        out.restored = list.childNodes.length === kept.length && kept.every((n, i) => list.childNodes[i] === n);
+        return out;
+      });
+      chk(!tkRow.error && tkRow.dir === 'row' && tkRow.scrolls && tkRow.pageFits && tkRow.focused && tkRow.ring > 0
+        && tkRow.roomTop >= tkRow.ring && tkRow.roomLeft >= tkRow.ring && tkRow.restored,
+        `[tablet] #6107: the Tasks row runs sideways, scrolls inside itself, leaves the page its width, and has room for a focus ring`, JSON.stringify(tkRow));
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
       const tabletBack = await order();
