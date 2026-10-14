@@ -200,6 +200,26 @@ function emptySpot(page, sel) {
           if (upright) {
             chk(card.cards >= 3 && card.columns === 2, `${tag} #6107: the agent cards are two across`, JSON.stringify({ columns: card.columns, cards: card.cards }));
             chk(beside && stacked && under, `${tag} #6107: the face is on the left, name then state beside it, the task underneath`, JSON.stringify(card));
+            // The shapes most likely to break: cleo needs you (the state pill carries an Answer button), and a long name
+            // beside the 64px face. Nothing in the card may poke out of it, or under the face.
+            const fit = await page.evaluate(() => {
+              const res = {};
+              const inside = (card, sel) => { const e = card.querySelector(sel); if (!e) return 'absent'; const c = card.getBoundingClientRect(); const b = e.getBoundingClientRect(); return b.left >= c.left - 0.5 && b.right <= c.right + 0.5 ? 'in' : 'out:' + Math.round(b.left - c.left) + '..' + Math.round(c.right - b.right); };
+              const cleo = document.querySelector('#grid .acard[data-agent="cleo"]');
+              res.cleoState = cleo ? inside(cleo, '.astate') : 'no cleo card';
+              res.cleoAnswer = cleo ? inside(cleo, '.astate button, .astate [data-answer]') : 'no cleo card';
+              const ada = document.querySelector('#grid .acard[data-agent="ada"]');
+              const nm = ada && ada.querySelector('.namego');
+              if (!nm) return Object.assign(res, { error: 'no ada name' });
+              const was = nm.textContent;
+              nm.textContent = 'Alexandria Constantinople-Vanderberg the Second';
+              const g = ada.querySelector('.agauge').getBoundingClientRect(); const n = ada.querySelector('.aname').getBoundingClientRect();
+              res.longName = inside(ada, '.aname'); res.clearOfFace = n.left >= g.right - 0.5; res.cardFits = ada.scrollWidth <= ada.clientWidth + 1;
+              nm.textContent = was;
+              return res;
+            });
+            chk(!fit.error && fit.cleoState === 'in' && fit.cleoAnswer !== 'out' && !String(fit.cleoAnswer).startsWith('out') && fit.longName === 'in' && fit.clearOfFace && fit.cardFits,
+              `${tag} #6107: a needs-you card's state and Answer stay inside it, and a long name wraps beside the face`, JSON.stringify(fit));
           } else {
             chk(card.columns > 2 && !beside, `${tag} CONTROL: landscape keeps the desktop card (more than two across, the face above the name)`, JSON.stringify({ columns: card.columns, g: card.g, n: card.n }));
           }
