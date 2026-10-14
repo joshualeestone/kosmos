@@ -252,6 +252,49 @@ test('#6108 /api/accounts says when an account cannot have a reading: its own st
   } finally { fs.rmSync(settings, { force: true }); }
 });
 
+/* #6175: an existing Claude account with no status line can have its usage reading set up from Settings; one with a
+   status line of the person's own is left exactly as it is. */
+test('#6175 the usage-reading route wires a not-set-up account and never replaces the person\'s own status line', async () => {
+  const def = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
+  fs.mkdirSync(def, { recursive: true });
+  fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com', accountUuid: 'u-6175' } }));
+  const settings = path.join(def, 'settings.json');
+  const post = async (body) => {
+    const r = await fetch(base + '/api/accounts/claude/usage-reading', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    return { status: r.status, j: await r.json() };
+  };
+  const blockedOf = async () => {
+    const rows = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];
+    const row = rows.find((a) => a && a.provider === 'anthropic' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(def));
+    return row ? row.weeklyBlocked : 'unlisted';
+  };
+  if (process.platform === 'win32') {
+    const r = await post({ dir: def });
+    assert.equal(r.status, 409, 'Windows has no weekly reading to wire: ' + JSON.stringify(r));
+    return;
+  }
+  try {
+    fs.rmSync(settings, { force: true });
+    assert.equal(await blockedOf(), 'not-wired', 'precondition: the account has no status line');
+    const r = await post({ dir: def });
+    assert.equal(r.status, 200, JSON.stringify(r));
+    assert.equal(r.j.wired, true);
+    assert.ok(allowance.isOurs(JSON.parse(fs.readFileSync(settings, 'utf8')).statusLine), 'the settings file does not carry Kosmos\'s status line');
+    assert.equal(await blockedOf(), null, 'the row still says it is not set up');
+    assert.equal((await post({ dir: def })).j.changed, false, 'a second press rewrote a status line that was already right');
+    // The person's own status line: refused, and the file is byte-for-byte as it was.
+    const own = JSON.stringify({ statusLine: { type: 'command', command: '/usr/local/bin/my-status.sh' }, theme: 'dark' });
+    fs.writeFileSync(settings, own);
+    const refused = await post({ dir: def });
+    assert.equal(refused.status, 409, JSON.stringify(refused));
+    assert.match(refused.j.because, /its own status line/, refused.j.because);
+    assert.equal(fs.readFileSync(settings, 'utf8'), own, 'the person\'s own status line was touched');
+    // Only an account this computer lists, and a request it can read.
+    assert.equal((await post({ dir: path.join(SANDBOX, 'not-an-account') })).status, 404);
+    assert.equal((await post({})).status, 400);
+  } finally { fs.rmSync(settings, { force: true }); }
+});
+
 /* #6108: the page's "Moved X (stopped). It is not running now" depends on what the account route answers for a stopped
    agent. Pin it here, so a change to the route goes red rather than leaving the row's sentence untrue. */
 test('#6108 the account route moves a stopped agent without starting it, and says it is not running', async () => {
