@@ -34,6 +34,7 @@ case "$me" in
     [ -z "${FX_CRON:-}" ] && { echo "crontab: no crontab for ${FX_WHO:-agent1}" >&2; exit 1; }; printf '%s\n' "$FX_CRON" ;;
   pgrep)
     [ "${FX_PGREP_FAIL:-0}" = 1 ] && exit 3
+    case "$*" in *Runner.Listener*) [ "${FX_LISTENER:-1}" = 1 ] || exit 1; echo 4343; exit 0 ;; esac
     case "$*" in *Runner.Worker*) [ "${FX_WORKER:-0}" = 1 ] || exit 1; echo 4242; exit 0 ;; esac
     [ -z "${FX_LIVE:-}" ] && exit 1; printf '%s\n' "$FX_LIVE" ;;
   df) printf 'Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/disk3s1 239362496 1 %s 50%% /\n' "${FX_FREE_KIB:-31457280}" ;;
@@ -42,7 +43,7 @@ case "$me" in
   id)
     case "$1" in
       -un) echo "${FX_WHO:-agent1}" ;;
-      -Gn) echo "${FX_GROUPS:-staff everyone}" ;;
+      -Gn) [ "${FX_GROUPS_FAIL:-0}" = 1 ] && exit 1; echo "${FX_GROUPS:-staff everyone}" ;;
       -u) echo 777 ;;
       *) [ "${FX_CI_EXISTS:-0}" = 1 ] || [ -f "$(dirname "$CALL_LOG")/user-created" ] || { echo "id: $1: no such user" >&2; exit 1; }; echo "uid=777($1)" ;;
     esac ;;
@@ -189,6 +190,10 @@ run cu-admin "$H" "FX_GROUPS=staff admin" -- --apply create-user
 [ "$(rc cu-admin)" = 1 ] && has cu-admin "came out an admin" && pass "create-user --apply stops when the new user is an admin" || fail "create-user admin: rc $(rc cu-admin)"
 run pf-ghwarn "$H" FX_SHARDS=off "FX_GH_STDERR=A new release of gh is available: 1/2" -- preflight
 [ "$(rc pf-ghwarn)" = 0 ] && has pf-ghwarn "set to 'off', which names no shard" && pass "a gh warning on stderr is not read as the variable's value" || fail "gh stderr warning: rc $(rc pf-ghwarn): $(grep -i shards "$T/pf-ghwarn.out")"
+run cu-groups "$H" FX_GROUPS_FAIL=1 -- --apply create-user
+[ "$(rc cu-groups)" = 1 ] && has cu-groups "could not read kosmos-ci's groups" && pass "create-user stops when the new user's groups cannot be read" || fail "create-user groups unreadable: rc $(rc cu-groups): $(tail -1 "$T/cu-groups.out")"
+run pf-groups "$H" FX_CI_EXISTS=1 FX_GROUPS_FAIL=1 -- preflight
+[ "$(rc pf-groups)" = 1 ] && has pf-groups "could not read kosmos-ci's groups" && pass "preflight: unreadable groups refuse rather than read as standard" || fail "preflight groups: rc $(rc pf-groups)"
 run cu-exists "$H" FX_CI_EXISTS=1 -- --apply create-user
 [ "$(rc cu-exists)" = 1 ] && ! changed cu-exists >/dev/null && pass "create-user refuses when kosmos-ci exists" || fail "create-user exists: rc $(rc cu-exists)"
 
@@ -219,7 +224,8 @@ e="$CH/actions-runner/.env"
 if [ "$(rc in-apply)" = 0 ] && grep -q '^tar xzf actions-runner-osx-arm64-2.999.0.tar.gz' "$T/in-apply.calls" \
    && grep -qx 'RUNNER_KEEP=1' "$e" && grep -qx "ACTIONS_RUNNER_HOOK_JOB_STARTED=$CH/.kosmos-ci/job-started.sh" "$e" \
    && grep -qx 'LANG=en_US.UTF-8' "$e" && [ "$(grep -c '^LANG=' "$e")" = 1 ] && ! grep -q '^KOSMOS_' "$e" \
-   && [ "$(stat -f %Lp "$e")" = 640 ] && [ -x "$CH/.kosmos-ci/job-started.sh" ] && [ -x "$CH/.kosmos-ci/job-cleanup.sh" ] && [ -x "$CH/.kosmos-ci/job-guard.sh" ]; then
+   && [ "$(stat -f %Lp "$e")" = 640 ] && [ -x "$CH/.kosmos-ci/job-started.sh" ] && [ -x "$CH/.kosmos-ci/job-cleanup.sh" ] && [ -x "$CH/.kosmos-ci/job-guard.sh" ] \
+   && head -1 "$CH/.kosmos-ci/job-cleanup.sh" | grep -qx '#!/bin/bash'; then
   pass "CONTROL: install --apply unpacks, installs the guard and hooks, merges .env keeping other keys"
 else fail "install --apply: rc $(rc in-apply): $(tail -3 "$T/in-apply.out")"; fi
 run in-badsha "$T/cihome2" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$T/cihome2" FX_GUARD_BODY=tampered -- --apply install "$C" "$G"
@@ -227,10 +233,15 @@ run in-badsha "$T/cihome2" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$T/cihome2" FX_GUARD
   || fail "install bad guard: rc $(rc in-badsha)"
 
 # A running runner: stopped, unpacked over, started again. A job in flight, or a stop that does not take, refuses.
-svc_home() { mkdir -p "$1/actions-runner"; cp "$BIN/_stub" "$1/actions-runner/svc.sh"; chmod +x "$1/actions-runner/svc.sh"; echo started > "$1/actions-runner/.svc-state"; }
+svc_home() {   # an installed runner: svc.sh, its .service marker, and (as the new package would bring) bin/runsvc.sh
+  mkdir -p "$1/actions-runner/bin"; cp "$BIN/_stub" "$1/actions-runner/svc.sh"; chmod +x "$1/actions-runner/svc.sh"
+  echo started > "$1/actions-runner/.svc-state"; echo "actions.runner.x" > "$1/actions-runner/.service"
+  echo "# runsvc old" > "$1/actions-runner/runsvc.sh"; echo "# runsvc new" > "$1/actions-runner/bin/runsvc.sh"
+}
 R1="$T/run1"; svc_home "$R1"
 run in-restart "$R1" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R1" -- --apply install "$C" "$G"
 [ "$(rc in-restart)" = 0 ] && grep -q '^svc.sh stop' "$T/in-restart.calls" && grep -q '^tar ' "$T/in-restart.calls" && has in-restart "runner started again" \
+  && grep -qx '# runsvc new' "$R1/actions-runner/runsvc.sh" \
   && pass "install --apply stops a running runner, unpacks, starts it again" || fail "install restart: rc $(rc in-restart): $(tail -2 "$T/in-restart.out")"
 R2="$T/run2"; svc_home "$R2"
 run in-job "$R2" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R2" FX_WORKER=1 -- --apply install "$C" "$G"
@@ -266,6 +277,10 @@ run in-pkgsha "$R8" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R8" FX_RELEASE_SHA=deadbee
 R9="$T/run9"; svc_home "$R9"
 run in-ssh "$R9" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R9" FX_MANAGER=Background -- --apply install "$C" "$G"
 [ "$(rc in-ssh)" = 2 ] && has in-ssh "Screen Sharing session" && ! changed in-ssh >/dev/null && pass "install --apply refuses outside the GUI session (svc.sh would misread)" || fail "install over ssh: rc $(rc in-ssh)"
+R10="$T/run10"; svc_home "$R10"
+run in-nolistener "$R10" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R10" FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply install "$C" "$G"
+[ "$(rc in-nolistener)" = 1 ] && has in-nolistener "no Runner.Listener is running" && ! has in-nolistener "runner started again" \
+  && pass "install --apply fails when the runner loads but no Listener comes up" || fail "install no listener: rc $(rc in-nolistener): $(tail -1 "$T/in-nolistener.out")"
 R4="$T/run4"; mkdir -p "$R4/actions-runner"; printf 'RUNNER_KEEP=1\n' > "$R4/actions-runner/.env"; chmod 000 "$R4/actions-runner/.env"
 run in-unread "$R4" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R4" -- --apply install "$C" "$G"
 chmod 600 "$R4/actions-runner/.env"

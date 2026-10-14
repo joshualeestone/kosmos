@@ -89,7 +89,8 @@ need_user() {
 }
 
 # is_admin <user>: groups read whole first, never piped into an early-exiting grep under pipefail.
-is_admin() { local g; g="$(id -Gn "$1")" || return 1; case " $g " in *" admin "*) return 0 ;; *) return 1 ;; esac; }
+# Returns 0 admin, 1 not, 2 could not read the groups (never read as "not").
+is_admin() { local g; g="$(id -Gn "$1")" || return 2; case " $g " in *" admin "*) return 0 ;; *) return 1 ;; esac; }
 
 PROBLEMS=0
 problem() { if [ "$STAGE" = verify ]; then printf 'PROBLEM: %s\n' "$*"; else printf 'REFUSE: %s\n' "$*"; fi; PROBLEMS=$((PROBLEMS + 1)); }
@@ -97,6 +98,7 @@ ok() { printf 'ok:     %s\n' "$*"; }
 
 # repo_variable <name>: prints its value ("" when set but empty), "<unset>" on a 404, or fails when it cannot tell.
 # One variable by name, so no listing page can hide it.
+# Repo level only: test.yml's scope job uses no environment, so an environment-scoped value cannot reach it today.
 repo_variable() {
   local out rc=0
   local errf err
@@ -190,8 +192,12 @@ preflight() {
 
   say "the CI user"
   if id "$CI_USER" >/dev/null 2>&1; then
-    if is_admin "$CI_USER"; then problem "$CI_USER is an admin; it must be a standard user"
-    else ok "$CI_USER exists, standard user"; fi
+    local ia=0; is_admin "$CI_USER" || ia=$?
+    case "$ia" in
+      0) problem "$CI_USER is an admin; it must be a standard user" ;;
+      1) ok "$CI_USER exists, standard user" ;;
+      *) problem "could not read $CI_USER's groups" ;;
+    esac
   else ok "$CI_USER does not exist yet (create-user makes it)"; fi
 
   say "repo variables"
@@ -216,9 +222,12 @@ create_user() {
   if [ "$APPLY" = 1 ] && ! id "$CI_USER" >/dev/null 2>&1; then
     echo "STOP: $CI_USER was not created (sysadminctl gave no error); look at System Settings, Users & Groups" >&2; exit 1
   fi
-  if [ "$APPLY" = 1 ] && is_admin "$CI_USER"; then
-    echo "STOP: $CI_USER came out an admin; remove it (sudo sysadminctl -deleteUser $CI_USER) and report" >&2; exit 1
-  fi
+  local ia=1
+  if [ "$APPLY" = 1 ]; then ia=0; is_admin "$CI_USER" || ia=$?; fi
+  case "$ia" in
+    0) echo "STOP: $CI_USER came out an admin; remove it (sudo sysadminctl -deleteUser $CI_USER) and report" >&2; exit 1 ;;
+    2) echo "STOP: could not read $CI_USER's groups; confirm it is a standard user before going on" >&2; exit 1 ;;
+  esac
   machine_settings
 }
 
@@ -231,6 +240,7 @@ install_runner() {
   mode_line
   # Reads first, in both modes: the guard's commit must be ON main (raw.githubusercontent.com serves commits from any
   # fork in the network). compare/<commit>...main: "ahead" = main contains it, "identical" = it is main's tip.
+  # The sed reads GitHub's pretty-printed JSON (two-space top-level indent); any other shape reads unknown and refuses.
   local st
   st="$(curl -fsSL "https://api.github.com/repos/$REPO/compare/$commit...main" | sed -n 's/^  "status": "\([a-z]*\)".*/\1/p' | head -1 || true)"
   case "$st" in ahead|identical) ok "$commit is on main ($st)" ;; *) echo "refused: commit $commit is not on main (compare status '${st:-unknown}'; unknown can also be a GitHub rate limit or no network), nothing changed" >&2; exit 1 ;; esac
@@ -295,15 +305,18 @@ install_runner() {
       trap 'echo "install failed after stopping the runner: starting it again on whatever was unpacked; install again" >&2; ./svc.sh start >/dev/null 2>&1 || true' EXIT
     fi
   fi
-  # Unpacked over the old release: tar deletes nothing, and svc.sh's copied runsvc.sh names its node version.
+  # Unpacked over the old release. A runner that updated itself has bin and externals as symlinks to versioned
+  # dirs (actions/runner update.sh); tar replaces those with plain dirs of this release. svc.sh install copied
+  # bin/runsvc.sh to ./runsvc.sh, naming its node version, so refresh that copy below as svc.sh install would.
   tar xzf "$tgz"
+  [ ! -f .service ] || cp bin/runsvc.sh runsvc.sh
   chmod +x "$newg"
   mv -f "$newg" "$CI_DIR/job-guard.sh"
   echo "runner $ver unpacked in $RUNNER_DIR; job guard installed from $commit, sha256 $got"
   # Job hooks. NOT a fresh VM: the checkout and ~ persist between jobs. They end what a previous job left running,
   # and only THIS user's: the agents' processes (another user) are never touched.
   act_write "$CI_DIR/job-cleanup.sh" 755 <<'HOOK'
-#!/usr/bin/env bash
+#!/bin/bash
 # Ends what a job left running. kosmos-ci is a DEDICATED user and no step runs while a hook does, so every tmux
 # server and node process of this user is a leftover. The runner's own service host IS node (RunnerService.js), but
 # it is this hook's ancestor, and pkill leaves its own ancestors alone unless given -a (man pkill).
@@ -339,6 +352,12 @@ HOOK
   rm -f "$tgz"
   if [ "$was_running" = 1 ]; then
     ./svc.sh start || { echo "FAILED to start the runner again (./svc.sh start in $RUNNER_DIR): it is stopped" >&2; exit 1; }
+    # svc.sh start is a launchctl load: it succeeds for a service that dies at once. A Listener must appear.
+    local waited=0
+    until pgrep -u "$(id -u)" -x Runner.Listener >/dev/null; do
+      [ "$waited" -lt "${KOSMOS_CI_START_WAIT_S:-30}" ] || { echo "FAILED: the runner was loaded but no Runner.Listener is running after ${waited}s; see ~/Library/Logs/actions.runner.*/stderr.log" >&2; exit 1; }
+      sleep 1; waited=$((waited + 1))
+    done
     echo "runner started again"
   fi
 }
